@@ -154,6 +154,11 @@ export class ContainerAgentService {
   /** Interval for cleaning up expired pending plans */
   private planCleanupInterval: ReturnType<typeof setInterval> | null = null;
 
+  /** Expose provider name so callers (e.g. TaskService) can tag sessions at creation */
+  get providerName(): string {
+    return this.provider.name;
+  }
+
   constructor(
     private db: Database,
     private provider: SandboxProvider,

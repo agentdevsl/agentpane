@@ -73,6 +73,8 @@ export type MoveTaskResult = {
  * Optional container agent service for triggering agent execution on task move.
  */
 export interface ContainerAgentTrigger {
+  /** Sandbox provider name (e.g., 'docker', 'kubernetes') */
+  readonly providerName: string;
   startAgent: (input: StartAgentInput) => Promise<Result<void, unknown>>;
   stopAgent: (taskId: string) => Promise<Result<void, unknown>>;
   isAgentRunning: (taskId: string) => boolean;
@@ -366,6 +368,7 @@ export class TaskService {
             title: task.title ?? `Task ${task.id}`,
             url: `/projects/${task.projectId}/sessions/${sessionId}`,
             status: 'active',
+            sandboxProvider: this.containerAgentService?.providerName ?? null,
             createdAt: new Date().toISOString(),
           });
         } catch (insertErr) {

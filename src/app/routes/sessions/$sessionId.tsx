@@ -98,14 +98,31 @@ function SessionPage(): React.JSX.Element {
     }
   }, [session?.taskId, navigate, showTemporaryError]);
 
-  // Fetch session from API on mount
+  // Fetch session from API on mount, resolving sandboxProvider from settings if missing
   useEffect(() => {
     const fetchSession = async () => {
       setIsLoading(true);
       setError(null);
       const result = await apiClient.sessions.get(sessionId);
       if (result.ok) {
-        setSession(result.data as ClientSession);
+        const data = result.data as ClientSession;
+        // Backfill sandboxProvider from global sandbox defaults when the session record lacks it
+        if (!data.sandboxProvider && data.agentId === null && data.taskId !== null) {
+          try {
+            const settingsResult = await apiClient.settings.get(['sandbox.defaults']);
+            if (settingsResult.ok) {
+              const defaults = settingsResult.data.settings['sandbox.defaults'] as
+                | { provider?: string }
+                | undefined;
+              if (defaults?.provider) {
+                data.sandboxProvider = defaults.provider === 'kubernetes' ? 'kubernetes' : 'docker';
+              }
+            }
+          } catch {
+            // Non-critical — badge just won't show
+          }
+        }
+        setSession(data);
       } else {
         setError({ message: result.error.message });
       }

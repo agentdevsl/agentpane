@@ -574,6 +574,7 @@ if (providerType === 'kubernetes') {
       image?: string;
       skipTLSVerify?: boolean;
       autoStartMinikube?: boolean;
+      autoInstallCRDs?: boolean;
     } = {};
 
     try {
@@ -656,6 +657,97 @@ if (providerType === 'kubernetes') {
                 );
               }
             }
+          }
+        }
+      }
+
+      // Auto-install CRDs if configured and CRDs are missing
+      if (!sandboxProvider && k8sSettings.autoInstallCRDs) {
+        const details = health.details ?? {};
+        const needsCrdInstall =
+          details.crdRegistered === false || details.namespaceExists === false;
+
+        if (needsCrdInstall) {
+          log.info('[API Server] Auto-installing CRDs (autoInstallCRDs enabled)...');
+          try {
+            const { exec } = await import('node:child_process');
+            const { promisify } = await import('node:util');
+            const execAsync = promisify(exec);
+            const manifestsDir = path.join(process.cwd(), 'k8s', 'manifests');
+
+            // Apply CRDs, namespace, and supporting manifests
+            const manifests = [
+              'crds.yaml',
+              'namespace.yaml',
+              'runtime-class-gvisor.yaml',
+              'limit-range.yaml',
+            ];
+
+            for (const manifest of manifests) {
+              const filePath = path.join(manifestsDir, manifest);
+              try {
+                await execAsync(`kubectl apply -f "${filePath}"`, { timeout: 30_000 });
+                log.info(`[API Server] Applied ${manifest}`);
+              } catch (err) {
+                console.warn(
+                  `[API Server] Failed to apply ${manifest}:`,
+                  err instanceof Error ? err.message : String(err)
+                );
+              }
+            }
+
+            // Try to install the external CRD controller
+            try {
+              await execAsync(
+                'kubectl apply -f "https://github.com/kubernetes-sigs/agent-sandbox/releases/latest/download/install.yaml"',
+                { timeout: 60_000 }
+              );
+              log.info('[API Server] CRD controller installed from release URL');
+            } catch {
+              console.warn(
+                '[API Server] CRD controller install from URL failed (continuing with local CRDs)'
+              );
+            }
+
+            // Apply custom resources (requires CRDs to be registered)
+            for (const manifest of [
+              'agentpane-sandbox-template.yaml',
+              'agentpane-warm-pool.yaml',
+            ]) {
+              const filePath = path.join(manifestsDir, manifest);
+              try {
+                await execAsync(`kubectl apply -f "${filePath}"`, { timeout: 30_000 });
+                log.info(`[API Server] Applied ${manifest}`);
+              } catch (err) {
+                console.warn(
+                  `[API Server] Failed to apply ${manifest}:`,
+                  err instanceof Error ? err.message : String(err)
+                );
+              }
+            }
+
+            // Retry health check after installation
+            health = await k8sProvider.healthCheck();
+            if (health.healthy) {
+              sandboxProvider = k8sProvider;
+              log.info('[API Server] Kubernetes CRD provider initialized after auto-install');
+              if (k8sSettings.enableWarmPool) {
+                try {
+                  await k8sProvider.initWarmPool();
+                  log.info('[API Server] Warm pool initialized');
+                } catch (warmPoolErr) {
+                  console.warn(
+                    '[API Server] Warm pool initialization failed (continuing without):',
+                    warmPoolErr instanceof Error ? warmPoolErr.message : String(warmPoolErr)
+                  );
+                }
+              }
+            }
+          } catch (installErr) {
+            console.warn(
+              '[API Server] Auto-install CRDs failed:',
+              installErr instanceof Error ? installErr.message : String(installErr)
+            );
           }
         }
       }
