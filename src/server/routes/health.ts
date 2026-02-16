@@ -24,10 +24,10 @@ interface SandboxProvider {
 interface HealthDeps {
   db: Database;
   githubService: GitHubTokenService;
-  sandboxProvider?: SandboxProvider | null;
+  getSandboxProvider?: () => SandboxProvider | null;
 }
 
-export function createHealthRoutes({ db, githubService, sandboxProvider }: HealthDeps) {
+export function createHealthRoutes({ db, githubService, getSandboxProvider }: HealthDeps) {
   const app = new Hono();
 
   app.get('/', async (_c) => {
@@ -120,7 +120,8 @@ export function createHealthRoutes({ db, githubService, sandboxProvider }: Healt
       );
     }
 
-    // Check sandbox availability
+    // Check sandbox availability (uses getter for deferred initialization)
+    const sandboxProvider = getSandboxProvider?.();
     if (sandboxProvider) {
       try {
         const sandboxes = await sandboxProvider.list();

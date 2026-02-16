@@ -28,7 +28,7 @@ export function LayoutShell({
 }: LayoutShellProps): React.JSX.Element {
   return (
     <div className="flex h-screen bg-canvas text-fg" data-testid="layout-shell">
-      <div className="hidden md:flex">
+      <div className="hidden h-full md:flex">
         <Sidebar projectId={projectId} projectName={projectName} projectPath={projectPath} />
       </div>
       <div className="flex flex-1 flex-col min-h-0 min-w-0">

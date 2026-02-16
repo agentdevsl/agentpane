@@ -21,7 +21,7 @@ import {
   X,
 } from '@phosphor-icons/react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { Button } from '@/app/components/ui/button';
 import { ConfigSection } from '@/app/components/ui/config-section';
@@ -170,7 +170,9 @@ function SandboxSettingsPage(): React.JSX.Element {
   const [autoStartMinikube, setAutoStartMinikube] = useState(false);
 
   // Auto-install CRDs state
-  const [autoInstallCRDs, setAutoInstallCRDs] = useState(false);
+  const [autoInstallCRDs, setAutoInstallCRDs] = useState(true);
+  const [autoInstallingCRDs, setAutoInstallingCRDs] = useState(false);
+  const autoInstallAttemptedRef = useRef(false);
 
   // Fallback to Docker state (global setting in sandbox.defaults)
   const [fallbackToDocker, setFallbackToDocker] = useState(false);
@@ -385,6 +387,59 @@ function SandboxSettingsPage(): React.JSX.Element {
       loadK8sStatus();
     }
   }, [selectedProvider, loadK8sContexts, loadK8sStatus]);
+
+  // Auto-install CRDs when controller is not installed but cluster is reachable.
+  // Only attempts once per page load to prevent infinite retry loops.
+  useEffect(() => {
+    if (
+      autoInstallCRDs &&
+      !controllerLoading &&
+      controllerStatus &&
+      !controllerStatus.installed &&
+      controllerStatus.clusterVersion &&
+      !autoInstallingCRDs &&
+      !autoInstallAttemptedRef.current
+    ) {
+      autoInstallAttemptedRef.current = true;
+      const installCRDs = async () => {
+        setAutoInstallingCRDs(true);
+        try {
+          const body: Record<string, unknown> = {};
+          if (k8sConfigPath) body.kubeconfigPath = k8sConfigPath;
+          if (k8sContext) body.context = k8sContext;
+          if (skipTLSVerify) body.skipTLSVerify = true;
+
+          const res = await fetch('/api/sandbox/k8s/install-crds', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          const result = await res.json();
+
+          if (result.ok) {
+            // Re-check controller status after installation
+            await loadK8sStatus();
+          } else {
+            console.warn('Auto-install CRDs failed:', result.error?.message ?? 'Unknown error');
+          }
+        } catch (err) {
+          console.warn('Auto-install CRDs failed:', err);
+        } finally {
+          setAutoInstallingCRDs(false);
+        }
+      };
+      installCRDs();
+    }
+  }, [
+    autoInstallCRDs,
+    controllerLoading,
+    controllerStatus,
+    autoInstallingCRDs,
+    k8sConfigPath,
+    k8sContext,
+    skipTLSVerify,
+    loadK8sStatus,
+  ]);
 
   // Start minikube manually from the UI
   const handleStartMinikube = async () => {
@@ -1146,7 +1201,7 @@ function SandboxSettingsPage(): React.JSX.Element {
               {/* CRD Controller Status */}
               <div className="flex items-center justify-between rounded-lg border border-border bg-surface-subtle p-4">
                 <div className="flex items-center gap-3">
-                  {controllerLoading ? (
+                  {controllerLoading || autoInstallingCRDs ? (
                     <CircleNotch className="h-5 w-5 animate-spin text-fg-muted" />
                   ) : controllerStatus?.installed ? (
                     <div className="flex h-8 w-8 items-center justify-center rounded-full bg-success-muted">
@@ -1161,11 +1216,13 @@ function SandboxSettingsPage(): React.JSX.Element {
                     <p className="font-medium text-fg">
                       {controllerLoading
                         ? 'Checking controller...'
-                        : controllerStatus?.installed
-                          ? 'Agent Sandbox Controller'
-                          : !controllerStatus?.clusterVersion
-                            ? 'Cluster Unreachable'
-                            : 'Controller Not Installed'}
+                        : autoInstallingCRDs
+                          ? 'Installing CRDs...'
+                          : controllerStatus?.installed
+                            ? 'Agent Sandbox Controller'
+                            : !controllerStatus?.clusterVersion
+                              ? 'Cluster Unreachable'
+                              : 'Controller Not Installed'}
                     </p>
                     {controllerStatus?.installed && (
                       <p className="text-xs text-fg-muted">
@@ -1173,8 +1230,14 @@ function SandboxSettingsPage(): React.JSX.Element {
                         {controllerStatus.crdApiVersion ?? 'v1alpha1'}
                       </p>
                     )}
+                    {autoInstallingCRDs && (
+                      <p className="text-xs text-fg-muted">
+                        Auto-installing CRDs and controller...
+                      </p>
+                    )}
                     {!controllerStatus?.installed &&
                       !controllerLoading &&
+                      !autoInstallingCRDs &&
                       !controllerStatus?.clusterVersion && (
                         <p className="text-xs text-danger">
                           Cannot reach the Kubernetes cluster. Check that minikube or your cluster
@@ -1183,6 +1246,7 @@ function SandboxSettingsPage(): React.JSX.Element {
                       )}
                     {!controllerStatus?.installed &&
                       !controllerLoading &&
+                      !autoInstallingCRDs &&
                       controllerStatus?.clusterVersion && (
                         <p className="text-xs text-danger">
                           Install the Agent Sandbox CRD controller to use Kubernetes sandboxes

@@ -110,7 +110,7 @@ export interface RouterDependencies {
   agentService: AgentService;
   commandRunner: CommandRunner;
   durableStreamsService?: DurableStreamsService;
-  dockerProvider?: EventEmittingSandboxProvider | null;
+  getSandboxProvider?: () => EventEmittingSandboxProvider | null;
   cliMonitorService?: CliMonitorService | null;
   terraformRegistryService?: TerraformRegistryService;
   terraformComposeService?: TerraformComposeService;
@@ -139,7 +139,7 @@ export function createRouter(deps: RouterDependencies) {
     createHealthRoutes({
       db: deps.db,
       githubService: deps.githubService,
-      sandboxProvider: deps.dockerProvider ?? null,
+      getSandboxProvider: deps.getSandboxProvider,
     })
   );
 
@@ -183,7 +183,10 @@ export function createRouter(deps: RouterDependencies) {
   );
   app.route(
     '/api/sandbox/status',
-    createSandboxStatusRoutes({ db: deps.db, dockerProvider: deps.dockerProvider ?? null })
+    createSandboxStatusRoutes({
+      db: deps.db,
+      getDockerProvider: deps.getSandboxProvider ?? (() => null),
+    })
   );
   app.route('/api/sandbox/k8s', createK8sRoutes({ db: deps.db }));
   app.route('/api/keys', createApiKeysRoutes({ apiKeyService: deps.apiKeyService }));

@@ -18,7 +18,7 @@ import { isValidId, json } from '../shared.js';
 
 interface SandboxStatusDeps {
   db: Database;
-  dockerProvider: EventEmittingSandboxProvider | null;
+  getDockerProvider: () => EventEmittingSandboxProvider | null;
 }
 
 // Track in-flight auto-heal to prevent concurrent attempts
@@ -95,7 +95,7 @@ async function autoHealSandbox(
   }
 }
 
-export function createSandboxStatusRoutes({ db, dockerProvider }: SandboxStatusDeps) {
+export function createSandboxStatusRoutes({ db, getDockerProvider }: SandboxStatusDeps) {
   const app = new Hono();
 
   // GET /api/sandbox/status/:projectId - Get sandbox mode and container status
@@ -113,10 +113,11 @@ export function createSandboxStatusRoutes({ db, dockerProvider }: SandboxStatusD
       });
       const sandboxMode = modeSetting?.value ? JSON.parse(modeSetting.value) : 'shared';
 
-      // Get container status from docker provider
+      // Get container status from docker provider (uses getter for deferred initialization)
       let containerStatus: 'stopped' | 'creating' | 'running' | 'idle' | 'error' | 'unavailable' =
         'unavailable';
       let containerId: string | null = null;
+      const dockerProvider = getDockerProvider();
 
       if (dockerProvider) {
         try {
@@ -180,7 +181,8 @@ export function createSandboxStatusRoutes({ db, dockerProvider }: SandboxStatusD
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid project ID' } }, 400);
     }
 
-    if (!dockerProvider) {
+    const dockerProviderForRestart = getDockerProvider();
+    if (!dockerProviderForRestart) {
       return json(
         { ok: false, error: { code: 'DOCKER_UNAVAILABLE', message: 'Docker is not available' } },
         503
@@ -196,7 +198,7 @@ export function createSandboxStatusRoutes({ db, dockerProvider }: SandboxStatusD
       const lookupId = sandboxMode === 'shared' ? 'default' : projectId;
 
       // Cast to access restart method (it's on DockerProvider but not the interface)
-      const provider = dockerProvider as unknown as {
+      const provider = dockerProviderForRestart as unknown as {
         restart: (id: string) => Promise<unknown>;
       };
 
