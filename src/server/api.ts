@@ -72,6 +72,7 @@ import {
   TEMPLATE_SYNC_INTERVAL_MIGRATION_SQL,
   TERRAFORM_MIGRATION_SQL,
 } from '../lib/bootstrap/phases/schema.js';
+import { SandboxController } from '../lib/sandbox/controllers/sandbox-controller.js';
 import { createDockerProvider } from '../lib/sandbox/index.js';
 import { createAgentSandboxProvider } from '../lib/sandbox/providers/agent-sandbox-provider.js';
 import type { EventEmittingSandboxProvider } from '../lib/sandbox/providers/sandbox-provider.js';
@@ -537,6 +538,7 @@ let containerAgentService: ReturnType<typeof createContainerAgentService> | null
 // Module-level reference to the K8s provider for the auto-heal interval
 // and for health/status routes. Set inside initSandboxProvider() when K8s is active.
 let activeK8sProvider: ReturnType<typeof createAgentSandboxProvider> | null = null;
+let sandboxController: SandboxController | null = null;
 
 /** Getter for routes that need to check K8s provider health. */
 function getK8sProvider() {
@@ -561,6 +563,67 @@ async function waitForCrdRegistration(maxWaitMs = 10_000): Promise<boolean> {
     }
   }
   return false;
+}
+
+/**
+ * Create a default K8s sandbox pod if one doesn't already exist.
+ * Mirrors Docker's default sandbox creation pattern.
+ */
+async function ensureDefaultK8sSandbox(
+  k8sProvider: ReturnType<typeof createAgentSandboxProvider>
+): Promise<void> {
+  try {
+    const existingDefault = await k8sProvider.get('default');
+    if (!existingDefault) {
+      const defaults = await loadSandboxDefaultsFromDb();
+      await k8sProvider.create({
+        projectId: 'default',
+        projectPath: '/workspace',
+        image: defaults?.image ?? SANDBOX_DEFAULTS.image,
+        memoryMb: defaults?.memoryMb ?? 2048,
+        cpuCores: defaults?.cpuCores ?? 2,
+        idleTimeoutMinutes: defaults?.idleTimeoutMinutes ?? 30,
+        volumeMounts: [],
+      });
+      log.info('[API Server] Default K8s sandbox pod created');
+    }
+  } catch (createErr) {
+    console.warn(
+      '[API Server] Failed to create default K8s sandbox:',
+      createErr instanceof Error ? createErr.message : String(createErr)
+    );
+  }
+}
+
+/**
+ * Load sandbox defaults from the database settings.
+ * Reusable helper for both Docker and K8s default sandbox creation.
+ */
+async function loadSandboxDefaultsFromDb(): Promise<{
+  image?: string;
+  memoryMb?: number;
+  cpuCores?: number;
+  idleTimeoutMinutes?: number;
+} | null> {
+  try {
+    const globalDefaults = await db.query.settings.findFirst({
+      where: eq(schemaTables.settings.key, 'sandbox.defaults'),
+    });
+    if (globalDefaults?.value) {
+      return JSON.parse(globalDefaults.value) as {
+        image?: string;
+        memoryMb?: number;
+        cpuCores?: number;
+        idleTimeoutMinutes?: number;
+      };
+    }
+  } catch (settingsErr) {
+    console.warn(
+      '[API Server] Failed to load sandbox settings (using defaults):',
+      settingsErr instanceof Error ? settingsErr.message : String(settingsErr)
+    );
+  }
+  return null;
 }
 
 /**
@@ -650,6 +713,21 @@ async function initSandboxProvider() {
           },
         });
 
+        // Start built-in CRD controller if no external controller detected
+        if (!(health.details?.controller as { installed?: boolean })?.installed) {
+          sandboxController = new SandboxController(
+            k8sProvider.client,
+            k8sSettings.namespace ?? 'agentpane-sandboxes'
+          );
+          await sandboxController.start();
+          log.info(
+            '[API Server] Built-in sandbox controller started (no external controller detected)'
+          );
+        }
+
+        // Create default K8s sandbox pod (mirrors Docker default sandbox pattern)
+        await ensureDefaultK8sSandbox(k8sProvider);
+
         // Initialize warm pool if enabled
         if (k8sSettings.enableWarmPool) {
           try {
@@ -686,6 +764,22 @@ async function initSandboxProvider() {
                   data: { namespace: k8sSettings.namespace ?? 'agentpane-sandboxes' },
                 }
               );
+
+              // Start built-in CRD controller if no external controller detected
+              if (!(health.details?.controller as { installed?: boolean })?.installed) {
+                sandboxController = new SandboxController(
+                  k8sProvider.client,
+                  k8sSettings.namespace ?? 'agentpane-sandboxes'
+                );
+                await sandboxController.start();
+                log.info(
+                  '[API Server] Built-in sandbox controller started (no external controller detected)'
+                );
+              }
+
+              // Create default K8s sandbox pod
+              await ensureDefaultK8sSandbox(k8sProvider);
+
               // Initialize warm pool if enabled
               if (k8sSettings.enableWarmPool) {
                 try {
@@ -781,6 +875,22 @@ async function initSandboxProvider() {
                 sandboxProvider = k8sProvider;
                 activeK8sProvider = k8sProvider;
                 log.info('[API Server] Kubernetes CRD provider initialized after auto-install');
+
+                // Start built-in CRD controller if no external controller detected
+                if (!(health.details?.controller as { installed?: boolean })?.installed) {
+                  sandboxController = new SandboxController(
+                    k8sProvider.client,
+                    k8sSettings.namespace ?? 'agentpane-sandboxes'
+                  );
+                  await sandboxController.start();
+                  log.info(
+                    '[API Server] Built-in sandbox controller started (no external controller detected)'
+                  );
+                }
+
+                // Create default K8s sandbox pod
+                await ensureDefaultK8sSandbox(k8sProvider);
+
                 if (k8sSettings.enableWarmPool) {
                   try {
                     await k8sProvider.initWarmPool();
@@ -889,27 +999,7 @@ async function initSandboxProvider() {
       try {
         const existingDefault = await dockerProvider.get('default');
         if (!existingDefault) {
-          interface SandboxDefaults {
-            image?: string;
-            memoryMb?: number;
-            cpuCores?: number;
-            idleTimeoutMinutes?: number;
-          }
-          let defaults: SandboxDefaults | null = null;
-
-          try {
-            const globalDefaults = await db.query.settings.findFirst({
-              where: eq(schemaTables.settings.key, 'sandbox.defaults'),
-            });
-            if (globalDefaults?.value) {
-              defaults = JSON.parse(globalDefaults.value) as SandboxDefaults;
-            }
-          } catch (settingsErr) {
-            console.warn(
-              '[API Server] Failed to load sandbox settings (using defaults):',
-              settingsErr instanceof Error ? settingsErr.message : String(settingsErr)
-            );
-          }
+          const defaults = await loadSandboxDefaultsFromDb();
 
           const defaultImage = defaults?.image ?? SANDBOX_DEFAULTS.image;
           console.log(`[API Server] Checking for default sandbox image: ${defaultImage}`);
@@ -1238,6 +1328,9 @@ async function shutdownServer(signal: string) {
     clearInterval(k8sHealInterval);
     k8sHealInterval = null;
   }
+
+  // Stop sandbox controller
+  sandboxController?.stop();
 
   // Stop schedulers
   stopTemplateSync();

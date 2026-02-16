@@ -80,7 +80,7 @@ const PROVIDER_DEFAULTS = {
 export class AgentSandboxProvider implements EventEmittingSandboxProvider {
   readonly name = 'kubernetes';
 
-  private readonly client: AgentSandboxClient;
+  readonly client: AgentSandboxClient;
   private readonly namespace: string;
   private readonly runtimeClassName: RuntimeClassName;
   private readonly image: string;
@@ -217,12 +217,17 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
       // Take the first active sandbox for this project
       const crdSandbox = result.items[0];
       if (!crdSandbox) {
+        // Fall back to default sandbox (mirrors DockerProvider.get lines 615-619)
+        if (projectId !== 'default') {
+          return this.get('default');
+        }
         return null;
       }
       const id = crdSandbox.metadata?.labels?.['agentpane.io/sandbox-id'] ?? createId();
       const name = crdSandbox.metadata?.name ?? '';
 
       const instance = new AgentSandboxInstance(id, name, projectId, this.namespace, this.client);
+      await instance.refreshStatus();
 
       // Cache it
       this.sandboxes.set(id, instance);

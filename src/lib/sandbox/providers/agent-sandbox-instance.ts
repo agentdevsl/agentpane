@@ -14,7 +14,7 @@ import type { ExecStreamOptions, ExecStreamResult, Sandbox } from './sandbox-pro
  */
 export class AgentSandboxInstance implements Sandbox {
   private _lastActivity: Date;
-  private _status: SandboxStatus = 'running';
+  private _status: SandboxStatus = 'creating';
 
   constructor(
     /** Unique sandbox ID (cuid2) */
@@ -342,5 +342,40 @@ export class AgentSandboxInstance implements Sandbox {
 
   getLastActivity(): Date {
     return this._lastActivity;
+  }
+
+  /**
+   * Refresh status from the actual Sandbox CRD phase.
+   * Called by the provider after constructing an instance from a cluster query.
+   */
+  async refreshStatus(): Promise<void> {
+    try {
+      const sandbox = await this.client.getSandbox(this.sandboxName);
+      const phase = sandbox?.status?.phase;
+      this._status = this.mapPhaseToStatus(phase);
+    } catch {
+      this._status = 'error';
+    }
+  }
+
+  /**
+   * Map CRD phase to SandboxStatus.
+   * Matches AgentSandboxProvider.mapCrdPhase() for consistency.
+   */
+  private mapPhaseToStatus(phase?: string): SandboxStatus {
+    switch (phase) {
+      case 'Running':
+        return 'running';
+      case 'Pending':
+        return 'creating';
+      case 'Paused':
+        return 'idle';
+      case 'Failed':
+        return 'error';
+      case 'Succeeded':
+        return 'stopped';
+      default:
+        return 'creating';
+    }
   }
 }

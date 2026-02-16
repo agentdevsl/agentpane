@@ -24,6 +24,16 @@ interface K8sProviderHealth {
     details?: Record<string, unknown>;
   }>;
   listSandboxes?(): Promise<Array<{ name: string; phase: string }>>;
+  get?(projectId: string): Promise<unknown>;
+  create?(config: {
+    projectId: string;
+    projectPath: string;
+    image: string;
+    memoryMb: number;
+    cpuCores: number;
+    idleTimeoutMinutes: number;
+    volumeMounts: unknown[];
+  }): Promise<unknown>;
 }
 
 interface SandboxStatusDeps {
@@ -34,6 +44,7 @@ interface SandboxStatusDeps {
 
 // Track in-flight auto-heal to prevent concurrent attempts
 let autoHealInProgress = false;
+let k8sAutoHealInProgress = false;
 
 /**
  * Load sandbox defaults from settings or use built-in defaults.
@@ -103,6 +114,46 @@ async function autoHealSandbox(
     return false;
   } finally {
     autoHealInProgress = false;
+  }
+}
+
+/**
+ * Auto-heal: create a sandbox pod via the K8s provider when none exists.
+ * Mirrors autoHealSandbox for Docker but delegates to the CRD provider.
+ */
+async function autoHealK8sSandbox(
+  db: Database,
+  k8sProvider: K8sProviderHealth,
+  lookupId: string
+): Promise<boolean> {
+  if (k8sAutoHealInProgress) return false;
+  if (!k8sProvider.create) return false;
+
+  k8sAutoHealInProgress = true;
+  try {
+    const defaults = await loadSandboxDefaults(db);
+    const image = defaults?.image ?? SANDBOX_DEFAULTS.image;
+
+    await k8sProvider.create({
+      projectId: lookupId,
+      projectPath: '/workspace',
+      image,
+      memoryMb: defaults?.memoryMb ?? SANDBOX_DEFAULTS.memoryMb,
+      cpuCores: defaults?.cpuCores ?? SANDBOX_DEFAULTS.cpuCores,
+      idleTimeoutMinutes: defaults?.idleTimeoutMinutes ?? SANDBOX_DEFAULTS.idleTimeoutMinutes,
+      volumeMounts: [],
+    });
+
+    console.log(`[SandboxStatus] K8s auto-heal: created sandbox for '${lookupId}'`);
+    return true;
+  } catch (error) {
+    console.error(
+      '[SandboxStatus] K8s auto-heal failed:',
+      error instanceof Error ? error.message : String(error)
+    );
+    return false;
+  } finally {
+    k8sAutoHealInProgress = false;
   }
 }
 
@@ -191,6 +242,30 @@ export function createSandboxStatusRoutes({
               k8sPodsRunning = sandboxes.filter((s) => s.phase === 'Running').length;
             } catch {
               // Best effort
+            }
+          }
+
+          // Self-healing: auto-create K8s sandbox if cluster is healthy but no pods exist
+          if (k8sCrdReady && k8sPodCount === 0) {
+            const lookupId =
+              (await db.query.settings
+                .findFirst({ where: eq(settings.key, 'sandbox.mode') })
+                .then((s) => (s?.value ? JSON.parse(s.value) : 'shared'))
+                .catch(() => 'shared')) === 'shared'
+                ? 'default'
+                : projectId;
+            const healed = await autoHealK8sSandbox(db, k8sProvider, lookupId);
+            if (healed) {
+              // Re-count pods after healing
+              if (k8sProvider.listSandboxes) {
+                try {
+                  const sandboxes = await k8sProvider.listSandboxes();
+                  k8sPodCount = sandboxes.length;
+                  k8sPodsRunning = sandboxes.filter((s) => s.phase === 'Running').length;
+                } catch {
+                  // Best effort
+                }
+              }
             }
           }
         } catch {

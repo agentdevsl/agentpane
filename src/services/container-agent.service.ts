@@ -42,6 +42,7 @@ import type {
   ExecStreamResult,
   SandboxProvider,
 } from '../lib/sandbox/providers/sandbox-provider.js';
+import { SANDBOX_DEFAULTS } from '../lib/sandbox/types.js';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
 import type { Database } from '../types/database.js';
@@ -537,7 +538,7 @@ export class ContainerAgentService {
 
     try {
       // Parallel fetch: project and sandbox lookup at the same time
-      const [project, sandbox] = await Promise.all([
+      const [project, initialSandbox] = await Promise.all([
         this.db.query.projects.findFirst({ where: eq(projects.id, projectId) }),
         this.provider.get(projectId),
       ]);
@@ -549,9 +550,29 @@ export class ContainerAgentService {
 
       // Use shared sandbox mode by default (fastest path - no per-project container creation)
       // Sandbox was already fetched in parallel above
+      let sandbox = initialSandbox;
+
+      // Auto-create sandbox if missing (K8s may not have a default yet)
       if (!sandbox) {
-        infoLog('startAgent', 'No sandbox available', { projectId });
-        return err(SandboxErrors.CONTAINER_NOT_FOUND);
+        infoLog('startAgent', 'No sandbox found, attempting auto-create', { projectId });
+        try {
+          sandbox = await this.provider.create({
+            projectId,
+            projectPath: project.path ?? '/workspace',
+            image: SANDBOX_DEFAULTS.image,
+            memoryMb: 2048,
+            cpuCores: 2,
+            idleTimeoutMinutes: 30,
+            volumeMounts: [],
+          });
+          infoLog('startAgent', 'Auto-created sandbox', { projectId, sandboxId: sandbox.id });
+        } catch (createErr) {
+          infoLog('startAgent', 'Auto-create sandbox failed', {
+            projectId,
+            error: createErr instanceof Error ? createErr.message : String(createErr),
+          });
+          return err(SandboxErrors.CONTAINER_NOT_FOUND);
+        }
       }
 
       infoLog('startAgent', 'Sandbox ready', { sandboxId: sandbox.id, status: sandbox.status });
