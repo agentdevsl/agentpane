@@ -732,5 +732,143 @@ export function createK8sRoutes(deps?: { db?: Database }) {
     }
   });
 
+  // POST /api/sandbox/k8s/install-crds - Install CRDs, namespace, and supporting manifests
+  app.post('/install-crds', async (_c) => {
+    try {
+      const { exec } = await import('node:child_process');
+      const { promisify } = await import('node:util');
+      const path = await import('node:path');
+      const fs = await import('node:fs');
+      const execAsync = promisify(exec);
+
+      const manifestsDir = path.join(process.cwd(), 'k8s', 'manifests');
+
+      // Verify manifests directory exists
+      if (!fs.existsSync(manifestsDir)) {
+        return json(
+          {
+            ok: false,
+            error: {
+              code: 'MANIFESTS_NOT_FOUND',
+              message: `Manifests directory not found at ${manifestsDir}`,
+            },
+          },
+          500
+        );
+      }
+
+      // Check kubectl is available
+      try {
+        await execAsync('kubectl version --client --output=json', { timeout: 5000 });
+      } catch {
+        return json(
+          {
+            ok: false,
+            error: {
+              code: 'KUBECTL_NOT_FOUND',
+              message: 'kubectl is not installed or not in PATH',
+            },
+          },
+          500
+        );
+      }
+
+      const results: Array<{ step: string; success: boolean; message: string }> = [];
+
+      // Helper to apply a manifest file
+      const applyManifest = async (filename: string, stepName: string) => {
+        const filePath = path.join(manifestsDir, filename);
+        if (!fs.existsSync(filePath)) {
+          results.push({ step: stepName, success: false, message: `File not found: ${filename}` });
+          return;
+        }
+        try {
+          const { stdout, stderr } = await execAsync(`kubectl apply -f "${filePath}"`, {
+            timeout: 30_000,
+          });
+          results.push({
+            step: stepName,
+            success: true,
+            message: (stdout || stderr).trim().split('\n').pop() ?? 'Applied',
+          });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          results.push({ step: stepName, success: false, message: msg });
+        }
+      };
+
+      console.log('[K8s Install] Starting CRD installation...');
+
+      // Step 1: Apply CRD definitions
+      await applyManifest('crds.yaml', 'CRD Definitions');
+
+      // Step 2: Create namespace
+      await applyManifest('namespace.yaml', 'Namespace');
+
+      // Step 3: Apply RuntimeClass (optional, may fail without gvisor)
+      await applyManifest('runtime-class-gvisor.yaml', 'RuntimeClass');
+
+      // Step 4: Apply LimitRange
+      await applyManifest('limit-range.yaml', 'LimitRange');
+
+      // Step 5: Try to install the external CRD controller
+      try {
+        const CRD_INSTALL_URL =
+          'https://github.com/kubernetes-sigs/agent-sandbox/releases/latest/download/install.yaml';
+        const { stdout, stderr } = await execAsync(`kubectl apply -f "${CRD_INSTALL_URL}"`, {
+          timeout: 60_000,
+        });
+        results.push({
+          step: 'CRD Controller',
+          success: true,
+          message: (stdout || stderr).trim().split('\n').pop() ?? 'Controller installed',
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        results.push({
+          step: 'CRD Controller',
+          success: false,
+          message: `Controller install failed (CRDs still usable): ${msg.split('\n')[0]}`,
+        });
+      }
+
+      // Step 6: Apply SandboxTemplate (requires CRDs to be registered)
+      await applyManifest('agentpane-sandbox-template.yaml', 'SandboxTemplate');
+
+      // Step 7: Apply WarmPool
+      await applyManifest('agentpane-warm-pool.yaml', 'WarmPool');
+
+      const allCriticalSuccess = results
+        .filter((r) => ['CRD Definitions', 'Namespace'].includes(r.step))
+        .every((r) => r.success);
+
+      console.log(
+        '[K8s Install] Installation complete:',
+        results.map((r) => `${r.step}: ${r.success ? 'OK' : 'FAIL'}`).join(', ')
+      );
+
+      return json({
+        ok: true,
+        data: {
+          installed: allCriticalSuccess,
+          results,
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('[K8s Install] Error:', message);
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'CRD_INSTALL_ERROR',
+            message: `Failed to install CRDs: ${message}`,
+          },
+        },
+        500
+      );
+    }
+  });
+
   return app;
 }
