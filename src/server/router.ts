@@ -96,6 +96,16 @@ async function authMiddleware(c: Context, next: Next) {
   return next();
 }
 
+/** Minimal interface for reading K8s provider health in routes. */
+interface K8sProviderHealth {
+  healthCheck(): Promise<{
+    healthy: boolean;
+    message?: string;
+    details?: Record<string, unknown>;
+  }>;
+  listSandboxes?(): Promise<Array<{ name: string; phase: string }>>;
+}
+
 export interface RouterDependencies {
   db: Database;
   githubService: GitHubTokenService;
@@ -111,6 +121,7 @@ export interface RouterDependencies {
   commandRunner: CommandRunner;
   durableStreamsService?: DurableStreamsService;
   getSandboxProvider?: () => EventEmittingSandboxProvider | null;
+  getK8sProvider?: () => K8sProviderHealth | null;
   cliMonitorService?: CliMonitorService | null;
   terraformRegistryService?: TerraformRegistryService;
   terraformComposeService?: TerraformComposeService;
@@ -140,6 +151,7 @@ export function createRouter(deps: RouterDependencies) {
       db: deps.db,
       githubService: deps.githubService,
       getSandboxProvider: deps.getSandboxProvider,
+      getK8sProvider: deps.getK8sProvider,
     })
   );
 
@@ -186,6 +198,7 @@ export function createRouter(deps: RouterDependencies) {
     createSandboxStatusRoutes({
       db: deps.db,
       getDockerProvider: deps.getSandboxProvider ?? (() => null),
+      getK8sProvider: deps.getK8sProvider,
     })
   );
   app.route('/api/sandbox/k8s', createK8sRoutes({ db: deps.db }));

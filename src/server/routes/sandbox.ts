@@ -258,6 +258,26 @@ async function attemptMinikubeStart(): Promise<{ started: boolean; message: stri
 }
 
 /**
+ * Poll `kubectl get crd sandboxes.agents.x-k8s.io` every 1s until success
+ * or the timeout is reached. Returns true when the CRD is registered.
+ */
+async function waitForCrdRegistration(
+  execAsync: (cmd: string, opts: { timeout: number }) => Promise<unknown>,
+  maxWaitMs = 10_000
+): Promise<boolean> {
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    try {
+      await execAsync('kubectl get crd sandboxes.agents.x-k8s.io', { timeout: 5_000 });
+      return true;
+    } catch {
+      await new Promise((r) => setTimeout(r, 1_000));
+    }
+  }
+  return false;
+}
+
+/**
  * Check if the given context is minikube.
  */
 function isMinikubeContext(context?: string): boolean {
@@ -663,6 +683,7 @@ export function createK8sRoutes(deps?: { db?: Database }) {
         ok: true,
         data: {
           installed: health.controllerInstalled,
+          crdReady: health.crdRegistered && health.namespaceExists,
           version: health.controllerVersion ?? null,
           crdRegistered: health.crdRegistered,
           crdGroup: 'agents.x-k8s.io',
@@ -801,6 +822,14 @@ export function createK8sRoutes(deps?: { db?: Database }) {
 
       // Step 1: Apply CRD definitions
       await applyManifest('crds.yaml', 'CRD Definitions');
+
+      // Wait for CRD to be registered before applying custom resources
+      const crdRegistered = await waitForCrdRegistration(execAsync, 10_000);
+      if (!crdRegistered) {
+        console.warn(
+          '[K8s Install] CRD registration timed out after 10s — custom resources may fail'
+        );
+      }
 
       // Step 2: Create namespace
       await applyManifest('namespace.yaml', 'Namespace');

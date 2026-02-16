@@ -148,6 +148,7 @@ function SandboxSettingsPage(): React.JSX.Element {
   // CRD controller state
   const [controllerStatus, setControllerStatus] = useState<{
     installed: boolean;
+    crdReady?: boolean;
     version?: string;
     crdRegistered?: boolean;
     crdApiVersion?: string;
@@ -172,7 +173,7 @@ function SandboxSettingsPage(): React.JSX.Element {
   // Auto-install CRDs state
   const [autoInstallCRDs, setAutoInstallCRDs] = useState(true);
   const [autoInstallingCRDs, setAutoInstallingCRDs] = useState(false);
-  const autoInstallAttemptedRef = useRef(false);
+  const lastAutoInstallAttemptRef = useRef(0);
 
   // Fallback to Docker state (global setting in sandbox.defaults)
   const [fallbackToDocker, setFallbackToDocker] = useState(false);
@@ -388,19 +389,19 @@ function SandboxSettingsPage(): React.JSX.Element {
     }
   }, [selectedProvider, loadK8sContexts, loadK8sStatus]);
 
-  // Auto-install CRDs when controller is not installed but cluster is reachable.
-  // Only attempts once per page load to prevent infinite retry loops.
+  // Auto-install CRDs when CRDs are missing but cluster is reachable.
+  // Uses a 60-second cooldown to prevent infinite retry loops.
   useEffect(() => {
     if (
       autoInstallCRDs &&
       !controllerLoading &&
       controllerStatus &&
-      !controllerStatus.installed &&
+      !controllerStatus.crdReady &&
       controllerStatus.clusterVersion &&
       !autoInstallingCRDs &&
-      !autoInstallAttemptedRef.current
+      Date.now() - lastAutoInstallAttemptRef.current > 60_000
     ) {
-      autoInstallAttemptedRef.current = true;
+      lastAutoInstallAttemptRef.current = Date.now();
       const installCRDs = async () => {
         setAutoInstallingCRDs(true);
         try {
@@ -440,6 +441,15 @@ function SandboxSettingsPage(): React.JSX.Element {
     skipTLSVerify,
     loadK8sStatus,
   ]);
+
+  // Periodic K8s status polling for real-time auto-heal feedback
+  useEffect(() => {
+    if (selectedProvider !== 'kubernetes') return;
+    const interval = setInterval(() => {
+      loadK8sStatus();
+    }, 30_000);
+    return () => clearInterval(interval);
+  }, [selectedProvider, loadK8sStatus]);
 
   // Start minikube manually from the UI
   const handleStartMinikube = async () => {
@@ -1207,6 +1217,10 @@ function SandboxSettingsPage(): React.JSX.Element {
                     <div className="flex h-8 w-8 items-center justify-center rounded-full bg-success-muted">
                       <Check className="h-4 w-4 text-success" weight="bold" />
                     </div>
+                  ) : controllerStatus?.crdReady ? (
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-success-muted">
+                      <Check className="h-4 w-4 text-success" weight="bold" />
+                    </div>
                   ) : (
                     <div className="flex h-8 w-8 items-center justify-center rounded-full bg-danger-muted">
                       <Warning className="h-4 w-4 text-danger" />
@@ -1220,9 +1234,11 @@ function SandboxSettingsPage(): React.JSX.Element {
                           ? 'Installing CRDs...'
                           : controllerStatus?.installed
                             ? 'Agent Sandbox Controller'
-                            : !controllerStatus?.clusterVersion
-                              ? 'Cluster Unreachable'
-                              : 'Controller Not Installed'}
+                            : controllerStatus?.crdReady
+                              ? 'CRDs Ready'
+                              : !controllerStatus?.clusterVersion
+                                ? 'Cluster Unreachable'
+                                : 'CRDs Not Installed'}
                     </p>
                     {controllerStatus?.installed && (
                       <p className="text-xs text-fg-muted">
@@ -1230,12 +1246,17 @@ function SandboxSettingsPage(): React.JSX.Element {
                         {controllerStatus.crdApiVersion ?? 'v1alpha1'}
                       </p>
                     )}
+                    {controllerStatus?.crdReady && !controllerStatus?.installed && (
+                      <p className="text-xs text-fg-muted">
+                        External controller not deployed (optional)
+                      </p>
+                    )}
                     {autoInstallingCRDs && (
                       <p className="text-xs text-fg-muted">
                         Auto-installing CRDs and controller...
                       </p>
                     )}
-                    {!controllerStatus?.installed &&
+                    {!controllerStatus?.crdReady &&
                       !controllerLoading &&
                       !autoInstallingCRDs &&
                       !controllerStatus?.clusterVersion && (
@@ -1244,12 +1265,12 @@ function SandboxSettingsPage(): React.JSX.Element {
                           is running.
                         </p>
                       )}
-                    {!controllerStatus?.installed &&
+                    {!controllerStatus?.crdReady &&
                       !controllerLoading &&
                       !autoInstallingCRDs &&
                       controllerStatus?.clusterVersion && (
                         <p className="text-xs text-danger">
-                          Install the Agent Sandbox CRD controller to use Kubernetes sandboxes
+                          Install the Agent Sandbox CRDs to use Kubernetes sandboxes
                         </p>
                       )}
                   </div>

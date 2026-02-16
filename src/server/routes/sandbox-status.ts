@@ -16,9 +16,20 @@ import { SANDBOX_DEFAULTS } from '../../lib/sandbox/types.js';
 import type { Database } from '../../types/database.js';
 import { isValidId, json } from '../shared.js';
 
+/** Minimal interface for reading K8s provider health in status routes. */
+interface K8sProviderHealth {
+  healthCheck(): Promise<{
+    healthy: boolean;
+    message?: string;
+    details?: Record<string, unknown>;
+  }>;
+  listSandboxes?(): Promise<Array<{ name: string; phase: string }>>;
+}
+
 interface SandboxStatusDeps {
   db: Database;
   getDockerProvider: () => EventEmittingSandboxProvider | null;
+  getK8sProvider?: () => K8sProviderHealth | null;
 }
 
 // Track in-flight auto-heal to prevent concurrent attempts
@@ -95,7 +106,11 @@ async function autoHealSandbox(
   }
 }
 
-export function createSandboxStatusRoutes({ db, getDockerProvider }: SandboxStatusDeps) {
+export function createSandboxStatusRoutes({
+  db,
+  getDockerProvider,
+  getK8sProvider,
+}: SandboxStatusDeps) {
   const app = new Hono();
 
   // GET /api/sandbox/status/:projectId - Get sandbox mode and container status
@@ -154,6 +169,35 @@ export function createSandboxStatusRoutes({ db, getDockerProvider }: SandboxStat
         }
       }
 
+      // Gather K8s health fields when the provider is available
+      let k8sCrdReady = false;
+      let k8sClusterVersion: string | null = null;
+      let k8sPodCount = 0;
+      let k8sPodsRunning = 0;
+
+      const k8sProvider = getK8sProvider?.();
+      if (k8sProvider) {
+        try {
+          const health = await k8sProvider.healthCheck();
+          const details = health.details ?? {};
+          k8sCrdReady = details.crdRegistered === true && details.namespaceExists === true;
+          k8sClusterVersion =
+            typeof details.clusterVersion === 'string' ? details.clusterVersion : null;
+          // Pod counts come from listSandboxes if available
+          if (k8sProvider.listSandboxes) {
+            try {
+              const sandboxes = await k8sProvider.listSandboxes();
+              k8sPodCount = sandboxes.length;
+              k8sPodsRunning = sandboxes.filter((s) => s.phase === 'Running').length;
+            } catch {
+              // Best effort
+            }
+          }
+        } catch {
+          // Best effort — leave defaults
+        }
+      }
+
       return json({
         ok: true,
         data: {
@@ -162,6 +206,10 @@ export function createSandboxStatusRoutes({ db, getDockerProvider }: SandboxStat
           containerId,
           dockerAvailable: !!dockerProvider,
           provider: dockerProvider?.name ?? 'none',
+          k8sCrdReady,
+          k8sClusterVersion,
+          k8sPodCount,
+          k8sPodsRunning,
         },
       });
     } catch (error) {

@@ -324,6 +324,10 @@ function ProjectKanban(): React.JSX.Element {
               isLoading={sandboxLoading}
               isRestarting={isRestartingSandbox}
               onRestart={handleRestartSandbox}
+              k8sCrdReady={sandboxStatus.k8sCrdReady}
+              k8sClusterVersion={sandboxStatus.k8sClusterVersion}
+              k8sPodCount={sandboxStatus.k8sPodCount}
+              k8sPodsRunning={sandboxStatus.k8sPodsRunning}
             />
           )}
           <Link

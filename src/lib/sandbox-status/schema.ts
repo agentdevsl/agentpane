@@ -20,6 +20,14 @@ export const sandboxStatusSchema = z.object({
   dockerAvailable: z.boolean(),
   /** Active sandbox provider type */
   provider: z.enum(['docker', 'kubernetes', 'none']).default('none'),
+  /** Whether K8s CRDs are installed and ready */
+  k8sCrdReady: z.boolean().optional(),
+  /** Kubernetes cluster version */
+  k8sClusterVersion: z.string().nullable().optional(),
+  /** Total number of sandbox pods */
+  k8sPodCount: z.number().optional(),
+  /** Number of running sandbox pods */
+  k8sPodsRunning: z.number().optional(),
   /** Last updated timestamp */
   updatedAt: z.number(),
 });

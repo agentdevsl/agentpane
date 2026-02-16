@@ -123,6 +123,10 @@ export interface SandboxIndicatorProps {
   isRestarting?: boolean;
   onRestart?: () => void;
   className?: string;
+  k8sCrdReady?: boolean;
+  k8sClusterVersion?: string | null;
+  k8sPodCount?: number;
+  k8sPodsRunning?: number;
 }
 
 /**
@@ -138,10 +142,42 @@ export function SandboxIndicator({
   isRestarting = false,
   onRestart,
   className,
+  k8sCrdReady,
+  k8sClusterVersion,
+  k8sPodCount,
+  k8sPodsRunning,
 }: SandboxIndicatorProps): React.JSX.Element {
   const isTransitioning = containerStatus === 'creating' || isRestarting;
   const modeLabel = mode === 'shared' ? 'Shared' : 'Per-Project';
   const providerLabel = getProviderLabel(provider);
+
+  if (provider === 'kubernetes' && k8sCrdReady === false && dockerAvailable) {
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div
+              className={cn(
+                'flex cursor-help items-center gap-1.5 rounded-md border border-attention bg-surface-subtle px-2.5 py-1.5 text-xs text-attention',
+                className
+              )}
+            >
+              <CubeTransparent className="h-4 w-4" />
+              <span className="font-medium">K8s</span>
+              <span>CRDs Missing</span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="max-w-[280px]">
+            <p className="font-medium">Kubernetes CRDs Missing</p>
+            <p className="mt-1 text-fg-muted">
+              The Agent Sandbox CRDs are not installed on the cluster. Install them in Settings to
+              enable Kubernetes sandboxes.
+            </p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  }
 
   if (!dockerAvailable) {
     const unavailable = getUnavailableDescription(provider);
@@ -261,6 +297,30 @@ export function SandboxIndicator({
               </p>
               <p className="text-fg-muted">{getStatusDescription(containerStatus, provider)}</p>
             </div>
+            {provider === 'kubernetes' && (
+              <div className="border-t border-border pt-2">
+                <p className="font-medium text-fg">Cluster Health</p>
+                <div className="mt-1 space-y-1">
+                  <p className="flex items-center gap-1.5 text-fg-muted">
+                    <span
+                      className={cn(
+                        'inline-block h-1.5 w-1.5 rounded-full',
+                        k8sCrdReady ? 'bg-success' : 'bg-danger'
+                      )}
+                    />
+                    {k8sCrdReady ? 'CRDs Ready' : 'CRDs Missing'}
+                  </p>
+                  {k8sClusterVersion && (
+                    <p className="text-fg-muted">Cluster: {k8sClusterVersion}</p>
+                  )}
+                  {k8sPodCount !== undefined && (
+                    <p className="text-fg-muted">
+                      {k8sPodsRunning ?? 0}/{k8sPodCount} pods running
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </TooltipContent>
       </Tooltip>

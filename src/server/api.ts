@@ -534,6 +534,35 @@ taskService.setWorktreeService({
 let sandboxProvider: EventEmittingSandboxProvider | null = null;
 let containerAgentService: ReturnType<typeof createContainerAgentService> | null = null;
 
+// Module-level reference to the K8s provider for the auto-heal interval
+// and for health/status routes. Set inside initSandboxProvider() when K8s is active.
+let activeK8sProvider: ReturnType<typeof createAgentSandboxProvider> | null = null;
+
+/** Getter for routes that need to check K8s provider health. */
+function getK8sProvider() {
+  return activeK8sProvider;
+}
+
+/**
+ * Poll `kubectl get crd sandboxes.agents.x-k8s.io` every 1s until success
+ * or the timeout is reached (default 10s). Returns true when the CRD is registered.
+ */
+async function waitForCrdRegistration(maxWaitMs = 10_000): Promise<boolean> {
+  const { exec } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const execAsync = promisify(exec);
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    try {
+      await execAsync('kubectl get crd sandboxes.agents.x-k8s.io', { timeout: 5_000 });
+      return true;
+    } catch {
+      await new Promise((r) => setTimeout(r, 1_000));
+    }
+  }
+  return false;
+}
+
 /**
  * Initialize the sandbox provider asynchronously.
  * Called after Bun.serve() so the server is already accepting requests.
@@ -613,6 +642,7 @@ async function initSandboxProvider() {
       let health = await k8sProvider.healthCheck();
       if (health.healthy) {
         sandboxProvider = k8sProvider;
+        activeK8sProvider = k8sProvider;
         log.info('[API Server] Kubernetes CRD sandbox provider initialized', {
           data: {
             namespace: k8sSettings.namespace ?? 'agentpane-sandboxes',
@@ -649,6 +679,7 @@ async function initSandboxProvider() {
             health = await k8sProvider.healthCheck();
             if (health.healthy) {
               sandboxProvider = k8sProvider;
+              activeK8sProvider = k8sProvider;
               log.info(
                 '[API Server] Kubernetes CRD sandbox provider initialized after minikube start',
                 {
@@ -706,6 +737,14 @@ async function initSandboxProvider() {
                 }
               }
 
+              // Wait for CRD registration before applying custom resources
+              const crdReady = await waitForCrdRegistration(10_000);
+              if (!crdReady) {
+                console.warn(
+                  '[API Server] CRD registration timed out after 10s — custom resources may fail'
+                );
+              }
+
               // Try to install the external CRD controller
               try {
                 await execAsync(
@@ -740,6 +779,7 @@ async function initSandboxProvider() {
               health = await k8sProvider.healthCheck();
               if (health.healthy) {
                 sandboxProvider = k8sProvider;
+                activeK8sProvider = k8sProvider;
                 log.info('[API Server] Kubernetes CRD provider initialized after auto-install');
                 if (k8sSettings.enableWarmPool) {
                   try {
@@ -1034,6 +1074,7 @@ const app = createRouter({
   commandRunner: bunCommandRunner,
   durableStreamsService,
   getSandboxProvider: () => sandboxProvider,
+  getK8sProvider,
   cliMonitorService,
   terraformRegistryService,
   terraformComposeService,
@@ -1051,12 +1092,109 @@ Bun.serve({
 
 console.log(`[API Server] Running on http://localhost:${PORT}`);
 
+// Periodic K8s CRD health check + auto-heal (60s interval)
+let k8sCrdHealInProgress = false;
+let k8sHealInterval: ReturnType<typeof setInterval> | null = null;
+
+function startK8sHealInterval() {
+  if (k8sHealInterval) return; // already running
+
+  k8sHealInterval = setInterval(async () => {
+    const provider = activeK8sProvider;
+    if (!provider) return;
+    if (k8sCrdHealInProgress) return;
+
+    k8sCrdHealInProgress = true;
+    try {
+      const health = await provider.healthCheck();
+      if (health.healthy) return;
+
+      // Check if autoInstallCRDs is enabled
+      let autoInstall = true;
+      try {
+        const k8sSetting = await db.query.settings.findFirst({
+          where: eq(schemaTables.settings.key, 'sandbox.kubernetes'),
+        });
+        if (k8sSetting?.value) {
+          const parsed = JSON.parse(k8sSetting.value);
+          autoInstall = parsed.autoInstallCRDs ?? true;
+        }
+      } catch {
+        // Use default
+      }
+
+      if (!autoInstall) return;
+
+      const details = health.details ?? {};
+      const needsRepair = details.crdRegistered === false || details.namespaceExists === false;
+
+      if (!needsRepair) return;
+
+      log.info('[K8s Heal] CRD/namespace missing, attempting auto-heal...');
+
+      const { exec } = await import('node:child_process');
+      const { promisify } = await import('node:util');
+      const execAsync = promisify(exec);
+      const manifestsDir = path.join(process.cwd(), 'k8s', 'manifests');
+
+      for (const manifest of [
+        'crds.yaml',
+        'namespace.yaml',
+        'runtime-class-gvisor.yaml',
+        'limit-range.yaml',
+      ]) {
+        try {
+          await execAsync(`kubectl apply -f "${path.join(manifestsDir, manifest)}"`, {
+            timeout: 30_000,
+          });
+        } catch {
+          // Best effort
+        }
+      }
+
+      await waitForCrdRegistration(10_000);
+
+      for (const manifest of ['agentpane-sandbox-template.yaml', 'agentpane-warm-pool.yaml']) {
+        try {
+          await execAsync(`kubectl apply -f "${path.join(manifestsDir, manifest)}"`, {
+            timeout: 30_000,
+          });
+        } catch {
+          // Best effort
+        }
+      }
+
+      const recheck = await provider.healthCheck();
+      if (recheck.healthy) {
+        log.info('[K8s Heal] Auto-heal succeeded — CRDs restored');
+      } else {
+        console.warn('[K8s Heal] Auto-heal ran but cluster is still unhealthy');
+      }
+    } catch (err) {
+      console.warn(
+        '[K8s Heal] Health check failed:',
+        err instanceof Error ? err.message : String(err)
+      );
+    } finally {
+      k8sCrdHealInProgress = false;
+    }
+  }, 60_000);
+}
+
 // Initialize sandbox provider in the background (non-blocking)
-initSandboxProvider().catch((err) => {
-  log.error('[API Server] Sandbox provider initialization failed:', {
-    error: err instanceof Error ? err.message : String(err),
+// Then start K8s auto-heal interval if K8s provider is active
+initSandboxProvider()
+  .then(() => {
+    if (activeK8sProvider) {
+      startK8sHealInterval();
+      log.info('[API Server] K8s CRD auto-heal interval started (60s)');
+    }
+  })
+  .catch((err) => {
+    log.error('[API Server] Sandbox provider initialization failed:', {
+      error: err instanceof Error ? err.message : String(err),
+    });
   });
-});
 
 // Start the template sync scheduler
 const stopTemplateSync = startSyncScheduler(db, templateService);
@@ -1093,6 +1231,12 @@ async function shutdownServer(signal: string) {
       });
     }
     containerAgentService.dispose();
+  }
+
+  // Stop K8s auto-heal interval
+  if (k8sHealInterval) {
+    clearInterval(k8sHealInterval);
+    k8sHealInterval = null;
   }
 
   // Stop schedulers
