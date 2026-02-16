@@ -205,7 +205,13 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
     // Check in-memory cache first (same pattern as DockerProvider.get)
     const sandboxId = this.projectToSandbox.get(projectId);
     if (sandboxId) {
-      return this.sandboxes.get(sandboxId) ?? null;
+      const cached = this.sandboxes.get(sandboxId);
+      if (cached) {
+        // Refresh status from cluster to avoid stale 'creating' status
+        await cached.refreshStatus();
+        return cached;
+      }
+      return null;
     }
 
     // Fall through to cluster query using label selector.
@@ -246,7 +252,11 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
   }
 
   async getById(sandboxId: string): Promise<Sandbox | null> {
-    return this.sandboxes.get(sandboxId) ?? null;
+    const cached = this.sandboxes.get(sandboxId);
+    if (cached) {
+      await cached.refreshStatus();
+    }
+    return cached ?? null;
   }
 
   async list(): Promise<SandboxInfo[]> {

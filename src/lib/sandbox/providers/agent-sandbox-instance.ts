@@ -146,8 +146,25 @@ export class AgentSandboxInstance implements Sandbox {
       const envPrefix = envEntries.map(([k, v]) => `${k}=${this.shellEscape(v)}`).join(' ');
 
       if (fullCmd[0] === 'sh' && fullCmd[1] === '-c') {
-        // Already wrapped in shell -- inject env into the shell command
-        fullCmd = ['sh', '-c', `${envPrefix} ${fullCmd[2]}`];
+        // Already wrapped in shell -- inject env before `exec` so they scope to the
+        // exec'd command. Placing them before `cd` only scopes them to `cd` itself.
+        // Pattern: sh -c 'cd /cwd && VAR=val exec cmd args'
+        const shBody = fullCmd[2] ?? '';
+        const execIdx = shBody.indexOf('exec ');
+        if (execIdx !== -1) {
+          fullCmd = [
+            'sh',
+            '-c',
+            `${shBody.slice(0, execIdx)}${envPrefix} ${shBody.slice(execIdx)}`,
+          ];
+        } else {
+          // No exec keyword — fall back to export approach
+          fullCmd = [
+            'sh',
+            '-c',
+            `export ${envEntries.map(([k, v]) => `${k}=${this.shellEscape(v)}`).join(' ')}; ${shBody}`,
+          ];
+        }
       } else {
         // Values are passed as separate argv entries to env, so shell escaping is not needed
         // here (unlike the sh -c path above where values are embedded in a shell string).

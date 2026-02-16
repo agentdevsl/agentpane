@@ -881,16 +881,21 @@ export class ContainerAgentService {
       });
 
       // Stage: Worktree - create or recover isolated worktree
-      const { worktreeId, worktreePath } = await this.resolveWorktree({
-        phase,
-        taskId,
-        sessionId,
-        projectId,
-        project,
-        task,
-        agentId,
-        sandbox,
-      });
+      // K8s pods don't have host filesystem mounts, so worktrees (created on the host)
+      // are not accessible inside the pod. Skip worktree for kubernetes provider.
+      const isK8sProvider = this.provider.name === 'kubernetes';
+      const { worktreeId, worktreePath } = isK8sProvider
+        ? { worktreeId: undefined, worktreePath: CONTAINER_WORKSPACE_PATH }
+        : await this.resolveWorktree({
+            phase,
+            taskId,
+            sessionId,
+            projectId,
+            project,
+            task,
+            agentId,
+            sandbox,
+          });
 
       // Build env vars and create container bridge
       const { env, bridge } = this.prepareContainerExec({
