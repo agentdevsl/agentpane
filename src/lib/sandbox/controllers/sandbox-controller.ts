@@ -179,7 +179,10 @@ export class SandboxController {
     } catch (err) {
       // 404 is expected (pod doesn't exist yet). Any other error is unexpected.
       if (!this.isNotFoundError(err)) {
-        console.error(`[SandboxController] Unexpected error checking pod ${sandboxName}:`, err);
+        console.error(
+          `[SandboxController] Unexpected error checking pod ${sandboxName}:`,
+          err instanceof Error ? err.message : String(err)
+        );
         return;
       }
     }
@@ -266,11 +269,13 @@ export class SandboxController {
 
     if (podTemplateSpec?.spec) {
       containers = podTemplateSpec.spec.containers?.length
-        ? podTemplateSpec.spec.containers.map((c) => ({
-            ...c,
-            // Ensure the container has a keep-alive command if none specified
-            command: c.command?.length ? c.command : ['tail', '-f', '/dev/null'],
-          }))
+        ? podTemplateSpec.spec.containers.map((c) =>
+            this.ensureSecurityContext({
+              ...c,
+              // Ensure the container has a keep-alive command if none specified
+              command: c.command?.length ? c.command : ['tail', '-f', '/dev/null'],
+            })
+          )
         : [this.defaultContainer()];
       volumes = podTemplateSpec.spec.volumes;
       serviceAccountName = podTemplateSpec.spec.serviceAccountName;
@@ -318,6 +323,14 @@ export class SandboxController {
         volumes,
         serviceAccountName,
         ...(runtimeClassName ? { runtimeClassName } : {}),
+        // Pod-level security context for restricted PSS compliance
+        securityContext: {
+          runAsNonRoot: true,
+          runAsUser: 1000,
+          runAsGroup: 1000,
+          fsGroup: 1000,
+          seccompProfile: { type: 'RuntimeDefault' },
+        },
       },
     };
 
@@ -328,10 +341,36 @@ export class SandboxController {
    * Build the default sandbox container when no template is provided.
    */
   private defaultContainer(): k8s.V1Container {
-    return {
+    return this.ensureSecurityContext({
       name: 'sandbox',
       image: DEFAULT_SANDBOX_IMAGE,
       command: ['tail', '-f', '/dev/null'],
+    });
+  }
+
+  /**
+   * Ensure a container has a security context compatible with the
+   * "restricted" Pod Security Standard (PSS). Required fields:
+   * - allowPrivilegeEscalation: false
+   * - capabilities.drop: ["ALL"]
+   * - runAsNonRoot: true
+   * - seccompProfile.type: "RuntimeDefault"
+   */
+  private ensureSecurityContext(container: k8s.V1Container): k8s.V1Container {
+    return {
+      ...container,
+      securityContext: {
+        ...container.securityContext,
+        allowPrivilegeEscalation: false,
+        runAsNonRoot: true,
+        capabilities: {
+          drop: ['ALL'],
+          ...container.securityContext?.capabilities,
+        },
+        seccompProfile: container.securityContext?.seccompProfile ?? {
+          type: 'RuntimeDefault',
+        },
+      },
     };
   }
 
@@ -455,6 +494,9 @@ export class SandboxController {
   private async reconcileExisting(): Promise<void> {
     try {
       const sandboxList = await this.client.listSandboxes({ namespace: this.namespace });
+      console.log(
+        `[SandboxController] Reconciling ${sandboxList.items.length} existing sandbox(es)`
+      );
       for (const sandbox of sandboxList.items) {
         await this.reconcileSandbox(sandbox);
       }
@@ -563,79 +605,68 @@ export class SandboxController {
 
   /**
    * Patch the status subresource of a Sandbox CRD using merge-patch.
+   *
+   * @kubernetes/client-node v1.4.0 uses positional params:
+   * patchNamespacedCustomObjectStatus(group, version, namespace, plural, name,
+   *   body, dryRun, fieldManager, fieldValidation, force, _options)
    */
   private async patchSandboxStatus(name: string, status: object): Promise<void> {
     try {
-      await this.customApi.patchNamespacedCustomObjectStatus({
+      // Use GET + PUT (replace) instead of PATCH to avoid content-type issues.
+      // The k8s client's patch method requires specific Content-Type headers
+      // that are difficult to set through the typed API.
+      const current = await this.customApi.getNamespacedCustomObjectStatus({
         group: CRD_API.group,
         version: CRD_API.version,
         namespace: this.namespace,
         plural: CRD_PLURALS.sandbox,
         name,
-        body: { status },
       });
-    } catch (_namedParamsErr) {
-      // The named-params API in @kubernetes/client-node v1.4.0 may not set
-      // the correct Content-Type for merge-patch. Fall back to positional
-      // params with explicit headers if the named-params call fails.
-      try {
-        // biome-ignore lint/suspicious/noExplicitAny: k8s client API fallback requires untyped positional call
-        await (this.customApi as any).patchNamespacedCustomObjectStatus(
-          CRD_API.group,
-          CRD_API.version,
-          this.namespace,
-          CRD_PLURALS.sandbox,
-          name,
-          { status },
-          undefined,
-          undefined,
-          undefined,
-          { headers: { 'Content-Type': 'application/merge-patch+json' } }
-        );
-      } catch (fallbackErr) {
-        console.error(
-          `[SandboxController] Failed to patch sandbox status for ${name}:`,
-          fallbackErr
-        );
-      }
+
+      const updated = { ...(current as Record<string, unknown>), status };
+      await this.customApi.replaceNamespacedCustomObjectStatus({
+        group: CRD_API.group,
+        version: CRD_API.version,
+        namespace: this.namespace,
+        plural: CRD_PLURALS.sandbox,
+        name,
+        body: updated,
+      });
+    } catch (err) {
+      console.error(
+        `[SandboxController] Failed to patch sandbox status for ${name}:`,
+        err instanceof Error ? err.message : String(err)
+      );
     }
   }
 
   /**
-   * Patch the status subresource of a SandboxWarmPool CRD using merge-patch.
+   * Update the status subresource of a SandboxWarmPool CRD.
    */
   private async patchWarmPoolStatus(name: string, status: object): Promise<void> {
     try {
-      await this.customApi.patchNamespacedCustomObjectStatus({
+      const current = await this.customApi.getNamespacedCustomObjectStatus({
         group: CRD_API.group,
         version: CRD_API.version,
         namespace: this.namespace,
         plural: CRD_PLURALS.sandboxWarmPool,
         name,
-        body: { status },
       });
-    } catch (_namedParamsErr) {
-      // Fallback to positional params with explicit merge-patch Content-Type
-      try {
-        // biome-ignore lint/suspicious/noExplicitAny: k8s client API fallback requires untyped positional call
-        await (this.customApi as any).patchNamespacedCustomObjectStatus(
-          CRD_API.group,
-          CRD_API.version,
-          this.namespace,
-          CRD_PLURALS.sandboxWarmPool,
-          name,
-          { status },
-          undefined,
-          undefined,
-          undefined,
-          { headers: { 'Content-Type': 'application/merge-patch+json' } }
-        );
-      } catch (fallbackErr) {
-        console.error(
-          `[SandboxController] Failed to patch warm pool status for ${name}:`,
-          fallbackErr
-        );
-      }
+
+      const updated = { ...(current as Record<string, unknown>), status };
+      await this.customApi.replaceNamespacedCustomObjectStatus({
+        group: CRD_API.group,
+        version: CRD_API.version,
+        namespace: this.namespace,
+        plural: CRD_PLURALS.sandboxWarmPool,
+        name,
+        body: updated,
+      });
+    } catch (err) {
+      console.error(
+        `[SandboxController] Failed to patch warm pool status for ${name}:`,
+        err instanceof Error ? err.message : String(err)
+      );
     }
   }
 
@@ -644,29 +675,56 @@ export class SandboxController {
   // ---------------------------------------------------------------------------
 
   /**
+   * Extract the HTTP status code from a k8s client-node error.
+   *
+   * @kubernetes/client-node v1.4.0 HttpError format:
+   * - message: "HTTP-Code: 404\nMessage: Unknown API Status Code!\nBody: {...}"
+   * - body: '{"kind":"Status","code":404,"reason":"NotFound",...}'
+   * - statusCode: may or may not be present
+   * - response.statusCode: may be present in older versions
+   */
+  private getHttpStatusCode(err: unknown): number | undefined {
+    if (typeof err !== 'object' || err === null) return undefined;
+    const obj = err as Record<string, unknown>;
+
+    // Direct statusCode property
+    if (typeof obj.statusCode === 'number') return obj.statusCode;
+
+    // body.code (k8s Status response parsed)
+    if (typeof obj.body === 'string') {
+      try {
+        const body = JSON.parse(obj.body) as Record<string, unknown>;
+        if (typeof body.code === 'number') return body.code;
+      } catch {
+        // Not JSON
+      }
+    }
+    if (typeof obj.body === 'object' && obj.body !== null) {
+      const body = obj.body as Record<string, unknown>;
+      if (typeof body.code === 'number') return body.code;
+    }
+
+    // message contains "HTTP-Code: NNN"
+    if (err instanceof Error) {
+      const match = err.message.match(/HTTP-Code:\s*(\d+)/);
+      if (match?.[1]) return parseInt(match[1], 10);
+    }
+
+    // response.statusCode (older k8s client format)
+    if ('response' in obj && typeof obj.response === 'object' && obj.response !== null) {
+      const resp = obj.response as Record<string, unknown>;
+      if (typeof resp.statusCode === 'number') return resp.statusCode;
+    }
+
+    return undefined;
+  }
+
+  /**
    * Check if a K8s API error is a 404 Not Found.
    */
   private isNotFoundError(err: unknown): boolean {
     if (err instanceof NotFoundError) return true;
-    if (
-      typeof err === 'object' &&
-      err !== null &&
-      'statusCode' in err &&
-      (err as { statusCode: number }).statusCode === 404
-    ) {
-      return true;
-    }
-    // HttpError from @kubernetes/client-node may wrap the response
-    if (
-      typeof err === 'object' &&
-      err !== null &&
-      'response' in err &&
-      typeof (err as Record<string, unknown>).response === 'object' &&
-      ((err as Record<string, unknown>).response as Record<string, unknown>)?.statusCode === 404
-    ) {
-      return true;
-    }
-    return false;
+    return this.getHttpStatusCode(err) === 404;
   }
 
   /**
@@ -674,24 +732,7 @@ export class SandboxController {
    */
   private isConflictError(err: unknown): boolean {
     if (err instanceof AlreadyExistsError) return true;
-    if (
-      typeof err === 'object' &&
-      err !== null &&
-      'statusCode' in err &&
-      (err as { statusCode: number }).statusCode === 409
-    ) {
-      return true;
-    }
-    if (
-      typeof err === 'object' &&
-      err !== null &&
-      'response' in err &&
-      typeof (err as Record<string, unknown>).response === 'object' &&
-      ((err as Record<string, unknown>).response as Record<string, unknown>)?.statusCode === 409
-    ) {
-      return true;
-    }
-    return false;
+    return this.getHttpStatusCode(err) === 409;
   }
 
   /**
