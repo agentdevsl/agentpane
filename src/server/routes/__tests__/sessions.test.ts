@@ -507,6 +507,33 @@ describe('Sessions API Routes', () => {
       // After filtering all invalid statuses, status array should be empty (not undefined)
       expect(callArgs.status).toEqual([]);
     });
+
+    it('returns 500 when listSessionsWithFilters returns a DB_ERROR result', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.listSessionsWithFilters.mockResolvedValue({
+        ok: false,
+        error: { code: 'DB_ERROR', status: 500, message: 'Database error' },
+      });
+
+      const res = await request(app, 'GET', '/api/sessions?projectId=proj-abc');
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('DB_ERROR');
+    });
+
+    it('returns 500 with SERVER_ERROR code when listSessionsWithFilters throws an exception', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.listSessionsWithFilters.mockRejectedValue(new Error('Unexpected DB crash'));
+
+      const res = await request(app, 'GET', '/api/sessions?projectId=proj-abc');
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('SERVER_ERROR');
+    });
   });
 
   // ── GET /api/sessions/:id/stream ──
