@@ -314,32 +314,46 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
 
       // Handle tool_progress events
       if (msg.type === 'tool_progress') {
-        await publishToolProgress(
+        publishToolProgress(
           sessionService,
           sessionId,
           agentId,
           msg as Record<string, unknown>
-        );
+        ).catch((err) => {
+          console.warn(
+            '[StreamHandler] Failed to publish tool_progress:',
+            err instanceof Error ? err.message : String(err)
+          );
+        });
       }
 
       // Handle compact_boundary events
       if (msg.type === 'system' && (msg as { subtype?: string }).subtype === 'compact_boundary') {
-        await publishCompactBoundary(
+        publishCompactBoundary(
           sessionService,
           sessionId,
           agentId,
           msg as Record<string, unknown>
-        );
+        ).catch((err) => {
+          console.warn(
+            '[StreamHandler] Failed to publish compact_boundary:',
+            err instanceof Error ? err.message : String(err)
+          );
+        });
       }
 
       // Handle result (planning session finished)
       if (msg.type === 'result') {
         const result = msg as Record<string, unknown>;
 
-        // Publish metrics event with SDK data
-        await publishMetrics(sessionService, sessionId, agentId, runId, result);
+        session.close(); // Always close first — before any potentially-failing publishes
 
-        session.close();
+        publishMetrics(sessionService, sessionId, agentId, runId, result).catch((err) => {
+          console.warn(
+            '[StreamHandler] Failed to publish metrics:',
+            err instanceof Error ? err.message : String(err)
+          );
+        });
 
         // Publish plan ready event with plan options
         await sessionService.publish(sessionId, {
@@ -548,30 +562,46 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
 
       // Handle tool_progress events
       if (msg.type === 'tool_progress') {
-        await publishToolProgress(
+        publishToolProgress(
           sessionService,
           sessionId,
           agentId,
           msg as Record<string, unknown>
-        );
+        ).catch((err) => {
+          console.warn(
+            '[StreamHandler] Failed to publish tool_progress:',
+            err instanceof Error ? err.message : String(err)
+          );
+        });
       }
 
       // Handle compact_boundary events
       if (msg.type === 'system' && (msg as { subtype?: string }).subtype === 'compact_boundary') {
-        await publishCompactBoundary(
+        publishCompactBoundary(
           sessionService,
           sessionId,
           agentId,
           msg as Record<string, unknown>
-        );
+        ).catch((err) => {
+          console.warn(
+            '[StreamHandler] Failed to publish compact_boundary:',
+            err instanceof Error ? err.message : String(err)
+          );
+        });
       }
 
       // Handle result (agent finished)
       if (msg.type === 'result') {
         const result = msg as Record<string, unknown>;
 
-        // Publish metrics event with SDK data
-        await publishMetrics(sessionService, sessionId, agentId, runId, result);
+        session.close(); // Always close first — before any potentially-failing publishes
+
+        publishMetrics(sessionService, sessionId, agentId, runId, result).catch((err) => {
+          console.warn(
+            '[StreamHandler] Failed to publish metrics:',
+            err instanceof Error ? err.message : String(err)
+          );
+        });
 
         const usage =
           result.usage != null && typeof result.usage === 'object'
@@ -585,7 +615,6 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
           data: { agentId, runId, turnCount: turn, usage },
         });
 
-        session.close();
         return {
           runId,
           status: 'completed',

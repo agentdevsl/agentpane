@@ -357,7 +357,11 @@ export function createCliMonitorRoutes({ cliMonitorService }: CliMonitorDeps) {
         ok: true,
         data: { sessions, total: sessions.length },
       });
-    } catch {
+    } catch (err) {
+      console.error(
+        '[CliMonitor] /history query failed:',
+        err instanceof Error ? err.message : String(err)
+      );
       return c.json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to query historical sessions' } },
         500
@@ -381,16 +385,15 @@ export function createCliMonitorRoutes({ cliMonitorService }: CliMonitorDeps) {
     let unsubscribe: (() => void) | null = null;
     let pingInterval: ReturnType<typeof setInterval> | null = null;
 
+    let streamClosed = false;
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         const encoder = new TextEncoder();
         const send = (data: unknown) => {
+          if (streamClosed) return;
           try {
             controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
           } catch (err) {
-            if (err instanceof TypeError && String(err).includes('enqueue')) {
-              return; // Stream closed — expected during disconnect
-            }
             console.error(
               '[CliMonitor] SSE send error:',
               err instanceof Error ? err.message : String(err)
@@ -400,10 +403,20 @@ export function createCliMonitorRoutes({ cliMonitorService }: CliMonitorDeps) {
 
         // 1. Send snapshot (include historical DB sessions when daemon is offline)
         const liveSessions = cliMonitorService.getSessions();
-        const snapshotSessions =
-          liveSessions.length > 0
-            ? liveSessions
-            : cliMonitorService.getHistoricalSessions({ limit: 100 });
+        let snapshotSessions: CliSession[];
+        if (liveSessions.length > 0) {
+          snapshotSessions = liveSessions;
+        } else {
+          try {
+            snapshotSessions = cliMonitorService.getHistoricalSessions({ limit: 100 });
+          } catch (err) {
+            console.error(
+              '[CliMonitor] SSE snapshot: historical query failed:',
+              err instanceof Error ? err.message : String(err)
+            );
+            snapshotSessions = [];
+          }
+        }
         send({
           type: 'cli-monitor:snapshot',
           sessions: snapshotSessions,
@@ -425,10 +438,16 @@ export function createCliMonitorRoutes({ cliMonitorService }: CliMonitorDeps) {
             if (pingInterval) clearInterval(pingInterval);
             if (unsubscribe) unsubscribe();
             activeSSEConnections = Math.max(0, activeSSEConnections - 1);
+            try {
+              controller.close();
+            } catch {
+              /* already closed */
+            }
           }
         }, 15_000);
       },
       cancel() {
+        streamClosed = true;
         activeSSEConnections = Math.max(0, activeSSEConnections - 1);
         if (pingInterval) clearInterval(pingInterval);
         if (unsubscribe) unsubscribe();
