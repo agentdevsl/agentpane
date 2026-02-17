@@ -593,6 +593,85 @@ describe('CLI Monitor API Routes', () => {
     });
   });
 
+  // ── GET /topology ──
+
+  describe('GET /api/cli-monitor/topology', () => {
+    it('returns 400 when rootSessionId is missing', async () => {
+      ({ app, service } = createTestApp());
+
+      const res = await request(app, 'GET', '/api/cli-monitor/topology');
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('MISSING_PARAM');
+    });
+
+    it('returns 404 when rootSessionId does not match any session', async () => {
+      ({ app, service } = createTestApp());
+
+      const res = await request(
+        app,
+        'GET',
+        '/api/cli-monitor/topology?rootSessionId=nonexistent-id'
+      );
+
+      expect(res.status).toBe(404);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('SESSION_NOT_FOUND');
+    });
+
+    it('returns nodes array for valid rootSessionId', async () => {
+      ({ app, service } = createTestApp());
+      service.registerDaemon({
+        daemonId: 'daemon-1',
+        pid: 1,
+        version: '0.1.0',
+        watchPath: '/tmp',
+        capabilities: [],
+        startedAt: Date.now(),
+      });
+      service.ingestSessions(
+        'daemon-1',
+        [
+          {
+            sessionId: 'root-sess',
+            filePath: '/test/root.jsonl',
+            cwd: '/project',
+            projectName: 'project',
+            projectHash: 'h1',
+            status: 'working',
+            messageCount: 5,
+            turnCount: 2,
+            tokenUsage: {
+              inputTokens: 100,
+              outputTokens: 50,
+              cacheCreationTokens: 0,
+              cacheReadTokens: 0,
+            },
+            startedAt: Date.now(),
+            lastActivityAt: Date.now(),
+            lastReadOffset: 0,
+            isSubagent: false,
+          },
+        ],
+        []
+      );
+
+      const res = await request(app, 'GET', '/api/cli-monitor/topology?rootSessionId=root-sess');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.ok).toBe(true);
+      expect(json.data.nodes).toBeDefined();
+      expect(Array.isArray(json.data.nodes)).toBe(true);
+      expect(json.data.nodes).toHaveLength(1);
+      expect(json.data.nodes[0].sessionId).toBe('root-sess');
+      expect(json.data.rootSessionId).toBe('root-sess');
+    });
+  });
+
   // ── GET /sessions with pagination ──
 
   describe('GET /api/cli-monitor/sessions (pagination)', () => {

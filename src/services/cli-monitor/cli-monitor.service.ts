@@ -220,7 +220,7 @@ export class CliMonitorService {
         '[CliMonitor] Historical query error:',
         err instanceof Error ? err.message : String(err)
       );
-      return [];
+      throw err; // Let caller handle — returning [] masks DB failures as empty results
     }
   }
 
@@ -456,10 +456,20 @@ export class CliMonitorService {
   private startMaintenance(): void {
     this.stopMaintenance();
     // Run maintenance on startup
-    this.runMaintenance().catch(() => {});
+    this.runMaintenance().catch((err) => {
+      console.error(
+        '[CliMonitor] Maintenance failed:',
+        err instanceof Error ? err.message : String(err)
+      );
+    });
     // Then periodically
     this.maintenanceTimer = setInterval(() => {
-      this.runMaintenance().catch(() => {});
+      this.runMaintenance().catch((err) => {
+        console.error(
+          '[CliMonitor] Maintenance failed:',
+          err instanceof Error ? err.message : String(err)
+        );
+      });
     }, CliMonitorService.MAINTENANCE_INTERVAL_MS);
   }
 

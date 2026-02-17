@@ -89,11 +89,8 @@ const CONTEXT_WINDOW_DEFAULT = 200_000;
 const MAX_QUEUE_OPERATIONS = 20;
 const MAX_TOOL_INVOCATIONS = 50;
 
-function getContextWindowLimit(model?: string): number {
-  // All current Claude models use 200k context window
-  if (model && (model.includes('sonnet') || model.includes('opus') || model.includes('haiku'))) {
-    return 200_000;
-  }
+function getContextWindowLimit(_model: string): number {
+  // All currently supported Claude models share the same 200k context window limit
   return CONTEXT_WINDOW_DEFAULT;
 }
 
@@ -495,9 +492,7 @@ export function parseJsonlFile(
       }
     }
 
-    store.setSession(sessionId, session);
-
-    // Sync topology metrics
+    // Sync topology metrics before persisting to store
     if (session.topology) {
       // Preserve 'completed' status set by summary handler
       if (session.topology.status !== 'completed') {
@@ -509,12 +504,24 @@ export function parseJsonlFile(
       session.topology.agentType = deriveAgentType(session, store);
     }
 
+    store.setSession(sessionId, session);
+
     bytesConsumed += lineBytes;
   }
 
   return bytesConsumed;
 }
 
+/**
+ * Derive the agent type from available signals, using a priority cascade:
+ * 1. Explicit subagentType from JSONL (if not 'unknown')
+ * 2. Pattern matching on agentId string
+ * 3. Permission mode inference
+ * 4. Tool usage ratio heuristics
+ * 5. Structural position (root with children = orchestrator)
+ * 6. Goal text keyword matching
+ * 7. Default: subagents are 'coder', root sessions are 'unknown'
+ */
 function deriveAgentType(session: StoredSession, store: SessionStore): AgentNodeType {
   // Use raw subagentType from JSONL if already set (takes precedence over heuristics)
   if (session.topology?.agentType && session.topology.agentType !== 'unknown') {

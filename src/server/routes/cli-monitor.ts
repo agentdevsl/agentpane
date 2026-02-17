@@ -346,16 +346,23 @@ export function createCliMonitorRoutes({ cliMonitorService }: CliMonitorDeps) {
     const since = sinceParam ? parseInt(sinceParam, 10) : undefined;
     const limit = limitParam ? parseInt(limitParam, 10) : undefined;
 
-    const sessions = cliMonitorService.getHistoricalSessions({
-      projectHash: projectHash || undefined,
-      since: since && !Number.isNaN(since) ? since : undefined,
-      limit: limit && !Number.isNaN(limit) ? limit : undefined,
-    });
+    try {
+      const sessions = cliMonitorService.getHistoricalSessions({
+        projectHash: projectHash || undefined,
+        since: since && !Number.isNaN(since) ? since : undefined,
+        limit: limit && !Number.isNaN(limit) ? limit : undefined,
+      });
 
-    return c.json({
-      ok: true,
-      data: { sessions, total: sessions.length },
-    });
+      return c.json({
+        ok: true,
+        data: { sessions, total: sessions.length },
+      });
+    } catch {
+      return c.json(
+        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to query historical sessions' } },
+        500
+      );
+    }
   });
 
   // GET /stream — SSE endpoint for live updates
@@ -414,7 +421,10 @@ export function createCliMonitorRoutes({ cliMonitorService }: CliMonitorDeps) {
           try {
             controller.enqueue(encoder.encode(`: ping\n\n`));
           } catch {
-            // Stream closed
+            // Stream closed — clean up
+            if (pingInterval) clearInterval(pingInterval);
+            if (unsubscribe) unsubscribe();
+            activeSSEConnections = Math.max(0, activeSSEConnections - 1);
           }
         }, 15_000);
       },
@@ -448,6 +458,18 @@ export function createCliMonitorRoutes({ cliMonitorService }: CliMonitorDeps) {
     }
 
     const sessions = cliMonitorService.getSessions();
+
+    const rootSession = sessions.find((s) => s.sessionId === rootSessionId);
+    if (!rootSession) {
+      return c.json(
+        {
+          ok: false,
+          error: { code: 'SESSION_NOT_FOUND', message: `Session ${rootSessionId} not found` },
+        },
+        404
+      );
+    }
+
     // Build parent→children map from in-memory sessions
     const childMap = new Map<string, string[]>();
     for (const s of sessions) {

@@ -81,6 +81,86 @@ async function runPostToolHooks(
   }
 }
 
+async function publishToolProgress(
+  sessionService: { publish: (sessionId: string, event: SessionEvent) => Promise<unknown> },
+  sessionId: string,
+  agentId: string,
+  msg: Record<string, unknown>
+): Promise<void> {
+  await sessionService.publish(sessionId, {
+    id: createId(),
+    type: 'agent:tool_progress',
+    timestamp: Date.now(),
+    data: {
+      agentId,
+      toolUseId: typeof msg.tool_use_id === 'string' ? msg.tool_use_id : 'unknown',
+      toolName: typeof msg.tool_name === 'string' ? msg.tool_name : 'unknown',
+      elapsedSeconds: typeof msg.elapsed_time_seconds === 'number' ? msg.elapsed_time_seconds : 0,
+    },
+  });
+}
+
+async function publishCompactBoundary(
+  sessionService: { publish: (sessionId: string, event: SessionEvent) => Promise<unknown> },
+  sessionId: string,
+  agentId: string,
+  msg: Record<string, unknown>
+): Promise<void> {
+  const compact = msg as { compact_metadata?: { trigger?: string; pre_tokens?: number } };
+  if (!compact.compact_metadata) return;
+  await sessionService.publish(sessionId, {
+    id: createId(),
+    type: 'agent:compacted',
+    timestamp: Date.now(),
+    data: {
+      agentId,
+      trigger: compact.compact_metadata.trigger ?? 'unknown',
+      preTokens: compact.compact_metadata.pre_tokens ?? 0,
+    },
+  });
+}
+
+async function publishMetrics(
+  sessionService: { publish: (sessionId: string, event: SessionEvent) => Promise<unknown> },
+  sessionId: string,
+  agentId: string,
+  runId: string,
+  msg: Record<string, unknown>
+): Promise<void> {
+  const modelUsage =
+    msg.modelUsage != null && typeof msg.modelUsage === 'object'
+      ? (msg.modelUsage as Record<
+          string,
+          {
+            inputTokens: number;
+            outputTokens: number;
+            cacheReadInputTokens: number;
+            costUSD: number;
+          }
+        >)
+      : undefined;
+  const usage =
+    msg.usage != null && typeof msg.usage === 'object'
+      ? (msg.usage as { input_tokens?: number; output_tokens?: number })
+      : undefined;
+  await sessionService.publish(sessionId, {
+    id: createId(),
+    type: 'agent:metrics',
+    timestamp: Date.now(),
+    data: {
+      agentId,
+      runId,
+      totalCostUsd: typeof msg.total_cost_usd === 'number' ? msg.total_cost_usd : undefined,
+      durationMs: typeof msg.duration_ms === 'number' ? msg.duration_ms : undefined,
+      durationApiMs: typeof msg.duration_api_ms === 'number' ? msg.duration_api_ms : undefined,
+      numTurns: typeof msg.num_turns === 'number' ? msg.num_turns : undefined,
+      usage,
+      modelUsage,
+      stopReason: msg.stop_reason !== undefined ? (msg.stop_reason as string | null) : undefined,
+    },
+  });
+}
+
 /**
  * Run the agent in planning mode first.
  * The agent will explore the codebase and use ExitPlanMode when the plan is ready.
@@ -223,77 +303,30 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
 
       // Handle tool_progress events
       if (msg.type === 'tool_progress') {
-        const progress = msg as {
-          tool_use_id: string;
-          tool_name: string;
-          elapsed_time_seconds: number;
-        };
-        await sessionService.publish(sessionId, {
-          id: createId(),
-          type: 'agent:tool_progress',
-          timestamp: Date.now(),
-          data: {
-            agentId,
-            toolUseId: progress.tool_use_id,
-            toolName: progress.tool_name,
-            elapsedSeconds: progress.elapsed_time_seconds,
-          },
-        });
+        await publishToolProgress(
+          sessionService,
+          sessionId,
+          agentId,
+          msg as Record<string, unknown>
+        );
       }
 
       // Handle compact_boundary events
       if (msg.type === 'system' && (msg as { subtype?: string }).subtype === 'compact_boundary') {
-        const compact = msg as { compact_metadata: { trigger: string; pre_tokens: number } };
-        await sessionService.publish(sessionId, {
-          id: createId(),
-          type: 'agent:compacted',
-          timestamp: Date.now(),
-          data: {
-            agentId,
-            trigger: compact.compact_metadata.trigger,
-            preTokens: compact.compact_metadata.pre_tokens,
-          },
-        });
+        await publishCompactBoundary(
+          sessionService,
+          sessionId,
+          agentId,
+          msg as Record<string, unknown>
+        );
       }
 
       // Handle result (planning session finished)
       if (msg.type === 'result') {
-        const result = msg as {
-          status?: string;
-          usage?: { input_tokens?: number; output_tokens?: number };
-          total_cost_usd?: number;
-          duration_ms?: number;
-          duration_api_ms?: number;
-          num_turns?: number;
-          modelUsage?: Record<
-            string,
-            {
-              inputTokens: number;
-              outputTokens: number;
-              cacheReadInputTokens: number;
-              costUSD: number;
-            }
-          >;
-          stop_reason?: string | null;
-        };
+        const result = msg as Record<string, unknown>;
 
         // Publish metrics event with SDK data
-        await sessionService.publish(sessionId, {
-          id: createId(),
-          type: 'agent:metrics',
-          timestamp: Date.now(),
-          data: {
-            agentId,
-            runId,
-            totalCostUsd: result.total_cost_usd,
-            durationMs: result.duration_ms,
-            durationApiMs: result.duration_api_ms,
-            numTurns: result.num_turns,
-            usage: result.usage,
-            modelUsage: result.modelUsage,
-            stopReason: result.stop_reason,
-          },
-        });
+        await publishMetrics(sessionService, sessionId, agentId, runId, result);
 
         session.close();
 
@@ -317,11 +350,14 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
           plan: planContent || accumulated,
           planOptions: exitPlanModeOptions,
           metrics: {
-            totalCostUsd: result.total_cost_usd,
-            durationMs: result.duration_ms,
-            durationApiMs: result.duration_api_ms,
-            numTurns: result.num_turns,
-            stopReason: result.stop_reason,
+            totalCostUsd:
+              typeof result.total_cost_usd === 'number' ? result.total_cost_usd : undefined,
+            durationMs: typeof result.duration_ms === 'number' ? result.duration_ms : undefined,
+            durationApiMs:
+              typeof result.duration_api_ms === 'number' ? result.duration_api_ms : undefined,
+            numTurns: typeof result.num_turns === 'number' ? result.num_turns : undefined,
+            stopReason:
+              result.stop_reason !== undefined ? (result.stop_reason as string | null) : undefined,
           },
         };
       }
@@ -510,83 +546,41 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
 
       // Handle tool_progress events
       if (msg.type === 'tool_progress') {
-        const progress = msg as {
-          tool_use_id: string;
-          tool_name: string;
-          elapsed_time_seconds: number;
-        };
-        await sessionService.publish(sessionId, {
-          id: createId(),
-          type: 'agent:tool_progress',
-          timestamp: Date.now(),
-          data: {
-            agentId,
-            toolUseId: progress.tool_use_id,
-            toolName: progress.tool_name,
-            elapsedSeconds: progress.elapsed_time_seconds,
-          },
-        });
+        await publishToolProgress(
+          sessionService,
+          sessionId,
+          agentId,
+          msg as Record<string, unknown>
+        );
       }
 
       // Handle compact_boundary events
       if (msg.type === 'system' && (msg as { subtype?: string }).subtype === 'compact_boundary') {
-        const compact = msg as { compact_metadata: { trigger: string; pre_tokens: number } };
-        await sessionService.publish(sessionId, {
-          id: createId(),
-          type: 'agent:compacted',
-          timestamp: Date.now(),
-          data: {
-            agentId,
-            trigger: compact.compact_metadata.trigger,
-            preTokens: compact.compact_metadata.pre_tokens,
-          },
-        });
+        await publishCompactBoundary(
+          sessionService,
+          sessionId,
+          agentId,
+          msg as Record<string, unknown>
+        );
       }
 
       // Handle result (agent finished)
       if (msg.type === 'result') {
-        const result = msg as {
-          status?: string;
-          usage?: { input_tokens?: number; output_tokens?: number };
-          total_cost_usd?: number;
-          duration_ms?: number;
-          duration_api_ms?: number;
-          num_turns?: number;
-          modelUsage?: Record<
-            string,
-            {
-              inputTokens: number;
-              outputTokens: number;
-              cacheReadInputTokens: number;
-              costUSD: number;
-            }
-          >;
-          stop_reason?: string | null;
-        };
+        const result = msg as Record<string, unknown>;
 
         // Publish metrics event with SDK data
-        await sessionService.publish(sessionId, {
-          id: createId(),
-          type: 'agent:metrics',
-          timestamp: Date.now(),
-          data: {
-            agentId,
-            runId,
-            totalCostUsd: result.total_cost_usd,
-            durationMs: result.duration_ms,
-            durationApiMs: result.duration_api_ms,
-            numTurns: result.num_turns,
-            usage: result.usage,
-            modelUsage: result.modelUsage,
-            stopReason: result.stop_reason,
-          },
-        });
+        await publishMetrics(sessionService, sessionId, agentId, runId, result);
+
+        const usage =
+          result.usage != null && typeof result.usage === 'object'
+            ? (result.usage as { input_tokens?: number; output_tokens?: number })
+            : undefined;
 
         await sessionService.publish(sessionId, {
           id: createId(),
           type: 'agent:completed',
           timestamp: Date.now(),
-          data: { agentId, runId, turnCount: turn, usage: result.usage },
+          data: { agentId, runId, turnCount: turn, usage },
         });
 
         session.close();
@@ -596,11 +590,14 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
           turnCount: turn,
           result: accumulated || 'Task completed successfully',
           metrics: {
-            totalCostUsd: result.total_cost_usd,
-            durationMs: result.duration_ms,
-            durationApiMs: result.duration_api_ms,
-            numTurns: result.num_turns,
-            stopReason: result.stop_reason,
+            totalCostUsd:
+              typeof result.total_cost_usd === 'number' ? result.total_cost_usd : undefined,
+            durationMs: typeof result.duration_ms === 'number' ? result.duration_ms : undefined,
+            durationApiMs:
+              typeof result.duration_api_ms === 'number' ? result.duration_api_ms : undefined,
+            numTurns: typeof result.num_turns === 'number' ? result.num_turns : undefined,
+            stopReason:
+              result.stop_reason !== undefined ? (result.stop_reason as string | null) : undefined,
           },
         };
       }

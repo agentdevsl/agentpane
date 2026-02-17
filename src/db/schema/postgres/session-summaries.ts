@@ -1,5 +1,5 @@
 import { createId } from '@paralleldrive/cuid2';
-import { integer, numeric, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import { doublePrecision, integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 import { sessions } from './sessions';
 
 export const sessionSummaries = pgTable('session_summaries', {
@@ -17,7 +17,7 @@ export const sessionSummaries = pgTable('session_summaries', {
   linesAdded: integer('lines_added').default(0),
   linesRemoved: integer('lines_removed').default(0),
   finalStatus: text('final_status').$type<'success' | 'failed' | 'cancelled'>(),
-  costUsd: numeric('cost_usd'),
+  costUsd: doublePrecision('cost_usd'),
   durationApiMs: integer('duration_api_ms'),
   cacheReadTokens: integer('cache_read_tokens'),
   cacheCreationTokens: integer('cache_creation_tokens'),
