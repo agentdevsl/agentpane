@@ -8,7 +8,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { CliMonitorService } from '../../services/cli-monitor/cli-monitor.service.js';
-import type { AgentTopologyNode } from '../../services/cli-monitor/types.js';
+import type { AgentTopologyNode, CliSession } from '../../services/cli-monitor/types.js';
 
 // ── Zod Schemas ──
 
@@ -283,7 +283,7 @@ export function createCliMonitorRoutes({ cliMonitorService }: CliMonitorDeps) {
     if (data instanceof Response) return data;
     const accepted = cliMonitorService.ingestSessions(
       data.daemonId,
-      data.sessions as never[],
+      data.sessions as CliSession[],
       data.removedSessionIds
     );
     if (!accepted) {
@@ -380,8 +380,14 @@ export function createCliMonitorRoutes({ cliMonitorService }: CliMonitorDeps) {
         const send = (data: unknown) => {
           try {
             controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
-          } catch {
-            // Stream may be closed
+          } catch (err) {
+            if (err instanceof TypeError && String(err).includes('enqueue')) {
+              return; // Stream closed — expected during disconnect
+            }
+            console.error(
+              '[CliMonitor] SSE send error:',
+              err instanceof Error ? err.message : String(err)
+            );
           }
         };
 

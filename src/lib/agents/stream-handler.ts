@@ -297,7 +297,7 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
 
         session.close();
 
-        // Publish plan ready event with swarm options
+        // Publish plan ready event with plan options
         await sessionService.publish(sessionId, {
           id: createId(),
           type: 'agent:plan_ready',
@@ -643,7 +643,7 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
 }
 
 /**
- * Legacy function - runs planning first, then waits for approval.
+ * Legacy function - delegates to runAgentPlanning.
  * @deprecated Use runAgentPlanning and runAgentExecution separately
  */
 export async function runAgentWithStreaming(

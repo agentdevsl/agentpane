@@ -93,7 +93,7 @@ export class CliMonitorService {
       return false;
     }
 
-    // Drop sessions older than 24 hours (stale JSONL files from previous days)
+    // Drop sessions older than DEFAULT_RETENTION_DAYS days (stale JSONL files from previous days)
     const cutoffMs = Date.now() - CliMonitorService.DEFAULT_RETENTION_DAYS * 24 * 60 * 60 * 1000;
     sessions = sessions.filter((s) => s.lastActivityAt >= cutoffMs);
 
@@ -238,7 +238,7 @@ export class CliMonitorService {
     if (!this.db) return 0;
 
     try {
-      // Read retention from settings, default to 1 day
+      // Read retention from settings, default to DEFAULT_RETENTION_DAYS days
       let retentionDays = CliMonitorService.DEFAULT_RETENTION_DAYS;
       try {
         const setting = this.db.query.settings.findFirst({
@@ -358,6 +358,23 @@ export class CliMonitorService {
     }
   }
 
+  private safeJsonParse<T>(
+    value: string | null | undefined,
+    field: string,
+    sessionId: string
+  ): T | undefined {
+    if (!value) return undefined;
+    try {
+      return JSON.parse(value) as T;
+    } catch (err) {
+      console.error(
+        `[CliMonitor] Corrupt JSON in ${field} for session ${sessionId}:`,
+        err instanceof Error ? err.message : String(err)
+      );
+      return undefined;
+    }
+  }
+
   private rowToSession(row: typeof cliSessions.$inferSelect): CliSession {
     return {
       sessionId: row.sessionId,
@@ -371,10 +388,13 @@ export class CliMonitorService {
       turnCount: row.turnCount ?? 0,
       goal: row.goal ?? undefined,
       recentOutput: row.recentOutput ?? undefined,
-      pendingToolUse: row.pendingToolUse ? JSON.parse(row.pendingToolUse) : undefined,
-      tokenUsage: row.tokenUsage
-        ? JSON.parse(row.tokenUsage)
-        : { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 },
+      pendingToolUse: this.safeJsonParse(row.pendingToolUse, 'pendingToolUse', row.sessionId),
+      tokenUsage: this.safeJsonParse(row.tokenUsage, 'tokenUsage', row.sessionId) ?? {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheCreationTokens: 0,
+        cacheReadTokens: 0,
+      },
       model: row.model ?? undefined,
       startedAt: row.startedAt,
       lastActivityAt: row.lastActivityAt,
@@ -384,10 +404,18 @@ export class CliMonitorService {
       slug: row.slug ?? undefined,
       version: row.cliVersion ?? undefined,
       permissionMode: row.permissionMode ?? undefined,
-      topology: row.topology ? JSON.parse(row.topology) : undefined,
-      queueOperations: row.queueOperations ? JSON.parse(row.queueOperations) : undefined,
-      recentToolInvocations: row.toolInvocations ? JSON.parse(row.toolInvocations) : undefined,
-      performanceMetrics: row.performanceMetrics ? JSON.parse(row.performanceMetrics) : undefined,
+      topology: this.safeJsonParse(row.topology, 'topology', row.sessionId),
+      queueOperations: this.safeJsonParse(row.queueOperations, 'queueOperations', row.sessionId),
+      recentToolInvocations: this.safeJsonParse(
+        row.toolInvocations,
+        'toolInvocations',
+        row.sessionId
+      ),
+      performanceMetrics: this.safeJsonParse(
+        row.performanceMetrics,
+        'performanceMetrics',
+        row.sessionId
+      ),
     };
   }
 
