@@ -1,6 +1,6 @@
 {
   "name": "@agentpane/cli-monitor",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "CLI monitor daemon for AgentPane — watches Claude Code sessions in real-time",
   "type": "module",
   "bin": {
