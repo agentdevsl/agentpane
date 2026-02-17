@@ -1,11 +1,12 @@
 /**
- * ContainerAgentService - Orchestrates Claude Agent SDK execution inside Docker containers.
+ * ContainerAgentService - Orchestrates Claude Agent SDK execution inside sandbox containers.
  *
  * This service manages the lifecycle of agent processes running in sandbox containers:
- * - Starts agent-runner process via docker exec
+ * - Starts agent-runner process inside the sandbox (Docker or K8s pod)
  * - Bridges stdout events to DurableStreams
  * - Handles cancellation via sentinel files
  * - Tracks running agents per task
+ * - Initializes K8s pod workspaces (clone + worktree) when using K8s provider
  */
 import { eq } from 'drizzle-orm';
 
@@ -61,8 +62,12 @@ interface TaskPlanRow {
   lastAgentStatus: string | null;
 }
 
+import { deriveGitHubFromPath, resolveGitToken } from '../lib/sandbox/git-token-resolver.js';
+import type { SandboxExec } from '../lib/sandbox/k8s-workspace-initializer.js';
+import { initializeK8sWorkspace } from '../lib/sandbox/k8s-workspace-initializer.js';
 import type { ApiKeyService } from './api-key.service.js';
 import type { DurableStreamsService } from './durable-streams.service.js';
+import type { GitHubTokenService } from './github-token.service.js';
 import { getGlobalDefaultModel } from './settings.service.js';
 import type { WorktreeService } from './worktree.service.js';
 
@@ -165,7 +170,8 @@ export class ContainerAgentService {
     private provider: SandboxProvider,
     private streams: DurableStreamsService,
     private apiKeyService: ApiKeyService,
-    private worktreeService?: WorktreeService
+    private worktreeService?: WorktreeService,
+    private githubTokenService?: GitHubTokenService
   ) {
     if (!worktreeService) {
       infoLog('constructor', 'WorktreeService not injected — agents will share workspace');
@@ -232,6 +238,200 @@ export class ContainerAgentService {
       hostProjectPath,
     });
     return CONTAINER_WORKSPACE_PATH;
+  }
+
+  /**
+   * Initialize workspace inside a K8s pod by cloning the repo and creating a worktree.
+   * Falls back to empty /workspace on any failure (non-fatal).
+   */
+  private async initializeK8sWorkspace(params: {
+    sandbox: SandboxExec;
+    project: {
+      githubOwner: string | null;
+      githubRepo: string | null;
+      githubInstallationId: string | null;
+      name: string;
+      path: string | null;
+      id: string;
+      config?: { defaultBranch?: string } | null;
+    };
+    task: { title: string; branch?: string | null };
+    taskId: string;
+    sessionId: string;
+    phase: AgentPhase;
+  }): Promise<{ worktreePath: string; branch: string } | null> {
+    const { sandbox, project, task, taskId, sessionId, phase } = params;
+
+    // Auto-derive owner/repo from git remote when not explicitly configured
+    let { githubOwner, githubRepo } = project;
+    if ((!githubOwner || !githubRepo) && project.path) {
+      const derived = deriveGitHubFromPath(project.path);
+      if (derived) {
+        githubOwner = derived.owner;
+        githubRepo = derived.repo;
+        infoLog('initializeK8sWorkspace', 'Derived GitHub owner/repo from git remote', {
+          taskId,
+          owner: derived.owner,
+          repo: derived.repo,
+          projectPath: project.path,
+        });
+        // Backfill the DB so future calls skip derivation
+        try {
+          await this.db
+            .update(projects)
+            .set({
+              githubOwner: derived.owner,
+              githubRepo: derived.repo,
+              updatedAt: new Date().toISOString(),
+            })
+            .where(eq(projects.id, project.id));
+          infoLog('initializeK8sWorkspace', 'Backfilled GitHub config to project', {
+            projectId: project.id,
+            owner: derived.owner,
+            repo: derived.repo,
+          });
+        } catch (dbErr) {
+          const msg = dbErr instanceof Error ? dbErr.message : String(dbErr);
+          infoLog('initializeK8sWorkspace', 'Failed to backfill GitHub config (non-critical)', {
+            projectId: project.id,
+            error: msg,
+          });
+        }
+      }
+    }
+
+    if (!githubOwner || !githubRepo) {
+      infoLog(
+        'initializeK8sWorkspace',
+        'Project has no GitHub config and no git remote, using empty workspace',
+        {
+          taskId,
+        }
+      );
+      return null;
+    }
+
+    // For execution phase, check if worktree from planning still exists in pod
+    if (phase === 'execute' && task.branch) {
+      const worktreePath = `${CONTAINER_WORKSPACE_PATH}/.worktrees/${task.branch}`;
+      try {
+        const testResult = await sandbox.exec('test', ['-d', worktreePath]);
+        if (testResult.exitCode === 0) {
+          infoLog('initializeK8sWorkspace', 'Reusing existing worktree from planning phase', {
+            taskId,
+            branch: task.branch,
+            worktreePath,
+          });
+          return { worktreePath, branch: task.branch };
+        }
+        infoLog('initializeK8sWorkspace', 'Planning worktree not found in pod, re-cloning', {
+          taskId,
+          branch: task.branch,
+        });
+      } catch (err) {
+        warnLog(
+          'initializeK8sWorkspace',
+          'Failed to check existing worktree, proceeding to full clone',
+          {
+            taskId,
+            branch: task.branch,
+            error: err instanceof Error ? err.message : String(err),
+          }
+        );
+      }
+    }
+
+    // Resolve git token
+    await this.streams.publish(sessionId, 'container-agent:status', {
+      taskId,
+      sessionId,
+      stage: 'creating_sandbox',
+      message: 'Resolving git credentials...',
+    });
+
+    const tokenResult = await resolveGitToken(
+      { ...project, githubOwner, githubRepo },
+      { db: this.db, githubTokenService: this.githubTokenService }
+    );
+
+    if (!tokenResult) {
+      warnLog('initializeK8sWorkspace', 'No git token available, using empty workspace', {
+        taskId,
+      });
+      await this.streams.publish(sessionId, 'container-agent:message', {
+        taskId,
+        sessionId,
+        role: 'system',
+        content: '⚠️ No GitHub credentials available — agent will work in empty workspace',
+      });
+      return null;
+    }
+
+    // Clone + create worktree
+    await this.streams.publish(sessionId, 'container-agent:status', {
+      taskId,
+      sessionId,
+      stage: 'creating_sandbox',
+      message: 'Cloning repository...',
+    });
+    await this.streams.publish(sessionId, 'container-agent:message', {
+      taskId,
+      sessionId,
+      role: 'system',
+      content: `🔄 Cloning ${tokenResult.owner}/${tokenResult.repo} into K8s pod...`,
+    });
+
+    const baseBranch =
+      (project.config as { defaultBranch?: string } | null)?.defaultBranch ?? 'main';
+    const result = await initializeK8sWorkspace({
+      sandbox,
+      gitToken: tokenResult,
+      taskTitle: task.title,
+      taskId,
+      baseBranch,
+      existingBranch: task.branch ?? undefined,
+    });
+
+    if (!result.branch) {
+      await this.streams.publish(sessionId, 'container-agent:message', {
+        taskId,
+        sessionId,
+        role: 'system',
+        content: '⚠️ Workspace initialization incomplete — agent will work with limited isolation',
+      });
+      return null;
+    }
+
+    // Save branch to task for recovery on pod recycle
+    try {
+      await this.db
+        .update(tasks)
+        .set({
+          branch: result.branch,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(tasks.id, taskId));
+    } catch (dbErr) {
+      const msg = dbErr instanceof Error ? dbErr.message : String(dbErr);
+      warnLog(
+        'initializeK8sWorkspace',
+        'Failed to save branch to task — pod recycle recovery will not work for this task',
+        {
+          taskId,
+          branch: result.branch,
+          error: msg,
+        }
+      );
+    }
+
+    await this.streams.publish(sessionId, 'container-agent:message', {
+      taskId,
+      sessionId,
+      role: 'system',
+      content: `✅ Workspace ready: branch "${result.branch}" at ${result.worktreePath}`,
+    });
+
+    return { worktreePath: result.worktreePath, branch: result.branch };
   }
 
   /**
@@ -936,7 +1136,7 @@ export class ContainerAgentService {
         containerId: containerShort,
       });
 
-      // Sandbox is confirmed running (early return at top of method guards non-running state)
+      // Sandbox is confirmed running (either was already running, or became ready after polling via waitForSandboxReady)
       await this.streams.publish(sessionId, 'container-agent:message', {
         taskId,
         sessionId,
@@ -945,21 +1145,38 @@ export class ContainerAgentService {
       });
 
       // Stage: Worktree - create or recover isolated worktree
-      // K8s pods don't have host filesystem mounts, so worktrees (created on the host)
-      // are not accessible inside the pod. Skip worktree for kubernetes provider.
       const isK8sProvider = this.provider.name === 'kubernetes';
-      const { worktreeId, worktreePath } = isK8sProvider
-        ? { worktreeId: undefined, worktreePath: CONTAINER_WORKSPACE_PATH }
-        : await this.resolveWorktree({
-            phase,
-            taskId,
-            sessionId,
-            projectId,
-            project,
-            task,
-            agentId,
-            sandbox,
-          });
+      let worktreeId: string | undefined;
+      let worktreePath = CONTAINER_WORKSPACE_PATH;
+
+      if (isK8sProvider) {
+        // K8s pods start with empty /workspace — clone + worktree inside the pod
+        const k8sResult = await this.initializeK8sWorkspace({
+          sandbox,
+          project,
+          task,
+          taskId,
+          sessionId,
+          phase,
+        });
+        if (k8sResult) {
+          worktreePath = k8sResult.worktreePath;
+        }
+        // worktreeId stays undefined — K8s worktrees are ephemeral, not tracked in WorktreeService
+      } else {
+        const resolved = await this.resolveWorktree({
+          phase,
+          taskId,
+          sessionId,
+          projectId,
+          project,
+          task,
+          agentId,
+          sandbox,
+        });
+        worktreeId = resolved.worktreeId;
+        worktreePath = resolved.worktreePath;
+      }
 
       // Build env vars and create container bridge
       const { env, bridge } = this.prepareContainerExec({
@@ -1350,7 +1567,9 @@ export class ContainerAgentService {
       runDuration: `${Date.now() - agent.startedAt.getTime()}ms`,
     });
 
-    // Auto-commit worktree changes when the agent finishes work (completed or turn limit reached)
+    // Auto-commit worktree changes when the agent finishes work (completed or turn limit reached).
+    // Note: K8s agents have worktreeId=undefined (ephemeral worktrees inside pod), so this
+    // block only runs for Docker agents. K8s agents must push to remote during execution.
     if (
       agent.worktreeId &&
       this.worktreeService &&
@@ -1816,15 +2035,14 @@ export class ContainerAgentService {
    * Checks in-memory cache first, then falls back to the database
    * (plan survives server restarts via the task record).
    */
-  getPendingPlan(taskId: string): PlanData | undefined {
+  async getPendingPlan(taskId: string): Promise<PlanData | undefined> {
     const cached = this.pendingPlans.get(taskId);
     if (cached) return cached;
 
     // Recover from database if not in memory (e.g., after server restart)
-    // better-sqlite3 driver executes synchronously despite the Promise return type
-    const task = this.db.query.tasks.findFirst({
+    const task = (await this.db.query.tasks.findFirst({
       where: eq(tasks.id, taskId),
-    }) as unknown as TaskPlanRow | undefined;
+    })) as unknown as TaskPlanRow | undefined;
 
     if (task?.plan && task.lastAgentStatus === 'planning') {
       const planOptions = task.planOptions ?? {};
@@ -1854,7 +2072,7 @@ export class ContainerAgentService {
    * Approve a plan and start execution phase.
    */
   async approvePlan(taskId: string): Promise<Result<void, SandboxError>> {
-    const planData = this.getPendingPlan(taskId);
+    const planData = await this.getPendingPlan(taskId);
     if (!planData) {
       infoLog('approvePlan', 'No pending plan found', { taskId });
       return err(SandboxErrors.PLAN_NOT_FOUND(taskId));
@@ -1949,9 +2167,9 @@ export class ContainerAgentService {
 
     if (!existed) {
       // Also check DB (plan may have been recovered from restart)
-      const task = this.db.query.tasks.findFirst({
+      const task = (await this.db.query.tasks.findFirst({
         where: eq(tasks.id, taskId),
-      }) as unknown as TaskPlanRow | undefined;
+      })) as unknown as TaskPlanRow | undefined;
 
       if (!task?.plan || task.lastAgentStatus !== 'planning') {
         infoLog('rejectPlan', 'No plan to reject', { taskId });
@@ -1960,9 +2178,9 @@ export class ContainerAgentService {
     }
 
     // Look up worktreeId from task before clearing fields
-    const taskRecord = this.db.query.tasks.findFirst({
+    const taskRecord = (await this.db.query.tasks.findFirst({
       where: eq(tasks.id, taskId),
-    }) as unknown as { worktreeId?: string | null } | undefined;
+    })) as unknown as { worktreeId?: string | null } | undefined;
     const worktreeIdToClean = taskRecord?.worktreeId;
 
     // DB write FIRST — only clear in-memory on success
@@ -2012,7 +2230,15 @@ export function createContainerAgentService(
   provider: SandboxProvider,
   streams: DurableStreamsService,
   apiKeyService: ApiKeyService,
-  worktreeService?: WorktreeService
+  worktreeService?: WorktreeService,
+  githubTokenService?: GitHubTokenService
 ): ContainerAgentService {
-  return new ContainerAgentService(db, provider, streams, apiKeyService, worktreeService);
+  return new ContainerAgentService(
+    db,
+    provider,
+    streams,
+    apiKeyService,
+    worktreeService,
+    githubTokenService
+  );
 }

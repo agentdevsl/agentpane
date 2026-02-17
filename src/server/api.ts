@@ -1147,7 +1147,8 @@ async function initSandboxProvider() {
         sandboxProvider,
         durableStreamsService,
         apiKeyService,
-        worktreeService
+        worktreeService,
+        githubService
       );
 
       taskService.setContainerAgentService(containerAgentService);
