@@ -40,6 +40,7 @@ import type { SandboxError } from '../lib/errors/sandbox-errors.js';
 import { SandboxErrors } from '../lib/errors/sandbox-errors.js';
 import type {
   ExecStreamResult,
+  Sandbox,
   SandboxProvider,
 } from '../lib/sandbox/providers/sandbox-provider.js';
 import { SANDBOX_DEFAULTS } from '../lib/sandbox/types.js';
@@ -498,6 +499,41 @@ export class ContainerAgentService {
   }
 
   /**
+   * Wait for a sandbox to reach 'running' status with exponential backoff.
+   * Publishes status events to keep the UI informed.
+   */
+  private async waitForSandboxReady(
+    projectId: string,
+    sessionId: string,
+    taskId: string,
+    maxWaitMs = 30_000
+  ): Promise<Sandbox> {
+    const start = Date.now();
+    let delay = 1000;
+    const maxDelay = 5000;
+
+    while (Date.now() - start < maxWaitMs) {
+      const sandbox = await this.provider.get(projectId);
+      if (sandbox && sandbox.status === 'running') {
+        return sandbox;
+      }
+
+      const elapsed = Math.round((Date.now() - start) / 1000);
+      await this.streams.publish(sessionId, 'container-agent:status', {
+        taskId,
+        sessionId,
+        stage: 'creating_sandbox',
+        message: `Waiting for sandbox to become ready... (${elapsed}s)`,
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      delay = Math.min(delay * 2, maxDelay);
+    }
+
+    throw new Error(`Sandbox for project ${projectId} did not become ready within ${maxWaitMs}ms`);
+  }
+
+  /**
    * Start an agent for a task inside its project's sandbox container.
    * @param input.phase - 'plan' for planning mode (default), 'execute' for execution mode
    */
@@ -552,6 +588,23 @@ export class ContainerAgentService {
       // Sandbox was already fetched in parallel above
       let sandbox = initialSandbox;
 
+      // Recovery: if sandbox exists but is in terminal state, tear it down and recreate
+      if (sandbox && (sandbox.status === 'error' || sandbox.status === 'stopped')) {
+        infoLog('startAgent', 'Sandbox in terminal state, tearing down for recreation', {
+          projectId,
+          sandboxId: sandbox.id,
+          status: sandbox.status,
+        });
+        try {
+          await sandbox.stop();
+        } catch (stopErr) {
+          infoLog('startAgent', 'Failed to stop terminal sandbox (continuing with recreate)', {
+            error: stopErr instanceof Error ? stopErr.message : String(stopErr),
+          });
+        }
+        sandbox = null;
+      }
+
       // Auto-create sandbox if missing (K8s may not have a default yet)
       if (!sandbox) {
         infoLog('startAgent', 'No sandbox found, attempting auto-create', { projectId });
@@ -578,11 +631,21 @@ export class ContainerAgentService {
       infoLog('startAgent', 'Sandbox ready', { sandboxId: sandbox.id, status: sandbox.status });
 
       if (sandbox.status !== 'running') {
-        infoLog('startAgent', 'Sandbox not running', {
+        infoLog('startAgent', 'Sandbox not yet running, waiting for ready', {
           sandboxId: sandbox.id,
           status: sandbox.status,
         });
-        return err(SandboxErrors.CONTAINER_NOT_RUNNING);
+        try {
+          sandbox = await this.waitForSandboxReady(projectId, sessionId, taskId);
+          infoLog('startAgent', 'Sandbox became ready after waiting', {
+            sandboxId: sandbox.id,
+          });
+        } catch (waitErr) {
+          infoLog('startAgent', 'Sandbox did not become ready in time', {
+            error: waitErr instanceof Error ? waitErr.message : String(waitErr),
+          });
+          return err(SandboxErrors.CONTAINER_NOT_RUNNING);
+        }
       }
 
       // Check if sandbox supports streaming exec
@@ -934,6 +997,21 @@ export class ContainerAgentService {
           sandboxId: sandbox.id,
           cmd: 'node /opt/agent-runner/dist/index.js',
         });
+
+        // TOCTOU guard: re-validate sandbox is still running before exec
+        if ('refreshStatus' in sandbox && typeof sandbox.refreshStatus === 'function') {
+          await sandbox.refreshStatus();
+          if (sandbox.status !== 'running') {
+            infoLog('startAgent', 'Sandbox went away between validation and exec', {
+              sandboxId: sandbox.id,
+              status: sandbox.status,
+            });
+            if (worktreeId) {
+              await this.cleanupWorktree(taskId, worktreeId);
+            }
+            return err(SandboxErrors.CONTAINER_NOT_RUNNING);
+          }
+        }
 
         const execResult = await sandbox.execStream({
           cmd: 'node',

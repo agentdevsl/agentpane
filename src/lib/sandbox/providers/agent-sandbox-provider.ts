@@ -6,6 +6,7 @@ import {
 } from '@agentpane/agent-sandbox-sdk';
 import { createId } from '@paralleldrive/cuid2';
 import { K8sErrors } from '../../errors/k8s-errors.js';
+import { createLogger } from '../../logging/logger.js';
 import type { SandboxConfig, SandboxHealthCheck, SandboxInfo, SandboxStatus } from '../types.js';
 import { SANDBOX_DEFAULTS } from '../types.js';
 import { AgentSandboxInstance } from './agent-sandbox-instance.js';
@@ -15,6 +16,8 @@ import type {
   SandboxProviderEvent,
   SandboxProviderEventListener,
 } from './sandbox-provider.js';
+
+const log = createLogger('AgentSandboxProvider');
 
 /**
  * Runtime class for sandbox pod isolation.
@@ -201,6 +204,19 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
     }
   }
 
+  async validateSandboxes(): Promise<void> {
+    for (const [sandboxId, instance] of this.sandboxes) {
+      await instance.refreshStatus();
+      if (instance.status === 'error' || instance.status === 'stopped') {
+        log.info('Evicting stale sandbox from cache', {
+          data: { sandboxId, projectId: instance.projectId, status: instance.status },
+        });
+        this.sandboxes.delete(sandboxId);
+        this.projectToSandbox.delete(instance.projectId);
+      }
+    }
+  }
+
   async get(projectId: string): Promise<Sandbox | null> {
     // Check in-memory cache first (same pattern as DockerProvider.get)
     const sandboxId = this.projectToSandbox.get(projectId);
@@ -209,9 +225,17 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
       if (cached) {
         // Refresh status from cluster to avoid stale 'creating' status
         await cached.refreshStatus();
-        return cached;
+        if (cached.status === 'error' || cached.status === 'stopped') {
+          log.info('Evicting stale sandbox from get() cache', {
+            data: { sandboxId, projectId, status: cached.status },
+          });
+          this.sandboxes.delete(sandboxId);
+          this.projectToSandbox.delete(projectId);
+          // Fall through to cluster query below
+        } else {
+          return cached;
+        }
       }
-      return null;
     }
 
     // Fall through to cluster query using label selector.
@@ -243,10 +267,9 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
     } catch (error) {
       // Only swallow "not found" type errors; propagate real failures
       const message = error instanceof Error ? error.message : String(error);
-      console.error(
-        `[AgentSandboxProvider] Failed to query sandbox for project ${projectId}:`,
-        message
-      );
+      log.error(`Failed to query sandbox for project ${projectId}: ${message}`, {
+        error: error instanceof Error ? error : new Error(message),
+      });
       return null;
     }
   }
@@ -260,6 +283,7 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
   }
 
   async list(): Promise<SandboxInfo[]> {
+    await this.validateSandboxes();
     try {
       const result = await this.client.listSandboxes({
         labelSelector: 'agentpane.io/sandbox-id',
@@ -283,7 +307,9 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
         ),
       }));
     } catch (error) {
-      console.error('[AgentSandboxProvider] Failed to list sandboxes:', error);
+      log.error('Failed to list sandboxes', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
       return [];
     }
   }
@@ -376,7 +402,9 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
           cleaned++;
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          console.error(`[AgentSandboxProvider] Failed to cleanup sandbox ${sandboxId}:`, message);
+          log.error(`Failed to cleanup sandbox ${sandboxId}: ${message}`, {
+            error: error instanceof Error ? error : new Error(message),
+          });
         }
       }
     }
@@ -400,7 +428,9 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
       try {
         listener(event);
       } catch (error) {
-        console.error('[AgentSandboxProvider] Event listener error:', error);
+        log.error('Event listener error', {
+          error: error instanceof Error ? error : new Error(String(error)),
+        });
       }
     }
   }
@@ -449,10 +479,9 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
       await this.client.createWarmPool(warmPool);
     }
 
-    console.log(
-      `[AgentSandboxProvider] Warm pool initialized: ${warmPoolName} ` +
-        `(size=${this.warmPoolSize})`
-    );
+    log.info(`Warm pool initialized: ${warmPoolName}`, {
+      data: { warmPoolName, size: this.warmPoolSize },
+    });
   }
 
   // --- Helpers ---

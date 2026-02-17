@@ -1,9 +1,12 @@
 import { PassThrough, type Readable } from 'node:stream';
-import type { AgentSandboxClient } from '@agentpane/agent-sandbox-sdk';
+import { type AgentSandboxClient, NotFoundError } from '@agentpane/agent-sandbox-sdk';
 import { K8sErrors } from '../../errors/k8s-errors.js';
+import { createLogger } from '../../logging/logger.js';
 import type { ExecResult, SandboxMetrics, SandboxStatus, TmuxSession } from '../types.js';
 import { SANDBOX_DEFAULTS } from '../types.js';
 import type { ExecStreamOptions, ExecStreamResult, Sandbox } from './sandbox-provider.js';
+
+const log = createLogger('AgentSandboxInstance');
 
 /**
  * Sandbox instance backed by an Agent Sandbox CRD resource.
@@ -69,10 +72,7 @@ export class AgentSandboxInstance implements Sandbox {
     // CRD sandboxes run as non-root (UID 1000) by default.
     // Root execution is not supported -- same behavior as K8sSandbox.execAsRoot
     // at k8s-sandbox.ts:73-87.
-    console.warn(
-      '[AgentSandboxInstance] execAsRoot called but CRD sandboxes run as non-root. ' +
-        'Executing as default user.'
-    );
+    log.warn('execAsRoot called but CRD sandboxes run as non-root. Executing as default user.');
     return this.exec(cmd, args);
   }
 
@@ -334,11 +334,9 @@ export class AgentSandboxInstance implements Sandbox {
       };
     } catch (error) {
       // Same fallback pattern as K8sSandbox.getMetrics (k8s-sandbox.ts:318-336)
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn(
-        `[AgentSandboxInstance] Failed to get metrics for ${this.sandboxName}: ${message}. ` +
-          'Returning placeholder values.'
-      );
+      log.warn(`Failed to get metrics for ${this.sandboxName}, returning placeholder values`, {
+        error,
+      });
       return {
         cpuUsagePercent: 0,
         memoryUsageMb: 0,
@@ -370,8 +368,12 @@ export class AgentSandboxInstance implements Sandbox {
       const sandbox = await this.client.getSandbox(this.sandboxName);
       const phase = sandbox?.status?.phase;
       this._status = this.mapPhaseToStatus(phase);
-    } catch {
-      this._status = 'error';
+    } catch (error) {
+      if (error instanceof NotFoundError) {
+        this._status = 'stopped';
+      } else {
+        this._status = 'error';
+      }
     }
   }
 

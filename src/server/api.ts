@@ -574,24 +574,41 @@ async function ensureDefaultK8sSandbox(
 ): Promise<void> {
   try {
     const existingDefault = await k8sProvider.get('default');
-    if (!existingDefault) {
-      const defaults = await loadSandboxDefaultsFromDb();
-      await k8sProvider.create({
-        projectId: 'default',
-        projectPath: '/workspace',
-        image: defaults?.image ?? SANDBOX_DEFAULTS.image,
-        memoryMb: defaults?.memoryMb ?? 2048,
-        cpuCores: defaults?.cpuCores ?? 2,
-        idleTimeoutMinutes: defaults?.idleTimeoutMinutes ?? 30,
-        volumeMounts: [],
+
+    if (
+      existingDefault &&
+      (existingDefault.status === 'error' || existingDefault.status === 'stopped')
+    ) {
+      log.info('Default K8s sandbox in terminal state, recreating', {
+        data: { status: existingDefault.status },
       });
-      log.info('[API Server] Default K8s sandbox pod created');
+      if (existingDefault.status === 'error') {
+        try {
+          await existingDefault.stop();
+        } catch {
+          // Ignore stop errors — sandbox may already be gone
+        }
+      }
+      // Fall through to create
+    } else if (existingDefault) {
+      return; // Healthy default exists
     }
+
+    const defaults = await loadSandboxDefaultsFromDb();
+    await k8sProvider.create({
+      projectId: 'default',
+      projectPath: '/workspace',
+      image: defaults?.image ?? SANDBOX_DEFAULTS.image,
+      memoryMb: defaults?.memoryMb ?? 2048,
+      cpuCores: defaults?.cpuCores ?? 2,
+      idleTimeoutMinutes: defaults?.idleTimeoutMinutes ?? 30,
+      volumeMounts: [],
+    });
+    log.info('Default K8s sandbox pod created');
   } catch (createErr) {
-    console.warn(
-      '[API Server] Failed to create default K8s sandbox:',
-      createErr instanceof Error ? createErr.message : String(createErr)
-    );
+    log.warn('Failed to create default K8s sandbox', {
+      error: createErr instanceof Error ? createErr.message : String(createErr),
+    });
   }
 }
 
@@ -846,9 +863,10 @@ async function initSandboxProvider() {
                   { timeout: 60_000 }
                 );
                 log.info('[API Server] CRD controller installed from release URL');
-              } catch {
-                console.warn(
-                  '[API Server] CRD controller install from URL failed (continuing with local CRDs)'
+              } catch (ctrlErr) {
+                log.warn(
+                  '[API Server] CRD controller install from URL failed (continuing with local CRDs)',
+                  { error: ctrlErr instanceof Error ? ctrlErr.message : String(ctrlErr) }
                 );
               }
 
@@ -904,10 +922,9 @@ async function initSandboxProvider() {
                 }
               }
             } catch (installErr) {
-              console.warn(
-                '[API Server] Auto-install CRDs failed:',
-                installErr instanceof Error ? installErr.message : String(installErr)
-              );
+              log.warn('[API Server] Auto-install CRDs failed:', {
+                error: installErr instanceof Error ? installErr.message : String(installErr),
+              });
             }
           }
         }
@@ -916,7 +933,7 @@ async function initSandboxProvider() {
         if (!sandboxProvider) {
           const diagnosis = diagnoseK8sFailure(health);
           if (k8sFallbackToDocker) {
-            console.warn(
+            log.warn(
               `[API Server] Kubernetes CRD provider unhealthy: ${diagnosis}. ` +
                 'Falling back to Docker provider (fallbackToDocker enabled).'
             );
@@ -950,7 +967,7 @@ async function initSandboxProvider() {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (k8sFallbackToDocker) {
-        console.warn(
+        log.warn(
           `[API Server] Kubernetes CRD provider init failed: ${message}. Falling back to Docker (fallbackToDocker enabled).`
         );
       } else {
@@ -1130,6 +1147,8 @@ async function initSandboxProvider() {
         serviceErr instanceof Error ? serviceErr.message : String(serviceErr)
       );
     }
+  } else {
+    log.warn('[API Server] initSandboxProvider completed but no sandbox provider was initialized');
   }
 } // end initSandboxProvider
 
@@ -1196,6 +1215,26 @@ function startK8sHealInterval() {
 
     k8sCrdHealInProgress = true;
     try {
+      // Proactive cache validation: evict dead sandboxes from provider cache
+      try {
+        if ('validateSandboxes' in provider && typeof provider.validateSandboxes === 'function') {
+          await provider.validateSandboxes();
+        }
+      } catch (valErr) {
+        log.warn('[K8s Heal] Cache validation failed', {
+          error: valErr instanceof Error ? valErr.message : String(valErr),
+        });
+      }
+
+      // Ensure default sandbox exists and is healthy
+      try {
+        await ensureDefaultK8sSandbox(provider);
+      } catch (defaultErr) {
+        log.warn('[K8s Heal] Default sandbox check failed', {
+          error: defaultErr instanceof Error ? defaultErr.message : String(defaultErr),
+        });
+      }
+
       const health = await provider.healthCheck();
       if (health.healthy) return;
 

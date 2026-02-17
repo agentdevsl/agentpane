@@ -11,10 +11,13 @@ import path from 'node:path';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { settings } from '../../db/schema';
+import { createLogger } from '../../lib/logging/logger.js';
 import type { EventEmittingSandboxProvider } from '../../lib/sandbox/index.js';
 import { SANDBOX_DEFAULTS } from '../../lib/sandbox/types.js';
 import type { Database } from '../../types/database.js';
 import { isValidId, json } from '../shared.js';
+
+const log = createLogger('SandboxStatus');
 
 /** Minimal interface for reading K8s provider health in status routes. */
 interface K8sProviderHealth {
@@ -87,7 +90,7 @@ async function autoHealSandbox(
     // Check if image is available before attempting to create
     const imageAvailable = await dockerProvider.isImageAvailable(image);
     if (!imageAvailable) {
-      console.log(`[SandboxStatus] Auto-heal skipped: image '${image}' not available`);
+      log.info('Auto-heal skipped: image not available', { data: { image } });
       return false;
     }
 
@@ -104,13 +107,10 @@ async function autoHealSandbox(
       volumeMounts: [],
     });
 
-    console.log(`[SandboxStatus] Auto-heal: created sandbox for '${lookupId}'`);
+    log.info('Auto-heal: created sandbox', { data: { lookupId } });
     return true;
   } catch (error) {
-    console.error(
-      '[SandboxStatus] Auto-heal failed:',
-      error instanceof Error ? error.message : String(error)
-    );
+    log.error('Auto-heal failed', { error });
     return false;
   } finally {
     autoHealInProgress = false;
@@ -144,13 +144,10 @@ async function autoHealK8sSandbox(
       volumeMounts: [],
     });
 
-    console.log(`[SandboxStatus] K8s auto-heal: created sandbox for '${lookupId}'`);
+    log.info('K8s auto-heal: created sandbox', { data: { lookupId } });
     return true;
   } catch (error) {
-    console.error(
-      '[SandboxStatus] K8s auto-heal failed:',
-      error instanceof Error ? error.message : String(error)
-    );
+    log.error('K8s auto-heal failed', { error });
     return false;
   } finally {
     k8sAutoHealInProgress = false;
@@ -288,7 +285,7 @@ export function createSandboxStatusRoutes({
         },
       });
     } catch (error) {
-      console.error('[SandboxStatus] Error:', error);
+      log.error('Failed to get sandbox status', { error });
       return json(
         { ok: false, error: { code: 'SERVER_ERROR', message: 'Failed to get sandbox status' } },
         500
@@ -339,7 +336,7 @@ export function createSandboxStatusRoutes({
         data: { message: 'Container restarted successfully' },
       });
     } catch (error) {
-      console.error('[SandboxStatus] Restart error:', error);
+      log.error('Restart failed', { error });
       const message = error instanceof Error ? error.message : 'Failed to restart container';
       return json({ ok: false, error: { code: 'RESTART_FAILED', message } }, 500);
     }

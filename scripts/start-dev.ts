@@ -173,19 +173,23 @@ async function main() {
     stderr: 'pipe',
   });
 
-  // Capture and display API startup output
-  const apiReader = apiProcess.stdout.getReader();
-  const readApiOutput = async () => {
-    while (true) {
-      const { done, value } = await apiReader.read();
-      if (done) break;
-      const text = new TextDecoder().decode(value);
-      for (const line of text.split('\n').filter(Boolean)) {
-        console.log(`   ${colors.dim}[API] ${line}${colors.reset}`);
+  // Capture and display API startup output (stdout + stderr)
+  const readStream = (stream: ReadableStream<Uint8Array>, prefix: string) => {
+    const reader = stream.getReader();
+    const read = async () => {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const text = new TextDecoder().decode(value);
+        for (const line of text.split('\n').filter(Boolean)) {
+          console.log(`   ${colors.dim}[API] ${prefix}${line}${colors.reset}`);
+        }
       }
-    }
+    };
+    read();
   };
-  readApiOutput(); // Start reading in background
+  readStream(apiProcess.stdout, '');
+  readStream(apiProcess.stderr, '');
 
   // Wait for API to be healthy
   const isHealthy = await waitForHealthy();

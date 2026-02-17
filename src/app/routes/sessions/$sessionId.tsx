@@ -18,9 +18,13 @@ type ClientSession = {
 
 /**
  * Detect if this is a container-agent session.
- * Container-agent sessions have taskId but no agentId (they don't create separate agent records).
+ * Container-agent sessions use a sandbox provider (docker or kubernetes),
+ * or have taskId but no agentId (legacy detection).
  */
 function isContainerAgentSession(session: ClientSession): boolean {
+  if (session.sandboxProvider === 'docker' || session.sandboxProvider === 'kubernetes') {
+    return true;
+  }
   return session.agentId === null && session.taskId !== null;
 }
 

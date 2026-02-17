@@ -14,6 +14,9 @@ import {
   type WatchHandle,
 } from '@agentpane/agent-sandbox-sdk';
 import * as k8s from '@kubernetes/client-node';
+import { createLogger } from '../../logging/logger.js';
+
+const log = createLogger('SandboxController');
 
 interface SandboxControllerOptions {
   /** Interval in ms for syncing pod status back to Sandbox CRD status. Default: 10000 */
@@ -80,21 +83,21 @@ export class SandboxController {
     // Periodic status sync: push pod status into Sandbox CRD status
     this.statusSyncTimer = setInterval(() => {
       this.syncPodStatus().catch((err) => {
-        console.error('[SandboxController] Status sync error:', err);
+        log.error('Status sync error', { error: err });
       });
     }, this.statusSyncIntervalMs);
 
     // Periodic warm pool reconciliation
     this.warmPoolSyncTimer = setInterval(() => {
       this.reconcileWarmPools().catch((err) => {
-        console.error('[SandboxController] Warm pool reconciliation error:', err);
+        log.error('Warm pool reconciliation error', { error: err });
       });
     }, this.warmPoolSyncIntervalMs);
 
     // Reconcile anything already in the cluster
     await this.reconcileExisting();
 
-    console.log('[SandboxController] Started');
+    log.info('Started');
   }
 
   /**
@@ -117,7 +120,7 @@ export class SandboxController {
     }
 
     this.running = false;
-    console.log('[SandboxController] Stopped');
+    log.info('Stopped');
   }
 
   // ---------------------------------------------------------------------------
@@ -130,10 +133,10 @@ export class SandboxController {
         case 'ADDED':
         case 'MODIFIED':
           this.reconcileSandbox(event.object).catch((err) => {
-            console.error(
-              `[SandboxController] Failed to reconcile sandbox ${event.object.metadata?.name}:`,
-              err
-            );
+            log.error('Failed to reconcile sandbox', {
+              data: { sandboxName: event.object.metadata?.name },
+              error: err,
+            });
           });
           break;
 
@@ -143,7 +146,7 @@ export class SandboxController {
           break;
 
         case 'ERROR':
-          console.warn('[SandboxController] Watch ERROR event:', event.object);
+          log.warn('Watch ERROR event', { error: event.object });
           break;
 
         default:
@@ -151,7 +154,7 @@ export class SandboxController {
           break;
       }
     } catch (err) {
-      console.error('[SandboxController] Unexpected error handling watch event:', err);
+      log.error('Unexpected error handling watch event', { error: err });
     }
   }
 
@@ -167,22 +170,39 @@ export class SandboxController {
   private async reconcileSandbox(sandbox: SandboxCRD): Promise<void> {
     const sandboxName = sandbox.metadata?.name;
     if (!sandboxName) {
-      console.warn('[SandboxController] Sandbox has no metadata.name, skipping');
+      log.warn('Sandbox has no metadata.name, skipping');
       return;
     }
 
     // Check if the pod already exists
     try {
-      await this.coreApi.readNamespacedPod({ name: sandboxName, namespace: this.namespace });
-      // Pod already exists — nothing to do
-      return;
+      const existingPod = await this.coreApi.readNamespacedPod({
+        name: sandboxName,
+        namespace: this.namespace,
+      });
+      const podPhase = existingPod.status?.phase;
+      if (podPhase === 'Failed' || podPhase === 'Succeeded') {
+        log.info('Deleting terminal pod for recreation', { data: { sandboxName, podPhase } });
+        try {
+          await this.coreApi.deleteNamespacedPod({ name: sandboxName, namespace: this.namespace });
+        } catch (deleteErr) {
+          if (!this.isNotFoundError(deleteErr)) {
+            log.error('Failed to delete terminal pod', { data: { sandboxName }, error: deleteErr });
+            return;
+          }
+        }
+        // Fall through to recreate the pod
+      } else {
+        // Pod exists and is not in terminal state — nothing to do
+        return;
+      }
     } catch (err) {
       // 404 is expected (pod doesn't exist yet). Any other error is unexpected.
       if (!this.isNotFoundError(err)) {
-        console.error(
-          `[SandboxController] Unexpected error checking pod ${sandboxName}:`,
-          err instanceof Error ? err.message : String(err)
-        );
+        log.error('Unexpected error checking pod', {
+          data: { sandboxName },
+          error: err instanceof Error ? err.message : String(err),
+        });
         return;
       }
     }
@@ -193,10 +213,10 @@ export class SandboxController {
       try {
         template = await this.client.getTemplate(sandbox.spec.sandboxTemplateRef.name);
       } catch (err) {
-        console.error(
-          `[SandboxController] Failed to resolve template ${sandbox.spec.sandboxTemplateRef.name}:`,
-          err
-        );
+        log.error('Failed to resolve template', {
+          data: { templateName: sandbox.spec.sandboxTemplateRef.name },
+          error: err,
+        });
         await this.patchSandboxStatus(sandboxName, {
           phase: 'Failed',
           conditions: [
@@ -223,7 +243,7 @@ export class SandboxController {
       if (this.isConflictError(err)) {
         return;
       }
-      console.error(`[SandboxController] Failed to create pod for sandbox ${sandboxName}:`, err);
+      log.error('Failed to create pod for sandbox', { data: { sandboxName }, error: err });
       await this.patchSandboxStatus(sandboxName, {
         phase: 'Failed',
         conditions: [
@@ -245,7 +265,7 @@ export class SandboxController {
       podName: sandboxName,
     });
 
-    console.log(`[SandboxController] Created pod for sandbox ${sandboxName}`);
+    log.info('Created pod for sandbox', { data: { sandboxName } });
   }
 
   // ---------------------------------------------------------------------------
@@ -409,7 +429,7 @@ export class SandboxController {
       });
       pods = response.items;
     } catch (err) {
-      console.error('[SandboxController] Failed to list pods for status sync:', err);
+      log.error('Failed to list pods for status sync', { error: err });
       return;
     }
 
@@ -475,10 +495,10 @@ export class SandboxController {
           ...(readyAt ? { readyAt } : {}),
         });
       } catch (err) {
-        console.error(
-          `[SandboxController] Failed to sync status for pod ${pod.metadata?.name}:`,
-          err
-        );
+        log.error('Failed to sync status for pod', {
+          data: { podName: pod.metadata?.name },
+          error: err,
+        });
       }
     }
   }
@@ -494,14 +514,12 @@ export class SandboxController {
   private async reconcileExisting(): Promise<void> {
     try {
       const sandboxList = await this.client.listSandboxes({ namespace: this.namespace });
-      console.log(
-        `[SandboxController] Reconciling ${sandboxList.items.length} existing sandbox(es)`
-      );
+      log.info('Reconciling existing sandboxes', { data: { count: sandboxList.items.length } });
       for (const sandbox of sandboxList.items) {
         await this.reconcileSandbox(sandbox);
       }
     } catch (err) {
-      console.error('[SandboxController] Failed to reconcile existing sandboxes:', err);
+      log.error('Failed to reconcile existing sandboxes', { error: err });
     }
   }
 
@@ -522,7 +540,7 @@ export class SandboxController {
       const poolList = await this.client.listWarmPools(this.namespace);
       warmPools = poolList.items;
     } catch (err) {
-      console.error('[SandboxController] Failed to list warm pools:', err);
+      log.error('Failed to list warm pools', { error: err });
       return;
     }
 
@@ -533,7 +551,7 @@ export class SandboxController {
 
         const templateName = pool.spec?.templateRef?.name;
         if (!templateName) {
-          console.warn(`[SandboxController] Warm pool ${poolName} has no templateRef, skipping`);
+          log.warn('Warm pool has no templateRef, skipping', { data: { poolName } });
           continue;
         }
 
@@ -545,18 +563,40 @@ export class SandboxController {
           namespace: this.namespace,
         });
 
-        // Count how many are currently in Running phase
+        // Clean up failed/succeeded warm pool sandboxes before counting
+        const terminalSandboxes = existingSandboxes.items.filter(
+          (s) => s.status?.phase === 'Failed' || s.status?.phase === 'Succeeded'
+        );
+        for (const terminal of terminalSandboxes) {
+          const terminalName = terminal.metadata?.name;
+          if (terminalName) {
+            try {
+              await this.client.deleteSandbox(terminalName);
+              log.info('Deleted terminal warm pool sandbox', {
+                data: { sandboxName: terminalName, phase: terminal.status?.phase },
+              });
+            } catch (delErr) {
+              log.warn('Failed to delete terminal warm pool sandbox', {
+                data: { sandboxName: terminalName },
+                error: delErr,
+              });
+            }
+          }
+        }
+
+        // Count how many are currently in Running phase (exclude terminal ones we just deleted)
+        const terminalNames = new Set(terminalSandboxes.map((s) => s.metadata?.name));
         const currentReady = existingSandboxes.items.filter(
-          (s) => s.status?.phase === 'Running'
+          (s) => s.status?.phase === 'Running' && !terminalNames.has(s.metadata?.name)
         ).length;
 
         // Calculate deficit
         const deficit = desiredReady - currentReady;
 
         if (deficit > 0) {
-          console.log(
-            `[SandboxController] Warm pool ${poolName}: ${currentReady}/${desiredReady} ready, creating ${deficit} sandbox(es)`
-          );
+          log.info('Warm pool deficit detected, creating sandboxes', {
+            data: { poolName, currentReady, desiredReady, deficit },
+          });
 
           for (let i = 0; i < deficit; i++) {
             const randomSuffix = this.randomString(8);
@@ -572,18 +612,18 @@ export class SandboxController {
 
             try {
               await this.client.createSandbox(builder.build());
-              console.log(
-                `[SandboxController] Created warm sandbox ${warmSandboxName} for pool ${poolName}`
-              );
+              log.info('Created warm sandbox', {
+                data: { sandboxName: warmSandboxName, poolName },
+              });
             } catch (err) {
               if (err instanceof AlreadyExistsError) {
                 // Name collision (unlikely with random suffix) — skip
                 continue;
               }
-              console.error(
-                `[SandboxController] Failed to create warm sandbox ${warmSandboxName}:`,
-                err
-              );
+              log.error('Failed to create warm sandbox', {
+                data: { sandboxName: warmSandboxName },
+                error: err,
+              });
             }
           }
         }
@@ -591,10 +631,10 @@ export class SandboxController {
         // Update warm pool status with current ready count
         await this.patchWarmPoolStatus(poolName, { readyReplicas: currentReady });
       } catch (err) {
-        console.error(
-          `[SandboxController] Failed to reconcile warm pool ${pool.metadata?.name}:`,
-          err
-        );
+        log.error('Failed to reconcile warm pool', {
+          data: { poolName: pool.metadata?.name },
+          error: err,
+        });
       }
     }
   }
@@ -633,10 +673,10 @@ export class SandboxController {
         body: updated,
       });
     } catch (err) {
-      console.error(
-        `[SandboxController] Failed to patch sandbox status for ${name}:`,
-        err instanceof Error ? err.message : String(err)
-      );
+      log.error('Failed to patch sandbox status', {
+        data: { sandboxName: name },
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -663,10 +703,10 @@ export class SandboxController {
         body: updated,
       });
     } catch (err) {
-      console.error(
-        `[SandboxController] Failed to patch warm pool status for ${name}:`,
-        err instanceof Error ? err.message : String(err)
-      );
+      log.error('Failed to patch warm pool status', {
+        data: { poolName: name },
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
