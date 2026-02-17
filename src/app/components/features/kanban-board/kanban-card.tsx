@@ -1,6 +1,7 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { CheckCircle, Lightning, Warning, WarningCircle, XCircle } from '@phosphor-icons/react';
+import { ExecutionBadge } from '@/app/components/ui/execution-badge';
 import type { AgentStatusInfo } from '@/app/hooks/use-container-agent-statuses';
 import type { Task } from '@/db/schema';
 import { cn } from '@/lib/utils/cn';
@@ -252,6 +253,11 @@ export function KanbanCard({
               ? (stageLabels[agentStatus.currentStage] ?? 'Starting...')
               : 'Agent running...'}
           </span>
+          <ExecutionBadge
+            sandboxProvider={agentStatus?.sandboxProvider}
+            sandboxContainerId={agentStatus?.sandboxContainerId}
+            size="compact"
+          />
         </div>
       )}
     </article>

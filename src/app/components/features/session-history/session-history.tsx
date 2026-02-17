@@ -29,6 +29,8 @@ export interface RawSession {
   filesModified?: number;
   linesAdded?: number;
   linesRemoved?: number;
+  sandboxProvider?: string | null;
+  sandboxContainerId?: string | null;
 }
 
 /** Project for filtering */
@@ -78,6 +80,8 @@ function toSessionListItem(raw: RawSession, projectMap: Map<string, string>): Se
     tokensUsed: raw.tokensUsed ?? 0,
     projectId: raw.projectId,
     projectName: projectMap.get(raw.projectId) ?? null,
+    sandboxProvider: raw.sandboxProvider ?? null,
+    sandboxContainerId: raw.sandboxContainerId ?? null,
   };
 }
 
@@ -196,6 +200,8 @@ export function SessionHistory({
             projectName: projectMap.get(session.projectId) ?? null,
             url: session.url,
             events,
+            sandboxProvider: session.sandboxProvider ?? null,
+            sandboxContainerId: session.sandboxContainerId ?? null,
             filesModified: summary?.filesModified ?? 0,
             linesAdded: summary?.linesAdded ?? 0,
             linesRemoved: summary?.linesRemoved ?? 0,

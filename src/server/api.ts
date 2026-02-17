@@ -68,6 +68,7 @@ import {
   CLI_SESSIONS_PERF_METRICS_MIGRATION_SQL,
   MIGRATION_SQL,
   PERFORMANCE_INDEXES_MIGRATION_SQL,
+  SANDBOX_CONTAINER_ID_MIGRATION_SQL,
   SANDBOX_MIGRATION_SQL,
   TEMPLATE_SYNC_INTERVAL_MIGRATION_SQL,
   TERRAFORM_MIGRATION_SQL,
@@ -183,6 +184,19 @@ if (DB_MODE === 'postgres') {
       );
     }
     // Silently ignore duplicate column errors (expected when migration already applied)
+  }
+
+  // Run sandbox container ID migration (may fail if column already exists)
+  try {
+    sqlite.exec(SANDBOX_CONTAINER_ID_MIGRATION_SQL);
+    log.info('[API Server] Sandbox container ID migration applied');
+  } catch (error) {
+    if (!(error instanceof Error && error.message.includes('duplicate column name'))) {
+      console.warn(
+        '[API Server] Sandbox container ID migration error (unexpected):',
+        error instanceof Error ? error.message : String(error)
+      );
+    }
   }
 
   // Run template sync interval migration (may fail if columns already exist)

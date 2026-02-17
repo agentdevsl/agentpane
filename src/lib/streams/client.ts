@@ -72,6 +72,7 @@ const rawContainerAgentStartedSchema = z.object({
   model: z.string(),
   maxTurns: z.number(),
   sandboxProvider: z.string().optional(),
+  sandboxContainerId: z.string().optional(),
 });
 
 const rawContainerAgentTokenSchema = z.object({
@@ -264,6 +265,7 @@ export interface ContainerAgentStarted {
   model: string;
   maxTurns: number;
   sandboxProvider?: string;
+  sandboxContainerId?: string;
   timestamp: number;
 }
 

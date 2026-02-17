@@ -63,6 +63,7 @@ export function ContainerAgentPanel({
           maxTurns={state.maxTurns}
           startedAt={state.startedAt}
           sandboxProvider={resolvedProvider}
+          sandboxContainerId={state.sandboxContainerId}
           connectionState={connectionState}
           isStreaming={isStreaming}
         />

@@ -4,6 +4,7 @@ import {
   ChatCircle,
   CheckCircle,
   Clock,
+  Cube,
   Folder,
   Play,
   Trash,
@@ -11,6 +12,7 @@ import {
 } from '@phosphor-icons/react';
 import { useState } from 'react';
 import { Button } from '@/app/components/ui/button';
+import { ExecutionBadge } from '@/app/components/ui/execution-badge';
 import { Skeleton, SkeletonText } from '@/app/components/ui/skeleton';
 import { cn } from '@/lib/utils/cn';
 import { useSessionEvents } from '../hooks/use-session-events';
@@ -129,6 +131,20 @@ export function SessionDetailView({
         </button>
       ) : (
         <span className="font-mono text-done">#{taskId.slice(0, 7)}</span>
+      ),
+    });
+  }
+
+  if (session.sandboxProvider) {
+    metaItems.push({
+      icon: <Cube className="h-3.5 w-3.5" />,
+      label: 'Execution',
+      value: (
+        <ExecutionBadge
+          sandboxProvider={session.sandboxProvider}
+          sandboxContainerId={session.sandboxContainerId}
+          size="full"
+        />
       ),
     });
   }

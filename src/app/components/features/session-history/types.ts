@@ -97,6 +97,8 @@ export interface SessionListItem {
   projectId: string;
   /** Project name for display */
   projectName: string | null;
+  sandboxProvider: string | null;
+  sandboxContainerId: string | null;
 }
 
 // ===== Session Detail =====

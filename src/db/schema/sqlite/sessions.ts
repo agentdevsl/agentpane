@@ -20,6 +20,7 @@ export const sessions = sqliteTable('sessions', {
   title: text('title'),
   url: text('url').notNull(),
   sandboxProvider: text('sandbox_provider'),
+  sandboxContainerId: text('sandbox_container_id'),
   createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
   updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
   closedAt: text('closed_at'),

@@ -1,8 +1,6 @@
 import {
   ArrowsClockwise,
   CircleNotch,
-  Cube,
-  CubeTransparent,
   GitBranch,
   Robot,
   Timer,
@@ -11,6 +9,7 @@ import {
 } from '@phosphor-icons/react';
 import { cva } from 'class-variance-authority';
 import { useEffect, useState } from 'react';
+import { ExecutionBadge } from '@/app/components/ui/execution-badge';
 import type { ConnectionState } from '@/lib/streams/client';
 
 export type ContainerAgentStatus =
@@ -30,6 +29,7 @@ interface ContainerAgentHeaderProps {
   maxTurns?: number;
   startedAt?: number;
   sandboxProvider?: string;
+  sandboxContainerId?: string;
   connectionState: ConnectionState;
   isStreaming: boolean;
 }
@@ -101,6 +101,7 @@ export function ContainerAgentHeader({
   maxTurns,
   startedAt,
   sandboxProvider,
+  sandboxContainerId,
   connectionState,
   isStreaming,
 }: ContainerAgentHeaderProps): React.JSX.Element {
@@ -145,22 +146,11 @@ export function ContainerAgentHeader({
       </div>
 
       {/* Sandbox provider badge */}
-      {sandboxProvider && (
-        <div
-          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
-            sandboxProvider === 'kubernetes' ? 'bg-accent/15 text-accent' : 'bg-done/15 text-done'
-          }`}
-          data-testid="sandbox-provider-badge"
-          title={`Executing on ${sandboxProvider === 'kubernetes' ? 'Kubernetes' : 'Docker'}`}
-        >
-          {sandboxProvider === 'kubernetes' ? (
-            <CubeTransparent className="h-3.5 w-3.5" weight="duotone" />
-          ) : (
-            <Cube className="h-3.5 w-3.5" weight="duotone" />
-          )}
-          {sandboxProvider === 'kubernetes' ? 'Kubernetes' : 'Docker'}
-        </div>
-      )}
+      <ExecutionBadge
+        sandboxProvider={sandboxProvider}
+        sandboxContainerId={sandboxContainerId}
+        size="full"
+      />
 
       {/* Branch indicator */}
       {branch && (

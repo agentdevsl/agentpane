@@ -104,6 +104,8 @@ export interface ContainerAgentState {
   plan?: string;
   /** Sandbox provider (docker or kubernetes) */
   sandboxProvider?: string;
+  /** Sandbox container ID */
+  sandboxContainerId?: string;
   /** Started timestamp */
   startedAt?: number;
   /** Completed timestamp */
@@ -165,6 +167,7 @@ export function useContainerAgent(sessionId: string | null): {
       maxTurns: data.maxTurns,
       remainingTurns: data.maxTurns,
       sandboxProvider: data.sandboxProvider,
+      sandboxContainerId: data.sandboxContainerId,
       startedAt: data.timestamp,
     }));
   }, []);

@@ -124,6 +124,7 @@ export interface ContainerAgentStartedEvent {
   model: string;
   maxTurns: number;
   sandboxProvider?: string;
+  sandboxContainerId?: string;
 }
 
 export interface ContainerAgentTokenEvent {

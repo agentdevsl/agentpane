@@ -716,12 +716,14 @@ export class ContainerAgentService {
             url: `/projects/${projectId}/sessions/${sessionId}`,
             status: 'active',
             sandboxProvider: this.provider.name,
+            sandboxContainerId: sandbox.containerId ?? null,
             createdAt: new Date().toISOString(),
           })
           .onConflictDoUpdate({
             target: sessions.id,
             set: {
               sandboxProvider: this.provider.name,
+              sandboxContainerId: sandbox.containerId ?? null,
               agentId,
             },
           });
@@ -1091,6 +1093,7 @@ export class ContainerAgentService {
           model: agentConfig.model,
           maxTurns: agentConfig.maxTurns,
           sandboxProvider: this.provider.name,
+          sandboxContainerId: sandbox.containerId ?? null,
         });
         infoLog('startAgent', 'Agent started', { taskId, sessionId });
 
