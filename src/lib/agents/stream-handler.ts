@@ -120,6 +120,17 @@ async function publishCompactBoundary(
   });
 }
 
+function extractResultMetrics(result: Record<string, unknown>): AgentRunResult['metrics'] {
+  return {
+    totalCostUsd: typeof result.total_cost_usd === 'number' ? result.total_cost_usd : undefined,
+    durationMs: typeof result.duration_ms === 'number' ? result.duration_ms : undefined,
+    durationApiMs: typeof result.duration_api_ms === 'number' ? result.duration_api_ms : undefined,
+    numTurns: typeof result.num_turns === 'number' ? result.num_turns : undefined,
+    stopReason:
+      result.stop_reason !== undefined ? (result.stop_reason as string | null) : undefined,
+  };
+}
+
 async function publishMetrics(
   sessionService: { publish: (sessionId: string, event: SessionEvent) => Promise<unknown> },
   sessionId: string,
@@ -349,16 +360,7 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
           turnCount: turn,
           plan: planContent || accumulated,
           planOptions: exitPlanModeOptions,
-          metrics: {
-            totalCostUsd:
-              typeof result.total_cost_usd === 'number' ? result.total_cost_usd : undefined,
-            durationMs: typeof result.duration_ms === 'number' ? result.duration_ms : undefined,
-            durationApiMs:
-              typeof result.duration_api_ms === 'number' ? result.duration_api_ms : undefined,
-            numTurns: typeof result.num_turns === 'number' ? result.num_turns : undefined,
-            stopReason:
-              result.stop_reason !== undefined ? (result.stop_reason as string | null) : undefined,
-          },
+          metrics: extractResultMetrics(result),
         };
       }
     }
@@ -589,16 +591,7 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
           status: 'completed',
           turnCount: turn,
           result: accumulated || 'Task completed successfully',
-          metrics: {
-            totalCostUsd:
-              typeof result.total_cost_usd === 'number' ? result.total_cost_usd : undefined,
-            durationMs: typeof result.duration_ms === 'number' ? result.duration_ms : undefined,
-            durationApiMs:
-              typeof result.duration_api_ms === 'number' ? result.duration_api_ms : undefined,
-            numTurns: typeof result.num_turns === 'number' ? result.num_turns : undefined,
-            stopReason:
-              result.stop_reason !== undefined ? (result.stop_reason as string | null) : undefined,
-          },
+          metrics: extractResultMetrics(result),
         };
       }
     }

@@ -508,21 +508,17 @@ export class CliMonitorService {
 
   private startMaintenance(): void {
     this.stopMaintenance();
-    // Run maintenance on startup
-    this.runMaintenance().catch((err) => {
+    const logMaintenanceError = (err: unknown): void => {
       console.error(
         '[CliMonitor] Maintenance failed:',
         err instanceof Error ? err.message : String(err)
       );
-    });
+    };
+    // Run maintenance on startup
+    this.runMaintenance().catch(logMaintenanceError);
     // Then periodically
     this.maintenanceTimer = setInterval(() => {
-      this.runMaintenance().catch((err) => {
-        console.error(
-          '[CliMonitor] Maintenance failed:',
-          err instanceof Error ? err.message : String(err)
-        );
-      });
+      this.runMaintenance().catch(logMaintenanceError);
     }, CliMonitorService.MAINTENANCE_INTERVAL_MS);
   }
 

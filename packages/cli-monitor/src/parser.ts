@@ -468,17 +468,14 @@ export function parseJsonlFile(
     ) {
       session.lastTurnDurationMs = event.durationMs;
 
-      // Attach to most recent turn metric
+      // Attach duration to most recent turn metric and recompute running average
       if (session.performanceMetrics && session.performanceMetrics.recentTurns.length > 0) {
         const lastTurn =
           session.performanceMetrics.recentTurns[session.performanceMetrics.recentTurns.length - 1];
         if (lastTurn) {
           lastTurn.durationMs = event.durationMs;
         }
-      }
 
-      // Compute running average
-      if (session.performanceMetrics && session.performanceMetrics.recentTurns.length > 0) {
         let totalDuration = 0;
         let countWithDuration = 0;
         for (const t of session.performanceMetrics.recentTurns) {
