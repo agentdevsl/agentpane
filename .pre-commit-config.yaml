@@ -67,7 +67,7 @@ repos:
         name: Check YAML syntax
         args:
           - --allow-multiple-documents
-        exclude: ^\.devcontainer/
+        exclude: ^(\.devcontainer/|charts/.*/templates/)
       - id: check-json
         name: Check JSON syntax
         exclude: ^\.devcontainer/

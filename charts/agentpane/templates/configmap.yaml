@@ -11,17 +11,11 @@ data:
   {{- if .Values.config.corsOrigin }}
   CORS_ORIGIN: {{ .Values.config.corsOrigin | quote }}
   {{- end }}
-  MAX_CONCURRENT_AGENTS: {{ .Values.config.maxConcurrentAgents | quote }}
-  MAX_TURNS: {{ .Values.config.maxTurns | quote }}
-  {{- if .Values.config.model }}
-  AGENT_MODEL: {{ .Values.config.model | quote }}
+  {{- if .Values.config.anthropicBaseUrl }}
+  ANTHROPIC_BASE_URL: {{ .Values.config.anthropicBaseUrl | quote }}
   {{- end }}
-  SANDBOX_NAMESPACE: {{ include "agentpane.sandbox.namespace" . | quote }}
-  SANDBOX_MAX_CONCURRENT_PODS: {{ .Values.sandbox.maxConcurrentPods | quote }}
-  SANDBOX_IMAGE: {{ include "agentpane.sandbox.image" . | quote }}
-  SANDBOX_EPHEMERAL_PVC_SIZE: {{ .Values.sandbox.ephemeralPvc.size | quote }}
-  {{- if .Values.sandbox.ephemeralPvc.storageClass }}
-  SANDBOX_EPHEMERAL_PVC_STORAGE_CLASS: {{ .Values.sandbox.ephemeralPvc.storageClass | quote }}
+  {{- if .Values.config.agentMaxRuntimeMs }}
+  AGENT_MAX_RUNTIME_MS: {{ .Values.config.agentMaxRuntimeMs | quote }}
   {{- end }}
   {{- if .Values.github.enabled }}
   GITHUB_APP_ID: {{ .Values.github.appId | quote }}

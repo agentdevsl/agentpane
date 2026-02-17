@@ -7,6 +7,7 @@ import {
   Hash,
   Terminal,
 } from '@phosphor-icons/react';
+import { ExecutionBadge } from '@/app/components/ui/execution-badge';
 import { ModelSelectorInline } from '@/app/components/ui/model-selector';
 import type { Task } from '@/db/schema';
 import { getModelById } from '@/lib/constants/models';
@@ -14,6 +15,8 @@ import { cn } from '@/lib/utils/cn';
 
 interface TaskMetadataProps {
   task: Task;
+  sandboxProvider?: string | null;
+  sandboxContainerId?: string | null;
   onModelChange?: (modelId: string | null) => void;
   onViewSession?: (sessionId: string) => void;
 }
@@ -76,6 +79,8 @@ function MetadataItem({
 
 export function TaskMetadata({
   task,
+  sandboxProvider,
+  sandboxContainerId,
   onModelChange,
   onViewSession,
 }: TaskMetadataProps): React.JSX.Element {
@@ -141,13 +146,20 @@ export function TaskMetadata({
                     <p className="text-xs text-fg-muted">View execution logs and tool calls</p>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => onViewSession?.(sessionId)}
-                  className="inline-flex items-center gap-1.5 rounded-md bg-accent/10 px-3 py-1.5 text-sm font-medium text-accent transition-colors hover:bg-accent/20"
-                >
-                  <Terminal className="h-3.5 w-3.5" />#{sessionId.slice(0, 7)}
-                </button>
+                <div className="flex items-center gap-2">
+                  <ExecutionBadge
+                    sandboxProvider={sandboxProvider}
+                    sandboxContainerId={sandboxContainerId}
+                    size="full"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => onViewSession?.(sessionId)}
+                    className="inline-flex items-center gap-1.5 rounded-md bg-accent/10 px-3 py-1.5 text-sm font-medium text-accent transition-colors hover:bg-accent/20"
+                  >
+                    <Terminal className="h-3.5 w-3.5" />#{sessionId.slice(0, 7)}
+                  </button>
+                </div>
               </div>
             </div>
           );

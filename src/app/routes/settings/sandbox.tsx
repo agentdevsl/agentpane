@@ -21,7 +21,7 @@ import {
   X,
 } from '@phosphor-icons/react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { Button } from '@/app/components/ui/button';
 import { ConfigSection } from '@/app/components/ui/config-section';
@@ -48,6 +48,7 @@ interface DefaultSandboxSettings {
   image?: string;
   namespace?: string;
   containerMode?: SandboxContainerMode;
+  fallbackToDocker?: boolean;
 }
 
 interface K8sStatus {
@@ -78,6 +79,8 @@ const K8sSettingsSchema = z.object({
   warmPoolSize: z.number().optional(),
   runtimeClassName: z.enum(['gvisor', 'kata', 'none']).optional(),
   skipTLSVerify: z.boolean().optional(),
+  autoStartMinikube: z.boolean().optional(),
+  autoInstallCRDs: z.boolean().optional(),
 });
 
 export const Route = createFileRoute('/settings/sandbox')({
@@ -145,9 +148,11 @@ function SandboxSettingsPage(): React.JSX.Element {
   // CRD controller state
   const [controllerStatus, setControllerStatus] = useState<{
     installed: boolean;
+    crdReady?: boolean;
     version?: string;
     crdRegistered?: boolean;
     crdApiVersion?: string;
+    clusterVersion?: string | null;
     ready?: boolean;
   } | null>(null);
   const [controllerLoading, setControllerLoading] = useState(false);
@@ -161,6 +166,25 @@ function SandboxSettingsPage(): React.JSX.Element {
   // Warm pool state
   const [warmPoolEnabled, setWarmPoolEnabled] = useState(false);
   const [warmPoolSize, setWarmPoolSize] = useState(2);
+
+  // Minikube autostart state
+  const [autoStartMinikube, setAutoStartMinikube] = useState(false);
+
+  // Auto-install CRDs state
+  const [autoInstallCRDs, setAutoInstallCRDs] = useState(true);
+  const [autoInstallingCRDs, setAutoInstallingCRDs] = useState(false);
+  const lastAutoInstallAttemptRef = useRef(0);
+
+  // Fallback to Docker state (global setting in sandbox.defaults)
+  const [fallbackToDocker, setFallbackToDocker] = useState(false);
+
+  // Minikube start action state
+  const [minikubeStarting, setMinikubeStarting] = useState(false);
+
+  // K8s initialization error state
+  const [k8sInitError, setK8sInitError] = useState<{ error: string; timestamp: string } | null>(
+    null
+  );
 
   const loadConfigs = useCallback(async () => {
     setIsLoading(true);
@@ -183,7 +207,11 @@ function SandboxSettingsPage(): React.JSX.Element {
   const loadDefaultSettings = useCallback(async () => {
     setIsLoadingDefaults(true);
     try {
-      const result = await apiClient.settings.get(['sandbox.defaults', 'sandbox.kubernetes']);
+      const result = await apiClient.settings.get([
+        'sandbox.defaults',
+        'sandbox.kubernetes',
+        'sandbox.kubernetes.lastError',
+      ]);
       if (result.ok) {
         // Load default settings
         if (result.data.settings['sandbox.defaults']) {
@@ -192,6 +220,10 @@ function SandboxSettingsPage(): React.JSX.Element {
           // Sync provider selection with defaults
           if (saved.provider) {
             setSelectedProvider(saved.provider);
+          }
+          // Load global fallback setting
+          if (saved.fallbackToDocker !== undefined) {
+            setFallbackToDocker(saved.fallbackToDocker);
           }
         }
 
@@ -207,9 +239,22 @@ function SandboxSettingsPage(): React.JSX.Element {
             if (k8s.warmPoolSize !== undefined) setWarmPoolSize(k8s.warmPoolSize);
             if (k8s.runtimeClassName) setRuntimeClass(k8s.runtimeClassName);
             if (k8s.skipTLSVerify !== undefined) setSkipTLSVerify(k8s.skipTLSVerify);
+            if (k8s.autoStartMinikube !== undefined) setAutoStartMinikube(k8s.autoStartMinikube);
+            if (k8s.autoInstallCRDs !== undefined) setAutoInstallCRDs(k8s.autoInstallCRDs);
           } else {
             console.warn('Invalid sandbox.kubernetes settings:', parsed.error.issues);
           }
+        }
+
+        // Load K8s initialization error
+        if (result.data.settings['sandbox.kubernetes.lastError']) {
+          const lastError = result.data.settings['sandbox.kubernetes.lastError'] as {
+            error: string;
+            timestamp: string;
+          };
+          setK8sInitError(lastError);
+        } else {
+          setK8sInitError(null);
         }
       }
     } catch (_err) {
@@ -224,7 +269,7 @@ function SandboxSettingsPage(): React.JSX.Element {
     setIsSavingDefaults(true);
     try {
       const settingsToSave: Record<string, unknown> = {
-        'sandbox.defaults': defaultSettings,
+        'sandbox.defaults': { ...defaultSettings, fallbackToDocker },
         // Also save container mode separately for container-agent.service to read
         'sandbox.mode': defaultSettings.containerMode ?? 'shared',
       };
@@ -239,6 +284,8 @@ function SandboxSettingsPage(): React.JSX.Element {
           warmPoolSize,
           runtimeClassName: runtimeClass,
           skipTLSVerify,
+          autoStartMinikube,
+          autoInstallCRDs,
         };
       }
 
@@ -293,14 +340,15 @@ function SandboxSettingsPage(): React.JSX.Element {
       if (controllerResult.ok) {
         setControllerStatus(controllerResult.data);
       } else {
-        setControllerStatus({ installed: false });
+        // API error — cluster likely unreachable
+        setControllerStatus({ installed: false, clusterVersion: null });
       }
     } catch (_err) {
       setK8sStatus({
         healthy: false,
         message: 'Failed to check cluster status',
       });
-      setControllerStatus({ installed: false });
+      setControllerStatus({ installed: false, clusterVersion: null });
     } finally {
       setK8sStatusLoading(false);
       setControllerLoading(false);
@@ -340,6 +388,96 @@ function SandboxSettingsPage(): React.JSX.Element {
       loadK8sStatus();
     }
   }, [selectedProvider, loadK8sContexts, loadK8sStatus]);
+
+  // Auto-install CRDs when CRDs are missing but cluster is reachable.
+  // Uses a 60-second cooldown to prevent infinite retry loops.
+  useEffect(() => {
+    if (
+      autoInstallCRDs &&
+      !controllerLoading &&
+      controllerStatus &&
+      !controllerStatus.crdReady &&
+      controllerStatus.clusterVersion &&
+      !autoInstallingCRDs &&
+      Date.now() - lastAutoInstallAttemptRef.current > 60_000
+    ) {
+      lastAutoInstallAttemptRef.current = Date.now();
+      const installCRDs = async () => {
+        setAutoInstallingCRDs(true);
+        try {
+          const body: Record<string, unknown> = {};
+          if (k8sConfigPath) body.kubeconfigPath = k8sConfigPath;
+          if (k8sContext) body.context = k8sContext;
+          if (skipTLSVerify) body.skipTLSVerify = true;
+
+          const res = await fetch('/api/sandbox/k8s/install-crds', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          const result = await res.json();
+
+          if (result.ok) {
+            // Re-check controller status after installation
+            await loadK8sStatus();
+          } else {
+            console.warn('Auto-install CRDs failed:', result.error?.message ?? 'Unknown error');
+          }
+        } catch (err) {
+          console.warn('Auto-install CRDs failed:', err);
+        } finally {
+          setAutoInstallingCRDs(false);
+        }
+      };
+      installCRDs();
+    }
+  }, [
+    autoInstallCRDs,
+    controllerLoading,
+    controllerStatus,
+    autoInstallingCRDs,
+    k8sConfigPath,
+    k8sContext,
+    skipTLSVerify,
+    loadK8sStatus,
+  ]);
+
+  // Periodic K8s status polling for real-time auto-heal feedback
+  useEffect(() => {
+    if (selectedProvider !== 'kubernetes') return;
+    const interval = setInterval(() => {
+      loadK8sStatus();
+    }, 30_000);
+    return () => clearInterval(interval);
+  }, [selectedProvider, loadK8sStatus]);
+
+  // Start minikube manually from the UI
+  const handleStartMinikube = async () => {
+    setMinikubeStarting(true);
+    try {
+      const params = new URLSearchParams();
+      if (k8sConfigPath) params.set('kubeconfigPath', k8sConfigPath);
+      if (k8sContext) params.set('context', k8sContext);
+      const query = params.toString();
+      const res = await fetch(
+        `http://localhost:3001/api/sandbox/k8s/minikube/start${query ? `?${query}` : ''}`,
+        {
+          method: 'POST',
+        }
+      );
+      const data = await res.json();
+      if (data.ok && data.data?.started) {
+        // Refresh status after minikube starts
+        await loadK8sStatus();
+      } else {
+        setError(data.data?.message ?? data.error?.message ?? 'Failed to start minikube');
+      }
+    } catch (_err) {
+      setError('Failed to start minikube');
+    } finally {
+      setMinikubeStarting(false);
+    }
+  };
 
   const handleSaveProvider = async () => {
     setIsSavingProvider(true);
@@ -1017,7 +1155,9 @@ function SandboxSettingsPage(): React.JSX.Element {
             icon={CloudArrowUp}
             title="Kubernetes Configuration"
             description="Configure your Kubernetes cluster connection"
-            badge={k8sStatus?.healthy ? 'Connected' : 'Disconnected'}
+            badge={
+              k8sStatus?.healthy ? 'Connected' : k8sStatus?.context ? 'Unreachable' : 'Disconnected'
+            }
             badgeColor={k8sStatus?.healthy ? 'success' : 'accent'}
             testId="k8s-config-section"
           >
@@ -1042,12 +1182,15 @@ function SandboxSettingsPage(): React.JSX.Element {
                         ? 'Checking connection...'
                         : k8sStatus?.healthy
                           ? 'Connected'
-                          : 'Not Connected'}
+                          : 'Cluster Unreachable'}
                     </p>
                     {k8sStatus?.healthy && k8sStatus.cluster && (
                       <p className="text-xs text-fg-muted">
                         {k8sStatus.cluster} ({k8sStatus.serverVersion})
                       </p>
+                    )}
+                    {!k8sStatus?.healthy && k8sStatus?.context && (
+                      <p className="text-xs text-fg-muted">Context: {k8sStatus.context}</p>
                     )}
                     {!k8sStatus?.healthy && k8sStatus?.message && (
                       <p className="text-xs text-danger">{k8sStatus.message}</p>
@@ -1068,9 +1211,13 @@ function SandboxSettingsPage(): React.JSX.Element {
               {/* CRD Controller Status */}
               <div className="flex items-center justify-between rounded-lg border border-border bg-surface-subtle p-4">
                 <div className="flex items-center gap-3">
-                  {controllerLoading ? (
+                  {controllerLoading || autoInstallingCRDs ? (
                     <CircleNotch className="h-5 w-5 animate-spin text-fg-muted" />
                   ) : controllerStatus?.installed ? (
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-success-muted">
+                      <Check className="h-4 w-4 text-success" weight="bold" />
+                    </div>
+                  ) : controllerStatus?.crdReady ? (
                     <div className="flex h-8 w-8 items-center justify-center rounded-full bg-success-muted">
                       <Check className="h-4 w-4 text-success" weight="bold" />
                     </div>
@@ -1083,9 +1230,15 @@ function SandboxSettingsPage(): React.JSX.Element {
                     <p className="font-medium text-fg">
                       {controllerLoading
                         ? 'Checking controller...'
-                        : controllerStatus?.installed
-                          ? 'Agent Sandbox Controller'
-                          : 'Controller Not Installed'}
+                        : autoInstallingCRDs
+                          ? 'Installing CRDs...'
+                          : controllerStatus?.installed
+                            ? 'Agent Sandbox Controller'
+                            : controllerStatus?.crdReady
+                              ? 'CRDs Ready'
+                              : !controllerStatus?.clusterVersion
+                                ? 'Cluster Unreachable'
+                                : 'CRDs Not Installed'}
                     </p>
                     {controllerStatus?.installed && (
                       <p className="text-xs text-fg-muted">
@@ -1093,11 +1246,33 @@ function SandboxSettingsPage(): React.JSX.Element {
                         {controllerStatus.crdApiVersion ?? 'v1alpha1'}
                       </p>
                     )}
-                    {!controllerStatus?.installed && !controllerLoading && (
-                      <p className="text-xs text-danger">
-                        Install the Agent Sandbox CRD controller to use Kubernetes sandboxes
+                    {controllerStatus?.crdReady && !controllerStatus?.installed && (
+                      <p className="text-xs text-fg-muted">
+                        External controller not deployed (optional)
                       </p>
                     )}
+                    {autoInstallingCRDs && (
+                      <p className="text-xs text-fg-muted">
+                        Auto-installing CRDs and controller...
+                      </p>
+                    )}
+                    {!controllerStatus?.crdReady &&
+                      !controllerLoading &&
+                      !autoInstallingCRDs &&
+                      !controllerStatus?.clusterVersion && (
+                        <p className="text-xs text-danger">
+                          Cannot reach the Kubernetes cluster. Check that minikube or your cluster
+                          is running.
+                        </p>
+                      )}
+                    {!controllerStatus?.crdReady &&
+                      !controllerLoading &&
+                      !autoInstallingCRDs &&
+                      controllerStatus?.clusterVersion && (
+                        <p className="text-xs text-danger">
+                          Install the Agent Sandbox CRDs to use Kubernetes sandboxes
+                        </p>
+                      )}
                   </div>
                 </div>
               </div>
@@ -1356,6 +1531,161 @@ function SandboxSettingsPage(): React.JSX.Element {
                   </div>
                 )}
               </div>
+
+              {/* K8s Initialization Error Banner */}
+              {k8sInitError && (
+                <div
+                  className="rounded-lg border border-danger/30 bg-danger/10 p-4"
+                  data-testid="k8s-init-error-banner"
+                >
+                  <div className="flex items-start gap-3">
+                    <Warning className="mt-0.5 h-5 w-5 flex-shrink-0 text-danger" weight="fill" />
+                    <div>
+                      <p className="text-sm font-medium text-danger">
+                        Kubernetes Initialization Failed
+                      </p>
+                      <p className="mt-1 text-sm text-fg-muted">{k8sInitError.error}</p>
+                      <p className="mt-1 text-xs text-fg-subtle">
+                        Last attempt: {new Date(k8sInitError.timestamp).toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Auto-install CRDs Toggle */}
+              <div className="flex items-center justify-between rounded-md border border-border bg-surface-subtle px-3 py-2.5">
+                <div>
+                  <p className="text-sm font-medium text-fg">Auto-install CRDs</p>
+                  <p className="text-xs text-fg-muted">
+                    Automatically install AgentPane CRDs and namespace when connecting to the
+                    cluster
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={autoInstallCRDs}
+                  onClick={() => setAutoInstallCRDs(!autoInstallCRDs)}
+                  className={cn(
+                    'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors',
+                    autoInstallCRDs ? 'bg-accent' : 'bg-fg-muted/30'
+                  )}
+                  data-testid="k8s-auto-install-crds-toggle"
+                >
+                  <span
+                    className={cn(
+                      'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition-transform mt-0.5',
+                      autoInstallCRDs ? 'translate-x-4' : 'translate-x-0.5'
+                    )}
+                  />
+                </button>
+              </div>
+
+              {/* Auto-start Minikube Toggle */}
+              <div className="flex items-center justify-between rounded-md border border-border bg-surface-subtle px-3 py-2.5">
+                <div>
+                  <p className="text-sm font-medium text-fg">Auto-start Minikube</p>
+                  <p className="text-xs text-fg-muted">
+                    Automatically run &apos;minikube start&apos; if the cluster is unreachable and
+                    context is minikube
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={autoStartMinikube}
+                  onClick={() => setAutoStartMinikube(!autoStartMinikube)}
+                  className={cn(
+                    'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors',
+                    autoStartMinikube ? 'bg-accent' : 'bg-fg-muted/30'
+                  )}
+                  data-testid="k8s-auto-start-minikube-toggle"
+                >
+                  <span
+                    className={cn(
+                      'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition-transform mt-0.5',
+                      autoStartMinikube ? 'translate-x-4' : 'translate-x-0.5'
+                    )}
+                  />
+                </button>
+              </div>
+
+              {/* Fall back to Docker Toggle */}
+              <div className="flex items-center justify-between rounded-md border border-border bg-surface-subtle px-3 py-2.5">
+                <div>
+                  <p className="text-sm font-medium text-fg">Fall back to Docker if unavailable</p>
+                  <p className="text-xs text-fg-muted">
+                    If the Kubernetes cluster is unreachable, fall back to Docker instead of
+                    disabling container agents
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={fallbackToDocker}
+                  onClick={() => setFallbackToDocker(!fallbackToDocker)}
+                  className={cn(
+                    'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors',
+                    fallbackToDocker ? 'bg-accent' : 'bg-fg-muted/30'
+                  )}
+                  data-testid="k8s-fallback-to-docker-toggle"
+                >
+                  <span
+                    className={cn(
+                      'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition-transform mt-0.5',
+                      fallbackToDocker ? 'translate-x-4' : 'translate-x-0.5'
+                    )}
+                  />
+                </button>
+              </div>
+
+              {/* Start Minikube + Save buttons */}
+              <div className="flex items-center justify-between">
+                {/* Start Minikube button - only when unreachable and context is minikube */}
+                {!k8sStatus?.healthy && k8sStatus?.context === 'minikube' && (
+                  <Button
+                    onClick={handleStartMinikube}
+                    disabled={minikubeStarting}
+                    variant="outline"
+                    data-testid="k8s-start-minikube-btn"
+                  >
+                    {minikubeStarting ? (
+                      <>
+                        <CircleNotch className="h-4 w-4 animate-spin" />
+                        Starting Minikube...
+                      </>
+                    ) : (
+                      'Start Minikube'
+                    )}
+                  </Button>
+                )}
+                <div className="ml-auto">
+                  <Button
+                    onClick={saveDefaultSettings}
+                    disabled={isSavingDefaults}
+                    className={cn(
+                      'min-w-[140px] transition-all',
+                      defaultsSaved && 'bg-success hover:bg-success'
+                    )}
+                    data-testid="save-k8s-settings"
+                  >
+                    {isSavingDefaults ? (
+                      <>
+                        <CircleNotch className="h-4 w-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : defaultsSaved ? (
+                      <>
+                        <Check className="h-4 w-4" weight="bold" />
+                        Saved!
+                      </>
+                    ) : (
+                      'Save Settings'
+                    )}
+                  </Button>
+                </div>
+              </div>
             </div>
           </ConfigSection>
         )}
@@ -1412,41 +1742,34 @@ function SandboxSettingsPage(): React.JSX.Element {
                     <div
                       key={config.id}
                       data-testid={`sandbox-config-${config.id}`}
-                      className="rounded-lg border border-border/70 bg-surface-subtle/30 p-5 transition-all hover:border-border"
+                      className="rounded-lg border border-border/70 bg-surface-subtle/30 px-4 py-3 transition-all hover:border-border"
                     >
-                      {/* Card header */}
-                      <div className="mb-4 flex items-start gap-3">
-                        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-surface-emphasis/50">
-                          <Package className="h-4 w-4 text-fg-muted" weight="duotone" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <h3 className="text-sm font-medium text-fg">{config.name}</h3>
-                            <span className="rounded bg-surface-muted px-2 py-0.5 text-xs font-medium text-fg-muted">
-                              {config.type === 'kubernetes'
-                                ? '☸️ Kubernetes'
-                                : config.type === 'devcontainer'
-                                  ? '📦 DevContainer'
-                                  : '🐳 Docker'}
-                            </span>
-                            {config.isDefault && (
-                              <span className="rounded bg-success-muted px-2 py-0.5 text-xs font-medium text-success">
-                                Default
-                              </span>
-                            )}
-                          </div>
-                          {config.description && (
-                            <p className="mt-0.5 text-xs text-fg-muted">{config.description}</p>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1">
+                      {/* Header row */}
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-medium text-fg">{config.name}</h3>
+                        <span className="rounded bg-surface-muted px-1.5 py-0.5 text-[11px] font-medium text-fg-muted">
+                          {config.type === 'kubernetes'
+                            ? '☸️ K8s'
+                            : config.type === 'devcontainer'
+                              ? '📦 DevContainer'
+                              : '🐳 Docker'}
+                        </span>
+                        {config.isDefault && (
+                          <span className="rounded bg-success-muted px-1.5 py-0.5 text-[11px] font-medium text-success">
+                            Default
+                          </span>
+                        )}
+                        {config.description && (
+                          <span className="text-xs text-fg-subtle">{config.description}</span>
+                        )}
+                        <div className="ml-auto flex items-center gap-0.5">
                           <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => openEditEditor(config)}
                             data-testid={`edit-sandbox-config-${config.id}`}
                           >
-                            <Pencil className="h-4 w-4" />
+                            <Pencil className="h-3.5 w-3.5" />
                           </Button>
                           <Button
                             variant="ghost"
@@ -1454,63 +1777,60 @@ function SandboxSettingsPage(): React.JSX.Element {
                             onClick={() => handleDelete(config)}
                             data-testid={`delete-sandbox-config-${config.id}`}
                           >
-                            <Trash className="h-4 w-4" />
+                            <Trash className="h-3.5 w-3.5" />
                           </Button>
                         </div>
                       </div>
 
-                      {/* Resource Grid */}
-                      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                        <div className="rounded-lg bg-surface-subtle p-3">
-                          <div className="flex items-center gap-1.5 text-xs text-fg-muted">
-                            <HardDrive className="h-3.5 w-3.5" />
-                            Memory
-                          </div>
-                          <div className="mt-1.5 font-mono text-lg font-semibold text-fg">
-                            {config.memoryMb}
-                            <span className="ml-0.5 text-sm font-normal text-fg-muted">MB</span>
-                          </div>
-                        </div>
-                        <div className="rounded-lg bg-surface-subtle p-3">
-                          <div className="flex items-center gap-1.5 text-xs text-fg-muted">
-                            <Cpu className="h-3.5 w-3.5" />
-                            CPU
-                          </div>
-                          <div className="mt-1.5 font-mono text-lg font-semibold text-fg">
-                            {config.cpuCores}
-                            <span className="ml-0.5 text-sm font-normal text-fg-muted">cores</span>
-                          </div>
-                        </div>
-                        <div className="rounded-lg bg-surface-subtle p-3">
-                          <div className="flex items-center gap-1.5 text-xs text-fg-muted">
-                            <TreeStructure className="h-3.5 w-3.5" />
-                            Processes
-                          </div>
-                          <div className="mt-1.5 font-mono text-lg font-semibold text-fg">
+                      {/* Inline resource stats */}
+                      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-fg-muted">
+                        <span className="flex items-center gap-1">
+                          <HardDrive className="h-3 w-3" />
+                          <span className="font-mono font-medium text-fg">{config.memoryMb}</span>{' '}
+                          MB
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Cpu className="h-3 w-3" />
+                          <span className="font-mono font-medium text-fg">{config.cpuCores}</span>{' '}
+                          cores
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <TreeStructure className="h-3 w-3" />
+                          <span className="font-mono font-medium text-fg">
                             {config.maxProcesses}
-                            <span className="ml-0.5 text-sm font-normal text-fg-muted">PIDs</span>
-                          </div>
-                        </div>
-                        <div className="rounded-lg bg-surface-subtle p-3">
-                          <div className="flex items-center gap-1.5 text-xs text-fg-muted">
-                            <Timer className="h-3.5 w-3.5" />
-                            Timeout
-                          </div>
-                          <div className="mt-1.5 font-mono text-lg font-semibold text-fg">
+                          </span>{' '}
+                          PIDs
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Timer className="h-3 w-3" />
+                          <span className="font-mono font-medium text-fg">
                             {config.timeoutMinutes}
-                            <span className="ml-0.5 text-sm font-normal text-fg-muted">min</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Footer */}
-                      <div className="mt-4 border-t border-border/50 pt-3">
-                        <p className="font-mono text-xs text-fg-muted">Image: {config.baseImage}</p>
-                        {config.volumeMountPath && (
-                          <p className="mt-1 flex items-center gap-1.5 font-mono text-xs text-fg-muted">
-                            <FolderOpen className="h-3 w-3" />
-                            Mount: {config.volumeMountPath}
-                          </p>
+                          </span>{' '}
+                          min
+                        </span>
+                        <span className="text-fg-subtle">|</span>
+                        <span className="font-mono">{config.baseImage}</span>
+                        {config.type === 'kubernetes' &&
+                          (config as SandboxConfigItem).kubeNamespace && (
+                            <>
+                              <span className="text-fg-subtle">|</span>
+                              <span className="flex items-center gap-1">
+                                <Cloud className="h-3 w-3" />
+                                ns:{' '}
+                                <span className="font-mono">
+                                  {(config as SandboxConfigItem).kubeNamespace}
+                                </span>
+                              </span>
+                            </>
+                          )}
+                        {config.type !== 'kubernetes' && config.volumeMountPath && (
+                          <>
+                            <span className="text-fg-subtle">|</span>
+                            <span className="flex items-center gap-1">
+                              <FolderOpen className="h-3 w-3" />
+                              <span className="font-mono">{config.volumeMountPath}</span>
+                            </span>
+                          </>
                         )}
                       </div>
                     </div>

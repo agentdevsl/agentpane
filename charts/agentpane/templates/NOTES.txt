@@ -1,0 +1,45 @@
+AgentPane has been deployed to namespace {{ .Release.Namespace }}.
+
+{{- if .Values.gateway.enabled }}
+Access AgentPane at: https://{{ .Values.gateway.hostname }}
+{{- else }}
+Access AgentPane via port-forward:
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "agentpane.fullname" . }} 3001:{{ .Values.service.port }}
+  Then open: http://localhost:3001
+{{- end }}
+
+{{- if .Values.sandbox.enabled }}
+
+--- Agent Sandbox (Remote Mode) ---
+
+Sandbox namespace: {{ include "agentpane.sandbox.namespace" . }}
+Provider: {{ .Values.sandbox.provider | default "kubernetes" }}
+
+PREREQUISITES for Kubernetes CRD sandbox mode:
+  1. Install Agent Sandbox CRDs:
+     kubectl apply -f k8s/manifests/crds.yaml
+
+  2. Deploy the agent-sandbox controller to the cluster.
+     The controller manages pod lifecycle for agents.x-k8s.io resources.
+
+  3. (Optional) Install a SandboxTemplate:
+     kubectl apply -f k8s/manifests/agentpane-sandbox-template.yaml
+
+  4. (Optional) Install a SandboxWarmPool for fast allocation:
+     kubectl apply -f k8s/manifests/agentpane-warm-pool.yaml
+
+Verify CRD installation:
+  kubectl get crd sandboxes.agents.x-k8s.io
+
+Verify sandbox RBAC:
+  kubectl auth can-i create sandboxes.agents.x-k8s.io \
+    --as=system:serviceaccount:{{ .Release.Namespace }}:{{ include "agentpane.serviceAccountName" . }} \
+    -n {{ include "agentpane.sandbox.namespace" . }}
+{{- end }}
+
+{{- if not (or .Values.ai.anthropicApiKey .Values.ai.claudeOauthToken .Values.ai.existingSecret) }}
+
+WARNING: No AI credentials configured.
+  Set ai.anthropicApiKey or ai.claudeOauthToken, or provide ai.existingSecret.
+  Agent execution will fail without valid credentials.
+{{- end }}

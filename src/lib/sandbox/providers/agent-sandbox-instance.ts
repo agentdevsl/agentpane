@@ -1,9 +1,12 @@
 import { PassThrough, type Readable } from 'node:stream';
-import type { AgentSandboxClient } from '@agentpane/agent-sandbox-sdk';
+import { type AgentSandboxClient, NotFoundError } from '@agentpane/agent-sandbox-sdk';
 import { K8sErrors } from '../../errors/k8s-errors.js';
+import { createLogger } from '../../logging/logger.js';
 import type { ExecResult, SandboxMetrics, SandboxStatus, TmuxSession } from '../types.js';
 import { SANDBOX_DEFAULTS } from '../types.js';
 import type { ExecStreamOptions, ExecStreamResult, Sandbox } from './sandbox-provider.js';
+
+const log = createLogger('AgentSandboxInstance');
 
 /**
  * Sandbox instance backed by an Agent Sandbox CRD resource.
@@ -14,7 +17,7 @@ import type { ExecStreamOptions, ExecStreamResult, Sandbox } from './sandbox-pro
  */
 export class AgentSandboxInstance implements Sandbox {
   private _lastActivity: Date;
-  private _status: SandboxStatus = 'running';
+  private _status: SandboxStatus = 'creating';
 
   constructor(
     /** Unique sandbox ID (cuid2) */
@@ -69,10 +72,7 @@ export class AgentSandboxInstance implements Sandbox {
     // CRD sandboxes run as non-root (UID 1000) by default.
     // Root execution is not supported -- same behavior as K8sSandbox.execAsRoot
     // at k8s-sandbox.ts:73-87.
-    console.warn(
-      '[AgentSandboxInstance] execAsRoot called but CRD sandboxes run as non-root. ' +
-        'Executing as default user.'
-    );
+    log.warn('execAsRoot called but CRD sandboxes run as non-root. Executing as default user.');
     return this.exec(cmd, args);
   }
 
@@ -146,8 +146,25 @@ export class AgentSandboxInstance implements Sandbox {
       const envPrefix = envEntries.map(([k, v]) => `${k}=${this.shellEscape(v)}`).join(' ');
 
       if (fullCmd[0] === 'sh' && fullCmd[1] === '-c') {
-        // Already wrapped in shell -- inject env into the shell command
-        fullCmd = ['sh', '-c', `${envPrefix} ${fullCmd[2]}`];
+        // Already wrapped in shell -- inject env before `exec` so they scope to the
+        // exec'd command. Placing them before `cd` only scopes them to `cd` itself.
+        // Pattern: sh -c 'cd /cwd && VAR=val exec cmd args'
+        const shBody = fullCmd[2] ?? '';
+        const execIdx = shBody.indexOf('exec ');
+        if (execIdx !== -1) {
+          fullCmd = [
+            'sh',
+            '-c',
+            `${shBody.slice(0, execIdx)}${envPrefix} ${shBody.slice(execIdx)}`,
+          ];
+        } else {
+          // No exec keyword — fall back to export approach
+          fullCmd = [
+            'sh',
+            '-c',
+            `export ${envEntries.map(([k, v]) => `${k}=${this.shellEscape(v)}`).join(' ')}; ${shBody}`,
+          ];
+        }
       } else {
         // Values are passed as separate argv entries to env, so shell escaping is not needed
         // here (unlike the sh -c path above where values are embedded in a shell string).
@@ -317,11 +334,9 @@ export class AgentSandboxInstance implements Sandbox {
       };
     } catch (error) {
       // Same fallback pattern as K8sSandbox.getMetrics (k8s-sandbox.ts:318-336)
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn(
-        `[AgentSandboxInstance] Failed to get metrics for ${this.sandboxName}: ${message}. ` +
-          'Returning placeholder values.'
-      );
+      log.warn(`Failed to get metrics for ${this.sandboxName}, returning placeholder values`, {
+        error,
+      });
       return {
         cpuUsagePercent: 0,
         memoryUsageMb: 0,
@@ -342,5 +357,44 @@ export class AgentSandboxInstance implements Sandbox {
 
   getLastActivity(): Date {
     return this._lastActivity;
+  }
+
+  /**
+   * Refresh status from the actual Sandbox CRD phase.
+   * Called by the provider after constructing an instance from a cluster query.
+   */
+  async refreshStatus(): Promise<void> {
+    try {
+      const sandbox = await this.client.getSandbox(this.sandboxName);
+      const phase = sandbox?.status?.phase;
+      this._status = this.mapPhaseToStatus(phase);
+    } catch (error) {
+      if (error instanceof NotFoundError) {
+        this._status = 'stopped';
+      } else {
+        this._status = 'error';
+      }
+    }
+  }
+
+  /**
+   * Map CRD phase to SandboxStatus.
+   * Matches AgentSandboxProvider.mapCrdPhase() for consistency.
+   */
+  private mapPhaseToStatus(phase?: string): SandboxStatus {
+    switch (phase) {
+      case 'Running':
+        return 'running';
+      case 'Pending':
+        return 'creating';
+      case 'Paused':
+        return 'idle';
+      case 'Failed':
+        return 'error';
+      case 'Succeeded':
+        return 'stopped';
+      default:
+        return 'creating';
+    }
   }
 }

@@ -266,12 +266,18 @@ export function QuestionsPanel({
           disabled={isSubmitting}
           className={cn(
             'inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg transition-colors',
-            'text-fg-muted hover:text-fg border border-border hover:bg-surface-muted',
-            'disabled:opacity-50 disabled:cursor-not-allowed'
+            isSubmitting && !allAnswered
+              ? 'text-fg-muted border border-border cursor-wait opacity-70'
+              : 'text-fg-muted hover:text-fg border border-border hover:bg-surface-muted',
+            'disabled:cursor-not-allowed'
           )}
         >
-          <FastForward className="h-3.5 w-3.5" />
-          Skip Questions
+          {isSubmitting && !allAnswered ? (
+            <Spinner className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <FastForward className="h-3.5 w-3.5" />
+          )}
+          {isSubmitting && !allAnswered ? 'Skipping...' : 'Skip Questions'}
         </button>
 
         <button

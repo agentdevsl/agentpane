@@ -7,7 +7,7 @@ export const Route = createFileRoute('/settings')({
 
 function SettingsLayout(): React.JSX.Element {
   return (
-    <div className="flex min-h-screen bg-canvas text-fg">
+    <div className="flex h-screen bg-canvas text-fg">
       <SettingsSidebar />
       <main className="flex-1 overflow-y-auto">
         <Outlet />

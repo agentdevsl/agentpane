@@ -9,6 +9,7 @@ import {
 } from '@phosphor-icons/react';
 import { cva } from 'class-variance-authority';
 import { useEffect, useState } from 'react';
+import { ExecutionBadge } from '@/app/components/ui/execution-badge';
 import type { ConnectionState } from '@/lib/streams/client';
 
 export type ContainerAgentStatus =
@@ -27,6 +28,8 @@ interface ContainerAgentHeaderProps {
   currentTurn: number;
   maxTurns?: number;
   startedAt?: number;
+  sandboxProvider?: string;
+  sandboxContainerId?: string;
   connectionState: ConnectionState;
   isStreaming: boolean;
 }
@@ -97,6 +100,8 @@ export function ContainerAgentHeader({
   currentTurn,
   maxTurns,
   startedAt,
+  sandboxProvider,
+  sandboxContainerId,
   connectionState,
   isStreaming,
 }: ContainerAgentHeaderProps): React.JSX.Element {
@@ -139,6 +144,13 @@ export function ContainerAgentHeader({
         <span className={statusDotVariants({ status })} />
         {statusLabels[status]}
       </div>
+
+      {/* Sandbox provider badge */}
+      <ExecutionBadge
+        sandboxProvider={sandboxProvider}
+        sandboxContainerId={sandboxContainerId}
+        size="full"
+      />
 
       {/* Branch indicator */}
       {branch && (

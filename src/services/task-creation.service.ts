@@ -6,7 +6,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import { createId } from '@paralleldrive/cuid2';
 import { eq } from 'drizzle-orm';
-import { type NewTask, projects, tasks } from '@/db/schema';
+import { type NewTask, projects, sessions, tasks } from '@/db/schema';
 import { DEFAULT_TASK_CREATION_MODEL, getFullModelId } from '@/lib/constants/models';
 import { DEFAULT_TASK_CREATION_TOOLS } from '@/lib/constants/tools';
 import { getPromptDefaultText, resolvePromptServer } from '@/lib/prompts';
@@ -222,6 +222,12 @@ export class TaskCreationService {
           }
         }
         this.sessions.delete(sessionId);
+        // Mark DB session as closed
+        this.db
+          .update(sessions)
+          .set({ status: 'closed', closedAt: new Date().toISOString() })
+          .where(eq(sessions.id, sessionId))
+          .catch(() => {});
         cleanedCount++;
       }
     }
@@ -778,6 +784,25 @@ export class TaskCreationService {
 
     // Update session with v2Session reference
     session.v2Session = v2Session as V2Session;
+
+    // Insert a sessions row so session_events FK constraint is satisfied
+    try {
+      await this.db.insert(sessions).values({
+        id: sessionId,
+        projectId,
+        taskId: null,
+        agentId: null,
+        title: 'Task Creation',
+        url: `/projects/${projectId}/task-creation/${sessionId}`,
+        status: 'active',
+        createdAt: new Date().toISOString(),
+      });
+    } catch (insertErr) {
+      const errorMsg = insertErr instanceof Error ? insertErr.message : String(insertErr);
+      if (!errorMsg.includes('UNIQUE constraint')) {
+        console.warn('[TaskCreationService] Failed to create session record:', errorMsg);
+      }
+    }
 
     // Create stream and publish start event in parallel
     await Promise.all([
@@ -1947,7 +1972,14 @@ export class TaskCreationService {
         console.error('[TaskCreationService] Failed to publish completion event:', error);
       }
 
-      // Schedule delayed session cleanup to allow late API calls
+      // Mark DB session as closed
+      this.db
+        .update(sessions)
+        .set({ status: 'closed', closedAt: new Date().toISOString() })
+        .where(eq(sessions.id, sessionId))
+        .catch(() => {});
+
+      // Schedule delayed in-memory cleanup to allow late API calls
       setTimeout(() => {
         this.sessions.delete(sessionId);
         console.log('[TaskCreationService] Cleaned up completed session:', sessionId);
@@ -2475,7 +2507,14 @@ export class TaskCreationService {
       console.error('[TaskCreationService] Failed to publish cancel event:', error);
     }
 
-    // Schedule delayed session cleanup to allow late API calls
+    // Mark DB session as closed
+    this.db
+      .update(sessions)
+      .set({ status: 'closed', closedAt: new Date().toISOString() })
+      .where(eq(sessions.id, sessionId))
+      .catch(() => {});
+
+    // Schedule delayed in-memory cleanup to allow late API calls
     setTimeout(() => {
       this.sessions.delete(sessionId);
       console.log('[TaskCreationService] Cleaned up cancelled session:', sessionId);

@@ -11,7 +11,12 @@
   },
   "overrides": [
     {
-      "includes": ["**/routeTree.gen.ts", ".claude/settings.local.json"],
+      "includes": [
+        "**/routeTree.gen.ts",
+        ".claude/settings.local.json",
+        "specs/ideas/**",
+        "charts/**"
+      ],
       "linter": { "enabled": false },
       "formatter": { "enabled": false },
       "assist": { "enabled": false }

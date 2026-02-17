@@ -21,13 +21,28 @@ interface SandboxProvider {
   list: () => Promise<SandboxInfo[]>;
 }
 
+/** Minimal interface for reading K8s provider health in the health endpoint. */
+interface K8sProviderHealth {
+  healthCheck(): Promise<{
+    healthy: boolean;
+    message?: string;
+    details?: Record<string, unknown>;
+  }>;
+}
+
 interface HealthDeps {
   db: Database;
   githubService: GitHubTokenService;
-  sandboxProvider?: SandboxProvider | null;
+  getSandboxProvider?: () => SandboxProvider | null;
+  getK8sProvider?: () => K8sProviderHealth | null;
 }
 
-export function createHealthRoutes({ db, githubService, sandboxProvider }: HealthDeps) {
+export function createHealthRoutes({
+  db,
+  githubService,
+  getSandboxProvider,
+  getK8sProvider,
+}: HealthDeps) {
   const app = new Hono();
 
   app.get('/', async (_c) => {
@@ -45,6 +60,14 @@ export function createHealthRoutes({ db, githubService, sandboxProvider }: Healt
         status: 'ok' | 'error' | 'not_configured';
         containerId?: string;
         containerCount?: number;
+        error?: string;
+      };
+      kubernetes?: {
+        status: 'ok' | 'error' | 'not_configured';
+        crdRegistered?: boolean;
+        namespaceExists?: boolean;
+        controllerInstalled?: boolean;
+        clusterVersion?: string | null;
         error?: string;
       };
     } = {
@@ -120,7 +143,8 @@ export function createHealthRoutes({ db, githubService, sandboxProvider }: Healt
       );
     }
 
-    // Check sandbox availability
+    // Check sandbox availability (uses getter for deferred initialization)
+    const sandboxProvider = getSandboxProvider?.();
     if (sandboxProvider) {
       try {
         const sandboxes = await sandboxProvider.list();
@@ -152,6 +176,36 @@ export function createHealthRoutes({ db, githubService, sandboxProvider }: Healt
         checks.sandbox = {
           status: 'error',
           error: error instanceof Error ? error.message : 'Sandbox check failed',
+        };
+      }
+    }
+
+    // Check Kubernetes provider health (when configured)
+    const k8sProvider = getK8sProvider?.();
+    if (k8sProvider) {
+      try {
+        const health = await k8sProvider.healthCheck();
+        const details = health.details ?? {};
+        const crdRegistered = details.crdRegistered === true;
+        const namespaceExists = details.namespaceExists === true;
+        const controllerInstalled =
+          typeof details.controller === 'object' &&
+          details.controller !== null &&
+          (details.controller as { installed?: boolean }).installed === true;
+        const clusterVersion =
+          typeof details.clusterVersion === 'string' ? details.clusterVersion : null;
+
+        checks.kubernetes = {
+          status: health.healthy ? 'ok' : 'error',
+          crdRegistered,
+          namespaceExists,
+          controllerInstalled,
+          clusterVersion,
+        };
+      } catch (error) {
+        checks.kubernetes = {
+          status: 'error',
+          error: error instanceof Error ? error.message : 'K8s health check failed',
         };
       }
     }

@@ -35,6 +35,7 @@ export function updateSandboxStatus(status: SandboxStatus): void {
       draft.containerStatus = status.containerStatus;
       draft.containerId = status.containerId;
       draft.dockerAvailable = status.dockerAvailable;
+      draft.provider = status.provider;
       draft.updatedAt = status.updatedAt;
     });
   } else {

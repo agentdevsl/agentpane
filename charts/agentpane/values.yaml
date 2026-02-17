@@ -114,14 +114,12 @@ config:
   nodeEnv: production
   # -- Log level (debug, info, warn, error)
   logLevel: info
-  # -- CORS allowed origin
+  # -- CORS allowed origin (required in production — set to your frontend URL)
   corsOrigin: ""
-  # -- Maximum concurrent agents per project
-  maxConcurrentAgents: 3
-  # -- Maximum agent execution turns
-  maxTurns: 50
-  # -- Claude model to use
-  model: "claude-sonnet-4-20250514"
+  # -- Custom Anthropic API base URL (empty = default https://api.anthropic.com)
+  anthropicBaseUrl: ""
+  # -- Maximum agent runtime in milliseconds (default: 7200000 = 2 hours)
+  agentMaxRuntimeMs: ""
 
 # -----------------------------------------------------------------------------
 # Service Account
@@ -225,7 +223,7 @@ autoscaling:
 # -----------------------------------------------------------------------------
 livenessProbe:
   httpGet:
-    path: /api/liveness
+    path: /api/healthz
     port: http
   initialDelaySeconds: 10
   periodSeconds: 30
@@ -234,7 +232,7 @@ livenessProbe:
 
 readinessProbe:
   httpGet:
-    path: /api/readiness
+    path: /api/readyz
     port: http
   initialDelaySeconds: 5
   periodSeconds: 10
@@ -243,7 +241,7 @@ readinessProbe:
 
 startupProbe:
   httpGet:
-    path: /api/liveness
+    path: /api/healthz
     port: http
   initialDelaySeconds: 5
   periodSeconds: 5
@@ -263,11 +261,22 @@ affinity: {}
 topologySpreadConstraints: []
 
 # -----------------------------------------------------------------------------
-# Agent Sandbox Configuration
+# Agent Sandbox Configuration (Kubernetes CRD Mode)
+# Uses the agents.x-k8s.io/v1alpha1 Agent Sandbox CRD controller.
+# Prerequisites:
+#   1. Install Agent Sandbox CRDs: kubectl apply -f k8s/manifests/crds.yaml
+#   2. Deploy the agent-sandbox controller to the cluster
+# Sandbox provider settings are stored in the database (sandbox.defaults,
+# sandbox.kubernetes keys) and can be managed via the Settings UI.
 # -----------------------------------------------------------------------------
 sandbox:
-  # -- Enable agent sandbox pod management
+  # -- Enable agent sandbox pod management and RBAC
   enabled: true
+
+  # -- Sandbox provider type (kubernetes or docker). When set to "kubernetes",
+  # the app will use the Agent Sandbox CRD provider; "docker" uses local Docker.
+  # This is the default provider written to the database on first startup.
+  provider: kubernetes
 
   image:
     # -- Agent sandbox container image repository
@@ -282,6 +291,21 @@ sandbox:
 
   # -- Maximum concurrent agent pods
   maxConcurrentPods: 10
+
+  # -- Runtime class for sandbox isolation (gvisor, kata, or none)
+  runtimeClassName: "none"
+
+  warmPool:
+    # -- Enable pre-warmed sandbox pool for fast allocation
+    enabled: false
+    # -- Number of pre-warmed sandboxes to maintain
+    size: 2
+
+  kubeConfig:
+    # -- Kubernetes context to use (empty = current context)
+    context: ""
+    # -- Skip TLS verification (for self-signed certs in minikube/kind)
+    skipTLSVerify: false
 
   resources:
     requests:
@@ -302,7 +326,7 @@ sandbox:
   networkPolicy:
     # -- Create network policies for sandbox namespace
     enabled: true
-    # -- Allow egress to external HTTPS
+    # -- Allow egress to external HTTPS (required for Anthropic API, package managers)
     allowHttps: true
     # -- Allow egress for Git over SSH
     allowGitSsh: true

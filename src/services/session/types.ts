@@ -104,6 +104,8 @@ export type SessionWithPresence = {
   createdAt?: string;
   updatedAt?: string;
   closedAt?: string | null;
+  sandboxProvider?: string | null;
+  sandboxContainerId?: string | null;
 };
 
 export type DurableStreamsServer = {

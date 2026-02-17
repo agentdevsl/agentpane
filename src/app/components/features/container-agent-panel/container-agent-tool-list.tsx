@@ -90,11 +90,11 @@ function ToolItem({ tool }: { tool: ContainerAgentToolExecution }): React.JSX.El
 
       {/* Expanded content */}
       {isExpanded && (
-        <div className="border-t border-border bg-surface-subtle px-3 py-2 space-y-2">
+        <div className="border-t border-border bg-surface-subtle px-3 py-2 space-y-2 min-w-0">
           {/* Input */}
           <div>
             <p className="text-xs font-medium text-fg-muted mb-1">Input</p>
-            <pre className="rounded bg-canvas p-2 text-xs text-fg overflow-x-auto max-h-32 overflow-y-auto">
+            <pre className="rounded bg-canvas p-2 text-xs text-fg whitespace-pre-wrap break-all max-h-32 overflow-y-auto">
               {formatInput(tool.input)}
             </pre>
           </div>
@@ -112,7 +112,7 @@ function ToolItem({ tool }: { tool: ContainerAgentToolExecution }): React.JSX.El
               </p>
               <pre
                 className={cn(
-                  'rounded p-2 text-xs overflow-x-auto max-h-48 overflow-y-auto',
+                  'rounded p-2 text-xs whitespace-pre-wrap break-all max-h-48 overflow-y-auto',
                   tool.isError ? 'bg-danger/10 text-danger' : 'bg-canvas text-fg'
                 )}
               >

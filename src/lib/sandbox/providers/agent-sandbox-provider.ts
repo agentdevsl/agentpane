@@ -6,6 +6,7 @@ import {
 } from '@agentpane/agent-sandbox-sdk';
 import { createId } from '@paralleldrive/cuid2';
 import { K8sErrors } from '../../errors/k8s-errors.js';
+import { createLogger } from '../../logging/logger.js';
 import type { SandboxConfig, SandboxHealthCheck, SandboxInfo, SandboxStatus } from '../types.js';
 import { SANDBOX_DEFAULTS } from '../types.js';
 import { AgentSandboxInstance } from './agent-sandbox-instance.js';
@@ -15,6 +16,8 @@ import type {
   SandboxProviderEvent,
   SandboxProviderEventListener,
 } from './sandbox-provider.js';
+
+const log = createLogger('AgentSandboxProvider');
 
 /**
  * Runtime class for sandbox pod isolation.
@@ -80,7 +83,7 @@ const PROVIDER_DEFAULTS = {
 export class AgentSandboxProvider implements EventEmittingSandboxProvider {
   readonly name = 'kubernetes';
 
-  private readonly client: AgentSandboxClient;
+  readonly client: AgentSandboxClient;
   private readonly namespace: string;
   private readonly runtimeClassName: RuntimeClassName;
   private readonly image: string;
@@ -201,11 +204,38 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
     }
   }
 
+  async validateSandboxes(): Promise<void> {
+    for (const [sandboxId, instance] of this.sandboxes) {
+      await instance.refreshStatus();
+      if (instance.status === 'error' || instance.status === 'stopped') {
+        log.info('Evicting stale sandbox from cache', {
+          data: { sandboxId, projectId: instance.projectId, status: instance.status },
+        });
+        this.sandboxes.delete(sandboxId);
+        this.projectToSandbox.delete(instance.projectId);
+      }
+    }
+  }
+
   async get(projectId: string): Promise<Sandbox | null> {
     // Check in-memory cache first (same pattern as DockerProvider.get)
     const sandboxId = this.projectToSandbox.get(projectId);
     if (sandboxId) {
-      return this.sandboxes.get(sandboxId) ?? null;
+      const cached = this.sandboxes.get(sandboxId);
+      if (cached) {
+        // Refresh status from cluster to avoid stale 'creating' status
+        await cached.refreshStatus();
+        if (cached.status === 'error' || cached.status === 'stopped') {
+          log.info('Evicting stale sandbox from get() cache', {
+            data: { sandboxId, projectId, status: cached.status },
+          });
+          this.sandboxes.delete(sandboxId);
+          this.projectToSandbox.delete(projectId);
+          // Fall through to cluster query below
+        } else {
+          return cached;
+        }
+      }
     }
 
     // Fall through to cluster query using label selector.
@@ -217,12 +247,17 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
       // Take the first active sandbox for this project
       const crdSandbox = result.items[0];
       if (!crdSandbox) {
+        // Fall back to default sandbox (mirrors DockerProvider.get lines 615-619)
+        if (projectId !== 'default') {
+          return this.get('default');
+        }
         return null;
       }
       const id = crdSandbox.metadata?.labels?.['agentpane.io/sandbox-id'] ?? createId();
       const name = crdSandbox.metadata?.name ?? '';
 
       const instance = new AgentSandboxInstance(id, name, projectId, this.namespace, this.client);
+      await instance.refreshStatus();
 
       // Cache it
       this.sandboxes.set(id, instance);
@@ -232,19 +267,23 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
     } catch (error) {
       // Only swallow "not found" type errors; propagate real failures
       const message = error instanceof Error ? error.message : String(error);
-      console.error(
-        `[AgentSandboxProvider] Failed to query sandbox for project ${projectId}:`,
-        message
-      );
+      log.error(`Failed to query sandbox for project ${projectId}: ${message}`, {
+        error: error instanceof Error ? error : new Error(message),
+      });
       return null;
     }
   }
 
   async getById(sandboxId: string): Promise<Sandbox | null> {
-    return this.sandboxes.get(sandboxId) ?? null;
+    const cached = this.sandboxes.get(sandboxId);
+    if (cached) {
+      await cached.refreshStatus();
+    }
+    return cached ?? null;
   }
 
   async list(): Promise<SandboxInfo[]> {
+    await this.validateSandboxes();
     try {
       const result = await this.client.listSandboxes({
         labelSelector: 'agentpane.io/sandbox-id',
@@ -268,7 +307,9 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
         ),
       }));
     } catch (error) {
-      console.error('[AgentSandboxProvider] Failed to list sandboxes:', error);
+      log.error('Failed to list sandboxes', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
       return [];
     }
   }
@@ -291,10 +332,22 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
       const health = await this.client.healthCheck();
 
       if (!health.healthy) {
+        const issues: string[] = [];
+        if (!health.clusterVersion) issues.push('Cluster is not reachable');
+        if (!health.crdRegistered) issues.push('Agent Sandbox CRD is not registered');
+        if (!health.namespaceExists) issues.push(`Namespace '${this.namespace}' does not exist`);
         return {
           healthy: false,
-          message: 'Cluster not reachable or CRD not registered',
-          details: { provider: 'kubernetes' },
+          message:
+            issues.length > 0 ? issues.join('; ') : 'Cluster not reachable or CRD not registered',
+          details: {
+            provider: 'kubernetes',
+            namespace: this.namespace,
+            clusterReachable: !!health.clusterVersion,
+            crdRegistered: health.crdRegistered,
+            namespaceExists: health.namespaceExists,
+            clusterVersion: health.clusterVersion,
+          },
         };
       }
 
@@ -349,7 +402,9 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
           cleaned++;
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          console.error(`[AgentSandboxProvider] Failed to cleanup sandbox ${sandboxId}:`, message);
+          log.error(`Failed to cleanup sandbox ${sandboxId}: ${message}`, {
+            error: error instanceof Error ? error : new Error(message),
+          });
         }
       }
     }
@@ -373,7 +428,9 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
       try {
         listener(event);
       } catch (error) {
-        console.error('[AgentSandboxProvider] Event listener error:', error);
+        log.error('Event listener error', {
+          error: error instanceof Error ? error : new Error(String(error)),
+        });
       }
     }
   }
@@ -422,10 +479,9 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
       await this.client.createWarmPool(warmPool);
     }
 
-    console.log(
-      `[AgentSandboxProvider] Warm pool initialized: ${warmPoolName} ` +
-        `(size=${this.warmPoolSize})`
-    );
+    log.info(`Warm pool initialized: ${warmPoolName}`, {
+      data: { warmPoolName, size: this.warmPoolSize },
+    });
   }
 
   // --- Helpers ---

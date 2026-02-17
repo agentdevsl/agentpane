@@ -1,5 +1,6 @@
 import { ChatCircle, Clock, Coins, Wrench } from '@phosphor-icons/react';
 import { cva } from 'class-variance-authority';
+import { ExecutionBadge } from '@/app/components/ui/execution-badge';
 import { cn } from '@/lib/utils/cn';
 import type { SessionCardProps } from '../types';
 import { SESSION_STATUS_COLORS } from '../types';
@@ -125,6 +126,13 @@ export function SessionCard({
             {formatTokens(session.tokensUsed)}
           </span>
         )}
+
+        {/* Execution badge */}
+        <ExecutionBadge
+          sandboxProvider={session.sandboxProvider}
+          sandboxContainerId={session.sandboxContainerId}
+          size="compact"
+        />
 
         {/* Status badge */}
         <span

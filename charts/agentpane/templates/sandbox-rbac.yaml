@@ -1,5 +1,5 @@
 {{- if .Values.sandbox.enabled -}}
-{{/* Role in the sandbox namespace — allows the controller to manage agent pods and PVCs */}}
+{{/* Role in the sandbox namespace — manages CRD resources, pods, and supporting infrastructure */}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -8,6 +8,22 @@ metadata:
   labels:
     {{- include "agentpane.labels" . | nindent 4 }}
 rules:
+  # Agent Sandbox CRD resources (agents.x-k8s.io/v1alpha1)
+  - apiGroups: ["agents.x-k8s.io"]
+    resources: ["sandboxes"]
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+  - apiGroups: ["agents.x-k8s.io"]
+    resources: ["sandboxes/status"]
+    verbs: ["get"]
+  - apiGroups: ["agents.x-k8s.io"]
+    resources: ["sandboxtemplates"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: ["agents.x-k8s.io"]
+    resources: ["sandboxclaims"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: ["agents.x-k8s.io"]
+    resources: ["sandboxwarmpools"]
+    verbs: ["create", "get", "list", "watch", "delete"]
   # Pod lifecycle management
   - apiGroups: [""]
     resources: ["pods"]
@@ -66,7 +82,7 @@ subjects:
     name: {{ include "agentpane.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
 ---
-{{/* ClusterRole for cross-namespace reads (health checks, node info) */}}
+{{/* ClusterRole for cross-namespace reads, CRD verification, and controller health checks */}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -80,6 +96,14 @@ rules:
   - apiGroups: [""]
     resources: ["nodes"]
     verbs: ["get", "list"]
+  # Verify Agent Sandbox CRDs are installed
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get"]
+  # Check agent-sandbox controller deployment status
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

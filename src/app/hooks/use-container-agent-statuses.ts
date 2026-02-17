@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  type ContainerAgentStarted,
   type ContainerAgentStatus,
   type SessionCallbacks,
   type Subscription,
@@ -20,6 +21,8 @@ export interface AgentStatusInfo {
     | 'executing'
     | 'running';
   statusMessage?: string;
+  sandboxProvider?: string;
+  sandboxContainerId?: string;
   isStarting: boolean;
   isRunning: boolean;
   isComplete: boolean;
@@ -66,7 +69,7 @@ export function useContainerAgentStatuses(
   }, []);
 
   // Handler for started event
-  const handleStarted = useCallback((sessionId: string) => {
+  const handleStarted = useCallback((sessionId: string, data: ContainerAgentStarted) => {
     setStatuses((prev) => {
       const newMap = new Map(prev);
       const existing = newMap.get(sessionId);
@@ -75,6 +78,8 @@ export function useContainerAgentStatuses(
           ...existing,
           isRunning: true,
           isStarting: false,
+          sandboxProvider: data.sandboxProvider,
+          sandboxContainerId: data.sandboxContainerId,
         });
       }
       return newMap;
@@ -130,9 +135,9 @@ export function useContainerAgentStatuses(
             console.log('[useContainerAgentStatuses] Received status event:', event.data);
             handleStatus(sessionId, event.data);
           },
-          onContainerAgentStarted: () => {
+          onContainerAgentStarted: (event) => {
             console.log('[useContainerAgentStatuses] Received started event');
-            handleStarted(sessionId);
+            handleStarted(sessionId, event.data);
           },
           onContainerAgentComplete: () => {
             console.log('[useContainerAgentStatuses] Received complete event');

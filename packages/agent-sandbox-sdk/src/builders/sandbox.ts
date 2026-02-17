@@ -131,12 +131,19 @@ export class SandboxBuilder {
       };
     }
 
-    const spec = this.resource.spec.podTemplateSpec.spec!;
+    const spec = this.resource.spec.podTemplateSpec.spec;
+    if (!spec) {
+      throw new Error('podTemplateSpec.spec is unexpectedly undefined');
+    }
     if (!spec.containers || spec.containers.length === 0) {
       spec.containers = [{ name: 'sandbox' }];
     }
 
-    return spec.containers[0]!;
+    const container = spec.containers[0];
+    if (!container) {
+      throw new Error('sandbox container is unexpectedly undefined');
+    }
+    return container;
   }
 
   /** Build the Sandbox resource */

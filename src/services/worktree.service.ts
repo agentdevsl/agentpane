@@ -7,24 +7,8 @@ import type { WorktreeError } from '../lib/errors/worktree-errors.js';
 import { WorktreeErrors } from '../lib/errors/worktree-errors.js';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
+import { slugify } from '../lib/utils/slugify.js';
 import type { Database } from '../types/database.js';
-
-/**
- * Creates a URL-safe slug from a string.
- * - Converts to lowercase
- * - Replaces spaces and special chars with hyphens
- * - Removes consecutive hyphens
- * - Truncates to maxLength
- */
-const slugify = (str: string, maxLength = 40): string => {
-  return str
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .replace(/-+/g, '-')
-    .slice(0, maxLength)
-    .replace(/-+$/, '');
-};
 
 export type WorktreeCreateInput = {
   projectId: string;

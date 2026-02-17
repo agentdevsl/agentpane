@@ -13,13 +13,18 @@ type ClientSession = {
   taskId?: string | null;
   title?: string | null;
   status: string;
+  sandboxProvider?: string | null;
 };
 
 /**
  * Detect if this is a container-agent session.
- * Container-agent sessions have taskId but no agentId (they don't create separate agent records).
+ * Container-agent sessions use a sandbox provider (docker or kubernetes),
+ * or have taskId but no agentId (legacy detection).
  */
 function isContainerAgentSession(session: ClientSession): boolean {
+  if (session.sandboxProvider === 'docker' || session.sandboxProvider === 'kubernetes') {
+    return true;
+  }
   return session.agentId === null && session.taskId !== null;
 }
 
@@ -97,14 +102,31 @@ function SessionPage(): React.JSX.Element {
     }
   }, [session?.taskId, navigate, showTemporaryError]);
 
-  // Fetch session from API on mount
+  // Fetch session from API on mount, resolving sandboxProvider from settings if missing
   useEffect(() => {
     const fetchSession = async () => {
       setIsLoading(true);
       setError(null);
       const result = await apiClient.sessions.get(sessionId);
       if (result.ok) {
-        setSession(result.data as ClientSession);
+        const data = result.data as ClientSession;
+        // Backfill sandboxProvider from global sandbox defaults when the session record lacks it
+        if (!data.sandboxProvider && data.agentId === null && data.taskId !== null) {
+          try {
+            const settingsResult = await apiClient.settings.get(['sandbox.defaults']);
+            if (settingsResult.ok) {
+              const defaults = settingsResult.data.settings['sandbox.defaults'] as
+                | { provider?: string }
+                | undefined;
+              if (defaults?.provider) {
+                data.sandboxProvider = defaults.provider === 'kubernetes' ? 'kubernetes' : 'docker';
+              }
+            }
+          } catch {
+            // Non-critical — badge just won't show
+          }
+        }
+        setSession(data);
       } else {
         setError({ message: result.error.message });
       }
@@ -170,6 +192,7 @@ function SessionPage(): React.JSX.Element {
           )}
           <ContainerAgentPanel
             sessionId={session.id}
+            sandboxProvider={session.sandboxProvider ?? undefined}
             onStop={async () => {
               if (session.taskId) {
                 try {

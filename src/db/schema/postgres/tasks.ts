@@ -6,6 +6,7 @@ import type { DiffSummary } from '../../../lib/types/diff';
 
 export interface StoredPlanOptions extends ExitPlanModeOptions {
   sdkSessionId?: string;
+  planningSandboxId?: string;
 }
 
 import type { TaskColumn, TaskPriority } from '../shared/enums';

@@ -341,17 +341,34 @@ export function useTaskCreation(projectId: string): UseTaskCreationReturn {
       return;
     }
 
-    // Clear any previous local error
-    setLocalError(null);
-
-    const result = await apiClient.taskCreation.skipQuestions(sessionId);
-
-    if (!result.ok) {
-      console.error('[useTaskCreation] Failed to skip questions:', result.error);
-      // Set local error - SSE may also send an error event but this ensures immediate feedback
-      setLocalError(result.error.message || 'Failed to skip questions');
+    if (isAnsweringRef.current) {
+      console.log('[useTaskCreation] Skip already in progress, ignoring');
+      return;
     }
-  }, [sessionId]);
+
+    // Clear any previous local error and set loading state
+    setLocalError(null);
+    isAnsweringRef.current = true;
+    setIsAnswering(true);
+    submittedQuestionsIdRef.current = pendingQuestions?.id ?? null;
+
+    try {
+      const result = await apiClient.taskCreation.skipQuestions(sessionId);
+
+      if (!result.ok) {
+        console.error('[useTaskCreation] Failed to skip questions:', result.error);
+        setLocalError(result.error.message || 'Failed to skip questions');
+        isAnsweringRef.current = false;
+        setIsAnswering(false);
+      }
+      // On success, let the useEffect clear isAnswering when pendingQuestions changes or streaming starts
+    } catch (error) {
+      console.error('[useTaskCreation] Unexpected error skipping questions:', error);
+      setLocalError('An unexpected error occurred');
+      isAnsweringRef.current = false;
+      setIsAnswering(false);
+    }
+  }, [sessionId, pendingQuestions?.id]);
 
   // Cancel session
   const cancel = useCallback(async () => {

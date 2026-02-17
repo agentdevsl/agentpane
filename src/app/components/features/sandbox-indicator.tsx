@@ -10,6 +10,8 @@ import { cn } from '@/lib/utils/cn';
 
 export type ContainerStatus = 'stopped' | 'creating' | 'running' | 'idle' | 'error' | 'unavailable';
 
+export type SandboxProviderType = 'docker' | 'kubernetes' | 'none';
+
 const statusDotVariants = cva('h-2 w-2 rounded-full', {
   variants: {
     status: {
@@ -45,20 +47,21 @@ function getStatusLabel(status: ContainerStatus): string {
   }
 }
 
-function getStatusDescription(status: ContainerStatus): string {
+function getStatusDescription(status: ContainerStatus, provider: SandboxProviderType): string {
+  const target = provider === 'kubernetes' ? 'Pod' : 'Container';
   switch (status) {
     case 'creating':
-      return 'Container is starting up...';
+      return `${target} is starting up...`;
     case 'running':
-      return 'Container is online and ready for agent tasks';
+      return `${target} is online and ready for agent tasks`;
     case 'idle':
-      return 'Container is online but idle (will auto-stop after timeout)';
+      return `${target} is online but idle (will auto-stop after timeout)`;
     case 'stopped':
-      return 'Container is offline. It will start automatically when an agent runs.';
+      return `${target} is offline. It will start automatically when an agent runs.`;
     case 'error':
-      return 'Container encountered an error';
+      return `${target} encountered an error`;
     case 'unavailable':
-      return 'Container status unavailable';
+      return `${target} status unavailable`;
     default:
       return '';
   }
@@ -71,14 +74,59 @@ function getModeDescription(mode: 'shared' | 'per-project'): string {
   return 'Each project has its own isolated sandbox container';
 }
 
+function getProviderLabel(provider: SandboxProviderType): string {
+  switch (provider) {
+    case 'kubernetes':
+      return 'K8s';
+    case 'docker':
+      return 'Docker';
+    default:
+      return 'Docker';
+  }
+}
+
+function getProviderDescription(provider: SandboxProviderType): string {
+  switch (provider) {
+    case 'kubernetes':
+      return 'Agents run in isolated Kubernetes pods for security.';
+    case 'docker':
+      return 'Agents run in isolated Docker containers for security.';
+    default:
+      return 'Agents run in isolated containers for security.';
+  }
+}
+
+function getUnavailableDescription(provider: SandboxProviderType): {
+  title: string;
+  description: string;
+} {
+  if (provider === 'kubernetes') {
+    return {
+      title: 'Kubernetes Not Available',
+      description:
+        'The sandbox requires a Kubernetes cluster to run agent tasks in isolated pods. Please check your cluster connection in Settings.',
+    };
+  }
+  return {
+    title: 'Docker Not Available',
+    description:
+      'The sandbox requires Docker to run agent tasks in isolated containers. Please install and start Docker to enable sandbox features.',
+  };
+}
+
 export interface SandboxIndicatorProps {
   mode: 'shared' | 'per-project';
   containerStatus: ContainerStatus;
   dockerAvailable: boolean;
+  provider?: SandboxProviderType;
   isLoading?: boolean;
   isRestarting?: boolean;
   onRestart?: () => void;
   className?: string;
+  k8sCrdReady?: boolean;
+  k8sClusterVersion?: string | null;
+  k8sPodCount?: number;
+  k8sPodsRunning?: number;
 }
 
 /**
@@ -89,15 +137,50 @@ export function SandboxIndicator({
   mode,
   containerStatus,
   dockerAvailable,
+  provider = 'docker',
   isLoading = false,
   isRestarting = false,
   onRestart,
   className,
+  k8sCrdReady,
+  k8sClusterVersion,
+  k8sPodCount,
+  k8sPodsRunning,
 }: SandboxIndicatorProps): React.JSX.Element {
   const isTransitioning = containerStatus === 'creating' || isRestarting;
   const modeLabel = mode === 'shared' ? 'Shared' : 'Per-Project';
+  const providerLabel = getProviderLabel(provider);
+
+  if (provider === 'kubernetes' && k8sCrdReady === false && dockerAvailable) {
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div
+              className={cn(
+                'flex cursor-help items-center gap-1.5 rounded-md border border-attention bg-surface-subtle px-2.5 py-1.5 text-xs text-attention',
+                className
+              )}
+            >
+              <CubeTransparent className="h-4 w-4" />
+              <span className="font-medium">K8s</span>
+              <span>CRDs Missing</span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="max-w-[280px]">
+            <p className="font-medium">Kubernetes CRDs Missing</p>
+            <p className="mt-1 text-fg-muted">
+              The Agent Sandbox CRDs are not installed on the cluster. Install them in Settings to
+              enable Kubernetes sandboxes.
+            </p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  }
 
   if (!dockerAvailable) {
+    const unavailable = getUnavailableDescription(provider);
     return (
       <TooltipProvider>
         <Tooltip>
@@ -114,11 +197,8 @@ export function SandboxIndicator({
             </div>
           </TooltipTrigger>
           <TooltipContent side="bottom" className="max-w-[280px]">
-            <p className="font-medium">Docker Not Available</p>
-            <p className="mt-1 text-fg-muted">
-              The sandbox requires Docker to run agent tasks in isolated containers. Please install
-              and start Docker to enable sandbox features.
-            </p>
+            <p className="font-medium">{unavailable.title}</p>
+            <p className="mt-1 text-fg-muted">{unavailable.description}</p>
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
@@ -138,7 +218,7 @@ export function SandboxIndicator({
             {/* Sandbox label with icon */}
             <div className="flex items-center gap-1.5 text-xs">
               <Cube className="h-4 w-4 text-fg-muted" />
-              <span className="font-medium text-fg-muted">Sandbox</span>
+              <span className="font-medium text-fg-muted">{providerLabel}</span>
             </div>
 
             {/* Divider */}
@@ -187,7 +267,7 @@ export function SandboxIndicator({
                     'text-fg-muted hover:bg-surface hover:text-fg',
                     'disabled:cursor-not-allowed disabled:opacity-50'
                   )}
-                  title="Restart container"
+                  title={`Restart ${provider === 'kubernetes' ? 'pod' : 'container'}`}
                 >
                   <ArrowClockwise
                     className={cn('h-3.5 w-3.5', isRestarting && 'animate-spin')}
@@ -202,9 +282,7 @@ export function SandboxIndicator({
           <div className="space-y-2">
             <div>
               <p className="font-medium">Sandbox Environment</p>
-              <p className="mt-0.5 text-fg-muted">
-                Agents run in isolated Docker containers for security.
-              </p>
+              <p className="mt-0.5 text-fg-muted">{getProviderDescription(provider)}</p>
             </div>
             <div className="border-t border-border pt-2">
               <p className="text-fg-muted">
@@ -217,8 +295,32 @@ export function SandboxIndicator({
                 <span className="font-medium text-fg">Status:</span>{' '}
                 {getStatusLabel(containerStatus)}
               </p>
-              <p className="text-fg-muted">{getStatusDescription(containerStatus)}</p>
+              <p className="text-fg-muted">{getStatusDescription(containerStatus, provider)}</p>
             </div>
+            {provider === 'kubernetes' && (
+              <div className="border-t border-border pt-2">
+                <p className="font-medium text-fg">Cluster Health</p>
+                <div className="mt-1 space-y-1">
+                  <p className="flex items-center gap-1.5 text-fg-muted">
+                    <span
+                      className={cn(
+                        'inline-block h-1.5 w-1.5 rounded-full',
+                        k8sCrdReady ? 'bg-success' : 'bg-danger'
+                      )}
+                    />
+                    {k8sCrdReady ? 'CRDs Ready' : 'CRDs Missing'}
+                  </p>
+                  {k8sClusterVersion && (
+                    <p className="text-fg-muted">Cluster: {k8sClusterVersion}</p>
+                  )}
+                  {k8sPodCount !== undefined && (
+                    <p className="text-fg-muted">
+                      {k8sPodsRunning ?? 0}/{k8sPodCount} pods running
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </TooltipContent>
       </Tooltip>

@@ -728,21 +728,40 @@ async function runExecutionPhase(): Promise<void> {
 
   // Create or resume Claude Agent SDK session
   let session: SDKSession | undefined;
+  let sessionResumed = false;
   try {
     console.error('[agent-runner] Creating SDK session with bypass permissions...');
 
     // Note: executableArgs with --add-dir causes EPIPE errors in SDK 0.2.x
     // The SDK/CLI handles directory access via cwd and environment
     if (config.sdkSessionId) {
-      // Resume existing session
-      session = unstable_v2_resumeSession(config.sdkSessionId, {
-        model: config.model,
-        env: { ...process.env }, // TODO: Pending GA — CLAUDE_CODE_AGENT_SWARMS env removed
-        permissionMode: 'bypassPermissions',
-        canUseTool, // Track tools even in bypass mode
-      });
-    } else {
-      // Create new session
+      // Try to resume existing session — may fail if session state is corrupted or stale
+      // (primary container-change detection is in approvePlan; this is defense-in-depth)
+      try {
+        session = unstable_v2_resumeSession(config.sdkSessionId, {
+          model: config.model,
+          env: { ...process.env }, // TODO: Pending GA — CLAUDE_CODE_AGENT_SWARMS env removed
+          permissionMode: 'bypassPermissions',
+          canUseTool, // Track tools even in bypass mode
+        });
+        sessionResumed = true;
+        console.error('[agent-runner] SDK session resumed successfully');
+      } catch (resumeError) {
+        const resumeMsg = resumeError instanceof Error ? resumeError.message : String(resumeError);
+        console.warn(
+          `[agent-runner] SDK session resume failed (${config.sdkSessionId}), falling back to fresh session: ${resumeMsg}`
+        );
+        // Notify the user via structured event so the host process can relay to UI
+        events.message({
+          role: 'assistant',
+          content: `⚠️ Previous session could not be resumed (${resumeMsg}). Starting fresh execution with full plan context.`,
+        });
+        // Fall through to create a fresh session
+      }
+    }
+
+    if (!session) {
+      // Create new session (either no sdkSessionId provided, or resume failed)
       session = unstable_v2_createSession({
         model: config.model,
         env: { ...process.env }, // TODO: Pending GA — CLAUDE_CODE_AGENT_SWARMS env removed
@@ -770,8 +789,9 @@ async function runExecutionPhase(): Promise<void> {
   let accumulatedText = '';
 
   try {
-    // Send the prompt (either the original task or "proceed with the plan")
-    const executionPrompt = config.sdkSessionId
+    // Send the prompt — if we successfully resumed the session, the agent already
+    // has the plan in its conversation history. Otherwise send the full plan text.
+    const executionPrompt = sessionResumed
       ? 'The plan has been approved. Please proceed with the implementation.'
       : (config.prompt as string);
 

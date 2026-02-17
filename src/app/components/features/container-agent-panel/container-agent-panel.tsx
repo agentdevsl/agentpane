@@ -14,6 +14,8 @@ type PanelTab = 'output' | 'changes';
 export interface ContainerAgentPanelProps {
   /** Session ID to subscribe to */
   sessionId: string | null;
+  /** Sandbox provider from session record (fallback when stream events lack it) */
+  sandboxProvider?: string;
   /** Callback when stop is requested */
   onStop?: () => Promise<void>;
   /** Callback when plan is approved */
@@ -35,6 +37,7 @@ export interface ContainerAgentPanelProps {
  */
 export function ContainerAgentPanel({
   sessionId,
+  sandboxProvider: sessionSandboxProvider,
   onStop,
   onApprovePlan,
   onRejectPlan,
@@ -45,6 +48,8 @@ export function ContainerAgentPanel({
 
   const isActive = state.status === 'running' || state.status === 'starting';
   const hasChanges = state.fileChanges.length > 0;
+  // Prefer stream event provider, fall back to session record
+  const resolvedProvider = state.sandboxProvider ?? sessionSandboxProvider;
 
   return (
     <div className="flex flex-1 min-h-0 min-w-0 flex-col rounded-lg border border-border bg-surface">
@@ -57,6 +62,8 @@ export function ContainerAgentPanel({
           currentTurn={state.currentTurn}
           maxTurns={state.maxTurns}
           startedAt={state.startedAt}
+          sandboxProvider={resolvedProvider}
+          sandboxContainerId={state.sandboxContainerId}
           connectionState={connectionState}
           isStreaming={isStreaming}
         />
@@ -140,7 +147,7 @@ export function ContainerAgentPanel({
 
             {/* Tool executions sidebar */}
             {state.toolExecutions.length > 0 && (
-              <div className="flex flex-col min-h-0 w-full border-t border-border lg:w-80 lg:border-l lg:border-t-0">
+              <div className="flex flex-col min-h-0 w-full border-t border-border lg:w-96 lg:border-l lg:border-t-0">
                 <ContainerAgentToolList tools={state.toolExecutions} />
               </div>
             )}

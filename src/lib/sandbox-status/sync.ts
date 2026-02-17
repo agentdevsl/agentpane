@@ -27,6 +27,11 @@ async function fetchSandboxStatus(projectId: string): Promise<SandboxStatus | nu
         containerStatus: result.data.containerStatus,
         containerId: result.data.containerId,
         dockerAvailable: result.data.dockerAvailable,
+        provider: result.data.provider ?? 'none',
+        k8sCrdReady: result.data.k8sCrdReady,
+        k8sClusterVersion: result.data.k8sClusterVersion ?? null,
+        k8sPodCount: result.data.k8sPodCount,
+        k8sPodsRunning: result.data.k8sPodsRunning,
         updatedAt: Date.now(),
       };
     }

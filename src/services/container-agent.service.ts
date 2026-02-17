@@ -1,11 +1,12 @@
 /**
- * ContainerAgentService - Orchestrates Claude Agent SDK execution inside Docker containers.
+ * ContainerAgentService - Orchestrates Claude Agent SDK execution inside sandbox containers.
  *
  * This service manages the lifecycle of agent processes running in sandbox containers:
- * - Starts agent-runner process via docker exec
+ * - Starts agent-runner process inside the sandbox (Docker or K8s pod)
  * - Bridges stdout events to DurableStreams
  * - Handles cancellation via sentinel files
  * - Tracks running agents per task
+ * - Initializes K8s pod workspaces (clone + worktree) when using K8s provider
  */
 import { eq } from 'drizzle-orm';
 
@@ -32,7 +33,7 @@ function warnLog(context: string, message: string, data?: Record<string, unknown
   console.warn(`[${timestamp}] [ContainerAgentService:${context}] ${message}${dataStr}`);
 }
 
-import { agents, projects, sessions, tasks } from '../db/schema';
+import { agents, projects, type StoredPlanOptions, sessions, tasks } from '../db/schema';
 import { type ContainerBridge, createContainerBridge } from '../lib/agents/container-bridge.js';
 import { DEFAULT_AGENT_MODEL, getFullModelId } from '../lib/constants/models.js';
 import { CONTAINER_WORKSPACE_PATH } from '../lib/constants/sandbox.js';
@@ -40,8 +41,10 @@ import type { SandboxError } from '../lib/errors/sandbox-errors.js';
 import { SandboxErrors } from '../lib/errors/sandbox-errors.js';
 import type {
   ExecStreamResult,
+  Sandbox,
   SandboxProvider,
 } from '../lib/sandbox/providers/sandbox-provider.js';
+import { SANDBOX_DEFAULTS } from '../lib/sandbox/types.js';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
 import type { Database } from '../types/database.js';
@@ -55,15 +58,16 @@ interface TaskPlanRow {
   projectId: string;
   sessionId: string | null;
   plan: string | null;
-  planOptions: {
-    sdkSessionId?: string;
-    allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
-  } | null;
+  planOptions: StoredPlanOptions | null;
   lastAgentStatus: string | null;
 }
 
+import { deriveGitHubFromPath, resolveGitToken } from '../lib/sandbox/git-token-resolver.js';
+import type { SandboxExec } from '../lib/sandbox/k8s-workspace-initializer.js';
+import { initializeK8sWorkspace } from '../lib/sandbox/k8s-workspace-initializer.js';
 import type { ApiKeyService } from './api-key.service.js';
 import type { DurableStreamsService } from './durable-streams.service.js';
+import type { GitHubTokenService } from './github-token.service.js';
 import { getGlobalDefaultModel } from './settings.service.js';
 import type { WorktreeService } from './worktree.service.js';
 
@@ -127,6 +131,8 @@ export interface PlanData {
   sdkSessionId: string;
   allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
   createdAt: Date;
+  /** Sandbox ID at the time planning completed — used to detect container changes before execution */
+  sandboxId?: string;
   // TODO: Pending GA — swarm features
   // launchSwarm?: boolean;
   // teammateCount?: number;
@@ -154,12 +160,18 @@ export class ContainerAgentService {
   /** Interval for cleaning up expired pending plans */
   private planCleanupInterval: ReturnType<typeof setInterval> | null = null;
 
+  /** Expose provider name so callers (e.g. TaskService) can tag sessions at creation */
+  get providerName(): string {
+    return this.provider.name;
+  }
+
   constructor(
     private db: Database,
     private provider: SandboxProvider,
     private streams: DurableStreamsService,
     private apiKeyService: ApiKeyService,
-    private worktreeService?: WorktreeService
+    private worktreeService?: WorktreeService,
+    private githubTokenService?: GitHubTokenService
   ) {
     if (!worktreeService) {
       infoLog('constructor', 'WorktreeService not injected — agents will share workspace');
@@ -226,6 +238,200 @@ export class ContainerAgentService {
       hostProjectPath,
     });
     return CONTAINER_WORKSPACE_PATH;
+  }
+
+  /**
+   * Initialize workspace inside a K8s pod by cloning the repo and creating a worktree.
+   * Falls back to empty /workspace on any failure (non-fatal).
+   */
+  private async initializeK8sWorkspace(params: {
+    sandbox: SandboxExec;
+    project: {
+      githubOwner: string | null;
+      githubRepo: string | null;
+      githubInstallationId: string | null;
+      name: string;
+      path: string | null;
+      id: string;
+      config?: { defaultBranch?: string } | null;
+    };
+    task: { title: string; branch?: string | null };
+    taskId: string;
+    sessionId: string;
+    phase: AgentPhase;
+  }): Promise<{ worktreePath: string; branch: string } | null> {
+    const { sandbox, project, task, taskId, sessionId, phase } = params;
+
+    // Auto-derive owner/repo from git remote when not explicitly configured
+    let { githubOwner, githubRepo } = project;
+    if ((!githubOwner || !githubRepo) && project.path) {
+      const derived = deriveGitHubFromPath(project.path);
+      if (derived) {
+        githubOwner = derived.owner;
+        githubRepo = derived.repo;
+        infoLog('initializeK8sWorkspace', 'Derived GitHub owner/repo from git remote', {
+          taskId,
+          owner: derived.owner,
+          repo: derived.repo,
+          projectPath: project.path,
+        });
+        // Backfill the DB so future calls skip derivation
+        try {
+          await this.db
+            .update(projects)
+            .set({
+              githubOwner: derived.owner,
+              githubRepo: derived.repo,
+              updatedAt: new Date().toISOString(),
+            })
+            .where(eq(projects.id, project.id));
+          infoLog('initializeK8sWorkspace', 'Backfilled GitHub config to project', {
+            projectId: project.id,
+            owner: derived.owner,
+            repo: derived.repo,
+          });
+        } catch (dbErr) {
+          const msg = dbErr instanceof Error ? dbErr.message : String(dbErr);
+          infoLog('initializeK8sWorkspace', 'Failed to backfill GitHub config (non-critical)', {
+            projectId: project.id,
+            error: msg,
+          });
+        }
+      }
+    }
+
+    if (!githubOwner || !githubRepo) {
+      infoLog(
+        'initializeK8sWorkspace',
+        'Project has no GitHub config and no git remote, using empty workspace',
+        {
+          taskId,
+        }
+      );
+      return null;
+    }
+
+    // For execution phase, check if worktree from planning still exists in pod
+    if (phase === 'execute' && task.branch) {
+      const worktreePath = `${CONTAINER_WORKSPACE_PATH}/.worktrees/${task.branch}`;
+      try {
+        const testResult = await sandbox.exec('test', ['-d', worktreePath]);
+        if (testResult.exitCode === 0) {
+          infoLog('initializeK8sWorkspace', 'Reusing existing worktree from planning phase', {
+            taskId,
+            branch: task.branch,
+            worktreePath,
+          });
+          return { worktreePath, branch: task.branch };
+        }
+        infoLog('initializeK8sWorkspace', 'Planning worktree not found in pod, re-cloning', {
+          taskId,
+          branch: task.branch,
+        });
+      } catch (err) {
+        warnLog(
+          'initializeK8sWorkspace',
+          'Failed to check existing worktree, proceeding to full clone',
+          {
+            taskId,
+            branch: task.branch,
+            error: err instanceof Error ? err.message : String(err),
+          }
+        );
+      }
+    }
+
+    // Resolve git token
+    await this.streams.publish(sessionId, 'container-agent:status', {
+      taskId,
+      sessionId,
+      stage: 'creating_sandbox',
+      message: 'Resolving git credentials...',
+    });
+
+    const tokenResult = await resolveGitToken(
+      { ...project, githubOwner, githubRepo },
+      { db: this.db, githubTokenService: this.githubTokenService }
+    );
+
+    if (!tokenResult) {
+      warnLog('initializeK8sWorkspace', 'No git token available, using empty workspace', {
+        taskId,
+      });
+      await this.streams.publish(sessionId, 'container-agent:message', {
+        taskId,
+        sessionId,
+        role: 'system',
+        content: '⚠️ No GitHub credentials available — agent will work in empty workspace',
+      });
+      return null;
+    }
+
+    // Clone + create worktree
+    await this.streams.publish(sessionId, 'container-agent:status', {
+      taskId,
+      sessionId,
+      stage: 'creating_sandbox',
+      message: 'Cloning repository...',
+    });
+    await this.streams.publish(sessionId, 'container-agent:message', {
+      taskId,
+      sessionId,
+      role: 'system',
+      content: `🔄 Cloning ${tokenResult.owner}/${tokenResult.repo} into K8s pod...`,
+    });
+
+    const baseBranch =
+      (project.config as { defaultBranch?: string } | null)?.defaultBranch ?? 'main';
+    const result = await initializeK8sWorkspace({
+      sandbox,
+      gitToken: tokenResult,
+      taskTitle: task.title,
+      taskId,
+      baseBranch,
+      existingBranch: task.branch ?? undefined,
+    });
+
+    if (!result.branch) {
+      await this.streams.publish(sessionId, 'container-agent:message', {
+        taskId,
+        sessionId,
+        role: 'system',
+        content: '⚠️ Workspace initialization incomplete — agent will work with limited isolation',
+      });
+      return null;
+    }
+
+    // Save branch to task for recovery on pod recycle
+    try {
+      await this.db
+        .update(tasks)
+        .set({
+          branch: result.branch,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(tasks.id, taskId));
+    } catch (dbErr) {
+      const msg = dbErr instanceof Error ? dbErr.message : String(dbErr);
+      warnLog(
+        'initializeK8sWorkspace',
+        'Failed to save branch to task — pod recycle recovery will not work for this task',
+        {
+          taskId,
+          branch: result.branch,
+          error: msg,
+        }
+      );
+    }
+
+    await this.streams.publish(sessionId, 'container-agent:message', {
+      taskId,
+      sessionId,
+      role: 'system',
+      content: `✅ Workspace ready: branch "${result.branch}" at ${result.worktreePath}`,
+    });
+
+    return { worktreePath: result.worktreePath, branch: result.branch };
   }
 
   /**
@@ -492,6 +698,41 @@ export class ContainerAgentService {
   }
 
   /**
+   * Wait for a sandbox to reach 'running' status with exponential backoff.
+   * Publishes status events to keep the UI informed.
+   */
+  private async waitForSandboxReady(
+    projectId: string,
+    sessionId: string,
+    taskId: string,
+    maxWaitMs = 30_000
+  ): Promise<Sandbox> {
+    const start = Date.now();
+    let delay = 1000;
+    const maxDelay = 5000;
+
+    while (Date.now() - start < maxWaitMs) {
+      const sandbox = await this.provider.get(projectId);
+      if (sandbox && sandbox.status === 'running') {
+        return sandbox;
+      }
+
+      const elapsed = Math.round((Date.now() - start) / 1000);
+      await this.streams.publish(sessionId, 'container-agent:status', {
+        taskId,
+        sessionId,
+        stage: 'creating_sandbox',
+        message: `Waiting for sandbox to become ready... (${elapsed}s)`,
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      delay = Math.min(delay * 2, maxDelay);
+    }
+
+    throw new Error(`Sandbox for project ${projectId} did not become ready within ${maxWaitMs}ms`);
+  }
+
+  /**
    * Start an agent for a task inside its project's sandbox container.
    * @param input.phase - 'plan' for planning mode (default), 'execute' for execution mode
    */
@@ -532,7 +773,7 @@ export class ContainerAgentService {
 
     try {
       // Parallel fetch: project and sandbox lookup at the same time
-      const [project, sandbox] = await Promise.all([
+      const [project, initialSandbox] = await Promise.all([
         this.db.query.projects.findFirst({ where: eq(projects.id, projectId) }),
         this.provider.get(projectId),
       ]);
@@ -544,19 +785,66 @@ export class ContainerAgentService {
 
       // Use shared sandbox mode by default (fastest path - no per-project container creation)
       // Sandbox was already fetched in parallel above
+      let sandbox = initialSandbox;
+
+      // Recovery: if sandbox exists but is in terminal state, tear it down and recreate
+      if (sandbox && (sandbox.status === 'error' || sandbox.status === 'stopped')) {
+        infoLog('startAgent', 'Sandbox in terminal state, tearing down for recreation', {
+          projectId,
+          sandboxId: sandbox.id,
+          status: sandbox.status,
+        });
+        try {
+          await sandbox.stop();
+        } catch (stopErr) {
+          infoLog('startAgent', 'Failed to stop terminal sandbox (continuing with recreate)', {
+            error: stopErr instanceof Error ? stopErr.message : String(stopErr),
+          });
+        }
+        sandbox = null;
+      }
+
+      // Auto-create sandbox if missing (K8s may not have a default yet)
       if (!sandbox) {
-        infoLog('startAgent', 'No sandbox available', { projectId });
-        return err(SandboxErrors.CONTAINER_NOT_FOUND);
+        infoLog('startAgent', 'No sandbox found, attempting auto-create', { projectId });
+        try {
+          sandbox = await this.provider.create({
+            projectId,
+            projectPath: project.path ?? '/workspace',
+            image: SANDBOX_DEFAULTS.image,
+            memoryMb: 2048,
+            cpuCores: 2,
+            idleTimeoutMinutes: 30,
+            volumeMounts: [],
+          });
+          infoLog('startAgent', 'Auto-created sandbox', { projectId, sandboxId: sandbox.id });
+        } catch (createErr) {
+          infoLog('startAgent', 'Auto-create sandbox failed', {
+            projectId,
+            error: createErr instanceof Error ? createErr.message : String(createErr),
+          });
+          return err(SandboxErrors.CONTAINER_NOT_FOUND);
+        }
       }
 
       infoLog('startAgent', 'Sandbox ready', { sandboxId: sandbox.id, status: sandbox.status });
 
       if (sandbox.status !== 'running') {
-        infoLog('startAgent', 'Sandbox not running', {
+        infoLog('startAgent', 'Sandbox not yet running, waiting for ready', {
           sandboxId: sandbox.id,
           status: sandbox.status,
         });
-        return err(SandboxErrors.CONTAINER_NOT_RUNNING);
+        try {
+          sandbox = await this.waitForSandboxReady(projectId, sessionId, taskId);
+          infoLog('startAgent', 'Sandbox became ready after waiting', {
+            sandboxId: sandbox.id,
+          });
+        } catch (waitErr) {
+          infoLog('startAgent', 'Sandbox did not become ready in time', {
+            error: waitErr instanceof Error ? waitErr.message : String(waitErr),
+          });
+          return err(SandboxErrors.CONTAINER_NOT_RUNNING);
+        }
       }
 
       // Check if sandbox supports streaming exec
@@ -616,32 +904,40 @@ export class ContainerAgentService {
       // Create database session record for this container agent run
       debugLog('startAgent', 'Creating session record', { sessionId, taskId });
       try {
-        await this.db.insert(sessions).values({
-          id: sessionId,
-          projectId,
-          taskId,
-          agentId,
-          title: task.title ?? `Container Agent - ${taskId}`,
-          url: `/projects/${projectId}/sessions/${sessionId}`,
-          status: 'active',
-          createdAt: new Date().toISOString(),
+        await this.db
+          .insert(sessions)
+          .values({
+            id: sessionId,
+            projectId,
+            taskId,
+            agentId,
+            title: task.title ?? `Container Agent - ${taskId}`,
+            url: `/projects/${projectId}/sessions/${sessionId}`,
+            status: 'active',
+            sandboxProvider: this.provider.name,
+            sandboxContainerId: sandbox.containerId ?? null,
+            createdAt: new Date().toISOString(),
+          })
+          .onConflictDoUpdate({
+            target: sessions.id,
+            set: {
+              sandboxProvider: this.provider.name,
+              sandboxContainerId: sandbox.containerId ?? null,
+              agentId,
+            },
+          });
+        debugLog('startAgent', 'Session record created/updated', {
+          sessionId,
+          sandboxProvider: this.provider.name,
         });
-        debugLog('startAgent', 'Session record created', { sessionId });
       } catch (dbErr) {
         const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
-        // Only ignore UNIQUE constraint violations (session already exists from retry)
-        if (
-          !errorMessage.includes('UNIQUE constraint failed') &&
-          !errorMessage.includes('already exists')
-        ) {
-          infoLog('startAgent', 'Failed to create session record', {
-            sessionId,
-            taskId,
-            error: errorMessage,
-          });
-          return err(SandboxErrors.SESSION_CREATE_FAILED(errorMessage));
-        }
-        debugLog('startAgent', 'Session already exists, continuing', { sessionId });
+        infoLog('startAgent', 'Failed to create session record', {
+          sessionId,
+          taskId,
+          error: errorMessage,
+        });
+        return err(SandboxErrors.SESSION_CREATE_FAILED(errorMessage));
       }
 
       // Link agent and session to task
@@ -840,7 +1136,7 @@ export class ContainerAgentService {
         containerId: containerShort,
       });
 
-      // Sandbox is confirmed running (early return at top of method guards non-running state)
+      // Sandbox is confirmed running (either was already running, or became ready after polling via waitForSandboxReady)
       await this.streams.publish(sessionId, 'container-agent:message', {
         taskId,
         sessionId,
@@ -849,16 +1145,38 @@ export class ContainerAgentService {
       });
 
       // Stage: Worktree - create or recover isolated worktree
-      const { worktreeId, worktreePath } = await this.resolveWorktree({
-        phase,
-        taskId,
-        sessionId,
-        projectId,
-        project,
-        task,
-        agentId,
-        sandbox,
-      });
+      const isK8sProvider = this.provider.name === 'kubernetes';
+      let worktreeId: string | undefined;
+      let worktreePath = CONTAINER_WORKSPACE_PATH;
+
+      if (isK8sProvider) {
+        // K8s pods start with empty /workspace — clone + worktree inside the pod
+        const k8sResult = await this.initializeK8sWorkspace({
+          sandbox,
+          project,
+          task,
+          taskId,
+          sessionId,
+          phase,
+        });
+        if (k8sResult) {
+          worktreePath = k8sResult.worktreePath;
+        }
+        // worktreeId stays undefined — K8s worktrees are ephemeral, not tracked in WorktreeService
+      } else {
+        const resolved = await this.resolveWorktree({
+          phase,
+          taskId,
+          sessionId,
+          projectId,
+          project,
+          task,
+          agentId,
+          sandbox,
+        });
+        worktreeId = resolved.worktreeId;
+        worktreePath = resolved.worktreePath;
+      }
 
       // Build env vars and create container bridge
       const { env, bridge } = this.prepareContainerExec({
@@ -897,6 +1215,21 @@ export class ContainerAgentService {
           sandboxId: sandbox.id,
           cmd: 'node /opt/agent-runner/dist/index.js',
         });
+
+        // TOCTOU guard: re-validate sandbox is still running before exec
+        if ('refreshStatus' in sandbox && typeof sandbox.refreshStatus === 'function') {
+          await sandbox.refreshStatus();
+          if (sandbox.status !== 'running') {
+            infoLog('startAgent', 'Sandbox went away between validation and exec', {
+              sandboxId: sandbox.id,
+              status: sandbox.status,
+            });
+            if (worktreeId) {
+              await this.cleanupWorktree(taskId, worktreeId);
+            }
+            return err(SandboxErrors.CONTAINER_NOT_RUNNING);
+          }
+        }
 
         const execResult = await sandbox.execStream({
           cmd: 'node',
@@ -975,6 +1308,8 @@ export class ContainerAgentService {
           sessionId,
           model: agentConfig.model,
           maxTurns: agentConfig.maxTurns,
+          sandboxProvider: this.provider.name,
+          sandboxContainerId: sandbox.containerId ?? null,
         });
         infoLog('startAgent', 'Agent started', { taskId, sessionId });
 
@@ -1232,7 +1567,9 @@ export class ContainerAgentService {
       runDuration: `${Date.now() - agent.startedAt.getTime()}ms`,
     });
 
-    // Auto-commit worktree changes when the agent finishes work (completed or turn limit reached)
+    // Auto-commit worktree changes when the agent finishes work (completed or turn limit reached).
+    // Note: K8s agents have worktreeId=undefined (ephemeral worktrees inside pod), so this
+    // block only runs for Docker agents. K8s agents must push to remote during execution.
     if (
       agent.worktreeId &&
       this.worktreeService &&
@@ -1604,6 +1941,20 @@ export class ContainerAgentService {
       sdkSessionId: planData.sdkSessionId,
     });
 
+    // Capture the sandbox ID from the running agent before cleanup removes it
+    const runningAgent = this.runningAgents.get(taskId);
+    if (!runningAgent) {
+      warnLog(
+        'handlePlanReady',
+        'Running agent not found in memory — sandbox change detection will be disabled for this plan',
+        {
+          taskId,
+          runningAgentsSize: this.runningAgents.size,
+        }
+      );
+    }
+    const planningSandboxId = runningAgent?.sandboxId;
+
     // Store plan data for later execution (in-memory for fast access)
     this.pendingPlans.set(taskId, {
       taskId,
@@ -1613,6 +1964,7 @@ export class ContainerAgentService {
       turnCount: planData.turnCount,
       sdkSessionId: planData.sdkSessionId,
       allowedPrompts: planData.allowedPrompts,
+      sandboxId: planningSandboxId,
       createdAt: new Date(),
     });
 
@@ -1626,6 +1978,7 @@ export class ContainerAgentService {
           planOptions: {
             sdkSessionId: planData.sdkSessionId,
             allowedPrompts: planData.allowedPrompts,
+            planningSandboxId,
           },
           lastAgentStatus: 'planning',
           column: 'waiting_approval',
@@ -1682,15 +2035,14 @@ export class ContainerAgentService {
    * Checks in-memory cache first, then falls back to the database
    * (plan survives server restarts via the task record).
    */
-  getPendingPlan(taskId: string): PlanData | undefined {
+  async getPendingPlan(taskId: string): Promise<PlanData | undefined> {
     const cached = this.pendingPlans.get(taskId);
     if (cached) return cached;
 
     // Recover from database if not in memory (e.g., after server restart)
-    // better-sqlite3 driver executes synchronously despite the Promise return type
-    const task = this.db.query.tasks.findFirst({
+    const task = (await this.db.query.tasks.findFirst({
       where: eq(tasks.id, taskId),
-    }) as unknown as TaskPlanRow | undefined;
+    })) as unknown as TaskPlanRow | undefined;
 
     if (task?.plan && task.lastAgentStatus === 'planning') {
       const planOptions = task.planOptions ?? {};
@@ -1703,6 +2055,7 @@ export class ContainerAgentService {
         turnCount: 0,
         sdkSessionId: planOptions.sdkSessionId ?? '',
         allowedPrompts: planOptions.allowedPrompts,
+        sandboxId: planOptions.planningSandboxId,
         createdAt: new Date(),
       };
 
@@ -1719,15 +2072,54 @@ export class ContainerAgentService {
    * Approve a plan and start execution phase.
    */
   async approvePlan(taskId: string): Promise<Result<void, SandboxError>> {
-    const planData = this.getPendingPlan(taskId);
+    const planData = await this.getPendingPlan(taskId);
     if (!planData) {
       infoLog('approvePlan', 'No pending plan found', { taskId });
       return err(SandboxErrors.PLAN_NOT_FOUND(taskId));
     }
 
+    // Detect sandbox change: if the container was replaced since planning,
+    // the SDK session's conversation history (stored on the container's filesystem)
+    // will have been lost. Fall back to a fresh session with the full plan text as prompt.
+    let effectiveSdkSessionId: string | undefined = planData.sdkSessionId || undefined;
+    if (planData.sandboxId) {
+      try {
+        const currentSandbox = await this.provider.get(planData.projectId);
+        if (!currentSandbox || currentSandbox.id !== planData.sandboxId) {
+          warnLog('approvePlan', 'Sandbox changed since planning phase — using fresh session', {
+            taskId,
+            planningSandboxId: planData.sandboxId,
+            currentSandboxId: currentSandbox?.id ?? 'none',
+          });
+          effectiveSdkSessionId = undefined;
+
+          // Notify the user so they know the agent lost its planning conversation history
+          await this.streams
+            .publish(planData.sessionId, 'container-agent:message', {
+              taskId,
+              sessionId: planData.sessionId,
+              role: 'system',
+              content:
+                '⚠️ Sandbox container changed since planning. Agent will start a fresh session with the full plan text.',
+            })
+            .catch(() => {});
+        }
+      } catch (lookupErr) {
+        warnLog(
+          'approvePlan',
+          'Sandbox lookup failed — cannot verify sandbox continuity, using fresh session',
+          {
+            taskId,
+            error: lookupErr instanceof Error ? lookupErr.message : String(lookupErr),
+          }
+        );
+        effectiveSdkSessionId = undefined;
+      }
+    }
+
     infoLog('approvePlan', 'Approving plan and starting execution', {
       taskId,
-      sdkSessionId: planData.sdkSessionId,
+      sdkSessionId: effectiveSdkSessionId ?? '(fresh session)',
     });
 
     // Move task back to in_progress for execution phase
@@ -1752,14 +2144,14 @@ export class ContainerAgentService {
     // Only remove from pending plans AFTER DB write succeeds
     this.pendingPlans.delete(taskId);
 
-    // Start execution phase with the SDK session ID to resume
+    // Start execution phase — use resumed session if sandbox unchanged, fresh session otherwise
     const result = await this.startAgent({
       projectId: planData.projectId,
       taskId: planData.taskId,
       sessionId: planData.sessionId,
-      prompt: planData.plan, // Use plan as context (though session will resume)
+      prompt: planData.plan, // Full plan text (used as prompt when session is fresh)
       phase: 'execute',
-      sdkSessionId: planData.sdkSessionId,
+      sdkSessionId: effectiveSdkSessionId,
     });
 
     return result;
@@ -1775,9 +2167,9 @@ export class ContainerAgentService {
 
     if (!existed) {
       // Also check DB (plan may have been recovered from restart)
-      const task = this.db.query.tasks.findFirst({
+      const task = (await this.db.query.tasks.findFirst({
         where: eq(tasks.id, taskId),
-      }) as unknown as TaskPlanRow | undefined;
+      })) as unknown as TaskPlanRow | undefined;
 
       if (!task?.plan || task.lastAgentStatus !== 'planning') {
         infoLog('rejectPlan', 'No plan to reject', { taskId });
@@ -1786,9 +2178,9 @@ export class ContainerAgentService {
     }
 
     // Look up worktreeId from task before clearing fields
-    const taskRecord = this.db.query.tasks.findFirst({
+    const taskRecord = (await this.db.query.tasks.findFirst({
       where: eq(tasks.id, taskId),
-    }) as unknown as { worktreeId?: string | null } | undefined;
+    })) as unknown as { worktreeId?: string | null } | undefined;
     const worktreeIdToClean = taskRecord?.worktreeId;
 
     // DB write FIRST — only clear in-memory on success
@@ -1838,7 +2230,15 @@ export function createContainerAgentService(
   provider: SandboxProvider,
   streams: DurableStreamsService,
   apiKeyService: ApiKeyService,
-  worktreeService?: WorktreeService
+  worktreeService?: WorktreeService,
+  githubTokenService?: GitHubTokenService
 ): ContainerAgentService {
-  return new ContainerAgentService(db, provider, streams, apiKeyService, worktreeService);
+  return new ContainerAgentService(
+    db,
+    provider,
+    streams,
+    apiKeyService,
+    worktreeService,
+    githubTokenService
+  );
 }

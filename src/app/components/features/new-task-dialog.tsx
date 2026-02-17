@@ -1234,11 +1234,11 @@ export function NewTaskDialog({
     [pendingQuestionsId]
   );
 
-  const handleClose = async () => {
+  const handleClose = () => {
     console.log('[NewTaskDialog] handleClose called', { sessionId, status });
     if (sessionId && (status === 'active' || status === 'waiting_user')) {
       console.log('[NewTaskDialog] Calling cancel for session:', sessionId);
-      await cancel();
+      void cancel();
     }
     onOpenChange(false);
   };

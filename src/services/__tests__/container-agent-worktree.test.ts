@@ -1,5 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { resolveGitToken } from '../../lib/sandbox/git-token-resolver.js';
+import { initializeK8sWorkspace } from '../../lib/sandbox/k8s-workspace-initializer.js';
 import { ContainerAgentService } from '../container-agent.service.js';
+
+vi.mock('../../lib/sandbox/git-token-resolver.js', () => ({
+  resolveGitToken: vi.fn(),
+  deriveGitHubFromPath: vi.fn().mockReturnValue(null),
+}));
+vi.mock('../../lib/sandbox/k8s-workspace-initializer.js', () => ({
+  initializeK8sWorkspace: vi.fn(),
+}));
 
 /**
  * Minimal mocks for ContainerAgentService constructor dependencies.
@@ -100,6 +110,35 @@ function createWorktreeMock(overrides?: Record<string, string>) {
     }),
     remove: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
     commit: vi.fn().mockResolvedValue({ ok: true, value: 'abc123' }),
+  };
+}
+
+// --- K8s Sandbox Provider Mock ---
+function createK8sProviderMock() {
+  const sandbox = {
+    id: 'sandbox-k8s-1',
+    status: 'running' as const,
+    containerId: 'k8s-pod-abc123',
+    exec: vi.fn().mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' }),
+    execStream: vi.fn().mockResolvedValue({
+      stdout: createMockReadableStream(),
+      stderr: createMockReadableStream(),
+      wait: vi.fn().mockResolvedValue({ exitCode: 0 }),
+      kill: vi.fn(),
+    }),
+  };
+  return {
+    name: 'kubernetes',
+    get: vi.fn().mockResolvedValue(sandbox),
+    getById: vi.fn().mockResolvedValue(sandbox),
+    sandbox,
+  };
+}
+
+// --- GitHub Token Service Mock ---
+function createGithubTokenServiceMock() {
+  return {
+    getDecryptedToken: vi.fn().mockResolvedValue('ghp_test123'),
   };
 }
 
@@ -432,5 +471,183 @@ describe('ContainerAgentService — worktree integration', () => {
 
     // At least one should fail (the second one to check startingAgents or runningAgents)
     expect(failures.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('ContainerAgentService — K8s worktree integration', () => {
+  let db: ReturnType<typeof createDbMock>;
+  let k8sProvider: ReturnType<typeof createK8sProviderMock>;
+  let streams: ReturnType<typeof createStreamsMock>;
+  let apiKey: ReturnType<typeof createApiKeyMock>;
+  let worktreeService: ReturnType<typeof createWorktreeMock>;
+  let githubTokenService: ReturnType<typeof createGithubTokenServiceMock>;
+  let service: ContainerAgentService;
+
+  const project = {
+    id: 'p1',
+    name: 'Test Project',
+    path: '/Users/test/project',
+    githubOwner: 'test-org',
+    githubRepo: 'test-repo',
+    githubInstallationId: null as string | null,
+    config: { model: 'claude-sonnet-4-20250514' },
+  };
+
+  const task = {
+    id: 't1',
+    title: 'Fix login bug',
+    projectId: 'p1',
+    worktreeId: null as string | null,
+    branch: null as string | null,
+  };
+
+  beforeEach(() => {
+    db = createDbMock();
+    k8sProvider = createK8sProviderMock();
+    streams = createStreamsMock();
+    apiKey = createApiKeyMock();
+    worktreeService = createWorktreeMock();
+    githubTokenService = createGithubTokenServiceMock();
+
+    db.query.projects.findFirst.mockResolvedValue(project);
+    db.query.tasks.findFirst.mockResolvedValue(task);
+
+    vi.mocked(resolveGitToken).mockReset();
+    vi.mocked(initializeK8sWorkspace).mockReset();
+
+    service = new ContainerAgentService(
+      db as never,
+      k8sProvider as never,
+      streams as never,
+      apiKey as never,
+      worktreeService as never,
+      githubTokenService as never
+    );
+  });
+
+  it('K8s provider skips host WorktreeService', async () => {
+    vi.mocked(resolveGitToken).mockResolvedValue({
+      token: 'ghp_test',
+      owner: 'test-org',
+      repo: 'test-repo',
+    });
+    vi.mocked(initializeK8sWorkspace).mockResolvedValue({
+      worktreePath: '/workspace/.worktrees/fix-login-bug-abc123',
+      branch: 'fix-login-bug-abc123',
+    });
+
+    await service.startAgent({
+      projectId: 'p1',
+      taskId: 't1',
+      sessionId: 's1',
+      prompt: 'Fix the bug',
+      phase: 'plan',
+    });
+
+    // Host WorktreeService.create should NOT be called for K8s
+    expect(worktreeService.create).not.toHaveBeenCalled();
+
+    // AGENT_CWD should match the K8s worktree path
+    const execStreamCall = k8sProvider.sandbox.execStream.mock.calls[0]!;
+    const env = (execStreamCall[0] as { env: Record<string, string> }).env;
+    expect(env.AGENT_CWD).toBe('/workspace/.worktrees/fix-login-bug-abc123');
+  });
+
+  it('planning phase clones + creates worktree, passes correct AGENT_CWD', async () => {
+    vi.mocked(resolveGitToken).mockResolvedValue({
+      token: 'ghp_test',
+      owner: 'org',
+      repo: 'repo',
+    });
+    vi.mocked(initializeK8sWorkspace).mockResolvedValue({
+      worktreePath: '/workspace/.worktrees/fix-bug-abc123',
+      branch: 'fix-bug-abc123',
+    });
+
+    await service.startAgent({
+      projectId: 'p1',
+      taskId: 't1',
+      sessionId: 's1',
+      prompt: 'Fix the bug',
+      phase: 'plan',
+    });
+
+    const execStreamCall = k8sProvider.sandbox.execStream.mock.calls[0]!;
+    const env = (execStreamCall[0] as { env: Record<string, string> }).env;
+    expect(env.AGENT_CWD).toBe('/workspace/.worktrees/fix-bug-abc123');
+  });
+
+  it('projects without GitHub config fall back to empty /workspace', async () => {
+    // Override project to have no GitHub config
+    db.query.projects.findFirst.mockResolvedValue({
+      ...project,
+      githubOwner: null,
+      githubRepo: null,
+    });
+
+    vi.mocked(resolveGitToken).mockResolvedValue(null);
+
+    await service.startAgent({
+      projectId: 'p1',
+      taskId: 't1',
+      sessionId: 's1',
+      prompt: 'Fix the bug',
+      phase: 'plan',
+    });
+
+    const execStreamCall = k8sProvider.sandbox.execStream.mock.calls[0]!;
+    const env = (execStreamCall[0] as { env: Record<string, string> }).env;
+    expect(env.AGENT_CWD).toBe('/workspace');
+  });
+
+  it('git clone failure falls back gracefully to /workspace', async () => {
+    vi.mocked(resolveGitToken).mockResolvedValue({
+      token: 'ghp_test',
+      owner: 'test-org',
+      repo: 'test-repo',
+    });
+    // Simulate clone/worktree failure — initializeK8sWorkspace returns fallback
+    vi.mocked(initializeK8sWorkspace).mockResolvedValue({
+      worktreePath: '/workspace',
+      branch: null,
+    });
+
+    await service.startAgent({
+      projectId: 'p1',
+      taskId: 't1',
+      sessionId: 's1',
+      prompt: 'Fix the bug',
+      phase: 'plan',
+    });
+
+    const execStreamCall = k8sProvider.sandbox.execStream.mock.calls[0]!;
+    const env = (execStreamCall[0] as { env: Record<string, string> }).env;
+    expect(env.AGENT_CWD).toBe('/workspace');
+  });
+
+  it('Docker mode is unaffected (regression test)', async () => {
+    // Create a Docker provider (default, no name or name='docker')
+    const dockerProvider = createProviderMock();
+    const dockerService = new ContainerAgentService(
+      db as never,
+      dockerProvider as never,
+      streams as never,
+      apiKey as never,
+      worktreeService as never
+    );
+
+    await dockerService.startAgent({
+      projectId: 'p1',
+      taskId: 't1',
+      sessionId: 's1',
+      prompt: 'Fix the bug',
+      phase: 'plan',
+    });
+
+    // Host WorktreeService.create SHOULD be called for Docker
+    expect(worktreeService.create).toHaveBeenCalled();
+
+    // resolveGitToken should NOT be called for Docker
+    expect(resolveGitToken).not.toHaveBeenCalled();
   });
 });

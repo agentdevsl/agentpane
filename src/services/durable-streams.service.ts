@@ -123,6 +123,8 @@ export interface ContainerAgentStartedEvent {
   sessionId: string;
   model: string;
   maxTurns: number;
+  sandboxProvider?: string;
+  sandboxContainerId?: string;
 }
 
 export interface ContainerAgentTokenEvent {
