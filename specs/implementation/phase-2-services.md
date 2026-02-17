@@ -1183,7 +1183,7 @@ export class AgentService implements IAgentService {
       prompt: task.description ?? task.title,
       options: {
         allowedTools: config.allowedTools,
-        model: config.model ?? 'claude-sonnet-4-20250514',
+        model: config.model ?? 'claude-sonnet-4-6',
         maxTurns: config.maxTurns ?? 50,
         cwd: worktree.path,
         hooks,

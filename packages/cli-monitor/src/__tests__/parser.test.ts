@@ -348,7 +348,7 @@ describe('parseJsonlFile', () => {
           type: 'assistant',
           message: {
             role: 'assistant',
-            model: 'claude-sonnet-4-20250514',
+            model: 'claude-sonnet-4-6',
             content: 'Hello!',
           },
         })
@@ -356,7 +356,7 @@ describe('parseJsonlFile', () => {
 
       const store = parseEvents(content);
       const session = store.getSession('sess-1');
-      expect(session!.model).toBe('claude-sonnet-4-20250514');
+      expect(session!.model).toBe('claude-sonnet-4-6');
     });
   });
 

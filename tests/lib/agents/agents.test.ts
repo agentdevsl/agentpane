@@ -49,10 +49,10 @@ describe('SDK Utils - agentQuery', () => {
     );
 
     const { agentQuery } = await import('@/lib/agents/agent-sdk-utils');
-    await agentQuery('Test prompt', { model: 'claude-sonnet-4-5-20250929' });
+    await agentQuery('Test prompt', { model: 'claude-sonnet-4-6' });
 
     expect(mockSessionCreate).toHaveBeenCalledWith({
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       env: expect.objectContaining({ CLAUDE_CODE_ENABLE_TASKS: 'true' }),
     });
   });
@@ -68,7 +68,7 @@ describe('SDK Utils - agentQuery', () => {
     await agentQuery('Test prompt');
 
     expect(mockSessionCreate).toHaveBeenCalledWith({
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       env: expect.objectContaining({ CLAUDE_CODE_ENABLE_TASKS: 'true' }),
     });
   });
@@ -134,7 +134,7 @@ describe('SDK Utils - agentQuery', () => {
           type: 'stream_event',
           event: {
             type: 'message_start',
-            message: { model: 'claude-sonnet-4-20250514', usage: { input_tokens: 100 } },
+            message: { model: 'claude-sonnet-4-6', usage: { input_tokens: 100 } },
           },
         };
         yield {
@@ -149,7 +149,7 @@ describe('SDK Utils - agentQuery', () => {
     const result = await agentQuery('Test prompt');
 
     expect(result.usage).toEqual({ inputTokens: 100, outputTokens: 50 });
-    expect(result.model).toBe('claude-sonnet-4-20250514');
+    expect(result.model).toBe('claude-sonnet-4-6');
   });
 
   it('calls onToken callback with streaming text', async () => {
@@ -241,7 +241,7 @@ describe('Stream Handler', () => {
         prompt: 'Test prompt',
         allowedTools: [],
         maxTurns: 10,
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         cwd: '/tmp',
         hooks: createMockHooks(),
         sessionService,
@@ -253,7 +253,7 @@ describe('Stream Handler', () => {
           type: 'agent:planning',
           data: expect.objectContaining({
             agentId: 'agent-1',
-            model: 'claude-sonnet-4-20250514',
+            model: 'claude-sonnet-4-6',
           }),
         })
       );
@@ -269,7 +269,7 @@ describe('Stream Handler', () => {
         prompt: 'Test prompt',
         allowedTools: [],
         maxTurns: 10,
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         cwd: '/tmp',
         hooks: createMockHooks(),
         sessionService,
@@ -291,7 +291,7 @@ describe('Stream Handler', () => {
         prompt: 'Test prompt',
         allowedTools: [],
         maxTurns: 10,
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         cwd: '/tmp',
         hooks: createMockHooks(),
         sessionService,
@@ -311,7 +311,7 @@ describe('Stream Handler', () => {
         prompt: 'Test prompt',
         allowedTools: [],
         maxTurns: 10,
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         cwd: '/tmp',
         hooks: createMockHooks(),
         sessionService,
@@ -336,7 +336,7 @@ describe('Stream Handler', () => {
         prompt: 'Test prompt',
         allowedTools: [],
         maxTurns: 10,
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         cwd: '/tmp',
         hooks: createMockHooks(),
         sessionService,
@@ -356,7 +356,7 @@ describe('Stream Handler', () => {
         prompt: 'Test prompt',
         allowedTools: [],
         maxTurns: 10,
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         cwd: '/tmp',
         hooks: createMockHooks(),
         sessionService,
@@ -377,7 +377,7 @@ describe('Stream Handler', () => {
         prompt: 'Test prompt',
         allowedTools: [],
         maxTurns: 10,
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         cwd: '/tmp',
         hooks: createMockHooks(),
         sessionService,
@@ -396,7 +396,7 @@ describe('Stream Handler', () => {
         prompt: 'Test prompt',
         allowedTools: [],
         maxTurns: 10,
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         cwd: '/tmp',
         hooks: createMockHooks(),
         sessionService,

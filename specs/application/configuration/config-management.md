@@ -591,7 +591,7 @@ Subagents are markdown files in `.claude/agents/` that define specialized AI ass
 ---
 name: Code Reviewer
 description: Specialized agent for thorough code review with security focus
-model: claude-sonnet-4-20250514
+model: claude-sonnet-4-6
 maxTurns: 30
 allowedTools:
   - Read
@@ -788,10 +788,10 @@ import { z } from 'zod';
 
 // Valid Claude models
 const claudeModelSchema = z.enum([
-  'claude-sonnet-4-20250514',
+  'claude-sonnet-4-6',
   'claude-opus-4-20250514',
   'claude-haiku-3-20240307',
-]).default('claude-sonnet-4-20250514');
+]).default('claude-sonnet-4-6');
 
 // Valid tool names
 const toolNameSchema = z.enum([
@@ -1603,7 +1603,7 @@ export interface ConfigChangedEvent {
   "maxConcurrentAgents": 6,
   "allowedTools": ["Read", "Edit", "Bash", "Glob", "Grep", "WebSearch"],
   "maxTurns": 100,
-  "model": "claude-sonnet-4-20250514",
+  "model": "claude-sonnet-4-6",
   "systemPrompt": "You are a helpful coding assistant for this project.",
   "temperature": 0.7,
   "skills": ["code-review", "testing", "docs"]
@@ -1753,7 +1753,7 @@ async function startAgent(projectId: string, taskId: string) {
   // Use configuration
   const agent = new Agent({
     apiKey: env.ANTHROPIC_API_KEY,
-    model: project.model ?? 'claude-sonnet-4-20250514',
+    model: project.model ?? 'claude-sonnet-4-6',
     maxTurns: project.maxTurns,
     allowedTools: project.allowedTools,
   });

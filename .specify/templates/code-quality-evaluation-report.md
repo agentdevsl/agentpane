@@ -2,7 +2,7 @@
 
 **Feature**: `{{FEATURE_NAME}}`
 **Evaluated**: `{{TIMESTAMP}}`
-**Evaluator**: code-quality-judge (Claude Sonnet 4.5)
+**Evaluator**: code-quality-judge (Claude Sonnet 4.6)
 **Files Evaluated**: `{{FILE_COUNT}}` files
 **Total Lines of Code**: ~`{{LOC_COUNT}}` lines
 
@@ -258,7 +258,7 @@
 | **Files Evaluated**     | {{FILE_COUNT}}                              |
 | **Total Lines of Code** | ~{{LOC_COUNT}}                              |
 | **Terraform Version**   | {{TF_VERSION}}                              |
-| **Judge Version**       | code-quality-judge v1.0 (Claude Sonnet 4.5) |
+| **Judge Version**       | code-quality-judge v1.0 (Claude Sonnet 4.6) |
 
 ---
 

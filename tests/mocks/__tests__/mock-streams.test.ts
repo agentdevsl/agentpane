@@ -220,7 +220,7 @@ describe('mock-streams', () => {
       const event = createAgentEvent('agent:started');
 
       expect(event).toEqual({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         maxTurns: 50,
       });
     });
@@ -284,7 +284,7 @@ describe('mock-streams', () => {
       expect(event).toMatchObject({
         taskId: expect.any(String),
         sessionId: expect.any(String),
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         maxTurns: 50,
       });
     });

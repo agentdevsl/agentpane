@@ -419,7 +419,7 @@ export function buildSimpleSessionJsonl(opts?: {
 }): string {
   const sessionId = opts?.sessionId ?? 'sess-simple';
   const goal = opts?.goal ?? 'Fix the login bug';
-  const model = opts?.model ?? 'claude-sonnet-4-20250514';
+  const model = opts?.model ?? 'claude-sonnet-4-6';
 
   return toJsonl(
     makeUserEvent(goal, { sessionId }),

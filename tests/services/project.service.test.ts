@@ -185,7 +185,7 @@ describe('ProjectService', () => {
         defaultBranch: 'develop',
         allowedTools: ['Read', 'Write', 'Edit', 'Bash'],
         maxTurns: 150,
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         temperature: 0.7,
       };
 
@@ -196,7 +196,7 @@ describe('ProjectService', () => {
         expect(result.value.config.worktreeRoot).toBe('.updated-worktrees');
         expect(result.value.config.defaultBranch).toBe('develop');
         expect(result.value.config.maxTurns).toBe(150);
-        expect(result.value.config.model).toBe('claude-sonnet-4-20250514');
+        expect(result.value.config.model).toBe('claude-sonnet-4-6');
         expect(result.value.config.temperature).toBe(0.7);
       }
     });
@@ -800,7 +800,7 @@ describe('ProjectService', () => {
         maxConcurrentAgents: 5,
         allowedTools: ['Read', 'Write', 'Edit', 'Bash'],
         maxTurns: 100,
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         systemPrompt: 'You are a helpful assistant.',
         temperature: 0.5,
       };
@@ -812,7 +812,7 @@ describe('ProjectService', () => {
         expect(result.value.worktreeRoot).toBe('.custom-worktrees');
         expect(result.value.initScript).toBe('./scripts/init.sh');
         expect(result.value.envFile).toBe('.env.local');
-        expect(result.value.model).toBe('claude-sonnet-4-20250514');
+        expect(result.value.model).toBe('claude-sonnet-4-6');
         expect(result.value.systemPrompt).toBe('You are a helpful assistant.');
         expect(result.value.temperature).toBe(0.5);
       }

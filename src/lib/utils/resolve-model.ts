@@ -15,7 +15,7 @@ export interface ModelResolutionContext {
  * Resolve model ID using cascade priority:
  * Task.modelOverride → Agent.config.model → Project.config.model → Global preference → Hardcoded default
  *
- * @returns The full API model ID (e.g., 'claude-sonnet-4-20250514')
+ * @returns The full API model ID (e.g., 'claude-sonnet-4-6')
  */
 export function resolveModel(context: ModelResolutionContext): string {
   const { taskModelOverride, agentModel, projectModel, globalDefault } = context;

@@ -1128,7 +1128,7 @@ export const agentConfigSchema = z.object({
     'Grep',
   ]),
   maxTurns: z.number().min(1).max(100).default(50),
-  model: z.string().default('claude-sonnet-4-20250514'),
+  model: z.string().default('claude-sonnet-4-6'),
   systemPrompt: z.string().optional(),
   temperature: z.number().min(0).max(1).optional(),
   retryOptions: z.object({
@@ -1153,7 +1153,7 @@ export const DEFAULT_ALLOWED_TOOLS = [
 
 // Model options
 export const SUPPORTED_MODELS = [
-  'claude-sonnet-4-20250514',
+  'claude-sonnet-4-6',
   'claude-opus-4-20250514',
   'claude-haiku-4-20250514',
 ] as const;

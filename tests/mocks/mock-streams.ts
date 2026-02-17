@@ -390,7 +390,7 @@ export function createMockSSEResponse(): MockSSEResponse {
  * @example
  * ```ts
  * const event = createAgentEvent('agent:started');
- * // { model: 'claude-sonnet-4-20250514', maxTurns: 50 }
+ * // { model: 'claude-sonnet-4-6', maxTurns: 50 }
  *
  * const custom = createAgentEvent('agent:turn', { turn: 5, remaining: 45 });
  * // { turn: 5, maxTurns: 50, remaining: 45 }
@@ -430,7 +430,7 @@ export function createAgentEvent(type: AgentEventType, data?: unknown): unknown 
     case 'agent:started':
     case 'agent:planning': {
       const defaults: AgentStartedData = {
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         maxTurns: 50,
       };
       return { ...defaults, ...(data as Partial<AgentStartedData>) };
@@ -506,7 +506,7 @@ export function createAgentEvent(type: AgentEventType, data?: unknown): unknown 
  *   taskId: 'task-1',
  *   sessionId: 'session-1'
  * });
- * // { taskId: 'task-1', sessionId: 'session-1', model: 'claude-sonnet-4-20250514', maxTurns: 50 }
+ * // { taskId: 'task-1', sessionId: 'session-1', model: 'claude-sonnet-4-6', maxTurns: 50 }
  * ```
  */
 export function createContainerAgentEvent(
@@ -584,7 +584,7 @@ export function createContainerAgentEvent(type: ContainerEventType, data?: unkno
       const defaults: ContainerAgentStartedEvent = {
         taskId,
         sessionId,
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         maxTurns: 50,
       };
       return { ...defaults, ...(data as Partial<ContainerAgentStartedEvent>) };

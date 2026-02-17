@@ -40,7 +40,7 @@ graph TB
 // First query - no session ID
 const options: ExecuteOptions = {
   prompt: 'Hello',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   cwd: '/projects/my-app',
   // No sdkSessionId - creates new session
 };
@@ -62,7 +62,7 @@ for await (const message of generator) {
 // Subsequent query - with session ID
 const options: ExecuteOptions = {
   prompt: 'Continue from where we left off',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   cwd: '/projects/my-app',
   sdkSessionId: savedSessionId,
   conversationHistory: previousMessages,

@@ -21,7 +21,7 @@ describe('mock-agent-lifecycle', () => {
       expect(input.taskId).toBeTruthy();
       expect(input.sessionId).toBeTruthy();
       expect(input.prompt).toBe('Fix the bug in the authentication module');
-      expect(input.model).toBe('claude-sonnet-4-20250514');
+      expect(input.model).toBe('claude-sonnet-4-6');
       expect(input.maxTurns).toBe(50);
       expect(input.phase).toBe('plan');
     });
@@ -72,7 +72,7 @@ describe('mock-agent-lifecycle', () => {
       expect(config.allowedTools).toContain('Read');
       expect(config.allowedTools).toContain('Write');
       expect(config.maxTurns).toBe(50);
-      expect(config.model).toBe('claude-sonnet-4-20250514');
+      expect(config.model).toBe('claude-sonnet-4-6');
     });
   });
 

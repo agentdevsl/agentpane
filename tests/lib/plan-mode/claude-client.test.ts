@@ -71,7 +71,7 @@ function createMockTextResponse(text: string) {
     type: 'message',
     role: 'assistant',
     content: [{ type: 'text', text }],
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     stop_reason: 'end_turn',
     usage: { input_tokens: 100, output_tokens: 50 },
   };
@@ -87,7 +87,7 @@ function createMockToolUseResponse(
     type: 'message',
     role: 'assistant',
     content: [{ type: 'tool_use', id: toolId, name: toolName, input }],
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     stop_reason: 'tool_use',
     usage: { input_tokens: 100, output_tokens: 50 },
   };
@@ -318,7 +318,7 @@ describe('ClaudeClient', () => {
   describe('Streaming Responses', () => {
     it('should stream text tokens via callback', async () => {
       const streamEvents = [
-        { type: 'message_start', message: { id: 'msg_1', model: 'claude-sonnet-4-20250514' } },
+        { type: 'message_start', message: { id: 'msg_1', model: 'claude-sonnet-4-6' } },
         { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
         { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Hello' } },
         { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: ' world' } },
@@ -368,7 +368,7 @@ describe('ClaudeClient', () => {
       });
 
       const streamEvents = [
-        { type: 'message_start', message: { id: 'msg_1', model: 'claude-sonnet-4-20250514' } },
+        { type: 'message_start', message: { id: 'msg_1', model: 'claude-sonnet-4-6' } },
         {
           type: 'content_block_start',
           index: 0,
@@ -412,7 +412,7 @@ describe('ClaudeClient', () => {
 
     it('should handle malformed JSON in streaming tool input', async () => {
       const streamEvents = [
-        { type: 'message_start', message: { id: 'msg_1', model: 'claude-sonnet-4-20250514' } },
+        { type: 'message_start', message: { id: 'msg_1', model: 'claude-sonnet-4-6' } },
         {
           type: 'content_block_start',
           index: 0,
@@ -449,7 +449,7 @@ describe('ClaudeClient', () => {
 
     it('should enable stream mode when callback provided', async () => {
       const streamEvents = [
-        { type: 'message_start', message: { id: 'msg_1', model: 'claude-sonnet-4-20250514' } },
+        { type: 'message_start', message: { id: 'msg_1', model: 'claude-sonnet-4-6' } },
         { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
         { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Test' } },
         { type: 'content_block_stop', index: 0 },
@@ -478,7 +478,7 @@ describe('ClaudeClient', () => {
 
     it('should return accumulated text when no tool use in stream', async () => {
       const streamEvents = [
-        { type: 'message_start', message: { id: 'msg_1', model: 'claude-sonnet-4-20250514' } },
+        { type: 'message_start', message: { id: 'msg_1', model: 'claude-sonnet-4-6' } },
         { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
         { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Part 1. ' } },
         { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Part 2. ' } },
@@ -870,7 +870,7 @@ describe('ClaudeClient Edge Cases', () => {
       type: 'message',
       role: 'assistant',
       content: [{ type: 'text', text: 'Response' }],
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       stop_reason: 'end_turn',
       usage: { input_tokens: 0, output_tokens: 10 },
     });
@@ -894,7 +894,7 @@ describe('ClaudeClient Edge Cases', () => {
         { type: 'text', text: 'First part. ' },
         { type: 'text', text: 'Second part.' },
       ],
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       stop_reason: 'end_turn',
       usage: { input_tokens: 100, output_tokens: 50 },
     });
@@ -922,7 +922,7 @@ describe('ClaudeClient Edge Cases', () => {
         { type: 'text', text: 'Some thinking...' },
         { type: 'tool_use', id: 'tool_1', name: 'CreateGitHubIssue', input: toolInput },
       ],
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       stop_reason: 'tool_use',
       usage: { input_tokens: 100, output_tokens: 50 },
     });
@@ -948,7 +948,7 @@ describe('ClaudeClient Edge Cases', () => {
       type: 'message',
       role: 'assistant',
       content: [{ type: 'text', text: '' }],
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       stop_reason: 'end_turn',
       usage: { input_tokens: 100, output_tokens: 0 },
     });
@@ -972,7 +972,7 @@ describe('ClaudeClient Edge Cases', () => {
       type: 'message',
       role: 'assistant',
       content: [],
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       stop_reason: 'end_turn',
       usage: { input_tokens: 100, output_tokens: 0 },
     });

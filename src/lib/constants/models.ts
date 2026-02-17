@@ -36,9 +36,9 @@ export const AVAILABLE_MODELS = [
     description: 'Highly capable, great for complex tasks',
   },
   {
-    id: 'claude-sonnet-4-5',
-    name: 'Claude Sonnet 4.5',
-    fullId: 'claude-sonnet-4-5-20250929',
+    id: 'claude-sonnet-4-6',
+    name: 'Claude Sonnet 4.6',
+    fullId: 'claude-sonnet-4-6',
     description: 'Smart model for complex agents and coding',
   },
   {
@@ -56,7 +56,7 @@ export const DEFAULT_AGENT_MODEL = 'claude-opus-4-6';
 export const DEFAULT_WORKFLOW_MODEL = 'claude-haiku-4-5';
 
 /** Default model for task creation AI */
-export const DEFAULT_TASK_CREATION_MODEL = 'claude-sonnet-4-5';
+export const DEFAULT_TASK_CREATION_MODEL = 'claude-sonnet-4-6';
 
 /**
  * Get the task creation model from environment or localStorage.
@@ -109,8 +109,10 @@ export type FullModelId = (typeof AVAILABLE_MODELS)[number]['fullId'];
  * Maps old short/full IDs to their current replacements.
  */
 const MODEL_MIGRATION_MAP: Record<string, string> = {
-  'claude-sonnet-4': 'claude-sonnet-4-5',
-  'claude-sonnet-4-20250514': 'claude-sonnet-4-5-20250929',
+  'claude-sonnet-4': 'claude-sonnet-4-6',
+  'claude-sonnet-4-20250514': 'claude-sonnet-4-6',
+  'claude-sonnet-4-5': 'claude-sonnet-4-6',
+  'claude-sonnet-4-5-20250929': 'claude-sonnet-4-6',
   'claude-opus-4': 'claude-opus-4-5',
   'claude-opus-4-20250514': 'claude-opus-4-5-20251101',
   'claude-haiku-3-5': 'claude-haiku-4-5',

@@ -739,7 +739,7 @@ export async function seedDefaultData() {
       defaultBranch: 'main',
       allowedTools: ['Read', 'Edit', 'Bash', 'Glob', 'Grep'],
       maxTurns: 50,
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
     },
     maxConcurrentAgents: 3,
   });
@@ -756,7 +756,7 @@ export async function seedDefaultData() {
     config: {
       allowedTools: ['Read', 'Edit', 'Bash', 'Glob', 'Grep'],
       maxTurns: 50,
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
     },
   });
 

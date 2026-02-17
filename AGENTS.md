@@ -855,7 +855,7 @@ export async function executeTask(task: string) {
     prompt: task,
     options: {
       allowedTools: ['Read', 'Edit', 'Bash', 'Glob', 'Grep'],
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       maxTurns: 50,
     },
   })) {
@@ -1353,7 +1353,7 @@ import { z } from 'zod';
 const agentConfigSchema = z.object({
   allowedTools: z.array(z.string()).default(['Read', 'Edit', 'Bash']),
   maxTurns: z.number().default(50),
-  model: z.string().default('claude-sonnet-4-20250514'),
+  model: z.string().default('claude-sonnet-4-6'),
   prompts: z.record(z.string()).optional(),
   envVars: z.record(z.string()).optional(),
 });
