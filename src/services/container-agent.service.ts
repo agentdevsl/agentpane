@@ -32,7 +32,7 @@ function warnLog(context: string, message: string, data?: Record<string, unknown
   console.warn(`[${timestamp}] [ContainerAgentService:${context}] ${message}${dataStr}`);
 }
 
-import { agents, projects, sessions, tasks } from '../db/schema';
+import { agents, projects, type StoredPlanOptions, sessions, tasks } from '../db/schema';
 import { type ContainerBridge, createContainerBridge } from '../lib/agents/container-bridge.js';
 import { DEFAULT_AGENT_MODEL, getFullModelId } from '../lib/constants/models.js';
 import { CONTAINER_WORKSPACE_PATH } from '../lib/constants/sandbox.js';
@@ -57,10 +57,7 @@ interface TaskPlanRow {
   projectId: string;
   sessionId: string | null;
   plan: string | null;
-  planOptions: {
-    sdkSessionId?: string;
-    allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
-  } | null;
+  planOptions: StoredPlanOptions | null;
   lastAgentStatus: string | null;
 }
 
@@ -129,6 +126,8 @@ export interface PlanData {
   sdkSessionId: string;
   allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
   createdAt: Date;
+  /** Sandbox ID at the time planning completed — used to detect container changes before execution */
+  sandboxId?: string;
   // TODO: Pending GA — swarm features
   // launchSwarm?: boolean;
   // teammateCount?: number;
@@ -1723,6 +1722,20 @@ export class ContainerAgentService {
       sdkSessionId: planData.sdkSessionId,
     });
 
+    // Capture the sandbox ID from the running agent before cleanup removes it
+    const runningAgent = this.runningAgents.get(taskId);
+    if (!runningAgent) {
+      warnLog(
+        'handlePlanReady',
+        'Running agent not found in memory — sandbox change detection will be disabled for this plan',
+        {
+          taskId,
+          runningAgentsSize: this.runningAgents.size,
+        }
+      );
+    }
+    const planningSandboxId = runningAgent?.sandboxId;
+
     // Store plan data for later execution (in-memory for fast access)
     this.pendingPlans.set(taskId, {
       taskId,
@@ -1732,6 +1745,7 @@ export class ContainerAgentService {
       turnCount: planData.turnCount,
       sdkSessionId: planData.sdkSessionId,
       allowedPrompts: planData.allowedPrompts,
+      sandboxId: planningSandboxId,
       createdAt: new Date(),
     });
 
@@ -1745,6 +1759,7 @@ export class ContainerAgentService {
           planOptions: {
             sdkSessionId: planData.sdkSessionId,
             allowedPrompts: planData.allowedPrompts,
+            planningSandboxId,
           },
           lastAgentStatus: 'planning',
           column: 'waiting_approval',
@@ -1822,6 +1837,7 @@ export class ContainerAgentService {
         turnCount: 0,
         sdkSessionId: planOptions.sdkSessionId ?? '',
         allowedPrompts: planOptions.allowedPrompts,
+        sandboxId: planOptions.planningSandboxId,
         createdAt: new Date(),
       };
 
@@ -1844,9 +1860,48 @@ export class ContainerAgentService {
       return err(SandboxErrors.PLAN_NOT_FOUND(taskId));
     }
 
+    // Detect sandbox change: if the container was replaced since planning,
+    // the SDK session's conversation history (stored on the container's filesystem)
+    // will have been lost. Fall back to a fresh session with the full plan text as prompt.
+    let effectiveSdkSessionId: string | undefined = planData.sdkSessionId || undefined;
+    if (planData.sandboxId) {
+      try {
+        const currentSandbox = await this.provider.get(planData.projectId);
+        if (!currentSandbox || currentSandbox.id !== planData.sandboxId) {
+          warnLog('approvePlan', 'Sandbox changed since planning phase — using fresh session', {
+            taskId,
+            planningSandboxId: planData.sandboxId,
+            currentSandboxId: currentSandbox?.id ?? 'none',
+          });
+          effectiveSdkSessionId = undefined;
+
+          // Notify the user so they know the agent lost its planning conversation history
+          await this.streams
+            .publish(planData.sessionId, 'container-agent:message', {
+              taskId,
+              sessionId: planData.sessionId,
+              role: 'system',
+              content:
+                '⚠️ Sandbox container changed since planning. Agent will start a fresh session with the full plan text.',
+            })
+            .catch(() => {});
+        }
+      } catch (lookupErr) {
+        warnLog(
+          'approvePlan',
+          'Sandbox lookup failed — cannot verify sandbox continuity, using fresh session',
+          {
+            taskId,
+            error: lookupErr instanceof Error ? lookupErr.message : String(lookupErr),
+          }
+        );
+        effectiveSdkSessionId = undefined;
+      }
+    }
+
     infoLog('approvePlan', 'Approving plan and starting execution', {
       taskId,
-      sdkSessionId: planData.sdkSessionId,
+      sdkSessionId: effectiveSdkSessionId ?? '(fresh session)',
     });
 
     // Move task back to in_progress for execution phase
@@ -1871,14 +1926,14 @@ export class ContainerAgentService {
     // Only remove from pending plans AFTER DB write succeeds
     this.pendingPlans.delete(taskId);
 
-    // Start execution phase with the SDK session ID to resume
+    // Start execution phase — use resumed session if sandbox unchanged, fresh session otherwise
     const result = await this.startAgent({
       projectId: planData.projectId,
       taskId: planData.taskId,
       sessionId: planData.sessionId,
-      prompt: planData.plan, // Use plan as context (though session will resume)
+      prompt: planData.plan, // Full plan text (used as prompt when session is fresh)
       phase: 'execute',
-      sdkSessionId: planData.sdkSessionId,
+      sdkSessionId: effectiveSdkSessionId,
     });
 
     return result;
