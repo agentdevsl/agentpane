@@ -314,6 +314,14 @@ export class CliMonitorService {
         lastActivityAt: session.lastActivityAt,
         isSubagent: session.isSubagent,
         parentSessionId: session.parentSessionId ?? null,
+        slug: session.slug ?? null,
+        cliVersion: session.version ?? null,
+        permissionMode: session.permissionMode ?? null,
+        topology: session.topology ? JSON.stringify(session.topology) : null,
+        queueOperations: session.queueOperations ? JSON.stringify(session.queueOperations) : null,
+        toolInvocations: session.recentToolInvocations
+          ? JSON.stringify(session.recentToolInvocations)
+          : null,
         updatedAt: now,
       };
 
@@ -373,6 +381,12 @@ export class CliMonitorService {
       lastReadOffset: 0,
       isSubagent: row.isSubagent ?? false,
       parentSessionId: row.parentSessionId ?? undefined,
+      slug: row.slug ?? undefined,
+      version: row.cliVersion ?? undefined,
+      permissionMode: row.permissionMode ?? undefined,
+      topology: row.topology ? JSON.parse(row.topology) : undefined,
+      queueOperations: row.queueOperations ? JSON.parse(row.queueOperations) : undefined,
+      recentToolInvocations: row.toolInvocations ? JSON.parse(row.toolInvocations) : undefined,
       performanceMetrics: row.performanceMetrics ? JSON.parse(row.performanceMetrics) : undefined,
     };
   }

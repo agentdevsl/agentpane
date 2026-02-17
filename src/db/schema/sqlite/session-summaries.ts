@@ -1,6 +1,6 @@
 import { createId } from '@paralleldrive/cuid2';
 import { sql } from 'drizzle-orm';
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import { sessions } from './sessions';
 
 export const sessionSummaries = sqliteTable('session_summaries', {
@@ -18,6 +18,11 @@ export const sessionSummaries = sqliteTable('session_summaries', {
   linesAdded: integer('lines_added').default(0),
   linesRemoved: integer('lines_removed').default(0),
   finalStatus: text('final_status').$type<'success' | 'failed' | 'cancelled'>(),
+  costUsd: real('cost_usd'),
+  durationApiMs: integer('duration_api_ms'),
+  cacheReadTokens: integer('cache_read_tokens'),
+  cacheCreationTokens: integer('cache_creation_tokens'),
+  stopReason: text('stop_reason'),
   updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
 });
 

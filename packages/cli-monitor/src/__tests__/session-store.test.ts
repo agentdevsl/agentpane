@@ -484,4 +484,183 @@ describe('SessionStore', () => {
       expect(updated).toHaveLength(1);
     });
   });
+
+  // ── child index ──
+
+  describe('child index', () => {
+    it('returns empty array for session with no children', () => {
+      const store = new SessionStore();
+      store.setSession('parent', makeSession({ sessionId: 'parent' }));
+      expect(store.getChildSessionIds('parent')).toEqual([]);
+    });
+
+    it('tracks children when sessions have parentSessionId', () => {
+      const store = new SessionStore();
+      store.setSession('parent', makeSession({ sessionId: 'parent' }));
+      store.setSession(
+        'child-1',
+        makeSession({ sessionId: 'child-1', isSubagent: true, parentSessionId: 'parent' })
+      );
+      store.setSession(
+        'child-2',
+        makeSession({ sessionId: 'child-2', isSubagent: true, parentSessionId: 'parent' })
+      );
+
+      const children = store.getChildSessionIds('parent');
+      expect(children).toHaveLength(2);
+      expect(children).toContain('child-1');
+      expect(children).toContain('child-2');
+    });
+
+    it('removes child from index when child session is removed', () => {
+      const store = new SessionStore();
+      store.setSession('parent', makeSession({ sessionId: 'parent' }));
+      store.setSession(
+        'child-1',
+        makeSession({ sessionId: 'child-1', isSubagent: true, parentSessionId: 'parent' })
+      );
+      store.setSession(
+        'child-2',
+        makeSession({ sessionId: 'child-2', isSubagent: true, parentSessionId: 'parent' })
+      );
+
+      store.removeSession('child-1');
+
+      const children = store.getChildSessionIds('parent');
+      expect(children).toHaveLength(1);
+      expect(children).toContain('child-2');
+    });
+
+    it('cleans up empty parent entry when last child is removed', () => {
+      const store = new SessionStore();
+      store.setSession('parent', makeSession({ sessionId: 'parent' }));
+      store.setSession(
+        'child-1',
+        makeSession({ sessionId: 'child-1', isSubagent: true, parentSessionId: 'parent' })
+      );
+
+      store.removeSession('child-1');
+
+      expect(store.getChildSessionIds('parent')).toEqual([]);
+    });
+
+    it('returns empty array for unknown parent ID', () => {
+      const store = new SessionStore();
+      expect(store.getChildSessionIds('nonexistent')).toEqual([]);
+    });
+  });
+
+  // ── getTopologyGraph ──
+
+  describe('getTopologyGraph', () => {
+    it('returns single node for root-only session', () => {
+      const store = new SessionStore();
+      store.setSession('root', makeSession({ sessionId: 'root', turnCount: 5 }));
+
+      const graph = store.getTopologyGraph('root');
+      expect(graph).toHaveLength(1);
+      expect(graph[0].sessionId).toBe('root');
+      expect(graph[0].depth).toBe(0);
+      expect(graph[0].turnCount).toBe(5);
+    });
+
+    it('returns empty array for nonexistent root', () => {
+      const store = new SessionStore();
+      const graph = store.getTopologyGraph('nonexistent');
+      expect(graph).toEqual([]);
+    });
+
+    it('builds one-level topology (parent + children)', () => {
+      const store = new SessionStore();
+      store.setSession('root', makeSession({ sessionId: 'root' }));
+      store.setSession(
+        'child-a',
+        makeSession({ sessionId: 'child-a', isSubagent: true, parentSessionId: 'root' })
+      );
+      store.setSession(
+        'child-b',
+        makeSession({ sessionId: 'child-b', isSubagent: true, parentSessionId: 'root' })
+      );
+
+      const graph = store.getTopologyGraph('root');
+      expect(graph).toHaveLength(3);
+
+      const root = graph.find((n) => n.sessionId === 'root');
+      expect(root).toBeDefined();
+      expect(root!.depth).toBe(0);
+      expect(root!.childSessionIds).toContain('child-a');
+      expect(root!.childSessionIds).toContain('child-b');
+
+      const childA = graph.find((n) => n.sessionId === 'child-a');
+      expect(childA).toBeDefined();
+      expect(childA!.depth).toBe(1);
+    });
+
+    it('builds multi-level topology (3 deep)', () => {
+      const store = new SessionStore();
+      store.setSession('root', makeSession({ sessionId: 'root' }));
+      store.setSession(
+        'level1',
+        makeSession({ sessionId: 'level1', isSubagent: true, parentSessionId: 'root' })
+      );
+      store.setSession(
+        'level2',
+        makeSession({ sessionId: 'level2', isSubagent: true, parentSessionId: 'level1' })
+      );
+
+      const graph = store.getTopologyGraph('root');
+      expect(graph).toHaveLength(3);
+
+      const level2 = graph.find((n) => n.sessionId === 'level2');
+      expect(level2).toBeDefined();
+      expect(level2!.depth).toBe(2);
+    });
+
+    it('handles circular references safely', () => {
+      const store = new SessionStore();
+      // Create a cycle: A → B → A (shouldn't happen but guard against it)
+      store.setSession(
+        'sess-a',
+        makeSession({ sessionId: 'sess-a', isSubagent: true, parentSessionId: 'sess-b' })
+      );
+      store.setSession(
+        'sess-b',
+        makeSession({ sessionId: 'sess-b', isSubagent: true, parentSessionId: 'sess-a' })
+      );
+
+      // Should not infinite loop — visited set prevents it
+      const graph = store.getTopologyGraph('sess-a');
+      expect(graph.length).toBeLessThanOrEqual(2);
+    });
+
+    it('uses topology data from session when available', () => {
+      const store = new SessionStore();
+      store.setSession(
+        'root',
+        makeSession({
+          sessionId: 'root',
+          topology: {
+            sessionId: 'root',
+            agentType: 'orchestrator',
+            childSessionIds: [],
+            depth: 0,
+            status: 'working',
+            tokenUsage: {
+              inputTokens: 500,
+              outputTokens: 200,
+              cacheCreationTokens: 0,
+              cacheReadTokens: 0,
+            },
+            turnCount: 10,
+            messageCount: 20,
+          },
+        })
+      );
+
+      const graph = store.getTopologyGraph('root');
+      expect(graph).toHaveLength(1);
+      expect(graph[0].agentType).toBe('orchestrator');
+      expect(graph[0].turnCount).toBe(10);
+    });
+  });
 });

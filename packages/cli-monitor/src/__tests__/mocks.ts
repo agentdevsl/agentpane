@@ -329,6 +329,50 @@ export function createMockLogger(): MockLogger {
   };
 }
 
+// ── Queue / Duration / Microcompact Event Factories ─────────────────
+
+export function makeQueueOperationEvent(
+  operation: string,
+  content?: string,
+  overrides: RawEventOverrides = {}
+): Record<string, unknown> {
+  return makeEvent({
+    type: 'queue-operation',
+    operation,
+    ...(content != null ? { message: { role: 'user', content } } : {}),
+    ...overrides,
+  });
+}
+
+export function makeTurnDurationEvent(
+  durationMs: number,
+  overrides: RawEventOverrides = {}
+): Record<string, unknown> {
+  return makeEvent({
+    type: 'system',
+    subtype: 'turn_duration',
+    durationMs,
+    ...overrides,
+  } as RawEventOverrides);
+}
+
+export function makeMicrocompactWithToolIds(
+  toolIds: string[],
+  overrides: RawEventOverrides = {}
+): Record<string, unknown> {
+  return makeEvent({
+    type: 'system',
+    subtype: 'microcompact_boundary',
+    microcompactMetadata: {
+      trigger: 'auto',
+      preTokens: 50000,
+      tokensSaved: 10000,
+      compactedToolIds: toolIds,
+    },
+    ...overrides,
+  } as RawEventOverrides);
+}
+
 // ── Register Payload Factory ────────────────────────────────────────
 
 export function makeRegisterPayload(

@@ -23,6 +23,9 @@ export type SessionEventType =
   | 'agent:completed'
   | 'agent:error'
   | 'agent:warning'
+  | 'agent:metrics'
+  | 'agent:tool_progress'
+  | 'agent:compacted'
   // Container agent event types
   | 'container-agent:started'
   | 'container-agent:token'

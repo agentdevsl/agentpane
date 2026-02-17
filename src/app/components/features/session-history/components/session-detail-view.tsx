@@ -5,6 +5,7 @@ import {
   CheckCircle,
   Clock,
   Cube,
+  CurrencyDollar,
   Folder,
   Play,
   Trash,
@@ -146,6 +147,14 @@ export function SessionDetailView({
           size="full"
         />
       ),
+    });
+  }
+
+  if (session.costUsd != null && session.costUsd > 0) {
+    metaItems.push({
+      icon: <CurrencyDollar className="h-3.5 w-3.5" />,
+      label: 'Cost',
+      value: `$${session.costUsd.toFixed(3)}`,
     });
   }
 
@@ -312,6 +321,7 @@ export function SessionDetailView({
           tokensUsed: session.tokensUsed,
           turnsUsed: session.turnsUsed,
           duration: session.duration,
+          costUsd: session.costUsd ?? null,
         }}
       />
 

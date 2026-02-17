@@ -37,6 +37,13 @@ export interface AgentRunResult {
   plan?: string;
   planOptions?: ExitPlanModeOptions;
   error?: string;
+  metrics?: {
+    totalCostUsd?: number;
+    durationMs?: number;
+    durationApiMs?: number;
+    numTurns?: number;
+    stopReason?: string | null;
+  };
 }
 
 async function runPreToolHooks(
@@ -214,8 +221,80 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
         }
       }
 
+      // Handle tool_progress events
+      if (msg.type === 'tool_progress') {
+        const progress = msg as {
+          tool_use_id: string;
+          tool_name: string;
+          elapsed_time_seconds: number;
+        };
+        await sessionService.publish(sessionId, {
+          id: createId(),
+          type: 'agent:tool_progress',
+          timestamp: Date.now(),
+          data: {
+            agentId,
+            toolUseId: progress.tool_use_id,
+            toolName: progress.tool_name,
+            elapsedSeconds: progress.elapsed_time_seconds,
+          },
+        });
+      }
+
+      // Handle compact_boundary events
+      if (msg.type === 'system' && (msg as { subtype?: string }).subtype === 'compact_boundary') {
+        const compact = msg as { compact_metadata: { trigger: string; pre_tokens: number } };
+        await sessionService.publish(sessionId, {
+          id: createId(),
+          type: 'agent:compacted',
+          timestamp: Date.now(),
+          data: {
+            agentId,
+            trigger: compact.compact_metadata.trigger,
+            preTokens: compact.compact_metadata.pre_tokens,
+          },
+        });
+      }
+
       // Handle result (planning session finished)
       if (msg.type === 'result') {
+        const result = msg as {
+          status?: string;
+          usage?: { input_tokens?: number; output_tokens?: number };
+          total_cost_usd?: number;
+          duration_ms?: number;
+          duration_api_ms?: number;
+          num_turns?: number;
+          modelUsage?: Record<
+            string,
+            {
+              inputTokens: number;
+              outputTokens: number;
+              cacheReadInputTokens: number;
+              costUSD: number;
+            }
+          >;
+          stop_reason?: string | null;
+        };
+
+        // Publish metrics event with SDK data
+        await sessionService.publish(sessionId, {
+          id: createId(),
+          type: 'agent:metrics',
+          timestamp: Date.now(),
+          data: {
+            agentId,
+            runId,
+            totalCostUsd: result.total_cost_usd,
+            durationMs: result.duration_ms,
+            durationApiMs: result.duration_api_ms,
+            numTurns: result.num_turns,
+            usage: result.usage,
+            modelUsage: result.modelUsage,
+            stopReason: result.stop_reason,
+          },
+        });
+
         session.close();
 
         // Publish plan ready event with swarm options
@@ -237,6 +316,13 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
           turnCount: turn,
           plan: planContent || accumulated,
           planOptions: exitPlanModeOptions,
+          metrics: {
+            totalCostUsd: result.total_cost_usd,
+            durationMs: result.duration_ms,
+            durationApiMs: result.duration_api_ms,
+            numTurns: result.num_turns,
+            stopReason: result.stop_reason,
+          },
         };
       }
     }
@@ -422,12 +508,79 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
         });
       }
 
+      // Handle tool_progress events
+      if (msg.type === 'tool_progress') {
+        const progress = msg as {
+          tool_use_id: string;
+          tool_name: string;
+          elapsed_time_seconds: number;
+        };
+        await sessionService.publish(sessionId, {
+          id: createId(),
+          type: 'agent:tool_progress',
+          timestamp: Date.now(),
+          data: {
+            agentId,
+            toolUseId: progress.tool_use_id,
+            toolName: progress.tool_name,
+            elapsedSeconds: progress.elapsed_time_seconds,
+          },
+        });
+      }
+
+      // Handle compact_boundary events
+      if (msg.type === 'system' && (msg as { subtype?: string }).subtype === 'compact_boundary') {
+        const compact = msg as { compact_metadata: { trigger: string; pre_tokens: number } };
+        await sessionService.publish(sessionId, {
+          id: createId(),
+          type: 'agent:compacted',
+          timestamp: Date.now(),
+          data: {
+            agentId,
+            trigger: compact.compact_metadata.trigger,
+            preTokens: compact.compact_metadata.pre_tokens,
+          },
+        });
+      }
+
       // Handle result (agent finished)
       if (msg.type === 'result') {
         const result = msg as {
           status?: string;
           usage?: { input_tokens?: number; output_tokens?: number };
+          total_cost_usd?: number;
+          duration_ms?: number;
+          duration_api_ms?: number;
+          num_turns?: number;
+          modelUsage?: Record<
+            string,
+            {
+              inputTokens: number;
+              outputTokens: number;
+              cacheReadInputTokens: number;
+              costUSD: number;
+            }
+          >;
+          stop_reason?: string | null;
         };
+
+        // Publish metrics event with SDK data
+        await sessionService.publish(sessionId, {
+          id: createId(),
+          type: 'agent:metrics',
+          timestamp: Date.now(),
+          data: {
+            agentId,
+            runId,
+            totalCostUsd: result.total_cost_usd,
+            durationMs: result.duration_ms,
+            durationApiMs: result.duration_api_ms,
+            numTurns: result.num_turns,
+            usage: result.usage,
+            modelUsage: result.modelUsage,
+            stopReason: result.stop_reason,
+          },
+        });
 
         await sessionService.publish(sessionId, {
           id: createId(),
@@ -442,6 +595,13 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
           status: 'completed',
           turnCount: turn,
           result: accumulated || 'Task completed successfully',
+          metrics: {
+            totalCostUsd: result.total_cost_usd,
+            durationMs: result.duration_ms,
+            durationApiMs: result.duration_api_ms,
+            numTurns: result.num_turns,
+            stopReason: result.stop_reason,
+          },
         };
       }
     }

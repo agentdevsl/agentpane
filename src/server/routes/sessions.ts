@@ -121,10 +121,48 @@ export function createSessionsRoutes({ sessionService, durableStreamsService }: 
 
   // GET /api/sessions
   app.get('/', async (c) => {
+    const projectId = c.req.query('projectId');
     const limit = parseInt(c.req.query('limit') ?? '50', 10);
     const offset = parseInt(c.req.query('offset') ?? '0', 10);
 
     try {
+      if (projectId) {
+        // Use filtered query when projectId is provided
+        const status = c.req.query('status')?.split(',') as
+          | import('../../db/schema/index.js').SessionStatus[]
+          | undefined;
+        const agentId = c.req.query('agentId');
+        const search = c.req.query('search');
+        const dateFrom = c.req.query('dateFrom');
+        const dateTo = c.req.query('dateTo');
+
+        const result = await sessionService.listSessionsWithFilters(projectId, {
+          status,
+          agentId,
+          search,
+          dateFrom,
+          dateTo,
+          limit,
+          offset,
+        });
+
+        if (!result.ok) {
+          return json({ ok: false, error: result.error }, result.error.status ?? 400);
+        }
+
+        return json({
+          ok: true,
+          data: result.value.sessions,
+          pagination: {
+            limit,
+            offset,
+            total: result.value.total,
+            hasMore: result.value.sessions.length === limit,
+          },
+        });
+      }
+
+      // Fallback: no projectId filter (existing behavior)
       const result = await sessionService.list({ limit, offset });
       if (!result.ok) {
         return json({ ok: false, error: result.error }, result.error.status ?? 400);

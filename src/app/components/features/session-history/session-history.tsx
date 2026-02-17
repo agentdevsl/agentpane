@@ -31,6 +31,7 @@ export interface RawSession {
   linesRemoved?: number;
   sandboxProvider?: string | null;
   sandboxContainerId?: string | null;
+  costUsd?: number | null;
 }
 
 /** Project for filtering */
@@ -82,6 +83,7 @@ function toSessionListItem(raw: RawSession, projectMap: Map<string, string>): Se
     projectName: projectMap.get(raw.projectId) ?? null,
     sandboxProvider: raw.sandboxProvider ?? null,
     sandboxContainerId: raw.sandboxContainerId ?? null,
+    costUsd: raw.costUsd ?? null,
   };
 }
 
@@ -207,6 +209,7 @@ export function SessionHistory({
             linesRemoved: summary?.linesRemoved ?? 0,
             testsRun: 0,
             testsPassed: 0,
+            costUsd: (summary as { costUsd?: number | null } | null)?.costUsd ?? null,
           };
           setSessionDetail(detail);
         }

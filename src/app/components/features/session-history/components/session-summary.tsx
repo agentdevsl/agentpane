@@ -1,3 +1,4 @@
+import { CurrencyDollar } from '@phosphor-icons/react';
 import type { SessionSummaryProps } from '../types';
 import { formatDuration, formatTokens } from '../utils/format-duration';
 
@@ -46,6 +47,13 @@ export function SessionSummary({ metrics }: SessionSummaryProps): React.JSX.Elem
             {metrics.duration != null ? formatDuration(metrics.duration) : 'In progress'}
           </span>
         </span>
+
+        {metrics.costUsd != null && metrics.costUsd > 0 && (
+          <span className="flex items-center gap-1 text-fg-muted">
+            <CurrencyDollar className="h-3 w-3" />
+            Cost <span className="font-medium text-fg">${metrics.costUsd.toFixed(3)}</span>
+          </span>
+        )}
       </div>
     </div>
   );

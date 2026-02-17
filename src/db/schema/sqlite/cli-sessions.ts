@@ -28,6 +28,12 @@ export const cliSessions = sqliteTable(
     lastActivityAt: integer('last_activity_at').notNull(),
     isSubagent: integer('is_subagent', { mode: 'boolean' }).notNull().default(false),
     parentSessionId: text('parent_session_id'),
+    slug: text('slug'),
+    cliVersion: text('cli_version'),
+    permissionMode: text('permission_mode'),
+    topology: text('topology'), // JSON
+    queueOperations: text('queue_operations'), // JSON
+    toolInvocations: text('tool_invocations'), // JSON
     createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
     updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
   },

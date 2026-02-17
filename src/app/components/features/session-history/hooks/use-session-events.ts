@@ -10,7 +10,7 @@ import type {
   ToolCallEntry,
   ToolCallStats,
 } from '../types';
-import { calculateTimeOffset, formatTimeOffset } from '../utils/format-duration';
+import { calculateTimeOffset, formatDuration, formatTimeOffset } from '../utils/format-duration';
 import { calculateToolCallStats, parseToolCallsFromEvents } from '../utils/parse-tool-calls';
 
 // Types for API responses
@@ -214,6 +214,7 @@ export function useSessionDetail(sessionId: string | null): UseSessionDetailRetu
         filesModified: number;
         linesAdded: number;
         linesRemoved: number;
+        costUsd?: number | null;
         finalStatus: 'success' | 'failed' | 'cancelled' | null;
         session: { id: string; status: string; title: string | null };
       };
@@ -242,6 +243,7 @@ export function useSessionDetail(sessionId: string | null): UseSessionDetailRetu
           turnsUsed: summary?.turnsCount ?? session.turnsUsed ?? 0,
           tokensUsed: summary?.tokensUsed ?? session.tokensUsed ?? 0,
           duration: summary?.durationMs ?? session.duration ?? null,
+          costUsd: summary?.costUsd ?? session.costUsd ?? null,
         },
       });
     } catch (err) {
@@ -664,6 +666,40 @@ export function parseEventsToStreamEntries(
         }
         type = 'system';
         content = JSON.stringify(event.data);
+        break;
+      }
+
+      case 'agent:metrics': {
+        type = 'system';
+        const metricsData = event.data as {
+          totalCostUsd?: number;
+          durationMs?: number;
+          numTurns?: number;
+          stopReason?: string;
+        };
+        const parts: string[] = [];
+        if (metricsData.totalCostUsd != null)
+          parts.push(`Cost: $${metricsData.totalCostUsd.toFixed(3)}`);
+        if (metricsData.durationMs != null)
+          parts.push(`Duration: ${formatDuration(metricsData.durationMs)}`);
+        if (metricsData.numTurns != null) parts.push(`Turns: ${metricsData.numTurns}`);
+        if (metricsData.stopReason) parts.push(`Stop: ${metricsData.stopReason}`);
+        content =
+          parts.length > 0 ? `Session Metrics — ${parts.join(' · ')}` : 'Session metrics recorded';
+        break;
+      }
+
+      case 'agent:tool_progress': {
+        type = 'system';
+        const progressData = event.data as { toolName?: string; elapsedSeconds?: number };
+        content = `Tool ${progressData.toolName ?? 'unknown'} running (${progressData.elapsedSeconds?.toFixed(1) ?? '?'}s)`;
+        break;
+      }
+
+      case 'agent:compacted': {
+        type = 'system';
+        const compactData = event.data as { trigger?: string; preTokens?: number };
+        content = `Context compacted (${compactData.trigger ?? 'auto'}, ${compactData.preTokens?.toLocaleString() ?? '?'} tokens before)`;
         break;
       }
 
