@@ -8,7 +8,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { CliMonitorService } from '../../services/cli-monitor/cli-monitor.service.js';
-import type { AgentTopologyNode, CliSession } from '../../services/cli-monitor/types.js';
+import type { CliSession } from '../../services/cli-monitor/types.js';
 
 // ── Zod Schemas ──
 
@@ -457,10 +457,8 @@ export function createCliMonitorRoutes({ cliMonitorService }: CliMonitorDeps) {
       );
     }
 
-    const sessions = cliMonitorService.getSessions();
-
-    const rootSession = sessions.find((s) => s.sessionId === rootSessionId);
-    if (!rootSession) {
+    const nodes = cliMonitorService.getTopologyGraph(rootSessionId);
+    if (!nodes) {
       return c.json(
         {
           ok: false,
@@ -470,50 +468,7 @@ export function createCliMonitorRoutes({ cliMonitorService }: CliMonitorDeps) {
       );
     }
 
-    // Build parent→children map from in-memory sessions
-    const childMap = new Map<string, string[]>();
-    for (const s of sessions) {
-      if (s.parentSessionId) {
-        const children = childMap.get(s.parentSessionId) ?? [];
-        children.push(s.sessionId);
-        childMap.set(s.parentSessionId, children);
-      }
-    }
-
-    // BFS walk from root
-    const result: AgentTopologyNode[] = [];
-    const visited = new Set<string>();
-    const queue = [rootSessionId];
-
-    while (queue.length > 0) {
-      const currentId = queue.shift();
-      if (!currentId || visited.has(currentId)) continue;
-      visited.add(currentId);
-
-      const session = sessions.find((s) => s.sessionId === currentId);
-      if (!session) continue;
-
-      const childIds = childMap.get(currentId) ?? [];
-      result.push(
-        session.topology ?? {
-          sessionId: currentId,
-          agentType: 'unknown',
-          parentSessionId: session.parentSessionId,
-          childSessionIds: childIds,
-          depth: 0,
-          status: session.status,
-          tokenUsage: session.tokenUsage,
-          turnCount: session.turnCount,
-          messageCount: session.messageCount,
-        }
-      );
-
-      for (const childId of childIds) {
-        if (!visited.has(childId)) queue.push(childId);
-      }
-    }
-
-    return c.json({ ok: true, data: { nodes: result, rootSessionId } });
+    return c.json({ ok: true, data: { nodes, rootSessionId } });
   });
 
   return app;

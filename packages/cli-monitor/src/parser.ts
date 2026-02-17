@@ -531,14 +531,14 @@ function deriveAgentType(session: StoredSession, store: SessionStore): AgentNode
   const agentId = session.topology?.agentId?.toLowerCase() ?? '';
 
   // Check agentId string patterns
-  if (agentId.includes('orchestrat')) return 'orchestrator';
-  if (agentId.includes('plan')) return 'planner';
-  if (agentId.includes('review')) return 'reviewer';
-  if (agentId.includes('test')) return 'tester';
-  if (agentId.includes('scan')) return 'scanner';
-  if (agentId.includes('deploy')) return 'deployer';
-  if (agentId.includes('explor')) return 'explorer';
-  if (agentId.includes('cod')) return 'coder';
+  if (/\borchestrat/i.test(agentId)) return 'orchestrator';
+  if (/\bplan(?:ner|ning)?\b/i.test(agentId)) return 'planner';
+  if (/\breview/i.test(agentId)) return 'reviewer';
+  if (/\btest(?:er|ing)?\b/i.test(agentId)) return 'tester';
+  if (/\bscan(?:ner|ning)?\b/i.test(agentId)) return 'scanner';
+  if (/\bdeploy/i.test(agentId)) return 'deployer';
+  if (/\bexplor/i.test(agentId)) return 'explorer';
+  if (/\bcod(?:e|er|ing)\b/i.test(agentId)) return 'coder';
 
   // Check permissionMode
   if (session.permissionMode === 'plan') return 'planner';

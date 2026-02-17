@@ -2,7 +2,7 @@ import { createId } from '@paralleldrive/cuid2';
 import { and, desc, eq, gt, lt } from 'drizzle-orm';
 import { cliSessions, settings } from '../../db/schema';
 import type { Database } from '../../types/database.js';
-import type { CliSession, DaemonInfo, DaemonRegisterPayload } from './types.js';
+import type { AgentTopologyNode, CliSession, DaemonInfo, DaemonRegisterPayload } from './types.js';
 import { DAEMON_TIMEOUT_MS } from './types.js';
 
 // DurableStreamsServer interface (from session.service.ts)
@@ -222,6 +222,59 @@ export class CliMonitorService {
       );
       throw err; // Let caller handle — returning [] masks DB failures as empty results
     }
+  }
+
+  getTopologyGraph(rootSessionId: string): AgentTopologyNode[] | null {
+    const sessions = this.getSessions();
+    const rootSession = sessions.find((s) => s.sessionId === rootSessionId);
+    if (!rootSession) return null;
+
+    // Build parent→children map
+    const childMap = new Map<string, string[]>();
+    for (const s of sessions) {
+      if (s.parentSessionId) {
+        const children = childMap.get(s.parentSessionId) ?? [];
+        children.push(s.sessionId);
+        childMap.set(s.parentSessionId, children);
+      }
+    }
+
+    // BFS walk from root, tracking depth
+    const result: AgentTopologyNode[] = [];
+    const visited = new Set<string>();
+    const queue: Array<{ id: string; depth: number }> = [{ id: rootSessionId, depth: 0 }];
+
+    while (queue.length > 0) {
+      const item = queue.shift();
+      if (!item || visited.has(item.id)) continue;
+      visited.add(item.id);
+
+      const session = sessions.find((s) => s.sessionId === item.id);
+      if (!session) continue;
+
+      const childIds = childMap.get(item.id) ?? [];
+      result.push(
+        session.topology
+          ? { ...session.topology, depth: item.depth }
+          : {
+              sessionId: item.id,
+              agentType: 'unknown',
+              parentSessionId: session.parentSessionId,
+              childSessionIds: childIds,
+              depth: item.depth,
+              status: session.status,
+              tokenUsage: session.tokenUsage,
+              turnCount: session.turnCount,
+              messageCount: session.messageCount,
+            }
+      );
+
+      for (const childId of childIds) {
+        if (!visited.has(childId)) queue.push({ id: childId, depth: item.depth + 1 });
+      }
+    }
+
+    return result;
   }
 
   // ── SSE Subscription ──
