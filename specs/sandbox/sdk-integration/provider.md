@@ -299,9 +299,9 @@ getAvailableModels(): ModelDefinition[] {
       default: true,
     },
     {
-      id: 'claude-sonnet-4-20250514',
+      id: 'claude-sonnet-4-6',
       name: 'Claude Sonnet 4',
-      modelString: 'claude-sonnet-4-20250514',
+      modelString: 'claude-sonnet-4-6',
       provider: 'anthropic',
       description: 'Balanced performance and cost',
       contextWindow: 200000,

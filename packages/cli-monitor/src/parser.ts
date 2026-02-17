@@ -1,6 +1,12 @@
 import path from 'node:path';
 import { logger } from './logger.js';
-import type { CompactionEvent, SessionStatus, SessionStore } from './session-store.js';
+import type {
+  AgentNodeType,
+  CompactionEvent,
+  SessionStatus,
+  SessionStore,
+  StoredSession,
+} from './session-store.js';
 
 // Minimal types for JSONL events (no dependency on main repo types)
 interface RawEvent {
@@ -31,6 +37,22 @@ interface RawEvent {
     };
     stop_reason?: string | null;
   };
+  slug?: string;
+  operation?: string;
+  durationMs?: number;
+  thinkingMetadata?: { maxThinkingTokens: number };
+  permissionMode?: string;
+  toolUseResult?:
+    | string
+    | {
+        mode?: string;
+        numFiles?: number;
+        filenames?: string[];
+        numLines?: number;
+        content?: string;
+      };
+  sourceToolAssistantUUID?: string;
+  subagentType?: string; // raw subagent_type from Task tool (e.g., 'Explore', 'Plan', 'general-purpose')
   // progress events nest message under data
   data?: {
     message?: RawEvent['message'];
@@ -64,12 +86,11 @@ const MAX_RECENT_TURNS = 10;
 const MAX_GOAL_LENGTH = 200;
 const MAX_RECENT_OUTPUT_LENGTH = 500;
 const CONTEXT_WINDOW_DEFAULT = 200_000;
+const MAX_QUEUE_OPERATIONS = 20;
+const MAX_TOOL_INVOCATIONS = 50;
 
-function getContextWindowLimit(model?: string): number {
-  // All current Claude models use 200k context window
-  if (model && (model.includes('sonnet') || model.includes('opus') || model.includes('haiku'))) {
-    return 200_000;
-  }
+function getContextWindowLimit(_model: string): number {
+  // All currently supported Claude models share the same 200k context window limit
   return CONTEXT_WINDOW_DEFAULT;
 }
 
@@ -172,6 +193,21 @@ export function parseJsonlFile(
           healthStatus: 'healthy',
         },
       };
+
+      // Initialize topology node
+      session.topology = {
+        sessionId,
+        agentId: event.agentId,
+        agentType: event.subagentType ?? 'unknown',
+        parentSessionId: isSubagent ? extractParentSessionId(filePath) : undefined,
+        childSessionIds: [],
+        depth: 0,
+        spawnedAt: session.startedAt,
+        status: session.status,
+        tokenUsage: { ...session.tokenUsage },
+        turnCount: 0,
+        messageCount: 0,
+      };
     }
 
     // Update timestamp
@@ -183,6 +219,44 @@ export function parseJsonlFile(
     // Update git branch if present
     if (event.gitBranch) {
       session.gitBranch = event.gitBranch;
+    }
+
+    // Session metadata (first-write-wins for slug)
+    if (event.slug && !session.slug) {
+      session.slug = event.slug;
+    }
+    if (event.version && !session.version) {
+      session.version = event.version;
+    }
+    if (event.permissionMode) {
+      session.permissionMode = event.permissionMode;
+    }
+    if (event.isSidechain !== undefined) {
+      session.isSidechain = event.isSidechain;
+    }
+    if (event.thinkingMetadata?.maxThinkingTokens != null) {
+      session.maxThinkingTokens = event.thinkingMetadata.maxThinkingTokens;
+    }
+
+    // Queue operation events
+    if (event.type === 'queue-operation' && event.operation) {
+      if (!session.queueOperations) {
+        session.queueOperations = [];
+      }
+      const content =
+        typeof event.message?.content === 'string'
+          ? event.message.content.slice(0, 200)
+          : undefined;
+      session.queueOperations.push({
+        operation: event.operation,
+        timestamp: eventTime || Date.now(),
+        content,
+        version: event.version,
+      });
+      // Ring buffer cap
+      if (session.queueOperations.length > MAX_QUEUE_OPERATIONS) {
+        session.queueOperations = session.queueOperations.slice(-MAX_QUEUE_OPERATIONS);
+      }
     }
 
     // Process based on event type
@@ -202,6 +276,21 @@ export function parseJsonlFile(
           if (hasToolResult) {
             session.status = 'working';
             session.pendingToolUse = undefined;
+          }
+        }
+
+        // Enrich last tool invocation with result metadata
+        if (
+          event.toolUseResult &&
+          typeof event.toolUseResult === 'object' &&
+          session.recentToolInvocations?.length
+        ) {
+          const lastInvocation =
+            session.recentToolInvocations[session.recentToolInvocations.length - 1];
+          if (lastInvocation) {
+            const result = event.toolUseResult as { numFiles?: number; numLines?: number };
+            if (result.numFiles != null) lastInvocation.resultNumFiles = result.numFiles;
+            if (result.numLines != null) lastInvocation.resultNumLines = result.numLines;
           }
         }
       }
@@ -238,6 +327,21 @@ export function parseJsonlFile(
             if (block.type === 'tool_use' && block.name && block.id) {
               hasToolUse = true;
               session.pendingToolUse = { toolName: block.name, toolId: block.id };
+              // Track tool invocation
+              if (!session.recentToolInvocations) {
+                session.recentToolInvocations = [];
+              }
+              session.recentToolInvocations.push({
+                toolName: block.name,
+                toolId: block.id,
+                timestamp: eventTime || Date.now(),
+              });
+              // Ring buffer cap
+              if (session.recentToolInvocations.length > MAX_TOOL_INVOCATIONS) {
+                session.recentToolInvocations = session.recentToolInvocations.slice(
+                  -MAX_TOOL_INVOCATIONS
+                );
+              }
             }
             if (block.type === 'text' && block.text) {
               hasText = true;
@@ -314,6 +418,10 @@ export function parseJsonlFile(
       if (event.summary) {
         session.recentOutput = event.summary.slice(0, MAX_RECENT_OUTPUT_LENGTH);
       }
+      if (session.topology) {
+        session.topology.completedAt = eventTime || Date.now();
+        session.topology.status = 'completed';
+      }
     }
 
     // Compaction events: system events with compact_boundary or microcompact_boundary subtypes
@@ -332,6 +440,7 @@ export function parseJsonlFile(
           trigger: metadata?.trigger ?? 'unknown',
           preTokens: metadata?.preTokens ?? 0,
           tokensSaved: isMicro ? event.microcompactMetadata?.tokensSaved : undefined,
+          compactedToolIds: isMicro ? event.microcompactMetadata?.compactedToolIds : undefined,
           sessionId,
           parentSessionId: session.parentSessionId,
         };
@@ -350,11 +459,118 @@ export function parseJsonlFile(
       }
     }
 
+    // Turn duration system events
+    if (
+      event.type === 'system' &&
+      event.subtype === 'turn_duration' &&
+      event.durationMs != null &&
+      event.durationMs > 0
+    ) {
+      session.lastTurnDurationMs = event.durationMs;
+
+      // Attach duration to most recent turn metric and recompute running average
+      if (session.performanceMetrics && session.performanceMetrics.recentTurns.length > 0) {
+        const lastTurn =
+          session.performanceMetrics.recentTurns[session.performanceMetrics.recentTurns.length - 1];
+        if (lastTurn) {
+          lastTurn.durationMs = event.durationMs;
+        }
+
+        let totalDuration = 0;
+        let countWithDuration = 0;
+        for (const t of session.performanceMetrics.recentTurns) {
+          if (t.durationMs != null && t.durationMs > 0) {
+            totalDuration += t.durationMs;
+            countWithDuration++;
+          }
+        }
+        session.avgTurnDurationMs =
+          countWithDuration > 0 ? Math.round(totalDuration / countWithDuration) : undefined;
+      }
+    }
+
+    // Sync topology metrics before persisting to store
+    if (session.topology) {
+      // Preserve 'completed' status set by summary handler
+      if (session.topology.status !== 'completed') {
+        session.topology.status = session.status;
+      }
+      session.topology.tokenUsage = { ...session.tokenUsage };
+      session.topology.turnCount = session.turnCount;
+      session.topology.messageCount = session.messageCount;
+      session.topology.agentType = deriveAgentType(session, store);
+    }
+
     store.setSession(sessionId, session);
+
     bytesConsumed += lineBytes;
   }
 
   return bytesConsumed;
+}
+
+/**
+ * Derive the agent type from available signals, using a priority cascade:
+ * 1. Explicit subagentType from JSONL (if not 'unknown')
+ * 2. Pattern matching on agentId string
+ * 3. Permission mode inference
+ * 4. Tool usage ratio heuristics
+ * 5. Structural position (root with children = orchestrator)
+ * 6. Goal text keyword matching
+ * 7. Default: subagents are 'coder', root sessions are 'unknown'
+ */
+function deriveAgentType(session: StoredSession, store: SessionStore): AgentNodeType {
+  // Use raw subagentType from JSONL if already set (takes precedence over heuristics)
+  if (session.topology?.agentType && session.topology.agentType !== 'unknown') {
+    return session.topology.agentType;
+  }
+
+  const agentId = session.topology?.agentId?.toLowerCase() ?? '';
+
+  // Check agentId string patterns
+  if (/\borchestrat/i.test(agentId)) return 'orchestrator';
+  if (/\bplan(?:ner|ning)?\b/i.test(agentId)) return 'planner';
+  if (/\breview/i.test(agentId)) return 'reviewer';
+  if (/\btest(?:er|ing)?\b/i.test(agentId)) return 'tester';
+  if (/\bscan(?:ner|ning)?\b/i.test(agentId)) return 'scanner';
+  if (/\bdeploy/i.test(agentId)) return 'deployer';
+  if (/\bexplor/i.test(agentId)) return 'explorer';
+  if (/\bcod(?:e|er|ing)\b/i.test(agentId)) return 'coder';
+
+  // Check permissionMode
+  if (session.permissionMode === 'plan') return 'planner';
+
+  // Check tool usage patterns
+  if (session.recentToolInvocations?.length) {
+    let editCount = 0;
+    let bashCount = 0;
+    for (const inv of session.recentToolInvocations) {
+      const name = inv.toolName.toLowerCase();
+      if (name === 'edit' || name === 'write') editCount++;
+      if (name === 'bash') bashCount++;
+    }
+    const total = session.recentToolInvocations.length;
+    if (editCount / total > 0.4) return 'coder';
+    if (bashCount / total > 0.5) return 'tester';
+  }
+
+  // Check if root with children (orchestrator)
+  if (!session.isSubagent && store.getChildSessionIds(session.sessionId).length > 0) {
+    return 'orchestrator';
+  }
+
+  // Check goal text for keywords
+  const goal = session.goal?.toLowerCase() ?? '';
+  if (goal.includes('review')) return 'reviewer';
+  if (goal.includes('test')) return 'tester';
+  if (goal.includes('deploy')) return 'deployer';
+  if (goal.includes('scan') || goal.includes('lint')) return 'scanner';
+  if (goal.includes('plan')) return 'planner';
+  if (goal.includes('explor') || goal.includes('search') || goal.includes('find'))
+    return 'explorer';
+
+  // Default: subagent → coder, otherwise → unknown
+  return session.isSubagent ? 'coder' : 'unknown';
 }
 
 function extractParentSessionId(filePath: string): string | undefined {

@@ -1,4 +1,4 @@
-import { ChatCircle, Clock, Coins, Wrench } from '@phosphor-icons/react';
+import { ChatCircle, Clock, Coins, CurrencyDollar, Wrench } from '@phosphor-icons/react';
 import { cva } from 'class-variance-authority';
 import { ExecutionBadge } from '@/app/components/ui/execution-badge';
 import { cn } from '@/lib/utils/cn';
@@ -124,6 +124,13 @@ export function SessionCard({
           <span className="flex items-center gap-1">
             <Coins className="h-3 w-3" />
             {formatTokens(session.tokensUsed)}
+          </span>
+        )}
+
+        {/* Cost */}
+        {session.costUsd != null && session.costUsd > 0 && (
+          <span className="flex items-center gap-1">
+            <CurrencyDollar className="h-3 w-3" />${session.costUsd.toFixed(3)}
           </span>
         )}
 

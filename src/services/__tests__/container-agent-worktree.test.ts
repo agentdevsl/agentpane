@@ -154,7 +154,7 @@ describe('ContainerAgentService — worktree integration', () => {
     id: 'p1',
     name: 'Test Project',
     path: '/Users/test/project',
-    config: { model: 'claude-sonnet-4-20250514' },
+    config: { model: 'claude-sonnet-4-6' },
   };
 
   const task = {
@@ -490,7 +490,7 @@ describe('ContainerAgentService — K8s worktree integration', () => {
     githubOwner: 'test-org',
     githubRepo: 'test-repo',
     githubInstallationId: null as string | null,
-    config: { model: 'claude-sonnet-4-20250514' },
+    config: { model: 'claude-sonnet-4-6' },
   };
 
   const task = {

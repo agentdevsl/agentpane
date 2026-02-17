@@ -59,12 +59,12 @@ describe('Event factories', () => {
       message: {
         role: 'assistant',
         content: 'Hi',
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         stop_reason: 'end_turn',
       },
     });
     const msg = event.message as Record<string, unknown>;
-    expect(msg.model).toBe('claude-sonnet-4-20250514');
+    expect(msg.model).toBe('claude-sonnet-4-6');
     expect(msg.stop_reason).toBe('end_turn');
     expect(msg.role).toBe('assistant');
   });

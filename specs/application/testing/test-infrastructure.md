@@ -359,7 +359,7 @@ export function createMockOctokit(options: MockOctokitOptions = {}): Partial<Oct
                 content: Buffer.from(JSON.stringify({
                   allowedTools: ['Read', 'Edit', 'Bash'],
                   maxTurns: 50,
-                  model: 'claude-sonnet-4-20250514',
+                  model: 'claude-sonnet-4-6',
                 })).toString('base64'),
                 encoding: 'base64',
               },
@@ -1198,7 +1198,7 @@ export function createTestProject(options: CreateTestProjectOptions = {}): Proje
       defaultBranch: 'main',
       allowedTools: ['Read', 'Edit', 'Bash', 'Glob', 'Grep'],
       maxTurns: 50,
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       ...options.config,
     },
     maxConcurrentAgents: 3,
@@ -1268,7 +1268,7 @@ export function createTestAgent(options: CreateTestAgentOptions = {}): Agent {
     config: {
       allowedTools: ['Read', 'Edit', 'Bash', 'Glob', 'Grep'],
       maxTurns: 50,
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       ...options.config,
     },
     currentTaskId: null,
@@ -1653,7 +1653,7 @@ export async function seedTestDatabase(options: {
         defaultBranch: 'main',
         allowedTools: ['Read', 'Edit', 'Bash'],
         maxTurns: 50,
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
       },
     }).returning();
     projects.push(project);
@@ -1679,7 +1679,7 @@ export async function seedTestDatabase(options: {
         config: {
           allowedTools: ['Read', 'Edit', 'Bash'],
           maxTurns: 50,
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-4-6',
         },
       }).returning();
       agents.push(agent);
@@ -1983,7 +1983,7 @@ export const sampleProjects: Record<string, Omit<Project, 'id' | 'createdAt' | '
       defaultBranch: 'main',
       allowedTools: ['Read', 'Edit', 'Bash', 'Glob', 'Grep'],
       maxTurns: 50,
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
     },
     maxConcurrentAgents: 3,
     githubOwner: null,
@@ -2002,7 +2002,7 @@ export const sampleProjects: Record<string, Omit<Project, 'id' | 'createdAt' | '
       defaultBranch: 'main',
       allowedTools: ['Read', 'Edit', 'Bash', 'Glob', 'Grep'],
       maxTurns: 100,
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       initScript: 'bun run setup',
       envFile: '.env.local',
     },
@@ -2023,7 +2023,7 @@ export const sampleProjects: Record<string, Omit<Project, 'id' | 'createdAt' | '
       defaultBranch: 'develop',
       allowedTools: ['Read', 'Glob', 'Grep'],
       maxTurns: 20,
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
     },
     maxConcurrentAgents: 1,
     githubOwner: null,

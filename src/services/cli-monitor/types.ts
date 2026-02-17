@@ -8,6 +8,41 @@ export type CliSessionStatus =
 // ── Aggregate Status (for ambient UI) ──
 export type AggregateStatus = 'nominal' | 'attention' | 'idle';
 
+// ── Agent Topology ──
+export type AgentNodeType = string;
+
+export interface QueueOperation {
+  operation: string;
+  timestamp: number;
+  content?: string;
+  version?: string;
+}
+
+export interface ToolInvocation {
+  toolName: string;
+  toolId: string;
+  timestamp: number;
+  isError?: boolean;
+  durationMs?: number;
+  resultNumFiles?: number;
+  resultNumLines?: number;
+}
+
+export interface AgentTopologyNode {
+  sessionId: string;
+  agentId?: string;
+  agentType: AgentNodeType;
+  parentSessionId?: string;
+  childSessionIds: string[];
+  depth: number;
+  spawnedAt?: number;
+  completedAt?: number;
+  status: CliSessionStatus | 'completed';
+  tokenUsage: CliSession['tokenUsage'];
+  turnCount: number;
+  messageCount: number;
+}
+
 // ── Session State ──
 export interface CliSession {
   sessionId: string; // UUID from JSONL sessionId field
@@ -40,6 +75,16 @@ export interface CliSession {
   lastReadOffset: number; // Byte offset for incremental file reading
   isSubagent: boolean; // True if file is in /subagents/ directory
   parentSessionId?: string; // Parent session ID if subagent
+  slug?: string;
+  version?: string;
+  permissionMode?: string;
+  maxThinkingTokens?: number;
+  isSidechain?: boolean;
+  lastTurnDurationMs?: number;
+  avgTurnDurationMs?: number;
+  queueOperations?: QueueOperation[];
+  recentToolInvocations?: ToolInvocation[];
+  topology?: AgentTopologyNode;
   performanceMetrics?: PerformanceMetrics;
 }
 
@@ -51,6 +96,7 @@ export interface TurnMetrics {
   cacheReadTokens: number;
   cacheCreationTokens: number;
   timestamp: number;
+  durationMs?: number;
 }
 
 export type HealthStatus = 'healthy' | 'warning' | 'critical';
@@ -63,6 +109,7 @@ export interface CompactionEvent {
   tokensSaved?: number;
   sessionId: string;
   parentSessionId?: string;
+  compactedToolIds?: string[];
 }
 
 export interface PerformanceMetrics {

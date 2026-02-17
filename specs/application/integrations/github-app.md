@@ -744,7 +744,7 @@ export const agentConfigSchema = z.object({
   // Agent execution settings
   allowedTools: z.array(z.string()).default(['Read', 'Edit', 'Bash', 'Glob', 'Grep']),
   maxTurns: z.number().min(1).max(200).default(50),
-  model: z.string().default('claude-sonnet-4-20250514'),
+  model: z.string().default('claude-sonnet-4-6'),
 
   // Project settings
   worktreeRoot: z.string().default('.worktrees'),

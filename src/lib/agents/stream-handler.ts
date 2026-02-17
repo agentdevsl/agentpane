@@ -37,6 +37,13 @@ export interface AgentRunResult {
   plan?: string;
   planOptions?: ExitPlanModeOptions;
   error?: string;
+  metrics?: {
+    totalCostUsd?: number;
+    durationMs?: number;
+    durationApiMs?: number;
+    numTurns?: number;
+    stopReason?: string | null;
+  };
 }
 
 async function runPreToolHooks(
@@ -72,6 +79,97 @@ async function runPostToolHooks(
       });
     }
   }
+}
+
+async function publishToolProgress(
+  sessionService: { publish: (sessionId: string, event: SessionEvent) => Promise<unknown> },
+  sessionId: string,
+  agentId: string,
+  msg: Record<string, unknown>
+): Promise<void> {
+  await sessionService.publish(sessionId, {
+    id: createId(),
+    type: 'agent:tool_progress',
+    timestamp: Date.now(),
+    data: {
+      agentId,
+      toolUseId: typeof msg.tool_use_id === 'string' ? msg.tool_use_id : 'unknown',
+      toolName: typeof msg.tool_name === 'string' ? msg.tool_name : 'unknown',
+      elapsedSeconds: typeof msg.elapsed_time_seconds === 'number' ? msg.elapsed_time_seconds : 0,
+    },
+  });
+}
+
+async function publishCompactBoundary(
+  sessionService: { publish: (sessionId: string, event: SessionEvent) => Promise<unknown> },
+  sessionId: string,
+  agentId: string,
+  msg: Record<string, unknown>
+): Promise<void> {
+  const compact = msg as { compact_metadata?: { trigger?: string; pre_tokens?: number } };
+  if (!compact.compact_metadata) return;
+  await sessionService.publish(sessionId, {
+    id: createId(),
+    type: 'agent:compacted',
+    timestamp: Date.now(),
+    data: {
+      agentId,
+      trigger: compact.compact_metadata.trigger ?? 'unknown',
+      preTokens: compact.compact_metadata.pre_tokens ?? 0,
+    },
+  });
+}
+
+function extractResultMetrics(result: Record<string, unknown>): AgentRunResult['metrics'] {
+  return {
+    totalCostUsd: typeof result.total_cost_usd === 'number' ? result.total_cost_usd : undefined,
+    durationMs: typeof result.duration_ms === 'number' ? result.duration_ms : undefined,
+    durationApiMs: typeof result.duration_api_ms === 'number' ? result.duration_api_ms : undefined,
+    numTurns: typeof result.num_turns === 'number' ? result.num_turns : undefined,
+    stopReason:
+      result.stop_reason !== undefined ? (result.stop_reason as string | null) : undefined,
+  };
+}
+
+async function publishMetrics(
+  sessionService: { publish: (sessionId: string, event: SessionEvent) => Promise<unknown> },
+  sessionId: string,
+  agentId: string,
+  runId: string,
+  msg: Record<string, unknown>
+): Promise<void> {
+  const modelUsage =
+    msg.modelUsage != null && typeof msg.modelUsage === 'object'
+      ? (msg.modelUsage as Record<
+          string,
+          {
+            inputTokens: number;
+            outputTokens: number;
+            cacheReadInputTokens: number;
+            costUSD: number;
+          }
+        >)
+      : undefined;
+  const usage =
+    msg.usage != null && typeof msg.usage === 'object'
+      ? (msg.usage as { input_tokens?: number; output_tokens?: number })
+      : undefined;
+  await sessionService.publish(sessionId, {
+    id: createId(),
+    type: 'agent:metrics',
+    timestamp: Date.now(),
+    data: {
+      agentId,
+      runId,
+      totalCostUsd: typeof msg.total_cost_usd === 'number' ? msg.total_cost_usd : undefined,
+      durationMs: typeof msg.duration_ms === 'number' ? msg.duration_ms : undefined,
+      durationApiMs: typeof msg.duration_api_ms === 'number' ? msg.duration_api_ms : undefined,
+      numTurns: typeof msg.num_turns === 'number' ? msg.num_turns : undefined,
+      usage,
+      modelUsage,
+      stopReason: msg.stop_reason !== undefined ? (msg.stop_reason as string | null) : undefined,
+    },
+  });
 }
 
 /**
@@ -214,11 +312,50 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
         }
       }
 
+      // Handle tool_progress events
+      if (msg.type === 'tool_progress') {
+        publishToolProgress(
+          sessionService,
+          sessionId,
+          agentId,
+          msg as Record<string, unknown>
+        ).catch((err) => {
+          console.warn(
+            '[StreamHandler] Failed to publish tool_progress:',
+            err instanceof Error ? err.message : String(err)
+          );
+        });
+      }
+
+      // Handle compact_boundary events
+      if (msg.type === 'system' && (msg as { subtype?: string }).subtype === 'compact_boundary') {
+        publishCompactBoundary(
+          sessionService,
+          sessionId,
+          agentId,
+          msg as Record<string, unknown>
+        ).catch((err) => {
+          console.warn(
+            '[StreamHandler] Failed to publish compact_boundary:',
+            err instanceof Error ? err.message : String(err)
+          );
+        });
+      }
+
       // Handle result (planning session finished)
       if (msg.type === 'result') {
-        session.close();
+        const result = msg as Record<string, unknown>;
 
-        // Publish plan ready event with swarm options
+        session.close(); // Always close first — before any potentially-failing publishes
+
+        publishMetrics(sessionService, sessionId, agentId, runId, result).catch((err) => {
+          console.warn(
+            '[StreamHandler] Failed to publish metrics:',
+            err instanceof Error ? err.message : String(err)
+          );
+        });
+
+        // Publish plan ready event with plan options
         await sessionService.publish(sessionId, {
           id: createId(),
           type: 'agent:plan_ready',
@@ -237,6 +374,7 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
           turnCount: turn,
           plan: planContent || accumulated,
           planOptions: exitPlanModeOptions,
+          metrics: extractResultMetrics(result),
         };
       }
     }
@@ -422,26 +560,67 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
         });
       }
 
+      // Handle tool_progress events
+      if (msg.type === 'tool_progress') {
+        publishToolProgress(
+          sessionService,
+          sessionId,
+          agentId,
+          msg as Record<string, unknown>
+        ).catch((err) => {
+          console.warn(
+            '[StreamHandler] Failed to publish tool_progress:',
+            err instanceof Error ? err.message : String(err)
+          );
+        });
+      }
+
+      // Handle compact_boundary events
+      if (msg.type === 'system' && (msg as { subtype?: string }).subtype === 'compact_boundary') {
+        publishCompactBoundary(
+          sessionService,
+          sessionId,
+          agentId,
+          msg as Record<string, unknown>
+        ).catch((err) => {
+          console.warn(
+            '[StreamHandler] Failed to publish compact_boundary:',
+            err instanceof Error ? err.message : String(err)
+          );
+        });
+      }
+
       // Handle result (agent finished)
       if (msg.type === 'result') {
-        const result = msg as {
-          status?: string;
-          usage?: { input_tokens?: number; output_tokens?: number };
-        };
+        const result = msg as Record<string, unknown>;
+
+        session.close(); // Always close first — before any potentially-failing publishes
+
+        publishMetrics(sessionService, sessionId, agentId, runId, result).catch((err) => {
+          console.warn(
+            '[StreamHandler] Failed to publish metrics:',
+            err instanceof Error ? err.message : String(err)
+          );
+        });
+
+        const usage =
+          result.usage != null && typeof result.usage === 'object'
+            ? (result.usage as { input_tokens?: number; output_tokens?: number })
+            : undefined;
 
         await sessionService.publish(sessionId, {
           id: createId(),
           type: 'agent:completed',
           timestamp: Date.now(),
-          data: { agentId, runId, turnCount: turn, usage: result.usage },
+          data: { agentId, runId, turnCount: turn, usage },
         });
 
-        session.close();
         return {
           runId,
           status: 'completed',
           turnCount: turn,
           result: accumulated || 'Task completed successfully',
+          metrics: extractResultMetrics(result),
         };
       }
     }
@@ -483,7 +662,7 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
 }
 
 /**
- * Legacy function - runs planning first, then waits for approval.
+ * Legacy function - delegates to runAgentPlanning.
  * @deprecated Use runAgentPlanning and runAgentExecution separately
  */
 export async function runAgentWithStreaming(

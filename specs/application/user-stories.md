@@ -440,7 +440,7 @@ interface AgentExecutionContext {
 const agentOptions = {
   allowedTools: ['Read', 'Edit', 'Bash', 'Glob', 'Grep'],
   maxTurns: 50,
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
 };
 
 // All tool calls captured for audit

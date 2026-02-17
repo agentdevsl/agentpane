@@ -79,7 +79,7 @@ describe('TaskCreationService', () => {
 
       expect(unstable_v2_createSession).toHaveBeenCalledWith(
         expect.objectContaining({
-          model: 'claude-sonnet-4-5-20250929',
+          model: 'claude-sonnet-4-6',
           env: expect.objectContaining({ CLAUDE_CODE_ENABLE_TASKS: 'true' }),
           allowedTools: DEFAULT_TASK_CREATION_TOOLS,
           canUseTool: expect.any(Function),
@@ -121,7 +121,7 @@ describe('TaskCreationService', () => {
       expect(result.ok).toBe(true);
       expect(unstable_v2_createSession).toHaveBeenCalledWith(
         expect.objectContaining({
-          model: 'claude-sonnet-4-5-20250929',
+          model: 'claude-sonnet-4-6',
           env: expect.objectContaining({ CLAUDE_CODE_ENABLE_TASKS: 'true' }),
           allowedTools: ['Read', 'Grep', 'AskUserQuestion'],
           canUseTool: expect.any(Function),
@@ -143,7 +143,7 @@ describe('TaskCreationService', () => {
       expect(result.ok).toBe(true);
       expect(unstable_v2_createSession).toHaveBeenCalledWith(
         expect.objectContaining({
-          model: 'claude-sonnet-4-5-20250929',
+          model: 'claude-sonnet-4-6',
           env: expect.objectContaining({ CLAUDE_CODE_ENABLE_TASKS: 'true' }),
           allowedTools: ['Read', 'AskUserQuestion'],
           canUseTool: expect.any(Function),

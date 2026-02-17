@@ -86,7 +86,7 @@ interface RawCliEvent {
     role: 'user' | 'assistant';
     id?: string;                         // Message ID
     type?: string;                       // Always 'message'
-    model?: string;                      // e.g. "claude-sonnet-4-20250514"
+    model?: string;                      // e.g. "claude-sonnet-4-6"
     content: string | ContentBlock[];
     usage?: TokenUsage;
     stop_reason?: string | null;         // e.g. "end_turn", "tool_use"
@@ -278,7 +278,7 @@ When an assistant message contains both `tool_use` and `text` blocks, `waiting_f
     "role": "assistant",
     "id": "msg_xyz",
     "type": "message",
-    "model": "claude-sonnet-4-20250514",
+    "model": "claude-sonnet-4-6",
     "content": [
       { "type": "thinking", "thinking": "Let me analyze the login.ts file...", "signature": "sig_abc" },
       { "type": "text", "text": "I'll read the login.ts file first." },

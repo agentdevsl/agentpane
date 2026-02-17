@@ -27,7 +27,7 @@ test('publishes events to stream', async () => {
   await service.publish('session-1', 'container-agent:started', {
     taskId: 'task-1',
     sessionId: 'session-1',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     maxTurns: 50,
   });
 
@@ -118,7 +118,7 @@ import { createAgentEvent, createContainerAgentEvent } from '@/tests/mocks';
 test('creates typed events with defaults', () => {
   // Agent events
   const started = createAgentEvent('agent:started');
-  // { model: 'claude-sonnet-4-20250514', maxTurns: 50 }
+  // { model: 'claude-sonnet-4-6', maxTurns: 50 }
 
   const planReady = createAgentEvent('agent:plan_ready', {
     plan: 'Custom plan',
@@ -130,7 +130,7 @@ test('creates typed events with defaults', () => {
     taskId: 'task-1',
     sessionId: 'session-1',
   });
-  // { taskId: 'task-1', sessionId: 'session-1', model: 'claude-sonnet-4-20250514', maxTurns: 50 }
+  // { taskId: 'task-1', sessionId: 'session-1', model: 'claude-sonnet-4-6', maxTurns: 50 }
 
   const fileChanged = createContainerAgentEvent('container-agent:file_changed', {
     path: 'src/updated.ts',
@@ -177,7 +177,7 @@ test('handles container agent lifecycle', async () => {
   expect(statusEvent.data.stage).toBe('initializing');
 
   const startedEvent = await collector.waitFor('container-agent:started');
-  expect(startedEvent.data.model).toBe('claude-sonnet-4-20250514');
+  expect(startedEvent.data.model).toBe('claude-sonnet-4-6');
 });
 ```
 

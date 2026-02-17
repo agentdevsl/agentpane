@@ -69,7 +69,7 @@ export function createMockStartAgentInput(overrides?: Partial<StartAgentInput>):
     taskId: createId(),
     sessionId: createId(),
     prompt: 'Fix the bug in the authentication module',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     maxTurns: 50,
     phase: 'plan',
     ...overrides,
@@ -152,7 +152,7 @@ export function createMockAgentConfig(overrides?: Partial<AgentConfig>): AgentCo
   return {
     allowedTools: ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep'],
     maxTurns: 50,
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     temperature: 1.0,
     ...overrides,
   };
@@ -167,7 +167,7 @@ export function createMockProjectConfig(overrides?: Partial<ProjectConfig>): Pro
     defaultBranch: 'main',
     allowedTools: ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep'],
     maxTurns: 50,
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     initScript: 'npm install',
     envFile: '.env',
     temperature: 1.0,

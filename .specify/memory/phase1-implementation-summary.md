@@ -267,7 +267,7 @@ Task tool:
   "readiness": "refinement_recommended",
   "critical_issues": 2,
   "high_priority_issues": 3,
-  "evaluator": "claude-sonnet-4-5"
+  "evaluator": "claude-sonnet-4-6"
 }
 ```
 
@@ -385,7 +385,7 @@ Phase 3: Implementation + Code Quality
 
 **Anthropic Best Practices**:
 
-- Uses Claude Sonnet 4.5 (current frontier model)
+- Uses Claude Sonnet 4.6 (current frontier model)
 - Structured prompts with clear rubrics
 - Chain-of-thought reasoning embedded in evaluation process
 - Calibrated scoring against industry standards

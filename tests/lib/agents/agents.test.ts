@@ -49,10 +49,10 @@ describe('SDK Utils - agentQuery', () => {
     );
 
     const { agentQuery } = await import('@/lib/agents/agent-sdk-utils');
-    await agentQuery('Test prompt', { model: 'claude-sonnet-4-5-20250929' });
+    await agentQuery('Test prompt', { model: 'claude-sonnet-4-6' });
 
     expect(mockSessionCreate).toHaveBeenCalledWith({
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       env: expect.objectContaining({ CLAUDE_CODE_ENABLE_TASKS: 'true' }),
     });
   });
@@ -68,7 +68,7 @@ describe('SDK Utils - agentQuery', () => {
     await agentQuery('Test prompt');
 
     expect(mockSessionCreate).toHaveBeenCalledWith({
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       env: expect.objectContaining({ CLAUDE_CODE_ENABLE_TASKS: 'true' }),
     });
   });
@@ -134,7 +134,7 @@ describe('SDK Utils - agentQuery', () => {
           type: 'stream_event',
           event: {
             type: 'message_start',
-            message: { model: 'claude-sonnet-4-20250514', usage: { input_tokens: 100 } },
+            message: { model: 'claude-sonnet-4-6', usage: { input_tokens: 100 } },
           },
         };
         yield {
@@ -149,7 +149,7 @@ describe('SDK Utils - agentQuery', () => {
     const result = await agentQuery('Test prompt');
 
     expect(result.usage).toEqual({ inputTokens: 100, outputTokens: 50 });
-    expect(result.model).toBe('claude-sonnet-4-20250514');
+    expect(result.model).toBe('claude-sonnet-4-6');
   });
 
   it('calls onToken callback with streaming text', async () => {
@@ -241,7 +241,7 @@ describe('Stream Handler', () => {
         prompt: 'Test prompt',
         allowedTools: [],
         maxTurns: 10,
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         cwd: '/tmp',
         hooks: createMockHooks(),
         sessionService,
@@ -253,7 +253,7 @@ describe('Stream Handler', () => {
           type: 'agent:planning',
           data: expect.objectContaining({
             agentId: 'agent-1',
-            model: 'claude-sonnet-4-20250514',
+            model: 'claude-sonnet-4-6',
           }),
         })
       );
@@ -269,7 +269,7 @@ describe('Stream Handler', () => {
         prompt: 'Test prompt',
         allowedTools: [],
         maxTurns: 10,
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         cwd: '/tmp',
         hooks: createMockHooks(),
         sessionService,
@@ -291,7 +291,7 @@ describe('Stream Handler', () => {
         prompt: 'Test prompt',
         allowedTools: [],
         maxTurns: 10,
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         cwd: '/tmp',
         hooks: createMockHooks(),
         sessionService,
@@ -311,7 +311,7 @@ describe('Stream Handler', () => {
         prompt: 'Test prompt',
         allowedTools: [],
         maxTurns: 10,
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         cwd: '/tmp',
         hooks: createMockHooks(),
         sessionService,
@@ -336,7 +336,7 @@ describe('Stream Handler', () => {
         prompt: 'Test prompt',
         allowedTools: [],
         maxTurns: 10,
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         cwd: '/tmp',
         hooks: createMockHooks(),
         sessionService,
@@ -356,7 +356,7 @@ describe('Stream Handler', () => {
         prompt: 'Test prompt',
         allowedTools: [],
         maxTurns: 10,
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         cwd: '/tmp',
         hooks: createMockHooks(),
         sessionService,
@@ -377,7 +377,7 @@ describe('Stream Handler', () => {
         prompt: 'Test prompt',
         allowedTools: [],
         maxTurns: 10,
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         cwd: '/tmp',
         hooks: createMockHooks(),
         sessionService,
@@ -396,7 +396,7 @@ describe('Stream Handler', () => {
         prompt: 'Test prompt',
         allowedTools: [],
         maxTurns: 10,
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         cwd: '/tmp',
         hooks: createMockHooks(),
         sessionService,
@@ -404,6 +404,178 @@ describe('Stream Handler', () => {
 
       // Plan is returned (may be empty string or 'No plan generated' with empty mock)
       expect(result.plan).toBeDefined();
+    });
+  });
+
+  describe('metric helper functions (via stream messages)', () => {
+    let mockSession: {
+      send: ReturnType<typeof vi.fn>;
+      stream: ReturnType<typeof vi.fn>;
+      close: ReturnType<typeof vi.fn>;
+    };
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+      mockSession = {
+        send: vi.fn(),
+        stream: vi.fn(),
+        close: vi.fn(),
+      };
+      mockSessionCreate.mockReturnValue(mockSession);
+    });
+
+    const runWithStream = async (
+      messages: Record<string, unknown>[],
+      sessionService: ReturnType<typeof createMockSessionService>
+    ) => {
+      mockSession.stream.mockReturnValue(
+        (async function* () {
+          for (const msg of messages) {
+            yield msg;
+          }
+        })()
+      );
+      const { runAgentWithStreaming } = await import('@/lib/agents/stream-handler');
+      return runAgentWithStreaming({
+        agentId: 'agent-1',
+        sessionId: 'session-1',
+        prompt: 'Test prompt',
+        allowedTools: [],
+        maxTurns: 10,
+        model: 'claude-sonnet-4-6',
+        cwd: '/tmp',
+        hooks: createMockHooks(),
+        sessionService,
+      });
+    };
+
+    it('publishes agent:tool_progress event for tool_progress messages', async () => {
+      const sessionService = createMockSessionService();
+
+      await runWithStream(
+        [
+          {
+            type: 'tool_progress',
+            tool_use_id: 'tu-1',
+            tool_name: 'Bash',
+            elapsed_time_seconds: 1.5,
+          },
+        ],
+        sessionService
+      );
+
+      // publishToolProgress is fire-and-forget (.catch), flush microtasks
+      await Promise.resolve();
+
+      const toolProgressCall = sessionService.publish.mock.calls.find(
+        (call) => (call[1] as { type: string }).type === 'agent:tool_progress'
+      );
+      expect(toolProgressCall).toBeDefined();
+      const event = toolProgressCall![1] as { type: string; data: Record<string, unknown> };
+      expect(event.data.toolName).toBe('Bash');
+      expect(event.data.elapsedSeconds).toBe(1.5);
+      expect(event.data.toolUseId).toBe('tu-1');
+    });
+
+    it('defaults missing tool_progress fields to safe fallback values', async () => {
+      const sessionService = createMockSessionService();
+
+      await runWithStream([{ type: 'tool_progress' }], sessionService);
+
+      await Promise.resolve();
+
+      const toolProgressCall = sessionService.publish.mock.calls.find(
+        (call) => (call[1] as { type: string }).type === 'agent:tool_progress'
+      );
+      expect(toolProgressCall).toBeDefined();
+      const event = toolProgressCall![1] as { type: string; data: Record<string, unknown> };
+      expect(event.data.toolUseId).toBe('unknown');
+      expect(event.data.toolName).toBe('unknown');
+      expect(event.data.elapsedSeconds).toBe(0);
+    });
+
+    it('publishes agent:compacted event for compact_boundary system messages', async () => {
+      const sessionService = createMockSessionService();
+
+      await runWithStream(
+        [
+          {
+            type: 'system',
+            subtype: 'compact_boundary',
+            compact_metadata: { trigger: 'auto', pre_tokens: 50000 },
+          },
+        ],
+        sessionService
+      );
+
+      await Promise.resolve();
+
+      const compactedCall = sessionService.publish.mock.calls.find(
+        (call) => (call[1] as { type: string }).type === 'agent:compacted'
+      );
+      expect(compactedCall).toBeDefined();
+      const event = compactedCall![1] as { type: string; data: Record<string, unknown> };
+      expect(event.data.trigger).toBe('auto');
+      expect(event.data.preTokens).toBe(50000);
+    });
+
+    it('silently skips compact_boundary messages with no compact_metadata', async () => {
+      const sessionService = createMockSessionService();
+
+      await runWithStream([{ type: 'system', subtype: 'compact_boundary' }], sessionService);
+
+      await Promise.resolve();
+
+      const compactedCall = sessionService.publish.mock.calls.find(
+        (call) => (call[1] as { type: string }).type === 'agent:compacted'
+      );
+      expect(compactedCall).toBeUndefined();
+    });
+
+    it('publishes agent:metrics with cost data from result message', async () => {
+      const sessionService = createMockSessionService();
+
+      await runWithStream(
+        [
+          {
+            type: 'result',
+            total_cost_usd: 0.0042,
+            duration_ms: 3000,
+            duration_api_ms: 2500,
+            num_turns: 3,
+            stop_reason: 'end_turn',
+          },
+        ],
+        sessionService
+      );
+
+      await Promise.resolve();
+
+      const metricsCall = sessionService.publish.mock.calls.find(
+        (call) => (call[1] as { type: string }).type === 'agent:metrics'
+      );
+      expect(metricsCall).toBeDefined();
+      const event = metricsCall![1] as { type: string; data: Record<string, unknown> };
+      expect(event.data.totalCostUsd).toBe(0.0042);
+      expect(event.data.stopReason).toBe('end_turn');
+      expect(event.data.durationMs).toBe(3000);
+      expect(event.data.durationApiMs).toBe(2500);
+      expect(event.data.numTurns).toBe(3);
+    });
+
+    it('preserves null stop_reason in agent:metrics without coercing to undefined', async () => {
+      const sessionService = createMockSessionService();
+
+      await runWithStream([{ type: 'result', stop_reason: null }], sessionService);
+
+      await Promise.resolve();
+
+      const metricsCall = sessionService.publish.mock.calls.find(
+        (call) => (call[1] as { type: string }).type === 'agent:metrics'
+      );
+      expect(metricsCall).toBeDefined();
+      const event = metricsCall![1] as { type: string; data: Record<string, unknown> };
+      expect(event.data.stopReason).toBeNull();
     });
   });
 

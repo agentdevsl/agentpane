@@ -107,7 +107,7 @@ describe('AgentService', () => {
         config: {
           allowedTools: ['Read', 'Edit', 'Bash'],
           maxTurns: 75,
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-4-6',
         },
       });
 
@@ -115,7 +115,7 @@ describe('AgentService', () => {
       if (result.ok) {
         expect(result.value.config?.allowedTools).toEqual(['Read', 'Edit', 'Bash']);
         expect(result.value.config?.maxTurns).toBe(75);
-        expect(result.value.config?.model).toBe('claude-sonnet-4-20250514');
+        expect(result.value.config?.model).toBe('claude-sonnet-4-6');
       }
     });
 

@@ -227,7 +227,7 @@ export function createAgentServiceScenario(overrides?: {
     status: 'idle',
     currentTaskId: null,
     config: {
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       maxTurns: 50,
       allowedTools: [],
     },
@@ -546,7 +546,7 @@ export function createContainerAgentScenario(overrides?: {
     status: 'idle',
     currentTaskId: null,
     config: {
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       maxTurns: 50,
       allowedTools: [],
     },
@@ -738,7 +738,7 @@ export function createFullStackScenario(): {
     status: 'idle' as const,
     currentTaskId: null,
     config: {
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       maxTurns: 50,
       allowedTools: [],
     },
@@ -1113,7 +1113,7 @@ export function createConcurrencyScenario(taskCount = 3): {
     status: 'idle' as const,
     currentTaskId: null,
     config: {
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       maxTurns: 50,
       allowedTools: [],
     },

@@ -8,6 +8,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { CliMonitorService } from '../../services/cli-monitor/cli-monitor.service.js';
+import type { CliSession } from '../../services/cli-monitor/types.js';
 
 // ── Zod Schemas ──
 
@@ -61,6 +62,61 @@ const ingestSchema = z.object({
           .optional(),
         model: z.string().optional(),
         parentSessionId: z.string().optional(),
+        slug: z.string().max(200).optional(),
+        version: z.string().max(100).optional(),
+        permissionMode: z.string().max(50).optional(),
+        maxThinkingTokens: z.number().int().nonnegative().optional(),
+        isSidechain: z.boolean().optional(),
+        lastTurnDurationMs: z.number().nonnegative().optional(),
+        avgTurnDurationMs: z.number().nonnegative().optional(),
+        queueOperations: z
+          .array(
+            z.object({
+              operation: z.string(),
+              timestamp: z.number(),
+              content: z.string().max(200).optional(),
+              version: z.string().max(100).optional(),
+            })
+          )
+          .max(20)
+          .optional(),
+        recentToolInvocations: z
+          .array(
+            z.object({
+              toolName: z.string(),
+              toolId: z.string(),
+              timestamp: z.number(),
+              isError: z.boolean().optional(),
+              durationMs: z.number().nonnegative().optional(),
+              resultNumFiles: z.number().int().nonnegative().optional(),
+              resultNumLines: z.number().int().nonnegative().optional(),
+            })
+          )
+          .max(50)
+          .optional(),
+        topology: z
+          .object({
+            sessionId: z.string(),
+            agentId: z.string().optional(),
+            agentType: z.string(),
+            parentSessionId: z.string().optional(),
+            childSessionIds: z.array(z.string()).default([]),
+            depth: z.number().int().nonnegative().default(0),
+            spawnedAt: z.number().optional(),
+            completedAt: z.number().optional(),
+            status: z.string(),
+            tokenUsage: z.object({
+              inputTokens: z.number().nonnegative().default(0),
+              outputTokens: z.number().nonnegative().default(0),
+              cacheCreationTokens: z.number().nonnegative().default(0),
+              cacheReadTokens: z.number().nonnegative().default(0),
+              ephemeral5mTokens: z.number().nonnegative().optional(),
+              ephemeral1hTokens: z.number().nonnegative().optional(),
+            }),
+            turnCount: z.number().int().nonnegative().default(0),
+            messageCount: z.number().int().nonnegative().default(0),
+          })
+          .optional(),
         performanceMetrics: z
           .object({
             compactionCount: z.number().int().nonnegative().default(0),
@@ -75,6 +131,7 @@ const ingestSchema = z.object({
                   tokensSaved: z.number().nonnegative().optional(),
                   sessionId: z.string(),
                   parentSessionId: z.string().optional(),
+                  compactedToolIds: z.array(z.string()).optional(),
                 })
               )
               .default([]),
@@ -87,6 +144,7 @@ const ingestSchema = z.object({
                   cacheReadTokens: z.number().nonnegative(),
                   cacheCreationTokens: z.number().nonnegative(),
                   timestamp: z.number(),
+                  durationMs: z.number().nonnegative().optional(),
                 })
               )
               .default([]),
@@ -225,7 +283,7 @@ export function createCliMonitorRoutes({ cliMonitorService }: CliMonitorDeps) {
     if (data instanceof Response) return data;
     const accepted = cliMonitorService.ingestSessions(
       data.daemonId,
-      data.sessions as never[],
+      data.sessions as CliSession[],
       data.removedSessionIds
     );
     if (!accepted) {
@@ -288,16 +346,27 @@ export function createCliMonitorRoutes({ cliMonitorService }: CliMonitorDeps) {
     const since = sinceParam ? parseInt(sinceParam, 10) : undefined;
     const limit = limitParam ? parseInt(limitParam, 10) : undefined;
 
-    const sessions = cliMonitorService.getHistoricalSessions({
-      projectHash: projectHash || undefined,
-      since: since && !Number.isNaN(since) ? since : undefined,
-      limit: limit && !Number.isNaN(limit) ? limit : undefined,
-    });
+    try {
+      const sessions = cliMonitorService.getHistoricalSessions({
+        projectHash: projectHash || undefined,
+        since: since && !Number.isNaN(since) ? since : undefined,
+        limit: limit && !Number.isNaN(limit) ? limit : undefined,
+      });
 
-    return c.json({
-      ok: true,
-      data: { sessions, total: sessions.length },
-    });
+      return c.json({
+        ok: true,
+        data: { sessions, total: sessions.length },
+      });
+    } catch (err) {
+      console.error(
+        '[CliMonitor] /history query failed:',
+        err instanceof Error ? err.message : String(err)
+      );
+      return c.json(
+        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to query historical sessions' } },
+        500
+      );
+    }
   });
 
   // GET /stream — SSE endpoint for live updates
@@ -316,23 +385,38 @@ export function createCliMonitorRoutes({ cliMonitorService }: CliMonitorDeps) {
     let unsubscribe: (() => void) | null = null;
     let pingInterval: ReturnType<typeof setInterval> | null = null;
 
+    let streamClosed = false;
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         const encoder = new TextEncoder();
         const send = (data: unknown) => {
+          if (streamClosed) return;
           try {
             controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
-          } catch {
-            // Stream may be closed
+          } catch (err) {
+            console.error(
+              '[CliMonitor] SSE send error:',
+              err instanceof Error ? err.message : String(err)
+            );
           }
         };
 
         // 1. Send snapshot (include historical DB sessions when daemon is offline)
         const liveSessions = cliMonitorService.getSessions();
-        const snapshotSessions =
-          liveSessions.length > 0
-            ? liveSessions
-            : cliMonitorService.getHistoricalSessions({ limit: 100 });
+        let snapshotSessions: CliSession[];
+        if (liveSessions.length > 0) {
+          snapshotSessions = liveSessions;
+        } else {
+          try {
+            snapshotSessions = cliMonitorService.getHistoricalSessions({ limit: 100 });
+          } catch (err) {
+            console.error(
+              '[CliMonitor] SSE snapshot: historical query failed:',
+              err instanceof Error ? err.message : String(err)
+            );
+            snapshotSessions = [];
+          }
+        }
         send({
           type: 'cli-monitor:snapshot',
           sessions: snapshotSessions,
@@ -350,11 +434,20 @@ export function createCliMonitorRoutes({ cliMonitorService }: CliMonitorDeps) {
           try {
             controller.enqueue(encoder.encode(`: ping\n\n`));
           } catch {
-            // Stream closed
+            // Stream closed — clean up
+            if (pingInterval) clearInterval(pingInterval);
+            if (unsubscribe) unsubscribe();
+            activeSSEConnections = Math.max(0, activeSSEConnections - 1);
+            try {
+              controller.close();
+            } catch {
+              /* already closed */
+            }
           }
         }, 15_000);
       },
       cancel() {
+        streamClosed = true;
         activeSSEConnections = Math.max(0, activeSSEConnections - 1);
         if (pingInterval) clearInterval(pingInterval);
         if (unsubscribe) unsubscribe();
@@ -368,6 +461,33 @@ export function createCliMonitorRoutes({ cliMonitorService }: CliMonitorDeps) {
         Connection: 'keep-alive',
       },
     });
+  });
+
+  // GET /topology — Get topology graph for a root session
+  app.get('/topology', (c) => {
+    const rootSessionId = c.req.query('rootSessionId');
+    if (!rootSessionId) {
+      return c.json(
+        {
+          ok: false,
+          error: { code: 'MISSING_PARAM', message: 'rootSessionId query parameter is required' },
+        },
+        400
+      );
+    }
+
+    const nodes = cliMonitorService.getTopologyGraph(rootSessionId);
+    if (!nodes) {
+      return c.json(
+        {
+          ok: false,
+          error: { code: 'SESSION_NOT_FOUND', message: `Session ${rootSessionId} not found` },
+        },
+        404
+      );
+    }
+
+    return c.json({ ok: true, data: { nodes, rootSessionId } });
   });
 
   return app;

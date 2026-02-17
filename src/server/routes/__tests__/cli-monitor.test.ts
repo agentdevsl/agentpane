@@ -593,6 +593,163 @@ describe('CLI Monitor API Routes', () => {
     });
   });
 
+  // ── GET /topology ──
+
+  describe('GET /api/cli-monitor/topology', () => {
+    it('returns 400 when rootSessionId is missing', async () => {
+      ({ app, service } = createTestApp());
+
+      const res = await request(app, 'GET', '/api/cli-monitor/topology');
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('MISSING_PARAM');
+    });
+
+    it('returns 404 when rootSessionId does not match any session', async () => {
+      ({ app, service } = createTestApp());
+
+      const res = await request(
+        app,
+        'GET',
+        '/api/cli-monitor/topology?rootSessionId=nonexistent-id'
+      );
+
+      expect(res.status).toBe(404);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('SESSION_NOT_FOUND');
+    });
+
+    it('returns nodes array for valid rootSessionId', async () => {
+      ({ app, service } = createTestApp());
+      service.registerDaemon({
+        daemonId: 'daemon-1',
+        pid: 1,
+        version: '0.1.0',
+        watchPath: '/tmp',
+        capabilities: [],
+        startedAt: Date.now(),
+      });
+      service.ingestSessions(
+        'daemon-1',
+        [
+          {
+            sessionId: 'root-sess',
+            filePath: '/test/root.jsonl',
+            cwd: '/project',
+            projectName: 'project',
+            projectHash: 'h1',
+            status: 'working',
+            messageCount: 5,
+            turnCount: 2,
+            tokenUsage: {
+              inputTokens: 100,
+              outputTokens: 50,
+              cacheCreationTokens: 0,
+              cacheReadTokens: 0,
+            },
+            startedAt: Date.now(),
+            lastActivityAt: Date.now(),
+            lastReadOffset: 0,
+            isSubagent: false,
+          },
+        ],
+        []
+      );
+
+      const res = await request(app, 'GET', '/api/cli-monitor/topology?rootSessionId=root-sess');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.ok).toBe(true);
+      expect(json.data.nodes).toBeDefined();
+      expect(Array.isArray(json.data.nodes)).toBe(true);
+      expect(json.data.nodes).toHaveLength(1);
+      expect(json.data.nodes[0].sessionId).toBe('root-sess');
+      expect(json.data.rootSessionId).toBe('root-sess');
+    });
+
+    it('returns parent at depth 0 and child at depth 1 for multi-level topology', async () => {
+      ({ app, service } = createTestApp());
+      service.registerDaemon({
+        daemonId: 'daemon-1',
+        pid: 1,
+        version: '0.1.0',
+        watchPath: '/tmp',
+        capabilities: [],
+        startedAt: Date.now(),
+      });
+      service.ingestSessions(
+        'daemon-1',
+        [
+          {
+            sessionId: 'parent-sess',
+            filePath: '/test/parent.jsonl',
+            cwd: '/project',
+            projectName: 'project',
+            projectHash: 'h1',
+            status: 'working',
+            messageCount: 3,
+            turnCount: 1,
+            tokenUsage: {
+              inputTokens: 100,
+              outputTokens: 50,
+              cacheCreationTokens: 0,
+              cacheReadTokens: 0,
+            },
+            startedAt: Date.now() - 5000,
+            lastActivityAt: Date.now(),
+            lastReadOffset: 0,
+            isSubagent: false,
+          },
+          {
+            sessionId: 'child-sess',
+            filePath: '/test/child.jsonl',
+            cwd: '/project',
+            projectName: 'project',
+            projectHash: 'h1',
+            status: 'working',
+            messageCount: 1,
+            turnCount: 0,
+            tokenUsage: {
+              inputTokens: 20,
+              outputTokens: 10,
+              cacheCreationTokens: 0,
+              cacheReadTokens: 0,
+            },
+            startedAt: Date.now() - 2000,
+            lastActivityAt: Date.now(),
+            lastReadOffset: 0,
+            isSubagent: true,
+            parentSessionId: 'parent-sess',
+          },
+        ],
+        []
+      );
+
+      const res = await request(app, 'GET', '/api/cli-monitor/topology?rootSessionId=parent-sess');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.ok).toBe(true);
+      expect(json.data.nodes).toHaveLength(2);
+
+      const parentNode = json.data.nodes.find(
+        (n: { sessionId: string }) => n.sessionId === 'parent-sess'
+      );
+      const childNode = json.data.nodes.find(
+        (n: { sessionId: string }) => n.sessionId === 'child-sess'
+      );
+
+      expect(parentNode).toBeDefined();
+      expect(parentNode.depth).toBe(0);
+      expect(childNode).toBeDefined();
+      expect(childNode.depth).toBe(1);
+    });
+  });
+
   // ── GET /sessions with pagination ──
 
   describe('GET /api/cli-monitor/sessions (pagination)', () => {
@@ -676,6 +833,83 @@ describe('CLI Monitor API Routes', () => {
 
       expect(json.data.sessions).toHaveLength(3);
       expect(json.data.total).toBe(3);
+    });
+  });
+
+  // ── GET /history ──
+
+  describe('GET /api/cli-monitor/history', () => {
+    it('returns sessions and total when daemon is registered and sessions have been ingested', async () => {
+      ({ app, service } = createTestApp());
+      service.registerDaemon({
+        daemonId: 'daemon-1',
+        pid: 1,
+        version: '0.1.0',
+        watchPath: '/tmp',
+        capabilities: [],
+        startedAt: Date.now(),
+      });
+      service.ingestSessions(
+        'daemon-1',
+        [
+          {
+            sessionId: 'sess-hist-1',
+            filePath: '/test/sess-hist-1.jsonl',
+            cwd: '/project',
+            projectName: 'project',
+            projectHash: 'hash-abc',
+            status: 'idle',
+            messageCount: 5,
+            turnCount: 2,
+            tokenUsage: {
+              inputTokens: 200,
+              outputTokens: 100,
+              cacheCreationTokens: 0,
+              cacheReadTokens: 0,
+            },
+            startedAt: Date.now() - 120000,
+            lastActivityAt: Date.now(),
+            lastReadOffset: 0,
+            isSubagent: false,
+          },
+        ],
+        []
+      );
+
+      const res = await request(app, 'GET', '/api/cli-monitor/history');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.ok).toBe(true);
+      expect(json.data).toBeDefined();
+      expect(Array.isArray(json.data.sessions)).toBe(true);
+      expect(typeof json.data.total).toBe('number');
+    });
+
+    it('returns empty sessions and total 0 when no daemon and no DB sessions', async () => {
+      ({ app, service } = createTestApp());
+
+      const res = await request(app, 'GET', '/api/cli-monitor/history');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.ok).toBe(true);
+      expect(json.data.sessions).toEqual([]);
+      expect(json.data.total).toBe(0);
+    });
+
+    it('returns 500 with DB_ERROR code when getHistoricalSessions throws', async () => {
+      ({ app, service } = createTestApp());
+      vi.spyOn(service, 'getHistoricalSessions').mockImplementation(() => {
+        throw new Error('Simulated database failure');
+      });
+
+      const res = await request(app, 'GET', '/api/cli-monitor/history');
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('DB_ERROR');
     });
   });
 

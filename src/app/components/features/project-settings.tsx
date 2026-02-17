@@ -30,6 +30,7 @@ import { TextInput } from '@/app/components/ui/text-input';
 import { Textarea } from '@/app/components/ui/textarea';
 import type { Project, ProjectConfig } from '@/db/schema';
 import { apiClient } from '@/lib/api/client';
+import { AVAILABLE_MODELS } from '@/lib/constants/models';
 import type { ProjectSandboxConfig } from '@/lib/sandbox/types';
 import { cn } from '@/lib/utils/cn';
 import { DeleteProjectDialog } from './delete-project-dialog';
@@ -688,16 +689,18 @@ export function ProjectSettings({
           <div>
             <FieldLabel htmlFor="model">Default Model</FieldLabel>
             <Select
-              value={config.model ?? 'claude-sonnet-4-5'}
+              value={config.model ?? 'claude-sonnet-4-6'}
               onValueChange={(value) => setConfig((prev) => ({ ...prev, model: value }))}
             >
               <SelectTrigger id="model">
                 <SelectValue placeholder="Select model" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="claude-sonnet-4-5">Claude Sonnet 4.5</SelectItem>
-                <SelectItem value="claude-opus-4-5">Claude Opus 4.5</SelectItem>
-                <SelectItem value="claude-haiku-4-5">Claude Haiku 4.5</SelectItem>
+                {AVAILABLE_MODELS.map((model) => (
+                  <SelectItem key={model.id} value={model.id}>
+                    {model.name}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

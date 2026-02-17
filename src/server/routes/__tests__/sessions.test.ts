@@ -7,6 +7,7 @@ import { createSessionsRoutes } from '../sessions.js';
 function createMockSessionService() {
   return {
     list: vi.fn(),
+    listSessionsWithFilters: vi.fn(),
     create: vi.fn(),
     getById: vi.fn(),
     delete: vi.fn(),
@@ -411,6 +412,127 @@ describe('Sessions API Routes', () => {
       expect(res.status).toBe(404);
       const json = await res.json();
       expect(json.ok).toBe(false);
+    });
+  });
+
+  // ── GET /api/sessions with projectId filter ──
+
+  describe('GET /api/sessions (projectId filtering)', () => {
+    it('returns sessions when valid projectId is provided', async () => {
+      const { app, sessionService } = createTestApp();
+      const mockSessions = [
+        { id: 'sess-1', status: 'active', title: 'Session 1', projectId: 'proj-abc' },
+      ];
+      sessionService.listSessionsWithFilters.mockResolvedValue({
+        ok: true,
+        value: { sessions: mockSessions, total: 1 },
+      });
+
+      const res = await request(app, 'GET', '/api/sessions?projectId=proj-abc');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.ok).toBe(true);
+      expect(json.data).toHaveLength(1);
+      expect(json.pagination).toBeDefined();
+      expect(json.pagination.total).toBe(1);
+      expect(sessionService.listSessionsWithFilters).toHaveBeenCalledWith(
+        'proj-abc',
+        expect.objectContaining({ limit: 50, offset: 0 })
+      );
+    });
+
+    it('returns 400 when limit is NaN', async () => {
+      const { app } = createTestApp();
+
+      const res = await request(app, 'GET', '/api/sessions?limit=notanumber');
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('INVALID_PARAMS');
+    });
+
+    it('returns 400 when offset is negative', async () => {
+      const { app } = createTestApp();
+
+      const res = await request(app, 'GET', '/api/sessions?offset=-5');
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('INVALID_PARAMS');
+    });
+
+    it('returns 400 when limit is zero', async () => {
+      const { app } = createTestApp();
+
+      const res = await request(app, 'GET', '/api/sessions?limit=0');
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('INVALID_PARAMS');
+    });
+
+    it('filters out invalid status values and passes only valid ones', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.listSessionsWithFilters.mockResolvedValue({
+        ok: true,
+        value: { sessions: [], total: 0 },
+      });
+
+      await request(
+        app,
+        'GET',
+        '/api/sessions?projectId=proj-abc&status=active,invalid_status,closed'
+      );
+
+      expect(sessionService.listSessionsWithFilters).toHaveBeenCalledWith(
+        'proj-abc',
+        expect.objectContaining({ status: ['active', 'closed'] })
+      );
+    });
+
+    it('passes undefined status when all status values are invalid', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.listSessionsWithFilters.mockResolvedValue({
+        ok: true,
+        value: { sessions: [], total: 0 },
+      });
+
+      await request(app, 'GET', '/api/sessions?projectId=proj-abc&status=bad_status,another_bad');
+
+      const callArgs = sessionService.listSessionsWithFilters.mock.calls[0]?.[1];
+      // After filtering all invalid statuses, status array should be empty (not undefined)
+      expect(callArgs.status).toEqual([]);
+    });
+
+    it('returns 500 when listSessionsWithFilters returns a DB_ERROR result', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.listSessionsWithFilters.mockResolvedValue({
+        ok: false,
+        error: { code: 'DB_ERROR', status: 500, message: 'Database error' },
+      });
+
+      const res = await request(app, 'GET', '/api/sessions?projectId=proj-abc');
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('DB_ERROR');
+    });
+
+    it('returns 500 with SERVER_ERROR code when listSessionsWithFilters throws an exception', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.listSessionsWithFilters.mockRejectedValue(new Error('Unexpected DB crash'));
+
+      const res = await request(app, 'GET', '/api/sessions?projectId=proj-abc');
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('SERVER_ERROR');
     });
   });
 

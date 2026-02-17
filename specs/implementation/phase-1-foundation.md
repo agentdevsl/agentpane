@@ -1031,7 +1031,7 @@ export interface ProjectConfig {
   maxConcurrentAgents: number;    // Default: 3, max: 10
   allowedTools: string[];         // Default: ['Read', 'Edit', 'Bash', 'Glob', 'Grep']
   maxTurns: number;               // Default: 50, max: 500
-  model?: string;                 // Default: 'claude-sonnet-4-20250514'
+  model?: string;                 // Default: 'claude-sonnet-4-6'
   systemPrompt?: string;
   temperature?: number;           // 0-1
 }

@@ -344,7 +344,7 @@ The agent runner accepts these environment variables:
 | `AGENT_SESSION_ID` | Yes | Session ID for event streaming |
 | `AGENT_PROMPT` | Yes | The task prompt |
 | `AGENT_MAX_TURNS` | No | Maximum turns (default: 50) |
-| `AGENT_MODEL` | No | Model to use (default: claude-sonnet-4-20250514) |
+| `AGENT_MODEL` | No | Model to use (default: claude-sonnet-4-6) |
 | `AGENT_CWD` | No | Working directory (default: /workspace) |
 | `AGENT_STOP_FILE` | No | Sentinel file path for cancellation |
 

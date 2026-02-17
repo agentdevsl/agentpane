@@ -99,6 +99,7 @@ export interface SessionListItem {
   projectName: string | null;
   sandboxProvider: string | null;
   sandboxContainerId: string | null;
+  costUsd: number | null;
 }
 
 // ===== Session Detail =====
@@ -170,6 +171,7 @@ export interface SessionMetrics {
   tokensUsed: number;
   turnsUsed: number;
   duration: number | null;
+  costUsd: number | null;
 }
 
 // ===== Export Types =====

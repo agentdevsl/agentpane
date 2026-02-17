@@ -132,7 +132,7 @@ export interface AgentConfigDialogProps {
 │  │  Max Turns         [========o============] 50         │  │
 │  │                    Agent stops after 50 turns         │  │
 │  │                                                       │  │
-│  │  Model             [▼ Claude Sonnet 4.5         ]     │  │
+│  │  Model             [▼ Claude Sonnet 4.6         ]     │  │
 │  │                    Balanced speed and capability      │  │
 │  │                                                       │  │
 │  │  Temperature       [======o==================] 0.7    │  │
@@ -205,7 +205,7 @@ export interface ExecutionSettingsSectionProps {
 | Model | Label | Description |
 |-------|-------|-------------|
 | `claude-haiku` | Claude Haiku | Fast and efficient for simple tasks |
-| `claude-sonnet` | Claude Sonnet 4.5 | Balanced speed and capability |
+| `claude-sonnet` | Claude Sonnet 4.6 | Balanced speed and capability |
 | `claude-opus` | Claude Opus 4 | Most capable for complex tasks |
 
 #### Temperature Slider

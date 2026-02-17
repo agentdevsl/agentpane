@@ -110,7 +110,7 @@ export const projectConfigSchema = z.object({
   defaultBranch: z.string().default('main'),
   allowedTools: z.array(z.string()).default(['Read', 'Edit', 'Bash', 'Glob', 'Grep']),
   maxTurns: z.number().default(50),
-  model: z.string().default('claude-sonnet-4-20250514'),
+  model: z.string().default('claude-sonnet-4-6'),
 });
 
 export type ProjectConfig = z.infer<typeof projectConfigSchema>;
@@ -130,7 +130,7 @@ export const projects = pgTable('projects', {
     defaultBranch: 'main',
     allowedTools: ['Read', 'Edit', 'Bash', 'Glob', 'Grep'],
     maxTurns: 50,
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
   }),
 
   // Concurrency settings
@@ -258,7 +258,7 @@ import { z } from 'zod';
 export const agentConfigSchema = z.object({
   allowedTools: z.array(z.string()).default(['Read', 'Edit', 'Bash', 'Glob', 'Grep']),
   maxTurns: z.number().default(50),
-  model: z.string().default('claude-sonnet-4-20250514'),
+  model: z.string().default('claude-sonnet-4-6'),
   systemPrompt: z.string().optional(),
   temperature: z.number().min(0).max(1).optional(),
 });
@@ -281,7 +281,7 @@ export const agents = pgTable('agents', {
   config: jsonb('config').$type<AgentConfig>().notNull().default({
     allowedTools: ['Read', 'Edit', 'Bash', 'Glob', 'Grep'],
     maxTurns: 50,
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
   }),
 
   // Current execution context

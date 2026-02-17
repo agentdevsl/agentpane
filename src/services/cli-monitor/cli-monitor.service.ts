@@ -2,7 +2,7 @@ import { createId } from '@paralleldrive/cuid2';
 import { and, desc, eq, gt, lt } from 'drizzle-orm';
 import { cliSessions, settings } from '../../db/schema';
 import type { Database } from '../../types/database.js';
-import type { CliSession, DaemonInfo, DaemonRegisterPayload } from './types.js';
+import type { AgentTopologyNode, CliSession, DaemonInfo, DaemonRegisterPayload } from './types.js';
 import { DAEMON_TIMEOUT_MS } from './types.js';
 
 // DurableStreamsServer interface (from session.service.ts)
@@ -93,7 +93,7 @@ export class CliMonitorService {
       return false;
     }
 
-    // Drop sessions older than 24 hours (stale JSONL files from previous days)
+    // Drop sessions older than DEFAULT_RETENTION_DAYS days (stale JSONL files from previous days)
     const cutoffMs = Date.now() - CliMonitorService.DEFAULT_RETENTION_DAYS * 24 * 60 * 60 * 1000;
     sessions = sessions.filter((s) => s.lastActivityAt >= cutoffMs);
 
@@ -220,8 +220,61 @@ export class CliMonitorService {
         '[CliMonitor] Historical query error:',
         err instanceof Error ? err.message : String(err)
       );
-      return [];
+      throw err; // Let caller handle — returning [] masks DB failures as empty results
     }
+  }
+
+  getTopologyGraph(rootSessionId: string): AgentTopologyNode[] | null {
+    const sessions = this.getSessions();
+    const rootSession = sessions.find((s) => s.sessionId === rootSessionId);
+    if (!rootSession) return null;
+
+    // Build parent→children map
+    const childMap = new Map<string, string[]>();
+    for (const s of sessions) {
+      if (s.parentSessionId) {
+        const children = childMap.get(s.parentSessionId) ?? [];
+        children.push(s.sessionId);
+        childMap.set(s.parentSessionId, children);
+      }
+    }
+
+    // BFS walk from root, tracking depth
+    const result: AgentTopologyNode[] = [];
+    const visited = new Set<string>();
+    const queue: Array<{ id: string; depth: number }> = [{ id: rootSessionId, depth: 0 }];
+
+    while (queue.length > 0) {
+      const item = queue.shift();
+      if (!item || visited.has(item.id)) continue;
+      visited.add(item.id);
+
+      const session = sessions.find((s) => s.sessionId === item.id);
+      if (!session) continue;
+
+      const childIds = childMap.get(item.id) ?? [];
+      result.push(
+        session.topology
+          ? { ...session.topology, depth: item.depth }
+          : {
+              sessionId: item.id,
+              agentType: 'unknown',
+              parentSessionId: session.parentSessionId,
+              childSessionIds: childIds,
+              depth: item.depth,
+              status: session.status,
+              tokenUsage: session.tokenUsage,
+              turnCount: session.turnCount,
+              messageCount: session.messageCount,
+            }
+      );
+
+      for (const childId of childIds) {
+        if (!visited.has(childId)) queue.push({ id: childId, depth: item.depth + 1 });
+      }
+    }
+
+    return result;
   }
 
   // ── SSE Subscription ──
@@ -238,7 +291,7 @@ export class CliMonitorService {
     if (!this.db) return 0;
 
     try {
-      // Read retention from settings, default to 1 day
+      // Read retention from settings, default to DEFAULT_RETENTION_DAYS days
       let retentionDays = CliMonitorService.DEFAULT_RETENTION_DAYS;
       try {
         const setting = this.db.query.settings.findFirst({
@@ -314,6 +367,14 @@ export class CliMonitorService {
         lastActivityAt: session.lastActivityAt,
         isSubagent: session.isSubagent,
         parentSessionId: session.parentSessionId ?? null,
+        slug: session.slug ?? null,
+        cliVersion: session.version ?? null,
+        permissionMode: session.permissionMode ?? null,
+        topology: session.topology ? JSON.stringify(session.topology) : null,
+        queueOperations: session.queueOperations ? JSON.stringify(session.queueOperations) : null,
+        toolInvocations: session.recentToolInvocations
+          ? JSON.stringify(session.recentToolInvocations)
+          : null,
         updatedAt: now,
       };
 
@@ -350,6 +411,23 @@ export class CliMonitorService {
     }
   }
 
+  private safeJsonParse<T>(
+    value: string | null | undefined,
+    field: string,
+    sessionId: string
+  ): T | undefined {
+    if (!value) return undefined;
+    try {
+      return JSON.parse(value) as T;
+    } catch (err) {
+      console.error(
+        `[CliMonitor] Corrupt JSON in ${field} for session ${sessionId}:`,
+        err instanceof Error ? err.message : String(err)
+      );
+      return undefined;
+    }
+  }
+
   private rowToSession(row: typeof cliSessions.$inferSelect): CliSession {
     return {
       sessionId: row.sessionId,
@@ -363,17 +441,34 @@ export class CliMonitorService {
       turnCount: row.turnCount ?? 0,
       goal: row.goal ?? undefined,
       recentOutput: row.recentOutput ?? undefined,
-      pendingToolUse: row.pendingToolUse ? JSON.parse(row.pendingToolUse) : undefined,
-      tokenUsage: row.tokenUsage
-        ? JSON.parse(row.tokenUsage)
-        : { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 },
+      pendingToolUse: this.safeJsonParse(row.pendingToolUse, 'pendingToolUse', row.sessionId),
+      tokenUsage: this.safeJsonParse(row.tokenUsage, 'tokenUsage', row.sessionId) ?? {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheCreationTokens: 0,
+        cacheReadTokens: 0,
+      },
       model: row.model ?? undefined,
       startedAt: row.startedAt,
       lastActivityAt: row.lastActivityAt,
       lastReadOffset: 0,
       isSubagent: row.isSubagent ?? false,
       parentSessionId: row.parentSessionId ?? undefined,
-      performanceMetrics: row.performanceMetrics ? JSON.parse(row.performanceMetrics) : undefined,
+      slug: row.slug ?? undefined,
+      version: row.cliVersion ?? undefined,
+      permissionMode: row.permissionMode ?? undefined,
+      topology: this.safeJsonParse(row.topology, 'topology', row.sessionId),
+      queueOperations: this.safeJsonParse(row.queueOperations, 'queueOperations', row.sessionId),
+      recentToolInvocations: this.safeJsonParse(
+        row.toolInvocations,
+        'toolInvocations',
+        row.sessionId
+      ),
+      performanceMetrics: this.safeJsonParse(
+        row.performanceMetrics,
+        'performanceMetrics',
+        row.sessionId
+      ),
     };
   }
 
@@ -413,11 +508,17 @@ export class CliMonitorService {
 
   private startMaintenance(): void {
     this.stopMaintenance();
+    const logMaintenanceError = (err: unknown): void => {
+      console.error(
+        '[CliMonitor] Maintenance failed:',
+        err instanceof Error ? err.message : String(err)
+      );
+    };
     // Run maintenance on startup
-    this.runMaintenance().catch(() => {});
+    this.runMaintenance().catch(logMaintenanceError);
     // Then periodically
     this.maintenanceTimer = setInterval(() => {
-      this.runMaintenance().catch(() => {});
+      this.runMaintenance().catch(logMaintenanceError);
     }, CliMonitorService.MAINTENANCE_INTERVAL_MS);
   }
 

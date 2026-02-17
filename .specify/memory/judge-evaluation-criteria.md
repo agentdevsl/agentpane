@@ -533,7 +533,7 @@ Each evaluation dimension uses a 1-10 scale with specific criteria. Scores shoul
   "judge_score": 7.2,
   "delta": 0.3,
   "dimension": "overall",
-  "evaluator": "claude-sonnet-4-5"
+  "evaluator": "claude-sonnet-4-6"
 }
 ```
 
@@ -572,7 +572,7 @@ Each evaluation dimension uses a 1-10 scale with specific criteria. Scores shoul
   "readiness": "refinement_recommended",
   "critical_issues": 2,
   "high_priority_issues": 3,
-  "evaluator": "claude-sonnet-4-5"
+  "evaluator": "claude-sonnet-4-6"
 }
 ```
 
