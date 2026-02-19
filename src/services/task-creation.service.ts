@@ -7,6 +7,7 @@ import {
 import { createId } from '@paralleldrive/cuid2';
 import { eq } from 'drizzle-orm';
 import { type NewTask, projects, sessions, tasks } from '@/db/schema';
+import { buildSdkEnv } from '@/lib/agents/agent-sdk-utils';
 import { DEFAULT_TASK_CREATION_MODEL, getFullModelId } from '@/lib/constants/models';
 import { DEFAULT_TASK_CREATION_TOOLS } from '@/lib/constants/tools';
 import { getPromptDefaultText, resolvePromptServer } from '@/lib/prompts';
@@ -777,7 +778,7 @@ export class TaskCreationService {
     // Now create v2Session - canUseTool callback can now find the session
     const v2Session = unstable_v2_createSession({
       model: taskCreationModel,
-      env: { ...process.env, CLAUDE_CODE_ENABLE_TASKS: 'true', DEBUG_CLAUDE_AGENT_SDK: '1' },
+      env: buildSdkEnv({ CLAUDE_CODE_ENABLE_TASKS: 'true', DEBUG_CLAUDE_AGENT_SDK: '1' }),
       allowedTools,
       canUseTool,
     });

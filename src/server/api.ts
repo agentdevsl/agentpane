@@ -18,20 +18,10 @@ process.on('unhandledRejection', (reason, _promise) => {
   log.error('Unhandled Rejection', { error: reason });
 });
 
-// Validate required environment variables at startup
+// Validate required environment variables at startup (non-secret settings only)
 function validateEnv() {
   const warnings: string[] = [];
   const isProduction = process.env.NODE_ENV === 'production';
-
-  if (!process.env.ANTHROPIC_API_KEY && !process.env.CLAUDE_OAUTH_TOKEN) {
-    const msg =
-      'Neither ANTHROPIC_API_KEY nor CLAUDE_OAUTH_TOKEN is set — agent execution will fail';
-    if (isProduction) {
-      log.error(msg);
-      process.exit(1);
-    }
-    warnings.push(msg);
-  }
 
   if (isProduction && !process.env.CORS_ORIGIN) {
     warnings.push('CORS_ORIGIN not set — defaulting to http://localhost:3000');
@@ -44,8 +34,6 @@ function validateEnv() {
   log.info('Environment validated', {
     data: {
       nodeEnv: process.env.NODE_ENV ?? 'development',
-      hasAnthropicKey: !!process.env.ANTHROPIC_API_KEY,
-      hasOAuthToken: !!process.env.CLAUDE_OAUTH_TOKEN,
       corsOrigin: process.env.CORS_ORIGIN ?? 'http://localhost:3000',
     },
   });
@@ -342,6 +330,72 @@ const githubService = new GitHubTokenService(db);
 const apiKeyService = new ApiKeyService(db);
 const templateService = new TemplateService(db);
 const sandboxConfigService = new SandboxConfigService(db);
+
+// Resolve Anthropic API key from all sources (DB, env vars, credentials file).
+// If the key came from the DB and isn't already in env, make it available to
+// the Claude Agent SDK subprocess:
+//   - Regular API keys (sk-ant-api*): inject into process.env.ANTHROPIC_API_KEY
+//   - OAuth tokens (sk-ant-oat*): write to ~/.claude/.credentials.json in the
+//     claudeAiOauth format the CLI expects (API rejects OAuth tokens via env var)
+{
+  const os = await import('node:os');
+  const { resolveAnthropicApiKey } = await import('../lib/utils/resolve-anthropic-key.js');
+  const hasEnvKey = !!process.env.ANTHROPIC_API_KEY || !!process.env.CLAUDE_OAUTH_TOKEN;
+  const resolvedKey = await resolveAnthropicApiKey(apiKeyService);
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  if (!resolvedKey) {
+    const msg =
+      'No Anthropic API key found (checked database, ANTHROPIC_API_KEY env var, and ~/.claude/.credentials.json) — agent execution will fail';
+    if (isProduction) {
+      log.error(msg);
+      process.exit(1);
+    }
+    log.warn(msg);
+  } else if (!hasEnvKey) {
+    const isOAuthToken = resolvedKey.startsWith('sk-ant-oat');
+    if (isOAuthToken) {
+      // OAuth tokens must go through the credentials file — the API rejects
+      // them when passed via ANTHROPIC_API_KEY env var. Write in the
+      // claudeAiOauth format that the Claude CLI expects.
+      const credPath = path.join(os.homedir(), '.claude', '.credentials.json');
+      try {
+        await fs.mkdir(path.dirname(credPath), { recursive: true });
+        await fs.writeFile(
+          credPath,
+          JSON.stringify(
+            {
+              claudeAiOauth: {
+                accessToken: resolvedKey,
+                refreshToken: '',
+                expiresAt: Date.now() + 365 * 24 * 60 * 60 * 1000,
+                scopes: ['user:inference', 'user:profile', 'user:sessions:claude_code'],
+                subscriptionType: 'max',
+              },
+            },
+            null,
+            2
+          ),
+          'utf-8'
+        );
+        log.info('Anthropic OAuth credentials file written', {
+          data: { source: 'database', credPath },
+        });
+      } catch (writeErr) {
+        log.warn('Failed to write OAuth credentials file', {
+          error: writeErr instanceof Error ? writeErr.message : String(writeErr),
+        });
+      }
+    } else {
+      // Regular API key — safe to inject into env for SDK subprocess
+      process.env.ANTHROPIC_API_KEY = resolvedKey;
+      log.info('Anthropic API key resolved', { data: { source: 'database' } });
+    }
+  } else {
+    const source = process.env.ANTHROPIC_API_KEY ? 'env' : 'env_oauth';
+    log.info('Anthropic API key resolved', { data: { source } });
+  }
+}
 
 // TaskService with stub worktreeService for basic CRUD
 const taskService = new TaskService(db, {

@@ -13,6 +13,8 @@ function getCredentialsPath(): string {
 
 /**
  * Read the OAuth credentials file from disk.
+ * Supports both the CLI format ({ claudeAiOauth: { accessToken, ... } })
+ * and the flat format ({ accessToken, ... }).
  * Returns the parsed credentials or null if the file doesn't exist,
  * is malformed, or the token is expired.
  */
@@ -21,7 +23,13 @@ export async function readCredentialsFile(): Promise<OAuthCredentials | null> {
 
   try {
     const content = await fs.promises.readFile(credPath, 'utf-8');
-    const credentials = JSON.parse(content) as OAuthCredentials;
+    const parsed = JSON.parse(content) as OAuthCredentials | { claudeAiOauth?: OAuthCredentials };
+
+    // Support CLI format: { claudeAiOauth: { accessToken, ... } }
+    const credentials =
+      'claudeAiOauth' in parsed && parsed.claudeAiOauth
+        ? parsed.claudeAiOauth
+        : (parsed as OAuthCredentials);
 
     if (!credentials.accessToken) {
       return null;

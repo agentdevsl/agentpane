@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { type CanUseTool, unstable_v2_createSession } from '@anthropic-ai/claude-agent-sdk';
 import { createId } from '@paralleldrive/cuid2';
 import type { TerraformModule } from '../db/schema';
+import { buildSdkEnv } from '../lib/agents/agent-sdk-utils.js';
 import { DEFAULT_AGENT_MODEL, getFullModelId } from '../lib/constants/models.js';
 import type { TerraformError } from '../lib/errors/terraform-errors.js';
 import { createLogger } from '../lib/logging/logger.js';
@@ -396,20 +397,9 @@ export class TerraformComposeService {
         return { behavior: 'allow' as const, toolUseID: toolOptions.toolUseID };
       };
 
-      // Filter sensitive vars from env passed to Agent SDK session.
-      // The SDK needs most env vars for auth/paths, but DB credentials and internal secrets should not leak.
-      const filteredEnv = Object.fromEntries(
-        Object.entries(process.env).filter(
-          ([key]) =>
-            !/^(DATABASE_URL|DB_.*|ENCRYPTION_KEY|SESSION_SECRET|GITHUB_APP_PRIVATE_KEY)$/i.test(
-              key
-            )
-        )
-      ) as Record<string, string>;
-
       session = unstable_v2_createSession({
         model: composeModel,
-        env: filteredEnv,
+        env: buildSdkEnv(),
         canUseTool,
       });
 

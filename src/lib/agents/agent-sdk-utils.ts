@@ -38,6 +38,23 @@ export interface AgentQueryResult {
 const DEFAULT_MODEL = getFullModelId(DEFAULT_TASK_CREATION_MODEL);
 
 // =============================================================================
+// Environment Helpers
+// =============================================================================
+
+/**
+ * Build a clean env object for Claude Agent SDK subprocess sessions.
+ * Strips CLAUDECODE (prevents "nested session" crash) and sensitive vars.
+ */
+export function buildSdkEnv(extra: Record<string, string> = {}): Record<string, string> {
+  const blocked =
+    /^(CLAUDECODE|DATABASE_URL|DB_.*|ENCRYPTION_KEY|SESSION_SECRET|GITHUB_APP_PRIVATE_KEY)$/i;
+  const base = Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => !blocked.test(key))
+  ) as Record<string, string>;
+  return { ...base, ...extra };
+}
+
+// =============================================================================
 // Main Function
 // =============================================================================
 
@@ -67,7 +84,7 @@ export async function agentQuery(
   // Enable the task system for structured task tracking
   const session = unstable_v2_createSession({
     model,
-    env: { ...process.env, CLAUDE_CODE_ENABLE_TASKS: 'true' },
+    env: buildSdkEnv({ CLAUDE_CODE_ENABLE_TASKS: 'true' }),
   });
 
   try {

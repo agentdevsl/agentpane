@@ -1,6 +1,7 @@
 import { type CanUseTool, unstable_v2_createSession } from '@anthropic-ai/claude-agent-sdk';
 import { createId } from '@paralleldrive/cuid2';
 import type { SessionEvent } from '../../services/session.service.js';
+import { buildSdkEnv } from './agent-sdk-utils.js';
 import { getToolHandler } from './tools/index.js';
 import type { AgentHooks, ToolContext, ToolResponse } from './types.js';
 
@@ -212,7 +213,7 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
   // The agent will use ExitPlanMode tool when the plan is ready
   const session = unstable_v2_createSession({
     model,
-    env: { ...process.env },
+    env: buildSdkEnv(),
     permissionMode: 'plan', // Planning mode - agent will use ExitPlanMode when done
     executableArgs: ['--add-dir', cwd],
     canUseTool,
@@ -444,7 +445,7 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
   // Create Claude Agent SDK session for execution
   const session = unstable_v2_createSession({
     model,
-    env: { ...process.env },
+    env: buildSdkEnv(),
     allowedTools,
     permissionMode: 'acceptEdits', // Auto-accept edits for execution
     executableArgs: ['--add-dir', cwd],
