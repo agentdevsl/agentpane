@@ -36,7 +36,15 @@ export type SessionEventType =
   | 'container-agent:complete'
   | 'container-agent:error'
   | 'container-agent:cancelled'
-  | 'container-agent:plan_ready';
+  | 'container-agent:plan_ready'
+  // Topology event types
+  | 'topology:agent_spawned'
+  | 'topology:agent_status'
+  | 'topology:agent_progress'
+  | 'topology:agent_completed'
+  | 'topology:agent_failed'
+  | 'topology:decision'
+  | 'topology:snapshot';
 
 export type SessionEvent = {
   id: string;
