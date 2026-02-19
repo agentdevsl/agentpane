@@ -21,6 +21,7 @@ export const agents = sqliteTable('agents', {
   currentTaskId: text('current_task_id'),
   currentSessionId: text('current_session_id'),
   currentTurn: integer('current_turn').default(0),
+  parentAgentId: text('parent_agent_id'),
   createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
   updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
 });

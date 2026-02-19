@@ -1,5 +1,7 @@
 import { Square } from '@phosphor-icons/react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { AgentTopology } from '@/app/components/features/agent-topology';
+import { createLargeTopologyGraph } from '@/app/components/features/agent-topology/mock/mock-topology-data';
 import { Button } from '@/app/components/ui/button';
 import { useContainerAgent } from '@/app/hooks/use-container-agent';
 import { cn } from '@/lib/utils/cn';
@@ -9,7 +11,7 @@ import { ContainerAgentStatusBreadcrumbs } from './container-agent-status-breadc
 import { ContainerAgentStream } from './container-agent-stream';
 import { ContainerAgentToolList } from './container-agent-tool-list';
 
-type PanelTab = 'output' | 'changes';
+type PanelTab = 'output' | 'changes' | 'topology';
 
 export interface ContainerAgentPanelProps {
   /** Session ID to subscribe to */
@@ -50,6 +52,7 @@ export function ContainerAgentPanel({
   const hasChanges = state.fileChanges.length > 0;
   // Prefer stream event provider, fall back to session record
   const resolvedProvider = state.sandboxProvider ?? sessionSandboxProvider;
+  const mockTopology = useMemo(() => createLargeTopologyGraph(), []);
 
   return (
     <div className="flex flex-1 min-h-0 min-w-0 flex-col rounded-lg border border-border bg-surface">
@@ -92,20 +95,20 @@ export function ContainerAgentPanel({
       )}
 
       {/* Tab bar */}
-      {hasChanges && (
-        <div className="flex border-b border-border bg-surface-subtle" data-testid="panel-tabs">
-          <button
-            type="button"
-            className={cn(
-              'px-4 py-2 text-sm font-medium transition-colors',
-              activeTab === 'output'
-                ? 'border-b-2 border-accent text-fg'
-                : 'text-fg-muted hover:text-fg'
-            )}
-            onClick={() => setActiveTab('output')}
-          >
-            Output
-          </button>
+      <div className="flex border-b border-border bg-surface-subtle" data-testid="panel-tabs">
+        <button
+          type="button"
+          className={cn(
+            'px-4 py-2 text-sm font-medium transition-colors',
+            activeTab === 'output'
+              ? 'border-b-2 border-accent text-fg'
+              : 'text-fg-muted hover:text-fg'
+          )}
+          onClick={() => setActiveTab('output')}
+        >
+          Output
+        </button>
+        {hasChanges && (
           <button
             type="button"
             className={cn(
@@ -121,8 +124,20 @@ export function ContainerAgentPanel({
               {state.fileChanges.length}
             </span>
           </button>
-        </div>
-      )}
+        )}
+        <button
+          type="button"
+          className={cn(
+            'px-4 py-2 text-sm font-medium transition-colors',
+            activeTab === 'topology'
+              ? 'border-b-2 border-accent text-fg'
+              : 'text-fg-muted hover:text-fg'
+          )}
+          onClick={() => setActiveTab('topology')}
+        >
+          Topology
+        </button>
+      </div>
 
       {/* Main content area */}
       <div className="flex flex-1 min-h-0 flex-col lg:flex-row">
@@ -152,9 +167,13 @@ export function ContainerAgentPanel({
               </div>
             )}
           </>
-        ) : (
+        ) : activeTab === 'changes' ? (
           <div className="flex-1 min-h-0 min-w-0 flex flex-col">
             <ContainerAgentChangesTab fileChanges={state.fileChanges} />
+          </div>
+        ) : (
+          <div className="flex-1 min-h-0 min-w-0 flex flex-col">
+            <AgentTopology mockData={mockTopology} />
           </div>
         )}
       </div>
