@@ -136,6 +136,18 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
           }
         : undefined;
 
+      // Callback for when background processor publishes an assistant message (sends SSE event)
+      const onMessage = controller
+        ? (messageId: string, role: 'user' | 'assistant', content: string) => {
+            console.log('[TaskCreation Route] 📤 onMessage callback - sending SSE event');
+            const messageData = JSON.stringify({
+              type: 'task-creation:message',
+              data: { sessionId, messageId, role, content },
+            });
+            controller.enqueue(new TextEncoder().encode(`data: ${messageData}\n\n`));
+          }
+        : undefined;
+
       // Callback for when background processor finds a suggestion (sends SSE event)
       const onSuggestion = controller
         ? (suggestion: {
@@ -157,7 +169,8 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
         sessionId,
         message,
         onToken,
-        onSuggestion
+        onSuggestion,
+        onMessage
       );
 
       if (!result.ok) {

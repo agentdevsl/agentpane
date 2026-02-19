@@ -113,6 +113,8 @@ export interface TaskCreationSession {
   streamProcessingPromise: Promise<void> | null;
   /** Callback for when background processor finds a suggestion - used to send SSE events */
   onSuggestionCallback: SuggestionCallback | null;
+  /** Callback for when background processor publishes an assistant message - used to send SSE events */
+  onMessageCallback: MessageCallback | null;
   /** Promise that resolves when questions are ready */
   questionsReadyPromise: Promise<void> | null;
   /** Resolver for questionsReadyPromise */
@@ -176,6 +178,11 @@ const SYSTEM_PROMPT_DEFAULT = getPromptDefaultText('task-creation');
 
 export type TokenCallback = (delta: string, accumulated: string) => void;
 export type SuggestionCallback = (suggestion: TaskSuggestion) => void;
+export type MessageCallback = (
+  messageId: string,
+  role: 'user' | 'assistant',
+  content: string
+) => void;
 
 export class TaskCreationService {
   private sessions = new Map<string, TaskCreationSession>();
@@ -766,6 +773,7 @@ export class TaskCreationService {
       activeStreamIterator: null,
       streamProcessingPromise: null,
       onSuggestionCallback: null,
+      onMessageCallback: null,
       questionsReadyPromise: null,
       questionsReadyResolver: null,
       lastActivityAt: Date.now(),
@@ -827,7 +835,8 @@ export class TaskCreationService {
     sessionId: string,
     content: string,
     onToken?: TokenCallback,
-    onSuggestion?: SuggestionCallback
+    onSuggestion?: SuggestionCallback,
+    onMessage?: MessageCallback
   ): Promise<Result<TaskCreationSession, TaskCreationError>> {
     const session = this.sessions.get(sessionId);
     if (!session) {
@@ -850,9 +859,12 @@ export class TaskCreationService {
       return err(TaskCreationErrors.API_ERROR('No active V2 session'));
     }
 
-    // Store suggestion callback for background processor to use
+    // Store callbacks for background processor to use
     if (onSuggestion) {
       session.onSuggestionCallback = onSuggestion;
+    }
+    if (onMessage) {
+      session.onMessageCallback = onMessage;
     }
 
     // Add user message
@@ -1826,6 +1838,16 @@ export class TaskCreationService {
       });
     } catch (error: unknown) {
       console.error('[TaskCreationService] Failed to publish assistant message:', error);
+    }
+
+    // Also send via direct SSE callback (for background processor flow where
+    // durable streams may not reach the SSE controller)
+    if (session.onMessageCallback) {
+      try {
+        session.onMessageCallback(message.id, 'assistant', content);
+      } catch (error: unknown) {
+        console.error('[TaskCreationService] Failed to call onMessageCallback:', error);
+      }
     }
 
     // Persist to database for session history

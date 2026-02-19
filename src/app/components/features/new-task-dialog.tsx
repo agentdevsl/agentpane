@@ -1460,20 +1460,32 @@ export function NewTaskDialog({
                 {/* Chat messages - show when conversation started (regardless of status, as long as not waiting_user) */}
                 {messages.length > 0 && !(status === 'waiting_user' && pendingQuestions) && (
                   <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                    {messages.map((message) => (
-                      <div key={message.id}>
-                        <MessageBubble message={message} />
-                        {message.role === 'assistant' &&
-                          suggestion &&
-                          message.id === messages[messages.length - 1]?.id && (
+                    {messages.map((message) => {
+                      const isLastAssistant =
+                        message.role === 'assistant' &&
+                        message.id === messages[messages.length - 1]?.id;
+                      const showSuggestionCard = isLastAssistant && !!suggestion;
+                      // Hide the message bubble if it only contained the JSON block
+                      // (stripped content is empty) and the SuggestionCard will display it
+                      const strippedContent =
+                        message.role === 'assistant'
+                          ? stripMachineReadableJson(message.content)
+                          : message.content;
+                      const hideEmptyBubble = showSuggestionCard && !strippedContent.trim();
+
+                      return (
+                        <div key={message.id}>
+                          {!hideEmptyBubble && <MessageBubble message={message} />}
+                          {showSuggestionCard && (
                             <SuggestionCard
                               suggestion={suggestion}
                               onAccept={handleAcceptSuggestion}
                               onEdit={() => setShowEditPanel(true)}
                             />
                           )}
-                      </div>
-                    ))}
+                        </div>
+                      );
+                    })}
                     {/* Streaming content */}
                     {isStreaming && streamingContent && (
                       <StreamingBubble content={streamingContent} />

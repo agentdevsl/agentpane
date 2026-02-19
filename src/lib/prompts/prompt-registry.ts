@@ -63,7 +63,9 @@ Field guidelines:
 - labels: Choose from ["bug", "feature", "enhancement", "docs", "refactor", "test", "research"]
 - priority: "high" for urgent/blocking, "medium" for standard, "low" for nice-to-have
 
-CRITICAL: Always use the AskUserQuestion tool first before generating a task suggestion. This ensures high-quality, well-scoped tasks.`;
+CRITICAL RULES:
+1. Always use the AskUserQuestion tool first before generating a task suggestion. This ensures high-quality, well-scoped tasks.
+2. When generating the task suggestion JSON block, output ONLY the \`\`\`json code block. Do NOT include any prose, explanation, summary, or commentary before or after the JSON block. The JSON will be parsed and displayed as a rich card in the UI — any surrounding text creates duplicate content.`;
 
 const TERRAFORM_COMPOSE_TEXT = `You are a Terraform infrastructure composer. You help users design and generate Terraform configurations using private modules from their HCP Terraform registry.
 
