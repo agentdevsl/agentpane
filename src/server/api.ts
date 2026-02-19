@@ -798,6 +798,15 @@ async function initSandboxProvider() {
           },
         });
 
+        // Clear any stale error from a previous failed initialization
+        try {
+          await db
+            .delete(schemaTables.settings)
+            .where(eq(schemaTables.settings.key, 'sandbox.kubernetes.lastError'));
+        } catch (_) {
+          // ignore — stale error display is non-critical
+        }
+
         // Start built-in CRD controller if no external controller detected
         if (!(health.details?.controller as { installed?: boolean })?.installed) {
           sandboxController = new SandboxController(
@@ -849,6 +858,15 @@ async function initSandboxProvider() {
                   data: { namespace: k8sSettings.namespace ?? 'agentpane-sandboxes' },
                 }
               );
+
+              // Clear any stale error from a previous failed initialization
+              try {
+                await db
+                  .delete(schemaTables.settings)
+                  .where(eq(schemaTables.settings.key, 'sandbox.kubernetes.lastError'));
+              } catch (_) {
+                // ignore — stale error display is non-critical
+              }
 
               // Start built-in CRD controller if no external controller detected
               if (!(health.details?.controller as { installed?: boolean })?.installed) {
