@@ -711,6 +711,17 @@ async function loadSandboxDefaultsFromDb(): Promise<{
   return null;
 }
 
+/** Clear any stale `sandbox.kubernetes.lastError` from the settings table. */
+async function clearK8sLastError() {
+  try {
+    await db
+      .delete(schemaTables.settings)
+      .where(eq(schemaTables.settings.key, 'sandbox.kubernetes.lastError'));
+  } catch (_) {
+    // ignore — stale error display is non-critical
+  }
+}
+
 /**
  * Initialize the sandbox provider asynchronously.
  * Called after Bun.serve() so the server is already accepting requests.
@@ -799,13 +810,7 @@ async function initSandboxProvider() {
         });
 
         // Clear any stale error from a previous failed initialization
-        try {
-          await db
-            .delete(schemaTables.settings)
-            .where(eq(schemaTables.settings.key, 'sandbox.kubernetes.lastError'));
-        } catch (_) {
-          // ignore — stale error display is non-critical
-        }
+        await clearK8sLastError();
 
         // Start built-in CRD controller if no external controller detected
         if (!(health.details?.controller as { installed?: boolean })?.installed) {
@@ -860,13 +865,7 @@ async function initSandboxProvider() {
               );
 
               // Clear any stale error from a previous failed initialization
-              try {
-                await db
-                  .delete(schemaTables.settings)
-                  .where(eq(schemaTables.settings.key, 'sandbox.kubernetes.lastError'));
-              } catch (_) {
-                // ignore — stale error display is non-critical
-              }
+              await clearK8sLastError();
 
               // Start built-in CRD controller if no external controller detected
               if (!(health.details?.controller as { installed?: boolean })?.installed) {

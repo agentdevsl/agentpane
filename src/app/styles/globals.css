@@ -741,6 +741,17 @@
     to { opacity: 1; transform: translateY(0); }
   }
 
+  /* Agent topology edge: animated flowing dashes for running edges */
+  @keyframes agent-dash-flow {
+    to { stroke-dashoffset: -26; }
+  }
+
+  /* Agent topology node: pulse animation for running agents */
+  @keyframes running-pulse {
+    0%, 100% { opacity: 0.15; transform: scale(1); }
+    50% { opacity: 0.05; transform: scale(1.15); }
+  }
+
   /* Terraform dependency edge: animated flowing dashes for implicit edges */
   @keyframes tf-dash-flow {
     to { stroke-dashoffset: -20; }

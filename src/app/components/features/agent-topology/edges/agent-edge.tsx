@@ -111,14 +111,6 @@ function AgentEdgeComponent({
           </circle>
         </>
       )}
-
-      <style>
-        {`
-          @keyframes agent-dash-flow {
-            to { stroke-dashoffset: -26; }
-          }
-        `}
-      </style>
     </>
   );
 }

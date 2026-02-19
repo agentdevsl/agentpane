@@ -18,6 +18,7 @@ function formatTimestamp(ts: number | null): string {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+// TODO: Replace with real activity events from the backend
 function buildActivityEntries(node: TopologyNode): ActivityEntry[] {
   const entries: ActivityEntry[] = [];
   const baseTime = node.startedAt ?? Date.now();

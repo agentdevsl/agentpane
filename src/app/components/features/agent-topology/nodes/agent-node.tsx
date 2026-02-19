@@ -44,15 +44,6 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
 
   return (
     <div style={{ width: 120, height: 100 }}>
-      <style>
-        {`
-          @keyframes running-pulse {
-            0%, 100% { opacity: 0.15; transform: scale(1); }
-            50% { opacity: 0.05; transform: scale(1.15); }
-          }
-        `}
-      </style>
-
       <Handle
         type="target"
         position={Position.Top}

@@ -64,21 +64,23 @@ export async function layoutTopology(
   const layouted = await elk.layout(elkGraph);
   const children = layouted.children ?? [];
 
+  const nodeById = new Map(graph.nodes.map((n, i) => [n.id, { node: n, index: i }]));
+
   const rfNodes: ReactFlowNode[] = children
     .map((child: ElkNode) => {
-      const graphNode = graph.nodes.find((n) => n.id === child.id);
-      if (!graphNode) return undefined;
+      const entry = nodeById.get(child.id);
+      if (!entry) return undefined;
       return {
         id: child.id,
         type: 'agentNode' as const,
         position: { x: child.x ?? 0, y: child.y ?? 0 },
         data: {
-          name: graphNode.name,
-          role: graphNode.role,
-          status: graphNode.status,
-          progress: graphNode.progress,
-          decisions: graphNode.decisions,
-          nodeIndex: graph.nodes.indexOf(graphNode),
+          name: entry.node.name,
+          role: entry.node.role,
+          status: entry.node.status,
+          progress: entry.node.progress,
+          decisions: entry.node.decisions,
+          nodeIndex: entry.index,
         },
         draggable: false,
         connectable: false,
@@ -87,8 +89,8 @@ export async function layoutTopology(
     .filter((n: ReactFlowNode | undefined): n is ReactFlowNode => n !== undefined);
 
   const rfEdges: ReactFlowEdge[] = graph.edges.map((e) => {
-    const sourceNode = graph.nodes.find((n) => n.id === e.sourceId);
-    const targetNode = graph.nodes.find((n) => n.id === e.targetId);
+    const sourceEntry = nodeById.get(e.sourceId);
+    const targetEntry = nodeById.get(e.targetId);
     return {
       id: e.id,
       source: e.sourceId,
@@ -97,8 +99,8 @@ export async function layoutTopology(
       targetHandle: 'target',
       type: 'agentEdge',
       data: {
-        sourceStatus: sourceNode?.status ?? 'queued',
-        targetStatus: targetNode?.status ?? 'queued',
+        sourceStatus: sourceEntry?.node.status ?? 'queued',
+        targetStatus: targetEntry?.node.status ?? 'queued',
       },
     };
   });

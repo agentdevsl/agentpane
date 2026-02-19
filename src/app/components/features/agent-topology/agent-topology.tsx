@@ -53,9 +53,10 @@ function TopologyInner(): React.JSX.Element {
       void runLayout();
     } else {
       // Data-only update — update node data in-place without relayout
+      const nodeById = new Map(state.graph.nodes.map((n) => [n.id, n]));
       setNodes((prev) =>
         prev.map((rfNode) => {
-          const graphNode = state.graph.nodes.find((n) => n.id === rfNode.id);
+          const graphNode = nodeById.get(rfNode.id);
           if (!graphNode) return rfNode;
           return {
             ...rfNode,
@@ -72,8 +73,8 @@ function TopologyInner(): React.JSX.Element {
       );
       setEdges((prev) =>
         prev.map((rfEdge) => {
-          const sourceNode = state.graph.nodes.find((n) => n.id === rfEdge.source);
-          const targetNode = state.graph.nodes.find((n) => n.id === rfEdge.target);
+          const sourceNode = nodeById.get(rfEdge.source);
+          const targetNode = nodeById.get(rfEdge.target);
           return {
             ...rfEdge,
             data: {
