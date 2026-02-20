@@ -71,38 +71,44 @@ export async function execInAllocation(
     const ws = new WebSocket(wsUrl);
 
     ws.onmessage = (event) => {
-      try {
-        const frame = JSON.parse(String(event.data)) as {
-          stdout?: { data?: string };
-          stderr?: { data?: string };
-          exited?: boolean;
-          result?: { exit_code?: number };
-        };
+      const raw = String(event.data);
 
-        if (frame.stdout?.data) {
-          stdout += decodeBase64(frame.stdout.data);
-        }
-        if (frame.stderr?.data) {
-          stderr += decodeBase64(frame.stderr.data);
-        }
-        if (frame.exited) {
-          ws.close();
-          resolve({
-            exitCode: frame.result?.exit_code ?? 1,
-            stdout: stdout.trimEnd(),
-            stderr: stderr.trimEnd(),
-          });
-        }
+      // Skip non-JSON heartbeat frames silently
+      if (!raw.startsWith('{') && !raw.startsWith('[')) {
+        return;
+      }
+
+      let frame: {
+        stdout?: { data?: string };
+        stderr?: { data?: string };
+        exited?: boolean;
+        result?: { exit_code?: number };
+      };
+
+      try {
+        frame = JSON.parse(raw);
       } catch (err) {
-        const raw = String(event.data);
-        if (raw.startsWith('{') || raw.startsWith('[')) {
-          // JSON that failed to parse — real error
-          console.error(
-            '[NomadSDK] Failed to parse exec frame:',
-            err instanceof Error ? err.message : String(err)
-          );
-        }
-        // Non-JSON heartbeat frames are expected and safe to ignore
+        console.error(
+          '[NomadSDK] Failed to parse exec frame:',
+          err instanceof Error ? err.message : String(err)
+        );
+        return;
+      }
+
+      // Let base64 decode errors and other errors propagate naturally
+      if (frame.stdout?.data) {
+        stdout += decodeBase64(frame.stdout.data);
+      }
+      if (frame.stderr?.data) {
+        stderr += decodeBase64(frame.stderr.data);
+      }
+      if (frame.exited) {
+        ws.close();
+        resolve({
+          exitCode: frame.result?.exit_code ?? 1,
+          stdout: stdout.trimEnd(),
+          stderr: stderr.trimEnd(),
+        });
       }
     };
 
@@ -141,6 +147,20 @@ export function execStreamInAllocation(
   let stdoutController!: ReadableStreamDefaultController<Uint8Array>;
   let stderrController!: ReadableStreamDefaultController<Uint8Array>;
 
+  /** Safely close both stdout and stderr stream controllers (idempotent). */
+  function closeControllers(): void {
+    try {
+      stdoutController.close();
+    } catch {
+      /* already closed */
+    }
+    try {
+      stderrController.close();
+    } catch {
+      /* already closed */
+    }
+  }
+
   const stdoutStream = new ReadableStream<Uint8Array>({
     start(controller) {
       stdoutController = controller;
@@ -170,64 +190,53 @@ export function execStreamInAllocation(
   const encoder = new TextEncoder();
 
   ws.onmessage = (event) => {
-    try {
-      const frame = JSON.parse(String(event.data)) as {
-        stdout?: { data?: string };
-        stderr?: { data?: string };
-        exited?: boolean;
-        result?: { exit_code?: number };
-      };
+    const raw = String(event.data);
 
-      if (frame.stdout?.data) {
-        stdoutController.enqueue(encoder.encode(decodeBase64(frame.stdout.data)));
-      }
-      if (frame.stderr?.data) {
-        stderrController.enqueue(encoder.encode(decodeBase64(frame.stderr.data)));
-      }
-      if (frame.exited) {
-        stdoutController.close();
-        stderrController.close();
-        ws.close();
-        resolveWait({ exitCode: frame.result?.exit_code ?? 1 });
-      }
+    // Skip non-JSON heartbeat frames silently
+    if (!raw.startsWith('{') && !raw.startsWith('[')) {
+      return;
+    }
+
+    let frame: {
+      stdout?: { data?: string };
+      stderr?: { data?: string };
+      exited?: boolean;
+      result?: { exit_code?: number };
+    };
+
+    try {
+      frame = JSON.parse(raw);
     } catch (err) {
-      const raw = String(event.data);
-      if (raw.startsWith('{') || raw.startsWith('[')) {
-        console.error(
-          '[NomadSDK] Failed to parse exec stream frame:',
-          err instanceof Error ? err.message : String(err)
-        );
-      }
+      console.error(
+        '[NomadSDK] Failed to parse exec stream frame:',
+        err instanceof Error ? err.message : String(err)
+      );
+      return;
+    }
+
+    // Let base64 decode and controller.enqueue errors propagate naturally
+    if (frame.stdout?.data) {
+      stdoutController.enqueue(encoder.encode(decodeBase64(frame.stdout.data)));
+    }
+    if (frame.stderr?.data) {
+      stderrController.enqueue(encoder.encode(decodeBase64(frame.stderr.data)));
+    }
+    if (frame.exited) {
+      closeControllers();
+      ws.close();
+      resolveWait({ exitCode: frame.result?.exit_code ?? 1 });
     }
   };
 
   ws.onerror = () => {
     const err = new ExecError(1, 'WebSocket error during streaming exec');
-    try {
-      stdoutController.close();
-    } catch {
-      /* already closed */
-    }
-    try {
-      stderrController.close();
-    } catch {
-      /* already closed */
-    }
+    closeControllers();
     rejectWait(err);
   };
 
   ws.onclose = (event) => {
     if (!event.wasClean) {
-      try {
-        stdoutController.close();
-      } catch {
-        /* already closed */
-      }
-      try {
-        stderrController.close();
-      } catch {
-        /* already closed */
-      }
+      closeControllers();
       rejectWait(new ExecError(1, `WebSocket closed unexpectedly: code=${event.code}`));
     }
   };
@@ -235,16 +244,7 @@ export function execStreamInAllocation(
   if (timeoutMs) {
     setTimeout(() => {
       ws.close();
-      try {
-        stdoutController.close();
-      } catch {
-        /* already closed */
-      }
-      try {
-        stderrController.close();
-      } catch {
-        /* already closed */
-      }
+      closeControllers();
       rejectWait(new TimeoutError('exec stream', timeoutMs));
     }, timeoutMs);
   }
@@ -256,16 +256,7 @@ export function execStreamInAllocation(
     wait: () => waitPromise,
     kill: () => {
       ws.close();
-      try {
-        stdoutController.close();
-      } catch {
-        /* already closed */
-      }
-      try {
-        stderrController.close();
-      } catch {
-        /* already closed */
-      }
+      closeControllers();
     },
   };
 }

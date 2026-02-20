@@ -61,6 +61,7 @@ import {
   TEMPLATE_SYNC_INTERVAL_MIGRATION_SQL,
   TERRAFORM_MIGRATION_SQL,
 } from '../lib/bootstrap/phases/schema.js';
+import { decryptToken } from '../lib/crypto/server-encryption.js';
 import { SandboxController } from '../lib/sandbox/controllers/sandbox-controller.js';
 import { createDockerProvider } from '../lib/sandbox/index.js';
 import { createAgentSandboxProvider } from '../lib/sandbox/providers/agent-sandbox-provider.js';
@@ -226,6 +227,26 @@ if (DB_MODE === 'postgres') {
   // Apply Terraform tables migration (idempotent — uses IF NOT EXISTS)
   sqlite.exec(TERRAFORM_MIGRATION_SQL);
   log.info('Terraform migration applied');
+
+  // Apply Nomad sandbox columns migration (may fail if columns already exist)
+  try {
+    sqlite.exec(`
+      ALTER TABLE sandbox_configs ADD COLUMN nomad_address TEXT;
+      ALTER TABLE sandbox_configs ADD COLUMN nomad_token TEXT;
+      ALTER TABLE sandbox_configs ADD COLUMN nomad_namespace TEXT DEFAULT 'default';
+      ALTER TABLE sandbox_configs ADD COLUMN nomad_datacenter TEXT;
+      ALTER TABLE sandbox_configs ADD COLUMN nomad_region TEXT;
+    `);
+    log.info('[API Server] Nomad sandbox columns migration applied');
+  } catch (error) {
+    if (!(error instanceof Error && error.message.includes('duplicate column name'))) {
+      console.warn(
+        '[API Server] Nomad sandbox columns migration error (unexpected):',
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+    // Silently ignore duplicate column errors (expected when migration already applied)
+  }
 
   db = drizzle(sqlite, { schema: sqliteSchema }) as unknown as Database;
 }
@@ -736,6 +757,32 @@ async function clearNomadLastError() {
   }
 }
 
+/** Persist a Nomad error message to the settings table for UI display. */
+async function persistNomadLastError(message: string): Promise<void> {
+  try {
+    await db
+      .insert(schemaTables.settings)
+      .values({
+        key: 'sandbox.nomad.lastError',
+        value: JSON.stringify({
+          error: message,
+          timestamp: new Date().toISOString(),
+        }),
+      })
+      .onConflictDoUpdate({
+        target: schemaTables.settings.key,
+        set: {
+          value: JSON.stringify({
+            error: message,
+            timestamp: new Date().toISOString(),
+          }),
+        },
+      });
+  } catch (persistErr) {
+    console.warn('[API Server] Failed to persist Nomad error:', persistErr);
+  }
+}
+
 /**
  * Create a default Nomad sandbox job if one doesn't already exist.
  * Mirrors Docker/K8s default sandbox creation pattern.
@@ -824,7 +871,27 @@ async function initSandboxProvider() {
         providerType = 'nomad';
       }
       k8sFallbackToDocker = parsed.fallbackToDocker ?? false;
+      // Default nomadFallbackToDocker from shared setting; may be overridden below
       nomadFallbackToDocker = parsed.fallbackToDocker ?? false;
+    }
+
+    // Check for a separate Nomad-specific fallbackToDocker setting
+    if (providerType === 'nomad') {
+      try {
+        const nomadSetting = await db.query.settings.findFirst({
+          where: eq(schemaTables.settings.key, 'sandbox.nomad'),
+        });
+        if (nomadSetting?.value) {
+          const nomadParsed = JSON.parse(nomadSetting.value) as {
+            fallbackToDocker?: boolean;
+          };
+          if (nomadParsed.fallbackToDocker !== undefined) {
+            nomadFallbackToDocker = nomadParsed.fallbackToDocker;
+          }
+        }
+      } catch {
+        // Use the shared fallbackToDocker value
+      }
     }
   } catch (settingsErr) {
     console.warn(
@@ -1179,6 +1246,17 @@ async function initSandboxProvider() {
         });
         if (nomadSetting?.value) {
           nomadSettings = JSON.parse(nomadSetting.value);
+          // Decrypt the stored token (encrypted at rest)
+          if (nomadSettings.token) {
+            try {
+              nomadSettings.token = decryptToken(nomadSettings.token);
+            } catch (decryptErr) {
+              // Token may be stored in plaintext (pre-encryption migration) — use as-is
+              log.warn('[API Server] Nomad token decryption failed, using raw value', {
+                error: decryptErr instanceof Error ? decryptErr.message : String(decryptErr),
+              });
+            }
+          }
         }
       } catch (dbErr) {
         log.warn('[API Server] Failed to read Nomad settings from database', {
@@ -1220,57 +1298,13 @@ async function initSandboxProvider() {
         } else {
           const diagnosis = health.message ?? 'Nomad cluster health check failed';
           log.warn(`[API Server] Nomad provider unhealthy: ${diagnosis}. Falling back to Docker.`);
-          // Persist error for UI display
-          try {
-            await db
-              .insert(schemaTables.settings)
-              .values({
-                key: 'sandbox.nomad.lastError',
-                value: JSON.stringify({
-                  error: diagnosis,
-                  timestamp: new Date().toISOString(),
-                }),
-              })
-              .onConflictDoUpdate({
-                target: schemaTables.settings.key,
-                set: {
-                  value: JSON.stringify({
-                    error: diagnosis,
-                    timestamp: new Date().toISOString(),
-                  }),
-                },
-              });
-          } catch (persistErr) {
-            console.warn('[API Server] Failed to persist Nomad error:', persistErr);
-          }
+          await persistNomadLastError(diagnosis);
         }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       log.warn(`[API Server] Nomad provider init failed: ${message}. Falling back to Docker.`);
-      // Persist error
-      try {
-        await db
-          .insert(schemaTables.settings)
-          .values({
-            key: 'sandbox.nomad.lastError',
-            value: JSON.stringify({
-              error: message,
-              timestamp: new Date().toISOString(),
-            }),
-          })
-          .onConflictDoUpdate({
-            target: schemaTables.settings.key,
-            set: {
-              value: JSON.stringify({
-                error: message,
-                timestamp: new Date().toISOString(),
-              }),
-            },
-          });
-      } catch (persistErr) {
-        console.warn('[API Server] Failed to persist Nomad error:', persistErr);
-      }
+      await persistNomadLastError(message);
     }
   }
 

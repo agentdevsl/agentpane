@@ -12,4 +12,6 @@ export interface NomadHealthCheckResult {
   namespaceExists: boolean;
   /** Datacenter name, or null if unreachable */
   datacenter: string | null;
+  /** Error details when healthy is false (e.g. connection refused, TLS error, auth failure) */
+  error?: string;
 }

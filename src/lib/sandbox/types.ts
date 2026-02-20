@@ -97,10 +97,11 @@ export interface ProjectSandboxConfig {
   additionalVolumes?: VolumeMountConfig[];
   memoryMb?: number;
   cpuCores?: number;
-  // Kubernetes-specific settings
+  /** Kubernetes namespace. Only used when provider is 'kubernetes'. */
   namespace?: string;
+  /** Kubernetes service account. Only used when provider is 'kubernetes'. */
   serviceAccount?: string;
-  // Nomad-specific settings
+  /** Nomad namespace. Only used when provider is 'nomad'. */
   nomadNamespace?: string;
 }
 

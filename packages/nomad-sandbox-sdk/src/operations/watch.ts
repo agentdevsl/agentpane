@@ -1,5 +1,6 @@
 import type { NomadHttpClient } from '../http.js';
 import type { NomadJob } from '../types/job.js';
+import { sleep } from '../utils.js';
 
 /**
  * Handle returned by watch operations
@@ -22,6 +23,8 @@ export interface WatchOptions {
   wait?: string;
   /** Poll interval fallback in ms if blocking query returns immediately */
   minPollMs?: number;
+  /** Callback invoked when the watch loop encounters a fatal error (e.g. 403, 404) */
+  onError?: (error: Error) => void;
 }
 
 /**
@@ -66,10 +69,12 @@ export function watchJob(
           const statusCode = (error as { statusCode: number }).statusCode;
           if (statusCode === 404) {
             // Job was deleted — stop watching
+            options?.onError?.(error instanceof Error ? error : new Error(String(error)));
             break;
           }
           if (statusCode === 403) {
             console.error(`[NomadSDK] Watch for ${jobId} stopped: authentication failed`);
+            options?.onError?.(error instanceof Error ? error : new Error(String(error)));
             break;
           }
         }
@@ -91,8 +96,4 @@ export function watchJob(
       stopped = true;
     },
   };
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

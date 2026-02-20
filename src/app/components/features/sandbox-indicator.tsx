@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils/cn';
 
 export type ContainerStatus = 'stopped' | 'creating' | 'running' | 'idle' | 'error' | 'unavailable';
 
-export type SandboxProviderType = 'docker' | 'kubernetes' | 'nomad' | 'none';
+export type SandboxProviderType = 'docker' | 'devcontainer' | 'kubernetes' | 'nomad' | 'none';
 
 const statusDotVariants = cva('h-2 w-2 rounded-full', {
   variants: {

@@ -4,6 +4,7 @@ import { NomadErrors } from '../../errors/nomad-errors.js';
 import { createLogger } from '../../logging/logger.js';
 import type { ExecResult, SandboxMetrics, SandboxStatus, TmuxSession } from '../types.js';
 import { SANDBOX_DEFAULTS } from '../types.js';
+import { mapNomadJobStatus } from './nomad-sandbox-provider.js';
 import type { ExecStreamOptions, ExecStreamResult, Sandbox } from './sandbox-provider.js';
 
 const log = createLogger('NomadSandboxInstance');
@@ -50,7 +51,14 @@ export class NomadSandboxInstance implements Sandbox {
     return this._status;
   }
 
+  private assertRunning(): void {
+    if (this._status !== 'running' && this._status !== 'creating') {
+      throw NomadErrors.JOB_NOT_RUNNING(this.jobName, this._status);
+    }
+  }
+
   async exec(cmd: string, args: string[] = []): Promise<ExecResult> {
+    this.assertRunning();
     this.touch();
 
     try {
@@ -72,8 +80,8 @@ export class NomadSandboxInstance implements Sandbox {
   }
 
   async execAsRoot(cmd: string, args: string[] = []): Promise<ExecResult> {
-    // Nomad sandboxes run as non-root by default.
-    // Root execution is not supported -- same behavior as K8s instance.
+    // Root escalation is not supported by this provider. The command runs as whatever
+    // user the container is configured with. This matches the K8s provider behavior.
     log.warn('execAsRoot called but Nomad sandboxes run as non-root. Executing as default user.');
     return this.exec(cmd, args);
   }
@@ -108,6 +116,7 @@ export class NomadSandboxInstance implements Sandbox {
    * to match the ExecStreamResult contract (which expects Node Readable).
    */
   async execStream(options: ExecStreamOptions): Promise<ExecStreamResult> {
+    this.assertRunning();
     this.touch();
 
     const { cmd, args = [], env = {}, cwd } = options;
@@ -154,7 +163,7 @@ export class NomadSandboxInstance implements Sandbox {
           ];
         }
       } else {
-        fullCmd = ['env', ...envEntries.map(([k, v]) => `${k}=${this.shellEscape(v)}`), ...fullCmd];
+        fullCmd = ['env', ...envEntries.map(([k, v]) => `${k}=${v}`), ...fullCmd];
       }
     }
 
@@ -234,6 +243,7 @@ export class NomadSandboxInstance implements Sandbox {
   // --- tmux session management ---
 
   async createTmuxSession(sessionName: string, taskId?: string): Promise<TmuxSession> {
+    this.assertRunning();
     this.touch();
 
     // Check if session already exists
@@ -311,6 +321,7 @@ export class NomadSandboxInstance implements Sandbox {
   }
 
   async sendKeysToTmux(sessionName: string, keys: string): Promise<void> {
+    this.assertRunning();
     this.touch();
 
     const result = await this.exec('tmux', ['send-keys', '-t', sessionName, keys, 'Enter']);
@@ -320,6 +331,7 @@ export class NomadSandboxInstance implements Sandbox {
   }
 
   async captureTmuxPane(sessionName: string, lines = 100): Promise<string> {
+    this.assertRunning();
     this.touch();
 
     const result = await this.exec('tmux', [
@@ -340,6 +352,10 @@ export class NomadSandboxInstance implements Sandbox {
 
   // --- Metrics ---
 
+  /**
+   * Placeholder metrics implementation. All resource values are hardcoded to zero.
+   * The uptime measures time since the last exec/tmux operation, not actual container uptime.
+   */
   async getMetrics(): Promise<SandboxMetrics> {
     this.touch();
 
@@ -359,18 +375,11 @@ export class NomadSandboxInstance implements Sandbox {
         uptime,
       };
     } catch (error) {
-      log.warn(`Failed to get metrics for ${this.jobName}, returning placeholder values`, {
-        error,
+      const message = error instanceof Error ? error.message : String(error);
+      log.error(`Failed to get metrics for ${this.jobName}`, {
+        error: error instanceof Error ? error : new Error(message),
       });
-      return {
-        cpuUsagePercent: 0,
-        memoryUsageMb: 0,
-        memoryLimitMb: 0,
-        diskUsageMb: 0,
-        networkRxBytes: 0,
-        networkTxBytes: 0,
-        uptime: Date.now() - this._lastActivity.getTime(),
-      };
+      throw NomadErrors.EXEC_FAILED('getMetrics', message);
     }
   }
 
@@ -403,7 +412,7 @@ export class NomadSandboxInstance implements Sandbox {
           this._status = 'stopped';
         }
       } else {
-        this._status = this.mapJobStatusToSandboxStatus(jobStatus);
+        this._status = mapNomadJobStatus(jobStatus);
 
         // Update allocId in case of reschedule
         if (jobStatus === 'running') {
@@ -428,26 +437,6 @@ export class NomadSandboxInstance implements Sandbox {
         });
         this._status = 'error';
       }
-    }
-  }
-
-  /**
-   * Map Nomad job status to SandboxStatus.
-   *
-   * Nomad job statuses: 'pending' | 'running' | 'dead'
-   * SandboxStatus: 'stopped' | 'creating' | 'running' | 'idle' | 'stopping' | 'error'
-   */
-  private mapJobStatusToSandboxStatus(status?: string): SandboxStatus {
-    switch (status) {
-      case 'running':
-        return 'running';
-      case 'pending':
-        return 'creating';
-      case 'dead':
-        return 'stopped';
-      default:
-        log.warn(`Unknown Nomad job status: "${status}", treating as error`);
-        return 'error';
     }
   }
 

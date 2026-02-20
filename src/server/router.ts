@@ -96,8 +96,8 @@ async function authMiddleware(c: Context, next: Next) {
   return next();
 }
 
-/** Minimal interface for reading K8s provider health in routes. */
-interface K8sProviderHealth {
+/** Shared interface for reading sandbox provider health in routes (K8s, Nomad, etc.). */
+export interface SandboxProviderHealth {
   healthCheck(): Promise<{
     healthy: boolean;
     message?: string;
@@ -121,8 +121,8 @@ export interface RouterDependencies {
   commandRunner: CommandRunner;
   durableStreamsService?: DurableStreamsService;
   getSandboxProvider?: () => EventEmittingSandboxProvider | null;
-  getK8sProvider?: () => K8sProviderHealth | null;
-  getNomadProvider?: () => K8sProviderHealth | null;
+  getK8sProvider?: () => SandboxProviderHealth | null;
+  getNomadProvider?: () => SandboxProviderHealth | null;
   cliMonitorService?: CliMonitorService | null;
   terraformRegistryService?: TerraformRegistryService;
   terraformComposeService?: TerraformComposeService;

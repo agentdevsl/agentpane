@@ -19,8 +19,8 @@ import { isValidId, json } from '../shared.js';
 
 const log = createLogger('SandboxStatus');
 
-/** Minimal interface for reading K8s provider health in status routes. */
-interface K8sProviderHealth {
+/** Extended sandbox provider health interface for status routes (includes auto-heal support). */
+interface SandboxProviderHealth {
   healthCheck(): Promise<{
     healthy: boolean;
     message?: string;
@@ -42,8 +42,8 @@ interface K8sProviderHealth {
 interface SandboxStatusDeps {
   db: Database;
   getDockerProvider: () => EventEmittingSandboxProvider | null;
-  getK8sProvider?: () => K8sProviderHealth | null;
-  getNomadProvider?: () => K8sProviderHealth | null;
+  getK8sProvider?: () => SandboxProviderHealth | null;
+  getNomadProvider?: () => SandboxProviderHealth | null;
 }
 
 // Track in-flight auto-heal to prevent concurrent attempts
@@ -124,7 +124,7 @@ async function autoHealSandbox(
  */
 async function autoHealK8sSandbox(
   db: Database,
-  k8sProvider: K8sProviderHealth,
+  k8sProvider: SandboxProviderHealth,
   lookupId: string
 ): Promise<boolean> {
   if (k8sAutoHealInProgress) return false;

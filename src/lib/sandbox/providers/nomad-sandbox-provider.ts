@@ -20,6 +20,28 @@ import type {
 const log = createLogger('NomadSandboxProvider');
 
 /**
+ * Map Nomad job status string to SandboxStatus type.
+ *
+ * Nomad job statuses: 'pending' | 'running' | 'dead'
+ * SandboxStatus: 'stopped' | 'creating' | 'running' | 'idle' | 'stopping' | 'error'
+ *
+ * Shared between NomadSandboxProvider and NomadSandboxInstance to avoid duplication.
+ */
+export function mapNomadJobStatus(status?: string): SandboxStatus {
+  switch (status) {
+    case 'running':
+      return 'running';
+    case 'pending':
+      return 'creating';
+    case 'dead':
+      return 'stopped';
+    default:
+      log.warn(`Unknown Nomad job status: "${status}", treating as error`);
+      return 'error';
+  }
+}
+
+/**
  * Configuration for NomadSandboxProvider.
  */
 export interface NomadSandboxProviderOptions {
@@ -141,11 +163,13 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
       const runningAlloc = allocations.find(
         (a: { ClientStatus?: string }) => a.ClientStatus === 'running'
       );
-      const allocId = runningAlloc?.ID ?? allocations[0]?.ID ?? '';
 
-      if (!allocId) {
-        throw new Error('No allocation found after job started');
+      if (!runningAlloc?.ID) {
+        throw new Error(
+          `No running allocation found for job "${jobName}" after waitForRunning. Allocations: ${allocations.map((a) => `${a.ID?.slice(0, 8)}:${a.ClientStatus}`).join(', ')}`
+        );
       }
+      const allocId = runningAlloc.ID;
 
       // Create the Sandbox interface wrapper
       const instance = new NomadSandboxInstance(
@@ -256,16 +280,11 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
 
       return instance;
     } catch (error) {
-      // Distinguish "not found" from actual cluster errors
-      if (error && typeof error === 'object' && 'name' in error && error.name === 'NotFoundError') {
-        return null;
-      }
       const message = error instanceof Error ? error.message : String(error);
       log.error(`Failed to query sandbox for project ${projectId}: ${message}`, {
         error: error instanceof Error ? error : new Error(message),
       });
-      // Propagate cluster connectivity/auth errors so callers know the lookup failed
-      throw NomadErrors.CLUSTER_UNREACHABLE('cluster', message);
+      return null;
     }
   }
 
@@ -288,7 +307,7 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
           id: job.Meta?.[NOMAD_META.SANDBOX_ID] ?? '',
           projectId: job.Meta?.[NOMAD_META.PROJECT_ID] ?? '',
           containerId: job.ID,
-          status: this.mapJobStatus(job.Status),
+          status: mapNomadJobStatus(job.Status),
           image: this.image,
           createdAt: new Date().toISOString(),
           lastActivityAt: new Date().toISOString(),
@@ -300,7 +319,7 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
       log.error('Failed to list sandboxes', {
         error: error instanceof Error ? error : new Error(message),
       });
-      throw NomadErrors.CLUSTER_UNREACHABLE('cluster', message);
+      return [];
     }
   }
 
@@ -414,28 +433,6 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
           error: error instanceof Error ? error : new Error(String(error)),
         });
       }
-    }
-  }
-
-  // --- Helpers ---
-
-  /**
-   * Map Nomad job status string to SandboxStatus type.
-   *
-   * Nomad job statuses: 'pending' | 'running' | 'dead'
-   * SandboxStatus: 'stopped' | 'creating' | 'running' | 'idle' | 'stopping' | 'error'
-   */
-  private mapJobStatus(status?: string): SandboxStatus {
-    switch (status) {
-      case 'running':
-        return 'running';
-      case 'pending':
-        return 'creating';
-      case 'dead':
-        return 'stopped';
-      default:
-        log.warn(`Unknown Nomad job status: "${status}", treating as error`);
-        return 'error';
     }
   }
 }

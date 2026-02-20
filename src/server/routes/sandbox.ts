@@ -944,9 +944,21 @@ function validateNomadAddress(address: string): void {
     throw new Error('Nomad address must use http or https protocol');
   }
   const hostname = url.hostname;
-  // Block cloud metadata endpoints
-  if (hostname === '169.254.169.254' || hostname === 'metadata.google.internal') {
+  // Block cloud metadata endpoints (full 169.254.0.0/16 link-local range)
+  if (hostname.startsWith('169.254.') || hostname === 'metadata.google.internal') {
     throw new Error('Nomad address cannot target cloud metadata endpoints');
+  }
+  // Block 0.0.0.0 (binds to all interfaces, effectively localhost)
+  if (hostname === '0.0.0.0') {
+    throw new Error('Nomad address cannot target 0.0.0.0');
+  }
+  // Block IPv6 loopback
+  if (hostname === '[::1]' || hostname === '::1') {
+    throw new Error('Nomad address cannot target IPv6 loopback');
+  }
+  // Block IPv6 link-local (fe80::/10)
+  if (hostname.startsWith('fe80:') || hostname.startsWith('[fe80:')) {
+    throw new Error('Nomad address cannot target IPv6 link-local addresses');
   }
   // Block localhost-like addresses in the common internal ranges
   const blockedPrefixes = [
@@ -979,16 +991,25 @@ function validateNomadAddress(address: string): void {
 /**
  * Helper to load Nomad settings from DB or query params.
  * Token is ONLY loaded from the database, never from query/overrides.
+ * If an address override is provided, it is validated against the SSRF blocklist.
+ * The stored token is only attached when the address matches the persisted address
+ * (prevents sending the token to an attacker-controlled server).
  */
 async function loadNomadSettings(
   db: Database | undefined,
   overrides?: { address?: string; namespace?: string }
 ): Promise<{ address?: string; token?: string; namespace: string }> {
+  // Validate overridden address against SSRF blocklist
+  if (overrides?.address) {
+    validateNomadAddress(overrides.address);
+  }
+
   let address = overrides?.address;
   let token: string | undefined;
   let namespace = overrides?.namespace ?? 'default';
 
-  if (db && !address) {
+  // Single DB query to load persisted Nomad settings
+  if (db) {
     try {
       const { eq } = await import('drizzle-orm');
       const { settings } = await import('../../db/schema/sqlite/index.js');
@@ -997,31 +1018,41 @@ async function loadNomadSettings(
       });
       if (nomadSetting?.value) {
         const parsed = JSON.parse(nomadSetting.value);
-        address = parsed.address;
-        token = parsed.token;
-        namespace = parsed.namespace ?? 'default';
+        const dbAddress = parsed.address as string | undefined;
+
+        // Use DB address if no override provided
+        if (!address) {
+          address = dbAddress;
+        }
+
+        // Use DB namespace as fallback when no override
+        if (!overrides?.namespace) {
+          namespace = parsed.namespace ?? 'default';
+        }
+
+        // Only attach the stored token when the address matches the persisted address.
+        // This prevents sending our token to an attacker-controlled server.
+        if (!overrides?.address || overrides.address === dbAddress) {
+          const encryptedToken = parsed.token as string | undefined;
+          if (encryptedToken) {
+            try {
+              const { decryptToken } = await import('../../lib/crypto/server-encryption.js');
+              token = decryptToken(encryptedToken);
+            } catch (decryptErr) {
+              // If decryption fails, the token may be stored in plaintext (pre-encryption migration)
+              // Fall back to using it as-is
+              console.warn(
+                '[Nomad Routes] Token decryption failed, using raw value:',
+                decryptErr instanceof Error ? decryptErr.message : String(decryptErr)
+              );
+              token = encryptedToken;
+            }
+          }
+        }
       }
     } catch (dbErr) {
       console.warn(
-        '[Nomad Routes] Failed to load Nomad settings from DB, using overrides only:',
-        dbErr instanceof Error ? dbErr.message : String(dbErr)
-      );
-    }
-  } else if (db) {
-    // Address was provided via overrides, but still load token from DB
-    try {
-      const { eq } = await import('drizzle-orm');
-      const { settings } = await import('../../db/schema/sqlite/index.js');
-      const nomadSetting = await db.query.settings.findFirst({
-        where: eq(settings.key, 'sandbox.nomad'),
-      });
-      if (nomadSetting?.value) {
-        const parsed = JSON.parse(nomadSetting.value);
-        token = parsed.token;
-      }
-    } catch (dbErr) {
-      console.warn(
-        '[Nomad Routes] Failed to load Nomad token from DB:',
+        '[Nomad Routes] Failed to load Nomad settings from DB:',
         dbErr instanceof Error ? dbErr.message : String(dbErr)
       );
     }

@@ -112,24 +112,35 @@ export class NomadSandboxClient {
     // Check agent self info (connectivity, version, datacenter)
     try {
       const agentSelf = await this.http.request<{
-        config?: { Datacenter?: string; Region?: string; Version?: string };
+        config?: {
+          Datacenter?: string;
+          Region?: string;
+          Version?: string | { Version?: string };
+        };
         member?: { Tags?: Record<string, string> };
         stats?: { nomad?: { leader_addr?: string } };
       }>('GET', '/v1/agent/self');
 
-      version = agentSelf.config?.Version ?? null;
+      // Nomad returns Version as an object {Version, BuildDate, ...} in newer versions
+      const rawVersion = agentSelf.config?.Version;
+      version =
+        typeof rawVersion === 'string'
+          ? rawVersion
+          : ((rawVersion as { Version?: string })?.Version ?? null);
       datacenter = agentSelf.config?.Datacenter ?? null;
 
       // Check leader
       const status = await this.http.request<string>('GET', '/v1/status/leader');
       leader = status || null;
-    } catch {
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       return {
         healthy: false,
         leader: null,
         version: null,
         namespaceExists: false,
         datacenter: null,
+        error: message,
       };
     }
 

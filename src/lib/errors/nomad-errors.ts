@@ -48,32 +48,42 @@ export const NomadErrors = {
   // Connection errors
   CLUSTER_UNREACHABLE: (address: string, message: string) =>
     createError(
-      'NOMAD_CLUSTER_UNREACHABLE',
+      NOMAD_ERROR_IDS.CLUSTER_UNREACHABLE,
       `Nomad cluster unreachable at ${address}: ${message}`,
       503
     ),
 
   CONNECTION_REFUSED: (address: string) =>
-    createError('NOMAD_CONNECTION_REFUSED', `Connection refused to Nomad at ${address}`, 503, {
-      address,
-    }),
+    createError(
+      NOMAD_ERROR_IDS.CONNECTION_REFUSED,
+      `Connection refused to Nomad at ${address}`,
+      503,
+      {
+        address,
+      }
+    ),
 
   AUTH_FAILED: (message: string) =>
-    createError('NOMAD_AUTH_FAILED', `Nomad authentication failed: ${message}`, 401),
+    createError(NOMAD_ERROR_IDS.AUTH_FAILED, `Nomad authentication failed: ${message}`, 401),
 
   // Namespace errors
   NAMESPACE_NOT_FOUND: (namespace: string) =>
-    createError('NOMAD_NAMESPACE_NOT_FOUND', `Nomad namespace not found: ${namespace}`, 404, {
-      namespace,
-    }),
+    createError(
+      NOMAD_ERROR_IDS.NAMESPACE_NOT_FOUND,
+      `Nomad namespace not found: ${namespace}`,
+      404,
+      {
+        namespace,
+      }
+    ),
 
   // Job lifecycle errors
   JOB_NOT_FOUND: (jobId: string) =>
-    createError('NOMAD_JOB_NOT_FOUND', `Nomad job not found: ${jobId}`, 404, { jobId }),
+    createError(NOMAD_ERROR_IDS.JOB_NOT_FOUND, `Nomad job not found: ${jobId}`, 404, { jobId }),
 
   JOB_CREATION_FAILED: (jobName: string, message: string) =>
     createError(
-      'NOMAD_JOB_CREATION_FAILED',
+      NOMAD_ERROR_IDS.JOB_CREATION_FAILED,
       `Failed to create Nomad job ${jobName}: ${message}`,
       500,
       { jobName }
@@ -81,53 +91,70 @@ export const NomadErrors = {
 
   JOB_STARTUP_TIMEOUT: (jobId: string, timeoutSeconds: number) =>
     createError(
-      'NOMAD_JOB_STARTUP_TIMEOUT',
+      NOMAD_ERROR_IDS.JOB_STARTUP_TIMEOUT,
       `Nomad job ${jobId} failed to start within ${timeoutSeconds}s`,
       408,
       { jobId, timeoutSeconds }
     ),
 
   JOB_STOP_FAILED: (jobId: string, message: string) =>
-    createError('NOMAD_JOB_STOP_FAILED', `Failed to stop Nomad job ${jobId}: ${message}`, 500, {
-      jobId,
-    }),
+    createError(
+      NOMAD_ERROR_IDS.JOB_STOP_FAILED,
+      `Failed to stop Nomad job ${jobId}: ${message}`,
+      500,
+      {
+        jobId,
+      }
+    ),
 
   JOB_NOT_RUNNING: (jobId: string, currentStatus: string) =>
     createError(
-      'NOMAD_JOB_NOT_RUNNING',
+      NOMAD_ERROR_IDS.JOB_NOT_RUNNING,
       `Nomad job ${jobId} is not running (current: ${currentStatus})`,
       400,
       { jobId, currentStatus }
     ),
 
   JOB_ALREADY_EXISTS: (projectId: string) =>
-    createError('NOMAD_JOB_ALREADY_EXISTS', 'Nomad job already exists for project', 409, {
+    createError(NOMAD_ERROR_IDS.JOB_ALREADY_EXISTS, 'Nomad job already exists for project', 409, {
       projectId,
     }),
 
   ALLOCATION_NOT_FOUND: (allocId: string) =>
-    createError('NOMAD_ALLOCATION_NOT_FOUND', `Nomad allocation not found: ${allocId}`, 404, {
-      allocId,
-    }),
+    createError(
+      NOMAD_ERROR_IDS.ALLOCATION_NOT_FOUND,
+      `Nomad allocation not found: ${allocId}`,
+      404,
+      {
+        allocId,
+      }
+    ),
 
   ALLOCATION_FAILED: (allocId: string, message: string) =>
-    createError('NOMAD_ALLOCATION_FAILED', `Nomad allocation ${allocId} failed: ${message}`, 500, {
-      allocId,
-    }),
+    createError(
+      NOMAD_ERROR_IDS.ALLOCATION_FAILED,
+      `Nomad allocation ${allocId} failed: ${message}`,
+      500,
+      {
+        allocId,
+      }
+    ),
 
   // Exec errors
   EXEC_FAILED: (command: string, message: string) =>
-    createError('NOMAD_EXEC_FAILED', `Command execution failed: ${message}`, 500, { command }),
+    createError(NOMAD_ERROR_IDS.EXEC_FAILED, `Command execution failed: ${message}`, 500, {
+      command,
+    }),
 
   EXEC_TIMEOUT: (command: string, timeoutMs: number) =>
-    createError('NOMAD_EXEC_TIMEOUT', `Command timed out after ${timeoutMs}ms`, 408, {
+    createError(NOMAD_ERROR_IDS.EXEC_TIMEOUT, `Command timed out after ${timeoutMs}ms`, 408, {
       command,
       timeoutMs,
     }),
 
   EXEC_CONNECTION_FAILED: (allocId: string, message: string) =>
     createError(
-      'NOMAD_EXEC_CONNECTION_FAILED',
+      NOMAD_ERROR_IDS.EXEC_CONNECTION_FAILED,
       `Failed to establish exec connection to allocation ${allocId}: ${message}`,
       503,
       { allocId }
@@ -135,27 +162,46 @@ export const NomadErrors = {
 
   // Image errors
   IMAGE_NOT_FOUND: (image: string) =>
-    createError('NOMAD_IMAGE_NOT_FOUND', `Image not found: ${image}`, 404, { image }),
+    createError(NOMAD_ERROR_IDS.IMAGE_NOT_FOUND, `Image not found: ${image}`, 404, { image }),
 
   // tmux errors
   TMUX_SESSION_NOT_FOUND: (sessionName: string) =>
-    createError('NOMAD_TMUX_SESSION_NOT_FOUND', `tmux session not found: ${sessionName}`, 404, {
-      sessionName,
-    }),
+    createError(
+      NOMAD_ERROR_IDS.TMUX_SESSION_NOT_FOUND,
+      `tmux session not found: ${sessionName}`,
+      404,
+      {
+        sessionName,
+      }
+    ),
 
   TMUX_SESSION_ALREADY_EXISTS: (sessionName: string) =>
-    createError('NOMAD_TMUX_SESSION_EXISTS', `tmux session already exists: ${sessionName}`, 409, {
-      sessionName,
-    }),
+    createError(
+      NOMAD_ERROR_IDS.TMUX_SESSION_ALREADY_EXISTS,
+      `tmux session already exists: ${sessionName}`,
+      409,
+      {
+        sessionName,
+      }
+    ),
 
   TMUX_CREATION_FAILED: (sessionName: string, message: string) =>
-    createError('NOMAD_TMUX_CREATION_FAILED', `Failed to create tmux session: ${message}`, 500, {
-      sessionName,
-    }),
+    createError(
+      NOMAD_ERROR_IDS.TMUX_CREATION_FAILED,
+      `Failed to create tmux session: ${message}`,
+      500,
+      {
+        sessionName,
+      }
+    ),
 
   // API errors
   API_ERROR: (statusCode: number, message: string) =>
-    createError('NOMAD_API_ERROR', `Nomad API error (${statusCode}): ${message}`, statusCode),
+    createError(
+      NOMAD_ERROR_IDS.API_ERROR,
+      `Nomad API error (${statusCode}): ${message}`,
+      statusCode
+    ),
 
-  INTERNAL_ERROR: (message: string) => createError('NOMAD_INTERNAL_ERROR', message, 500),
+  INTERNAL_ERROR: (message: string) => createError(NOMAD_ERROR_IDS.INTERNAL_ERROR, message, 500),
 };

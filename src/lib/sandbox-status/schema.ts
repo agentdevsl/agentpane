@@ -3,6 +3,7 @@
  */
 
 import { z } from 'zod';
+import { SANDBOX_TYPES } from '../../db/schema/shared/enums.js';
 
 /**
  * Sandbox status entry schema
@@ -19,7 +20,7 @@ export const sandboxStatusSchema = z.object({
   /** Whether a sandbox provider (Docker, K8s, or Nomad) is available */
   dockerAvailable: z.boolean(),
   /** Active sandbox provider type */
-  provider: z.enum(['docker', 'kubernetes', 'nomad', 'none']).default('none'),
+  provider: z.enum([...SANDBOX_TYPES, 'none'] as const).default('none'),
   /** Whether K8s CRDs are installed and ready */
   k8sCrdReady: z.boolean().optional(),
   /** Kubernetes cluster version */

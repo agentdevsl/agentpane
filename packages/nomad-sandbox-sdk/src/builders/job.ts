@@ -19,7 +19,7 @@ import type { NomadJob, NomadTask, NomadTaskGroup } from '../types/job.js';
  */
 export class NomadJobBuilder {
   private spec: Partial<NomadJob>;
-  private taskSpec: Partial<NomadTask>;
+  private taskSpec: Partial<NomadTask> & { Config: NonNullable<NomadTask['Config']> };
   private groupSpec: Partial<NomadTaskGroup>;
 
   constructor(name: string) {
@@ -59,11 +59,7 @@ export class NomadJobBuilder {
 
   /** Set the Docker image */
   image(img: string): this {
-    if (!this.taskSpec.Config) {
-      this.taskSpec.Config = { Image: img };
-    } else {
-      this.taskSpec.Config.Image = img;
-    }
+    this.taskSpec.Config.Image = img;
     return this;
   }
 
@@ -88,22 +84,14 @@ export class NomadJobBuilder {
 
   /** Set Docker volume mounts */
   volumes(mounts: string[]): this {
-    if (!this.taskSpec.Config) {
-      this.taskSpec.Config = { Image: '', Volumes: mounts };
-    } else {
-      this.taskSpec.Config.Volumes = mounts;
-    }
+    this.taskSpec.Config.Volumes = mounts;
     return this;
   }
 
   /** Set the Docker command and optional args */
   command(cmd: string, args?: string[]): this {
-    if (!this.taskSpec.Config) {
-      this.taskSpec.Config = { Image: '', Command: cmd, Args: args };
-    } else {
-      this.taskSpec.Config.Command = cmd;
-      if (args) this.taskSpec.Config.Args = args;
-    }
+    this.taskSpec.Config.Command = cmd;
+    if (args) this.taskSpec.Config.Args = args;
     return this;
   }
 
@@ -146,8 +134,16 @@ export class NomadJobBuilder {
 
   /**
    * Build the complete Nomad job specification.
+   * @throws Error if job ID or Docker image is not set
    */
   build(): NomadJob {
+    if (!this.spec.ID) {
+      throw new Error('NomadJobBuilder: job ID is required');
+    }
+    if (!this.taskSpec.Config?.Image) {
+      throw new Error('NomadJobBuilder: Docker image is required (call .image() before .build())');
+    }
+
     const task: NomadTask = {
       Name: this.taskSpec.Name ?? 'sandbox',
       Driver: this.taskSpec.Driver ?? 'docker',

@@ -2,6 +2,7 @@ import { NOMAD_DEFAULTS } from '../constants.js';
 import { TimeoutError } from '../errors.js';
 import type { NomadHttpClient } from '../http.js';
 import type { NomadAllocation } from '../types/allocation.js';
+import { sleep } from '../utils.js';
 import { getJobAllocations } from './allocations.js';
 
 /**
@@ -52,8 +53,4 @@ export async function waitForRunning(
   }
 
   throw new TimeoutError(`waitForRunning(${jobId})`, timeout);
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

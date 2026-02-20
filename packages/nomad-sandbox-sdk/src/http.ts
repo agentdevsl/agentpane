@@ -23,10 +23,13 @@ export class NomadHttpClient {
 
   /**
    * Derive the WebSocket base URL from the HTTP base URL.
-   * Converts http:// → ws:// and https:// → wss:// via prefix replacement.
+   * Converts http:// → ws:// and https:// → wss://.
    */
   get wsBaseUrl(): string {
-    return this.baseUrl.replace(/^http/, 'ws');
+    if (this.baseUrl.startsWith('https://')) {
+      return this.baseUrl.replace('https://', 'wss://');
+    }
+    return this.baseUrl.replace('http://', 'ws://');
   }
 
   get configuredNamespace(): string {
@@ -100,7 +103,14 @@ export class NomadHttpClient {
     const text = await response.text();
     if (!text) return null as T;
 
-    return JSON.parse(text) as T;
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      throw new NomadApiError(
+        response.status,
+        `Failed to parse JSON response from ${method} ${path}: ${text.slice(0, 200)}`
+      );
+    }
   }
 
   /**
@@ -146,7 +156,17 @@ export class NomadHttpClient {
     }
 
     const newIndex = parseInt(response.headers.get('X-Nomad-Index') ?? '0', 10);
-    const data = (await response.json()) as T;
+    const text = await response.text();
+
+    let data: T;
+    try {
+      data = JSON.parse(text) as T;
+    } catch {
+      throw new NomadApiError(
+        response.status,
+        `Failed to parse JSON response from blocking query ${path}: ${text.slice(0, 200)}`
+      );
+    }
 
     return { data, index: newIndex };
   }
