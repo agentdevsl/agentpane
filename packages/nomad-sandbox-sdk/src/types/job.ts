@@ -4,11 +4,11 @@ import type { NomadJobStatus } from './common.js';
  * Docker driver configuration for a Nomad task
  */
 export interface NomadDockerConfig {
-  Image: string;
-  Args?: string[];
-  Command?: string;
-  Volumes?: string[];
-  PortMap?: Record<string, number>;
+  image: string;
+  args?: string[];
+  command?: string;
+  volumes?: string[];
+  port_map?: Record<string, number>;
 }
 
 /**

@@ -22,9 +22,8 @@ function buildExecWsUrl(
   const url = new URL(`${base}/v1/client/allocation/${encodeURIComponent(allocId)}/exec`);
   url.searchParams.set('task', task);
   url.searchParams.set('tty', tty ? 'true' : 'false');
-  for (const arg of command) {
-    url.searchParams.append('command', arg);
-  }
+  // Nomad expects command as a single JSON-encoded array, not multiple params
+  url.searchParams.set('command', JSON.stringify(command));
   if (token) {
     url.searchParams.set('X-Nomad-Token', token);
   }

@@ -248,6 +248,21 @@ if (DB_MODE === 'postgres') {
     // Silently ignore duplicate column errors (expected when migration already applied)
   }
 
+  // Apply agents parent_agent_id migration (may fail if column already exists)
+  try {
+    sqlite.exec(
+      `ALTER TABLE agents ADD COLUMN parent_agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL;`
+    );
+    log.info('[API Server] Agents parent_agent_id migration applied');
+  } catch (error) {
+    if (!(error instanceof Error && error.message.includes('duplicate column name'))) {
+      console.warn(
+        '[API Server] Agents parent_agent_id migration error (unexpected):',
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+  }
+
   db = drizzle(sqlite, { schema: sqliteSchema }) as unknown as Database;
 }
 

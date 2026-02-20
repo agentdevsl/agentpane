@@ -147,6 +147,7 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
         .namespace(this.namespace)
         .datacenter(this.datacenter)
         .image(config.image)
+        .command('tail', ['-f', '/dev/null'])
         .resources(config.cpuCores * 1000, config.memoryMb)
         .meta(NOMAD_META.SANDBOX_ID, sandboxId)
         .meta(NOMAD_META.PROJECT_ID, config.projectId)

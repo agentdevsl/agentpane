@@ -34,7 +34,7 @@ export class NomadJobBuilder {
     this.taskSpec = {
       Name: 'sandbox',
       Driver: 'docker',
-      Config: { Image: '' },
+      Config: { image: '' },
       Resources: { CPU: 500, MemoryMB: 256 },
       Env: {},
       Meta: {},
@@ -59,7 +59,7 @@ export class NomadJobBuilder {
 
   /** Set the Docker image */
   image(img: string): this {
-    this.taskSpec.Config.Image = img;
+    this.taskSpec.Config.image = img;
     return this;
   }
 
@@ -84,14 +84,14 @@ export class NomadJobBuilder {
 
   /** Set Docker volume mounts */
   volumes(mounts: string[]): this {
-    this.taskSpec.Config.Volumes = mounts;
+    this.taskSpec.Config.volumes = mounts;
     return this;
   }
 
   /** Set the Docker command and optional args */
   command(cmd: string, args?: string[]): this {
-    this.taskSpec.Config.Command = cmd;
-    if (args) this.taskSpec.Config.Args = args;
+    this.taskSpec.Config.command = cmd;
+    if (args) this.taskSpec.Config.args = args;
     return this;
   }
 
@@ -140,7 +140,7 @@ export class NomadJobBuilder {
     if (!this.spec.ID) {
       throw new Error('NomadJobBuilder: job ID is required');
     }
-    if (!this.taskSpec.Config?.Image) {
+    if (!this.taskSpec.Config?.image) {
       throw new Error('NomadJobBuilder: Docker image is required (call .image() before .build())');
     }
 
