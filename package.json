@@ -42,7 +42,7 @@
     "prepare": "echo 'Run: pre-commit install --hook-type pre-commit --hook-type pre-push'"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.3.11",
+    "@biomejs/biome": "^2.4.4",
     "@playwright/test": "^1.58.1",
     "@testing-library/jest-dom": "^6.8.0",
     "@testing-library/react": "^16.3.0",
