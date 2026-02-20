@@ -1,0 +1,35 @@
+{
+  "name": "@agentpane/nomad-sandbox-sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for HashiCorp Nomad sandbox management via HTTP API",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist/",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src/",
+    "prepublishOnly": "bun run test && bun run build"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0",
+    "vitest": "^4.0.0",
+    "@biomejs/biome": "^2.3.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT"
+}

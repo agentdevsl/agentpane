@@ -1,5 +1,5 @@
 /**
- * Sandbox routes (including K8s)
+ * Sandbox routes (K8s, Nomad, and shared config CRUD)
  */
 
 import {
@@ -54,7 +54,7 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
       const body = (await c.req.json()) as {
         name: string;
         description?: string;
-        type?: 'docker' | 'devcontainer' | 'kubernetes';
+        type?: 'docker' | 'devcontainer' | 'kubernetes' | 'nomad';
         isDefault?: boolean;
         baseImage?: string;
         memoryMb?: number;
@@ -67,6 +67,11 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
         kubeNamespace?: string;
         networkPolicyEnabled?: boolean;
         allowedEgressHosts?: string[];
+        nomadAddress?: string;
+        nomadToken?: string;
+        nomadNamespace?: string;
+        nomadDatacenter?: string;
+        nomadRegion?: string;
       };
 
       if (!body.name) {
@@ -92,6 +97,11 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
         kubeNamespace: body.kubeNamespace,
         networkPolicyEnabled: body.networkPolicyEnabled,
         allowedEgressHosts: body.allowedEgressHosts,
+        nomadAddress: body.nomadAddress,
+        nomadToken: body.nomadToken,
+        nomadNamespace: body.nomadNamespace,
+        nomadDatacenter: body.nomadDatacenter,
+        nomadRegion: body.nomadRegion,
       });
 
       if (!result.ok) {
@@ -137,7 +147,7 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
       const body = (await c.req.json()) as {
         name?: string;
         description?: string;
-        type?: 'docker' | 'devcontainer' | 'kubernetes';
+        type?: 'docker' | 'devcontainer' | 'kubernetes' | 'nomad';
         isDefault?: boolean;
         baseImage?: string;
         memoryMb?: number;
@@ -150,6 +160,11 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
         kubeNamespace?: string;
         networkPolicyEnabled?: boolean;
         allowedEgressHosts?: string[];
+        nomadAddress?: string;
+        nomadToken?: string;
+        nomadNamespace?: string;
+        nomadDatacenter?: string;
+        nomadRegion?: string;
       };
 
       const result = await sandboxConfigService.update(id, {
@@ -168,6 +183,11 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
         kubeNamespace: body.kubeNamespace,
         networkPolicyEnabled: body.networkPolicyEnabled,
         allowedEgressHosts: body.allowedEgressHosts,
+        nomadAddress: body.nomadAddress,
+        nomadToken: body.nomadToken,
+        nomadNamespace: body.nomadNamespace,
+        nomadDatacenter: body.nomadDatacenter,
+        nomadRegion: body.nomadRegion,
       });
 
       if (!result.ok) {
@@ -896,6 +916,288 @@ export function createK8sRoutes(deps?: { db?: Database }) {
         },
         500
       );
+    }
+  });
+
+  return app;
+}
+
+/**
+ * Nomad-specific routes
+ */
+
+interface NomadRouteDeps {
+  db?: Database;
+}
+
+/**
+ * Validate Nomad address to prevent SSRF attacks against cloud metadata endpoints.
+ */
+function validateNomadAddress(address: string): void {
+  let url: URL;
+  try {
+    url = new URL(address);
+  } catch {
+    throw new Error('Invalid Nomad address URL format');
+  }
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    throw new Error('Nomad address must use http or https protocol');
+  }
+  const hostname = url.hostname;
+  // Block cloud metadata endpoints
+  if (hostname === '169.254.169.254' || hostname === 'metadata.google.internal') {
+    throw new Error('Nomad address cannot target cloud metadata endpoints');
+  }
+  // Block localhost-like addresses in the common internal ranges
+  const blockedPrefixes = [
+    '10.',
+    '172.16.',
+    '172.17.',
+    '172.18.',
+    '172.19.',
+    '172.20.',
+    '172.21.',
+    '172.22.',
+    '172.23.',
+    '172.24.',
+    '172.25.',
+    '172.26.',
+    '172.27.',
+    '172.28.',
+    '172.29.',
+    '172.30.',
+    '172.31.',
+  ];
+  // Note: We don't block 127.x or 192.168.x because Nomad is commonly run locally
+  for (const prefix of blockedPrefixes) {
+    if (hostname.startsWith(prefix)) {
+      throw new Error('Nomad address cannot target internal network addresses');
+    }
+  }
+}
+
+/**
+ * Helper to load Nomad settings from DB or query params.
+ * Token is ONLY loaded from the database, never from query/overrides.
+ */
+async function loadNomadSettings(
+  db: Database | undefined,
+  overrides?: { address?: string; namespace?: string }
+): Promise<{ address?: string; token?: string; namespace: string }> {
+  let address = overrides?.address;
+  let token: string | undefined;
+  let namespace = overrides?.namespace ?? 'default';
+
+  if (db && !address) {
+    try {
+      const { eq } = await import('drizzle-orm');
+      const { settings } = await import('../../db/schema/sqlite/index.js');
+      const nomadSetting = await db.query.settings.findFirst({
+        where: eq(settings.key, 'sandbox.nomad'),
+      });
+      if (nomadSetting?.value) {
+        const parsed = JSON.parse(nomadSetting.value);
+        address = parsed.address;
+        token = parsed.token;
+        namespace = parsed.namespace ?? 'default';
+      }
+    } catch (dbErr) {
+      console.warn(
+        '[Nomad Routes] Failed to load Nomad settings from DB, using overrides only:',
+        dbErr instanceof Error ? dbErr.message : String(dbErr)
+      );
+    }
+  } else if (db) {
+    // Address was provided via overrides, but still load token from DB
+    try {
+      const { eq } = await import('drizzle-orm');
+      const { settings } = await import('../../db/schema/sqlite/index.js');
+      const nomadSetting = await db.query.settings.findFirst({
+        where: eq(settings.key, 'sandbox.nomad'),
+      });
+      if (nomadSetting?.value) {
+        const parsed = JSON.parse(nomadSetting.value);
+        token = parsed.token;
+      }
+    } catch (dbErr) {
+      console.warn(
+        '[Nomad Routes] Failed to load Nomad token from DB:',
+        dbErr instanceof Error ? dbErr.message : String(dbErr)
+      );
+    }
+  }
+
+  return { address, token, namespace };
+}
+
+export function createNomadRoutes(deps?: NomadRouteDeps) {
+  const app = new Hono();
+
+  // Lazy-cached import for NomadSandboxClient
+  let NomadSandboxClientClass:
+    | typeof import('@agentpane/nomad-sandbox-sdk').NomadSandboxClient
+    | null = null;
+  async function getNomadClient(opts: { address: string; token?: string; namespace?: string }) {
+    if (!NomadSandboxClientClass) {
+      const sdk = await import('@agentpane/nomad-sandbox-sdk');
+      NomadSandboxClientClass = sdk.NomadSandboxClient;
+    }
+    return new NomadSandboxClientClass(opts);
+  }
+
+  // GET /api/sandbox/nomad/status - Nomad cluster health
+  app.get('/status', async (c) => {
+    const { address, token, namespace } = await loadNomadSettings(deps?.db, {
+      address: c.req.query('address') ?? undefined,
+      namespace: c.req.query('namespace') ?? undefined,
+    });
+
+    if (!address) {
+      return json({
+        ok: true,
+        data: { healthy: false, message: 'No Nomad address configured' },
+      });
+    }
+
+    try {
+      const client = await getNomadClient({ address, token, namespace });
+      const health = await client.healthCheck();
+
+      // Get job count (best effort)
+      let jobCount = 0;
+      try {
+        const jobs = await client.listJobs();
+        jobCount = jobs.length;
+      } catch {
+        /* best effort */
+      }
+
+      return json({
+        ok: true,
+        data: {
+          healthy: health.healthy,
+          leader: health.leader,
+          version: health.version,
+          datacenter: health.datacenter,
+          namespace,
+          namespaceExists: health.namespaceExists,
+          jobCount,
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to connect to Nomad';
+      return json({ ok: false, error: { code: 'NOMAD_CONNECTION_ERROR', message } }, 500);
+    }
+  });
+
+  // GET /api/sandbox/nomad/namespaces
+  app.get('/namespaces', async (c) => {
+    const { address, token, namespace } = await loadNomadSettings(deps?.db, {
+      address: c.req.query('address') ?? undefined,
+      namespace: c.req.query('namespace') ?? undefined,
+    });
+
+    if (!address) {
+      return json(
+        {
+          ok: false,
+          error: { code: 'NOMAD_NOT_CONFIGURED', message: 'No Nomad address configured' },
+        },
+        400
+      );
+    }
+
+    try {
+      const client = await getNomadClient({ address, token, namespace });
+      const namespaces = await client.listNamespaces();
+      return json({ ok: true, data: { namespaces } });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to list namespaces';
+      return json({ ok: false, error: { code: 'NOMAD_API_ERROR', message } }, 500);
+    }
+  });
+
+  // GET /api/sandbox/nomad/datacenters
+  app.get('/datacenters', async (c) => {
+    const { address, token, namespace } = await loadNomadSettings(deps?.db, {
+      address: c.req.query('address') ?? undefined,
+      namespace: c.req.query('namespace') ?? undefined,
+    });
+
+    if (!address) {
+      return json(
+        {
+          ok: false,
+          error: { code: 'NOMAD_NOT_CONFIGURED', message: 'No Nomad address configured' },
+        },
+        400
+      );
+    }
+
+    try {
+      const client = await getNomadClient({ address, token, namespace });
+      const datacenters = await client.listDatacenters();
+      return json({ ok: true, data: { datacenters } });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to list datacenters';
+      return json({ ok: false, error: { code: 'NOMAD_API_ERROR', message } }, 500);
+    }
+  });
+
+  // POST /api/sandbox/nomad/validate - Validate connection
+  app.post('/validate', async (c) => {
+    const body = (await c.req.json()) as {
+      address: string;
+      token?: string;
+      namespace?: string;
+    };
+
+    if (!body.address) {
+      return json(
+        { ok: false, error: { code: 'MISSING_PARAMS', message: 'Nomad address is required' } },
+        400
+      );
+    }
+
+    // Validate address to prevent SSRF
+    try {
+      validateNomadAddress(body.address);
+    } catch (validationError) {
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'INVALID_ADDRESS',
+            message:
+              validationError instanceof Error ? validationError.message : 'Invalid Nomad address',
+          },
+        },
+        400
+      );
+    }
+
+    try {
+      const client = await getNomadClient({
+        address: body.address,
+        token: body.token,
+        namespace: body.namespace ?? 'default',
+      });
+      const health = await client.healthCheck();
+
+      return json({
+        ok: true,
+        data: {
+          healthy: health.healthy,
+          leader: health.leader,
+          version: health.version,
+          datacenter: health.datacenter,
+          namespaceExists: health.namespaceExists,
+        },
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to validate Nomad connection';
+      return json({ ok: false, error: { code: 'NOMAD_VALIDATION_ERROR', message } }, 500);
     }
   });
 

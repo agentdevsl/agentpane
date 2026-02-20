@@ -1,6 +1,7 @@
 import { and, desc, eq, ne } from 'drizzle-orm';
 import type { NewSandboxConfig, SandboxConfig, SandboxType } from '../db/schema';
 import { projects, sandboxConfigs } from '../db/schema';
+import { encryptToken } from '../lib/crypto/server-encryption.js';
 import type { SandboxConfigError } from '../lib/errors/sandbox-config-errors.js';
 import { SandboxConfigErrors } from '../lib/errors/sandbox-config-errors.js';
 import type { Result } from '../lib/utils/result.js';
@@ -31,6 +32,18 @@ export type CreateSandboxConfigInput = {
   networkPolicyEnabled?: boolean;
   /** Allowed egress hosts for network policies */
   allowedEgressHosts?: string[];
+
+  // Nomad-specific configuration
+  /** Nomad cluster HTTP address */
+  nomadAddress?: string;
+  /** Nomad ACL token */
+  nomadToken?: string;
+  /** Nomad namespace for sandbox jobs */
+  nomadNamespace?: string;
+  /** Nomad datacenter for job placement */
+  nomadDatacenter?: string;
+  /** Nomad region for job placement */
+  nomadRegion?: string;
 };
 
 export type UpdateSandboxConfigInput = {
@@ -57,6 +70,18 @@ export type UpdateSandboxConfigInput = {
   networkPolicyEnabled?: boolean;
   /** Allowed egress hosts for network policies */
   allowedEgressHosts?: string[];
+
+  // Nomad-specific configuration
+  /** Nomad cluster HTTP address */
+  nomadAddress?: string;
+  /** Nomad ACL token */
+  nomadToken?: string;
+  /** Nomad namespace for sandbox jobs */
+  nomadNamespace?: string;
+  /** Nomad datacenter for job placement */
+  nomadDatacenter?: string;
+  /** Nomad region for job placement */
+  nomadRegion?: string;
 };
 
 export type ListSandboxConfigsOptions = {
@@ -155,6 +180,12 @@ export class SandboxConfigService {
         kubeNamespace: input.kubeNamespace ?? 'agentpane-sandboxes',
         networkPolicyEnabled: input.networkPolicyEnabled ?? true,
         allowedEgressHosts: input.allowedEgressHosts,
+        // Nomad-specific fields
+        nomadAddress: input.nomadAddress,
+        nomadToken: input.nomadToken ? encryptToken(input.nomadToken) : undefined,
+        nomadNamespace: input.nomadNamespace ?? 'default',
+        nomadDatacenter: input.nomadDatacenter,
+        nomadRegion: input.nomadRegion,
         createdAt: now,
         updatedAt: now,
       } satisfies NewSandboxConfig)
@@ -268,6 +299,13 @@ export class SandboxConfigService {
       updates.networkPolicyEnabled = input.networkPolicyEnabled;
     if (input.allowedEgressHosts !== undefined)
       updates.allowedEgressHosts = input.allowedEgressHosts;
+    // Nomad-specific fields
+    if (input.nomadAddress !== undefined) updates.nomadAddress = input.nomadAddress;
+    if (input.nomadToken !== undefined)
+      updates.nomadToken = input.nomadToken ? encryptToken(input.nomadToken) : input.nomadToken;
+    if (input.nomadNamespace !== undefined) updates.nomadNamespace = input.nomadNamespace;
+    if (input.nomadDatacenter !== undefined) updates.nomadDatacenter = input.nomadDatacenter;
+    if (input.nomadRegion !== undefined) updates.nomadRegion = input.nomadRegion;
 
     const [updated] = await this.db
       .update(sandboxConfigs)

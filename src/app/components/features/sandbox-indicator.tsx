@@ -1,4 +1,4 @@
-import { ArrowClockwise, Cube, CubeTransparent, Spinner } from '@phosphor-icons/react';
+import { ArrowClockwise, Cube, CubeTransparent, Hexagon, Spinner } from '@phosphor-icons/react';
 import { cva } from 'class-variance-authority';
 import {
   Tooltip,
@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils/cn';
 
 export type ContainerStatus = 'stopped' | 'creating' | 'running' | 'idle' | 'error' | 'unavailable';
 
-export type SandboxProviderType = 'docker' | 'kubernetes' | 'none';
+export type SandboxProviderType = 'docker' | 'kubernetes' | 'nomad' | 'none';
 
 const statusDotVariants = cva('h-2 w-2 rounded-full', {
   variants: {
@@ -48,7 +48,7 @@ function getStatusLabel(status: ContainerStatus): string {
 }
 
 function getStatusDescription(status: ContainerStatus, provider: SandboxProviderType): string {
-  const target = provider === 'kubernetes' ? 'Pod' : 'Container';
+  const target = provider === 'kubernetes' ? 'Pod' : provider === 'nomad' ? 'Job' : 'Container';
   switch (status) {
     case 'creating':
       return `${target} is starting up...`;
@@ -78,6 +78,8 @@ function getProviderLabel(provider: SandboxProviderType): string {
   switch (provider) {
     case 'kubernetes':
       return 'K8s';
+    case 'nomad':
+      return 'Nomad';
     case 'docker':
       return 'Docker';
     default:
@@ -89,6 +91,8 @@ function getProviderDescription(provider: SandboxProviderType): string {
   switch (provider) {
     case 'kubernetes':
       return 'Agents run in isolated Kubernetes pods for security.';
+    case 'nomad':
+      return 'Agents run in Nomad-scheduled Docker containers for security.';
     case 'docker':
       return 'Agents run in isolated Docker containers for security.';
     default:
@@ -105,6 +109,13 @@ function getUnavailableDescription(provider: SandboxProviderType): {
       title: 'Kubernetes Not Available',
       description:
         'The sandbox requires a Kubernetes cluster to run agent tasks in isolated pods. Please check your cluster connection in Settings.',
+    };
+  }
+  if (provider === 'nomad') {
+    return {
+      title: 'Nomad Not Available',
+      description:
+        'The sandbox requires a Nomad cluster to schedule agent tasks as jobs. Please check your Nomad cluster connection in Settings.',
     };
   }
   return {
@@ -127,6 +138,10 @@ export interface SandboxIndicatorProps {
   k8sClusterVersion?: string | null;
   k8sPodCount?: number;
   k8sPodsRunning?: number;
+  nomadHealthy?: boolean;
+  nomadVersion?: string | null;
+  nomadLeader?: string | null;
+  nomadJobCount?: number;
 }
 
 /**
@@ -146,6 +161,10 @@ export function SandboxIndicator({
   k8sClusterVersion,
   k8sPodCount,
   k8sPodsRunning,
+  nomadHealthy,
+  nomadVersion,
+  nomadLeader,
+  nomadJobCount,
 }: SandboxIndicatorProps): React.JSX.Element {
   const isTransitioning = containerStatus === 'creating' || isRestarting;
   const modeLabel = mode === 'shared' ? 'Shared' : 'Per-Project';
@@ -217,7 +236,11 @@ export function SandboxIndicator({
           >
             {/* Sandbox label with icon */}
             <div className="flex items-center gap-1.5 text-xs">
-              <Cube className="h-4 w-4 text-fg-muted" />
+              {provider === 'nomad' ? (
+                <Hexagon className="h-4 w-4 text-fg-muted" />
+              ) : (
+                <Cube className="h-4 w-4 text-fg-muted" />
+              )}
               <span className="font-medium text-fg-muted">{providerLabel}</span>
             </div>
 
@@ -267,7 +290,7 @@ export function SandboxIndicator({
                     'text-fg-muted hover:bg-surface hover:text-fg',
                     'disabled:cursor-not-allowed disabled:opacity-50'
                   )}
-                  title={`Restart ${provider === 'kubernetes' ? 'pod' : 'container'}`}
+                  title={`Restart ${provider === 'kubernetes' ? 'pod' : provider === 'nomad' ? 'job' : 'container'}`}
                 >
                   <ArrowClockwise
                     className={cn('h-3.5 w-3.5', isRestarting && 'animate-spin')}
@@ -317,6 +340,26 @@ export function SandboxIndicator({
                     <p className="text-fg-muted">
                       {k8sPodsRunning ?? 0}/{k8sPodCount} pods running
                     </p>
+                  )}
+                </div>
+              </div>
+            )}
+            {provider === 'nomad' && (
+              <div className="border-t border-border pt-2">
+                <p className="font-medium text-fg">Nomad Cluster</p>
+                <div className="mt-1 space-y-1">
+                  <p className="flex items-center gap-1.5 text-fg-muted">
+                    <span
+                      className={cn(
+                        'inline-block h-1.5 w-1.5 rounded-full',
+                        nomadHealthy ? 'bg-success' : 'bg-danger'
+                      )}
+                    />
+                    {nomadHealthy ? nomadLeader || 'Leader Elected' : 'No Leader'}
+                  </p>
+                  {nomadVersion && <p className="text-fg-muted">Version: {nomadVersion}</p>}
+                  {nomadJobCount !== undefined && (
+                    <p className="text-fg-muted">{nomadJobCount} sandbox jobs</p>
                   )}
                 </div>
               </div>

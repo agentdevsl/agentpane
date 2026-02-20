@@ -51,5 +51,5 @@ export const SESSION_STATUS = [
 ] as const;
 export type SessionStatus = (typeof SESSION_STATUS)[number];
 
-export const SANDBOX_TYPES = ['docker', 'devcontainer', 'kubernetes'] as const;
+export const SANDBOX_TYPES = ['docker', 'devcontainer', 'kubernetes', 'nomad'] as const;
 export type SandboxType = (typeof SANDBOX_TYPES)[number];

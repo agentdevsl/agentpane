@@ -8,6 +8,7 @@ import {
   FolderOpen,
   Gauge,
   HardDrive,
+  Hexagon,
   Package,
   Pencil,
   Plus,
@@ -33,7 +34,7 @@ import {
 } from '@/lib/api/client';
 import { cn } from '@/lib/utils/cn';
 
-type SandboxProvider = 'docker' | 'devcontainer' | 'kubernetes';
+type SandboxProvider = 'docker' | 'devcontainer' | 'kubernetes' | 'nomad';
 
 // Sandbox container mode: shared or per-project
 type SandboxContainerMode = 'shared' | 'per-project';
@@ -82,6 +83,111 @@ const K8sSettingsSchema = z.object({
   autoStartMinikube: z.boolean().optional(),
   autoInstallCRDs: z.boolean().optional(),
 });
+
+const NomadSettingsSchema = z.object({
+  address: z.string().optional(),
+  token: z.string().optional(),
+  namespace: z.string().default('default'),
+  region: z.string().optional(),
+  datacenter: z.string().optional(),
+  skipTLSVerify: z.boolean().default(false),
+  image: z.string().optional(),
+});
+
+const PROVIDER_LABELS: Record<string, string> = {
+  docker: 'Docker',
+  devcontainer: 'DevContainer',
+  kubernetes: 'Kubernetes',
+  nomad: 'Nomad',
+};
+
+function Toggle({
+  checked,
+  onToggle,
+  testId,
+}: {
+  checked: boolean;
+  onToggle: () => void;
+  testId?: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={onToggle}
+      data-testid={testId}
+      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+        checked ? 'bg-accent' : 'bg-fg-muted/30'
+      }`}
+    >
+      <span
+        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform ${
+          checked ? 'translate-x-4' : 'translate-x-0.5'
+        }`}
+      />
+    </button>
+  );
+}
+
+function SaveButton({
+  saving,
+  saved,
+  onClick,
+  testId,
+}: {
+  saving: boolean;
+  saved: boolean;
+  onClick?: () => void;
+  testId?: string;
+}) {
+  return (
+    <button
+      type="submit"
+      disabled={saving}
+      onClick={onClick}
+      data-testid={testId}
+      className="inline-flex items-center gap-2 rounded-md bg-accent px-4 py-2 text-sm font-medium text-fg-on-accent hover:bg-accent/90 disabled:opacity-50 transition-colors"
+    >
+      {saving ? (
+        <>
+          <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle
+              className="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="4"
+            />
+            <path
+              className="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+            />
+          </svg>
+          Saving...
+        </>
+      ) : saved ? (
+        <>
+          <svg
+            className="h-4 w-4"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            aria-hidden="true"
+          >
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+          Saved
+        </>
+      ) : (
+        'Save Settings'
+      )}
+    </button>
+  );
+}
 
 export const Route = createFileRoute('/settings/sandbox')({
   component: SandboxSettingsPage,
@@ -132,7 +238,9 @@ function SandboxSettingsPage(): React.JSX.Element {
   // Form state
   const [formName, setFormName] = useState('');
   const [formDescription, setFormDescription] = useState('');
-  const [formType, setFormType] = useState<'docker' | 'devcontainer' | 'kubernetes'>('docker');
+  const [formType, setFormType] = useState<'docker' | 'devcontainer' | 'kubernetes' | 'nomad'>(
+    'docker'
+  );
   const [formBaseImage, setFormBaseImage] = useState('node:22-slim');
   const [formMemoryMb, setFormMemoryMb] = useState(4096);
   const [formCpuCores, setFormCpuCores] = useState(2.0);
@@ -186,6 +294,30 @@ function SandboxSettingsPage(): React.JSX.Element {
     null
   );
 
+  // Nomad configuration state
+  const [nomadAddress, setNomadAddress] = useState('');
+  const [nomadToken, setNomadToken] = useState('');
+  const [nomadNamespace, setNomadNamespace] = useState('default');
+  const [nomadRegion, setNomadRegion] = useState('');
+  const [nomadDatacenter, setNomadDatacenter] = useState('');
+  const [nomadSkipTLSVerify, setNomadSkipTLSVerify] = useState(false);
+  const [nomadStatus, setNomadStatus] = useState<{
+    healthy: boolean;
+    leader: string | null;
+    version: string | null;
+    datacenter: string | null;
+    jobCount: number;
+  } | null>(null);
+  const [nomadStatusLoading, setNomadStatusLoading] = useState(false);
+  const [nomadNamespaces, setNomadNamespaces] = useState<
+    Array<{ Name: string; Description: string }>
+  >([]);
+  const [nomadDatacenters, setNomadDatacenters] = useState<string[]>([]);
+  const [nomadError, setNomadError] = useState<string | null>(null);
+  const [nomadInitError, setNomadInitError] = useState<{ error: string; timestamp: string } | null>(
+    null
+  );
+
   const loadConfigs = useCallback(async () => {
     setIsLoading(true);
     setError(null);
@@ -211,6 +343,8 @@ function SandboxSettingsPage(): React.JSX.Element {
         'sandbox.defaults',
         'sandbox.kubernetes',
         'sandbox.kubernetes.lastError',
+        'sandbox.nomad',
+        'sandbox.nomad.lastError',
       ]);
       if (result.ok) {
         // Load default settings
@@ -256,6 +390,31 @@ function SandboxSettingsPage(): React.JSX.Element {
         } else {
           setK8sInitError(null);
         }
+
+        // Load Nomad-specific settings
+        if (result.data.settings['sandbox.nomad']) {
+          const parsed = NomadSettingsSchema.safeParse(result.data.settings['sandbox.nomad']);
+          if (parsed.success) {
+            const nomad = parsed.data;
+            if (nomad.address) setNomadAddress(nomad.address);
+            if (nomad.token) setNomadToken(nomad.token);
+            if (nomad.namespace) setNomadNamespace(nomad.namespace);
+            if (nomad.region) setNomadRegion(nomad.region);
+            if (nomad.datacenter) setNomadDatacenter(nomad.datacenter);
+            if (nomad.skipTLSVerify !== undefined) setNomadSkipTLSVerify(nomad.skipTLSVerify);
+          }
+        }
+
+        // Load Nomad initialization error
+        if (result.data.settings['sandbox.nomad.lastError']) {
+          const lastError = result.data.settings['sandbox.nomad.lastError'] as {
+            error: string;
+            timestamp: string;
+          };
+          setNomadInitError(lastError);
+        } else {
+          setNomadInitError(null);
+        }
       }
     } catch (_err) {
       // Use defaults if not set
@@ -286,6 +445,18 @@ function SandboxSettingsPage(): React.JSX.Element {
           skipTLSVerify,
           autoStartMinikube,
           autoInstallCRDs,
+        };
+      }
+
+      // If Nomad is selected, also persist Nomad-specific settings
+      if (defaultSettings.provider === 'nomad') {
+        settingsToSave['sandbox.nomad'] = {
+          address: nomadAddress || undefined,
+          token: nomadToken || undefined,
+          namespace: nomadNamespace || 'default',
+          region: nomadRegion || undefined,
+          datacenter: nomadDatacenter || undefined,
+          skipTLSVerify: nomadSkipTLSVerify,
         };
       }
 
@@ -479,6 +650,81 @@ function SandboxSettingsPage(): React.JSX.Element {
     }
   };
 
+  // Nomad API functions
+  const loadNomadStatus = useCallback(async () => {
+    setNomadStatusLoading(true);
+    try {
+      const res = await fetch('/api/sandbox/nomad/status');
+      const data = await res.json();
+      if (data.ok) {
+        setNomadStatus(data.data);
+        setNomadError(null);
+      } else {
+        setNomadStatus({
+          healthy: false,
+          leader: null,
+          version: null,
+          datacenter: null,
+          jobCount: 0,
+        });
+        setNomadError(data.error?.message ?? 'Failed to connect to Nomad');
+      }
+    } catch (_err) {
+      setNomadStatus({
+        healthy: false,
+        leader: null,
+        version: null,
+        datacenter: null,
+        jobCount: 0,
+      });
+      setNomadError('Failed to check Nomad status');
+    } finally {
+      setNomadStatusLoading(false);
+    }
+  }, []);
+
+  const loadNomadNamespaces = useCallback(async () => {
+    try {
+      const res = await fetch('/api/sandbox/nomad/namespaces');
+      const data = await res.json();
+      if (data.ok) {
+        setNomadNamespaces(data.data.namespaces ?? []);
+      }
+    } catch (_err) {
+      setNomadNamespaces([]);
+    }
+  }, []);
+
+  const loadNomadDatacenters = useCallback(async () => {
+    try {
+      const res = await fetch('/api/sandbox/nomad/datacenters');
+      const data = await res.json();
+      if (data.ok) {
+        setNomadDatacenters(data.data.datacenters ?? []);
+      }
+    } catch (_err) {
+      setNomadDatacenters([]);
+    }
+  }, []);
+
+  // Load Nomad info when provider changes to nomad
+  useEffect(() => {
+    if (selectedProvider === 'nomad') {
+      loadNomadStatus();
+      loadNomadNamespaces();
+      loadNomadDatacenters();
+    }
+  }, [selectedProvider, loadNomadStatus, loadNomadNamespaces, loadNomadDatacenters]);
+
+  // Periodic Nomad status polling
+  useEffect(() => {
+    if (selectedProvider !== 'nomad') return;
+    const interval = setInterval(() => {
+      loadNomadStatus();
+    }, 30_000);
+    return () => clearInterval(interval);
+  }, [selectedProvider, loadNomadStatus]);
+
   const handleSaveProvider = async () => {
     setIsSavingProvider(true);
     // TODO: Implement provider persistence via settings API
@@ -515,7 +761,7 @@ function SandboxSettingsPage(): React.JSX.Element {
   const openEditEditor = (config: SandboxConfigItem) => {
     setFormName(config.name);
     setFormDescription(config.description ?? '');
-    setFormType((config.type as 'docker' | 'devcontainer' | 'kubernetes') ?? 'docker');
+    setFormType((config.type as 'docker' | 'devcontainer' | 'kubernetes' | 'nomad') ?? 'docker');
     setFormBaseImage(config.baseImage);
     setFormMemoryMb(config.memoryMb);
     setFormCpuCores(config.cpuCores);
@@ -652,7 +898,7 @@ function SandboxSettingsPage(): React.JSX.Element {
               <span className="text-xs text-fg-muted">
                 Provider:{' '}
                 <span className="font-medium text-fg">
-                  {selectedProvider === 'docker' ? 'Docker' : 'Kubernetes'}
+                  {PROVIDER_LABELS[selectedProvider] ?? selectedProvider}
                 </span>
               </span>
             </div>
@@ -683,6 +929,32 @@ function SandboxSettingsPage(): React.JSX.Element {
                     {k8sStatusLoading
                       ? 'Checking...'
                       : k8sStatus?.healthy
+                        ? 'Connected'
+                        : 'Disconnected'}
+                  </span>
+                </span>
+              </div>
+            )}
+            {selectedProvider === 'nomad' && (
+              <div className="flex items-center gap-2">
+                {nomadStatusLoading ? (
+                  <CircleNotch className="h-4 w-4 animate-spin text-fg-subtle" />
+                ) : nomadStatus?.healthy ? (
+                  <WifiHigh className="h-4 w-4 text-success" />
+                ) : (
+                  <WifiSlash className="h-4 w-4 text-danger" />
+                )}
+                <span className="text-xs text-fg-muted">
+                  Status:{' '}
+                  <span
+                    className={cn(
+                      'font-medium',
+                      nomadStatus?.healthy ? 'text-success' : 'text-danger'
+                    )}
+                  >
+                    {nomadStatusLoading
+                      ? 'Checking...'
+                      : nomadStatus?.healthy
                         ? 'Connected'
                         : 'Disconnected'}
                   </span>
@@ -742,26 +1014,13 @@ function SandboxSettingsPage(): React.JSX.Element {
                     </p>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={defaultSettings.enabled}
-                  onClick={() =>
+                <Toggle
+                  checked={defaultSettings.enabled}
+                  onToggle={() =>
                     setDefaultSettings((prev) => ({ ...prev, enabled: !prev.enabled }))
                   }
-                  className={cn(
-                    'relative h-6 w-11 rounded-full transition-colors',
-                    defaultSettings.enabled ? 'bg-success' : 'bg-surface-muted'
-                  )}
-                  data-testid="default-sandbox-enabled-toggle"
-                >
-                  <span
-                    className={cn(
-                      'absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform',
-                      defaultSettings.enabled ? 'translate-x-5' : 'translate-x-0'
-                    )}
-                  />
-                </button>
+                  testId="default-sandbox-enabled-toggle"
+                />
               </div>
 
               {/* Provider selection */}
@@ -772,7 +1031,7 @@ function SandboxSettingsPage(): React.JSX.Element {
                 )}
               >
                 <p className="mb-3 text-sm font-medium text-fg">Default Provider</p>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
                   {/* Docker */}
                   <button
                     type="button"
@@ -860,6 +1119,42 @@ function SandboxSettingsPage(): React.JSX.Element {
                     <span className="text-xs text-fg-muted">Cluster pods</span>
                     {defaultSettings.provider === 'kubernetes' && (
                       <div className="absolute right-2 top-2 h-2 w-2 rounded-full bg-accent" />
+                    )}
+                  </button>
+
+                  {/* Nomad */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDefaultSettings((prev) => ({ ...prev, provider: 'nomad' }));
+                      setSelectedProvider('nomad');
+                    }}
+                    className={cn(
+                      'relative flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all',
+                      defaultSettings.provider === 'nomad'
+                        ? 'border-attention bg-attention/10'
+                        : 'border-border hover:border-fg-subtle'
+                    )}
+                    data-testid="default-provider-nomad"
+                  >
+                    <Hexagon
+                      className={cn(
+                        'h-6 w-6',
+                        defaultSettings.provider === 'nomad' ? 'text-attention' : 'text-fg-muted'
+                      )}
+                      weight={defaultSettings.provider === 'nomad' ? 'duotone' : 'regular'}
+                    />
+                    <span
+                      className={cn(
+                        'text-sm font-medium',
+                        defaultSettings.provider === 'nomad' ? 'text-attention' : 'text-fg'
+                      )}
+                    >
+                      Nomad
+                    </span>
+                    <span className="text-xs text-fg-muted">Scheduled jobs</span>
+                    {defaultSettings.provider === 'nomad' && (
+                      <div className="absolute right-2 top-2 h-2 w-2 rounded-full bg-attention" />
                     )}
                   </button>
                 </div>
@@ -1041,29 +1336,12 @@ function SandboxSettingsPage(): React.JSX.Element {
 
               {/* Save button */}
               <div className="flex justify-end">
-                <Button
+                <SaveButton
+                  saving={isSavingDefaults}
+                  saved={defaultsSaved}
                   onClick={saveDefaultSettings}
-                  disabled={isSavingDefaults}
-                  className={cn(
-                    'min-w-[140px] transition-all',
-                    defaultsSaved && 'bg-success hover:bg-success'
-                  )}
-                  data-testid="save-default-settings"
-                >
-                  {isSavingDefaults ? (
-                    <>
-                      <CircleNotch className="h-4 w-4 animate-spin" />
-                      Saving...
-                    </>
-                  ) : defaultsSaved ? (
-                    <>
-                      <Check className="h-4 w-4" weight="bold" />
-                      Saved!
-                    </>
-                  ) : (
-                    'Save Defaults'
-                  )}
-                </Button>
+                  testId="save-default-settings"
+                />
               </div>
             </div>
           )}
@@ -1074,11 +1352,11 @@ function SandboxSettingsPage(): React.JSX.Element {
           icon={Cube}
           title="Provider Selection"
           description="Choose where agent code executes"
-          badge={selectedProvider === 'docker' ? 'Docker' : 'K8s'}
+          badge={PROVIDER_LABELS[selectedProvider] ?? selectedProvider}
           badgeColor="accent"
           testId="provider-section"
         >
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {/* Docker Provider */}
             <button
               type="button"
@@ -1143,6 +1421,40 @@ function SandboxSettingsPage(): React.JSX.Element {
                 </span>
                 <span className="rounded-full bg-surface-muted px-2.5 py-1 text-xs text-fg-muted">
                   Warm Pool
+                </span>
+              </div>
+            </button>
+
+            {/* Nomad Provider */}
+            <button
+              type="button"
+              onClick={() => setSelectedProvider('nomad')}
+              className={cn(
+                'relative cursor-pointer rounded-lg border-2 p-5 text-left transition-all',
+                selectedProvider === 'nomad'
+                  ? 'border-attention bg-attention/10'
+                  : 'border-border hover:border-fg-subtle'
+              )}
+              data-testid="provider-nomad"
+            >
+              {selectedProvider === 'nomad' && (
+                <div className="absolute right-3 top-3 flex h-5 w-5 items-center justify-center rounded-full bg-attention">
+                  <Check className="h-3 w-3 text-white" weight="bold" />
+                </div>
+              )}
+              <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-surface-muted">
+                <Hexagon className="h-6 w-6 text-fg-muted" weight="duotone" />
+              </div>
+              <h3 className="font-semibold text-fg">Nomad</h3>
+              <p className="mt-1 text-sm text-fg-muted">
+                Run sandboxes as Nomad jobs using Docker task driver.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <span className="rounded-full bg-attention/15 px-2.5 py-1 text-xs text-attention">
+                  Job Scheduling
+                </span>
+                <span className="rounded-full bg-surface-muted px-2.5 py-1 text-xs text-fg-muted">
+                  Multi-DC
                 </span>
               </div>
             </button>
@@ -1310,24 +1622,11 @@ function SandboxSettingsPage(): React.JSX.Element {
                       Required for local clusters with self-signed certificates (minikube, kind)
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={skipTLSVerify}
-                    onClick={() => setSkipTLSVerify(!skipTLSVerify)}
-                    className={cn(
-                      'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors',
-                      skipTLSVerify ? 'bg-accent' : 'bg-fg-muted/30'
-                    )}
-                    data-testid="k8s-skip-tls-toggle"
-                  >
-                    <span
-                      className={cn(
-                        'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition-transform mt-0.5',
-                        skipTLSVerify ? 'translate-x-4' : 'translate-x-0.5'
-                      )}
-                    />
-                  </button>
+                  <Toggle
+                    checked={skipTLSVerify}
+                    onToggle={() => setSkipTLSVerify(!skipTLSVerify)}
+                    testId="k8s-skip-tls-toggle"
+                  />
                 </div>
 
                 {/* Context Selection */}
@@ -1481,24 +1780,11 @@ function SandboxSettingsPage(): React.JSX.Element {
                       </p>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={warmPoolEnabled}
-                    onClick={() => setWarmPoolEnabled(!warmPoolEnabled)}
-                    className={cn(
-                      'relative h-6 w-11 rounded-full transition-colors',
-                      warmPoolEnabled ? 'bg-success' : 'bg-surface-muted'
-                    )}
-                    data-testid="k8s-warm-pool-toggle"
-                  >
-                    <span
-                      className={cn(
-                        'absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform',
-                        warmPoolEnabled ? 'translate-x-5' : 'translate-x-0'
-                      )}
-                    />
-                  </button>
+                  <Toggle
+                    checked={warmPoolEnabled}
+                    onToggle={() => setWarmPoolEnabled(!warmPoolEnabled)}
+                    testId="k8s-warm-pool-toggle"
+                  />
                 </div>
 
                 {/* Warm Pool Size Slider -- only shown when enabled */}
@@ -1562,24 +1848,11 @@ function SandboxSettingsPage(): React.JSX.Element {
                     cluster
                   </p>
                 </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={autoInstallCRDs}
-                  onClick={() => setAutoInstallCRDs(!autoInstallCRDs)}
-                  className={cn(
-                    'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors',
-                    autoInstallCRDs ? 'bg-accent' : 'bg-fg-muted/30'
-                  )}
-                  data-testid="k8s-auto-install-crds-toggle"
-                >
-                  <span
-                    className={cn(
-                      'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition-transform mt-0.5',
-                      autoInstallCRDs ? 'translate-x-4' : 'translate-x-0.5'
-                    )}
-                  />
-                </button>
+                <Toggle
+                  checked={autoInstallCRDs}
+                  onToggle={() => setAutoInstallCRDs(!autoInstallCRDs)}
+                  testId="k8s-auto-install-crds-toggle"
+                />
               </div>
 
               {/* Auto-start Minikube Toggle */}
@@ -1591,24 +1864,11 @@ function SandboxSettingsPage(): React.JSX.Element {
                     context is minikube
                   </p>
                 </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={autoStartMinikube}
-                  onClick={() => setAutoStartMinikube(!autoStartMinikube)}
-                  className={cn(
-                    'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors',
-                    autoStartMinikube ? 'bg-accent' : 'bg-fg-muted/30'
-                  )}
-                  data-testid="k8s-auto-start-minikube-toggle"
-                >
-                  <span
-                    className={cn(
-                      'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition-transform mt-0.5',
-                      autoStartMinikube ? 'translate-x-4' : 'translate-x-0.5'
-                    )}
-                  />
-                </button>
+                <Toggle
+                  checked={autoStartMinikube}
+                  onToggle={() => setAutoStartMinikube(!autoStartMinikube)}
+                  testId="k8s-auto-start-minikube-toggle"
+                />
               </div>
 
               {/* Fall back to Docker Toggle */}
@@ -1620,24 +1880,11 @@ function SandboxSettingsPage(): React.JSX.Element {
                     disabling container agents
                   </p>
                 </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={fallbackToDocker}
-                  onClick={() => setFallbackToDocker(!fallbackToDocker)}
-                  className={cn(
-                    'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors',
-                    fallbackToDocker ? 'bg-accent' : 'bg-fg-muted/30'
-                  )}
-                  data-testid="k8s-fallback-to-docker-toggle"
-                >
-                  <span
-                    className={cn(
-                      'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition-transform mt-0.5',
-                      fallbackToDocker ? 'translate-x-4' : 'translate-x-0.5'
-                    )}
-                  />
-                </button>
+                <Toggle
+                  checked={fallbackToDocker}
+                  onToggle={() => setFallbackToDocker(!fallbackToDocker)}
+                  testId="k8s-fallback-to-docker-toggle"
+                />
               </div>
 
               {/* Start Minikube + Save buttons */}
@@ -1661,30 +1908,260 @@ function SandboxSettingsPage(): React.JSX.Element {
                   </Button>
                 )}
                 <div className="ml-auto">
-                  <Button
+                  <SaveButton
+                    saving={isSavingDefaults}
+                    saved={defaultsSaved}
                     onClick={saveDefaultSettings}
-                    disabled={isSavingDefaults}
-                    className={cn(
-                      'min-w-[140px] transition-all',
-                      defaultsSaved && 'bg-success hover:bg-success'
-                    )}
-                    data-testid="save-k8s-settings"
-                  >
-                    {isSavingDefaults ? (
-                      <>
-                        <CircleNotch className="h-4 w-4 animate-spin" />
-                        Saving...
-                      </>
-                    ) : defaultsSaved ? (
-                      <>
-                        <Check className="h-4 w-4" weight="bold" />
-                        Saved!
-                      </>
-                    ) : (
-                      'Save Settings'
-                    )}
-                  </Button>
+                    testId="save-k8s-settings"
+                  />
                 </div>
+              </div>
+            </div>
+          </ConfigSection>
+        )}
+
+        {/* Nomad Configuration Section - Only shown when Nomad selected */}
+        {selectedProvider === 'nomad' && (
+          <ConfigSection
+            icon={Hexagon}
+            title="Nomad Configuration"
+            description="Configure your Nomad cluster connection"
+            badge={nomadStatus?.healthy ? 'Connected' : 'Disconnected'}
+            badgeColor={nomadStatus?.healthy ? 'success' : 'accent'}
+            testId="nomad-config-section"
+          >
+            <div className="space-y-6">
+              {/* Cluster Status Indicator */}
+              <div className="flex items-center justify-between rounded-lg border border-border bg-surface-subtle p-4">
+                <div className="flex items-center gap-3">
+                  {nomadStatusLoading ? (
+                    <CircleNotch className="h-5 w-5 animate-spin text-fg-muted" />
+                  ) : nomadStatus?.healthy ? (
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-success-muted">
+                      <WifiHigh className="h-4 w-4 text-success" />
+                    </div>
+                  ) : (
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-danger-muted">
+                      <WifiSlash className="h-4 w-4 text-danger" />
+                    </div>
+                  )}
+                  <div>
+                    <p className="font-medium text-fg">
+                      {nomadStatusLoading
+                        ? 'Checking connection...'
+                        : nomadStatus?.healthy
+                          ? 'Connected'
+                          : 'Cluster Unreachable'}
+                    </p>
+                    {nomadStatus?.healthy && nomadStatus.version && (
+                      <p className="text-xs text-fg-muted">
+                        Nomad {nomadStatus.version}
+                        {nomadStatus.leader && ` \u00b7 Leader: ${nomadStatus.leader}`}
+                      </p>
+                    )}
+                    {nomadStatus?.healthy && (
+                      <p className="text-xs text-fg-muted">
+                        {nomadStatus.jobCount} sandbox job{nomadStatus.jobCount !== 1 ? 's' : ''}
+                      </p>
+                    )}
+                    {!nomadStatus?.healthy && nomadError && (
+                      <p className="text-xs text-danger">{nomadError}</p>
+                    )}
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={loadNomadStatus}
+                  disabled={nomadStatusLoading}
+                  data-testid="refresh-nomad-status"
+                >
+                  {nomadStatusLoading ? (
+                    <CircleNotch className="h-4 w-4 animate-spin" />
+                  ) : (
+                    'Refresh'
+                  )}
+                </Button>
+              </div>
+
+              {/* Nomad Init Error Banner */}
+              {nomadInitError && (
+                <div
+                  className="rounded-lg border border-danger/30 bg-danger/10 p-4"
+                  data-testid="nomad-init-error-banner"
+                >
+                  <div className="flex items-start gap-3">
+                    <Warning className="mt-0.5 h-5 w-5 flex-shrink-0 text-danger" weight="fill" />
+                    <div>
+                      <p className="text-sm font-medium text-danger">Nomad Initialization Failed</p>
+                      <p className="mt-1 text-sm text-fg-muted">{nomadInitError.error}</p>
+                      <p className="mt-1 text-xs text-fg-subtle">
+                        Last attempt: {new Date(nomadInitError.timestamp).toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Nomad Form Fields */}
+              <div className="space-y-4">
+                {/* Address */}
+                <div>
+                  <label
+                    htmlFor="nomad-address"
+                    className="mb-1.5 block text-sm font-medium text-fg"
+                  >
+                    Nomad Address
+                    <span className="ml-1 text-xs font-normal text-fg-subtle">(optional)</span>
+                  </label>
+                  <input
+                    id="nomad-address"
+                    type="text"
+                    value={nomadAddress}
+                    onChange={(e) => setNomadAddress(e.target.value)}
+                    placeholder="http://127.0.0.1:4646"
+                    className="w-full rounded-md border border-border bg-surface-subtle px-3 py-2 font-mono text-sm text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                    data-testid="nomad-address-input"
+                  />
+                  <p className="mt-1 text-xs text-fg-muted">
+                    Leave empty to use NOMAD_ADDR environment variable or default
+                  </p>
+                </div>
+
+                {/* ACL Token */}
+                <div>
+                  <label htmlFor="nomad-token" className="mb-1.5 block text-sm font-medium text-fg">
+                    ACL Token
+                    <span className="ml-1 text-xs font-normal text-fg-subtle">(optional)</span>
+                  </label>
+                  <input
+                    id="nomad-token"
+                    type="password"
+                    value={nomadToken}
+                    onChange={(e) => setNomadToken(e.target.value)}
+                    placeholder="Secret ACL token"
+                    className="w-full rounded-md border border-border bg-surface-subtle px-3 py-2 font-mono text-sm text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                    data-testid="nomad-token-input"
+                  />
+                </div>
+
+                {/* Skip TLS Verification */}
+                <div className="flex items-center justify-between rounded-md border border-border bg-surface-subtle px-3 py-2.5">
+                  <div>
+                    <p className="text-sm font-medium text-fg">Skip TLS Verification</p>
+                    <p className="text-xs text-fg-muted">
+                      Required for local development clusters with self-signed certificates
+                    </p>
+                  </div>
+                  <Toggle
+                    checked={nomadSkipTLSVerify}
+                    onToggle={() => setNomadSkipTLSVerify(!nomadSkipTLSVerify)}
+                    testId="nomad-skip-tls-toggle"
+                  />
+                </div>
+
+                {/* Namespace */}
+                <div>
+                  <label
+                    htmlFor="nomad-namespace"
+                    className="mb-1.5 block text-sm font-medium text-fg"
+                  >
+                    Namespace
+                  </label>
+                  {nomadNamespaces.length > 0 ? (
+                    <select
+                      id="nomad-namespace"
+                      value={nomadNamespace}
+                      onChange={(e) => setNomadNamespace(e.target.value)}
+                      className="w-full appearance-none rounded-md border border-border bg-surface-subtle px-3 py-2 text-sm text-fg focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                      data-testid="nomad-namespace-select"
+                    >
+                      {nomadNamespaces.map((ns) => (
+                        <option key={ns.Name} value={ns.Name}>
+                          {ns.Name}
+                          {ns.Description ? ` - ${ns.Description}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      id="nomad-namespace"
+                      type="text"
+                      value={nomadNamespace}
+                      onChange={(e) => setNomadNamespace(e.target.value)}
+                      placeholder="default"
+                      className="w-full rounded-md border border-border bg-surface-subtle px-3 py-2 font-mono text-sm text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                      data-testid="nomad-namespace-input"
+                    />
+                  )}
+                </div>
+
+                {/* Region */}
+                <div>
+                  <label
+                    htmlFor="nomad-region"
+                    className="mb-1.5 block text-sm font-medium text-fg"
+                  >
+                    Region
+                    <span className="ml-1 text-xs font-normal text-fg-subtle">(optional)</span>
+                  </label>
+                  <input
+                    id="nomad-region"
+                    type="text"
+                    value={nomadRegion}
+                    onChange={(e) => setNomadRegion(e.target.value)}
+                    placeholder="global"
+                    className="w-full rounded-md border border-border bg-surface-subtle px-3 py-2 font-mono text-sm text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                    data-testid="nomad-region-input"
+                  />
+                </div>
+
+                {/* Datacenter */}
+                <div>
+                  <label
+                    htmlFor="nomad-datacenter"
+                    className="mb-1.5 block text-sm font-medium text-fg"
+                  >
+                    Datacenter
+                    <span className="ml-1 text-xs font-normal text-fg-subtle">(optional)</span>
+                  </label>
+                  {nomadDatacenters.length > 0 ? (
+                    <select
+                      id="nomad-datacenter"
+                      value={nomadDatacenter}
+                      onChange={(e) => setNomadDatacenter(e.target.value)}
+                      className="w-full appearance-none rounded-md border border-border bg-surface-subtle px-3 py-2 text-sm text-fg focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                      data-testid="nomad-datacenter-select"
+                    >
+                      <option value="">Any datacenter</option>
+                      {nomadDatacenters.map((dc) => (
+                        <option key={dc} value={dc}>
+                          {dc}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      id="nomad-datacenter"
+                      type="text"
+                      value={nomadDatacenter}
+                      onChange={(e) => setNomadDatacenter(e.target.value)}
+                      placeholder="dc1"
+                      className="w-full rounded-md border border-border bg-surface-subtle px-3 py-2 font-mono text-sm text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                      data-testid="nomad-datacenter-input"
+                    />
+                  )}
+                </div>
+              </div>
+
+              {/* Save button */}
+              <div className="flex justify-end">
+                <SaveButton
+                  saving={isSavingDefaults}
+                  saved={defaultsSaved}
+                  onClick={saveDefaultSettings}
+                  testId="save-nomad-settings"
+                />
               </div>
             </div>
           </ConfigSection>
@@ -1750,9 +2227,11 @@ function SandboxSettingsPage(): React.JSX.Element {
                         <span className="rounded bg-surface-muted px-1.5 py-0.5 text-[11px] font-medium text-fg-muted">
                           {config.type === 'kubernetes'
                             ? '☸️ K8s'
-                            : config.type === 'devcontainer'
-                              ? '📦 DevContainer'
-                              : '🐳 Docker'}
+                            : config.type === 'nomad'
+                              ? '⬡ Nomad'
+                              : config.type === 'devcontainer'
+                                ? '📦 DevContainer'
+                                : '🐳 Docker'}
                         </span>
                         {config.isDefault && (
                           <span className="rounded bg-success-muted px-1.5 py-0.5 text-[11px] font-medium text-success">
@@ -1843,29 +2322,12 @@ function SandboxSettingsPage(): React.JSX.Element {
         {/* Sticky Save Footer */}
         <div className="sticky bottom-4 z-10 flex items-center justify-between rounded-xl border border-border bg-surface/95 px-5 py-4 shadow-lg backdrop-blur-sm">
           <p className="text-sm text-fg-muted">Provider settings</p>
-          <Button
-            data-testid="save-provider-settings"
+          <SaveButton
+            saving={isSavingProvider}
+            saved={providerSaved}
             onClick={handleSaveProvider}
-            disabled={isSavingProvider}
-            className={cn(
-              'min-w-[140px] transition-all',
-              providerSaved && 'bg-success-emphasis hover:bg-success-emphasis'
-            )}
-          >
-            {isSavingProvider ? (
-              <>
-                <CircleNotch className="h-4 w-4 animate-spin" />
-                Saving...
-              </>
-            ) : providerSaved ? (
-              <>
-                <Check className="h-4 w-4" weight="bold" />
-                Saved!
-              </>
-            ) : (
-              'Save Provider'
-            )}
-          </Button>
+            testId="save-provider-settings"
+          />
         </div>
       </div>
 
@@ -1942,7 +2404,7 @@ function SandboxSettingsPage(): React.JSX.Element {
                   <h3 className="text-xs font-medium uppercase tracking-wider text-fg-subtle">
                     Sandbox Type
                   </h3>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
                     <button
                       type="button"
                       onClick={() => setFormType('docker')}
@@ -1992,6 +2454,29 @@ function SandboxSettingsPage(): React.JSX.Element {
                       <div>
                         <div className="text-sm font-medium text-fg">K8s</div>
                         <div className="text-xs text-fg-muted">Kubernetes</div>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormType('nomad')}
+                      className={cn(
+                        'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+                        formType === 'nomad'
+                          ? 'border-attention bg-attention/10'
+                          : 'border-border hover:border-fg-subtle'
+                      )}
+                      data-testid="sandbox-type-nomad"
+                    >
+                      <Hexagon
+                        className={cn(
+                          'h-5 w-5',
+                          formType === 'nomad' ? 'text-attention' : 'text-fg-muted'
+                        )}
+                        weight={formType === 'nomad' ? 'duotone' : 'regular'}
+                      />
+                      <div>
+                        <div className="text-sm font-medium text-fg">Nomad</div>
+                        <div className="text-xs text-fg-muted">Scheduled</div>
                       </div>
                     </button>
                   </div>
@@ -2250,24 +2735,11 @@ function SandboxSettingsPage(): React.JSX.Element {
                       Used when no specific configuration is selected
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={formIsDefault}
-                    onClick={() => setFormIsDefault(!formIsDefault)}
-                    className={cn(
-                      'relative h-6 w-11 rounded-full transition-colors',
-                      formIsDefault ? 'bg-accent' : 'bg-surface-muted'
-                    )}
-                    data-testid="sandbox-config-default-toggle"
-                  >
-                    <span
-                      className={cn(
-                        'absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform',
-                        formIsDefault ? 'translate-x-5' : 'translate-x-0'
-                      )}
-                    />
-                  </button>
+                  <Toggle
+                    checked={formIsDefault}
+                    onToggle={() => setFormIsDefault(!formIsDefault)}
+                    testId="sandbox-config-default-toggle"
+                  />
                 </div>
 
                 {/* Error display */}

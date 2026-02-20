@@ -16,6 +16,13 @@ export {
 // Docker Provider
 export { createDockerProvider, DockerProvider } from './providers/docker-provider.js';
 
+// Nomad Provider
+export { NomadSandboxInstance } from './providers/nomad-sandbox-instance.js';
+export {
+  createNomadSandboxProvider,
+  NomadSandboxProvider,
+} from './providers/nomad-sandbox-provider.js';
+
 // Provider Interface
 export type {
   EventEmittingSandboxProvider,

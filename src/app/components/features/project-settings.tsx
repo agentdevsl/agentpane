@@ -8,6 +8,7 @@ import {
   Gear,
   GitBranch,
   HardDrives,
+  Hexagon,
   Key,
   Lightning,
   Package,
@@ -345,7 +346,7 @@ export function ProjectSettings({
               <p className="font-medium text-fg">Enable Container Sandbox</p>
               <p className="text-sm text-fg-muted">
                 {sandboxConfig.enabled
-                  ? `Agents execute in ${sandboxConfig.provider === 'kubernetes' ? 'Kubernetes pods' : sandboxConfig.provider === 'devcontainer' ? 'DevContainers' : 'Docker containers'}`
+                  ? `Agents execute in ${sandboxConfig.provider === 'kubernetes' ? 'Kubernetes pods' : sandboxConfig.provider === 'nomad' ? 'Nomad jobs' : sandboxConfig.provider === 'devcontainer' ? 'DevContainers' : 'Docker containers'}`
                   : 'Enable to run agents in isolated environments'}
               </p>
             </div>
@@ -367,7 +368,7 @@ export function ProjectSettings({
           )}
         >
           <p className="text-sm font-medium text-fg mb-3">Sandbox Provider</p>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {/* Docker */}
             <button
               type="button"
@@ -467,6 +468,40 @@ export function ProjectSettings({
               <span className="text-xs text-fg-muted text-center">Cluster pods</span>
               {sandboxConfig.provider === 'kubernetes' && (
                 <div className="absolute top-2 right-2 h-2 w-2 rounded-full bg-accent" />
+              )}
+            </button>
+
+            {/* Nomad */}
+            <button
+              type="button"
+              onClick={() => updateSandboxConfig((prev) => ({ ...prev, provider: 'nomad' }))}
+              className={cn(
+                'relative flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all duration-fast',
+                'hover:border-attention/50 hover:bg-attention/5',
+                sandboxConfig.provider === 'nomad'
+                  ? 'border-attention bg-attention/10 shadow-sm'
+                  : 'border-border bg-surface-subtle'
+              )}
+              data-testid="provider-nomad"
+            >
+              <Hexagon
+                className={cn(
+                  'h-8 w-8 transition-colors',
+                  sandboxConfig.provider === 'nomad' ? 'text-attention' : 'text-fg-muted'
+                )}
+                weight={sandboxConfig.provider === 'nomad' ? 'duotone' : 'regular'}
+              />
+              <span
+                className={cn(
+                  'text-sm font-medium',
+                  sandboxConfig.provider === 'nomad' ? 'text-attention' : 'text-fg'
+                )}
+              >
+                Nomad
+              </span>
+              <span className="text-xs text-fg-muted text-center">Scheduled jobs</span>
+              {sandboxConfig.provider === 'nomad' && (
+                <div className="absolute top-2 right-2 h-2 w-2 rounded-full bg-attention" />
               )}
             </button>
           </div>
@@ -605,6 +640,42 @@ export function ProjectSettings({
                   placeholder="agent-runner"
                   disabled={!sandboxConfig.enabled}
                   data-testid="k8s-service-account-input"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Nomad-specific settings */}
+        {sandboxConfig.provider === 'nomad' && (
+          <div
+            className={cn(
+              'mt-6 p-4 rounded-lg border border-border bg-surface-subtle transition-all duration-normal',
+              sandboxConfig.enabled ? 'opacity-100' : 'opacity-40 pointer-events-none'
+            )}
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <Hexagon className="h-5 w-5 text-fg-muted" weight="duotone" />
+              <span className="text-sm font-medium text-fg">Nomad Settings</span>
+            </div>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div>
+                <FieldLabel htmlFor="nomad-namespace">Namespace</FieldLabel>
+                <TextInput
+                  id="nomad-namespace"
+                  value={
+                    (sandboxConfig as ProjectSandboxConfig & { nomadNamespace?: string })
+                      .nomadNamespace ?? 'default'
+                  }
+                  onChange={(e) =>
+                    updateSandboxConfig(
+                      (prev) =>
+                        ({ ...prev, nomadNamespace: e.target.value }) as ProjectSandboxConfig
+                    )
+                  }
+                  placeholder="default"
+                  disabled={!sandboxConfig.enabled}
+                  data-testid="nomad-namespace-input"
                 />
               </div>
             </div>

@@ -16,10 +16,10 @@ export const sandboxStatusSchema = z.object({
   containerStatus: z.enum(['stopped', 'creating', 'running', 'idle', 'error', 'unavailable']),
   /** Docker container ID if available */
   containerId: z.string().nullable(),
-  /** Whether a sandbox provider (Docker or K8s) is available */
+  /** Whether a sandbox provider (Docker, K8s, or Nomad) is available */
   dockerAvailable: z.boolean(),
   /** Active sandbox provider type */
-  provider: z.enum(['docker', 'kubernetes', 'none']).default('none'),
+  provider: z.enum(['docker', 'kubernetes', 'nomad', 'none']).default('none'),
   /** Whether K8s CRDs are installed and ready */
   k8sCrdReady: z.boolean().optional(),
   /** Kubernetes cluster version */
@@ -28,6 +28,14 @@ export const sandboxStatusSchema = z.object({
   k8sPodCount: z.number().optional(),
   /** Number of running sandbox pods */
   k8sPodsRunning: z.number().optional(),
+  /** Whether Nomad cluster is healthy */
+  nomadHealthy: z.boolean().optional(),
+  /** Nomad server version */
+  nomadVersion: z.string().nullable().optional(),
+  /** Nomad cluster leader address */
+  nomadLeader: z.string().nullable().optional(),
+  /** Total number of Nomad sandbox jobs */
+  nomadJobCount: z.number().optional(),
   /** Last updated timestamp */
   updatedAt: z.number(),
 });

@@ -1145,12 +1145,14 @@ export class ContainerAgentService {
       });
 
       // Stage: Worktree - create or recover isolated worktree
-      const isK8sProvider = this.provider.name === 'kubernetes';
+      // Remote providers (K8s, Nomad) need workspace initialization inside the sandbox
+      const needsRemoteWorkspaceInit =
+        this.provider.name === 'kubernetes' || this.provider.name === 'nomad';
       let worktreeId: string | undefined;
       let worktreePath = CONTAINER_WORKSPACE_PATH;
 
-      if (isK8sProvider) {
-        // K8s pods start with empty /workspace — clone + worktree inside the pod
+      if (needsRemoteWorkspaceInit) {
+        // Remote provider pods start with empty /workspace — clone + worktree inside the pod
         const k8sResult = await this.initializeK8sWorkspace({
           sandbox,
           project,

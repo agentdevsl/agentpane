@@ -43,6 +43,7 @@ interface SandboxStatusDeps {
   db: Database;
   getDockerProvider: () => EventEmittingSandboxProvider | null;
   getK8sProvider?: () => K8sProviderHealth | null;
+  getNomadProvider?: () => K8sProviderHealth | null;
 }
 
 // Track in-flight auto-heal to prevent concurrent attempts
@@ -158,6 +159,7 @@ export function createSandboxStatusRoutes({
   db,
   getDockerProvider,
   getK8sProvider,
+  getNomadProvider,
 }: SandboxStatusDeps) {
   const app = new Hono();
 
@@ -270,6 +272,26 @@ export function createSandboxStatusRoutes({
         }
       }
 
+      // Gather Nomad health fields when the provider is available
+      let nomadHealthy = false;
+      let nomadVersion: string | null = null;
+      let nomadLeader: string | null = null;
+      let nomadJobCount = 0;
+
+      const nomadProvider = getNomadProvider?.();
+      if (nomadProvider) {
+        try {
+          const health = await nomadProvider.healthCheck();
+          nomadHealthy = health.healthy;
+          const details = health.details ?? {};
+          nomadVersion = typeof details.version === 'string' ? details.version : null;
+          nomadLeader = typeof details.leader === 'string' ? details.leader : null;
+          nomadJobCount = typeof details.jobCount === 'number' ? details.jobCount : 0;
+        } catch {
+          /* best effort */
+        }
+      }
+
       return json({
         ok: true,
         data: {
@@ -282,6 +304,10 @@ export function createSandboxStatusRoutes({
           k8sClusterVersion,
           k8sPodCount,
           k8sPodsRunning,
+          nomadHealthy,
+          nomadVersion,
+          nomadLeader,
+          nomadJobCount,
         },
       });
     } catch (error) {

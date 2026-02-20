@@ -37,7 +37,7 @@ import { createGitHubRoutes } from './routes/github.js';
 import { createHealthRoutes } from './routes/health.js';
 import { createMarketplacesRoutes } from './routes/marketplaces.js';
 import { createProjectsRoutes } from './routes/projects.js';
-import { createK8sRoutes, createSandboxRoutes } from './routes/sandbox.js';
+import { createK8sRoutes, createNomadRoutes, createSandboxRoutes } from './routes/sandbox.js';
 import { createSandboxStatusRoutes } from './routes/sandbox-status.js';
 import { createSessionsRoutes } from './routes/sessions.js';
 import { createSettingsRoutes } from './routes/settings.js';
@@ -122,6 +122,7 @@ export interface RouterDependencies {
   durableStreamsService?: DurableStreamsService;
   getSandboxProvider?: () => EventEmittingSandboxProvider | null;
   getK8sProvider?: () => K8sProviderHealth | null;
+  getNomadProvider?: () => K8sProviderHealth | null;
   cliMonitorService?: CliMonitorService | null;
   terraformRegistryService?: TerraformRegistryService;
   terraformComposeService?: TerraformComposeService;
@@ -199,9 +200,11 @@ export function createRouter(deps: RouterDependencies) {
       db: deps.db,
       getDockerProvider: deps.getSandboxProvider ?? (() => null),
       getK8sProvider: deps.getK8sProvider,
+      getNomadProvider: deps.getNomadProvider,
     })
   );
   app.route('/api/sandbox/k8s', createK8sRoutes({ db: deps.db }));
+  app.route('/api/sandbox/nomad', createNomadRoutes({ db: deps.db }));
   app.route('/api/keys', createApiKeysRoutes({ apiKeyService: deps.apiKeyService }));
   app.route('/api/filesystem', createFilesystemRoutes());
   app.route(

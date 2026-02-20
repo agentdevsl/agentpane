@@ -161,8 +161,9 @@ export type UpdateTemplateInput = {
   projectIds?: string[];
 };
 
-// Sandbox Config types
-export type SandboxType = 'docker' | 'devcontainer' | 'kubernetes';
+// Sandbox Config types — derived from the canonical SANDBOX_TYPES enum
+import type { SANDBOX_TYPES } from '../../db/schema/shared/enums.js';
+export type SandboxType = (typeof SANDBOX_TYPES)[number];
 
 export type SandboxConfigItem = {
   id: string;
@@ -188,6 +189,12 @@ export type SandboxConfigItem = {
   networkPolicyEnabled?: boolean | null;
   /** Allowed egress hosts for network policies */
   allowedEgressHosts?: string[] | null;
+  // Nomad-specific configuration
+  nomadAddress?: string | null;
+  nomadToken?: string | null;
+  nomadNamespace?: string | null;
+  nomadRegion?: string | null;
+  nomadDatacenter?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -215,6 +222,12 @@ export type CreateSandboxConfigInput = {
   networkPolicyEnabled?: boolean;
   /** Allowed egress hosts for network policies */
   allowedEgressHosts?: string[];
+  // Nomad-specific configuration
+  nomadAddress?: string;
+  nomadToken?: string;
+  nomadNamespace?: string;
+  nomadRegion?: string;
+  nomadDatacenter?: string;
 };
 
 export type UpdateSandboxConfigInput = {
@@ -240,6 +253,12 @@ export type UpdateSandboxConfigInput = {
   networkPolicyEnabled?: boolean;
   /** Allowed egress hosts for network policies */
   allowedEgressHosts?: string[];
+  // Nomad-specific configuration
+  nomadAddress?: string;
+  nomadToken?: string;
+  nomadNamespace?: string;
+  nomadRegion?: string;
+  nomadDatacenter?: string;
 };
 
 // API client methods

@@ -31,6 +31,18 @@ export const sandboxConfigs = sqliteTable('sandbox_configs', {
   /** JSON array of allowed egress hosts for network policies */
   allowedEgressHosts: text('allowed_egress_hosts', { mode: 'json' }).$type<string[]>(),
 
+  // Nomad-specific configuration fields
+  /** Nomad cluster HTTP address (e.g., http://nomad.example.com:4646) */
+  nomadAddress: text('nomad_address'),
+  /** Nomad ACL token for authentication */
+  nomadToken: text('nomad_token'),
+  /** Nomad namespace for sandbox jobs */
+  nomadNamespace: text('nomad_namespace').default('default'),
+  /** Nomad datacenter for job placement */
+  nomadDatacenter: text('nomad_datacenter'),
+  /** Nomad region */
+  nomadRegion: text('nomad_region'),
+
   createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
   updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
 });
