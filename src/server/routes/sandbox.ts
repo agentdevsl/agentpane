@@ -933,7 +933,7 @@ interface NomadRouteDeps {
 /**
  * Validate Nomad address to prevent SSRF attacks against cloud metadata endpoints.
  */
-function validateNomadAddress(address: string): void {
+export function validateNomadAddress(address: string): void {
   let url: URL;
   try {
     url = new URL(address);
