@@ -36,7 +36,10 @@ export async function waitForRunning(
     );
     if (
       failed &&
-      allocations.every((a) => a.ClientStatus === 'failed' || a.ClientStatus === 'lost')
+      allocations.every(
+        (a) =>
+          a.ClientStatus === 'failed' || a.ClientStatus === 'lost' || a.ClientStatus === 'complete'
+      )
     ) {
       const taskStates = failed.TaskStates ?? {};
       const events = Object.values(taskStates).flatMap((ts) =>

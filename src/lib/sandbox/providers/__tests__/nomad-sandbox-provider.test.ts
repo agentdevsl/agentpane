@@ -73,8 +73,10 @@ const createMockClient = (): MockNomadSandboxClient => ({
   watchJob: vi.fn().mockReturnValue({ stop: vi.fn() }),
 });
 
-// Mock @agentpane/nomad-sandbox-sdk
-vi.mock('@agentpane/nomad-sandbox-sdk', () => {
+// Mock @agentpane/nomad-sandbox-sdk — preserve real error classes for instanceof checks
+vi.mock('@agentpane/nomad-sandbox-sdk', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@agentpane/nomad-sandbox-sdk')>();
+
   class MockNomadJobBuilder {
     private _name: string;
     constructor(name: string) {
@@ -101,22 +103,9 @@ vi.mock('@agentpane/nomad-sandbox-sdk', () => {
   }
 
   return {
+    ...actual,
     NomadSandboxClient: vi.fn(),
     NomadJobBuilder: MockNomadJobBuilder,
-    NOMAD_JOB_PREFIX: 'agentpane-',
-    NOMAD_META: {
-      SANDBOX_ID: 'agentpane-sandbox-id',
-      PROJECT_ID: 'agentpane-project-id',
-      TASK_ID: 'agentpane-task-id',
-    },
-    NOMAD_DEFAULTS: {
-      address: 'http://127.0.0.1:4646',
-      namespace: 'default',
-      region: 'global',
-      datacenter: 'dc1',
-      waitTimeout: '30s',
-      readyTimeoutMs: 120_000,
-    },
   };
 });
 
@@ -125,6 +114,7 @@ vi.mock('@paralleldrive/cuid2', () => ({
   createId: vi.fn(() => 'test-cuid-12345678'),
 }));
 
+import { NotFoundError } from '@agentpane/nomad-sandbox-sdk';
 import { NomadSandboxInstance } from '../nomad-sandbox-instance.js';
 // Import after mocks
 import {
@@ -197,7 +187,8 @@ describe('NomadSandboxProvider', () => {
     });
 
     it('maps unknown status to "error"', () => {
-      expect(mapNomadJobStatus('unknown-status')).toBe('error');
+      // Cast to test runtime defensive behavior with unexpected values
+      expect(mapNomadJobStatus('unknown-status' as unknown as undefined)).toBe('error');
     });
   });
 
@@ -927,7 +918,7 @@ describe('NomadSandboxInstance', () => {
 
       const callArgs = mockClient.execStream.mock.calls[0]![0] as { command: string[] };
       expect(callArgs.command[0]).toBe('env');
-      expect(callArgs.command).toContain('FOO=bar');
+      expect(callArgs.command).toContain("FOO='bar'");
     });
 
     it('returns ExecStreamResult with stdout and stderr', async () => {
@@ -1057,8 +1048,7 @@ describe('NomadSandboxInstance', () => {
     });
 
     it('sets status to stopped when job not found (NotFoundError)', async () => {
-      const notFound = new Error('not found');
-      notFound.name = 'NotFoundError';
+      const notFound = new NotFoundError('job', 'test-job');
       mockClient.getJob.mockRejectedValue(notFound);
 
       await instance.refreshStatus();

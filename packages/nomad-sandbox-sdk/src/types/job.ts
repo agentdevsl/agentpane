@@ -43,7 +43,7 @@ export interface NomadNetworkResource {
  */
 export interface NomadTask {
   Name: string;
-  Driver: 'docker' | 'exec' | 'raw_exec' | 'java' | 'qemu';
+  Driver: 'docker';
   Config?: NomadDockerConfig;
   Resources?: NomadResources;
   Env?: Record<string, string>;

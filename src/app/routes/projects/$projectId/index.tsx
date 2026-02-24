@@ -328,6 +328,10 @@ function ProjectKanban(): React.JSX.Element {
               k8sClusterVersion={sandboxStatus.k8sClusterVersion}
               k8sPodCount={sandboxStatus.k8sPodCount}
               k8sPodsRunning={sandboxStatus.k8sPodsRunning}
+              nomadHealthy={sandboxStatus.nomadHealthy}
+              nomadVersion={sandboxStatus.nomadVersion}
+              nomadLeader={sandboxStatus.nomadLeader}
+              nomadJobCount={sandboxStatus.nomadJobCount}
             />
           )}
           <Link

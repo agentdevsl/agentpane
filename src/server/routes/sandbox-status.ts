@@ -298,7 +298,7 @@ export function createSandboxStatusRoutes({
           mode: sandboxMode,
           containerStatus,
           containerId,
-          providerAvailable: !!dockerProvider,
+          providerAvailable: !!dockerProvider || !!k8sProvider || !!nomadProvider,
           provider: dockerProvider?.name ?? 'none',
           k8sCrdReady,
           k8sClusterVersion,

@@ -2,6 +2,16 @@ import { NOMAD_DEFAULTS } from './constants.js';
 import { ConnectionError, NomadApiError, NotFoundError } from './errors.js';
 import type { NomadClientOptions } from './types/common.js';
 
+/** Parse a Nomad duration string (e.g., '30s', '5m', '1m30s') to milliseconds. */
+function parseNomadDuration(duration: string): number {
+  let totalMs = 0;
+  const minuteMatch = duration.match(/(\d+)m(?!s)/);
+  const secondMatch = duration.match(/(\d+)s/);
+  if (minuteMatch) totalMs += parseInt(minuteMatch[1] ?? '0', 10) * 60_000;
+  if (secondMatch) totalMs += parseInt(secondMatch[1] ?? '0', 10) * 1_000;
+  return totalMs || parseInt(duration, 10) * 1_000;
+}
+
 /**
  * Low-level HTTP client for the Nomad API.
  * Handles authentication, namespace scoping, and error mapping.
@@ -16,6 +26,19 @@ export class NomadHttpClient {
     const address = options?.address ?? NOMAD_DEFAULTS.address;
     // Strip trailing slash
     this.baseUrl = address.endsWith('/') ? address.slice(0, -1) : address;
+
+    try {
+      const parsed = new URL(address);
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        throw new Error(`Invalid Nomad address protocol: ${parsed.protocol}`);
+      }
+    } catch (error) {
+      if (error instanceof TypeError) {
+        throw new Error(`Invalid Nomad address URL: ${address}`);
+      }
+      throw error;
+    }
+
     this.token = options?.token;
     this.namespace = options?.namespace ?? NOMAD_DEFAULTS.namespace;
     this.region = options?.region;
@@ -121,7 +144,8 @@ export class NomadHttpClient {
   async blockingQuery<T>(
     path: string,
     index: number,
-    wait?: string
+    wait?: string,
+    signal?: AbortSignal
   ): Promise<{ data: T; index: number }> {
     const effectiveWait = wait ?? NOMAD_DEFAULTS.waitTimeout;
     const url = this.buildUrl(path, {
@@ -138,9 +162,18 @@ export class NomadHttpClient {
     }
 
     // Parse wait duration and add a 10s buffer for the fetch timeout
-    const waitMs = parseInt(effectiveWait, 10) * 1000;
+    const waitMs = parseNomadDuration(effectiveWait);
     const abortController = new AbortController();
     const timeoutId = setTimeout(() => abortController.abort(), waitMs + 10_000);
+
+    // Link external signal if provided
+    if (signal) {
+      if (signal.aborted) {
+        clearTimeout(timeoutId);
+        throw new ConnectionError(this.baseUrl, new Error(`Request aborted for ${path}`));
+      }
+      signal.addEventListener('abort', () => abortController.abort(), { once: true });
+    }
 
     let response: Response;
     try {
@@ -173,7 +206,9 @@ export class NomadHttpClient {
       );
     }
 
-    const newIndex = parseInt(response.headers.get('X-Nomad-Index') ?? '0', 10);
+    const rawIndex = response.headers.get('X-Nomad-Index');
+    const currentIndex = index;
+    const newIndex = rawIndex !== null ? parseInt(rawIndex, 10) : currentIndex + 1;
     const text = await response.text();
 
     let data: T;

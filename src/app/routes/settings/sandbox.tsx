@@ -32,9 +32,8 @@ import {
   type SandboxConfigItem,
   type UpdateSandboxConfigInput,
 } from '@/lib/api/client';
+import type { SandboxProvider } from '@/lib/sandbox/types';
 import { cn } from '@/lib/utils/cn';
-
-type SandboxProvider = 'docker' | 'devcontainer' | 'kubernetes' | 'nomad';
 
 // Sandbox container mode: shared or per-project
 type SandboxContainerMode = 'shared' | 'per-project';
@@ -730,11 +729,15 @@ function SandboxSettingsPage(): React.JSX.Element {
 
   const handleSaveProvider = async () => {
     setIsSavingProvider(true);
-    // TODO: Implement provider persistence via settings API
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    setProviderSaved(true);
-    setTimeout(() => setProviderSaved(false), 2000);
-    setIsSavingProvider(false);
+    try {
+      await saveDefaultSettings();
+      setProviderSaved(true);
+      setTimeout(() => setProviderSaved(false), 2000);
+    } catch (error) {
+      console.error('Failed to save provider settings:', error);
+    } finally {
+      setIsSavingProvider(false);
+    }
   };
 
   const resetForm = () => {

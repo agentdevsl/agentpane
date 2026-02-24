@@ -13,7 +13,7 @@ import type { SandboxType } from '../../db/schema/shared/enums.js';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { SandboxConfigService } from '../../services/sandbox-config.service.js';
 import type { Database } from '../../types/database.js';
-import { json } from '../shared.js';
+import { isValidId, json } from '../shared.js';
 
 const log = createLogger('NomadRoutes');
 
@@ -39,8 +39,8 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
       return json({
         ok: true,
         data: {
-          items: result.value,
-          totalCount: result.value.length,
+          items: result.value.map(({ nomadToken, ...rest }) => rest),
+          count: result.value.length,
         },
       });
     } catch (error) {
@@ -129,7 +129,8 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
         return json({ ok: false, error: result.error }, result.error.status);
       }
 
-      return json({ ok: true, data: result.value }, 201);
+      const { nomadToken: _token, ...safeConfig } = result.value;
+      return json({ ok: true, data: safeConfig }, 201);
     } catch (error) {
       console.error('[SandboxConfigs] Create error:', error);
       return json(
@@ -142,6 +143,9 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
   // GET /api/sandbox-configs/:id
   app.get('/:id', async (c) => {
     const id = c.req.param('id');
+    if (!isValidId(id)) {
+      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID format' } }, 400);
+    }
 
     try {
       const result = await sandboxConfigService.getById(id);
@@ -150,7 +154,8 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
         return json({ ok: false, error: result.error }, result.error.status);
       }
 
-      return json({ ok: true, data: result.value });
+      const { nomadToken: _token, ...safeConfig } = result.value;
+      return json({ ok: true, data: safeConfig });
     } catch (error) {
       console.error('[SandboxConfigs] Get error:', error);
       return json(
@@ -163,6 +168,9 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
   // PATCH /api/sandbox-configs/:id
   app.patch('/:id', async (c) => {
     const id = c.req.param('id');
+    if (!isValidId(id)) {
+      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID format' } }, 400);
+    }
 
     try {
       const body = (await c.req.json()) as {
@@ -232,7 +240,8 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
         return json({ ok: false, error: result.error }, result.error.status);
       }
 
-      return json({ ok: true, data: result.value });
+      const { nomadToken: _token, ...safeConfig } = result.value;
+      return json({ ok: true, data: safeConfig });
     } catch (error) {
       console.error('[SandboxConfigs] Update error:', error);
       return json(
@@ -245,6 +254,9 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
   // DELETE /api/sandbox-configs/:id
   app.delete('/:id', async (c) => {
     const id = c.req.param('id');
+    if (!isValidId(id)) {
+      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID format' } }, 400);
+    }
 
     try {
       const result = await sandboxConfigService.delete(id);
@@ -1132,19 +1144,19 @@ export function createNomadRoutes(deps?: NomadRouteDeps) {
 
   // GET /api/sandbox/nomad/status - Nomad cluster health
   app.get('/status', async (c) => {
-    const { address, token, namespace } = await loadNomadSettings(deps?.db, {
-      address: c.req.query('address') ?? undefined,
-      namespace: c.req.query('namespace') ?? undefined,
-    });
-
-    if (!address) {
-      return json({
-        ok: true,
-        data: { healthy: false, message: 'No Nomad address configured' },
-      });
-    }
-
     try {
+      const { address, token, namespace } = await loadNomadSettings(deps?.db, {
+        address: c.req.query('address') ?? undefined,
+        namespace: c.req.query('namespace') ?? undefined,
+      });
+
+      if (!address) {
+        return json({
+          ok: true,
+          data: { healthy: false, message: 'No Nomad address configured' },
+        });
+      }
+
       const client = await getNomadClient({ address, token, namespace });
       const health = await client.healthCheck();
 
@@ -1180,22 +1192,22 @@ export function createNomadRoutes(deps?: NomadRouteDeps) {
 
   // GET /api/sandbox/nomad/namespaces
   app.get('/namespaces', async (c) => {
-    const { address, token, namespace } = await loadNomadSettings(deps?.db, {
-      address: c.req.query('address') ?? undefined,
-      namespace: c.req.query('namespace') ?? undefined,
-    });
-
-    if (!address) {
-      return json(
-        {
-          ok: false,
-          error: { code: 'NOMAD_NOT_CONFIGURED', message: 'No Nomad address configured' },
-        },
-        400
-      );
-    }
-
     try {
+      const { address, token, namespace } = await loadNomadSettings(deps?.db, {
+        address: c.req.query('address') ?? undefined,
+        namespace: c.req.query('namespace') ?? undefined,
+      });
+
+      if (!address) {
+        return json(
+          {
+            ok: false,
+            error: { code: 'NOMAD_NOT_CONFIGURED', message: 'No Nomad address configured' },
+          },
+          400
+        );
+      }
+
       const client = await getNomadClient({ address, token, namespace });
       const namespaces = await client.listNamespaces();
       return json({ ok: true, data: { namespaces } });
@@ -1207,22 +1219,22 @@ export function createNomadRoutes(deps?: NomadRouteDeps) {
 
   // GET /api/sandbox/nomad/datacenters
   app.get('/datacenters', async (c) => {
-    const { address, token, namespace } = await loadNomadSettings(deps?.db, {
-      address: c.req.query('address') ?? undefined,
-      namespace: c.req.query('namespace') ?? undefined,
-    });
-
-    if (!address) {
-      return json(
-        {
-          ok: false,
-          error: { code: 'NOMAD_NOT_CONFIGURED', message: 'No Nomad address configured' },
-        },
-        400
-      );
-    }
-
     try {
+      const { address, token, namespace } = await loadNomadSettings(deps?.db, {
+        address: c.req.query('address') ?? undefined,
+        namespace: c.req.query('namespace') ?? undefined,
+      });
+
+      if (!address) {
+        return json(
+          {
+            ok: false,
+            error: { code: 'NOMAD_NOT_CONFIGURED', message: 'No Nomad address configured' },
+          },
+          400
+        );
+      }
+
       const client = await getNomadClient({ address, token, namespace });
       const datacenters = await client.listDatacenters();
       return json({ ok: true, data: { datacenters } });

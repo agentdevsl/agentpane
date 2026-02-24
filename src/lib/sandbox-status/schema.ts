@@ -14,7 +14,15 @@ export const sandboxStatusSchema = z.object({
   /** Sandbox mode: shared container or per-project */
   mode: z.enum(['shared', 'per-project']),
   /** Current container status */
-  containerStatus: z.enum(['stopped', 'creating', 'running', 'idle', 'error', 'unavailable']),
+  containerStatus: z.enum([
+    'stopped',
+    'creating',
+    'running',
+    'idle',
+    'stopping',
+    'error',
+    'unavailable',
+  ]),
   /** Docker container ID if available */
   containerId: z.string().nullable(),
   /** Whether a sandbox provider (Docker, K8s, or Nomad) is available */

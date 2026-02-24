@@ -121,8 +121,18 @@ export class NomadJobBuilder {
   }
 
   /** Set the restart policy */
-  restartPolicy(attempts: number, mode: 'delay' | 'fail' = 'fail'): this {
-    this.groupSpec.RestartPolicy = { Attempts: attempts, Mode: mode };
+  restartPolicy(opts: {
+    attempts: number;
+    mode?: 'delay' | 'fail';
+    interval?: number;
+    delay?: number;
+  }): this {
+    this.groupSpec.RestartPolicy = {
+      Attempts: opts.attempts,
+      Mode: opts.mode ?? 'fail',
+      ...(opts.interval != null && { Interval: opts.interval }),
+      ...(opts.delay != null && { Delay: opts.delay }),
+    };
     return this;
   }
 

@@ -42,17 +42,24 @@ export function watchJob(
   let currentIndex = 0;
   const wait = options?.wait ?? '30s';
   const minPollMs = options?.minPollMs ?? 500;
+  const abortController = new AbortController();
 
   const poll = async () => {
+    let consecutiveErrors = 0;
+
     while (!stopped) {
       try {
         const result = await http.blockingQuery<NomadJob>(
           `/v1/job/${encodeURIComponent(jobId)}`,
           currentIndex,
-          wait
+          wait,
+          abortController.signal
         );
 
         if (stopped) break;
+
+        // Reset consecutive error counter on success
+        consecutiveErrors = 0;
 
         // Only invoke callback if index actually changed
         if (result.index > currentIndex) {
@@ -82,6 +89,16 @@ export function watchJob(
           `[NomadSDK] Watch poll error for ${jobId}:`,
           error instanceof Error ? error.message : String(error)
         );
+
+        consecutiveErrors++;
+        if (consecutiveErrors >= 10) {
+          const errMsg = error instanceof Error ? error.message : String(error);
+          options?.onError?.(
+            new Error(`Watch loop stopped after 10 consecutive errors: ${errMsg}`)
+          );
+          break;
+        }
+
         // Back off on retryable errors
         await sleep(2000);
       }
@@ -96,6 +113,7 @@ export function watchJob(
   return {
     stop() {
       stopped = true;
+      abortController.abort();
     },
   };
 }

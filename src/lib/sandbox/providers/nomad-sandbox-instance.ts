@@ -1,5 +1,11 @@
 import { PassThrough, type Readable } from 'node:stream';
-import { type NomadSandboxClient, NotFoundError } from '@agentpane/nomad-sandbox-sdk';
+import type { NomadAllocClientStatus } from '@agentpane/nomad-sandbox-sdk';
+import {
+  ConnectionError,
+  type NomadSandboxClient,
+  NotFoundError,
+  TimeoutError,
+} from '@agentpane/nomad-sandbox-sdk';
 import { NomadErrors } from '../../errors/nomad-errors.js';
 import { createLogger } from '../../logging/logger.js';
 import type { ExecResult, SandboxMetrics, SandboxStatus, TmuxSession } from '../types.js';
@@ -75,6 +81,12 @@ export class NomadSandboxInstance implements Sandbox {
         stderr: result.stderr.trim(),
       };
     } catch (error) {
+      if (error instanceof TimeoutError) {
+        throw NomadErrors.EXEC_TIMEOUT(cmd, 60_000);
+      }
+      if (error instanceof ConnectionError) {
+        throw NomadErrors.CLUSTER_UNREACHABLE('nomad', error.message);
+      }
       const message = error instanceof Error ? error.message : String(error);
       throw NomadErrors.EXEC_FAILED(cmd, message);
     }
@@ -169,7 +181,7 @@ export class NomadSandboxInstance implements Sandbox {
           ];
         }
       } else {
-        fullCmd = ['env', ...envEntries.map(([k, v]) => `${k}=${v}`), ...fullCmd];
+        fullCmd = ['env', ...envEntries.map(([k, v]) => `${k}=${this.shellEscape(v)}`), ...fullCmd];
       }
     }
 
@@ -447,7 +459,7 @@ export class NomadSandboxInstance implements Sandbox {
    *
    * Nomad alloc statuses: 'pending' | 'running' | 'complete' | 'failed' | 'lost'
    */
-  private mapAllocStatusToSandboxStatus(clientStatus?: string): SandboxStatus {
+  private mapAllocStatusToSandboxStatus(clientStatus?: NomadAllocClientStatus): SandboxStatus {
     switch (clientStatus) {
       case 'complete':
         return 'stopped';

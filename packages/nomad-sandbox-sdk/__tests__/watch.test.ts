@@ -80,9 +80,27 @@ describe('watchJob', () => {
     await flushLoop();
 
     // Verify incrementing index: first call index=0, second call index=1, third call index=2
-    expect(http.blockingQuery).toHaveBeenNthCalledWith(1, '/v1/job/test-job', 0, '5s');
-    expect(http.blockingQuery).toHaveBeenNthCalledWith(2, '/v1/job/test-job', 1, '5s');
-    expect(http.blockingQuery).toHaveBeenNthCalledWith(3, '/v1/job/test-job', 2, '5s');
+    expect(http.blockingQuery).toHaveBeenNthCalledWith(
+      1,
+      '/v1/job/test-job',
+      0,
+      '5s',
+      expect.any(AbortSignal)
+    );
+    expect(http.blockingQuery).toHaveBeenNthCalledWith(
+      2,
+      '/v1/job/test-job',
+      1,
+      '5s',
+      expect.any(AbortSignal)
+    );
+    expect(http.blockingQuery).toHaveBeenNthCalledWith(
+      3,
+      '/v1/job/test-job',
+      2,
+      '5s',
+      expect.any(AbortSignal)
+    );
   });
 
   it('invokes callback with updated job data when index changes', async () => {
@@ -272,7 +290,12 @@ describe('watchJob', () => {
 
     handle.stop();
 
-    expect(http.blockingQuery).toHaveBeenCalledWith('/v1/job/default-job', 0, '30s');
+    expect(http.blockingQuery).toHaveBeenCalledWith(
+      '/v1/job/default-job',
+      0,
+      '30s',
+      expect.any(AbortSignal)
+    );
   });
 
   it('URL-encodes the jobId in the path', async () => {
@@ -294,6 +317,11 @@ describe('watchJob', () => {
 
     handle.stop();
 
-    expect(http.blockingQuery).toHaveBeenCalledWith('/v1/job/my%2Fspecial%20job', 0, '30s');
+    expect(http.blockingQuery).toHaveBeenCalledWith(
+      '/v1/job/my%2Fspecial%20job',
+      0,
+      '30s',
+      expect.any(AbortSignal)
+    );
   });
 });

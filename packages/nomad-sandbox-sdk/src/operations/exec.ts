@@ -22,10 +22,14 @@ function buildExecWsUrl(
   const url = new URL(`${base}/v1/client/allocation/${encodeURIComponent(allocId)}/exec`);
   url.searchParams.set('task', task);
   url.searchParams.set('tty', tty ? 'true' : 'false');
-  // Nomad expects command as a single JSON-encoded array, not multiple params
-  url.searchParams.set('command', JSON.stringify(command));
+  // Nomad expects command as repeated query parameters
+  for (const arg of command) {
+    url.searchParams.append('command', arg);
+  }
   if (token) {
-    url.searchParams.set('X-Nomad-Token', token);
+    // Nomad accepts auth via ?token= query param for WebSocket connections
+    // where custom headers are not supported
+    url.searchParams.set('token', token);
   }
   return url.toString();
 }
@@ -50,8 +54,8 @@ function encodeBase64Bytes(data: Uint8Array): string {
     return Buffer.from(data).toString('base64');
   }
   let binary = '';
-  for (let i = 0; i < data.length; i++) {
-    binary += String.fromCharCode(data[i]!);
+  for (const byte of data) {
+    binary += String.fromCharCode(byte);
   }
   return btoa(binary);
 }
@@ -71,6 +75,7 @@ export async function execInAllocation(
     let stdout = '';
     let stderr = '';
     let settled = false;
+    let parseFailures = 0;
 
     const ws = new WebSocket(wsUrl);
 
@@ -100,12 +105,22 @@ export async function execInAllocation(
       try {
         frame = JSON.parse(raw);
       } catch (err) {
+        parseFailures++;
         console.error(
           '[NomadSDK] Failed to parse exec frame:',
           err instanceof Error ? err.message : String(err)
         );
+        if (parseFailures >= 3 && !settled) {
+          settled = true;
+          clearTimeout(timeoutId);
+          ws.close();
+          reject(new ExecError(1, `Too many unparseable frames (${parseFailures})`));
+        }
         return;
       }
+
+      // Reset on successful parse
+      parseFailures = 0;
 
       // Let base64 decode errors and other errors propagate naturally
       if (frame.stdout?.data) {
@@ -135,10 +150,18 @@ export async function execInAllocation(
     };
 
     ws.onclose = (event) => {
-      if (!event.wasClean && !settled) {
+      if (!settled) {
         settled = true;
         clearTimeout(timeoutId);
-        reject(new ExecError(1, `WebSocket closed unexpectedly: code=${event.code}`));
+        if (!event.wasClean) {
+          reject(new ExecError(1, `WebSocket closed unexpectedly: code=${event.code}`));
+        } else {
+          resolve({
+            exitCode: 1,
+            stdout: stdout.trimEnd(),
+            stderr: stderr.trimEnd(),
+          });
+        }
       }
     };
   });
@@ -203,6 +226,8 @@ export function execStreamInAllocation(
     write(chunk) {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ stdin: { data: encodeBase64Bytes(chunk) } }));
+      } else {
+        throw new Error(`Cannot write to stdin: WebSocket is not open (state=${ws.readyState})`);
       }
     },
     close() {
@@ -214,6 +239,8 @@ export function execStreamInAllocation(
   });
 
   const encoder = new TextEncoder();
+
+  let parseFailures = 0;
 
   ws.onmessage = (event) => {
     const raw = String(event.data);
@@ -233,12 +260,23 @@ export function execStreamInAllocation(
     try {
       frame = JSON.parse(raw);
     } catch (err) {
+      parseFailures++;
       console.error(
         '[NomadSDK] Failed to parse exec stream frame:',
         err instanceof Error ? err.message : String(err)
       );
+      if (parseFailures >= 3 && !streamSettled) {
+        streamSettled = true;
+        if (streamTimeoutId) clearTimeout(streamTimeoutId);
+        ws.close();
+        closeControllers();
+        rejectWait(new ExecError(1, `Too many unparseable frames (${parseFailures})`));
+      }
       return;
     }
+
+    // Reset on successful parse
+    parseFailures = 0;
 
     // Let base64 decode and controller.enqueue errors propagate naturally
     if (frame.stdout?.data) {
@@ -249,6 +287,7 @@ export function execStreamInAllocation(
     }
     if (frame.exited && !streamSettled) {
       streamSettled = true;
+      if (streamTimeoutId) clearTimeout(streamTimeoutId);
       closeControllers();
       ws.close();
       resolveWait({ exitCode: frame.result?.exit_code ?? 1 });
@@ -258,6 +297,7 @@ export function execStreamInAllocation(
   ws.onerror = () => {
     if (!streamSettled) {
       streamSettled = true;
+      if (streamTimeoutId) clearTimeout(streamTimeoutId);
       const err = new ExecError(1, 'WebSocket error during streaming exec');
       closeControllers();
       rejectWait(err);
@@ -265,15 +305,21 @@ export function execStreamInAllocation(
   };
 
   ws.onclose = (event) => {
-    if (!event.wasClean && !streamSettled) {
+    if (!streamSettled) {
       streamSettled = true;
+      if (streamTimeoutId) clearTimeout(streamTimeoutId);
       closeControllers();
-      rejectWait(new ExecError(1, `WebSocket closed unexpectedly: code=${event.code}`));
+      if (!event.wasClean) {
+        rejectWait(new ExecError(1, `WebSocket closed unexpectedly: code=${event.code}`));
+      } else {
+        rejectWait(new ExecError(1, 'WebSocket closed without exit frame'));
+      }
     }
   };
 
+  let streamTimeoutId: ReturnType<typeof setTimeout> | undefined;
   if (timeoutMs) {
-    setTimeout(() => {
+    streamTimeoutId = setTimeout(() => {
       if (!streamSettled) {
         streamSettled = true;
         ws.close();
@@ -289,8 +335,13 @@ export function execStreamInAllocation(
     stdin: stdinStream,
     wait: () => waitPromise,
     kill: () => {
-      ws.close();
-      closeControllers();
+      if (!streamSettled) {
+        streamSettled = true;
+        ws.close();
+        closeControllers();
+        if (streamTimeoutId) clearTimeout(streamTimeoutId);
+        rejectWait(new ExecError(1, 'Exec stream killed'));
+      }
     },
   };
 }

@@ -24,12 +24,9 @@ export interface ExecResult {
 }
 
 /**
- * Options for streaming exec
+ * Options for streaming exec (inherits all fields from ExecOptions including timeoutMs)
  */
-export interface ExecStreamOptions extends ExecOptions {
-  /** Timeout in milliseconds */
-  timeoutMs?: number;
-}
+export type ExecStreamOptions = ExecOptions;
 
 /**
  * Result of a streaming exec

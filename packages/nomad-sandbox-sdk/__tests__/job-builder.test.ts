@@ -186,7 +186,10 @@ describe('NomadJobBuilder', () => {
     });
 
     it('.restartPolicy() sets restart policy on the group', () => {
-      const job = new NomadJobBuilder('test').image('alpine').restartPolicy(3, 'delay').build();
+      const job = new NomadJobBuilder('test')
+        .image('alpine')
+        .restartPolicy({ attempts: 3, mode: 'delay' })
+        .build();
       expect(job.TaskGroups[0].RestartPolicy).toEqual({
         Attempts: 3,
         Mode: 'delay',
@@ -194,10 +197,26 @@ describe('NomadJobBuilder', () => {
     });
 
     it('.restartPolicy() defaults mode to fail', () => {
-      const job = new NomadJobBuilder('test').image('alpine').restartPolicy(0).build();
+      const job = new NomadJobBuilder('test')
+        .image('alpine')
+        .restartPolicy({ attempts: 0 })
+        .build();
       expect(job.TaskGroups[0].RestartPolicy).toEqual({
         Attempts: 0,
         Mode: 'fail',
+      });
+    });
+
+    it('.restartPolicy() accepts interval and delay', () => {
+      const job = new NomadJobBuilder('test')
+        .image('alpine')
+        .restartPolicy({ attempts: 2, mode: 'delay', interval: 300000000000, delay: 15000000000 })
+        .build();
+      expect(job.TaskGroups[0].RestartPolicy).toEqual({
+        Attempts: 2,
+        Mode: 'delay',
+        Interval: 300000000000,
+        Delay: 15000000000,
       });
     });
 
@@ -226,7 +245,7 @@ describe('NomadJobBuilder', () => {
       expect(builder.constraint('a', '=', 'b')).toBe(builder);
       expect(builder.agentPaneContext({ projectId: 'p1' })).toBe(builder);
       expect(builder.type('batch')).toBe(builder);
-      expect(builder.restartPolicy(0)).toBe(builder);
+      expect(builder.restartPolicy({ attempts: 0 })).toBe(builder);
       expect(builder.ephemeralDisk(100)).toBe(builder);
     });
   });

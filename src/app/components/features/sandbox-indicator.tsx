@@ -8,7 +8,14 @@ import {
 } from '@/app/components/ui/tooltip';
 import { cn } from '@/lib/utils/cn';
 
-export type ContainerStatus = 'stopped' | 'creating' | 'running' | 'idle' | 'error' | 'unavailable';
+export type ContainerStatus =
+  | 'stopped'
+  | 'creating'
+  | 'running'
+  | 'idle'
+  | 'stopping'
+  | 'error'
+  | 'unavailable';
 
 export type SandboxProviderType = 'docker' | 'devcontainer' | 'kubernetes' | 'nomad' | 'none';
 
@@ -19,6 +26,7 @@ const statusDotVariants = cva('h-2 w-2 rounded-full', {
       running: 'bg-success',
       idle: 'bg-attention',
       stopped: 'bg-fg-muted',
+      stopping: 'bg-fg-muted animate-pulse',
       error: 'bg-danger',
       unavailable: 'bg-fg-muted opacity-50',
     },
@@ -38,6 +46,8 @@ function getStatusLabel(status: ContainerStatus): string {
       return 'Idle';
     case 'stopped':
       return 'Offline';
+    case 'stopping':
+      return 'Stopping';
     case 'error':
       return 'Error';
     case 'unavailable':

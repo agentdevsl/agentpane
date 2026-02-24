@@ -228,24 +228,25 @@ if (DB_MODE === 'postgres') {
   sqlite.exec(TERRAFORM_MIGRATION_SQL);
   log.info('Terraform migration applied');
 
-  // Apply Nomad sandbox columns migration (may fail if columns already exist)
-  try {
-    sqlite.exec(`
-      ALTER TABLE sandbox_configs ADD COLUMN nomad_address TEXT;
-      ALTER TABLE sandbox_configs ADD COLUMN nomad_token TEXT;
-      ALTER TABLE sandbox_configs ADD COLUMN nomad_namespace TEXT DEFAULT 'default';
-      ALTER TABLE sandbox_configs ADD COLUMN nomad_datacenter TEXT;
-      ALTER TABLE sandbox_configs ADD COLUMN nomad_region TEXT;
-    `);
-    log.info('[API Server] Nomad sandbox columns migration applied');
-  } catch (error) {
-    if (!(error instanceof Error && error.message.includes('duplicate column name'))) {
-      console.warn(
-        '[API Server] Nomad sandbox columns migration error (unexpected):',
-        error instanceof Error ? error.message : String(error)
-      );
+  // Nomad sandbox columns — run individually for partial-failure safety
+  const nomadColumns = [
+    `ALTER TABLE sandbox_configs ADD COLUMN nomad_address TEXT`,
+    `ALTER TABLE sandbox_configs ADD COLUMN nomad_token TEXT`,
+    `ALTER TABLE sandbox_configs ADD COLUMN nomad_namespace TEXT DEFAULT 'default'`,
+    `ALTER TABLE sandbox_configs ADD COLUMN nomad_datacenter TEXT`,
+    `ALTER TABLE sandbox_configs ADD COLUMN nomad_region TEXT`,
+  ];
+  for (const sql of nomadColumns) {
+    try {
+      sqlite.exec(sql);
+    } catch (error) {
+      if (!(error instanceof Error && error.message.includes('duplicate column name'))) {
+        console.warn(
+          '[API Server] Nomad migration error:',
+          error instanceof Error ? error.message : String(error)
+        );
+      }
     }
-    // Silently ignore duplicate column errors (expected when migration already applied)
   }
 
   // Apply agents parent_agent_id migration (may fail if column already exists)
@@ -1266,10 +1267,10 @@ async function initSandboxProvider() {
             try {
               nomadSettings.token = decryptToken(nomadSettings.token);
             } catch (decryptErr) {
-              // Token may be stored in plaintext (pre-encryption migration) — use as-is
-              log.warn('[API Server] Nomad token decryption failed, using raw value', {
-                error: decryptErr instanceof Error ? decryptErr.message : String(decryptErr),
+              log.error('[API Server] Nomad token decryption failed, token must be re-entered', {
+                error: decryptErr instanceof Error ? decryptErr : new Error(String(decryptErr)),
               });
+              nomadSettings.token = undefined;
             }
           }
         }

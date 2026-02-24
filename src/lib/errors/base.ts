@@ -3,6 +3,7 @@ export interface AppError {
   message: string;
   status: number;
   details?: Record<string, unknown>;
+  toString(): string;
 }
 
 export const createError = (
@@ -15,6 +16,9 @@ export const createError = (
   message,
   status,
   details,
+  toString() {
+    return message;
+  },
 });
 
 export class AppErrorClass extends Error implements AppError {
