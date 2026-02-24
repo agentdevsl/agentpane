@@ -66,6 +66,8 @@ function getStatusDescription(status: ContainerStatus, provider: SandboxProvider
       return `${target} is online and ready for agent tasks`;
     case 'idle':
       return `${target} is online but idle (will auto-stop after timeout)`;
+    case 'stopping':
+      return `${target} is shutting down...`;
     case 'stopped':
       return `${target} is offline. It will start automatically when an agent runs.`;
     case 'error':

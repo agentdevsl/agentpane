@@ -66,8 +66,10 @@ async function loadSandboxDefaults(db: Database) {
         idleTimeoutMinutes?: number;
       };
     }
-  } catch {
-    // Use built-in defaults
+  } catch (err) {
+    log.warn('Failed to load sandbox defaults from database, using built-in defaults', {
+      error: err instanceof Error ? err : new Error(String(err)),
+    });
   }
   return null;
 }
@@ -214,7 +216,10 @@ export function createSandboxStatusRoutes({
           } else {
             containerStatus = 'stopped';
           }
-        } catch {
+        } catch (err) {
+          log.warn('Docker sandbox lookup failed', {
+            error: err instanceof Error ? err : new Error(String(err)),
+          });
           containerStatus = 'error';
         }
       }
@@ -239,8 +244,10 @@ export function createSandboxStatusRoutes({
               const sandboxes = await k8sProvider.listSandboxes();
               k8sPodCount = sandboxes.length;
               k8sPodsRunning = sandboxes.filter((s) => s.phase === 'Running').length;
-            } catch {
-              // Best effort
+            } catch (err) {
+              log.warn('K8s listSandboxes failed', {
+                error: err instanceof Error ? err : new Error(String(err)),
+              });
             }
           }
 
@@ -261,14 +268,18 @@ export function createSandboxStatusRoutes({
                   const sandboxes = await k8sProvider.listSandboxes();
                   k8sPodCount = sandboxes.length;
                   k8sPodsRunning = sandboxes.filter((s) => s.phase === 'Running').length;
-                } catch {
-                  // Best effort
+                } catch (err) {
+                  log.warn('K8s re-count pods failed after auto-heal', {
+                    error: err instanceof Error ? err : new Error(String(err)),
+                  });
                 }
               }
             }
           }
-        } catch {
-          // Best effort — leave defaults
+        } catch (err) {
+          log.warn('K8s health check failed', {
+            error: err instanceof Error ? err : new Error(String(err)),
+          });
         }
       }
 
@@ -287,8 +298,10 @@ export function createSandboxStatusRoutes({
           nomadVersion = typeof details.version === 'string' ? details.version : null;
           nomadLeader = typeof details.leader === 'string' ? details.leader : null;
           nomadJobCount = typeof details.jobCount === 'number' ? details.jobCount : 0;
-        } catch {
-          /* best effort */
+        } catch (err) {
+          log.warn('Nomad health check failed in status route', {
+            error: err instanceof Error ? err : new Error(String(err)),
+          });
         }
       }
 

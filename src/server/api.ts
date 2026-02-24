@@ -823,8 +823,10 @@ async function ensureDefaultNomadSandbox(
       if (existingDefault.status === 'error') {
         try {
           await existingDefault.stop();
-        } catch {
-          // Ignore stop errors
+        } catch (stopErr) {
+          log.warn('Failed to stop error-state default Nomad sandbox during recreation', {
+            error: stopErr instanceof Error ? stopErr : new Error(String(stopErr)),
+          });
         }
       }
       // Fall through to create
@@ -844,8 +846,8 @@ async function ensureDefaultNomadSandbox(
     });
     log.info('Default Nomad sandbox job created');
   } catch (createErr) {
-    log.warn('Failed to create default Nomad sandbox', {
-      error: createErr instanceof Error ? createErr.message : String(createErr),
+    log.error('Failed to create default Nomad sandbox', {
+      error: createErr instanceof Error ? createErr : new Error(String(createErr)),
     });
   }
 }
@@ -905,8 +907,10 @@ async function initSandboxProvider() {
             nomadFallbackToDocker = nomadParsed.fallbackToDocker;
           }
         }
-      } catch {
-        // Use the shared fallbackToDocker value
+      } catch (err) {
+        log.warn('Failed to read Nomad fallbackToDocker setting, using shared value', {
+          error: err instanceof Error ? err : new Error(String(err)),
+        });
       }
     }
   } catch (settingsErr) {

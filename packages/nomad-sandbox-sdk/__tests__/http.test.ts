@@ -342,12 +342,12 @@ describe('NomadHttpClient', () => {
       );
     });
 
-    it('defaults X-Nomad-Index to 0 when header is missing', async () => {
+    it('defaults X-Nomad-Index to index + 1 when header is missing', async () => {
       mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }));
 
       const client = new NomadHttpClient();
       const result = await client.blockingQuery('/v1/job/test/allocations', 0);
-      expect(result.index).toBe(0);
+      expect(result.index).toBe(1);
     });
 
     it('sets X-Nomad-Token header when token is configured', async () => {

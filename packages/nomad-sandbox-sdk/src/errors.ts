@@ -3,9 +3,9 @@
  */
 export class NomadApiError extends Error {
   constructor(
-    public statusCode: number,
+    public readonly statusCode: number,
     message: string,
-    public body?: unknown
+    public readonly body?: unknown
   ) {
     super(message);
     this.name = 'NomadApiError';
@@ -37,9 +37,9 @@ export class TimeoutError extends NomadApiError {
  */
 export class ExecError extends Error {
   constructor(
-    public exitCode: number,
+    public readonly exitCode: number,
     message: string,
-    public stderr?: string
+    public readonly stderr?: string
   ) {
     super(message);
     this.name = 'ExecError';

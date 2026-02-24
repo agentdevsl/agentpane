@@ -9,7 +9,12 @@ function parseNomadDuration(duration: string): number {
   const secondMatch = duration.match(/(\d+)s/);
   if (minuteMatch) totalMs += parseInt(minuteMatch[1] ?? '0', 10) * 60_000;
   if (secondMatch) totalMs += parseInt(secondMatch[1] ?? '0', 10) * 1_000;
-  return totalMs || parseInt(duration, 10) * 1_000;
+  if (totalMs > 0) return totalMs;
+  const fallback = parseInt(duration, 10);
+  if (Number.isNaN(fallback) || fallback <= 0) {
+    throw new Error(`Invalid Nomad duration string: "${duration}"`);
+  }
+  return fallback * 1_000;
 }
 
 /**
@@ -167,12 +172,14 @@ export class NomadHttpClient {
     const timeoutId = setTimeout(() => abortController.abort(), waitMs + 10_000);
 
     // Link external signal if provided
+    let abortHandler: (() => void) | undefined;
     if (signal) {
       if (signal.aborted) {
         clearTimeout(timeoutId);
         throw new ConnectionError(this.baseUrl, new Error(`Request aborted for ${path}`));
       }
-      signal.addEventListener('abort', () => abortController.abort(), { once: true });
+      abortHandler = () => abortController.abort();
+      signal.addEventListener('abort', abortHandler, { once: true });
     }
 
     let response: Response;
@@ -195,6 +202,9 @@ export class NomadHttpClient {
       );
     } finally {
       clearTimeout(timeoutId);
+      if (signal && abortHandler) {
+        signal.removeEventListener('abort', abortHandler);
+      }
     }
 
     if (!response.ok) {
@@ -207,8 +217,12 @@ export class NomadHttpClient {
     }
 
     const rawIndex = response.headers.get('X-Nomad-Index');
-    const currentIndex = index;
-    const newIndex = rawIndex !== null ? parseInt(rawIndex, 10) : currentIndex + 1;
+    if (rawIndex === null) {
+      console.warn(
+        `[NomadSDK] Missing X-Nomad-Index header on blocking query response for ${path}`
+      );
+    }
+    const newIndex = rawIndex !== null ? parseInt(rawIndex, 10) : index + 1;
     const text = await response.text();
 
     let data: T;

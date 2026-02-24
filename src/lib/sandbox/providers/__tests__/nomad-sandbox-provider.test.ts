@@ -201,7 +201,8 @@ describe('NomadSandboxProvider', () => {
       expect(sandbox).toBeInstanceOf(NomadSandboxInstance);
       expect(sandbox.id).toBeDefined();
       expect(sandbox.projectId).toBe('proj-123');
-      expect(sandbox.status).toBe('creating');
+      // After create(), refreshStatus() is called which maps the mock job's 'running' status
+      expect(sandbox.status).toBe('running');
     });
 
     it('calls SDK client.registerJob and waitForRunning', async () => {
@@ -367,9 +368,16 @@ describe('NomadSandboxProvider', () => {
       expect(mockClient.listJobs).toHaveBeenCalledWith('agentpane-');
     });
 
-    it('returns null on cluster error', async () => {
+    it('throws on non-NotFoundError cluster error', async () => {
       const provider = createProvider();
       mockClient.listJobs.mockRejectedValue(new Error('network error'));
+
+      await expect(provider.get('proj-456')).rejects.toThrow('network error');
+    });
+
+    it('returns null on NotFoundError', async () => {
+      const provider = createProvider();
+      mockClient.listJobs.mockRejectedValue(new NotFoundError('job', 'proj-456'));
 
       const result = await provider.get('proj-456');
       expect(result).toBeNull();
@@ -461,12 +469,11 @@ describe('NomadSandboxProvider', () => {
       });
     });
 
-    it('returns empty array on cluster error', async () => {
+    it('throws on cluster error', async () => {
       const provider = createProvider();
       mockClient.listJobs.mockRejectedValue(new Error('API error'));
 
-      const list = await provider.list();
-      expect(list).toEqual([]);
+      await expect(provider.list()).rejects.toThrow('API error');
     });
 
     it('filters out jobs without sandbox ID meta', async () => {
@@ -918,7 +925,8 @@ describe('NomadSandboxInstance', () => {
 
       const callArgs = mockClient.execStream.mock.calls[0]![0] as { command: string[] };
       expect(callArgs.command[0]).toBe('env');
-      expect(callArgs.command).toContain("FOO='bar'");
+      // env command receives raw KEY=VALUE argv entries (no shell escaping needed)
+      expect(callArgs.command).toContain('FOO=bar');
     });
 
     it('returns ExecStreamResult with stdout and stderr', async () => {
@@ -1109,11 +1117,11 @@ describe('NomadSandboxInstance', () => {
       expect(metrics.memoryUsageMb).toBe(0);
     });
 
-    it('propagates errors (does not return fake zeros)', async () => {
+    it('propagates errors as INTERNAL_ERROR (does not return fake zeros)', async () => {
       mockClient.getJob.mockRejectedValue(new Error('not found'));
 
       await expect(instance.getMetrics()).rejects.toMatchObject({
-        code: 'NOMAD-300',
+        code: 'NOMAD-701',
       });
     });
   });

@@ -39,7 +39,7 @@ export interface NomadNetworkResource {
 }
 
 /**
- * Environment variables and config for a task
+ * A task definition within a Nomad task group
  */
 export interface NomadTask {
   Name: string;

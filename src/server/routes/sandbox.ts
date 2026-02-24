@@ -15,7 +15,7 @@ import type { SandboxConfigService } from '../../services/sandbox-config.service
 import type { Database } from '../../types/database.js';
 import { isValidId, json } from '../shared.js';
 
-const log = createLogger('NomadRoutes');
+const log = createLogger('SandboxRoutes');
 
 interface SandboxDeps {
   sandboxConfigService: SandboxConfigService;
@@ -26,8 +26,8 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
 
   // GET /api/sandbox-configs
   app.get('/', async (c) => {
-    const limit = parseInt(c.req.query('limit') ?? '50', 10);
-    const offset = parseInt(c.req.query('offset') ?? '0', 10);
+    const limit = Math.min(Math.max(parseInt(c.req.query('limit') ?? '50', 10) || 50, 1), 100);
+    const offset = Math.max(parseInt(c.req.query('offset') ?? '0', 10) || 0, 0);
 
     try {
       const result = await sandboxConfigService.list({ limit, offset });
@@ -44,7 +44,9 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
         },
       });
     } catch (error) {
-      console.error('[SandboxConfigs] List error:', error);
+      log.error('SandboxConfigs list error', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to list sandbox configs' } },
         500
@@ -132,7 +134,9 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
       const { nomadToken: _token, ...safeConfig } = result.value;
       return json({ ok: true, data: safeConfig }, 201);
     } catch (error) {
-      console.error('[SandboxConfigs] Create error:', error);
+      log.error('SandboxConfigs create error', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to create sandbox config' } },
         500
@@ -157,7 +161,9 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
       const { nomadToken: _token, ...safeConfig } = result.value;
       return json({ ok: true, data: safeConfig });
     } catch (error) {
-      console.error('[SandboxConfigs] Get error:', error);
+      log.error('SandboxConfigs get error', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to get sandbox config' } },
         500
@@ -243,7 +249,9 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
       const { nomadToken: _token, ...safeConfig } = result.value;
       return json({ ok: true, data: safeConfig });
     } catch (error) {
-      console.error('[SandboxConfigs] Update error:', error);
+      log.error('SandboxConfigs update error', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to update sandbox config' } },
         500
@@ -267,7 +275,9 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
 
       return json({ ok: true, data: null });
     } catch (error) {
-      console.error('[SandboxConfigs] Delete error:', error);
+      log.error('SandboxConfigs delete error', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to delete sandbox config' } },
         500
@@ -322,7 +332,7 @@ async function attemptMinikubeStart(): Promise<{ started: boolean; message: stri
     return { started: true, message: output.trim().split('\n').pop() ?? 'Minikube started' };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.warn('[K8s] Failed to start minikube:', message);
+    log.warn('K8s failed to start minikube', { error: new Error(message) });
     return { started: false, message: `Failed to start minikube: ${message}` };
   }
 }
@@ -430,12 +440,10 @@ export function createK8sRoutes(deps?: { db?: Database }) {
                   try {
                     resolve(JSON.parse(data));
                   } catch (parseError) {
-                    console.debug(
-                      '[K8s Status] Failed to parse version response:',
-                      parseError instanceof Error ? parseError.message : 'parse error',
-                      'data:',
-                      data.substring(0, 100)
-                    );
+                    log.warn('K8s Status failed to parse version response', {
+                      error: parseError instanceof Error ? parseError : new Error('parse error'),
+                      data: { responsePreview: data.substring(0, 100) },
+                    });
                     reject(new Error('Invalid JSON response from K8s version endpoint'));
                   }
                 });
@@ -453,10 +461,9 @@ export function createK8sRoutes(deps?: { db?: Database }) {
           clusterReachable = true;
         }
       } catch (versionError) {
-        console.debug(
-          '[K8s Status] Version fetch failed:',
-          versionError instanceof Error ? versionError.message : versionError
-        );
+        log.warn('K8s Status version fetch failed', {
+          error: versionError instanceof Error ? versionError : new Error(String(versionError)),
+        });
       }
 
       // If version fetch failed, the cluster is not reachable
@@ -481,10 +488,10 @@ export function createK8sRoutes(deps?: { db?: Database }) {
 
         // Attempt auto-start if configured
         if (autoStartEnabled) {
-          console.log('[K8s Status] Auto-starting minikube (autoStartMinikube enabled)...');
+          log.info('K8s Status auto-starting minikube (autoStartMinikube enabled)');
           const startResult = await attemptMinikubeStart();
           if (startResult.started) {
-            console.log('[K8s Status] Minikube auto-started, retrying cluster check...');
+            log.info('K8s Status minikube auto-started, retrying cluster check');
             // Retry the version fetch after minikube starts
             try {
               const cluster = kc.getCurrentCluster();
@@ -566,13 +573,12 @@ export function createK8sRoutes(deps?: { db?: Database }) {
         const statusCode = (error as { response?: { statusCode?: number } }).response?.statusCode;
         if (statusCode === 404) {
           // Namespace doesn't exist yet - this is expected
-          console.debug('[K8s Status] Namespace does not exist yet:', namespace);
+          log.debug('K8s Status namespace does not exist yet', { data: { namespace } });
         } else {
           // Log other errors (auth failures, network issues, etc.)
-          console.error(
-            '[K8s Status] Namespace check failed:',
-            error instanceof Error ? error.message : error
-          );
+          log.error('K8s Status namespace check failed', {
+            error: error instanceof Error ? error : new Error(String(error)),
+          });
         }
       }
 
@@ -592,7 +598,7 @@ export function createK8sRoutes(deps?: { db?: Database }) {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to connect to cluster';
-      console.error('[K8s Status] Error:', message);
+      log.error('K8s Status error', { error: new Error(message) });
       return json(
         {
           ok: false,
@@ -643,7 +649,7 @@ export function createK8sRoutes(deps?: { db?: Database }) {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to load kubeconfig';
-      console.error('[K8s Contexts] Error:', message);
+      log.error('K8s Contexts error', { error: new Error(message) });
       return json(
         {
           ok: false,
@@ -700,7 +706,7 @@ export function createK8sRoutes(deps?: { db?: Database }) {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to list namespaces';
-      console.error('[K8s Namespaces] Error:', message);
+      log.error('K8s Namespaces error', { error: new Error(message) });
       return json(
         {
           ok: false,
@@ -764,7 +770,7 @@ export function createK8sRoutes(deps?: { db?: Database }) {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error('[K8s Controller] Error:', message);
+      log.error('K8s Controller error', { error: new Error(message) });
       return json(
         {
           ok: false,
@@ -797,7 +803,7 @@ export function createK8sRoutes(deps?: { db?: Database }) {
     }
 
     try {
-      console.log('[K8s Minikube] Starting minikube...');
+      log.info('K8s Minikube starting minikube');
       const result = await attemptMinikubeStart();
 
       return json({
@@ -809,7 +815,7 @@ export function createK8sRoutes(deps?: { db?: Database }) {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error('[K8s Minikube] Start error:', message);
+      log.error('K8s Minikube start error', { error: new Error(message) });
       return json(
         {
           ok: false,
@@ -888,7 +894,7 @@ export function createK8sRoutes(deps?: { db?: Database }) {
         }
       };
 
-      console.log('[K8s Install] Starting CRD installation...');
+      log.info('K8s Install starting CRD installation');
 
       // Step 1: Apply CRD definitions
       await applyManifest('crds.yaml', 'CRD Definitions');
@@ -896,9 +902,7 @@ export function createK8sRoutes(deps?: { db?: Database }) {
       // Wait for CRD to be registered before applying custom resources
       const crdRegistered = await waitForCrdRegistration(execAsync, 10_000);
       if (!crdRegistered) {
-        console.warn(
-          '[K8s Install] CRD registration timed out after 10s — custom resources may fail'
-        );
+        log.warn('K8s Install CRD registration timed out after 10s — custom resources may fail');
       }
 
       // Step 2: Create namespace
@@ -941,10 +945,9 @@ export function createK8sRoutes(deps?: { db?: Database }) {
         .filter((r) => ['CRD Definitions', 'Namespace'].includes(r.step))
         .every((r) => r.success);
 
-      console.log(
-        '[K8s Install] Installation complete:',
-        results.map((r) => `${r.step}: ${r.success ? 'OK' : 'FAIL'}`).join(', ')
-      );
+      log.info('K8s Install installation complete', {
+        data: { results: results.map((r) => `${r.step}: ${r.success ? 'OK' : 'FAIL'}`).join(', ') },
+      });
 
       return json({
         ok: true,
@@ -955,7 +958,7 @@ export function createK8sRoutes(deps?: { db?: Database }) {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error('[K8s Install] Error:', message);
+      log.error('K8s Install error', { error: new Error(message) });
       return json(
         {
           ok: false,
@@ -1281,6 +1284,8 @@ export function createNomadRoutes(deps?: NomadRouteDeps) {
     }
 
     try {
+      // Note: validate endpoint accepts user-supplied token for initial setup.
+      // The SSRF validation in validateNomadAddress prevents targeting internal services.
       const client = await getNomadClient({
         address: body.address,
         token: body.token,

@@ -6,6 +6,7 @@ import {
   NomadApiError,
   NomadJobBuilder,
   NomadSandboxClient,
+  NotFoundError,
   TimeoutError,
 } from '@agentpane/nomad-sandbox-sdk';
 import { createId } from '@paralleldrive/cuid2';
@@ -186,6 +187,8 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
         this.client
       );
 
+      await instance.refreshStatus();
+
       this.sandboxes.set(sandboxId, instance);
       this.projectToSandbox.set(config.projectId, sandboxId);
 
@@ -203,8 +206,10 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
       // Best-effort cleanup of the registered Nomad job
       try {
         await this.client.stopJob(jobName, true);
-      } catch {
-        log.warn(`Failed to clean up job ${jobName} after creation failure`);
+      } catch (cleanupError) {
+        log.warn(`Failed to clean up job ${jobName} after creation failure`, {
+          error: cleanupError instanceof Error ? cleanupError : new Error(String(cleanupError)),
+        });
       }
 
       this.emit({
@@ -290,13 +295,19 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
       // Get allocations to find the alloc ID for exec
       const allocations = await this.client.getJobAllocations(name);
       const runningAlloc = allocations.find((a) => a.ClientStatus === 'running');
-      const allocId = runningAlloc?.ID ?? allocations[0]?.ID;
-      if (!allocId) {
-        log.warn('Found matching Nomad job but no valid allocation ID', {
-          data: { jobName: name, projectId },
+      if (!runningAlloc?.ID) {
+        log.warn('Found matching Nomad job but no running allocation', {
+          data: {
+            jobName: name,
+            projectId,
+            allocStatuses: allocations
+              .map((a) => `${a.ID?.slice(0, 8)}:${a.ClientStatus}`)
+              .join(', '),
+          },
         });
         return null;
       }
+      const allocId = runningAlloc.ID;
 
       const instance = new NomadSandboxInstance(
         id,
@@ -314,11 +325,14 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
 
       return instance;
     } catch (error) {
+      if (error instanceof NotFoundError) {
+        return null;
+      }
       const message = error instanceof Error ? error.message : String(error);
       log.error(`Failed to get sandbox for project ${projectId}: ${message}`, {
         error: error instanceof Error ? error : new Error(message),
       });
-      return null;
+      throw error;
     }
   }
 
@@ -353,7 +367,7 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
       log.error(`Failed to list Nomad sandboxes: ${message}`, {
         error: error instanceof Error ? error : new Error(message),
       });
-      return [];
+      throw error;
     }
   }
 

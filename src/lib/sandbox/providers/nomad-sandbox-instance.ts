@@ -2,6 +2,7 @@ import { PassThrough, type Readable } from 'node:stream';
 import type { NomadAllocClientStatus } from '@agentpane/nomad-sandbox-sdk';
 import {
   ConnectionError,
+  ExecError,
   type NomadSandboxClient,
   NotFoundError,
   TimeoutError,
@@ -38,7 +39,7 @@ export class NomadSandboxInstance implements Sandbox {
     /** Project this sandbox belongs to */
     public readonly projectId: string,
     /** Nomad namespace */
-    readonly namespace: string,
+    private readonly namespace: string,
     /** Nomad SDK client */
     private readonly client: NomadSandboxClient
   ) {
@@ -82,10 +83,20 @@ export class NomadSandboxInstance implements Sandbox {
       };
     } catch (error) {
       if (error instanceof TimeoutError) {
-        throw NomadErrors.EXEC_TIMEOUT(cmd, 60_000);
+        const timeoutMatch = error.message.match(/(\d+)ms/);
+        throw NomadErrors.EXEC_TIMEOUT(cmd, timeoutMatch ? parseInt(timeoutMatch[1]!, 10) : 60_000);
       }
       if (error instanceof ConnectionError) {
-        throw NomadErrors.CLUSTER_UNREACHABLE('nomad', error.message);
+        throw NomadErrors.CLUSTER_UNREACHABLE(
+          error.message,
+          error.cause instanceof Error ? error.cause.message : 'connection failed'
+        );
+      }
+      if (error instanceof ExecError) {
+        throw NomadErrors.EXEC_FAILED(
+          cmd,
+          `exit code ${error.exitCode}: ${error.stderr ?? error.message}`
+        );
       }
       const message = error instanceof Error ? error.message : String(error);
       throw NomadErrors.EXEC_FAILED(cmd, message);
@@ -181,7 +192,9 @@ export class NomadSandboxInstance implements Sandbox {
           ];
         }
       } else {
-        fullCmd = ['env', ...envEntries.map(([k, v]) => `${k}=${this.shellEscape(v)}`), ...fullCmd];
+        // Values are passed as separate argv entries to env, so shell escaping is not needed
+        // here (unlike the sh -c path above where values are embedded in a shell string).
+        fullCmd = ['env', ...envEntries.map(([k, v]) => `${k}=${v}`), ...fullCmd];
       }
     }
 
@@ -395,7 +408,7 @@ export class NomadSandboxInstance implements Sandbox {
       log.error(`Failed to get metrics for ${this.jobName}`, {
         error: error instanceof Error ? error : new Error(message),
       });
-      throw NomadErrors.EXEC_FAILED('getMetrics', message);
+      throw NomadErrors.INTERNAL_ERROR(`Failed to get metrics for ${this.jobName}: ${message}`);
     }
   }
 
@@ -446,7 +459,7 @@ export class NomadSandboxInstance implements Sandbox {
       if (error instanceof NotFoundError) {
         this._status = 'stopped';
       } else {
-        log.error(`refreshStatus failed for job ${this.jobName}`, {
+        log.error(`refreshStatus failed for job ${this.jobName} in namespace ${this.namespace}`, {
           error: error instanceof Error ? error : new Error(String(error)),
         });
         this._status = 'error';

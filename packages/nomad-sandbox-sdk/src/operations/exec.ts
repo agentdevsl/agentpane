@@ -34,6 +34,11 @@ function buildExecWsUrl(
   return url.toString();
 }
 
+/** Redact the ACL token from WebSocket URLs for safe use in error messages. */
+function sanitizeWsUrl(url: string): string {
+  return url.replace(/([?&])token=[^&]+/, '$1token=REDACTED');
+}
+
 /**
  * Decode a base64 string to a UTF-8 string.
  */
@@ -69,6 +74,9 @@ export async function execInAllocation(
   options: ExecOptions
 ): Promise<ExecResult> {
   const { allocId, task, command, tty, timeoutMs = 60_000 } = options;
+  if (command.length === 0) {
+    throw new ExecError(1, 'exec command must not be empty');
+  }
   const wsUrl = buildExecWsUrl(http, allocId, task, command, tty, http.configuredToken);
 
   return new Promise<ExecResult>((resolve, reject) => {
@@ -122,12 +130,26 @@ export async function execInAllocation(
       // Reset on successful parse
       parseFailures = 0;
 
-      // Let base64 decode errors and other errors propagate naturally
-      if (frame.stdout?.data) {
-        stdout += decodeBase64(frame.stdout.data);
-      }
-      if (frame.stderr?.data) {
-        stderr += decodeBase64(frame.stderr.data);
+      try {
+        if (frame.stdout?.data) {
+          stdout += decodeBase64(frame.stdout.data);
+        }
+        if (frame.stderr?.data) {
+          stderr += decodeBase64(frame.stderr.data);
+        }
+      } catch (decodeErr) {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeoutId);
+          ws.close();
+          reject(
+            new ExecError(
+              1,
+              `Failed to decode exec frame: ${decodeErr instanceof Error ? decodeErr.message : String(decodeErr)}`
+            )
+          );
+        }
+        return;
       }
       if (frame.exited && !settled) {
         settled = true;
@@ -141,11 +163,11 @@ export async function execInAllocation(
       }
     };
 
-    ws.onerror = (event) => {
+    ws.onerror = (_event) => {
       if (!settled) {
         settled = true;
         clearTimeout(timeoutId);
-        reject(new ExecError(1, `WebSocket error during exec: ${String(event)}`));
+        reject(new ExecError(1, `WebSocket error during exec on ${sanitizeWsUrl(wsUrl)}`));
       }
     };
 
@@ -176,6 +198,9 @@ export function execStreamInAllocation(
   options: ExecStreamOptions
 ): ExecStreamResult {
   const { allocId, task, command, tty, timeoutMs } = options;
+  if (command.length === 0) {
+    throw new ExecError(1, 'exec command must not be empty');
+  }
   const wsUrl = buildExecWsUrl(http, allocId, task, command, tty, http.configuredToken);
 
   const ws = new WebSocket(wsUrl);
@@ -241,6 +266,7 @@ export function execStreamInAllocation(
   const encoder = new TextEncoder();
 
   let parseFailures = 0;
+  let streamTimeoutId: ReturnType<typeof setTimeout> | undefined;
 
   ws.onmessage = (event) => {
     const raw = String(event.data);
@@ -278,12 +304,27 @@ export function execStreamInAllocation(
     // Reset on successful parse
     parseFailures = 0;
 
-    // Let base64 decode and controller.enqueue errors propagate naturally
-    if (frame.stdout?.data) {
-      stdoutController.enqueue(encoder.encode(decodeBase64(frame.stdout.data)));
-    }
-    if (frame.stderr?.data) {
-      stderrController.enqueue(encoder.encode(decodeBase64(frame.stderr.data)));
+    try {
+      if (frame.stdout?.data) {
+        stdoutController.enqueue(encoder.encode(decodeBase64(frame.stdout.data)));
+      }
+      if (frame.stderr?.data) {
+        stderrController.enqueue(encoder.encode(decodeBase64(frame.stderr.data)));
+      }
+    } catch (decodeErr) {
+      if (!streamSettled) {
+        streamSettled = true;
+        if (streamTimeoutId) clearTimeout(streamTimeoutId);
+        ws.close();
+        closeControllers();
+        rejectWait(
+          new ExecError(
+            1,
+            `Failed to decode exec frame: ${decodeErr instanceof Error ? decodeErr.message : String(decodeErr)}`
+          )
+        );
+      }
+      return;
     }
     if (frame.exited && !streamSettled) {
       streamSettled = true;
@@ -317,7 +358,6 @@ export function execStreamInAllocation(
     }
   };
 
-  let streamTimeoutId: ReturnType<typeof setTimeout> | undefined;
   if (timeoutMs) {
     streamTimeoutId = setTimeout(() => {
       if (!streamSettled) {

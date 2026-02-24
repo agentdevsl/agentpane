@@ -13,6 +13,7 @@ const executionBadgeVariants = cva(
         kubernetes: 'bg-accent/15 text-accent',
         docker: 'bg-done/15 text-done',
         nomad: 'bg-attention/15 text-attention',
+        devcontainer: 'bg-done/15 text-done',
       },
     },
     defaultVariants: {
@@ -37,13 +38,20 @@ export function ExecutionBadge({
 
   const isK8s = sandboxProvider === 'kubernetes';
   const isNomad = sandboxProvider === 'nomad';
-  const provider = isK8s ? 'kubernetes' : isNomad ? 'nomad' : 'docker';
+  const isDevContainer = sandboxProvider === 'devcontainer';
+  const provider = isK8s
+    ? 'kubernetes'
+    : isNomad
+      ? 'nomad'
+      : isDevContainer
+        ? 'devcontainer'
+        : 'docker';
   const Icon = isK8s ? CubeTransparent : isNomad ? Hexagon : Cube;
   const iconSize = size === 'compact' ? 10 : 12;
 
   let label: string;
   if (!sandboxContainerId) {
-    label = isK8s ? 'Kubernetes' : isNomad ? 'Nomad' : 'Docker';
+    label = isK8s ? 'Kubernetes' : isNomad ? 'Nomad' : isDevContainer ? 'DevContainer' : 'Docker';
   } else if (isK8s) {
     label =
       size === 'compact'
@@ -68,7 +76,9 @@ export function ExecutionBadge({
       ? 'Kubernetes sandbox'
       : isNomad
         ? 'Nomad sandbox'
-        : 'Docker sandbox';
+        : isDevContainer
+          ? 'DevContainer sandbox'
+          : 'Docker sandbox';
 
   return (
     <span className={executionBadgeVariants({ size, provider })} title={tooltip}>

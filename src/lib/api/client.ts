@@ -191,7 +191,6 @@ export type SandboxConfigItem = {
   allowedEgressHosts?: string[] | null;
   // Nomad-specific configuration
   nomadAddress?: string | null;
-  nomadToken?: string | null;
   nomadNamespace?: string | null;
   nomadRegion?: string | null;
   nomadDatacenter?: string | null;

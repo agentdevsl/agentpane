@@ -119,8 +119,8 @@ describe('exec operations', () => {
       expect(url.pathname).toBe('/v1/client/allocation/alloc-abc123/exec');
       expect(url.searchParams.get('task')).toBe('sandbox');
       expect(url.searchParams.get('tty')).toBe('false');
-      expect(url.searchParams.get('command')).toBe(JSON.stringify(['/bin/sh', '-c', 'echo hello']));
-      expect(url.searchParams.get('X-Nomad-Token')).toBe('my-token');
+      expect(url.searchParams.getAll('command')).toEqual(['/bin/sh', '-c', 'echo hello']);
+      expect(url.searchParams.get('token')).toBe('my-token');
 
       // Complete the exec
       ws.simulateMessage(JSON.stringify({ exited: true, result: { exit_code: 0 } }));
@@ -312,6 +312,37 @@ describe('exec operations', () => {
       const result = await promise;
       expect(result.exitCode).toBe(1);
     });
+
+    it('should throw ExecError for empty command', async () => {
+      const http = createMockHttpClient();
+      await expect(
+        execInAllocation(http, {
+          allocId: 'alloc-1',
+          task: 'sandbox',
+          command: [],
+        })
+      ).rejects.toThrow('exec command must not be empty');
+    });
+
+    it('should reject after 3 consecutive parse failures', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      const http = createMockHttpClient();
+      const promise = execInAllocation(http, {
+        allocId: 'alloc-1',
+        task: 'sandbox',
+        command: ['/bin/sh'],
+      });
+
+      await vi.waitFor(() => expect(wsInstances).toHaveLength(1));
+      const ws = wsInstances[0];
+
+      // Send 3 malformed frames that start with '{' to bypass heartbeat filter
+      ws.simulateMessage('{not-json-1');
+      ws.simulateMessage('{not-json-2');
+      ws.simulateMessage('{not-json-3');
+
+      await expect(promise).rejects.toThrow('Too many unparseable frames');
+    });
   });
 
   // ----------------------------------------------------------------
@@ -365,6 +396,9 @@ describe('exec operations', () => {
 
       await vi.waitFor(() => expect(wsInstances).toHaveLength(1));
       const ws = wsInstances[0];
+
+      // Consume the rejection to prevent unhandled promise rejection
+      stream.wait().catch(() => {});
 
       stream.kill();
       expect(ws.readyState).toBe(MockWebSocket.CLOSED);

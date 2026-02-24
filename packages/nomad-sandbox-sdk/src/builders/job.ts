@@ -10,7 +10,7 @@ import type { NomadJob, NomadTask, NomadTaskGroup } from '../types/job.js';
  *   .namespace('agentpane')
  *   .datacenter('dc1')
  *   .image('ubuntu:22.04')
- *   .resources(500, 512)
+ *   .resources(500, 256)
  *   .env({ NODE_ENV: 'production' })
  *   .meta(NOMAD_META.PROJECT_ID, 'proj-123')
  *   .volumes(['/host/path:/container/path'])
@@ -65,6 +65,15 @@ export class NomadJobBuilder {
 
   /** Set CPU (MHz) and memory (MB) resources */
   resources(cpu: number, memoryMb: number): this {
+    if (cpu <= 0 || memoryMb <= 0) {
+      throw new Error('NomadJobBuilder: CPU and memory must be positive values');
+    }
+    if (cpu > 32_000) {
+      throw new Error('NomadJobBuilder: CPU exceeds maximum of 32000 MHz');
+    }
+    if (memoryMb > 65_536) {
+      throw new Error('NomadJobBuilder: Memory exceeds maximum of 65536 MB');
+    }
     this.taskSpec.Resources = { CPU: cpu, MemoryMB: memoryMb };
     return this;
   }
@@ -82,8 +91,15 @@ export class NomadJobBuilder {
     return this;
   }
 
-  /** Set Docker volume mounts */
+  /** Set Docker volume mounts. Blocks sensitive host paths for security. */
   volumes(mounts: string[]): this {
+    const blockedPaths = ['/', '/etc', '/proc', '/sys', '/var/run/docker.sock', '/dev'];
+    for (const mount of mounts) {
+      const hostPath = mount.split(':')[0] ?? '';
+      if (blockedPaths.includes(hostPath)) {
+        throw new Error(`NomadJobBuilder: volume mount of '${hostPath}' is blocked for security`);
+      }
+    }
     this.taskSpec.Config.volumes = mounts;
     return this;
   }
@@ -175,8 +191,8 @@ export class NomadJobBuilder {
     };
 
     return {
-      ID: this.spec.ID ?? '',
-      Name: this.spec.Name ?? '',
+      ID: this.spec.ID!,
+      Name: this.spec.Name ?? this.spec.ID!,
       Type: this.spec.Type,
       Namespace: this.spec.Namespace,
       Datacenters: this.spec.Datacenters,

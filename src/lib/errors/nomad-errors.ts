@@ -1,3 +1,4 @@
+import type { NomadJobStatus } from '@agentpane/nomad-sandbox-sdk';
 import { createError } from './base.js';
 
 /**
@@ -118,8 +119,7 @@ export const NomadErrors = {
       }
     ),
 
-  // TODO: type currentStatus as NomadJobStatus when SDK types are re-exported
-  JOB_NOT_RUNNING: (jobId: string, currentStatus: string) =>
+  JOB_NOT_RUNNING: (jobId: string, currentStatus: NomadJobStatus | string) =>
     createError(
       NOMAD_ERROR_IDS.JOB_NOT_RUNNING,
       `Nomad job ${jobId} is not running (current: ${currentStatus})`,
