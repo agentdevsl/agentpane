@@ -302,8 +302,7 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
 
       if (!matchingJob) {
         if (projectId !== 'default') {
-          log.warn(`No Nomad job found for project ${projectId}, falling back to default sandbox`);
-          return this.get('default');
+          log.warn(`No Nomad job found for project ${projectId}`);
         }
         return null;
       }
@@ -488,16 +487,15 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
         if (instance.status !== 'stopped') {
           await instance.stop();
         }
-        this.sandboxes.delete(sandboxId);
-        this.projectToSandbox.delete(instance.projectId);
         cleaned++;
       } catch (error) {
         log.error(`Failed to stop sandbox ${sandboxId} during cleanup — removing from cache`, {
           error: error instanceof Error ? error : new Error(String(error)),
         });
-        this.sandboxes.delete(sandboxId);
-        this.projectToSandbox.delete(instance.projectId);
       }
+      // Always evict from cache regardless of stop success/failure
+      this.sandboxes.delete(sandboxId);
+      this.projectToSandbox.delete(instance.projectId);
     }
 
     return cleaned;

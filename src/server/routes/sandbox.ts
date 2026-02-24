@@ -17,6 +17,12 @@ import { isValidId, json } from '../shared.js';
 
 const log = createLogger('SandboxRoutes');
 
+/** Strip the nomadToken field from a config before returning it to the client. */
+function redactConfig<T extends Record<string, unknown>>(config: T): Omit<T, 'nomadToken'> {
+  const { nomadToken: _token, ...safe } = config;
+  return safe;
+}
+
 interface SandboxDeps {
   sandboxConfigService: SandboxConfigService;
 }
@@ -138,8 +144,7 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
         return json({ ok: false, error: result.error }, result.error.status);
       }
 
-      const { nomadToken: _token, ...safeConfig } = result.value;
-      return json({ ok: true, data: safeConfig }, 201);
+      return json({ ok: true, data: redactConfig(result.value) }, 201);
     } catch (error) {
       log.error('SandboxConfigs create error', {
         error: error instanceof Error ? error : new Error(String(error)),
@@ -165,8 +170,7 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
         return json({ ok: false, error: result.error }, result.error.status);
       }
 
-      const { nomadToken: _token, ...safeConfig } = result.value;
-      return json({ ok: true, data: safeConfig });
+      return json({ ok: true, data: redactConfig(result.value) });
     } catch (error) {
       log.error('SandboxConfigs get error', {
         error: error instanceof Error ? error : new Error(String(error)),
@@ -260,8 +264,7 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
         return json({ ok: false, error: result.error }, result.error.status);
       }
 
-      const { nomadToken: _token, ...safeConfig } = result.value;
-      return json({ ok: true, data: safeConfig });
+      return json({ ok: true, data: redactConfig(result.value) });
     } catch (error) {
       log.error('SandboxConfigs update error', {
         error: error instanceof Error ? error : new Error(String(error)),
@@ -1029,6 +1032,18 @@ export function validateNomadAddress(address: string): void {
   if (hostname === 'localhost') {
     throw new Error('Nomad address cannot use "localhost" — use an IP address instead');
   }
+  // Restrict loopback addresses (127.x.x.x) to Nomad's default port (4646) only.
+  // This prevents SSRF against other locally-bound services (Redis, databases, etc.)
+  // while still allowing local Nomad development setups.
+  const NOMAD_DEFAULT_PORT = 4646;
+  if (hostname.startsWith('127.')) {
+    const port = url.port ? parseInt(url.port, 10) : url.protocol === 'https:' ? 443 : 80;
+    if (port !== NOMAD_DEFAULT_PORT) {
+      throw new Error(
+        `Nomad address on loopback (127.x) must use port ${NOMAD_DEFAULT_PORT} to prevent SSRF`
+      );
+    }
+  }
   // Block IPv6 loopback and IPv6-mapped loopback/metadata addresses
   if (hostname === '[::1]' || hostname === '::1') {
     throw new Error('Nomad address cannot target IPv6 loopback');
@@ -1038,7 +1053,7 @@ export function validateNomadAddress(address: string): void {
     normalizedHost === '::1' ||
     normalizedHost === '0:0:0:0:0:0:0:1' ||
     normalizedHost.startsWith('::ffff:169.254.') ||
-    normalizedHost === '::ffff:127.0.0.1' ||
+    normalizedHost.startsWith('::ffff:127.') ||
     // URL constructor normalizes 169.254.x.y to hex a9fe:XXYY in IPv6-mapped form
     normalizedHost.startsWith('::ffff:a9fe:')
   ) {
@@ -1068,10 +1083,10 @@ export function validateNomadAddress(address: string): void {
     '172.30.',
     '172.31.',
   ];
-  // 127.x and 192.168.x are intentionally allowed because Nomad is commonly run on
-  // the local machine or a home/office LAN. 10.x and 172.16-31.x are blocked because
-  // they typically correspond to cloud VPC infrastructure (AWS VPC, GCP internal, etc.)
-  // where SSRF could reach sensitive internal services or metadata endpoints.
+  // 127.x (port-restricted to 4646 above) and 192.168.x are intentionally allowed because
+  // Nomad is commonly run on the local machine or a home/office LAN. 10.x and 172.16-31.x
+  // are blocked because they typically correspond to cloud VPC infrastructure (AWS VPC,
+  // GCP internal, etc.) where SSRF could reach sensitive internal services or metadata endpoints.
   for (const prefix of blockedPrefixes) {
     if (hostname.startsWith(prefix)) {
       throw new Error('Nomad address cannot target internal network addresses');
@@ -1089,7 +1104,12 @@ export function validateNomadAddress(address: string): void {
 async function loadNomadSettings(
   db: Database | undefined,
   overrides?: { address?: string; namespace?: string }
-): Promise<{ address?: string; token?: string; namespace: string }> {
+): Promise<{
+  address?: string;
+  token?: string;
+  namespace: string;
+  tokenDecryptionFailed?: boolean;
+}> {
   // Validate overridden address against SSRF blocklist
   if (overrides?.address) {
     validateNomadAddress(overrides.address);
@@ -1097,6 +1117,7 @@ async function loadNomadSettings(
 
   let address = overrides?.address;
   let token: string | undefined;
+  let tokenDecryptionFailed = false;
   let namespace = overrides?.namespace ?? 'default';
 
   // Single DB query to load persisted Nomad settings
@@ -1130,10 +1151,15 @@ async function loadNomadSettings(
               const { decryptToken } = await import('../../lib/crypto/server-encryption.js');
               token = decryptToken(encryptedToken);
             } catch (decryptErr) {
-              log.error('Token decryption failed — token may need to be re-entered', {
-                error: decryptErr instanceof Error ? decryptErr : new Error(String(decryptErr)),
-              });
+              log.error(
+                'Token decryption failed — the Nomad token must be re-entered in Settings. ' +
+                  'This usually means the encryption key was rotated or the data is corrupted.',
+                {
+                  error: decryptErr instanceof Error ? decryptErr : new Error(String(decryptErr)),
+                }
+              );
               token = undefined;
+              tokenDecryptionFailed = true;
             }
           }
         }
@@ -1147,7 +1173,7 @@ async function loadNomadSettings(
     }
   }
 
-  return { address, token, namespace };
+  return { address, token, namespace, tokenDecryptionFailed: tokenDecryptionFailed || undefined };
 }
 
 export function createNomadRoutes(deps?: NomadRouteDeps) {
@@ -1168,10 +1194,13 @@ export function createNomadRoutes(deps?: NomadRouteDeps) {
   // GET /api/sandbox/nomad/status - Nomad cluster health
   app.get('/status', async (c) => {
     try {
-      const { address, token, namespace } = await loadNomadSettings(deps?.db, {
-        address: c.req.query('address') ?? undefined,
-        namespace: c.req.query('namespace') ?? undefined,
-      });
+      const { address, token, namespace, tokenDecryptionFailed } = await loadNomadSettings(
+        deps?.db,
+        {
+          address: c.req.query('address') ?? undefined,
+          namespace: c.req.query('namespace') ?? undefined,
+        }
+      );
 
       if (!address) {
         return json({
@@ -1205,6 +1234,7 @@ export function createNomadRoutes(deps?: NomadRouteDeps) {
           namespace,
           namespaceExists: health.namespaceExists,
           jobCount,
+          ...(tokenDecryptionFailed && { tokenDecryptionFailed: true }),
         },
       });
     } catch (error) {

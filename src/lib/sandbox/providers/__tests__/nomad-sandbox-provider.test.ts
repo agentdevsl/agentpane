@@ -639,8 +639,8 @@ describe('NomadSandboxProvider', () => {
     });
   });
 
-  describe('get (fallback to default)', () => {
-    it('falls back to default project sandbox when project has no dedicated sandbox', async () => {
+  describe('get (no fallback to default)', () => {
+    it('returns null when project has no dedicated sandbox (no fallback to default)', async () => {
       const provider = createProvider();
       mockClient.listJobs.mockResolvedValue([
         {
@@ -653,17 +653,12 @@ describe('NomadSandboxProvider', () => {
           },
         },
       ]);
-      mockClient.getJobAllocations.mockResolvedValue([
-        { ID: 'alloc-default-123', ClientStatus: 'running' },
-      ]);
-      mockClient.getJob.mockResolvedValue({ Status: 'running' });
 
       const result = await provider.get('proj-with-no-sandbox');
-      expect(result).not.toBeNull();
-      expect(result?.projectId).toBe('default');
+      expect(result).toBeNull();
     });
 
-    it('returns null when neither project nor default sandbox exists', async () => {
+    it('returns null when no sandbox exists at all', async () => {
       const provider = createProvider();
       mockClient.listJobs.mockResolvedValue([]);
 
@@ -713,6 +708,15 @@ describe('NomadSandboxProvider', () => {
 
 describe('NomadSandboxInstance', () => {
   let instance: NomadSandboxInstance;
+
+  /** Helper to transition instance from 'creating' to 'running' via refreshStatus */
+  async function setRunning() {
+    mockClient.getJob.mockResolvedValue({ Status: 'running' });
+    mockClient.getJobAllocations.mockResolvedValue([
+      { ID: 'alloc-abc-123', ClientStatus: 'running' },
+    ]);
+    await instance.refreshStatus();
+  }
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -795,7 +799,7 @@ describe('NomadSandboxInstance', () => {
     });
 
     it('wraps errors in NomadErrors.EXEC_FAILED', async () => {
-      // Status is creating by default, which passes assertRunning
+      await setRunning();
       mockClient.exec.mockRejectedValue(new Error('connection reset'));
 
       await expect(instance.exec('ls')).rejects.toMatchObject({
@@ -804,6 +808,7 @@ describe('NomadSandboxInstance', () => {
     });
 
     it('trims stdout and stderr', async () => {
+      await setRunning();
       mockClient.exec.mockResolvedValue({
         exitCode: 0,
         stdout: '  trimmed  \n',
@@ -829,6 +834,7 @@ describe('NomadSandboxInstance', () => {
 
   describe('execStream', () => {
     it('builds correct command with cwd and env', async () => {
+      await setRunning();
       const mockStdout = new ReadableStream({
         start(controller) {
           controller.close();
@@ -861,6 +867,7 @@ describe('NomadSandboxInstance', () => {
     });
 
     it('handles environment variables correctly', async () => {
+      await setRunning();
       const mockStdout = new ReadableStream({
         start(controller) {
           controller.close();
@@ -892,6 +899,7 @@ describe('NomadSandboxInstance', () => {
     });
 
     it('rejects invalid env variable keys', async () => {
+      await setRunning();
       await expect(
         instance.execStream({
           cmd: 'node',
@@ -904,6 +912,7 @@ describe('NomadSandboxInstance', () => {
     });
 
     it('uses env command when no cwd', async () => {
+      await setRunning();
       const mockStdout = new ReadableStream({
         start(controller) {
           controller.close();
@@ -936,6 +945,7 @@ describe('NomadSandboxInstance', () => {
     });
 
     it('returns ExecStreamResult with stdout and stderr', async () => {
+      await setRunning();
       const mockStdout = new ReadableStream({
         start(controller) {
           controller.close();
@@ -968,6 +978,7 @@ describe('NomadSandboxInstance', () => {
     });
 
     it('kill() delegates to SDK kill', async () => {
+      await setRunning();
       const sdkKill = vi.fn();
       const mockStdout = new ReadableStream({
         start(controller) {
@@ -996,6 +1007,7 @@ describe('NomadSandboxInstance', () => {
     });
 
     it('wait() delegates to SDK wait', async () => {
+      await setRunning();
       const sdkWait = vi.fn().mockResolvedValue({ exitCode: 42 });
       const mockStdout = new ReadableStream({
         start(controller) {
@@ -1152,6 +1164,7 @@ describe('NomadSandboxInstance', () => {
 
   describe('tmux methods', () => {
     it('createTmuxSession calls exec with tmux commands', async () => {
+      await setRunning();
       // Mock list-sessions to return empty (no existing session)
       mockClient.exec
         .mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'no server running' })
@@ -1166,6 +1179,7 @@ describe('NomadSandboxInstance', () => {
     });
 
     it('createTmuxSession throws when session exists', async () => {
+      await setRunning();
       mockClient.exec.mockResolvedValue({
         exitCode: 0,
         stdout: 'test-session',
@@ -1178,6 +1192,7 @@ describe('NomadSandboxInstance', () => {
     });
 
     it('listTmuxSessions parses output correctly', async () => {
+      await setRunning();
       mockClient.exec.mockResolvedValue({
         exitCode: 0,
         stdout: 'session1:2:0\nsession2:1:1',
@@ -1200,6 +1215,7 @@ describe('NomadSandboxInstance', () => {
     });
 
     it('listTmuxSessions returns empty on no server', async () => {
+      await setRunning();
       mockClient.exec.mockResolvedValue({
         exitCode: 1,
         stdout: '',
@@ -1211,6 +1227,7 @@ describe('NomadSandboxInstance', () => {
     });
 
     it('killTmuxSession succeeds silently when session not found', async () => {
+      await setRunning();
       mockClient.exec.mockResolvedValue({
         exitCode: 1,
         stdout: '',

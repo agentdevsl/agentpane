@@ -28,6 +28,7 @@ export class NomadSandboxInstance implements Sandbox {
   private _lastActivity: Date;
   private _status: SandboxStatus = 'creating';
   private readonly _createdAt = new Date();
+  private _lastRefreshError: Error | null = null;
 
   constructor(
     /** Unique sandbox ID (cuid2) */
@@ -60,7 +61,7 @@ export class NomadSandboxInstance implements Sandbox {
   }
 
   private assertRunning(): void {
-    if (this._status !== 'running' && this._status !== 'creating') {
+    if (this._status !== 'running') {
       throw NomadErrors.JOB_NOT_RUNNING(this.jobName, this._status);
     }
   }
@@ -206,66 +207,56 @@ export class NomadSandboxInstance implements Sandbox {
     });
 
     // Pipe SDK web ReadableStreams through PassThrough Node streams for the
-    // ExecStreamResult interface, which requires Node Readable streams. We use
-    // pipeTo with a WritableStream adapter that writes chunks into the PassThrough.
-    const stdoutStream = new PassThrough();
-    const stderrStream = new PassThrough();
+    // ExecStreamResult interface, which requires Node Readable streams.
+    function bridgeStream(
+      source: ReadableStream,
+      label: string
+    ): { stream: PassThrough; abort: AbortController } {
+      const passthrough = new PassThrough();
+      const abort = new AbortController();
 
-    // Track abort controllers so kill() can cancel the pipe
-    const stdoutAbort = new AbortController();
-    const stderrAbort = new AbortController();
+      source
+        .pipeTo(
+          new WritableStream({
+            write(chunk) {
+              passthrough.write(chunk);
+            },
+          }),
+          {
+            signal: abort.signal,
+          }
+        )
+        .then(() => passthrough.end())
+        .catch((err) => {
+          if (err?.name === 'AbortError') {
+            passthrough.end();
+          } else {
+            log.warn(`${label} pipe error during execStream`, {
+              error: err instanceof Error ? err : new Error(String(err)),
+            });
+            passthrough.destroy(err instanceof Error ? err : new Error(String(err)));
+          }
+        });
 
-    sdkStream.stdout
-      .pipeTo(
-        new WritableStream({
-          write(chunk) {
-            stdoutStream.write(chunk);
-          },
-        }),
-        { signal: stdoutAbort.signal }
-      )
-      .then(() => stdoutStream.end())
-      .catch((err) => {
-        if (err?.name !== 'AbortError') {
-          log.warn('stdout pipe error during execStream', {
-            error: err instanceof Error ? err : new Error(String(err)),
-          });
-        }
-        stdoutStream.end();
-      });
+      return { stream: passthrough, abort };
+    }
 
-    sdkStream.stderr
-      .pipeTo(
-        new WritableStream({
-          write(chunk) {
-            stderrStream.write(chunk);
-          },
-        }),
-        { signal: stderrAbort.signal }
-      )
-      .then(() => stderrStream.end())
-      .catch((err) => {
-        if (err?.name !== 'AbortError') {
-          log.warn('stderr pipe error during execStream', {
-            error: err instanceof Error ? err : new Error(String(err)),
-          });
-        }
-        stderrStream.end();
-      });
+    const stdout = bridgeStream(sdkStream.stdout, 'stdout');
+    const stderr = bridgeStream(sdkStream.stderr, 'stderr');
 
     return {
-      stdout: stdoutStream as Readable,
-      stderr: stderrStream as Readable,
+      stdout: stdout.stream as Readable,
+      stderr: stderr.stream as Readable,
 
       async wait(): Promise<{ exitCode: number }> {
         return sdkStream.wait();
       },
 
       async kill(): Promise<void> {
-        stdoutAbort.abort();
-        stderrAbort.abort();
-        stdoutStream.end();
-        stderrStream.end();
+        stdout.abort.abort();
+        stderr.abort.abort();
+        stdout.stream.end();
+        stderr.stream.end();
         sdkStream.kill();
       },
     };
@@ -477,16 +468,25 @@ export class NomadSandboxInstance implements Sandbox {
           }
         }
       }
+      this._lastRefreshError = null;
     } catch (error) {
       if (error instanceof NotFoundError) {
         this._status = 'stopped';
+        this._lastRefreshError = null;
       } else {
+        const wrappedError = error instanceof Error ? error : new Error(String(error));
         log.error(`refreshStatus failed for job ${this.jobName} in namespace ${this.namespace}`, {
-          error: error instanceof Error ? error : new Error(String(error)),
+          error: wrappedError,
         });
+        this._lastRefreshError = wrappedError;
         this._status = 'error';
       }
     }
+  }
+
+  /** The last error encountered during refreshStatus, if any. */
+  get lastRefreshError(): Error | null {
+    return this._lastRefreshError;
   }
 
   /**

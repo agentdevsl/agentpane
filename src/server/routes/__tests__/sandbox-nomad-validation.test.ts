@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { validateNomadAddress } from '../sandbox.js';
+import { Hono } from 'hono';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createNomadRoutes, validateNomadAddress } from '../sandbox.js';
 
 describe('validateNomadAddress', () => {
   // ── Allowed addresses ──────────────────────────────────────────────
@@ -114,5 +115,313 @@ describe('validateNomadAddress', () => {
 
   it('rejects non-http/https protocols (file)', () => {
     expect(() => validateNomadAddress('file:///etc/passwd')).toThrow('http or https protocol');
+  });
+
+  // ── Loopback port restriction (SSRF fix) ──────────────────────────
+
+  it('allows 127.0.0.1:4646 (Nomad default port)', () => {
+    expect(() => validateNomadAddress('http://127.0.0.1:4646')).not.toThrow();
+  });
+
+  it('blocks 127.0.0.1:6379 (Redis port)', () => {
+    expect(() => validateNomadAddress('http://127.0.0.1:6379')).toThrow('port 4646');
+  });
+
+  it('blocks 127.0.0.1:3001 (app server port)', () => {
+    expect(() => validateNomadAddress('http://127.0.0.1:3001')).toThrow('port 4646');
+  });
+
+  it('blocks 127.0.0.1:80 (default HTTP port)', () => {
+    expect(() => validateNomadAddress('http://127.0.0.1:80')).toThrow('port 4646');
+  });
+
+  it('blocks 127.0.0.1 without a port (defaults to port 80, not 4646)', () => {
+    expect(() => validateNomadAddress('http://127.0.0.1')).toThrow('port 4646');
+  });
+
+  it('allows http://127.0.0.1:4646 with explicit http scheme', () => {
+    expect(() => validateNomadAddress('http://127.0.0.1:4646')).not.toThrow();
+  });
+
+  it('allows https://127.100.0.1:4646 (any 127.x on port 4646)', () => {
+    expect(() => validateNomadAddress('https://127.100.0.1:4646')).not.toThrow();
+  });
+});
+
+// ── loadNomadSettings (tested indirectly via /status route) ─────────
+
+// Mock the dynamic imports that loadNomadSettings uses internally
+vi.mock('drizzle-orm', () => ({
+  eq: (col: unknown, val: unknown) => ({ col, val }),
+}));
+
+vi.mock('../../../db/schema/index.js', () => ({
+  settings: { key: 'key_column' },
+}));
+
+vi.mock('../../../lib/crypto/server-encryption.js', () => ({
+  decryptToken: vi.fn(),
+}));
+
+const mockHealthCheck = vi.fn();
+const mockListJobs = vi.fn();
+
+vi.mock('@agentpane/nomad-sandbox-sdk', () => {
+  return {
+    NomadSandboxClient: class MockNomadSandboxClient {
+      opts: Record<string, unknown>;
+      constructor(opts: Record<string, unknown>) {
+        this.opts = opts;
+        mockNomadClientConstructorCalls.push(opts);
+      }
+      healthCheck = mockHealthCheck;
+      listJobs = mockListJobs;
+    },
+  };
+});
+
+/** Tracks constructor calls so we can assert what address/token/namespace were passed. */
+const mockNomadClientConstructorCalls: Array<Record<string, unknown>> = [];
+
+// ── Mock DB Factory ──
+
+function createMockDb(settingsValue?: { address?: string; token?: string; namespace?: string }) {
+  return {
+    query: {
+      settings: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValue(
+            settingsValue
+              ? { key: 'sandbox.nomad', value: JSON.stringify(settingsValue) }
+              : undefined
+          ),
+      },
+    },
+  };
+}
+
+// ── Hono Test App Factory ──
+
+function createNomadTestApp(db?: ReturnType<typeof createMockDb>) {
+  const routes = createNomadRoutes(db ? { db: db as never } : undefined);
+  const app = new Hono();
+  app.route('/api/sandbox/nomad', routes);
+  return app;
+}
+
+// ── Request Helper ──
+
+async function request(app: Hono, path: string) {
+  return app.request(path, { method: 'GET' });
+}
+
+describe('loadNomadSettings (via /status route)', () => {
+  let decryptTokenMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    // Get handle to the mocked decryptToken function
+    const cryptoMod = await import('../../../lib/crypto/server-encryption.js');
+    decryptTokenMock = cryptoMod.decryptToken as ReturnType<typeof vi.fn>;
+    decryptTokenMock.mockReset();
+    decryptTokenMock.mockReturnValue('decrypted-token');
+
+    // Reset NomadSandboxClient tracking
+    mockNomadClientConstructorCalls.length = 0;
+    mockHealthCheck.mockReset();
+    mockHealthCheck.mockResolvedValue({
+      healthy: true,
+      leader: '127.0.0.1:4647',
+      version: '1.7.0',
+      datacenter: 'dc1',
+      namespaceExists: true,
+    });
+    mockListJobs.mockReset();
+    mockListJobs.mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // ── Token returned when address matches ──
+
+  it('returns token when address matches stored address', async () => {
+    const db = createMockDb({ address: 'http://nomad.example.com:4646', token: 'encrypted-tok' });
+    const app = createNomadTestApp(db);
+
+    const res = await request(app, '/api/sandbox/nomad/status');
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.data.healthy).toBe(true);
+    // The token was decrypted and passed to the NomadSandboxClient
+    expect(decryptTokenMock).toHaveBeenCalledWith('encrypted-tok');
+    expect(mockNomadClientConstructorCalls).toHaveLength(1);
+    expect(mockNomadClientConstructorCalls[0]).toEqual(
+      expect.objectContaining({ token: 'decrypted-token' })
+    );
+  });
+
+  // ── Token NOT returned when address differs (SSRF protection) ──
+
+  it('does NOT return token when a different address is provided', async () => {
+    const db = createMockDb({ address: 'http://nomad.example.com:4646', token: 'encrypted-tok' });
+    const app = createNomadTestApp(db);
+
+    // Override address via query param to a different (valid) host
+    const res = await request(
+      app,
+      '/api/sandbox/nomad/status?address=http://other-nomad.example.com:4646'
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.ok).toBe(true);
+    // Token should NOT have been decrypted because addresses differ
+    expect(decryptTokenMock).not.toHaveBeenCalled();
+    // Client should have been created WITHOUT a token
+    expect(mockNomadClientConstructorCalls).toHaveLength(1);
+    expect(mockNomadClientConstructorCalls[0]).toEqual(
+      expect.objectContaining({ token: undefined })
+    );
+  });
+
+  // ── Token decryption failure sets tokenDecryptionFailed ──
+
+  it('sets tokenDecryptionFailed when decryption throws', async () => {
+    decryptTokenMock.mockImplementation(() => {
+      throw new Error('Decryption failed: key rotated');
+    });
+
+    const db = createMockDb({ address: 'http://nomad.example.com:4646', token: 'bad-encrypted' });
+    const app = createNomadTestApp(db);
+
+    const res = await request(app, '/api/sandbox/nomad/status');
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.data.tokenDecryptionFailed).toBe(true);
+    // Client should have been created without a token
+    expect(mockNomadClientConstructorCalls).toHaveLength(1);
+    expect(mockNomadClientConstructorCalls[0]).toEqual(
+      expect.objectContaining({ token: undefined })
+    );
+  });
+
+  // ── Address validation runs on overrides (SSRF blocked) ──
+
+  it('rejects SSRF addresses passed as query param overrides', async () => {
+    const db = createMockDb({ address: 'http://nomad.example.com:4646', token: 'encrypted-tok' });
+    const app = createNomadTestApp(db);
+
+    // Try to override with a cloud metadata address
+    const res = await request(
+      app,
+      '/api/sandbox/nomad/status?address=http://169.254.169.254/latest/meta-data/'
+    );
+    const body = await res.json();
+
+    // loadNomadSettings throws, caught by the route's try/catch
+    expect(res.status).toBe(500);
+    expect(body.ok).toBe(false);
+    expect(body.error.code).toBe('NOMAD_CONNECTION_ERROR');
+    expect(body.error.message).toContain('cloud metadata');
+  });
+
+  it('rejects loopback addresses on non-Nomad ports via query param', async () => {
+    const db = createMockDb({ address: 'http://nomad.example.com:4646', token: 'encrypted-tok' });
+    const app = createNomadTestApp(db);
+
+    const res = await request(app, '/api/sandbox/nomad/status?address=http://127.0.0.1:6379');
+    const body = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(body.ok).toBe(false);
+    expect(body.error.message).toContain('port 4646');
+  });
+
+  // ── DB error propagates (not swallowed) ──
+
+  it('propagates DB errors to the caller', async () => {
+    const db = createMockDb();
+    // Override findFirst to throw a database error
+    db.query.settings.findFirst.mockRejectedValue(
+      new Error('SQLITE_CORRUPT: database is malformed')
+    );
+    const app = createNomadTestApp(db);
+
+    const res = await request(app, '/api/sandbox/nomad/status');
+    const body = await res.json();
+
+    // The DB error should propagate through to the route's catch handler
+    expect(res.status).toBe(500);
+    expect(body.ok).toBe(false);
+    expect(body.error.code).toBe('NOMAD_CONNECTION_ERROR');
+    expect(body.error.message).toContain('SQLITE_CORRUPT');
+  });
+
+  // ── Returns defaults when no DB ──
+
+  it('returns defaults when no DB is provided', async () => {
+    // Create routes without a DB dependency
+    const app = createNomadTestApp(undefined);
+
+    const res = await request(app, '/api/sandbox/nomad/status');
+    const body = await res.json();
+
+    // Without DB and no address override, no address is configured
+    expect(res.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.data.healthy).toBe(false);
+    expect(body.data.message).toBe('No Nomad address configured');
+  });
+
+  // ── Token attached when override matches stored address ──
+
+  it('attaches token when override address matches stored address', async () => {
+    const storedAddress = 'http://nomad.example.com:4646';
+    const db = createMockDb({ address: storedAddress, token: 'encrypted-tok' });
+    const app = createNomadTestApp(db);
+
+    // Explicitly pass the same address as an override
+    const res = await request(
+      app,
+      `/api/sandbox/nomad/status?address=${encodeURIComponent(storedAddress)}`
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.ok).toBe(true);
+    // Token should be decrypted because addresses match
+    expect(decryptTokenMock).toHaveBeenCalledWith('encrypted-tok');
+    expect(mockNomadClientConstructorCalls).toHaveLength(1);
+    expect(mockNomadClientConstructorCalls[0]).toEqual(
+      expect.objectContaining({ token: 'decrypted-token' })
+    );
+  });
+
+  // ── Namespace override ──
+
+  it('uses namespace override when provided', async () => {
+    const db = createMockDb({
+      address: 'http://nomad.example.com:4646',
+      namespace: 'production',
+    });
+    const app = createNomadTestApp(db);
+
+    const res = await request(app, '/api/sandbox/nomad/status?namespace=staging');
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.data.namespace).toBe('staging');
+    // Client should be created with the overridden namespace
+    expect(mockNomadClientConstructorCalls).toHaveLength(1);
+    expect(mockNomadClientConstructorCalls[0]).toEqual(
+      expect.objectContaining({ namespace: 'staging' })
+    );
   });
 });

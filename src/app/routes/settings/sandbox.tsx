@@ -187,6 +187,19 @@ export const Route = createFileRoute('/settings/sandbox')({
 
 type EditorMode = 'create' | 'edit' | null;
 
+/** Resolve Nomad connection status text from loading/status state. */
+function getNomadStatusText(loading: boolean, status: { healthy: boolean } | null): string {
+  if (loading) return 'Checking...';
+  if (status === null) return 'Unknown';
+  return status.healthy ? 'Connected' : 'Disconnected';
+}
+
+/** Resolve Nomad status text color class from loading/status state. */
+function getNomadStatusColor(loading: boolean, status: { healthy: boolean } | null): string {
+  if (loading || status === null) return 'text-fg-muted';
+  return status.healthy ? 'text-success' : 'text-danger';
+}
+
 function SandboxSettingsPage(): React.JSX.Element {
   const [configs, setConfigs] = useState<SandboxConfigItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -415,8 +428,9 @@ function SandboxSettingsPage(): React.JSX.Element {
           setNomadInitError(null);
         }
       }
-    } catch (_err) {
-      // Use defaults if not set
+    } catch (loadErr) {
+      console.error('[SandboxSettings] Failed to load default settings:', loadErr);
+      setError('Failed to load settings. Your saved configuration may not be displayed correctly.');
     } finally {
       setIsLoadingDefaults(false);
     }
@@ -462,6 +476,10 @@ function SandboxSettingsPage(): React.JSX.Element {
       const result = await apiClient.settings.update(settingsToSave);
       if (result.ok) {
         setDefaultsSaved(true);
+        if (nomadTokenDirty) {
+          setNomadTokenDirty(false);
+          setNomadHasToken(!!nomadToken);
+        }
         setTimeout(() => setDefaultsSaved(false), 2000);
       }
     } catch (_err) {
@@ -648,6 +666,13 @@ function SandboxSettingsPage(): React.JSX.Element {
 
   // Nomad API functions
   const loadNomadStatus = useCallback(async () => {
+    const unhealthy = {
+      healthy: false,
+      leader: null,
+      version: null,
+      datacenter: null,
+      jobCount: 0,
+    } as const;
     setNomadStatusLoading(true);
     try {
       const res = await fetch('/api/sandbox/nomad/status');
@@ -656,23 +681,11 @@ function SandboxSettingsPage(): React.JSX.Element {
         setNomadStatus(data.data);
         setNomadError(null);
       } else {
-        setNomadStatus({
-          healthy: false,
-          leader: null,
-          version: null,
-          datacenter: null,
-          jobCount: 0,
-        });
+        setNomadStatus(unhealthy);
         setNomadError(data.error?.message ?? 'Failed to connect to Nomad');
       }
     } catch (_err) {
-      setNomadStatus({
-        healthy: false,
-        leader: null,
-        version: null,
-        datacenter: null,
-        jobCount: 0,
-      });
+      setNomadStatus(unhealthy);
       setNomadError('Failed to check Nomad status');
     } finally {
       setNomadStatusLoading(false);
@@ -686,8 +699,10 @@ function SandboxSettingsPage(): React.JSX.Element {
       if (data.ok) {
         setNomadNamespaces(data.data.namespaces ?? []);
       }
-    } catch (_err) {
+    } catch (err) {
+      console.error('[SandboxSettings] Failed to load Nomad namespaces:', err);
       setNomadNamespaces([]);
+      setNomadError('Failed to load namespaces from Nomad cluster');
     }
   }, []);
 
@@ -698,8 +713,10 @@ function SandboxSettingsPage(): React.JSX.Element {
       if (data.ok) {
         setNomadDatacenters(data.data.datacenters ?? []);
       }
-    } catch (_err) {
+    } catch (err) {
+      console.error('[SandboxSettings] Failed to load Nomad datacenters:', err);
       setNomadDatacenters([]);
+      setNomadError('Failed to load datacenters from Nomad cluster');
     }
   }, []);
 
@@ -941,32 +958,23 @@ function SandboxSettingsPage(): React.JSX.Element {
                   <CircleNotch className="h-4 w-4 animate-spin text-fg-subtle" />
                 ) : nomadStatus?.healthy ? (
                   <WifiHigh className="h-4 w-4 text-success" />
-                ) : nomadStatus === null ? (
-                  <WifiSlash className="h-4 w-4 text-fg-muted" />
                 ) : (
-                  <WifiSlash className="h-4 w-4 text-danger" />
+                  <WifiSlash
+                    className={cn(
+                      'h-4 w-4',
+                      nomadStatus === null ? 'text-fg-muted' : 'text-danger'
+                    )}
+                  />
                 )}
                 <span className="text-xs text-fg-muted">
                   Status:{' '}
                   <span
                     className={cn(
                       'font-medium',
-                      nomadStatusLoading
-                        ? 'text-fg-muted'
-                        : nomadStatus === null
-                          ? 'text-fg-muted'
-                          : nomadStatus.healthy
-                            ? 'text-success'
-                            : 'text-danger'
+                      getNomadStatusColor(nomadStatusLoading, nomadStatus)
                     )}
                   >
-                    {nomadStatusLoading
-                      ? 'Checking...'
-                      : nomadStatus === null
-                        ? 'Unknown'
-                        : nomadStatus.healthy
-                          ? 'Connected'
-                          : 'Disconnected'}
+                    {getNomadStatusText(nomadStatusLoading, nomadStatus)}
                   </span>
                 </span>
               </div>
@@ -1980,13 +1988,11 @@ function SandboxSettingsPage(): React.JSX.Element {
                   )}
                   <div>
                     <p className="font-medium text-fg">
-                      {nomadStatusLoading
-                        ? 'Checking connection...'
-                        : nomadStatus === null
-                          ? 'Not checked'
-                          : nomadStatus.healthy
-                            ? 'Connected'
-                            : 'Cluster Unreachable'}
+                      {(() => {
+                        if (nomadStatusLoading) return 'Checking connection...';
+                        if (nomadStatus === null) return 'Not checked';
+                        return nomadStatus.healthy ? 'Connected' : 'Cluster Unreachable';
+                      })()}
                     </p>
                     {nomadStatus?.healthy && nomadStatus.version && (
                       <p className="text-xs text-fg-muted">

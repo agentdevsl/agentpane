@@ -101,7 +101,9 @@ export class SandboxConfigService {
 
   /**
    * Decrypt the nomadToken field on a config if present.
-   * Returns the config with the token decrypted, or undefined on failure.
+   * On decryption failure (key rotation, data corruption), logs the error and
+   * clears nomadToken to undefined. The encrypted value in the DB is preserved
+   * (only the in-memory copy is cleared).
    */
   private decryptConfigToken<T extends SandboxConfig | null>(config: T): T {
     if (!config || !config.nomadToken) {
@@ -110,20 +112,19 @@ export class SandboxConfigService {
     try {
       return { ...config, nomadToken: decryptToken(config.nomadToken) };
     } catch (error) {
-      // Decryption failed (key changed, corrupted data) — clear the token
-      log.error('Failed to decrypt nomadToken for config', {
-        data: { configId: config.id },
-        error,
-      });
-      return { ...config, nomadToken: undefined };
+      // Decryption failed (key changed, corrupted data). Log prominently so
+      // operators know the token needs to be re-entered. The encrypted value
+      // in the database is NOT modified — only this in-memory copy is cleared.
+      log.error(
+        'Failed to decrypt nomadToken — the token must be re-entered in Settings. ' +
+          'This usually means the encryption key was rotated or the data is corrupted.',
+        {
+          data: { configId: config.id },
+          error,
+        }
+      );
+      return { ...config, nomadToken: null };
     }
-  }
-
-  /**
-   * Decrypt nomadToken on an array of configs.
-   */
-  private decryptConfigTokens(configs: SandboxConfig[]): SandboxConfig[] {
-    return configs.map((c) => this.decryptConfigToken(c));
   }
 
   private validateResourceLimits(
@@ -260,7 +261,7 @@ export class SandboxConfigService {
       offset,
     });
 
-    return ok(this.decryptConfigTokens(items));
+    return ok(items.map((c) => this.decryptConfigToken(c)));
   }
 
   async update(
@@ -332,7 +333,7 @@ export class SandboxConfigService {
     // Nomad-specific fields
     if (input.nomadAddress !== undefined) updates.nomadAddress = input.nomadAddress;
     if (input.nomadToken !== undefined)
-      updates.nomadToken = input.nomadToken ? encryptToken(input.nomadToken) : undefined;
+      updates.nomadToken = input.nomadToken ? encryptToken(input.nomadToken) : null;
     if (input.nomadNamespace !== undefined) updates.nomadNamespace = input.nomadNamespace;
     if (input.nomadDatacenter !== undefined) updates.nomadDatacenter = input.nomadDatacenter;
     if (input.nomadRegion !== undefined) updates.nomadRegion = input.nomadRegion;

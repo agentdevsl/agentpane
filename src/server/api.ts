@@ -66,6 +66,7 @@ import { SandboxController } from '../lib/sandbox/controllers/sandbox-controller
 import { createDockerProvider } from '../lib/sandbox/index.js';
 import { createAgentSandboxProvider } from '../lib/sandbox/providers/agent-sandbox-provider.js';
 import type { EventEmittingSandboxProvider } from '../lib/sandbox/providers/sandbox-provider.js';
+import type { SandboxConfig } from '../lib/sandbox/types.js';
 import { SANDBOX_DEFAULTS } from '../lib/sandbox/types.js';
 import { AgentService } from '../services/agent.service.js';
 import { ApiKeyService } from '../services/api-key.service.js';
@@ -642,11 +643,9 @@ let activeK8sProvider: ReturnType<typeof createAgentSandboxProvider> | null = nu
 let sandboxController: SandboxController | null = null;
 
 // Module-level reference to the Nomad provider for health/status routes.
-let activeNomadProvider: Awaited<
-  ReturnType<
-    typeof import('../lib/sandbox/providers/nomad-sandbox-provider.js').createNomadSandboxProvider
-  >
-> | null = null;
+let activeNomadProvider:
+  | import('../lib/sandbox/providers/nomad-sandbox-provider.js').NomadSandboxProvider
+  | null = null;
 
 /** Getter for routes that need to check K8s provider health. */
 function getK8sProvider() {
@@ -682,24 +681,34 @@ async function waitForCrdRegistration(maxWaitMs = 10_000): Promise<boolean> {
  * Create a default K8s sandbox pod if one doesn't already exist.
  * Mirrors Docker's default sandbox creation pattern.
  */
-async function ensureDefaultK8sSandbox(
-  k8sProvider: ReturnType<typeof createAgentSandboxProvider>
+/**
+ * Ensure a default sandbox exists for the given provider.
+ * Shared between K8s and Nomad providers (identical lifecycle logic).
+ */
+async function ensureDefaultSandbox(
+  provider: {
+    get(projectId: string): Promise<{ status: string; stop(): Promise<void> } | null>;
+    create(config: SandboxConfig): Promise<unknown>;
+  },
+  label: string
 ): Promise<void> {
   try {
-    const existingDefault = await k8sProvider.get('default');
+    const existingDefault = await provider.get('default');
 
     if (
       existingDefault &&
       (existingDefault.status === 'error' || existingDefault.status === 'stopped')
     ) {
-      log.info('Default K8s sandbox in terminal state, recreating', {
+      log.info(`Default ${label} sandbox in terminal state, recreating`, {
         data: { status: existingDefault.status },
       });
       if (existingDefault.status === 'error') {
         try {
           await existingDefault.stop();
-        } catch {
-          // Ignore stop errors — sandbox may already be gone
+        } catch (stopErr) {
+          log.warn(`Failed to stop error-state default ${label} sandbox during recreation`, {
+            error: stopErr instanceof Error ? stopErr : new Error(String(stopErr)),
+          });
         }
       }
       // Fall through to create
@@ -708,7 +717,7 @@ async function ensureDefaultK8sSandbox(
     }
 
     const defaults = await loadSandboxDefaultsFromDb();
-    await k8sProvider.create({
+    await provider.create({
       projectId: 'default',
       projectPath: '/workspace',
       image: defaults?.image ?? SANDBOX_DEFAULTS.image,
@@ -717,10 +726,10 @@ async function ensureDefaultK8sSandbox(
       idleTimeoutMinutes: defaults?.idleTimeoutMinutes ?? 30,
       volumeMounts: [],
     });
-    log.info('Default K8s sandbox pod created');
+    log.info(`Default ${label} sandbox created`);
   } catch (createErr) {
-    log.warn('Failed to create default K8s sandbox', {
-      error: createErr instanceof Error ? createErr.message : String(createErr),
+    log.error(`Failed to create default ${label} sandbox`, {
+      error: createErr instanceof Error ? createErr : new Error(String(createErr)),
     });
   }
 }
@@ -772,78 +781,20 @@ async function clearNomadLastError() {
 /** Persist a Nomad error message to the settings table for UI display. */
 async function persistNomadLastError(message: string): Promise<void> {
   try {
+    const value = JSON.stringify({
+      error: message,
+      timestamp: new Date().toISOString(),
+    });
     await db
       .insert(schemaTables.settings)
-      .values({
-        key: 'sandbox.nomad.lastError',
-        value: JSON.stringify({
-          error: message,
-          timestamp: new Date().toISOString(),
-        }),
-      })
+      .values({ key: 'sandbox.nomad.lastError', value })
       .onConflictDoUpdate({
         target: schemaTables.settings.key,
-        set: {
-          value: JSON.stringify({
-            error: message,
-            timestamp: new Date().toISOString(),
-          }),
-        },
+        set: { value },
       });
   } catch (persistErr) {
-    console.warn('[API Server] Failed to persist Nomad error:', persistErr);
-  }
-}
-
-/**
- * Create a default Nomad sandbox job if one doesn't already exist.
- * Mirrors Docker/K8s default sandbox creation pattern.
- */
-async function ensureDefaultNomadSandbox(
-  nomadProvider: Awaited<
-    ReturnType<
-      typeof import('../lib/sandbox/providers/nomad-sandbox-provider.js').createNomadSandboxProvider
-    >
-  >
-): Promise<void> {
-  try {
-    const existingDefault = await nomadProvider.get('default');
-
-    if (
-      existingDefault &&
-      (existingDefault.status === 'error' || existingDefault.status === 'stopped')
-    ) {
-      log.info('Default Nomad sandbox in terminal state, recreating', {
-        data: { status: existingDefault.status },
-      });
-      if (existingDefault.status === 'error') {
-        try {
-          await existingDefault.stop();
-        } catch (stopErr) {
-          log.warn('Failed to stop error-state default Nomad sandbox during recreation', {
-            error: stopErr instanceof Error ? stopErr : new Error(String(stopErr)),
-          });
-        }
-      }
-      // Fall through to create
-    } else if (existingDefault) {
-      return; // Healthy default exists
-    }
-
-    const defaults = await loadSandboxDefaultsFromDb();
-    await nomadProvider.create({
-      projectId: 'default',
-      projectPath: '/workspace',
-      image: defaults?.image ?? SANDBOX_DEFAULTS.image,
-      memoryMb: defaults?.memoryMb ?? 2048,
-      cpuCores: defaults?.cpuCores ?? 2,
-      idleTimeoutMinutes: defaults?.idleTimeoutMinutes ?? 30,
-      volumeMounts: [],
-    });
-    log.info('Default Nomad sandbox job created');
-  } catch (createErr) {
-    log.error('Failed to create default Nomad sandbox', {
-      error: createErr instanceof Error ? createErr : new Error(String(createErr)),
+    log.warn('Failed to persist Nomad error', {
+      error: persistErr instanceof Error ? persistErr : new Error(String(persistErr)),
     });
   }
 }
@@ -988,7 +939,7 @@ async function initSandboxProvider() {
         }
 
         // Create default K8s sandbox pod (mirrors Docker default sandbox pattern)
-        await ensureDefaultK8sSandbox(k8sProvider);
+        await ensureDefaultSandbox(k8sProvider, 'K8s');
 
         // Initialize warm pool if enabled
         if (k8sSettings.enableWarmPool) {
@@ -1043,7 +994,7 @@ async function initSandboxProvider() {
               }
 
               // Create default K8s sandbox pod
-              await ensureDefaultK8sSandbox(k8sProvider);
+              await ensureDefaultSandbox(k8sProvider, 'K8s');
 
               // Initialize warm pool if enabled
               if (k8sSettings.enableWarmPool) {
@@ -1155,7 +1106,7 @@ async function initSandboxProvider() {
                 }
 
                 // Create default K8s sandbox pod
-                await ensureDefaultK8sSandbox(k8sProvider);
+                await ensureDefaultSandbox(k8sProvider, 'K8s');
 
                 if (k8sSettings.enableWarmPool) {
                   try {
@@ -1310,7 +1261,7 @@ async function initSandboxProvider() {
           await clearNomadLastError();
 
           // Create default Nomad sandbox (mirrors Docker/K8s pattern)
-          await ensureDefaultNomadSandbox(nomadProvider);
+          await ensureDefaultSandbox(nomadProvider, 'Nomad');
         } else {
           const diagnosis = health.message ?? 'Nomad cluster health check failed';
           log.warn(`[API Server] Nomad provider unhealthy: ${diagnosis}. Falling back to Docker.`);
@@ -1563,7 +1514,7 @@ function startK8sHealInterval() {
 
       // Ensure default sandbox exists and is healthy
       try {
-        await ensureDefaultK8sSandbox(provider);
+        await ensureDefaultSandbox(provider, 'K8s');
       } catch (defaultErr) {
         log.warn('[K8s Heal] Default sandbox check failed', {
           error: defaultErr instanceof Error ? defaultErr.message : String(defaultErr),
@@ -1670,7 +1621,7 @@ function startNomadHealInterval() {
 
       // Ensure default sandbox exists and is healthy
       try {
-        await ensureDefaultNomadSandbox(provider);
+        await ensureDefaultSandbox(provider, 'Nomad');
       } catch (defaultErr) {
         log.warn('[Nomad Heal] Default sandbox check failed', {
           error: defaultErr instanceof Error ? defaultErr.message : String(defaultErr),

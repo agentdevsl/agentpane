@@ -28,8 +28,13 @@ function buildExecWsUrl(
     url.searchParams.append('command', arg);
   }
   if (token) {
-    // Nomad accepts auth via ?token= query param for WebSocket connections
-    // where custom headers are not supported
+    // SECURITY: Nomad WebSocket connections do not support custom headers, so the ACL
+    // token must be passed via the ?token= query parameter. This means the token is
+    // visible in server access logs, proxy logs, and Nomad audit logs. Mitigation:
+    // - sanitizeWsUrl() redacts the token in all error messages from this module
+    // - TLS should always be enabled in production to prevent network sniffing
+    // - This is an inherent limitation of the WebSocket protocol (no custom headers)
+    // Accepted risk: documented and mitigated, no alternative exists for WS auth.
     url.searchParams.set('token', token);
   }
   return url.toString();

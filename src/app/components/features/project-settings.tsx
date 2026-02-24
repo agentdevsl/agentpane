@@ -173,8 +173,8 @@ export function ProjectSettings({
         if (result.ok && result.data.settings['sandbox.defaults']) {
           setGlobalDefaults(result.data.settings['sandbox.defaults'] as ProjectSandboxConfig);
         }
-      } catch {
-        // Ignore errors, use local defaults
+      } catch (error) {
+        console.error('[ProjectSettings] Failed to load global defaults:', error);
       } finally {
         setIsLoadingDefaults(false);
       }
@@ -198,6 +198,7 @@ export function ProjectSettings({
     image: existingSandbox?.image ?? globalDefaults?.image ?? '',
     namespace: existingSandbox?.namespace ?? globalDefaults?.namespace ?? 'default',
     serviceAccount: existingSandbox?.serviceAccount ?? '',
+    nomadNamespace: existingSandbox?.nomadNamespace ?? globalDefaults?.nomadNamespace ?? 'default',
   });
   // Track if user has made any changes to sandbox settings
   const [sandboxModified, setSandboxModified] = useState(false);

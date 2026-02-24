@@ -2,6 +2,26 @@ import { NOMAD_DEFAULTS, NOMAD_META } from '../constants.js';
 import type { NomadJob, NomadTask, NomadTaskGroup } from '../types/job.js';
 
 /**
+ * Normalize a host path for volume mounts: collapse repeated slashes,
+ * remove trailing slash, and resolve `.` and `..` segments.
+ * Used for both validation and storage to ensure consistency.
+ */
+function normalizeHostPath(raw: string): string {
+  const collapsed = raw.replace(/\/+/g, '/').replace(/\/$/, '') || '/';
+  const segments = collapsed.split('/');
+  const resolved: string[] = [];
+  for (const seg of segments) {
+    if (seg === '..') {
+      // Never pop past root (keep the leading '' segment)
+      if (resolved.length > 1) resolved.pop();
+    } else if (seg !== '.') {
+      resolved.push(seg);
+    }
+  }
+  return resolved.join('/') || '/';
+}
+
+/**
  * Fluent builder for creating Nomad job specifications.
  *
  * @example
@@ -104,22 +124,16 @@ export class NomadJobBuilder {
       '/dev',
       '/root',
       '/boot',
+      '/home',
+      '/usr',
+      '/bin',
+      '/sbin',
+      '/lib',
+      '/lib64',
     ];
     for (const mount of mounts) {
       const rawHostPath = mount.split(':')[0] ?? '';
-      // Normalize: collapse repeated slashes, remove trailing slash, resolve ..
-      const collapsed = rawHostPath.replace(/\/+/g, '/').replace(/\/$/, '') || '/';
-      const segments = collapsed.split('/');
-      const resolved: string[] = [];
-      for (const seg of segments) {
-        if (seg === '..') {
-          // Never pop past root (keep the leading '' segment)
-          if (resolved.length > 1) resolved.pop();
-        } else if (seg !== '.') {
-          resolved.push(seg);
-        }
-      }
-      const normalized = resolved.join('/') || '/';
+      const normalized = normalizeHostPath(rawHostPath);
       for (const blocked of blockedPrefixes) {
         if (blocked === '/') {
           if (normalized === '/') {
@@ -134,7 +148,13 @@ export class NomadJobBuilder {
         }
       }
     }
-    this.taskSpec.Config.volumes = mounts;
+    // Store normalized paths (not raw input) to ensure Nomad receives the same
+    // paths that were validated against the blocklist.
+    this.taskSpec.Config.volumes = mounts.map((mount) => {
+      const parts = mount.split(':');
+      parts[0] = normalizeHostPath(parts[0] ?? '');
+      return parts.join(':');
+    });
     return this;
   }
 

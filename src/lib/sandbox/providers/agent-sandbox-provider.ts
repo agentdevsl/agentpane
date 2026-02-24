@@ -116,6 +116,8 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
 
   // --- SandboxProvider interface ---
 
+  private creatingProjects = new Set<string>();
+
   async create(config: SandboxConfig): Promise<Sandbox> {
     // Check for existing sandbox for this project
     // (mirrors DockerProvider.create at docker-provider.ts:527-535)
@@ -126,6 +128,12 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
         throw K8sErrors.POD_ALREADY_EXISTS(config.projectId);
       }
     }
+
+    // Guard against concurrent creation for the same project
+    if (this.creatingProjects.has(config.projectId)) {
+      throw K8sErrors.POD_ALREADY_EXISTS(config.projectId);
+    }
+    this.creatingProjects.add(config.projectId);
 
     const sandboxId = createId();
     // CRD sandbox names must be DNS-1123 compliant
@@ -205,13 +213,28 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
         error: error instanceof Error ? error : new Error(message),
       });
       throw K8sErrors.POD_CREATION_FAILED(sandboxName, message);
+    } finally {
+      this.creatingProjects.delete(config.projectId);
     }
   }
 
   async validateSandboxes(): Promise<void> {
+    const toEvict: string[] = [];
     for (const [sandboxId, instance] of this.sandboxes) {
-      await instance.refreshStatus();
+      try {
+        await instance.refreshStatus();
+      } catch (error) {
+        log.error(`refreshStatus failed for sandbox ${sandboxId}, treating as error`, {
+          error: error instanceof Error ? error : new Error(String(error)),
+        });
+      }
       if (instance.status === 'error' || instance.status === 'stopped') {
+        toEvict.push(sandboxId);
+      }
+    }
+    for (const sandboxId of toEvict) {
+      const instance = this.sandboxes.get(sandboxId);
+      if (instance) {
         log.info('Evicting stale sandbox from cache', {
           data: { sandboxId, projectId: instance.projectId, status: instance.status },
         });
@@ -281,7 +304,21 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
   async getById(sandboxId: string): Promise<Sandbox | null> {
     const cached = this.sandboxes.get(sandboxId);
     if (cached) {
-      await cached.refreshStatus();
+      try {
+        await cached.refreshStatus();
+      } catch (error) {
+        log.error(`refreshStatus failed for sandbox ${sandboxId} in getById`, {
+          error: error instanceof Error ? error : new Error(String(error)),
+        });
+        this.sandboxes.delete(sandboxId);
+        this.projectToSandbox.delete(cached.projectId);
+        return null;
+      }
+      if (cached.status === 'error' || cached.status === 'stopped') {
+        this.sandboxes.delete(sandboxId);
+        this.projectToSandbox.delete(cached.projectId);
+        return null;
+      }
     }
     return cached ?? null;
   }
@@ -390,27 +427,36 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
   async cleanup(options?: { olderThan?: Date; status?: string[] }): Promise<number> {
     let cleaned = 0;
 
+    // Collect IDs first to avoid mutating the map during iteration
+    const toClean: string[] = [];
     for (const [sandboxId, instance] of this.sandboxes) {
       const shouldClean =
         (options?.status?.includes(instance.status) ?? instance.status === 'stopped') &&
         (!options?.olderThan || instance.getLastActivity() < options.olderThan);
 
       if (shouldClean) {
-        try {
-          if (instance.status !== 'stopped') {
-            await instance.stop();
-          }
-
-          this.sandboxes.delete(sandboxId);
-          this.projectToSandbox.delete(instance.projectId);
-          cleaned++;
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          log.error(`Failed to cleanup sandbox ${sandboxId}: ${message}`, {
-            error: error instanceof Error ? error : new Error(message),
-          });
-        }
+        toClean.push(sandboxId);
       }
+    }
+
+    for (const sandboxId of toClean) {
+      const instance = this.sandboxes.get(sandboxId);
+      if (!instance) continue;
+
+      try {
+        if (instance.status !== 'stopped') {
+          await instance.stop();
+        }
+        cleaned++;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        log.error(`Failed to stop sandbox ${sandboxId} during cleanup — removing from cache`, {
+          error: error instanceof Error ? error : new Error(message),
+        });
+      }
+      // Always evict from cache regardless of stop success/failure
+      this.sandboxes.delete(sandboxId);
+      this.projectToSandbox.delete(instance.projectId);
     }
 
     return cleaned;
