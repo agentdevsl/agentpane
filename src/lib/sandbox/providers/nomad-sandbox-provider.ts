@@ -103,6 +103,7 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
   private sandboxes = new Map<string, NomadSandboxInstance>();
   private projectToSandbox = new Map<string, string>();
   private listeners = new Set<SandboxProviderEventListener>();
+  private creatingProjects = new Set<string>();
 
   constructor(options: NomadSandboxProviderOptions = {}) {
     this.namespace = options.namespace ?? PROVIDER_DEFAULTS.namespace;
@@ -124,6 +125,11 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
   // --- SandboxProvider interface ---
 
   async create(config: SandboxConfig): Promise<Sandbox> {
+    // Guard against concurrent create() calls for the same project
+    if (this.creatingProjects.has(config.projectId)) {
+      throw NomadErrors.JOB_ALREADY_EXISTS(config.projectId);
+    }
+
     // Check for existing sandbox for this project
     const existing = this.projectToSandbox.get(config.projectId);
     if (existing) {
@@ -133,6 +139,7 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
       }
     }
 
+    this.creatingProjects.add(config.projectId);
     const sandboxId = createId();
     // Job names must be DNS-compatible: lowercase alphanumeric and hyphens
     const jobName = `agentpane-${config.projectId.slice(0, 20)}-${sandboxId.slice(0, 8)}`
@@ -232,6 +239,8 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
       }
       const message = error instanceof Error ? error.message : String(error);
       throw NomadErrors.JOB_CREATION_FAILED(jobName, message);
+    } finally {
+      this.creatingProjects.delete(config.projectId);
     }
   }
 

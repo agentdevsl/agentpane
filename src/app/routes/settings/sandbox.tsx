@@ -299,6 +299,8 @@ function SandboxSettingsPage(): React.JSX.Element {
   // Nomad configuration state
   const [nomadAddress, setNomadAddress] = useState('');
   const [nomadToken, setNomadToken] = useState('');
+  const [nomadHasToken, setNomadHasToken] = useState(false);
+  const [nomadTokenDirty, setNomadTokenDirty] = useState(false);
   const [nomadNamespace, setNomadNamespace] = useState('default');
   const [nomadRegion, setNomadRegion] = useState('');
   const [nomadDatacenter, setNomadDatacenter] = useState('');
@@ -399,7 +401,12 @@ function SandboxSettingsPage(): React.JSX.Element {
           if (parsed.success) {
             const nomad = parsed.data;
             if (nomad.address) setNomadAddress(nomad.address);
+            // Server redacts the token (returns hasToken: true instead)
+            // Only set nomadToken if a real token value was returned (shouldn't happen normally)
             if (nomad.token) setNomadToken(nomad.token);
+            if ((result.data.settings['sandbox.nomad'] as Record<string, unknown>)?.hasToken) {
+              setNomadHasToken(true);
+            }
             if (nomad.namespace) setNomadNamespace(nomad.namespace);
             if (nomad.region) setNomadRegion(nomad.region);
             if (nomad.datacenter) setNomadDatacenter(nomad.datacenter);
@@ -454,7 +461,7 @@ function SandboxSettingsPage(): React.JSX.Element {
       if (defaultSettings.provider === 'nomad') {
         settingsToSave['sandbox.nomad'] = {
           address: nomadAddress || undefined,
-          token: nomadToken || undefined,
+          ...(nomadTokenDirty && { token: nomadToken || undefined }),
           namespace: nomadNamespace || 'default',
           region: nomadRegion || undefined,
           datacenter: nomadDatacenter || undefined,
@@ -2056,8 +2063,11 @@ function SandboxSettingsPage(): React.JSX.Element {
                     id="nomad-token"
                     type="password"
                     value={nomadToken}
-                    onChange={(e) => setNomadToken(e.target.value)}
-                    placeholder="Secret ACL token"
+                    onChange={(e) => {
+                      setNomadToken(e.target.value);
+                      setNomadTokenDirty(true);
+                    }}
+                    placeholder={nomadHasToken ? '••••••••  (token saved)' : 'Secret ACL token'}
                     className="w-full rounded-md border border-border bg-surface-subtle px-3 py-2 font-mono text-sm text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
                     data-testid="nomad-token-input"
                   />

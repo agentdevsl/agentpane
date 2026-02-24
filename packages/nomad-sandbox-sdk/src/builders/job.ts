@@ -93,7 +93,18 @@ export class NomadJobBuilder {
 
   /** Set Docker volume mounts. Blocks sensitive host paths for security. */
   volumes(mounts: string[]): this {
-    const blockedPrefixes = ['/', '/etc', '/proc', '/sys', '/var/run', '/dev', '/root', '/boot'];
+    const blockedPrefixes = [
+      '/',
+      '/etc',
+      '/proc',
+      '/sys',
+      '/var/run',
+      '/var/lib/docker',
+      '/var/log',
+      '/dev',
+      '/root',
+      '/boot',
+    ];
     for (const mount of mounts) {
       const rawHostPath = mount.split(':')[0] ?? '';
       // Normalize: collapse repeated slashes, remove trailing slash, resolve ..

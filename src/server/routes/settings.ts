@@ -117,8 +117,8 @@ export function createSettingsRoutes({ db }: SettingsDeps) {
         if (key === 'sandbox.nomad' && typeof value === 'object' && value !== null) {
           const nomadVal = value as Record<string, unknown>;
           if (nomadVal.token && typeof nomadVal.token === 'string') {
-            const { encryptToken } = await import('../crypto.js');
-            nomadVal.token = await encryptToken(nomadVal.token);
+            const { encryptToken } = await import('../../lib/crypto/server-encryption.js');
+            nomadVal.token = encryptToken(nomadVal.token);
           }
         }
 

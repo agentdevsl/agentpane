@@ -31,7 +31,10 @@ function getOrCreateKeyMaterial(): Uint8Array {
 
   // Generate new random key material
   const keyMaterial = crypto.getRandomValues(new Uint8Array(32));
-  writeFileSync(KEY_FILE_PATH, Buffer.from(keyMaterial).toString('base64'), 'utf-8');
+  writeFileSync(KEY_FILE_PATH, Buffer.from(keyMaterial).toString('base64'), {
+    encoding: 'utf-8',
+    mode: 0o600,
+  });
 
   return keyMaterial;
 }
