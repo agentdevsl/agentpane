@@ -93,7 +93,7 @@ export class NomadJobBuilder {
 
   /** Set Docker volume mounts. Blocks sensitive host paths for security. */
   volumes(mounts: string[]): this {
-    const blockedPrefixes = ['/', '/etc', '/proc', '/sys', '/var/run/docker.sock', '/dev'];
+    const blockedPrefixes = ['/', '/etc', '/proc', '/sys', '/var/run', '/dev', '/root', '/boot'];
     for (const mount of mounts) {
       const rawHostPath = mount.split(':')[0] ?? '';
       // Normalize: collapse repeated slashes, remove trailing slash, resolve ..
@@ -101,8 +101,12 @@ export class NomadJobBuilder {
       const segments = collapsed.split('/');
       const resolved: string[] = [];
       for (const seg of segments) {
-        if (seg === '..') resolved.pop();
-        else if (seg !== '.') resolved.push(seg);
+        if (seg === '..') {
+          // Never pop past root (keep the leading '' segment)
+          if (resolved.length > 1) resolved.pop();
+        } else if (seg !== '.') {
+          resolved.push(seg);
+        }
       }
       const normalized = resolved.join('/') || '/';
       for (const blocked of blockedPrefixes) {

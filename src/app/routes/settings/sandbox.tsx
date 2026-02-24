@@ -1364,7 +1364,10 @@ function SandboxSettingsPage(): React.JSX.Element {
             {/* Docker Provider */}
             <button
               type="button"
-              onClick={() => setSelectedProvider('docker')}
+              onClick={() => {
+                setSelectedProvider('docker');
+                setDefaultSettings((prev) => ({ ...prev, provider: 'docker' }));
+              }}
               className={cn(
                 'relative cursor-pointer rounded-lg border-2 p-5 text-left transition-all',
                 selectedProvider === 'docker'
@@ -1398,7 +1401,10 @@ function SandboxSettingsPage(): React.JSX.Element {
             {/* Kubernetes Provider */}
             <button
               type="button"
-              onClick={() => setSelectedProvider('kubernetes')}
+              onClick={() => {
+                setSelectedProvider('kubernetes');
+                setDefaultSettings((prev) => ({ ...prev, provider: 'kubernetes' }));
+              }}
               className={cn(
                 'relative cursor-pointer rounded-lg border-2 p-5 text-left transition-all',
                 selectedProvider === 'kubernetes'
@@ -1432,7 +1438,10 @@ function SandboxSettingsPage(): React.JSX.Element {
             {/* Nomad Provider */}
             <button
               type="button"
-              onClick={() => setSelectedProvider('nomad')}
+              onClick={() => {
+                setSelectedProvider('nomad');
+                setDefaultSettings((prev) => ({ ...prev, provider: 'nomad' }));
+              }}
               className={cn(
                 'relative cursor-pointer rounded-lg border-2 p-5 text-left transition-all',
                 selectedProvider === 'nomad'

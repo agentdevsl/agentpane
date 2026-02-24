@@ -61,10 +61,7 @@ export class NomadSandboxInstance implements Sandbox {
 
   private assertRunning(): void {
     if (this._status !== 'running' && this._status !== 'creating') {
-      throw NomadErrors.JOB_NOT_RUNNING(
-        this.jobName,
-        this._status as unknown as import('@agentpane/nomad-sandbox-sdk').NomadJobStatus
-      );
+      throw NomadErrors.JOB_NOT_RUNNING(this.jobName, this._status);
     }
   }
 
@@ -285,9 +282,13 @@ export class NomadSandboxInstance implements Sandbox {
     try {
       const listResult = await this.exec('tmux', ['list-sessions', '-F', '#{session_name}']);
       sessionExists = listResult.stdout.split('\n').includes(sessionName);
-    } catch {
-      // tmux server not running yet — no existing sessions
-      sessionExists = false;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes('no server running') || message.includes('no sessions')) {
+        sessionExists = false;
+      } else {
+        throw err;
+      }
     }
     if (sessionExists) {
       throw NomadErrors.TMUX_SESSION_ALREADY_EXISTS(sessionName);

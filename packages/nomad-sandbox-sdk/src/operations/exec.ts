@@ -84,7 +84,7 @@ export async function execInAllocation(
     let stdout = '';
     let stderr = '';
     let settled = false;
-    let parseFailures = 0;
+    let consecutiveParseFailures = 0;
 
     const ws = new WebSocket(wsUrl);
 
@@ -114,22 +114,22 @@ export async function execInAllocation(
       try {
         frame = JSON.parse(raw);
       } catch (err) {
-        parseFailures++;
+        consecutiveParseFailures++;
         console.error(
           '[NomadSDK] Failed to parse exec frame:',
           err instanceof Error ? err.message : String(err)
         );
-        if (parseFailures >= 3 && !settled) {
+        if (consecutiveParseFailures >= 3 && !settled) {
           settled = true;
           clearTimeout(timeoutId);
           ws.close();
-          reject(new ExecError(1, `Too many unparseable frames (${parseFailures})`));
+          reject(new ExecError(1, `Too many unparseable frames (${consecutiveParseFailures})`));
         }
         return;
       }
 
       // Reset on successful parse
-      parseFailures = 0;
+      consecutiveParseFailures = 0;
 
       try {
         if (frame.stdout?.data) {
@@ -262,7 +262,7 @@ export function execStreamInAllocation(
 
   const encoder = new TextEncoder();
 
-  let parseFailures = 0;
+  let consecutiveParseFailures = 0;
   let streamTimeoutId: ReturnType<typeof setTimeout> | undefined;
 
   ws.onmessage = (event) => {
@@ -283,23 +283,23 @@ export function execStreamInAllocation(
     try {
       frame = JSON.parse(raw);
     } catch (err) {
-      parseFailures++;
+      consecutiveParseFailures++;
       console.error(
         '[NomadSDK] Failed to parse exec stream frame:',
         err instanceof Error ? err.message : String(err)
       );
-      if (parseFailures >= 3 && !streamSettled) {
+      if (consecutiveParseFailures >= 3 && !streamSettled) {
         streamSettled = true;
         if (streamTimeoutId) clearTimeout(streamTimeoutId);
         ws.close();
         closeControllers();
-        rejectWait(new ExecError(1, `Too many unparseable frames (${parseFailures})`));
+        rejectWait(new ExecError(1, `Too many unparseable frames (${consecutiveParseFailures})`));
       }
       return;
     }
 
     // Reset on successful parse
-    parseFailures = 0;
+    consecutiveParseFailures = 0;
 
     try {
       if (frame.stdout?.data) {

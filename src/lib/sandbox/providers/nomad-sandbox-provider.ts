@@ -171,8 +171,8 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
       );
 
       if (!runningAlloc?.ID) {
-        throw new Error(
-          `No running allocation found for job "${jobName}" after waitForRunning. Allocations: ${allocations.map((a) => `${a.ID?.slice(0, 8)}:${a.ClientStatus}`).join(', ')}`
+        throw NomadErrors.ALLOCATION_NOT_FOUND(
+          `${jobName} (allocs: ${allocations.map((a) => `${a.ID?.slice(0, 8)}:${a.ClientStatus}`).join(', ')})`
         );
       }
       const allocId = runningAlloc.ID;
@@ -292,8 +292,8 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
       );
 
       if (!matchingJob) {
-        // Fallback to default project sandbox (same pattern as K8s provider)
         if (projectId !== 'default') {
+          log.warn(`No Nomad job found for project ${projectId}, falling back to default sandbox`);
           return this.get('default');
         }
         return null;
@@ -349,7 +349,21 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
   async getById(sandboxId: string): Promise<Sandbox | null> {
     const cached = this.sandboxes.get(sandboxId);
     if (cached) {
-      await cached.refreshStatus();
+      try {
+        await cached.refreshStatus();
+      } catch (error) {
+        log.error(`refreshStatus failed for sandbox ${sandboxId} in getById`, {
+          error: error instanceof Error ? error : new Error(String(error)),
+        });
+        this.sandboxes.delete(sandboxId);
+        this.projectToSandbox.delete(cached.projectId);
+        return null;
+      }
+      if (cached.status === 'error' || cached.status === 'stopped') {
+        this.sandboxes.delete(sandboxId);
+        this.projectToSandbox.delete(cached.projectId);
+        return null;
+      }
     }
     return cached ?? null;
   }
@@ -469,9 +483,11 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
         this.projectToSandbox.delete(instance.projectId);
         cleaned++;
       } catch (error) {
-        log.warn(`Failed to stop sandbox ${sandboxId} during cleanup, keeping in cache for retry`, {
+        log.error(`Failed to stop sandbox ${sandboxId} during cleanup — removing from cache`, {
           error: error instanceof Error ? error : new Error(String(error)),
         });
+        this.sandboxes.delete(sandboxId);
+        this.projectToSandbox.delete(instance.projectId);
       }
     }
 

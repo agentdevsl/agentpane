@@ -1,4 +1,3 @@
-import type { NomadJobStatus } from '@agentpane/nomad-sandbox-sdk';
 import { createError } from './base.js';
 
 /**
@@ -120,7 +119,7 @@ export const NomadErrors = {
       { jobId, errorName: 'NOMAD_JOB_STOP_FAILED' }
     ),
 
-  JOB_NOT_RUNNING: (jobId: string, currentStatus: NomadJobStatus) =>
+  JOB_NOT_RUNNING: (jobId: string, currentStatus: string) =>
     createError(
       NOMAD_ERROR_IDS.JOB_NOT_RUNNING,
       `Nomad job ${jobId} is not running (current: ${currentStatus})`,

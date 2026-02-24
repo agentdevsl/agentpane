@@ -4,6 +4,7 @@ import { projects, sandboxConfigs } from '../db/schema';
 import { encryptToken } from '../lib/crypto/server-encryption.js';
 import type { SandboxConfigError } from '../lib/errors/sandbox-config-errors.js';
 import { SandboxConfigErrors } from '../lib/errors/sandbox-config-errors.js';
+import { createLogger } from '../lib/logging/logger.js';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
 import type { Database } from '../types/database.js';
@@ -89,6 +90,8 @@ export type ListSandboxConfigsOptions = {
   offset?: number;
 };
 
+const log = createLogger('SandboxConfigService');
+
 export class SandboxConfigService {
   constructor(private db: Database) {}
 
@@ -108,8 +111,12 @@ export class SandboxConfigService {
     try {
       const { decryptToken } = await import('../lib/crypto/server-encryption.js');
       return { ...config, nomadToken: decryptToken(config.nomadToken) };
-    } catch {
+    } catch (error) {
       // Decryption failed (key changed, corrupted data) — clear the token
+      log.error('Failed to decrypt nomadToken for config', {
+        data: { configId: config.id },
+        error,
+      });
       return { ...config, nomadToken: undefined };
     }
   }
@@ -220,7 +227,7 @@ export class SandboxConfigService {
       return err(SandboxConfigErrors.NOT_FOUND);
     }
 
-    return ok(config);
+    return ok(await this.decryptConfigToken(config));
   }
 
   async getById(id: string): Promise<Result<SandboxConfig, SandboxConfigError>> {
@@ -327,7 +334,7 @@ export class SandboxConfigService {
     // Nomad-specific fields
     if (input.nomadAddress !== undefined) updates.nomadAddress = input.nomadAddress;
     if (input.nomadToken !== undefined)
-      updates.nomadToken = input.nomadToken ? encryptToken(input.nomadToken) : input.nomadToken;
+      updates.nomadToken = input.nomadToken ? encryptToken(input.nomadToken) : undefined;
     if (input.nomadNamespace !== undefined) updates.nomadNamespace = input.nomadNamespace;
     if (input.nomadDatacenter !== undefined) updates.nomadDatacenter = input.nomadDatacenter;
     if (input.nomadRegion !== undefined) updates.nomadRegion = input.nomadRegion;
@@ -342,7 +349,7 @@ export class SandboxConfigService {
       return err(SandboxConfigErrors.NOT_FOUND);
     }
 
-    return ok(updated);
+    return ok(await this.decryptConfigToken(updated));
   }
 
   async delete(id: string): Promise<Result<void, SandboxConfigError>> {

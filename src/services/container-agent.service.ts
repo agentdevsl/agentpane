@@ -1296,7 +1296,13 @@ export class ContainerAgentService {
 
         // Start processing the stdout stream (async, don't await)
         debugLog('startAgent', 'Starting stdout stream processing', { taskId });
-        this.processAgentOutput(runningAgent);
+        this.processAgentOutput(runningAgent).catch((err) => {
+          const message = err instanceof Error ? err.message : String(err);
+          infoLog('startAgent', 'Unhandled error in processAgentOutput', {
+            taskId,
+            error: message,
+          });
+        });
 
         // Await critical status events for persistence
         await this.streams.publish(sessionId, 'container-agent:status', {

@@ -50,6 +50,17 @@ export function createSettingsRoutes({ db }: SettingsDeps) {
       const settingsMap: Record<string, unknown> = {};
       for (const row of results) {
         try {
+          // Redact sensitive tokens before returning to client
+          if (row.key === 'sandbox.nomad') {
+            const parsed = JSON.parse(row.value);
+            if (parsed.token) {
+              parsed.hasToken = true;
+              delete parsed.token;
+            }
+            settingsMap[row.key] = parsed;
+            continue;
+          }
+
           settingsMap[row.key] = JSON.parse(row.value);
         } catch (parseError) {
           // Log warning for potential data corruption - falling back to raw string
@@ -102,6 +113,15 @@ export function createSettingsRoutes({ db }: SettingsDeps) {
 
       // Upsert each setting
       for (const [key, value] of Object.entries(settingsToUpdate)) {
+        // Encrypt sensitive tokens before storage
+        if (key === 'sandbox.nomad' && typeof value === 'object' && value !== null) {
+          const nomadVal = value as Record<string, unknown>;
+          if (nomadVal.token && typeof nomadVal.token === 'string') {
+            const { encryptToken } = await import('../crypto.js');
+            nomadVal.token = await encryptToken(nomadVal.token);
+          }
+        }
+
         const jsonValue = JSON.stringify(value);
         await db
           .insert(schema.settings)
