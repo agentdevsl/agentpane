@@ -663,15 +663,9 @@ export function ProjectSettings({
                 <FieldLabel htmlFor="nomad-namespace">Namespace</FieldLabel>
                 <TextInput
                   id="nomad-namespace"
-                  value={
-                    (sandboxConfig as ProjectSandboxConfig & { nomadNamespace?: string })
-                      .nomadNamespace ?? 'default'
-                  }
+                  value={sandboxConfig.nomadNamespace ?? 'default'}
                   onChange={(e) =>
-                    updateSandboxConfig(
-                      (prev) =>
-                        ({ ...prev, nomadNamespace: e.target.value }) as ProjectSandboxConfig
-                    )
+                    updateSandboxConfig((prev) => ({ ...prev, nomadNamespace: e.target.value }))
                   }
                   placeholder="default"
                   disabled={!sandboxConfig.enabled}

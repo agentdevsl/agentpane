@@ -228,6 +228,53 @@ describe('NomadSandboxClient', () => {
   });
 
   // ----------------------------------------------------------------
+  // listNamespaces
+  // ----------------------------------------------------------------
+  describe('listNamespaces()', () => {
+    let mockFetch: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      mockFetch = vi.fn();
+      vi.stubGlobal('fetch', mockFetch);
+    });
+
+    it('returns namespaces from the API', async () => {
+      const mockNamespaces = [
+        { Name: 'default', Description: '' },
+        { Name: 'production', Description: 'prod' },
+      ];
+      mockFetch.mockResolvedValueOnce(
+        new Response(JSON.stringify(mockNamespaces), { status: 200 })
+      );
+
+      const result = await client.listNamespaces();
+      expect(result).toEqual(mockNamespaces);
+    });
+  });
+
+  // ----------------------------------------------------------------
+  // listDatacenters
+  // ----------------------------------------------------------------
+  describe('listDatacenters()', () => {
+    let mockFetch: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      mockFetch = vi.fn();
+      vi.stubGlobal('fetch', mockFetch);
+    });
+
+    it('returns datacenters from the API', async () => {
+      const mockDatacenters = ['dc1', 'dc2'];
+      mockFetch.mockResolvedValueOnce(
+        new Response(JSON.stringify(mockDatacenters), { status: 200 })
+      );
+
+      const result = await client.listDatacenters();
+      expect(result).toEqual(mockDatacenters);
+    });
+  });
+
+  // ----------------------------------------------------------------
   // healthCheck
   // ----------------------------------------------------------------
   describe('healthCheck()', () => {

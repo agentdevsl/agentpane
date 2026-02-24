@@ -1,17 +1,19 @@
 /**
- * Result of a Nomad cluster health check
+ * Result of a Nomad cluster health check (discriminated union on `healthy`)
  */
-export interface NomadHealthCheckResult {
-  /** Whether the cluster is healthy and reachable */
-  healthy: boolean;
-  /** Leader address, or null if no leader */
-  leader: string | null;
-  /** Nomad version, or null if unreachable */
-  version: string | null;
-  /** Whether the configured namespace exists */
-  namespaceExists: boolean;
-  /** Datacenter name, or null if unreachable */
-  datacenter: string | null;
-  /** Error details when healthy is false (e.g. connection refused, TLS error, auth failure) */
-  error?: string;
-}
+export type NomadHealthCheckResult =
+  | {
+      healthy: true;
+      leader: string;
+      version: string;
+      namespaceExists: boolean;
+      datacenter: string;
+    }
+  | {
+      healthy: false;
+      leader: string | null;
+      version: string | null;
+      namespaceExists: boolean;
+      datacenter: string | null;
+      error: string;
+    };

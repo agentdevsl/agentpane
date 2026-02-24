@@ -161,9 +161,9 @@ export type UpdateTemplateInput = {
   projectIds?: string[];
 };
 
-// Sandbox Config types — derived from the canonical SANDBOX_TYPES enum
-import type { SANDBOX_TYPES } from '../../db/schema/shared/enums.js';
-export type SandboxType = (typeof SANDBOX_TYPES)[number];
+// Sandbox Config types — derived from the canonical SandboxProvider type
+import type { SandboxProvider } from '../sandbox/types.js';
+export type SandboxType = SandboxProvider;
 
 export type SandboxConfigItem = {
   id: string;

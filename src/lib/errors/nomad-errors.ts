@@ -2,7 +2,9 @@ import { createError } from './base.js';
 
 /**
  * Reserved Nomad error IDs for monitoring/Sentry grouping.
- * Format: NOMAD-XXX where XXX is a category-specific number.
+ * Format: NOMAD-NNN where NNN is a zero-padded category-specific number.
+ * Ranges: 001-099 connection, 100-199 namespace, 200-299 job lifecycle,
+ * 300-399 exec, 400-499 image, 500-599 tmux, 700-799 API.
  */
 export const NOMAD_ERROR_IDS = {
   // Connection (001-099)
@@ -50,7 +52,8 @@ export const NomadErrors = {
     createError(
       NOMAD_ERROR_IDS.CLUSTER_UNREACHABLE,
       `Nomad cluster unreachable at ${address}: ${message}`,
-      503
+      503,
+      { address, message }
     ),
 
   CONNECTION_REFUSED: (address: string) =>
@@ -65,6 +68,14 @@ export const NomadErrors = {
 
   AUTH_FAILED: (message: string) =>
     createError(NOMAD_ERROR_IDS.AUTH_FAILED, `Nomad authentication failed: ${message}`, 401),
+
+  TLS_ERROR: (address: string, message: string) =>
+    createError(
+      NOMAD_ERROR_IDS.TLS_ERROR,
+      `TLS connection to Nomad at ${address} failed: ${message}`,
+      502,
+      { address, message }
+    ),
 
   // Namespace errors
   NAMESPACE_NOT_FOUND: (namespace: string) =>
@@ -107,6 +118,7 @@ export const NomadErrors = {
       }
     ),
 
+  // TODO: type currentStatus as NomadJobStatus when SDK types are re-exported
   JOB_NOT_RUNNING: (jobId: string, currentStatus: string) =>
     createError(
       NOMAD_ERROR_IDS.JOB_NOT_RUNNING,

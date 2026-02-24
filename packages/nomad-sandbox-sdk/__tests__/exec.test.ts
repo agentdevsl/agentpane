@@ -276,6 +276,26 @@ describe('exec operations', () => {
       consoleSpy.mockRestore();
     });
 
+    it('sets tty=true in WebSocket URL when tty option is true', async () => {
+      const http = createMockHttpClient();
+      const promise = execInAllocation(http, {
+        allocId: 'alloc-abc123',
+        task: 'sandbox',
+        command: ['/bin/sh'],
+        tty: true,
+      });
+
+      await vi.waitFor(() => expect(wsInstances).toHaveLength(1));
+      const ws = wsInstances[0];
+
+      const url = new URL(ws.url);
+      expect(url.searchParams.get('tty')).toBe('true');
+
+      // Complete the exec
+      ws.simulateMessage(JSON.stringify({ exited: true, result: { exit_code: 0 } }));
+      await promise;
+    });
+
     it('defaults exit code to 1 when not present in result', async () => {
       const http = createMockHttpClient();
       const promise = execInAllocation(http, {

@@ -161,19 +161,16 @@ describe('jobs operations', () => {
 
   describe('stopJob', () => {
     it('sends DELETE /v1/job/:jobId without purge by default', async () => {
-      const mockResponse = {
+      http.request.mockResolvedValue({
         EvalID: 'eval-789',
         EvalCreateIndex: 100,
         JobModifyIndex: 101,
-      };
+      });
 
-      http.request.mockResolvedValue(mockResponse);
-
-      const result = await stopJob(http as any, 'test-job');
+      await stopJob(http as any, 'test-job');
 
       expect(http.request).toHaveBeenCalledTimes(1);
       expect(http.request).toHaveBeenCalledWith('DELETE', '/v1/job/test-job', { query: {} });
-      expect(result).toEqual(mockResponse);
     });
 
     it('sends DELETE /v1/job/:jobId with purge=true when purge is true', async () => {

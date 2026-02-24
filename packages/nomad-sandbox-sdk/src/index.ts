@@ -26,6 +26,7 @@ export { watchJob } from './operations/watch.js';
 // Types — allocation
 export type {
   NomadAllocation,
+  NomadAllocDesiredStatus,
   NomadAllocStats,
   NomadTaskEvent,
   NomadTaskResourceUsage,
@@ -52,7 +53,6 @@ export type {
   NomadConstraint,
   NomadDockerConfig,
   NomadJob,
-  NomadJobDeregisterResponse,
   NomadJobListStub,
   NomadJobRegisterResponse,
   NomadNetworkResource,

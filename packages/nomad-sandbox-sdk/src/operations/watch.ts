@@ -89,7 +89,9 @@ export function watchJob(
   };
 
   // Start polling (fire and forget)
-  poll();
+  poll().catch((err) => {
+    options?.onError?.(err instanceof Error ? err : new Error(String(err)));
+  });
 
   return {
     stop() {

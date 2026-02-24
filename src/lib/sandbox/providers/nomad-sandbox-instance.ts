@@ -1,5 +1,5 @@
 import { PassThrough, type Readable } from 'node:stream';
-import type { NomadSandboxClient } from '@agentpane/nomad-sandbox-sdk';
+import { type NomadSandboxClient, NotFoundError } from '@agentpane/nomad-sandbox-sdk';
 import { NomadErrors } from '../../errors/nomad-errors.js';
 import { createLogger } from '../../logging/logger.js';
 import type { ExecResult, SandboxMetrics, SandboxStatus, TmuxSession } from '../types.js';
@@ -20,6 +20,7 @@ const log = createLogger('NomadSandboxInstance');
 export class NomadSandboxInstance implements Sandbox {
   private _lastActivity: Date;
   private _status: SandboxStatus = 'creating';
+  private readonly _createdAt = new Date();
 
   constructor(
     /** Unique sandbox ID (cuid2) */
@@ -80,10 +81,15 @@ export class NomadSandboxInstance implements Sandbox {
   }
 
   async execAsRoot(cmd: string, args: string[] = []): Promise<ExecResult> {
-    // Root escalation is not supported by this provider. The command runs as whatever
-    // user the container is configured with. This matches the K8s provider behavior.
-    log.warn('execAsRoot called but Nomad sandboxes run as non-root. Executing as default user.');
-    return this.exec(cmd, args);
+    log.warn(
+      'execAsRoot called but Nomad provider does not support root execution, running as default user',
+      { data: { cmd } }
+    );
+    const result = await this.exec(cmd, args);
+    return {
+      ...result,
+      stderr: `[WARNING: Running as default user - root execution not supported by Nomad provider]\n${result.stderr}`,
+    };
   }
 
   async stop(): Promise<void> {
@@ -103,7 +109,7 @@ export class NomadSandboxInstance implements Sandbox {
   /**
    * Escape a string for safe use in shell commands.
    * Uses single quotes and handles embedded single quotes.
-   * Matches the AgentSandboxInstance.shellEscape pattern.
+   * Matches the DockerSandbox.shellEscape pattern used across sandbox implementations.
    */
   private shellEscape(str: string): string {
     return `'${str.replace(/'/g, "'\\''")}'`;
@@ -175,8 +181,8 @@ export class NomadSandboxInstance implements Sandbox {
     });
 
     // Pipe SDK web ReadableStreams through PassThrough Node streams for the
-    // ContainerBridge contract. We use pipeTo with a WritableStream adapter
-    // that writes chunks into the PassThrough.
+    // ExecStreamResult interface, which requires Node Readable streams. We use
+    // pipeTo with a WritableStream adapter that writes chunks into the PassThrough.
     const stdoutStream = new PassThrough();
     const stderrStream = new PassThrough();
 
@@ -269,6 +275,7 @@ export class NomadSandboxInstance implements Sandbox {
   }
 
   async listTmuxSessions(): Promise<TmuxSession[]> {
+    this.assertRunning();
     this.touch();
 
     const result = await this.exec('tmux', [
@@ -354,16 +361,13 @@ export class NomadSandboxInstance implements Sandbox {
 
   /**
    * Placeholder metrics implementation. All resource values are hardcoded to zero.
-   * The uptime measures time since the last exec/tmux operation, not actual container uptime.
+   * Uptime is calculated from the instance creation time.
    */
   async getMetrics(): Promise<SandboxMetrics> {
-    this.touch();
-
     try {
-      // Verify job exists. Using last activity as a cheap uptime proxy
-      // (Nomad allocations expose CreateTime but we skip the extra API call).
+      // Verify job still exists in the cluster before reporting metrics.
       await this.client.getJob(this.jobName);
-      const uptime = Date.now() - this._lastActivity.getTime();
+      const uptime = Date.now() - this._createdAt.getTime();
 
       return {
         cpuUsagePercent: 0,
@@ -427,13 +431,11 @@ export class NomadSandboxInstance implements Sandbox {
         }
       }
     } catch (error) {
-      if (error instanceof Error && error.name === 'NotFoundError') {
+      if (error instanceof NotFoundError) {
         this._status = 'stopped';
       } else {
-        const message = error instanceof Error ? error.message : String(error);
-        log.warn(`refreshStatus failed for job ${this.jobName}`, {
-          error: error instanceof Error ? error : new Error(message),
-          data: { jobName: this.jobName, allocId: this.allocId, projectId: this.projectId },
+        log.error(`refreshStatus failed for job ${this.jobName}`, {
+          error: error instanceof Error ? error : new Error(String(error)),
         });
         this._status = 'error';
       }

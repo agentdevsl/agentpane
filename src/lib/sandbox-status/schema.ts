@@ -18,7 +18,7 @@ export const sandboxStatusSchema = z.object({
   /** Docker container ID if available */
   containerId: z.string().nullable(),
   /** Whether a sandbox provider (Docker, K8s, or Nomad) is available */
-  dockerAvailable: z.boolean(),
+  providerAvailable: z.boolean(),
   /** Active sandbox provider type */
   provider: z.enum([...SANDBOX_TYPES, 'none'] as const).default('none'),
   /** Whether K8s CRDs are installed and ready */

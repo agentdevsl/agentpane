@@ -1,6 +1,11 @@
 import type { NomadAllocClientStatus, NomadTaskState } from './common.js';
 
 /**
+ * Desired status for an allocation
+ */
+export type NomadAllocDesiredStatus = 'run' | 'stop' | 'evict';
+
+/**
  * Event that occurred during task execution
  */
 export interface NomadTaskEvent {
@@ -53,7 +58,7 @@ export interface NomadAllocation {
   TaskGroup: string;
   ClientStatus: NomadAllocClientStatus;
   ClientDescription?: string;
-  DesiredStatus: string;
+  DesiredStatus: NomadAllocDesiredStatus;
   DesiredDescription?: string;
   TaskStates?: Record<string, NomadTaskStateInfo>;
   CreateIndex: number;

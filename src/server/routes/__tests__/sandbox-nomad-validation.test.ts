@@ -20,8 +20,8 @@ describe('validateNomadAddress', () => {
     expect(() => validateNomadAddress('https://nomad.prod.company.io')).not.toThrow();
   });
 
-  it('allows http://localhost:4646', () => {
-    expect(() => validateNomadAddress('http://localhost:4646')).not.toThrow();
+  it('blocks localhost hostname', () => {
+    expect(() => validateNomadAddress('http://localhost:4646')).toThrow();
   });
 
   // ── Blocked: cloud metadata (169.254.x.x link-local) ──────────────
@@ -88,6 +88,12 @@ describe('validateNomadAddress', () => {
 
   it('does not block http://172.32.0.1:4646 (outside 172.16-31 range)', () => {
     expect(() => validateNomadAddress('http://172.32.0.1:4646')).not.toThrow();
+  });
+
+  // ── Blocked: IPv6-mapped metadata ─────────────────────────────────
+
+  it('blocks http://[::ffff:169.254.169.254] (IPv6-mapped metadata)', () => {
+    expect(() => validateNomadAddress('http://[::ffff:169.254.169.254]:4646')).toThrow();
   });
 
   // ── Blocked: invalid URLs ──────────────────────────────────────────

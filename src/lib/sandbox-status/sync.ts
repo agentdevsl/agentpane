@@ -26,7 +26,7 @@ async function fetchSandboxStatus(projectId: string): Promise<SandboxStatus | nu
         mode: result.data.mode,
         containerStatus: result.data.containerStatus,
         containerId: result.data.containerId,
-        dockerAvailable: result.data.dockerAvailable,
+        providerAvailable: result.data.providerAvailable,
         provider: result.data.provider ?? 'none',
         k8sCrdReady: result.data.k8sCrdReady,
         k8sClusterVersion: result.data.k8sClusterVersion ?? null,

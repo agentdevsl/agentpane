@@ -319,7 +319,7 @@ function ProjectKanban(): React.JSX.Element {
             <SandboxIndicator
               mode={sandboxStatus.mode}
               containerStatus={sandboxStatus.containerStatus}
-              dockerAvailable={sandboxStatus.dockerAvailable}
+              providerAvailable={sandboxStatus.providerAvailable}
               provider={sandboxStatus.provider}
               isLoading={sandboxLoading}
               isRestarting={isRestartingSandbox}

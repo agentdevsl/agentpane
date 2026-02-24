@@ -49,7 +49,7 @@ export class NomadHttpClient {
       query?: Record<string, string>;
       timeout?: number;
     }
-  ): Promise<T> {
+  ): Promise<T | null> {
     const url = this.buildUrl(path, options?.query);
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -101,7 +101,7 @@ export class NomadHttpClient {
     }
 
     const text = await response.text();
-    if (!text) return null as T;
+    if (!text) return null;
 
     try {
       return JSON.parse(text) as T;
@@ -123,9 +123,10 @@ export class NomadHttpClient {
     index: number,
     wait?: string
   ): Promise<{ data: T; index: number }> {
+    const effectiveWait = wait ?? NOMAD_DEFAULTS.waitTimeout;
     const url = this.buildUrl(path, {
       index: String(index),
-      wait: wait ?? NOMAD_DEFAULTS.waitTimeout,
+      wait: effectiveWait,
     });
 
     const headers: Record<string, string> = {
@@ -136,14 +137,31 @@ export class NomadHttpClient {
       headers['X-Nomad-Token'] = this.token;
     }
 
+    // Parse wait duration and add a 10s buffer for the fetch timeout
+    const waitMs = parseInt(effectiveWait, 10) * 1000;
+    const abortController = new AbortController();
+    const timeoutId = setTimeout(() => abortController.abort(), waitMs + 10_000);
+
     let response: Response;
     try {
-      response = await fetch(url.toString(), { method: 'GET', headers });
+      response = await fetch(url.toString(), {
+        method: 'GET',
+        headers,
+        signal: abortController.signal,
+      });
     } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw new ConnectionError(
+          this.baseUrl,
+          new Error(`Blocking query timed out after ${waitMs + 10_000}ms`)
+        );
+      }
       throw new ConnectionError(
         this.baseUrl,
         error instanceof Error ? error : new Error(String(error))
       );
+    } finally {
+      clearTimeout(timeoutId);
     }
 
     if (!response.ok) {

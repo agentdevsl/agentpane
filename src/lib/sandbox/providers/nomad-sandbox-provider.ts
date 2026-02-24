@@ -1,8 +1,11 @@
 import {
+  ConnectionError,
   NOMAD_JOB_PREFIX,
   NOMAD_META,
+  NomadApiError,
   NomadJobBuilder,
   NomadSandboxClient,
+  TimeoutError,
 } from '@agentpane/nomad-sandbox-sdk';
 import { createId } from '@paralleldrive/cuid2';
 import { NomadErrors } from '../../errors/nomad-errors.js';
@@ -196,12 +199,25 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
 
       return instance;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
       this.emit({
         type: 'sandbox:error',
         sandboxId,
-        error: error instanceof Error ? error : new Error(message),
+        error: error instanceof Error ? error : new Error(String(error)),
       });
+
+      if (error instanceof TimeoutError) {
+        throw NomadErrors.JOB_STARTUP_TIMEOUT(jobName, this.readyTimeoutSeconds);
+      }
+      if (error instanceof ConnectionError) {
+        throw NomadErrors.CLUSTER_UNREACHABLE(
+          error.message,
+          error.cause instanceof Error ? error.cause.message : 'connection failed'
+        );
+      }
+      if (error instanceof NomadApiError && error.statusCode === 403) {
+        throw NomadErrors.AUTH_FAILED(error.message);
+      }
+      const message = error instanceof Error ? error.message : String(error);
       throw NomadErrors.JOB_CREATION_FAILED(jobName, message);
     }
   }
@@ -241,52 +257,53 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
     }
 
     // Fall through to cluster query using job listing with prefix filter.
-    try {
-      const jobs = await this.client.listJobs(NOMAD_JOB_PREFIX);
+    const jobs = await this.client.listJobs(NOMAD_JOB_PREFIX);
 
-      // Find a job with matching project-id meta
-      const matchingJob = jobs.find(
-        (job) => job.Meta?.[NOMAD_META.PROJECT_ID] === projectId && job.Status === 'running'
-      );
+    // Find a job with matching project-id meta
+    const matchingJob = jobs.find(
+      (job) => job.Meta?.[NOMAD_META.PROJECT_ID] === projectId && job.Status === 'running'
+    );
 
-      if (!matchingJob) {
-        // Fall back to default sandbox (mirrors AgentSandboxProvider.get)
-        if (projectId !== 'default') {
-          return this.get('default');
-        }
-        return null;
-      }
+    if (!matchingJob && projectId !== 'default') {
+      log.info('No running sandbox found for project, falling back to default', {
+        data: { projectId },
+      });
+      return this.get('default');
+    }
 
-      const id = matchingJob.Meta?.[NOMAD_META.SANDBOX_ID] ?? createId();
-      const name = matchingJob.ID;
+    if (!matchingJob) {
+      return null;
+    }
 
-      // Get allocations to find the alloc ID for exec
-      const allocations = await this.client.getJobAllocations(name);
-      const runningAlloc = allocations.find((a) => a.ClientStatus === 'running');
-      const allocId = runningAlloc?.ID ?? allocations[0]?.ID ?? '';
+    const id = matchingJob.Meta?.[NOMAD_META.SANDBOX_ID] ?? createId();
+    const name = matchingJob.ID;
 
-      const instance = new NomadSandboxInstance(
-        id,
-        name,
-        allocId,
-        projectId,
-        this.namespace,
-        this.client
-      );
-      await instance.refreshStatus();
-
-      // Cache it
-      this.sandboxes.set(id, instance);
-      this.projectToSandbox.set(projectId, id);
-
-      return instance;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      log.error(`Failed to query sandbox for project ${projectId}: ${message}`, {
-        error: error instanceof Error ? error : new Error(message),
+    // Get allocations to find the alloc ID for exec
+    const allocations = await this.client.getJobAllocations(name);
+    const runningAlloc = allocations.find((a) => a.ClientStatus === 'running');
+    const allocId = runningAlloc?.ID ?? allocations[0]?.ID;
+    if (!allocId) {
+      log.warn('Found matching Nomad job but no valid allocation ID', {
+        data: { jobName: name, projectId },
       });
       return null;
     }
+
+    const instance = new NomadSandboxInstance(
+      id,
+      name,
+      allocId,
+      projectId,
+      this.namespace,
+      this.client
+    );
+    await instance.refreshStatus();
+
+    // Cache it
+    this.sandboxes.set(id, instance);
+    this.projectToSandbox.set(projectId, id);
+
+    return instance;
   }
 
   async getById(sandboxId: string): Promise<Sandbox | null> {
@@ -317,10 +334,10 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
         }));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      log.error('Failed to list sandboxes', {
+      log.error(`Failed to list Nomad sandboxes: ${message}`, {
         error: error instanceof Error ? error : new Error(message),
       });
-      return [];
+      throw error;
     }
   }
 
@@ -407,6 +424,8 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
           log.error(`Failed to cleanup sandbox ${sandboxId}: ${message}`, {
             error: error instanceof Error ? error : new Error(message),
           });
+          this.sandboxes.delete(sandboxId);
+          this.projectToSandbox.delete(instance.projectId);
         }
       }
     }

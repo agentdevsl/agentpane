@@ -1324,7 +1324,7 @@ async function initSandboxProvider() {
   }
 
   // Step 3: Fall back to Docker if K8s/Nomad was not initialized (or was not selected)
-  // Skip Docker fallback if K8s was configured and fallback is explicitly disabled
+  // Skip Docker fallback if K8s or Nomad was configured and fallback is explicitly disabled
   if (
     !sandboxProvider &&
     !(providerType === 'kubernetes' && !k8sFallbackToDocker) &&

@@ -364,5 +364,17 @@ describe('NomadHttpClient', () => {
       const [, fetchInit] = mockFetch.mock.calls[0];
       expect(fetchInit.headers['X-Nomad-Token']).toBe('blocking-token');
     });
+
+    it('throws NomadApiError when blocking query response is not valid JSON', async () => {
+      mockFetch.mockResolvedValueOnce(
+        new Response('not json {{{', {
+          status: 200,
+          headers: { 'X-Nomad-Index': '5' },
+        })
+      );
+
+      const client = new NomadHttpClient();
+      await expect(client.blockingQuery('/v1/job/test', 0)).rejects.toThrow(/Failed to parse/);
+    });
   });
 });

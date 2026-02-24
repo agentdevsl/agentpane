@@ -8,7 +8,12 @@ export async function getJobAllocations(
   http: NomadHttpClient,
   jobId: string
 ): Promise<NomadAllocation[]> {
-  return http.request<NomadAllocation[]>('GET', `/v1/job/${encodeURIComponent(jobId)}/allocations`);
+  return (
+    (await http.request<NomadAllocation[]>(
+      'GET',
+      `/v1/job/${encodeURIComponent(jobId)}/allocations`
+    )) ?? []
+  );
 }
 
 /**
@@ -18,7 +23,14 @@ export async function getAllocation(
   http: NomadHttpClient,
   allocId: string
 ): Promise<NomadAllocation> {
-  return http.request<NomadAllocation>('GET', `/v1/allocation/${encodeURIComponent(allocId)}`);
+  const result = await http.request<NomadAllocation>(
+    'GET',
+    `/v1/allocation/${encodeURIComponent(allocId)}`
+  );
+  if (!result) {
+    throw new Error(`Allocation ${allocId} returned empty response`);
+  }
+  return result;
 }
 
 /**
@@ -28,8 +40,12 @@ export async function getAllocationStats(
   http: NomadHttpClient,
   allocId: string
 ): Promise<NomadAllocStats> {
-  return http.request<NomadAllocStats>(
+  const result = await http.request<NomadAllocStats>(
     'GET',
     `/v1/client/allocation/${encodeURIComponent(allocId)}/stats`
   );
+  if (!result) {
+    throw new Error(`Allocation stats for ${allocId} returned empty response`);
+  }
+  return result;
 }

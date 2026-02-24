@@ -9,9 +9,13 @@ import {
   resolveContext,
 } from '@agentpane/agent-sandbox-sdk';
 import { Hono } from 'hono';
+import type { SandboxType } from '../../db/schema/shared/enums.js';
+import { createLogger } from '../../lib/logging/logger.js';
 import type { SandboxConfigService } from '../../services/sandbox-config.service.js';
 import type { Database } from '../../types/database.js';
 import { json } from '../shared.js';
+
+const log = createLogger('NomadRoutes');
 
 interface SandboxDeps {
   sandboxConfigService: SandboxConfigService;
@@ -54,7 +58,7 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
       const body = (await c.req.json()) as {
         name: string;
         description?: string;
-        type?: 'docker' | 'devcontainer' | 'kubernetes' | 'nomad';
+        type?: SandboxType;
         isDefault?: boolean;
         baseImage?: string;
         memoryMb?: number;
@@ -79,6 +83,23 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
           { ok: false, error: { code: 'MISSING_PARAMS', message: 'Name is required' } },
           400
         );
+      }
+
+      if (body.nomadAddress) {
+        try {
+          validateNomadAddress(body.nomadAddress);
+        } catch (e) {
+          return json(
+            {
+              ok: false,
+              error: {
+                code: 'INVALID_ADDRESS',
+                message: e instanceof Error ? e.message : 'Invalid Nomad address',
+              },
+            },
+            400
+          );
+        }
       }
 
       const result = await sandboxConfigService.create({
@@ -147,7 +168,7 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
       const body = (await c.req.json()) as {
         name?: string;
         description?: string;
-        type?: 'docker' | 'devcontainer' | 'kubernetes' | 'nomad';
+        type?: SandboxType;
         isDefault?: boolean;
         baseImage?: string;
         memoryMb?: number;
@@ -166,6 +187,23 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
         nomadDatacenter?: string;
         nomadRegion?: string;
       };
+
+      if (body.nomadAddress) {
+        try {
+          validateNomadAddress(body.nomadAddress);
+        } catch (e) {
+          return json(
+            {
+              ok: false,
+              error: {
+                code: 'INVALID_ADDRESS',
+                message: e instanceof Error ? e.message : 'Invalid Nomad address',
+              },
+            },
+            400
+          );
+        }
+      }
 
       const result = await sandboxConfigService.update(id, {
         name: body.name,
@@ -952,15 +990,30 @@ export function validateNomadAddress(address: string): void {
   if (hostname === '0.0.0.0') {
     throw new Error('Nomad address cannot target 0.0.0.0');
   }
-  // Block IPv6 loopback
+  // Block "localhost" hostname
+  if (hostname === 'localhost') {
+    throw new Error('Nomad address cannot use "localhost" — use 127.0.0.1 instead');
+  }
+  // Block IPv6 loopback and IPv6-mapped loopback/metadata addresses
   if (hostname === '[::1]' || hostname === '::1') {
     throw new Error('Nomad address cannot target IPv6 loopback');
+  }
+  const normalizedHost = hostname.replace(/^\[|\]$/g, '');
+  if (
+    normalizedHost === '::1' ||
+    normalizedHost === '0:0:0:0:0:0:0:1' ||
+    normalizedHost.startsWith('::ffff:169.254.') ||
+    normalizedHost === '::ffff:127.0.0.1' ||
+    // URL constructor normalizes 169.254.x.y to hex a9fe:XXYY in IPv6-mapped form
+    normalizedHost.startsWith('::ffff:a9fe:')
+  ) {
+    throw new Error('Nomad address cannot target loopback or cloud metadata via IPv6');
   }
   // Block IPv6 link-local (fe80::/10)
   if (hostname.startsWith('fe80:') || hostname.startsWith('[fe80:')) {
     throw new Error('Nomad address cannot target IPv6 link-local addresses');
   }
-  // Block localhost-like addresses in the common internal ranges
+  // Block RFC 1918 private addresses in the 10.0.0.0/8 and 172.16.0.0/12 ranges
   const blockedPrefixes = [
     '10.',
     '172.16.',
@@ -980,7 +1033,10 @@ export function validateNomadAddress(address: string): void {
     '172.30.',
     '172.31.',
   ];
-  // Note: We don't block 127.x or 192.168.x because Nomad is commonly run locally
+  // 127.x and 192.168.x are intentionally allowed because Nomad is commonly run on
+  // the local machine or a home/office LAN. 10.x and 172.16-31.x are blocked because
+  // they typically correspond to cloud VPC infrastructure (AWS VPC, GCP internal, etc.)
+  // where SSRF could reach sensitive internal services or metadata endpoints.
   for (const prefix of blockedPrefixes) {
     if (hostname.startsWith(prefix)) {
       throw new Error('Nomad address cannot target internal network addresses');
@@ -1039,22 +1095,20 @@ async function loadNomadSettings(
               const { decryptToken } = await import('../../lib/crypto/server-encryption.js');
               token = decryptToken(encryptedToken);
             } catch (decryptErr) {
-              // If decryption fails, the token may be stored in plaintext (pre-encryption migration)
-              // Fall back to using it as-is
-              console.warn(
-                '[Nomad Routes] Token decryption failed, using raw value:',
-                decryptErr instanceof Error ? decryptErr.message : String(decryptErr)
-              );
-              token = encryptedToken;
+              log.error('Token decryption failed — token may need to be re-entered', {
+                error: decryptErr instanceof Error ? decryptErr : new Error(String(decryptErr)),
+              });
+              token = undefined;
             }
           }
         }
       }
     } catch (dbErr) {
-      console.warn(
-        '[Nomad Routes] Failed to load Nomad settings from DB:',
-        dbErr instanceof Error ? dbErr.message : String(dbErr)
-      );
+      log.error('Failed to load Nomad settings from database', {
+        error: dbErr instanceof Error ? dbErr : new Error(String(dbErr)),
+      });
+      // Don't silently return defaults — let the caller know something is wrong
+      throw dbErr;
     }
   }
 
@@ -1095,12 +1149,15 @@ export function createNomadRoutes(deps?: NomadRouteDeps) {
       const health = await client.healthCheck();
 
       // Get job count (best effort)
-      let jobCount = 0;
+      let jobCount: number | null = 0;
       try {
         const jobs = await client.listJobs();
         jobCount = jobs.length;
-      } catch {
-        /* best effort */
+      } catch (err) {
+        log.warn('Failed to fetch Nomad job count', {
+          error: err instanceof Error ? err : new Error(String(err)),
+        });
+        jobCount = null;
       }
 
       return json({
@@ -1177,11 +1234,15 @@ export function createNomadRoutes(deps?: NomadRouteDeps) {
 
   // POST /api/sandbox/nomad/validate - Validate connection
   app.post('/validate', async (c) => {
-    const body = (await c.req.json()) as {
-      address: string;
-      token?: string;
-      namespace?: string;
-    };
+    let body: { address: string; token?: string; namespace?: string };
+    try {
+      body = await c.req.json();
+    } catch {
+      return json(
+        { ok: false, error: { code: 'INVALID_JSON', message: 'Request body must be valid JSON' } },
+        400
+      );
+    }
 
     if (!body.address) {
       return json(

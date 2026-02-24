@@ -49,7 +49,11 @@ function encodeBase64Bytes(data: Uint8Array): string {
   if (typeof Buffer !== 'undefined') {
     return Buffer.from(data).toString('base64');
   }
-  return btoa(String.fromCharCode(...data));
+  let binary = '';
+  for (let i = 0; i < data.length; i++) {
+    binary += String.fromCharCode(data[i]!);
+  }
+  return btoa(binary);
 }
 
 /**
@@ -60,14 +64,23 @@ export async function execInAllocation(
   http: NomadHttpClient,
   options: ExecOptions
 ): Promise<ExecResult> {
-  const { allocId, task, command, tty } = options;
+  const { allocId, task, command, tty, timeoutMs = 60_000 } = options;
   const wsUrl = buildExecWsUrl(http, allocId, task, command, tty, http.configuredToken);
 
   return new Promise<ExecResult>((resolve, reject) => {
     let stdout = '';
     let stderr = '';
+    let settled = false;
 
     const ws = new WebSocket(wsUrl);
+
+    const timeoutId = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        ws.close();
+        reject(new TimeoutError('exec', timeoutMs));
+      }
+    }, timeoutMs);
 
     ws.onmessage = (event) => {
       const raw = String(event.data);
@@ -101,7 +114,9 @@ export async function execInAllocation(
       if (frame.stderr?.data) {
         stderr += decodeBase64(frame.stderr.data);
       }
-      if (frame.exited) {
+      if (frame.exited && !settled) {
+        settled = true;
+        clearTimeout(timeoutId);
         ws.close();
         resolve({
           exitCode: frame.result?.exit_code ?? 1,
@@ -112,11 +127,17 @@ export async function execInAllocation(
     };
 
     ws.onerror = (event) => {
-      reject(new ExecError(1, `WebSocket error during exec: ${String(event)}`));
+      if (!settled) {
+        settled = true;
+        clearTimeout(timeoutId);
+        reject(new ExecError(1, `WebSocket error during exec: ${String(event)}`));
+      }
     };
 
     ws.onclose = (event) => {
-      if (!event.wasClean) {
+      if (!event.wasClean && !settled) {
+        settled = true;
+        clearTimeout(timeoutId);
         reject(new ExecError(1, `WebSocket closed unexpectedly: code=${event.code}`));
       }
     };
@@ -146,17 +167,23 @@ export function execStreamInAllocation(
   let stdoutController!: ReadableStreamDefaultController<Uint8Array>;
   let stderrController!: ReadableStreamDefaultController<Uint8Array>;
 
+  let streamSettled = false;
+
   /** Safely close both stdout and stderr stream controllers (idempotent). */
   function closeControllers(): void {
     try {
       stdoutController.close();
-    } catch {
-      /* already closed */
+    } catch (err) {
+      if (!(err instanceof TypeError && String(err).includes('close'))) {
+        console.warn('[NomadSDK] Unexpected error closing stdout controller:', err);
+      }
     }
     try {
       stderrController.close();
-    } catch {
-      /* already closed */
+    } catch (err) {
+      if (!(err instanceof TypeError && String(err).includes('close'))) {
+        console.warn('[NomadSDK] Unexpected error closing stderr controller:', err);
+      }
     }
   }
 
@@ -220,7 +247,8 @@ export function execStreamInAllocation(
     if (frame.stderr?.data) {
       stderrController.enqueue(encoder.encode(decodeBase64(frame.stderr.data)));
     }
-    if (frame.exited) {
+    if (frame.exited && !streamSettled) {
+      streamSettled = true;
       closeControllers();
       ws.close();
       resolveWait({ exitCode: frame.result?.exit_code ?? 1 });
@@ -228,13 +256,17 @@ export function execStreamInAllocation(
   };
 
   ws.onerror = () => {
-    const err = new ExecError(1, 'WebSocket error during streaming exec');
-    closeControllers();
-    rejectWait(err);
+    if (!streamSettled) {
+      streamSettled = true;
+      const err = new ExecError(1, 'WebSocket error during streaming exec');
+      closeControllers();
+      rejectWait(err);
+    }
   };
 
   ws.onclose = (event) => {
-    if (!event.wasClean) {
+    if (!event.wasClean && !streamSettled) {
+      streamSettled = true;
       closeControllers();
       rejectWait(new ExecError(1, `WebSocket closed unexpectedly: code=${event.code}`));
     }
@@ -242,9 +274,12 @@ export function execStreamInAllocation(
 
   if (timeoutMs) {
     setTimeout(() => {
-      ws.close();
-      closeControllers();
-      rejectWait(new TimeoutError('exec stream', timeoutMs));
+      if (!streamSettled) {
+        streamSettled = true;
+        ws.close();
+        closeControllers();
+        rejectWait(new TimeoutError('exec stream', timeoutMs));
+      }
     }, timeoutMs);
   }
 

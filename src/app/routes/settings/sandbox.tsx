@@ -105,16 +105,19 @@ function Toggle({
   checked,
   onToggle,
   testId,
+  ariaLabel,
 }: {
   checked: boolean;
   onToggle: () => void;
   testId?: string;
+  ariaLabel: string;
 }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-label={ariaLabel}
       onClick={onToggle}
       data-testid={testId}
       className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
@@ -143,7 +146,7 @@ function SaveButton({
 }) {
   return (
     <button
-      type="submit"
+      type="button"
       disabled={saving}
       onClick={onClick}
       data-testid={testId}
@@ -1020,6 +1023,7 @@ function SandboxSettingsPage(): React.JSX.Element {
                     setDefaultSettings((prev) => ({ ...prev, enabled: !prev.enabled }))
                   }
                   testId="default-sandbox-enabled-toggle"
+                  ariaLabel="Enable Sandbox by Default"
                 />
               </div>
 
@@ -1626,6 +1630,7 @@ function SandboxSettingsPage(): React.JSX.Element {
                     checked={skipTLSVerify}
                     onToggle={() => setSkipTLSVerify(!skipTLSVerify)}
                     testId="k8s-skip-tls-toggle"
+                    ariaLabel="Skip TLS Verification"
                   />
                 </div>
 
@@ -1784,6 +1789,7 @@ function SandboxSettingsPage(): React.JSX.Element {
                     checked={warmPoolEnabled}
                     onToggle={() => setWarmPoolEnabled(!warmPoolEnabled)}
                     testId="k8s-warm-pool-toggle"
+                    ariaLabel="Warm Pool"
                   />
                 </div>
 
@@ -1852,6 +1858,7 @@ function SandboxSettingsPage(): React.JSX.Element {
                   checked={autoInstallCRDs}
                   onToggle={() => setAutoInstallCRDs(!autoInstallCRDs)}
                   testId="k8s-auto-install-crds-toggle"
+                  ariaLabel="Auto-install CRDs"
                 />
               </div>
 
@@ -1868,6 +1875,7 @@ function SandboxSettingsPage(): React.JSX.Element {
                   checked={autoStartMinikube}
                   onToggle={() => setAutoStartMinikube(!autoStartMinikube)}
                   testId="k8s-auto-start-minikube-toggle"
+                  ariaLabel="Auto-start Minikube"
                 />
               </div>
 
@@ -1884,6 +1892,7 @@ function SandboxSettingsPage(): React.JSX.Element {
                   checked={fallbackToDocker}
                   onToggle={() => setFallbackToDocker(!fallbackToDocker)}
                   testId="k8s-fallback-to-docker-toggle"
+                  ariaLabel="Fall back to Docker if unavailable"
                 />
               </div>
 
@@ -2057,6 +2066,7 @@ function SandboxSettingsPage(): React.JSX.Element {
                     checked={nomadSkipTLSVerify}
                     onToggle={() => setNomadSkipTLSVerify(!nomadSkipTLSVerify)}
                     testId="nomad-skip-tls-toggle"
+                    ariaLabel="Skip TLS Verification"
                   />
                 </div>
 
@@ -2739,6 +2749,7 @@ function SandboxSettingsPage(): React.JSX.Element {
                     checked={formIsDefault}
                     onToggle={() => setFormIsDefault(!formIsDefault)}
                     testId="sandbox-config-default-toggle"
+                    ariaLabel="Set as default"
                   />
                 </div>
 

@@ -82,6 +82,8 @@ function getProviderLabel(provider: SandboxProviderType): string {
       return 'Nomad';
     case 'docker':
       return 'Docker';
+    case 'devcontainer':
+      return 'DevContainer';
     default:
       return 'Docker';
   }
@@ -95,6 +97,8 @@ function getProviderDescription(provider: SandboxProviderType): string {
       return 'Agents run in Nomad-scheduled Docker containers for security.';
     case 'docker':
       return 'Agents run in isolated Docker containers for security.';
+    case 'devcontainer':
+      return 'Agents run in VS Code-compatible DevContainers for reproducible environments.';
     default:
       return 'Agents run in isolated containers for security.';
   }
@@ -118,6 +122,13 @@ function getUnavailableDescription(provider: SandboxProviderType): {
         'The sandbox requires a Nomad cluster to schedule agent tasks as jobs. Please check your Nomad cluster connection in Settings.',
     };
   }
+  if (provider === 'devcontainer') {
+    return {
+      title: 'DevContainer Not Available',
+      description:
+        'The sandbox requires Docker and a devcontainer.json configuration to run agent tasks in DevContainers. Please check your Docker installation and project configuration.',
+    };
+  }
   return {
     title: 'Docker Not Available',
     description:
@@ -128,7 +139,7 @@ function getUnavailableDescription(provider: SandboxProviderType): {
 export interface SandboxIndicatorProps {
   mode: 'shared' | 'per-project';
   containerStatus: ContainerStatus;
-  dockerAvailable: boolean;
+  providerAvailable: boolean;
   provider?: SandboxProviderType;
   isLoading?: boolean;
   isRestarting?: boolean;
@@ -151,7 +162,7 @@ export interface SandboxIndicatorProps {
 export function SandboxIndicator({
   mode,
   containerStatus,
-  dockerAvailable,
+  providerAvailable,
   provider = 'docker',
   isLoading = false,
   isRestarting = false,
@@ -170,7 +181,7 @@ export function SandboxIndicator({
   const modeLabel = mode === 'shared' ? 'Shared' : 'Per-Project';
   const providerLabel = getProviderLabel(provider);
 
-  if (provider === 'kubernetes' && k8sCrdReady === false && dockerAvailable) {
+  if (provider === 'kubernetes' && k8sCrdReady === false && providerAvailable) {
     return (
       <TooltipProvider>
         <Tooltip>
@@ -198,7 +209,7 @@ export function SandboxIndicator({
     );
   }
 
-  if (!dockerAvailable) {
+  if (!providerAvailable) {
     const unavailable = getUnavailableDescription(provider);
     return (
       <TooltipProvider>
@@ -275,7 +286,7 @@ export function SandboxIndicator({
             </div>
 
             {/* Restart button */}
-            {onRestart && dockerAvailable && (
+            {onRestart && providerAvailable && (
               <>
                 <div className="h-4 w-px bg-border" />
                 <button

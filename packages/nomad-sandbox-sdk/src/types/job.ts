@@ -43,7 +43,7 @@ export interface NomadNetworkResource {
  */
 export interface NomadTask {
   Name: string;
-  Driver: string;
+  Driver: 'docker' | 'exec' | 'raw_exec' | 'java' | 'qemu';
   Config?: NomadDockerConfig;
   Resources?: NomadResources;
   Env?: Record<string, string>;
@@ -106,23 +106,13 @@ export interface NomadJobRegisterResponse {
 }
 
 /**
- * Response from job deregistration
- */
-export interface NomadJobDeregisterResponse {
-  EvalID: string;
-  EvalCreateIndex?: number;
-  JobModifyIndex?: number;
-  Index?: number;
-}
-
-/**
  * Job list stub (returned by list endpoint)
  */
 export interface NomadJobListStub {
   ID: string;
   Name: string;
   Namespace: string;
-  Type: string;
+  Type?: 'service' | 'batch' | 'system' | 'sysbatch';
   Status: NomadJobStatus;
   StatusDescription: string;
   CreateIndex: number;

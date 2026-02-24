@@ -613,6 +613,58 @@ describe('NomadSandboxProvider', () => {
     });
   });
 
+  describe('validateSandboxes()', () => {
+    it('evicts sandboxes that become stopped after status refresh', async () => {
+      const provider = createProvider();
+      await provider.create(sampleConfig);
+
+      // Simulate the job dying — refreshStatus will set status to 'stopped'
+      mockClient.getJob.mockResolvedValue({ Status: 'dead' });
+      mockClient.getJobAllocations.mockResolvedValue([
+        { ID: 'alloc-abc-123', ClientStatus: 'complete' },
+      ]);
+
+      // Call validateSandboxes to trigger eviction
+      await provider.validateSandboxes();
+
+      // After eviction, creating a new sandbox for the same project should work
+      // Reset mocks for a fresh create
+      mockClient.getJob.mockResolvedValue(null);
+      mockClient.registerJob.mockResolvedValue({ EvalID: 'eval-2' });
+      mockClient.waitForRunning.mockResolvedValue({ ID: 'alloc-new', ClientStatus: 'running' });
+      mockClient.getJobAllocations.mockResolvedValue([
+        { ID: 'alloc-new', ClientStatus: 'running' },
+      ]);
+
+      // This should not throw JOB_ALREADY_EXISTS
+      await expect(provider.create(sampleConfig)).resolves.toBeDefined();
+    });
+  });
+
+  describe('get (fallback to default)', () => {
+    it('falls back to default sandbox when project has no dedicated sandbox', async () => {
+      const provider = createProvider();
+      mockClient.listJobs.mockResolvedValue([
+        {
+          ID: 'agentpane-default-xyz',
+          Name: 'agentpane-default-xyz',
+          Status: 'running',
+          Meta: {
+            'agentpane-sandbox-id': 'default-sandbox-id',
+            'agentpane-project-id': 'default',
+          },
+        },
+      ]);
+      mockClient.getJobAllocations.mockResolvedValue([
+        { ID: 'alloc-default', ClientStatus: 'running' },
+      ]);
+      mockClient.getJob.mockResolvedValue({ Status: 'running' });
+
+      const result = await provider.get('proj-with-no-sandbox');
+      expect(result).not.toBeNull();
+    });
+  });
+
   describe('events', () => {
     it('on() adds listener and returns unsubscribe function', () => {
       const provider = createProvider();

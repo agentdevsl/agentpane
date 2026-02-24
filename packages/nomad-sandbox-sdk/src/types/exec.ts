@@ -10,6 +10,8 @@ export interface ExecOptions {
   command: string[];
   /** Allocate a TTY */
   tty?: boolean;
+  /** Timeout in milliseconds (default: 60000) */
+  timeoutMs?: number;
 }
 
 /**

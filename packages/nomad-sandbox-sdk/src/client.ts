@@ -1,4 +1,5 @@
 import { NOMAD_JOB_PREFIX } from './constants.js';
+import { NomadApiError } from './errors.js';
 import { NomadHttpClient } from './http.js';
 import { getAllocation, getAllocationStats, getJobAllocations } from './operations/allocations.js';
 import { execInAllocation, execStreamInAllocation } from './operations/exec.js';
@@ -122,12 +123,12 @@ export class NomadSandboxClient {
       }>('GET', '/v1/agent/self');
 
       // Nomad returns Version as an object {Version, BuildDate, ...} in newer versions
-      const rawVersion = agentSelf.config?.Version;
+      const rawVersion = agentSelf?.config?.Version;
       version =
         typeof rawVersion === 'string'
           ? rawVersion
           : ((rawVersion as { Version?: string })?.Version ?? null);
-      datacenter = agentSelf.config?.Datacenter ?? null;
+      datacenter = agentSelf?.config?.Datacenter ?? null;
 
       // Check leader
       const status = await this.http.request<string>('GET', '/v1/status/leader');
@@ -150,19 +151,33 @@ export class NomadSandboxClient {
         'GET',
         '/v1/namespaces'
       );
-      namespaceExists = namespaces.some((ns) => ns.Name === this.http.configuredNamespace);
-    } catch {
+      namespaceExists =
+        namespaces?.some((ns) => ns.Name === this.http.configuredNamespace) ?? false;
+    } catch (err) {
       // Namespace check failed — might be OSS Nomad without namespace support
-      // OSS Nomad only has 'default' namespace
-      namespaceExists = this.http.configuredNamespace === 'default';
+      if (err instanceof NomadApiError && (err.statusCode === 404 || err.statusCode === 501)) {
+        namespaceExists = this.http.configuredNamespace === 'default';
+      } else {
+        namespaceExists = false;
+      }
     }
 
+    if (leader) {
+      return {
+        healthy: true as const,
+        leader,
+        version: version ?? 'unknown',
+        namespaceExists,
+        datacenter: datacenter ?? 'unknown',
+      };
+    }
     return {
-      healthy: !!leader,
+      healthy: false as const,
       leader,
       version,
       namespaceExists,
       datacenter,
+      error: 'No leader elected',
     };
   }
 
@@ -170,11 +185,16 @@ export class NomadSandboxClient {
 
   /** List all namespaces */
   async listNamespaces(): Promise<Array<{ Name: string; Description: string }>> {
-    return this.http.request<Array<{ Name: string; Description: string }>>('GET', '/v1/namespaces');
+    return (
+      (await this.http.request<Array<{ Name: string; Description: string }>>(
+        'GET',
+        '/v1/namespaces'
+      )) ?? []
+    );
   }
 
   /** List all datacenters */
   async listDatacenters(): Promise<string[]> {
-    return this.http.request<string[]>('GET', '/v1/datacenters');
+    return (await this.http.request<string[]>('GET', '/v1/datacenters')) ?? [];
   }
 }
