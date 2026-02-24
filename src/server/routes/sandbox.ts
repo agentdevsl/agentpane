@@ -56,30 +56,37 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
 
   // POST /api/sandbox-configs
   app.post('/', async (c) => {
+    let body: {
+      name: string;
+      description?: string;
+      type?: SandboxType;
+      isDefault?: boolean;
+      baseImage?: string;
+      memoryMb?: number;
+      cpuCores?: number;
+      maxProcesses?: number;
+      timeoutMinutes?: number;
+      volumeMountPath?: string;
+      kubeConfigPath?: string;
+      kubeContext?: string;
+      kubeNamespace?: string;
+      networkPolicyEnabled?: boolean;
+      allowedEgressHosts?: string[];
+      nomadAddress?: string;
+      nomadToken?: string;
+      nomadNamespace?: string;
+      nomadDatacenter?: string;
+      nomadRegion?: string;
+    };
     try {
-      const body = (await c.req.json()) as {
-        name: string;
-        description?: string;
-        type?: SandboxType;
-        isDefault?: boolean;
-        baseImage?: string;
-        memoryMb?: number;
-        cpuCores?: number;
-        maxProcesses?: number;
-        timeoutMinutes?: number;
-        volumeMountPath?: string;
-        kubeConfigPath?: string;
-        kubeContext?: string;
-        kubeNamespace?: string;
-        networkPolicyEnabled?: boolean;
-        allowedEgressHosts?: string[];
-        nomadAddress?: string;
-        nomadToken?: string;
-        nomadNamespace?: string;
-        nomadDatacenter?: string;
-        nomadRegion?: string;
-      };
-
+      body = (await c.req.json()) as typeof body;
+    } catch {
+      return json(
+        { ok: false, error: { code: 'INVALID_JSON', message: 'Request body must be valid JSON' } },
+        400
+      );
+    }
+    try {
       if (!body.name) {
         return json(
           { ok: false, error: { code: 'MISSING_PARAMS', message: 'Name is required' } },
@@ -178,30 +185,37 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID format' } }, 400);
     }
 
+    let body: {
+      name?: string;
+      description?: string;
+      type?: SandboxType;
+      isDefault?: boolean;
+      baseImage?: string;
+      memoryMb?: number;
+      cpuCores?: number;
+      maxProcesses?: number;
+      timeoutMinutes?: number;
+      volumeMountPath?: string;
+      kubeConfigPath?: string;
+      kubeContext?: string;
+      kubeNamespace?: string;
+      networkPolicyEnabled?: boolean;
+      allowedEgressHosts?: string[];
+      nomadAddress?: string;
+      nomadToken?: string;
+      nomadNamespace?: string;
+      nomadDatacenter?: string;
+      nomadRegion?: string;
+    };
     try {
-      const body = (await c.req.json()) as {
-        name?: string;
-        description?: string;
-        type?: SandboxType;
-        isDefault?: boolean;
-        baseImage?: string;
-        memoryMb?: number;
-        cpuCores?: number;
-        maxProcesses?: number;
-        timeoutMinutes?: number;
-        volumeMountPath?: string;
-        kubeConfigPath?: string;
-        kubeContext?: string;
-        kubeNamespace?: string;
-        networkPolicyEnabled?: boolean;
-        allowedEgressHosts?: string[];
-        nomadAddress?: string;
-        nomadToken?: string;
-        nomadNamespace?: string;
-        nomadDatacenter?: string;
-        nomadRegion?: string;
-      };
-
+      body = (await c.req.json()) as typeof body;
+    } catch {
+      return json(
+        { ok: false, error: { code: 'INVALID_JSON', message: 'Request body must be valid JSON' } },
+        400
+      );
+    }
+    try {
       if (body.nomadAddress) {
         try {
           validateNomadAddress(body.nomadAddress);
@@ -473,7 +487,7 @@ export function createK8sRoutes(deps?: { db?: Database }) {
         if (deps?.db && isMinikubeContext(currentContext)) {
           try {
             const { eq } = await import('drizzle-orm');
-            const { settings } = await import('../../db/schema/sqlite/index.js');
+            const { settings } = await import('../../db/schema/index.js');
             const k8sSetting = await deps.db.query.settings.findFirst({
               where: eq(settings.key, 'sandbox.kubernetes'),
             });
@@ -481,8 +495,10 @@ export function createK8sRoutes(deps?: { db?: Database }) {
               const parsed = JSON.parse(k8sSetting.value);
               autoStartEnabled = parsed.autoStartMinikube === true;
             }
-          } catch {
-            // Ignore DB errors, just skip auto-start
+          } catch (dbErr) {
+            log.warn('Failed to load autoStartMinikube setting from database', {
+              error: dbErr instanceof Error ? dbErr : new Error(String(dbErr)),
+            });
           }
         }
 
@@ -531,8 +547,10 @@ export function createK8sRoutes(deps?: { db?: Database }) {
                 serverVersion = retryData.gitVersion || `v${retryData.major}.${retryData.minor}`;
                 clusterReachable = true;
               }
-            } catch {
-              // Still unreachable after auto-start
+            } catch (retryErr) {
+              log.warn('Cluster still unreachable after minikube auto-start', {
+                error: retryErr instanceof Error ? retryErr : new Error(String(retryErr)),
+              });
             }
           }
         }
@@ -730,7 +748,7 @@ export function createK8sRoutes(deps?: { db?: Database }) {
       if (deps?.db && !kubeconfigPath && !kubeContext) {
         try {
           const { eq } = await import('drizzle-orm');
-          const { settings } = await import('../../db/schema/sqlite/index.js');
+          const { settings } = await import('../../db/schema/index.js');
           const k8sSetting = await deps.db.query.settings.findFirst({
             where: eq(settings.key, 'sandbox.kubernetes'),
           });
@@ -741,8 +759,10 @@ export function createK8sRoutes(deps?: { db?: Database }) {
             kubeContext = parsed.kubeContext;
             skipTLSVerify = parsed.skipTLSVerify ?? skipTLSVerify;
           }
-        } catch {
-          // Use defaults
+        } catch (dbErr) {
+          log.warn('Failed to load K8s settings from database, using defaults', {
+            error: dbErr instanceof Error ? dbErr : new Error(String(dbErr)),
+          });
         }
       }
 
@@ -1007,7 +1027,7 @@ export function validateNomadAddress(address: string): void {
   }
   // Block "localhost" hostname
   if (hostname === 'localhost') {
-    throw new Error('Nomad address cannot use "localhost" — use 127.0.0.1 instead');
+    throw new Error('Nomad address cannot use "localhost" — use an IP address instead');
   }
   // Block IPv6 loopback and IPv6-mapped loopback/metadata addresses
   if (hostname === '[::1]' || hostname === '::1') {
@@ -1083,7 +1103,7 @@ async function loadNomadSettings(
   if (db) {
     try {
       const { eq } = await import('drizzle-orm');
-      const { settings } = await import('../../db/schema/sqlite/index.js');
+      const { settings } = await import('../../db/schema/index.js');
       const nomadSetting = await db.query.settings.findFirst({
         where: eq(settings.key, 'sandbox.nomad'),
       });

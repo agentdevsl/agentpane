@@ -93,11 +93,30 @@ export class NomadJobBuilder {
 
   /** Set Docker volume mounts. Blocks sensitive host paths for security. */
   volumes(mounts: string[]): this {
-    const blockedPaths = ['/', '/etc', '/proc', '/sys', '/var/run/docker.sock', '/dev'];
+    const blockedPrefixes = ['/', '/etc', '/proc', '/sys', '/var/run/docker.sock', '/dev'];
     for (const mount of mounts) {
-      const hostPath = mount.split(':')[0] ?? '';
-      if (blockedPaths.includes(hostPath)) {
-        throw new Error(`NomadJobBuilder: volume mount of '${hostPath}' is blocked for security`);
+      const rawHostPath = mount.split(':')[0] ?? '';
+      // Normalize: collapse repeated slashes, remove trailing slash, resolve ..
+      const collapsed = rawHostPath.replace(/\/+/g, '/').replace(/\/$/, '') || '/';
+      const segments = collapsed.split('/');
+      const resolved: string[] = [];
+      for (const seg of segments) {
+        if (seg === '..') resolved.pop();
+        else if (seg !== '.') resolved.push(seg);
+      }
+      const normalized = resolved.join('/') || '/';
+      for (const blocked of blockedPrefixes) {
+        if (blocked === '/') {
+          if (normalized === '/') {
+            throw new Error(
+              `NomadJobBuilder: volume mount of '${rawHostPath}' is blocked for security`
+            );
+          }
+        } else if (normalized === blocked || normalized.startsWith(`${blocked}/`)) {
+          throw new Error(
+            `NomadJobBuilder: volume mount of '${rawHostPath}' is blocked for security`
+          );
+        }
       }
     }
     this.taskSpec.Config.volumes = mounts;
@@ -191,8 +210,8 @@ export class NomadJobBuilder {
     };
 
     return {
-      ID: this.spec.ID!,
-      Name: this.spec.Name ?? this.spec.ID!,
+      ID: this.spec.ID ?? '',
+      Name: this.spec.Name ?? this.spec.ID ?? '',
       Type: this.spec.Type,
       Namespace: this.spec.Namespace,
       Datacenters: this.spec.Datacenters,

@@ -1,5 +1,5 @@
 import { NOMAD_JOB_PREFIX } from './constants.js';
-import { NomadApiError } from './errors.js';
+import { ConnectionError, NomadApiError, NotFoundError } from './errors.js';
 import { NomadHttpClient } from './http.js';
 import { getAllocation, getAllocationStats, getJobAllocations } from './operations/allocations.js';
 import { execInAllocation, execStreamInAllocation } from './operations/exec.js';
@@ -36,12 +36,7 @@ export class NomadSandboxClient {
     try {
       return await getJob(this.http, jobId);
     } catch (error) {
-      if (
-        error &&
-        typeof error === 'object' &&
-        'statusCode' in error &&
-        (error as { statusCode: number }).statusCode === 404
-      ) {
+      if (error instanceof NotFoundError) {
         return null;
       }
       throw error;
@@ -134,14 +129,21 @@ export class NomadSandboxClient {
       const status = await this.http.request<string>('GET', '/v1/status/leader');
       leader = status || null;
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      let error: string;
+      if (err instanceof NomadApiError && err.statusCode === 403) {
+        error = `Authentication failed: ${err.message}`;
+      } else if (err instanceof ConnectionError) {
+        error = `Connection failed: ${err.message}`;
+      } else {
+        error = err instanceof Error ? err.message : String(err);
+      }
       return {
         healthy: false,
         leader: null,
         version: null,
         namespaceExists: false,
         datacenter: null,
-        error: message,
+        error,
       };
     }
 

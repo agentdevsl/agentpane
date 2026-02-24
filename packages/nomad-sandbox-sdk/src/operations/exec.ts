@@ -22,6 +22,7 @@ function buildExecWsUrl(
   const url = new URL(`${base}/v1/client/allocation/${encodeURIComponent(allocId)}/exec`);
   url.searchParams.set('task', task);
   url.searchParams.set('tty', tty ? 'true' : 'false');
+  url.searchParams.set('namespace', http.configuredNamespace);
   // Nomad expects command as repeated query parameters
   for (const arg of command) {
     url.searchParams.append('command', arg);
@@ -178,11 +179,7 @@ export async function execInAllocation(
         if (!event.wasClean) {
           reject(new ExecError(1, `WebSocket closed unexpectedly: code=${event.code}`));
         } else {
-          resolve({
-            exitCode: 1,
-            stdout: stdout.trimEnd(),
-            stderr: stderr.trimEnd(),
-          });
+          reject(new ExecError(1, 'WebSocket closed without exit frame'));
         }
       }
     };
@@ -217,21 +214,21 @@ export function execStreamInAllocation(
 
   let streamSettled = false;
 
+  let controllersClosed = false;
+
   /** Safely close both stdout and stderr stream controllers (idempotent). */
   function closeControllers(): void {
+    if (controllersClosed) return;
+    controllersClosed = true;
     try {
       stdoutController.close();
-    } catch (err) {
-      if (!(err instanceof TypeError && String(err).includes('close'))) {
-        console.warn('[NomadSDK] Unexpected error closing stdout controller:', err);
-      }
+    } catch {
+      // Controller already closed
     }
     try {
       stderrController.close();
-    } catch (err) {
-      if (!(err instanceof TypeError && String(err).includes('close'))) {
-        console.warn('[NomadSDK] Unexpected error closing stderr controller:', err);
-      }
+    } catch {
+      // Controller already closed
     }
   }
 
@@ -339,7 +336,10 @@ export function execStreamInAllocation(
     if (!streamSettled) {
       streamSettled = true;
       if (streamTimeoutId) clearTimeout(streamTimeoutId);
-      const err = new ExecError(1, 'WebSocket error during streaming exec');
+      const err = new ExecError(
+        1,
+        `WebSocket error during streaming exec on ${sanitizeWsUrl(wsUrl)}`
+      );
       closeControllers();
       rejectWait(err);
     }

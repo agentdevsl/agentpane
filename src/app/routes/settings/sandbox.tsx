@@ -632,12 +632,9 @@ function SandboxSettingsPage(): React.JSX.Element {
       if (k8sConfigPath) params.set('kubeconfigPath', k8sConfigPath);
       if (k8sContext) params.set('context', k8sContext);
       const query = params.toString();
-      const res = await fetch(
-        `http://localhost:3001/api/sandbox/k8s/minikube/start${query ? `?${query}` : ''}`,
-        {
-          method: 'POST',
-        }
-      );
+      const res = await fetch(`/api/sandbox/k8s/minikube/start${query ? `?${query}` : ''}`, {
+        method: 'POST',
+      });
       const data = await res.json();
       if (data.ok && data.data?.started) {
         // Refresh status after minikube starts

@@ -221,6 +221,7 @@ export function ProjectSettings({
         image: globalDefaults.image ?? '',
         namespace: globalDefaults.namespace ?? 'default',
         serviceAccount: '',
+        nomadNamespace: globalDefaults.nomadNamespace ?? 'default',
       });
     }
     setHasCustomConfig(false);

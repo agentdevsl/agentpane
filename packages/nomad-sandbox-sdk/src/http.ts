@@ -2,11 +2,13 @@ import { NOMAD_DEFAULTS } from './constants.js';
 import { ConnectionError, NomadApiError, NotFoundError } from './errors.js';
 import type { NomadClientOptions } from './types/common.js';
 
-/** Parse a Nomad duration string (e.g., '30s', '5m', '1m30s') to milliseconds. */
+/** Parse a Nomad duration string (e.g., '30s', '5m', '1h30m', '1m30s') to milliseconds. */
 function parseNomadDuration(duration: string): number {
   let totalMs = 0;
+  const hourMatch = duration.match(/(\d+)h/);
   const minuteMatch = duration.match(/(\d+)m(?!s)/);
   const secondMatch = duration.match(/(\d+)s/);
+  if (hourMatch) totalMs += parseInt(hourMatch[1] ?? '0', 10) * 3_600_000;
   if (minuteMatch) totalMs += parseInt(minuteMatch[1] ?? '0', 10) * 60_000;
   if (secondMatch) totalMs += parseInt(secondMatch[1] ?? '0', 10) * 1_000;
   if (totalMs > 0) return totalMs;
@@ -79,9 +81,10 @@ export class NomadHttpClient {
     }
   ): Promise<T | null> {
     const url = this.buildUrl(path, options?.query);
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
+    const headers: Record<string, string> = {};
+    if (options?.body) {
+      headers['Content-Type'] = 'application/json';
+    }
 
     if (this.token) {
       headers['X-Nomad-Token'] = this.token;
@@ -158,9 +161,7 @@ export class NomadHttpClient {
       wait: effectiveWait,
     });
 
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
+    const headers: Record<string, string> = {};
 
     if (this.token) {
       headers['X-Nomad-Token'] = this.token;
@@ -222,7 +223,8 @@ export class NomadHttpClient {
         `[NomadSDK] Missing X-Nomad-Index header on blocking query response for ${path}`
       );
     }
-    const newIndex = rawIndex !== null ? parseInt(rawIndex, 10) : index + 1;
+    const parsed = rawIndex !== null ? parseInt(rawIndex, 10) : NaN;
+    const newIndex = Number.isNaN(parsed) ? index + 1 : parsed;
     const text = await response.text();
 
     let data: T;

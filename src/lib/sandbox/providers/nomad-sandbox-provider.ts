@@ -94,7 +94,7 @@ const PROVIDER_DEFAULTS = {
 export class NomadSandboxProvider implements EventEmittingSandboxProvider {
   readonly name = 'nomad';
 
-  readonly client: NomadSandboxClient;
+  private readonly client: NomadSandboxClient;
   private readonly namespace: string;
   private readonly datacenter: string;
   private readonly image: string;
@@ -237,7 +237,13 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
 
   async validateSandboxes(): Promise<void> {
     for (const [sandboxId, instance] of this.sandboxes) {
-      await instance.refreshStatus();
+      try {
+        await instance.refreshStatus();
+      } catch (error) {
+        log.error(`refreshStatus failed for sandbox ${sandboxId}, treating as error`, {
+          error: error instanceof Error ? error : new Error(String(error)),
+        });
+      }
       if (instance.status === 'error' || instance.status === 'stopped') {
         log.info('Evicting stale sandbox from cache', {
           data: { sandboxId, projectId: instance.projectId, status: instance.status },
@@ -277,13 +283,6 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
       const matchingJob = jobs.find(
         (job) => job.Meta?.[NOMAD_META.PROJECT_ID] === projectId && job.Status === 'running'
       );
-
-      if (!matchingJob && projectId !== 'default') {
-        log.info('No running sandbox found for project, falling back to default', {
-          data: { projectId },
-        });
-        return this.get('default');
-      }
 
       if (!matchingJob) {
         return null;
@@ -421,6 +420,9 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      log.error(`Nomad health check failed: ${message}`, {
+        error: error instanceof Error ? error : new Error(message),
+      });
       return {
         healthy: false,
         message: `Nomad health check failed: ${message}`,
@@ -479,7 +481,7 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
       try {
         listener(event);
       } catch (error) {
-        log.error('Event listener error', {
+        log.error(`Event listener error during ${event.type}`, {
           error: error instanceof Error ? error : new Error(String(error)),
         });
       }

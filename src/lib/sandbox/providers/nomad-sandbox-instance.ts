@@ -84,7 +84,10 @@ export class NomadSandboxInstance implements Sandbox {
     } catch (error) {
       if (error instanceof TimeoutError) {
         const timeoutMatch = error.message.match(/(\d+)ms/);
-        throw NomadErrors.EXEC_TIMEOUT(cmd, timeoutMatch ? parseInt(timeoutMatch[1]!, 10) : 60_000);
+        throw NomadErrors.EXEC_TIMEOUT(
+          cmd,
+          timeoutMatch?.[1] ? parseInt(timeoutMatch[1], 10) : 60_000
+        );
       }
       if (error instanceof ConnectionError) {
         throw NomadErrors.CLUSTER_UNREACHABLE(
@@ -103,16 +106,11 @@ export class NomadSandboxInstance implements Sandbox {
     }
   }
 
-  async execAsRoot(cmd: string, args: string[] = []): Promise<ExecResult> {
-    log.warn(
-      'execAsRoot called but Nomad provider does not support root execution, running as default user',
-      { data: { cmd } }
+  async execAsRoot(_cmd: string, _args: string[] = []): Promise<ExecResult> {
+    throw NomadErrors.EXEC_FAILED(
+      _cmd,
+      'Root execution is not supported by the Nomad sandbox provider'
     );
-    const result = await this.exec(cmd, args);
-    return {
-      ...result,
-      stderr: `[WARNING: Running as default user - root execution not supported by Nomad provider]\n${result.stderr}`,
-    };
   }
 
   async stop(): Promise<void> {
@@ -277,9 +275,16 @@ export class NomadSandboxInstance implements Sandbox {
     this.assertRunning();
     this.touch();
 
-    // Check if session already exists
-    const listResult = await this.exec('tmux', ['list-sessions', '-F', '#{session_name}']);
-    if (listResult.stdout.split('\n').includes(sessionName)) {
+    // Check if session already exists (handle "no tmux server" case gracefully)
+    let sessionExists = false;
+    try {
+      const listResult = await this.exec('tmux', ['list-sessions', '-F', '#{session_name}']);
+      sessionExists = listResult.stdout.split('\n').includes(sessionName);
+    } catch {
+      // tmux server not running yet — no existing sessions
+      sessionExists = false;
+    }
+    if (sessionExists) {
       throw NomadErrors.TMUX_SESSION_ALREADY_EXISTS(sessionName);
     }
 
@@ -448,8 +453,8 @@ export class NomadSandboxInstance implements Sandbox {
           const allocs = await this.client.getJobAllocations(this.jobName);
           const runningAlloc = allocs.find((a) => a.ClientStatus === 'running');
           if (runningAlloc && runningAlloc.ID !== this.allocId) {
-            log.info(
-              `Allocation rescheduled for ${this.jobName}: ${this.allocId} → ${runningAlloc.ID}`
+            log.warn(
+              `Allocation rescheduled for ${this.jobName}: ${this.allocId} → ${runningAlloc.ID} — active exec sessions may fail`
             );
             this.allocId = runningAlloc.ID;
           }
