@@ -26,6 +26,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { Button } from '@/app/components/ui/button';
 import { ConfigSection } from '@/app/components/ui/config-section';
+import { Switch } from '@/app/components/ui/switch';
 import {
   apiClient,
   type CreateSandboxConfigInput,
@@ -112,23 +113,12 @@ function Toggle({
   ariaLabel: string;
 }) {
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={ariaLabel}
-      onClick={onToggle}
+    <Switch
+      checked={checked}
+      onCheckedChange={onToggle}
       data-testid={testId}
-      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-        checked ? 'bg-accent' : 'bg-fg-muted/30'
-      }`}
-    >
-      <span
-        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform ${
-          checked ? 'translate-x-4' : 'translate-x-0.5'
-        }`}
-      />
-    </button>
+      aria-label={ariaLabel}
+    />
   );
 }
 
@@ -951,6 +941,8 @@ function SandboxSettingsPage(): React.JSX.Element {
                   <CircleNotch className="h-4 w-4 animate-spin text-fg-subtle" />
                 ) : nomadStatus?.healthy ? (
                   <WifiHigh className="h-4 w-4 text-success" />
+                ) : nomadStatus === null ? (
+                  <WifiSlash className="h-4 w-4 text-fg-muted" />
                 ) : (
                   <WifiSlash className="h-4 w-4 text-danger" />
                 )}
@@ -959,14 +951,22 @@ function SandboxSettingsPage(): React.JSX.Element {
                   <span
                     className={cn(
                       'font-medium',
-                      nomadStatus?.healthy ? 'text-success' : 'text-danger'
+                      nomadStatusLoading
+                        ? 'text-fg-muted'
+                        : nomadStatus === null
+                          ? 'text-fg-muted'
+                          : nomadStatus.healthy
+                            ? 'text-success'
+                            : 'text-danger'
                     )}
                   >
                     {nomadStatusLoading
                       ? 'Checking...'
-                      : nomadStatus?.healthy
-                        ? 'Connected'
-                        : 'Disconnected'}
+                      : nomadStatus === null
+                        ? 'Unknown'
+                        : nomadStatus.healthy
+                          ? 'Connected'
+                          : 'Disconnected'}
                   </span>
                 </span>
               </div>
@@ -1951,8 +1951,12 @@ function SandboxSettingsPage(): React.JSX.Element {
             icon={Hexagon}
             title="Nomad Configuration"
             description="Configure your Nomad cluster connection"
-            badge={nomadStatus?.healthy ? 'Connected' : 'Disconnected'}
-            badgeColor={nomadStatus?.healthy ? 'success' : 'accent'}
+            badge={
+              nomadStatus === null ? 'Unknown' : nomadStatus.healthy ? 'Connected' : 'Disconnected'
+            }
+            badgeColor={
+              nomadStatus === null ? 'accent' : nomadStatus.healthy ? 'success' : 'accent'
+            }
             testId="nomad-config-section"
           >
             <div className="space-y-6">
@@ -1965,6 +1969,10 @@ function SandboxSettingsPage(): React.JSX.Element {
                     <div className="flex h-8 w-8 items-center justify-center rounded-full bg-success-muted">
                       <WifiHigh className="h-4 w-4 text-success" />
                     </div>
+                  ) : nomadStatus === null ? (
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-surface">
+                      <WifiSlash className="h-4 w-4 text-fg-muted" />
+                    </div>
                   ) : (
                     <div className="flex h-8 w-8 items-center justify-center rounded-full bg-danger-muted">
                       <WifiSlash className="h-4 w-4 text-danger" />
@@ -1974,9 +1982,11 @@ function SandboxSettingsPage(): React.JSX.Element {
                     <p className="font-medium text-fg">
                       {nomadStatusLoading
                         ? 'Checking connection...'
-                        : nomadStatus?.healthy
-                          ? 'Connected'
-                          : 'Cluster Unreachable'}
+                        : nomadStatus === null
+                          ? 'Not checked'
+                          : nomadStatus.healthy
+                            ? 'Connected'
+                            : 'Cluster Unreachable'}
                     </p>
                     {nomadStatus?.healthy && nomadStatus.version && (
                       <p className="text-xs text-fg-muted">

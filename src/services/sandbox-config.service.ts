@@ -1,7 +1,7 @@
 import { and, desc, eq, ne } from 'drizzle-orm';
 import type { NewSandboxConfig, SandboxConfig, SandboxType } from '../db/schema';
 import { projects, sandboxConfigs } from '../db/schema';
-import { encryptToken } from '../lib/crypto/server-encryption.js';
+import { decryptToken, encryptToken } from '../lib/crypto/server-encryption.js';
 import type { SandboxConfigError } from '../lib/errors/sandbox-config-errors.js';
 import { SandboxConfigErrors } from '../lib/errors/sandbox-config-errors.js';
 import { createLogger } from '../lib/logging/logger.js';
@@ -101,15 +101,13 @@ export class SandboxConfigService {
 
   /**
    * Decrypt the nomadToken field on a config if present.
-   * Uses dynamic import to avoid bundling node:crypto for browser builds.
    * Returns the config with the token decrypted, or undefined on failure.
    */
-  private async decryptConfigToken<T extends SandboxConfig | null>(config: T): Promise<T> {
+  private decryptConfigToken<T extends SandboxConfig | null>(config: T): T {
     if (!config || !config.nomadToken) {
       return config;
     }
     try {
-      const { decryptToken } = await import('../lib/crypto/server-encryption.js');
       return { ...config, nomadToken: decryptToken(config.nomadToken) };
     } catch (error) {
       // Decryption failed (key changed, corrupted data) — clear the token
@@ -124,8 +122,8 @@ export class SandboxConfigService {
   /**
    * Decrypt nomadToken on an array of configs.
    */
-  private async decryptConfigTokens(configs: SandboxConfig[]): Promise<SandboxConfig[]> {
-    return Promise.all(configs.map((c) => this.decryptConfigToken(c)));
+  private decryptConfigTokens(configs: SandboxConfig[]): SandboxConfig[] {
+    return configs.map((c) => this.decryptConfigToken(c));
   }
 
   private validateResourceLimits(
@@ -227,7 +225,7 @@ export class SandboxConfigService {
       return err(SandboxConfigErrors.NOT_FOUND);
     }
 
-    return ok(await this.decryptConfigToken(config));
+    return ok(this.decryptConfigToken(config));
   }
 
   async getById(id: string): Promise<Result<SandboxConfig, SandboxConfigError>> {
@@ -239,7 +237,7 @@ export class SandboxConfigService {
       return err(SandboxConfigErrors.NOT_FOUND);
     }
 
-    return ok(await this.decryptConfigToken(config));
+    return ok(this.decryptConfigToken(config));
   }
 
   async getDefault(): Promise<Result<SandboxConfig | null, SandboxConfigError>> {
@@ -247,7 +245,7 @@ export class SandboxConfigService {
       where: eq(sandboxConfigs.isDefault, true),
     });
 
-    return ok(await this.decryptConfigToken(config ?? null));
+    return ok(this.decryptConfigToken(config ?? null));
   }
 
   async list(
@@ -262,7 +260,7 @@ export class SandboxConfigService {
       offset,
     });
 
-    return ok(await this.decryptConfigTokens(items));
+    return ok(this.decryptConfigTokens(items));
   }
 
   async update(
@@ -349,7 +347,7 @@ export class SandboxConfigService {
       return err(SandboxConfigErrors.NOT_FOUND);
     }
 
-    return ok(await this.decryptConfigToken(updated));
+    return ok(this.decryptConfigToken(updated));
   }
 
   async delete(id: string): Promise<Result<void, SandboxConfigError>> {

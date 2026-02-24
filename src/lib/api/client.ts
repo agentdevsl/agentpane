@@ -797,7 +797,7 @@ export const apiClient = {
       if (options?.limit) searchParams.set('limit', String(options.limit));
       if (options?.offset) searchParams.set('offset', String(options.offset));
       const query = searchParams.toString();
-      return apiServerFetch<{ items: SandboxConfigItem[]; count: number }>(
+      return apiServerFetch<{ items: SandboxConfigItem[]; totalCount: number }>(
         `/api/sandbox-configs${query ? `?${query}` : ''}`
       );
     },

@@ -314,14 +314,24 @@ export class NomadSandboxInstance implements Sandbox {
     this.assertRunning();
     this.touch();
 
-    const result = await this.exec('tmux', [
-      'list-sessions',
-      '-F',
-      '#{session_name}:#{session_windows}:#{session_attached}',
-    ]);
+    let result: ExecResult;
+    try {
+      result = await this.exec('tmux', [
+        'list-sessions',
+        '-F',
+        '#{session_name}:#{session_windows}:#{session_attached}',
+      ]);
+    } catch (err) {
+      // exec() throws NomadErrors on non-zero exit — handle "no tmux server" gracefully
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes('no server running') || message.includes('no sessions')) {
+        return [];
+      }
+      throw err;
+    }
 
     if (result.exitCode !== 0) {
-      // Expected: no tmux server running = no sessions
+      // Defensive: exec() normally throws on non-zero, but handle just in case
       if (result.stderr.includes('no server running') || result.stderr.includes('no sessions')) {
         return [];
       }
@@ -348,6 +358,7 @@ export class NomadSandboxInstance implements Sandbox {
   }
 
   async killTmuxSession(sessionName: string): Promise<void> {
+    this.assertRunning();
     this.touch();
 
     const result = await this.exec('tmux', ['kill-session', '-t', sessionName]);

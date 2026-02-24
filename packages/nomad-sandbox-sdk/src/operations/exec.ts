@@ -222,13 +222,22 @@ export function execStreamInAllocation(
     controllersClosed = true;
     try {
       stdoutController.close();
-    } catch {
-      // Controller already closed
+    } catch (err) {
+      // Expected when controller is already closed; log unexpected errors
+      if (err instanceof TypeError && String(err.message).includes('close')) {
+        // ReadableStream controller already closed — safe to ignore
+      } else {
+        console.error('[NomadSDK] Unexpected error closing stdout controller:', err);
+      }
     }
     try {
       stderrController.close();
-    } catch {
-      // Controller already closed
+    } catch (err) {
+      if (err instanceof TypeError && String(err.message).includes('close')) {
+        // ReadableStream controller already closed — safe to ignore
+      } else {
+        console.error('[NomadSDK] Unexpected error closing stderr controller:', err);
+      }
     }
   }
 

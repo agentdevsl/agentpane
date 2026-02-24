@@ -189,7 +189,8 @@ export function SandboxIndicator({
   nomadLeader,
   nomadJobCount,
 }: SandboxIndicatorProps): React.JSX.Element {
-  const isTransitioning = containerStatus === 'creating' || isRestarting;
+  const isTransitioning =
+    containerStatus === 'creating' || containerStatus === 'stopping' || isRestarting;
   const modeLabel = mode === 'shared' ? 'Shared' : 'Per-Project';
   const providerLabel = getProviderLabel(provider);
 
@@ -289,6 +290,7 @@ export function SandboxIndicator({
                   containerStatus === 'creating' && 'text-secondary',
                   containerStatus === 'error' && 'text-danger',
                   containerStatus === 'idle' && 'text-attention',
+                  containerStatus === 'stopping' && 'text-fg-muted',
                   (containerStatus === 'stopped' || containerStatus === 'unavailable') &&
                     'text-fg-muted'
                 )}

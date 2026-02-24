@@ -1087,7 +1087,7 @@ export function NewProjectDialog({
                     className={cn(
                       'flex items-center gap-3 rounded-[var(--radius)] border-2 p-3 text-left transition-colors',
                       sandboxType === 'nomad'
-                        ? 'border-accent bg-accent-muted/30'
+                        ? 'border-attention bg-attention/10'
                         : 'border-border hover:border-fg-subtle'
                     )}
                     data-testid="sandbox-type-nomad"
@@ -1095,7 +1095,7 @@ export function NewProjectDialog({
                     <Hexagon
                       className={cn(
                         'h-5 w-5',
-                        sandboxType === 'nomad' ? 'text-accent' : 'text-fg-muted'
+                        sandboxType === 'nomad' ? 'text-attention' : 'text-fg-muted'
                       )}
                       weight={sandboxType === 'nomad' ? 'duotone' : 'regular'}
                     />

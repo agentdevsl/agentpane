@@ -40,7 +40,7 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
         ok: true,
         data: {
           items: result.value.map(({ nomadToken, ...rest }) => rest),
-          count: result.value.length,
+          totalCount: result.value.length,
         },
       });
     } catch (error) {

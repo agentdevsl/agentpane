@@ -217,10 +217,9 @@ if (DB_MODE === 'postgres') {
     log.info('CLI sessions performance_metrics migration applied');
   } catch (error) {
     if (!(error instanceof Error && error.message.includes('duplicate column name'))) {
-      console.warn(
-        '[API Server] CLI sessions performance_metrics migration error (unexpected):',
-        error instanceof Error ? error.message : String(error)
-      );
+      log.warn('CLI sessions performance_metrics migration error (unexpected)', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
     }
   }
 
@@ -241,10 +240,9 @@ if (DB_MODE === 'postgres') {
       sqlite.exec(sql);
     } catch (error) {
       if (!(error instanceof Error && error.message.includes('duplicate column name'))) {
-        console.warn(
-          '[API Server] Nomad migration error:',
-          error instanceof Error ? error.message : String(error)
-        );
+        log.warn('Nomad migration error', {
+          error: error instanceof Error ? error : new Error(String(error)),
+        });
       }
     }
   }
@@ -257,10 +255,9 @@ if (DB_MODE === 'postgres') {
     log.info('[API Server] Agents parent_agent_id migration applied');
   } catch (error) {
     if (!(error instanceof Error && error.message.includes('duplicate column name'))) {
-      console.warn(
-        '[API Server] Agents parent_agent_id migration error (unexpected):',
-        error instanceof Error ? error.message : String(error)
-      );
+      log.warn('Agents parent_agent_id migration error (unexpected)', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
     }
   }
 
@@ -283,13 +280,12 @@ try {
     .where(inArray(schemaTables.agents.status, [...staleStatuses]));
   const changes = getChangedCount(result);
   if (changes > 0) {
-    console.log(`[API Server] Reset ${changes} stale agent(s) to idle`);
+    log.info(`Reset ${changes} stale agent(s) to idle`);
   }
 } catch (error) {
-  console.error(
-    '[API Server] Failed to reset stale agents:',
-    error instanceof Error ? error.message : String(error)
-  );
+  log.error('Failed to reset stale agents', {
+    error: error instanceof Error ? error : new Error(String(error)),
+  });
 }
 
 // Recover orphaned tasks from previous server runs
