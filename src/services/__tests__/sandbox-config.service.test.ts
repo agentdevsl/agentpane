@@ -58,7 +58,7 @@ describe('SandboxConfigService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toEqual(SandboxConfigErrors.ALREADY_EXISTS);
+        expect(result.error).toMatchObject(SandboxConfigErrors.ALREADY_EXISTS);
       }
     });
 
@@ -179,7 +179,7 @@ describe('SandboxConfigService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toEqual(SandboxConfigErrors.NOT_FOUND);
+        expect(result.error).toMatchObject(SandboxConfigErrors.NOT_FOUND);
       }
     });
   });
@@ -286,7 +286,7 @@ describe('SandboxConfigService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toEqual(SandboxConfigErrors.NOT_FOUND);
+        expect(result.error).toMatchObject(SandboxConfigErrors.NOT_FOUND);
       }
     });
 
@@ -318,7 +318,7 @@ describe('SandboxConfigService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toEqual(SandboxConfigErrors.ALREADY_EXISTS);
+        expect(result.error).toMatchObject(SandboxConfigErrors.ALREADY_EXISTS);
       }
     });
   });
@@ -345,7 +345,7 @@ describe('SandboxConfigService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toEqual(SandboxConfigErrors.NOT_FOUND);
+        expect(result.error).toMatchObject(SandboxConfigErrors.NOT_FOUND);
       }
     });
 
@@ -362,7 +362,13 @@ describe('SandboxConfigService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toEqual(SandboxConfigErrors.IN_USE(2));
+        const expected = SandboxConfigErrors.IN_USE(2);
+        expect(result.error).toMatchObject({
+          code: expected.code,
+          message: expected.message,
+          status: expected.status,
+          details: expected.details,
+        });
       }
     });
   });

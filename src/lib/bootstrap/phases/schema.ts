@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS "agents" (
   "current_task_id" TEXT,
   "current_session_id" TEXT,
   "current_turn" INTEGER DEFAULT 0,
+  "parent_agent_id" TEXT,
   "created_at" TEXT DEFAULT (datetime('now')) NOT NULL,
   "updated_at" TEXT DEFAULT (datetime('now')) NOT NULL
 );
@@ -78,6 +79,8 @@ CREATE TABLE IF NOT EXISTS "sessions" (
   "status" TEXT DEFAULT 'idle' NOT NULL,
   "title" TEXT,
   "url" TEXT NOT NULL,
+  "sandbox_provider" TEXT,
+  "sandbox_container_id" TEXT,
   "created_at" TEXT DEFAULT (datetime('now')) NOT NULL,
   "updated_at" TEXT DEFAULT (datetime('now')) NOT NULL,
   "closed_at" TEXT
@@ -214,6 +217,11 @@ CREATE TABLE IF NOT EXISTS "sandbox_configs" (
   "kube_namespace" TEXT DEFAULT 'agentpane-sandboxes',
   "network_policy_enabled" INTEGER DEFAULT 1,
   "allowed_egress_hosts" TEXT,
+  "nomad_address" TEXT,
+  "nomad_token" TEXT,
+  "nomad_namespace" TEXT DEFAULT 'default',
+  "nomad_datacenter" TEXT,
+  "nomad_region" TEXT,
   "created_at" TEXT DEFAULT (datetime('now')) NOT NULL,
   "updated_at" TEXT DEFAULT (datetime('now')) NOT NULL
 );
@@ -244,6 +252,11 @@ CREATE TABLE IF NOT EXISTS "session_summaries" (
   "lines_added" INTEGER DEFAULT 0,
   "lines_removed" INTEGER DEFAULT 0,
   "final_status" TEXT,
+  "cost_usd" REAL,
+  "duration_api_ms" INTEGER,
+  "cache_read_tokens" INTEGER,
+  "cache_creation_tokens" INTEGER,
+  "stop_reason" TEXT,
   "updated_at" TEXT DEFAULT (datetime('now')) NOT NULL
 );
 

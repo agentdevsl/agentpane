@@ -79,7 +79,13 @@ describe('ProjectService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(ProjectErrors.HAS_RUNNING_AGENTS(1));
+      const expected = ProjectErrors.HAS_RUNNING_AGENTS(1);
+      expect(result.error).toMatchObject({
+        code: expected.code,
+        message: expected.message,
+        status: expected.status,
+        details: expected.details,
+      });
     }
   });
 

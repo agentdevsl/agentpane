@@ -180,6 +180,10 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
         this.client
       );
 
+      // Refresh status from the cluster now that waitForReady has confirmed the sandbox is up.
+      // Without this, the instance would retain the initial 'creating' status.
+      await instance.refreshStatus();
+
       this.sandboxes.set(sandboxId, instance);
       this.projectToSandbox.set(config.projectId, sandboxId);
 

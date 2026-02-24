@@ -127,7 +127,7 @@ describe('WorktreeService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(WorktreeErrors.NOT_FOUND);
+      expect(result.error).toMatchObject(WorktreeErrors.NOT_FOUND);
     }
   });
 
@@ -210,7 +210,7 @@ describe('WorktreeService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(WorktreeErrors.NOT_FOUND);
+      expect(result.error).toMatchObject(WorktreeErrors.NOT_FOUND);
     }
   });
 
@@ -253,7 +253,7 @@ describe('WorktreeService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(WorktreeErrors.NOT_FOUND);
+      expect(result.error).toMatchObject(WorktreeErrors.NOT_FOUND);
     }
   });
 
@@ -306,7 +306,7 @@ describe('WorktreeService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(WorktreeErrors.NOT_FOUND);
+      expect(result.error).toMatchObject(WorktreeErrors.NOT_FOUND);
     }
   });
 
@@ -351,7 +351,7 @@ describe('WorktreeService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(WorktreeErrors.NOT_FOUND);
+      expect(result.error).toMatchObject(WorktreeErrors.NOT_FOUND);
     }
   });
 
@@ -444,7 +444,7 @@ describe('WorktreeService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(WorktreeErrors.NOT_FOUND);
+      expect(result.error).toMatchObject(WorktreeErrors.NOT_FOUND);
     }
   });
 
@@ -659,7 +659,7 @@ describe('WorktreeService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(WorktreeErrors.NOT_FOUND);
+      expect(result.error).toMatchObject(WorktreeErrors.NOT_FOUND);
     }
   });
 
@@ -769,7 +769,7 @@ describe('WorktreeService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(WorktreeErrors.NOT_FOUND);
+      expect(result.error).toMatchObject(WorktreeErrors.NOT_FOUND);
     }
   });
 

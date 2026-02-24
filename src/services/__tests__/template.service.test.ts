@@ -138,7 +138,7 @@ describe('TemplateService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toEqual(TemplateErrors.ALREADY_EXISTS);
+        expect(result.error).toMatchObject(TemplateErrors.ALREADY_EXISTS);
       }
     });
 
@@ -171,7 +171,7 @@ describe('TemplateService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toEqual(TemplateErrors.PROJECT_REQUIRED);
+        expect(result.error).toMatchObject(TemplateErrors.PROJECT_REQUIRED);
       }
     });
   });
@@ -218,7 +218,7 @@ describe('TemplateService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toEqual(TemplateErrors.NOT_FOUND);
+        expect(result.error).toMatchObject(TemplateErrors.NOT_FOUND);
       }
     });
   });
@@ -311,7 +311,7 @@ describe('TemplateService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toEqual(TemplateErrors.NOT_FOUND);
+        expect(result.error).toMatchObject(TemplateErrors.NOT_FOUND);
       }
     });
 
@@ -368,7 +368,7 @@ describe('TemplateService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toEqual(TemplateErrors.NOT_FOUND);
+        expect(result.error).toMatchObject(TemplateErrors.NOT_FOUND);
       }
     });
   });

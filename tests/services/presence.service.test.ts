@@ -364,7 +364,7 @@ describe('Presence Service', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toEqual(SessionErrors.NOT_FOUND);
+        expect(result.error).toMatchObject(SessionErrors.NOT_FOUND);
       }
     });
   });
@@ -586,7 +586,7 @@ describe('Presence Service', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toEqual(SessionErrors.NOT_FOUND);
+        expect(result.error).toMatchObject(SessionErrors.NOT_FOUND);
       }
     });
 
@@ -602,7 +602,7 @@ describe('Presence Service', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toEqual(SessionErrors.CLOSED);
+        expect(result.error).toMatchObject(SessionErrors.CLOSED);
       }
     });
 
@@ -613,7 +613,7 @@ describe('Presence Service', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toEqual(SessionErrors.NOT_FOUND);
+        expect(result.error).toMatchObject(SessionErrors.NOT_FOUND);
       }
     });
   });

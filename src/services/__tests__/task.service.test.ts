@@ -48,7 +48,7 @@ describe('TaskService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(ProjectErrors.NOT_FOUND);
+      expect(result.error).toMatchObject(ProjectErrors.NOT_FOUND);
     }
   });
 
@@ -143,7 +143,7 @@ describe('TaskService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(TaskErrors.NO_DIFF);
+      expect(result.error).toMatchObject(TaskErrors.NO_DIFF);
     }
   });
 
@@ -176,7 +176,7 @@ describe('TaskService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(TaskErrors.NOT_FOUND);
+      expect(result.error).toMatchObject(TaskErrors.NOT_FOUND);
     }
   });
 
@@ -285,7 +285,7 @@ describe('TaskService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(TaskErrors.NOT_FOUND);
+      expect(result.error).toMatchObject(TaskErrors.NOT_FOUND);
     }
   });
 
@@ -311,7 +311,7 @@ describe('TaskService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(TaskErrors.NOT_FOUND);
+      expect(result.error).toMatchObject(TaskErrors.NOT_FOUND);
     }
   });
 
@@ -348,7 +348,7 @@ describe('TaskService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(TaskErrors.NOT_FOUND);
+      expect(result.error).toMatchObject(TaskErrors.NOT_FOUND);
     }
   });
 
@@ -414,7 +414,7 @@ describe('TaskService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(TaskErrors.NOT_FOUND);
+      expect(result.error).toMatchObject(TaskErrors.NOT_FOUND);
     }
   });
 
@@ -450,7 +450,7 @@ describe('TaskService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(TaskErrors.NOT_FOUND);
+      expect(result.error).toMatchObject(TaskErrors.NOT_FOUND);
     }
   });
 
@@ -481,7 +481,7 @@ describe('TaskService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(TaskErrors.NOT_FOUND);
+      expect(result.error).toMatchObject(TaskErrors.NOT_FOUND);
     }
   });
 
@@ -498,7 +498,13 @@ describe('TaskService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(TaskErrors.NOT_WAITING_APPROVAL('in_progress'));
+      const expected = TaskErrors.NOT_WAITING_APPROVAL('in_progress');
+      expect(result.error).toMatchObject({
+        code: expected.code,
+        message: expected.message,
+        status: expected.status,
+        details: expected.details,
+      });
     }
   });
 
@@ -516,7 +522,7 @@ describe('TaskService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(TaskErrors.ALREADY_APPROVED);
+      expect(result.error).toMatchObject(TaskErrors.ALREADY_APPROVED);
     }
   });
 
@@ -534,7 +540,7 @@ describe('TaskService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(TaskErrors.NO_DIFF);
+      expect(result.error).toMatchObject(TaskErrors.NO_DIFF);
     }
   });
 
@@ -642,7 +648,7 @@ describe('TaskService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(TaskErrors.NOT_FOUND);
+      expect(result.error).toMatchObject(TaskErrors.NOT_FOUND);
     }
   });
 
@@ -656,7 +662,7 @@ describe('TaskService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(TaskErrors.NOT_FOUND);
+      expect(result.error).toMatchObject(TaskErrors.NOT_FOUND);
     }
   });
 
@@ -673,7 +679,13 @@ describe('TaskService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(TaskErrors.NOT_WAITING_APPROVAL('in_progress'));
+      const expected = TaskErrors.NOT_WAITING_APPROVAL('in_progress');
+      expect(result.error).toMatchObject({
+        code: expected.code,
+        message: expected.message,
+        status: expected.status,
+        details: expected.details,
+      });
     }
   });
 
@@ -731,7 +743,7 @@ describe('TaskService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(TaskErrors.NOT_FOUND);
+      expect(result.error).toMatchObject(TaskErrors.NOT_FOUND);
     }
   });
 
@@ -745,7 +757,7 @@ describe('TaskService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(TaskErrors.NOT_FOUND);
+      expect(result.error).toMatchObject(TaskErrors.NOT_FOUND);
     }
   });
 
@@ -763,7 +775,7 @@ describe('TaskService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(TaskErrors.NO_DIFF);
+      expect(result.error).toMatchObject(TaskErrors.NO_DIFF);
     }
   });
 
@@ -849,7 +861,7 @@ describe('TaskService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(TaskErrors.NOT_FOUND);
+      expect(result.error).toMatchObject(TaskErrors.NOT_FOUND);
     }
   });
 

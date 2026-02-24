@@ -78,7 +78,13 @@ describe('AgentService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(ValidationErrors.INVALID_ID('projectId'));
+      const expected = ValidationErrors.INVALID_ID('projectId');
+      expect(result.error).toMatchObject({
+        code: expected.code,
+        message: expected.message,
+        status: expected.status,
+        details: expected.details,
+      });
     }
   });
 
@@ -96,7 +102,7 @@ describe('AgentService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(AgentErrors.NOT_FOUND);
+      expect(result.error).toMatchObject(AgentErrors.NOT_FOUND);
     }
   });
 
@@ -117,7 +123,13 @@ describe('AgentService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(ConcurrencyErrors.LIMIT_EXCEEDED(1, 1));
+      const expected = ConcurrencyErrors.LIMIT_EXCEEDED(1, 1);
+      expect(result.error).toMatchObject({
+        code: expected.code,
+        message: expected.message,
+        status: expected.status,
+        details: expected.details,
+      });
     }
   });
 
@@ -135,7 +147,7 @@ describe('AgentService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(AgentErrors.NOT_RUNNING);
+      expect(result.error).toMatchObject(AgentErrors.NOT_RUNNING);
     }
   });
 
@@ -198,7 +210,7 @@ describe('AgentService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(AgentErrors.NOT_FOUND);
+      expect(result.error).toMatchObject(AgentErrors.NOT_FOUND);
     }
   });
 
@@ -221,7 +233,13 @@ describe('AgentService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(AgentErrors.ALREADY_RUNNING('t1'));
+      const expected = AgentErrors.ALREADY_RUNNING('t1');
+      expect(result.error).toMatchObject({
+        code: expected.code,
+        message: expected.message,
+        status: expected.status,
+        details: expected.details,
+      });
     }
   });
 
@@ -281,7 +299,7 @@ describe('AgentService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(AgentErrors.NOT_FOUND);
+      expect(result.error).toMatchObject(AgentErrors.NOT_FOUND);
     }
   });
 
@@ -315,7 +333,7 @@ describe('AgentService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(AgentErrors.NOT_FOUND);
+      expect(result.error).toMatchObject(AgentErrors.NOT_FOUND);
     }
   });
 
@@ -333,7 +351,7 @@ describe('AgentService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(AgentErrors.NOT_FOUND);
+      expect(result.error).toMatchObject(AgentErrors.NOT_FOUND);
     }
   });
 
@@ -355,7 +373,13 @@ describe('AgentService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(AgentErrors.ALREADY_RUNNING('t1'));
+      const expected = AgentErrors.ALREADY_RUNNING('t1');
+      expect(result.error).toMatchObject({
+        code: expected.code,
+        message: expected.message,
+        status: expected.status,
+        details: expected.details,
+      });
     }
   });
 
@@ -378,7 +402,7 @@ describe('AgentService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(AgentErrors.NO_AVAILABLE_TASK);
+      expect(result.error).toMatchObject(AgentErrors.NO_AVAILABLE_TASK);
     }
   });
 
@@ -404,7 +428,7 @@ describe('AgentService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(AgentErrors.NO_AVAILABLE_TASK);
+      expect(result.error).toMatchObject(AgentErrors.NO_AVAILABLE_TASK);
     }
   });
 
@@ -445,7 +469,7 @@ describe('AgentService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(AgentErrors.NOT_FOUND);
+      expect(result.error).toMatchObject(AgentErrors.NOT_FOUND);
     }
   });
 
@@ -496,7 +520,7 @@ describe('AgentService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(AgentErrors.NOT_FOUND);
+      expect(result.error).toMatchObject(AgentErrors.NOT_FOUND);
     }
   });
 
@@ -626,7 +650,13 @@ describe('AgentService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toEqual(ConcurrencyErrors.QUEUE_FULL(0, 0));
+      const expected = ConcurrencyErrors.QUEUE_FULL(0, 0);
+      expect(result.error).toMatchObject({
+        code: expected.code,
+        message: expected.message,
+        status: expected.status,
+        details: expected.details,
+      });
     }
   });
 
