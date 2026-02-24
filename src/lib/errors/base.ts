@@ -1,9 +1,27 @@
 export interface AppError {
-  code: string;
-  message: string;
-  status: number;
-  details?: Record<string, unknown>;
+  readonly code: string;
+  readonly message: string;
+  readonly status: number;
+  readonly details?: Record<string, unknown>;
   toString(): string;
+}
+
+export class AppErrorClass extends Error implements AppError {
+  readonly code: string;
+  readonly status: number;
+  readonly details?: Record<string, unknown>;
+
+  constructor(code: string, message: string, status: number, details?: Record<string, unknown>) {
+    super(message);
+    this.name = 'AppError';
+    this.code = code;
+    this.status = status;
+    this.details = details;
+  }
+
+  toString(): string {
+    return this.message;
+  }
 }
 
 export const createError = (
@@ -11,25 +29,4 @@ export const createError = (
   message: string,
   status: number,
   details?: Record<string, unknown>
-): AppError => ({
-  code,
-  message,
-  status,
-  details,
-  toString() {
-    return message;
-  },
-});
-
-export class AppErrorClass extends Error implements AppError {
-  code: string;
-  status: number;
-  details?: Record<string, unknown>;
-
-  constructor(code: string, message: string, status: number, details?: Record<string, unknown>) {
-    super(message);
-    this.code = code;
-    this.status = status;
-    this.details = details;
-  }
-}
+): AppError => new AppErrorClass(code, message, status, details);

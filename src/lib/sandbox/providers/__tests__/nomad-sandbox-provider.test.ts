@@ -238,7 +238,7 @@ describe('NomadSandboxProvider', () => {
       mockClient.registerJob.mockRejectedValue(new Error('Nomad API error'));
 
       await expect(provider.create(sampleConfig)).rejects.toMatchObject({
-        code: 'NOMAD_JOB_CREATION_FAILED',
+        code: 'NOMAD-201',
       });
     });
 
@@ -247,7 +247,7 @@ describe('NomadSandboxProvider', () => {
       mockClient.waitForRunning.mockRejectedValue(new Error('Timeout waiting for job'));
 
       await expect(provider.create(sampleConfig)).rejects.toMatchObject({
-        code: 'NOMAD_JOB_CREATION_FAILED',
+        code: 'NOMAD-201',
       });
     });
 
@@ -256,7 +256,7 @@ describe('NomadSandboxProvider', () => {
       mockClient.getJobAllocations.mockResolvedValue([{ ID: 'alloc-1', ClientStatus: 'pending' }]);
 
       await expect(provider.create(sampleConfig)).rejects.toMatchObject({
-        code: 'NOMAD_JOB_CREATION_FAILED',
+        code: 'NOMAD-201',
       });
     });
 
@@ -266,7 +266,7 @@ describe('NomadSandboxProvider', () => {
       await provider.create(sampleConfig);
 
       await expect(provider.create(sampleConfig)).rejects.toMatchObject({
-        code: 'NOMAD_JOB_ALREADY_EXISTS',
+        code: 'NOMAD-205',
       });
     });
 
@@ -510,7 +510,7 @@ describe('NomadSandboxProvider', () => {
     it('throws for empty image name', async () => {
       const provider = createProvider();
       await expect(provider.pullImage('')).rejects.toMatchObject({
-        code: 'NOMAD_IMAGE_NOT_FOUND',
+        code: 'NOMAD-400',
       });
     });
   });
@@ -639,8 +639,8 @@ describe('NomadSandboxProvider', () => {
     });
   });
 
-  describe('get (no fallback to default)', () => {
-    it('returns null when project has no dedicated sandbox (no fallback to default)', async () => {
+  describe('get (fallback to default)', () => {
+    it('falls back to default project sandbox when project has no dedicated sandbox', async () => {
       const provider = createProvider();
       mockClient.listJobs.mockResolvedValue([
         {
@@ -653,6 +653,19 @@ describe('NomadSandboxProvider', () => {
           },
         },
       ]);
+      mockClient.getJobAllocations.mockResolvedValue([
+        { ID: 'alloc-default-123', ClientStatus: 'running' },
+      ]);
+      mockClient.getJob.mockResolvedValue({ Status: 'running' });
+
+      const result = await provider.get('proj-with-no-sandbox');
+      expect(result).not.toBeNull();
+      expect(result?.projectId).toBe('default');
+    });
+
+    it('returns null when neither project nor default sandbox exists', async () => {
+      const provider = createProvider();
+      mockClient.listJobs.mockResolvedValue([]);
 
       const result = await provider.get('proj-with-no-sandbox');
       expect(result).toBeNull();
@@ -777,7 +790,7 @@ describe('NomadSandboxInstance', () => {
       await instance.refreshStatus();
 
       await expect(instance.exec('ls')).rejects.toMatchObject({
-        code: 'NOMAD_JOB_NOT_RUNNING',
+        code: 'NOMAD-204',
       });
     });
 
@@ -786,7 +799,7 @@ describe('NomadSandboxInstance', () => {
       mockClient.exec.mockRejectedValue(new Error('connection reset'));
 
       await expect(instance.exec('ls')).rejects.toMatchObject({
-        code: 'NOMAD_EXEC_FAILED',
+        code: 'NOMAD-300',
       });
     });
 
@@ -806,7 +819,7 @@ describe('NomadSandboxInstance', () => {
   describe('execAsRoot', () => {
     it('throws NOMAD_EXEC_FAILED because root execution is not supported', async () => {
       await expect(instance.execAsRoot('apt', ['install', '-y', 'curl'])).rejects.toMatchObject({
-        code: 'NOMAD_EXEC_FAILED',
+        code: 'NOMAD-300',
         message: expect.stringContaining('Root execution is not supported'),
       });
 
@@ -886,7 +899,7 @@ describe('NomadSandboxInstance', () => {
           env: { 'INVALID KEY!': 'value' },
         })
       ).rejects.toMatchObject({
-        code: 'NOMAD_EXEC_FAILED',
+        code: 'NOMAD-300',
       });
     });
 
@@ -1114,7 +1127,7 @@ describe('NomadSandboxInstance', () => {
       mockClient.getJob.mockRejectedValue(new Error('not found'));
 
       await expect(instance.getMetrics()).rejects.toMatchObject({
-        code: 'NOMAD_INTERNAL_ERROR',
+        code: 'NOMAD-701',
       });
     });
   });
@@ -1131,7 +1144,7 @@ describe('NomadSandboxInstance', () => {
       mockClient.stopJob.mockRejectedValue(new Error('stop failed'));
 
       await expect(instance.stop()).rejects.toMatchObject({
-        code: 'NOMAD_JOB_STOP_FAILED',
+        code: 'NOMAD-203',
       });
       expect(instance.status).toBe('error');
     });
@@ -1160,7 +1173,7 @@ describe('NomadSandboxInstance', () => {
       });
 
       await expect(instance.createTmuxSession('test-session')).rejects.toMatchObject({
-        code: 'NOMAD_TMUX_SESSION_ALREADY_EXISTS',
+        code: 'NOMAD-501',
       });
     });
 

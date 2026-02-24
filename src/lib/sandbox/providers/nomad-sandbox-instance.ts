@@ -61,7 +61,10 @@ export class NomadSandboxInstance implements Sandbox {
 
   private assertRunning(): void {
     if (this._status !== 'running' && this._status !== 'creating') {
-      throw NomadErrors.JOB_NOT_RUNNING(this.jobName, this._status);
+      throw NomadErrors.JOB_NOT_RUNNING(
+        this.jobName,
+        this._status as unknown as import('@agentpane/nomad-sandbox-sdk').NomadJobStatus
+      );
     }
   }
 
@@ -173,9 +176,11 @@ export class NomadSandboxInstance implements Sandbox {
       const envPrefix = envEntries.map(([k, v]) => `${k}=${this.shellEscape(v)}`).join(' ');
 
       if (fullCmd[0] === 'sh' && fullCmd[1] === '-c') {
-        // Already wrapped in shell -- inject env before `exec`
+        // Already wrapped in shell — inject env before the command.
+        // The shell body is always: cd <cwd> && exec <cmd> <args>
+        // We use lastIndexOf to avoid matching 'exec' in path names.
         const shBody = fullCmd[2] ?? '';
-        const execIdx = shBody.indexOf('exec ');
+        const execIdx = shBody.lastIndexOf('exec ');
         if (execIdx !== -1) {
           fullCmd = [
             'sh',

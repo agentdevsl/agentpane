@@ -96,6 +96,31 @@ export class SandboxConfigService {
     return new Date().toISOString();
   }
 
+  /**
+   * Decrypt the nomadToken field on a config if present.
+   * Uses dynamic import to avoid bundling node:crypto for browser builds.
+   * Returns the config with the token decrypted, or undefined on failure.
+   */
+  private async decryptConfigToken<T extends SandboxConfig | null>(config: T): Promise<T> {
+    if (!config || !config.nomadToken) {
+      return config;
+    }
+    try {
+      const { decryptToken } = await import('../lib/crypto/server-encryption.js');
+      return { ...config, nomadToken: decryptToken(config.nomadToken) };
+    } catch {
+      // Decryption failed (key changed, corrupted data) — clear the token
+      return { ...config, nomadToken: undefined };
+    }
+  }
+
+  /**
+   * Decrypt nomadToken on an array of configs.
+   */
+  private async decryptConfigTokens(configs: SandboxConfig[]): Promise<SandboxConfig[]> {
+    return Promise.all(configs.map((c) => this.decryptConfigToken(c)));
+  }
+
   private validateResourceLimits(
     input: Partial<CreateSandboxConfigInput>
   ): Result<void, SandboxConfigError> {
@@ -207,7 +232,7 @@ export class SandboxConfigService {
       return err(SandboxConfigErrors.NOT_FOUND);
     }
 
-    return ok(config);
+    return ok(await this.decryptConfigToken(config));
   }
 
   async getDefault(): Promise<Result<SandboxConfig | null, SandboxConfigError>> {
@@ -215,7 +240,7 @@ export class SandboxConfigService {
       where: eq(sandboxConfigs.isDefault, true),
     });
 
-    return ok(config ?? null);
+    return ok(await this.decryptConfigToken(config ?? null));
   }
 
   async list(
@@ -230,7 +255,7 @@ export class SandboxConfigService {
       offset,
     });
 
-    return ok(items);
+    return ok(await this.decryptConfigTokens(items));
   }
 
   async update(

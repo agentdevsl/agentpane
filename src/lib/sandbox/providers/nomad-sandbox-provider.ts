@@ -236,6 +236,7 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
   }
 
   async validateSandboxes(): Promise<void> {
+    const toEvict: string[] = [];
     for (const [sandboxId, instance] of this.sandboxes) {
       try {
         await instance.refreshStatus();
@@ -245,6 +246,12 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
         });
       }
       if (instance.status === 'error' || instance.status === 'stopped') {
+        toEvict.push(sandboxId);
+      }
+    }
+    for (const sandboxId of toEvict) {
+      const instance = this.sandboxes.get(sandboxId);
+      if (instance) {
         log.info('Evicting stale sandbox from cache', {
           data: { sandboxId, projectId: instance.projectId, status: instance.status },
         });
@@ -285,6 +292,10 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
       );
 
       if (!matchingJob) {
+        // Fallback to default project sandbox (same pattern as K8s provider)
+        if (projectId !== 'default') {
+          return this.get('default');
+        }
         return null;
       }
 
@@ -436,29 +447,31 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
 
   async cleanup(options?: { olderThan?: Date; status?: string[] }): Promise<number> {
     let cleaned = 0;
+    const toClean: string[] = [];
 
     for (const [sandboxId, instance] of this.sandboxes) {
       const shouldClean =
         (options?.status?.includes(instance.status) ?? instance.status === 'stopped') &&
         (!options?.olderThan || instance.getLastActivity() < options.olderThan);
-
       if (shouldClean) {
-        try {
-          if (instance.status !== 'stopped') {
-            await instance.stop();
-          }
+        toClean.push(sandboxId);
+      }
+    }
 
-          this.sandboxes.delete(sandboxId);
-          this.projectToSandbox.delete(instance.projectId);
-          cleaned++;
-        } catch (error) {
-          log.warn(
-            `Failed to stop sandbox ${sandboxId} during cleanup, keeping in cache for retry`,
-            {
-              error: error instanceof Error ? error : new Error(String(error)),
-            }
-          );
+    for (const sandboxId of toClean) {
+      const instance = this.sandboxes.get(sandboxId);
+      if (!instance) continue;
+      try {
+        if (instance.status !== 'stopped') {
+          await instance.stop();
         }
+        this.sandboxes.delete(sandboxId);
+        this.projectToSandbox.delete(instance.projectId);
+        cleaned++;
+      } catch (error) {
+        log.warn(`Failed to stop sandbox ${sandboxId} during cleanup, keeping in cache for retry`, {
+          error: error instanceof Error ? error : new Error(String(error)),
+        });
       }
     }
 
