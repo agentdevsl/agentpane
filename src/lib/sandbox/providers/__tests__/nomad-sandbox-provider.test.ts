@@ -73,6 +73,15 @@ const createMockClient = (): MockNomadSandboxClient => ({
   watchJob: vi.fn().mockReturnValue({ stop: vi.fn() }),
 });
 
+// Tracks builder instances created during tests so tests can inspect builder calls.
+// vi.hoisted ensures this is initialized before vi.mock factories run.
+const { createdBuilderInstances } = vi.hoisted(() => ({
+  createdBuilderInstances: [] as Array<{
+    volumes: ReturnType<typeof vi.fn>;
+    [key: string]: unknown;
+  }>,
+}));
+
 // Mock @agentpane/nomad-sandbox-sdk — preserve real error classes for instanceof checks
 vi.mock('@agentpane/nomad-sandbox-sdk', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@agentpane/nomad-sandbox-sdk')>();
@@ -81,6 +90,7 @@ vi.mock('@agentpane/nomad-sandbox-sdk', async (importOriginal) => {
     private _name: string;
     constructor(name: string) {
       this._name = name;
+      createdBuilderInstances.push(this as unknown as (typeof createdBuilderInstances)[0]);
     }
     type = vi.fn().mockReturnThis();
     namespace = vi.fn().mockReturnThis();
@@ -137,6 +147,7 @@ describe('NomadSandboxProvider', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    createdBuilderInstances.length = 0;
     mockClient = createMockClient();
   });
 
@@ -212,6 +223,27 @@ describe('NomadSandboxProvider', () => {
 
       expect(mockClient.registerJob).toHaveBeenCalledTimes(1);
       expect(mockClient.waitForRunning).toHaveBeenCalledTimes(1);
+    });
+
+    it('mounts projectPath to /workspace and additional volumeMounts', async () => {
+      const provider = createProvider();
+      const configWithMounts: SandboxConfig = {
+        ...sampleConfig,
+        projectPath: '/data/projects/my-project',
+        volumeMounts: [
+          { hostPath: '/data/cache', containerPath: '/cache', readonly: true },
+          { hostPath: '/data/shared', containerPath: '/shared' },
+        ],
+      };
+
+      await provider.create(configWithMounts);
+
+      const builderInstance = createdBuilderInstances[0];
+      expect(builderInstance?.volumes).toHaveBeenCalledWith([
+        '/data/projects/my-project:/workspace:rw',
+        '/data/cache:/cache:ro',
+        '/data/shared:/shared:rw',
+      ]);
     });
 
     it('waits for job with correct timeout', async () => {

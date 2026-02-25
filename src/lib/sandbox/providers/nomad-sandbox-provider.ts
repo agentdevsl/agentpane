@@ -153,6 +153,14 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
     });
 
     try {
+      // Build volume mount strings: project path → /workspace, plus any additional mounts.
+      const volumeStrings = [
+        `${config.projectPath}:/workspace:rw`,
+        ...config.volumeMounts.map(
+          (v) => `${v.hostPath}:${v.containerPath}:${v.readonly ? 'ro' : 'rw'}`
+        ),
+      ];
+
       // Build the Nomad job spec using NomadJobBuilder from the SDK.
       const jobSpec = new NomadJobBuilder(jobName)
         .type('service')
@@ -161,6 +169,7 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
         .image(config.image)
         .command('tail', ['-f', '/dev/null'])
         .resources(config.cpuCores * 1000, config.memoryMb)
+        .volumes(volumeStrings)
         .meta(NOMAD_META.SANDBOX_ID, sandboxId)
         .meta(NOMAD_META.PROJECT_ID, config.projectId)
         .build();
