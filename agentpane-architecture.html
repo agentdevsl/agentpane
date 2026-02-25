@@ -1,0 +1,1672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentPane Architecture</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0f172a; color: #e5e7eb;
+  font-family: system-ui, -apple-system, sans-serif;
+  height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+}
+.top-bar {
+  background: #1e293b; border-bottom: 1px solid #334155;
+  padding: 8px 16px; display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+}
+.top-bar h1 { font-size: 14px; font-weight: 700; color: #f1f5f9; letter-spacing: -0.01em; white-space: nowrap; }
+.view-tabs { display: flex; gap: 3px; flex: 1; }
+.view-tab {
+  padding: 4px 10px; border-radius: 5px; font-size: 11px; font-weight: 500;
+  background: #0f172a; border: 1px solid #334155; color: #94a3b8; cursor: pointer;
+  transition: all 0.12s; white-space: nowrap;
+}
+.view-tab:hover { background: #1e293b; color: #cbd5e1; border-color: #475569; }
+.view-tab.active { background: #1d4ed8; border-color: #3b82f6; color: #fff; font-weight: 600; }
+.main { display: flex; flex: 1; overflow: hidden; }
+
+/* Left Panel */
+.left-panel {
+  width: 210px; min-width: 210px; background: #1e293b;
+  border-right: 1px solid #334155; display: flex; flex-direction: column; overflow: hidden;
+}
+.panel-section { padding: 10px 12px; border-bottom: 1px solid #334155; }
+.panel-section h3 {
+  font-size: 9.5px; font-weight: 600; color: #64748b;
+  text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px;
+}
+.preset-btn {
+  display: block; width: 100%; padding: 5px 9px; margin-bottom: 3px;
+  background: #0f172a; border: 1px solid #334155; border-radius: 5px;
+  color: #cbd5e1; font-size: 11px; text-align: left; cursor: pointer; transition: all 0.12s;
+}
+.preset-btn:hover { background: #1e293b; border-color: #475569; }
+.preset-btn.active { background: #1d4ed8; border-color: #3b82f6; color: #fff; font-weight: 600; }
+.toggle-row { display: flex; align-items: center; padding: 3px 0; }
+.toggle-row label {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 10.5px; color: #cbd5e1; cursor: pointer; user-select: none;
+}
+.layer-swatch { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
+.conn-line { width: 18px; height: 2px; flex-shrink: 0; border-radius: 1px; }
+input[type="checkbox"] { width: 12px; height: 12px; accent-color: #3b82f6; cursor: pointer; }
+.comments-panel { flex: 1; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+.comments-list { flex: 1; overflow-y: auto; }
+.comment-item {
+  padding: 8px 12px; border-bottom: 1px solid #0f172a; position: relative;
+}
+.ci-target { font-size: 10px; font-weight: 600; color: #fbbf24; margin-bottom: 2px; }
+.ci-text { font-size: 10.5px; color: #94a3b8; white-space: pre-wrap; word-break: break-word; padding-right: 18px; }
+.ci-del {
+  position: absolute; top: 6px; right: 6px; background: none; border: none;
+  color: #475569; cursor: pointer; font-size: 15px; padding: 1px 4px; border-radius: 3px; line-height: 1;
+}
+.ci-del:hover { color: #f87171; background: #1e293b; }
+.no-comments { padding: 14px 12px; font-size: 10.5px; color: #475569; font-style: italic; line-height: 1.5; }
+
+/* Right Panel */
+.right-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.canvas-area { flex: 1; position: relative; overflow: hidden; background: #020617; }
+.zoom-controls {
+  position: absolute; top: 10px; right: 10px; z-index: 10; display: flex; gap: 4px;
+}
+.zoom-btn {
+  width: 26px; height: 26px; background: #1e293b; border: 1px solid #334155;
+  border-radius: 5px; color: #cbd5e1; cursor: pointer; font-size: 13px;
+  display: flex; align-items: center; justify-content: center;
+}
+.zoom-btn:hover { background: #334155; }
+.svg-scroller { width: 100%; height: 100%; overflow: auto; }
+.node-group { cursor: pointer; }
+.node-group:hover .node-rect { filter: brightness(1.12); }
+
+/* API Table View */
+.api-view-container { width: 100%; height: 100%; overflow-y: auto; padding: 16px; }
+.api-group-header {
+  background: #1e293b; border: 1px solid #334155; border-radius: 6px;
+  padding: 8px 12px; margin-bottom: 4px; cursor: pointer;
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 12px; font-weight: 600; color: #e2e8f0;
+}
+.api-group-header:hover { background: #253348; }
+.api-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+.api-table tr { border-bottom: 1px solid #1e293b; }
+.api-table tr:hover { background: #0f172a55; }
+.api-table td { padding: 6px 10px; font-size: 11px; color: #cbd5e1; cursor: pointer; }
+.api-table td:first-child { width: 70px; }
+.method-badge {
+  display: inline-block; padding: 2px 6px; border-radius: 3px;
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em;
+}
+.badge-GET { background: #14532d; color: #4ade80; }
+.badge-POST { background: #1e3a5f; color: #60a5fa; }
+.badge-PATCH { background: #451a03; color: #fb923c; }
+.badge-DELETE { background: #450a0a; color: #f87171; }
+.badge-SSE { background: #2e1065; color: #c084fc; }
+.api-path { font-family: monospace; font-size: 10.5px; color: #94a3b8; }
+.api-desc { color: #64748b; font-size: 10.5px; }
+
+/* State Machines Grid */
+.sm-grid { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; width: 100%; height: 100%; gap: 1px; background: #334155; }
+.sm-cell { background: #020617; overflow: hidden; position: relative; }
+.sm-cell-title { position: absolute; top: 8px; left: 12px; font-size: 11px; font-weight: 700; opacity: 0.9; }
+.sm-cell svg { width: 100%; height: 100%; }
+
+/* Auth view */
+.auth-view-container { display: flex; width: 100%; height: 100%; }
+.auth-panel { flex: 1; overflow: hidden; }
+
+/* Prompt Area */
+.prompt-area {
+  background: #1e293b; border-top: 1px solid #334155;
+  padding: 9px 14px; min-height: 60px; max-height: 100px;
+  display: flex; align-items: flex-start; gap: 10px; flex-shrink: 0;
+}
+.prompt-text { flex: 1; font-family: monospace; font-size: 10.5px; color: #94a3b8; line-height: 1.55; white-space: pre-wrap; overflow: hidden; }
+.copy-btn {
+  padding: 5px 12px; background: #1d4ed8; border: none; border-radius: 5px;
+  color: #fff; font-size: 11px; cursor: pointer; white-space: nowrap; flex-shrink: 0; transition: background 0.12s;
+}
+.copy-btn:hover { background: #2563eb; }
+.copy-btn.copied { background: #059669; }
+
+/* Modal */
+.modal-overlay {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.65);
+  z-index: 100; align-items: center; justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  background: #1e293b; border: 1px solid #475569; border-radius: 8px;
+  padding: 18px 20px; width: 380px; max-width: 90vw;
+}
+.modal h4 { font-size: 13px; font-weight: 600; color: #f1f5f9; margin-bottom: 2px; }
+.modal-sub { font-size: 10.5px; color: #64748b; font-family: monospace; margin-bottom: 10px; }
+.modal textarea {
+  width: 100%; height: 80px; background: #0f172a; border: 1px solid #475569;
+  border-radius: 5px; color: #e2e8f0; font-size: 11.5px; padding: 8px;
+  resize: vertical; font-family: system-ui; outline: none; line-height: 1.5;
+}
+.modal textarea:focus { border-color: #3b82f6; }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+.btn-cancel {
+  padding: 5px 12px; background: #334155; border: 1px solid #475569;
+  border-radius: 5px; color: #cbd5e1; font-size: 11px; cursor: pointer;
+}
+.btn-cancel:hover { background: #475569; }
+.btn-save {
+  padding: 5px 12px; background: #1d4ed8; border: none;
+  border-radius: 5px; color: #fff; font-size: 11px; cursor: pointer;
+}
+.btn-save:hover { background: #2563eb; }
+.info-note {
+  background: #0f172a; border: 1px solid #334155; border-radius: 4px;
+  padding: 6px 9px; font-size: 10px; color: #64748b; margin-top: 4px; line-height: 1.5;
+}
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <h1>AgentPane Architecture</h1>
+  <div class="view-tabs">
+    <button class="view-tab active" onclick="switchView('overview')">Overview</button>
+    <button class="view-tab" onclick="switchView('database')">Database</button>
+    <button class="view-tab" onclick="switchView('statemachines')">State Machines</button>
+    <button class="view-tab" onclick="switchView('auth')">Auth</button>
+    <button class="view-tab" onclick="switchView('api')">API Surface</button>
+    <button class="view-tab" onclick="switchView('agentexec')">Agent Execution</button>
+    <button class="view-tab" onclick="switchView('infra')">Infrastructure</button>
+  </div>
+</div>
+
+<div class="main">
+  <div class="left-panel" id="left-panel"></div>
+  <div class="right-panel">
+    <div class="canvas-area" id="canvas-area"></div>
+    <div class="prompt-area">
+      <div class="prompt-text" id="prompt-text"></div>
+      <button class="copy-btn" id="copy-btn" onclick="copyPrompt()">Copy Prompt</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <h4 id="modal-title"></h4>
+    <div class="modal-sub" id="modal-sub"></div>
+    <textarea id="modal-textarea" placeholder="Add a question or note about this component..."></textarea>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+      <button class="btn-save" onclick="saveComment()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ================================================================
+// SHARED STATE
+// ================================================================
+const state = {
+  activeView: 'overview',
+  // overview
+  layers: { ui:true, api:true, services:true, core:true, sandbox:true, data:true, external:true },
+  connTypes: { 'data-flow':true, 'tool-call':true, 'event':true, 'dependency':true },
+  activePreset: 'full',
+  zoom: 0.88,
+  // database
+  dbGroups: { core:true, tasks:true, agents:true, sessions:true, git:true, sandbox:true, github:true, templates:true, infra:true },
+  showFKArrows: true,
+  dbZoom: 0.9,
+  // state machines
+  activeMachines: { agent:true, task:true, session:true, worktree:true },
+  // auth
+  showTrustZones: true, showOAuthFlow: true,
+  // api
+  apiMethods: { GET:true, POST:true, PATCH:true, DELETE:true, SSE:true },
+  apiGroups: { health:true, projects:true, tasks:true, agents:true, sessions:true, worktrees:true, sandbox:true, github:true, terraform:true, cli:true },
+  // exec
+  showPlanningPhase: true, showExecutionPhase: true,
+  execZoom: 0.9,
+  // infra
+  showHost:true, showDocker:true, showK8s:true, showNomad:true, showPostgres:true, showExternal:true,
+  infraZoom: 0.9,
+  // shared
+  comments: [],
+  modalItems: {},
+};
+
+let currentModal = null;
+
+// ================================================================
+// VIEW 1: OVERVIEW DATA
+// ================================================================
+const LAYERS = {
+  ui:       { label: 'UI / Client',       color: '#bfdbfe', text: '#1e3a5f', bg: 'rgba(59,130,246,0.09)' },
+  api:      { label: 'API / Routes',      color: '#fde68a', text: '#78350f', bg: 'rgba(245,158,11,0.09)' },
+  services: { label: 'Services',          color: '#bbf7d0', text: '#14532d', bg: 'rgba(16,185,129,0.09)' },
+  core:     { label: 'Agent Core',        color: '#e9d5ff', text: '#4c1d95', bg: 'rgba(139,92,246,0.09)' },
+  sandbox:  { label: 'Sandbox Providers', color: '#99f6e4', text: '#134e4a', bg: 'rgba(20,184,166,0.09)' },
+  data:     { label: 'Data Layer',        color: '#fbcfe8', text: '#831843', bg: 'rgba(236,72,153,0.09)' },
+  external: { label: 'External',          color: '#d1d5db', text: '#1f2937', bg: 'rgba(107,114,128,0.12)' },
+};
+const CONN_TYPES = {
+  'data-flow':  { label: 'Data Flow',    color: '#60a5fa', dash: '' },
+  'tool-call':  { label: 'Tool Call',    color: '#34d399', dash: '6,3' },
+  'event':      { label: 'Event / SSE',  color: '#f87171', dash: '4,4' },
+  'dependency': { label: 'Dependency',   color: '#94a3b8', dash: '2,5' },
+};
+const NODE_W = 150, NODE_H = 44;
+const COL_X  = [8, 174, 340, 506, 672, 838];
+const SVG_W  = 998, SVG_H = 730;
+const LAYER_Y = { ui:20, api:120, services:220, core:320, sandbox:420, data:520, external:625 };
+
+const overviewNodes = [
+  // UI Layer — major user-facing views
+  { id:'kanban',          label:'Kanban Board',         sub:'routes/projects/$projectId',            layer:'ui',       col:0 },
+  { id:'session-view',    label:'Agent Session View',   sub:'features/agent-session-view/',          layer:'ui',       col:1 },
+  { id:'tf-composer',     label:'Terraform Composer',   sub:'features/terraform/',                   layer:'ui',       col:2 },
+  { id:'wf-designer',     label:'Workflow Designer',    sub:'features/workflow-designer/',            layer:'ui',       col:3 },
+  { id:'cli-monitor-ui',  label:'CLI Monitor',          sub:'routes/cli-monitor/',                   layer:'ui',       col:4 },
+  { id:'settings-ui',     label:'Settings UI',          sub:'routes/settings/',                      layer:'ui',       col:5 },
+  // API Layer — Hono route handlers
+  { id:'task-routes',     label:'Task Routes',          sub:'routes/tasks.ts',                       layer:'api',      col:0 },
+  { id:'session-routes',  label:'Session Routes',       sub:'routes/sessions.ts',                    layer:'api',      col:1 },
+  { id:'agent-routes',    label:'Agent Routes',         sub:'routes/agents.ts',                      layer:'api',      col:2 },
+  { id:'tf-routes',       label:'Terraform Routes',     sub:'routes/terraform.ts',                   layer:'api',      col:3 },
+  { id:'github-routes',   label:'GitHub / Auth',        sub:'routes/github.ts',                      layer:'api',      col:4 },
+  { id:'sandbox-routes',  label:'Sandbox Routes',       sub:'routes/sandbox.ts',                     layer:'api',      col:5 },
+  // Services Layer — business logic
+  { id:'agent-exec',      label:'Agent Exec Service',   sub:'services/agent/',                       layer:'services', col:0 },
+  { id:'task-svc',        label:'Task Service',         sub:'services/task.service.ts',              layer:'services', col:1 },
+  { id:'project-svc',     label:'Project Service',      sub:'services/project.service.ts',           layer:'services', col:2 },
+  { id:'session-svc',     label:'Session Service',      sub:'services/session/',                     layer:'services', col:3 },
+  { id:'container-agent', label:'Container Agent Svc',  sub:'services/container-agent.service.ts',   layer:'services', col:4 },
+  { id:'worktree-svc',    label:'Worktree Service',     sub:'services/worktree.service.ts',          layer:'services', col:5 },
+  // Agent Core — SDK integration, streaming, hooks
+  { id:'stream-handler',  label:'Stream Handler',       sub:'lib/agents/stream-handler.ts',          layer:'core',     col:0 },
+  { id:'claude-sdk',      label:'Claude Agent SDK',     sub:'@anthropic-ai/claude-agent-sdk',        layer:'core',     col:1 },
+  { id:'container-bridge',label:'Container Bridge',     sub:'lib/agents/container-bridge.ts',        layer:'core',     col:2 },
+  { id:'durable-streams', label:'Durable Streams',      sub:'lib/streams/',                          layer:'core',     col:3 },
+  { id:'agent-hooks',     label:'Agent Hooks',          sub:'lib/agents/hooks/',                     layer:'core',     col:4 },
+  { id:'prompt-registry', label:'Prompt Registry',      sub:'lib/prompts/',                          layer:'core',     col:5 },
+  // Sandbox Providers — container orchestration
+  { id:'sandbox-if',      label:'SandboxProvider',      sub:'providers/sandbox-provider.ts',         layer:'sandbox',  col:0 },
+  { id:'docker-provider', label:'DockerProvider',       sub:'providers/docker-provider.ts',          layer:'sandbox',  col:1 },
+  { id:'k8s-provider',    label:'AgentSandboxProvider', sub:'providers/agent-sandbox-provider.ts',   layer:'sandbox',  col:2 },
+  { id:'nomad-provider',  label:'NomadSandboxProvider', sub:'providers/nomad-sandbox-provider.ts',   layer:'sandbox',  col:3 },
+  { id:'agent-sandbox-sdk',label:'Agent Sandbox SDK',   sub:'packages/agent-sandbox-sdk/',           layer:'sandbox',  col:4 },
+  { id:'nomad-sdk',       label:'Nomad Sandbox SDK',    sub:'packages/nomad-sandbox-sdk/',           layer:'sandbox',  col:5 },
+  // Data Layer — persistence, state, crypto
+  { id:'drizzle-orm',     label:'Drizzle ORM',           sub:'SQLite | PostgreSQL',                   layer:'data',     col:0 },
+  { id:'tanstack-db',     label:'TanStack DB (Client)', sub:'@tanstack/db collections',              layer:'data',     col:1 },
+  { id:'git-worktrees',   label:'Git Worktrees',        sub:'lib/worktrees/',                        layer:'data',     col:2 },
+  { id:'crypto',          label:'Crypto / Encryption',  sub:'lib/crypto/',                           layer:'data',     col:3 },
+  { id:'state-machines',  label:'State Machines',       sub:'lib/state-machines/',                   layer:'data',     col:4 },
+  { id:'config-svc',      label:'Config Service',       sub:'lib/config/',                           layer:'data',     col:5 },
+  // External — third-party systems
+  { id:'anthropic-api',   label:'Anthropic API',        sub:'api.anthropic.com',                     layer:'external', col:0 },
+  { id:'github',          label:'GitHub API',           sub:'api.github.com',                        layer:'external', col:1 },
+  { id:'docker-engine',   label:'Docker Engine',        sub:'local daemon socket',                   layer:'external', col:2 },
+  { id:'k8s-cluster',     label:'K8s Cluster',          sub:'Kubernetes API',                        layer:'external', col:3 },
+  { id:'nomad-cluster',   label:'Nomad Cluster',        sub:':4646',                                 layer:'external', col:4 },
+  { id:'postgres-db',     label:'PostgreSQL (Remote)',   sub:'DATABASE_URL',                          layer:'external', col:5 },
+];
+const overviewConns = [
+  // UI → API
+  { from:'kanban',          to:'task-routes',      type:'data-flow',  label:'REST' },
+  { from:'session-view',    to:'session-routes',   type:'event',      label:'SSE' },
+  { from:'tf-composer',     to:'tf-routes',        type:'data-flow',  label:'compose' },
+  { from:'wf-designer',     to:'agent-routes',     type:'data-flow',  label:'REST' },
+  { from:'cli-monitor-ui',  to:'session-routes',   type:'event',      label:'SSE' },
+  { from:'settings-ui',     to:'sandbox-routes',   type:'data-flow',  label:'REST' },
+  // API → Services
+  { from:'task-routes',     to:'task-svc',         type:'data-flow',  label:'CRUD' },
+  { from:'task-routes',     to:'agent-exec',       type:'tool-call',  label:'auto-start' },
+  { from:'session-routes',  to:'session-svc',      type:'data-flow',  label:'persist' },
+  { from:'session-routes',  to:'durable-streams',  type:'event',      label:'SSE replay' },
+  { from:'agent-routes',    to:'agent-exec',       type:'tool-call',  label:'lifecycle' },
+  { from:'sandbox-routes',  to:'container-agent',  type:'data-flow',  label:'sandbox ops' },
+  { from:'github-routes',   to:'github',           type:'data-flow',  label:'OAuth' },
+  { from:'tf-routes',       to:'project-svc',      type:'data-flow',  label:'compose' },
+  // Services → Agent Core / Data
+  { from:'agent-exec',      to:'stream-handler',   type:'tool-call',  label:'run agent' },
+  { from:'agent-exec',      to:'worktree-svc',     type:'tool-call',  label:'worktree' },
+  { from:'container-agent', to:'container-bridge',  type:'tool-call',  label:'bridge events' },
+  { from:'container-agent', to:'sandbox-if',        type:'tool-call',  label:'get sandbox' },
+  { from:'agent-exec',      to:'drizzle-orm',       type:'data-flow',  label:'sessions/tasks' },
+  { from:'task-svc',        to:'drizzle-orm',       type:'data-flow',  label:'CRUD' },
+  { from:'session-svc',     to:'drizzle-orm',       type:'data-flow',  label:'CRUD' },
+  // Agent Core
+  { from:'stream-handler',  to:'claude-sdk',        type:'dependency', label:'SDK session' },
+  { from:'stream-handler',  to:'durable-streams',   type:'event',      label:'publish' },
+  { from:'stream-handler',  to:'agent-hooks',       type:'dependency', label:'hooks' },
+  { from:'container-bridge',to:'durable-streams',   type:'event',      label:'publish' },
+  { from:'session-svc',     to:'durable-streams',   type:'event',      label:'persist event' },
+  // Sandbox Providers
+  { from:'sandbox-if',      to:'docker-provider',   type:'dependency', label:'impl' },
+  { from:'sandbox-if',      to:'k8s-provider',      type:'dependency', label:'impl' },
+  { from:'sandbox-if',      to:'nomad-provider',    type:'dependency', label:'impl' },
+  { from:'k8s-provider',    to:'agent-sandbox-sdk', type:'dependency', label:'SDK' },
+  { from:'nomad-provider',  to:'nomad-sdk',         type:'tool-call',  label:'SDK' },
+  // Data
+  { from:'drizzle-orm',     to:'crypto',            type:'dependency', label:'tokens' },
+  { from:'drizzle-orm',     to:'postgres-db',       type:'data-flow',  label:'DB_MODE=postgres' },
+  // External
+  { from:'claude-sdk',      to:'anthropic-api',     type:'data-flow',  label:'Claude API' },
+  { from:'docker-provider', to:'docker-engine',     type:'data-flow',  label:'Docker API' },
+  { from:'k8s-provider',    to:'k8s-cluster',       type:'data-flow',  label:'K8s API' },
+  { from:'nomad-sdk',       to:'nomad-cluster',     type:'data-flow',  label:'HTTP API' },
+  { from:'github-routes',   to:'github',            type:'data-flow',  label:'REST' },
+  { from:'project-svc',     to:'drizzle-orm',       type:'data-flow',  label:'CRUD' },
+];
+const PRESETS = [
+  { id:'full',      label:'Full System',
+    layers: {ui:true,api:true,services:true,core:true,sandbox:true,data:true,external:true},
+    connTypes: {'data-flow':true,'tool-call':true,'event':true,'dependency':true} },
+  { id:'agent-flow',label:'Task -> Agent Flow',
+    layers: {ui:true,api:true,services:true,core:true,sandbox:false,data:false,external:false},
+    connTypes: {'data-flow':true,'tool-call':true,'event':false,'dependency':false} },
+  { id:'sandbox',   label:'Sandbox Architecture',
+    layers: {ui:false,api:true,services:true,core:false,sandbox:true,data:true,external:true},
+    connTypes: {'data-flow':true,'tool-call':true,'event':false,'dependency':true} },
+  { id:'realtime',  label:'Real-time Events',
+    layers: {ui:true,api:true,services:true,core:true,sandbox:false,data:false,external:false},
+    connTypes: {'data-flow':false,'tool-call':false,'event':true,'dependency':false} },
+  { id:'terraform', label:'Terraform Composer',
+    layers: {ui:true,api:false,services:false,core:true,sandbox:false,data:false,external:true},
+    connTypes: {'data-flow':true,'tool-call':true,'event':false,'dependency':true} },
+];
+const overviewNodesById = {};
+overviewNodes.forEach(n => overviewNodesById[n.id] = n);
+
+// ================================================================
+// VIEW 2: DATABASE DATA
+// ================================================================
+const DB_GROUPS = [
+  { id:'core',      label:'Core',          color:'#3b82f6', tables:['projects','settings'],                                    x:10,  y:10,  w:340, h:210 },
+  { id:'tasks',     label:'Task Workflow', color:'#22c55e', tables:['tasks','plan_sessions'],                                  x:370, y:10,  w:340, h:210 },
+  { id:'agents',    label:'Agent Exec',    color:'#a855f7', tables:['agents','agent_runs'],                                    x:730, y:10,  w:340, h:210 },
+  { id:'sessions',  label:'Sessions+Events',color:'#f97316',tables:['sessions','session_events','session_summaries'],          x:10,  y:240, w:340, h:210 },
+  { id:'git',       label:'Git',           color:'#14b8a6', tables:['worktrees'],                                              x:370, y:240, w:340, h:210 },
+  { id:'sandbox',   label:'Sandbox',       color:'#06b6d4', tables:['sandbox_configs','sandbox_instances','sandbox_tmux_sessions'], x:730, y:240, w:340, h:210 },
+  { id:'github',    label:'GitHub',        color:'#6b7280', tables:['github_tokens','github_installations','repository_configs'],   x:10,  y:470, w:340, h:210 },
+  { id:'templates', label:'Templates',     color:'#eab308', tables:['templates','template_projects'],                          x:370, y:470, w:340, h:210 },
+  { id:'infra',     label:'Infra+CLI',     color:'#ec4899', tables:['api_keys','audit_logs','cli_sessions','workflows','terraform_registries'], x:730, y:470, w:340, h:210 },
+];
+const FK_ARROWS = [
+  { from:'core',     to:'tasks',     label:'projects.id -> tasks.projectId' },
+  { from:'core',     to:'agents',    label:'projects.id -> agents.projectId' },
+  { from:'core',     to:'sessions',  label:'projects.id -> sessions.projectId' },
+  { from:'core',     to:'git',       label:'projects.id -> worktrees.projectId' },
+  { from:'core',     to:'sandbox',   label:'projects.sandboxConfigId -> sandbox_configs.id' },
+  { from:'tasks',    to:'agents',    label:'tasks.id -> agent_runs.taskId' },
+  { from:'github',   to:'core',      label:'installations -> projects.githubInstallationId' },
+];
+
+// ================================================================
+// VIEW 3: STATE MACHINES DATA
+// ================================================================
+const SM_NW = 80, SM_NH = 26;
+
+const STATE_MACHINES = {
+  agent: {
+    label: 'Agent Lifecycle', color: '#a78bfa',
+    states: [
+      { id:'idle',      label:'idle',      x:15,  y:140, type:'initial' },
+      { id:'starting',  label:'starting',  x:115, y:140 },
+      { id:'planning',  label:'planning',  x:220, y:140 },
+      { id:'running',   label:'running',   x:325, y:140 },
+      { id:'completed', label:'completed', x:440, y:140, type:'final' },
+      { id:'paused',    label:'paused',    x:325, y:230 },
+      { id:'error',     label:'error',     x:220, y:230, type:'error' },
+    ],
+    transitions: [
+      { from:'idle',     to:'starting',  label:'START',   dir:'right' },
+      { from:'starting', to:'planning',  label:'PLAN',    dir:'right' },
+      { from:'planning', to:'running',   label:'APPROVE', dir:'right' },
+      { from:'running',  to:'completed', label:'COMPLETE',dir:'right' },
+      { from:'running',  to:'paused',    label:'PAUSE',   dir:'down' },
+      { from:'paused',   to:'running',   label:'RESUME',  dir:'up' },
+      { from:'running',  to:'error',     label:'ERROR',   dir:'diag' },
+      { from:'error',    to:'running',   label:'RESUME',  dir:'diag-rev' },
+      { from:'running',  to:'idle',      label:'ABORT',   dir:'arc-above' },
+    ],
+    viewBox: '0 0 580 310',
+  },
+  task: {
+    label: 'Task Workflow', color: '#34d399',
+    states: [
+      { id:'backlog',           label:'backlog',           x:15,  y:85, type:'initial' },
+      { id:'in_progress',       label:'in_progress',       x:130, y:85 },
+      { id:'waiting_approval',  label:'waiting_approval',  x:255, y:85 },
+      { id:'verified',          label:'verified',          x:420, y:85, type:'final' },
+    ],
+    transitions: [
+      { from:'backlog',          to:'in_progress',      label:'ASSIGN',   dir:'right' },
+      { from:'in_progress',     to:'waiting_approval', label:'COMPLETE', dir:'right' },
+      { from:'waiting_approval',to:'verified',         label:'APPROVE',  dir:'right' },
+      { from:'waiting_approval',to:'in_progress',      label:'REJECT',   dir:'arc-below' },
+      { from:'in_progress',     to:'backlog',          label:'CANCEL',   dir:'arc-below2' },
+    ],
+    viewBox: '0 0 560 200',
+  },
+  session: {
+    label: 'Session Lifecycle', color: '#fbbf24',
+    states: [
+      { id:'idle',         label:'idle',        x:15,  y:70,  type:'initial' },
+      { id:'initializing', label:'initializing',x:115, y:70 },
+      { id:'active',       label:'active',      x:240, y:70 },
+      { id:'paused',       label:'paused',      x:355, y:70 },
+      { id:'closing',      label:'closing',     x:355, y:180 },
+      { id:'closed',       label:'closed',      x:460, y:180, type:'final' },
+      { id:'error',        label:'error',       x:240, y:180, type:'error' },
+    ],
+    transitions: [
+      { from:'idle',        to:'initializing', label:'INIT',  dir:'right' },
+      { from:'initializing',to:'active',       label:'READY', dir:'right' },
+      { from:'active',      to:'paused',       label:'PAUSE', dir:'right' },
+      { from:'paused',      to:'active',       label:'RESUME',dir:'left' },
+      { from:'paused',      to:'closing',      label:'CLOSE', dir:'down' },
+      { from:'active',      to:'closing',      label:'CLOSE', dir:'diag' },
+      { from:'closing',     to:'closed',       label:'DONE',  dir:'right' },
+      { from:'active',      to:'error',        label:'ERROR', dir:'down' },
+      { from:'initializing',to:'error',        label:'ERROR', dir:'diag' },
+      { from:'error',       to:'closing',      label:'CLOSE', dir:'right' },
+    ],
+    viewBox: '0 0 580 310',
+  },
+  worktree: {
+    label: 'Worktree Lifecycle', color: '#f97316',
+    states: [
+      { id:'creating',    label:'creating',    x:15,  y:55,  type:'initial' },
+      { id:'initializing',label:'initializing',x:115, y:55 },
+      { id:'active',      label:'active',      x:230, y:55 },
+      { id:'dirty',       label:'dirty',       x:360, y:55 },
+      { id:'committing',  label:'committing',  x:360, y:160 },
+      { id:'merging',     label:'merging',     x:230, y:160 },
+      { id:'conflict',    label:'conflict',    x:230, y:265, type:'error' },
+      { id:'removing',    label:'removing',    x:115, y:160 },
+      { id:'removed',     label:'removed',     x:15,  y:160, type:'final' },
+      { id:'error',       label:'error',       x:455, y:160, type:'error' },
+    ],
+    transitions: [
+      { from:'creating',    to:'initializing', label:'INIT',     dir:'right' },
+      { from:'initializing',to:'active',       label:'READY',    dir:'right' },
+      { from:'active',      to:'dirty',        label:'MODIFY',   dir:'right' },
+      { from:'dirty',       to:'committing',   label:'COMMIT',   dir:'down' },
+      { from:'committing',  to:'merging',      label:'MERGE',    dir:'left' },
+      { from:'merging',     to:'conflict',     label:'CONFLICT', dir:'down' },
+      { from:'conflict',    to:'merging',      label:'RESOLVE',  dir:'up' },
+      { from:'merging',     to:'removing',     label:'DONE',     dir:'left' },
+      { from:'removing',    to:'removed',      label:'DONE',     dir:'left' },
+      { from:'active',      to:'removing',     label:'REMOVE',   dir:'arc-below-wt' },
+      { from:'initializing',to:'error',        label:'ERROR',    dir:'diag' },
+      { from:'committing',  to:'error',        label:'ERROR',    dir:'right' },
+    ],
+    viewBox: '0 0 580 340',
+  },
+};
+
+// ================================================================
+// VIEW 5: API DATA
+// ================================================================
+const API_GROUPS = [
+  { id:'health', label:'Health', endpoints: [
+    { method:'GET', path:'/health', desc:'System health check' },
+    { method:'GET', path:'/health/ready', desc:'Readiness probe' },
+    { method:'GET', path:'/health/live', desc:'Liveness probe' },
+    { method:'GET', path:'/health/db', desc:'Database health' },
+    { method:'GET', path:'/health/services', desc:'Service health' },
+  ]},
+  { id:'projects', label:'Projects', endpoints: [
+    { method:'GET',    path:'/api/projects', desc:'List all projects' },
+    { method:'POST',   path:'/api/projects', desc:'Create project' },
+    { method:'GET',    path:'/api/projects/:id', desc:'Get project' },
+    { method:'PATCH',  path:'/api/projects/:id', desc:'Update project' },
+    { method:'DELETE', path:'/api/projects/:id', desc:'Delete project' },
+    { method:'POST',   path:'/api/projects/:id/clone', desc:'Clone project' },
+  ]},
+  { id:'tasks', label:'Tasks', endpoints: [
+    { method:'GET',    path:'/api/tasks?projectId=:id', desc:'List tasks' },
+    { method:'POST',   path:'/api/tasks', desc:'Create task' },
+    { method:'GET',    path:'/api/tasks/:id', desc:'Get task' },
+    { method:'PATCH',  path:'/api/tasks/:id', desc:'Update task' },
+    { method:'DELETE', path:'/api/tasks/:id', desc:'Delete task' },
+    { method:'PATCH',  path:'/api/tasks/:id/move', desc:'Move task column (triggers agent)' },
+    { method:'POST',   path:'/api/tasks/:id/approve-plan', desc:'Approve agent plan' },
+    { method:'POST',   path:'/api/tasks/:id/reject-plan', desc:'Reject agent plan' },
+    { method:'POST',   path:'/api/tasks/:id/attach-agent', desc:'Attach agent to task' },
+    { method:'SSE',    path:'/api/tasks/create-with-ai/stream', desc:'AI task creation stream' },
+  ]},
+  { id:'agents', label:'Agents', endpoints: [
+    { method:'GET',    path:'/api/agents?projectId=:id', desc:'List agents' },
+    { method:'POST',   path:'/api/agents', desc:'Create agent' },
+    { method:'GET',    path:'/api/agents/:id', desc:'Get agent' },
+    { method:'PATCH',  path:'/api/agents/:id', desc:'Update agent' },
+    { method:'DELETE', path:'/api/agents/:id', desc:'Delete agent' },
+    { method:'POST',   path:'/api/agents/:id/start', desc:'Start agent' },
+    { method:'POST',   path:'/api/agents/:id/stop', desc:'Stop agent' },
+    { method:'POST',   path:'/api/agents/:id/pause', desc:'Pause agent' },
+  ]},
+  { id:'sessions', label:'Sessions', endpoints: [
+    { method:'GET',    path:'/api/sessions?projectId=:id', desc:'List sessions' },
+    { method:'GET',    path:'/api/sessions/:id', desc:'Get session' },
+    { method:'DELETE', path:'/api/sessions/:id', desc:'Delete session' },
+    { method:'GET',    path:'/api/sessions/:id/events', desc:'Get session events' },
+    { method:'GET',    path:'/api/sessions/:id/summary', desc:'Get session summary' },
+    { method:'SSE',    path:'/api/sessions/:id/stream', desc:'Real-time event stream' },
+  ]},
+  { id:'worktrees', label:'Worktrees', endpoints: [
+    { method:'GET',    path:'/api/worktrees?projectId=:id', desc:'List worktrees' },
+    { method:'POST',   path:'/api/worktrees', desc:'Create worktree' },
+    { method:'GET',    path:'/api/worktrees/:id', desc:'Get worktree' },
+    { method:'DELETE', path:'/api/worktrees/:id', desc:'Delete worktree' },
+    { method:'POST',   path:'/api/worktrees/:id/commit', desc:'Commit changes' },
+    { method:'POST',   path:'/api/worktrees/:id/merge', desc:'Merge to main' },
+    { method:'GET',    path:'/api/worktrees/:id/diff', desc:'Get diff' },
+  ]},
+  { id:'sandbox', label:'Sandbox', endpoints: [
+    { method:'GET',    path:'/api/sandbox/configs', desc:'List sandbox configs' },
+    { method:'POST',   path:'/api/sandbox/configs', desc:'Create config' },
+    { method:'GET',    path:'/api/sandbox/configs/:id', desc:'Get config' },
+    { method:'PATCH',  path:'/api/sandbox/configs/:id', desc:'Update config' },
+    { method:'DELETE', path:'/api/sandbox/configs/:id', desc:'Delete config' },
+    { method:'GET',    path:'/api/sandbox/status', desc:'Sandbox provider status' },
+    { method:'GET',    path:'/api/sandbox/instances', desc:'List active instances' },
+    { method:'POST',   path:'/api/k8s/pods', desc:'Create K8s pod' },
+    { method:'DELETE', path:'/api/k8s/pods/:name', desc:'Delete K8s pod' },
+    { method:'POST',   path:'/api/nomad/jobs', desc:'Submit Nomad job' },
+    { method:'DELETE', path:'/api/nomad/jobs/:id', desc:'Stop Nomad job' },
+  ]},
+  { id:'github', label:'GitHub / Auth', endpoints: [
+    { method:'GET',  path:'/api/auth/github', desc:'GitHub OAuth redirect' },
+    { method:'GET',  path:'/api/auth/callback', desc:'OAuth callback' },
+    { method:'GET',  path:'/api/auth/me', desc:'Current user' },
+    { method:'POST', path:'/api/auth/logout', desc:'Logout' },
+    { method:'GET',  path:'/api/github/installations', desc:'List installations' },
+    { method:'POST', path:'/api/github/webhooks', desc:'Webhook handler' },
+  ]},
+  { id:'terraform', label:'Terraform', endpoints: [
+    { method:'SSE',  path:'/api/terraform/compose/:sessionId/events', desc:'Streaming compose events' },
+    { method:'POST', path:'/api/terraform/compose', desc:'Start compose session' },
+    { method:'GET',  path:'/api/terraform/registries', desc:'List registries' },
+    { method:'POST', path:'/api/terraform/registries', desc:'Add registry' },
+    { method:'GET',  path:'/api/terraform/modules', desc:'Search modules' },
+  ]},
+  { id:'cli', label:'CLI Monitor', endpoints: [
+    { method:'SSE',    path:'/api/cli-monitor/stream', desc:'CLI monitor stream' },
+    { method:'GET',    path:'/api/cli-monitor/sessions', desc:'List CLI sessions' },
+    { method:'GET',    path:'/api/cli-monitor/sessions/:id', desc:'Get CLI session' },
+    { method:'DELETE', path:'/api/cli-monitor/sessions/:id', desc:'End session' },
+  ]},
+];
+
+// ================================================================
+// MODAL SYSTEM
+// ================================================================
+function openModal(id, label, sub) {
+  currentModal = id;
+  document.getElementById('modal-title').textContent = label || id;
+  document.getElementById('modal-sub').textContent = sub || '';
+  const existing = state.comments.find(c => c.target === id);
+  document.getElementById('modal-textarea').value = existing ? existing.text : '';
+  document.getElementById('modal-overlay').classList.add('open');
+  setTimeout(() => document.getElementById('modal-textarea').focus(), 40);
+}
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('open');
+  currentModal = null;
+}
+document.getElementById('modal-textarea').addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeModal();
+  if (e.key === 'Enter' && e.ctrlKey) saveComment();
+});
+function saveComment() {
+  const text = document.getElementById('modal-textarea').value.trim();
+  if (!text) {
+    state.comments = state.comments.filter(c => c.target !== currentModal);
+  } else {
+    const existing = state.comments.find(c => c.target === currentModal);
+    if (existing) {
+      existing.text = text;
+    } else {
+      state.comments.push({ id: Date.now(), target: currentModal,
+        targetLabel: document.getElementById('modal-title').textContent,
+        text });
+    }
+  }
+  closeModal();
+  renderView();
+}
+function deleteComment(id) {
+  state.comments = state.comments.filter(c => c.id !== id);
+  renderView();
+}
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ================================================================
+// SHARED: COMMENTS RENDER
+// ================================================================
+function renderCommentsSection() {
+  const count = state.comments.length;
+  let html = `<div class="comments-panel panel-section" style="flex:1;border-bottom:none;padding-bottom:0;">
+    <h3>Feedback (${count})</h3>
+    <div class="comments-list">`;
+  if (count === 0) {
+    html += '<div class="no-comments">Click any component to add a question or note</div>';
+  } else {
+    html += state.comments.map(c => `
+      <div class="comment-item">
+        <div class="ci-target">${esc(c.targetLabel)}</div>
+        <div class="ci-text">${esc(c.text)}</div>
+        <button class="ci-del" onclick="deleteComment(${c.id})">x</button>
+      </div>`).join('');
+  }
+  html += '</div></div>';
+  return html;
+}
+
+// ================================================================
+// COPY PROMPT
+// ================================================================
+function copyPrompt() {
+  navigator.clipboard.writeText(document.getElementById('prompt-text').textContent).then(() => {
+    const btn = document.getElementById('copy-btn');
+    btn.textContent = 'Copied!'; btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy Prompt'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+// ================================================================
+// VIEW SWITCHING
+// ================================================================
+function switchView(id) {
+  state.activeView = id;
+  document.querySelectorAll('.view-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.view-tab').forEach(t => {
+    if (t.textContent.toLowerCase().replace(/\s+/g,'') === id.toLowerCase().replace(/\s+/g,'') ||
+        (id==='overview' && t.textContent==='Overview') ||
+        (id==='database' && t.textContent==='Database') ||
+        (id==='statemachines' && t.textContent==='State Machines') ||
+        (id==='auth' && t.textContent==='Auth') ||
+        (id==='api' && t.textContent==='API Surface') ||
+        (id==='agentexec' && t.textContent==='Agent Execution') ||
+        (id==='infra' && t.textContent==='Infrastructure')
+    ) t.classList.add('active');
+  });
+  renderView();
+}
+
+function renderView() {
+  switch(state.activeView) {
+    case 'overview':    renderOverview(); break;
+    case 'database':    renderDatabase(); break;
+    case 'statemachines': renderStateMachines(); break;
+    case 'auth':        renderAuth(); break;
+    case 'api':         renderAPI(); break;
+    case 'agentexec':   renderAgentExec(); break;
+    case 'infra':       renderInfra(); break;
+  }
+  renderPrompt();
+}
+
+// ================================================================
+// VIEW 1: OVERVIEW
+// ================================================================
+function renderOverview() {
+  const lp = document.getElementById('left-panel');
+  lp.innerHTML = `
+    <div class="panel-section">
+      <h3>Presets</h3>
+      ${PRESETS.map(p => `<button class="preset-btn ${state.activePreset===p.id?'active':''}" onclick="applyPreset('${p.id}')">${p.label}</button>`).join('')}
+    </div>
+    <div class="panel-section">
+      <h3>Layers</h3>
+      ${Object.entries(LAYERS).map(([k,def]) => `
+        <div class="toggle-row"><label>
+          <input type="checkbox" ${state.layers[k]?'checked':''} onchange="toggleLayer('${k}',this.checked)">
+          <span class="layer-swatch" style="background:${def.color}"></span>${def.label}
+        </label></div>`).join('')}
+    </div>
+    <div class="panel-section">
+      <h3>Connections</h3>
+      ${Object.entries(CONN_TYPES).map(([k,def]) => {
+        const s = def.dash ? `background:repeating-linear-gradient(90deg,${def.color} 0,${def.color} 5px,transparent 5px,transparent 9px)` : `background:${def.color}`;
+        return `<div class="toggle-row"><label>
+          <input type="checkbox" ${state.connTypes[k]?'checked':''} onchange="toggleConnType('${k}',this.checked)">
+          <span class="conn-line" style="${s}"></span>${def.label}
+        </label></div>`;
+      }).join('')}
+    </div>
+    ${renderCommentsSection()}
+  `;
+  const ca = document.getElementById('canvas-area');
+  const z = state.zoom;
+  ca.innerHTML = `
+    <div class="zoom-controls">
+      <button class="zoom-btn" onclick="adjustZoom('overview',1.25)">+</button>
+      <button class="zoom-btn" onclick="resetZoom('overview')">&#8635;</button>
+      <button class="zoom-btn" onclick="adjustZoom('overview',0.8)">-</button>
+    </div>
+    <div class="svg-scroller">
+      <svg id="ov-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${SVG_W} ${SVG_H}" width="${SVG_W*z}" height="${SVG_H*z}">
+        <defs>${buildOverviewDefs()}</defs>
+        ${buildLayerBands()}
+        ${buildLayerLabels()}
+        ${buildOverviewConns()}
+        ${buildOverviewNodes()}
+      </svg>
+    </div>
+    <div style="position:absolute;bottom:8px;left:8px;background:rgba(30,41,59,0.92);border:1px solid #334155;border-radius:6px;padding:7px 10px;display:flex;flex-wrap:wrap;gap:10px;font-size:10px;color:#94a3b8;">
+      ${Object.entries(CONN_TYPES).filter(([k])=>state.connTypes[k]).map(([k,def])=>{
+        const s=def.dash?`background:repeating-linear-gradient(90deg,${def.color} 0,${def.color} 5px,transparent 5px,transparent 9px)`:`background:${def.color}`;
+        return `<span style="display:flex;align-items:center;gap:5px"><span style="${s};width:18px;height:2px;display:inline-block;border-radius:1px"></span>${def.label}</span>`;
+      }).join('')}
+    </div>
+  `;
+}
+function buildOverviewDefs() {
+  return Object.entries(CONN_TYPES).map(([type,def]) =>
+    `<marker id="arr-${type}" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0, 7 2.5, 0 5" fill="${def.color}" opacity="0.85"/>
+    </marker>`).join('');
+}
+function buildLayerBands() {
+  return Object.entries(LAYER_Y).map(([layer,y]) => {
+    if (!state.layers[layer]) return '';
+    const def = LAYERS[layer];
+    return `<rect x="0" y="${y-5}" width="${SVG_W}" height="${NODE_H+10}" fill="${def.bg}" rx="0"/>`;
+  }).join('');
+}
+function buildLayerLabels() {
+  return Object.entries(LAYER_Y).map(([layer,y]) => {
+    if (!state.layers[layer]) return '';
+    const def = LAYERS[layer];
+    return `<text x="${SVG_W-4}" y="${y+NODE_H/2+4}" text-anchor="end" font-size="9" fill="${def.color}" opacity="0.45" font-family="system-ui" font-weight="600">${def.label.toUpperCase()}</text>`;
+  }).join('');
+}
+function ovNodePos(node) {
+  const x = COL_X[node.col], y = LAYER_Y[node.layer];
+  return { x, y, cx: x+NODE_W/2, cy: y+NODE_H/2 };
+}
+function buildOverviewConns() {
+  let out = '';
+  overviewConns.forEach(conn => {
+    if (!state.connTypes[conn.type]) return;
+    const src = overviewNodesById[conn.from], dst = overviewNodesById[conn.to];
+    if (!src||!dst||!state.layers[src.layer]||!state.layers[dst.layer]) return;
+    const sp = ovNodePos(src), dp = ovNodePos(dst);
+    const def = CONN_TYPES[conn.type];
+    const dash = def.dash ? `stroke-dasharray="${def.dash}"` : '';
+    let d;
+    if (sp.y === dp.y) {
+      const goRight = dp.x > sp.x;
+      const sx = goRight ? sp.x+NODE_W : sp.x;
+      const dx = goRight ? dp.x : dp.x+NODE_W;
+      const sy = sp.y+NODE_H/2;
+      const cy = sp.y+NODE_H+18;
+      d = `M${sx} ${sy} C${sx+(goRight?28:-28)} ${cy},${dx+(goRight?-28:28)} ${cy},${dx} ${sy}`;
+    } else {
+      const sx=sp.cx, sy=sp.y+NODE_H, dx=dp.cx, dy=dp.y;
+      const my=(sy+dy)/2;
+      d = `M${sx} ${sy} C${sx} ${my},${dx} ${my},${dx} ${dy}`;
+    }
+    out += `<path d="${d}" fill="none" stroke="${def.color}" stroke-width="1.4" ${dash} marker-end="url(#arr-${conn.type})" opacity="0.65"/>`;
+  });
+  return out;
+}
+function buildOverviewNodes() {
+  return overviewNodes.map(node => {
+    if (!state.layers[node.layer]) return '';
+    const pos = ovNodePos(node);
+    const hasComment = state.comments.some(c => c.target===node.id);
+    const def = LAYERS[node.layer];
+    const stroke = hasComment ? '#fbbf24' : 'rgba(255,255,255,0.15)';
+    const sw = hasComment ? 2 : 1;
+    const sub = node.sub.length>26 ? node.sub.slice(0,24)+'...' : node.sub;
+    return `<g class="node-group" onclick="openModal('${node.id}','${esc(node.label)}','${esc(node.sub)}')" style="cursor:pointer">
+      <title>${node.label}\n${node.sub}</title>
+      <rect class="node-rect" x="${pos.x}" y="${pos.y}" width="${NODE_W}" height="${NODE_H}" rx="5" fill="${def.color}" stroke="${stroke}" stroke-width="${sw}"/>
+      <text x="${pos.cx}" y="${pos.y+15}" text-anchor="middle" font-size="10" font-weight="600" fill="${def.text}" font-family="system-ui" style="pointer-events:none">${node.label}</text>
+      <text x="${pos.cx}" y="${pos.y+31}" text-anchor="middle" font-size="8.5" fill="${def.text}" opacity="0.6" font-family="monospace" style="pointer-events:none">${sub}</text>
+      ${hasComment?`<circle cx="${pos.x+NODE_W-7}" cy="${pos.y+7}" r="4.5" fill="#fbbf24"/>`:''}
+    </g>`;
+  }).join('');
+}
+function applyPreset(id) {
+  const p = PRESETS.find(x=>x.id===id); if(!p)return;
+  state.activePreset=id; state.layers={...p.layers}; state.connTypes={...p.connTypes};
+  renderOverview(); renderPrompt();
+}
+function toggleLayer(k,v) { state.layers[k]=v; state.activePreset=null; renderOverview(); renderPrompt(); }
+function toggleConnType(k,v) { state.connTypes[k]=v; state.activePreset=null; renderOverview(); renderPrompt(); }
+function adjustZoom(view, f) {
+  if(view==='overview') { state.zoom=Math.min(2.5,Math.max(0.3,state.zoom*f)); renderOverview(); }
+  else if(view==='database') { state.dbZoom=Math.min(2.5,Math.max(0.3,state.dbZoom*f)); renderDatabase(); }
+  else if(view==='agentexec') { state.execZoom=Math.min(2.5,Math.max(0.3,state.execZoom*f)); renderAgentExec(); }
+  else if(view==='infra') { state.infraZoom=Math.min(2.5,Math.max(0.3,state.infraZoom*f)); renderInfra(); }
+}
+function resetZoom(view) {
+  if(view==='overview') { state.zoom=0.88; renderOverview(); }
+  else if(view==='database') { state.dbZoom=0.9; renderDatabase(); }
+  else if(view==='agentexec') { state.execZoom=0.9; renderAgentExec(); }
+  else if(view==='infra') { state.infraZoom=0.9; renderInfra(); }
+}
+
+// ================================================================
+// VIEW 2: DATABASE
+// ================================================================
+function renderDatabase() {
+  const lp = document.getElementById('left-panel');
+  lp.innerHTML = `
+    <div class="panel-section">
+      <h3>Table Groups</h3>
+      ${DB_GROUPS.map(g=>`<div class="toggle-row"><label>
+        <input type="checkbox" ${state.dbGroups[g.id]?'checked':''} onchange="toggleDbGroup('${g.id}',this.checked)">
+        <span class="layer-swatch" style="background:${g.color}"></span>${g.label}
+      </label></div>`).join('')}
+    </div>
+    <div class="panel-section">
+      <h3>Options</h3>
+      <div class="toggle-row"><label>
+        <input type="checkbox" ${state.showFKArrows?'checked':''} onchange="state.showFKArrows=this.checked;renderDatabase()">
+        Show FK Arrows
+      </label></div>
+    </div>
+    ${renderCommentsSection()}
+  `;
+  const ca = document.getElementById('canvas-area');
+  const dbW=1090, dbH=720;
+  const z=state.dbZoom;
+  ca.innerHTML = `
+    <div class="zoom-controls">
+      <button class="zoom-btn" onclick="adjustZoom('database',1.25)">+</button>
+      <button class="zoom-btn" onclick="resetZoom('database')">&#8635;</button>
+      <button class="zoom-btn" onclick="adjustZoom('database',0.8)">-</button>
+    </div>
+    <div class="svg-scroller">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${dbW} ${dbH}" width="${dbW*z}" height="${dbH*z}">
+        <defs>
+          <marker id="fk-arr" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+            <polygon points="0 0, 7 2.5, 0 5" fill="#60a5fa" opacity="0.8"/>
+          </marker>
+        </defs>
+        ${buildDBArrows()}
+        ${buildDBGroups()}
+      </svg>
+    </div>
+  `;
+}
+function buildDBGroups() {
+  return DB_GROUPS.map(g => {
+    if (!state.dbGroups[g.id]) return '';
+    const hasComment = state.comments.some(c=>c.target==='db-'+g.id);
+    const alpha = '33';
+    let rows = g.tables.map((t,i)=>`
+      <text x="${g.x+14}" y="${g.y+42+i*22}" font-size="11" font-family="monospace" fill="#94a3b8">${t}</text>
+    `).join('');
+    return `<g style="cursor:pointer" onclick="openModal('db-${g.id}','${g.label} Tables','${g.tables.join(', ')}')">
+      <rect x="${g.x}" y="${g.y}" width="${g.w}" height="${g.h}" rx="8" fill="${g.color}${alpha}" stroke="${g.color}" stroke-width="${hasComment?2:1}" opacity="0.9"/>
+      <rect x="${g.x}" y="${g.y}" width="${g.w}" height="28" rx="8" fill="${g.color}44"/>
+      <rect x="${g.x}" y="${g.y+14}" width="${g.w}" height="14" fill="${g.color}44"/>
+      <text x="${g.x+12}" y="${g.y+18}" font-size="12" font-weight="700" fill="${g.color}" font-family="system-ui">${g.label}</text>
+      ${rows}
+      ${hasComment?`<circle cx="${g.x+g.w-8}" cy="${g.y+8}" r="5" fill="#fbbf24"/>`:''}
+    </g>`;
+  }).join('');
+}
+function buildDBArrows() {
+  if (!state.showFKArrows) return '';
+  return FK_ARROWS.map(fk => {
+    const src = DB_GROUPS.find(g=>g.id===fk.from);
+    const dst = DB_GROUPS.find(g=>g.id===fk.to);
+    if (!src||!dst||!state.dbGroups[src.id]||!state.dbGroups[dst.id]) return '';
+    const sx = src.x+src.w/2, sy = src.y+src.h/2;
+    const dx = dst.x+dst.w/2, dy = dst.y+dst.h/2;
+    const mx=(sx+dx)/2, my=(sy+dy)/2;
+    return `<path d="M${sx} ${sy} Q${mx-30} ${my-30} ${dx} ${dy}" fill="none" stroke="#60a5fa" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#fk-arr)" opacity="0.7"/>
+    <text x="${mx-30}" y="${my-35}" text-anchor="middle" font-size="9" fill="#60a5fa" opacity="0.8" font-family="system-ui">${fk.label}</text>`;
+  }).join('');
+}
+function toggleDbGroup(id, v) { state.dbGroups[id]=v; renderDatabase(); }
+
+// ================================================================
+// VIEW 3: STATE MACHINES
+// ================================================================
+function renderStateMachines() {
+  const lp = document.getElementById('left-panel');
+  const machineList = [
+    {id:'agent',    label:'Agent Lifecycle'},
+    {id:'task',     label:'Task Workflow'},
+    {id:'session',  label:'Session Lifecycle'},
+    {id:'worktree', label:'Worktree Lifecycle'},
+  ];
+  lp.innerHTML = `
+    <div class="panel-section">
+      <h3>Machines</h3>
+      ${machineList.map(m=>`<div class="toggle-row"><label>
+        <input type="checkbox" ${state.activeMachines[m.id]?'checked':''} onchange="state.activeMachines['${m.id}']=this.checked;renderStateMachines()">
+        <span class="layer-swatch" style="background:${STATE_MACHINES[m.id].color}"></span>${m.label}
+      </label></div>`).join('')}
+    </div>
+    <div class="info-note" style="margin:8px 12px;font-size:10px;color:#64748b;line-height:1.5;">
+      Initial state: thick border<br>
+      Final state: green + double border<br>
+      Error state: red fill<br>
+      Dashed arrows: backward transitions
+    </div>
+    ${renderCommentsSection()}
+  `;
+  const ca = document.getElementById('canvas-area');
+  ca.innerHTML = `<div class="sm-grid" id="sm-grid">${buildSMGrid()}</div>`;
+}
+
+function buildSMGrid() {
+  const keys = ['agent','task','session','worktree'];
+  return keys.map(k => {
+    const m = STATE_MACHINES[k];
+    if (!state.activeMachines[k]) {
+      return `<div class="sm-cell" style="display:flex;align-items:center;justify-content:center;color:#334155;font-size:12px;">${m.label} (hidden)</div>`;
+    }
+    return `<div class="sm-cell">
+      <div class="sm-cell-title" style="color:${m.color}">${m.label}</div>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="${m.viewBox}" style="width:100%;height:100%">
+        <defs>${buildSMDefs(k, m.color)}</defs>
+        ${buildSMArrows(m)}
+        ${buildSMNodes(m)}
+      </svg>
+    </div>`;
+  }).join('');
+}
+
+function buildSMDefs(id, color) {
+  return `
+    <marker id="sm-arr-${id}" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="${color}" opacity="0.9"/>
+    </marker>
+    <marker id="sm-arr-err-${id}" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#f87171" opacity="0.9"/>
+    </marker>`;
+}
+
+function smNodeCenter(states, id) {
+  const s = states.find(x=>x.id===id);
+  if (!s) return {x:0,y:0};
+  return { x: s.x+SM_NW/2, y: s.y+SM_NH/2, s };
+}
+
+function buildSMArrows(m) {
+  let out = '';
+  m.transitions.forEach(t => {
+    const src = m.states.find(s=>s.id===t.from);
+    const dst = m.states.find(s=>s.id===t.to);
+    if (!src||!dst) return;
+    const sx=src.x+SM_NW/2, sy=src.y+SM_NH/2;
+    const dx=dst.x+SM_NW/2, dy=dst.y+SM_NH/2;
+    const color = m.color;
+    const mid = `sm-arr-${Object.keys(STATE_MACHINES).find(k=>STATE_MACHINES[k]===m)}`;
+    let d='', lx=0, ly=0;
+
+    if (t.dir==='right') {
+      const startX=src.x+SM_NW, endX=dst.x;
+      d=`M${startX} ${src.y+SM_NH/2} L${endX} ${dst.y+SM_NH/2}`;
+      lx=(startX+endX)/2; ly=src.y+SM_NH/2-6;
+    } else if (t.dir==='left') {
+      const startX=src.x, endX=dst.x+SM_NW;
+      const ay=src.y-18;
+      d=`M${startX} ${src.y+SM_NH/2} C${startX-30} ${ay},${endX+30} ${ay},${endX} ${dst.y+SM_NH/2}`;
+      lx=(startX+endX)/2; ly=ay-6;
+    } else if (t.dir==='down') {
+      const startY=src.y+SM_NH, endY=dst.y;
+      d=`M${src.x+SM_NW/2} ${startY} L${dst.x+SM_NW/2} ${endY}`;
+      lx=src.x+SM_NW/2+5; ly=(startY+endY)/2;
+    } else if (t.dir==='up') {
+      const startY=src.y, endY=dst.y+SM_NH;
+      d=`M${src.x+SM_NW/2+8} ${startY} L${dst.x+SM_NW/2+8} ${endY}`;
+      lx=src.x+SM_NW/2+14; ly=(startY+endY)/2;
+    } else if (t.dir==='diag') {
+      d=`M${src.x+SM_NW/2} ${src.y+SM_NH} L${dst.x+SM_NW/2} ${dst.y}`;
+      lx=(src.x+dst.x)/2+SM_NW/2+5; ly=(src.y+dst.y)/2+SM_NH/2;
+    } else if (t.dir==='diag-rev') {
+      d=`M${src.x+SM_NW/2} ${src.y} L${dst.x+SM_NW/2} ${dst.y+SM_NH}`;
+      lx=(src.x+dst.x)/2+SM_NW/2+5; ly=(src.y+dst.y)/2+SM_NH/2;
+    } else if (t.dir==='arc-above') {
+      const minX=Math.min(src.x,dst.x), maxX=Math.max(src.x+SM_NW,dst.x+SM_NW);
+      const ay=Math.min(src.y,dst.y)-50;
+      d=`M${src.x+SM_NW/2} ${src.y} C${src.x+SM_NW/2} ${ay},${dst.x+SM_NW/2} ${ay},${dst.x+SM_NW/2} ${dst.y}`;
+      lx=(src.x+dst.x)/2+SM_NW/2; ly=ay-6;
+    } else if (t.dir==='arc-below') {
+      const ay=Math.max(src.y,dst.y)+SM_NH+40;
+      d=`M${src.x+SM_NW/2} ${src.y+SM_NH} C${src.x+SM_NW/2} ${ay},${dst.x+SM_NW/2} ${ay},${dst.x+SM_NW/2} ${dst.y+SM_NH}`;
+      lx=(src.x+dst.x)/2+SM_NW/2; ly=ay+8;
+    } else if (t.dir==='arc-below2') {
+      const ay=Math.max(src.y,dst.y)+SM_NH+60;
+      d=`M${src.x+SM_NW/2} ${src.y+SM_NH} C${src.x+SM_NW/2} ${ay},${dst.x+SM_NW/2} ${ay},${dst.x+SM_NW/2} ${dst.y+SM_NH}`;
+      lx=(src.x+dst.x)/2+SM_NW/2; ly=ay+8;
+    } else if (t.dir==='arc-below-wt') {
+      const ay=src.y+SM_NH+80;
+      d=`M${src.x+SM_NW/2} ${src.y+SM_NH} C${src.x+SM_NW/2} ${ay},${dst.x+SM_NW/2} ${ay},${dst.x+SM_NW/2} ${dst.y+SM_NH}`;
+      lx=(src.x+dst.x)/2+SM_NW/2; ly=ay+8;
+    } else {
+      d=`M${sx} ${sy} L${dx} ${dy}`;
+      lx=(sx+dx)/2; ly=(sy+dy)/2;
+    }
+    const isBack = t.dir==='left'||t.dir==='arc-below'||t.dir==='arc-below2'||t.dir==='arc-below-wt';
+    out += `<path d="${d}" fill="none" stroke="${color}" stroke-width="1.3" ${isBack?'stroke-dasharray="4,2"':''} marker-end="url(#${mid})" opacity="0.8"/>`;
+    out += `<text x="${lx}" y="${ly}" text-anchor="middle" font-size="9" fill="#94a3b8" font-family="system-ui">${t.label}</text>`;
+  });
+  return out;
+}
+
+function buildSMNodes(m) {
+  return m.states.map(s => {
+    let fill='#0f172a', stroke=m.color, sw=1.5;
+    if (s.type==='final') { fill='#14532d'; stroke='#4ade80'; }
+    else if (s.type==='error') { fill='#450a0a'; stroke='#f87171'; }
+    else if (s.type==='initial') { sw=2.5; }
+    let inner='';
+    if (s.type==='final') {
+      inner=`<rect x="${s.x+4}" y="${s.y+4}" width="${SM_NW-8}" height="${SM_NH-8}" rx="4" fill="none" stroke="#4ade80" stroke-width="1"/>`;
+    }
+    return `<g style="cursor:pointer" onclick="openModal('sm-${m.label.replace(/\s/g,'-')}-${s.id}','${s.label}','${m.label} state')">
+      <rect x="${s.x}" y="${s.y}" width="${SM_NW}" height="${SM_NH}" rx="6" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/>
+      ${inner}
+      <text x="${s.x+SM_NW/2}" y="${s.y+SM_NH/2+4}" text-anchor="middle" font-size="10" font-weight="600" fill="${s.type==='error'?'#f87171':s.type==='final'?'#4ade80':m.color}" font-family="system-ui">${s.label}</text>
+    </g>`;
+  }).join('');
+}
+
+// ================================================================
+// VIEW 4: AUTH & SECURITY
+// ================================================================
+function renderAuth() {
+  const lp = document.getElementById('left-panel');
+  lp.innerHTML = `
+    <div class="panel-section">
+      <h3>Panels</h3>
+      <div class="toggle-row"><label>
+        <input type="checkbox" ${state.showTrustZones?'checked':''} onchange="state.showTrustZones=this.checked;renderAuth()">
+        Trust Zones
+      </label></div>
+      <div class="toggle-row"><label>
+        <input type="checkbox" ${state.showOAuthFlow?'checked':''} onchange="state.showOAuthFlow=this.checked;renderAuth()">
+        OAuth Flow
+      </label></div>
+    </div>
+    <div class="info-note" style="margin:8px 12px;font-size:10px;color:#64748b;line-height:1.5;">
+      Trust zones show data boundaries.<br>OAuth flow shows GitHub login steps.<br>Click any element for notes.
+    </div>
+    ${renderCommentsSection()}
+  `;
+  const ca = document.getElementById('canvas-area');
+  ca.innerHTML = `<div class="auth-view-container" style="display:flex;width:100%;height:100%;overflow:auto;">
+    ${state.showTrustZones ? buildTrustZonesSVG() : ''}
+    ${state.showOAuthFlow ? buildOAuthFlowSVG() : ''}
+    ${!state.showTrustZones&&!state.showOAuthFlow?'<div style="margin:auto;color:#475569;font-size:13px;">Enable a panel in the left sidebar</div>':''}
+  </div>`;
+}
+
+function buildTrustZonesSVG() {
+  const zones = [
+    { id:'server-zone', label:'AgentPane Server', x:20, y:40, w:170, h:190, color:'#22c55e',
+      items:['SQLite DB','Encryption Key','Config','GitHub OAuth Token','Anthropic API Key'] },
+    { id:'browser-zone', label:'User Browser', x:210, y:40, w:170, h:190, color:'#eab308',
+      items:['Session Cookie (30d)','Client State','SSE EventSource'] },
+    { id:'sandbox-zone', label:'Agent Sandbox', x:20, y:250, w:170, h:190, color:'#ef4444',
+      items:['Isolated Container','Limited fs access','Claude Agent SDK'] },
+    { id:'external-zone', label:'External Services', x:210, y:250, w:170, h:190, color:'#6b7280',
+      items:['GitHub API','Anthropic API','Docker Hub','npm Registry'] },
+  ];
+  const arrows = [
+    { x1:210, y1:135, x2:20+170, y2:135, label:'OAuth redirect, API requests', rev:false },
+    { x1:20+170, y1:155, x2:210, y2:155, label:'Session cookie, SSE', rev:false },
+    { x1:95, y1:230, x2:95, y2:250, label:'Task prompt, env vars', rev:false },
+    { x1:210, y1:345, x2:20+170, y2:345, label:'Claude API calls', rev:false },
+    { x1:210+170/2, y1:40, x2:210+170/2, y2:30, label:'', rev:false },
+  ];
+  let svgContent = zones.map(z=>{
+    const hasComment=state.comments.some(c=>c.target===z.id);
+    return `<g style="cursor:pointer" onclick="openModal('${z.id}','${z.label}','Trust Zone')">
+      <rect x="${z.x}" y="${z.y}" width="${z.w}" height="${z.h}" rx="8" fill="${z.color}22" stroke="${z.color}" stroke-width="${hasComment?2:1.5}" stroke-dasharray="6,3"/>
+      <rect x="${z.x}" y="${z.y}" width="${z.w}" height="26" rx="8" fill="${z.color}44"/>
+      <rect x="${z.x}" y="${z.y+12}" width="${z.w}" height="14" fill="${z.color}44"/>
+      <text x="${z.x+z.w/2}" y="${z.y+17}" text-anchor="middle" font-size="10" font-weight="700" fill="${z.color}" font-family="system-ui">${z.label}</text>
+      ${z.items.map((item,i)=>`<text x="${z.x+10}" y="${z.y+44+i*22}" font-size="9.5" fill="#94a3b8" font-family="system-ui">• ${item}</text>`).join('')}
+      ${hasComment?`<circle cx="${z.x+z.w-8}" cy="${z.y+8}" r="5" fill="#fbbf24"/>`:''}
+    </g>`;
+  }).join('');
+
+  // draw flow arrows
+  const flowArrows = [
+    { x1:210, y1:120, x2:190, y2:120, label:'API requests', color:'#60a5fa' },
+    { x1:190, y1:145, x2:210, y2:145, label:'JSON + SSE', color:'#34d399' },
+    { x1:105, y1:230, x2:105, y2:250, label:'task prompt', color:'#f87171' },
+    { x1:295, y1:250, x2:295, y2:230, label:'', color:'#94a3b8' },
+    { x1:295, y1:445, x2:190, y2:345, label:'Claude calls', color:'#a78bfa' },
+    { x1:295, y1:40, x2:295, y2:20, label:'GitHub OAuth', color:'#6b7280' },
+  ];
+
+  svgContent += `
+    <defs><marker id="auth-arr" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+      <polygon points="0 0, 7 2.5, 0 5" fill="#60a5fa" opacity="0.8"/>
+    </marker></defs>
+    <line x1="190" y1="120" x2="210" y2="120" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#auth-arr)"/>
+    <text x="200" y="115" text-anchor="middle" font-size="8.5" fill="#60a5fa" font-family="system-ui">API requests</text>
+    <line x1="210" y1="142" x2="190" y2="142" stroke="#34d399" stroke-width="1.5" marker-end="url(#auth-arr)" style="marker-end:url(#auth-arr)"/>
+    <text x="200" y="160" text-anchor="middle" font-size="8.5" fill="#34d399" font-family="system-ui">cookie + SSE</text>
+    <line x1="105" y1="230" x2="105" y2="250" stroke="#f87171" stroke-width="1.5" marker-end="url(#auth-arr)"/>
+    <text x="140" y="244" font-size="8.5" fill="#f87171" font-family="system-ui">task prompt</text>
+    <line x1="295" y1="250" x2="295" y2="230" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#auth-arr)"/>
+    <line x1="190" y1="345" x2="210" y2="345" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#auth-arr)"/>
+    <text x="200" y="338" text-anchor="middle" font-size="8.5" fill="#a78bfa" font-family="system-ui">Claude API</text>
+    <line x1="190" y1="90" x2="210" y2="90" stroke="#6b7280" stroke-width="1.5" marker-end="url(#auth-arr)"/>
+    <text x="200" y="84" text-anchor="middle" font-size="8.5" fill="#6b7280" font-family="system-ui">GitHub OAuth</text>
+  `;
+
+  return `<div style="flex:1;overflow:auto;min-width:400px">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 460" width="400" height="460" style="display:block;margin:auto">
+      ${svgContent}
+    </svg>
+  </div>`;
+}
+
+function buildOAuthFlowSVG() {
+  const steps = [
+    { n:1, label:'User clicks "Login with GitHub"', actor:'user', color:'#60a5fa' },
+    { n:2, label:'Server generates state -> stores in session', actor:'server', color:'#34d399' },
+    { n:3, label:'Redirect: github.com/login/oauth/authorize', actor:'server', color:'#34d399' },
+    { n:4, label:'User authorizes on GitHub', actor:'github', color:'#6b7280' },
+    { n:5, label:'GitHub redirects to /auth/callback?code=...', actor:'github', color:'#6b7280' },
+    { n:6, label:'Server validates state + exchanges code for token', actor:'server', color:'#34d399' },
+    { n:7, label:'Fetch GitHub user profile', actor:'server', color:'#34d399' },
+    { n:8, label:'Upsert user in DB -> set session cookie (30 days)', actor:'server', color:'#34d399' },
+  ];
+  let svgContent = '';
+  steps.forEach((s,i) => {
+    const y = 20+i*52;
+    svgContent += `
+      <g style="cursor:pointer" onclick="openModal('oauth-step-${s.n}','OAuth Step ${s.n}','${s.actor}')">
+        <rect x="10" y="${y}" width="380" height="38" rx="6" fill="${s.color}22" stroke="${s.color}" stroke-width="1.2"/>
+        <circle cx="30" cy="${y+19}" r="10" fill="${s.color}55" stroke="${s.color}" stroke-width="1"/>
+        <text x="30" y="${y+23}" text-anchor="middle" font-size="11" font-weight="700" fill="${s.color}" font-family="system-ui">${s.n}</text>
+        <text x="50" y="${y+14}" font-size="9.5" fill="#e2e8f0" font-family="system-ui">${s.label}</text>
+        <text x="50" y="${y+28}" font-size="8.5" fill="${s.color}" font-family="system-ui">${s.actor}</text>
+      </g>`;
+    if (i < steps.length-1) {
+      const ay=y+38;
+      svgContent += `<line x1="30" y1="${ay}" x2="30" y2="${ay+14}" stroke="#334155" stroke-width="1.5" marker-end="url(#oauth-arr)"/>`;
+    }
+  });
+  return `<div style="flex:1;overflow:auto;min-width:420px">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 450" width="400" height="450" style="display:block;margin:auto">
+      <defs><marker id="oauth-arr" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+        <polygon points="0 0, 7 2.5, 0 5" fill="#334155"/>
+      </marker></defs>
+      <text x="200" y="12" text-anchor="middle" font-size="11" font-weight="700" fill="#94a3b8" font-family="system-ui">GitHub OAuth Flow</text>
+      ${svgContent}
+    </svg>
+  </div>`;
+}
+
+// ================================================================
+// VIEW 5: API SURFACE
+// ================================================================
+function renderAPI() {
+  const lp = document.getElementById('left-panel');
+  lp.innerHTML = `
+    <div class="panel-section">
+      <h3>Methods</h3>
+      ${['GET','POST','PATCH','DELETE','SSE'].map(m=>`<div class="toggle-row"><label>
+        <input type="checkbox" ${state.apiMethods[m]?'checked':''} onchange="state.apiMethods['${m}']=this.checked;renderAPI()">
+        <span class="method-badge badge-${m}" style="font-size:9px">${m}</span>
+      </label></div>`).join('')}
+    </div>
+    <div class="panel-section">
+      <h3>Groups</h3>
+      ${API_GROUPS.map(g=>`<div class="toggle-row"><label>
+        <input type="checkbox" ${state.apiGroups[g.id]?'checked':''} onchange="state.apiGroups['${g.id}']=this.checked;renderAPI()">
+        ${g.label}
+      </label></div>`).join('')}
+    </div>
+    ${renderCommentsSection()}
+  `;
+  const ca = document.getElementById('canvas-area');
+  let tableHTML = '';
+  API_GROUPS.forEach(g => {
+    if (!state.apiGroups[g.id]) return;
+    const filtered = g.endpoints.filter(e => state.apiMethods[e.method]);
+    if (filtered.length===0) return;
+    tableHTML += `<div style="margin-bottom:16px">
+      <div class="api-group-header">${g.label} <span style="font-size:10px;color:#64748b;font-weight:400">${filtered.length} endpoint${filtered.length!==1?'s':''}</span></div>
+      <table class="api-table">
+        ${filtered.map(e=>`<tr onclick="openModal('api-${g.id}-${e.path.replace(/[^a-z0-9]/gi,'-')}','${esc(e.method)} ${esc(e.path)}','${esc(e.desc)}')">
+          <td><span class="method-badge badge-${e.method}">${e.method}</span></td>
+          <td class="api-path">${esc(e.path)}</td>
+          <td class="api-desc">${esc(e.desc)}</td>
+        </tr>`).join('')}
+      </table>
+    </div>`;
+  });
+  ca.innerHTML = `<div class="api-view-container">${tableHTML||'<div style="color:#475569;padding:20px">No endpoints match current filters</div>'}</div>`;
+}
+
+// ================================================================
+// VIEW 6: AGENT EXECUTION
+// ================================================================
+function renderAgentExec() {
+  const lp = document.getElementById('left-panel');
+  lp.innerHTML = `
+    <div class="panel-section">
+      <h3>Phases</h3>
+      <div class="toggle-row"><label>
+        <input type="checkbox" ${state.showPlanningPhase?'checked':''} onchange="state.showPlanningPhase=this.checked;renderAgentExec()">
+        <span class="layer-swatch" style="background:#a78bfa"></span>Planning Phase
+      </label></div>
+      <div class="toggle-row"><label>
+        <input type="checkbox" ${state.showExecutionPhase?'checked':''} onchange="state.showExecutionPhase=this.checked;renderAgentExec()">
+        <span class="layer-swatch" style="background:#60a5fa"></span>Execution Phase
+      </label></div>
+    </div>
+    <div class="info-note" style="margin:8px 12px;font-size:10px;color:#64748b;line-height:1.5;">
+      Host mode: agent runs in Node.js process directly.<br><br>
+      Container mode: agent-runner starts inside Docker/K8s/Nomad sandbox container.
+    </div>
+    ${renderCommentsSection()}
+  `;
+  const ca = document.getElementById('canvas-area');
+  const z = state.execZoom;
+  ca.innerHTML = `
+    <div class="zoom-controls">
+      <button class="zoom-btn" onclick="adjustZoom('agentexec',1.25)">+</button>
+      <button class="zoom-btn" onclick="resetZoom('agentexec')">&#8635;</button>
+      <button class="zoom-btn" onclick="adjustZoom('agentexec',0.8)">-</button>
+    </div>
+    <div class="svg-scroller">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 850 780" width="${850*z}" height="${780*z}">
+        ${buildExecSVG()}
+      </svg>
+    </div>`;
+}
+
+function buildExecSVG() {
+  const cols = [
+    { label:'User', x:30, color:'#60a5fa' },
+    { label:'API Layer', x:195, color:'#fde68a' },
+    { label:'Agent Exec Service', x:360, color:'#bbf7d0' },
+    { label:'Claude SDK', x:525, color:'#e9d5ff' },
+    { label:'Events / DB', x:690, color:'#fbcfe8' },
+  ];
+  const colW = 140;
+  let out = '';
+
+  // Defs
+  out += `<defs>
+    <marker id="exec-arr" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+      <polygon points="0 0, 7 2.5, 0 5" fill="#94a3b8" opacity="0.9"/>
+    </marker>
+    <marker id="exec-arr-p" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+      <polygon points="0 0, 7 2.5, 0 5" fill="#a78bfa" opacity="0.9"/>
+    </marker>
+    <marker id="exec-arr-e" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+      <polygon points="0 0, 7 2.5, 0 5" fill="#60a5fa" opacity="0.9"/>
+    </marker>
+    <marker id="exec-arr-o" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+      <polygon points="0 0, 7 2.5, 0 5" fill="#f97316" opacity="0.9"/>
+    </marker>
+  </defs>`;
+
+  // Background columns
+  cols.forEach(c => {
+    out += `<rect x="${c.x}" y="45" width="${colW}" height="710" rx="0" fill="${c.color}08"/>`;
+    out += `<rect x="${c.x}" y="0" width="${colW}" height="42" rx="4" fill="${c.color}33"/>`;
+    out += `<text x="${c.x+colW/2}" y="25" text-anchor="middle" font-size="10" font-weight="700" fill="${c.color}" font-family="system-ui">${c.label}</text>`;
+    out += `<line x1="${c.x}" y1="42" x2="${c.x}" y2="760" stroke="${c.color}22" stroke-width="1" stroke-dasharray="4,4"/>`;
+  });
+
+  const BW=130, BH=32;
+  function box(colIdx, y, text, phase, id) {
+    if (phase==='planning'&&!state.showPlanningPhase) return '';
+    if (phase==='execution'&&!state.showExecutionPhase) return '';
+    const c=cols[colIdx];
+    const bx=c.x+5;
+    const color=phase==='planning'?'#a78bfa':phase==='execution'?'#60a5fa':phase==='event'?'#f97316':'#94a3b8';
+    const hasComment=state.comments.some(c=>c.target===id);
+    return `<g style="cursor:pointer" onclick="openModal('${id}','${esc(text)}','${phase} phase')">
+      <rect x="${bx}" y="${y}" width="${BW}" height="${BH}" rx="5" fill="${color}22" stroke="${color}" stroke-width="${hasComment?2:1}"/>
+      <text x="${bx+BW/2}" y="${y+BH/2+4}" text-anchor="middle" font-size="9.5" fill="${color}" font-family="system-ui">${esc(text)}</text>
+      ${hasComment?`<circle cx="${bx+BW-6}" cy="${y+6}" r="4" fill="#fbbf24"/>`:''}
+    </g>`;
+  }
+  function arrow(x1, y1, x2, y2, label, phase) {
+    if (phase==='planning'&&!state.showPlanningPhase) return '';
+    if (phase==='execution'&&!state.showExecutionPhase) return '';
+    const marker=phase==='planning'?'exec-arr-p':phase==='execution'?'exec-arr-e':phase==='event'?'exec-arr-o':'exec-arr';
+    const color=phase==='planning'?'#a78bfa':phase==='execution'?'#60a5fa':phase==='event'?'#f97316':'#94a3b8';
+    const mx=(x1+x2)/2, my=(y1+y2)/2;
+    return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="1.3" marker-end="url(#${marker})" opacity="0.8"/>
+      ${label?`<text x="${mx}" y="${my-4}" text-anchor="middle" font-size="8.5" fill="${color}" font-family="system-ui">${esc(label)}</text>`:''}`;
+  }
+
+  // Steps layout: col indices 0=User,1=API,2=AgentExec,3=SDK,4=Events
+  const steps = [
+    // [colIdx, y, text, phase, id]
+    [0, 55,  'Move task to in_progress', 'user', 'exec-s1'],
+    [1, 100, 'PATCH /tasks/:id/move',    'planning', 'exec-s2'],
+    [2, 145, 'agentExecSvc.start()',     'planning', 'exec-s3'],
+    [2, 195, 'Create git worktree',      'planning', 'exec-s4'],
+    [2, 245, 'Create session -> DB',     'planning', 'exec-s5'],
+    [4, 245, 'session_events row',       'event', 'exec-s5e'],
+    [2, 295, 'runAgentPlanning()',        'planning', 'exec-s6'],
+    [3, 340, 'SDK session (plan mode)',   'planning', 'exec-s7'],
+    [3, 390, 'Stream turns/chunks',       'planning', 'exec-s8'],
+    [4, 390, 'chunk events',             'event', 'exec-s8e'],
+    [3, 440, 'ExitPlanMode -> plan ready','planning', 'exec-s9'],
+    [4, 440, 'agent:plan_ready event',   'event', 'exec-s9e'],
+    [0, 490, 'Plan shown to user',        'planning', 'exec-s10'],
+    [0, 540, 'User approves plan',        'user', 'exec-s11'],
+    [1, 585, 'POST /approve-plan',        'execution', 'exec-s12'],
+    [2, 630, 'runAgentExecution()',       'execution', 'exec-s13'],
+    [3, 675, 'SDK session (acceptEdits)', 'execution', 'exec-s14'],
+    [4, 720, 'agent:completed event',     'event', 'exec-s15'],
+  ];
+
+  steps.forEach(([colIdx, y, text, phase, id]) => {
+    out += box(colIdx, y, text, phase, id);
+  });
+
+  // Arrows
+  const colCx = cols.map(c=>c.x+BW/2+5);
+  out += arrow(colCx[0], 55+BH, colCx[1], 100, 'drag-drop', 'user');
+  out += arrow(colCx[1], 100+BH, colCx[2], 145, '', 'planning');
+  out += arrow(colCx[2], 195, colCx[2], 195, '', 'planning');
+  out += arrow(colCx[2], 245+BH/2, cols[4].x+5, 245+BH/2, 'persist', 'event');
+  out += arrow(colCx[2], 295+BH, colCx[3], 340, '', 'planning');
+  out += arrow(colCx[3], 390+BH/2, cols[4].x+5, 390+BH/2, 'SSE', 'event');
+  out += arrow(colCx[3], 440+BH/2, cols[4].x+5, 440+BH/2, 'event', 'event');
+  out += arrow(cols[4].x+5, 440+BH/2, colCx[0], 490+BH/2, 'SSE to browser', 'event');
+  out += arrow(colCx[0], 540+BH, colCx[1], 585, '', 'execution');
+  out += arrow(colCx[1], 585+BH, colCx[2], 630, '', 'execution');
+  out += arrow(colCx[2], 630+BH, colCx[3], 675, '', 'execution');
+  out += arrow(colCx[3], 675+BH, colCx[4], 720, '', 'event');
+
+  // Phase labels
+  if (state.showPlanningPhase) {
+    out += `<rect x="5" y="95" width="8" height="350" rx="3" fill="#a78bfa44"/>
+    <text x="9" y="275" text-anchor="middle" font-size="9" fill="#a78bfa" font-family="system-ui" transform="rotate(-90,9,275)">PLANNING PHASE</text>`;
+  }
+  if (state.showExecutionPhase) {
+    out += `<rect x="5" y="580" width="8" height="165" rx="3" fill="#60a5fa44"/>
+    <text x="9" y="663" text-anchor="middle" font-size="9" fill="#60a5fa" font-family="system-ui" transform="rotate(-90,9,663)">EXEC PHASE</text>`;
+  }
+
+  return out;
+}
+
+// ================================================================
+// VIEW 7: INFRASTRUCTURE
+// ================================================================
+function renderInfra() {
+  const lp = document.getElementById('left-panel');
+  lp.innerHTML = `
+    <div class="panel-section">
+      <h3>Zones</h3>
+      <div class="toggle-row"><label>
+        <input type="checkbox" ${state.showHost?'checked':''} onchange="state.showHost=this.checked;renderInfra()">
+        <span class="layer-swatch" style="background:#22c55e"></span>Host Machine
+      </label></div>
+      <div class="toggle-row"><label>
+        <input type="checkbox" ${state.showDocker?'checked':''} onchange="state.showDocker=this.checked;renderInfra()">
+        <span class="layer-swatch" style="background:#60a5fa"></span>Docker (Local)
+      </label></div>
+      <div class="toggle-row"><label>
+        <input type="checkbox" ${state.showK8s?'checked':''} onchange="state.showK8s=this.checked;renderInfra()">
+        <span class="layer-swatch" style="background:#a78bfa"></span>K8s Cluster
+      </label></div>
+      <div class="toggle-row"><label>
+        <input type="checkbox" ${state.showNomad?'checked':''} onchange="state.showNomad=this.checked;renderInfra()">
+        <span class="layer-swatch" style="background:#f97316"></span>Nomad Cluster
+      </label></div>
+      <div class="toggle-row"><label>
+        <input type="checkbox" ${state.showPostgres?'checked':''} onchange="state.showPostgres=this.checked;renderInfra()">
+        <span class="layer-swatch" style="background:#06b6d4"></span>PostgreSQL (Remote)
+      </label></div>
+      <div class="toggle-row"><label>
+        <input type="checkbox" ${state.showExternal?'checked':''} onchange="state.showExternal=this.checked;renderInfra()">
+        <span class="layer-swatch" style="background:#6b7280"></span>External Services
+      </label></div>
+    </div>
+    ${renderCommentsSection()}
+  `;
+  const ca = document.getElementById('canvas-area');
+  const z = state.infraZoom;
+  ca.innerHTML = `
+    <div class="zoom-controls">
+      <button class="zoom-btn" onclick="adjustZoom('infra',1.25)">+</button>
+      <button class="zoom-btn" onclick="resetZoom('infra')">&#8635;</button>
+      <button class="zoom-btn" onclick="adjustZoom('infra',0.8)">-</button>
+    </div>
+    <div class="svg-scroller">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 680" width="${880*z}" height="${680*z}">
+        ${buildInfraSVG()}
+      </svg>
+    </div>`;
+}
+
+function buildInfraSVG() {
+  let out = '';
+  out += `<defs>
+    <marker id="inf-arr" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+      <polygon points="0 0, 7 2.5, 0 5" fill="#60a5fa" opacity="0.8"/>
+    </marker>
+    <marker id="inf-arr-g" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+      <polygon points="0 0, 7 2.5, 0 5" fill="#22c55e" opacity="0.8"/>
+    </marker>
+    <marker id="inf-arr-p" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+      <polygon points="0 0, 7 2.5, 0 5" fill="#a78bfa" opacity="0.8"/>
+    </marker>
+    <marker id="inf-arr-o" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+      <polygon points="0 0, 7 2.5, 0 5" fill="#f97316" opacity="0.8"/>
+    </marker>
+    <marker id="inf-arr-cy" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+      <polygon points="0 0, 7 2.5, 0 5" fill="#06b6d4" opacity="0.8"/>
+    </marker>
+  </defs>`;
+
+  function zone(x,y,w,h,label,color) {
+    return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="10" fill="${color}11" stroke="${color}" stroke-width="1.5" stroke-dasharray="8,4" opacity="0.8"/>
+    <text x="${x+10}" y="${y+18}" font-size="10" font-weight="700" fill="${color}" font-family="system-ui" opacity="0.8">${label}</text>`;
+  }
+  function box(x,y,w,h,label,sub,color,id) {
+    const hasComment=state.comments.some(c=>c.target===id);
+    const lines = label.split('\n');
+    const sublines = (sub||'').split('\n');
+    return `<g style="cursor:pointer" onclick="openModal('${id}','${esc(label.replace(/\n/g,' '))}','${esc((sub||'').replace(/\n/g,' '))}')">
+      <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="6" fill="${color}33" stroke="${color}" stroke-width="${hasComment?2:1.2}"/>
+      ${lines.map((l,i)=>`<text x="${x+w/2}" y="${y+h/2-((lines.length-1)*7)+i*14}" text-anchor="middle" font-size="10" font-weight="600" fill="${color}" font-family="system-ui">${esc(l)}</text>`).join('')}
+      ${sublines[0]?sublines.map((l,i)=>`<text x="${x+w/2}" y="${y+h/2+((lines.length)*7)+i*12}" text-anchor="middle" font-size="8.5" fill="${color}" opacity="0.7" font-family="monospace">${esc(l)}</text>`).join(''):''}
+      ${hasComment?`<circle cx="${x+w-6}" cy="${y+6}" r="4" fill="#fbbf24"/>`:''}
+    </g>`;
+  }
+  function arrow(x1,y1,x2,y2,label,color,marker) {
+    const mx=(x1+x2)/2,my=(y1+y2)/2;
+    const c=color||'#60a5fa', m=marker||'inf-arr';
+    return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${c}" stroke-width="1.3" marker-end="url(#${m})" opacity="0.7"/>
+    ${label?`<text x="${mx}" y="${my-5}" text-anchor="middle" font-size="8.5" fill="${c}" font-family="system-ui">${esc(label)}</text>`:''}`;
+  }
+
+  // Browser
+  out += box(10, 230, 80, 60, 'Browser', '', '#60a5fa', 'inf-browser');
+
+  // Host zone
+  if (state.showHost) {
+    out += zone(105, 10, 255, 660, 'Host Machine', '#22c55e');
+    out += box(120, 40,  225, 40, 'Hono API Server', ':3001', '#22c55e', 'inf-hono');
+    out += box(120, 95,  225, 40, 'Drizzle ORM', 'DB_MODE: sqlite | postgres', '#06b6d4', 'inf-drizzle');
+    out += box(120, 150, 105, 40, 'SQLite', 'agentpane.db (local)', '#22c55e', 'inf-sqlite');
+    out += box(240, 150, 105, 40, 'pg driver', 'postgres.js', '#06b6d4', 'inf-pg-driver');
+    out += box(120, 205, 225, 40, 'Git Worktrees', '/worktrees', '#14b8a6', 'inf-git');
+    out += box(120, 260, 105, 40, 'Docker\nProvider', '', '#60a5fa', 'inf-docker-prov');
+    out += box(240, 260, 105, 40, 'K8s\nProvider', '', '#a78bfa', 'inf-k8s-prov');
+    out += box(120, 315, 225, 40, 'Nomad Provider', '', '#f97316', 'inf-nomad-prov');
+    out += box(120, 375, 225, 40, 'Container Agent', 'agent orchestration', '#22c55e', 'inf-container-agent');
+    out += box(120, 435, 225, 40, 'Vite Dev Server', ':3000 (dev only)', '#64748b', 'inf-vite');
+    // Drizzle → SQLite (local)
+    out += arrow(172, 135, 172, 150, '', '#22c55e', 'inf-arr-g');
+    // Drizzle → pg driver
+    out += arrow(292, 135, 292, 150, '', '#06b6d4', 'inf-arr-cy');
+  }
+
+  // Docker (Local) zone — separate from K8s/Nomad
+  if (state.showDocker) {
+    out += zone(375, 10, 190, 160, 'Docker (Local)', '#60a5fa');
+    out += box(390, 45, 160, 100, 'agent-sandbox\ncontainers', 'Docker socket', '#60a5fa', 'inf-docker-c');
+  }
+
+  // K8s Cluster zone — remote
+  if (state.showK8s) {
+    out += zone(375, 185, 190, 165, 'K8s Cluster', '#a78bfa');
+    out += box(390, 220, 160, 55, 'K8s Pods', 'gVisor / Kata / runc', '#a78bfa', 'inf-k8s-pods');
+    out += box(390, 290, 160, 45, 'Sandbox CRDs', 'sandboxes.agents.x-k8s.io', '#a78bfa', 'inf-k8s-crds');
+  }
+
+  // Nomad Cluster zone — remote
+  if (state.showNomad) {
+    out += zone(375, 365, 190, 155, 'Nomad Cluster', '#f97316');
+    out += box(390, 400, 160, 55, 'Nomad Jobs', 'Docker driver', '#f97316', 'inf-nomad-jobs');
+    out += box(390, 470, 160, 35, 'Alloc Exec', 'stdio bridge', '#f97316', 'inf-nomad-exec');
+  }
+
+  // PostgreSQL (Remote) zone
+  if (state.showPostgres) {
+    out += zone(375, 535, 190, 130, 'PostgreSQL (Remote)', '#06b6d4');
+    out += box(390, 565, 160, 45, 'PostgreSQL', 'DATABASE_URL', '#06b6d4', 'inf-pg-remote');
+    out += box(390, 622, 160, 30, 'Drizzle Migrations', 'migrations-pg/', '#06b6d4', 'inf-pg-migrate');
+  }
+
+  // External zone
+  if (state.showExternal) {
+    out += zone(580, 10, 210, 660, 'External Services', '#6b7280');
+    out += box(595, 45,  180, 55, 'Anthropic API', 'claude-sonnet-4-6', '#a78bfa', 'inf-anthropic');
+    out += box(595, 120, 180, 55, 'GitHub API', 'OAuth + Webhooks', '#6b7280', 'inf-github');
+    out += box(595, 200, 180, 55, 'Docker Hub', 'srlynch1/agent-sandbox', '#60a5fa', 'inf-dockerhub');
+    out += box(595, 280, 180, 55, 'npm Registry', '@agentpane/cli-monitor', '#ef4444', 'inf-npm');
+    out += box(595, 365, 180, 55, 'HCP Terraform', 'registry.terraform.io', '#eab308', 'inf-terraform');
+    out += box(595, 445, 180, 55, 'GitHub OAuth', 'App credentials', '#6b7280', 'inf-github-oauth');
+  }
+
+  // Arrows: Browser → Host
+  if (state.showHost) {
+    out += arrow(90, 255, 120, 60, 'HTTP/SSE', '#60a5fa', 'inf-arr');
+  }
+  // Host → Docker (local)
+  if (state.showHost && state.showDocker) {
+    out += arrow(225, 280, 390, 95, 'Docker API', '#60a5fa', 'inf-arr');
+  }
+  // Host → K8s (remote)
+  if (state.showHost && state.showK8s) {
+    out += arrow(345, 280, 390, 248, 'K8s API', '#a78bfa', 'inf-arr-p');
+  }
+  // Host → Nomad (remote)
+  if (state.showHost && state.showNomad) {
+    out += arrow(345, 335, 390, 428, 'HTTP :4646', '#f97316', 'inf-arr-o');
+  }
+  // Host pg driver → PostgreSQL (remote)
+  if (state.showHost && state.showPostgres) {
+    out += arrow(345, 170, 390, 588, 'DATABASE_URL', '#06b6d4', 'inf-arr-cy');
+  }
+  // Sandboxes → Anthropic API
+  if (state.showDocker && state.showExternal) {
+    out += arrow(550, 95,  595, 73, 'Claude API', '#a78bfa', 'inf-arr-p');
+  }
+  if (state.showK8s && state.showExternal) {
+    out += arrow(550, 248, 595, 73, '', '#a78bfa', 'inf-arr-p');
+  }
+  if (state.showNomad && state.showExternal) {
+    out += arrow(550, 428, 595, 73, '', '#a78bfa', 'inf-arr-p');
+  }
+  // Host → External
+  if (state.showHost && state.showExternal) {
+    out += arrow(345, 73, 595, 148, 'GitHub OAuth', '#6b7280', 'inf-arr');
+    out += arrow(345, 73, 595, 228, 'pull images', '#60a5fa', 'inf-arr');
+  }
+
+  return out;
+}
+
+// ================================================================
+// PROMPT
+// ================================================================
+function renderPrompt() {
+  let prompt = '';
+  switch(state.activeView) {
+    case 'overview': {
+      const vis = Object.entries(state.layers).filter(([,v])=>v).map(([k])=>LAYERS[k].label);
+      const hid = Object.entries(state.layers).filter(([,v])=>!v).map(([k])=>LAYERS[k].label);
+      const conns = Object.entries(state.connTypes).filter(([,v])=>v).map(([k])=>CONN_TYPES[k].label);
+      prompt = 'AgentPane Architecture Overview';
+      if (hid.length===0) prompt += ', showing all 7 layers: '+vis.join(', ');
+      else prompt += '. Visible: '+vis.join(', ')+'. Hidden: '+hid.join(', ');
+      if (conns.length<4) prompt += '. Connections: '+conns.join(', ');
+      break;
+    }
+    case 'database': {
+      const vis = DB_GROUPS.filter(g=>state.dbGroups[g.id]).map(g=>g.label);
+      prompt = 'AgentPane Database Schema ERD (dual-mode: SQLite local / PostgreSQL remote via DB_MODE). Showing table groups: '+vis.join(', ')+'.';
+      if (state.showFKArrows) prompt += ' FK relationships are shown as arrows. Schema is identical across both modes (Drizzle ORM abstraction).';
+      break;
+    }
+    case 'statemachines': {
+      const vis = Object.entries(state.activeMachines).filter(([,v])=>v).map(([k])=>STATE_MACHINES[k].label);
+      prompt = 'AgentPane State Machines: '+vis.join(', ')+'.';
+      break;
+    }
+    case 'auth': {
+      prompt = 'AgentPane Auth & Security.';
+      if (state.showTrustZones) prompt += ' Trust zones: Server (trusted), Browser (session), Sandbox (isolated), External.';
+      if (state.showOAuthFlow) prompt += ' OAuth flow: 8-step GitHub OAuth login sequence.';
+      break;
+    }
+    case 'api': {
+      const meth = Object.entries(state.apiMethods).filter(([,v])=>v).map(([k])=>k);
+      const grps = API_GROUPS.filter(g=>state.apiGroups[g.id]).map(g=>g.label);
+      prompt = 'AgentPane API Surface. Methods: '+meth.join(', ')+'. Groups: '+grps.join(', ')+'.';
+      break;
+    }
+    case 'agentexec': {
+      prompt = 'AgentPane Agent Execution Flow.';
+      if (state.showPlanningPhase) prompt += ' Planning phase: task move -> agent start -> SDK plan session -> ExitPlanMode -> plan_ready event.';
+      if (state.showExecutionPhase) prompt += ' Execution phase: user approves -> approve-plan API -> runAgentExecution -> SDK acceptEdits -> agent:completed.';
+      break;
+    }
+    case 'infra': {
+      const zones = [];
+      if (state.showHost) zones.push('Host Machine (Hono API :3001, Drizzle ORM, SQLite local, pg driver, Git, Providers)');
+      if (state.showDocker) zones.push('Docker (Local, via Docker socket)');
+      if (state.showK8s) zones.push('K8s Cluster (remote, CRDs + gVisor/Kata)');
+      if (state.showNomad) zones.push('Nomad Cluster (remote, HTTP :4646)');
+      if (state.showPostgres) zones.push('PostgreSQL (remote, DATABASE_URL, Drizzle migrations)');
+      if (state.showExternal) zones.push('External (Anthropic, GitHub, Docker Hub, npm, HCP Terraform)');
+      prompt = 'AgentPane Infrastructure Topology. Zones: '+zones.join(', ')+'.';
+      break;
+    }
+  }
+  if (state.comments.length > 0) {
+    prompt += '\n\nFeedback:\n';
+    state.comments.forEach(c => {
+      prompt += `\n[${c.targetLabel}]: ${c.text}\n`;
+    });
+  }
+  document.getElementById('prompt-text').textContent = prompt;
+}
+
+// ================================================================
+// INIT
+// ================================================================
+switchView('overview');
+</script>
+</body>
+</html>
