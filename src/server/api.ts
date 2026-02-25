@@ -1673,22 +1673,80 @@ function startNomadHealInterval() {
 }
 
 // Initialize sandbox provider in the background (non-blocking)
-// Then start K8s/Nomad auto-heal intervals if providers are active
+// Then start K8s/Nomad auto-heal intervals if providers are active.
+// If initialization fails (e.g. cluster not running at startup), retry with backoff.
+let sandboxRetryCount = 0;
+const SANDBOX_MAX_RETRIES = 10;
+const SANDBOX_BASE_DELAY_MS = 15_000; // 15 seconds
+const SANDBOX_MAX_DELAY_MS = 300_000; // 5 minutes
+let sandboxRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
+function onSandboxProviderReady() {
+  sandboxRetryCount = 0;
+  if (sandboxRetryTimer) {
+    clearTimeout(sandboxRetryTimer);
+    sandboxRetryTimer = null;
+  }
+  if (activeK8sProvider) {
+    startK8sHealInterval();
+    log.info('[API Server] K8s CRD auto-heal interval started (60s)');
+  }
+  if (activeNomadProvider) {
+    startNomadHealInterval();
+    log.info('[API Server] Nomad auto-heal interval started (60s)');
+  }
+}
+
+function scheduleSandboxRetry() {
+  if (sandboxRetryCount >= SANDBOX_MAX_RETRIES) {
+    log.warn(
+      `[API Server] Sandbox provider initialization failed after ${SANDBOX_MAX_RETRIES} retries — giving up. Restart the server to try again.`
+    );
+    return;
+  }
+
+  const delay = Math.min(SANDBOX_BASE_DELAY_MS * 2 ** sandboxRetryCount, SANDBOX_MAX_DELAY_MS);
+  sandboxRetryCount++;
+
+  log.info(
+    `[API Server] Will retry sandbox provider initialization in ${Math.round(delay / 1000)}s (attempt ${sandboxRetryCount}/${SANDBOX_MAX_RETRIES})`
+  );
+
+  sandboxRetryTimer = setTimeout(async () => {
+    sandboxRetryTimer = null;
+    if (sandboxProvider) return; // Already initialized
+
+    try {
+      await initSandboxProvider();
+      if (sandboxProvider) {
+        log.info('[API Server] Sandbox provider initialized on retry');
+        onSandboxProviderReady();
+      } else {
+        scheduleSandboxRetry();
+      }
+    } catch (err) {
+      log.warn('[API Server] Sandbox provider retry failed:', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      scheduleSandboxRetry();
+    }
+  }, delay);
+  sandboxRetryTimer.unref(); // Don't prevent process exit
+}
+
 initSandboxProvider()
   .then(() => {
-    if (activeK8sProvider) {
-      startK8sHealInterval();
-      log.info('[API Server] K8s CRD auto-heal interval started (60s)');
-    }
-    if (activeNomadProvider) {
-      startNomadHealInterval();
-      log.info('[API Server] Nomad auto-heal interval started (60s)');
+    if (sandboxProvider) {
+      onSandboxProviderReady();
+    } else {
+      scheduleSandboxRetry();
     }
   })
   .catch((err) => {
     log.error('[API Server] Sandbox provider initialization failed:', {
       error: err instanceof Error ? err.message : String(err),
     });
+    scheduleSandboxRetry();
   });
 
 // Start the template sync scheduler
@@ -1738,6 +1796,12 @@ async function shutdownServer(signal: string) {
   if (nomadHealInterval) {
     clearInterval(nomadHealInterval);
     nomadHealInterval = null;
+  }
+
+  // Stop sandbox provider retry timer
+  if (sandboxRetryTimer) {
+    clearTimeout(sandboxRetryTimer);
+    sandboxRetryTimer = null;
   }
 
   // Stop sandbox controller
