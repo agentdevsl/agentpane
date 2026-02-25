@@ -237,6 +237,34 @@ describe('Projects API Routes', () => {
       expect(json.data.id).toBe('proj-1');
     });
 
+    it('returns config and maxConcurrentAgents in GET response', async () => {
+      const { app, db } = createTestApp();
+      const project = {
+        id: 'proj-1',
+        name: 'Project 1',
+        path: '/home/user/project1',
+        description: 'A project',
+        maxConcurrentAgents: 5,
+        config: {
+          defaultBranch: 'main',
+          maxTurns: 100,
+          sandbox: { enabled: true, provider: 'kubernetes' },
+        },
+        createdAt: '2025-01-01',
+        updatedAt: '2025-01-02',
+      };
+      db.query.projects.findFirst.mockResolvedValue(project);
+
+      const res = await request(app, 'GET', '/api/projects/proj-1');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.ok).toBe(true);
+      expect(json.data.config).toEqual(project.config);
+      expect(json.data.config.sandbox.provider).toBe('kubernetes');
+      expect(json.data.maxConcurrentAgents).toBe(5);
+    });
+
     it('returns 400 for invalid id format', async () => {
       const { app } = createTestApp();
 

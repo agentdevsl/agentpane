@@ -274,6 +274,8 @@ export function createProjectsRoutes({ db }: ProjectsDeps) {
           name: project.name,
           path: project.path,
           description: project.description,
+          maxConcurrentAgents: project.maxConcurrentAgents,
+          config: project.config,
           createdAt: project.createdAt,
           updatedAt: project.updatedAt,
         },
