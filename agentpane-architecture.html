@@ -1450,7 +1450,7 @@ function renderInfra() {
       <button class="zoom-btn" onclick="adjustZoom('infra',0.8)">-</button>
     </div>
     <div class="svg-scroller">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 680" width="${880*z}" height="${680*z}">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 572" width="${860*z}" height="${572*z}">
         ${buildInfraSVG()}
       </svg>
     </div>`;
@@ -1501,106 +1501,117 @@ function buildInfraSVG() {
     ${label?`<text x="${mx}" y="${my-5}" text-anchor="middle" font-size="8.5" fill="${c}" font-family="system-ui">${esc(label)}</text>`:''}`;
   }
 
-  // Browser
-  out += box(10, 230, 80, 60, 'Browser', '', '#60a5fa', 'inf-browser');
+  // === TOP-DOWN LAYOUT ===
+  // Col metrics: 3 columns within Host, each 187w, 11px gap
+  // Col1: x=44, Col2: x=242, Col3: x=440, each 187w
+  // Col centers: 137, 335, 533
 
-  // Host zone
+  // Row 0: Browser + TanStack DB (centered)
+  out += box(280, 8, 120, 36, 'Browser', 'React SPA', '#60a5fa', 'inf-browser');
+  out += box(410, 8, 120, 36, 'TanStack DB', 'client-side store', '#22d3ee', 'inf-tanstack-db');
+
+  // Row 1: Host Machine zone (3-column grid)
   if (state.showHost) {
-    out += zone(105, 10, 255, 660, 'Host Machine', '#22c55e');
-    out += box(120, 40,  225, 40, 'Hono API Server', ':3001', '#22c55e', 'inf-hono');
-    out += box(120, 95,  225, 40, 'Drizzle ORM', 'DB_MODE: sqlite | postgres', '#06b6d4', 'inf-drizzle');
-    out += box(120, 150, 105, 40, 'SQLite', 'agentpane.db (local)', '#22c55e', 'inf-sqlite');
-    out += box(240, 150, 105, 40, 'pg driver', 'postgres.js', '#06b6d4', 'inf-pg-driver');
-    out += box(120, 205, 225, 40, 'Git Worktrees', '/worktrees', '#14b8a6', 'inf-git');
-    out += box(120, 260, 105, 40, 'Docker\nProvider', '', '#60a5fa', 'inf-docker-prov');
-    out += box(240, 260, 105, 40, 'K8s\nProvider', '', '#a78bfa', 'inf-k8s-prov');
-    out += box(120, 315, 225, 40, 'Nomad Provider', '', '#f97316', 'inf-nomad-prov');
-    out += box(120, 375, 225, 40, 'Container Agent', 'agent orchestration', '#22c55e', 'inf-container-agent');
-    out += box(120, 435, 225, 40, 'Durable Streams', 'in-process SSE + persistence', '#f87171', 'inf-durable');
-    out += box(120, 495, 225, 40, 'Vite Dev Server', ':3000 (dev only)', '#64748b', 'inf-vite');
-    // Drizzle → SQLite (local)
-    out += arrow(172, 135, 172, 150, '', '#22c55e', 'inf-arr-g');
-    // Drizzle → pg driver
-    out += arrow(292, 135, 292, 150, '', '#06b6d4', 'inf-arr-cy');
-    // Hono → Durable Streams (SSE endpoint)
-    out += arrow(345, 60, 345, 448, '', '#f87171', 'inf-arr-r');
-    // Durable Streams → Drizzle (persist session_events)
-    out += arrow(120, 455, 120, 125, 'persist events', '#f87171', 'inf-arr-r');
+    out += zone(30, 58, 610, 236, 'Host Machine', '#22c55e');
+    // Row A: Server processes (2 across, full width)
+    out += box(44,  80, 286, 32, 'Hono API Server', ':3001', '#22c55e', 'inf-hono');
+    out += box(341, 80, 286, 32, 'Durable Streams', 'in-process SSE + persistence', '#f87171', 'inf-durable');
+    // Row B: Database abstraction (full width)
+    out += box(44, 122, 583, 32, 'Drizzle ORM', 'DB_MODE: sqlite | postgres', '#06b6d4', 'inf-drizzle');
+    // Row C: Data stores
+    out += box(44,  164, 187, 32, 'SQLite', 'agentpane.db (local)', '#22c55e', 'inf-sqlite');
+    out += box(242, 164, 187, 32, 'pg driver', 'postgres.js', '#06b6d4', 'inf-pg-driver');
+    out += box(440, 164, 187, 32, 'Git Worktrees', '/worktrees', '#14b8a6', 'inf-git');
+    // Row D: Container Agent (full width)
+    out += box(44, 206, 583, 32, 'Container Agent', 'orchestration', '#22c55e', 'inf-container-agent');
+    // Row E: Sandbox providers (one per column)
+    out += box(44,  248, 187, 32, 'Docker Provider', '', '#60a5fa', 'inf-docker-prov');
+    out += box(242, 248, 187, 32, 'K8s Provider', '', '#a78bfa', 'inf-k8s-prov');
+    out += box(440, 248, 187, 32, 'Nomad Provider', '', '#f97316', 'inf-nomad-prov');
+
+    // Internal arrows (all short vertical)
+    out += arrow(330, 96, 341, 96, '', '#f87171', 'inf-arr-r');    // Hono → Durable (events)
+    out += arrow(187, 112, 187, 122, '', '#22c55e', 'inf-arr-g');  // Hono → Drizzle
+    out += arrow(484, 112, 484, 122, '', '#f87171', 'inf-arr-r');  // Durable → Drizzle (persist)
+    out += arrow(137, 154, 137, 164, '', '#22c55e', 'inf-arr-g');  // Drizzle → SQLite
+    out += arrow(335, 154, 335, 164, '', '#06b6d4', 'inf-arr-cy'); // Drizzle → pg
+    out += arrow(137, 238, 137, 248, '', '#60a5fa', 'inf-arr');    // Container → Docker
+    out += arrow(335, 238, 335, 248, '', '#a78bfa', 'inf-arr-p');  // Container → K8s
+    out += arrow(533, 238, 533, 248, '', '#f97316', 'inf-arr-o');  // Container → Nomad
+    // "persist" label
+    out += `<text x="497" y="119" font-size="7.5" fill="#f87171" font-family="system-ui" opacity="0.7">persist</text>`;
   }
 
-  // Docker (Local) zone — separate from K8s/Nomad
-  if (state.showDocker) {
-    out += zone(375, 10, 190, 160, 'Docker (Local)', '#60a5fa');
-    out += box(390, 45, 160, 100, 'agent-sandbox\ncontainers', 'Docker socket', '#60a5fa', 'inf-docker-c');
-  }
-
-  // K8s Cluster zone — remote
-  if (state.showK8s) {
-    out += zone(375, 185, 190, 165, 'K8s Cluster', '#a78bfa');
-    out += box(390, 220, 160, 55, 'K8s Pods', 'gVisor / Kata / runc', '#a78bfa', 'inf-k8s-pods');
-    out += box(390, 290, 160, 45, 'Sandbox CRDs', 'sandboxes.agents.x-k8s.io', '#a78bfa', 'inf-k8s-crds');
-  }
-
-  // Nomad Cluster zone — remote
-  if (state.showNomad) {
-    out += zone(375, 365, 190, 155, 'Nomad Cluster', '#f97316');
-    out += box(390, 400, 160, 55, 'Nomad Jobs', 'Docker driver', '#f97316', 'inf-nomad-jobs');
-    out += box(390, 470, 160, 35, 'Alloc Exec', 'stdio bridge', '#f97316', 'inf-nomad-exec');
-  }
-
-  // PostgreSQL (Remote) zone
+  // PostgreSQL (Remote) — right of Host, connected from pg driver
   if (state.showPostgres) {
-    out += zone(375, 535, 190, 130, 'PostgreSQL (Remote)', '#06b6d4');
-    out += box(390, 565, 160, 45, 'PostgreSQL', 'DATABASE_URL', '#06b6d4', 'inf-pg-remote');
-    out += box(390, 622, 160, 30, 'Drizzle Migrations', 'migrations-pg/', '#06b6d4', 'inf-pg-migrate');
+    out += zone(670, 58, 170, 150, 'PostgreSQL (Remote)', '#06b6d4');
+    out += box(682, 84, 146, 44, 'PostgreSQL', 'DATABASE_URL', '#06b6d4', 'inf-pg-remote');
+    out += box(682, 140, 146, 30, 'Drizzle Migrations', 'migrations-pg/', '#06b6d4', 'inf-pg-migrate');
   }
 
-  // External zone
+  // Row 2: Sandbox zones (aligned with Host columns)
+  if (state.showDocker) {
+    out += zone(44, 310, 187, 128, 'Docker (Local)', '#60a5fa');
+    out += box(56, 336, 163, 78, 'agent-sandbox\ncontainers', 'Docker socket', '#60a5fa', 'inf-docker-c');
+  }
+  if (state.showK8s) {
+    out += zone(242, 310, 187, 128, 'K8s Cluster', '#a78bfa');
+    out += box(254, 336, 163, 40, 'K8s Pods', 'gVisor / Kata / runc', '#a78bfa', 'inf-k8s-pods');
+    out += box(254, 384, 163, 30, 'Sandbox CRDs', 'agents.x-k8s.io', '#a78bfa', 'inf-k8s-crds');
+  }
+  if (state.showNomad) {
+    out += zone(440, 310, 187, 128, 'Nomad Cluster', '#f97316');
+    out += box(452, 336, 163, 40, 'Nomad Jobs', 'Docker driver', '#f97316', 'inf-nomad-jobs');
+    out += box(452, 384, 163, 26, 'Alloc Exec', 'stdio bridge', '#f97316', 'inf-nomad-exec');
+  }
+
+  // Row 3: External Services (full width, Anthropic centered under sandbox zones)
   if (state.showExternal) {
-    out += zone(580, 10, 210, 660, 'External Services', '#6b7280');
-    out += box(595, 45,  180, 55, 'Anthropic API', 'claude-sonnet-4-6', '#a78bfa', 'inf-anthropic');
-    out += box(595, 120, 180, 55, 'GitHub API', 'OAuth + Webhooks', '#6b7280', 'inf-github');
-    out += box(595, 200, 180, 55, 'Docker Hub', 'srlynch1/agent-sandbox', '#60a5fa', 'inf-dockerhub');
-    out += box(595, 280, 180, 55, 'npm Registry', '@agentpane/cli-monitor', '#ef4444', 'inf-npm');
-    out += box(595, 365, 180, 55, 'HCP Terraform', 'registry.terraform.io', '#eab308', 'inf-terraform');
-    out += box(595, 445, 180, 55, 'GitHub OAuth', 'App credentials', '#6b7280', 'inf-github-oauth');
+    out += zone(30, 456, 810, 106, 'External Services', '#6b7280');
+    // Anthropic wide bar — centered under all 3 sandbox zones
+    out += box(44, 476, 583, 30, 'Anthropic API', 'Claude API (all sandbox containers)', '#a78bfa', 'inf-anthropic');
+    // Other services row
+    out += box(44,  514, 110, 32, 'GitHub API', 'OAuth', '#6b7280', 'inf-github');
+    out += box(162, 514, 110, 32, 'Docker Hub', 'agent-sandbox', '#60a5fa', 'inf-dockerhub');
+    out += box(280, 514, 110, 32, 'npm Registry', 'cli-monitor', '#ef4444', 'inf-npm');
+    out += box(398, 514, 110, 32, 'HCP Terraform', 'terraform.io', '#eab308', 'inf-terraform');
+    out += box(516, 514, 110, 32, 'GitHub OAuth', 'credentials', '#6b7280', 'inf-github-oauth');
   }
 
-  // Arrows: Browser → Host
+  // === ARROWS (all top-down, no crossing) ===
+
+  // Browser → Host (HTTP)
   if (state.showHost) {
-    out += arrow(90, 245, 120, 60, 'HTTP', '#60a5fa', 'inf-arr');
-    out += arrow(90, 265, 120, 455, 'SSE', '#f87171', 'inf-arr-r');
+    out += arrow(340, 44, 137, 58, 'HTTP', '#60a5fa', 'inf-arr');
+    out += arrow(470, 44, 335, 58, 'SSE', '#f87171', 'inf-arr-r');
   }
-  // Host → Docker (local)
+
+  // Providers → Sandbox zones (perfectly vertical)
   if (state.showHost && state.showDocker) {
-    out += arrow(225, 280, 390, 95, 'Docker API', '#60a5fa', 'inf-arr');
+    out += arrow(137, 280, 137, 310, '', '#60a5fa', 'inf-arr');
   }
-  // Host → K8s (remote)
   if (state.showHost && state.showK8s) {
-    out += arrow(345, 280, 390, 248, 'K8s API', '#a78bfa', 'inf-arr-p');
+    out += arrow(335, 280, 335, 310, '', '#a78bfa', 'inf-arr-p');
   }
-  // Host → Nomad (remote)
   if (state.showHost && state.showNomad) {
-    out += arrow(345, 335, 390, 428, 'HTTP :4646', '#f97316', 'inf-arr-o');
+    out += arrow(533, 280, 533, 310, '', '#f97316', 'inf-arr-o');
   }
-  // Host pg driver → PostgreSQL (remote)
+
+  // Host → PostgreSQL (horizontal right)
   if (state.showHost && state.showPostgres) {
-    out += arrow(345, 170, 390, 588, 'DATABASE_URL', '#06b6d4', 'inf-arr-cy');
+    out += arrow(640, 140, 670, 140, '', '#06b6d4', 'inf-arr-cy');
+    out += `<text x="655" y="133" font-size="7.5" fill="#06b6d4" font-family="system-ui" text-anchor="middle" opacity="0.7">DATABASE_URL</text>`;
   }
-  // Sandboxes → Anthropic API
+
+  // Sandbox zones → Anthropic (straight down, all converge)
   if (state.showDocker && state.showExternal) {
-    out += arrow(550, 95,  595, 73, 'Claude API', '#a78bfa', 'inf-arr-p');
+    out += arrow(137, 438, 137, 476, '', '#a78bfa', 'inf-arr-p');
   }
   if (state.showK8s && state.showExternal) {
-    out += arrow(550, 248, 595, 73, '', '#a78bfa', 'inf-arr-p');
+    out += arrow(335, 438, 335, 476, '', '#a78bfa', 'inf-arr-p');
   }
   if (state.showNomad && state.showExternal) {
-    out += arrow(550, 428, 595, 73, '', '#a78bfa', 'inf-arr-p');
-  }
-  // Host → External
-  if (state.showHost && state.showExternal) {
-    out += arrow(345, 73, 595, 148, 'GitHub OAuth', '#6b7280', 'inf-arr');
-    out += arrow(345, 73, 595, 228, 'pull images', '#60a5fa', 'inf-arr');
+    out += arrow(533, 438, 533, 476, '', '#a78bfa', 'inf-arr-p');
   }
 
   return out;
