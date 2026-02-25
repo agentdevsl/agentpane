@@ -1319,6 +1319,9 @@ export function createNomadRoutes(deps?: NomadRouteDeps) {
         },
       });
     } catch (error) {
+      log.error('Nomad status check failed', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
       const message = error instanceof Error ? error.message : 'Failed to connect to Nomad';
       return json({ ok: false, error: { code: 'NOMAD_CONNECTION_ERROR', message } }, 500);
     }
@@ -1346,6 +1349,9 @@ export function createNomadRoutes(deps?: NomadRouteDeps) {
       const namespaces = await client.listNamespaces();
       return json({ ok: true, data: { namespaces } });
     } catch (error) {
+      log.error('Nomad namespaces list failed', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
       const message = error instanceof Error ? error.message : 'Failed to list namespaces';
       return json({ ok: false, error: { code: 'NOMAD_API_ERROR', message } }, 500);
     }
@@ -1373,6 +1379,9 @@ export function createNomadRoutes(deps?: NomadRouteDeps) {
       const datacenters = await client.listDatacenters();
       return json({ ok: true, data: { datacenters } });
     } catch (error) {
+      log.error('Nomad datacenters list failed', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
       const message = error instanceof Error ? error.message : 'Failed to list datacenters';
       return json({ ok: false, error: { code: 'NOMAD_API_ERROR', message } }, 500);
     }
@@ -1433,6 +1442,9 @@ export function createNomadRoutes(deps?: NomadRouteDeps) {
         },
       });
     } catch (error) {
+      log.error('Nomad connection validation failed', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
       const message =
         error instanceof Error ? error.message : 'Failed to validate Nomad connection';
       return json({ ok: false, error: { code: 'NOMAD_VALIDATION_ERROR', message } }, 500);

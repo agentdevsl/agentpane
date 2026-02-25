@@ -262,6 +262,9 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
         log.error(`refreshStatus failed for sandbox ${sandboxId}, treating as error`, {
           error: error instanceof Error ? error : new Error(String(error)),
         });
+        // refreshStatus() throws do not update _status, so force eviction here
+        toEvict.push(sandboxId);
+        continue;
       }
       if (instance.status === 'error' || instance.status === 'stopped') {
         toEvict.push(sandboxId);
@@ -286,16 +289,28 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
       const cached = this.sandboxes.get(sandboxId);
       if (cached) {
         // Refresh status from cluster to avoid stale 'creating' status
-        await cached.refreshStatus();
-        if (cached.status === 'error' || cached.status === 'stopped') {
-          log.info('Evicting stale sandbox from get() cache', {
-            data: { sandboxId, projectId, status: cached.status },
+        try {
+          await cached.refreshStatus();
+        } catch (error) {
+          log.error(`refreshStatus failed for sandbox ${sandboxId} in get()`, {
+            error: error instanceof Error ? error : new Error(String(error)),
+            data: { projectId },
           });
           this.sandboxes.delete(sandboxId);
           this.projectToSandbox.delete(projectId);
           // Fall through to cluster query below
-        } else {
-          return cached;
+        }
+        if (this.sandboxes.has(sandboxId)) {
+          if (cached.status === 'error' || cached.status === 'stopped') {
+            log.info('Evicting stale sandbox from get() cache', {
+              data: { sandboxId, projectId, status: cached.status },
+            });
+            this.sandboxes.delete(sandboxId);
+            this.projectToSandbox.delete(projectId);
+            // Fall through to cluster query below
+          } else {
+            return cached;
+          }
         }
       }
     }
