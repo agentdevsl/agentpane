@@ -804,8 +804,8 @@ describe('SandboxConfigService', () => {
       // Verify first is no longer default
       const allConfigs = await configService.list();
       if (allConfigs.ok) {
-        const first = allConfigs.value.find((c) => c.name === 'First Default');
-        const second = allConfigs.value.find((c) => c.name === 'Second Default');
+        const first = allConfigs.value.items.find((c) => c.name === 'First Default');
+        const second = allConfigs.value.items.find((c) => c.name === 'Second Default');
         expect(first?.isDefault).toBe(false);
         expect(second?.isDefault).toBe(true);
       }
@@ -921,7 +921,7 @@ describe('SandboxConfigService', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value.length).toBe(3);
+        expect(result.value.items.length).toBe(3);
       }
     });
 
@@ -936,8 +936,8 @@ describe('SandboxConfigService', () => {
       expect(page1.ok).toBe(true);
       expect(page2.ok).toBe(true);
       if (page1.ok && page2.ok) {
-        expect(page1.value.length).toBe(2);
-        expect(page2.value.length).toBe(2);
+        expect(page1.value.items.length).toBe(2);
+        expect(page2.value.items.length).toBe(2);
       }
     });
   });
