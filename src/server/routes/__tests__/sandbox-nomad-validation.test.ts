@@ -46,9 +46,16 @@ describe('validateNomadAddress', () => {
     });
   });
 
-  it('allows http://192.168.1.100:4646 (local network allowed)', async () => {
+  it('allows http://192.168.1.100:4646 (local network allowed on port 4646)', async () => {
     await expect(validateNomadAddress('http://192.168.1.100:4646')).resolves.toEqual({
       valid: true,
+    });
+  });
+
+  it('rejects 192.168.x on non-4646 port (prevents SSRF to LAN services)', async () => {
+    await expect(validateNomadAddress('http://192.168.1.100:8500')).resolves.toEqual({
+      valid: false,
+      error: 'Nomad address on LAN (192.168.x) must use port 4646 to prevent SSRF',
     });
   });
 
@@ -239,7 +246,7 @@ describe('validateNomadAddress', () => {
     expect(result.valid === false && result.error).toMatch(/private\/reserved IP/);
   });
 
-  it('allows address through when DNS resolution fails (internal hostname)', async () => {
+  it('rejects address when DNS resolution fails (fail-closed)', async () => {
     // Temporarily replace the mock to simulate a DNS failure.
     mockDnsResolve.mockReset();
     mockDnsResolve.mockRejectedValue(new Error('ENOTFOUND internal.corp'));
@@ -250,7 +257,26 @@ describe('validateNomadAddress', () => {
     mockDnsResolve.mockReset();
     mockDnsResolve.mockResolvedValue([]);
 
+    expect(result).toEqual({
+      valid: false,
+      error:
+        'Cannot resolve hostname "internal.corp" — DNS lookup failed. Use an IP address or ensure the hostname is resolvable.',
+    });
+  });
+
+  it('skips DNS check for literal IP addresses', async () => {
+    // DNS should not be called for literal IPs
+    mockDnsResolve.mockReset();
+    mockDnsResolve.mockRejectedValue(new Error('should not be called'));
+
+    const result = await validateNomadAddress('http://192.168.1.100:4646');
+
+    // Restore the default for subsequent tests.
+    mockDnsResolve.mockReset();
+    mockDnsResolve.mockResolvedValue([]);
+
     expect(result).toEqual({ valid: true });
+    // DNS resolve should not have been called for a literal IP
   });
 });
 

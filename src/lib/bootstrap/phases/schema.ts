@@ -424,6 +424,15 @@ CREATE INDEX IF NOT EXISTS idx_tf_modules_name ON terraform_modules(name);
 
 export const SANDBOX_CONTAINER_ID_MIGRATION_SQL = `ALTER TABLE sessions ADD COLUMN sandbox_container_id TEXT;`;
 
+// Migration for Nomad columns on sandbox_configs (for existing databases)
+export const SANDBOX_NOMAD_MIGRATION_SQL = `
+ALTER TABLE sandbox_configs ADD COLUMN nomad_address TEXT;
+ALTER TABLE sandbox_configs ADD COLUMN nomad_token TEXT;
+ALTER TABLE sandbox_configs ADD COLUMN nomad_namespace TEXT DEFAULT 'default';
+ALTER TABLE sandbox_configs ADD COLUMN nomad_datacenter TEXT;
+ALTER TABLE sandbox_configs ADD COLUMN nomad_region TEXT;
+`;
+
 // Performance indexes migration
 export const PERFORMANCE_INDEXES_MIGRATION_SQL = `
 -- Index for looking up tasks by agent

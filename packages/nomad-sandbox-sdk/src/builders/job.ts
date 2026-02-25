@@ -118,6 +118,7 @@ export class NomadJobBuilder {
       '/etc',
       '/proc',
       '/sys',
+      '/run',
       '/var/run',
       '/var/lib/docker',
       '/var/log',

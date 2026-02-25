@@ -257,6 +257,12 @@ function SandboxSettingsPage(): React.JSX.Element {
   const [formKubeConfigPath, setFormKubeConfigPath] = useState('');
   const [formKubeContext, setFormKubeContext] = useState('');
   const [formKubeNamespace, setFormKubeNamespace] = useState('agentpane-sandboxes');
+  // Nomad form state (for resource profile editor)
+  const [formNomadAddress, setFormNomadAddress] = useState('');
+  const [formNomadToken, setFormNomadToken] = useState('');
+  const [formNomadNamespace, setFormNomadNamespace] = useState('default');
+  const [formNomadDatacenter, setFormNomadDatacenter] = useState('');
+  const [formNomadRegion, setFormNomadRegion] = useState('');
 
   // CRD controller state
   const [controllerStatus, setControllerStatus] = useState<{
@@ -766,6 +772,12 @@ function SandboxSettingsPage(): React.JSX.Element {
     setFormKubeConfigPath('');
     setFormKubeContext('');
     setFormKubeNamespace('agentpane-sandboxes');
+    // Nomad form fields
+    setFormNomadAddress('');
+    setFormNomadToken('');
+    setFormNomadNamespace('default');
+    setFormNomadDatacenter('');
+    setFormNomadRegion('');
     setSaveError(null);
   };
 
@@ -787,11 +799,15 @@ function SandboxSettingsPage(): React.JSX.Element {
     setFormIsDefault(config.isDefault);
     setFormVolumeMountPath(config.volumeMountPath ?? '');
     // K8s fields
-    setFormKubeConfigPath((config as { kubeConfigPath?: string }).kubeConfigPath ?? '');
-    setFormKubeContext((config as { kubeContext?: string }).kubeContext ?? '');
-    setFormKubeNamespace(
-      (config as { kubeNamespace?: string }).kubeNamespace ?? 'agentpane-sandboxes'
-    );
+    setFormKubeConfigPath(config.kubeConfigPath ?? '');
+    setFormKubeContext(config.kubeContext ?? '');
+    setFormKubeNamespace(config.kubeNamespace ?? 'agentpane-sandboxes');
+    // Nomad fields
+    setFormNomadAddress(config.nomadAddress ?? '');
+    setFormNomadToken('');
+    setFormNomadNamespace(config.nomadNamespace ?? 'default');
+    setFormNomadDatacenter(config.nomadDatacenter ?? '');
+    setFormNomadRegion(config.nomadRegion ?? '');
     setSaveError(null);
     setEditorMode('edit');
     setEditingConfig(config);
@@ -829,6 +845,12 @@ function SandboxSettingsPage(): React.JSX.Element {
           kubeConfigPath: formKubeConfigPath || undefined,
           kubeContext: formKubeContext || undefined,
           kubeNamespace: formKubeNamespace || undefined,
+          // Nomad fields
+          nomadAddress: formNomadAddress || undefined,
+          nomadToken: formNomadToken || undefined,
+          nomadNamespace: formNomadNamespace || undefined,
+          nomadDatacenter: formNomadDatacenter || undefined,
+          nomadRegion: formNomadRegion || undefined,
         };
         const result = await apiClient.sandboxConfigs.create(input);
         if (!result.ok) {
@@ -851,6 +873,12 @@ function SandboxSettingsPage(): React.JSX.Element {
           kubeConfigPath: formKubeConfigPath || undefined,
           kubeContext: formKubeContext || undefined,
           kubeNamespace: formKubeNamespace || undefined,
+          // Nomad fields
+          nomadAddress: formNomadAddress || undefined,
+          nomadToken: formNomadToken || undefined,
+          nomadNamespace: formNomadNamespace || undefined,
+          nomadDatacenter: formNomadDatacenter || undefined,
+          nomadRegion: formNomadRegion || undefined,
         };
         const result = await apiClient.sandboxConfigs.update(editingConfig.id, input);
         if (!result.ok) {

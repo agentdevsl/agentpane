@@ -1119,28 +1119,47 @@ export async function validateNomadAddress(
     '172.30.',
     '172.31.',
   ];
-  // 127.x (port-restricted to 4646 above) and 192.168.x are intentionally allowed because
-  // Nomad is commonly run on the local machine or a home/office LAN. 10.x and 172.16-31.x
-  // are blocked because they typically correspond to cloud VPC infrastructure (AWS VPC,
-  // GCP internal, etc.) where SSRF could reach sensitive internal services or metadata endpoints.
+  // 127.x is port-restricted to 4646 above. 10.x and 172.16-31.x are blocked because they
+  // typically correspond to cloud VPC infrastructure (AWS VPC, GCP internal, etc.) where
+  // SSRF could reach sensitive internal services or metadata endpoints.
   for (const prefix of blockedPrefixes) {
     if (hostname.startsWith(prefix)) {
       return { valid: false, error: 'Nomad address cannot target internal network addresses' };
     }
   }
-
-  // Resolve DNS to prevent rebinding attacks
-  try {
-    const addresses = await dnsResolve(hostname);
-    for (const addr of addresses) {
-      if (isPrivateIp(addr)) {
-        return { valid: false, error: `Nomad address resolves to private/reserved IP: ${addr}` };
-      }
+  // Restrict 192.168.x.x (home/office LAN) to Nomad's default port (4646) only,
+  // matching the 127.x restriction. This prevents SSRF against other LAN services
+  // while still allowing local Nomad setups.
+  if (hostname.startsWith('192.168.')) {
+    const port = url.port ? parseInt(url.port, 10) : url.protocol === 'https:' ? 443 : 80;
+    if (port !== NOMAD_DEFAULT_PORT) {
+      return {
+        valid: false,
+        error: `Nomad address on LAN (192.168.x) must use port ${NOMAD_DEFAULT_PORT} to prevent SSRF`,
+      };
     }
-  } catch {
-    // DNS resolution failure — allow the address through since
-    // it may be an internal hostname that only resolves on the server network.
-    // The actual connection will fail if the hostname is truly invalid.
+  }
+
+  // Resolve DNS to prevent rebinding attacks.
+  // Skip DNS check for literal IP addresses (they don't need resolution).
+  const isLiteralIp =
+    /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) || hostname.includes(':');
+  if (!isLiteralIp) {
+    try {
+      const addresses = await dnsResolve(hostname);
+      for (const addr of addresses) {
+        if (isPrivateIp(addr)) {
+          return { valid: false, error: `Nomad address resolves to private/reserved IP: ${addr}` };
+        }
+      }
+    } catch {
+      // DNS resolution failure — fail-closed to prevent SSRF via DNS rebinding.
+      // If users need to use internal hostnames, they should use IP addresses directly.
+      return {
+        valid: false,
+        error: `Cannot resolve hostname "${hostname}" — DNS lookup failed. Use an IP address or ensure the hostname is resolvable.`,
+      };
+    }
   }
 
   return { valid: true };
