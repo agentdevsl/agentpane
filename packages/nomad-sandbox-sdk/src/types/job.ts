@@ -9,6 +9,10 @@ export interface NomadDockerConfig {
   command?: string;
   volumes?: string[];
   port_map?: Record<string, number>;
+  privileged?: boolean;
+  cap_drop?: string[];
+  cap_add?: string[];
+  security_opt?: string[];
 }
 
 /**

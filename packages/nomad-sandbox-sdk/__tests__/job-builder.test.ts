@@ -310,4 +310,66 @@ describe('NomadJobBuilder', () => {
       expect(() => builder.build()).toThrow('Docker image is required');
     });
   });
+
+  // ----------------------------------------------------------------
+  // .volumes() security
+  // ----------------------------------------------------------------
+  describe('.volumes() security', () => {
+    const builder = () => new NomadJobBuilder('test').image('ubuntu:22.04');
+
+    it('should allow valid volume mount paths', () => {
+      expect(() => builder().volumes(['/data/project:/workspace'])).not.toThrow();
+    });
+
+    it('should block root mount /', () => {
+      expect(() => builder().volumes(['/:/host'])).toThrow('blocked for security');
+    });
+
+    it('should block /etc and paths under it', () => {
+      expect(() => builder().volumes(['/etc:/host-etc'])).toThrow('blocked for security');
+      expect(() => builder().volumes(['/etc/passwd:/passwd'])).toThrow('blocked for security');
+    });
+
+    it('should block /proc', () => {
+      expect(() => builder().volumes(['/proc:/proc'])).toThrow('blocked for security');
+    });
+
+    it('should block /sys', () => {
+      expect(() => builder().volumes(['/sys:/sys'])).toThrow('blocked for security');
+    });
+
+    it('should block /dev', () => {
+      expect(() => builder().volumes(['/dev:/dev'])).toThrow('blocked for security');
+    });
+
+    it('should block /tmp', () => {
+      expect(() => builder().volumes(['/tmp:/tmp'])).toThrow('blocked for security');
+    });
+
+    it('should block /var/tmp', () => {
+      expect(() => builder().volumes(['/var/tmp:/var/tmp'])).toThrow('blocked for security');
+    });
+
+    it('should block /home and paths under it', () => {
+      expect(() => builder().volumes(['/home:/home'])).toThrow('blocked for security');
+      expect(() => builder().volumes(['/home/user/.ssh:/ssh'])).toThrow('blocked for security');
+    });
+
+    it('should block path traversal attempts', () => {
+      expect(() => builder().volumes(['/data/../etc:/workspace'])).toThrow('blocked for security');
+    });
+
+    it('should block paths with repeated slashes', () => {
+      expect(() => builder().volumes(['///etc:/workspace'])).toThrow('blocked for security');
+    });
+
+    it('should normalize paths before checking blocklist', () => {
+      // /var/./tmp normalizes to /var/tmp which is blocked
+      expect(() => builder().volumes(['/var/./tmp:/workspace'])).toThrow('blocked for security');
+      // /data/safe/../../etc normalizes to /etc which is blocked
+      expect(() => builder().volumes(['/data/safe/../../etc:/workspace'])).toThrow(
+        'blocked for security'
+      );
+    });
+  });
 });

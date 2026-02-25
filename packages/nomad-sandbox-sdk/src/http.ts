@@ -2,12 +2,14 @@ import { NOMAD_DEFAULTS } from './constants.js';
 import { ConnectionError, NomadApiError, NotFoundError } from './errors.js';
 import type { NomadClientOptions } from './types/common.js';
 
-/** Parse a Nomad duration string (e.g., '30s', '5m', '1h30m', '1m30s') to milliseconds. */
+/** Parse a Nomad duration string (e.g., '30s', '5m', '1h30m', '1m30s', '500ms') to milliseconds. */
 function parseNomadDuration(duration: string): number {
   let totalMs = 0;
+  const msMatch = duration.match(/(\d+)ms/);
   const hourMatch = duration.match(/(\d+)h/);
   const minuteMatch = duration.match(/(\d+)m(?!s)/);
   const secondMatch = duration.match(/(\d+)s/);
+  if (msMatch) totalMs += parseInt(msMatch[1] ?? '0', 10);
   if (hourMatch) totalMs += parseInt(hourMatch[1] ?? '0', 10) * 3_600_000;
   if (minuteMatch) totalMs += parseInt(minuteMatch[1] ?? '0', 10) * 60_000;
   if (secondMatch) totalMs += parseInt(secondMatch[1] ?? '0', 10) * 1_000;

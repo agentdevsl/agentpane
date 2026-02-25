@@ -130,6 +130,8 @@ export class NomadJobBuilder {
       '/sbin',
       '/lib',
       '/lib64',
+      '/tmp',
+      '/var/tmp',
     ];
     for (const mount of mounts) {
       const rawHostPath = mount.split(':')[0] ?? '';
@@ -227,7 +229,12 @@ export class NomadJobBuilder {
     const task: NomadTask = {
       Name: this.taskSpec.Name ?? 'sandbox',
       Driver: this.taskSpec.Driver ?? 'docker',
-      Config: this.taskSpec.Config,
+      Config: {
+        ...this.taskSpec.Config,
+        privileged: this.taskSpec.Config.privileged ?? false,
+        cap_drop: this.taskSpec.Config.cap_drop ?? ['ALL'],
+        security_opt: this.taskSpec.Config.security_opt ?? ['no-new-privileges'],
+      },
       Resources: this.taskSpec.Resources,
       Env: this.taskSpec.Env,
       Meta: this.taskSpec.Meta,

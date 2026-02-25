@@ -7,6 +7,8 @@ import type {
   ExecStreamResult,
 } from '../types/exec.js';
 
+const MAX_BUFFER_BYTES = 10 * 1024 * 1024; // 10 MB
+
 /**
  * Build the WebSocket URL for the Nomad exec endpoint.
  */
@@ -138,10 +140,20 @@ export async function execInAllocation(
 
       try {
         if (frame.stdout?.data) {
-          stdout += decodeBase64(frame.stdout.data);
+          const decoded = decodeBase64(frame.stdout.data);
+          if (stdout.length + decoded.length <= MAX_BUFFER_BYTES) {
+            stdout += decoded;
+          } else if (!stdout.endsWith('[truncated]')) {
+            stdout += '\n...[truncated: output exceeded 10 MB limit]';
+          }
         }
         if (frame.stderr?.data) {
-          stderr += decodeBase64(frame.stderr.data);
+          const decoded = decodeBase64(frame.stderr.data);
+          if (stderr.length + decoded.length <= MAX_BUFFER_BYTES) {
+            stderr += decoded;
+          } else if (!stderr.endsWith('[truncated]')) {
+            stderr += '\n...[truncated: output exceeded 10 MB limit]';
+          }
         }
       } catch (decodeErr) {
         if (!settled) {

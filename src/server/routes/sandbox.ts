@@ -2,6 +2,7 @@
  * Sandbox routes (K8s, Nomad, and shared config CRUD)
  */
 
+import { resolve as dnsResolve } from 'node:dns/promises';
 import {
   AgentSandboxClient,
   getClusterInfo,
@@ -45,8 +46,8 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
       return json({
         ok: true,
         data: {
-          items: result.value.map(({ nomadToken, ...rest }) => rest),
-          totalCount: result.value.length,
+          items: result.value.items.map(({ nomadToken, ...rest }) => rest),
+          totalCount: result.value.totalCount,
         },
       });
     } catch (error) {
@@ -101,15 +102,14 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
       }
 
       if (body.nomadAddress) {
-        try {
-          validateNomadAddress(body.nomadAddress);
-        } catch (e) {
+        const addrValidation = await validateNomadAddress(body.nomadAddress);
+        if (!addrValidation.valid) {
           return json(
             {
               ok: false,
               error: {
                 code: 'INVALID_ADDRESS',
-                message: e instanceof Error ? e.message : 'Invalid Nomad address',
+                message: addrValidation.error,
               },
             },
             400
@@ -221,15 +221,14 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
     }
     try {
       if (body.nomadAddress) {
-        try {
-          validateNomadAddress(body.nomadAddress);
-        } catch (e) {
+        const addrValidation = await validateNomadAddress(body.nomadAddress);
+        if (!addrValidation.valid) {
           return json(
             {
               ok: false,
               error: {
                 code: 'INVALID_ADDRESS',
-                message: e instanceof Error ? e.message : 'Invalid Nomad address',
+                message: addrValidation.error,
               },
             },
             400
@@ -1007,30 +1006,63 @@ interface NomadRouteDeps {
 }
 
 /**
- * Validate Nomad address to prevent SSRF attacks against cloud metadata endpoints.
+ * Check whether an IP address string falls within a private or reserved range.
+ * Covers IPv4 loopback, RFC 1918, link-local (including cloud metadata 169.254.x.x),
+ * the unspecified address, and common IPv6 reserved addresses.
  */
-export function validateNomadAddress(address: string): void {
+function isPrivateIp(ip: string): boolean {
+  // IPv6 reserved addresses
+  if (ip === '::1' || ip === '::') return true;
+  if (ip.toLowerCase().startsWith('fe80:')) return true;
+
+  // IPv4 ranges
+  const parts = ip.split('.');
+  if (parts.length === 4) {
+    const a = Number(parts[0]);
+    const b = Number(parts[1]);
+    if (a === 127) return true; // 127.0.0.0/8 loopback
+    if (a === 10) return true; // 10.0.0.0/8
+    if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+    if (a === 192 && b === 168) return true; // 192.168.0.0/16
+    if (a === 169 && b === 254) return true; // 169.254.0.0/16 link-local / cloud metadata
+    if (ip === '0.0.0.0') return true;
+  }
+
+  return false;
+}
+
+/**
+ * Validate Nomad address to prevent SSRF attacks against cloud metadata endpoints.
+ * Returns { valid: true } on success or { valid: false, error: string } on failure.
+ * Also performs DNS resolution to prevent DNS rebinding attacks.
+ */
+export async function validateNomadAddress(
+  address: string
+): Promise<{ valid: true } | { valid: false; error: string }> {
   let url: URL;
   try {
     url = new URL(address);
   } catch {
-    throw new Error('Invalid Nomad address URL format');
+    return { valid: false, error: 'Invalid Nomad address URL format' };
   }
   if (!['http:', 'https:'].includes(url.protocol)) {
-    throw new Error('Nomad address must use http or https protocol');
+    return { valid: false, error: 'Nomad address must use http or https protocol' };
   }
   const hostname = url.hostname;
   // Block cloud metadata endpoints (full 169.254.0.0/16 link-local range)
   if (hostname.startsWith('169.254.') || hostname === 'metadata.google.internal') {
-    throw new Error('Nomad address cannot target cloud metadata endpoints');
+    return { valid: false, error: 'Nomad address cannot target cloud metadata endpoints' };
   }
   // Block 0.0.0.0 (binds to all interfaces, effectively localhost)
   if (hostname === '0.0.0.0') {
-    throw new Error('Nomad address cannot target 0.0.0.0');
+    return { valid: false, error: 'Nomad address cannot target 0.0.0.0' };
   }
   // Block "localhost" hostname
   if (hostname === 'localhost') {
-    throw new Error('Nomad address cannot use "localhost" — use an IP address instead');
+    return {
+      valid: false,
+      error: 'Nomad address cannot use "localhost" — use an IP address instead',
+    };
   }
   // Restrict loopback addresses (127.x.x.x) to Nomad's default port (4646) only.
   // This prevents SSRF against other locally-bound services (Redis, databases, etc.)
@@ -1039,14 +1071,15 @@ export function validateNomadAddress(address: string): void {
   if (hostname.startsWith('127.')) {
     const port = url.port ? parseInt(url.port, 10) : url.protocol === 'https:' ? 443 : 80;
     if (port !== NOMAD_DEFAULT_PORT) {
-      throw new Error(
-        `Nomad address on loopback (127.x) must use port ${NOMAD_DEFAULT_PORT} to prevent SSRF`
-      );
+      return {
+        valid: false,
+        error: `Nomad address on loopback (127.x) must use port ${NOMAD_DEFAULT_PORT} to prevent SSRF`,
+      };
     }
   }
   // Block IPv6 loopback and IPv6-mapped loopback/metadata addresses
   if (hostname === '[::1]' || hostname === '::1') {
-    throw new Error('Nomad address cannot target IPv6 loopback');
+    return { valid: false, error: 'Nomad address cannot target IPv6 loopback' };
   }
   const normalizedHost = hostname.replace(/^\[|\]$/g, '');
   if (
@@ -1057,11 +1090,14 @@ export function validateNomadAddress(address: string): void {
     // URL constructor normalizes 169.254.x.y to hex a9fe:XXYY in IPv6-mapped form
     normalizedHost.startsWith('::ffff:a9fe:')
   ) {
-    throw new Error('Nomad address cannot target loopback or cloud metadata via IPv6');
+    return {
+      valid: false,
+      error: 'Nomad address cannot target loopback or cloud metadata via IPv6',
+    };
   }
   // Block IPv6 link-local (fe80::/10)
   if (hostname.startsWith('fe80:') || hostname.startsWith('[fe80:')) {
-    throw new Error('Nomad address cannot target IPv6 link-local addresses');
+    return { valid: false, error: 'Nomad address cannot target IPv6 link-local addresses' };
   }
   // Block RFC 1918 private addresses in the 10.0.0.0/8 and 172.16.0.0/12 ranges
   const blockedPrefixes = [
@@ -1089,9 +1125,25 @@ export function validateNomadAddress(address: string): void {
   // GCP internal, etc.) where SSRF could reach sensitive internal services or metadata endpoints.
   for (const prefix of blockedPrefixes) {
     if (hostname.startsWith(prefix)) {
-      throw new Error('Nomad address cannot target internal network addresses');
+      return { valid: false, error: 'Nomad address cannot target internal network addresses' };
     }
   }
+
+  // Resolve DNS to prevent rebinding attacks
+  try {
+    const addresses = await dnsResolve(hostname);
+    for (const addr of addresses) {
+      if (isPrivateIp(addr)) {
+        return { valid: false, error: `Nomad address resolves to private/reserved IP: ${addr}` };
+      }
+    }
+  } catch {
+    // DNS resolution failure — allow the address through since
+    // it may be an internal hostname that only resolves on the server network.
+    // The actual connection will fail if the hostname is truly invalid.
+  }
+
+  return { valid: true };
 }
 
 /**
@@ -1112,7 +1164,10 @@ async function loadNomadSettings(
 }> {
   // Validate overridden address against SSRF blocklist
   if (overrides?.address) {
-    validateNomadAddress(overrides.address);
+    const addrValidation = await validateNomadAddress(overrides.address);
+    if (!addrValidation.valid) {
+      throw new Error(addrValidation.error);
+    }
   }
 
   let address = overrides?.address;
@@ -1317,16 +1372,14 @@ export function createNomadRoutes(deps?: NomadRouteDeps) {
     }
 
     // Validate address to prevent SSRF
-    try {
-      validateNomadAddress(body.address);
-    } catch (validationError) {
+    const addrValidation = await validateNomadAddress(body.address);
+    if (!addrValidation.valid) {
       return json(
         {
           ok: false,
           error: {
             code: 'INVALID_ADDRESS',
-            message:
-              validationError instanceof Error ? validationError.message : 'Invalid Nomad address',
+            message: addrValidation.error,
           },
         },
         400

@@ -1,4 +1,4 @@
-import { and, desc, eq, ne } from 'drizzle-orm';
+import { and, count, desc, eq, ne } from 'drizzle-orm';
 import type { NewSandboxConfig, SandboxConfig, SandboxType } from '../db/schema';
 import { projects, sandboxConfigs } from '../db/schema';
 import { decryptToken, encryptToken } from '../lib/crypto/server-encryption.js';
@@ -251,9 +251,12 @@ export class SandboxConfigService {
 
   async list(
     options?: ListSandboxConfigsOptions
-  ): Promise<Result<SandboxConfig[], SandboxConfigError>> {
+  ): Promise<Result<{ items: SandboxConfig[]; totalCount: number }, SandboxConfigError>> {
     const limit = options?.limit ?? 50;
     const offset = options?.offset ?? 0;
+
+    const [countResult] = await this.db.select({ count: count() }).from(sandboxConfigs);
+    const totalCount = countResult?.count ?? 0;
 
     const items = await this.db.query.sandboxConfigs.findMany({
       orderBy: [desc(sandboxConfigs.isDefault), desc(sandboxConfigs.updatedAt)],
@@ -261,7 +264,7 @@ export class SandboxConfigService {
       offset,
     });
 
-    return ok(items.map((c) => this.decryptConfigToken(c)));
+    return ok({ items: items.map((c) => this.decryptConfigToken(c)), totalCount });
   }
 
   async update(

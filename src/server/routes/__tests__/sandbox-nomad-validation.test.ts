@@ -1,150 +1,256 @@
+// @vitest-environment node
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createNomadRoutes, validateNomadAddress } from '../sandbox.js';
 
+// Use vi.hoisted so the mock fn reference is available inside the vi.mock factory
+// (which is hoisted to the top of the file by Vitest before any imports run).
+const { mockDnsResolve } = vi.hoisted(() => ({
+  mockDnsResolve: vi.fn().mockResolvedValue([]),
+}));
+
+// Mock node:dns/promises so tests never make real DNS calls.
+// By default return an empty array (no resolved IPs → passes the DNS check).
+vi.mock('node:dns/promises', () => {
+  return {
+    default: {},
+    resolve: mockDnsResolve,
+    lookup: vi.fn(),
+    resolve4: vi.fn(),
+    resolve6: vi.fn(),
+    resolveMx: vi.fn(),
+    resolveNs: vi.fn(),
+    resolveTxt: vi.fn(),
+    resolveSrv: vi.fn(),
+    resolveCname: vi.fn(),
+    resolveNaptr: vi.fn(),
+    resolvePtr: vi.fn(),
+    resolveSoa: vi.fn(),
+    reverse: vi.fn(),
+    getServers: vi.fn(),
+    setServers: vi.fn(),
+    Resolver: class {},
+  };
+});
+
 describe('validateNomadAddress', () => {
   // ── Allowed addresses ──────────────────────────────────────────────
 
-  it('allows http://127.0.0.1:4646 (localhost for dev)', () => {
-    expect(() => validateNomadAddress('http://127.0.0.1:4646')).not.toThrow();
+  it('allows http://127.0.0.1:4646 (localhost for dev)', async () => {
+    await expect(validateNomadAddress('http://127.0.0.1:4646')).resolves.toEqual({ valid: true });
   });
 
-  it('allows http://nomad.example.com:4646 (public hostname)', () => {
-    expect(() => validateNomadAddress('http://nomad.example.com:4646')).not.toThrow();
+  it('allows http://nomad.example.com:4646 (public hostname)', async () => {
+    await expect(validateNomadAddress('http://nomad.example.com:4646')).resolves.toEqual({
+      valid: true,
+    });
   });
 
-  it('allows http://192.168.1.100:4646 (local network allowed)', () => {
-    expect(() => validateNomadAddress('http://192.168.1.100:4646')).not.toThrow();
+  it('allows http://192.168.1.100:4646 (local network allowed)', async () => {
+    await expect(validateNomadAddress('http://192.168.1.100:4646')).resolves.toEqual({
+      valid: true,
+    });
   });
 
-  it('allows https://nomad.prod.company.io (https with public hostname)', () => {
-    expect(() => validateNomadAddress('https://nomad.prod.company.io')).not.toThrow();
+  it('allows https://nomad.prod.company.io (https with public hostname)', async () => {
+    await expect(validateNomadAddress('https://nomad.prod.company.io')).resolves.toEqual({
+      valid: true,
+    });
   });
 
-  it('blocks localhost hostname', () => {
-    expect(() => validateNomadAddress('http://localhost:4646')).toThrow();
+  it('blocks localhost hostname', async () => {
+    const result = await validateNomadAddress('http://localhost:4646');
+    expect(result.valid).toBe(false);
   });
 
   // ── Blocked: cloud metadata (169.254.x.x link-local) ──────────────
 
-  it('blocks http://169.254.169.254 (AWS/GCP cloud metadata)', () => {
-    expect(() => validateNomadAddress('http://169.254.169.254')).toThrow('cloud metadata');
+  it('blocks http://169.254.169.254 (AWS/GCP cloud metadata)', async () => {
+    const result = await validateNomadAddress('http://169.254.169.254');
+    expect(result.valid).toBe(false);
+    expect(result.valid === false && result.error).toMatch(/cloud metadata/);
   });
 
-  it('blocks http://169.254.1.1 (link-local range)', () => {
-    expect(() => validateNomadAddress('http://169.254.1.1')).toThrow('cloud metadata');
+  it('blocks http://169.254.1.1 (link-local range)', async () => {
+    const result = await validateNomadAddress('http://169.254.1.1');
+    expect(result.valid).toBe(false);
+    expect(result.valid === false && result.error).toMatch(/cloud metadata/);
   });
 
-  it('blocks http://169.254.169.254/latest/meta-data/ (metadata path)', () => {
-    expect(() => validateNomadAddress('http://169.254.169.254/latest/meta-data/')).toThrow(
-      'cloud metadata'
-    );
+  it('blocks http://169.254.169.254/latest/meta-data/ (metadata path)', async () => {
+    const result = await validateNomadAddress('http://169.254.169.254/latest/meta-data/');
+    expect(result.valid).toBe(false);
+    expect(result.valid === false && result.error).toMatch(/cloud metadata/);
   });
 
-  it('blocks http://metadata.google.internal (GCP metadata hostname)', () => {
-    expect(() => validateNomadAddress('http://metadata.google.internal')).toThrow('cloud metadata');
+  it('blocks http://metadata.google.internal (GCP metadata hostname)', async () => {
+    const result = await validateNomadAddress('http://metadata.google.internal');
+    expect(result.valid).toBe(false);
+    expect(result.valid === false && result.error).toMatch(/cloud metadata/);
   });
 
   // ── Blocked: 0.0.0.0 ──────────────────────────────────────────────
 
-  it('blocks http://0.0.0.0:4646', () => {
-    expect(() => validateNomadAddress('http://0.0.0.0:4646')).toThrow('0.0.0.0');
+  it('blocks http://0.0.0.0:4646', async () => {
+    const result = await validateNomadAddress('http://0.0.0.0:4646');
+    expect(result.valid).toBe(false);
+    expect(result.valid === false && result.error).toMatch(/0\.0\.0\.0/);
   });
 
   // ── Blocked: IPv6 loopback ─────────────────────────────────────────
 
-  it('blocks http://[::1]:4646 (IPv6 loopback)', () => {
-    expect(() => validateNomadAddress('http://[::1]:4646')).toThrow('IPv6 loopback');
+  it('blocks http://[::1]:4646 (IPv6 loopback)', async () => {
+    const result = await validateNomadAddress('http://[::1]:4646');
+    expect(result.valid).toBe(false);
+    expect(result.valid === false && result.error).toMatch(/IPv6 loopback/);
   });
 
   // ── Blocked: IPv6 link-local ───────────────────────────────────────
 
-  it('blocks URLs with fe80: (IPv6 link-local)', () => {
-    expect(() => validateNomadAddress('http://[fe80::1]:4646')).toThrow('IPv6 link-local');
+  it('blocks URLs with fe80: (IPv6 link-local)', async () => {
+    const result = await validateNomadAddress('http://[fe80::1]:4646');
+    expect(result.valid).toBe(false);
+    expect(result.valid === false && result.error).toMatch(/IPv6 link-local/);
   });
 
   // ── Blocked: RFC 1918 - 10.x.x.x ──────────────────────────────────
 
-  it('blocks http://10.0.0.1:4646 (RFC 1918 - 10.x)', () => {
-    expect(() => validateNomadAddress('http://10.0.0.1:4646')).toThrow('internal network');
+  it('blocks http://10.0.0.1:4646 (RFC 1918 - 10.x)', async () => {
+    const result = await validateNomadAddress('http://10.0.0.1:4646');
+    expect(result.valid).toBe(false);
+    expect(result.valid === false && result.error).toMatch(/internal network/);
   });
 
-  it('blocks http://10.255.255.1:4646 (RFC 1918 - 10.x upper range)', () => {
-    expect(() => validateNomadAddress('http://10.255.255.1:4646')).toThrow('internal network');
+  it('blocks http://10.255.255.1:4646 (RFC 1918 - 10.x upper range)', async () => {
+    const result = await validateNomadAddress('http://10.255.255.1:4646');
+    expect(result.valid).toBe(false);
+    expect(result.valid === false && result.error).toMatch(/internal network/);
   });
 
   // ── Blocked: RFC 1918 - 172.16-31.x ───────────────────────────────
 
-  it('blocks http://172.16.0.1:4646 (RFC 1918 - 172.16.x)', () => {
-    expect(() => validateNomadAddress('http://172.16.0.1:4646')).toThrow('internal network');
+  it('blocks http://172.16.0.1:4646 (RFC 1918 - 172.16.x)', async () => {
+    const result = await validateNomadAddress('http://172.16.0.1:4646');
+    expect(result.valid).toBe(false);
+    expect(result.valid === false && result.error).toMatch(/internal network/);
   });
 
-  it('blocks http://172.31.255.1:4646 (RFC 1918 - 172.31.x)', () => {
-    expect(() => validateNomadAddress('http://172.31.255.1:4646')).toThrow('internal network');
+  it('blocks http://172.31.255.1:4646 (RFC 1918 - 172.31.x)', async () => {
+    const result = await validateNomadAddress('http://172.31.255.1:4646');
+    expect(result.valid).toBe(false);
+    expect(result.valid === false && result.error).toMatch(/internal network/);
   });
 
-  it('does not block http://172.15.0.1:4646 (outside 172.16-31 range)', () => {
-    expect(() => validateNomadAddress('http://172.15.0.1:4646')).not.toThrow();
+  it('does not block http://172.15.0.1:4646 (outside 172.16-31 range)', async () => {
+    await expect(validateNomadAddress('http://172.15.0.1:4646')).resolves.toEqual({ valid: true });
   });
 
-  it('does not block http://172.32.0.1:4646 (outside 172.16-31 range)', () => {
-    expect(() => validateNomadAddress('http://172.32.0.1:4646')).not.toThrow();
+  it('does not block http://172.32.0.1:4646 (outside 172.16-31 range)', async () => {
+    await expect(validateNomadAddress('http://172.32.0.1:4646')).resolves.toEqual({ valid: true });
   });
 
   // ── Blocked: IPv6-mapped metadata ─────────────────────────────────
 
-  it('blocks http://[::ffff:169.254.169.254] (IPv6-mapped metadata)', () => {
-    expect(() => validateNomadAddress('http://[::ffff:169.254.169.254]:4646')).toThrow();
+  it('blocks http://[::ffff:169.254.169.254] (IPv6-mapped metadata)', async () => {
+    const result = await validateNomadAddress('http://[::ffff:169.254.169.254]:4646');
+    expect(result.valid).toBe(false);
   });
 
   // ── Blocked: invalid URLs ──────────────────────────────────────────
 
-  it('rejects invalid URL format', () => {
-    expect(() => validateNomadAddress('not-a-url')).toThrow('Invalid Nomad address URL format');
+  it('rejects invalid URL format', async () => {
+    const result = await validateNomadAddress('not-a-url');
+    expect(result.valid).toBe(false);
+    expect(result.valid === false && result.error).toMatch(/Invalid Nomad address URL format/);
   });
 
-  it('rejects empty string', () => {
-    expect(() => validateNomadAddress('')).toThrow('Invalid Nomad address URL format');
+  it('rejects empty string', async () => {
+    const result = await validateNomadAddress('');
+    expect(result.valid).toBe(false);
+    expect(result.valid === false && result.error).toMatch(/Invalid Nomad address URL format/);
   });
 
-  it('rejects non-http/https protocols (ftp)', () => {
-    expect(() => validateNomadAddress('ftp://nomad.example.com:4646')).toThrow(
-      'http or https protocol'
-    );
+  it('rejects non-http/https protocols (ftp)', async () => {
+    const result = await validateNomadAddress('ftp://nomad.example.com:4646');
+    expect(result.valid).toBe(false);
+    expect(result.valid === false && result.error).toMatch(/http or https protocol/);
   });
 
-  it('rejects non-http/https protocols (file)', () => {
-    expect(() => validateNomadAddress('file:///etc/passwd')).toThrow('http or https protocol');
+  it('rejects non-http/https protocols (file)', async () => {
+    const result = await validateNomadAddress('file:///etc/passwd');
+    expect(result.valid).toBe(false);
+    expect(result.valid === false && result.error).toMatch(/http or https protocol/);
   });
 
   // ── Loopback port restriction (SSRF fix) ──────────────────────────
 
-  it('allows 127.0.0.1:4646 (Nomad default port)', () => {
-    expect(() => validateNomadAddress('http://127.0.0.1:4646')).not.toThrow();
+  it('allows 127.0.0.1:4646 (Nomad default port)', async () => {
+    await expect(validateNomadAddress('http://127.0.0.1:4646')).resolves.toEqual({ valid: true });
   });
 
-  it('blocks 127.0.0.1:6379 (Redis port)', () => {
-    expect(() => validateNomadAddress('http://127.0.0.1:6379')).toThrow('port 4646');
+  it('blocks 127.0.0.1:6379 (Redis port)', async () => {
+    const result = await validateNomadAddress('http://127.0.0.1:6379');
+    expect(result.valid).toBe(false);
+    expect(result.valid === false && result.error).toMatch(/port 4646/);
   });
 
-  it('blocks 127.0.0.1:3001 (app server port)', () => {
-    expect(() => validateNomadAddress('http://127.0.0.1:3001')).toThrow('port 4646');
+  it('blocks 127.0.0.1:3001 (app server port)', async () => {
+    const result = await validateNomadAddress('http://127.0.0.1:3001');
+    expect(result.valid).toBe(false);
+    expect(result.valid === false && result.error).toMatch(/port 4646/);
   });
 
-  it('blocks 127.0.0.1:80 (default HTTP port)', () => {
-    expect(() => validateNomadAddress('http://127.0.0.1:80')).toThrow('port 4646');
+  it('blocks 127.0.0.1:80 (default HTTP port)', async () => {
+    const result = await validateNomadAddress('http://127.0.0.1:80');
+    expect(result.valid).toBe(false);
+    expect(result.valid === false && result.error).toMatch(/port 4646/);
   });
 
-  it('blocks 127.0.0.1 without a port (defaults to port 80, not 4646)', () => {
-    expect(() => validateNomadAddress('http://127.0.0.1')).toThrow('port 4646');
+  it('blocks 127.0.0.1 without a port (defaults to port 80, not 4646)', async () => {
+    const result = await validateNomadAddress('http://127.0.0.1');
+    expect(result.valid).toBe(false);
+    expect(result.valid === false && result.error).toMatch(/port 4646/);
   });
 
-  it('allows http://127.0.0.1:4646 with explicit http scheme', () => {
-    expect(() => validateNomadAddress('http://127.0.0.1:4646')).not.toThrow();
+  it('allows http://127.0.0.1:4646 with explicit http scheme', async () => {
+    await expect(validateNomadAddress('http://127.0.0.1:4646')).resolves.toEqual({ valid: true });
   });
 
-  it('allows https://127.100.0.1:4646 (any 127.x on port 4646)', () => {
-    expect(() => validateNomadAddress('https://127.100.0.1:4646')).not.toThrow();
+  it('allows https://127.100.0.1:4646 (any 127.x on port 4646)', async () => {
+    await expect(validateNomadAddress('https://127.100.0.1:4646')).resolves.toEqual({
+      valid: true,
+    });
+  });
+
+  // ── DNS rebinding prevention ───────────────────────────────────────
+
+  it('blocks a hostname that DNS-resolves to a private IP (rebinding attack)', async () => {
+    // Temporarily replace the mock to return a private IP for this call.
+    mockDnsResolve.mockReset();
+    mockDnsResolve.mockResolvedValue(['169.254.169.254']);
+
+    const result = await validateNomadAddress('http://evil.example.com:4646');
+
+    // Restore the default (return empty array) for subsequent tests.
+    mockDnsResolve.mockReset();
+    mockDnsResolve.mockResolvedValue([]);
+
+    expect(result.valid).toBe(false);
+    expect(result.valid === false && result.error).toMatch(/private\/reserved IP/);
+  });
+
+  it('allows address through when DNS resolution fails (internal hostname)', async () => {
+    // Temporarily replace the mock to simulate a DNS failure.
+    mockDnsResolve.mockReset();
+    mockDnsResolve.mockRejectedValue(new Error('ENOTFOUND internal.corp'));
+
+    const result = await validateNomadAddress('http://internal.corp:4646');
+
+    // Restore the default for subsequent tests.
+    mockDnsResolve.mockReset();
+    mockDnsResolve.mockResolvedValue([]);
+
+    expect(result).toEqual({ valid: true });
   });
 });
 
