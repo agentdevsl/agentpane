@@ -1474,6 +1474,9 @@ function buildInfraSVG() {
     <marker id="inf-arr-cy" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
       <polygon points="0 0, 7 2.5, 0 5" fill="#06b6d4" opacity="0.8"/>
     </marker>
+    <marker id="inf-arr-r" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+      <polygon points="0 0, 7 2.5, 0 5" fill="#f87171" opacity="0.8"/>
+    </marker>
   </defs>`;
 
   function zone(x,y,w,h,label,color) {
@@ -1513,11 +1516,16 @@ function buildInfraSVG() {
     out += box(240, 260, 105, 40, 'K8s\nProvider', '', '#a78bfa', 'inf-k8s-prov');
     out += box(120, 315, 225, 40, 'Nomad Provider', '', '#f97316', 'inf-nomad-prov');
     out += box(120, 375, 225, 40, 'Container Agent', 'agent orchestration', '#22c55e', 'inf-container-agent');
-    out += box(120, 435, 225, 40, 'Vite Dev Server', ':3000 (dev only)', '#64748b', 'inf-vite');
+    out += box(120, 435, 225, 40, 'Durable Streams', 'in-process SSE + persistence', '#f87171', 'inf-durable');
+    out += box(120, 495, 225, 40, 'Vite Dev Server', ':3000 (dev only)', '#64748b', 'inf-vite');
     // Drizzle → SQLite (local)
     out += arrow(172, 135, 172, 150, '', '#22c55e', 'inf-arr-g');
     // Drizzle → pg driver
     out += arrow(292, 135, 292, 150, '', '#06b6d4', 'inf-arr-cy');
+    // Hono → Durable Streams (SSE endpoint)
+    out += arrow(345, 60, 345, 448, '', '#f87171', 'inf-arr-r');
+    // Durable Streams → Drizzle (persist session_events)
+    out += arrow(120, 455, 120, 125, 'persist events', '#f87171', 'inf-arr-r');
   }
 
   // Docker (Local) zone — separate from K8s/Nomad
@@ -1560,7 +1568,8 @@ function buildInfraSVG() {
 
   // Arrows: Browser → Host
   if (state.showHost) {
-    out += arrow(90, 255, 120, 60, 'HTTP/SSE', '#60a5fa', 'inf-arr');
+    out += arrow(90, 245, 120, 60, 'HTTP', '#60a5fa', 'inf-arr');
+    out += arrow(90, 265, 120, 455, 'SSE', '#f87171', 'inf-arr-r');
   }
   // Host → Docker (local)
   if (state.showHost && state.showDocker) {
@@ -1644,7 +1653,7 @@ function renderPrompt() {
     }
     case 'infra': {
       const zones = [];
-      if (state.showHost) zones.push('Host Machine (Hono API :3001, Drizzle ORM, SQLite local, pg driver, Git, Providers)');
+      if (state.showHost) zones.push('Host Machine (Hono API :3001, Drizzle ORM, SQLite local, pg driver, Durable Streams SSE, Git, Providers)');
       if (state.showDocker) zones.push('Docker (Local, via Docker socket)');
       if (state.showK8s) zones.push('K8s Cluster (remote, CRDs + gVisor/Kata)');
       if (state.showNomad) zones.push('Nomad Cluster (remote, HTTP :4646)');
