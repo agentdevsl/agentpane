@@ -854,10 +854,8 @@ export const apiClient = {
         method: 'POST',
       }),
 
-    /**
-     * Get the SSE stream URL for a plan session
-     */
-    getStreamUrl: (taskId: string) => `/api/plans/${encodeURIComponent(taskId)}/stream`,
+    // NOTE: SSE stream URL removed — clients subscribe to Caddy durable streams
+    // at /v1/stream/plans/:taskId directly.
   },
 
   taskCreation: {
@@ -1243,8 +1241,6 @@ export const apiClient = {
       }>('/api/terraform/validate', { method: 'POST', body: data }),
 
     getComposeUrl: () => `${API_BASE}/api/terraform/compose`,
-    getComposeEventsUrl: (sessionId: string) =>
-      `${API_BASE}/api/terraform/compose/${encodeURIComponent(sessionId)}/events`,
   },
 
   cliMonitor: {

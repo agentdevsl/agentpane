@@ -196,26 +196,10 @@ describe('bootstrap phases', () => {
     expect(result.ok).toBe(true);
   });
 
-  it('streams phase returns ok on successful connect', async () => {
+  it('streams phase returns ok (no-op with Caddy durable streams)', async () => {
     const { connectStreams } = await import('../phases/streams.js');
-    const globalAny = globalThis as Record<string, unknown>;
-    const originalClient = globalAny.DurableStreamsClient;
-
-    class MockClient {
-      async connect() {
-        return undefined;
-      }
-    }
-
-    globalAny.DurableStreamsClient = MockClient;
 
     const result = await connectStreams();
-
-    if (originalClient) {
-      globalAny.DurableStreamsClient = originalClient;
-    } else {
-      delete globalAny.DurableStreamsClient;
-    }
 
     expect(result.ok).toBe(true);
   });

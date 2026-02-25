@@ -1,6 +1,12 @@
 import { createId } from '@paralleldrive/cuid2';
 import { desc, eq } from 'drizzle-orm';
 import { sessionEvents } from '../db/schema';
+import type {
+  ClarifyingQuestion,
+  ComposeStage,
+  GeneratedFile,
+  ModuleMatch,
+} from '../lib/terraform/types.js';
 import type { AgentFileChangedData } from '../types/agent-events.js';
 import type { Database } from '../types/database.js';
 import type { SessionEvent, SessionEventType } from './session.service.js';
@@ -306,6 +312,52 @@ export interface ContainerAgentWorktreeEvent {
   containerPath: string;
 }
 
+/**
+ * Terraform compose events
+ */
+export interface TerraformStatusEvent {
+  jobId: string;
+  stage: ComposeStage;
+  message?: string;
+}
+
+export interface TerraformTextEvent {
+  jobId: string;
+  delta: string;
+  accumulated?: string;
+}
+
+export interface TerraformModulesEvent {
+  jobId: string;
+  modules: ModuleMatch[];
+}
+
+export interface TerraformQuestionsEvent {
+  jobId: string;
+  questions: ClarifyingQuestion[];
+}
+
+export interface TerraformCodeEvent {
+  jobId: string;
+  code: string;
+  files?: GeneratedFile[];
+}
+
+export interface TerraformDoneEvent {
+  jobId: string;
+  generatedCode?: string;
+  matchedModules?: ModuleMatch[];
+  validationResult?: unknown;
+  generatedFiles?: GeneratedFile[];
+  usage?: { inputTokens: number; outputTokens: number };
+}
+
+export interface TerraformErrorEvent {
+  jobId: string;
+  error: string;
+  code?: string;
+}
+
 // ============================================
 // Type-safe Event Map
 // ============================================
@@ -361,6 +413,15 @@ export interface StreamEventMap {
   'container-agent:plan_ready': ContainerAgentPlanReadyEvent;
   'container-agent:worktree': ContainerAgentWorktreeEvent;
   'container-agent:file_changed': ContainerAgentFileChangedEvent;
+
+  // Terraform compose events
+  'terraform:status': TerraformStatusEvent;
+  'terraform:text': TerraformTextEvent;
+  'terraform:modules': TerraformModulesEvent;
+  'terraform:questions': TerraformQuestionsEvent;
+  'terraform:code': TerraformCodeEvent;
+  'terraform:done': TerraformDoneEvent;
+  'terraform:error': TerraformErrorEvent;
 }
 
 /**
@@ -387,16 +448,11 @@ export interface StreamEvent<T = unknown> {
 /**
  * DurableStreamsService provides a centralized interface for real-time event streaming.
  *
- * Two subscription mechanisms are available:
- * 1. Local synchronous callbacks via addSubscriber() - for immediate in-process notifications
- * 2. Async iteration via subscribe() - for cross-process/distributed scenarios through the server
- *
- * The service wraps the underlying Durable Streams server and maintains a local subscriber
- * map for fast in-process event delivery alongside the distributed streaming capability.
+ * Events are persisted to the database and published to the CaddyDurableStreamsServer
+ * (which forwards to Caddy/DurableStreamTestServer). Clients subscribe directly to
+ * Caddy streams via SSE — no in-process subscriber mechanism is needed.
  */
 export class DurableStreamsService {
-  private subscribers = new Map<string, Set<(event: StreamEvent) => void>>();
-
   constructor(
     private server: DurableStreamsServer,
     private db?: Database
@@ -412,6 +468,7 @@ export class DurableStreamsService {
     if (type.startsWith('sandbox:')) return 'sandbox';
     if (type.startsWith('task-creation:')) return 'taskCreation';
     if (type.startsWith('container-agent:')) return 'containerAgent';
+    if (type.startsWith('terraform:')) return 'terraform';
     return 'default';
   }
 
@@ -429,7 +486,6 @@ export class DurableStreamsService {
 
     try {
       await this.server.createStream(id, schema);
-      this.subscribers.set(id, new Set());
     } catch (error) {
       console.error('[DurableStreamsService] createStream failed:', { streamId: id, error });
       throw new Error(
@@ -442,9 +498,6 @@ export class DurableStreamsService {
    * Delete a stream and clean up resources
    */
   async deleteStream(id: string): Promise<void> {
-    // Clean up local subscribers
-    this.subscribers.delete(id);
-
     // Call server.deleteStream if available
     if ('deleteStream' in this.server && this.server.deleteStream) {
       await this.server.deleteStream(id);
@@ -457,7 +510,7 @@ export class DurableStreamsService {
    * Type-safe publish for mapped event types.
    * Ensures the data type matches the event type at compile time.
    *
-   * Events are persisted to the database FIRST, then published to the in-memory stream.
+   * Events are persisted to the database FIRST, then published to the Caddy streams server.
    * This ensures events are durable and available after page refresh or server restart.
    *
    * @example
@@ -503,20 +556,11 @@ export class DurableStreamsService {
         });
       }
 
-      // THEN publish to in-memory stream for real-time delivery
+      // THEN publish to Caddy streams server for real-time delivery
       const memoryOffset = await this.server.publish(streamId, type, data);
 
       // Use database offset if available, otherwise use memory offset
       const finalOffset = this.db ? offset : memoryOffset;
-
-      const event: StreamEvent<StreamEventMap[T]> = {
-        id: eventId,
-        type,
-        timestamp,
-        data,
-        offset: finalOffset,
-      };
-      this.notifySubscribers(streamId, event);
 
       return finalOffset;
     } catch (error) {
@@ -620,79 +664,6 @@ export class DurableStreamsService {
    * Publish a session event (uses SessionEvent's own type/data structure)
    */
   async publishSessionEvent(streamId: string, event: SessionEvent): Promise<void> {
-    const offset = await this.server.publish(streamId, event.type, event.data);
-
-    // Notify local subscribers
-    const streamEvent: StreamEvent = {
-      id: event.id,
-      type: event.type,
-      timestamp: event.timestamp,
-      data: event.data,
-      offset,
-    };
-    this.notifySubscribers(streamId, streamEvent);
-  }
-
-  /**
-   * Subscribe to a stream and receive events
-   */
-  async *subscribe(streamId: string): AsyncIterable<StreamEvent> {
-    if (!streamId || typeof streamId !== 'string' || streamId.trim() === '') {
-      const error = new Error(
-        '[DurableStreamsService] subscribe: streamId is required and must be a non-empty string'
-      );
-      console.error('[DurableStreamsService] subscribe validation error:', { streamId });
-      throw error;
-    }
-
-    try {
-      const subscription = this.server.subscribe(streamId);
-      for await (const event of subscription) {
-        yield {
-          id: createId(),
-          type: event.type as StreamEventType,
-          timestamp: Date.now(),
-          data: event.data,
-        };
-      }
-    } catch (error) {
-      console.error('[DurableStreamsService] subscribe iteration failed:', { streamId, error });
-      throw new Error(
-        `[DurableStreamsService] Failed to subscribe to stream '${streamId}': ${error instanceof Error ? error.message : String(error)}`
-      );
-    }
-  }
-
-  /**
-   * Add a local subscriber for immediate event notification
-   */
-  addSubscriber(streamId: string, callback: (event: StreamEvent) => void): () => void {
-    const subscribers = this.subscribers.get(streamId) ?? new Set();
-    subscribers.add(callback);
-    this.subscribers.set(streamId, subscribers);
-
-    return () => {
-      subscribers.delete(callback);
-    };
-  }
-
-  private notifySubscribers(streamId: string, event: StreamEvent): void {
-    const subscribers = this.subscribers.get(streamId);
-    if (!subscribers) return;
-
-    for (const callback of subscribers) {
-      try {
-        callback(event);
-      } catch (error) {
-        console.error(`[DurableStreamsService] Subscriber error for ${streamId}:`, error);
-      }
-    }
-  }
-
-  /**
-   * Get the underlying server for advanced operations
-   */
-  getServer(): DurableStreamsServer {
-    return this.server;
+    await this.server.publish(streamId, event.type, event.data);
   }
 }

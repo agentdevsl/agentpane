@@ -12,8 +12,6 @@ function createMockStreamsServer() {
       published.push({ id, type, data });
       return published.length;
     }),
-    addRealtimeSubscriber: vi.fn(() => vi.fn()),
-    getEvents: vi.fn(() => []),
     _published: published,
   };
 }

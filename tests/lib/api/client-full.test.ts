@@ -1346,13 +1346,6 @@ describe('API Client', () => {
         expect.objectContaining({ method: 'POST' })
       );
     });
-
-    it('plans.getStreamUrl returns correct URL', async () => {
-      const { apiClient } = await import('@/lib/api/client');
-      const url = apiClient.plans.getStreamUrl('task-1');
-
-      expect(url).toBe('/api/plans/task-1/stream');
-    });
   });
 
   // ============================================================================

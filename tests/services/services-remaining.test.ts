@@ -1423,45 +1423,6 @@ describe('DurableStreamsService', () => {
         sessionId: 'session-1',
       });
     });
-
-    it('subscribes to stream events', async () => {
-      await streamsService.createStream('stream-1', {});
-
-      const events: unknown[] = [];
-      for await (const event of streamsService.subscribe('stream-1')) {
-        events.push(event);
-        break; // Only get first event
-      }
-
-      expect(events.length).toBe(1);
-    });
-  });
-
-  describe('Local Subscribers', () => {
-    it('adds and notifies local subscribers', async () => {
-      await streamsService.createStream('stream-1', {});
-
-      const callback = vi.fn();
-      streamsService.addSubscriber('stream-1', callback);
-
-      await streamsService.publish('stream-1', 'plan:started', { sessionId: 'session-1' });
-
-      expect(callback).toHaveBeenCalled();
-    });
-
-    it('removes subscriber on unsubscribe', async () => {
-      await streamsService.createStream('stream-1', {});
-
-      const callback = vi.fn();
-      const unsubscribe = streamsService.addSubscriber('stream-1', callback);
-
-      unsubscribe();
-
-      await streamsService.publish('stream-1', 'plan:started', { sessionId: 'session-1' });
-
-      // Callback should not be called after unsubscribe
-      expect(callback).not.toHaveBeenCalled();
-    });
   });
 
   describe('Plan Mode Events', () => {
@@ -1541,14 +1502,6 @@ describe('DurableStreamsService', () => {
         'sandbox:error',
         expect.objectContaining({ error: 'Container failed to start' })
       );
-    });
-  });
-
-  describe('Server Access', () => {
-    it('returns the underlying server', () => {
-      const server = streamsService.getServer();
-
-      expect(server).toBe(mockServer);
     });
   });
 });

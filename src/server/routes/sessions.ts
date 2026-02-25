@@ -5,9 +5,8 @@
 import { Hono } from 'hono';
 import type { SessionStatus } from '../../db/schema/shared/enums.js';
 import { SESSION_STATUS } from '../../db/schema/shared/enums.js';
-import type { DurableStreamsService } from '../../services/durable-streams.service.js';
 import type { SessionService } from '../../services/session.service.js';
-import { corsHeaders, isValidId, json } from '../shared.js';
+import { isValidId, json } from '../shared.js';
 import { createSessionSchema, exportSessionSchema, parseBody } from '../validation.js';
 
 // Helper to format session as markdown
@@ -112,13 +111,9 @@ function formatEventsAsCsv(
 
 interface SessionsDeps {
   sessionService: SessionService;
-  durableStreamsService?: DurableStreamsService;
 }
 
-// Track SSE connections for cleanup
-const sseConnections = new Map<string, Set<ReadableStreamDefaultController<Uint8Array>>>();
-
-export function createSessionsRoutes({ sessionService, durableStreamsService }: SessionsDeps) {
+export function createSessionsRoutes({ sessionService }: SessionsDeps) {
   const app = new Hono();
 
   // GET /api/sessions
@@ -365,214 +360,8 @@ export function createSessionsRoutes({ sessionService, durableStreamsService }: 
     }
   });
 
-  // GET /api/sessions/:id/stream - Server-Sent Events for real-time session updates
-  app.get('/:id/stream', async (c) => {
-    const sessionId = c.req.param('id');
-
-    if (!isValidId(sessionId)) {
-      return json(
-        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid session ID format' } },
-        400
-      );
-    }
-
-    // Verify session exists
-    const sessionResult = await sessionService.getById(sessionId);
-    if (!sessionResult.ok) {
-      return json({ ok: false, error: sessionResult.error }, sessionResult.error.status ?? 404);
-    }
-
-    // Parse optional offset for resumption
-    const offsetParam = c.req.query('offset');
-    const fromOffset = offsetParam ? parseInt(offsetParam, 10) : 0;
-
-    // Create SSE stream with keep-alive
-    let pingInterval: ReturnType<typeof setInterval> | null = null;
-    let unsubscribe: (() => void) | null = null;
-    let streamController: ReadableStreamDefaultController<Uint8Array> | null = null;
-
-    // Helper function for consistent SSE cleanup
-    const cleanupSSEConnection = (
-      id: string,
-      controller: ReadableStreamDefaultController<Uint8Array> | null,
-      refs: {
-        pingInterval: ReturnType<typeof setInterval> | null;
-        unsubscribe: (() => void) | null;
-      }
-    ) => {
-      if (refs.pingInterval) {
-        clearInterval(refs.pingInterval);
-        pingInterval = null;
-      }
-      if (refs.unsubscribe) {
-        refs.unsubscribe();
-        unsubscribe = null;
-      }
-      if (controller) {
-        const controllers = sseConnections.get(id);
-        if (controllers) {
-          controllers.delete(controller);
-          if (controllers.size === 0) {
-            sseConnections.delete(id);
-          }
-        }
-      }
-    };
-
-    const stream = new ReadableStream<Uint8Array>({
-      async start(controller) {
-        streamController = controller;
-        // Store controller for this session
-        const controllers = sseConnections.get(sessionId) ?? new Set();
-        controllers.add(controller);
-        sseConnections.set(sessionId, controllers);
-
-        console.log(
-          `[SSE] Connection established for session ${sessionId}, fromOffset=${fromOffset}`
-        );
-
-        // Send initial connected event
-        const connectedData = JSON.stringify({
-          type: 'connected',
-          sessionId,
-          offset: fromOffset,
-          timestamp: Date.now(),
-        });
-        controller.enqueue(new TextEncoder().encode(`data: ${connectedData}\n\n`));
-
-        // Subscribe to durable streams if available
-        if (durableStreamsService) {
-          // First, send any existing events from the stream (for replay)
-          let replayedCount = 0;
-          const server = durableStreamsService.getServer();
-          if ('getEvents' in server && typeof server.getEvents === 'function') {
-            const existingEvents = (
-              server as {
-                getEvents: (
-                  id: string
-                ) => Array<{ type: string; data: unknown; offset: number; timestamp: number }>;
-              }
-            ).getEvents(sessionId);
-
-            // Filter events by offset and count how many will be replayed
-            const eventsToReplay = existingEvents.filter(
-              (event: { offset: number }) => event.offset >= fromOffset
-            );
-            console.log(
-              `[SSE] Replaying ${eventsToReplay.length} events for session ${sessionId} (total stored: ${existingEvents.length}, fromOffset: ${fromOffset})`
-            );
-
-            for (const event of eventsToReplay) {
-              const eventData = JSON.stringify({
-                type: event.type,
-                data: event.data,
-                timestamp: event.timestamp,
-                offset: event.offset,
-              });
-              controller.enqueue(new TextEncoder().encode(`data: ${eventData}\n\n`));
-            }
-            replayedCount = eventsToReplay.length;
-          } else {
-            console.log(
-              `[SSE] Server does not have getEvents method for session ${sessionId}, no replay available`
-            );
-          }
-
-          // Fallback: if in-memory store had no events, replay from database
-          // This handles server restarts where in-memory events are lost
-          if (replayedCount === 0) {
-            try {
-              const dbResult = await sessionService.getEventsBySession(sessionId, {
-                limit: 10000,
-                offset: 0,
-              });
-              if (dbResult.ok && dbResult.value.length > 0) {
-                // Assign synthetic offsets and filter by fromOffset (same as in-memory path)
-                let syntheticOffset = 1;
-                const dbEventsWithOffsets = dbResult.value.map((dbEvent) => {
-                  const eventOffset =
-                    typeof (dbEvent as Record<string, unknown>).offset === 'number'
-                      ? ((dbEvent as Record<string, unknown>).offset as number)
-                      : syntheticOffset++;
-                  return { dbEvent, eventOffset };
-                });
-                const filteredDbEvents = dbEventsWithOffsets.filter(
-                  ({ eventOffset }) => eventOffset >= fromOffset
-                );
-                console.log(
-                  `[SSE] Replaying ${filteredDbEvents.length} events from database for session ${sessionId} (total stored: ${dbResult.value.length}, fromOffset: ${fromOffset})`
-                );
-                for (const { dbEvent, eventOffset } of filteredDbEvents) {
-                  const eventData = JSON.stringify({
-                    type: dbEvent.type,
-                    data: dbEvent.data,
-                    timestamp: dbEvent.timestamp,
-                    offset: eventOffset,
-                  });
-                  controller.enqueue(new TextEncoder().encode(`data: ${eventData}\n\n`));
-                }
-              }
-            } catch (err) {
-              console.error(
-                `[SSE] Failed to replay events from database for session ${sessionId}:`,
-                err
-              );
-            }
-          }
-
-          // Then subscribe to new events (after replay is complete to avoid race conditions)
-          unsubscribe = durableStreamsService.addSubscriber(sessionId, (event) => {
-            try {
-              if (typeof event.offset === 'number' && event.offset < fromOffset) {
-                return;
-              }
-              console.log(
-                `[SSE] Sending live event to session ${sessionId}: type=${event.type}, offset=${event.offset}`
-              );
-              const eventData = JSON.stringify({
-                type: event.type,
-                data: event.data,
-                timestamp: event.timestamp,
-                offset: typeof event.offset === 'number' ? event.offset : 0,
-              });
-              controller.enqueue(new TextEncoder().encode(`data: ${eventData}\n\n`));
-            } catch (err) {
-              // Connection closed - log and clean up
-              console.debug(`[SSE] Connection closed for session ${sessionId}:`, err);
-              cleanupSSEConnection(sessionId, controller, { pingInterval, unsubscribe });
-            }
-          });
-        } else {
-          console.log(`[SSE] No durableStreamsService available for session ${sessionId}`);
-        }
-
-        // Send keep-alive ping every 15 seconds
-        pingInterval = setInterval(() => {
-          try {
-            controller.enqueue(new TextEncoder().encode(`: ping\n\n`));
-          } catch (err) {
-            // Connection closed during ping - log and clean up
-            console.debug(`[SSE] Ping failed for session ${sessionId}, cleaning up:`, err);
-            cleanupSSEConnection(sessionId, controller, { pingInterval, unsubscribe });
-          }
-        }, 15000);
-      },
-      cancel() {
-        console.log(`[SSE] Connection cancelled/closed for session ${sessionId}`);
-        cleanupSSEConnection(sessionId, streamController, { pingInterval, unsubscribe });
-      },
-    });
-
-    return new Response(stream, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-        'Access-Control-Allow-Origin': corsHeaders['Access-Control-Allow-Origin'],
-        'Access-Control-Allow-Headers': corsHeaders['Access-Control-Allow-Headers'],
-      },
-    });
-  });
+  // NOTE: SSE endpoint removed — clients subscribe to Caddy durable streams
+  // at /v1/stream/sessions/:id directly.
 
   // GET /api/sessions/:id
   app.get('/:id', async (c) => {

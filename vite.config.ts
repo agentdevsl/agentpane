@@ -64,6 +64,13 @@ export default defineConfig({
         timeout: 0,
         proxyTimeout: 0,
       },
+      // Proxy durable streams to dev streams server
+      '/v1/stream': {
+        target: 'http://localhost:3002',
+        changeOrigin: true,
+        timeout: 0,
+        proxyTimeout: 0,
+      },
     },
   },
   plugins: [

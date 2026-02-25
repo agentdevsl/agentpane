@@ -10,18 +10,20 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     ports:
-      - "3001:3001"
+      - "3000:3000"
     volumes:
       - agentpane-data:/app/data
+      - agentpane-streams:/app/data/streams
     environment:
       - NODE_ENV=production
       - DB_PATH=/app/data/agentpane.db
-      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:3000}
+      - STREAMS_DATA_DIR=/app/data/streams
+      - CADDY_STREAMS_URL=http://localhost:3000/v1/stream
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - CLAUDE_OAUTH_TOKEN=${CLAUDE_OAUTH_TOKEN:-}
       - LOG_LEVEL=${LOG_LEVEL:-info}
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/api/healthz"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -30,3 +32,4 @@ services:
 
 volumes:
   agentpane-data:
+  agentpane-streams:
