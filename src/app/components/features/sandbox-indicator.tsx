@@ -1,4 +1,4 @@
-import { ArrowClockwise, Cube, CubeTransparent, Spinner } from '@phosphor-icons/react';
+import { ArrowClockwise, Cube, CubeTransparent, Hexagon, Spinner } from '@phosphor-icons/react';
 import { cva } from 'class-variance-authority';
 import {
   Tooltip,
@@ -8,9 +8,16 @@ import {
 } from '@/app/components/ui/tooltip';
 import { cn } from '@/lib/utils/cn';
 
-export type ContainerStatus = 'stopped' | 'creating' | 'running' | 'idle' | 'error' | 'unavailable';
+export type ContainerStatus =
+  | 'stopped'
+  | 'creating'
+  | 'running'
+  | 'idle'
+  | 'stopping'
+  | 'error'
+  | 'unavailable';
 
-export type SandboxProviderType = 'docker' | 'kubernetes' | 'none';
+export type SandboxProviderType = 'docker' | 'devcontainer' | 'kubernetes' | 'nomad' | 'none';
 
 const statusDotVariants = cva('h-2 w-2 rounded-full', {
   variants: {
@@ -19,6 +26,7 @@ const statusDotVariants = cva('h-2 w-2 rounded-full', {
       running: 'bg-success',
       idle: 'bg-attention',
       stopped: 'bg-fg-muted',
+      stopping: 'bg-fg-muted animate-pulse',
       error: 'bg-danger',
       unavailable: 'bg-fg-muted opacity-50',
     },
@@ -38,6 +46,8 @@ function getStatusLabel(status: ContainerStatus): string {
       return 'Idle';
     case 'stopped':
       return 'Offline';
+    case 'stopping':
+      return 'Stopping';
     case 'error':
       return 'Error';
     case 'unavailable':
@@ -48,7 +58,7 @@ function getStatusLabel(status: ContainerStatus): string {
 }
 
 function getStatusDescription(status: ContainerStatus, provider: SandboxProviderType): string {
-  const target = provider === 'kubernetes' ? 'Pod' : 'Container';
+  const target = provider === 'kubernetes' ? 'Pod' : provider === 'nomad' ? 'Job' : 'Container';
   switch (status) {
     case 'creating':
       return `${target} is starting up...`;
@@ -56,6 +66,8 @@ function getStatusDescription(status: ContainerStatus, provider: SandboxProvider
       return `${target} is online and ready for agent tasks`;
     case 'idle':
       return `${target} is online but idle (will auto-stop after timeout)`;
+    case 'stopping':
+      return `${target} is shutting down...`;
     case 'stopped':
       return `${target} is offline. It will start automatically when an agent runs.`;
     case 'error':
@@ -78,8 +90,12 @@ function getProviderLabel(provider: SandboxProviderType): string {
   switch (provider) {
     case 'kubernetes':
       return 'K8s';
+    case 'nomad':
+      return 'Nomad';
     case 'docker':
       return 'Docker';
+    case 'devcontainer':
+      return 'DevContainer';
     default:
       return 'Docker';
   }
@@ -89,8 +105,12 @@ function getProviderDescription(provider: SandboxProviderType): string {
   switch (provider) {
     case 'kubernetes':
       return 'Agents run in isolated Kubernetes pods for security.';
+    case 'nomad':
+      return 'Agents run in Nomad-scheduled Docker containers for security.';
     case 'docker':
       return 'Agents run in isolated Docker containers for security.';
+    case 'devcontainer':
+      return 'Agents run in VS Code-compatible DevContainers for reproducible environments.';
     default:
       return 'Agents run in isolated containers for security.';
   }
@@ -107,6 +127,20 @@ function getUnavailableDescription(provider: SandboxProviderType): {
         'The sandbox requires a Kubernetes cluster to run agent tasks in isolated pods. Please check your cluster connection in Settings.',
     };
   }
+  if (provider === 'nomad') {
+    return {
+      title: 'Nomad Not Available',
+      description:
+        'The sandbox requires a Nomad cluster to schedule agent tasks as jobs. Please check your Nomad cluster connection in Settings.',
+    };
+  }
+  if (provider === 'devcontainer') {
+    return {
+      title: 'DevContainer Not Available',
+      description:
+        'The sandbox requires Docker and a devcontainer.json configuration to run agent tasks in DevContainers. Please check your Docker installation and project configuration.',
+    };
+  }
   return {
     title: 'Docker Not Available',
     description:
@@ -117,7 +151,7 @@ function getUnavailableDescription(provider: SandboxProviderType): {
 export interface SandboxIndicatorProps {
   mode: 'shared' | 'per-project';
   containerStatus: ContainerStatus;
-  dockerAvailable: boolean;
+  providerAvailable: boolean;
   provider?: SandboxProviderType;
   isLoading?: boolean;
   isRestarting?: boolean;
@@ -127,6 +161,10 @@ export interface SandboxIndicatorProps {
   k8sClusterVersion?: string | null;
   k8sPodCount?: number;
   k8sPodsRunning?: number;
+  nomadHealthy?: boolean;
+  nomadVersion?: string | null;
+  nomadLeader?: string | null;
+  nomadJobCount?: number;
 }
 
 /**
@@ -136,7 +174,7 @@ export interface SandboxIndicatorProps {
 export function SandboxIndicator({
   mode,
   containerStatus,
-  dockerAvailable,
+  providerAvailable,
   provider = 'docker',
   isLoading = false,
   isRestarting = false,
@@ -146,12 +184,17 @@ export function SandboxIndicator({
   k8sClusterVersion,
   k8sPodCount,
   k8sPodsRunning,
+  nomadHealthy,
+  nomadVersion,
+  nomadLeader,
+  nomadJobCount,
 }: SandboxIndicatorProps): React.JSX.Element {
-  const isTransitioning = containerStatus === 'creating' || isRestarting;
+  const isTransitioning =
+    containerStatus === 'creating' || containerStatus === 'stopping' || isRestarting;
   const modeLabel = mode === 'shared' ? 'Shared' : 'Per-Project';
   const providerLabel = getProviderLabel(provider);
 
-  if (provider === 'kubernetes' && k8sCrdReady === false && dockerAvailable) {
+  if (provider === 'kubernetes' && k8sCrdReady === false && providerAvailable) {
     return (
       <TooltipProvider>
         <Tooltip>
@@ -179,7 +222,7 @@ export function SandboxIndicator({
     );
   }
 
-  if (!dockerAvailable) {
+  if (!providerAvailable) {
     const unavailable = getUnavailableDescription(provider);
     return (
       <TooltipProvider>
@@ -217,7 +260,11 @@ export function SandboxIndicator({
           >
             {/* Sandbox label with icon */}
             <div className="flex items-center gap-1.5 text-xs">
-              <Cube className="h-4 w-4 text-fg-muted" />
+              {provider === 'nomad' ? (
+                <Hexagon className="h-4 w-4 text-fg-muted" />
+              ) : (
+                <Cube className="h-4 w-4 text-fg-muted" />
+              )}
               <span className="font-medium text-fg-muted">{providerLabel}</span>
             </div>
 
@@ -243,6 +290,7 @@ export function SandboxIndicator({
                   containerStatus === 'creating' && 'text-secondary',
                   containerStatus === 'error' && 'text-danger',
                   containerStatus === 'idle' && 'text-attention',
+                  containerStatus === 'stopping' && 'text-fg-muted',
                   (containerStatus === 'stopped' || containerStatus === 'unavailable') &&
                     'text-fg-muted'
                 )}
@@ -252,7 +300,7 @@ export function SandboxIndicator({
             </div>
 
             {/* Restart button */}
-            {onRestart && dockerAvailable && (
+            {onRestart && providerAvailable && (
               <>
                 <div className="h-4 w-px bg-border" />
                 <button
@@ -267,7 +315,7 @@ export function SandboxIndicator({
                     'text-fg-muted hover:bg-surface hover:text-fg',
                     'disabled:cursor-not-allowed disabled:opacity-50'
                   )}
-                  title={`Restart ${provider === 'kubernetes' ? 'pod' : 'container'}`}
+                  title={`Restart ${provider === 'kubernetes' ? 'pod' : provider === 'nomad' ? 'job' : 'container'}`}
                 >
                   <ArrowClockwise
                     className={cn('h-3.5 w-3.5', isRestarting && 'animate-spin')}
@@ -317,6 +365,26 @@ export function SandboxIndicator({
                     <p className="text-fg-muted">
                       {k8sPodsRunning ?? 0}/{k8sPodCount} pods running
                     </p>
+                  )}
+                </div>
+              </div>
+            )}
+            {provider === 'nomad' && (
+              <div className="border-t border-border pt-2">
+                <p className="font-medium text-fg">Nomad Cluster</p>
+                <div className="mt-1 space-y-1">
+                  <p className="flex items-center gap-1.5 text-fg-muted">
+                    <span
+                      className={cn(
+                        'inline-block h-1.5 w-1.5 rounded-full',
+                        nomadHealthy ? 'bg-success' : 'bg-danger'
+                      )}
+                    />
+                    {nomadHealthy ? nomadLeader || 'Leader Elected' : 'No Leader'}
+                  </p>
+                  {nomadVersion && <p className="text-fg-muted">Version: {nomadVersion}</p>}
+                  {nomadJobCount !== undefined && (
+                    <p className="text-fg-muted">{nomadJobCount} sandbox jobs</p>
                   )}
                 </div>
               </div>

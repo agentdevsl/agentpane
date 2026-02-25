@@ -19,8 +19,8 @@ import { isValidId, json } from '../shared.js';
 
 const log = createLogger('SandboxStatus');
 
-/** Minimal interface for reading K8s provider health in status routes. */
-interface K8sProviderHealth {
+/** Extended sandbox provider health interface for status routes (includes auto-heal support). */
+interface SandboxProviderHealth {
   healthCheck(): Promise<{
     healthy: boolean;
     message?: string;
@@ -42,7 +42,8 @@ interface K8sProviderHealth {
 interface SandboxStatusDeps {
   db: Database;
   getDockerProvider: () => EventEmittingSandboxProvider | null;
-  getK8sProvider?: () => K8sProviderHealth | null;
+  getK8sProvider?: () => SandboxProviderHealth | null;
+  getNomadProvider?: () => SandboxProviderHealth | null;
 }
 
 // Track in-flight auto-heal to prevent concurrent attempts
@@ -65,8 +66,10 @@ async function loadSandboxDefaults(db: Database) {
         idleTimeoutMinutes?: number;
       };
     }
-  } catch {
-    // Use built-in defaults
+  } catch (err) {
+    log.warn('Failed to load sandbox defaults from database, using built-in defaults', {
+      error: err instanceof Error ? err : new Error(String(err)),
+    });
   }
   return null;
 }
@@ -123,7 +126,7 @@ async function autoHealSandbox(
  */
 async function autoHealK8sSandbox(
   db: Database,
-  k8sProvider: K8sProviderHealth,
+  k8sProvider: SandboxProviderHealth,
   lookupId: string
 ): Promise<boolean> {
   if (k8sAutoHealInProgress) return false;
@@ -158,6 +161,7 @@ export function createSandboxStatusRoutes({
   db,
   getDockerProvider,
   getK8sProvider,
+  getNomadProvider,
 }: SandboxStatusDeps) {
   const app = new Hono();
 
@@ -212,7 +216,10 @@ export function createSandboxStatusRoutes({
           } else {
             containerStatus = 'stopped';
           }
-        } catch {
+        } catch (err) {
+          log.warn('Docker sandbox lookup failed', {
+            error: err instanceof Error ? err : new Error(String(err)),
+          });
           containerStatus = 'error';
         }
       }
@@ -237,8 +244,10 @@ export function createSandboxStatusRoutes({
               const sandboxes = await k8sProvider.listSandboxes();
               k8sPodCount = sandboxes.length;
               k8sPodsRunning = sandboxes.filter((s) => s.phase === 'Running').length;
-            } catch {
-              // Best effort
+            } catch (err) {
+              log.warn('K8s listSandboxes failed', {
+                error: err instanceof Error ? err : new Error(String(err)),
+              });
             }
           }
 
@@ -259,14 +268,40 @@ export function createSandboxStatusRoutes({
                   const sandboxes = await k8sProvider.listSandboxes();
                   k8sPodCount = sandboxes.length;
                   k8sPodsRunning = sandboxes.filter((s) => s.phase === 'Running').length;
-                } catch {
-                  // Best effort
+                } catch (err) {
+                  log.warn('K8s re-count pods failed after auto-heal', {
+                    error: err instanceof Error ? err : new Error(String(err)),
+                  });
                 }
               }
             }
           }
-        } catch {
-          // Best effort — leave defaults
+        } catch (err) {
+          log.warn('K8s health check failed', {
+            error: err instanceof Error ? err : new Error(String(err)),
+          });
+        }
+      }
+
+      // Gather Nomad health fields when the provider is available
+      let nomadHealthy = false;
+      let nomadVersion: string | null = null;
+      let nomadLeader: string | null = null;
+      let nomadJobCount = 0;
+
+      const nomadProvider = getNomadProvider?.();
+      if (nomadProvider) {
+        try {
+          const health = await nomadProvider.healthCheck();
+          nomadHealthy = health.healthy;
+          const details = health.details ?? {};
+          nomadVersion = typeof details.version === 'string' ? details.version : null;
+          nomadLeader = typeof details.leader === 'string' ? details.leader : null;
+          nomadJobCount = typeof details.jobCount === 'number' ? details.jobCount : 0;
+        } catch (err) {
+          log.warn('Nomad health check failed in status route', {
+            error: err instanceof Error ? err : new Error(String(err)),
+          });
         }
       }
 
@@ -276,12 +311,16 @@ export function createSandboxStatusRoutes({
           mode: sandboxMode,
           containerStatus,
           containerId,
-          dockerAvailable: !!dockerProvider,
+          providerAvailable: !!dockerProvider || !!k8sProvider || !!nomadProvider,
           provider: dockerProvider?.name ?? 'none',
           k8sCrdReady,
           k8sClusterVersion,
           k8sPodCount,
           k8sPodsRunning,
+          nomadHealthy,
+          nomadVersion,
+          nomadLeader,
+          nomadJobCount,
         },
       });
     } catch (error) {

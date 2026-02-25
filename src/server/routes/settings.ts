@@ -9,6 +9,23 @@ import * as schema from '../../db/schema/index.js';
 import type { Database } from '../../types/database.js';
 import { json } from '../shared.js';
 
+// Allowlist of settings keys that can be written via the PUT endpoint.
+// Any key not in this list is silently rejected to prevent overwriting
+// unexpected settings or internal state.
+const ALLOWED_SETTINGS_KEYS = new Set([
+  'sandbox.defaults',
+  'sandbox.mode',
+  'sandbox.provider',
+  'sandbox.kubernetes',
+  'sandbox.nomad',
+  'anthropic.apiKey',
+  'anthropic.model',
+  'github.token',
+  'github.appId',
+  'theme',
+  'general.agentModel',
+]);
+
 // Validation schemas
 const updateSettingsSchema = z.object({
   settings: z.record(z.string(), z.unknown()),
@@ -50,6 +67,17 @@ export function createSettingsRoutes({ db }: SettingsDeps) {
       const settingsMap: Record<string, unknown> = {};
       for (const row of results) {
         try {
+          // Redact sensitive tokens before returning to client
+          if (row.key === 'sandbox.nomad') {
+            const parsed = JSON.parse(row.value);
+            if (parsed.token) {
+              parsed.hasToken = true;
+              delete parsed.token;
+            }
+            settingsMap[row.key] = parsed;
+            continue;
+          }
+
           settingsMap[row.key] = JSON.parse(row.value);
         } catch (parseError) {
           // Log warning for potential data corruption - falling back to raw string
@@ -100,9 +128,24 @@ export function createSettingsRoutes({ db }: SettingsDeps) {
     try {
       const settingsToUpdate = parsed.data.settings;
 
-      // Upsert each setting
+      // Upsert each setting (only allowed keys)
       for (const [key, value] of Object.entries(settingsToUpdate)) {
-        const jsonValue = JSON.stringify(value);
+        if (!ALLOWED_SETTINGS_KEYS.has(key)) {
+          continue; // Silently skip unknown keys
+        }
+
+        // Encrypt sensitive tokens before storage (create a copy to avoid mutating the parsed input)
+        let dbValue = value;
+        if (key === 'sandbox.nomad' && typeof value === 'object' && value !== null) {
+          const nomadCopy = { ...(value as Record<string, unknown>) };
+          if (nomadCopy.token && typeof nomadCopy.token === 'string') {
+            const { encryptToken } = await import('../../lib/crypto/server-encryption.js');
+            nomadCopy.token = encryptToken(nomadCopy.token);
+          }
+          dbValue = nomadCopy;
+        }
+
+        const jsonValue = JSON.stringify(dbValue);
         await db
           .insert(schema.settings)
           .values({ key, value: jsonValue })

@@ -1,0 +1,54 @@
+# Caddyfile Configuration
+
+## Production Caddyfile
+
+```caddyfile
+{
+  admin off
+  auto_https off
+}
+
+:3000 {
+  # Health check for Caddy itself
+  handle /healthz {
+    respond "OK" 200
+  }
+
+  # Durable streams (LMDB persistence, SSE + long-poll)
+  handle /v1/stream/* {
+    durable_streams {
+      data_dir {$STREAMS_DATA_DIR:/app/data/streams}
+      long_poll_timeout 30s
+      sse_reconnect_interval 120s
+    }
+  }
+
+  # Reverse proxy to Bun API server
+  handle /api/* {
+    reverse_proxy localhost:3001 {
+      flush_interval -1
+    }
+  }
+
+  # Static files with SPA fallback
+  handle {
+    root * /app/dist
+    encode gzip br
+    try_files {path} /index.html
+    file_server {
+      precompressed gzip br
+    }
+    @immutable path /assets/*
+    header @immutable Cache-Control "public, max-age=31536000, immutable"
+  }
+}
+```
+
+## Key Configuration Notes
+
+- `admin off` — Disable Caddy admin API (not needed)
+- `auto_https off` — HTTPS handled by ingress/LB in production
+- `flush_interval -1` — Disables response buffering for SSE passthrough on `/api/*`
+- `data_dir` — LMDB storage for durable streams, volume-mounted
+- `precompressed gzip br` — Serves `.gz`/`.br` pre-compressed files if available
+- `try_files {path} /index.html` — SPA fallback for client-side routing

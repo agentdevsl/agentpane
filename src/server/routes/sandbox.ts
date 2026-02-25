@@ -1,7 +1,8 @@
 /**
- * Sandbox routes (including K8s)
+ * Sandbox routes (K8s, Nomad, and shared config CRUD)
  */
 
+import { resolve as dnsResolve } from 'node:dns/promises';
 import {
   AgentSandboxClient,
   getClusterInfo,
@@ -9,9 +10,47 @@ import {
   resolveContext,
 } from '@agentpane/agent-sandbox-sdk';
 import { Hono } from 'hono';
+import { z } from 'zod';
+import { SANDBOX_TYPES } from '../../db/schema/shared/enums.js';
+import { createLogger } from '../../lib/logging/logger.js';
 import type { SandboxConfigService } from '../../services/sandbox-config.service.js';
 import type { Database } from '../../types/database.js';
-import { json } from '../shared.js';
+import { isValidId, json } from '../shared.js';
+
+const sandboxConfigBodySchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  description: z.string().max(1000).optional(),
+  type: z.enum(SANDBOX_TYPES).optional(),
+  isDefault: z.boolean().optional(),
+  baseImage: z.string().max(500).optional(),
+  memoryMb: z.number().int().min(128).max(65536).optional(),
+  cpuCores: z.number().min(0.25).max(128).optional(),
+  maxProcesses: z.number().int().min(1).max(10000).optional(),
+  timeoutMinutes: z.number().int().min(1).max(1440).optional(),
+  volumeMountPath: z.string().max(500).optional(),
+  kubeConfigPath: z.string().max(500).optional(),
+  kubeContext: z.string().max(200).optional(),
+  kubeNamespace: z.string().max(200).optional(),
+  networkPolicyEnabled: z.boolean().optional(),
+  allowedEgressHosts: z.array(z.string().max(500)).optional(),
+  nomadAddress: z.string().max(500).optional(),
+  nomadToken: z.string().max(500).optional(),
+  nomadNamespace: z.string().max(200).optional(),
+  nomadDatacenter: z.string().max(200).optional(),
+  nomadRegion: z.string().max(200).optional(),
+});
+
+const sandboxConfigCreateSchema = sandboxConfigBodySchema.extend({
+  name: z.string().min(1).max(200),
+});
+
+const log = createLogger('SandboxRoutes');
+
+/** Strip the nomadToken field from a config before returning it to the client. */
+function redactConfig<T extends Record<string, unknown>>(config: T): Omit<T, 'nomadToken'> {
+  const { nomadToken: _token, ...safe } = config;
+  return safe;
+}
 
 interface SandboxDeps {
   sandboxConfigService: SandboxConfigService;
@@ -22,8 +61,8 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
 
   // GET /api/sandbox-configs
   app.get('/', async (c) => {
-    const limit = parseInt(c.req.query('limit') ?? '50', 10);
-    const offset = parseInt(c.req.query('offset') ?? '0', 10);
+    const limit = Math.min(Math.max(parseInt(c.req.query('limit') ?? '50', 10) || 50, 1), 100);
+    const offset = Math.max(parseInt(c.req.query('offset') ?? '0', 10) || 0, 0);
 
     try {
       const result = await sandboxConfigService.list({ limit, offset });
@@ -35,12 +74,14 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
       return json({
         ok: true,
         data: {
-          items: result.value,
-          totalCount: result.value.length,
+          items: result.value.items.map(({ nomadToken, ...rest }) => rest),
+          totalCount: result.value.totalCount,
         },
       });
     } catch (error) {
-      console.error('[SandboxConfigs] List error:', error);
+      log.error('SandboxConfigs list error', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to list sandbox configs' } },
         500
@@ -50,30 +91,44 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
 
   // POST /api/sandbox-configs
   app.post('/', async (c) => {
+    let rawBody: unknown;
     try {
-      const body = (await c.req.json()) as {
-        name: string;
-        description?: string;
-        type?: 'docker' | 'devcontainer' | 'kubernetes';
-        isDefault?: boolean;
-        baseImage?: string;
-        memoryMb?: number;
-        cpuCores?: number;
-        maxProcesses?: number;
-        timeoutMinutes?: number;
-        volumeMountPath?: string;
-        kubeConfigPath?: string;
-        kubeContext?: string;
-        kubeNamespace?: string;
-        networkPolicyEnabled?: boolean;
-        allowedEgressHosts?: string[];
-      };
-
-      if (!body.name) {
-        return json(
-          { ok: false, error: { code: 'MISSING_PARAMS', message: 'Name is required' } },
-          400
-        );
+      rawBody = await c.req.json();
+    } catch {
+      return json(
+        { ok: false, error: { code: 'INVALID_JSON', message: 'Request body must be valid JSON' } },
+        400
+      );
+    }
+    const parsed = sandboxConfigCreateSchema.safeParse(rawBody);
+    if (!parsed.success) {
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '),
+          },
+        },
+        400
+      );
+    }
+    const body = parsed.data;
+    try {
+      if (body.nomadAddress) {
+        const addrValidation = await validateNomadAddress(body.nomadAddress);
+        if (!addrValidation.valid) {
+          return json(
+            {
+              ok: false,
+              error: {
+                code: 'INVALID_ADDRESS',
+                message: addrValidation.error,
+              },
+            },
+            400
+          );
+        }
       }
 
       const result = await sandboxConfigService.create({
@@ -92,15 +147,22 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
         kubeNamespace: body.kubeNamespace,
         networkPolicyEnabled: body.networkPolicyEnabled,
         allowedEgressHosts: body.allowedEgressHosts,
+        nomadAddress: body.nomadAddress,
+        nomadToken: body.nomadToken,
+        nomadNamespace: body.nomadNamespace,
+        nomadDatacenter: body.nomadDatacenter,
+        nomadRegion: body.nomadRegion,
       });
 
       if (!result.ok) {
         return json({ ok: false, error: result.error }, result.error.status);
       }
 
-      return json({ ok: true, data: result.value }, 201);
+      return json({ ok: true, data: redactConfig(result.value) }, 201);
     } catch (error) {
-      console.error('[SandboxConfigs] Create error:', error);
+      log.error('SandboxConfigs create error', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to create sandbox config' } },
         500
@@ -111,6 +173,9 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
   // GET /api/sandbox-configs/:id
   app.get('/:id', async (c) => {
     const id = c.req.param('id');
+    if (!isValidId(id)) {
+      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID format' } }, 400);
+    }
 
     try {
       const result = await sandboxConfigService.getById(id);
@@ -119,9 +184,11 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
         return json({ ok: false, error: result.error }, result.error.status);
       }
 
-      return json({ ok: true, data: result.value });
+      return json({ ok: true, data: redactConfig(result.value) });
     } catch (error) {
-      console.error('[SandboxConfigs] Get error:', error);
+      log.error('SandboxConfigs get error', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to get sandbox config' } },
         500
@@ -132,25 +199,49 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
   // PATCH /api/sandbox-configs/:id
   app.patch('/:id', async (c) => {
     const id = c.req.param('id');
+    if (!isValidId(id)) {
+      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID format' } }, 400);
+    }
 
+    let rawBody: unknown;
     try {
-      const body = (await c.req.json()) as {
-        name?: string;
-        description?: string;
-        type?: 'docker' | 'devcontainer' | 'kubernetes';
-        isDefault?: boolean;
-        baseImage?: string;
-        memoryMb?: number;
-        cpuCores?: number;
-        maxProcesses?: number;
-        timeoutMinutes?: number;
-        volumeMountPath?: string;
-        kubeConfigPath?: string;
-        kubeContext?: string;
-        kubeNamespace?: string;
-        networkPolicyEnabled?: boolean;
-        allowedEgressHosts?: string[];
-      };
+      rawBody = await c.req.json();
+    } catch {
+      return json(
+        { ok: false, error: { code: 'INVALID_JSON', message: 'Request body must be valid JSON' } },
+        400
+      );
+    }
+    const parsed = sandboxConfigBodySchema.safeParse(rawBody);
+    if (!parsed.success) {
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '),
+          },
+        },
+        400
+      );
+    }
+    const body = parsed.data;
+    try {
+      if (body.nomadAddress) {
+        const addrValidation = await validateNomadAddress(body.nomadAddress);
+        if (!addrValidation.valid) {
+          return json(
+            {
+              ok: false,
+              error: {
+                code: 'INVALID_ADDRESS',
+                message: addrValidation.error,
+              },
+            },
+            400
+          );
+        }
+      }
 
       const result = await sandboxConfigService.update(id, {
         name: body.name,
@@ -168,15 +259,22 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
         kubeNamespace: body.kubeNamespace,
         networkPolicyEnabled: body.networkPolicyEnabled,
         allowedEgressHosts: body.allowedEgressHosts,
+        nomadAddress: body.nomadAddress,
+        nomadToken: body.nomadToken,
+        nomadNamespace: body.nomadNamespace,
+        nomadDatacenter: body.nomadDatacenter,
+        nomadRegion: body.nomadRegion,
       });
 
       if (!result.ok) {
         return json({ ok: false, error: result.error }, result.error.status);
       }
 
-      return json({ ok: true, data: result.value });
+      return json({ ok: true, data: redactConfig(result.value) });
     } catch (error) {
-      console.error('[SandboxConfigs] Update error:', error);
+      log.error('SandboxConfigs update error', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to update sandbox config' } },
         500
@@ -187,6 +285,9 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
   // DELETE /api/sandbox-configs/:id
   app.delete('/:id', async (c) => {
     const id = c.req.param('id');
+    if (!isValidId(id)) {
+      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID format' } }, 400);
+    }
 
     try {
       const result = await sandboxConfigService.delete(id);
@@ -197,7 +298,9 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
 
       return json({ ok: true, data: null });
     } catch (error) {
-      console.error('[SandboxConfigs] Delete error:', error);
+      log.error('SandboxConfigs delete error', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to delete sandbox config' } },
         500
@@ -252,7 +355,7 @@ async function attemptMinikubeStart(): Promise<{ started: boolean; message: stri
     return { started: true, message: output.trim().split('\n').pop() ?? 'Minikube started' };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.warn('[K8s] Failed to start minikube:', message);
+    log.warn('K8s failed to start minikube', { error: new Error(message) });
     return { started: false, message: `Failed to start minikube: ${message}` };
   }
 }
@@ -360,12 +463,10 @@ export function createK8sRoutes(deps?: { db?: Database }) {
                   try {
                     resolve(JSON.parse(data));
                   } catch (parseError) {
-                    console.debug(
-                      '[K8s Status] Failed to parse version response:',
-                      parseError instanceof Error ? parseError.message : 'parse error',
-                      'data:',
-                      data.substring(0, 100)
-                    );
+                    log.warn('K8s Status failed to parse version response', {
+                      error: parseError instanceof Error ? parseError : new Error('parse error'),
+                      data: { responsePreview: data.substring(0, 100) },
+                    });
                     reject(new Error('Invalid JSON response from K8s version endpoint'));
                   }
                 });
@@ -383,10 +484,9 @@ export function createK8sRoutes(deps?: { db?: Database }) {
           clusterReachable = true;
         }
       } catch (versionError) {
-        console.debug(
-          '[K8s Status] Version fetch failed:',
-          versionError instanceof Error ? versionError.message : versionError
-        );
+        log.warn('K8s Status version fetch failed', {
+          error: versionError instanceof Error ? versionError : new Error(String(versionError)),
+        });
       }
 
       // If version fetch failed, the cluster is not reachable
@@ -396,7 +496,7 @@ export function createK8sRoutes(deps?: { db?: Database }) {
         if (deps?.db && isMinikubeContext(currentContext)) {
           try {
             const { eq } = await import('drizzle-orm');
-            const { settings } = await import('../../db/schema/sqlite/index.js');
+            const { settings } = await import('../../db/schema/index.js');
             const k8sSetting = await deps.db.query.settings.findFirst({
               where: eq(settings.key, 'sandbox.kubernetes'),
             });
@@ -404,17 +504,19 @@ export function createK8sRoutes(deps?: { db?: Database }) {
               const parsed = JSON.parse(k8sSetting.value);
               autoStartEnabled = parsed.autoStartMinikube === true;
             }
-          } catch {
-            // Ignore DB errors, just skip auto-start
+          } catch (dbErr) {
+            log.warn('Failed to load autoStartMinikube setting from database', {
+              error: dbErr instanceof Error ? dbErr : new Error(String(dbErr)),
+            });
           }
         }
 
         // Attempt auto-start if configured
         if (autoStartEnabled) {
-          console.log('[K8s Status] Auto-starting minikube (autoStartMinikube enabled)...');
+          log.info('K8s Status auto-starting minikube (autoStartMinikube enabled)');
           const startResult = await attemptMinikubeStart();
           if (startResult.started) {
-            console.log('[K8s Status] Minikube auto-started, retrying cluster check...');
+            log.info('K8s Status minikube auto-started, retrying cluster check');
             // Retry the version fetch after minikube starts
             try {
               const cluster = kc.getCurrentCluster();
@@ -454,8 +556,10 @@ export function createK8sRoutes(deps?: { db?: Database }) {
                 serverVersion = retryData.gitVersion || `v${retryData.major}.${retryData.minor}`;
                 clusterReachable = true;
               }
-            } catch {
-              // Still unreachable after auto-start
+            } catch (retryErr) {
+              log.warn('Cluster still unreachable after minikube auto-start', {
+                error: retryErr instanceof Error ? retryErr : new Error(String(retryErr)),
+              });
             }
           }
         }
@@ -496,13 +600,12 @@ export function createK8sRoutes(deps?: { db?: Database }) {
         const statusCode = (error as { response?: { statusCode?: number } }).response?.statusCode;
         if (statusCode === 404) {
           // Namespace doesn't exist yet - this is expected
-          console.debug('[K8s Status] Namespace does not exist yet:', namespace);
+          log.debug('K8s Status namespace does not exist yet', { data: { namespace } });
         } else {
           // Log other errors (auth failures, network issues, etc.)
-          console.error(
-            '[K8s Status] Namespace check failed:',
-            error instanceof Error ? error.message : error
-          );
+          log.error('K8s Status namespace check failed', {
+            error: error instanceof Error ? error : new Error(String(error)),
+          });
         }
       }
 
@@ -522,7 +625,7 @@ export function createK8sRoutes(deps?: { db?: Database }) {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to connect to cluster';
-      console.error('[K8s Status] Error:', message);
+      log.error('K8s Status error', { error: new Error(message) });
       return json(
         {
           ok: false,
@@ -573,7 +676,7 @@ export function createK8sRoutes(deps?: { db?: Database }) {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to load kubeconfig';
-      console.error('[K8s Contexts] Error:', message);
+      log.error('K8s Contexts error', { error: new Error(message) });
       return json(
         {
           ok: false,
@@ -630,7 +733,7 @@ export function createK8sRoutes(deps?: { db?: Database }) {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to list namespaces';
-      console.error('[K8s Namespaces] Error:', message);
+      log.error('K8s Namespaces error', { error: new Error(message) });
       return json(
         {
           ok: false,
@@ -654,7 +757,7 @@ export function createK8sRoutes(deps?: { db?: Database }) {
       if (deps?.db && !kubeconfigPath && !kubeContext) {
         try {
           const { eq } = await import('drizzle-orm');
-          const { settings } = await import('../../db/schema/sqlite/index.js');
+          const { settings } = await import('../../db/schema/index.js');
           const k8sSetting = await deps.db.query.settings.findFirst({
             where: eq(settings.key, 'sandbox.kubernetes'),
           });
@@ -665,8 +768,10 @@ export function createK8sRoutes(deps?: { db?: Database }) {
             kubeContext = parsed.kubeContext;
             skipTLSVerify = parsed.skipTLSVerify ?? skipTLSVerify;
           }
-        } catch {
-          // Use defaults
+        } catch (dbErr) {
+          log.warn('Failed to load K8s settings from database, using defaults', {
+            error: dbErr instanceof Error ? dbErr : new Error(String(dbErr)),
+          });
         }
       }
 
@@ -694,7 +799,7 @@ export function createK8sRoutes(deps?: { db?: Database }) {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error('[K8s Controller] Error:', message);
+      log.error('K8s Controller error', { error: new Error(message) });
       return json(
         {
           ok: false,
@@ -727,7 +832,7 @@ export function createK8sRoutes(deps?: { db?: Database }) {
     }
 
     try {
-      console.log('[K8s Minikube] Starting minikube...');
+      log.info('K8s Minikube starting minikube');
       const result = await attemptMinikubeStart();
 
       return json({
@@ -739,7 +844,7 @@ export function createK8sRoutes(deps?: { db?: Database }) {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error('[K8s Minikube] Start error:', message);
+      log.error('K8s Minikube start error', { error: new Error(message) });
       return json(
         {
           ok: false,
@@ -818,7 +923,7 @@ export function createK8sRoutes(deps?: { db?: Database }) {
         }
       };
 
-      console.log('[K8s Install] Starting CRD installation...');
+      log.info('K8s Install starting CRD installation');
 
       // Step 1: Apply CRD definitions
       await applyManifest('crds.yaml', 'CRD Definitions');
@@ -826,9 +931,7 @@ export function createK8sRoutes(deps?: { db?: Database }) {
       // Wait for CRD to be registered before applying custom resources
       const crdRegistered = await waitForCrdRegistration(execAsync, 10_000);
       if (!crdRegistered) {
-        console.warn(
-          '[K8s Install] CRD registration timed out after 10s — custom resources may fail'
-        );
+        log.warn('K8s Install CRD registration timed out after 10s — custom resources may fail');
       }
 
       // Step 2: Create namespace
@@ -871,10 +974,9 @@ export function createK8sRoutes(deps?: { db?: Database }) {
         .filter((r) => ['CRD Definitions', 'Namespace'].includes(r.step))
         .every((r) => r.success);
 
-      console.log(
-        '[K8s Install] Installation complete:',
-        results.map((r) => `${r.step}: ${r.success ? 'OK' : 'FAIL'}`).join(', ')
-      );
+      log.info('K8s Install installation complete', {
+        data: { results: results.map((r) => `${r.step}: ${r.success ? 'OK' : 'FAIL'}`).join(', ') },
+      });
 
       return json({
         ok: true,
@@ -885,7 +987,7 @@ export function createK8sRoutes(deps?: { db?: Database }) {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error('[K8s Install] Error:', message);
+      log.error('K8s Install error', { error: new Error(message) });
       return json(
         {
           ok: false,
@@ -896,6 +998,456 @@ export function createK8sRoutes(deps?: { db?: Database }) {
         },
         500
       );
+    }
+  });
+
+  return app;
+}
+
+/**
+ * Nomad-specific routes
+ */
+
+interface NomadRouteDeps {
+  db?: Database;
+}
+
+/**
+ * Check whether an IP address string falls within a private or reserved range.
+ * Covers IPv4 loopback, RFC 1918, link-local (including cloud metadata 169.254.x.x),
+ * the unspecified address, and common IPv6 reserved addresses.
+ */
+function isPrivateIp(ip: string): boolean {
+  // IPv6 reserved addresses
+  if (ip === '::1' || ip === '::') return true;
+  if (ip.toLowerCase().startsWith('fe80:')) return true;
+
+  // IPv4 ranges
+  const parts = ip.split('.');
+  if (parts.length === 4) {
+    const a = Number(parts[0]);
+    const b = Number(parts[1]);
+    if (a === 127) return true; // 127.0.0.0/8 loopback
+    if (a === 10) return true; // 10.0.0.0/8
+    if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+    if (a === 192 && b === 168) return true; // 192.168.0.0/16
+    if (a === 169 && b === 254) return true; // 169.254.0.0/16 link-local / cloud metadata
+    if (ip === '0.0.0.0') return true;
+  }
+
+  return false;
+}
+
+/**
+ * Validate Nomad address to prevent SSRF attacks against cloud metadata endpoints.
+ * Returns { valid: true } on success or { valid: false, error: string } on failure.
+ * Also performs DNS resolution to prevent DNS rebinding attacks.
+ */
+export async function validateNomadAddress(
+  address: string
+): Promise<{ valid: true } | { valid: false; error: string }> {
+  let url: URL;
+  try {
+    url = new URL(address);
+  } catch {
+    return { valid: false, error: 'Invalid Nomad address URL format' };
+  }
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    return { valid: false, error: 'Nomad address must use http or https protocol' };
+  }
+  const hostname = url.hostname;
+  // Block cloud metadata endpoints (full 169.254.0.0/16 link-local range)
+  if (hostname.startsWith('169.254.') || hostname === 'metadata.google.internal') {
+    return { valid: false, error: 'Nomad address cannot target cloud metadata endpoints' };
+  }
+  // Block 0.0.0.0 (binds to all interfaces, effectively localhost)
+  if (hostname === '0.0.0.0') {
+    return { valid: false, error: 'Nomad address cannot target 0.0.0.0' };
+  }
+  // Block "localhost" hostname
+  if (hostname === 'localhost') {
+    return {
+      valid: false,
+      error: 'Nomad address cannot use "localhost" — use an IP address instead',
+    };
+  }
+  // Restrict loopback addresses (127.x.x.x) to Nomad's default port (4646) only.
+  // This prevents SSRF against other locally-bound services (Redis, databases, etc.)
+  // while still allowing local Nomad development setups.
+  const NOMAD_DEFAULT_PORT = 4646;
+  if (hostname.startsWith('127.')) {
+    const port = url.port ? parseInt(url.port, 10) : url.protocol === 'https:' ? 443 : 80;
+    if (port !== NOMAD_DEFAULT_PORT) {
+      return {
+        valid: false,
+        error: `Nomad address on loopback (127.x) must use port ${NOMAD_DEFAULT_PORT} to prevent SSRF`,
+      };
+    }
+  }
+  // Block IPv6 loopback and IPv6-mapped loopback/metadata addresses
+  if (hostname === '[::1]' || hostname === '::1') {
+    return { valid: false, error: 'Nomad address cannot target IPv6 loopback' };
+  }
+  const normalizedHost = hostname.replace(/^\[|\]$/g, '');
+  if (
+    normalizedHost === '::1' ||
+    normalizedHost === '0:0:0:0:0:0:0:1' ||
+    normalizedHost.startsWith('::ffff:169.254.') ||
+    normalizedHost.startsWith('::ffff:127.') ||
+    // URL constructor normalizes 169.254.x.y to hex a9fe:XXYY in IPv6-mapped form
+    normalizedHost.startsWith('::ffff:a9fe:')
+  ) {
+    return {
+      valid: false,
+      error: 'Nomad address cannot target loopback or cloud metadata via IPv6',
+    };
+  }
+  // Block IPv6 link-local (fe80::/10)
+  if (hostname.startsWith('fe80:') || hostname.startsWith('[fe80:')) {
+    return { valid: false, error: 'Nomad address cannot target IPv6 link-local addresses' };
+  }
+  // Block RFC 1918 private addresses in the 10.0.0.0/8 and 172.16.0.0/12 ranges
+  const blockedPrefixes = [
+    '10.',
+    '172.16.',
+    '172.17.',
+    '172.18.',
+    '172.19.',
+    '172.20.',
+    '172.21.',
+    '172.22.',
+    '172.23.',
+    '172.24.',
+    '172.25.',
+    '172.26.',
+    '172.27.',
+    '172.28.',
+    '172.29.',
+    '172.30.',
+    '172.31.',
+  ];
+  // 127.x is port-restricted to 4646 above. 10.x and 172.16-31.x are blocked because they
+  // typically correspond to cloud VPC infrastructure (AWS VPC, GCP internal, etc.) where
+  // SSRF could reach sensitive internal services or metadata endpoints.
+  for (const prefix of blockedPrefixes) {
+    if (hostname.startsWith(prefix)) {
+      return { valid: false, error: 'Nomad address cannot target internal network addresses' };
+    }
+  }
+  // Restrict 192.168.x.x (home/office LAN) to Nomad's default port (4646) only,
+  // matching the 127.x restriction. This prevents SSRF against other LAN services
+  // while still allowing local Nomad setups.
+  if (hostname.startsWith('192.168.')) {
+    const port = url.port ? parseInt(url.port, 10) : url.protocol === 'https:' ? 443 : 80;
+    if (port !== NOMAD_DEFAULT_PORT) {
+      return {
+        valid: false,
+        error: `Nomad address on LAN (192.168.x) must use port ${NOMAD_DEFAULT_PORT} to prevent SSRF`,
+      };
+    }
+  }
+
+  // Resolve DNS to prevent rebinding attacks.
+  // Skip DNS check for literal IP addresses (they don't need resolution).
+  const isLiteralIp =
+    /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) || hostname.includes(':');
+  if (!isLiteralIp) {
+    try {
+      const addresses = await dnsResolve(hostname);
+      for (const addr of addresses) {
+        if (isPrivateIp(addr)) {
+          return { valid: false, error: `Nomad address resolves to private/reserved IP: ${addr}` };
+        }
+      }
+    } catch {
+      // DNS resolution failure — fail-closed to prevent SSRF via DNS rebinding.
+      // If users need to use internal hostnames, they should use IP addresses directly.
+      return {
+        valid: false,
+        error: `Cannot resolve hostname "${hostname}" — DNS lookup failed. Use an IP address or ensure the hostname is resolvable.`,
+      };
+    }
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Helper to load Nomad settings from DB or query params.
+ * Token is ONLY loaded from the database, never from query/overrides.
+ * If an address override is provided, it is validated against the SSRF blocklist.
+ * The stored token is only attached when the address matches the persisted address
+ * (prevents sending the token to an attacker-controlled server).
+ */
+async function loadNomadSettings(
+  db: Database | undefined,
+  overrides?: { address?: string; namespace?: string }
+): Promise<{
+  address?: string;
+  token?: string;
+  namespace: string;
+  tokenDecryptionFailed?: boolean;
+}> {
+  // Validate overridden address against SSRF blocklist
+  if (overrides?.address) {
+    const addrValidation = await validateNomadAddress(overrides.address);
+    if (!addrValidation.valid) {
+      throw new Error(addrValidation.error);
+    }
+  }
+
+  let address = overrides?.address;
+  let token: string | undefined;
+  let tokenDecryptionFailed = false;
+  let namespace = overrides?.namespace ?? 'default';
+
+  // Single DB query to load persisted Nomad settings
+  if (db) {
+    try {
+      const { eq } = await import('drizzle-orm');
+      const { settings } = await import('../../db/schema/index.js');
+      const nomadSetting = await db.query.settings.findFirst({
+        where: eq(settings.key, 'sandbox.nomad'),
+      });
+      if (nomadSetting?.value) {
+        const parsed = JSON.parse(nomadSetting.value);
+        const dbAddress = parsed.address as string | undefined;
+
+        // Use DB address if no override provided
+        if (!address) {
+          address = dbAddress;
+        }
+
+        // Use DB namespace as fallback when no override
+        if (!overrides?.namespace) {
+          namespace = parsed.namespace ?? 'default';
+        }
+
+        // Only attach the stored token when the address matches the persisted address.
+        // This prevents sending our token to an attacker-controlled server.
+        if (!overrides?.address || overrides.address === dbAddress) {
+          const encryptedToken = parsed.token as string | undefined;
+          if (encryptedToken) {
+            try {
+              const { decryptToken } = await import('../../lib/crypto/server-encryption.js');
+              token = decryptToken(encryptedToken);
+            } catch (decryptErr) {
+              log.error(
+                'Token decryption failed — the Nomad token must be re-entered in Settings. ' +
+                  'This usually means the encryption key was rotated or the data is corrupted.',
+                {
+                  error: decryptErr instanceof Error ? decryptErr : new Error(String(decryptErr)),
+                }
+              );
+              token = undefined;
+              tokenDecryptionFailed = true;
+            }
+          }
+        }
+      }
+    } catch (dbErr) {
+      log.error('Failed to load Nomad settings from database', {
+        error: dbErr instanceof Error ? dbErr : new Error(String(dbErr)),
+      });
+      // Don't silently return defaults — let the caller know something is wrong
+      throw dbErr;
+    }
+  }
+
+  return { address, token, namespace, tokenDecryptionFailed: tokenDecryptionFailed || undefined };
+}
+
+export function createNomadRoutes(deps?: NomadRouteDeps) {
+  const app = new Hono();
+
+  // Lazy-cached import for NomadSandboxClient
+  let NomadSandboxClientClass:
+    | typeof import('@agentpane/nomad-sandbox-sdk').NomadSandboxClient
+    | null = null;
+  async function getNomadClient(opts: { address: string; token?: string; namespace?: string }) {
+    if (!NomadSandboxClientClass) {
+      const sdk = await import('@agentpane/nomad-sandbox-sdk');
+      NomadSandboxClientClass = sdk.NomadSandboxClient;
+    }
+    return new NomadSandboxClientClass(opts);
+  }
+
+  // GET /api/sandbox/nomad/status - Nomad cluster health
+  app.get('/status', async (c) => {
+    try {
+      const { address, token, namespace, tokenDecryptionFailed } = await loadNomadSettings(
+        deps?.db,
+        {
+          address: c.req.query('address') ?? undefined,
+          namespace: c.req.query('namespace') ?? undefined,
+        }
+      );
+
+      if (!address) {
+        return json({
+          ok: true,
+          data: { healthy: false, message: 'No Nomad address configured' },
+        });
+      }
+
+      const client = await getNomadClient({ address, token, namespace });
+      const health = await client.healthCheck();
+
+      // Get job count (best effort)
+      let jobCount: number | null = 0;
+      try {
+        const jobs = await client.listJobs();
+        jobCount = jobs.length;
+      } catch (err) {
+        log.warn('Failed to fetch Nomad job count', {
+          error: err instanceof Error ? err : new Error(String(err)),
+        });
+        jobCount = null;
+      }
+
+      return json({
+        ok: true,
+        data: {
+          healthy: health.healthy,
+          leader: health.leader,
+          version: health.version,
+          datacenter: health.datacenter,
+          namespace,
+          namespaceExists: health.namespaceExists,
+          jobCount,
+          ...(tokenDecryptionFailed && { tokenDecryptionFailed: true }),
+        },
+      });
+    } catch (error) {
+      log.error('Nomad status check failed', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
+      const message = error instanceof Error ? error.message : 'Failed to connect to Nomad';
+      return json({ ok: false, error: { code: 'NOMAD_CONNECTION_ERROR', message } }, 500);
+    }
+  });
+
+  // GET /api/sandbox/nomad/namespaces
+  app.get('/namespaces', async (c) => {
+    try {
+      const { address, token, namespace } = await loadNomadSettings(deps?.db, {
+        address: c.req.query('address') ?? undefined,
+        namespace: c.req.query('namespace') ?? undefined,
+      });
+
+      if (!address) {
+        return json(
+          {
+            ok: false,
+            error: { code: 'NOMAD_NOT_CONFIGURED', message: 'No Nomad address configured' },
+          },
+          400
+        );
+      }
+
+      const client = await getNomadClient({ address, token, namespace });
+      const namespaces = await client.listNamespaces();
+      return json({ ok: true, data: { namespaces } });
+    } catch (error) {
+      log.error('Nomad namespaces list failed', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
+      const message = error instanceof Error ? error.message : 'Failed to list namespaces';
+      return json({ ok: false, error: { code: 'NOMAD_API_ERROR', message } }, 500);
+    }
+  });
+
+  // GET /api/sandbox/nomad/datacenters
+  app.get('/datacenters', async (c) => {
+    try {
+      const { address, token, namespace } = await loadNomadSettings(deps?.db, {
+        address: c.req.query('address') ?? undefined,
+        namespace: c.req.query('namespace') ?? undefined,
+      });
+
+      if (!address) {
+        return json(
+          {
+            ok: false,
+            error: { code: 'NOMAD_NOT_CONFIGURED', message: 'No Nomad address configured' },
+          },
+          400
+        );
+      }
+
+      const client = await getNomadClient({ address, token, namespace });
+      const datacenters = await client.listDatacenters();
+      return json({ ok: true, data: { datacenters } });
+    } catch (error) {
+      log.error('Nomad datacenters list failed', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
+      const message = error instanceof Error ? error.message : 'Failed to list datacenters';
+      return json({ ok: false, error: { code: 'NOMAD_API_ERROR', message } }, 500);
+    }
+  });
+
+  // POST /api/sandbox/nomad/validate - Validate connection
+  app.post('/validate', async (c) => {
+    let body: { address: string; token?: string; namespace?: string };
+    try {
+      body = await c.req.json();
+    } catch {
+      return json(
+        { ok: false, error: { code: 'INVALID_JSON', message: 'Request body must be valid JSON' } },
+        400
+      );
+    }
+
+    if (!body.address) {
+      return json(
+        { ok: false, error: { code: 'MISSING_PARAMS', message: 'Nomad address is required' } },
+        400
+      );
+    }
+
+    // Validate address to prevent SSRF
+    const addrValidation = await validateNomadAddress(body.address);
+    if (!addrValidation.valid) {
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'INVALID_ADDRESS',
+            message: addrValidation.error,
+          },
+        },
+        400
+      );
+    }
+
+    try {
+      // Note: validate endpoint accepts user-supplied token for initial setup.
+      // The SSRF validation in validateNomadAddress prevents targeting internal services.
+      const client = await getNomadClient({
+        address: body.address,
+        token: body.token,
+        namespace: body.namespace ?? 'default',
+      });
+      const health = await client.healthCheck();
+
+      return json({
+        ok: true,
+        data: {
+          healthy: health.healthy,
+          leader: health.leader,
+          version: health.version,
+          datacenter: health.datacenter,
+          namespaceExists: health.namespaceExists,
+        },
+      });
+    } catch (error) {
+      log.error('Nomad connection validation failed', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
+      const message =
+        error instanceof Error ? error.message : 'Failed to validate Nomad connection';
+      return json({ ok: false, error: { code: 'NOMAD_VALIDATION_ERROR', message } }, 500);
     }
   });
 

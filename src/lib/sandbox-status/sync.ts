@@ -26,12 +26,16 @@ async function fetchSandboxStatus(projectId: string): Promise<SandboxStatus | nu
         mode: result.data.mode,
         containerStatus: result.data.containerStatus,
         containerId: result.data.containerId,
-        dockerAvailable: result.data.dockerAvailable,
+        providerAvailable: result.data.providerAvailable,
         provider: result.data.provider ?? 'none',
         k8sCrdReady: result.data.k8sCrdReady,
         k8sClusterVersion: result.data.k8sClusterVersion ?? null,
         k8sPodCount: result.data.k8sPodCount,
         k8sPodsRunning: result.data.k8sPodsRunning,
+        nomadHealthy: result.data.nomadHealthy,
+        nomadVersion: result.data.nomadVersion ?? null,
+        nomadLeader: result.data.nomadLeader ?? null,
+        nomadJobCount: result.data.nomadJobCount,
         updatedAt: Date.now(),
       };
     }

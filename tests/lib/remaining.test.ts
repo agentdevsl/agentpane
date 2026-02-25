@@ -514,7 +514,10 @@ describe('Crypto Module', () => {
       await encryptToken('test-token');
 
       expect(fs.mkdirSync).toHaveBeenCalledWith('./data', { recursive: true });
-      expect(fs.writeFileSync).toHaveBeenCalledWith('./data/.keyfile', expect.any(String), 'utf-8');
+      expect(fs.writeFileSync).toHaveBeenCalledWith('./data/.keyfile', expect.any(String), {
+        encoding: 'utf-8',
+        mode: 0o600,
+      });
     });
 
     it('handles long tokens', async () => {

@@ -34,8 +34,16 @@ export function updateSandboxStatus(status: SandboxStatus): void {
       draft.mode = status.mode;
       draft.containerStatus = status.containerStatus;
       draft.containerId = status.containerId;
-      draft.dockerAvailable = status.dockerAvailable;
+      draft.providerAvailable = status.providerAvailable;
       draft.provider = status.provider;
+      draft.k8sCrdReady = status.k8sCrdReady;
+      draft.k8sClusterVersion = status.k8sClusterVersion;
+      draft.k8sPodCount = status.k8sPodCount;
+      draft.k8sPodsRunning = status.k8sPodsRunning;
+      draft.nomadHealthy = status.nomadHealthy;
+      draft.nomadVersion = status.nomadVersion;
+      draft.nomadLeader = status.nomadLeader;
+      draft.nomadJobCount = status.nomadJobCount;
       draft.updatedAt = status.updatedAt;
     });
   } else {

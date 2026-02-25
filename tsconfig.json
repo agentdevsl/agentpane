@@ -26,7 +26,8 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
-      "@agentpane/agent-sandbox-sdk": ["./packages/agent-sandbox-sdk/src/index.ts"]
+      "@agentpane/agent-sandbox-sdk": ["./packages/agent-sandbox-sdk/src/index.ts"],
+      "@agentpane/nomad-sandbox-sdk": ["./packages/nomad-sandbox-sdk/src/index.ts"]
     }
   },
   "include": ["src/**/*", "*.config.ts", "*.config.js"],

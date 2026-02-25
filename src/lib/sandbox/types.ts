@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SANDBOX_TYPES } from '../../db/schema/shared/enums.js';
 
 /**
  * Sandbox status
@@ -81,9 +82,9 @@ export interface TmuxSession {
 export type { OAuthCredentials } from '../../types/credentials.js';
 
 /**
- * Sandbox provider type
+ * Sandbox provider type — derived from the canonical SANDBOX_TYPES enum
  */
-export type SandboxProvider = 'docker' | 'devcontainer' | 'kubernetes';
+export type SandboxProvider = (typeof SANDBOX_TYPES)[number];
 
 /**
  * Project sandbox configuration (stored in project config)
@@ -96,9 +97,12 @@ export interface ProjectSandboxConfig {
   additionalVolumes?: VolumeMountConfig[];
   memoryMb?: number;
   cpuCores?: number;
-  // Kubernetes-specific settings
+  /** Kubernetes namespace. Only used when provider is 'kubernetes'. */
   namespace?: string;
+  /** Kubernetes service account. Only used when provider is 'kubernetes'. */
   serviceAccount?: string;
+  /** Nomad namespace. Only used when provider is 'nomad'. */
+  nomadNamespace?: string;
 }
 
 /**
@@ -140,7 +144,7 @@ export const sandboxConfigSchema = z.object({
   env: z.record(z.string(), z.string()).optional(),
 });
 
-export const sandboxProviderSchema = z.enum(['docker', 'devcontainer', 'kubernetes']);
+export const sandboxProviderSchema = z.enum(SANDBOX_TYPES);
 
 export const projectSandboxConfigSchema = z.object({
   enabled: z.boolean().default(false),
@@ -153,6 +157,8 @@ export const projectSandboxConfigSchema = z.object({
   // Kubernetes-specific settings
   namespace: z.string().optional(),
   serviceAccount: z.string().optional(),
+  // Nomad-specific settings
+  nomadNamespace: z.string().optional(),
 });
 
 export type SandboxConfigSchema = z.infer<typeof sandboxConfigSchema>;

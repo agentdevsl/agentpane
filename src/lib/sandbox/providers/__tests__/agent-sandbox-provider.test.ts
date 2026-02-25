@@ -77,9 +77,17 @@ vi.mock('@agentpane/agent-sandbox-sdk', () => {
     }));
   }
 
+  class MockAlreadyExistsError extends Error {
+    constructor(message = 'already exists') {
+      super(message);
+      this.name = 'AlreadyExistsError';
+    }
+  }
+
   return {
     AgentSandboxClient: vi.fn(),
     SandboxBuilder: MockSandboxBuilder,
+    AlreadyExistsError: MockAlreadyExistsError,
     CRD_LABELS: {
       managed: 'agentpane.io/managed',
       sandbox: 'agentpane.io/sandbox',
@@ -573,8 +581,12 @@ describe('AgentSandboxProvider', () => {
     });
 
     it('deletes existing warm pool and recreates when create fails (409)', async () => {
+      // Import the mocked AlreadyExistsError so instanceof checks work in source code
+      const { AlreadyExistsError: MockedAlreadyExistsError } = await import(
+        '@agentpane/agent-sandbox-sdk'
+      );
       mockClient.createWarmPool
-        .mockRejectedValueOnce(new Error('already exists'))
+        .mockRejectedValueOnce(new MockedAlreadyExistsError('WarmPool', 'agentpane-warm-pool'))
         .mockResolvedValueOnce({});
 
       const provider = createProvider({ enableWarmPool: true });
@@ -621,8 +633,8 @@ describe('AgentSandboxInstance', () => {
       expect(instance.containerId).toBe('agentpane-proj-123-abc');
     });
 
-    it('initial status is running', () => {
-      expect(instance.status).toBe('running');
+    it('initial status is creating', () => {
+      expect(instance.status).toBe('creating');
     });
   });
 

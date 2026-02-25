@@ -61,10 +61,12 @@ import {
   TEMPLATE_SYNC_INTERVAL_MIGRATION_SQL,
   TERRAFORM_MIGRATION_SQL,
 } from '../lib/bootstrap/phases/schema.js';
+import { decryptToken } from '../lib/crypto/server-encryption.js';
 import { SandboxController } from '../lib/sandbox/controllers/sandbox-controller.js';
 import { createDockerProvider } from '../lib/sandbox/index.js';
 import { createAgentSandboxProvider } from '../lib/sandbox/providers/agent-sandbox-provider.js';
 import type { EventEmittingSandboxProvider } from '../lib/sandbox/providers/sandbox-provider.js';
+import type { SandboxConfig } from '../lib/sandbox/types.js';
 import { SANDBOX_DEFAULTS } from '../lib/sandbox/types.js';
 import { AgentService } from '../services/agent.service.js';
 import { ApiKeyService } from '../services/api-key.service.js';
@@ -216,16 +218,49 @@ if (DB_MODE === 'postgres') {
     log.info('CLI sessions performance_metrics migration applied');
   } catch (error) {
     if (!(error instanceof Error && error.message.includes('duplicate column name'))) {
-      console.warn(
-        '[API Server] CLI sessions performance_metrics migration error (unexpected):',
-        error instanceof Error ? error.message : String(error)
-      );
+      log.warn('CLI sessions performance_metrics migration error (unexpected)', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
     }
   }
 
   // Apply Terraform tables migration (idempotent — uses IF NOT EXISTS)
   sqlite.exec(TERRAFORM_MIGRATION_SQL);
   log.info('Terraform migration applied');
+
+  // Nomad sandbox columns — run individually for partial-failure safety
+  const nomadColumns = [
+    `ALTER TABLE sandbox_configs ADD COLUMN nomad_address TEXT`,
+    `ALTER TABLE sandbox_configs ADD COLUMN nomad_token TEXT`,
+    `ALTER TABLE sandbox_configs ADD COLUMN nomad_namespace TEXT DEFAULT 'default'`,
+    `ALTER TABLE sandbox_configs ADD COLUMN nomad_datacenter TEXT`,
+    `ALTER TABLE sandbox_configs ADD COLUMN nomad_region TEXT`,
+  ];
+  for (const sql of nomadColumns) {
+    try {
+      sqlite.exec(sql);
+    } catch (error) {
+      if (!(error instanceof Error && error.message.includes('duplicate column name'))) {
+        log.warn('Nomad migration error', {
+          error: error instanceof Error ? error : new Error(String(error)),
+        });
+      }
+    }
+  }
+
+  // Apply agents parent_agent_id migration (may fail if column already exists)
+  try {
+    sqlite.exec(
+      `ALTER TABLE agents ADD COLUMN parent_agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL;`
+    );
+    log.info('[API Server] Agents parent_agent_id migration applied');
+  } catch (error) {
+    if (!(error instanceof Error && error.message.includes('duplicate column name'))) {
+      log.warn('Agents parent_agent_id migration error (unexpected)', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
+    }
+  }
 
   db = drizzle(sqlite, { schema: sqliteSchema }) as unknown as Database;
 }
@@ -246,13 +281,12 @@ try {
     .where(inArray(schemaTables.agents.status, [...staleStatuses]));
   const changes = getChangedCount(result);
   if (changes > 0) {
-    console.log(`[API Server] Reset ${changes} stale agent(s) to idle`);
+    log.info(`Reset ${changes} stale agent(s) to idle`);
   }
 } catch (error) {
-  console.error(
-    '[API Server] Failed to reset stale agents:',
-    error instanceof Error ? error.message : String(error)
-  );
+  log.error('Failed to reset stale agents', {
+    error: error instanceof Error ? error : new Error(String(error)),
+  });
 }
 
 // Recover orphaned tasks from previous server runs
@@ -608,9 +642,19 @@ let containerAgentService: ReturnType<typeof createContainerAgentService> | null
 let activeK8sProvider: ReturnType<typeof createAgentSandboxProvider> | null = null;
 let sandboxController: SandboxController | null = null;
 
+// Module-level reference to the Nomad provider for health/status routes.
+let activeNomadProvider:
+  | import('../lib/sandbox/providers/nomad-sandbox-provider.js').NomadSandboxProvider
+  | null = null;
+
 /** Getter for routes that need to check K8s provider health. */
 function getK8sProvider() {
   return activeK8sProvider;
+}
+
+/** Getter for routes that need to check Nomad provider health. */
+function getNomadProvider() {
+  return activeNomadProvider;
 }
 
 /**
@@ -637,24 +681,34 @@ async function waitForCrdRegistration(maxWaitMs = 10_000): Promise<boolean> {
  * Create a default K8s sandbox pod if one doesn't already exist.
  * Mirrors Docker's default sandbox creation pattern.
  */
-async function ensureDefaultK8sSandbox(
-  k8sProvider: ReturnType<typeof createAgentSandboxProvider>
+/**
+ * Ensure a default sandbox exists for the given provider.
+ * Shared between K8s and Nomad providers (identical lifecycle logic).
+ */
+async function ensureDefaultSandbox(
+  provider: {
+    get(projectId: string): Promise<{ status: string; stop(): Promise<void> } | null>;
+    create(config: SandboxConfig): Promise<unknown>;
+  },
+  label: string
 ): Promise<void> {
   try {
-    const existingDefault = await k8sProvider.get('default');
+    const existingDefault = await provider.get('default');
 
     if (
       existingDefault &&
       (existingDefault.status === 'error' || existingDefault.status === 'stopped')
     ) {
-      log.info('Default K8s sandbox in terminal state, recreating', {
+      log.info(`Default ${label} sandbox in terminal state, recreating`, {
         data: { status: existingDefault.status },
       });
       if (existingDefault.status === 'error') {
         try {
           await existingDefault.stop();
-        } catch {
-          // Ignore stop errors — sandbox may already be gone
+        } catch (stopErr) {
+          log.warn(`Failed to stop error-state default ${label} sandbox during recreation`, {
+            error: stopErr instanceof Error ? stopErr : new Error(String(stopErr)),
+          });
         }
       }
       // Fall through to create
@@ -663,7 +717,7 @@ async function ensureDefaultK8sSandbox(
     }
 
     const defaults = await loadSandboxDefaultsFromDb();
-    await k8sProvider.create({
+    await provider.create({
       projectId: 'default',
       projectPath: '/workspace',
       image: defaults?.image ?? SANDBOX_DEFAULTS.image,
@@ -672,10 +726,10 @@ async function ensureDefaultK8sSandbox(
       idleTimeoutMinutes: defaults?.idleTimeoutMinutes ?? 30,
       volumeMounts: [],
     });
-    log.info('Default K8s sandbox pod created');
+    log.info(`Default ${label} sandbox created`);
   } catch (createErr) {
-    log.warn('Failed to create default K8s sandbox', {
-      error: createErr instanceof Error ? createErr.message : String(createErr),
+    log.error(`Failed to create default ${label} sandbox`, {
+      error: createErr instanceof Error ? createErr : new Error(String(createErr)),
     });
   }
 }
@@ -711,6 +765,40 @@ async function loadSandboxDefaultsFromDb(): Promise<{
   return null;
 }
 
+/** Clear any stale `sandbox.nomad.lastError` from the settings table. */
+async function clearNomadLastError() {
+  try {
+    await db
+      .delete(schemaTables.settings)
+      .where(eq(schemaTables.settings.key, 'sandbox.nomad.lastError'));
+  } catch (err) {
+    log.debug('Failed to clear stale Nomad error (non-critical)', {
+      data: { error: err instanceof Error ? err.message : String(err) },
+    });
+  }
+}
+
+/** Persist a Nomad error message to the settings table for UI display. */
+async function persistNomadLastError(message: string): Promise<void> {
+  try {
+    const value = JSON.stringify({
+      error: message,
+      timestamp: new Date().toISOString(),
+    });
+    await db
+      .insert(schemaTables.settings)
+      .values({ key: 'sandbox.nomad.lastError', value })
+      .onConflictDoUpdate({
+        target: schemaTables.settings.key,
+        set: { value },
+      });
+  } catch (persistErr) {
+    log.warn('Failed to persist Nomad error', {
+      error: persistErr instanceof Error ? persistErr : new Error(String(persistErr)),
+    });
+  }
+}
+
 /** Clear any stale `sandbox.kubernetes.lastError` from the settings table. */
 async function clearK8sLastError() {
   try {
@@ -728,9 +816,10 @@ async function clearK8sLastError() {
  */
 async function initSandboxProvider() {
   // Step 1: Determine which provider to use from settings
-  type ProviderSelection = 'docker' | 'kubernetes';
+  type ProviderSelection = 'docker' | 'kubernetes' | 'nomad';
   let providerType: ProviderSelection = 'docker'; // default
   let k8sFallbackToDocker = false;
+  let nomadFallbackToDocker = false;
 
   try {
     const providerSetting = await db.query.settings.findFirst({
@@ -743,8 +832,33 @@ async function initSandboxProvider() {
       };
       if (parsed.provider === 'kubernetes') {
         providerType = 'kubernetes';
+      } else if (parsed.provider === 'nomad') {
+        providerType = 'nomad';
       }
       k8sFallbackToDocker = parsed.fallbackToDocker ?? false;
+      // Default nomadFallbackToDocker from shared setting; may be overridden below
+      nomadFallbackToDocker = parsed.fallbackToDocker ?? false;
+    }
+
+    // Check for a separate Nomad-specific fallbackToDocker setting
+    if (providerType === 'nomad') {
+      try {
+        const nomadSetting = await db.query.settings.findFirst({
+          where: eq(schemaTables.settings.key, 'sandbox.nomad'),
+        });
+        if (nomadSetting?.value) {
+          const nomadParsed = JSON.parse(nomadSetting.value) as {
+            fallbackToDocker?: boolean;
+          };
+          if (nomadParsed.fallbackToDocker !== undefined) {
+            nomadFallbackToDocker = nomadParsed.fallbackToDocker;
+          }
+        }
+      } catch (err) {
+        log.warn('Failed to read Nomad fallbackToDocker setting, using shared value', {
+          error: err instanceof Error ? err : new Error(String(err)),
+        });
+      }
     }
   } catch (settingsErr) {
     console.warn(
@@ -825,7 +939,7 @@ async function initSandboxProvider() {
         }
 
         // Create default K8s sandbox pod (mirrors Docker default sandbox pattern)
-        await ensureDefaultK8sSandbox(k8sProvider);
+        await ensureDefaultSandbox(k8sProvider, 'K8s');
 
         // Initialize warm pool if enabled
         if (k8sSettings.enableWarmPool) {
@@ -880,7 +994,7 @@ async function initSandboxProvider() {
               }
 
               // Create default K8s sandbox pod
-              await ensureDefaultK8sSandbox(k8sProvider);
+              await ensureDefaultSandbox(k8sProvider, 'K8s');
 
               // Initialize warm pool if enabled
               if (k8sSettings.enableWarmPool) {
@@ -992,7 +1106,7 @@ async function initSandboxProvider() {
                 }
 
                 // Create default K8s sandbox pod
-                await ensureDefaultK8sSandbox(k8sProvider);
+                await ensureDefaultSandbox(k8sProvider, 'K8s');
 
                 if (k8sSettings.enableWarmPool) {
                   try {
@@ -1080,9 +1194,118 @@ async function initSandboxProvider() {
     }
   }
 
-  // Step 3: Fall back to Docker if K8s was not initialized (or was not selected)
-  // Skip Docker fallback if K8s was configured and fallback is explicitly disabled
-  if (!sandboxProvider && !(providerType === 'kubernetes' && !k8sFallbackToDocker)) {
+  // Step 2b: Nomad provider initialization
+  if (providerType === 'nomad' && !sandboxProvider) {
+    try {
+      // Load Nomad-specific settings from the sandbox.nomad key
+      let nomadSettings: {
+        address?: string;
+        token?: string;
+        namespace?: string;
+        region?: string;
+        datacenter?: string;
+        image?: string;
+      } = {};
+
+      try {
+        const nomadSetting = await db.query.settings.findFirst({
+          where: eq(schemaTables.settings.key, 'sandbox.nomad'),
+        });
+        if (nomadSetting?.value) {
+          nomadSettings = JSON.parse(nomadSetting.value);
+          // Decrypt the stored token (encrypted at rest)
+          if (nomadSettings.token) {
+            try {
+              nomadSettings.token = decryptToken(nomadSettings.token);
+            } catch (decryptErr) {
+              log.error('[API Server] Nomad token decryption failed, token must be re-entered', {
+                error: decryptErr instanceof Error ? decryptErr : new Error(String(decryptErr)),
+              });
+              nomadSettings.token = undefined;
+            }
+          }
+        }
+      } catch (dbErr) {
+        log.warn('[API Server] Failed to read Nomad settings from database', {
+          error: dbErr instanceof Error ? dbErr.message : String(dbErr),
+        });
+      }
+
+      if (!nomadSettings.address) {
+        log.warn('[API Server] Nomad address not configured, falling back to Docker');
+      } else {
+        // Defense-in-depth: validate stored address at startup (not just on save)
+        const { validateNomadAddress } = await import('./routes/sandbox.js');
+        const addrValidation = await validateNomadAddress(nomadSettings.address);
+        if (!addrValidation.valid) {
+          log.warn(
+            `[API Server] Nomad address failed SSRF validation: ${addrValidation.error}. Falling back to Docker.`
+          );
+          await persistNomadLastError(
+            `Stored Nomad address failed security validation: ${addrValidation.error}`
+          );
+        } else {
+          const { createNomadSandboxProvider } = await import(
+            '../lib/sandbox/providers/nomad-sandbox-provider.js'
+          );
+          const nomadProvider = createNomadSandboxProvider({
+            address: nomadSettings.address,
+            token: nomadSettings.token,
+            namespace: nomadSettings.namespace,
+            region: nomadSettings.region,
+            datacenter: nomadSettings.datacenter,
+            image: nomadSettings.image,
+          });
+
+          const health = await nomadProvider.healthCheck();
+          if (health.healthy) {
+            sandboxProvider = nomadProvider;
+            activeNomadProvider = nomadProvider;
+            log.info('[API Server] Nomad sandbox provider initialized', {
+              data: {
+                address: nomadSettings.address,
+                namespace: nomadSettings.namespace ?? 'default',
+              },
+            });
+
+            // Clear any stale error
+            await clearNomadLastError();
+
+            // Create default Nomad sandbox (mirrors Docker/K8s pattern)
+            await ensureDefaultSandbox(nomadProvider, 'Nomad');
+          } else {
+            const diagnosis = health.message ?? 'Nomad cluster health check failed';
+            const willFallback = nomadFallbackToDocker;
+            const logFn = willFallback ? log.warn : log.error;
+            logFn(
+              `[API Server] Nomad provider unhealthy: ${diagnosis}.${willFallback ? ' Falling back to Docker.' : ' No fallback configured — sandbox operations will be unavailable.'}`
+            );
+            await persistNomadLastError(diagnosis);
+          }
+        } // end SSRF-validated else block
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const willFallback = nomadFallbackToDocker;
+      const { NomadApiError, ConnectionError } = await import('@agentpane/nomad-sandbox-sdk');
+      const isInfraError = error instanceof NomadApiError || error instanceof ConnectionError;
+      // Use warn only for expected infrastructure failures when a fallback is available.
+      // Programming errors and no-fallback degradation warrant error-level visibility.
+      const logFn = isInfraError && willFallback ? log.warn : log.error;
+      logFn(
+        `[API Server] Nomad provider init failed: ${message}.${willFallback ? ' Falling back to Docker.' : ' No fallback configured — sandbox operations will be unavailable.'}`
+      );
+      await persistNomadLastError(message);
+    }
+  }
+
+  // Step 3: Fall back to Docker if K8s/Nomad was not initialized (or was not selected)
+  // Skip Docker fallback if K8s or Nomad was configured and fallback is explicitly disabled
+  if (
+    !sandboxProvider &&
+    !(providerType === 'kubernetes' && !k8sFallbackToDocker) &&
+    !(providerType === 'nomad' && !nomadFallbackToDocker)
+  ) {
     try {
       const dockerProvider = createDockerProvider();
       log.info('[API Server] Docker provider initialized');
@@ -1270,6 +1493,7 @@ const app = createRouter({
   durableStreamsService,
   getSandboxProvider: () => sandboxProvider,
   getK8sProvider,
+  getNomadProvider,
   cliMonitorService,
   terraformRegistryService,
   terraformComposeService,
@@ -1314,7 +1538,7 @@ function startK8sHealInterval() {
 
       // Ensure default sandbox exists and is healthy
       try {
-        await ensureDefaultK8sSandbox(provider);
+        await ensureDefaultSandbox(provider, 'K8s');
       } catch (defaultErr) {
         log.warn('[K8s Heal] Default sandbox check failed', {
           error: defaultErr instanceof Error ? defaultErr.message : String(defaultErr),
@@ -1396,13 +1620,69 @@ function startK8sHealInterval() {
   }, 60_000);
 }
 
+// Periodic Nomad health check + auto-heal (60s interval)
+let nomadHealInProgress = false;
+let nomadHealInterval: ReturnType<typeof setInterval> | null = null;
+
+function startNomadHealInterval() {
+  if (nomadHealInterval) return; // already running
+
+  nomadHealInterval = setInterval(async () => {
+    const provider = activeNomadProvider;
+    if (!provider) return;
+    if (nomadHealInProgress) return;
+
+    nomadHealInProgress = true;
+    try {
+      // Proactive cache validation: evict dead sandboxes from provider cache
+      try {
+        await provider.validateSandboxes();
+      } catch (valErr) {
+        log.warn('[Nomad Heal] Cache validation failed', {
+          error: valErr instanceof Error ? valErr.message : String(valErr),
+        });
+      }
+
+      // Ensure default sandbox exists and is healthy
+      try {
+        await ensureDefaultSandbox(provider, 'Nomad');
+      } catch (defaultErr) {
+        log.warn('[Nomad Heal] Default sandbox check failed', {
+          error: defaultErr instanceof Error ? defaultErr.message : String(defaultErr),
+        });
+      }
+
+      const health = await provider.healthCheck();
+      if (health.healthy) {
+        await clearNomadLastError();
+        return;
+      }
+
+      log.warn('[Nomad Heal] Cluster unhealthy', {
+        data: { message: health.message },
+      });
+    } catch (err) {
+      console.warn(
+        '[Nomad Heal] Health check failed:',
+        err instanceof Error ? err.message : String(err)
+      );
+    } finally {
+      nomadHealInProgress = false;
+    }
+  }, 60_000);
+}
+
 // Initialize sandbox provider in the background (non-blocking)
-// Then start K8s auto-heal interval if K8s provider is active
+// Then start K8s/Nomad auto-heal intervals if providers are active
 initSandboxProvider()
   .then(() => {
     if (activeK8sProvider) {
       startK8sHealInterval();
       log.info('[API Server] K8s CRD auto-heal interval started (60s)');
+    }
+    if (activeNomadProvider) {
+      startNomadHealInterval();
+      log.info('[API Server] Nomad auto-heal interval started (60s)');
     }
   })
   .catch((err) => {
@@ -1452,6 +1732,12 @@ async function shutdownServer(signal: string) {
   if (k8sHealInterval) {
     clearInterval(k8sHealInterval);
     k8sHealInterval = null;
+  }
+
+  // Stop Nomad auto-heal interval
+  if (nomadHealInterval) {
+    clearInterval(nomadHealInterval);
+    nomadHealInterval = null;
   }
 
   // Stop sandbox controller

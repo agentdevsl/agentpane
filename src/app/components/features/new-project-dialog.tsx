@@ -6,6 +6,7 @@ import {
   FolderSimple,
   GitBranch,
   GithubLogo,
+  Hexagon,
   Lightning,
   Lock,
   MagnifyingGlass,
@@ -27,6 +28,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/app/components/ui/tabs';
 import { TextInput } from '@/app/components/ui/text-input';
 import { Textarea } from '@/app/components/ui/textarea';
+import type { SANDBOX_TYPES } from '@/db/schema/shared/enums';
 import { cn } from '@/lib/utils/cn';
 import type { Result } from '@/lib/utils/result';
 import type { GitHubRepo } from '@/services/github-token.service';
@@ -57,7 +59,7 @@ interface SkillConfig {
 
 type SourceType = 'local' | 'clone';
 
-export type SandboxType = 'docker' | 'devcontainer' | 'kubernetes';
+export type SandboxType = (typeof SANDBOX_TYPES)[number];
 
 interface NewProjectDialogProps {
   open: boolean;
@@ -1062,6 +1064,46 @@ export function NewProjectDialog({
                       <div className="text-xs text-fg-muted">VS Code integration</div>
                     </div>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setSandboxType('kubernetes')}
+                    className={cn(
+                      'flex items-center gap-3 rounded-[var(--radius)] border-2 p-3 text-left transition-colors',
+                      sandboxType === 'kubernetes'
+                        ? 'border-accent bg-accent-muted/30'
+                        : 'border-border hover:border-fg-subtle'
+                    )}
+                    data-testid="sandbox-type-kubernetes"
+                  >
+                    <span className="text-xl">☸️</span>
+                    <div>
+                      <div className="font-medium text-fg text-sm">Kubernetes</div>
+                      <div className="text-xs text-fg-muted">Cluster pods</div>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSandboxType('nomad')}
+                    className={cn(
+                      'flex items-center gap-3 rounded-[var(--radius)] border-2 p-3 text-left transition-colors',
+                      sandboxType === 'nomad'
+                        ? 'border-attention bg-attention/10'
+                        : 'border-border hover:border-fg-subtle'
+                    )}
+                    data-testid="sandbox-type-nomad"
+                  >
+                    <Hexagon
+                      className={cn(
+                        'h-5 w-5',
+                        sandboxType === 'nomad' ? 'text-attention' : 'text-fg-muted'
+                      )}
+                      weight={sandboxType === 'nomad' ? 'duotone' : 'regular'}
+                    />
+                    <div>
+                      <div className="font-medium text-fg text-sm">Nomad</div>
+                      <div className="text-xs text-fg-muted">Scheduled jobs</div>
+                    </div>
+                  </button>
                 </div>
               </div>
             )}
@@ -1315,6 +1357,46 @@ export function NewProjectDialog({
                   <div>
                     <div className="font-medium text-fg text-sm">DevContainer</div>
                     <div className="text-xs text-fg-muted">VS Code integration</div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSandboxType('kubernetes')}
+                  className={cn(
+                    'flex items-center gap-3 rounded-[var(--radius)] border-2 p-3 text-left transition-colors',
+                    sandboxType === 'kubernetes'
+                      ? 'border-accent bg-accent-muted/30'
+                      : 'border-border hover:border-fg-subtle'
+                  )}
+                  data-testid="clone-sandbox-type-kubernetes"
+                >
+                  <span className="text-xl">☸️</span>
+                  <div>
+                    <div className="font-medium text-fg text-sm">Kubernetes</div>
+                    <div className="text-xs text-fg-muted">Cluster pods</div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSandboxType('nomad')}
+                  className={cn(
+                    'flex items-center gap-3 rounded-[var(--radius)] border-2 p-3 text-left transition-colors',
+                    sandboxType === 'nomad'
+                      ? 'border-attention bg-attention/10'
+                      : 'border-border hover:border-fg-subtle'
+                  )}
+                  data-testid="clone-sandbox-type-nomad"
+                >
+                  <Hexagon
+                    className={cn(
+                      'h-5 w-5',
+                      sandboxType === 'nomad' ? 'text-attention' : 'text-fg-muted'
+                    )}
+                    weight={sandboxType === 'nomad' ? 'duotone' : 'regular'}
+                  />
+                  <div>
+                    <div className="font-medium text-fg text-sm">Nomad</div>
+                    <div className="text-xs text-fg-muted">Scheduled jobs</div>
                   </div>
                 </button>
               </div>

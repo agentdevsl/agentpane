@@ -60,6 +60,10 @@ export default defineConfig({
         __dirname,
         './packages/agent-sandbox-sdk/src/index.ts'
       ),
+      '@agentpane/nomad-sandbox-sdk': resolve(
+        __dirname,
+        './packages/nomad-sandbox-sdk/src/index.ts'
+      ),
     },
   },
 });

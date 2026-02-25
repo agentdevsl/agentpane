@@ -12,6 +12,7 @@ const createDbMock = () => ({
       findMany: vi.fn(),
     },
   },
+  select: vi.fn(() => ({ from: vi.fn().mockResolvedValue([{ count: 0 }]) })),
   insert: vi.fn(() => ({ values: vi.fn(() => ({ returning: vi.fn() })) })),
   update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ returning: vi.fn() })) })) })),
   delete: vi.fn(() => ({ where: vi.fn() })),
@@ -58,7 +59,7 @@ describe('SandboxConfigService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toEqual(SandboxConfigErrors.ALREADY_EXISTS);
+        expect(result.error).toMatchObject(SandboxConfigErrors.ALREADY_EXISTS);
       }
     });
 
@@ -179,7 +180,7 @@ describe('SandboxConfigService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toEqual(SandboxConfigErrors.NOT_FOUND);
+        expect(result.error).toMatchObject(SandboxConfigErrors.NOT_FOUND);
       }
     });
   });
@@ -222,8 +223,8 @@ describe('SandboxConfigService', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value).toHaveLength(1);
-        expect(result.value[0]?.id).toBe('cfg-1');
+        expect(result.value.items).toHaveLength(1);
+        expect(result.value.items[0]?.id).toBe('cfg-1');
       }
     });
 
@@ -236,7 +237,7 @@ describe('SandboxConfigService', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value).toEqual([]);
+        expect(result.value.items).toEqual([]);
       }
     });
 
@@ -286,7 +287,7 @@ describe('SandboxConfigService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toEqual(SandboxConfigErrors.NOT_FOUND);
+        expect(result.error).toMatchObject(SandboxConfigErrors.NOT_FOUND);
       }
     });
 
@@ -318,7 +319,7 @@ describe('SandboxConfigService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toEqual(SandboxConfigErrors.ALREADY_EXISTS);
+        expect(result.error).toMatchObject(SandboxConfigErrors.ALREADY_EXISTS);
       }
     });
   });
@@ -345,7 +346,7 @@ describe('SandboxConfigService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toEqual(SandboxConfigErrors.NOT_FOUND);
+        expect(result.error).toMatchObject(SandboxConfigErrors.NOT_FOUND);
       }
     });
 
@@ -362,7 +363,13 @@ describe('SandboxConfigService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toEqual(SandboxConfigErrors.IN_USE(2));
+        const expected = SandboxConfigErrors.IN_USE(2);
+        expect(result.error).toMatchObject({
+          code: expected.code,
+          message: expected.message,
+          status: expected.status,
+          details: expected.details,
+        });
       }
     });
   });

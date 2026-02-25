@@ -1,8 +1,10 @@
-import { and, desc, eq, ne } from 'drizzle-orm';
+import { and, count, desc, eq, ne } from 'drizzle-orm';
 import type { NewSandboxConfig, SandboxConfig, SandboxType } from '../db/schema';
 import { projects, sandboxConfigs } from '../db/schema';
+import { decryptToken, encryptToken } from '../lib/crypto/server-encryption.js';
 import type { SandboxConfigError } from '../lib/errors/sandbox-config-errors.js';
 import { SandboxConfigErrors } from '../lib/errors/sandbox-config-errors.js';
+import { createLogger } from '../lib/logging/logger.js';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
 import type { Database } from '../types/database.js';
@@ -31,6 +33,18 @@ export type CreateSandboxConfigInput = {
   networkPolicyEnabled?: boolean;
   /** Allowed egress hosts for network policies */
   allowedEgressHosts?: string[];
+
+  // Nomad-specific configuration
+  /** Nomad cluster HTTP address */
+  nomadAddress?: string;
+  /** Nomad ACL token */
+  nomadToken?: string;
+  /** Nomad namespace for sandbox jobs */
+  nomadNamespace?: string;
+  /** Nomad datacenter for job placement */
+  nomadDatacenter?: string;
+  /** Nomad region for job placement */
+  nomadRegion?: string;
 };
 
 export type UpdateSandboxConfigInput = {
@@ -57,6 +71,18 @@ export type UpdateSandboxConfigInput = {
   networkPolicyEnabled?: boolean;
   /** Allowed egress hosts for network policies */
   allowedEgressHosts?: string[];
+
+  // Nomad-specific configuration
+  /** Nomad cluster HTTP address */
+  nomadAddress?: string;
+  /** Nomad ACL token */
+  nomadToken?: string;
+  /** Nomad namespace for sandbox jobs */
+  nomadNamespace?: string;
+  /** Nomad datacenter for job placement */
+  nomadDatacenter?: string;
+  /** Nomad region for job placement */
+  nomadRegion?: string;
 };
 
 export type ListSandboxConfigsOptions = {
@@ -64,11 +90,41 @@ export type ListSandboxConfigsOptions = {
   offset?: number;
 };
 
+const log = createLogger('SandboxConfigService');
+
 export class SandboxConfigService {
   constructor(private db: Database) {}
 
   private updateTimestamp(): string {
     return new Date().toISOString();
+  }
+
+  /**
+   * Decrypt the nomadToken field on a config if present.
+   * On decryption failure (key rotation, data corruption), logs the error and
+   * clears nomadToken to undefined. The encrypted value in the DB is preserved
+   * (only the in-memory copy is cleared).
+   */
+  private decryptConfigToken<T extends SandboxConfig | null>(config: T): T {
+    if (!config || !config.nomadToken) {
+      return config;
+    }
+    try {
+      return { ...config, nomadToken: decryptToken(config.nomadToken) };
+    } catch (error) {
+      // Decryption failed (key changed, corrupted data). Log prominently so
+      // operators know the token needs to be re-entered. The encrypted value
+      // in the database is NOT modified — only this in-memory copy is cleared.
+      log.error(
+        'Failed to decrypt nomadToken — the token must be re-entered in Settings. ' +
+          'This usually means the encryption key was rotated or the data is corrupted.',
+        {
+          data: { configId: config.id },
+          error,
+        }
+      );
+      return { ...config, nomadToken: null };
+    }
   }
 
   private validateResourceLimits(
@@ -155,6 +211,12 @@ export class SandboxConfigService {
         kubeNamespace: input.kubeNamespace ?? 'agentpane-sandboxes',
         networkPolicyEnabled: input.networkPolicyEnabled ?? true,
         allowedEgressHosts: input.allowedEgressHosts,
+        // Nomad-specific fields
+        nomadAddress: input.nomadAddress,
+        nomadToken: input.nomadToken ? encryptToken(input.nomadToken) : undefined,
+        nomadNamespace: input.nomadNamespace ?? 'default',
+        nomadDatacenter: input.nomadDatacenter,
+        nomadRegion: input.nomadRegion,
         createdAt: now,
         updatedAt: now,
       } satisfies NewSandboxConfig)
@@ -164,7 +226,7 @@ export class SandboxConfigService {
       return err(SandboxConfigErrors.NOT_FOUND);
     }
 
-    return ok(config);
+    return ok(this.decryptConfigToken(config));
   }
 
   async getById(id: string): Promise<Result<SandboxConfig, SandboxConfigError>> {
@@ -176,7 +238,7 @@ export class SandboxConfigService {
       return err(SandboxConfigErrors.NOT_FOUND);
     }
 
-    return ok(config);
+    return ok(this.decryptConfigToken(config));
   }
 
   async getDefault(): Promise<Result<SandboxConfig | null, SandboxConfigError>> {
@@ -184,14 +246,17 @@ export class SandboxConfigService {
       where: eq(sandboxConfigs.isDefault, true),
     });
 
-    return ok(config ?? null);
+    return ok(this.decryptConfigToken(config ?? null));
   }
 
   async list(
     options?: ListSandboxConfigsOptions
-  ): Promise<Result<SandboxConfig[], SandboxConfigError>> {
+  ): Promise<Result<{ items: SandboxConfig[]; totalCount: number }, SandboxConfigError>> {
     const limit = options?.limit ?? 50;
     const offset = options?.offset ?? 0;
+
+    const [countResult] = await this.db.select({ count: count() }).from(sandboxConfigs);
+    const totalCount = countResult?.count ?? 0;
 
     const items = await this.db.query.sandboxConfigs.findMany({
       orderBy: [desc(sandboxConfigs.isDefault), desc(sandboxConfigs.updatedAt)],
@@ -199,7 +264,7 @@ export class SandboxConfigService {
       offset,
     });
 
-    return ok(items);
+    return ok({ items: items.map((c) => this.decryptConfigToken(c)), totalCount });
   }
 
   async update(
@@ -268,6 +333,13 @@ export class SandboxConfigService {
       updates.networkPolicyEnabled = input.networkPolicyEnabled;
     if (input.allowedEgressHosts !== undefined)
       updates.allowedEgressHosts = input.allowedEgressHosts;
+    // Nomad-specific fields
+    if (input.nomadAddress !== undefined) updates.nomadAddress = input.nomadAddress;
+    if (input.nomadToken !== undefined)
+      updates.nomadToken = input.nomadToken ? encryptToken(input.nomadToken) : null;
+    if (input.nomadNamespace !== undefined) updates.nomadNamespace = input.nomadNamespace;
+    if (input.nomadDatacenter !== undefined) updates.nomadDatacenter = input.nomadDatacenter;
+    if (input.nomadRegion !== undefined) updates.nomadRegion = input.nomadRegion;
 
     const [updated] = await this.db
       .update(sandboxConfigs)
@@ -279,7 +351,7 @@ export class SandboxConfigService {
       return err(SandboxConfigErrors.NOT_FOUND);
     }
 
-    return ok(updated);
+    return ok(this.decryptConfigToken(updated));
   }
 
   async delete(id: string): Promise<Result<void, SandboxConfigError>> {

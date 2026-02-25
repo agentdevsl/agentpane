@@ -200,7 +200,7 @@ describe('SandboxConfigService', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value.length).toBe(3);
+        expect(result.value.items.length).toBe(3);
       }
     });
 
@@ -213,7 +213,7 @@ describe('SandboxConfigService', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value.length).toBe(2);
+        expect(result.value.items.length).toBe(2);
       }
     });
 
@@ -222,7 +222,7 @@ describe('SandboxConfigService', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value.length).toBe(0);
+        expect(result.value.items.length).toBe(0);
       }
     });
   });
@@ -428,9 +428,9 @@ describe('SandboxConfigService', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value.length).toBe(3);
-        expect(result.value[0].name).toBe('Default Config');
-        expect(result.value[0].isDefault).toBe(true);
+        expect(result.value.items.length).toBe(3);
+        expect(result.value.items[0].name).toBe('Default Config');
+        expect(result.value.items[0].isDefault).toBe(true);
       }
     });
   });

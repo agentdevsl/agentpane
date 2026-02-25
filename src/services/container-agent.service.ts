@@ -6,7 +6,7 @@
  * - Bridges stdout events to DurableStreams
  * - Handles cancellation via sentinel files
  * - Tracks running agents per task
- * - Initializes K8s pod workspaces (clone + worktree) when using K8s provider
+ * - Initializes remote workspaces (clone + worktree) when using K8s or Nomad provider
  */
 import { eq } from 'drizzle-orm';
 
@@ -64,7 +64,7 @@ interface TaskPlanRow {
 
 import { deriveGitHubFromPath, resolveGitToken } from '../lib/sandbox/git-token-resolver.js';
 import type { SandboxExec } from '../lib/sandbox/k8s-workspace-initializer.js';
-import { initializeK8sWorkspace } from '../lib/sandbox/k8s-workspace-initializer.js';
+import { initializeK8sWorkspace as initializeRemoteWorkspaceInPod } from '../lib/sandbox/k8s-workspace-initializer.js';
 import type { ApiKeyService } from './api-key.service.js';
 import type { DurableStreamsService } from './durable-streams.service.js';
 import type { GitHubTokenService } from './github-token.service.js';
@@ -244,7 +244,7 @@ export class ContainerAgentService {
    * Initialize workspace inside a K8s pod by cloning the repo and creating a worktree.
    * Falls back to empty /workspace on any failure (non-fatal).
    */
-  private async initializeK8sWorkspace(params: {
+  private async initializeRemoteWorkspace(params: {
     sandbox: SandboxExec;
     project: {
       githubOwner: string | null;
@@ -269,7 +269,7 @@ export class ContainerAgentService {
       if (derived) {
         githubOwner = derived.owner;
         githubRepo = derived.repo;
-        infoLog('initializeK8sWorkspace', 'Derived GitHub owner/repo from git remote', {
+        infoLog('initializeRemoteWorkspace', 'Derived GitHub owner/repo from git remote', {
           taskId,
           owner: derived.owner,
           repo: derived.repo,
@@ -285,14 +285,14 @@ export class ContainerAgentService {
               updatedAt: new Date().toISOString(),
             })
             .where(eq(projects.id, project.id));
-          infoLog('initializeK8sWorkspace', 'Backfilled GitHub config to project', {
+          infoLog('initializeRemoteWorkspace', 'Backfilled GitHub config to project', {
             projectId: project.id,
             owner: derived.owner,
             repo: derived.repo,
           });
         } catch (dbErr) {
           const msg = dbErr instanceof Error ? dbErr.message : String(dbErr);
-          infoLog('initializeK8sWorkspace', 'Failed to backfill GitHub config (non-critical)', {
+          infoLog('initializeRemoteWorkspace', 'Failed to backfill GitHub config (non-critical)', {
             projectId: project.id,
             error: msg,
           });
@@ -302,7 +302,7 @@ export class ContainerAgentService {
 
     if (!githubOwner || !githubRepo) {
       infoLog(
-        'initializeK8sWorkspace',
+        'initializeRemoteWorkspace',
         'Project has no GitHub config and no git remote, using empty workspace',
         {
           taskId,
@@ -317,20 +317,20 @@ export class ContainerAgentService {
       try {
         const testResult = await sandbox.exec('test', ['-d', worktreePath]);
         if (testResult.exitCode === 0) {
-          infoLog('initializeK8sWorkspace', 'Reusing existing worktree from planning phase', {
+          infoLog('initializeRemoteWorkspace', 'Reusing existing worktree from planning phase', {
             taskId,
             branch: task.branch,
             worktreePath,
           });
           return { worktreePath, branch: task.branch };
         }
-        infoLog('initializeK8sWorkspace', 'Planning worktree not found in pod, re-cloning', {
+        infoLog('initializeRemoteWorkspace', 'Planning worktree not found in pod, re-cloning', {
           taskId,
           branch: task.branch,
         });
       } catch (err) {
         warnLog(
-          'initializeK8sWorkspace',
+          'initializeRemoteWorkspace',
           'Failed to check existing worktree, proceeding to full clone',
           {
             taskId,
@@ -355,7 +355,7 @@ export class ContainerAgentService {
     );
 
     if (!tokenResult) {
-      warnLog('initializeK8sWorkspace', 'No git token available, using empty workspace', {
+      warnLog('initializeRemoteWorkspace', 'No git token available, using empty workspace', {
         taskId,
       });
       await this.streams.publish(sessionId, 'container-agent:message', {
@@ -383,7 +383,7 @@ export class ContainerAgentService {
 
     const baseBranch =
       (project.config as { defaultBranch?: string } | null)?.defaultBranch ?? 'main';
-    const result = await initializeK8sWorkspace({
+    const result = await initializeRemoteWorkspaceInPod({
       sandbox,
       gitToken: tokenResult,
       taskTitle: task.title,
@@ -414,7 +414,7 @@ export class ContainerAgentService {
     } catch (dbErr) {
       const msg = dbErr instanceof Error ? dbErr.message : String(dbErr);
       warnLog(
-        'initializeK8sWorkspace',
+        'initializeRemoteWorkspace',
         'Failed to save branch to task — pod recycle recovery will not work for this task',
         {
           taskId,
@@ -1145,13 +1145,15 @@ export class ContainerAgentService {
       });
 
       // Stage: Worktree - create or recover isolated worktree
-      const isK8sProvider = this.provider.name === 'kubernetes';
+      // Remote providers (K8s, Nomad) need workspace initialization inside the sandbox
+      const needsRemoteWorkspaceInit =
+        this.provider.name === 'kubernetes' || this.provider.name === 'nomad';
       let worktreeId: string | undefined;
       let worktreePath = CONTAINER_WORKSPACE_PATH;
 
-      if (isK8sProvider) {
-        // K8s pods start with empty /workspace — clone + worktree inside the pod
-        const k8sResult = await this.initializeK8sWorkspace({
+      if (needsRemoteWorkspaceInit) {
+        // Remote provider pods start with empty /workspace — clone + worktree inside the pod
+        const k8sResult = await this.initializeRemoteWorkspace({
           sandbox,
           project,
           task,
@@ -1294,7 +1296,30 @@ export class ContainerAgentService {
 
         // Start processing the stdout stream (async, don't await)
         debugLog('startAgent', 'Starting stdout stream processing', { taskId });
-        this.processAgentOutput(runningAgent);
+        this.processAgentOutput(runningAgent).catch(async (err) => {
+          const message = err instanceof Error ? err.message : String(err);
+          warnLog('startAgent', 'Agent output stream failed - user will not see agent output', {
+            taskId,
+            sessionId,
+            error: message,
+            stack: err instanceof Error ? err.stack : undefined,
+          });
+          // Notify the user if the agent is still tracked (i.e. not already cleaned up
+          // by processAgentOutput's own error handler).
+          if (this.runningAgents.has(taskId)) {
+            try {
+              await this.streams.publish(sessionId, 'container-agent:error', {
+                taskId,
+                sessionId,
+                error: 'Agent output stream failed unexpectedly.',
+                turnCount: 0,
+              });
+              await this.handleAgentError(taskId, message, 0);
+            } catch {
+              // Ignore cleanup errors — best-effort notification
+            }
+          }
+        });
 
         // Await critical status events for persistence
         await this.streams.publish(sessionId, 'container-agent:status', {

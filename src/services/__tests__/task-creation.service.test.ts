@@ -19,7 +19,7 @@ const createDbMock = () => ({
     tasks: { findFirst: vi.fn(), findMany: vi.fn() },
   },
   insert: vi.fn(() => ({ values: vi.fn(() => ({ returning: vi.fn() })) })),
-  update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ returning: vi.fn() })) })) })),
+  update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => Promise.resolve()) })) })),
   delete: vi.fn(() => ({ where: vi.fn() })),
 });
 
@@ -103,7 +103,7 @@ describe('TaskCreationService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toEqual(TaskCreationErrors.PROJECT_NOT_FOUND);
+        expect(result.error).toMatchObject(TaskCreationErrors.PROJECT_NOT_FOUND);
       }
     });
 
@@ -162,7 +162,7 @@ describe('TaskCreationService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toEqual(TaskCreationErrors.SESSION_NOT_FOUND);
+        expect(result.error).toMatchObject(TaskCreationErrors.SESSION_NOT_FOUND);
       }
     });
 
@@ -346,7 +346,7 @@ describe('TaskCreationService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toEqual(TaskCreationErrors.SESSION_NOT_FOUND);
+        expect(result.error).toMatchObject(TaskCreationErrors.SESSION_NOT_FOUND);
       }
     });
 
@@ -368,7 +368,7 @@ describe('TaskCreationService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toEqual(TaskCreationErrors.NO_SUGGESTION);
+        expect(result.error).toMatchObject(TaskCreationErrors.NO_SUGGESTION);
       }
     });
 
@@ -482,8 +482,11 @@ describe('TaskCreationService', () => {
       });
 
       // Verify insert was called with overridden values
+      // The last insert call is the task insert from acceptSuggestion
+      // (earlier calls may include the session insert from startConversation)
       expect(valuesMock).toHaveBeenCalled();
-      const insertedTask = valuesMock.mock.calls[0]?.[0] as Record<string, unknown>;
+      const lastCallIndex = valuesMock.mock.calls.length - 1;
+      const insertedTask = valuesMock.mock.calls[lastCallIndex]?.[0] as Record<string, unknown>;
       expect(insertedTask).toBeDefined();
       expect(insertedTask.title).toBe('Overridden Title');
       expect(insertedTask.priority).toBe('high');
@@ -501,7 +504,7 @@ describe('TaskCreationService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toEqual(TaskCreationErrors.SESSION_NOT_FOUND);
+        expect(result.error).toMatchObject(TaskCreationErrors.SESSION_NOT_FOUND);
       }
     });
 
@@ -578,7 +581,7 @@ describe('TaskCreationService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toEqual(TaskCreationErrors.SESSION_NOT_FOUND);
+        expect(result.error).toMatchObject(TaskCreationErrors.SESSION_NOT_FOUND);
       }
     });
 
@@ -679,7 +682,7 @@ describe('TaskCreationService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toEqual(TaskCreationErrors.SESSION_NOT_FOUND);
+        expect(result.error).toMatchObject(TaskCreationErrors.SESSION_NOT_FOUND);
       }
     });
 
