@@ -124,7 +124,7 @@ vi.mock('@paralleldrive/cuid2', () => ({
   createId: vi.fn(() => 'test-cuid-12345678'),
 }));
 
-import { NotFoundError } from '@agentpane/nomad-sandbox-sdk';
+import { ConnectionError, NotFoundError } from '@agentpane/nomad-sandbox-sdk';
 import { NomadSandboxInstance } from '../nomad-sandbox-instance.js';
 // Import after mocks
 import {
@@ -588,7 +588,9 @@ describe('NomadSandboxProvider', () => {
 
     it('returns unhealthy on SDK exception', async () => {
       const provider = createProvider();
-      mockClient.healthCheck.mockRejectedValue(new Error('connection refused'));
+      mockClient.healthCheck.mockRejectedValue(
+        new ConnectionError('http://127.0.0.1:4646', new Error('connection refused'))
+      );
 
       const health = await provider.healthCheck();
 
