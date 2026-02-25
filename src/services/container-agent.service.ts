@@ -1296,12 +1296,29 @@ export class ContainerAgentService {
 
         // Start processing the stdout stream (async, don't await)
         debugLog('startAgent', 'Starting stdout stream processing', { taskId });
-        this.processAgentOutput(runningAgent).catch((err) => {
+        this.processAgentOutput(runningAgent).catch(async (err) => {
           const message = err instanceof Error ? err.message : String(err);
-          infoLog('startAgent', 'Unhandled error in processAgentOutput', {
+          warnLog('startAgent', 'Agent output stream failed - user will not see agent output', {
             taskId,
+            sessionId,
             error: message,
+            stack: err instanceof Error ? err.stack : undefined,
           });
+          // Notify the user if the agent is still tracked (i.e. not already cleaned up
+          // by processAgentOutput's own error handler).
+          if (this.runningAgents.has(taskId)) {
+            try {
+              await this.streams.publish(sessionId, 'container-agent:error', {
+                taskId,
+                sessionId,
+                error: 'Agent output stream failed unexpectedly.',
+                turnCount: 0,
+              });
+              await this.handleAgentError(taskId, message, 0);
+            } catch {
+              // Ignore cleanup errors — best-effort notification
+            }
+          }
         });
 
         // Await critical status events for persistence

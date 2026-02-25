@@ -119,9 +119,7 @@ export class NomadJobBuilder {
       '/proc',
       '/sys',
       '/run',
-      '/var/run',
-      '/var/lib/docker',
-      '/var/log',
+      '/var',
       '/dev',
       '/root',
       '/boot',
@@ -132,7 +130,10 @@ export class NomadJobBuilder {
       '/lib',
       '/lib64',
       '/tmp',
-      '/var/tmp',
+      '/opt',
+      '/srv',
+      '/mnt',
+      '/media',
     ];
     for (const mount of mounts) {
       if (!mount.includes(':')) {

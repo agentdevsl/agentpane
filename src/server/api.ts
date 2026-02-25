@@ -1275,8 +1275,10 @@ async function initSandboxProvider() {
             await ensureDefaultSandbox(nomadProvider, 'Nomad');
           } else {
             const diagnosis = health.message ?? 'Nomad cluster health check failed';
-            log.warn(
-              `[API Server] Nomad provider unhealthy: ${diagnosis}. Falling back to Docker.`
+            const willFallback = nomadFallbackToDocker;
+            const logFn = willFallback ? log.warn : log.error;
+            logFn(
+              `[API Server] Nomad provider unhealthy: ${diagnosis}.${willFallback ? ' Falling back to Docker.' : ' No fallback configured — sandbox operations will be unavailable.'}`
             );
             await persistNomadLastError(diagnosis);
           }
@@ -1284,7 +1286,15 @@ async function initSandboxProvider() {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      log.warn(`[API Server] Nomad provider init failed: ${message}. Falling back to Docker.`);
+      const willFallback = nomadFallbackToDocker;
+      const { NomadApiError, ConnectionError } = await import('@agentpane/nomad-sandbox-sdk');
+      const isInfraError = error instanceof NomadApiError || error instanceof ConnectionError;
+      // Use warn only for expected infrastructure failures when a fallback is available.
+      // Programming errors and no-fallback degradation warrant error-level visibility.
+      const logFn = isInfraError && willFallback ? log.warn : log.error;
+      logFn(
+        `[API Server] Nomad provider init failed: ${message}.${willFallback ? ' Falling back to Docker.' : ' No fallback configured — sandbox operations will be unavailable.'}`
+      );
       await persistNomadLastError(message);
     }
   }

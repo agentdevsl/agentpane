@@ -452,18 +452,22 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
         },
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      log.error(`Nomad health check failed: ${message}`, {
-        error: error instanceof Error ? error : new Error(message),
-      });
-      return {
-        healthy: false,
-        message: `Nomad health check failed: ${message}`,
-        details: {
-          provider: 'nomad',
-          namespace: this.namespace,
-        },
-      };
+      // Only treat known infrastructure errors as "unhealthy". Let programming
+      // errors (TypeError, ReferenceError, etc.) propagate so they surface in
+      // logs instead of being silently reported as a cluster health problem.
+      if (error instanceof NomadApiError || error instanceof ConnectionError) {
+        const message = error.message;
+        log.error(`Nomad health check failed: ${message}`, { error });
+        return {
+          healthy: false,
+          message: `Nomad health check failed: ${message}`,
+          details: {
+            provider: 'nomad',
+            namespace: this.namespace,
+          },
+        };
+      }
+      throw error;
     }
   }
 
