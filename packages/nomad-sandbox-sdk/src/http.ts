@@ -93,11 +93,8 @@ export class NomadHttpClient {
     }
 
     const controller = new AbortController();
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
-
-    if (options?.timeout) {
-      timeoutId = setTimeout(() => controller.abort(), options.timeout);
-    }
+    const effectiveTimeout = options?.timeout ?? NOMAD_DEFAULTS.requestTimeoutMs;
+    const timeoutId = setTimeout(() => controller.abort(), effectiveTimeout);
 
     let response: Response;
     try {
@@ -116,7 +113,7 @@ export class NomadHttpClient {
         error instanceof Error ? error : new Error(String(error))
       );
     } finally {
-      if (timeoutId) clearTimeout(timeoutId);
+      clearTimeout(timeoutId);
     }
 
     if (!response.ok) {
@@ -138,10 +135,10 @@ export class NomadHttpClient {
 
     try {
       return JSON.parse(text) as T;
-    } catch {
+    } catch (parseErr) {
       throw new NomadApiError(
         response.status,
-        `Failed to parse JSON response from ${method} ${path}: ${text.slice(0, 200)}`
+        `Failed to parse JSON response from ${method} ${path}: ${parseErr instanceof Error ? parseErr.message : 'unknown error'}. Body preview: ${text.slice(0, 200)}`
       );
     }
   }
@@ -232,10 +229,10 @@ export class NomadHttpClient {
     let data: T;
     try {
       data = JSON.parse(text) as T;
-    } catch {
+    } catch (parseErr) {
       throw new NomadApiError(
         response.status,
-        `Failed to parse JSON response from blocking query ${path}: ${text.slice(0, 200)}`
+        `Failed to parse JSON response from blocking query ${path}: ${parseErr instanceof Error ? parseErr.message : 'unknown error'}. Body preview: ${text.slice(0, 200)}`
       );
     }
 

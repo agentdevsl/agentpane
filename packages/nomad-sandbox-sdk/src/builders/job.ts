@@ -135,8 +135,18 @@ export class NomadJobBuilder {
       '/var/tmp',
     ];
     for (const mount of mounts) {
+      if (!mount.includes(':')) {
+        throw new Error(
+          `NomadJobBuilder: volume mount '${mount}' must be in format 'host:container[:options]'`
+        );
+      }
       const rawHostPath = mount.split(':')[0] ?? '';
       const normalized = normalizeHostPath(rawHostPath);
+      if (!normalized.startsWith('/')) {
+        throw new Error(
+          `NomadJobBuilder: volume mount host path '${rawHostPath}' must be absolute (start with /)`
+        );
+      }
       for (const blocked of blockedPrefixes) {
         if (blocked === '/') {
           if (normalized === '/') {

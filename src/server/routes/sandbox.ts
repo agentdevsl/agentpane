@@ -10,11 +10,39 @@ import {
   resolveContext,
 } from '@agentpane/agent-sandbox-sdk';
 import { Hono } from 'hono';
-import type { SandboxType } from '../../db/schema/shared/enums.js';
+import { z } from 'zod';
+import { SANDBOX_TYPES } from '../../db/schema/shared/enums.js';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { SandboxConfigService } from '../../services/sandbox-config.service.js';
 import type { Database } from '../../types/database.js';
 import { isValidId, json } from '../shared.js';
+
+const sandboxConfigBodySchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  description: z.string().max(1000).optional(),
+  type: z.enum(SANDBOX_TYPES).optional(),
+  isDefault: z.boolean().optional(),
+  baseImage: z.string().max(500).optional(),
+  memoryMb: z.number().int().min(128).max(65536).optional(),
+  cpuCores: z.number().min(0.25).max(128).optional(),
+  maxProcesses: z.number().int().min(1).max(10000).optional(),
+  timeoutMinutes: z.number().int().min(1).max(1440).optional(),
+  volumeMountPath: z.string().max(500).optional(),
+  kubeConfigPath: z.string().max(500).optional(),
+  kubeContext: z.string().max(200).optional(),
+  kubeNamespace: z.string().max(200).optional(),
+  networkPolicyEnabled: z.boolean().optional(),
+  allowedEgressHosts: z.array(z.string().max(500)).optional(),
+  nomadAddress: z.string().max(500).optional(),
+  nomadToken: z.string().max(500).optional(),
+  nomadNamespace: z.string().max(200).optional(),
+  nomadDatacenter: z.string().max(200).optional(),
+  nomadRegion: z.string().max(200).optional(),
+});
+
+const sandboxConfigCreateSchema = sandboxConfigBodySchema.extend({
+  name: z.string().min(1).max(200),
+});
 
 const log = createLogger('SandboxRoutes');
 
@@ -63,44 +91,30 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
 
   // POST /api/sandbox-configs
   app.post('/', async (c) => {
-    let body: {
-      name: string;
-      description?: string;
-      type?: SandboxType;
-      isDefault?: boolean;
-      baseImage?: string;
-      memoryMb?: number;
-      cpuCores?: number;
-      maxProcesses?: number;
-      timeoutMinutes?: number;
-      volumeMountPath?: string;
-      kubeConfigPath?: string;
-      kubeContext?: string;
-      kubeNamespace?: string;
-      networkPolicyEnabled?: boolean;
-      allowedEgressHosts?: string[];
-      nomadAddress?: string;
-      nomadToken?: string;
-      nomadNamespace?: string;
-      nomadDatacenter?: string;
-      nomadRegion?: string;
-    };
+    let rawBody: unknown;
     try {
-      body = (await c.req.json()) as typeof body;
+      rawBody = await c.req.json();
     } catch {
       return json(
         { ok: false, error: { code: 'INVALID_JSON', message: 'Request body must be valid JSON' } },
         400
       );
     }
+    const parsed = sandboxConfigCreateSchema.safeParse(rawBody);
+    if (!parsed.success) {
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '),
+          },
+        },
+        400
+      );
+    }
+    const body = parsed.data;
     try {
-      if (!body.name) {
-        return json(
-          { ok: false, error: { code: 'MISSING_PARAMS', message: 'Name is required' } },
-          400
-        );
-      }
-
       if (body.nomadAddress) {
         const addrValidation = await validateNomadAddress(body.nomadAddress);
         if (!addrValidation.valid) {
@@ -189,36 +203,29 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID format' } }, 400);
     }
 
-    let body: {
-      name?: string;
-      description?: string;
-      type?: SandboxType;
-      isDefault?: boolean;
-      baseImage?: string;
-      memoryMb?: number;
-      cpuCores?: number;
-      maxProcesses?: number;
-      timeoutMinutes?: number;
-      volumeMountPath?: string;
-      kubeConfigPath?: string;
-      kubeContext?: string;
-      kubeNamespace?: string;
-      networkPolicyEnabled?: boolean;
-      allowedEgressHosts?: string[];
-      nomadAddress?: string;
-      nomadToken?: string;
-      nomadNamespace?: string;
-      nomadDatacenter?: string;
-      nomadRegion?: string;
-    };
+    let rawBody: unknown;
     try {
-      body = (await c.req.json()) as typeof body;
+      rawBody = await c.req.json();
     } catch {
       return json(
         { ok: false, error: { code: 'INVALID_JSON', message: 'Request body must be valid JSON' } },
         400
       );
     }
+    const parsed = sandboxConfigBodySchema.safeParse(rawBody);
+    if (!parsed.success) {
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '),
+          },
+        },
+        400
+      );
+    }
+    const body = parsed.data;
     try {
       if (body.nomadAddress) {
         const addrValidation = await validateNomadAddress(body.nomadAddress);

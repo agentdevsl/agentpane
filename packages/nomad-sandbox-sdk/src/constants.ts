@@ -8,6 +8,7 @@ export const NOMAD_DEFAULTS = {
   datacenter: 'dc1',
   waitTimeout: '30s',
   readyTimeoutMs: 120_000,
+  requestTimeoutMs: 30_000,
 } as const;
 
 /**

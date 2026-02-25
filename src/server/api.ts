@@ -1234,39 +1234,53 @@ async function initSandboxProvider() {
       if (!nomadSettings.address) {
         log.warn('[API Server] Nomad address not configured, falling back to Docker');
       } else {
-        const { createNomadSandboxProvider } = await import(
-          '../lib/sandbox/providers/nomad-sandbox-provider.js'
-        );
-        const nomadProvider = createNomadSandboxProvider({
-          address: nomadSettings.address,
-          token: nomadSettings.token,
-          namespace: nomadSettings.namespace,
-          region: nomadSettings.region,
-          datacenter: nomadSettings.datacenter,
-          image: nomadSettings.image,
-        });
-
-        const health = await nomadProvider.healthCheck();
-        if (health.healthy) {
-          sandboxProvider = nomadProvider;
-          activeNomadProvider = nomadProvider;
-          log.info('[API Server] Nomad sandbox provider initialized', {
-            data: {
-              address: nomadSettings.address,
-              namespace: nomadSettings.namespace ?? 'default',
-            },
+        // Defense-in-depth: validate stored address at startup (not just on save)
+        const { validateNomadAddress } = await import('./routes/sandbox.js');
+        const addrValidation = await validateNomadAddress(nomadSettings.address);
+        if (!addrValidation.valid) {
+          log.warn(
+            `[API Server] Nomad address failed SSRF validation: ${addrValidation.error}. Falling back to Docker.`
+          );
+          await persistNomadLastError(
+            `Stored Nomad address failed security validation: ${addrValidation.error}`
+          );
+        } else {
+          const { createNomadSandboxProvider } = await import(
+            '../lib/sandbox/providers/nomad-sandbox-provider.js'
+          );
+          const nomadProvider = createNomadSandboxProvider({
+            address: nomadSettings.address,
+            token: nomadSettings.token,
+            namespace: nomadSettings.namespace,
+            region: nomadSettings.region,
+            datacenter: nomadSettings.datacenter,
+            image: nomadSettings.image,
           });
 
-          // Clear any stale error
-          await clearNomadLastError();
+          const health = await nomadProvider.healthCheck();
+          if (health.healthy) {
+            sandboxProvider = nomadProvider;
+            activeNomadProvider = nomadProvider;
+            log.info('[API Server] Nomad sandbox provider initialized', {
+              data: {
+                address: nomadSettings.address,
+                namespace: nomadSettings.namespace ?? 'default',
+              },
+            });
 
-          // Create default Nomad sandbox (mirrors Docker/K8s pattern)
-          await ensureDefaultSandbox(nomadProvider, 'Nomad');
-        } else {
-          const diagnosis = health.message ?? 'Nomad cluster health check failed';
-          log.warn(`[API Server] Nomad provider unhealthy: ${diagnosis}. Falling back to Docker.`);
-          await persistNomadLastError(diagnosis);
-        }
+            // Clear any stale error
+            await clearNomadLastError();
+
+            // Create default Nomad sandbox (mirrors Docker/K8s pattern)
+            await ensureDefaultSandbox(nomadProvider, 'Nomad');
+          } else {
+            const diagnosis = health.message ?? 'Nomad cluster health check failed';
+            log.warn(
+              `[API Server] Nomad provider unhealthy: ${diagnosis}. Falling back to Docker.`
+            );
+            await persistNomadLastError(diagnosis);
+          }
+        } // end SSRF-validated else block
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

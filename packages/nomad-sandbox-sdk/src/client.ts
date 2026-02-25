@@ -129,22 +129,26 @@ export class NomadSandboxClient {
       const status = await this.http.request<string>('GET', '/v1/status/leader');
       leader = status || null;
     } catch (err) {
-      let error: string;
-      if (err instanceof NomadApiError && err.statusCode === 403) {
-        error = `Authentication failed: ${err.message}`;
-      } else if (err instanceof ConnectionError) {
-        error = `Connection failed: ${err.message}`;
-      } else {
-        error = err instanceof Error ? err.message : String(err);
+      if (err instanceof NomadApiError || err instanceof ConnectionError) {
+        let error: string;
+        if (err instanceof NomadApiError && err.statusCode === 403) {
+          error = `Authentication failed: ${err.message}`;
+        } else if (err instanceof ConnectionError) {
+          error = `Connection failed: ${err.message}`;
+        } else {
+          error = err.message;
+        }
+        return {
+          healthy: false,
+          leader: null,
+          version: null,
+          namespaceExists: false,
+          datacenter: null,
+          error,
+        };
       }
-      return {
-        healthy: false,
-        leader: null,
-        version: null,
-        namespaceExists: false,
-        datacenter: null,
-        error,
-      };
+      // Programming errors (TypeError, ReferenceError, etc.) should propagate
+      throw err;
     }
 
     // Check namespace exists
@@ -159,8 +163,17 @@ export class NomadSandboxClient {
       // Namespace check failed — might be OSS Nomad without namespace support
       if (err instanceof NomadApiError && (err.statusCode === 404 || err.statusCode === 501)) {
         namespaceExists = this.http.configuredNamespace === 'default';
-      } else {
+      } else if (err instanceof NomadApiError && err.statusCode === 403) {
+        console.warn('[NomadSDK] Cannot verify namespace existence: ACL permission denied');
         namespaceExists = false;
+      } else if (err instanceof NomadApiError || err instanceof ConnectionError) {
+        console.warn(
+          `[NomadSDK] Unexpected error checking namespace: ${err instanceof Error ? err.message : String(err)}`
+        );
+        namespaceExists = false;
+      } else {
+        // Programming errors should propagate
+        throw err;
       }
     }
 
