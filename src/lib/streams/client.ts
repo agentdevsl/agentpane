@@ -559,6 +559,7 @@ export class DurableStreamsClient {
         if (reconnectCount > 0) {
           callbacks.onReconnect?.();
         }
+        reconnectCount = 0;
 
         // Subscribe to JSON batches from the stream
         unsubscribeFn = response.subscribeJson<StreamEventItem>((batch) => {

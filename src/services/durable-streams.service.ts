@@ -17,7 +17,10 @@ import type { SessionEvent, SessionEventType } from './session.service.js';
 export interface DurableStreamsServer {
   createStream: (id: string, schema: unknown) => Promise<void>;
   publish: (id: string, type: string, data: unknown) => Promise<number>;
-  subscribe: (id: string) => AsyncIterable<{ type: string; data: unknown }>;
+  subscribe: (
+    id: string,
+    options?: { fromOffset?: number }
+  ) => AsyncIterable<{ type: string; data: unknown; offset: number }>;
   deleteStream?: (id: string) => Promise<boolean>;
 }
 
@@ -500,10 +503,11 @@ export class DurableStreamsService {
   async deleteStream(id: string): Promise<void> {
     // Call server.deleteStream if available
     if ('deleteStream' in this.server && this.server.deleteStream) {
-      await this.server.deleteStream(id);
+      const deleted = await this.server.deleteStream(id);
+      console.log(
+        `[DurableStreamsService] Stream ${id} ${deleted ? 'deleted' : 'not found (already removed)'}`
+      );
     }
-
-    console.log(`[DurableStreamsService] Stream ${id} deleted`);
   }
 
   /**
@@ -661,9 +665,30 @@ export class DurableStreamsService {
   }
 
   /**
-   * Publish a session event (uses SessionEvent's own type/data structure)
+   * Publish a session event (uses SessionEvent's own type/data structure).
+   * Persists to database if available, then publishes to Caddy streams.
    */
   async publishSessionEvent(streamId: string, event: SessionEvent): Promise<void> {
+    const timestamp = Date.now();
+
+    if (this.db) {
+      const lastEvent = await this.db.query.sessionEvents.findFirst({
+        where: eq(sessionEvents.sessionId, streamId),
+        orderBy: [desc(sessionEvents.offset)],
+      });
+      const offset = (lastEvent?.offset ?? -1) + 1;
+
+      await this.db.insert(sessionEvents).values({
+        id: createId(),
+        sessionId: streamId,
+        offset,
+        type: event.type,
+        channel: 'session',
+        data: event.data as unknown,
+        timestamp,
+      });
+    }
+
     await this.server.publish(streamId, event.type, event.data);
   }
 }

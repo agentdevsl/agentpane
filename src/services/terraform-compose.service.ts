@@ -166,8 +166,10 @@ export class TerraformComposeService {
                   : never
   ): Promise<void> {
     if (!this.durableStreamsService) {
-      log.warn('No DurableStreamsService configured, dropping event', { data: { type, jobId } });
-      return;
+      log.error('No DurableStreamsService configured — events will be lost', {
+        data: { type, jobId },
+      });
+      throw new Error('[TerraformCompose] DurableStreamsService is required for event delivery');
     }
     const streamId = `terraform:${jobId}`;
     try {

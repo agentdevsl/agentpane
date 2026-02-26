@@ -331,6 +331,8 @@ export function TerraformProvider({ children }: { children: React.ReactNode }): 
 
         // Create a promise that resolves when the stream completes (done/error event)
         const streamComplete = new Promise<void>((resolve) => {
+          let streamRetryCount = 0;
+          const MAX_STREAM_RETRIES = 5;
           const startStream = async () => {
             try {
               const response = await durableStream({
@@ -338,7 +340,17 @@ export function TerraformProvider({ children }: { children: React.ReactNode }): 
                 live: 'sse',
                 json: true,
                 onError: (streamError) => {
-                  console.error('[Terraform] Durable stream error:', streamError);
+                  streamRetryCount++;
+                  console.error(
+                    `[Terraform] Durable stream error (attempt ${streamRetryCount}/${MAX_STREAM_RETRIES}):`,
+                    streamError
+                  );
+                  if (streamRetryCount >= MAX_STREAM_RETRIES) {
+                    setError('Stream connection failed after multiple retries');
+                    setIsStreaming(false);
+                    resolve();
+                    return; // Return void to stop stream
+                  }
                   return {}; // Signal retry
                 },
               });

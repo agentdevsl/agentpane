@@ -172,7 +172,10 @@ e2e('Dialog Components E2E', () => {
         const cloneTab = await exists('[data-testid="tab-clone"]');
         if (cloneTab) {
           await click('[data-testid="tab-clone"]');
-          await new Promise((resolve) => setTimeout(resolve, 300));
+          await waitForSelector(
+            '[data-testid="clone-url-input"], [data-testid="github-repo-list"]',
+            { timeout: 3000 }
+          ).catch(() => {});
         }
 
         // The dialog has tabs for local and clone - check if clone-related inputs exist

@@ -130,6 +130,7 @@ export type DurableStreamsServer = {
     data: unknown;
     offset: number;
   }>;
+  deleteStream?: (id: string) => Promise<boolean>;
 };
 
 /**

@@ -632,7 +632,7 @@ export function NewProjectDialog({
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        event.stopPropagation();
+        event.stopImmediatePropagation();
         onOpenChange(false);
       }
     };

@@ -491,26 +491,21 @@ describe('SessionService', () => {
       }
     });
 
-    it('subscribes to session events', async () => {
+    it('subscribes to session events (history only, live via Caddy)', async () => {
       const project = await createTestProject();
       const session = await createTestSession(project.id);
 
       const events: SessionEvent[] = [];
 
-      // Mock subscribe to yield some events
-      mockStreams.subscribe = vi.fn().mockImplementation(async function* () {
-        yield { type: 'chunk', data: { text: 'Hello' }, offset: 1 };
-        yield { type: 'tool:start', data: { tool: 'Read' }, offset: 2 };
-      });
-
-      for await (const event of sessionService.subscribe(session.id, { includeHistory: false })) {
+      // With Caddy durable streams, subscribe() only replays history.
+      // Live events are delivered via Caddy SSE directly to clients.
+      for await (const event of sessionService.subscribe(session.id, { includeHistory: true })) {
         events.push(event);
-        if (events.length >= 2) break;
       }
 
-      expect(events.length).toBe(2);
+      // Should get history events (1 seeded event from createTestSession)
+      expect(events.length).toBe(1);
       expect(events[0].type).toBe('chunk');
-      expect(events[1].type).toBe('tool:start');
     });
   });
 

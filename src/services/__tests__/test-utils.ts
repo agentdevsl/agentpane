@@ -20,11 +20,14 @@ export function createMockDurableStreamsServer(): DurableStreamsServer {
       return 0;
     },
 
-    async *subscribe(id: string): AsyncIterable<{ type: string; data: unknown }> {
+    async *subscribe(
+      id: string,
+      _options?: { fromOffset?: number }
+    ): AsyncIterable<{ type: string; data: unknown; offset: number }> {
       const stream = streams.get(id);
       if (stream) {
-        for (const event of stream) {
-          yield event;
+        for (const [i, event] of stream.entries()) {
+          yield { type: event.type, data: event.data, offset: i };
         }
       }
     },

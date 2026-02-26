@@ -88,6 +88,8 @@ export class CaddyDurableStreamsServer implements DurableStreamsServer {
       maxInFlight: 5,
       onError: (error) => {
         console.error(`[CaddyStreams] Producer error for ${id}:`, error);
+        // Invalidate the cached producer so the next publish creates a fresh one
+        this.producers.delete(id);
       },
     });
 
@@ -100,6 +102,11 @@ export class CaddyDurableStreamsServer implements DurableStreamsServer {
     await this.getOrCreateProducer(id);
   }
 
+  /**
+   * Publish an event to the stream. Returns a local monotonic offset (not the
+   * server-assigned durable offset). The true offset is managed by Caddy/LMDB
+   * and only visible to subscribers via the SSE stream.
+   */
   async publish(id: string, type: string, data: unknown): Promise<number> {
     const entry = await this.getOrCreateProducer(id);
     const event = JSON.stringify({ type, data, timestamp: Date.now() });
@@ -127,8 +134,8 @@ export class CaddyDurableStreamsServer implements DurableStreamsServer {
     try {
       await entry.producer.detach();
       await entry.stream.delete();
-    } catch {
-      // Best effort
+    } catch (err) {
+      console.warn(`[CaddyStreams] deleteStream(${id}) cleanup error:`, err);
     }
 
     this.producers.delete(id);

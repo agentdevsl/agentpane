@@ -577,8 +577,10 @@ describe('SessionService', () => {
     const iterator = iterable[Symbol.asyncIterator]();
     const first = await iterator.next();
 
-    // Should get stream event directly
-    expect(first.done).toBe(false);
+    // With Caddy durable streams, subscribe() only replays history.
+    // When includeHistory is false and live subscription is via Caddy,
+    // the iterator completes immediately.
+    expect(first.done).toBe(true);
   });
 
   it('subscribe uses custom startTime', async () => {
@@ -596,6 +598,7 @@ describe('SessionService', () => {
     const iterator = iterable[Symbol.asyncIterator]();
     const first = await iterator.next();
 
+    // With includeHistory: true and a startTime, getHistory returns a hardcoded chunk event
     expect(first.done).toBe(false);
   });
 });

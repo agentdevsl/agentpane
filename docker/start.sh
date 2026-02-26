@@ -5,8 +5,8 @@ set -e
 /usr/local/bin/durable-streams-server run --config /app/Caddyfile &
 CADDY_PID=$!
 
-# Start Bun API in foreground
-exec bun src/server/api.ts &
+# Start Bun API in background
+bun src/server/api.ts &
 BUN_PID=$!
 
 # Trap signals and forward to both processes
