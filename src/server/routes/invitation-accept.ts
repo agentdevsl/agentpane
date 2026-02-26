@@ -2,7 +2,7 @@
  * Invitation accept route (separate from team-scoped routes)
  */
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, gt } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { teamInvitations } from '../../db/schema/sqlite/team-invitations';
 import { teamMembers } from '../../db/schema/sqlite/team-members';
@@ -34,29 +34,45 @@ export function createInvitationAcceptRoutes({ db }: InvitationAcceptDeps) {
     }
 
     try {
-      // Atomically claim the invitation (prevents TOCTOU race)
+      // Atomically claim the invitation (prevents TOCTOU race and rejects expired)
       const [claimed] = await db
         .update(teamInvitations)
         .set({ status: 'accepted' })
-        .where(and(eq(teamInvitations.token, token), eq(teamInvitations.status, 'pending')))
+        .where(
+          and(
+            eq(teamInvitations.token, token),
+            eq(teamInvitations.status, 'pending'),
+            gt(teamInvitations.expiresAt, new Date().toISOString())
+          )
+        )
         .returning();
 
       if (!claimed) {
         return json(
-          { ok: false, error: { code: 'NOT_FOUND', message: 'Invalid or expired invitation' } },
+          {
+            ok: false,
+            error: { code: 'NOT_FOUND', message: 'Invalid, expired, or already used invitation' },
+          },
           404
         );
       }
 
-      // Check expiry
-      if (new Date(claimed.expiresAt) < new Date()) {
+      // Verify the accepting user's email matches the invitation
+      if (auth.user?.email && claimed.email && auth.user.email !== claimed.email) {
+        // Roll back the claim - set status back to pending
         await db
           .update(teamInvitations)
-          .set({ status: 'expired' })
+          .set({ status: 'pending' })
           .where(eq(teamInvitations.id, claimed.id));
         return json(
-          { ok: false, error: { code: 'EXPIRED', message: 'Invitation has expired' } },
-          410
+          {
+            ok: false,
+            error: {
+              code: 'FORBIDDEN',
+              message: 'Invitation was sent to a different email address',
+            },
+          },
+          403
         );
       }
 

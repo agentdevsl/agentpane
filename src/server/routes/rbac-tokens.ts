@@ -7,6 +7,7 @@ import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { RBAC_ROLE_LEVEL, type RbacRole } from '../../db/schema/shared/enums';
 import { apiTokens } from '../../db/schema/sqlite/api-tokens';
+import { teamProjects } from '../../db/schema/sqlite/team-projects';
 import type { AuthContext } from '../../lib/api/auth-middleware';
 import { createLogger } from '../../lib/logging/logger';
 import type { RbacService } from '../../services/rbac.service';
@@ -47,7 +48,7 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
     if (!parsed.ok) return parsed.response;
 
     // Validate team membership and role ceiling
-    if (parsed.data.teamId && auth.authMethod !== 'dev') {
+    if (auth.authMethod !== 'dev') {
       const role = await rbacService.resolveTeamRole(auth.userId, parsed.data.teamId);
       if (!role) {
         return json(
@@ -63,6 +64,29 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
             error: { code: 'FORBIDDEN', message: 'Token role cannot exceed your team role' },
           },
           403
+        );
+      }
+    }
+
+    // Validate scopeProjectId belongs to the team
+    if (parsed.data.scopeProjectId) {
+      const teamProject = await db
+        .select({ teamId: teamProjects.teamId })
+        .from(teamProjects)
+        .where(
+          and(
+            eq(teamProjects.teamId, parsed.data.teamId),
+            eq(teamProjects.projectId, parsed.data.scopeProjectId)
+          )
+        );
+
+      if (teamProject.length === 0) {
+        return json(
+          {
+            ok: false,
+            error: { code: 'VALIDATION_ERROR', message: 'Project not found in this team' },
+          },
+          400
         );
       }
     }
@@ -136,8 +160,13 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
   // GET /api/tokens - List user's tokens
   app.get('/', async (c) => {
     const auth = c.get('auth');
+    const showAll = c.req.query('status') === 'all';
 
     try {
+      const whereClause = showAll
+        ? eq(apiTokens.userId, auth.userId)
+        : and(eq(apiTokens.userId, auth.userId), eq(apiTokens.status, 'active'));
+
       const tokens = await db
         .select({
           id: apiTokens.id,
@@ -152,7 +181,7 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
           createdAt: apiTokens.createdAt,
         })
         .from(apiTokens)
-        .where(eq(apiTokens.userId, auth.userId));
+        .where(whereClause);
 
       return json({ ok: true, data: { items: tokens } });
     } catch (error) {

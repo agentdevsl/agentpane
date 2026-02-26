@@ -267,11 +267,9 @@ export function createRouter(deps: RouterDependencies) {
       c.req.header('x-request-id') ?? (c.res.headers.get('X-Request-Id') || undefined);
     routerLog.error('Unhandled error', { requestId, error: err });
 
-    const isProduction = process.env.NODE_ENV === 'production';
-    let message = 'Internal server error';
-    if (isProduction) {
-      message = 'An unexpected error occurred.';
-    } else if (err instanceof Error) {
+    const isDev = process.env.NODE_ENV === 'development';
+    let message = 'An unexpected error occurred.';
+    if (isDev && err instanceof Error) {
       message = err.message;
     }
 

@@ -8,6 +8,7 @@ import { projectTags } from '../../db/schema/sqlite/project-tags';
 import { tags } from '../../db/schema/sqlite/tags';
 import { taskTags } from '../../db/schema/sqlite/task-tags';
 import { tasks } from '../../db/schema/sqlite/tasks';
+import { teamProjects } from '../../db/schema/sqlite/team-projects';
 import type { AuthContext } from '../../lib/api/auth-middleware';
 import { createLogger } from '../../lib/logging/logger';
 import type { RbacService } from '../../services/rbac.service';
@@ -79,6 +80,7 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
   // GET /api/tags?teamId=xxx - List tags for a team
   app.get('/', async (c) => {
     const teamId = c.req.query('teamId');
+    const auth = c.get('auth');
 
     if (!teamId || !isValidId(teamId)) {
       return json(
@@ -88,6 +90,17 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
         },
         400
       );
+    }
+
+    // Verify team membership
+    if (auth.authMethod !== 'dev') {
+      const role = await rbacService.resolveTeamRole(auth.userId, teamId);
+      if (!role) {
+        return json(
+          { ok: false, error: { code: 'FORBIDDEN', message: 'Not a member of this team' } },
+          403
+        );
+      }
     }
 
     try {
@@ -178,6 +191,40 @@ export function createProjectTagRoutes({
     const parsed = parseBody(assignTagSchema, body);
     if (!parsed.ok) return parsed.response;
 
+    // Verify tag belongs to a team that owns this project
+    const tagRecord = await db
+      .select({ teamId: tags.teamId })
+      .from(tags)
+      .where(eq(tags.id, parsed.data.tagId));
+
+    const foundTagForProject = tagRecord[0];
+    if (!foundTagForProject) {
+      return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Tag not found' } }, 404);
+    }
+
+    const teamOwnsProject = await db
+      .select({ teamId: teamProjects.teamId })
+      .from(teamProjects)
+      .where(
+        and(
+          eq(teamProjects.teamId, foundTagForProject.teamId),
+          eq(teamProjects.projectId, projectId)
+        )
+      );
+
+    if (teamOwnsProject.length === 0) {
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'FORBIDDEN',
+            message: 'Tag does not belong to a team that owns this project',
+          },
+        },
+        403
+      );
+    }
+
     try {
       await db
         .insert(projectTags)
@@ -246,16 +293,18 @@ export function createTaskTagRoutes({
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid task ID' } }, 400);
     }
 
+    // Look up the task's projectId (needed for both auth and cross-team validation)
+    const taskRows = await db
+      .select({ projectId: tasks.projectId })
+      .from(tasks)
+      .where(eq(tasks.id, taskId));
+    const foundTask = taskRows[0];
+    if (!foundTask) {
+      return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Task not found' } }, 404);
+    }
+
     const auth = c.get('auth');
     if (auth.authMethod !== 'dev') {
-      const taskRows = await db
-        .select({ projectId: tasks.projectId })
-        .from(tasks)
-        .where(eq(tasks.id, taskId));
-      const foundTask = taskRows[0];
-      if (!foundTask) {
-        return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Task not found' } }, 404);
-      }
       const role = await rbacService.resolveUserRole(auth.userId, foundTask.projectId);
       if (!role || !rbacService.hasMinimumRole(role, 'agent_operator')) {
         return json(
@@ -277,6 +326,40 @@ export function createTaskTagRoutes({
 
     const parsed = parseBody(assignTagSchema, body);
     if (!parsed.ok) return parsed.response;
+
+    // Verify tag belongs to a team that owns this task's project
+    const tagRecord = await db
+      .select({ teamId: tags.teamId })
+      .from(tags)
+      .where(eq(tags.id, parsed.data.tagId));
+
+    const foundTagForTask = tagRecord[0];
+    if (!foundTagForTask) {
+      return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Tag not found' } }, 404);
+    }
+
+    const teamOwnsProject = await db
+      .select({ teamId: teamProjects.teamId })
+      .from(teamProjects)
+      .where(
+        and(
+          eq(teamProjects.teamId, foundTagForTask.teamId),
+          eq(teamProjects.projectId, foundTask.projectId)
+        )
+      );
+
+    if (teamOwnsProject.length === 0) {
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'FORBIDDEN',
+            message: "Tag does not belong to a team that owns this task's project",
+          },
+        },
+        403
+      );
+    }
 
     try {
       await db.insert(taskTags).values({ taskId, tagId: parsed.data.tagId }).onConflictDoNothing();

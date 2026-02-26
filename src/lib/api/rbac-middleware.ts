@@ -5,9 +5,11 @@
  * Slots in after the existing authMiddleware in the request pipeline.
  */
 
-import { eq } from 'drizzle-orm';
+import { createHash } from 'node:crypto';
+import { and, eq } from 'drizzle-orm';
 import type { Context, Next } from 'hono';
 import { RBAC_ROLE_LEVEL, type RbacRole, resolveHighestRole } from '../../db/schema/shared/enums';
+import { apiTokens } from '../../db/schema/sqlite/api-tokens';
 import { teamMembers } from '../../db/schema/sqlite/team-members';
 import { users } from '../../db/schema/sqlite/users';
 import type { RbacService } from '../../services/rbac.service';
@@ -80,8 +82,59 @@ export function enrichAuthContext(db: Database) {
         }
       }
 
-      // TODO: Implement token scope loading once validateApiKey callback is wired
-      // Token scope (role ceiling, project scope, tag scope) is not yet enforced
+      // Load token scope for API token auth
+      if (auth.authMethod === 'api_token') {
+        const authHeader = c.req.header('Authorization');
+        if (authHeader?.startsWith('Bearer ')) {
+          const rawToken = authHeader.substring(7);
+          const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+
+          const tokenRecords = await db
+            .select({
+              id: apiTokens.id,
+              role: apiTokens.role,
+              scopeProjectId: apiTokens.scopeProjectId,
+              scopeTags: apiTokens.scopeTags,
+            })
+            .from(apiTokens)
+            .where(and(eq(apiTokens.tokenHash, tokenHash), eq(apiTokens.status, 'active')));
+
+          const token = tokenRecords[0];
+          if (token) {
+            rbacAuth.tokenScope = {
+              tokenId: token.id,
+              role: token.role as RbacRole,
+              projectId: token.scopeProjectId,
+              tags: token.scopeTags as string[] | null,
+            };
+
+            // Cap the resolved role at the token's role ceiling
+            if (rbacAuth.resolvedRole) {
+              const tokenLevel = RBAC_ROLE_LEVEL[token.role as RbacRole];
+              if (rbacAuth.roleLevel && rbacAuth.roleLevel > tokenLevel) {
+                rbacAuth.resolvedRole = token.role as RbacRole;
+                rbacAuth.roleLevel = tokenLevel;
+              }
+            }
+
+            // Update lastUsedAt asynchronously (fire-and-forget to avoid blocking the request)
+            db.update(apiTokens)
+              .set({ lastUsedAt: new Date().toISOString() })
+              .where(eq(apiTokens.id, token.id))
+              .catch((err) => log.warn('Failed to update token lastUsedAt', { error: err }));
+          } else {
+            // Token hash not found or token is not active — deny access
+            log.warn('API token not found or inactive', { data: { path: c.req.path } });
+            return c.json(
+              {
+                ok: false,
+                error: { code: 'UNAUTHORIZED', message: 'Invalid or revoked API token' },
+              },
+              401
+            );
+          }
+        }
+      }
     } catch (error) {
       log.error('Failed to enrich auth context', { error });
       if (auth.authMethod === 'api_token') {

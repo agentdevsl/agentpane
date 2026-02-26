@@ -8,9 +8,12 @@ import { teamMembers } from '../../db/schema/sqlite/team-members';
 import { teams } from '../../db/schema/sqlite/teams';
 import { users } from '../../db/schema/sqlite/users';
 import type { AuthContext } from '../../lib/api/auth-middleware';
+import { createLogger } from '../../lib/logging/logger';
 import type { Database } from '../../types/database';
 import { json } from '../shared';
 import { parseBody, updateProfileSchema } from '../validation';
+
+const log = createLogger('MeRoutes');
 
 interface MeDeps {
   db: Database;
@@ -40,7 +43,7 @@ export function createMeRoutes({ db }: MeDeps) {
     }
 
     try {
-      const user = await db.query.users?.findFirst({
+      const user = await db.query.users.findFirst({
         where: eq(users.id, auth.userId),
       });
 
@@ -81,7 +84,7 @@ export function createMeRoutes({ db }: MeDeps) {
         },
       });
     } catch (error) {
-      console.error('[Me] Get error:', error);
+      log.error('Failed to get profile', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to get profile' } },
         500
@@ -132,7 +135,7 @@ export function createMeRoutes({ db }: MeDeps) {
         },
       });
     } catch (error) {
-      console.error('[Me] Update error:', error);
+      log.error('Failed to update profile', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to update profile' } },
         500

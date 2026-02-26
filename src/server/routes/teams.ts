@@ -48,19 +48,16 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
     const slug = parsed.data.slug ?? slugify(parsed.data.name);
 
     try {
-      // Check slug uniqueness
-      const existing = await db.query.teams.findFirst({
-        where: eq(teams.slug, slug),
-      });
-      if (existing) {
-        return json(
-          { ok: false, error: { code: 'DUPLICATE', message: 'Team slug already exists' } },
-          409
-        );
-      }
-
-      const teamId = createId();
       const created = await db.transaction(async (tx) => {
+        // Check slug uniqueness inside transaction
+        const existing = await tx.query.teams.findFirst({
+          where: eq(teams.slug, slug),
+        });
+        if (existing) {
+          return null; // Signal duplicate
+        }
+
+        const teamId = createId();
         await tx.insert(teams).values({
           id: teamId,
           name: parsed.data.name,
@@ -79,6 +76,13 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
           where: eq(teams.id, teamId),
         });
       });
+
+      if (!created) {
+        return json(
+          { ok: false, error: { code: 'DUPLICATE', message: 'Team slug already exists' } },
+          409
+        );
+      }
 
       return json({ ok: true, data: created });
     } catch (error) {

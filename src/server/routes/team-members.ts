@@ -191,6 +191,20 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID' } }, 400);
     }
 
+    // Prevent self-removal (use "leave team" flow instead if needed)
+    if (auth.userId === uid && auth.authMethod !== 'dev') {
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'FORBIDDEN',
+            message: 'Cannot remove yourself. Transfer ownership first.',
+          },
+        },
+        403
+      );
+    }
+
     if (auth.authMethod !== 'dev') {
       const role = await rbacService.resolveTeamRole(auth.userId, teamId);
       if (!role || !rbacService.hasMinimumRole(role, 'admin')) {
@@ -213,6 +227,17 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
       }
 
       if (targetMember[0]?.role === 'owner') {
+        // Only owners can remove other owners
+        if (auth.authMethod !== 'dev') {
+          const callerRole = await rbacService.resolveTeamRole(auth.userId, teamId);
+          if (callerRole !== 'owner') {
+            return json(
+              { ok: false, error: { code: 'FORBIDDEN', message: 'Only owners can remove owners' } },
+              403
+            );
+          }
+        }
+
         const owners = await db
           .select()
           .from(teamMembers)

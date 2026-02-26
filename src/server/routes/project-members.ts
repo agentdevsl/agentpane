@@ -71,6 +71,15 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
         );
       }
 
+      const userExists = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.id, parsed.data.userId));
+
+      if (userExists.length === 0) {
+        return json({ ok: false, error: { code: 'NOT_FOUND', message: 'User not found' } }, 404);
+      }
+
       await db.insert(projectMembers).values({
         projectId,
         userId: parsed.data.userId,
@@ -142,6 +151,13 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID' } }, 400);
     }
 
+    if (auth.userId === uid && auth.authMethod !== 'dev') {
+      return json(
+        { ok: false, error: { code: 'FORBIDDEN', message: 'Cannot change your own role' } },
+        403
+      );
+    }
+
     if (auth.authMethod !== 'dev') {
       const role = await rbacService.resolveUserRole(auth.userId, projectId);
       if (!role || !rbacService.hasMinimumRole(role, 'admin')) {
@@ -204,9 +220,13 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
     }
 
     try {
-      await db
+      const result = await db
         .delete(projectMembers)
-        .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, uid)));
+        .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, uid)))
+        .returning();
+      if (result.length === 0) {
+        return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Member not found' } }, 404);
+      }
       return json({ ok: true, data: { removed: true } });
     } catch (error) {
       log.error('Failed to remove member', { error });

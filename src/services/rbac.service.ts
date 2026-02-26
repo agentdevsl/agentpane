@@ -56,7 +56,7 @@ export class RbacService {
    */
   async resolveUserRole(userId: string, projectId: string): Promise<RbacRole | null> {
     // 1. Check direct project member override
-    const directMember = await this.db.query.projectMembers?.findFirst({
+    const directMember = await this.db.query.projectMembers.findFirst({
       where: and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)),
     });
     if (directMember) {
