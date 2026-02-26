@@ -18,7 +18,7 @@ The platform includes a visual Kanban board for task management, real-time strea
 
 - **Multi-Agent Concurrency** — Multiple AI agents working simultaneously on different tasks
 - **Plan → Execute Workflow** — Agents plan first, then execute after user approval
-- **Swarm Mode** — Agents can request parallel execution with multiple sub-agents
+- **Teams Mode** *(planned)* — During planning, an agent can request parallel execution by spawning multiple sub-agents to work on different parts of the plan concurrently
 - **Git Worktree Isolation** — Each agent works in an isolated git worktree
 - **Session Replay** — Full session history with timeline and event filtering
 
