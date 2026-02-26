@@ -19,7 +19,7 @@ import type {
 import type { Result } from '../lib/utils/result.js';
 import { ok } from '../lib/utils/result.js';
 import type { Database } from '../types/database.js';
-import type { DurableStreamsService } from './durable-streams.service.js';
+import type { DurableStreamsService, StreamEventMap } from './durable-streams.service.js';
 import { getGlobalDefaultModel, type SettingsService } from './settings.service.js';
 import type { TerraformRegistryService } from './terraform-registry.service.js';
 
@@ -114,6 +114,26 @@ export class TerraformComposeService {
 
     this.cleanupSessions();
 
+    // Fail fast if DurableStreamsService is not configured
+    if (!this.durableStreamsService) {
+      log.error('No DurableStreamsService configured — cannot start compose');
+      throw new Error('[TerraformCompose] DurableStreamsService is required for event delivery');
+    }
+
+    // Create the durable stream BEFORE returning sessionId so the client can subscribe immediately
+    const streamId = `terraform:${sid}`;
+    try {
+      await this.durableStreamsService.createStream(streamId, null);
+    } catch (err) {
+      log.error('Failed to create durable stream for compose job', {
+        data: { streamId },
+        error: err,
+      });
+      throw new Error(
+        `[TerraformCompose] Failed to create stream: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+
     // Run pipeline without awaiting — the caller returns the session ID immediately.
     this.runPipeline(sid, messages, registryId, composeMode).catch(async (pipelineErr) => {
       log.error('Unhandled pipeline error', { error: pipelineErr });
@@ -177,9 +197,15 @@ export class TerraformComposeService {
     }
     const streamId = `terraform:${jobId}`;
     try {
-      await this.durableStreamsService.publish(streamId, type, data as never);
+      // The conditional type on `data` is structurally equivalent to StreamEventMap[T],
+      // but TypeScript can't narrow it automatically in this generic context.
+      await this.durableStreamsService.publish(streamId, type, data as StreamEventMap[T]);
     } catch (err) {
       log.error('Failed to publish terraform event', { data: { type, jobId }, error: err });
+      // Rethrow for terminal events -- clients MUST receive done/error events
+      if (type === 'terraform:error' || type === 'terraform:done') {
+        throw err;
+      }
     }
   }
 
@@ -189,28 +215,7 @@ export class TerraformComposeService {
     registryId: string | undefined,
     composeMode: ComposeMode
   ): Promise<void> {
-    // Create the durable stream so Caddy can buffer events for subscribers
-    const streamId = `terraform:${sid}`;
-    if (this.durableStreamsService) {
-      try {
-        await this.durableStreamsService.createStream(streamId, null);
-      } catch (err) {
-        log.error('Failed to create durable stream for compose job', {
-          data: { streamId },
-          error: err,
-        });
-        // Abort pipeline — without a stream, the client will never receive events
-        try {
-          await this.durableStreamsService.publish(streamId, 'terraform:error', {
-            jobId: sid,
-            error: 'Failed to initialize streaming. Please try again.',
-          } as never);
-        } catch {
-          // Best-effort error delivery
-        }
-        return;
-      }
-    }
+    // Stream is already created in startCompose() — proceed directly to pipeline.
 
     let session: ReturnType<typeof unstable_v2_createSession> | null = null;
 

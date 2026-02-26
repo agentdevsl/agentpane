@@ -204,7 +204,9 @@ export function TerraformProvider({ children }: { children: React.ReactNode }): 
   const streamResponseRef = useRef<Awaited<ReturnType<typeof durableStream>> | null>(null);
   const messagesRef = useRef<ComposeMessage[]>([]);
   const isStreamingRef = useRef(false);
+  const composeModeRef = useRef(composeMode);
   messagesRef.current = messages;
+  composeModeRef.current = composeMode;
 
   const loadRegistries = useCallback(async () => {
     try {
@@ -473,9 +475,14 @@ export function TerraformProvider({ children }: { children: React.ReactNode }): 
               });
 
               // Monitor for stream closure
-              response.closed.then(() => {
-                resolve();
-              });
+              response.closed
+                .then(() => {
+                  resolve();
+                })
+                .catch((err) => {
+                  console.error('[Terraform] Stream closed with error:', err);
+                  resolve();
+                });
             } catch (connectError) {
               console.error('[Terraform] Failed to connect to durable stream:', connectError);
               setError(
@@ -536,7 +543,7 @@ export function TerraformProvider({ children }: { children: React.ReactNode }): 
           return extractHclFromText(assistantContent);
         });
         // Stacks mode fallback: extract multi-file output from assistant content
-        if (composeMode === 'stacks') {
+        if (composeModeRef.current === 'stacks') {
           setGeneratedFiles((prev) => {
             if (prev) return prev;
             return extractStacksFilesFromText(assistantContent);

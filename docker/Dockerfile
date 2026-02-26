@@ -38,7 +38,7 @@ RUN chmod +x /usr/local/bin/durable-streams-server
 # ─── Stage 3: Production runtime ───
 FROM oven/bun:1.3.6-alpine AS runtime
 
-RUN apk add --no-cache git tini wget
+RUN apk add --no-cache git tini wget bash
 
 WORKDIR /app
 

@@ -212,6 +212,28 @@ async function main() {
     env: { ...process.env, STREAMS_PORT: String(STREAMS_PORT) },
   });
 
+  // Wait for streams server to be ready
+  const STREAMS_URL = `http://localhost:${STREAMS_PORT}/v1/stream`;
+  for (let attempt = 1; attempt <= 20; attempt++) {
+    try {
+      const resp = await fetch(STREAMS_URL, { method: 'HEAD', signal: AbortSignal.timeout(1000) });
+      if (resp.ok || resp.status === 404) {
+        log('✅', `Streams server ready on port ${STREAMS_PORT}`, colors.green);
+        break;
+      }
+    } catch {
+      // Not ready yet
+    }
+    if (attempt === 20) {
+      log(
+        '⚠️',
+        `Streams server not confirmed ready after ${attempt} attempts, continuing...`,
+        colors.yellow
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
   // Start Vite dev server
   logStep('🎨', `Starting Vite dev server on port ${VITE_PORT}...`);
   const viteProcess = Bun.spawn(['bunx', 'vite'], {

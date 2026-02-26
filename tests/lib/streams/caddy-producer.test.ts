@@ -190,12 +190,12 @@ describe('CaddyDurableStreamsServer', () => {
       expect(mocks.del).toHaveBeenCalled();
     });
 
-    it('still removes from cache on cleanup error', async () => {
+    it('still removes from cache on cleanup error but returns false', async () => {
       await server.createStream('test-session', null);
       mocks.detach.mockRejectedValueOnce(new Error('detach failed'));
 
       const result = await server.deleteStream('test-session');
-      expect(result).toBe(true);
+      expect(result).toBe(false);
 
       // Second delete should return false (removed from cache)
       const result2 = await server.deleteStream('test-session');

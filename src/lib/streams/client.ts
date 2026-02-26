@@ -520,12 +520,14 @@ export class DurableStreamsClient {
    * Subscribe to a session's event stream via @durable-streams/client
    */
   subscribeToSession(sessionId: string, callbacks: SessionCallbacks): Subscription {
+    const MAX_RECONNECT_ATTEMPTS = 50;
     let state: ConnectionState = 'disconnected';
     let lastOffset: string = '-1';
     let unsubscribeFn: (() => void) | null = null;
     let responseCancelFn: (() => void) | null = null;
     let isUnsubscribed = false;
     let reconnectCount = 0;
+    let reconnectTimerId: ReturnType<typeof setTimeout> | null = null;
 
     const connect = async () => {
       if (isUnsubscribed) return;
@@ -590,17 +592,25 @@ export class DurableStreamsClient {
         });
 
         // Monitor for stream closure
-        response.closed.then(() => {
-          if (!isUnsubscribed) {
-            state = 'disconnected';
-            callbacks.onDisconnect?.();
-            // Auto-reconnect unless stream is permanently closed
-            if (!response.streamClosed) {
-              reconnectCount++;
-              connect();
+        response.closed
+          .then(() => {
+            if (!isUnsubscribed) {
+              state = 'disconnected';
+              callbacks.onDisconnect?.();
+              // Auto-reconnect unless stream is permanently closed or limit reached
+              if (!response.streamClosed && reconnectCount < MAX_RECONNECT_ATTEMPTS) {
+                reconnectCount++;
+                connect();
+              } else if (reconnectCount >= MAX_RECONNECT_ATTEMPTS) {
+                callbacks.onError?.(new Error('Maximum reconnection attempts reached'));
+              }
             }
-          }
-        });
+          })
+          .catch((err) => {
+            if (!isUnsubscribed) {
+              callbacks.onError?.(err instanceof Error ? err : new Error(String(err)));
+            }
+          });
       } catch (error) {
         if (!isUnsubscribed) {
           state = 'disconnected';
@@ -608,9 +618,13 @@ export class DurableStreamsClient {
             error instanceof Error ? error : new Error('Failed to connect to stream')
           );
           // Retry after delay with exponential backoff (capped at 30s)
-          const delay = Math.min(2000 * 2 ** reconnectCount, 30000);
-          reconnectCount++;
-          setTimeout(() => connect(), delay);
+          if (reconnectCount < MAX_RECONNECT_ATTEMPTS) {
+            const delay = Math.min(2000 * 2 ** reconnectCount, 30000);
+            reconnectCount++;
+            reconnectTimerId = setTimeout(() => connect(), delay);
+          } else {
+            callbacks.onError?.(new Error('Maximum reconnection attempts reached'));
+          }
         }
       }
     };
@@ -618,6 +632,10 @@ export class DurableStreamsClient {
     const unsubscribe = () => {
       isUnsubscribed = true;
       state = 'disconnected';
+      if (reconnectTimerId) {
+        clearTimeout(reconnectTimerId);
+        reconnectTimerId = null;
+      }
       if (unsubscribeFn) {
         unsubscribeFn();
         unsubscribeFn = null;

@@ -705,7 +705,7 @@ export class DurableStreamsService {
 
           try {
             await this.db.insert(sessionEvents).values({
-              id: event.id || createId(),
+              id: attempt === 0 ? event.id || createId() : createId(),
               sessionId: streamId,
               offset,
               type: event.type,

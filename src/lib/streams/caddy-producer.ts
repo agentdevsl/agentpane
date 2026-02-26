@@ -6,19 +6,7 @@
  * Streams are auto-created on first publish via PUT.
  */
 import { DurableStream, IdempotentProducer } from '@durable-streams/client';
-
-/**
- * DurableStreamsServer interface (same as used by DurableStreamsService)
- */
-export interface DurableStreamsServer {
-  createStream: (id: string, schema: unknown) => Promise<void>;
-  publish: (id: string, type: string, data: unknown) => Promise<number>;
-  subscribe: (
-    id: string,
-    options?: { fromOffset?: number }
-  ) => AsyncIterable<{ type: string; data: unknown; offset: number }>;
-  deleteStream?: (id: string) => Promise<boolean>;
-}
+import type { DurableStreamsServer } from '../../services/durable-streams.service.js';
 
 /** Map internal stream IDs to URL paths */
 function streamIdToPath(id: string): string {
@@ -105,7 +93,9 @@ export class CaddyDurableStreamsServer implements DurableStreamsServer {
         const current = this.producers.get(id);
         if (current && current.producer === producer) {
           this.producers.delete(id);
-          producer.detach().catch(() => {});
+          producer.detach().catch((detachErr) => {
+            console.error(`[CaddyStreams] Failed to detach producer for ${id}:`, detachErr);
+          });
         }
       },
     });
@@ -148,14 +138,16 @@ export class CaddyDurableStreamsServer implements DurableStreamsServer {
     const entry = this.producers.get(id);
     if (!entry) return false;
 
+    let success = true;
     try {
       await entry.producer.detach();
       await entry.stream.delete();
     } catch (err) {
       console.warn(`[CaddyStreams] deleteStream(${id}) cleanup error:`, err);
+      success = false;
     }
 
     this.producers.delete(id);
-    return true;
+    return success;
   }
 }

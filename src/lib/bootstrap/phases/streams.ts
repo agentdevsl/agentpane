@@ -9,11 +9,13 @@ import { err, ok } from '../../utils/result.js';
  * Caddy is reachable before declaring the streams subsystem ready.
  */
 export const connectStreams = async (_ctx?: unknown) => {
-  const streamsUrl = process.env.CADDY_STREAMS_URL ?? 'http://localhost:3000/v1/stream';
+  // Use relative URL so this works in both dev (localhost) and production (any domain).
+  // On the server side, CADDY_STREAMS_URL env var is used by CaddyDurableStreamsServer directly.
+  const streamsUrl = '/v1/stream';
   try {
     const response = await fetch(streamsUrl, { method: 'HEAD', signal: AbortSignal.timeout(3000) });
     if (response.ok || response.status === 404) {
-      // 404 is expected — no streams exist yet, but Caddy is reachable
+      // 404 is expected — no streams exist yet, but the endpoint is reachable
       console.log(`[Streams] Caddy durable streams reachable at ${streamsUrl}`);
       return ok(null);
     }

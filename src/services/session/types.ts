@@ -119,19 +119,8 @@ export type SessionWithPresence = {
   sandboxContainerId?: string | null;
 };
 
-export type DurableStreamsServer = {
-  createStream: (id: string, schema: unknown) => Promise<void>;
-  publish: (id: string, type: string, data: unknown) => Promise<number>;
-  subscribe: (
-    id: string,
-    options?: { fromOffset?: number }
-  ) => AsyncIterable<{
-    type: string;
-    data: unknown;
-    offset: number;
-  }>;
-  deleteStream?: (id: string) => Promise<boolean>;
-};
+// Re-export DurableStreamsServer from the canonical location
+export type { DurableStreamsServer } from '../durable-streams.service.js';
 
 /**
  * Shared session service configuration

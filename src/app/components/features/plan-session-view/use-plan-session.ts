@@ -130,6 +130,8 @@ function planSessionReducer(state: PlanSessionState, action: PlanSessionAction):
   }
 }
 
+const MAX_STREAM_RETRIES = 5;
+
 /**
  * Hook for managing a plan session with durable streams
  */
@@ -144,6 +146,11 @@ export function usePlanSession(
   const streamResponseRef = useRef<StreamResponse | null>(null);
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const isInitializedRef = useRef(false);
+  const isMountedRef = useRef(true);
+
+  // Use refs for callbacks to avoid unstable dependency arrays
+  const onErrorRef = useRef(options?.onError);
+  onErrorRef.current = options?.onError;
 
   /**
    * Connect to the durable stream for a plan session
@@ -160,7 +167,10 @@ export function usePlanSession(
         streamResponseRef.current = null;
       }
 
+      if (!isMountedRef.current) return;
       dispatch({ type: 'STREAM_START' });
+
+      let retryCount = 0;
 
       try {
         const response = await durableStream({
@@ -168,11 +178,28 @@ export function usePlanSession(
           live: 'sse',
           json: true,
           onError: (error) => {
-            console.error('[usePlanSession] Stream error:', error);
-            // Return empty object to signal retry
-            return {};
+            retryCount++;
+            console.error(
+              `[usePlanSession] Stream error (attempt ${retryCount}/${MAX_STREAM_RETRIES}):`,
+              error
+            );
+            if (retryCount >= MAX_STREAM_RETRIES) {
+              if (isMountedRef.current) {
+                dispatch({
+                  type: 'SET_ERROR',
+                  error: 'Lost connection to the plan stream. Please refresh.',
+                });
+              }
+              return; // Return void to stop retrying
+            }
+            return {}; // Signal retry
           },
         });
+
+        if (!isMountedRef.current) {
+          response.cancel();
+          return;
+        }
 
         streamResponseRef.current = response;
 
@@ -181,6 +208,8 @@ export function usePlanSession(
           data: unknown;
           timestamp: number;
         }>((batch) => {
+          if (!isMountedRef.current) return;
+
           for (const item of batch.items) {
             switch (item.type) {
               case 'plan:token': {
@@ -231,7 +260,7 @@ export function usePlanSession(
               case 'plan:error': {
                 const data = item.data as PlanErrorEventData;
                 dispatch({ type: 'SET_ERROR', error: data.error });
-                options?.onError?.(new Error(data.error));
+                onErrorRef.current?.(new Error(data.error));
                 break;
               }
 
@@ -245,7 +274,24 @@ export function usePlanSession(
             }
           }
         });
+
+        // Monitor for stream closure
+        response.closed
+          .then(() => {
+            if (isMountedRef.current && !response.streamClosed) {
+              dispatch({
+                type: 'SET_ERROR',
+                error: 'Plan stream connection lost. Please refresh.',
+              });
+            }
+          })
+          .catch((err) => {
+            if (isMountedRef.current) {
+              console.error('[usePlanSession] Stream closed with error:', err);
+            }
+          });
       } catch (error) {
+        if (!isMountedRef.current) return;
         console.error('[usePlanSession] Failed to connect to stream:', error);
         dispatch({
           type: 'SET_ERROR',
@@ -253,7 +299,7 @@ export function usePlanSession(
         });
       }
     },
-    [options]
+    [] // Stable reference — callbacks use refs
   );
 
   /**
@@ -304,7 +350,7 @@ export function usePlanSession(
 
       if (!result.ok) {
         dispatch({ type: 'SET_ERROR', error: result.error.message });
-        options?.onError?.(new Error(result.error.message));
+        onErrorRef.current?.(new Error(result.error.message));
         return;
       }
 
@@ -312,7 +358,7 @@ export function usePlanSession(
       // Connect to durable stream for new session
       connectStream(result.data.session.id);
     },
-    [taskId, projectId, connectStream, options]
+    [taskId, projectId, connectStream]
   );
 
   /**
@@ -345,13 +391,13 @@ export function usePlanSession(
 
       if (!result.ok) {
         dispatch({ type: 'SET_ERROR', error: result.error.message });
-        options?.onError?.(new Error(result.error.message));
+        onErrorRef.current?.(new Error(result.error.message));
         return;
       }
 
       dispatch({ type: 'SET_SESSION', session: result.data.session });
     },
-    [taskId, options]
+    [taskId]
   );
 
   /**
@@ -377,6 +423,7 @@ export function usePlanSession(
 
     // Cleanup on unmount
     return () => {
+      isMountedRef.current = false;
       if (unsubscribeRef.current) {
         unsubscribeRef.current();
         unsubscribeRef.current = null;
