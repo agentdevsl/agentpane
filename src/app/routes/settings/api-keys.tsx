@@ -82,7 +82,10 @@ function KeyInputCard({
 
       {/* Saved state or input */}
       {savedValue ? (
-        <div className="flex items-center gap-3 rounded-lg border border-border/50 bg-surface/50 p-3">
+        <div
+          data-testid={testIdInput ? `${testIdInput.replace('-input', '-configured')}` : undefined}
+          className="flex items-center gap-3 rounded-lg border border-border/50 bg-surface/50 p-3"
+        >
           <code className="flex-1 font-mono text-sm text-fg">{savedValue}</code>
           <Button data-testid={testIdRemove} variant="ghost" size="sm" onClick={onClear}>
             <Trash className="h-4 w-4" />

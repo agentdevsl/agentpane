@@ -52,13 +52,13 @@ e2e('Sidebar Navigation E2E', () => {
     });
   });
 
-  describe('Workspace Section', () => {
-    it('shows workspace nav section', async () => {
+  describe('Organization Section', () => {
+    it('shows organization nav section', async () => {
       await goto('/projects');
-      await waitForSelector('[data-testid="nav-section-workspace"]', { timeout: 15000 });
+      await waitForSelector('[data-testid="nav-section-organization"]', { timeout: 15000 });
 
-      const workspaceSection = await exists('[data-testid="nav-section-workspace"]');
-      expect(workspaceSection).toBe(true);
+      const orgSection = await exists('[data-testid="nav-section-organization"]');
+      expect(orgSection).toBe(true);
     });
 
     it('has Projects nav link', async () => {
@@ -69,32 +69,6 @@ e2e('Sidebar Navigation E2E', () => {
       expect(projectsLink).toBe(true);
     });
 
-    it('has Agents nav link', async () => {
-      await goto('/projects');
-      await waitForSelector('[data-testid="nav-agents"]', { timeout: 15000 });
-
-      const agentsLink = await exists('[data-testid="nav-agents"]');
-      expect(agentsLink).toBe(true);
-    });
-  });
-
-  describe('History Section', () => {
-    it('shows history nav section', async () => {
-      await goto('/projects');
-      await waitForSelector('[data-testid="nav-section-history"]', { timeout: 15000 });
-
-      const historySection = await exists('[data-testid="nav-section-history"]');
-      expect(historySection).toBe(true);
-    });
-
-    it('has Queue nav link', async () => {
-      await goto('/projects');
-      await waitForSelector('[data-testid="nav-queue"]', { timeout: 15000 });
-
-      const queueLink = await exists('[data-testid="nav-queue"]');
-      expect(queueLink).toBe(true);
-    });
-
     it('has Sessions nav link', async () => {
       await goto('/projects');
       await waitForSelector('[data-testid="nav-sessions"]', { timeout: 15000 });
@@ -103,12 +77,48 @@ e2e('Sidebar Navigation E2E', () => {
       expect(sessionsLink).toBe(true);
     });
 
-    it('has Worktrees nav link', async () => {
+    it('has CLI Monitor nav link', async () => {
       await goto('/projects');
-      await waitForSelector('[data-testid="nav-worktrees"]', { timeout: 15000 });
+      await waitForSelector('[data-testid="nav-cli-monitor"]', { timeout: 15000 });
 
-      const worktreesLink = await exists('[data-testid="nav-worktrees"]');
-      expect(worktreesLink).toBe(true);
+      const cliMonitorLink = await exists('[data-testid="nav-cli-monitor"]');
+      expect(cliMonitorLink).toBe(true);
+    });
+  });
+
+  describe('Content Section', () => {
+    it('shows content nav section', async () => {
+      await goto('/projects');
+      await waitForSelector('[data-testid="nav-section-content"]', { timeout: 15000 });
+
+      const contentSection = await exists('[data-testid="nav-section-content"]');
+      expect(contentSection).toBe(true);
+    });
+
+    it('has Terraform nav link', async () => {
+      await goto('/projects');
+      await waitForSelector('[data-testid="nav-terraform"]', { timeout: 15000 });
+
+      const terraformLink = await exists('[data-testid="nav-terraform"]');
+      expect(terraformLink).toBe(true);
+    });
+  });
+
+  describe('Execution Section', () => {
+    it('shows execution nav section', async () => {
+      await goto('/projects');
+      await waitForSelector('[data-testid="nav-section-execution"]', { timeout: 15000 });
+
+      const executionSection = await exists('[data-testid="nav-section-execution"]');
+      expect(executionSection).toBe(true);
+    });
+
+    it('has Sandbox Configs nav link', async () => {
+      await goto('/projects');
+      await waitForSelector('[data-testid="nav-sandbox-configs"]', { timeout: 15000 });
+
+      const sandboxLink = await exists('[data-testid="nav-sandbox-configs"]');
+      expect(sandboxLink).toBe(true);
     });
   });
 

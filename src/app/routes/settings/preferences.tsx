@@ -362,29 +362,36 @@ function PreferencesSettingsPage(): React.JSX.Element {
               Configure models →
             </a>
           </p>
-          <Button
-            data-testid="save-preferences"
-            onClick={handleSave}
-            disabled={isLoading || isSaving}
-            className={cn(
-              'min-w-[140px] transition-all',
-              saved && 'bg-success-emphasis hover:bg-success-emphasis'
+          <div className="flex items-center gap-3">
+            {saved && (
+              <span data-testid="save-success" className="text-sm font-medium text-success">
+                Settings saved
+              </span>
             )}
-          >
-            {isSaving ? (
-              <>
-                <CircleNotch className="h-4 w-4 animate-spin" />
-                Saving...
-              </>
-            ) : saved ? (
-              <>
-                <Check className="h-4 w-4" weight="bold" />
-                Saved!
-              </>
-            ) : (
-              'Save Settings'
-            )}
-          </Button>
+            <Button
+              data-testid="save-preferences"
+              onClick={handleSave}
+              disabled={isLoading || isSaving}
+              className={cn(
+                'min-w-[140px] transition-all',
+                saved && 'bg-success-emphasis hover:bg-success-emphasis'
+              )}
+            >
+              {isSaving ? (
+                <>
+                  <CircleNotch className="h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : saved ? (
+                <>
+                  <Check className="h-4 w-4" weight="bold" />
+                  Saved!
+                </>
+              ) : (
+                'Save Settings'
+              )}
+            </Button>
+          </div>
         </div>
       </div>
     </div>
