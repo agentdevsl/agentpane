@@ -57,6 +57,7 @@ import {
   CLI_SESSIONS_PERF_METRICS_MIGRATION_SQL,
   MIGRATION_SQL,
   PERFORMANCE_INDEXES_MIGRATION_SQL,
+  RBAC_MIGRATION_SQL,
   SANDBOX_CONTAINER_ID_MIGRATION_SQL,
   SANDBOX_MIGRATION_SQL,
   TEMPLATE_SYNC_INTERVAL_MIGRATION_SQL,
@@ -228,6 +229,22 @@ if (DB_MODE === 'postgres') {
   // Apply Terraform tables migration (idempotent — uses IF NOT EXISTS)
   sqlite.exec(TERRAFORM_MIGRATION_SQL);
   log.info('Terraform migration applied');
+
+  // Apply RBAC tables migration (idempotent — uses IF NOT EXISTS)
+  sqlite.exec(RBAC_MIGRATION_SQL);
+  log.info('RBAC migration applied');
+
+  // Apply github_tokens team_id column migration
+  try {
+    sqlite.exec(`ALTER TABLE github_tokens ADD COLUMN team_id TEXT`);
+    log.info('GitHub tokens team_id migration applied');
+  } catch (error) {
+    if (!(error instanceof Error && error.message.includes('duplicate column name'))) {
+      log.warn('GitHub tokens team_id migration error (unexpected)', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
+    }
+  }
 
   // Nomad sandbox columns — run individually for partial-failure safety
   const nomadColumns = [

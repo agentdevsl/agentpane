@@ -448,6 +448,122 @@ CREATE INDEX IF NOT EXISTS idx_worktrees_project_id ON worktrees(project_id);
 CREATE INDEX IF NOT EXISTS idx_agents_project_id ON agents(project_id);
 `;
 
+// RBAC tables migration (idempotent — uses IF NOT EXISTS)
+export const RBAC_MIGRATION_SQL = `
+CREATE TABLE IF NOT EXISTS "users" (
+  "id" TEXT PRIMARY KEY NOT NULL,
+  "github_id" INTEGER NOT NULL UNIQUE,
+  "github_login" TEXT NOT NULL,
+  "name" TEXT,
+  "email" TEXT,
+  "avatar_url" TEXT,
+  "created_at" TEXT DEFAULT (datetime('now')) NOT NULL,
+  "updated_at" TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS "user_sessions" (
+  "id" TEXT PRIMARY KEY NOT NULL,
+  "user_id" TEXT NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+  "token" TEXT NOT NULL UNIQUE,
+  "expires_at" TEXT NOT NULL,
+  "created_at" TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS "teams" (
+  "id" TEXT PRIMARY KEY NOT NULL,
+  "name" TEXT NOT NULL,
+  "slug" TEXT NOT NULL UNIQUE,
+  "description" TEXT,
+  "created_at" TEXT DEFAULT (datetime('now')) NOT NULL,
+  "updated_at" TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS "team_members" (
+  "team_id" TEXT NOT NULL REFERENCES "teams"("id") ON DELETE CASCADE,
+  "user_id" TEXT NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+  "role" TEXT NOT NULL,
+  "joined_at" TEXT DEFAULT (datetime('now')) NOT NULL,
+  PRIMARY KEY ("team_id", "user_id")
+);
+
+CREATE TABLE IF NOT EXISTS "team_projects" (
+  "team_id" TEXT NOT NULL REFERENCES "teams"("id") ON DELETE CASCADE,
+  "project_id" TEXT NOT NULL REFERENCES "projects"("id") ON DELETE CASCADE,
+  "assigned_at" TEXT DEFAULT (datetime('now')) NOT NULL,
+  PRIMARY KEY ("team_id", "project_id")
+);
+
+CREATE TABLE IF NOT EXISTS "project_members" (
+  "project_id" TEXT NOT NULL REFERENCES "projects"("id") ON DELETE CASCADE,
+  "user_id" TEXT NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+  "role" TEXT NOT NULL,
+  "granted_by_team_id" TEXT REFERENCES "teams"("id") ON DELETE SET NULL,
+  "created_at" TEXT DEFAULT (datetime('now')) NOT NULL,
+  PRIMARY KEY ("project_id", "user_id")
+);
+
+CREATE TABLE IF NOT EXISTS "tags" (
+  "id" TEXT PRIMARY KEY NOT NULL,
+  "team_id" TEXT NOT NULL REFERENCES "teams"("id") ON DELETE CASCADE,
+  "name" TEXT NOT NULL,
+  "color" TEXT NOT NULL DEFAULT '#6B7280',
+  "created_at" TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "tags_team_name_unique" ON "tags"("team_id", "name");
+
+CREATE TABLE IF NOT EXISTS "project_tags" (
+  "project_id" TEXT NOT NULL REFERENCES "projects"("id") ON DELETE CASCADE,
+  "tag_id" TEXT NOT NULL REFERENCES "tags"("id") ON DELETE CASCADE,
+  PRIMARY KEY ("project_id", "tag_id")
+);
+
+CREATE TABLE IF NOT EXISTS "task_tags" (
+  "task_id" TEXT NOT NULL REFERENCES "tasks"("id") ON DELETE CASCADE,
+  "tag_id" TEXT NOT NULL REFERENCES "tags"("id") ON DELETE CASCADE,
+  PRIMARY KEY ("task_id", "tag_id")
+);
+
+CREATE TABLE IF NOT EXISTS "api_tokens" (
+  "id" TEXT PRIMARY KEY NOT NULL,
+  "user_id" TEXT NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+  "team_id" TEXT NOT NULL REFERENCES "teams"("id") ON DELETE CASCADE,
+  "name" TEXT NOT NULL,
+  "token_hash" TEXT NOT NULL UNIQUE,
+  "token_prefix" TEXT NOT NULL,
+  "role" TEXT NOT NULL,
+  "scope_tags" TEXT,
+  "scope_project_id" TEXT,
+  "status" TEXT NOT NULL DEFAULT 'active',
+  "expires_at" TEXT,
+  "last_used_at" TEXT,
+  "created_at" TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS "team_invitations" (
+  "id" TEXT PRIMARY KEY NOT NULL,
+  "team_id" TEXT NOT NULL REFERENCES "teams"("id") ON DELETE CASCADE,
+  "invited_by" TEXT NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+  "email" TEXT NOT NULL,
+  "role" TEXT NOT NULL,
+  "token" TEXT NOT NULL UNIQUE,
+  "status" TEXT NOT NULL DEFAULT 'pending',
+  "expires_at" TEXT NOT NULL,
+  "created_at" TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+-- RBAC performance indexes
+CREATE INDEX IF NOT EXISTS idx_team_members_user ON team_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_team_projects_project ON team_projects(project_id);
+CREATE INDEX IF NOT EXISTS idx_project_members_user ON project_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_team_invitations_token ON team_invitations(token);
+CREATE INDEX IF NOT EXISTS idx_team_invitations_email ON team_invitations(email);
+CREATE INDEX IF NOT EXISTS idx_project_tags_tag ON project_tags(tag_id);
+CREATE INDEX IF NOT EXISTS idx_task_tags_tag ON task_tags(tag_id);
+`;
+
 export const validateSchema = async (ctx: BootstrapContext) => {
   if (!ctx.db) {
     return err(createError('BOOTSTRAP_NO_DATABASE', 'Database not initialized', 500));

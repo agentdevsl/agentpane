@@ -97,6 +97,89 @@ export const commitWorktreeSchema = z.object({
   message: z.string().min(1, 'Commit message is required').max(2000),
 });
 
+// ─── RBAC Schemas ─────────────────────────────────────
+
+export const rbacRoleSchema = z.enum(['owner', 'admin', 'agent_operator', 'viewer']);
+
+export const createTeamSchema = z.object({
+  name: z.string().min(1, 'Team name is required').max(100),
+  slug: z
+    .string()
+    .min(1)
+    .max(100)
+    .regex(/^[a-z0-9-]+$/, 'Slug must be lowercase alphanumeric with hyphens')
+    .optional(),
+  description: z.string().max(500).optional(),
+});
+
+export const updateTeamSchema = z
+  .object({
+    name: z.string().min(1).max(100).optional(),
+    description: z.string().max(500).optional(),
+  })
+  .refine((data) => Object.values(data).some((v) => v !== undefined), {
+    message: 'At least one field must be provided',
+  });
+
+export const addTeamMemberSchema = z.object({
+  userId: idSchema,
+  role: rbacRoleSchema,
+});
+
+export const updateTeamMemberSchema = z.object({
+  role: rbacRoleSchema,
+});
+
+export const createInvitationSchema = z.object({
+  email: z.string().email('Valid email is required'),
+  role: rbacRoleSchema.refine((r) => r !== 'owner', {
+    message: 'Cannot invite as owner',
+  }),
+});
+
+export const addProjectMemberSchema = z.object({
+  userId: idSchema,
+  role: rbacRoleSchema,
+  teamId: idSchema.optional(),
+});
+
+export const updateProjectMemberSchema = z.object({
+  role: rbacRoleSchema,
+});
+
+export const createApiTokenSchema = z.object({
+  name: z.string().min(1, 'Token name is required').max(100),
+  teamId: idSchema,
+  role: rbacRoleSchema.refine((r) => r !== 'owner', {
+    message: 'Tokens cannot have owner role',
+  }),
+  scopeTags: z.array(z.string().max(50)).max(20).optional(),
+  scopeProjectId: idSchema.optional(),
+  expiresInDays: z.number().int().min(1).max(365).optional(),
+});
+
+export const createTagSchema = z.object({
+  teamId: idSchema,
+  name: z.string().min(1, 'Tag name is required').max(50),
+  color: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/, 'Color must be a hex code')
+    .optional(),
+});
+
+export const assignTagSchema = z.object({
+  tagId: idSchema,
+});
+
+export const updateProfileSchema = z
+  .object({
+    name: z.string().min(1).max(200).optional(),
+    email: z.string().email().optional(),
+  })
+  .refine((data) => Object.values(data).some((v) => v !== undefined), {
+    message: 'At least one field must be provided',
+  });
+
 // ─── Helper ──────────────────────────────────────────
 
 /**

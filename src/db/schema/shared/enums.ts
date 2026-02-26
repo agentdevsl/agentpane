@@ -53,3 +53,19 @@ export type SessionStatus = (typeof SESSION_STATUS)[number];
 
 export const SANDBOX_TYPES = ['docker', 'devcontainer', 'kubernetes', 'nomad'] as const;
 export type SandboxType = (typeof SANDBOX_TYPES)[number];
+
+export const RBAC_ROLES = ['owner', 'admin', 'agent_operator', 'viewer'] as const;
+export type RbacRole = (typeof RBAC_ROLES)[number];
+
+export const RBAC_ROLE_LEVEL: Record<RbacRole, number> = {
+  owner: 4,
+  admin: 3,
+  agent_operator: 2,
+  viewer: 1,
+};
+
+export const INVITATION_STATUS = ['pending', 'accepted', 'declined', 'expired', 'revoked'] as const;
+export type InvitationStatus = (typeof INVITATION_STATUS)[number];
+
+export const API_TOKEN_STATUS = ['active', 'revoked', 'expired'] as const;
+export type ApiTokenStatus = (typeof API_TOKEN_STATUS)[number];

@@ -10,6 +10,7 @@ import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { getAuthContext } from '../lib/api/auth-middleware.js';
 import { rateLimiter } from '../lib/api/rate-limiter.js';
+import { enrichAuthContext } from '../lib/api/rbac-middleware.js';
 import { createLogger } from '../lib/logging/logger.js';
 import type { EventEmittingSandboxProvider } from '../lib/sandbox/index.js';
 import type { AgentService } from '../services/agent.service.js';
@@ -17,6 +18,7 @@ import type { ApiKeyService } from '../services/api-key.service.js';
 import type { CliMonitorService } from '../services/cli-monitor/index.js';
 import type { GitHubTokenService } from '../services/github-token.service.js';
 import type { MarketplaceService } from '../services/marketplace.service.js';
+import { RbacService } from '../services/rbac.service.js';
 import type { SandboxConfigService } from '../services/sandbox-config.service.js';
 import type { SessionService } from '../services/session.service.js';
 import type { SettingsService } from '../services/settings.service.js';
@@ -34,14 +36,22 @@ import { createFilesystemRoutes } from './routes/filesystem.js';
 import { createGitRoutes } from './routes/git.js';
 import { createGitHubRoutes } from './routes/github.js';
 import { createHealthRoutes } from './routes/health.js';
+import { createInvitationAcceptRoutes } from './routes/invitation-accept.js';
 import { createMarketplacesRoutes } from './routes/marketplaces.js';
+import { createMeRoutes } from './routes/me.js';
+import { createProjectMembersRoutes } from './routes/project-members.js';
 import { createProjectsRoutes } from './routes/projects.js';
+import { createRbacTokensRoutes } from './routes/rbac-tokens.js';
 import { createK8sRoutes, createNomadRoutes, createSandboxRoutes } from './routes/sandbox.js';
 import { createSandboxStatusRoutes } from './routes/sandbox-status.js';
 import { createSessionsRoutes } from './routes/sessions.js';
 import { createSettingsRoutes } from './routes/settings.js';
+import { createTagsRoutes } from './routes/tags.js';
 import { createTaskCreationRoutes } from './routes/task-creation.js';
 import { createTasksRoutes } from './routes/tasks.js';
+import { createTeamInvitationsRoutes } from './routes/team-invitations.js';
+import { createTeamMembersRoutes } from './routes/team-members.js';
+import { createTeamsRoutes } from './routes/teams.js';
 import { createTemplatesRoutes } from './routes/templates.js';
 import { createTerraformRoutes } from './routes/terraform.js';
 import { createWebhooksRoutes } from './routes/webhooks.js';
@@ -125,6 +135,7 @@ export interface RouterDependencies {
   terraformRegistryService?: TerraformRegistryService;
   terraformComposeService?: TerraformComposeService;
   settingsService?: SettingsService;
+  rbacService?: RbacService;
 }
 
 export function createRouter(deps: RouterDependencies) {
@@ -147,6 +158,7 @@ export function createRouter(deps: RouterDependencies) {
   app.use('*', securityHeaders);
   app.use('/api/*', rateLimiter({ max: 200, windowMs: 60_000 }));
   app.use('/api/*', authMiddleware);
+  app.use('/api/*', enrichAuthContext(deps.db));
 
   app.route(
     '/api/health',
@@ -233,6 +245,20 @@ export function createRouter(deps: RouterDependencies) {
       })
     );
   }
+
+  // RBAC routes
+  const rbacService = deps.rbacService ?? new RbacService(deps.db);
+  app.route('/api/teams', createTeamsRoutes({ db: deps.db, rbacService }));
+  app.route('/api/teams/:id/members', createTeamMembersRoutes({ db: deps.db, rbacService }));
+  app.route(
+    '/api/teams/:id/invitations',
+    createTeamInvitationsRoutes({ db: deps.db, rbacService })
+  );
+  app.route('/api/invitations', createInvitationAcceptRoutes({ db: deps.db }));
+  app.route('/api/projects/:id/members', createProjectMembersRoutes({ db: deps.db, rbacService }));
+  app.route('/api/tokens', createRbacTokensRoutes({ db: deps.db }));
+  app.route('/api/tags', createTagsRoutes({ db: deps.db, rbacService }));
+  app.route('/api/me', createMeRoutes({ db: deps.db }));
 
   app.onError((err, c) => {
     const requestId =

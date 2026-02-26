@@ -18,6 +18,27 @@ const SESSION_COOKIE_NAME = 'agentpane_session';
 export interface AuthContext {
   userId: string;
   authMethod: 'session' | 'api_token' | 'dev';
+  // RBAC fields (populated by enrichAuthContext middleware)
+  user?: {
+    id: string;
+    githubId: number;
+    githubLogin: string;
+    name: string | null;
+    email: string | null;
+    avatarUrl: string | null;
+  };
+  resolvedRole?: import('../../db/schema/shared/enums').RbacRole;
+  roleLevel?: number;
+  teamMemberships?: Array<{
+    teamId: string;
+    role: import('../../db/schema/shared/enums').RbacRole;
+  }>;
+  tokenScope?: {
+    tokenId: string;
+    role: import('../../db/schema/shared/enums').RbacRole;
+    projectId: string | null;
+    tags: string[] | null;
+  };
 }
 
 /**
