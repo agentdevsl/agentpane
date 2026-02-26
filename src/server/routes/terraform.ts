@@ -399,37 +399,8 @@ export function createTerraformRoutes({
     }
   });
 
-  // GET /compose/:sessionId/events — SSE stream for a running compose job
-  app.get('/compose/:sessionId/events', (c) => {
-    const sessionId = c.req.param('sessionId');
-
-    if (!sessionId || sessionId.length > 128) {
-      return json(
-        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid session ID format' } },
-        400
-      );
-    }
-
-    const readable = terraformComposeService.subscribeToJob(sessionId);
-    if (!readable) {
-      return json(
-        { ok: false, error: { code: 'NOT_FOUND', message: 'Compose job not found' } },
-        404
-      );
-    }
-
-    // Return a native Response with the ReadableStream directly,
-    // matching the pattern used by sessions, task-creation, and cli-monitor SSE endpoints.
-    // Using Hono's stream() helper caused ERR_INCOMPLETE_CHUNKED_ENCODING on Bun.
-    return new Response(readable, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache, no-transform',
-        Connection: 'keep-alive',
-        'X-Accel-Buffering': 'no',
-      },
-    });
-  });
+  // NOTE: SSE endpoint removed — clients subscribe to Caddy durable streams
+  // at /v1/stream/terraform/{sessionId} directly.
 
   return app;
 }

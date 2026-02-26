@@ -295,7 +295,7 @@ Mock creation is lightweight:
 | TypeScript | 5.7.3 | ✅ Compatible |
 | Vitest | 4.0.18 | ✅ Compatible |
 | Drizzle ORM | 0.45.1 | ✅ Compatible |
-| Bun | 1.3.6 | ✅ Compatible |
+| Bun | 1.3.10 | ✅ Compatible |
 
 ## Technical Debt Reduced
 

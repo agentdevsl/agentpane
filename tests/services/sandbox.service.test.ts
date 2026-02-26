@@ -99,8 +99,6 @@ const createMockStreams = (): DurableStreamsService =>
   ({
     createStream: vi.fn().mockResolvedValue(undefined),
     publish: vi.fn().mockResolvedValue(1), // Returns offset
-    getServer: vi.fn(),
-    addSubscriber: vi.fn().mockReturnValue(() => {}),
   }) as unknown as DurableStreamsService;
 
 // =============================================================================

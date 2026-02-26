@@ -5,14 +5,10 @@ import type { Database } from '../../types/database.js';
 import type { AgentTopologyNode, CliSession, DaemonInfo, DaemonRegisterPayload } from './types.js';
 import { DAEMON_TIMEOUT_MS } from './types.js';
 
-// DurableStreamsServer interface (from session.service.ts)
+// Minimal interface — only publish() is needed from the streams server.
+// Real-time subscriber delivery is handled locally within this service.
 interface StreamsServer {
   publish(id: string, type: string, data: unknown): Promise<number>;
-  addRealtimeSubscriber(
-    id: string,
-    callback: (event: { type: string; data: unknown; offset: number }) => void
-  ): () => void;
-  getEvents(id: string): Array<{ type: string; data: unknown; offset: number; timestamp: number }>;
 }
 
 const CLI_MONITOR_STREAM_ID = 'cli-monitor';
@@ -26,6 +22,10 @@ export class CliMonitorService {
   private daemon: DaemonInfo | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private maintenanceTimer: ReturnType<typeof setInterval> | null = null;
+  private localSubscribers = new Set<
+    (event: { type: string; data: unknown; offset: number }) => void
+  >();
+  private localOffset = 0;
 
   constructor(
     private streamsServer: StreamsServer,
@@ -277,12 +277,15 @@ export class CliMonitorService {
     return result;
   }
 
-  // ── SSE Subscription ──
+  // ── SSE Subscription (local in-process delivery) ──
 
   addRealtimeSubscriber(
     callback: (event: { type: string; data: unknown; offset: number }) => void
   ): () => void {
-    return this.streamsServer.addRealtimeSubscriber(CLI_MONITOR_STREAM_ID, callback);
+    this.localSubscribers.add(callback);
+    return () => {
+      this.localSubscribers.delete(callback);
+    };
   }
 
   // ── Maintenance ──
@@ -335,6 +338,8 @@ export class CliMonitorService {
     this.stopHeartbeatCheck();
     this.stopMaintenance();
     this.sessions.clear();
+    this.localSubscribers.clear();
+    this.localOffset = 0;
     this.daemon = null;
   }
 
@@ -475,12 +480,26 @@ export class CliMonitorService {
   // ── Internal: Publishing ──
 
   private publish(type: string, data: unknown): void {
+    // Publish to Caddy/durable streams server
     this.streamsServer.publish(CLI_MONITOR_STREAM_ID, type, data).catch((publishErr) => {
       console.error(
         `[CliMonitor] Failed to publish ${type}:`,
         publishErr instanceof Error ? publishErr.message : String(publishErr)
       );
     });
+
+    // Also notify local in-process SSE subscribers
+    const offset = this.localOffset++;
+    for (const callback of this.localSubscribers) {
+      try {
+        callback({ type, data, offset });
+      } catch (err) {
+        console.error(
+          `[CliMonitor] Local subscriber error:`,
+          err instanceof Error ? err.message : String(err)
+        );
+      }
+    }
   }
 
   // ── Internal: Heartbeat ──

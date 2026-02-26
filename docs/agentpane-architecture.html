@@ -645,7 +645,7 @@ function deleteComment(id) {
   renderView();
 }
 function esc(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;').replace(/"/g,'&quot;');
 }
 
 // ================================================================
@@ -1416,7 +1416,7 @@ function renderInfra() {
       <h3>Zones</h3>
       <div class="toggle-row"><label>
         <input type="checkbox" ${state.showHost?'checked':''} onchange="state.showHost=this.checked;renderInfra()">
-        <span class="layer-swatch" style="background:#22c55e"></span>Frontend
+        <span class="layer-swatch" style="background:#22c55e"></span>Host
       </label></div>
       <div class="toggle-row"><label>
         <input type="checkbox" ${state.showDocker?'checked':''} onchange="state.showDocker=this.checked;renderInfra()">
@@ -1450,7 +1450,7 @@ function renderInfra() {
       <button class="zoom-btn" onclick="adjustZoom('infra',0.8)">-</button>
     </div>
     <div class="svg-scroller">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 602" width="${860*z}" height="${602*z}">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 644" width="${860*z}" height="${644*z}">
         ${buildInfraSVG()}
       </svg>
     </div>`;
@@ -1458,25 +1458,12 @@ function renderInfra() {
 
 function buildInfraSVG() {
   let out = '';
-  out += `<defs>
-    <marker id="inf-arr" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
-      <polygon points="0 0, 7 2.5, 0 5" fill="#60a5fa" opacity="0.8"/>
-    </marker>
-    <marker id="inf-arr-g" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
-      <polygon points="0 0, 7 2.5, 0 5" fill="#22c55e" opacity="0.8"/>
-    </marker>
-    <marker id="inf-arr-p" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
-      <polygon points="0 0, 7 2.5, 0 5" fill="#a78bfa" opacity="0.8"/>
-    </marker>
-    <marker id="inf-arr-o" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
-      <polygon points="0 0, 7 2.5, 0 5" fill="#f97316" opacity="0.8"/>
-    </marker>
-    <marker id="inf-arr-cy" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
-      <polygon points="0 0, 7 2.5, 0 5" fill="#06b6d4" opacity="0.8"/>
-    </marker>
-    <marker id="inf-arr-r" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
-      <polygon points="0 0, 7 2.5, 0 5" fill="#f87171" opacity="0.8"/>
-    </marker>
+  // Arrow markers: blue, green, purple, orange, cyan, red
+  const markers = [['inf-arr','#60a5fa'],['inf-arr-g','#22c55e'],['inf-arr-p','#a78bfa'],['inf-arr-o','#f97316'],['inf-arr-cy','#06b6d4'],['inf-arr-r','#f87171']];
+  out += `<defs>${markers.map(([id,fill])=>`
+    <marker id="${id}" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+      <polygon points="0 0, 7 2.5, 0 5" fill="${fill}" opacity="0.8"/>
+    </marker>`).join('')}
   </defs>`;
 
   function zone(x,y,w,h,label,color) {
@@ -1513,33 +1500,37 @@ function buildInfraSVG() {
 
   // Row 1: Host Machine zone (3-column grid)
   if (state.showHost) {
-    out += zone(30, T+58, 610, 236, 'Frontend', '#22c55e');
-    // Row A: Server processes (2 across, full width)
-    out += box(44,  T+80, 286, 32, 'Hono API Server', ':3001', '#22c55e', 'inf-hono');
-    out += box(341, T+80, 286, 32, 'Durable Streams', 'in-process SSE + persistence', '#f87171', 'inf-durable');
-    // Row B: Database abstraction (full width)
-    out += box(44, T+122, 583, 32, 'Drizzle ORM', 'DB_MODE: sqlite | postgres', '#06b6d4', 'inf-drizzle');
-    // Row C: Data stores (2 columns, no Git Worktrees)
-    out += box(44,  T+164, 286, 32, 'SQLite', 'agentpane.db (local)', '#22c55e', 'inf-sqlite');
-    out += box(341, T+164, 286, 32, 'pg driver', 'postgres.js', '#06b6d4', 'inf-pg-driver');
-    // Row D: Container Agent (full width)
-    out += box(44, T+206, 583, 32, 'Container Agent', 'orchestration', '#22c55e', 'inf-container-agent');
-    // Row E: Sandbox providers (one per column)
-    out += box(44,  T+248, 187, 32, 'Docker Provider', '', '#60a5fa', 'inf-docker-prov');
-    out += box(242, T+248, 187, 32, 'K8s Provider', '', '#a78bfa', 'inf-k8s-prov');
-    out += box(440, T+248, 187, 32, 'Nomad Provider', '', '#f97316', 'inf-nomad-prov');
+    out += zone(30, T+58, 610, 278, 'Host', '#22c55e');
+    // Row A: Caddy front door (full width)
+    out += box(44, T+80, 583, 32, 'Caddy', ':3000 · reverse proxy · static files', '#22c55e', 'inf-caddy');
+    // Row B: Server processes (2 across)
+    out += box(44,  T+122, 286, 32, 'Hono API Server', ':3001', '#22c55e', 'inf-hono');
+    out += box(341, T+122, 286, 32, 'Durable Streams', 'Caddy plugin · LMDB', '#f87171', 'inf-durable');
+    // Row C: Database abstraction (full width)
+    out += box(44, T+164, 583, 32, 'Drizzle ORM', 'DB_MODE: sqlite | postgres', '#06b6d4', 'inf-drizzle');
+    // Row D: Data stores (2 columns)
+    out += box(44,  T+206, 286, 32, 'SQLite', 'agentpane.db (local)', '#22c55e', 'inf-sqlite');
+    out += box(341, T+206, 286, 32, 'pg driver', 'postgres.js', '#06b6d4', 'inf-pg-driver');
+    // Row E: Container Agent (full width)
+    out += box(44, T+248, 583, 32, 'Container Agent', 'orchestration', '#22c55e', 'inf-container-agent');
+    // Row F: Sandbox providers (one per column)
+    out += box(44,  T+290, 187, 32, 'Docker Provider', '', '#60a5fa', 'inf-docker-prov');
+    out += box(242, T+290, 187, 32, 'K8s Provider', '', '#a78bfa', 'inf-k8s-prov');
+    out += box(440, T+290, 187, 32, 'Nomad Provider', '', '#f97316', 'inf-nomad-prov');
 
-    // Internal arrows (all short vertical)
-    out += arrow(330, T+96, 341, T+96, '', '#f87171', 'inf-arr-r');    // Hono → Durable (events)
-    out += arrow(187, T+112, 187, T+122, '', '#22c55e', 'inf-arr-g');  // Hono → Drizzle
-    out += arrow(484, T+112, 484, T+122, '', '#f87171', 'inf-arr-r');  // Durable → Drizzle (persist)
-    out += arrow(187, T+154, 187, T+164, '', '#22c55e', 'inf-arr-g');  // Drizzle → SQLite
-    out += arrow(484, T+154, 484, T+164, '', '#06b6d4', 'inf-arr-cy'); // Drizzle → pg
-    out += arrow(137, T+238, 137, T+248, '', '#60a5fa', 'inf-arr');    // Container → Docker
-    out += arrow(335, T+238, 335, T+248, '', '#a78bfa', 'inf-arr-p');  // Container → K8s
-    out += arrow(533, T+238, 533, T+248, '', '#f97316', 'inf-arr-o');  // Container → Nomad
+    // Internal arrows
+    out += arrow(187, T+112, 187, T+122, '/api/*', '#22c55e', 'inf-arr-g');   // Caddy → Hono
+    out += arrow(484, T+112, 484, T+122, '/v1/stream/*', '#f87171', 'inf-arr-r'); // Caddy → Durable
+    out += arrow(330, T+138, 341, T+138, '', '#f87171', 'inf-arr-r');    // Hono → Durable (events)
+    out += arrow(187, T+154, 187, T+164, '', '#22c55e', 'inf-arr-g');  // Hono → Drizzle
+    out += arrow(484, T+154, 484, T+164, '', '#f87171', 'inf-arr-r');  // Durable → Drizzle (persist)
+    out += arrow(187, T+196, 187, T+206, '', '#22c55e', 'inf-arr-g');  // Drizzle → SQLite
+    out += arrow(484, T+196, 484, T+206, '', '#06b6d4', 'inf-arr-cy'); // Drizzle → pg
+    out += arrow(137, T+280, 137, T+290, '', '#60a5fa', 'inf-arr');    // Container → Docker
+    out += arrow(335, T+280, 335, T+290, '', '#a78bfa', 'inf-arr-p');  // Container → K8s
+    out += arrow(533, T+280, 533, T+290, '', '#f97316', 'inf-arr-o');  // Container → Nomad
     // "persist" label
-    out += `<text x="497" y="${T+119}" font-size="7.5" fill="#f87171" font-family="system-ui" opacity="0.7">persist</text>`;
+    out += `<text x="497" y="${T+161}" font-size="7.5" fill="#f87171" font-family="system-ui" opacity="0.7">persist</text>`;
   }
 
   // PostgreSQL (Remote) — right of Host, connected from Drizzle
@@ -1551,67 +1542,67 @@ function buildInfraSVG() {
 
   // Row 2: Sandbox zones (aligned with Host columns)
   if (state.showDocker) {
-    out += zone(44, T+310, 187, 128, 'Docker (Local)', '#60a5fa');
-    out += box(56, T+336, 163, 78, 'agent-sandbox\ncontainers', 'Docker socket', '#60a5fa', 'inf-docker-c');
+    out += zone(44, T+352, 187, 128, 'Docker (Local)', '#60a5fa');
+    out += box(56, T+378, 163, 78, 'agent-sandbox\ncontainers', 'Docker socket', '#60a5fa', 'inf-docker-c');
   }
   if (state.showK8s) {
-    out += zone(242, T+310, 187, 128, 'K8s Cluster', '#a78bfa');
-    out += box(254, T+336, 163, 40, 'K8s Pods', 'gVisor / Kata / runc', '#a78bfa', 'inf-k8s-pods');
-    out += box(254, T+384, 163, 30, 'Sandbox CRDs', 'agents.x-k8s.io', '#a78bfa', 'inf-k8s-crds');
+    out += zone(242, T+352, 187, 128, 'K8s Cluster', '#a78bfa');
+    out += box(254, T+378, 163, 40, 'K8s Pods', 'gVisor / Kata / runc', '#a78bfa', 'inf-k8s-pods');
+    out += box(254, T+426, 163, 30, 'Sandbox CRDs', 'agents.x-k8s.io', '#a78bfa', 'inf-k8s-crds');
   }
   if (state.showNomad) {
-    out += zone(440, T+310, 187, 128, 'Nomad Cluster', '#f97316');
-    out += box(452, T+336, 163, 40, 'Nomad Jobs', 'Docker driver', '#f97316', 'inf-nomad-jobs');
-    out += box(452, T+384, 163, 26, 'Alloc Exec', 'stdio bridge', '#f97316', 'inf-nomad-exec');
+    out += zone(440, T+352, 187, 128, 'Nomad Cluster', '#f97316');
+    out += box(452, T+378, 163, 40, 'Nomad Jobs', 'Docker driver', '#f97316', 'inf-nomad-jobs');
+    out += box(452, T+426, 163, 26, 'Alloc Exec', 'stdio bridge', '#f97316', 'inf-nomad-exec');
   }
 
   // Row 3: External Services (full width, Anthropic centered under sandbox zones)
   if (state.showExternal) {
-    out += zone(30, T+456, 810, 106, 'External Services', '#6b7280');
+    out += zone(30, T+498, 810, 106, 'External Services', '#6b7280');
     // Anthropic wide bar — centered under all 3 sandbox zones
-    out += box(44, T+476, 583, 30, 'Anthropic API', 'Claude API (all sandbox containers)', '#a78bfa', 'inf-anthropic');
+    out += box(44, T+518, 583, 30, 'Anthropic API', 'Claude API (all sandbox containers)', '#a78bfa', 'inf-anthropic');
     // Other services row
-    out += box(44,  T+514, 110, 32, 'GitHub API', 'OAuth', '#6b7280', 'inf-github');
-    out += box(162, T+514, 110, 32, 'Docker Hub', 'agent-sandbox', '#60a5fa', 'inf-dockerhub');
-    out += box(280, T+514, 110, 32, 'npm Registry', 'cli-monitor', '#ef4444', 'inf-npm');
-    out += box(398, T+514, 110, 32, 'HCP Terraform', 'terraform.io', '#eab308', 'inf-terraform');
-    out += box(516, T+514, 110, 32, 'GitHub OAuth', 'credentials', '#6b7280', 'inf-github-oauth');
+    out += box(44,  T+556, 110, 32, 'GitHub API', 'OAuth', '#6b7280', 'inf-github');
+    out += box(162, T+556, 110, 32, 'Docker Hub', 'agent-sandbox', '#60a5fa', 'inf-dockerhub');
+    out += box(280, T+556, 110, 32, 'npm Registry', 'cli-monitor', '#ef4444', 'inf-npm');
+    out += box(398, T+556, 110, 32, 'HCP Terraform', 'terraform.io', '#eab308', 'inf-terraform');
+    out += box(516, T+556, 110, 32, 'GitHub OAuth', 'credentials', '#6b7280', 'inf-github-oauth');
   }
 
   // === ARROWS (all top-down, no crossing) ===
 
-  // Browser → Hono (HTTP), TanStack DB → Durable Streams (SSE)
+  // Browser → Caddy (HTTP), TanStack DB → Caddy (SSE)
   if (state.showHost) {
-    out += arrow(340, T+44, 187, T+80, 'HTTP', '#60a5fa', 'inf-arr');
-    out += arrow(535, T+50, 484, T+80, 'SSE', '#f87171', 'inf-arr-r');
+    out += arrow(340, T+44, 240, T+80, 'HTTP', '#60a5fa', 'inf-arr');
+    out += arrow(535, T+50, 440, T+80, 'SSE', '#f87171', 'inf-arr-r');
   }
 
   // Providers → Sandbox zones (perfectly vertical)
   if (state.showHost && state.showDocker) {
-    out += arrow(137, T+280, 137, T+310, '', '#60a5fa', 'inf-arr');
+    out += arrow(137, T+322, 137, T+352, '', '#60a5fa', 'inf-arr');
   }
   if (state.showHost && state.showK8s) {
-    out += arrow(335, T+280, 335, T+310, '', '#a78bfa', 'inf-arr-p');
+    out += arrow(335, T+322, 335, T+352, '', '#a78bfa', 'inf-arr-p');
   }
   if (state.showHost && state.showNomad) {
-    out += arrow(533, T+280, 533, T+310, '', '#f97316', 'inf-arr-o');
+    out += arrow(533, T+322, 533, T+352, '', '#f97316', 'inf-arr-o');
   }
 
   // Drizzle ORM → PostgreSQL (L-shaped: right from Drizzle, up, into PG)
   if (state.showHost && state.showPostgres) {
-    out += `<path d="M 627 ${T+138} L 655 ${T+138} L 655 ${T+106} L 682 ${T+106}" fill="none" stroke="#06b6d4" stroke-width="1.3" marker-end="url(#inf-arr-cy)" opacity="0.7"/>`;
+    out += `<path d="M 627 ${T+180} L 655 ${T+180} L 655 ${T+106} L 682 ${T+106}" fill="none" stroke="#06b6d4" stroke-width="1.3" marker-end="url(#inf-arr-cy)" opacity="0.7"/>`;
     out += `<text x="660" y="${T+100}" font-size="7.5" fill="#06b6d4" font-family="system-ui" text-anchor="start" opacity="0.7">DATABASE_URL</text>`;
   }
 
   // Sandbox zones → Anthropic (straight down, all converge)
   if (state.showDocker && state.showExternal) {
-    out += arrow(137, T+438, 137, T+476, '', '#a78bfa', 'inf-arr-p');
+    out += arrow(137, T+480, 137, T+518, '', '#a78bfa', 'inf-arr-p');
   }
   if (state.showK8s && state.showExternal) {
-    out += arrow(335, T+438, 335, T+476, '', '#a78bfa', 'inf-arr-p');
+    out += arrow(335, T+480, 335, T+518, '', '#a78bfa', 'inf-arr-p');
   }
   if (state.showNomad && state.showExternal) {
-    out += arrow(533, T+438, 533, T+476, '', '#a78bfa', 'inf-arr-p');
+    out += arrow(533, T+480, 533, T+518, '', '#a78bfa', 'inf-arr-p');
   }
 
   return out;
@@ -1664,7 +1655,7 @@ function renderPrompt() {
     }
     case 'infra': {
       const zones = [];
-      if (state.showHost) zones.push('Frontend (Hono API :3001, Drizzle ORM, SQLite local, pg driver, Durable Streams SSE, Providers)');
+      if (state.showHost) zones.push('Host (Caddy :3000 front door, Hono API :3001, Durable Streams LMDB, Drizzle ORM, SQLite local, pg driver, Providers)');
       if (state.showDocker) zones.push('Docker (Local, via Docker socket)');
       if (state.showK8s) zones.push('K8s Cluster (remote, CRDs + gVisor/Kata)');
       if (state.showNomad) zones.push('Nomad Cluster (remote, HTTP :4646)');

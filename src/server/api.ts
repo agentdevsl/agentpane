@@ -6,6 +6,7 @@
  */
 
 import { createLogger } from '../lib/logging/logger.js';
+import { CaddyDurableStreamsServer } from '../lib/streams/caddy-producer.js';
 
 const log = createLogger('APIServer');
 
@@ -76,7 +77,7 @@ import { DurableStreamsService } from '../services/durable-streams.service.js';
 import { GitHubTokenService } from '../services/github-token.service.js';
 import { MarketplaceService } from '../services/marketplace.service.js';
 import { SandboxConfigService } from '../services/sandbox-config.service.js';
-import { type DurableStreamsServer, SessionService } from '../services/session.service.js';
+import { SessionService } from '../services/session.service.js';
 import { SettingsService } from '../services/settings.service.js';
 import { TaskService } from '../services/task.service.js';
 import {
@@ -447,143 +448,25 @@ const taskService = new TaskService(db, {
   }),
 });
 
-// In-memory DurableStreamsServer implementation for local development
-// Stores events per stream and supports real-time subscriptions
-interface StoredEvent {
-  type: string;
-  data: unknown;
-  offset: number;
-  timestamp: number;
-}
-
-class InMemoryDurableStreamsServer implements DurableStreamsServer {
-  private streams = new Map<string, StoredEvent[]>();
-  private subscribers = new Map<
-    string,
-    Set<(event: { type: string; data: unknown; offset: number }) => void>
-  >();
-
-  async createStream(id: string, _schema: unknown): Promise<void> {
-    if (!this.streams.has(id)) {
-      this.streams.set(id, []);
-      this.subscribers.set(id, new Set());
-      log.debug(`[InMemoryStreams] Created stream: ${id}`);
-    }
-  }
-
-  async publish(id: string, type: string, data: unknown): Promise<number> {
-    // Auto-create stream if it doesn't exist
-    if (!this.streams.has(id)) {
-      await this.createStream(id, {});
-    }
-
-    const events = this.streams.get(id);
-    if (!events) {
-      return 0;
-    }
-    const offset = events.length;
-    const event: StoredEvent = {
-      type,
-      data,
-      offset,
-      timestamp: Date.now(),
-    };
-    events.push(event);
-
-    // Notify real-time subscribers
-    const subs = this.subscribers.get(id);
-    const subscriberCount = subs?.size ?? 0;
-    if (subs) {
-      for (const callback of subs) {
-        try {
-          callback({ type, data, offset });
-        } catch (err) {
-          log.error(`[InMemoryStreams] Subscriber error for ${id}`, { error: err });
-        }
-      }
-    }
-
-    console.log(
-      `[InMemoryStreams] Published to ${id}: ${type} (offset: ${offset}, subscribers: ${subscriberCount}, total events: ${events.length})`
-    );
-    return offset;
-  }
-
-  async *subscribe(id: string): AsyncGenerator<{ type: string; data: unknown; offset: number }> {
-    // First yield all stored events
-    const events = this.streams.get(id) ?? [];
-    for (const event of events) {
-      yield { type: event.type, data: event.data, offset: event.offset };
-    }
-
-    // Then listen for new events using a simple polling approach
-    // For real-time, use addRealtimeSubscriber instead
-    let lastOffset = events.length - 1;
-    while (true) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      const currentEvents = this.streams.get(id) ?? [];
-      for (let i = lastOffset + 1; i < currentEvents.length; i++) {
-        const event = currentEvents[i];
-        if (event) {
-          yield { type: event.type, data: event.data, offset: event.offset };
-          lastOffset = i;
-        }
-      }
-    }
-  }
-
-  async deleteStream(id: string): Promise<boolean> {
-    const existed = this.streams.has(id);
-    this.streams.delete(id);
-    this.subscribers.delete(id);
-    if (existed) {
-      log.debug(`[InMemoryStreams] Deleted stream: ${id}`);
-    }
-    return existed;
-  }
-
-  // Get all events for a stream (for SSE endpoint)
-  getEvents(id: string): StoredEvent[] {
-    const events = this.streams.get(id) ?? [];
-    log.debug(`[InMemoryStreams] getEvents called for ${id}: ${events.length} events available`);
-    return events;
-  }
-
-  // Add a real-time subscriber callback
-  addRealtimeSubscriber(
-    id: string,
-    callback: (event: { type: string; data: unknown; offset: number }) => void
-  ): () => void {
-    let subs = this.subscribers.get(id);
-    if (!subs) {
-      subs = new Set();
-      this.subscribers.set(id, subs);
-    }
-    subs.add(callback);
-    log.debug(`[InMemoryStreams] Added real-time subscriber for ${id} (total: ${subs.size})`);
-    return () => {
-      subs.delete(callback);
-      console.log(
-        `[InMemoryStreams] Removed real-time subscriber for ${id} (remaining: ${subs.size})`
-      );
-    };
-  }
-}
-
-// Create in-memory streams server for local development
-const inMemoryStreamsServer = new InMemoryDurableStreamsServer();
-log.info('[API Server] Using in-memory DurableStreamsServer for local development');
+// CaddyDurableStreamsServer - publishes to Caddy (prod) or DurableStreamTestServer (dev)
+const streamsServerUrl =
+  process.env.CADDY_STREAMS_URL ??
+  (process.env.NODE_ENV === 'production'
+    ? 'http://localhost:3000/v1/stream'
+    : 'http://localhost:3002/v1/stream');
+const caddyStreamsServer = new CaddyDurableStreamsServer(streamsServerUrl);
+log.info('[API Server] Using CaddyDurableStreamsServer', { data: { url: streamsServerUrl } });
 
 // CLI Monitor service for monitoring Claude Code CLI sessions (with DB persistence)
-const cliMonitorService = new CliMonitorService(inMemoryStreamsServer, db);
+const cliMonitorService = new CliMonitorService(caddyStreamsServer, db);
 log.info('[API Server] CLI Monitor receiver ready (waiting for daemon)');
 
 // DurableStreamsService for SSE and container agent events
 // Pass db for event persistence to session_events table
-const durableStreamsService = new DurableStreamsService(inMemoryStreamsServer, db);
+const durableStreamsService = new DurableStreamsService(caddyStreamsServer, db);
 
 // SessionService for session management (needed for task creation history)
-const sessionService = new SessionService(db, inMemoryStreamsServer, {
+const sessionService = new SessionService(db, caddyStreamsServer, {
   baseUrl: 'http://localhost:3001',
 });
 
@@ -1470,7 +1353,8 @@ const settingsServiceForCompose = new SettingsService(db);
 const terraformComposeService = new TerraformComposeService(
   terraformRegistryService,
   db,
-  settingsServiceForCompose
+  settingsServiceForCompose,
+  durableStreamsService
 );
 
 // AgentService for agent lifecycle management
@@ -1490,7 +1374,6 @@ const app = createRouter({
   marketplaceService,
   agentService,
   commandRunner: bunCommandRunner,
-  durableStreamsService,
   getSandboxProvider: () => sandboxProvider,
   getK8sProvider,
   getNomadProvider,

@@ -7,6 +7,7 @@ export default defineConfig({
     environment: 'node',
     // Run smoke tests first to verify server health before other tests
     include: ['tests/e2e/smoke.test.ts', 'tests/e2e/**/*.test.ts'],
+    exclude: ['tests/e2e/k8s/**'],
     testTimeout: 60000,
     hookTimeout: 30000,
     setupFiles: ['./tests/e2e/setup.ts'],

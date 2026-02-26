@@ -1,71 +1,42 @@
 import { createError } from '../../errors/base.js';
-import { setStreamProvider } from '../../streams/provider.js';
-import { getDurableStreamsServer } from '../../streams/server.js';
 import { err, ok } from '../../utils/result.js';
 
 /**
- * Configuration for durable streams
- */
-export interface StreamsConfig {
-  /** Base URL for stream API endpoints */
-  baseUrl?: string;
-  /** Maximum reconnection attempts */
-  maxReconnectAttempts?: number;
-  /** Initial delay between reconnection attempts (ms) */
-  initialReconnectDelay?: number;
-  /** Maximum delay between reconnection attempts (ms) */
-  maxReconnectDelay?: number;
-  /** Backoff multiplier for reconnection delays */
-  backoffMultiplier?: number;
-}
-
-const DEFAULT_CONFIG: Required<StreamsConfig> = {
-  baseUrl: '/api/streams',
-  maxReconnectAttempts: 5,
-  initialReconnectDelay: 1000,
-  maxReconnectDelay: 30000,
-  backoffMultiplier: 2,
-};
-
-/**
- * Initialize and connect the durable streams server.
+ * Initialize durable streams for the client.
  *
- * This function:
- * 1. Gets or creates the singleton durable streams server
- * 2. Registers it as the global stream provider
- * 3. Returns the server instance for further use
- *
- * Compatible with bootstrap service phase function signature.
+ * With Caddy durable streams, the client connects directly to the Caddy
+ * SSE endpoints (e.g. /v1/stream/sessions/:id). This phase verifies
+ * Caddy is reachable before declaring the streams subsystem ready.
  */
 export const connectStreams = async (_ctx?: unknown) => {
-  const config = DEFAULT_CONFIG;
+  // Build an absolute URL that works in both browser and SSR contexts.
+  // In the browser, use the current origin. In SSR/test, fall back to
+  // CADDY_STREAMS_URL env var or localhost:3000.
+  const base =
+    typeof window !== 'undefined'
+      ? window.location.origin
+      : (process.env.CADDY_STREAMS_URL ?? 'http://localhost:3000');
+  const streamsUrl = `${base}/v1/stream`;
 
   try {
-    // Get the singleton server instance
-    const server = getDurableStreamsServer();
-
-    // Register as the global stream provider
-    setStreamProvider(server);
-
-    // Log successful initialization
-    console.log('[Streams] Durable streams server initialized', {
-      baseUrl: config.baseUrl,
-    });
-
-    return ok(server);
-  } catch (error) {
-    console.error('[Streams] Failed to initialize durable streams:', error);
+    const response = await fetch(streamsUrl, { method: 'HEAD', signal: AbortSignal.timeout(3000) });
+    if (response.ok || response.status === 404) {
+      // 404 is expected — no streams exist yet, but the endpoint is reachable
+      console.log(`[Streams] Caddy durable streams reachable at ${streamsUrl}`);
+      return ok(null);
+    }
+    console.error(`[Streams] Caddy returned HTTP ${response.status} at ${streamsUrl}`);
     return err(
-      createError('BOOTSTRAP_STREAMS_FAILED', 'Failed to initialize streams', 500, {
-        error: String(error),
-      })
+      createError('BOOTSTRAP_STREAMS_FAILED', `Caddy streams returned HTTP ${response.status}`, 503)
+    );
+  } catch (e) {
+    console.error(`[Streams] Caddy not reachable at ${streamsUrl}:`, e);
+    return err(
+      createError(
+        'BOOTSTRAP_STREAMS_FAILED',
+        `Caddy streams not reachable at ${streamsUrl}: ${e instanceof Error ? e.message : String(e)}`,
+        503
+      )
     );
   }
 };
-
-/**
- * Get the current streams configuration
- */
-export function getStreamsConfig(): Required<StreamsConfig> {
-  return { ...DEFAULT_CONFIG };
-}

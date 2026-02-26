@@ -15,7 +15,6 @@ import type { EventEmittingSandboxProvider } from '../lib/sandbox/index.js';
 import type { AgentService } from '../services/agent.service.js';
 import type { ApiKeyService } from '../services/api-key.service.js';
 import type { CliMonitorService } from '../services/cli-monitor/index.js';
-import type { DurableStreamsService } from '../services/durable-streams.service.js';
 import type { GitHubTokenService } from '../services/github-token.service.js';
 import type { MarketplaceService } from '../services/marketplace.service.js';
 import type { SandboxConfigService } from '../services/sandbox-config.service.js';
@@ -119,7 +118,6 @@ export interface RouterDependencies {
   marketplaceService: MarketplaceService;
   agentService: AgentService;
   commandRunner: CommandRunner;
-  durableStreamsService?: DurableStreamsService;
   getSandboxProvider?: () => EventEmittingSandboxProvider | null;
   getK8sProvider?: () => SandboxProviderHealth | null;
   getNomadProvider?: () => SandboxProviderHealth | null;
@@ -132,6 +130,10 @@ export interface RouterDependencies {
 export function createRouter(deps: RouterDependencies) {
   const app = new Hono();
 
+  // In production with Caddy as front door, browser requests are same-origin
+  // so CORS is not strictly needed. However, CORS is kept for:
+  // - Local development (direct API access on port 3001)
+  // - External API consumers and dev tooling
   app.use(
     '*',
     cors({
@@ -184,7 +186,6 @@ export function createRouter(deps: RouterDependencies) {
     '/api/sessions',
     createSessionsRoutes({
       sessionService: deps.sessionService,
-      durableStreamsService: deps.durableStreamsService,
     })
   );
   app.route('/api/worktrees', createWorktreesRoutes({ worktreeService: deps.worktreeService }));

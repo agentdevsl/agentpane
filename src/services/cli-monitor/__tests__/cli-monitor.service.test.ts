@@ -12,8 +12,6 @@ function createMockStreamsServer() {
       published.push({ id, type, data });
       return published.length;
     }),
-    addRealtimeSubscriber: vi.fn(() => vi.fn()),
-    getEvents: vi.fn(() => []),
     _published: published,
   };
 }
@@ -506,19 +504,41 @@ describe('CliMonitorService', () => {
   // ── SSE Subscription ──
 
   describe('addRealtimeSubscriber', () => {
-    it('delegates to streams server with correct stream ID', () => {
+    it('adds a local subscriber and returns unsubscribe function', () => {
+      const callback = vi.fn();
+      const unsub = service.addRealtimeSubscriber(callback);
+
+      expect(typeof unsub).toBe('function');
+    });
+
+    it('subscriber receives events when publish happens', () => {
       const callback = vi.fn();
       service.addRealtimeSubscriber(callback);
 
-      expect(streamsServer.addRealtimeSubscriber).toHaveBeenCalledWith('cli-monitor', callback);
+      // Register daemon and trigger a publish
+      service.registerDaemon(makeDaemonPayload());
+
+      // The publish from registerDaemon should notify local subscribers
+      expect(callback).toHaveBeenCalled();
+      const firstCall = callback.mock.calls[0];
+      expect(firstCall).toBeDefined();
+      const call = firstCall![0] as { type: string; data: unknown; offset: number };
+      expect(call).toHaveProperty('type');
+      expect(call).toHaveProperty('data');
+      expect(call).toHaveProperty('offset');
     });
 
-    it('returns unsubscribe function from streams server', () => {
-      const unsub = vi.fn();
-      streamsServer.addRealtimeSubscriber.mockReturnValue(unsub);
+    it('unsubscribe stops further notifications', () => {
+      const callback = vi.fn();
+      const unsub = service.addRealtimeSubscriber(callback);
 
-      const result = service.addRealtimeSubscriber(vi.fn());
-      expect(result).toBe(unsub);
+      // Unsubscribe
+      unsub();
+
+      // Register daemon — should not notify the callback
+      callback.mockClear();
+      service.registerDaemon(makeDaemonPayload());
+      expect(callback).not.toHaveBeenCalled();
     });
   });
 

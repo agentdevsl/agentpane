@@ -10,16 +10,15 @@ import { createLogger } from '../lib/logging/logger.js';
 import { buildCompositionSystemPrompt } from '../lib/terraform/compose-prompt.js';
 import type {
   ClarifyingQuestion,
-  ComposeEvent,
   ComposeMessage,
   ComposeMode,
-  ComposeStage,
   GeneratedFile,
   ModuleMatch,
 } from '../lib/terraform/types.js';
 import type { Result } from '../lib/utils/result.js';
 import { ok } from '../lib/utils/result.js';
 import type { Database } from '../types/database.js';
+import type { DurableStreamsService, StreamEventMap } from './durable-streams.service.js';
 import { getGlobalDefaultModel, type SettingsService } from './settings.service.js';
 import type { TerraformRegistryService } from './terraform-registry.service.js';
 
@@ -46,8 +45,6 @@ async function loadStacksSkillContent(): Promise<string> {
 
 const MAX_SESSIONS = 100;
 const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
-const KEEPALIVE_MS = 15_000;
-const MAX_PENDING_EVENTS = 50;
 
 export interface ComposeSession {
   id: string;
@@ -56,24 +53,6 @@ export interface ComposeSession {
   generatedCode: string | null;
   lastAccessedAt: number;
 }
-
-/**
- * Streaming compose job.
- * The SSE controller is stored directly so `runPipeline` can push events
- * via `controller.enqueue()` — matching the pattern used by sessions,
- * task-creation, and cli-monitor SSE endpoints.
- *
- * `pendingEvents` buffers critical events (error, done, code) that arrive before
- * a subscriber connects, so late subscribers still receive them.
- */
-interface ComposeJob {
-  controller: ReadableStreamDefaultController<Uint8Array> | null;
-  finished: boolean;
-  keepaliveInterval: ReturnType<typeof setInterval> | null;
-  pendingEvents: ComposeEvent[];
-}
-
-const encoder = new TextEncoder();
 
 /** Shape of the raw stream event from the Agent SDK. */
 interface AgentStreamEvent {
@@ -93,12 +72,12 @@ interface AgentAssistantMessage {
 
 export class TerraformComposeService {
   private sessions = new Map<string, ComposeSession>();
-  private jobs = new Map<string, ComposeJob>();
 
   constructor(
     private registryService: TerraformRegistryService,
     private db: Database,
-    private settingsService?: SettingsService
+    private settingsService?: SettingsService,
+    private durableStreamsService?: DurableStreamsService
   ) {}
 
   private cleanupSessions(): void {
@@ -106,7 +85,7 @@ export class TerraformComposeService {
     for (const [id, session] of this.sessions) {
       if (now - session.lastAccessedAt > SESSION_TTL_MS) {
         this.sessions.delete(id);
-        this.jobs.delete(id);
+        this.durableStreamsService?.deleteStream(`terraform:${id}`).catch(() => {});
       }
     }
     // Evict oldest if over max
@@ -117,14 +96,14 @@ export class TerraformComposeService {
       const toRemove = sorted.slice(0, this.sessions.size - MAX_SESSIONS);
       for (const [id] of toRemove) {
         this.sessions.delete(id);
-        this.jobs.delete(id);
+        this.durableStreamsService?.deleteStream(`terraform:${id}`).catch(() => {});
       }
     }
   }
 
   /**
    * Start a compose job in the background and return the session ID immediately.
-   * The caller then connects to `subscribeToJob()` via a separate GET SSE endpoint.
+   * The client subscribes to Caddy durable streams at /v1/stream/terraform/{jobId}.
    */
   async startCompose(
     sessionId: string | undefined,
@@ -136,202 +115,102 @@ export class TerraformComposeService {
 
     this.cleanupSessions();
 
-    // Create the job — controller will be set when subscriber connects
-    const job: ComposeJob = {
-      controller: null,
-      finished: false,
-      keepaliveInterval: null,
-      pendingEvents: [],
-    };
-    this.jobs.set(sid, job);
+    // Fail fast if DurableStreamsService is not configured
+    if (!this.durableStreamsService) {
+      log.error('No DurableStreamsService configured — cannot start compose');
+      throw new Error('[TerraformCompose] DurableStreamsService is required for event delivery');
+    }
+
+    // Create the durable stream BEFORE returning sessionId so the client can subscribe immediately.
+    // Delete any existing stream first to prevent stale event replay on multi-turn conversations.
+    const streamId = `terraform:${sid}`;
+    try {
+      await this.durableStreamsService.deleteStream(streamId).catch(() => {});
+      await this.durableStreamsService.createStream(streamId, null);
+    } catch (err) {
+      log.error('Failed to create durable stream for compose job', {
+        data: { streamId },
+        error: err,
+      });
+      throw new Error(
+        `[TerraformCompose] Failed to create stream: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
 
     // Run pipeline without awaiting — the caller returns the session ID immediately.
-    this.runPipeline(sid, messages, registryId, job, composeMode).catch((pipelineErr) => {
+    this.runPipeline(sid, messages, registryId, composeMode).catch(async (pipelineErr) => {
       log.error('Unhandled pipeline error', { error: pipelineErr });
-      this.sendEvent(job, {
-        type: 'error',
-        error: 'An unexpected error occurred. Please try again.',
-      });
-      this.finishJob(job);
+      try {
+        await this.publishEvent(sid, 'terraform:error', {
+          jobId: sid,
+          error: 'An unexpected error occurred. Please try again.',
+        });
+      } catch (publishErr) {
+        log.error('Failed to publish pipeline error event', { error: publishErr });
+        // Ensure stream is cleaned up even if error publish fails
+        await this.durableStreamsService?.deleteStream(`terraform:${sid}`).catch(() => {});
+      }
     });
 
     return ok({ sessionId: sid });
   }
 
   /**
-   * Subscribe to a compose job's event stream.
-   * Returns a ReadableStream of SSE-formatted bytes.
-   * The controller is stored on the job so runPipeline can push events directly.
+   * Publish a typed event to the Caddy durable stream for a compose job.
+   * Falls back to logging if no DurableStreamsService is configured.
    */
-  subscribeToJob(sessionId: string): ReadableStream<Uint8Array> | null {
-    const job = this.jobs.get(sessionId);
-    if (!job) return null;
-
-    // Prevent multiple subscribers from overwriting the controller
-    if (job.controller) return null;
-
-    return new ReadableStream<Uint8Array>({
-      start(controller) {
-        job.controller = controller;
-
-        // Replay any events that were buffered before the subscriber connected
-        for (const event of job.pendingEvents) {
-          try {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-          } catch (err) {
-            if (!(err instanceof TypeError)) {
-              log.warn('Unexpected error replaying event', { error: err });
-            }
-            break;
-          }
-        }
-        job.pendingEvents = [];
-
-        // If the job already finished before subscriber connected, close immediately
-        if (job.finished) {
-          try {
-            controller.close();
-          } catch (err) {
-            if (!(err instanceof TypeError)) {
-              log.warn('Unexpected error closing controller', { error: err });
-            }
-          }
-          job.controller = null;
-          return;
-        }
-
-        // Keep-alive ping every 15s to prevent proxy/Bun idle timeouts
-        job.keepaliveInterval = setInterval(() => {
-          try {
-            controller.enqueue(encoder.encode(': keepalive\n\n'));
-          } catch (err) {
-            // Enqueue failed — stream is likely closed, clear interval to stop retrying
-            if (!(err instanceof TypeError)) {
-              log.warn('Keepalive enqueue failed, stream likely closed', { error: err });
-            }
-            if (job.keepaliveInterval) {
-              clearInterval(job.keepaliveInterval);
-              job.keepaliveInterval = null;
-            }
-          }
-        }, KEEPALIVE_MS);
-      },
-      cancel() {
-        if (job.keepaliveInterval) clearInterval(job.keepaliveInterval);
-        job.keepaliveInterval = null;
-        job.controller = null;
-      },
-    });
-  }
-
-  private sendEvent(job: ComposeJob, event: ComposeEvent): void {
-    if (!job.controller) {
-      // Buffer critical events so late subscribers can replay them
-      if (event.type === 'error' || event.type === 'done' || event.type === 'code') {
-        if (job.pendingEvents.length >= MAX_PENDING_EVENTS) {
-          log.warn('Event buffer full, dropping oldest non-critical event', {
-            data: { eventType: event.type, bufferSize: job.pendingEvents.length },
-          });
-          // Drop oldest non-critical event to make room
-          const dropIdx = job.pendingEvents.findIndex(
-            (e) => e.type !== 'error' && e.type !== 'done'
-          );
-          if (dropIdx >= 0) {
-            job.pendingEvents.splice(dropIdx, 1);
-          } else {
-            job.pendingEvents.shift();
-          }
-        }
-        job.pendingEvents.push(event);
-      }
-      return;
-    }
-    try {
-      job.controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-    } catch (err) {
-      log.warn('SSE controller broken, falling back to event buffer', {
-        data: { eventType: event.type },
-        error: err,
+  private async publishEvent<
+    T extends
+      | 'terraform:status'
+      | 'terraform:text'
+      | 'terraform:modules'
+      | 'terraform:questions'
+      | 'terraform:code'
+      | 'terraform:done'
+      | 'terraform:error',
+  >(jobId: string, type: T, data: StreamEventMap[T]): Promise<void> {
+    if (!this.durableStreamsService) {
+      log.error('No DurableStreamsService configured — events will be lost', {
+        data: { type, jobId },
       });
-      // Controller is broken — null it out so subsequent events get buffered
-      // instead of repeatedly hitting the broken controller
-      job.controller = null;
-      if (job.keepaliveInterval) {
-        clearInterval(job.keepaliveInterval);
-        job.keepaliveInterval = null;
+      throw new Error('[TerraformCompose] DurableStreamsService is required for event delivery');
+    }
+    const streamId = `terraform:${jobId}`;
+    try {
+      await this.durableStreamsService.publish(streamId, type, data);
+    } catch (err) {
+      log.error('Failed to publish terraform event', { data: { type, jobId }, error: err });
+      // Rethrow for terminal events -- clients MUST receive done/error events
+      if (type === 'terraform:error' || type === 'terraform:done') {
+        throw err;
       }
-      // Buffer this event that failed to send
-      if (event.type === 'error' || event.type === 'done' || event.type === 'code') {
-        job.pendingEvents.push(event);
-      }
     }
-  }
-
-  private sendStatus(job: ComposeJob, stage: ComposeStage): void {
-    this.sendEvent(job, { type: 'status', stage });
-  }
-
-  private finishJob(job: ComposeJob): void {
-    job.finished = true;
-    if (job.keepaliveInterval) {
-      clearInterval(job.keepaliveInterval);
-      job.keepaliveInterval = null;
-    }
-    if (job.controller) {
-      try {
-        job.controller.close();
-      } catch (err) {
-        if (!(err instanceof TypeError)) {
-          log.warn('Unexpected error closing controller in finishJob', { error: err });
-        }
-      }
-      job.controller = null;
-    }
-  }
-
-  /**
-   * Wait for the subscriber to connect before pushing events.
-   * The POST /compose returns the sessionId, then the client connects
-   * to GET /compose/:sessionId/events which sets job.controller.
-   */
-  private async waitForSubscriber(job: ComposeJob, maxWaitMs = 10_000): Promise<boolean> {
-    const start = Date.now();
-    while (!job.controller && Date.now() - start < maxWaitMs) {
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    return !!job.controller;
   }
 
   private async runPipeline(
     sid: string,
     messages: ComposeMessage[],
     registryId: string | undefined,
-    job: ComposeJob,
     composeMode: ComposeMode
   ): Promise<void> {
-    // Wait for the SSE subscriber to connect before pushing events
-    const subscriberReady = await this.waitForSubscriber(job);
-    if (!subscriberReady) {
-      log.warn('No subscriber connected within timeout, aborting pipeline');
-      // Buffer an error so late subscribers get feedback instead of an empty stream
-      this.sendEvent(job, {
-        type: 'error',
-        error: 'Compose session timed out waiting for connection. Please try again.',
-      });
-      this.finishJob(job);
-      return;
-    }
+    // Stream is already created in startCompose() — proceed directly to pipeline.
 
     let session: ReturnType<typeof unstable_v2_createSession> | null = null;
 
+    // Update lastAccessedAt for existing sessions to prevent cleanup during pipeline
+    const existing = this.sessions.get(sid);
+    if (existing) {
+      existing.lastAccessedAt = Date.now();
+    }
+
     try {
       // Stage 1: Load module catalog
-      this.sendStatus(job, 'loading_catalog');
+      await this.publishEvent(sid, 'terraform:status', { jobId: sid, stage: 'loading_catalog' });
 
       const contextResult = await this.registryService.getModuleContext(registryId);
       if (!contextResult.ok) {
-        this.sendEvent(job, {
-          type: 'error',
+        await this.publishEvent(sid, 'terraform:error', {
+          jobId: sid,
           error: contextResult.error.message ?? 'Failed to load module catalog',
         });
         return;
@@ -352,16 +231,16 @@ export class TerraformComposeService {
       );
       if (!modulesResult.ok) {
         log.error('Failed to load modules for matching', { error: modulesResult.error });
-        this.sendEvent(job, {
-          type: 'text',
-          content:
-            '\n\n> ⚠️ Warning: Could not load module catalog for matching. Module suggestions may be incomplete.\n\n',
+        await this.publishEvent(sid, 'terraform:text', {
+          jobId: sid,
+          delta:
+            '\n\n> Warning: Could not load module catalog for matching. Module suggestions may be incomplete.\n\n',
         });
       }
       const allModules = modulesResult.ok ? modulesResult.value : [];
 
       // Stage 2: Analyzing requirements (streaming with Agent SDK)
-      this.sendStatus(job, 'analyzing');
+      await this.publishEvent(sid, 'terraform:status', { jobId: sid, stage: 'analyzing' });
 
       const prompt = formatPrompt(systemPrompt, messages);
       // Model cascade: TERRAFORM_COMPOSE_MODEL env → global default_model setting → hardcoded default
@@ -431,7 +310,10 @@ export class TerraformComposeService {
             event.delta.text
           ) {
             fullResponse += event.delta.text;
-            this.sendEvent(job, { type: 'text', content: event.delta.text });
+            await this.publishEvent(sid, 'terraform:text', {
+              jobId: sid,
+              delta: event.delta.text,
+            });
             streamedTextToClient = true;
           }
         }
@@ -445,7 +327,7 @@ export class TerraformComposeService {
               question: q.question,
               options: q.options.map((o) => o.label),
             }));
-            this.sendEvent(job, { type: 'questions', questions });
+            await this.publishEvent(sid, 'terraform:questions', { jobId: sid, questions });
             capturedQuestions = [];
           }
         }
@@ -481,20 +363,23 @@ export class TerraformComposeService {
       // If text was captured via assistant message but not streamed as deltas,
       // send the full response as a single text event so the client can render it
       if (fullResponse && !streamedTextToClient) {
-        this.sendEvent(job, { type: 'text', content: fullResponse });
+        await this.publishEvent(sid, 'terraform:text', {
+          jobId: sid,
+          delta: fullResponse,
+        });
       }
 
       // Stage 3: Match modules
-      this.sendStatus(job, 'matching_modules');
+      await this.publishEvent(sid, 'terraform:status', { jobId: sid, stage: 'matching_modules' });
 
       const matchedModules = matchModulesInResponse(fullResponse, allModules);
 
       if (matchedModules.length > 0) {
-        this.sendEvent(job, { type: 'modules', modules: matchedModules });
+        await this.publishEvent(sid, 'terraform:modules', { jobId: sid, modules: matchedModules });
       }
 
       // Stage 4: Extract code
-      this.sendStatus(job, 'generating_code');
+      await this.publishEvent(sid, 'terraform:status', { jobId: sid, stage: 'generating_code' });
 
       let generatedCode: string | null = null;
       let generatedFiles: GeneratedFile[] | undefined;
@@ -504,7 +389,11 @@ export class TerraformComposeService {
         if (stacksFiles.length > 0) {
           generatedFiles = stacksFiles;
           generatedCode = stacksFiles.map((f) => f.code).join('\n\n');
-          this.sendEvent(job, { type: 'code', code: generatedCode, files: generatedFiles });
+          await this.publishEvent(sid, 'terraform:code', {
+            jobId: sid,
+            code: generatedCode,
+            files: generatedFiles,
+          });
         } else if (fullResponse) {
           log.warn('Stacks mode produced no files from non-empty response', {
             data: { responseLength: fullResponse.length },
@@ -513,7 +402,7 @@ export class TerraformComposeService {
       } else {
         generatedCode = extractHclCode(fullResponse);
         if (generatedCode) {
-          this.sendEvent(job, { type: 'code', code: generatedCode });
+          await this.publishEvent(sid, 'terraform:code', { jobId: sid, code: generatedCode });
         }
       }
 
@@ -522,13 +411,16 @@ export class TerraformComposeService {
       if (!generatedCode && fullResponse) {
         const textQuestions = parseClarifyingQuestionsFromText(fullResponse);
         if (textQuestions.length > 0) {
-          this.sendEvent(job, { type: 'questions', questions: textQuestions });
+          await this.publishEvent(sid, 'terraform:questions', {
+            jobId: sid,
+            questions: textQuestions,
+          });
         }
       }
 
       // Stage 5: Validate HCL (skip for stacks — the parser only understands standard Terraform)
       if (generatedCode && composeMode !== 'stacks') {
-        this.sendStatus(job, 'validating_hcl');
+        await this.publishEvent(sid, 'terraform:status', { jobId: sid, stage: 'validating_hcl' });
         const validation = await this.validateCode(generatedCode);
         if (!validation.valid) {
           log.warn('HCL validation warnings', {
@@ -538,15 +430,15 @@ export class TerraformComposeService {
           const diagnosticText = validation.diagnostics
             .map((d) => `- ${d.severity}: ${d.summary}${d.detail ? ` (${d.detail})` : ''}`)
             .join('\n');
-          this.sendEvent(job, {
-            type: 'text',
-            content: `\n\n> ⚠️ HCL Validation Issues:\n${diagnosticText}\n\n`,
+          await this.publishEvent(sid, 'terraform:text', {
+            jobId: sid,
+            delta: `\n\n> HCL Validation Issues:\n${diagnosticText}\n\n`,
           });
         }
       }
 
       // Stage 6: Finalize
-      this.sendStatus(job, 'finalizing');
+      await this.publishEvent(sid, 'terraform:status', { jobId: sid, stage: 'finalizing' });
 
       this.sessions.set(sid, {
         id: sid,
@@ -556,9 +448,8 @@ export class TerraformComposeService {
         lastAccessedAt: Date.now(),
       });
 
-      this.sendEvent(job, {
-        type: 'done',
-        sessionId: sid,
+      await this.publishEvent(sid, 'terraform:done', {
+        jobId: sid,
         matchedModules,
         generatedCode: generatedCode ?? undefined,
         generatedFiles,
@@ -580,37 +471,34 @@ export class TerraformComposeService {
       const isContextLength =
         reason.includes('context_length') || reason.includes('too many tokens');
 
+      let errorMessage: string;
       if (isAuthError) {
         log.error('Authentication error', { data: { reason } });
-        this.sendEvent(job, {
-          type: 'error',
-          error:
-            'Claude authentication failed. Please run "claude login" or check your credentials file.',
-        });
+        errorMessage =
+          'Claude authentication failed. Please run "claude login" or check your credentials file.';
       } else if (isRateLimit) {
         log.error('Rate limit error', { data: { reason } });
-        this.sendEvent(job, {
-          type: 'error',
-          error: 'Claude API rate limit reached. Please wait a moment and try again.',
-        });
+        errorMessage = 'Claude API rate limit reached. Please wait a moment and try again.';
       } else if (isModelError) {
         log.error('Model error', { data: { reason } });
-        this.sendEvent(job, {
-          type: 'error',
-          error: 'Model configuration error. Check the TERRAFORM_COMPOSE_MODEL setting.',
-        });
+        errorMessage = 'Model configuration error. Check the TERRAFORM_COMPOSE_MODEL setting.';
       } else if (isContextLength) {
         log.error('Context length error', { data: { reason } });
-        this.sendEvent(job, {
-          type: 'error',
-          error: 'The conversation is too long. Please start a new conversation.',
-        });
+        errorMessage = 'The conversation is too long. Please start a new conversation.';
       } else {
         log.error('Pipeline error', { data: { reason } });
-        this.sendEvent(job, {
-          type: 'error',
-          error: 'An error occurred during Terraform composition. Please try again.',
+        errorMessage = 'An error occurred during Terraform composition. Please try again.';
+      }
+
+      try {
+        await this.publishEvent(sid, 'terraform:error', {
+          jobId: sid,
+          error: errorMessage,
         });
+      } catch (publishErr) {
+        log.error('Failed to publish error event to stream', { error: publishErr });
+        // Ensure stream is cleaned up even if error publish fails
+        await this.durableStreamsService?.deleteStream(`terraform:${sid}`).catch(() => {});
       }
     } finally {
       if (session) {
@@ -622,7 +510,6 @@ export class TerraformComposeService {
           }
         }
       }
-      this.finishJob(job);
     }
   }
 
@@ -632,7 +519,7 @@ export class TerraformComposeService {
 
   resetSession(sessionId: string): void {
     this.sessions.delete(sessionId);
-    this.jobs.delete(sessionId);
+    this.durableStreamsService?.deleteStream(`terraform:${sessionId}`).catch(() => {});
   }
 
   /**

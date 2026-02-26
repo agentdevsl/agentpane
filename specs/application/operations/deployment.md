@@ -8,7 +8,7 @@ This specification defines the deployment architecture, environment configuratio
 
 | Component | Technology | Version |
 |-----------|------------|---------|
-| Runtime | Bun | 1.3.6 |
+| Runtime | Bun | 1.3.10 |
 | Framework | TanStack Start | 1.150.0 |
 | Database | PGlite | 0.3.15 |
 | ORM | Drizzle | 0.45.1 |
@@ -124,7 +124,7 @@ bun run dev
 
 ```dockerfile
 # Dockerfile
-FROM oven/bun:1.3.6-slim AS base
+FROM oven/bun:1.3.10-slim AS base
 WORKDIR /app
 
 # Install dependencies layer
@@ -410,7 +410,7 @@ spec:
 
 | Requirement | Minimum | Recommended |
 |-------------|---------|-------------|
-| Bun | 1.3.0+ | 1.3.6 |
+| Bun | 1.3.0+ | 1.3.10 |
 | Node.js | 22.0+ | 22.x LTS |
 | Git | 2.40+ | Latest |
 | Disk Space | 1 GB | 5 GB |
@@ -1249,7 +1249,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  BUN_VERSION: "1.3.6"
+  BUN_VERSION: "1.3.10"
   NODE_VERSION: "22"
 
 jobs:

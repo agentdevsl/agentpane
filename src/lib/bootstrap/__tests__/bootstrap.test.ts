@@ -196,28 +196,24 @@ describe('bootstrap phases', () => {
     expect(result.ok).toBe(true);
   });
 
-  it('streams phase returns ok on successful connect', async () => {
+  it('streams phase returns err when Caddy is not reachable', async () => {
     const { connectStreams } = await import('../phases/streams.js');
-    const globalAny = globalThis as Record<string, unknown>;
-    const originalClient = globalAny.DurableStreamsClient;
 
-    class MockClient {
-      async connect() {
-        return undefined;
-      }
-    }
-
-    globalAny.DurableStreamsClient = MockClient;
+    // Mock fetch to simulate Caddy being unreachable
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error('Connection refused'));
 
     const result = await connectStreams();
 
-    if (originalClient) {
-      globalAny.DurableStreamsClient = originalClient;
-    } else {
-      delete globalAny.DurableStreamsClient;
-    }
+    // Restore fetch
+    globalThis.fetch = originalFetch;
 
-    expect(result.ok).toBe(true);
+    // Should return err when Caddy is unreachable (phase is recoverable so app still boots)
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toHaveProperty('code', 'BOOTSTRAP_STREAMS_FAILED');
+      expect(result.error).toHaveProperty('status', 503);
+    }
   });
 
   it('github phase returns ok when token missing', async () => {

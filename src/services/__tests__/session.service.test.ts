@@ -6,6 +6,8 @@ const createDbMock = () => ({
   query: {
     projects: { findFirst: vi.fn() },
     sessions: { findFirst: vi.fn(), findMany: vi.fn() },
+    sessionEvents: { findFirst: vi.fn(), findMany: vi.fn() },
+    sessionSummaries: { findFirst: vi.fn() },
   },
   insert: vi.fn(() => ({ values: vi.fn(() => ({ returning: vi.fn() })) })),
   update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn() })) })),
@@ -81,6 +83,11 @@ describe('SessionService', () => {
   it('subscribe yields events', async () => {
     const db = createDbMock();
     const streams = createStreamsMock();
+    // getHistory now delegates to getEventsBySession which queries the DB
+    db.query.sessions.findFirst.mockResolvedValue({ id: 's1' });
+    db.query.sessionEvents.findMany.mockResolvedValue([
+      { id: 'evt-1', type: 'chunk', timestamp: Date.now(), data: { text: 'hello' } },
+    ]);
 
     const service = new SessionService(db as never, streams as never, {
       baseUrl: 'http://localhost:3000',
@@ -490,6 +497,11 @@ describe('SessionService', () => {
   it('getHistory returns events with startTime', async () => {
     const db = createDbMock();
     const streams = createStreamsMock();
+    // getHistory now delegates to getEventsBySession which queries the DB
+    db.query.sessions.findFirst.mockResolvedValue({ id: 's1' });
+    db.query.sessionEvents.findMany.mockResolvedValue([
+      { id: 'evt-1', type: 'chunk', timestamp: 1000, data: { text: 'hello' } },
+    ]);
 
     const service = new SessionService(db as never, streams as never, {
       baseUrl: 'http://localhost:3000',
@@ -577,13 +589,20 @@ describe('SessionService', () => {
     const iterator = iterable[Symbol.asyncIterator]();
     const first = await iterator.next();
 
-    // Should get stream event directly
-    expect(first.done).toBe(false);
+    // With Caddy durable streams, subscribe() only replays history.
+    // When includeHistory is false and live subscription is via Caddy,
+    // the iterator completes immediately.
+    expect(first.done).toBe(true);
   });
 
   it('subscribe uses custom startTime', async () => {
     const db = createDbMock();
     const streams = createStreamsMock();
+    // getHistory now delegates to getEventsBySession which queries the DB
+    db.query.sessions.findFirst.mockResolvedValue({ id: 's1' });
+    db.query.sessionEvents.findMany.mockResolvedValue([
+      { id: 'evt-1', type: 'chunk', timestamp: 5000, data: { text: 'hello' } },
+    ]);
 
     const service = new SessionService(db as never, streams as never, {
       baseUrl: 'http://localhost:3000',
@@ -596,6 +615,7 @@ describe('SessionService', () => {
     const iterator = iterable[Symbol.asyncIterator]();
     const first = await iterator.next();
 
+    // With includeHistory: true and a startTime, getHistory delegates to getEventsBySession
     expect(first.done).toBe(false);
   });
 });

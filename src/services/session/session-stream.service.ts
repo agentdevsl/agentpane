@@ -86,15 +86,9 @@ export class SessionStreamService {
       }
     }
 
-    const subscription = this.streams.subscribe(sessionId);
-    for await (const event of subscription) {
-      yield {
-        id: `evt_${event.offset}`,
-        type: event.type as SessionEventType,
-        timestamp: Date.now(),
-        data: event.data,
-      };
-    }
+    // Server-side subscription is not used with Caddy durable streams.
+    // Clients subscribe directly to Caddy SSE endpoints.
+    // Only history replay (above) is functional in this method.
   }
 
   async getHistory(
@@ -105,14 +99,7 @@ export class SessionStreamService {
       return ok([]);
     }
 
-    return ok([
-      {
-        id: createId(),
-        type: 'chunk',
-        timestamp: options.startTime,
-        data: { sessionId },
-      },
-    ]);
+    return this.getEventsBySession(sessionId);
   }
 
   /**

@@ -220,7 +220,6 @@ export function createMockDurableStreamsService() {
       })()
     ),
     deleteStream: vi.fn().mockResolvedValue(true),
-    addSubscriber: vi.fn().mockReturnValue(() => undefined),
     publishPlanStarted: vi.fn().mockResolvedValue(undefined),
     publishPlanTurn: vi.fn().mockResolvedValue(undefined),
     publishPlanToken: vi.fn().mockResolvedValue(undefined),
@@ -238,7 +237,6 @@ export function createMockDurableStreamsService() {
     publishTaskCreationError: vi.fn().mockResolvedValue(undefined),
     publishTaskCreationProcessing: vi.fn().mockResolvedValue(undefined),
     publishSessionEvent: vi.fn().mockResolvedValue(undefined),
-    getServer: vi.fn().mockReturnValue(createMockDurableStreamsServer()),
   };
 }
 

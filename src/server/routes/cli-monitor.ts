@@ -426,7 +426,12 @@ export function createCliMonitorRoutes({ cliMonitorService }: CliMonitorDeps) {
 
         // 2. Subscribe to live updates
         unsubscribe = cliMonitorService.addRealtimeSubscriber((event) => {
-          send(event.data);
+          send({
+            type: event.type,
+            ...(event.data && typeof event.data === 'object' && !Array.isArray(event.data)
+              ? event.data
+              : {}),
+          });
         });
 
         // 3. Keep-alive ping every 15s

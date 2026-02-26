@@ -47,31 +47,31 @@ The platform includes a visual Kanban board for task management, real-time strea
 - **GitHub OAuth** — Repository sync, webhook support, and branch/PR operations
 - **Workflow Designer** — Visual AI-powered workflow editor with drag-and-drop (React Flow + ELK)
 - **CLI Monitor** — Real-time monitoring of Claude CLI sessions (`@agentpane/cli-monitor`)
-- **Durable Streams** — Real-time event streaming via SSE for live agent progress
+- **Durable Streams** — Real-time event streaming via Caddy front door (LMDB-backed SSE + long-poll)
 
 ## Tech Stack
 
 | Layer | Technology | Package | Version |
 |-------|------------|---------|---------|
-| Runtime | Bun | [bun.sh](https://bun.sh) | 1.3.6 |
-| Framework | TanStack Start | @tanstack/react-start | 1.158.3 |
+| Runtime | Bun | [bun.sh](https://bun.sh) | 1.3.10 |
+| Front Door | Caddy (durable-streams-server) | [durable-streams](https://github.com/anthropics/durable-streams) | 0.2.1 |
+| Framework | TanStack Start | @tanstack/react-start | 1.161.3 |
 | API Router | Hono | hono | 4.11.9 |
 | Database | SQLite + PostgreSQL | better-sqlite3 / postgres | 12.6.2 / 3.4.8 |
 | ORM | Drizzle | drizzle-orm + drizzle-kit | 0.45.1 / 0.31.8 |
-| Client State | TanStack DB | @tanstack/db + @tanstack/react-db | 0.5.20 / 0.1.64 |
+| Client State | TanStack DB | @tanstack/db + @tanstack/react-db | 0.5.28 / 0.1.73 |
 | Real-time | Durable Streams | @durable-streams/* | 0.2.1 |
-| AI / Agents | Claude Agent SDK | @anthropic-ai/claude-agent-sdk | 0.2.29 |
+| AI / Agents | Claude Agent SDK | @anthropic-ai/claude-agent-sdk | 0.2.55 |
 | AI / API | Anthropic SDK | @anthropic-ai/sdk | 0.72.1 |
 | UI | Radix + Tailwind | @radix-ui/* + tailwindcss | 1.2.4 / 4.1.18 |
-| Flow Editor | React Flow | @xyflow/react | 12.10.0 |
+| Flow Editor | React Flow | @xyflow/react | 12.10.1 |
 | Graph Layout | ELK | elkjs | 0.11.0 |
 | Drag & Drop | dnd-kit | @dnd-kit/core + @dnd-kit/sortable | 6.3.1 / 10.0.0 |
 | Icons | Phosphor | @phosphor-icons/react | 2.1.10 |
 | Syntax | Shiki | shiki | 3.22.0 |
 | Testing | Vitest | vitest | 4.0.16 |
-| UI Testing | Agent Browser | agent-browser | 0.7.6 |
 | E2E Testing | Playwright | @playwright/test | 1.58.1 |
-| Linting | Biome | @biomejs/biome | 2.3.11 |
+| Linting | Biome | @biomejs/biome | 2.4.4 |
 | Containers | Dockerode | dockerode | 4.0.9 |
 | Kubernetes | K8s Client | @kubernetes/client-node | 1.4.0 |
 | GitHub | Octokit | octokit | 5.0.5 |
@@ -80,7 +80,7 @@ The platform includes a visual Kanban board for task management, real-time strea
 
 ### Prerequisites
 
-- [Bun](https://bun.sh) 1.3.6+
+- [Bun](https://bun.sh) 1.3.10+
 - [Node.js](https://nodejs.org) 24.0.0+
 - [Docker](https://docker.com) (optional, for sandboxed agent execution)
 
@@ -112,7 +112,7 @@ Set the following environment variables (or configure via the Settings UI):
 ### Development
 
 ```bash
-# Start both frontend and API servers
+# Start frontend, API, and streams servers
 bun run dev
 ```
 
@@ -120,6 +120,7 @@ This starts:
 
 - **Frontend**: Vite dev server on port 3000
 - **API**: Hono backend on port 3001
+- **Streams**: DurableStreamTestServer on port 3002
 
 ### PostgreSQL (Optional)
 
@@ -188,9 +189,11 @@ bun run build
 ├── packages/
 │   ├── agent-sandbox-sdk/       # @agentpane/agent-sandbox-sdk (K8s CRD provider)
 │   └── cli-monitor/             # @agentpane/cli-monitor (npm package)
+├── Caddyfile                    # Caddy front door config (streams, proxy, static)
 ├── docker/
-│   ├── Dockerfile               # Main application container
+│   ├── Dockerfile               # Multi-stage build (deps → build → caddy → runtime)
 │   ├── Dockerfile.agent-sandbox # Agent sandbox environment
+│   ├── start.sh                 # Entrypoint: starts Caddy + Bun
 │   ├── docker-compose.yml       # Development (SQLite)
 │   └── docker-compose.postgres.yml # Production (PostgreSQL)
 ├── k8s/                         # Kubernetes manifests
@@ -210,6 +213,8 @@ bun run build
 
 ## Architecture
 
+![AgentPane Architecture](docs/architecture.png)
+
 ### Agent Execution Flow
 
 ```
@@ -221,31 +226,6 @@ Task moved to "In Progress"
   → Execution phase (optional swarm mode)
   → Task moves to "Waiting Approval"
   → User reviews diffs and approves/rejects
-```
-
-### Data Flow
-
-```
-┌─────────────────────────────────────────────┐
-│  Browser (React 19 + TanStack Start)        │
-│  ┌──────────┐  ┌───────────┐  ┌──────────┐ │
-│  │    UI    │←─│ TanStack  │←─│  Durable  │ │
-│  │ (Radix)  │  │    DB     │  │  Streams  │ │
-│  └──────────┘  └───────────┘  └──────────┘ │
-└─────────────────────┬───────────────────────┘
-                      │ HTTP API + SSE
-┌─────────────────────▼───────────────────────┐
-│  Server (Bun + Hono)                        │
-│  ┌──────────────────────────────────────┐   │
-│  │  API Routes → Services → Drizzle ORM │   │
-│  └──────────────────┬───────────────────┘   │
-│  ┌──────────────────▼───────────────────┐   │
-│  │  SQLite (dev) / PostgreSQL (prod)    │   │
-│  └──────────────────────────────────────┘   │
-│  ┌──────────────────────────────────────┐   │
-│  │  Claude Agent SDK (plan + execute)   │   │
-│  └──────────────────────────────────────┘   │
-└─────────────────────────────────────────────┘
 ```
 
 ### Sandbox Providers
@@ -260,13 +240,16 @@ Task moved to "In Progress"
 
 | Script | Description |
 |--------|-------------|
-| `bun run dev` | Start frontend (3000) + API (3001) servers |
+| `bun run dev` | Start frontend (3000) + API (3001) + streams (3002) |
+| `bun run dev:api` | Start API server only |
+| `bun run dev:vite` | Start Vite frontend only |
 | `bun run build` | Production build (frontend + agent-runner) |
 | `bun run test` | Run unit tests |
 | `bun run test:watch` | Run tests in watch mode |
 | `bun run test:coverage` | Run tests with coverage |
-| `bun run test:ui` | Run AI-powered UI tests |
 | `bun run test:e2e` | Run Playwright E2E tests |
+| `bun run test:ui` | Run AI-powered UI tests |
+| `bun run test:integration` | Run integration tests |
 | `bun run test:k8s` | Run Kubernetes integration tests |
 | `bun run lint` | Lint with Biome |
 | `bun run lint:fix` | Lint and auto-fix |
@@ -280,6 +263,7 @@ Task moved to "In Progress"
 | `bun run db:studio` | Open Drizzle Studio (SQLite) |
 | `bun run db:studio:pg` | Open Drizzle Studio (PostgreSQL) |
 | `bun run docker:pg` | Start PostgreSQL via Docker Compose |
+| `bun run docker:pg:down` | Stop PostgreSQL Docker Compose |
 
 ## Packages
 

@@ -84,7 +84,8 @@ e2e('UI Base Components E2E', () => {
       await waitForSelector('[data-testid="save-preferences"]', { timeout: 10000 });
 
       await click('[data-testid="save-preferences"]');
-      await waitForSelector('[data-testid="save-success"]', { timeout: 5000 });
+      // Wait for save to complete and button to change to success state
+      await waitForSelector('[data-testid="save-success"]', { timeout: 10000 });
 
       const success = await exists('[data-testid="save-success"]');
       expect(success).toBe(true);

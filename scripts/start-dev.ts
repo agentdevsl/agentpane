@@ -8,6 +8,7 @@
 
 const API_PORT = 3001;
 const VITE_PORT = 3000;
+const STREAMS_PORT = 3002;
 const API_URL = `http://localhost:${API_PORT}`;
 const HEALTH_URL = `${API_URL}/api/health`;
 const MAX_RETRIES = 30;
@@ -107,9 +108,12 @@ async function killExistingProcesses() {
 
   const killed3000 = await killPort(3000);
   const killed3001 = await killPort(3001);
+  const killed3002 = await killPort(3002);
 
-  if (killed3000 > 0 || killed3001 > 0) {
-    console.log(`   ${colors.dim}Killed ${killed3000 + killed3001} process(es)${colors.reset}`);
+  if (killed3000 > 0 || killed3001 > 0 || killed3002 > 0) {
+    console.log(
+      `   ${colors.dim}Killed ${killed3000 + killed3001 + killed3002} process(es)${colors.reset}`
+    );
   } else {
     console.log(`   ${colors.dim}No existing processes found${colors.reset}`);
   }
@@ -165,6 +169,37 @@ async function main() {
   // Check sandbox Docker image
   await checkSandboxImage();
 
+  // Start DurableStreamTestServer FIRST (API depends on it)
+  logStep('🌊', `Starting DurableStreamTestServer on port ${STREAMS_PORT}...`);
+  const streamsProcess = Bun.spawn(['bun', 'scripts/start-streams-server.ts'], {
+    cwd: process.cwd(),
+    stdout: 'inherit',
+    stderr: 'inherit',
+    env: { ...process.env, STREAMS_PORT: String(STREAMS_PORT) },
+  });
+
+  // Wait for streams server to be ready
+  const STREAMS_URL = `http://localhost:${STREAMS_PORT}/v1/stream`;
+  for (let attempt = 1; attempt <= 20; attempt++) {
+    try {
+      const resp = await fetch(STREAMS_URL, { method: 'HEAD', signal: AbortSignal.timeout(1000) });
+      if (resp.ok || resp.status === 404) {
+        log('✅', `Streams server ready on port ${STREAMS_PORT}`, colors.green);
+        break;
+      }
+    } catch {
+      // Not ready yet
+    }
+    if (attempt === 20) {
+      log(
+        '⚠️',
+        `Streams server not confirmed ready after ${attempt} attempts, continuing...`,
+        colors.yellow
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
   // Start API server
   logStep('📡', `Starting API server on port ${API_PORT}...`);
   const apiProcess = Bun.spawn(['bun', 'src/server/api.ts'], {
@@ -196,6 +231,7 @@ async function main() {
   if (!isHealthy) {
     log('❌', 'Failed to start: API server is not healthy', colors.yellow);
     apiProcess.kill();
+    streamsProcess.kill();
     process.exit(1);
   }
 
@@ -220,6 +256,9 @@ async function main() {
     `   ${colors.cyan}📡 API${colors.reset}       →  ${colors.bright}${API_URL}${colors.reset}`
   );
   console.log(
+    `   ${colors.cyan}🌊 Streams${colors.reset}   →  ${colors.bright}http://localhost:${STREAMS_PORT}${colors.reset}`
+  );
+  console.log(
     `   ${colors.cyan}💓 Health${colors.reset}    →  ${colors.dim}${HEALTH_URL}${colors.reset}`
   );
   console.log(`\n${colors.dim}${'─'.repeat(50)}${colors.reset}`);
@@ -229,6 +268,7 @@ async function main() {
   const shutdown = () => {
     console.log(`\n\n${colors.yellow}🛑 Shutting down...${colors.reset}`);
     apiProcess.kill();
+    streamsProcess.kill();
     viteProcess.kill();
     console.log(`${colors.green}👋 Goodbye!${colors.reset}\n`);
     process.exit(0);
@@ -238,7 +278,7 @@ async function main() {
   process.on('SIGTERM', shutdown);
 
   // Wait for processes
-  await Promise.race([apiProcess.exited, viteProcess.exited]);
+  await Promise.race([apiProcess.exited, streamsProcess.exited, viteProcess.exited]);
 }
 
 main().catch((error) => {

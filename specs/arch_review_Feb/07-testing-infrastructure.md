@@ -345,7 +345,7 @@ The CI pipeline has two sequential jobs:
 
 **Configuration:**
 - Runs on `ubuntu-latest`
-- Uses Bun 1.3.6
+- Uses Bun 1.3.10
 - Caches `~/.bun/install/cache`
 - Concurrency group per branch with cancel-in-progress
 - Triggered on push to `main` and PRs targeting `main`

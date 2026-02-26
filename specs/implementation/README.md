@@ -8,7 +8,7 @@ Complete implementation plan for AgentPane - a local-first multi-agent task mana
 
 | Layer | Technology | Package | Version |
 |-------|------------|---------|---------|
-| Runtime | Bun | <https://bun.sh> | 1.3.6 |
+| Runtime | Bun | <https://bun.sh> | 1.3.10 |
 | Framework | TanStack Start | @tanstack/react-start | 1.150.0 |
 | Database | PGlite | @electric-sql/pglite | 0.3.15 |
 | ORM | Drizzle | drizzle-orm + drizzle-kit | 0.45.1 |

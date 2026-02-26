@@ -123,7 +123,9 @@ function GitHubSettingsPage(): React.JSX.Element {
       </header>
 
       <div data-testid={hasGitHubToken ? 'github-connected' : 'github-not-connected'}>
-        <div data-testid="github-connection-status" />
+        <div data-testid="github-connection-status" className="text-xs text-fg-muted">
+          {hasGitHubToken ? 'Connected' : 'Not connected'}
+        </div>
 
         {!hasGitHubToken ? (
           <div className="space-y-5">

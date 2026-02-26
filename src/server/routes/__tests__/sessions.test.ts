@@ -536,50 +536,5 @@ describe('Sessions API Routes', () => {
     });
   });
 
-  // ── GET /api/sessions/:id/stream ──
-
-  describe('GET /api/sessions/:id/stream', () => {
-    it('returns SSE response with correct headers', async () => {
-      const { app, sessionService } = createTestApp();
-      sessionService.getById.mockResolvedValue({
-        ok: true,
-        value: { id: 'sess-1', status: 'active' },
-      });
-
-      const res = await request(app, 'GET', '/api/sessions/sess-1/stream');
-
-      expect(res.status).toBe(200);
-      expect(res.headers.get('Content-Type')).toBe('text/event-stream');
-      expect(res.headers.get('Cache-Control')).toBe('no-cache');
-      expect(res.headers.get('Connection')).toBe('keep-alive');
-
-      // Clean up the stream
-      const reader = res.body!.getReader();
-      reader.cancel();
-    });
-
-    it('returns 400 for invalid session id', async () => {
-      const { app } = createTestApp();
-
-      const res = await request(app, 'GET', '/api/sessions/bad!id/stream');
-
-      expect(res.status).toBe(400);
-      const json = await res.json();
-      expect(json.error.code).toBe('INVALID_ID');
-    });
-
-    it('returns 404 when session not found', async () => {
-      const { app, sessionService } = createTestApp();
-      sessionService.getById.mockResolvedValue({
-        ok: false,
-        error: { code: 'NOT_FOUND', message: 'Session not found', status: 404 },
-      });
-
-      const res = await request(app, 'GET', '/api/sessions/nonexistent-id/stream');
-
-      expect(res.status).toBe(404);
-      const json = await res.json();
-      expect(json.ok).toBe(false);
-    });
-  });
+  // NOTE: SSE stream endpoint tests removed — clients use Caddy durable streams directly.
 });

@@ -1,3 +1,4 @@
+import { stream as durableStream } from '@durable-streams/client';
 import type React from 'react';
 import {
   createContext,
@@ -11,7 +12,6 @@ import {
 import { apiClient } from '@/lib/api/client';
 import type {
   ClarifyingQuestion,
-  ComposeEvent,
   ComposeMessage,
   ComposeMode,
   ComposeStage,
@@ -200,9 +200,20 @@ export function TerraformProvider({ children }: { children: React.ReactNode }): 
   const [generatedFiles, setGeneratedFiles] = useState<GeneratedFile[] | null>(null);
   const sessionIdRef = useRef<string | undefined>(undefined);
   const abortRef = useRef<AbortController | null>(null);
+  const unsubscribeRef = useRef<(() => void) | null>(null);
+  const streamResponseRef = useRef<Awaited<ReturnType<typeof durableStream>> | null>(null);
   const messagesRef = useRef<ComposeMessage[]>([]);
   const isStreamingRef = useRef(false);
+  const composeModeRef = useRef(composeMode);
+  const isMountedRef = useRef(true);
   messagesRef.current = messages;
+  composeModeRef.current = composeMode;
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const loadRegistries = useCallback(async () => {
     try {
@@ -279,7 +290,15 @@ export function TerraformProvider({ children }: { children: React.ReactNode }): 
       setGeneratedCode(null);
       setGeneratedFiles(null);
 
-      // Cancel any existing stream
+      // Cancel any existing stream subscription
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+        unsubscribeRef.current = null;
+      }
+      if (streamResponseRef.current) {
+        streamResponseRef.current.cancel();
+        streamResponseRef.current = null;
+      }
       if (abortRef.current) {
         abortRef.current.abort();
       }
@@ -288,6 +307,7 @@ export function TerraformProvider({ children }: { children: React.ReactNode }): 
       let receivedDone = false;
       let receivedPartialData = false;
       let assistantContent = '';
+      let streamFailed = false;
 
       try {
         // Step 1: POST to start the compose job (returns immediately with sessionId)
@@ -316,154 +336,185 @@ export function TerraformProvider({ children }: { children: React.ReactNode }): 
         };
         const jobSessionId = startData.data.sessionId;
 
-        // Step 2: GET the SSE event stream for this job
-        const eventsUrl = apiClient.terraform.getComposeEventsUrl(jobSessionId);
-        const eventsResponse = await fetch(eventsUrl, {
-          signal: abortRef.current.signal,
+        // Step 2: Subscribe to Caddy durable stream for this job
+        const streamUrl = `/v1/stream/terraform/${encodeURIComponent(jobSessionId)}`;
+
+        // Create a promise that resolves when the stream completes (done/error event)
+        const streamComplete = new Promise<void>((resolve) => {
+          let streamRetryCount = 0;
+          const MAX_STREAM_RETRIES = 5;
+          const startStream = async () => {
+            try {
+              const response = await durableStream({
+                url: streamUrl,
+                live: 'sse',
+                offset: '-1',
+                json: true,
+                onError: (streamError) => {
+                  streamRetryCount++;
+                  console.error(
+                    `[Terraform] Durable stream error (attempt ${streamRetryCount}/${MAX_STREAM_RETRIES}):`,
+                    streamError
+                  );
+                  if (streamRetryCount >= MAX_STREAM_RETRIES) {
+                    setError('Stream connection failed after multiple retries');
+                    setIsStreaming(false);
+                    resolve();
+                    return; // Return void to stop stream
+                  }
+                  return {}; // Signal retry
+                },
+              });
+
+              streamResponseRef.current = response;
+
+              /** Route a terraform stream event to the appropriate handler */
+              function processStreamItem(item: {
+                type: string;
+                data: Record<string, unknown>;
+                timestamp?: number;
+              }): void {
+                try {
+                  switch (item.type) {
+                    case 'terraform:status':
+                      setComposeStage(item.data.stage as ComposeStage);
+                      receivedPartialData = true;
+                      break;
+
+                    case 'terraform:text':
+                      assistantContent += (item.data.delta as string) ?? '';
+                      setMessages((prev) => {
+                        const newMessages = [...prev];
+                        const lastMsg = newMessages[newMessages.length - 1];
+                        if (lastMsg?.role === 'assistant') {
+                          newMessages[newMessages.length - 1] = {
+                            ...lastMsg,
+                            content: assistantContent,
+                          };
+                        } else {
+                          newMessages.push({ role: 'assistant', content: assistantContent });
+                        }
+                        return newMessages;
+                      });
+                      break;
+
+                    case 'terraform:modules': {
+                      const modules = item.data.modules as ModuleMatch[];
+                      setMatchedModules(modules);
+                      receivedPartialData = true;
+                      setMessages((prev) => {
+                        const newMessages = [...prev];
+                        const lastMsg = newMessages[newMessages.length - 1];
+                        if (lastMsg?.role === 'assistant') {
+                          newMessages[newMessages.length - 1] = {
+                            ...lastMsg,
+                            modules,
+                          };
+                        }
+                        return newMessages;
+                      });
+                      break;
+                    }
+
+                    case 'terraform:questions': {
+                      const questions = item.data.questions as ClarifyingQuestion[];
+                      setMessages((prev) => {
+                        const newMessages = [...prev];
+                        const lastMsg = newMessages[newMessages.length - 1];
+                        if (lastMsg?.role === 'assistant') {
+                          const existing = lastMsg.clarifyingQuestions ?? [];
+                          newMessages[newMessages.length - 1] = {
+                            ...lastMsg,
+                            clarifyingQuestions: [...existing, ...questions],
+                          };
+                        }
+                        return newMessages;
+                      });
+                      receivedPartialData = true;
+                      break;
+                    }
+
+                    case 'terraform:code':
+                      setGeneratedCode(item.data.code as string);
+                      if (item.data.files) setGeneratedFiles(item.data.files as GeneratedFile[]);
+                      break;
+
+                    case 'terraform:done':
+                      receivedDone = true;
+                      sessionIdRef.current = jobSessionId;
+                      setComposeStage('finalizing');
+                      setComposeComplete(true);
+                      if (item.data.matchedModules)
+                        setMatchedModules(item.data.matchedModules as ModuleMatch[]);
+                      if (item.data.generatedCode)
+                        setGeneratedCode(item.data.generatedCode as string);
+                      if (item.data.generatedFiles)
+                        setGeneratedFiles(item.data.generatedFiles as GeneratedFile[]);
+                      // Stream is done — clean up
+                      resolve();
+                      break;
+
+                    case 'terraform:error':
+                      console.error('[Terraform] Compose error:', item.data.error);
+                      setComposeStage(null);
+                      setComposeComplete(false);
+                      setError(item.data.error as string);
+                      resolve();
+                      break;
+
+                    default:
+                      break;
+                  }
+                } catch (processingError) {
+                  console.error(
+                    '[Terraform] Error processing stream event:',
+                    item.type,
+                    processingError
+                  );
+                  setError('An error occurred processing the server response. Please try again.');
+                }
+              }
+
+              // Subscribe to JSON batches from the durable stream
+              unsubscribeRef.current = response.subscribeJson<{
+                type: string;
+                data: Record<string, unknown>;
+                timestamp?: number;
+              }>((batch) => {
+                for (const item of batch.items) {
+                  processStreamItem(item);
+                }
+              });
+
+              // Monitor for stream closure
+              response.closed
+                .then(() => {
+                  if (!receivedDone && !response.streamClosed) {
+                    console.warn('[Terraform] Stream closed without terminal event');
+                    setError('Stream connection lost. Partial results may be shown.');
+                  }
+                  resolve();
+                })
+                .catch((err) => {
+                  console.error('[Terraform] Stream closed with error:', err);
+                  resolve();
+                });
+            } catch (connectError) {
+              console.error('[Terraform] Failed to connect to durable stream:', connectError);
+              setError(
+                'Failed to connect to the event stream. Please check your connection and try again.'
+              );
+              resolve();
+            }
+          };
+
+          startStream();
         });
 
-        if (!eventsResponse.ok || !eventsResponse.body) {
-          throw new Error(`Failed to connect to compose event stream: ${eventsResponse.status}`);
-        }
-
-        const reader = eventsResponse.body.getReader();
-        const decoder = new TextDecoder();
-        assistantContent = '';
-        let buffer = '';
-
-        /** Process a single SSE event — shared between main loop and buffer flush. */
-        function processComposeEvent(event: ComposeEvent): void {
-          switch (event.type) {
-            case 'status':
-              setComposeStage(event.stage);
-              receivedPartialData = true;
-              break;
-
-            case 'text':
-              assistantContent += event.content;
-              setMessages((prev) => {
-                const newMessages = [...prev];
-                const lastMsg = newMessages[newMessages.length - 1];
-                if (lastMsg?.role === 'assistant') {
-                  newMessages[newMessages.length - 1] = {
-                    ...lastMsg,
-                    content: assistantContent,
-                  };
-                } else {
-                  newMessages.push({ role: 'assistant', content: assistantContent });
-                }
-                return newMessages;
-              });
-              break;
-
-            case 'modules':
-              setMatchedModules(event.modules);
-              receivedPartialData = true;
-              setMessages((prev) => {
-                const newMessages = [...prev];
-                const lastMsg = newMessages[newMessages.length - 1];
-                if (lastMsg?.role === 'assistant') {
-                  newMessages[newMessages.length - 1] = {
-                    ...lastMsg,
-                    modules: event.modules,
-                  };
-                }
-                return newMessages;
-              });
-              break;
-
-            case 'questions':
-              setMessages((prev) => {
-                const newMessages = [...prev];
-                const lastMsg = newMessages[newMessages.length - 1];
-                if (lastMsg?.role === 'assistant') {
-                  // Merge with existing questions to avoid overwriting on multiple events
-                  const existing = lastMsg.clarifyingQuestions ?? [];
-                  newMessages[newMessages.length - 1] = {
-                    ...lastMsg,
-                    clarifyingQuestions: [...existing, ...event.questions],
-                  };
-                }
-                return newMessages;
-              });
-              receivedPartialData = true;
-              break;
-
-            case 'code':
-              setGeneratedCode(event.code);
-              if (event.files) setGeneratedFiles(event.files);
-              break;
-
-            case 'done':
-              receivedDone = true;
-              sessionIdRef.current = event.sessionId;
-              setComposeStage('finalizing');
-              setComposeComplete(true);
-              if (event.matchedModules) setMatchedModules(event.matchedModules);
-              if (event.generatedCode) setGeneratedCode(event.generatedCode);
-              if (event.generatedFiles) setGeneratedFiles(event.generatedFiles);
-              break;
-
-            case 'error':
-              console.error('[Terraform] Compose error:', event.error);
-              setComposeStage(null);
-              setComposeComplete(false);
-              setError(event.error);
-              break;
-          }
-        }
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() ?? '';
-
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            const jsonStr = line.slice(6);
-            if (!jsonStr) continue;
-
-            let event: ComposeEvent;
-            try {
-              event = JSON.parse(jsonStr) as ComposeEvent;
-            } catch (parseErr) {
-              console.warn(
-                '[Terraform] Failed to parse SSE data:',
-                jsonStr.slice(0, 100),
-                parseErr
-              );
-              continue;
-            }
-
-            try {
-              processComposeEvent(event);
-            } catch (processingError) {
-              console.error('[Terraform] Error processing SSE event:', event.type, processingError);
-              setError('An error occurred processing the server response. Please try again.');
-            }
-          }
-        }
-
-        // Flush any remaining data left in the buffer after stream ends
-        if (buffer.trim()) {
-          const remaining = buffer.trim();
-          if (remaining.startsWith('data: ')) {
-            try {
-              const event = JSON.parse(remaining.slice(6)) as ComposeEvent;
-              processComposeEvent(event);
-            } catch (parseErr) {
-              console.warn(
-                '[Terraform] Failed to parse final SSE buffer:',
-                remaining.slice(0, 100),
-                parseErr
-              );
-            }
-          }
-        }
+        // Wait for the stream to complete (done or error event)
+        await streamComplete;
       } catch (err) {
+        streamFailed = true;
         if (err instanceof Error && err.name === 'AbortError') return;
         console.error('[Terraform] Stream error:', err);
 
@@ -471,16 +522,8 @@ export function TerraformProvider({ children }: { children: React.ReactNode }): 
           if (err instanceof TypeError && err.message.includes('fetch')) {
             return 'Unable to reach the server. Please check your connection and try again.';
           }
-          if (
-            err instanceof Error &&
-            (err.message.includes('INCOMPLETE_CHUNKED') || err.message.includes('network'))
-          ) {
-            return receivedPartialData
-              ? 'The connection was interrupted, but partial results are shown below.'
-              : 'The connection was interrupted before any data was received. Please try again.';
-          }
           if (err instanceof Error && err.message.includes('timeout')) {
-            return 'The request timed out. The server may be under heavy load — please try again shortly.';
+            return 'The request timed out. The server may be under heavy load -- please try again shortly.';
           }
           return receivedPartialData
             ? 'The stream ended unexpectedly, but partial results are shown below.'
@@ -489,37 +532,57 @@ export function TerraformProvider({ children }: { children: React.ReactNode }): 
 
         setError(errorMessage);
       } finally {
+        // Clean up stream subscription
+        // Note: refs are mutated by the async stream callback; TypeScript's control
+        // flow analysis doesn't track cross-async mutations, so cast is needed.
+        const unsub = unsubscribeRef.current as (() => void) | null;
+        if (unsub) {
+          unsub();
+          unsubscribeRef.current = null;
+        }
+        const streamResp = streamResponseRef.current as {
+          cancel: (reason?: unknown) => void;
+        } | null;
+        if (streamResp) {
+          streamResp.cancel();
+          streamResponseRef.current = null;
+        }
+
         isStreamingRef.current = false;
-        setIsStreaming(false);
-        if (!receivedDone) {
-          setComposeStage(null);
-          setComposeComplete(false);
-        }
-        // Client-side fallback: extract HCL from assistant content if server didn't send a code event
-        setGeneratedCode((prev) => {
-          if (prev) return prev;
-          return extractHclFromText(assistantContent);
-        });
-        // Stacks mode fallback: extract multi-file output from assistant content
-        if (composeMode === 'stacks') {
-          setGeneratedFiles((prev) => {
-            if (prev) return prev;
-            return extractStacksFilesFromText(assistantContent);
-          });
-        }
-        // Parse clarifying questions from assistant text and attach to message
-        // (only if the server didn't already send questions via SSE events)
-        if (assistantContent) {
-          const questions = parseClarifyingQuestions(assistantContent);
-          if (questions.length > 0) {
-            setMessages((prev) => {
-              const updated = [...prev];
-              const lastMsg = updated[updated.length - 1];
-              if (lastMsg?.role === 'assistant' && !lastMsg.clarifyingQuestions?.length) {
-                updated[updated.length - 1] = { ...lastMsg, clarifyingQuestions: questions };
-              }
-              return updated;
+        if (isMountedRef.current) {
+          setIsStreaming(false);
+          if (!receivedDone) {
+            setComposeStage(null);
+            setComposeComplete(false);
+          }
+          // Client-side fallback: extract HCL from assistant content if server didn't send a code event
+          if (!streamFailed) {
+            setGeneratedCode((prev) => {
+              if (prev) return prev;
+              return extractHclFromText(assistantContent);
             });
+          }
+          // Stacks mode fallback: extract multi-file output from assistant content
+          if (!streamFailed && composeModeRef.current === 'stacks') {
+            setGeneratedFiles((prev) => {
+              if (prev) return prev;
+              return extractStacksFilesFromText(assistantContent);
+            });
+          }
+          // Parse clarifying questions from assistant text and attach to message
+          // (only if the server didn't already send questions via durable stream events)
+          if (!streamFailed && assistantContent) {
+            const questions = parseClarifyingQuestions(assistantContent);
+            if (questions.length > 0) {
+              setMessages((prev) => {
+                const updated = [...prev];
+                const lastMsg = updated[updated.length - 1];
+                if (lastMsg?.role === 'assistant' && !lastMsg.clarifyingQuestions?.length) {
+                  updated[updated.length - 1] = { ...lastMsg, clarifyingQuestions: questions };
+                }
+                return updated;
+              });
+            }
           }
         }
       }
@@ -534,9 +597,18 @@ export function TerraformProvider({ children }: { children: React.ReactNode }): 
     setGeneratedFiles(null);
     setComposeStage(null);
     setComposeComplete(false);
+    setError(null);
     sessionIdRef.current = undefined;
     isStreamingRef.current = false;
     setIsStreaming(false);
+    if (unsubscribeRef.current) {
+      unsubscribeRef.current();
+      unsubscribeRef.current = null;
+    }
+    if (streamResponseRef.current) {
+      streamResponseRef.current.cancel();
+      streamResponseRef.current = null;
+    }
     if (abortRef.current) {
       abortRef.current.abort();
       abortRef.current = null;

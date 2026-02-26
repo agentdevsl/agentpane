@@ -31,7 +31,8 @@ export type PlanStreamEventType =
   | 'plan:token'
   | 'plan:interaction'
   | 'plan:completed'
-  | 'plan:error';
+  | 'plan:error'
+  | 'plan:cancelled';
 
 /**
  * Base stream event structure
