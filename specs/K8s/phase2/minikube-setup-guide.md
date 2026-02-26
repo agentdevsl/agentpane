@@ -29,7 +29,7 @@
 | kubectl | v1.28.0+ | `brew install kubectl` or ships with minikube (`minikube kubectl`) |
 | Docker or containerd | Docker 24+ / containerd 1.7+ | `brew install --cask docker` or system containerd |
 | Helm | v3.14+ (optional) | `brew install helm` |
-| Bun | v1.3.6+ | `curl -fsSL https://bun.sh/install \| bash` |
+| Bun | v1.3.10+ | `curl -fsSL https://bun.sh/install \| bash` |
 
 ### System Requirements
 
@@ -47,7 +47,7 @@
 minikube version    # minikube version: v1.32.x
 kubectl version --client --short 2>/dev/null || kubectl version --client
 docker version      # or: containerd --version
-bun --version       # 1.3.6
+bun --version       # 1.3.10
 ```
 
 ### Kernel Requirements for gVisor
@@ -1391,7 +1391,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.6
+          bun-version: 1.3.10
 
       - name: Install dependencies
         run: bun install --frozen-lockfile

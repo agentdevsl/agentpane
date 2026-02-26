@@ -10,7 +10,7 @@ Comprehensive monitoring, logging, metrics collection, health checks, alerting, 
 
 | Component | Technology | Role in Observability |
 |-----------|------------|----------------------|
-| Runtime | Bun 1.3.6 | Process metrics, native tracing hooks |
+| Runtime | Bun 1.3.10 | Process metrics, native tracing hooks |
 | Framework | TanStack Start | Request/response instrumentation |
 | Database | PGlite 0.3.15 | Query metrics, connection health |
 | Streaming | Durable Streams | Event throughput, latency metrics |

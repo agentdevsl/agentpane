@@ -97,7 +97,7 @@ use these skills
 
 | Layer              | Technology       | Package                                                                                             | Version          |
 | ------------------ | ---------------- | --------------------------------------------------------------------------------------------------- | ---------------- |
-| Runtime            | Bun              | <https://bun.sh>                                                                                      | 1.3.6            |
+| Runtime            | Bun              | <https://bun.sh>                                                                                      | 1.3.10           |
 | Framework          | TanStack Start   | @tanstack/react-start (<https://github.com/TanStack/router>)                                          | 1.150.0          |
 | API Router         | Hono             | hono (<https://github.com/honojs/hono>)                                                               | 4.11.5           |
 | Database           | SQLite           | better-sqlite3 (<https://github.com/WiseLibs/better-sqlite3>) (server-only)                            | 12.6.2           |
@@ -208,6 +208,38 @@ This project uses server-side SQLite with real-time event streaming to clients:
 | Agent progress   | Server → Client | Durable Session events (real-time SSE)        |
 | Agent runs       | Server          | Agent runs in Bun, writes to SQLite           |
 | Session replay   | Client          | Join existing session, receive full history   |
+
+### Caddy Front Door (Durable Streams Server)
+
+In production, a custom Caddy binary (`durable-streams-server`) runs on `:3000` as the front door. Bun runs as a backend API on `:3001`. Caddy handles three concerns:
+
+1. **Durable Streams** — LMDB-backed SSE + long-poll at `/v1/stream/*` for real-time agent events
+2. **API reverse proxy** — `/api/*` proxied to Bun on `:3001` with streaming flush
+3. **Static files** — SPA with gzip/brotli, immutable cache headers for `/assets/*`
+
+```text
+Client (:3000)
+  ├── /v1/stream/*  → Caddy durable_streams (LMDB, SSE)
+  ├── /api/*        → reverse_proxy → Bun (:3001)
+  └── /*            → static files / SPA fallback
+```
+
+**Dev mode** uses `DurableStreamTestServer` (from `@durable-streams/server`) on `:3002` instead of Caddy. The `npm run dev` script starts both the Vite frontend and the streams server.
+
+| Environment | Streams Provider | Port | Config |
+|-------------|-----------------|------|--------|
+| Production  | Caddy (`durable-streams-server`) | 3000 | `Caddyfile` |
+| Development | `DurableStreamTestServer` | 3002 | `scripts/start-streams-server.ts` |
+
+**Key files:**
+
+| File | Purpose |
+|------|---------|
+| `Caddyfile` | Caddy configuration (streams, proxy, static) |
+| `docker/start.sh` | Starts Caddy + Bun in production container |
+| `docker/Dockerfile` | Downloads `durable-streams-server` binary |
+| `scripts/start-streams-server.ts` | Dev-mode streams server |
+| `src/lib/streams/caddy-producer.ts` | Publishes events to the streams server |
 
 ---
 

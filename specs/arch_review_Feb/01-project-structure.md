@@ -214,7 +214,7 @@ The pipeline has two jobs:
 - No E2E test job
 - No Docker image build/test
 - No package build verification for `packages/cli-monitor` or `packages/agent-sandbox-sdk`
-- Pinned Bun version (1.3.6) as env var but the Dockerfile also pins 1.3.6 - these could drift
+- Pinned Bun version (1.3.10) as env var but the Dockerfile also pins 1.3.10 - these could drift
 - Single workflow file - no staging/production deployment workflows exist
 
 ### 4.2 Pre-commit Hooks (`.pre-commit-config.yaml`)
@@ -376,7 +376,7 @@ Different parts of the project require different Node.js versions:
 | Root `package.json` | `>=24.0.0` |
 | `agent-runner/package.json` | `>=22.0.0` |
 | `packages/cli-monitor/package.json` | `>=22.0.0` |
-| Docker base image | Bun 1.3.6 (Alpine) |
+| Docker base image | Bun 1.3.10 (Alpine) |
 
 Node 24 is the current LTS but requiring it while sub-packages accept 22+ creates confusion. The `agent-runner` deploys inside Docker with Bun, not Node directly.
 

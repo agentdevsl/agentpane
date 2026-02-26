@@ -10,7 +10,7 @@ Complete routing configuration for AgentPane using TanStack Start file-based rou
 |-----------|---------|---------|
 | TanStack Start | 1.150.0 | Full-stack React framework with file-based routing |
 | TanStack Router | 1.150.0 | Type-safe client routing with loaders |
-| Bun | 1.3.6 | Server runtime |
+| Bun | 1.3.10 | Server runtime |
 
 ---
 

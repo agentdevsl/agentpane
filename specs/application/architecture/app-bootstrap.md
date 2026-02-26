@@ -53,7 +53,7 @@ AgentPane uses a **client/server architecture** where:
 
 | Component | Version | Purpose |
 |-----------|---------|---------|
-| Bun | 1.3.6 | JavaScript runtime |
+| Bun | 1.3.10 | JavaScript runtime |
 | TanStack Start | 1.150.0 | Full-stack React framework |
 | better-sqlite3 | 11.x | SQLite database (server-only) |
 | Drizzle ORM | 0.45.1 | Type-safe SQL query builder |

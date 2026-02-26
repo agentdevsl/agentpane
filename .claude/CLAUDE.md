@@ -389,7 +389,7 @@ When performing any research, concurrent subagents can be used for performance a
 
 | Layer              | Technology       | Package                                                                                             | Version          |
 | ------------------ | ---------------- | --------------------------------------------------------------------------------------------------- | ---------------- |
-| Runtime            | Bun              | https://bun.sh                                                                                      | 1.3.6            |
+| Runtime            | Bun              | https://bun.sh                                                                                      | 1.3.10           |
 | Framework          | TanStack Start   | @tanstack/react-start (https://github.com/TanStack/router)                                          | 1.150.0          |
 | API Router         | Hono             | hono (https://github.com/honojs/hono)                                                               | 4.11.5           |
 | Database           | SQLite           | better-sqlite3 (https://github.com/WiseLibs/better-sqlite3)                                         | 12.6.2           |

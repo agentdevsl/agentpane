@@ -7,7 +7,7 @@
 #   docker run -p 3000:3000 -v agentpane-data:/app/data agentpane:latest
 
 # ─── Stage 1: Install dependencies ───
-FROM oven/bun:1.3.6-alpine AS deps
+FROM oven/bun:1.3.10-alpine AS deps
 
 WORKDIR /app
 
@@ -18,7 +18,7 @@ RUN bun install --frozen-lockfile --production=false
 RUN cd agent-runner && npm install --ignore-scripts
 
 # ─── Stage 2: Build application ───
-FROM oven/bun:1.3.6-alpine AS build
+FROM oven/bun:1.3.10-alpine AS build
 
 WORKDIR /app
 
@@ -37,7 +37,7 @@ ADD https://github.com/anthropics/durable-streams/releases/download/v0.2.1/durab
 RUN chmod +x /usr/local/bin/durable-streams-server
 
 # ─── Stage 3: Production runtime ───
-FROM oven/bun:1.3.6-alpine AS runtime
+FROM oven/bun:1.3.10-alpine AS runtime
 
 RUN apk add --no-cache git tini wget bash
 
