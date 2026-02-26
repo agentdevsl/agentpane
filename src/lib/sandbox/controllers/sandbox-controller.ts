@@ -97,6 +97,11 @@ export class SandboxController {
     // Reconcile anything already in the cluster
     await this.reconcileExisting();
 
+    // Run warm pool reconciliation eagerly on startup (don't wait for first interval)
+    await this.reconcileWarmPools().catch((err) => {
+      log.error('Initial warm pool reconciliation error', { error: err });
+    });
+
     log.info('Started');
   }
 
@@ -584,18 +589,22 @@ export class SandboxController {
           }
         }
 
-        // Count how many are currently in Running phase (exclude terminal ones we just deleted)
+        // Count non-terminal sandboxes (Running + Pending) to avoid creating duplicates
+        // while pods are still starting up. Only terminal (Failed/Succeeded) are excluded.
         const terminalNames = new Set(terminalSandboxes.map((s) => s.metadata?.name));
+        const currentActive = existingSandboxes.items.filter(
+          (s) => !terminalNames.has(s.metadata?.name)
+        ).length;
         const currentReady = existingSandboxes.items.filter(
           (s) => s.status?.phase === 'Running' && !terminalNames.has(s.metadata?.name)
         ).length;
 
-        // Calculate deficit
-        const deficit = desiredReady - currentReady;
+        // Calculate deficit based on active (Running + Pending) count, not just Running
+        const deficit = desiredReady - currentActive;
 
         if (deficit > 0) {
           log.info('Warm pool deficit detected, creating sandboxes', {
-            data: { poolName, currentReady, desiredReady, deficit },
+            data: { poolName, currentActive, currentReady, desiredReady, deficit },
           });
 
           for (let i = 0; i < deficit; i++) {

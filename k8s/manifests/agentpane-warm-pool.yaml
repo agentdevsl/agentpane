@@ -13,7 +13,7 @@
 apiVersion: agents.x-k8s.io/v1alpha1
 kind: SandboxWarmPool
 metadata:
-  name: agentpane-pool
+  name: agentpane-warm-pool
   namespace: agentpane-sandboxes
   labels:
     app.kubernetes.io/name: agentpane

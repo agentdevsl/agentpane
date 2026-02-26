@@ -197,6 +197,14 @@ export class AgentSandboxClient {
     }) as Promise<SandboxWarmPoolList>;
   }
 
+  async replaceWarmPool(
+    name: string,
+    pool: SandboxWarmPool,
+    namespace?: string
+  ): Promise<SandboxWarmPool> {
+    return this.warmPoolCrud.update(namespace ?? this.namespace, name, pool);
+  }
+
   async deleteWarmPool(name: string, namespace?: string): Promise<void> {
     return this.warmPoolCrud.delete(namespace ?? this.namespace, name);
   }

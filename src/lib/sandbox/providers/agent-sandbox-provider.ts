@@ -524,9 +524,17 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
       if (!(error instanceof AlreadyExistsError)) {
         throw error;
       }
-      // Already exists (409) — delete and recreate with updated spec
-      await this.client.deleteWarmPool(warmPoolName);
-      await this.client.createWarmPool(warmPool);
+      // Already exists (409) — update spec in place instead of delete+recreate
+      // to avoid orphaning existing warm pool sandboxes via ownerReference cascade
+      try {
+        await this.client.replaceWarmPool(warmPoolName, warmPool);
+      } catch (replaceErr) {
+        log.warn('Failed to replace warm pool, falling back to delete+recreate', {
+          error: replaceErr,
+        });
+        await this.client.deleteWarmPool(warmPoolName);
+        await this.client.createWarmPool(warmPool);
+      }
     }
 
     log.info(`Warm pool initialized: ${warmPoolName}`, {
