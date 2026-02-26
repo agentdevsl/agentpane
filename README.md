@@ -6,11 +6,15 @@
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen)](/)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
+## Architecture
+
+![AgentPane Architecture](docs/architecture.png)
+
 ## Overview
 
-AgentPane is a multi-agent AI development platform built on the Claude Agent SDK. It enables concurrent AI agents to work on tasks with full project isolation via git worktrees and sandboxed containers. Agents follow a plan-then-execute workflow with optional swarm mode for parallel execution.
+AgentPane is a multi-agent AI development platform built on the Claude Agent SDK. It enables concurrent AI agents to work on tasks with full project isolation via git worktrees and sandboxed containers. Agents follow a plan-then-execute workflow with teams mode (planned) for parallel execution.
 
-The platform includes a visual Kanban board for task management, real-time streaming of agent progress, integrated code review workflows, and a Terraform no-code composer that generates HCL configurations from natural language.
+The platform includes a visual Kanban board for task management, real-time streaming of agent progress, integrated code review workflows, a Terraform no-code composer, plugin marketplace, and workflow designer.
 
 ## Features
 
@@ -20,34 +24,54 @@ The platform includes a visual Kanban board for task management, real-time strea
 - **Plan → Execute Workflow** — Agents plan first, then execute after user approval
 - **Teams Mode** *(planned)* — During planning, an agent can request parallel execution by spawning multiple sub-agents to work on different parts of the plan concurrently
 - **Git Worktree Isolation** — Each agent works in an isolated git worktree
-- **Session Replay** — Full session history with timeline and event filtering
+- **Session Replay** — Full session history with timeline, event filtering, and play/pause/seek controls
+- **Agent Topology** — Real-time React Flow graph showing live agent activity with ELK auto-layout
+- **AI-Assisted Planning** — Interactive planning sessions where Claude asks clarifying questions before execution
 
 ### Task Management
 
-- **Kanban Board** — Drag-and-drop workflow: Backlog → In Progress → Waiting Approval → Verified
+- **Kanban Board** — Drag-and-drop workflow: Backlog → Queued → In Progress → Waiting Approval → Verified
 - **Auto-Start** — Moving a task to "In Progress" automatically assigns and starts an agent
+- **AI Task Creation** — Claude asks multi-round clarifying questions to refine task requirements before submission
 - **Code Review** — Approve or reject agent changes with diff visualization before merge
 
 ### Sandboxed Execution
 
 - **Docker Containers** — Run agents in isolated Docker containers with project bind-mounts
-- **Agent Sandbox SDK** — Kubernetes CRD-based sandbox provider (`@agentpane/agent-sandbox-sdk`)
+- **Kubernetes CRD** — Agent Sandbox SDK for Kubernetes pod provisioning via `agents.x-k8s.io/v1alpha1`
+- **Nomad Jobs** — HashiCorp Nomad sandbox provider for job-based agent isolation
 - **Per-Project or Shared** — Choose between a shared container or per-project isolation
 
 ### Terraform No-Code Composer
 
 - **Natural Language → HCL** — Generate Terraform configurations from plain English via Claude
-- **Module Browser** — Browse and search Terraform providers and modules from the registry
-- **Dependency Diagrams** — Visual resource dependency graphs
+- **Private Module Browser** — Browse and search modules from your connected private Terraform registry
+- **Dependency Diagrams** — Visual resource dependency graphs (React Flow + ELK)
 - **Composition History** — Track and revisit previous compositions
-- **Variable Forms** — Interactive variable input for generated configurations
+- **Variable Forms** — Interactive variable input with smart widget inference and `.tfvars` generation
+- **Registry Sync** — Background scheduler auto-syncs registry data on configurable intervals
+
+### Plugin Marketplace
+
+- **GitHub-Synced Plugins** — Browse Claude plugins synced from GitHub repos
+- **Multiple Sources** — Add internal and external marketplace sources
+- **Category Browse** — Filter and explore plugins by category
+
+### Templates
+
+- **GitHub-Synced Templates** — Add GitHub repos as template sources for skills, commands, and agents
+- **Org & Project Scoping** — Templates can be scoped to an organization or individual project
+- **Auto-Sync** — Background scheduler syncs template changes from GitHub on configurable intervals
 
 ### Integrations
 
-- **GitHub OAuth** — Repository sync, webhook support, and branch/PR operations
+- **GitHub App** — Repository sync via PAT or GitHub App installation tokens, webhook-triggered template sync
 - **Workflow Designer** — Visual AI-powered workflow editor with drag-and-drop (React Flow + ELK)
+- **Workflow Catalog** — Browse saved workflows with SVG previews, search, filter, and pagination
+- **Git View** — 5-column dashboard: PRs, worktrees, commits, local branches, remote branches
 - **CLI Monitor** — Real-time monitoring of Claude CLI sessions (`@agentpane/cli-monitor`)
 - **Durable Streams** — Real-time event streaming via Caddy front door (LMDB-backed SSE + long-poll)
+- **Encrypted API Keys** — UI-managed per-service API key storage with masked display
 
 ## Tech Stack
 
@@ -63,7 +87,7 @@ The platform includes a visual Kanban board for task management, real-time strea
 | Real-time | Durable Streams | @durable-streams/* | 0.2.1 |
 | AI / Agents | Claude Agent SDK | @anthropic-ai/claude-agent-sdk | 0.2.55 |
 | AI / API | Anthropic SDK | @anthropic-ai/sdk | 0.72.1 |
-| UI | Radix + Tailwind | @radix-ui/* + tailwindcss | 1.2.4 / 4.1.18 |
+| UI | React + Radix + Tailwind | react + @radix-ui/* + tailwindcss | 19.2.4 / 4.1.18 |
 | Flow Editor | React Flow | @xyflow/react | 12.10.1 |
 | Graph Layout | ELK | elkjs | 0.11.0 |
 | Drag & Drop | dnd-kit | @dnd-kit/core + @dnd-kit/sortable | 6.3.1 / 10.0.0 |
@@ -105,9 +129,14 @@ Set the following environment variables (or configure via the Settings UI):
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `ANTHROPIC_API_KEY` | Yes | API key for Claude Agent SDK |
+| `DB_MODE` | No | `sqlite` (default) or `postgres` |
+| `DATABASE_URL` | If postgres | PostgreSQL connection string |
+| `CADDY_STREAMS_URL` | No | Override streams server URL (default: `http://localhost:3002`) |
 | `GITHUB_TOKEN` | No | GitHub personal access token |
-| `GITHUB_APP_ID` | No | GitHub App ID for OAuth |
+| `GITHUB_APP_ID` | No | GitHub App ID for installation tokens |
 | `GITHUB_PRIVATE_KEY` | No | GitHub App private key |
+| `GITHUB_WEBHOOK_SECRET` | No | Secret for verifying GitHub webhooks |
+| `CORS_ORIGIN` | Production | Allowed CORS origin |
 
 ### Development
 
@@ -137,10 +166,12 @@ bun run db:push:pg
 bun run db:studio:pg
 ```
 
+Then set `DB_MODE=postgres` and `DATABASE_URL` to use PostgreSQL at runtime.
+
 ### Build
 
 ```bash
-# Production build (frontend + agent-runner)
+# Production build (frontend + typecheck + agent-runner)
 bun run build
 ```
 
@@ -149,46 +180,54 @@ bun run build
 ```
 ├── src/
 │   ├── app/
-│   │   ├── routes/              # TanStack Start file-based routes (39 routes)
+│   │   ├── routes/              # TanStack Start file-based routes (44 routes)
 │   │   └── components/
 │   │       ├── ui/              # Radix-based primitives (Button, Dialog, etc.)
-│   │       └── features/        # Feature modules
+│   │       └── features/        # Feature modules (17 modules)
 │   │           ├── kanban-board/         # Drag-drop task board
-│   │           ├── terraform/            # No-code HCL composer (15 files)
+│   │           ├── terraform/            # No-code HCL composer
 │   │           ├── agent-session-view/   # Real-time agent execution
+│   │           ├── agent-topology/       # Live agent graph (React Flow + ELK)
+│   │           ├── plan-session-view/    # Interactive planning with Claude
 │   │           ├── approval-dialog/      # Code review modal
 │   │           ├── container-agent-panel/ # Container execution UI
 │   │           ├── workflow-designer/    # Visual workflow editor
-│   │           ├── cli-monitor/          # CLI event streaming
-│   │           ├── session-history/      # Session list with filters
-│   │           └── ...                   # 17 feature modules total
+│   │           ├── workflow-catalog/     # Workflow browser with SVG previews
+│   │           ├── git-view/            # Git dashboard (PRs, branches, worktrees)
+│   │           ├── cli-monitor/         # CLI event streaming
+│   │           ├── session-history/     # Session list with filters
+│   │           └── ...
 │   ├── db/
 │   │   └── schema/              # Drizzle schemas (SQLite + PostgreSQL)
-│   │       ├── sqlite/          # SQLite schema (27 tables)
-│   │       ├── postgres/        # PostgreSQL schema (27 tables)
+│   │       ├── sqlite/          # SQLite schema (21 tables)
+│   │       ├── postgres/        # PostgreSQL schema (21 tables)
 │   │       └── shared/          # Shared enums and types
 │   ├── lib/
 │   │   ├── agents/              # Claude Agent SDK integration
-│   │   ├── sandbox/             # Sandbox providers (Docker, Agent SDK, K8s)
+│   │   ├── sandbox/             # Sandbox providers (Docker, K8s CRD, Nomad)
+│   │   ├── streams/             # Durable Streams / Caddy producer
 │   │   ├── state-machines/      # 4 state machines (agent, task, session, worktree)
 │   │   ├── terraform/           # Terraform compose prompts
 │   │   ├── prompts/             # Prompt registry and templates
 │   │   ├── bootstrap/           # 6-phase app initialization
 │   │   └── ...
 │   ├── server/
-│   │   └── routes/              # Hono API routes (24 endpoints)
-│   └── services/                # Business logic (28 service files)
+│   │   └── routes/              # Hono API routes (21 route files)
+│   └── services/                # Business logic (34 service files)
 │       ├── agent/               # Agent CRUD, execution, queueing
 │       ├── session/             # Session CRUD, streaming, presence
 │       ├── cli-monitor/         # CLI monitoring infrastructure
 │       ├── terraform-compose.service.ts
 │       ├── container-agent.service.ts
+│       ├── marketplace.service.ts
+│       ├── template.service.ts
 │       ├── sandbox.service.ts
 │       └── ...
 ├── agent-runner/                # Claude Agent SDK runner for containers
 ├── packages/
-│   ├── agent-sandbox-sdk/       # @agentpane/agent-sandbox-sdk (K8s CRD provider)
-│   └── cli-monitor/             # @agentpane/cli-monitor (npm package)
+│   ├── agent-sandbox-sdk/       # @agentpane/agent-sandbox-sdk (K8s CRD client)
+│   ├── cli-monitor/             # @agentpane/cli-monitor (npm package)
+│   └── nomad-sandbox-sdk/       # @agentpane/nomad-sandbox-sdk (Nomad HTTP client)
 ├── Caddyfile                    # Caddy front door config (streams, proxy, static)
 ├── docker/
 │   ├── Dockerfile               # Multi-stage build (deps → build → caddy → runtime)
@@ -199,21 +238,17 @@ bun run build
 ├── k8s/                         # Kubernetes manifests
 ├── specs/
 │   └── application/             # Complete application specifications
-│       ├── api/                 # REST API (28 endpoints)
+│       ├── api/                 # REST API (29 endpoints)
 │       ├── components/          # UI component specs (19 specs)
 │       ├── database/            # Database schema
-│       ├── services/            # Service layer (5 services)
+│       ├── services/            # Service layer
 │       ├── state-machines/      # State machine specs (4 machines)
-│       ├── testing/             # Test infrastructure (164+ test cases)
-│       ├── wireframes/          # Visual designs (28 HTML wireframes)
+│       ├── testing/             # Test infrastructure (193 test cases)
+│       ├── wireframes/          # Visual designs (41 HTML wireframes)
 │       └── ...
 ├── scripts/                     # Dev, testing, migration, and K8s scripts
 └── tests/                       # Unit, integration, and E2E test suites
 ```
-
-## Architecture
-
-![AgentPane Architecture](docs/architecture.png)
 
 ### Agent Execution Flow
 
@@ -223,7 +258,7 @@ Task moved to "In Progress"
   → Create git worktree for isolation
   → Planning phase (Claude SDK, plan mode)
   → User reviews and approves plan
-  → Execution phase (optional swarm mode)
+  → Execution phase (teams mode planned)
   → Task moves to "Waiting Approval"
   → User reviews diffs and approves/rejects
 ```
@@ -233,7 +268,8 @@ Task moved to "In Progress"
 | Provider | Description | Status |
 |----------|-------------|--------|
 | Docker | Container-based isolation with project bind-mounts | Active |
-| Agent Sandbox SDK | Kubernetes CRD-based pod provisioning | Active |
+| Agent Sandbox SDK | Kubernetes CRD-based pod provisioning (`agents.x-k8s.io/v1alpha1`) | Active |
+| Nomad | HashiCorp Nomad job-based isolation via `@agentpane/nomad-sandbox-sdk` | Active |
 | Kubernetes (direct) | Direct K8s pod management with RBAC | Archived |
 
 ## Available Scripts
@@ -243,11 +279,11 @@ Task moved to "In Progress"
 | `bun run dev` | Start frontend (3000) + API (3001) + streams (3002) |
 | `bun run dev:api` | Start API server only |
 | `bun run dev:vite` | Start Vite frontend only |
-| `bun run build` | Production build (frontend + agent-runner) |
+| `bun run build` | Production build (frontend + typecheck + agent-runner) |
 | `bun run test` | Run unit tests |
 | `bun run test:watch` | Run tests in watch mode |
 | `bun run test:coverage` | Run tests with coverage |
-| `bun run test:e2e` | Run Playwright E2E tests |
+| `bun run test:e2e` | Run E2E tests (Vitest + Playwright config) |
 | `bun run test:ui` | Run AI-powered UI tests |
 | `bun run test:integration` | Run integration tests |
 | `bun run test:k8s` | Run Kubernetes integration tests |
@@ -257,11 +293,15 @@ Task moved to "In Progress"
 | `bun run check` | Lint + format check |
 | `bun run check:fix` | Lint + format auto-fix |
 | `bun run typecheck` | TypeScript type check |
-| `bun run db:generate` | Generate Drizzle migrations |
+| `bun run db:generate` | Generate Drizzle migrations (SQLite) |
 | `bun run db:push` | Push schema to SQLite |
-| `bun run db:push:pg` | Push schema to PostgreSQL |
+| `bun run db:migrate` | Run SQLite migrations |
 | `bun run db:studio` | Open Drizzle Studio (SQLite) |
+| `bun run db:generate:pg` | Generate Drizzle migrations (PostgreSQL) |
+| `bun run db:push:pg` | Push schema to PostgreSQL |
+| `bun run db:migrate:pg` | Run PostgreSQL migrations |
 | `bun run db:studio:pg` | Open Drizzle Studio (PostgreSQL) |
+| `bun run db:migrate:sqlite-to-pg` | Migrate data from SQLite to PostgreSQL |
 | `bun run docker:pg` | Start PostgreSQL via Docker Compose |
 | `bun run docker:pg:down` | Stop PostgreSQL Docker Compose |
 
@@ -269,15 +309,15 @@ Task moved to "In Progress"
 
 | Package | Description |
 |---------|-------------|
-| [`@agentpane/agent-sandbox-sdk`](packages/agent-sandbox-sdk) | Kubernetes CRD sandbox provider for agent execution |
-| [`@agentpane/cli-monitor`](packages/cli-monitor) | CLI monitoring and event streaming package |
+| [`@agentpane/agent-sandbox-sdk`](packages/agent-sandbox-sdk) | TypeScript SDK for the kubernetes-sigs Agent Sandbox CRD (`agents.x-k8s.io/v1alpha1`) |
+| [`@agentpane/cli-monitor`](packages/cli-monitor) | CLI monitor daemon — watches Claude Code sessions in real-time |
+| [`@agentpane/nomad-sandbox-sdk`](packages/nomad-sandbox-sdk) | TypeScript SDK for HashiCorp Nomad sandbox management via HTTP API |
 
 ## Documentation
 
-- **Specifications** — [`/specs/application/README.md`](specs/application/README.md) — Complete application specs (23 user stories, 28 API endpoints, 19 component specs, 4 state machines, 164+ test cases)
+- **Specifications** — [`/specs/application/README.md`](specs/application/README.md) — Complete application specs (41 user stories, 29 API endpoints, 19 component specs, 4 state machines, 193 test cases)
 - **Development Guide** — [`AGENTS.md`](AGENTS.md) — Development guidelines, architecture, and coding conventions
-- **AI Assistant Guide** — [`CLAUDE.md`](CLAUDE.md) — AI-assisted development instructions
-- **Component Guides** — `AGENTS.md` files in subdirectories for module-specific guidance
+- **AI Assistant Guide** — [`.claude/CLAUDE.md`](.claude/CLAUDE.md) — AI-assisted development instructions
 
 ## License
 
