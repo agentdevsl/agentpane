@@ -576,13 +576,21 @@ export class DurableStreamsService {
         }
       }
 
-      // THEN publish to Caddy streams server for real-time delivery
-      const memoryOffset = await this.server.publish(streamId, type, data);
+      // THEN publish to Caddy streams server for real-time delivery.
+      // This is best-effort: if DB persistence succeeded, the event is durable
+      // and clients can hydrate from the database on refresh.
+      let memoryOffset = 0;
+      try {
+        memoryOffset = await this.server.publish(streamId, type, data);
+      } catch (caddyErr) {
+        console.warn('[DurableStreamsService] Caddy publish failed (event is persisted in DB):', {
+          streamId,
+          type,
+          error: caddyErr instanceof Error ? caddyErr.message : String(caddyErr),
+        });
+      }
 
-      // Use database offset if available, otherwise use memory offset
-      const finalOffset = this.db ? offset : memoryOffset;
-
-      return finalOffset;
+      return this.db ? offset : memoryOffset;
     } catch (error) {
       console.error('[DurableStreamsService] publish failed:', { streamId, type, error });
       throw new Error(
@@ -727,7 +735,19 @@ export class DurableStreamsService {
         }
       }
 
-      await this.server.publish(streamId, event.type, event.data);
+      // Caddy publish is best-effort after DB persistence
+      try {
+        await this.server.publish(streamId, event.type, event.data);
+      } catch (caddyErr) {
+        console.warn(
+          '[DurableStreamsService] Caddy publish failed for session event (persisted in DB):',
+          {
+            streamId,
+            type: event.type,
+            error: caddyErr instanceof Error ? caddyErr.message : String(caddyErr),
+          }
+        );
+      }
     } catch (error) {
       console.error('[DurableStreamsService] publishSessionEvent failed:', {
         streamId,

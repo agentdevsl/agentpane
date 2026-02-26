@@ -9,9 +9,15 @@ import { err, ok } from '../../utils/result.js';
  * Caddy is reachable before declaring the streams subsystem ready.
  */
 export const connectStreams = async (_ctx?: unknown) => {
-  // Use relative URL so this works in both dev (localhost) and production (any domain).
-  // On the server side, CADDY_STREAMS_URL env var is used by CaddyDurableStreamsServer directly.
-  const streamsUrl = '/v1/stream';
+  // Build an absolute URL that works in both browser and SSR contexts.
+  // In the browser, use the current origin. In SSR/test, fall back to
+  // CADDY_STREAMS_URL env var or localhost:3000.
+  const base =
+    typeof window !== 'undefined'
+      ? window.location.origin
+      : (process.env.CADDY_STREAMS_URL ?? 'http://localhost:3000');
+  const streamsUrl = `${base}/v1/stream`;
+
   try {
     const response = await fetch(streamsUrl, { method: 'HEAD', signal: AbortSignal.timeout(3000) });
     if (response.ok || response.status === 404) {

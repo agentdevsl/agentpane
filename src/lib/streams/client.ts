@@ -599,8 +599,13 @@ export class DurableStreamsClient {
               callbacks.onDisconnect?.();
               // Auto-reconnect unless stream is permanently closed or limit reached
               if (!response.streamClosed && reconnectCount < MAX_RECONNECT_ATTEMPTS) {
+                const delay = Math.min(2000 * 2 ** reconnectCount, 30000);
                 reconnectCount++;
-                connect();
+                reconnectTimerId = setTimeout(() => {
+                  connect().catch((err) => {
+                    callbacks.onError?.(err instanceof Error ? err : new Error(String(err)));
+                  });
+                }, delay);
               } else if (reconnectCount >= MAX_RECONNECT_ATTEMPTS) {
                 callbacks.onError?.(new Error('Maximum reconnection attempts reached'));
               }
@@ -647,7 +652,9 @@ export class DurableStreamsClient {
     };
 
     // Start initial connection
-    connect();
+    connect().catch((err) => {
+      callbacks.onError?.(err instanceof Error ? err : new Error(String(err)));
+    });
 
     return {
       unsubscribe,

@@ -128,10 +128,16 @@ export class CaddyDurableStreamsServer implements DurableStreamsServer {
     _options?: { fromOffset?: number }
   ): AsyncIterable<{ type: string; data: unknown; offset: number }> {
     // Server-side subscription is not used — clients subscribe directly to Caddy via SSE.
-    // This is a no-op implementation to satisfy the interface.
-    throw new Error(
-      '[CaddyStreams] Server-side subscribe not supported — clients connect directly to Caddy'
-    );
+    // Returns empty async iterable to satisfy the interface without crashing callers.
+    return {
+      [Symbol.asyncIterator]() {
+        return {
+          async next() {
+            return { done: true, value: undefined };
+          },
+        };
+      },
+    };
   }
 
   async deleteStream(id: string): Promise<boolean> {

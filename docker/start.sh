@@ -31,5 +31,5 @@ EXIT_CODE=$?
 
 # If one process exits, kill the other
 kill $CADDY_PID $BUN_PID 2>/dev/null || true
-wait
+wait || true
 exit $EXIT_CODE

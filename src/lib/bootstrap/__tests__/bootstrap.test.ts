@@ -199,18 +199,14 @@ describe('bootstrap phases', () => {
   it('streams phase returns err when Caddy is not reachable', async () => {
     const { connectStreams } = await import('../phases/streams.js');
 
-    // Use a port that is definitely not running to test failure path
-    const original = process.env.CADDY_STREAMS_URL;
-    process.env.CADDY_STREAMS_URL = 'http://localhost:19999/v1/stream';
+    // Mock fetch to simulate Caddy being unreachable
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error('Connection refused'));
 
     const result = await connectStreams();
 
-    // Restore env
-    if (original !== undefined) {
-      process.env.CADDY_STREAMS_URL = original;
-    } else {
-      delete process.env.CADDY_STREAMS_URL;
-    }
+    // Restore fetch
+    globalThis.fetch = originalFetch;
 
     // Should return err when Caddy is unreachable (phase is recoverable so app still boots)
     expect(result.ok).toBe(false);

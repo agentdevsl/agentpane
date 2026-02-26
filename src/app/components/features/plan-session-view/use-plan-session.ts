@@ -416,6 +416,8 @@ export function usePlanSession(
 
   // Initialize on mount
   useEffect(() => {
+    isMountedRef.current = true;
+
     if (!isInitializedRef.current) {
       isInitializedRef.current = true;
       loadSession();
@@ -424,6 +426,7 @@ export function usePlanSession(
     // Cleanup on unmount
     return () => {
       isMountedRef.current = false;
+      isInitializedRef.current = false;
       if (unsubscribeRef.current) {
         unsubscribeRef.current();
         unsubscribeRef.current = null;

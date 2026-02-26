@@ -168,10 +168,12 @@ describe('CaddyDurableStreamsServer', () => {
   });
 
   describe('subscribe', () => {
-    it('throws because clients subscribe directly to Caddy', () => {
-      expect(() => server.subscribe('test')).toThrow(
-        '[CaddyStreams] Server-side subscribe not supported'
-      );
+    it('returns empty async iterable (no-op for Caddy architecture)', async () => {
+      const events: unknown[] = [];
+      for await (const event of server.subscribe('test')) {
+        events.push(event);
+      }
+      expect(events).toEqual([]);
     });
   });
 

@@ -10,16 +10,8 @@
   }
 
   # Durable streams (LMDB persistence, SSE + long-poll)
-  # Match both /v1/stream and /v1/stream/* paths
-  handle /v1/stream {
-    durable_streams {
-      data_dir {$STREAMS_DATA_DIR:/app/data/streams}
-      long_poll_timeout 30s
-      sse_reconnect_interval 120s
-    }
-  }
-
-  handle /v1/stream/* {
+  @streams path /v1/stream /v1/stream/*
+  handle @streams {
     durable_streams {
       data_dir {$STREAMS_DATA_DIR:/app/data/streams}
       long_poll_timeout 30s

@@ -86,6 +86,7 @@ export class TerraformComposeService {
     for (const [id, session] of this.sessions) {
       if (now - session.lastAccessedAt > SESSION_TTL_MS) {
         this.sessions.delete(id);
+        this.durableStreamsService?.deleteStream(`terraform:${id}`).catch(() => {});
       }
     }
     // Evict oldest if over max
@@ -96,6 +97,7 @@ export class TerraformComposeService {
       const toRemove = sorted.slice(0, this.sessions.size - MAX_SESSIONS);
       for (const [id] of toRemove) {
         this.sessions.delete(id);
+        this.durableStreamsService?.deleteStream(`terraform:${id}`).catch(() => {});
       }
     }
   }
@@ -120,9 +122,11 @@ export class TerraformComposeService {
       throw new Error('[TerraformCompose] DurableStreamsService is required for event delivery');
     }
 
-    // Create the durable stream BEFORE returning sessionId so the client can subscribe immediately
+    // Create the durable stream BEFORE returning sessionId so the client can subscribe immediately.
+    // Delete any existing stream first to prevent stale event replay on multi-turn conversations.
     const streamId = `terraform:${sid}`;
     try {
+      await this.durableStreamsService.deleteStream(streamId).catch(() => {});
       await this.durableStreamsService.createStream(streamId, null);
     } catch (err) {
       log.error('Failed to create durable stream for compose job', {
@@ -487,37 +491,32 @@ export class TerraformComposeService {
       const isContextLength =
         reason.includes('context_length') || reason.includes('too many tokens');
 
+      let errorMessage: string;
       if (isAuthError) {
         log.error('Authentication error', { data: { reason } });
-        await this.publishEvent(sid, 'terraform:error', {
-          jobId: sid,
-          error:
-            'Claude authentication failed. Please run "claude login" or check your credentials file.',
-        });
+        errorMessage =
+          'Claude authentication failed. Please run "claude login" or check your credentials file.';
       } else if (isRateLimit) {
         log.error('Rate limit error', { data: { reason } });
-        await this.publishEvent(sid, 'terraform:error', {
-          jobId: sid,
-          error: 'Claude API rate limit reached. Please wait a moment and try again.',
-        });
+        errorMessage = 'Claude API rate limit reached. Please wait a moment and try again.';
       } else if (isModelError) {
         log.error('Model error', { data: { reason } });
-        await this.publishEvent(sid, 'terraform:error', {
-          jobId: sid,
-          error: 'Model configuration error. Check the TERRAFORM_COMPOSE_MODEL setting.',
-        });
+        errorMessage = 'Model configuration error. Check the TERRAFORM_COMPOSE_MODEL setting.';
       } else if (isContextLength) {
         log.error('Context length error', { data: { reason } });
-        await this.publishEvent(sid, 'terraform:error', {
-          jobId: sid,
-          error: 'The conversation is too long. Please start a new conversation.',
-        });
+        errorMessage = 'The conversation is too long. Please start a new conversation.';
       } else {
         log.error('Pipeline error', { data: { reason } });
+        errorMessage = 'An error occurred during Terraform composition. Please try again.';
+      }
+
+      try {
         await this.publishEvent(sid, 'terraform:error', {
           jobId: sid,
-          error: 'An error occurred during Terraform composition. Please try again.',
+          error: errorMessage,
         });
+      } catch (publishErr) {
+        log.error('Failed to publish error event to stream', { error: publishErr });
       }
     } finally {
       if (session) {
@@ -538,6 +537,7 @@ export class TerraformComposeService {
 
   resetSession(sessionId: string): void {
     this.sessions.delete(sessionId);
+    this.durableStreamsService?.deleteStream(`terraform:${sessionId}`).catch(() => {});
   }
 
   /**
