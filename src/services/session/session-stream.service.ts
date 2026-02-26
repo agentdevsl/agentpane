@@ -99,14 +99,7 @@ export class SessionStreamService {
       return ok([]);
     }
 
-    return ok([
-      {
-        id: createId(),
-        type: 'chunk',
-        timestamp: options.startTime,
-        data: { sessionId },
-      },
-    ]);
+    return this.getEventsBySession(sessionId);
   }
 
   /**

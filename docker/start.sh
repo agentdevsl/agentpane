@@ -29,6 +29,15 @@ BUN_PID=$!
 wait -n
 EXIT_CODE=$?
 
+# Determine which process exited
+if ! kill -0 $CADDY_PID 2>/dev/null; then
+  echo "[start.sh] Caddy (PID $CADDY_PID) exited with code $EXIT_CODE"
+elif ! kill -0 $BUN_PID 2>/dev/null; then
+  echo "[start.sh] Bun API (PID $BUN_PID) exited with code $EXIT_CODE"
+else
+  echo "[start.sh] Unknown process exited with code $EXIT_CODE"
+fi
+
 # If one process exits, kill the other
 kill $CADDY_PID $BUN_PID 2>/dev/null || true
 wait || true

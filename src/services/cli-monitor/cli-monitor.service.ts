@@ -339,6 +339,7 @@ export class CliMonitorService {
     this.stopMaintenance();
     this.sessions.clear();
     this.localSubscribers.clear();
+    this.localOffset = 0;
     this.daemon = null;
   }
 

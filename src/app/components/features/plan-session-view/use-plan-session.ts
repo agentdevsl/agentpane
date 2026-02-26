@@ -106,6 +106,8 @@ function planSessionReducer(state: PlanSessionState, action: PlanSessionAction):
       return {
         ...state,
         messages: [...state.messages, newMessage],
+        // Clear streaming state when a complete assistant turn arrives
+        ...(action.turn.role === 'assistant' ? { isStreaming: false, streamingContent: '' } : {}),
       };
     }
 
@@ -171,11 +173,14 @@ export function usePlanSession(
       dispatch({ type: 'STREAM_START' });
 
       let retryCount = 0;
+      let errorHandledInOnError = false;
+      let receivedTerminal = false;
 
       try {
         const response = await durableStream({
           url: `/v1/stream/plans/${sessionId}`,
           live: 'sse',
+          offset: '-1',
           json: true,
           onError: (error) => {
             retryCount++;
@@ -189,6 +194,7 @@ export function usePlanSession(
                   type: 'SET_ERROR',
                   error: 'Lost connection to the plan stream. Please refresh.',
                 });
+                errorHandledInOnError = true;
               }
               return; // Return void to stop retrying
             }
@@ -254,6 +260,7 @@ export function usePlanSession(
                   issueUrl: data.issueUrl,
                   issueNumber: data.issueNumber,
                 });
+                receivedTerminal = true;
                 break;
               }
 
@@ -261,16 +268,23 @@ export function usePlanSession(
                 const data = item.data as PlanErrorEventData;
                 dispatch({ type: 'SET_ERROR', error: data.error });
                 onErrorRef.current?.(new Error(data.error));
+                receivedTerminal = true;
                 break;
               }
 
               case 'plan:cancelled': {
                 dispatch({ type: 'RESET' });
+                receivedTerminal = true;
                 break;
               }
 
+              case 'plan:started':
+              case 'connected':
+                // Informational events — no state change needed
+                break;
+
               default:
-                console.log('[usePlanSession] Unknown event type:', item.type);
+                console.warn('[usePlanSession] Unknown event type:', item.type);
             }
           }
         });
@@ -278,7 +292,7 @@ export function usePlanSession(
         // Monitor for stream closure
         response.closed
           .then(() => {
-            if (isMountedRef.current && !response.streamClosed) {
+            if (isMountedRef.current && !response.streamClosed && !receivedTerminal) {
               dispatch({
                 type: 'SET_ERROR',
                 error: 'Plan stream connection lost. Please refresh.',
@@ -288,15 +302,21 @@ export function usePlanSession(
           .catch((err) => {
             if (isMountedRef.current) {
               console.error('[usePlanSession] Stream closed with error:', err);
+              dispatch({
+                type: 'SET_ERROR',
+                error: err instanceof Error ? err.message : 'Stream closed unexpectedly',
+              });
             }
           });
       } catch (error) {
         if (!isMountedRef.current) return;
         console.error('[usePlanSession] Failed to connect to stream:', error);
-        dispatch({
-          type: 'SET_ERROR',
-          error: error instanceof Error ? error.message : 'Failed to connect to plan stream',
-        });
+        if (!errorHandledInOnError) {
+          dispatch({
+            type: 'SET_ERROR',
+            error: error instanceof Error ? error.message : 'Failed to connect to plan stream',
+          });
+        }
       }
     },
     [] // Stable reference — callbacks use refs
@@ -308,19 +328,28 @@ export function usePlanSession(
   const loadSession = useCallback(async () => {
     dispatch({ type: 'SET_LOADING', isLoading: true });
 
-    const result = await apiClient.plans.get(taskId);
+    try {
+      const result = await apiClient.plans.get(taskId);
 
-    if (!result.ok) {
-      dispatch({ type: 'SET_ERROR', error: result.error.message });
-      return;
-    }
+      if (!result.ok) {
+        dispatch({ type: 'SET_ERROR', error: result.error.message });
+        return;
+      }
 
-    if (result.data.session) {
-      dispatch({ type: 'SET_SESSION', session: result.data.session });
-      // Connect to durable stream for existing session
-      connectStream(result.data.session.id);
-    } else {
-      dispatch({ type: 'SET_LOADING', isLoading: false });
+      if (result.data.session) {
+        dispatch({ type: 'SET_SESSION', session: result.data.session });
+        // Connect to durable stream for existing session
+        connectStream(result.data.session.id).catch((err) => {
+          console.error('[usePlanSession] connectStream error:', err);
+        });
+      } else {
+        dispatch({ type: 'SET_LOADING', isLoading: false });
+      }
+    } catch (error) {
+      dispatch({
+        type: 'SET_ERROR',
+        error: error instanceof Error ? error.message : 'Failed to load session',
+      });
     }
   }, [taskId, connectStream]);
 
@@ -343,20 +372,30 @@ export function usePlanSession(
         },
       });
 
-      const result = await apiClient.plans.start(taskId, {
-        projectId,
-        initialPrompt,
-      });
+      try {
+        const result = await apiClient.plans.start(taskId, {
+          projectId,
+          initialPrompt,
+        });
 
-      if (!result.ok) {
-        dispatch({ type: 'SET_ERROR', error: result.error.message });
-        onErrorRef.current?.(new Error(result.error.message));
-        return;
+        if (!result.ok) {
+          dispatch({ type: 'SET_ERROR', error: result.error.message });
+          onErrorRef.current?.(new Error(result.error.message));
+          return;
+        }
+
+        dispatch({ type: 'SET_SESSION', session: result.data.session });
+        // Connect to durable stream for new session
+        connectStream(result.data.session.id).catch((err) => {
+          console.error('[usePlanSession] connectStream error:', err);
+        });
+      } catch (error) {
+        dispatch({
+          type: 'SET_ERROR',
+          error: error instanceof Error ? error.message : 'Failed to start session',
+        });
+        onErrorRef.current?.(error instanceof Error ? error : new Error(String(error)));
       }
-
-      dispatch({ type: 'SET_SESSION', session: result.data.session });
-      // Connect to durable stream for new session
-      connectStream(result.data.session.id);
     },
     [taskId, projectId, connectStream]
   );
@@ -384,18 +423,26 @@ export function usePlanSession(
         },
       });
 
-      const result = await apiClient.plans.answerInteraction(taskId, {
-        interactionId,
-        answers,
-      });
+      try {
+        const result = await apiClient.plans.answerInteraction(taskId, {
+          interactionId,
+          answers,
+        });
 
-      if (!result.ok) {
-        dispatch({ type: 'SET_ERROR', error: result.error.message });
-        onErrorRef.current?.(new Error(result.error.message));
-        return;
+        if (!result.ok) {
+          dispatch({ type: 'SET_ERROR', error: result.error.message });
+          onErrorRef.current?.(new Error(result.error.message));
+          return;
+        }
+
+        dispatch({ type: 'SET_SESSION', session: result.data.session });
+      } catch (error) {
+        dispatch({
+          type: 'SET_ERROR',
+          error: error instanceof Error ? error.message : 'Failed to submit answers',
+        });
+        onErrorRef.current?.(error instanceof Error ? error : new Error(String(error)));
       }
-
-      dispatch({ type: 'SET_SESSION', session: result.data.session });
     },
     [taskId]
   );
@@ -404,14 +451,21 @@ export function usePlanSession(
    * Cancel the session
    */
   const cancelSession = useCallback(async () => {
-    const result = await apiClient.plans.cancel(taskId);
+    try {
+      const result = await apiClient.plans.cancel(taskId);
 
-    if (!result.ok) {
-      dispatch({ type: 'SET_ERROR', error: result.error.message });
-      return;
+      if (!result.ok) {
+        dispatch({ type: 'SET_ERROR', error: result.error.message });
+        return;
+      }
+
+      dispatch({ type: 'SET_SESSION', session: result.data.session });
+    } catch (error) {
+      dispatch({
+        type: 'SET_ERROR',
+        error: error instanceof Error ? error.message : 'Failed to cancel session',
+      });
     }
-
-    dispatch({ type: 'SET_SESSION', session: result.data.session });
   }, [taskId]);
 
   // Initialize on mount
@@ -426,7 +480,6 @@ export function usePlanSession(
     // Cleanup on unmount
     return () => {
       isMountedRef.current = false;
-      isInitializedRef.current = false;
       if (unsubscribeRef.current) {
         unsubscribeRef.current();
         unsubscribeRef.current = null;

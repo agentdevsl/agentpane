@@ -31,7 +31,8 @@ RUN bun run build
 
 # ─── Download durable-streams-server (Caddy with durable-streams plugin) ───
 FROM alpine:3.21 AS caddy
-ARG TARGETARCH=amd64
+ARG TARGETARCH
+RUN test -n "$TARGETARCH" || (echo "ERROR: TARGETARCH is not set. Use docker buildx or set --build-arg TARGETARCH=amd64" && exit 1)
 ADD https://github.com/anthropics/durable-streams/releases/download/v0.2.1/durable-streams-server_linux_${TARGETARCH} /usr/local/bin/durable-streams-server
 RUN chmod +x /usr/local/bin/durable-streams-server
 
@@ -59,7 +60,7 @@ COPY docker/start.sh /app/start.sh
 RUN chmod +x /app/start.sh
 
 # Create data directory for SQLite and streams
-RUN mkdir -p /app/data /app/data/streams && chown -R bun:bun /app/data
+RUN mkdir -p /app/data /app/streams && chown -R bun:bun /app/data /app/streams
 
 # Non-root user
 USER bun

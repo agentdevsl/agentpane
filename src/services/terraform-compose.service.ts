@@ -12,7 +12,6 @@ import type {
   ClarifyingQuestion,
   ComposeMessage,
   ComposeMode,
-  ComposeStage,
   GeneratedFile,
   ModuleMatch,
 } from '../lib/terraform/types.js';
@@ -148,6 +147,8 @@ export class TerraformComposeService {
         });
       } catch (publishErr) {
         log.error('Failed to publish pipeline error event', { error: publishErr });
+        // Ensure stream is cleaned up even if error publish fails
+        await this.durableStreamsService?.deleteStream(`terraform:${sid}`).catch(() => {});
       }
     });
 
@@ -167,32 +168,7 @@ export class TerraformComposeService {
       | 'terraform:code'
       | 'terraform:done'
       | 'terraform:error',
-  >(
-    jobId: string,
-    type: T,
-    data: T extends 'terraform:status'
-      ? { jobId: string; stage: ComposeStage; message?: string }
-      : T extends 'terraform:text'
-        ? { jobId: string; delta: string; accumulated?: string }
-        : T extends 'terraform:modules'
-          ? { jobId: string; modules: ModuleMatch[] }
-          : T extends 'terraform:questions'
-            ? { jobId: string; questions: ClarifyingQuestion[] }
-            : T extends 'terraform:code'
-              ? { jobId: string; code: string; files?: GeneratedFile[] }
-              : T extends 'terraform:done'
-                ? {
-                    jobId: string;
-                    generatedCode?: string;
-                    matchedModules?: ModuleMatch[];
-                    validationResult?: unknown;
-                    generatedFiles?: GeneratedFile[];
-                    usage?: { inputTokens: number; outputTokens: number };
-                  }
-                : T extends 'terraform:error'
-                  ? { jobId: string; error: string; code?: string }
-                  : never
-  ): Promise<void> {
+  >(jobId: string, type: T, data: StreamEventMap[T]): Promise<void> {
     if (!this.durableStreamsService) {
       log.error('No DurableStreamsService configured — events will be lost', {
         data: { type, jobId },
@@ -201,9 +177,7 @@ export class TerraformComposeService {
     }
     const streamId = `terraform:${jobId}`;
     try {
-      // The conditional type on `data` is structurally equivalent to StreamEventMap[T],
-      // but TypeScript can't narrow it automatically in this generic context.
-      await this.durableStreamsService.publish(streamId, type, data as StreamEventMap[T]);
+      await this.durableStreamsService.publish(streamId, type, data);
     } catch (err) {
       log.error('Failed to publish terraform event', { data: { type, jobId }, error: err });
       // Rethrow for terminal events -- clients MUST receive done/error events
@@ -222,6 +196,12 @@ export class TerraformComposeService {
     // Stream is already created in startCompose() — proceed directly to pipeline.
 
     let session: ReturnType<typeof unstable_v2_createSession> | null = null;
+
+    // Update lastAccessedAt for existing sessions to prevent cleanup during pipeline
+    const existing = this.sessions.get(sid);
+    if (existing) {
+      existing.lastAccessedAt = Date.now();
+    }
 
     try {
       // Stage 1: Load module catalog
@@ -517,6 +497,8 @@ export class TerraformComposeService {
         });
       } catch (publishErr) {
         log.error('Failed to publish error event to stream', { error: publishErr });
+        // Ensure stream is cleaned up even if error publish fails
+        await this.durableStreamsService?.deleteStream(`terraform:${sid}`).catch(() => {});
       }
     } finally {
       if (session) {

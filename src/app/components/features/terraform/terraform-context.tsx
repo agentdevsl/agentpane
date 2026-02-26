@@ -205,8 +205,15 @@ export function TerraformProvider({ children }: { children: React.ReactNode }): 
   const messagesRef = useRef<ComposeMessage[]>([]);
   const isStreamingRef = useRef(false);
   const composeModeRef = useRef(composeMode);
+  const isMountedRef = useRef(true);
   messagesRef.current = messages;
   composeModeRef.current = composeMode;
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const loadRegistries = useCallback(async () => {
     try {
@@ -300,6 +307,7 @@ export function TerraformProvider({ children }: { children: React.ReactNode }): 
       let receivedDone = false;
       let receivedPartialData = false;
       let assistantContent = '';
+      let streamFailed = false;
 
       try {
         // Step 1: POST to start the compose job (returns immediately with sessionId)
@@ -340,6 +348,7 @@ export function TerraformProvider({ children }: { children: React.ReactNode }): 
               const response = await durableStream({
                 url: streamUrl,
                 live: 'sse',
+                offset: '-1',
                 json: true,
                 onError: (streamError) => {
                   streamRetryCount++;
@@ -452,6 +461,9 @@ export function TerraformProvider({ children }: { children: React.ReactNode }): 
                       setError(item.data.error as string);
                       resolve();
                       break;
+
+                    default:
+                      break;
                   }
                 } catch (processingError) {
                   console.error(
@@ -477,6 +489,10 @@ export function TerraformProvider({ children }: { children: React.ReactNode }): 
               // Monitor for stream closure
               response.closed
                 .then(() => {
+                  if (!receivedDone && !response.streamClosed) {
+                    console.warn('[Terraform] Stream closed without terminal event');
+                    setError('Stream connection lost. Partial results may be shown.');
+                  }
                   resolve();
                 })
                 .catch((err) => {
@@ -498,6 +514,7 @@ export function TerraformProvider({ children }: { children: React.ReactNode }): 
         // Wait for the stream to complete (done or error event)
         await streamComplete;
       } catch (err) {
+        streamFailed = true;
         if (err instanceof Error && err.name === 'AbortError') return;
         console.error('[Terraform] Stream error:', err);
 
@@ -532,36 +549,40 @@ export function TerraformProvider({ children }: { children: React.ReactNode }): 
         }
 
         isStreamingRef.current = false;
-        setIsStreaming(false);
-        if (!receivedDone) {
-          setComposeStage(null);
-          setComposeComplete(false);
-        }
-        // Client-side fallback: extract HCL from assistant content if server didn't send a code event
-        setGeneratedCode((prev) => {
-          if (prev) return prev;
-          return extractHclFromText(assistantContent);
-        });
-        // Stacks mode fallback: extract multi-file output from assistant content
-        if (composeModeRef.current === 'stacks') {
-          setGeneratedFiles((prev) => {
-            if (prev) return prev;
-            return extractStacksFilesFromText(assistantContent);
-          });
-        }
-        // Parse clarifying questions from assistant text and attach to message
-        // (only if the server didn't already send questions via durable stream events)
-        if (assistantContent) {
-          const questions = parseClarifyingQuestions(assistantContent);
-          if (questions.length > 0) {
-            setMessages((prev) => {
-              const updated = [...prev];
-              const lastMsg = updated[updated.length - 1];
-              if (lastMsg?.role === 'assistant' && !lastMsg.clarifyingQuestions?.length) {
-                updated[updated.length - 1] = { ...lastMsg, clarifyingQuestions: questions };
-              }
-              return updated;
+        if (isMountedRef.current) {
+          setIsStreaming(false);
+          if (!receivedDone) {
+            setComposeStage(null);
+            setComposeComplete(false);
+          }
+          // Client-side fallback: extract HCL from assistant content if server didn't send a code event
+          if (!streamFailed) {
+            setGeneratedCode((prev) => {
+              if (prev) return prev;
+              return extractHclFromText(assistantContent);
             });
+          }
+          // Stacks mode fallback: extract multi-file output from assistant content
+          if (!streamFailed && composeModeRef.current === 'stacks') {
+            setGeneratedFiles((prev) => {
+              if (prev) return prev;
+              return extractStacksFilesFromText(assistantContent);
+            });
+          }
+          // Parse clarifying questions from assistant text and attach to message
+          // (only if the server didn't already send questions via durable stream events)
+          if (!streamFailed && assistantContent) {
+            const questions = parseClarifyingQuestions(assistantContent);
+            if (questions.length > 0) {
+              setMessages((prev) => {
+                const updated = [...prev];
+                const lastMsg = updated[updated.length - 1];
+                if (lastMsg?.role === 'assistant' && !lastMsg.clarifyingQuestions?.length) {
+                  updated[updated.length - 1] = { ...lastMsg, clarifyingQuestions: questions };
+                }
+                return updated;
+              });
+            }
           }
         }
       }
@@ -576,6 +597,7 @@ export function TerraformProvider({ children }: { children: React.ReactNode }): 
     setGeneratedFiles(null);
     setComposeStage(null);
     setComposeComplete(false);
+    setError(null);
     sessionIdRef.current = undefined;
     isStreamingRef.current = false;
     setIsStreaming(false);

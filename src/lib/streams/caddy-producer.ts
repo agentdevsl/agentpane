@@ -34,6 +34,7 @@ export class CaddyDurableStreamsServer implements DurableStreamsServer {
 
   constructor(baseUrl?: string) {
     this.baseUrl = baseUrl ?? process.env.CADDY_STREAMS_URL ?? 'http://localhost:3000/v1/stream';
+    this.baseUrl = this.baseUrl.replace(/\/+$/, '');
     // Strip trailing /v1/stream from baseUrl since streamIdToPath adds it
     if (this.baseUrl.endsWith('/v1/stream')) {
       this.baseUrl = this.baseUrl.slice(0, -'/v1/stream'.length);
@@ -93,6 +94,7 @@ export class CaddyDurableStreamsServer implements DurableStreamsServer {
         const current = this.producers.get(id);
         if (current && current.producer === producer) {
           this.producers.delete(id);
+          this.pendingProducers.delete(id);
           producer.detach().catch((detachErr) => {
             console.error(`[CaddyStreams] Failed to detach producer for ${id}:`, detachErr);
           });
@@ -115,9 +117,23 @@ export class CaddyDurableStreamsServer implements DurableStreamsServer {
    * and only visible to subscribers via the SSE stream.
    */
   async publish(id: string, type: string, data: unknown): Promise<number> {
-    const entry = await this.getOrCreateProducer(id);
+    let entry = await this.getOrCreateProducer(id);
     const event = JSON.stringify({ type, data, timestamp: Date.now() });
-    entry.producer.append(`${event}\n`);
+    try {
+      entry.producer.append(`${event}\n`);
+    } catch (err: unknown) {
+      // If producer was closed/invalidated, re-init and retry once
+      const code =
+        err && typeof err === 'object' && 'code' in err ? (err as { code: string }).code : '';
+      if (code === 'ALREADY_CLOSED') {
+        console.warn(`[CaddyStreams] Producer for ${id} was closed, reinitializing`);
+        this.producers.delete(id);
+        entry = await this.getOrCreateProducer(id);
+        entry.producer.append(`${event}\n`);
+      } else {
+        throw err;
+      }
+    }
     const offset = entry.offset;
     entry.offset++;
     return offset;
@@ -141,6 +157,7 @@ export class CaddyDurableStreamsServer implements DurableStreamsServer {
   }
 
   async deleteStream(id: string): Promise<boolean> {
+    this.pendingProducers.delete(id);
     const entry = this.producers.get(id);
     if (!entry) return false;
 

@@ -260,8 +260,6 @@ export interface DurableStreamsService {
   subscribe: (
     streamId: string
   ) => AsyncIterable<{ id: string; type: string; timestamp: number; data: unknown }>;
-  addSubscriber?: (streamId: string, callback: (event: unknown) => void) => () => void;
-  getServer?: () => DurableStreamsServer;
 }
 
 /**
@@ -290,8 +288,6 @@ export function createMockDurableStreamsService(
         };
       }
     }),
-    addSubscriber: vi.fn().mockReturnValue(() => {}),
-    getServer: vi.fn().mockReturnValue(server),
     ...overrides,
   };
 }

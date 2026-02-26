@@ -13,11 +13,11 @@ services:
       - "3000:3000"
     volumes:
       - agentpane-data:/app/data
-      - agentpane-streams:/app/data/streams
+      - agentpane-streams:/app/streams
     environment:
       - NODE_ENV=production
       - DB_PATH=/app/data/agentpane.db
-      - STREAMS_DATA_DIR=/app/data/streams
+      - STREAMS_DATA_DIR=/app/streams
       - CADDY_STREAMS_URL=http://localhost:3000/v1/stream
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - CLAUDE_OAUTH_TOKEN=${CLAUDE_OAUTH_TOKEN:-}

@@ -511,7 +511,7 @@ interface StreamEventItem {
 export class DurableStreamsClient {
   private streamsBaseUrl: string;
 
-  constructor(options: { url: string; reconnect?: Partial<ReconnectConfig> }) {
+  constructor(options: { url: string }) {
     // In the new architecture, the base URL points to the streams endpoint
     this.streamsBaseUrl = options.url;
   }
@@ -545,8 +545,20 @@ export class DurableStreamsClient {
             if (!isUnsubscribed) {
               callbacks.onError?.(error instanceof Error ? error : new Error(String(error)));
             }
-            // Return empty object to signal retry
-            return {};
+            // Fatal errors should not be retried
+            const errorStr = String(error);
+            const isFatal = [
+              'NOT_FOUND',
+              'UNAUTHORIZED',
+              'FORBIDDEN',
+              'BAD_REQUEST',
+              'ALREADY_CONSUMED',
+              'ALREADY_CLOSED',
+            ].some((code) => errorStr.includes(code));
+            if (isFatal) {
+              return; // Return void to stop retrying
+            }
+            return {}; // Return empty object to signal retry
           },
         });
 
@@ -602,8 +614,11 @@ export class DurableStreamsClient {
                 const delay = Math.min(2000 * 2 ** reconnectCount, 30000);
                 reconnectCount++;
                 reconnectTimerId = setTimeout(() => {
+                  if (isUnsubscribed) return;
                   connect().catch((err) => {
-                    callbacks.onError?.(err instanceof Error ? err : new Error(String(err)));
+                    if (!isUnsubscribed) {
+                      callbacks.onError?.(err instanceof Error ? err : new Error(String(err)));
+                    }
                   });
                 }, delay);
               } else if (reconnectCount >= MAX_RECONNECT_ATTEMPTS) {
@@ -626,7 +641,9 @@ export class DurableStreamsClient {
           if (reconnectCount < MAX_RECONNECT_ATTEMPTS) {
             const delay = Math.min(2000 * 2 ** reconnectCount, 30000);
             reconnectCount++;
-            reconnectTimerId = setTimeout(() => connect(), delay);
+            reconnectTimerId = setTimeout(() => {
+              if (!isUnsubscribed) connect();
+            }, delay);
           } else {
             callbacks.onError?.(new Error('Maximum reconnection attempts reached'));
           }

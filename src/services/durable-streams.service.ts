@@ -511,6 +511,54 @@ export class DurableStreamsService {
   }
 
   /**
+   * Persist an event to the database with retry on offset collision.
+   * Returns the assigned offset.
+   */
+  private async persistToDb(
+    streamId: string,
+    eventId: string,
+    type: string,
+    channel: string,
+    data: unknown,
+    timestamp: number
+  ): Promise<number> {
+    if (!this.db) return 0;
+
+    const MAX_OFFSET_RETRIES = 3;
+    let offset = 0;
+    for (let attempt = 0; attempt < MAX_OFFSET_RETRIES; attempt++) {
+      const lastEvent = await this.db.query.sessionEvents.findFirst({
+        where: eq(sessionEvents.sessionId, streamId),
+        orderBy: [desc(sessionEvents.offset)],
+      });
+      offset = (lastEvent?.offset ?? -1) + 1;
+
+      try {
+        await this.db.insert(sessionEvents).values({
+          id: attempt === 0 ? eventId : createId(),
+          sessionId: streamId,
+          offset,
+          type,
+          channel,
+          data,
+          timestamp,
+        });
+        return offset;
+      } catch (insertErr) {
+        const isConstraintViolation =
+          insertErr instanceof Error &&
+          (insertErr.message.includes('UNIQUE constraint') ||
+            insertErr.message.includes('duplicate key'));
+        if (isConstraintViolation && attempt < MAX_OFFSET_RETRIES - 1) {
+          continue;
+        }
+        throw insertErr;
+      }
+    }
+    return offset;
+  }
+
+  /**
    * Type-safe publish for mapped event types.
    * Ensures the data type matches the event type at compile time.
    *
@@ -539,42 +587,15 @@ export class DurableStreamsService {
       const timestamp = Date.now();
       const eventId = createId();
 
-      // Get next offset and persist to database with retry on offset collision
-      let offset = 0;
-      if (this.db) {
-        const MAX_OFFSET_RETRIES = 3;
-        for (let attempt = 0; attempt < MAX_OFFSET_RETRIES; attempt++) {
-          const lastEvent = await this.db.query.sessionEvents.findFirst({
-            where: eq(sessionEvents.sessionId, streamId),
-            orderBy: [desc(sessionEvents.offset)],
-          });
-          offset = (lastEvent?.offset ?? -1) + 1;
-
-          try {
-            // PERSIST TO DATABASE FIRST (ensures durability)
-            await this.db.insert(sessionEvents).values({
-              id: attempt === 0 ? eventId : createId(),
-              sessionId: streamId,
-              offset,
-              type,
-              channel: this.getChannelForType(type),
-              data: data as unknown,
-              timestamp,
-            });
-            break; // Success
-          } catch (insertErr) {
-            const isConstraintViolation =
-              insertErr instanceof Error &&
-              (insertErr.message.includes('UNIQUE constraint') ||
-                insertErr.message.includes('duplicate key'));
-            if (isConstraintViolation && attempt < MAX_OFFSET_RETRIES - 1) {
-              // Offset collision from concurrent publish — retry with fresh offset
-              continue;
-            }
-            throw insertErr;
-          }
-        }
-      }
+      // Persist to database FIRST (ensures durability), then publish to Caddy
+      const offset = await this.persistToDb(
+        streamId,
+        eventId,
+        type,
+        this.getChannelForType(type),
+        data as unknown,
+        timestamp
+      );
 
       // THEN publish to Caddy streams server for real-time delivery.
       // This is best-effort: if DB persistence succeeded, the event is durable
@@ -703,36 +724,14 @@ export class DurableStreamsService {
       const timestamp = event.timestamp || Date.now();
 
       if (this.db) {
-        const MAX_OFFSET_RETRIES = 3;
-        for (let attempt = 0; attempt < MAX_OFFSET_RETRIES; attempt++) {
-          const lastEvent = await this.db.query.sessionEvents.findFirst({
-            where: eq(sessionEvents.sessionId, streamId),
-            orderBy: [desc(sessionEvents.offset)],
-          });
-          const offset = (lastEvent?.offset ?? -1) + 1;
-
-          try {
-            await this.db.insert(sessionEvents).values({
-              id: attempt === 0 ? event.id || createId() : createId(),
-              sessionId: streamId,
-              offset,
-              type: event.type,
-              channel: 'session',
-              data: event.data as unknown,
-              timestamp,
-            });
-            break; // Success
-          } catch (insertErr) {
-            const isConstraintViolation =
-              insertErr instanceof Error &&
-              (insertErr.message.includes('UNIQUE constraint') ||
-                insertErr.message.includes('duplicate key'));
-            if (isConstraintViolation && attempt < MAX_OFFSET_RETRIES - 1) {
-              continue;
-            }
-            throw insertErr;
-          }
-        }
+        await this.persistToDb(
+          streamId,
+          event.id || createId(),
+          event.type,
+          'session',
+          event.data as unknown,
+          timestamp
+        );
       }
 
       // Caddy publish is best-effort after DB persistence

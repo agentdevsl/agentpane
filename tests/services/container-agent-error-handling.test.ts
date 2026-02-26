@@ -22,8 +22,6 @@ function createMockStreams(): DurableStreamsService {
     getStream: vi.fn(),
     subscribe: vi.fn(),
     close: vi.fn(),
-    addSubscriber: vi.fn(),
-    getServer: vi.fn(),
   } as unknown as DurableStreamsService;
 }
 
