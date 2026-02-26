@@ -213,6 +213,8 @@ bun run build
 
 ## Architecture
 
+![AgentPane Architecture](docs/architecture.png)
+
 ### Agent Execution Flow
 
 ```
@@ -224,40 +226,6 @@ Task moved to "In Progress"
   → Execution phase (optional swarm mode)
   → Task moves to "Waiting Approval"
   → User reviews diffs and approves/rejects
-```
-
-### Data Flow
-
-```
-┌─────────────────────────────────────────────┐
-│  Browser (React 19 + TanStack Start)        │
-│  ┌──────────┐  ┌───────────┐  ┌──────────┐ │
-│  │    UI    │←─│ TanStack  │←─│  Durable  │ │
-│  │ (Radix)  │  │    DB     │  │  Streams  │ │
-│  └──────────┘  └───────────┘  └──────────┘ │
-└─────────────────────┬───────────────────────┘
-                      │ :3000
-┌─────────────────────▼───────────────────────┐
-│  Caddy Front Door (durable-streams-server)  │
-│  ┌──────────────────────────────────────┐   │
-│  │  /v1/stream/* → Durable Streams LMDB │   │
-│  │  /api/*       → reverse_proxy :3001  │   │
-│  │  /*           → static / SPA         │   │
-│  └──────────────────────────────────────┘   │
-└─────────────────────┬───────────────────────┘
-                      │ :3001
-┌─────────────────────▼───────────────────────┐
-│  Bun API Server (Hono)                      │
-│  ┌──────────────────────────────────────┐   │
-│  │  API Routes → Services → Drizzle ORM │   │
-│  └──────────────────┬───────────────────┘   │
-│  ┌──────────────────▼───────────────────┐   │
-│  │  SQLite (dev) / PostgreSQL (prod)    │   │
-│  └──────────────────────────────────────┘   │
-│  ┌──────────────────────────────────────┐   │
-│  │  Claude Agent SDK (plan + execute)   │   │
-│  └──────────────────────────────────────┘   │
-└─────────────────────────────────────────────┘
 ```
 
 ### Sandbox Providers
