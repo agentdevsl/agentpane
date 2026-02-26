@@ -5,14 +5,20 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
+import { RBAC_ROLE_LEVEL, type RbacRole } from '../../db/schema/shared/enums';
 import { apiTokens } from '../../db/schema/sqlite/api-tokens';
 import type { AuthContext } from '../../lib/api/auth-middleware';
+import { createLogger } from '../../lib/logging/logger';
+import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
 import { isValidId, json } from '../shared';
 import { createApiTokenSchema, parseBody } from '../validation';
 
+const log = createLogger('RbacTokensRoutes');
+
 interface TokensDeps {
   db: Database;
+  rbacService: RbacService;
 }
 
 function generateToken(): string {
@@ -23,7 +29,7 @@ function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
-export function createRbacTokensRoutes({ db }: TokensDeps) {
+export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
   const app = new Hono<{ Variables: { auth: AuthContext } }>();
 
   // POST /api/tokens - Create token
@@ -39,6 +45,27 @@ export function createRbacTokensRoutes({ db }: TokensDeps) {
 
     const parsed = parseBody(createApiTokenSchema, body);
     if (!parsed.ok) return parsed.response;
+
+    // Validate team membership and role ceiling
+    if (parsed.data.teamId && auth.authMethod !== 'dev') {
+      const role = await rbacService.resolveTeamRole(auth.userId, parsed.data.teamId);
+      if (!role) {
+        return json(
+          { ok: false, error: { code: 'FORBIDDEN', message: 'Not a member of this team' } },
+          403
+        );
+      }
+      // Token role cannot exceed user's team role
+      if (RBAC_ROLE_LEVEL[parsed.data.role as RbacRole] > RBAC_ROLE_LEVEL[role]) {
+        return json(
+          {
+            ok: false,
+            error: { code: 'FORBIDDEN', message: 'Token role cannot exceed your team role' },
+          },
+          403
+        );
+      }
+    }
 
     try {
       // Check token limit (max 25)
@@ -98,7 +125,7 @@ export function createRbacTokensRoutes({ db }: TokensDeps) {
         },
       });
     } catch (error) {
-      console.error('[RbacTokens] Create error:', error);
+      log.error('Failed to create token', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to create token' } },
         500
@@ -129,7 +156,7 @@ export function createRbacTokensRoutes({ db }: TokensDeps) {
 
       return json({ ok: true, data: { items: tokens } });
     } catch (error) {
-      console.error('[RbacTokens] List error:', error);
+      log.error('Failed to list tokens', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to list tokens' } },
         500
@@ -169,7 +196,7 @@ export function createRbacTokensRoutes({ db }: TokensDeps) {
 
       return json({ ok: true, data: token[0] });
     } catch (error) {
-      console.error('[RbacTokens] Get error:', error);
+      log.error('Failed to get token', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to get token' } }, 500);
     }
   });
@@ -196,7 +223,7 @@ export function createRbacTokensRoutes({ db }: TokensDeps) {
 
       return json({ ok: true, data: { revoked: true } });
     } catch (error) {
-      console.error('[RbacTokens] Revoke error:', error);
+      log.error('Failed to revoke token', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to revoke token' } },
         500

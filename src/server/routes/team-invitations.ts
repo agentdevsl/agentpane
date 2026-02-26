@@ -7,10 +7,13 @@ import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { teamInvitations } from '../../db/schema/sqlite/team-invitations';
 import type { AuthContext } from '../../lib/api/auth-middleware';
+import { createLogger } from '../../lib/logging/logger';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
 import { isValidId, json } from '../shared';
 import { createInvitationSchema, parseBody } from '../validation';
+
+const log = createLogger('TeamInvitationsRoutes');
 
 interface InvitationsDeps {
   db: Database;
@@ -86,7 +89,7 @@ export function createTeamInvitationsRoutes({ db, rbacService }: InvitationsDeps
 
       return json({ ok: true, data: invitation });
     } catch (error) {
-      console.error('[Invitations] Create error:', error);
+      log.error('Failed to create invitation', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to create invitation' } },
         500
@@ -97,20 +100,40 @@ export function createTeamInvitationsRoutes({ db, rbacService }: InvitationsDeps
   // GET /api/teams/:id/invitations - List pending invitations
   app.get('/', async (c) => {
     const teamId = c.req.param('id');
+    const auth = c.get('auth');
 
     if (!teamId || !isValidId(teamId)) {
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid team ID' } }, 400);
     }
 
+    if (auth.authMethod !== 'dev') {
+      const role = await rbacService.resolveTeamRole(auth.userId, teamId);
+      if (!role || !rbacService.hasMinimumRole(role, 'admin')) {
+        return json(
+          { ok: false, error: { code: 'FORBIDDEN', message: 'Requires admin role' } },
+          403
+        );
+      }
+    }
+
     try {
       const invitations = await db
-        .select()
+        .select({
+          id: teamInvitations.id,
+          teamId: teamInvitations.teamId,
+          invitedBy: teamInvitations.invitedBy,
+          email: teamInvitations.email,
+          role: teamInvitations.role,
+          status: teamInvitations.status,
+          expiresAt: teamInvitations.expiresAt,
+          createdAt: teamInvitations.createdAt,
+        })
         .from(teamInvitations)
         .where(and(eq(teamInvitations.teamId, teamId), eq(teamInvitations.status, 'pending')));
 
       return json({ ok: true, data: { items: invitations } });
     } catch (error) {
-      console.error('[Invitations] List error:', error);
+      log.error('Failed to list invitations', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to list invitations' } },
         500
@@ -142,7 +165,13 @@ export function createTeamInvitationsRoutes({ db, rbacService }: InvitationsDeps
       const result = await db
         .update(teamInvitations)
         .set({ status: 'revoked' })
-        .where(and(eq(teamInvitations.id, iid), eq(teamInvitations.teamId, teamId)))
+        .where(
+          and(
+            eq(teamInvitations.id, iid),
+            eq(teamInvitations.teamId, teamId),
+            eq(teamInvitations.status, 'pending')
+          )
+        )
         .returning();
 
       if (result.length === 0) {
@@ -154,7 +183,7 @@ export function createTeamInvitationsRoutes({ db, rbacService }: InvitationsDeps
 
       return json({ ok: true, data: { revoked: true } });
     } catch (error) {
-      console.error('[Invitations] Revoke error:', error);
+      log.error('Failed to revoke invitation', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to revoke invitation' } },
         500

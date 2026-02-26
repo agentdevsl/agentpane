@@ -3,15 +3,18 @@
  */
 
 import { createId } from '@paralleldrive/cuid2';
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, inArray } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { teamMembers } from '../../db/schema/sqlite/team-members';
 import { teams } from '../../db/schema/sqlite/teams';
 import type { AuthContext } from '../../lib/api/auth-middleware';
+import { createLogger } from '../../lib/logging/logger';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
 import { isValidId, json } from '../shared';
 import { createTeamSchema, parseBody, updateTeamSchema } from '../validation';
+
+const log = createLogger('TeamsRoutes');
 
 interface TeamsDeps {
   db: Database;
@@ -46,7 +49,7 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
 
     try {
       // Check slug uniqueness
-      const existing = await db.query.teams?.findFirst({
+      const existing = await db.query.teams.findFirst({
         where: eq(teams.slug, slug),
       });
       if (existing) {
@@ -57,27 +60,29 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
       }
 
       const teamId = createId();
-      await db.insert(teams).values({
-        id: teamId,
-        name: parsed.data.name,
-        slug,
-        description: parsed.data.description,
-      });
+      const created = await db.transaction(async (tx) => {
+        await tx.insert(teams).values({
+          id: teamId,
+          name: parsed.data.name,
+          slug,
+          description: parsed.data.description,
+        });
 
-      // Add creator as owner
-      await db.insert(teamMembers).values({
-        teamId,
-        userId: auth.userId,
-        role: 'owner',
-      });
+        // Add creator as owner
+        await tx.insert(teamMembers).values({
+          teamId,
+          userId: auth.userId,
+          role: 'owner',
+        });
 
-      const created = await db.query.teams?.findFirst({
-        where: eq(teams.id, teamId),
+        return tx.query.teams.findFirst({
+          where: eq(teams.id, teamId),
+        });
       });
 
       return json({ ok: true, data: created });
     } catch (error) {
-      console.error('[Teams] Create error:', error);
+      log.error('Failed to create team', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to create team' } },
         500
@@ -92,7 +97,7 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
     try {
       // For dev mode, return all teams
       if (auth.authMethod === 'dev') {
-        const allTeams = await db.query.teams?.findMany({
+        const allTeams = await db.query.teams.findMany({
           orderBy: [desc(teams.updatedAt)],
         });
         return json({ ok: true, data: { items: allTeams ?? [] } });
@@ -108,19 +113,18 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
         return json({ ok: true, data: { items: [] } });
       }
 
-      const userTeams = [];
-      for (const membership of memberships) {
-        const team = await db.query.teams?.findFirst({
-          where: eq(teams.id, membership.teamId),
-        });
-        if (team) {
-          userTeams.push({ ...team, memberRole: membership.role });
-        }
-      }
+      const teamIds = memberships.map((m) => m.teamId);
+      const teamRows = await db.select().from(teams).where(inArray(teams.id, teamIds));
+
+      const roleByTeamId = new Map(memberships.map((m) => [m.teamId, m.role]));
+      const userTeams = teamRows.map((team) => ({
+        ...team,
+        memberRole: roleByTeamId.get(team.id),
+      }));
 
       return json({ ok: true, data: { items: userTeams } });
     } catch (error) {
-      console.error('[Teams] List error:', error);
+      log.error('Failed to list teams', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to list teams' } }, 500);
     }
   });
@@ -128,12 +132,21 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
   // GET /api/teams/:id - Get team details
   app.get('/:id', async (c) => {
     const id = c.req.param('id');
+    const auth = c.get('auth');
     if (!isValidId(id)) {
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID' } }, 400);
     }
 
+    // Verify team membership (dev mode bypasses)
+    if (auth.authMethod !== 'dev') {
+      const role = await rbacService.resolveTeamRole(auth.userId, id);
+      if (!role) {
+        return json({ ok: false, error: { code: 'FORBIDDEN', message: 'Not a team member' } }, 403);
+      }
+    }
+
     try {
-      const team = await db.query.teams?.findFirst({
+      const team = await db.query.teams.findFirst({
         where: eq(teams.id, id),
       });
       if (!team) {
@@ -141,7 +154,7 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
       }
       return json({ ok: true, data: team });
     } catch (error) {
-      console.error('[Teams] Get error:', error);
+      log.error('Failed to get team', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to get team' } }, 500);
     }
   });
@@ -189,7 +202,7 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
 
       return json({ ok: true, data: updated });
     } catch (error) {
-      console.error('[Teams] Update error:', error);
+      log.error('Failed to update team', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to update team' } },
         500
@@ -218,10 +231,13 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
     }
 
     try {
-      await db.delete(teams).where(eq(teams.id, id));
+      const result = await db.delete(teams).where(eq(teams.id, id)).returning();
+      if (result.length === 0) {
+        return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Team not found' } }, 404);
+      }
       return json({ ok: true, data: { deleted: true } });
     } catch (error) {
-      console.error('[Teams] Delete error:', error);
+      log.error('Failed to delete team', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to delete team' } },
         500

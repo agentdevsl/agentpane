@@ -107,7 +107,10 @@ export const createTeamSchema = z.object({
     .string()
     .min(1)
     .max(100)
-    .regex(/^[a-z0-9-]+$/, 'Slug must be lowercase alphanumeric with hyphens')
+    .regex(
+      /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/,
+      'Slug must start and end with alphanumeric, hyphens allowed between'
+    )
     .optional(),
   description: z.string().max(500).optional(),
 });
@@ -123,15 +126,19 @@ export const updateTeamSchema = z
 
 export const addTeamMemberSchema = z.object({
   userId: idSchema,
-  role: rbacRoleSchema,
+  role: rbacRoleSchema.refine((r) => r !== 'owner', {
+    message: 'Cannot assign owner role directly',
+  }),
 });
 
 export const updateTeamMemberSchema = z.object({
-  role: rbacRoleSchema,
+  role: rbacRoleSchema.refine((r) => r !== 'owner', {
+    message: 'Cannot assign owner role directly',
+  }),
 });
 
 export const createInvitationSchema = z.object({
-  email: z.string().email('Valid email is required'),
+  email: z.string().max(254).email('Valid email is required'),
   role: rbacRoleSchema.refine((r) => r !== 'owner', {
     message: 'Cannot invite as owner',
   }),
@@ -139,12 +146,16 @@ export const createInvitationSchema = z.object({
 
 export const addProjectMemberSchema = z.object({
   userId: idSchema,
-  role: rbacRoleSchema,
+  role: rbacRoleSchema.refine((r) => r !== 'owner', {
+    message: 'Cannot assign owner role directly',
+  }),
   teamId: idSchema.optional(),
 });
 
 export const updateProjectMemberSchema = z.object({
-  role: rbacRoleSchema,
+  role: rbacRoleSchema.refine((r) => r !== 'owner', {
+    message: 'Cannot assign owner role directly',
+  }),
 });
 
 export const createApiTokenSchema = z.object({
@@ -153,7 +164,7 @@ export const createApiTokenSchema = z.object({
   role: rbacRoleSchema.refine((r) => r !== 'owner', {
     message: 'Tokens cannot have owner role',
   }),
-  scopeTags: z.array(z.string().max(50)).max(20).optional(),
+  scopeTags: z.array(z.string().min(1).max(50).trim()).max(20).optional(),
   scopeProjectId: idSchema.optional(),
   expiresInDays: z.number().int().min(1).max(365).optional(),
 });
@@ -174,7 +185,7 @@ export const assignTagSchema = z.object({
 export const updateProfileSchema = z
   .object({
     name: z.string().min(1).max(200).optional(),
-    email: z.string().email().optional(),
+    email: z.string().max(254).email().optional(),
   })
   .refine((data) => Object.values(data).some((v) => v !== undefined), {
     message: 'At least one field must be provided',

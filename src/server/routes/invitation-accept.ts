@@ -7,8 +7,11 @@ import { Hono } from 'hono';
 import { teamInvitations } from '../../db/schema/sqlite/team-invitations';
 import { teamMembers } from '../../db/schema/sqlite/team-members';
 import type { AuthContext } from '../../lib/api/auth-middleware';
+import { createLogger } from '../../lib/logging/logger';
 import type { Database } from '../../types/database';
 import { json } from '../shared';
+
+const log = createLogger('InvitationAcceptRoutes');
 
 interface InvitationAcceptDeps {
   db: Database;
@@ -22,21 +25,23 @@ export function createInvitationAcceptRoutes({ db }: InvitationAcceptDeps) {
     const token = c.req.param('token');
     const auth = c.get('auth');
 
+    // Validate token format
+    if (!token || token.length > 100 || !/^[a-zA-Z0-9_-]+$/.test(token)) {
+      return json(
+        { ok: false, error: { code: 'INVALID_TOKEN', message: 'Invalid token format' } },
+        400
+      );
+    }
+
     try {
-      const invitation = await db
-        .select()
-        .from(teamInvitations)
-        .where(and(eq(teamInvitations.token, token), eq(teamInvitations.status, 'pending')));
+      // Atomically claim the invitation (prevents TOCTOU race)
+      const [claimed] = await db
+        .update(teamInvitations)
+        .set({ status: 'accepted' })
+        .where(and(eq(teamInvitations.token, token), eq(teamInvitations.status, 'pending')))
+        .returning();
 
-      if (invitation.length === 0) {
-        return json(
-          { ok: false, error: { code: 'NOT_FOUND', message: 'Invalid or expired invitation' } },
-          404
-        );
-      }
-
-      const inv = invitation[0];
-      if (!inv) {
+      if (!claimed) {
         return json(
           { ok: false, error: { code: 'NOT_FOUND', message: 'Invalid or expired invitation' } },
           404
@@ -44,36 +49,40 @@ export function createInvitationAcceptRoutes({ db }: InvitationAcceptDeps) {
       }
 
       // Check expiry
-      if (new Date(inv.expiresAt) < new Date()) {
+      if (new Date(claimed.expiresAt) < new Date()) {
         await db
           .update(teamInvitations)
           .set({ status: 'expired' })
-          .where(eq(teamInvitations.id, inv.id));
+          .where(eq(teamInvitations.id, claimed.id));
         return json(
           { ok: false, error: { code: 'EXPIRED', message: 'Invitation has expired' } },
           410
         );
       }
 
+      // Check if already a team member
+      const existing = await db
+        .select()
+        .from(teamMembers)
+        .where(and(eq(teamMembers.teamId, claimed.teamId), eq(teamMembers.userId, auth.userId)));
+
+      if (existing.length > 0) {
+        return json({
+          ok: true,
+          data: { teamId: claimed.teamId, role: existing[0]?.role, alreadyMember: true },
+        });
+      }
+
       // Add user to team
-      await db
-        .insert(teamMembers)
-        .values({
-          teamId: inv.teamId,
-          userId: auth.userId,
-          role: inv.role,
-        })
-        .onConflictDoNothing();
+      await db.insert(teamMembers).values({
+        teamId: claimed.teamId,
+        userId: auth.userId,
+        role: claimed.role,
+      });
 
-      // Mark invitation as accepted
-      await db
-        .update(teamInvitations)
-        .set({ status: 'accepted' })
-        .where(eq(teamInvitations.id, inv.id));
-
-      return json({ ok: true, data: { teamId: inv.teamId, role: inv.role } });
+      return json({ ok: true, data: { teamId: claimed.teamId, role: claimed.role } });
     } catch (error) {
-      console.error('[InvitationAccept] Error:', error);
+      log.error('Failed to accept invitation', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to accept invitation' } },
         500

@@ -7,10 +7,13 @@ import { Hono } from 'hono';
 import { projectMembers } from '../../db/schema/sqlite/project-members';
 import { users } from '../../db/schema/sqlite/users';
 import type { AuthContext } from '../../lib/api/auth-middleware';
+import { createLogger } from '../../lib/logging/logger';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
 import { isValidId, json } from '../shared';
 import { addProjectMemberSchema, parseBody, updateProjectMemberSchema } from '../validation';
+
+const log = createLogger('ProjectMembersRoutes');
 
 interface ProjectMembersDeps {
   db: Database;
@@ -80,7 +83,7 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
         data: { projectId, userId: parsed.data.userId, role: parsed.data.role },
       });
     } catch (error) {
-      console.error('[ProjectMembers] Add error:', error);
+      log.error('Failed to add member', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to add member' } }, 500);
     }
   });
@@ -91,6 +94,17 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
 
     if (!projectId || !isValidId(projectId)) {
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid project ID' } }, 400);
+    }
+
+    const auth = c.get('auth');
+    if (auth.authMethod !== 'dev') {
+      const role = await rbacService.resolveUserRole(auth.userId, projectId);
+      if (!role) {
+        return json(
+          { ok: false, error: { code: 'FORBIDDEN', message: 'Not a project member' } },
+          403
+        );
+      }
     }
 
     try {
@@ -110,7 +124,7 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
 
       return json({ ok: true, data: { items: members } });
     } catch (error) {
-      console.error('[ProjectMembers] List error:', error);
+      log.error('Failed to list members', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to list members' } },
         500
@@ -161,7 +175,7 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
 
       return json({ ok: true, data: result[0] });
     } catch (error) {
-      console.error('[ProjectMembers] Update error:', error);
+      log.error('Failed to update member', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to update member' } },
         500
@@ -195,7 +209,7 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
         .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, uid)));
       return json({ ok: true, data: { removed: true } });
     } catch (error) {
-      console.error('[ProjectMembers] Remove error:', error);
+      log.error('Failed to remove member', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to remove member' } },
         500

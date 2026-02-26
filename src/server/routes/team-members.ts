@@ -7,10 +7,13 @@ import { Hono } from 'hono';
 import { teamMembers } from '../../db/schema/sqlite/team-members';
 import { users } from '../../db/schema/sqlite/users';
 import type { AuthContext } from '../../lib/api/auth-middleware';
+import { createLogger } from '../../lib/logging/logger';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
 import { isValidId, json } from '../shared';
 import { addTeamMemberSchema, parseBody, updateTeamMemberSchema } from '../validation';
+
+const log = createLogger('TeamMembersRoutes');
 
 interface TeamMembersDeps {
   db: Database;
@@ -74,7 +77,7 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
         data: { teamId, userId: parsed.data.userId, role: parsed.data.role },
       });
     } catch (error) {
-      console.error('[TeamMembers] Add error:', error);
+      log.error('Failed to add member', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to add member' } }, 500);
     }
   });
@@ -85,6 +88,14 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
 
     if (!teamId || !isValidId(teamId)) {
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid team ID' } }, 400);
+    }
+
+    const auth = c.get('auth');
+    if (auth.authMethod !== 'dev') {
+      const role = await rbacService.resolveTeamRole(auth.userId, teamId);
+      if (!role) {
+        return json({ ok: false, error: { code: 'FORBIDDEN', message: 'Not a team member' } }, 403);
+      }
     }
 
     try {
@@ -103,7 +114,7 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
 
       return json({ ok: true, data: { items: members } });
     } catch (error) {
-      console.error('[TeamMembers] List error:', error);
+      log.error('Failed to list members', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to list members' } },
         500
@@ -162,7 +173,7 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
 
       return json({ ok: true, data: result[0] });
     } catch (error) {
-      console.error('[TeamMembers] Update error:', error);
+      log.error('Failed to update member', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to update member' } },
         500
@@ -221,7 +232,7 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
 
       return json({ ok: true, data: { removed: true } });
     } catch (error) {
-      console.error('[TeamMembers] Remove error:', error);
+      log.error('Failed to remove member', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to remove member' } },
         500

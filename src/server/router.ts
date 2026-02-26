@@ -46,7 +46,7 @@ import { createK8sRoutes, createNomadRoutes, createSandboxRoutes } from './route
 import { createSandboxStatusRoutes } from './routes/sandbox-status.js';
 import { createSessionsRoutes } from './routes/sessions.js';
 import { createSettingsRoutes } from './routes/settings.js';
-import { createTagsRoutes } from './routes/tags.js';
+import { createProjectTagRoutes, createTagsRoutes, createTaskTagRoutes } from './routes/tags.js';
 import { createTaskCreationRoutes } from './routes/task-creation.js';
 import { createTasksRoutes } from './routes/tasks.js';
 import { createTeamInvitationsRoutes } from './routes/team-invitations.js';
@@ -256,8 +256,10 @@ export function createRouter(deps: RouterDependencies) {
   );
   app.route('/api/invitations', createInvitationAcceptRoutes({ db: deps.db }));
   app.route('/api/projects/:id/members', createProjectMembersRoutes({ db: deps.db, rbacService }));
-  app.route('/api/tokens', createRbacTokensRoutes({ db: deps.db }));
+  app.route('/api/tokens', createRbacTokensRoutes({ db: deps.db, rbacService }));
   app.route('/api/tags', createTagsRoutes({ db: deps.db, rbacService }));
+  app.route('/api/projects/:id/tags', createProjectTagRoutes({ db: deps.db, rbacService }));
+  app.route('/api/tasks/:id/tags', createTaskTagRoutes({ db: deps.db, rbacService }));
   app.route('/api/me', createMeRoutes({ db: deps.db }));
 
   app.onError((err, c) => {

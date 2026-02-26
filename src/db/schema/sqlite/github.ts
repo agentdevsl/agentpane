@@ -18,6 +18,7 @@ export const githubTokens = sqliteTable('github_tokens', {
   // Associated GitHub user info (from validation)
   githubLogin: text('github_login'),
   githubId: text('github_id'),
+  teamId: text('team_id'),
   // Status (SQLite uses 0/1 for boolean)
   isValid: integer('is_valid', { mode: 'boolean' }).default(true),
   lastValidatedAt: text('last_validated_at'),

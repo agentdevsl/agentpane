@@ -334,6 +334,10 @@ export const apiTokensRelations = relations(apiTokens, ({ one }) => ({
     fields: [apiTokens.teamId],
     references: [teams.id],
   }),
+  scopeProject: one(projects, {
+    fields: [apiTokens.scopeProjectId],
+    references: [projects.id],
+  }),
 }));
 
 export const teamInvitationsRelations = relations(teamInvitations, ({ one }) => ({

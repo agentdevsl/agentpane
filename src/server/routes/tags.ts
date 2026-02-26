@@ -7,11 +7,15 @@ import { Hono } from 'hono';
 import { projectTags } from '../../db/schema/sqlite/project-tags';
 import { tags } from '../../db/schema/sqlite/tags';
 import { taskTags } from '../../db/schema/sqlite/task-tags';
+import { tasks } from '../../db/schema/sqlite/tasks';
 import type { AuthContext } from '../../lib/api/auth-middleware';
+import { createLogger } from '../../lib/logging/logger';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
 import { isValidId, json } from '../shared';
 import { assignTagSchema, createTagSchema, parseBody } from '../validation';
+
+const log = createLogger('TagsRoutes');
 
 interface TagsDeps {
   db: Database;
@@ -67,7 +71,7 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
           409
         );
       }
-      console.error('[Tags] Create error:', error);
+      log.error('Failed to create tag', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to create tag' } }, 500);
     }
   });
@@ -91,7 +95,7 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
 
       return json({ ok: true, data: { items: teamTags } });
     } catch (error) {
-      console.error('[Tags] List error:', error);
+      log.error('Failed to list tags', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to list tags' } }, 500);
     }
   });
@@ -104,21 +108,64 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID' } }, 400);
     }
 
+    const auth = c.get('auth');
+    if (auth.authMethod !== 'dev') {
+      const tagRows = await db.select({ teamId: tags.teamId }).from(tags).where(eq(tags.id, id));
+      const foundTag = tagRows[0];
+      if (!foundTag) {
+        return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Tag not found' } }, 404);
+      }
+      const role = await rbacService.resolveTeamRole(auth.userId, foundTag.teamId);
+      if (!role || !rbacService.hasMinimumRole(role, 'admin')) {
+        return json(
+          { ok: false, error: { code: 'FORBIDDEN', message: 'Requires admin role in team' } },
+          403
+        );
+      }
+    }
+
     try {
       await db.delete(tags).where(eq(tags.id, id));
       return json({ ok: true, data: { deleted: true } });
     } catch (error) {
-      console.error('[Tags] Delete error:', error);
+      log.error('Failed to delete tag', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to delete tag' } }, 500);
     }
   });
 
+  return app;
+}
+
+/**
+ * Project tag assignment routes.
+ * Mounted at /api/projects/:id/tags so paths resolve correctly.
+ */
+export function createProjectTagRoutes({
+  db,
+  rbacService,
+}: {
+  db: Database;
+  rbacService: RbacService;
+}) {
+  const app = new Hono<{ Variables: { auth: AuthContext } }>();
+
   // POST /api/projects/:id/tags - Assign tag to project
-  app.post('/projects/:id/tags', async (c) => {
-    const projectId = c.req.param('id');
+  app.post('/', async (c) => {
+    const projectId = c.req.param('id') as string;
 
     if (!isValidId(projectId)) {
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid project ID' } }, 400);
+    }
+
+    const auth = c.get('auth');
+    if (auth.authMethod !== 'dev') {
+      const role = await rbacService.resolveUserRole(auth.userId, projectId);
+      if (!role || !rbacService.hasMinimumRole(role, 'admin')) {
+        return json(
+          { ok: false, error: { code: 'FORBIDDEN', message: 'Requires admin role on project' } },
+          403
+        );
+      }
     }
 
     let body: unknown;
@@ -139,18 +186,29 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
 
       return json({ ok: true, data: { projectId, tagId: parsed.data.tagId } });
     } catch (error) {
-      console.error('[Tags] Assign to project error:', error);
+      log.error('Failed to assign tag to project', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to assign tag' } }, 500);
     }
   });
 
   // DELETE /api/projects/:id/tags/:tagId - Remove tag from project
-  app.delete('/projects/:id/tags/:tagId', async (c) => {
-    const projectId = c.req.param('id');
+  app.delete('/:tagId', async (c) => {
+    const projectId = c.req.param('id') as string;
     const tagId = c.req.param('tagId');
 
     if (!isValidId(projectId) || !isValidId(tagId)) {
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID' } }, 400);
+    }
+
+    const auth = c.get('auth');
+    if (auth.authMethod !== 'dev') {
+      const role = await rbacService.resolveUserRole(auth.userId, projectId);
+      if (!role || !rbacService.hasMinimumRole(role, 'admin')) {
+        return json(
+          { ok: false, error: { code: 'FORBIDDEN', message: 'Requires admin role on project' } },
+          403
+        );
+      }
     }
 
     try {
@@ -159,17 +217,55 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
         .where(and(eq(projectTags.projectId, projectId), eq(projectTags.tagId, tagId)));
       return json({ ok: true, data: { removed: true } });
     } catch (error) {
-      console.error('[Tags] Remove from project error:', error);
+      log.error('Failed to remove tag from project', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to remove tag' } }, 500);
     }
   });
 
+  return app;
+}
+
+/**
+ * Task tag assignment routes.
+ * Mounted at /api/tasks/:id/tags so paths resolve correctly.
+ */
+export function createTaskTagRoutes({
+  db,
+  rbacService,
+}: {
+  db: Database;
+  rbacService: RbacService;
+}) {
+  const app = new Hono<{ Variables: { auth: AuthContext } }>();
+
   // POST /api/tasks/:id/tags - Assign tag to task
-  app.post('/tasks/:id/tags', async (c) => {
-    const taskId = c.req.param('id');
+  app.post('/', async (c) => {
+    const taskId = c.req.param('id') as string;
 
     if (!isValidId(taskId)) {
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid task ID' } }, 400);
+    }
+
+    const auth = c.get('auth');
+    if (auth.authMethod !== 'dev') {
+      const taskRows = await db
+        .select({ projectId: tasks.projectId })
+        .from(tasks)
+        .where(eq(tasks.id, taskId));
+      const foundTask = taskRows[0];
+      if (!foundTask) {
+        return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Task not found' } }, 404);
+      }
+      const role = await rbacService.resolveUserRole(auth.userId, foundTask.projectId);
+      if (!role || !rbacService.hasMinimumRole(role, 'agent_operator')) {
+        return json(
+          {
+            ok: false,
+            error: { code: 'FORBIDDEN', message: 'Requires agent_operator role on project' },
+          },
+          403
+        );
+      }
     }
 
     let body: unknown;
@@ -187,25 +283,47 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
 
       return json({ ok: true, data: { taskId, tagId: parsed.data.tagId } });
     } catch (error) {
-      console.error('[Tags] Assign to task error:', error);
+      log.error('Failed to assign tag to task', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to assign tag' } }, 500);
     }
   });
 
   // DELETE /api/tasks/:id/tags/:tagId - Remove tag from task
-  app.delete('/tasks/:id/tags/:tagId', async (c) => {
-    const taskId = c.req.param('id');
+  app.delete('/:tagId', async (c) => {
+    const taskId = c.req.param('id') as string;
     const tagId = c.req.param('tagId');
 
     if (!isValidId(taskId) || !isValidId(tagId)) {
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID' } }, 400);
     }
 
+    const auth = c.get('auth');
+    if (auth.authMethod !== 'dev') {
+      const taskRows = await db
+        .select({ projectId: tasks.projectId })
+        .from(tasks)
+        .where(eq(tasks.id, taskId));
+      const foundTask = taskRows[0];
+      if (!foundTask) {
+        return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Task not found' } }, 404);
+      }
+      const role = await rbacService.resolveUserRole(auth.userId, foundTask.projectId);
+      if (!role || !rbacService.hasMinimumRole(role, 'agent_operator')) {
+        return json(
+          {
+            ok: false,
+            error: { code: 'FORBIDDEN', message: 'Requires agent_operator role on project' },
+          },
+          403
+        );
+      }
+    }
+
     try {
       await db.delete(taskTags).where(and(eq(taskTags.taskId, taskId), eq(taskTags.tagId, tagId)));
       return json({ ok: true, data: { removed: true } });
     } catch (error) {
-      console.error('[Tags] Remove from task error:', error);
+      log.error('Failed to remove tag from task', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to remove tag' } }, 500);
     }
   });

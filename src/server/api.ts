@@ -236,7 +236,9 @@ if (DB_MODE === 'postgres') {
 
   // Apply github_tokens team_id column migration
   try {
-    sqlite.exec(`ALTER TABLE github_tokens ADD COLUMN team_id TEXT`);
+    sqlite.exec(
+      `ALTER TABLE github_tokens ADD COLUMN team_id TEXT REFERENCES "teams"("id") ON DELETE SET NULL`
+    );
     log.info('GitHub tokens team_id migration applied');
   } catch (error) {
     if (!(error instanceof Error && error.message.includes('duplicate column name'))) {

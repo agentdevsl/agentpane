@@ -7,7 +7,7 @@
 
 import { eq } from 'drizzle-orm';
 import type { Context, Next } from 'hono';
-import { RBAC_ROLE_LEVEL, type RbacRole } from '../../db/schema/shared/enums';
+import { RBAC_ROLE_LEVEL, type RbacRole, resolveHighestRole } from '../../db/schema/shared/enums';
 import { teamMembers } from '../../db/schema/sqlite/team-members';
 import { users } from '../../db/schema/sqlite/users';
 import type { RbacService } from '../../services/rbac.service';
@@ -16,27 +16,6 @@ import { createLogger } from '../logging/logger';
 import type { AuthContext } from './auth-middleware';
 
 const log = createLogger('RbacMiddleware');
-
-/** Extended AuthContext with RBAC fields */
-export interface RbacAuthContext extends AuthContext {
-  user?: {
-    id: string;
-    githubId: number;
-    githubLogin: string;
-    name: string | null;
-    email: string | null;
-    avatarUrl: string | null;
-  };
-  resolvedRole?: RbacRole;
-  roleLevel?: number;
-  teamMemberships?: Array<{ teamId: string; role: RbacRole }>;
-  tokenScope?: {
-    tokenId: string;
-    role: RbacRole;
-    projectId: string | null;
-    tags: string[] | null;
-  };
-}
 
 /**
  * Middleware that enriches the auth context with RBAC information.
@@ -49,9 +28,12 @@ export interface RbacAuthContext extends AuthContext {
 export function enrichAuthContext(db: Database) {
   return async (c: Context, next: Next) => {
     const auth = c.get('auth') as AuthContext | undefined;
-    if (!auth) return next();
+    if (!auth) {
+      log.warn('enrichAuthContext called without auth context', { data: { path: c.req.path } });
+      return next();
+    }
 
-    const rbacAuth: RbacAuthContext = { ...auth };
+    const rbacAuth: AuthContext = { ...auth };
 
     // Dev-mode users get owner role automatically
     if (auth.authMethod === 'dev') {
@@ -64,7 +46,7 @@ export function enrichAuthContext(db: Database) {
     try {
       // Look up user record
       if (auth.userId) {
-        const user = await db.query.users?.findFirst({
+        const user = await db.query.users.findFirst({
           where: eq(users.id, auth.userId),
         });
 
@@ -90,31 +72,35 @@ export function enrichAuthContext(db: Database) {
           }));
 
           // Find highest global role
-          if (memberships.length > 0) {
-            let highestLevel = 0;
-            let highestRole: RbacRole = 'viewer';
-            for (const m of memberships) {
-              const level = RBAC_ROLE_LEVEL[m.role as RbacRole] ?? 0;
-              if (level > highestLevel) {
-                highestLevel = level;
-                highestRole = m.role as RbacRole;
-              }
-            }
-            rbacAuth.resolvedRole = highestRole;
-            rbacAuth.roleLevel = highestLevel;
+          const highest = resolveHighestRole(memberships);
+          if (highest) {
+            rbacAuth.resolvedRole = highest.role;
+            rbacAuth.roleLevel = highest.level;
           }
         }
       }
 
-      // If API token, load token scope
-      if (auth.authMethod === 'api_token' && auth.userId) {
-        // The userId was set by validateApiKey to the actual user ID
-        // Token scope was loaded during validation - look up the token details
-        // This is done in the token validation callback in api.ts
-      }
+      // TODO: Implement token scope loading once validateApiKey callback is wired
+      // Token scope (role ceiling, project scope, tag scope) is not yet enforced
     } catch (error) {
       log.error('Failed to enrich auth context', { error });
-      // Don't fail the request - proceed with basic auth context
+      if (auth.authMethod === 'api_token') {
+        return c.json(
+          {
+            ok: false,
+            error: { code: 'INTERNAL_ERROR', message: 'Failed to validate token permissions' },
+          },
+          500
+        );
+      }
+      // For session users, deny access rather than fail open
+      return c.json(
+        {
+          ok: false,
+          error: { code: 'INTERNAL_ERROR', message: 'Failed to load user permissions' },
+        },
+        500
+      );
     }
 
     c.set('auth', rbacAuth);
@@ -135,7 +121,7 @@ export function enrichAuthContext(db: Database) {
  */
 export function requireRole(minimumRole: RbacRole, rbacService: RbacService) {
   return async (c: Context, next: Next) => {
-    const auth = c.get('auth') as RbacAuthContext | undefined;
+    const auth = c.get('auth') as AuthContext | undefined;
 
     if (!auth) {
       return c.json(
@@ -203,7 +189,7 @@ export function requireRole(minimumRole: RbacRole, rbacService: RbacService) {
     }
 
     // Store the resolved role for this request
-    const updatedAuth: RbacAuthContext = {
+    const updatedAuth: AuthContext = {
       ...auth,
       resolvedRole: effectiveRole,
       roleLevel: RBAC_ROLE_LEVEL[effectiveRole],
@@ -224,7 +210,7 @@ export function requireRole(minimumRole: RbacRole, rbacService: RbacService) {
  */
 export function requireTagAccess(_db: Database) {
   return async (c: Context, next: Next) => {
-    const auth = c.get('auth') as RbacAuthContext | undefined;
+    const auth = c.get('auth') as AuthContext | undefined;
 
     if (!auth) return next();
 

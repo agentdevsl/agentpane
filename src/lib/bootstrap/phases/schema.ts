@@ -533,7 +533,7 @@ CREATE TABLE IF NOT EXISTS "api_tokens" (
   "token_prefix" TEXT NOT NULL,
   "role" TEXT NOT NULL,
   "scope_tags" TEXT,
-  "scope_project_id" TEXT,
+  "scope_project_id" TEXT REFERENCES "projects"("id") ON DELETE SET NULL,
   "status" TEXT NOT NULL DEFAULT 'active',
   "expires_at" TEXT,
   "last_used_at" TEXT,
@@ -557,8 +557,10 @@ CREATE INDEX IF NOT EXISTS idx_team_members_user ON team_members(user_id);
 CREATE INDEX IF NOT EXISTS idx_team_projects_project ON team_projects(project_id);
 CREATE INDEX IF NOT EXISTS idx_project_members_user ON project_members(user_id);
 CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
-CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
-CREATE INDEX IF NOT EXISTS idx_team_invitations_token ON team_invitations(token);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_team ON api_tokens(team_id);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_status ON api_tokens(status);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_team_invitations_team ON team_invitations(team_id);
 CREATE INDEX IF NOT EXISTS idx_team_invitations_email ON team_invitations(email);
 CREATE INDEX IF NOT EXISTS idx_project_tags_tag ON project_tags(tag_id);
 CREATE INDEX IF NOT EXISTS idx_task_tags_tag ON task_tags(tag_id);
