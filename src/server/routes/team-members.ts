@@ -10,8 +10,8 @@ import type { AuthContext } from '../../lib/api/auth-middleware';
 import { createLogger } from '../../lib/logging/logger';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
-import { isValidId, json } from '../shared';
-import { addTeamMemberSchema, parseBody, updateTeamMemberSchema } from '../validation';
+import { isValidId, json, requireTeamRole } from '../shared';
+import { addTeamMemberSchema, parseJsonBody, updateTeamMemberSchema } from '../validation';
 
 const log = createLogger('TeamMembersRoutes');
 
@@ -32,49 +32,59 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid team ID' } }, 400);
     }
 
-    if (auth.authMethod !== 'dev') {
-      const role = await rbacService.resolveTeamRole(auth.userId, teamId);
-      if (!role || !rbacService.hasMinimumRole(role, 'admin')) {
-        return json(
-          { ok: false, error: { code: 'FORBIDDEN', message: 'Requires admin role' } },
-          403
-        );
-      }
-    }
+    const denied = await requireTeamRole(auth, rbacService, teamId, 'admin');
+    if (denied) return denied;
 
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return json({ ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON' } }, 400);
-    }
-
-    const parsed = parseBody(addTeamMemberSchema, body);
+    const parsed = await parseJsonBody(c, addTeamMemberSchema);
     if (!parsed.ok) return parsed.response;
 
     try {
-      // Check if already a member
-      const existing = await db
-        .select()
-        .from(teamMembers)
-        .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, parsed.data.userId)));
+      const result = await db.transaction(async (tx) => {
+        const existing = await tx
+          .select()
+          .from(teamMembers)
+          .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, parsed.data.userId)));
+        if (existing.length > 0) return 'DUPLICATE' as const;
 
-      if (existing.length > 0) {
+        // Verify user exists
+        const userExists = await tx
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.id, parsed.data.userId));
+        if (userExists.length === 0) return 'USER_NOT_FOUND' as const;
+
+        await tx.insert(teamMembers).values({
+          teamId,
+          userId: parsed.data.userId,
+          role: parsed.data.role,
+        });
+        return 'OK' as const;
+      });
+
+      if (result === 'DUPLICATE') {
         return json(
-          { ok: false, error: { code: 'DUPLICATE', message: 'User is already a member' } },
+          {
+            ok: false,
+            error: { code: 'MEMBER_ALREADY_EXISTS', message: 'User is already a member' },
+          },
           409
         );
       }
-
-      await db.insert(teamMembers).values({
-        teamId,
-        userId: parsed.data.userId,
-        role: parsed.data.role,
-      });
+      if (result === 'USER_NOT_FOUND') {
+        return json(
+          { ok: false, error: { code: 'USER_NOT_FOUND', message: 'User not found' } },
+          404
+        );
+      }
 
       return json({
         ok: true,
-        data: { teamId, userId: parsed.data.userId, role: parsed.data.role },
+        data: {
+          teamId,
+          userId: parsed.data.userId,
+          role: parsed.data.role,
+          joinedAt: new Date().toISOString(),
+        },
       });
     } catch (error) {
       log.error('Failed to add member', { error });
@@ -94,7 +104,10 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
     if (auth.authMethod !== 'dev') {
       const role = await rbacService.resolveTeamRole(auth.userId, teamId);
       if (!role) {
-        return json({ ok: false, error: { code: 'FORBIDDEN', message: 'Not a team member' } }, 403);
+        return json(
+          { ok: false, error: { code: 'INSUFFICIENT_ROLE', message: 'Not a team member' } },
+          403
+        );
       }
     }
 
@@ -104,7 +117,8 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
           userId: teamMembers.userId,
           role: teamMembers.role,
           joinedAt: teamMembers.joinedAt,
-          userName: users.name,
+          name: users.name,
+          email: users.email,
           githubLogin: users.githubLogin,
           avatarUrl: users.avatarUrl,
         })
@@ -135,43 +149,91 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
     // Can't change own role
     if (auth.userId === uid && auth.authMethod !== 'dev') {
       return json(
-        { ok: false, error: { code: 'FORBIDDEN', message: 'Cannot change your own role' } },
-        403
+        {
+          ok: false,
+          error: { code: 'CANNOT_CHANGE_OWN_ROLE', message: 'Cannot change your own role' },
+        },
+        400
       );
     }
 
+    const denied = await requireTeamRole(auth, rbacService, teamId, 'admin');
+    if (denied) return denied;
+
+    const parsed = await parseJsonBody(c, updateTeamMemberSchema);
+    if (!parsed.ok) return parsed.response;
+
+    // Admins cannot assign admin role — only owners can
     if (auth.authMethod !== 'dev') {
-      const role = await rbacService.resolveTeamRole(auth.userId, teamId);
-      if (!role || !rbacService.hasMinimumRole(role, 'admin')) {
+      const callerRole = await rbacService.resolveTeamRole(auth.userId, teamId);
+      if (parsed.data.role === 'admin' && callerRole !== 'owner') {
         return json(
-          { ok: false, error: { code: 'FORBIDDEN', message: 'Requires admin role' } },
+          {
+            ok: false,
+            error: { code: 'INSUFFICIENT_ROLE', message: 'Only owners can assign admin role' },
+          },
           403
         );
       }
     }
 
-    let body: unknown;
     try {
-      body = await c.req.json();
-    } catch {
-      return json({ ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON' } }, 400);
-    }
+      const result = await db.transaction(async (tx) => {
+        // Check if demoting the last owner
+        const targetMember = await tx
+          .select()
+          .from(teamMembers)
+          .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, uid)));
 
-    const parsed = parseBody(updateTeamMemberSchema, body);
-    if (!parsed.ok) return parsed.response;
+        if (targetMember.length === 0) {
+          return 'MEMBER_NOT_FOUND' as const;
+        }
 
-    try {
-      const result = await db
-        .update(teamMembers)
-        .set({ role: parsed.data.role })
-        .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, uid)))
-        .returning();
+        // Schema already prevents assigning 'owner' via PATCH, so any change to an owner is a demotion
+        if (targetMember[0]?.role === 'owner') {
+          const owners = await tx
+            .select()
+            .from(teamMembers)
+            .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.role, 'owner')));
 
-      if (result.length === 0) {
-        return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Member not found' } }, 404);
+          if (owners.length <= 1) {
+            return 'CANNOT_DEMOTE_LAST_OWNER' as const;
+          }
+        }
+
+        const updated = await tx
+          .update(teamMembers)
+          .set({ role: parsed.data.role })
+          .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, uid)))
+          .returning();
+
+        if (updated.length === 0) {
+          return 'MEMBER_NOT_FOUND' as const;
+        }
+
+        return { ok: true as const, data: updated[0] };
+      });
+
+      if (result === 'MEMBER_NOT_FOUND') {
+        return json(
+          { ok: false, error: { code: 'MEMBER_NOT_FOUND', message: 'Member not found' } },
+          404
+        );
+      }
+      if (result === 'CANNOT_DEMOTE_LAST_OWNER') {
+        return json(
+          {
+            ok: false,
+            error: {
+              code: 'CANNOT_DEMOTE_LAST_OWNER',
+              message: 'Team must have at least one owner',
+            },
+          },
+          400
+        );
       }
 
-      return json({ ok: true, data: result[0] });
+      return json({ ok: true, data: result.data });
     } catch (error) {
       log.error('Failed to update member', { error });
       return json(
@@ -197,7 +259,7 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
         {
           ok: false,
           error: {
-            code: 'FORBIDDEN',
+            code: 'CANNOT_REMOVE_SELF',
             message: 'Cannot remove yourself. Transfer ownership first.',
           },
         },
@@ -205,55 +267,71 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
       );
     }
 
-    if (auth.authMethod !== 'dev') {
-      const role = await rbacService.resolveTeamRole(auth.userId, teamId);
-      if (!role || !rbacService.hasMinimumRole(role, 'admin')) {
-        return json(
-          { ok: false, error: { code: 'FORBIDDEN', message: 'Requires admin role' } },
-          403
-        );
-      }
-    }
+    const adminDenied = await requireTeamRole(auth, rbacService, teamId, 'admin');
+    if (adminDenied) return adminDenied;
 
     try {
-      // Don't allow removing the last owner
-      const targetMember = await db
-        .select()
-        .from(teamMembers)
-        .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, uid)));
+      const result = await db.transaction(async (tx) => {
+        // Don't allow removing the last owner
+        const targetMember = await tx
+          .select()
+          .from(teamMembers)
+          .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, uid)));
 
-      if (targetMember.length === 0) {
-        return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Member not found' } }, 404);
-      }
+        if (targetMember.length === 0) {
+          return 'MEMBER_NOT_FOUND' as const;
+        }
 
-      if (targetMember[0]?.role === 'owner') {
-        // Only owners can remove other owners
-        if (auth.authMethod !== 'dev') {
-          const callerRole = await rbacService.resolveTeamRole(auth.userId, teamId);
-          if (callerRole !== 'owner') {
-            return json(
-              { ok: false, error: { code: 'FORBIDDEN', message: 'Only owners can remove owners' } },
-              403
-            );
+        if (targetMember[0]?.role === 'owner') {
+          // Only owners can remove other owners
+          if (auth.authMethod !== 'dev') {
+            const callerRole = await rbacService.resolveTeamRole(auth.userId, teamId);
+            if (callerRole !== 'owner') {
+              return 'INSUFFICIENT_ROLE' as const;
+            }
+          }
+
+          const owners = await tx
+            .select()
+            .from(teamMembers)
+            .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.role, 'owner')));
+
+          if (owners.length <= 1) {
+            return 'CANNOT_REMOVE_LAST_OWNER' as const;
           }
         }
 
-        const owners = await db
-          .select()
-          .from(teamMembers)
-          .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.role, 'owner')));
+        await tx
+          .delete(teamMembers)
+          .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, uid)));
 
-        if (owners.length <= 1) {
-          return json(
-            { ok: false, error: { code: 'LAST_OWNER', message: 'Cannot remove the last owner' } },
-            409
-          );
-        }
+        return 'OK' as const;
+      });
+
+      if (result === 'MEMBER_NOT_FOUND') {
+        return json(
+          { ok: false, error: { code: 'MEMBER_NOT_FOUND', message: 'Member not found' } },
+          404
+        );
       }
-
-      await db
-        .delete(teamMembers)
-        .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, uid)));
+      if (result === 'INSUFFICIENT_ROLE') {
+        return json(
+          {
+            ok: false,
+            error: { code: 'INSUFFICIENT_ROLE', message: 'Only owners can remove owners' },
+          },
+          403
+        );
+      }
+      if (result === 'CANNOT_REMOVE_LAST_OWNER') {
+        return json(
+          {
+            ok: false,
+            error: { code: 'CANNOT_REMOVE_LAST_OWNER', message: 'Cannot remove the last owner' },
+          },
+          409
+        );
+      }
 
       return json({ ok: true, data: { removed: true } });
     } catch (error) {

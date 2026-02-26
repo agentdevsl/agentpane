@@ -10,8 +10,8 @@ import type { AuthContext } from '../../lib/api/auth-middleware';
 import { createLogger } from '../../lib/logging/logger';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
-import { isValidId, json } from '../shared';
-import { addProjectMemberSchema, parseBody, updateProjectMemberSchema } from '../validation';
+import { isValidId, json, requireProjectRole } from '../shared';
+import { addProjectMemberSchema, parseJsonBody, updateProjectMemberSchema } from '../validation';
 
 const log = createLogger('ProjectMembersRoutes');
 
@@ -32,64 +32,60 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid project ID' } }, 400);
     }
 
-    // Require admin role on this project
-    if (auth.authMethod !== 'dev') {
-      const role = await rbacService.resolveUserRole(auth.userId, projectId);
-      if (!role || !rbacService.hasMinimumRole(role, 'admin')) {
-        return json(
-          { ok: false, error: { code: 'FORBIDDEN', message: 'Requires admin role' } },
-          403
-        );
-      }
-    }
+    const denied = await requireProjectRole(auth, rbacService, projectId, 'admin');
+    if (denied) return denied;
 
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return json({ ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON' } }, 400);
-    }
-
-    const parsed = parseBody(addProjectMemberSchema, body);
+    const parsed = await parseJsonBody(c, addProjectMemberSchema);
     if (!parsed.ok) return parsed.response;
 
     try {
-      const existing = await db
-        .select()
-        .from(projectMembers)
-        .where(
-          and(
-            eq(projectMembers.projectId, projectId),
-            eq(projectMembers.userId, parsed.data.userId)
-          )
-        );
+      const result = await db.transaction(async (tx) => {
+        const existing = await tx
+          .select()
+          .from(projectMembers)
+          .where(
+            and(
+              eq(projectMembers.projectId, projectId),
+              eq(projectMembers.userId, parsed.data.userId)
+            )
+          );
+        if (existing.length > 0) return 'DUPLICATE' as const;
 
-      if (existing.length > 0) {
+        const userExists = await tx
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.id, parsed.data.userId));
+        if (userExists.length === 0) return 'USER_NOT_FOUND' as const;
+
+        await tx.insert(projectMembers).values({
+          projectId,
+          userId: parsed.data.userId,
+          role: parsed.data.role,
+          grantedByTeamId: parsed.data.teamId ?? null,
+        });
+        return 'OK' as const;
+      });
+
+      if (result === 'DUPLICATE') {
         return json(
-          { ok: false, error: { code: 'DUPLICATE', message: 'Member already exists' } },
+          { ok: false, error: { code: 'PROJECT_MEMBER_EXISTS', message: 'Member already exists' } },
           409
         );
       }
-
-      const userExists = await db
-        .select({ id: users.id })
-        .from(users)
-        .where(eq(users.id, parsed.data.userId));
-
-      if (userExists.length === 0) {
-        return json({ ok: false, error: { code: 'NOT_FOUND', message: 'User not found' } }, 404);
+      if (result === 'USER_NOT_FOUND') {
+        return json(
+          { ok: false, error: { code: 'USER_NOT_FOUND', message: 'User not found' } },
+          404
+        );
       }
-
-      await db.insert(projectMembers).values({
-        projectId,
-        userId: parsed.data.userId,
-        role: parsed.data.role,
-        grantedByTeamId: parsed.data.teamId ?? null,
-      });
-
       return json({
         ok: true,
-        data: { projectId, userId: parsed.data.userId, role: parsed.data.role },
+        data: {
+          projectId,
+          userId: parsed.data.userId,
+          role: parsed.data.role,
+          grantedAt: new Date().toISOString(),
+        },
       });
     } catch (error) {
       log.error('Failed to add member', { error });
@@ -106,15 +102,14 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
     }
 
     const auth = c.get('auth');
-    if (auth.authMethod !== 'dev') {
-      const role = await rbacService.resolveUserRole(auth.userId, projectId);
-      if (!role) {
-        return json(
-          { ok: false, error: { code: 'FORBIDDEN', message: 'Not a project member' } },
-          403
-        );
-      }
-    }
+    const denied = await requireProjectRole(
+      auth,
+      rbacService,
+      projectId,
+      'viewer',
+      'Not a project member'
+    );
+    if (denied) return denied;
 
     try {
       const members = await db
@@ -123,8 +118,8 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
           role: projectMembers.role,
           grantedByTeamId: projectMembers.grantedByTeamId,
           createdAt: projectMembers.createdAt,
-          userName: users.name,
-          githubLogin: users.githubLogin,
+          name: users.name,
+          email: users.email,
           avatarUrl: users.avatarUrl,
         })
         .from(projectMembers)
@@ -153,29 +148,18 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
 
     if (auth.userId === uid && auth.authMethod !== 'dev') {
       return json(
-        { ok: false, error: { code: 'FORBIDDEN', message: 'Cannot change your own role' } },
-        403
+        {
+          ok: false,
+          error: { code: 'CANNOT_CHANGE_OWN_ROLE', message: 'Cannot change your own role' },
+        },
+        400
       );
     }
 
-    if (auth.authMethod !== 'dev') {
-      const role = await rbacService.resolveUserRole(auth.userId, projectId);
-      if (!role || !rbacService.hasMinimumRole(role, 'admin')) {
-        return json(
-          { ok: false, error: { code: 'FORBIDDEN', message: 'Requires admin role' } },
-          403
-        );
-      }
-    }
+    const adminDenied = await requireProjectRole(auth, rbacService, projectId, 'admin');
+    if (adminDenied) return adminDenied;
 
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return json({ ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON' } }, 400);
-    }
-
-    const parsed = parseBody(updateProjectMemberSchema, body);
+    const parsed = await parseJsonBody(c, updateProjectMemberSchema);
     if (!parsed.ok) return parsed.response;
 
     try {
@@ -186,7 +170,10 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
         .returning();
 
       if (result.length === 0) {
-        return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Member not found' } }, 404);
+        return json(
+          { ok: false, error: { code: 'PROJECT_MEMBER_NOT_FOUND', message: 'Member not found' } },
+          404
+        );
       }
 
       return json({ ok: true, data: result[0] });
@@ -209,15 +196,8 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID' } }, 400);
     }
 
-    if (auth.authMethod !== 'dev') {
-      const role = await rbacService.resolveUserRole(auth.userId, projectId);
-      if (!role || !rbacService.hasMinimumRole(role, 'admin')) {
-        return json(
-          { ok: false, error: { code: 'FORBIDDEN', message: 'Requires admin role' } },
-          403
-        );
-      }
-    }
+    const denied = await requireProjectRole(auth, rbacService, projectId, 'admin');
+    if (denied) return denied;
 
     try {
       const result = await db
@@ -225,7 +205,10 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
         .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, uid)))
         .returning();
       if (result.length === 0) {
-        return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Member not found' } }, 404);
+        return json(
+          { ok: false, error: { code: 'PROJECT_MEMBER_NOT_FOUND', message: 'Member not found' } },
+          404
+        );
       }
       return json({ ok: true, data: { removed: true } });
     } catch (error) {

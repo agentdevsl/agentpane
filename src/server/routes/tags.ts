@@ -13,8 +13,8 @@ import type { AuthContext } from '../../lib/api/auth-middleware';
 import { createLogger } from '../../lib/logging/logger';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
-import { isValidId, json } from '../shared';
-import { assignTagSchema, createTagSchema, parseBody } from '../validation';
+import { isValidId, json, requireProjectRole, requireTeamRole } from '../shared';
+import { assignTagSchema, createTagSchema, parseJsonBody } from '../validation';
 
 const log = createLogger('TagsRoutes');
 
@@ -29,27 +29,17 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
   // POST /api/tags - Create tag
   app.post('/', async (c) => {
     const auth = c.get('auth');
-
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return json({ ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON' } }, 400);
-    }
-
-    const parsed = parseBody(createTagSchema, body);
+    const parsed = await parseJsonBody(c, createTagSchema);
     if (!parsed.ok) return parsed.response;
 
-    // Check admin role in the tag's team
-    if (auth.authMethod !== 'dev') {
-      const role = await rbacService.resolveTeamRole(auth.userId, parsed.data.teamId);
-      if (!role || !rbacService.hasMinimumRole(role, 'admin')) {
-        return json(
-          { ok: false, error: { code: 'FORBIDDEN', message: 'Requires admin role in team' } },
-          403
-        );
-      }
-    }
+    const denied = await requireTeamRole(
+      auth,
+      rbacService,
+      parsed.data.teamId,
+      'agent_operator',
+      'Requires agent_operator role in team'
+    );
+    if (denied) return denied;
 
     try {
       const [created] = await db
@@ -67,7 +57,7 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
         return json(
           {
             ok: false,
-            error: { code: 'DUPLICATE', message: 'Tag name already exists in this team' },
+            error: { code: 'TAG_ALREADY_EXISTS', message: 'Tag name already exists in this team' },
           },
           409
         );
@@ -92,16 +82,14 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
       );
     }
 
-    // Verify team membership
-    if (auth.authMethod !== 'dev') {
-      const role = await rbacService.resolveTeamRole(auth.userId, teamId);
-      if (!role) {
-        return json(
-          { ok: false, error: { code: 'FORBIDDEN', message: 'Not a member of this team' } },
-          403
-        );
-      }
-    }
+    const denied = await requireTeamRole(
+      auth,
+      rbacService,
+      teamId,
+      'viewer',
+      'Not a member of this team'
+    );
+    if (denied) return denied;
 
     try {
       const teamTags = await db.select().from(tags).where(eq(tags.teamId, teamId));
@@ -122,19 +110,24 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
     }
 
     const auth = c.get('auth');
+
+    // Always check tag existence first
+    const tagRows = await db.select({ teamId: tags.teamId }).from(tags).where(eq(tags.id, id));
+    const foundTag = tagRows[0];
+    if (!foundTag) {
+      return json({ ok: false, error: { code: 'TAG_NOT_FOUND', message: 'Tag not found' } }, 404);
+    }
+
+    // Auth check (skip for dev mode)
     if (auth.authMethod !== 'dev') {
-      const tagRows = await db.select({ teamId: tags.teamId }).from(tags).where(eq(tags.id, id));
-      const foundTag = tagRows[0];
-      if (!foundTag) {
-        return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Tag not found' } }, 404);
-      }
-      const role = await rbacService.resolveTeamRole(auth.userId, foundTag.teamId);
-      if (!role || !rbacService.hasMinimumRole(role, 'admin')) {
-        return json(
-          { ok: false, error: { code: 'FORBIDDEN', message: 'Requires admin role in team' } },
-          403
-        );
-      }
+      const denied = await requireTeamRole(
+        auth,
+        rbacService,
+        foundTag.teamId,
+        'admin',
+        'Requires admin role in team'
+      );
+      if (denied) return denied;
     }
 
     try {
@@ -171,24 +164,16 @@ export function createProjectTagRoutes({
     }
 
     const auth = c.get('auth');
-    if (auth.authMethod !== 'dev') {
-      const role = await rbacService.resolveUserRole(auth.userId, projectId);
-      if (!role || !rbacService.hasMinimumRole(role, 'admin')) {
-        return json(
-          { ok: false, error: { code: 'FORBIDDEN', message: 'Requires admin role on project' } },
-          403
-        );
-      }
-    }
+    const denied = await requireProjectRole(
+      auth,
+      rbacService,
+      projectId,
+      'agent_operator',
+      'Requires agent_operator role on project'
+    );
+    if (denied) return denied;
 
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return json({ ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON' } }, 400);
-    }
-
-    const parsed = parseBody(assignTagSchema, body);
+    const parsed = await parseJsonBody(c, assignTagSchema);
     if (!parsed.ok) return parsed.response;
 
     // Verify tag belongs to a team that owns this project
@@ -248,15 +233,14 @@ export function createProjectTagRoutes({
     }
 
     const auth = c.get('auth');
-    if (auth.authMethod !== 'dev') {
-      const role = await rbacService.resolveUserRole(auth.userId, projectId);
-      if (!role || !rbacService.hasMinimumRole(role, 'admin')) {
-        return json(
-          { ok: false, error: { code: 'FORBIDDEN', message: 'Requires admin role on project' } },
-          403
-        );
-      }
-    }
+    const denied = await requireProjectRole(
+      auth,
+      rbacService,
+      projectId,
+      'agent_operator',
+      'Requires agent_operator role on project'
+    );
+    if (denied) return denied;
 
     try {
       await db
@@ -304,27 +288,16 @@ export function createTaskTagRoutes({
     }
 
     const auth = c.get('auth');
-    if (auth.authMethod !== 'dev') {
-      const role = await rbacService.resolveUserRole(auth.userId, foundTask.projectId);
-      if (!role || !rbacService.hasMinimumRole(role, 'agent_operator')) {
-        return json(
-          {
-            ok: false,
-            error: { code: 'FORBIDDEN', message: 'Requires agent_operator role on project' },
-          },
-          403
-        );
-      }
-    }
+    const denied = await requireProjectRole(
+      auth,
+      rbacService,
+      foundTask.projectId,
+      'agent_operator',
+      'Requires agent_operator role on project'
+    );
+    if (denied) return denied;
 
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return json({ ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON' } }, 400);
-    }
-
-    const parsed = parseBody(assignTagSchema, body);
+    const parsed = await parseJsonBody(c, assignTagSchema);
     if (!parsed.ok) return parsed.response;
 
     // Verify tag belongs to a team that owns this task's project
@@ -390,16 +363,14 @@ export function createTaskTagRoutes({
       if (!foundTask) {
         return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Task not found' } }, 404);
       }
-      const role = await rbacService.resolveUserRole(auth.userId, foundTask.projectId);
-      if (!role || !rbacService.hasMinimumRole(role, 'agent_operator')) {
-        return json(
-          {
-            ok: false,
-            error: { code: 'FORBIDDEN', message: 'Requires agent_operator role on project' },
-          },
-          403
-        );
-      }
+      const denied = await requireProjectRole(
+        auth,
+        rbacService,
+        foundTask.projectId,
+        'agent_operator',
+        'Requires agent_operator role on project'
+      );
+      if (denied) return denied;
     }
 
     try {

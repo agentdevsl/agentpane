@@ -65,6 +65,52 @@ export function isValidGitHubUrl(url: string): boolean {
 }
 
 /**
+ * Require that the authenticated user has at least the given team role.
+ * Dev-mode users always pass. Returns a 403 Response if unauthorized, or null if authorized.
+ */
+export function requireTeamRole(
+  auth: { authMethod: string; userId: string },
+  rbacService: {
+    resolveTeamRole(userId: string, teamId: string): Promise<string | null>;
+    hasMinimumRole(userRole: string, minimumRole: string): boolean;
+  },
+  teamId: string,
+  minimumRole: string,
+  message = `Requires ${minimumRole} role`
+): Promise<Response | null> {
+  if (auth.authMethod === 'dev') return Promise.resolve(null);
+  return rbacService.resolveTeamRole(auth.userId, teamId).then((role) => {
+    if (!role || !rbacService.hasMinimumRole(role, minimumRole)) {
+      return json({ ok: false, error: { code: 'INSUFFICIENT_ROLE', message } }, 403);
+    }
+    return null;
+  });
+}
+
+/**
+ * Require that the authenticated user has at least the given project role.
+ * Dev-mode users always pass. Returns a 403 Response if unauthorized, or null if authorized.
+ */
+export function requireProjectRole(
+  auth: { authMethod: string; userId: string },
+  rbacService: {
+    resolveUserRole(userId: string, projectId: string): Promise<string | null>;
+    hasMinimumRole(userRole: string, minimumRole: string): boolean;
+  },
+  projectId: string,
+  minimumRole: string,
+  message = `Requires ${minimumRole} role`
+): Promise<Response | null> {
+  if (auth.authMethod === 'dev') return Promise.resolve(null);
+  return rbacService.resolveUserRole(auth.userId, projectId).then((role) => {
+    if (!role || !rbacService.hasMinimumRole(role, minimumRole)) {
+      return json({ ok: false, error: { code: 'INSUFFICIENT_ROLE', message } }, 403);
+    }
+    return null;
+  });
+}
+
+/**
  * Standard API error structure
  */
 export interface ApiError {

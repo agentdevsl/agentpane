@@ -5,14 +5,18 @@
 import { createId } from '@paralleldrive/cuid2';
 import { desc, eq, inArray } from 'drizzle-orm';
 import { Hono } from 'hono';
+import { apiTokens } from '../../db/schema/sqlite/api-tokens';
+import { tags } from '../../db/schema/sqlite/tags';
+import { teamInvitations } from '../../db/schema/sqlite/team-invitations';
 import { teamMembers } from '../../db/schema/sqlite/team-members';
+import { teamProjects } from '../../db/schema/sqlite/team-projects';
 import { teams } from '../../db/schema/sqlite/teams';
 import type { AuthContext } from '../../lib/api/auth-middleware';
 import { createLogger } from '../../lib/logging/logger';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
-import { isValidId, json } from '../shared';
-import { createTeamSchema, parseBody, updateTeamSchema } from '../validation';
+import { isValidId, json, requireTeamRole } from '../shared';
+import { createTeamSchema, parseJsonBody, updateTeamSchema } from '../validation';
 
 const log = createLogger('TeamsRoutes');
 
@@ -35,14 +39,7 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
   // POST /api/teams - Create team
   app.post('/', async (c) => {
     const auth = c.get('auth');
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return json({ ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON' } }, 400);
-    }
-
-    const parsed = parseBody(createTeamSchema, body);
+    const parsed = await parseJsonBody(c, createTeamSchema);
     if (!parsed.ok) return parsed.response;
 
     const slug = parsed.data.slug ?? slugify(parsed.data.name);
@@ -79,12 +76,18 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
 
       if (!created) {
         return json(
-          { ok: false, error: { code: 'DUPLICATE', message: 'Team slug already exists' } },
+          { ok: false, error: { code: 'TEAM_SLUG_EXISTS', message: 'Team slug already exists' } },
           409
         );
       }
 
-      return json({ ok: true, data: created });
+      return json({
+        ok: true,
+        data: {
+          ...created,
+          membership: { userId: auth.userId, role: 'owner', joinedAt: created?.createdAt },
+        },
+      });
     } catch (error) {
       log.error('Failed to create team', { error });
       return json(
@@ -141,13 +144,8 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID' } }, 400);
     }
 
-    // Verify team membership (dev mode bypasses)
-    if (auth.authMethod !== 'dev') {
-      const role = await rbacService.resolveTeamRole(auth.userId, id);
-      if (!role) {
-        return json({ ok: false, error: { code: 'FORBIDDEN', message: 'Not a team member' } }, 403);
-      }
-    }
+    const denied = await requireTeamRole(auth, rbacService, id, 'viewer', 'Not a team member');
+    if (denied) return denied;
 
     try {
       const team = await db.query.teams.findFirst({
@@ -156,7 +154,19 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
       if (!team) {
         return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Team not found' } }, 404);
       }
-      return json({ ok: true, data: team });
+
+      const memberRows = await db
+        .select({ userId: teamMembers.userId })
+        .from(teamMembers)
+        .where(eq(teamMembers.teamId, id));
+
+      // Get caller's role
+      let myRole: string | null = null;
+      if (auth.authMethod !== 'dev') {
+        myRole = await rbacService.resolveTeamRole(auth.userId, id);
+      }
+
+      return json({ ok: true, data: { ...team, memberCount: memberRows.length, myRole } });
     } catch (error) {
       log.error('Failed to get team', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to get team' } }, 500);
@@ -172,25 +182,10 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID' } }, 400);
     }
 
-    // Check admin role in team
-    if (auth.authMethod !== 'dev') {
-      const role = await rbacService.resolveTeamRole(auth.userId, id);
-      if (!role || !rbacService.hasMinimumRole(role, 'admin')) {
-        return json(
-          { ok: false, error: { code: 'FORBIDDEN', message: 'Requires admin role' } },
-          403
-        );
-      }
-    }
+    const denied = await requireTeamRole(auth, rbacService, id, 'admin');
+    if (denied) return denied;
 
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return json({ ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON' } }, 400);
-    }
-
-    const parsed = parseBody(updateTeamSchema, body);
+    const parsed = await parseJsonBody(c, updateTeamSchema);
     if (!parsed.ok) return parsed.response;
 
     try {
@@ -223,20 +218,33 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID' } }, 400);
     }
 
-    // Check owner role
-    if (auth.authMethod !== 'dev') {
-      const role = await rbacService.resolveTeamRole(auth.userId, id);
-      if (!role || role !== 'owner') {
-        return json(
-          { ok: false, error: { code: 'FORBIDDEN', message: 'Only team owner can delete' } },
-          403
-        );
-      }
-    }
+    const denied = await requireTeamRole(
+      auth,
+      rbacService,
+      id,
+      'owner',
+      'Only team owner can delete'
+    );
+    if (denied) return denied;
 
     try {
-      const result = await db.delete(teams).where(eq(teams.id, id)).returning();
-      if (result.length === 0) {
+      const result = await db.transaction(async (tx) => {
+        // Verify team exists
+        const team = await tx.query.teams.findFirst({ where: eq(teams.id, id) });
+        if (!team) return null;
+
+        // Delete associated data
+        await tx.delete(teamInvitations).where(eq(teamInvitations.teamId, id));
+        await tx.delete(apiTokens).where(eq(apiTokens.teamId, id));
+        await tx.delete(tags).where(eq(tags.teamId, id)); // cascades to project_tags and task_tags
+        await tx.delete(teamProjects).where(eq(teamProjects.teamId, id));
+        await tx.delete(teamMembers).where(eq(teamMembers.teamId, id));
+        await tx.delete(teams).where(eq(teams.id, id));
+
+        return team;
+      });
+
+      if (!result) {
         return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Team not found' } }, 404);
       }
       return json({ ok: true, data: { deleted: true } });

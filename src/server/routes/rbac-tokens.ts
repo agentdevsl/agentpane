@@ -3,7 +3,7 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { RBAC_ROLE_LEVEL, type RbacRole } from '../../db/schema/shared/enums';
 import { apiTokens } from '../../db/schema/sqlite/api-tokens';
@@ -13,7 +13,7 @@ import { createLogger } from '../../lib/logging/logger';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
 import { isValidId, json } from '../shared';
-import { createApiTokenSchema, parseBody } from '../validation';
+import { createApiTokenSchema, parseJsonBody } from '../validation';
 
 const log = createLogger('RbacTokensRoutes');
 
@@ -37,14 +37,7 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
   app.post('/', async (c) => {
     const auth = c.get('auth');
 
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return json({ ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON' } }, 400);
-    }
-
-    const parsed = parseBody(createApiTokenSchema, body);
+    const parsed = await parseJsonBody(c, createApiTokenSchema);
     if (!parsed.ok) return parsed.response;
 
     // Validate team membership and role ceiling
@@ -96,7 +89,7 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
       const existingTokens = await db
         .select({ id: apiTokens.id })
         .from(apiTokens)
-        .where(and(eq(apiTokens.userId, auth.userId), eq(apiTokens.status, 'active')));
+        .where(and(eq(apiTokens.userId, auth.userId), ne(apiTokens.status, 'revoked')));
 
       if (existingTokens.length >= 25) {
         return json(
@@ -161,11 +154,16 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
   app.get('/', async (c) => {
     const auth = c.get('auth');
     const showAll = c.req.query('status') === 'all';
+    const teamId = c.req.query('teamId');
 
     try {
-      const whereClause = showAll
+      let whereClause = showAll
         ? eq(apiTokens.userId, auth.userId)
         : and(eq(apiTokens.userId, auth.userId), eq(apiTokens.status, 'active'));
+
+      if (teamId) {
+        whereClause = and(whereClause, eq(apiTokens.teamId, teamId));
+      }
 
       const tokens = await db
         .select({
@@ -240,6 +238,23 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
     }
 
     try {
+      // First check current status
+      const tokenRows = await db
+        .select({ id: apiTokens.id, status: apiTokens.status })
+        .from(apiTokens)
+        .where(and(eq(apiTokens.id, id), eq(apiTokens.userId, auth.userId)));
+
+      if (tokenRows.length === 0) {
+        return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Token not found' } }, 404);
+      }
+
+      if (tokenRows[0]?.status === 'revoked') {
+        return json(
+          { ok: false, error: { code: 'ALREADY_REVOKED', message: 'Token is already revoked' } },
+          409
+        );
+      }
+
       const result = await db
         .update(apiTokens)
         .set({ status: 'revoked' })

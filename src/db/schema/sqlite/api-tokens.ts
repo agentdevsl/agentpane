@@ -25,6 +25,7 @@ export const apiTokens = sqliteTable('api_tokens', {
   status: text('status').$type<ApiTokenStatus>().default('active').notNull(),
   expiresAt: text('expires_at'),
   lastUsedAt: text('last_used_at'),
+  revokedAt: text('revoked_at'),
   createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
 });
 

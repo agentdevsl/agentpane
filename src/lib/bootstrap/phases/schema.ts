@@ -1,3 +1,4 @@
+import { createId } from '@paralleldrive/cuid2';
 import { createError } from '../../errors/base.js';
 import { err, ok } from '../../utils/result.js';
 import type { BootstrapContext } from '../types.js';
@@ -507,7 +508,8 @@ CREATE TABLE IF NOT EXISTS "tags" (
   "team_id" TEXT NOT NULL REFERENCES "teams"("id") ON DELETE CASCADE,
   "name" TEXT NOT NULL,
   "color" TEXT NOT NULL DEFAULT '#6B7280',
-  "created_at" TEXT DEFAULT (datetime('now')) NOT NULL
+  "created_at" TEXT DEFAULT (datetime('now')) NOT NULL,
+  "updated_at" TEXT DEFAULT (datetime('now')) NOT NULL
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS "tags_team_name_unique" ON "tags"("team_id", "name");
@@ -515,12 +517,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS "tags_team_name_unique" ON "tags"("team_id", "
 CREATE TABLE IF NOT EXISTS "project_tags" (
   "project_id" TEXT NOT NULL REFERENCES "projects"("id") ON DELETE CASCADE,
   "tag_id" TEXT NOT NULL REFERENCES "tags"("id") ON DELETE CASCADE,
+  "assigned_at" TEXT DEFAULT (datetime('now')) NOT NULL,
   PRIMARY KEY ("project_id", "tag_id")
 );
 
 CREATE TABLE IF NOT EXISTS "task_tags" (
   "task_id" TEXT NOT NULL REFERENCES "tasks"("id") ON DELETE CASCADE,
   "tag_id" TEXT NOT NULL REFERENCES "tags"("id") ON DELETE CASCADE,
+  "assigned_at" TEXT DEFAULT (datetime('now')) NOT NULL,
   PRIMARY KEY ("task_id", "tag_id")
 );
 
@@ -537,13 +541,14 @@ CREATE TABLE IF NOT EXISTS "api_tokens" (
   "status" TEXT NOT NULL DEFAULT 'active',
   "expires_at" TEXT,
   "last_used_at" TEXT,
+  "revoked_at" TEXT,
   "created_at" TEXT DEFAULT (datetime('now')) NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS "team_invitations" (
   "id" TEXT PRIMARY KEY NOT NULL,
   "team_id" TEXT NOT NULL REFERENCES "teams"("id") ON DELETE CASCADE,
-  "invited_by" TEXT NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+  "invited_by" TEXT REFERENCES "users"("id") ON DELETE SET NULL,
   "email" TEXT NOT NULL,
   "role" TEXT NOT NULL,
   "token" TEXT NOT NULL UNIQUE,
@@ -564,7 +569,73 @@ CREATE INDEX IF NOT EXISTS idx_team_invitations_team ON team_invitations(team_id
 CREATE INDEX IF NOT EXISTS idx_team_invitations_email ON team_invitations(email);
 CREATE INDEX IF NOT EXISTS idx_project_tags_tag ON project_tags(tag_id);
 CREATE INDEX IF NOT EXISTS idx_task_tags_tag ON task_tags(tag_id);
+CREATE INDEX IF NOT EXISTS "idx_team_invitations_team_email_status" ON "team_invitations" ("team_id", "email", "status");
 `;
+
+// RBAC schema additions for existing databases where CREATE TABLE IF NOT EXISTS
+// won't add new columns to already-existing tables. Each ALTER TABLE is run
+// individually wrapped in try/catch so partial failures don't block others.
+export const RBAC_SCHEMA_ADDITIONS = [
+  `ALTER TABLE tags ADD COLUMN "updated_at" TEXT DEFAULT (datetime('now')) NOT NULL`,
+  `ALTER TABLE project_tags ADD COLUMN "assigned_at" TEXT DEFAULT (datetime('now')) NOT NULL`,
+  `ALTER TABLE task_tags ADD COLUMN "assigned_at" TEXT DEFAULT (datetime('now')) NOT NULL`,
+];
+
+/**
+ * Interface for raw SQLite database objects that support prepare/exec.
+ * Compatible with both better-sqlite3 (bootstrap) and bun:sqlite (api.ts).
+ */
+interface RawSQLiteDatabase {
+  prepare(sql: string): {
+    get(...params: unknown[]): unknown;
+    all(...params: unknown[]): unknown[];
+    run(...params: unknown[]): unknown;
+  };
+}
+
+/**
+ * Seeds a default team for existing installations that have github_tokens
+ * but no teams. This migrates pre-RBAC installations by:
+ * 1. Creating a "Default Team" with slug "default"
+ * 2. Associating all orphaned github_tokens (team_id IS NULL) with it
+ * 3. Assigning all existing projects to the default team via team_projects
+ *
+ * This function is idempotent: it only runs when the teams table is empty
+ * AND there are github_tokens without a team_id.
+ */
+export function seedDefaultTeamForExistingTokens(db: RawSQLiteDatabase): void {
+  const teamCount = db.prepare('SELECT COUNT(*) as count FROM teams').get() as { count: number };
+  const orphanedTokens = db
+    .prepare('SELECT COUNT(*) as count FROM github_tokens WHERE team_id IS NULL')
+    .get() as { count: number };
+
+  if (teamCount.count === 0 && orphanedTokens.count > 0) {
+    const defaultTeamId = createId();
+
+    // Create the default team
+    db.prepare(
+      `INSERT INTO teams (id, name, slug, description, created_at, updated_at)
+       VALUES (?, 'Default Team', 'default', 'Auto-created during RBAC migration', datetime('now'), datetime('now'))`
+    ).run(defaultTeamId);
+
+    // Associate orphaned github_tokens with the default team
+    db.prepare('UPDATE github_tokens SET team_id = ? WHERE team_id IS NULL').run(defaultTeamId);
+
+    // Assign all existing projects to the default team
+    const existingProjects = db.prepare('SELECT id FROM projects').all() as { id: string }[];
+    const insertTeamProject = db.prepare(
+      `INSERT OR IGNORE INTO team_projects (team_id, project_id, assigned_at)
+       VALUES (?, ?, datetime('now'))`
+    );
+    for (const project of existingProjects) {
+      insertTeamProject.run(defaultTeamId, project.id);
+    }
+
+    console.log(
+      `[RBAC Migration] Created default team '${defaultTeamId}' and associated ${orphanedTokens.count} GitHub token(s) and ${existingProjects.length} project(s)`
+    );
+  }
+}
 
 export const validateSchema = async (ctx: BootstrapContext) => {
   if (!ctx.db) {
@@ -574,6 +645,9 @@ export const validateSchema = async (ctx: BootstrapContext) => {
   try {
     // Run migrations by executing SQL directly against SQLite
     ctx.db.exec(MIGRATION_SQL);
+
+    // Run RBAC migration (idempotent)
+    ctx.db.exec(RBAC_MIGRATION_SQL);
 
     // Verify tables exist using SQLite syntax
     const result = ctx.db

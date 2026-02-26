@@ -11,7 +11,7 @@ import type { AuthContext } from '../../lib/api/auth-middleware';
 import { createLogger } from '../../lib/logging/logger';
 import type { Database } from '../../types/database';
 import { json } from '../shared';
-import { parseBody, updateProfileSchema } from '../validation';
+import { parseJsonBody, updateProfileSchema } from '../validation';
 
 const log = createLogger('MeRoutes');
 
@@ -103,14 +103,7 @@ export function createMeRoutes({ db }: MeDeps) {
       );
     }
 
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return json({ ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON' } }, 400);
-    }
-
-    const parsed = parseBody(updateProfileSchema, body);
+    const parsed = await parseJsonBody(c, updateProfileSchema);
     if (!parsed.ok) return parsed.response;
 
     try {

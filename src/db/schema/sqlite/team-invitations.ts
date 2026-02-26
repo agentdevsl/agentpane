@@ -12,9 +12,7 @@ export const teamInvitations = sqliteTable('team_invitations', {
   teamId: text('team_id')
     .notNull()
     .references(() => teams.id, { onDelete: 'cascade' }),
-  invitedBy: text('invited_by')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
+  invitedBy: text('invited_by').references(() => users.id, { onDelete: 'set null' }),
   email: text('email').notNull(),
   role: text('role').$type<RbacRole>().notNull(),
   token: text('token').notNull().unique(),

@@ -58,8 +58,10 @@ import {
   MIGRATION_SQL,
   PERFORMANCE_INDEXES_MIGRATION_SQL,
   RBAC_MIGRATION_SQL,
+  RBAC_SCHEMA_ADDITIONS,
   SANDBOX_CONTAINER_ID_MIGRATION_SQL,
   SANDBOX_MIGRATION_SQL,
+  seedDefaultTeamForExistingTokens,
   TEMPLATE_SYNC_INTERVAL_MIGRATION_SQL,
   TERRAFORM_MIGRATION_SQL,
 } from '../lib/bootstrap/phases/schema.js';
@@ -234,6 +236,21 @@ if (DB_MODE === 'postgres') {
   sqlite.exec(RBAC_MIGRATION_SQL);
   log.info('RBAC migration applied');
 
+  // Apply RBAC schema additions for existing databases (tags.updated_at,
+  // project_tags.assigned_at, task_tags.assigned_at). Each runs individually
+  // so a duplicate-column error on one doesn't block the others.
+  for (const alterSql of RBAC_SCHEMA_ADDITIONS) {
+    try {
+      sqlite.exec(alterSql);
+    } catch (error) {
+      if (!(error instanceof Error && error.message.includes('duplicate column name'))) {
+        log.warn('RBAC schema addition migration error (unexpected)', {
+          error: error instanceof Error ? error : new Error(String(error)),
+        });
+      }
+    }
+  }
+
   // Apply github_tokens team_id column migration
   try {
     sqlite.exec(
@@ -247,6 +264,9 @@ if (DB_MODE === 'postgres') {
       });
     }
   }
+
+  // Seed default team for existing installations with orphaned github_tokens
+  seedDefaultTeamForExistingTokens(sqlite);
 
   // Nomad sandbox columns — run individually for partial-failure safety
   const nomadColumns = [

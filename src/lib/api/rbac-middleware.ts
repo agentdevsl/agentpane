@@ -10,6 +10,8 @@ import { and, eq } from 'drizzle-orm';
 import type { Context, Next } from 'hono';
 import { RBAC_ROLE_LEVEL, type RbacRole, resolveHighestRole } from '../../db/schema/shared/enums';
 import { apiTokens } from '../../db/schema/sqlite/api-tokens';
+import { projectTags } from '../../db/schema/sqlite/project-tags';
+import { taskTags } from '../../db/schema/sqlite/task-tags';
 import { teamMembers } from '../../db/schema/sqlite/team-members';
 import { users } from '../../db/schema/sqlite/users';
 import type { RbacService } from '../../services/rbac.service';
@@ -32,13 +34,21 @@ export function enrichAuthContext(db: Database) {
     const auth = c.get('auth') as AuthContext | undefined;
     if (!auth) {
       log.warn('enrichAuthContext called without auth context', { data: { path: c.req.path } });
-      return next();
+      return c.json(
+        { ok: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } },
+        401
+      );
     }
 
     const rbacAuth: AuthContext = { ...auth };
 
     // Dev-mode users get owner role automatically
     if (auth.authMethod === 'dev') {
+      if (process.env.NODE_ENV === 'production') {
+        log.error('SECURITY: Dev-mode authentication detected in production', {
+          data: { userId: auth.userId, path: c.req.path },
+        });
+      }
       rbacAuth.resolvedRole = 'owner';
       rbacAuth.roleLevel = RBAC_ROLE_LEVEL.owner;
       c.set('auth', rbacAuth);
@@ -79,6 +89,14 @@ export function enrichAuthContext(db: Database) {
             rbacAuth.resolvedRole = highest.role;
             rbacAuth.roleLevel = highest.level;
           }
+        } else {
+          log.warn('User record not found for authenticated userId', {
+            data: { userId: auth.userId, path: c.req.path },
+          });
+          return c.json(
+            { ok: false, error: { code: 'UNAUTHORIZED', message: 'User account not found' } },
+            401
+          );
         }
       }
 
@@ -86,7 +104,13 @@ export function enrichAuthContext(db: Database) {
       if (auth.authMethod === 'api_token') {
         const authHeader = c.req.header('Authorization');
         if (authHeader?.startsWith('Bearer ')) {
-          const rawToken = authHeader.substring(7);
+          const rawToken = authHeader.substring(7).trim();
+          if (!rawToken || (!rawToken.startsWith('ap_') && rawToken.length < 20)) {
+            return c.json(
+              { ok: false, error: { code: 'UNAUTHORIZED', message: 'Invalid API token format' } },
+              401
+            );
+          }
           const tokenHash = createHash('sha256').update(rawToken).digest('hex');
 
           const tokenRecords = await db
@@ -95,12 +119,26 @@ export function enrichAuthContext(db: Database) {
               role: apiTokens.role,
               scopeProjectId: apiTokens.scopeProjectId,
               scopeTags: apiTokens.scopeTags,
+              expiresAt: apiTokens.expiresAt,
             })
             .from(apiTokens)
             .where(and(eq(apiTokens.tokenHash, tokenHash), eq(apiTokens.status, 'active')));
 
           const token = tokenRecords[0];
           if (token) {
+            // Check if token has expired
+            if (token.expiresAt && new Date(token.expiresAt) < new Date()) {
+              // Lazily update status to expired (fire-and-forget)
+              void db
+                .update(apiTokens)
+                .set({ status: 'expired' })
+                .where(eq(apiTokens.id, token.id))
+                .catch((err) => log.warn('Failed to update expired token status', { error: err }));
+              return c.json(
+                { ok: false, error: { code: 'UNAUTHORIZED', message: 'API token has expired' } },
+                401
+              );
+            }
             rbacAuth.tokenScope = {
               tokenId: token.id,
               role: token.role as RbacRole,
@@ -115,13 +153,18 @@ export function enrichAuthContext(db: Database) {
                 rbacAuth.resolvedRole = token.role as RbacRole;
                 rbacAuth.roleLevel = tokenLevel;
               }
+            } else {
+              // User has no membership role — use token role as effective role
+              rbacAuth.resolvedRole = token.role as RbacRole;
+              rbacAuth.roleLevel = RBAC_ROLE_LEVEL[token.role as RbacRole];
             }
 
             // Update lastUsedAt asynchronously (fire-and-forget to avoid blocking the request)
-            db.update(apiTokens)
+            void db
+              .update(apiTokens)
               .set({ lastUsedAt: new Date().toISOString() })
               .where(eq(apiTokens.id, token.id))
-              .catch((err) => log.warn('Failed to update token lastUsedAt', { error: err }));
+              .catch((err) => log.error('Failed to update token usage tracking', { error: err }));
           } else {
             // Token hash not found or token is not active — deny access
             log.warn('API token not found or inactive', { data: { path: c.req.path } });
@@ -256,16 +299,24 @@ export function requireRole(minimumRole: RbacRole, rbacService: RbacService) {
 /**
  * Middleware that checks tag-based access for API tokens with tag restrictions.
  *
+ * For API tokens with scopeTags, this middleware verifies that the requested
+ * resource (project or task) has at least one tag matching the token's allowed tags.
+ *
  * Bypassed when:
  * - User is not using an API token
- * - Token has no tag restrictions (scopeTags is null)
+ * - Token has no tag restrictions (scopeTags is null or empty)
  * - User is in dev mode
  */
-export function requireTagAccess(_db: Database) {
+export function requireTagAccess(db: Database) {
   return async (c: Context, next: Next) => {
     const auth = c.get('auth') as AuthContext | undefined;
 
-    if (!auth) return next();
+    if (!auth) {
+      return c.json(
+        { ok: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } },
+        401
+      );
+    }
 
     // Skip for non-token auth or dev mode
     if (auth.authMethod === 'dev' || auth.authMethod !== 'api_token') {
@@ -277,8 +328,58 @@ export function requireTagAccess(_db: Database) {
       return next();
     }
 
-    // Tag access checking will be done at the service/query layer
-    // The middleware ensures the tokenScope.tags is available for query filtering
+    const scopeTags = auth.tokenScope.tags;
+
+    // Determine the resource type from the route path
+    const path = c.req.path;
+
+    // For project routes: check project tags
+    if (path.startsWith('/api/projects/')) {
+      const projectId = c.req.param('id');
+      if (projectId) {
+        const projectTagRows = await db
+          .select({ tagId: projectTags.tagId })
+          .from(projectTags)
+          .where(eq(projectTags.projectId, projectId));
+
+        const resourceTagIds = projectTagRows.map((r) => r.tagId);
+
+        if (!scopeTags.some((t) => resourceTagIds.includes(t))) {
+          return c.json(
+            {
+              ok: false,
+              error: { code: 'FORBIDDEN', message: 'Token tags do not match project tags' },
+            },
+            403
+          );
+        }
+      }
+    }
+
+    // For task routes: check task tags
+    if (path.startsWith('/api/tasks/')) {
+      const taskId = c.req.param('id');
+      if (taskId) {
+        const taskTagRows = await db
+          .select({ tagId: taskTags.tagId })
+          .from(taskTags)
+          .where(eq(taskTags.taskId, taskId));
+
+        const resourceTagIds = taskTagRows.map((r) => r.tagId);
+
+        // If task has no tags, deny access for tag-restricted tokens
+        if (!scopeTags.some((t) => resourceTagIds.includes(t))) {
+          return c.json(
+            {
+              ok: false,
+              error: { code: 'FORBIDDEN', message: 'Token tags do not match task tags' },
+            },
+            403
+          );
+        }
+      }
+    }
+
     return next();
   };
 }

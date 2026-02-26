@@ -101,6 +101,11 @@ export const commitWorktreeSchema = z.object({
 
 export const rbacRoleSchema = z.enum(['owner', 'admin', 'agent_operator', 'viewer']);
 
+/** Role schema that excludes 'owner' -- used for assignable roles */
+const assignableRoleSchema = rbacRoleSchema.refine((r) => r !== 'owner', {
+  message: 'Cannot assign owner role directly',
+});
+
 export const createTeamSchema = z.object({
   name: z.string().min(1, 'Team name is required').max(100),
   slug: z
@@ -118,6 +123,15 @@ export const createTeamSchema = z.object({
 export const updateTeamSchema = z
   .object({
     name: z.string().min(1).max(100).optional(),
+    slug: z
+      .string()
+      .min(1)
+      .max(100)
+      .regex(
+        /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/,
+        'Slug must start and end with alphanumeric, hyphens allowed between'
+      )
+      .optional(),
     description: z.string().max(500).optional(),
   })
   .refine((data) => Object.values(data).some((v) => v !== undefined), {
@@ -126,44 +140,32 @@ export const updateTeamSchema = z
 
 export const addTeamMemberSchema = z.object({
   userId: idSchema,
-  role: rbacRoleSchema.refine((r) => r !== 'owner', {
-    message: 'Cannot assign owner role directly',
-  }),
+  role: assignableRoleSchema,
 });
 
 export const updateTeamMemberSchema = z.object({
-  role: rbacRoleSchema.refine((r) => r !== 'owner', {
-    message: 'Cannot assign owner role directly',
-  }),
+  role: assignableRoleSchema,
 });
 
 export const createInvitationSchema = z.object({
   email: z.string().max(254).email('Valid email is required'),
-  role: rbacRoleSchema.refine((r) => r !== 'owner', {
-    message: 'Cannot invite as owner',
-  }),
+  role: assignableRoleSchema,
 });
 
 export const addProjectMemberSchema = z.object({
   userId: idSchema,
-  role: rbacRoleSchema.refine((r) => r !== 'owner', {
-    message: 'Cannot assign owner role directly',
-  }),
+  role: assignableRoleSchema,
   teamId: idSchema.optional(),
 });
 
 export const updateProjectMemberSchema = z.object({
-  role: rbacRoleSchema.refine((r) => r !== 'owner', {
-    message: 'Cannot assign owner role directly',
-  }),
+  role: assignableRoleSchema,
 });
 
 export const createApiTokenSchema = z.object({
   name: z.string().min(1, 'Token name is required').max(100),
   teamId: idSchema,
-  role: rbacRoleSchema.refine((r) => r !== 'owner', {
-    message: 'Tokens cannot have owner role',
-  }),
+  role: assignableRoleSchema,
   scopeTags: z.array(z.string().min(1).max(50).trim()).max(20).optional(),
   scopeProjectId: idSchema.optional(),
   expiresInDays: z.number().int().min(1).max(365).optional(),
@@ -184,8 +186,8 @@ export const assignTagSchema = z.object({
 
 export const updateProfileSchema = z
   .object({
-    name: z.string().min(1).max(200).optional(),
-    email: z.string().max(254).email().optional(),
+    name: z.string().trim().min(1).max(200).optional(),
+    email: z.string().trim().max(254).email().optional(),
   })
   .refine((data) => Object.values(data).some((v) => v !== undefined), {
     message: 'At least one field must be provided',
@@ -193,29 +195,51 @@ export const updateProfileSchema = z
 
 // ─── Helper ──────────────────────────────────────────
 
+type ParseResult<T> = { ok: true; data: T } | { ok: false; response: Response };
+
+function validationError(message: string): { ok: false; response: Response } {
+  return {
+    ok: false,
+    response: new Response(
+      JSON.stringify({
+        ok: false,
+        error: { code: 'VALIDATION_ERROR', message },
+      }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } }
+    ),
+  };
+}
+
 /**
  * Parse a Zod schema and return a validation error response or the parsed data.
  *
  * @returns `{ ok: true, data }` or `{ ok: false, response }` where `response` is
  * a JSON Response ready to return from the handler.
  */
-export function parseBody<T>(
-  schema: z.ZodSchema<T>,
-  body: unknown
-): { ok: true; data: T } | { ok: false; response: Response } {
+export function parseBody<T>(schema: z.ZodSchema<T>, body: unknown): ParseResult<T> {
   const result = schema.safeParse(body);
   if (!result.success) {
-    const message = result.error.issues[0]?.message ?? 'Invalid request body';
-    return {
-      ok: false,
-      response: new Response(
-        JSON.stringify({
-          ok: false,
-          error: { code: 'VALIDATION_ERROR', message },
-        }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
-      ),
-    };
+    return validationError(result.error.issues[0]?.message ?? 'Invalid request body');
   }
   return { ok: true, data: result.data };
+}
+
+/**
+ * Parse JSON from a Hono request context and validate against a Zod schema.
+ * Combines JSON parsing and schema validation into one step.
+ *
+ * @returns `{ ok: true, data }` or `{ ok: false, response }` where `response` is
+ * a JSON Response ready to return from the handler.
+ */
+export async function parseJsonBody<T>(
+  c: { req: { json(): Promise<unknown> } },
+  schema: z.ZodSchema<T>
+): Promise<ParseResult<T>> {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return validationError('Invalid JSON');
+  }
+  return parseBody(schema, body);
 }

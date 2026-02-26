@@ -4,13 +4,17 @@
  * Main router that combines all route modules.
  */
 
+import { createHash } from 'node:crypto';
+import { and, eq } from 'drizzle-orm';
 import type { Context, Next } from 'hono';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
+import { apiTokens } from '../db/schema/sqlite/api-tokens.js';
+import { userSessions } from '../db/schema/sqlite/user-sessions.js';
 import { getAuthContext } from '../lib/api/auth-middleware.js';
 import { rateLimiter } from '../lib/api/rate-limiter.js';
-import { enrichAuthContext } from '../lib/api/rbac-middleware.js';
+import { enrichAuthContext, requireRole, requireTagAccess } from '../lib/api/rbac-middleware.js';
 import { createLogger } from '../lib/logging/logger.js';
 import type { EventEmittingSandboxProvider } from '../lib/sandbox/index.js';
 import type { AgentService } from '../services/agent.service.js';
@@ -31,6 +35,7 @@ import type { CommandRunner, WorktreeService } from '../services/worktree.servic
 import type { Database } from '../types/database.js';
 import { createAgentsRoutes } from './routes/agents.js';
 import { createApiKeysRoutes } from './routes/api-keys.js';
+import { createAuthRoutes } from './routes/auth.js';
 import { createCliMonitorRoutes } from './routes/cli-monitor.js';
 import { createFilesystemRoutes } from './routes/filesystem.js';
 import { createGitRoutes } from './routes/git.js';
@@ -49,8 +54,10 @@ import { createSettingsRoutes } from './routes/settings.js';
 import { createProjectTagRoutes, createTagsRoutes, createTaskTagRoutes } from './routes/tags.js';
 import { createTaskCreationRoutes } from './routes/task-creation.js';
 import { createTasksRoutes } from './routes/tasks.js';
+import { createTeamGitHubTokenRoutes } from './routes/team-github-token.js';
 import { createTeamInvitationsRoutes } from './routes/team-invitations.js';
 import { createTeamMembersRoutes } from './routes/team-members.js';
+import { createTeamProjectsRoutes } from './routes/team-projects.js';
 import { createTeamsRoutes } from './routes/teams.js';
 import { createTemplatesRoutes } from './routes/templates.js';
 import { createTerraformRoutes } from './routes/terraform.js';
@@ -87,22 +94,49 @@ async function securityHeaders(c: Context, next: Next) {
   }
 }
 
-async function authMiddleware(c: Context, next: Next) {
-  const path = c.req.path;
-  if (path === '/api/health' || path === '/api/healthz' || path === '/api/readyz') {
+/** Factory that creates auth middleware with access to database for token validation. */
+function createAuthMiddleware(db: Database) {
+  return async function authMiddleware(c: Context, next: Next) {
+    const path = c.req.path;
+    if (path === '/api/health' || path === '/api/healthz' || path === '/api/readyz') {
+      return next();
+    }
+    if (path.startsWith('/api/auth/')) {
+      return next();
+    }
+
+    const result = await getAuthContext(c.req.raw, {
+      validateSessionToken: async (token: string) => {
+        const session = await db.query.userSessions.findFirst({
+          where: and(eq(userSessions.token, token)),
+        });
+        if (!session) return null;
+        // Check expiration
+        if (new Date(session.expiresAt) < new Date()) return null;
+        return session.userId;
+      },
+      validateApiKey: async (key: string) => {
+        const tokenHash = createHash('sha256').update(key).digest('hex');
+        const apiToken = await db.query.apiTokens.findFirst({
+          where: and(eq(apiTokens.tokenHash, tokenHash), eq(apiTokens.status, 'active')),
+        });
+        if (!apiToken) return null;
+        // Check expiration if set
+        if (apiToken.expiresAt && new Date(apiToken.expiresAt) < new Date()) return null;
+        return apiToken.userId;
+      },
+    });
+
+    if (!result.ok) {
+      return c.json(
+        { ok: false, error: { code: result.error.code, message: result.error.message } },
+        result.error.status as 401 | 403
+      );
+    }
+
+    c.set('auth', result.value);
     return next();
-  }
-
-  const result = await getAuthContext(c.req.raw);
-  if (!result.ok) {
-    return c.json(
-      { ok: false, error: { code: result.error.code, message: result.error.message } },
-      result.error.status as 401 | 403
-    );
-  }
-
-  c.set('auth', result.value);
-  return next();
+  };
 }
 
 /** Shared interface for reading sandbox provider health in routes (K8s, Nomad, etc.). */
@@ -157,8 +191,40 @@ export function createRouter(deps: RouterDependencies) {
   app.use('*', requestIdMiddleware);
   app.use('*', securityHeaders);
   app.use('/api/*', rateLimiter({ max: 200, windowMs: 60_000 }));
-  app.use('/api/*', authMiddleware);
+  app.use('/api/*', createAuthMiddleware(deps.db));
   app.use('/api/*', enrichAuthContext(deps.db));
+  app.use('/api/*', requireTagAccess(deps.db));
+
+  // --- RBAC role guards for existing routes ---
+  const rbacService = deps.rbacService ?? new RbacService(deps.db);
+
+  // Settings: admin required
+  app.use('/api/settings', requireRole('admin', rbacService));
+  app.use('/api/settings/*', requireRole('admin', rbacService));
+
+  // API keys: admin required
+  app.use('/api/keys', requireRole('admin', rbacService));
+  app.use('/api/keys/*', requireRole('admin', rbacService));
+
+  // Projects: viewer minimum (write operations checked in handlers)
+  app.use('/api/projects', requireRole('viewer', rbacService));
+  app.use('/api/projects/*', requireRole('viewer', rbacService));
+
+  // Tasks: viewer minimum (write operations checked in handlers)
+  app.use('/api/tasks', requireRole('viewer', rbacService));
+  app.use('/api/tasks/*', requireRole('viewer', rbacService));
+
+  // Agents: viewer minimum (action endpoints checked in handlers)
+  app.use('/api/agents', requireRole('viewer', rbacService));
+  app.use('/api/agents/*', requireRole('viewer', rbacService));
+
+  // Sessions: viewer minimum
+  app.use('/api/sessions', requireRole('viewer', rbacService));
+  app.use('/api/sessions/*', requireRole('viewer', rbacService));
+
+  // Worktrees: viewer minimum
+  app.use('/api/worktrees', requireRole('viewer', rbacService));
+  app.use('/api/worktrees/*', requireRole('viewer', rbacService));
 
   app.route(
     '/api/health',
@@ -179,6 +245,9 @@ export function createRouter(deps: RouterDependencies) {
       return c.json({ ok: false, status: 'not_ready' }, 503);
     }
   });
+
+  // Auth routes (public — exempted from authMiddleware above)
+  app.route('/api/auth', createAuthRoutes({ db: deps.db }));
 
   app.route('/api/settings', createSettingsRoutes({ db: deps.db }));
   app.route('/api/projects', createProjectsRoutes({ db: deps.db }));
@@ -247,12 +316,16 @@ export function createRouter(deps: RouterDependencies) {
   }
 
   // RBAC routes
-  const rbacService = deps.rbacService ?? new RbacService(deps.db);
   app.route('/api/teams', createTeamsRoutes({ db: deps.db, rbacService }));
   app.route('/api/teams/:id/members', createTeamMembersRoutes({ db: deps.db, rbacService }));
+  app.route('/api/teams/:id/projects', createTeamProjectsRoutes({ db: deps.db, rbacService }));
   app.route(
     '/api/teams/:id/invitations',
     createTeamInvitationsRoutes({ db: deps.db, rbacService })
+  );
+  app.route(
+    '/api/teams/:id/github-token',
+    createTeamGitHubTokenRoutes({ db: deps.db, rbacService })
   );
   app.route('/api/invitations', createInvitationAcceptRoutes({ db: deps.db }));
   app.route('/api/projects/:id/members', createProjectMembersRoutes({ db: deps.db, rbacService }));

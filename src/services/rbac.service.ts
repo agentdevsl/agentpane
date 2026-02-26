@@ -1,5 +1,5 @@
-import { and, eq, inArray } from 'drizzle-orm';
-import { RBAC_ROLE_LEVEL, type RbacRole } from '../db/schema/shared/enums';
+import { and, eq } from 'drizzle-orm';
+import { RBAC_ROLE_LEVEL, type RbacRole, resolveHighestRole } from '../db/schema/shared/enums';
 import { projectMembers } from '../db/schema/sqlite/project-members';
 import { teamMembers } from '../db/schema/sqlite/team-members';
 import { teamProjects } from '../db/schema/sqlite/team-projects';
@@ -21,27 +21,35 @@ const PERMISSION_MAP: Record<string, RbacRole> = {
   'task:create': 'agent_operator',
   'task:update': 'agent_operator',
   'task:move': 'agent_operator',
+  'task:delete': 'agent_operator',
+  'task:label': 'agent_operator',
   'agent:start': 'agent_operator',
   'agent:stop': 'agent_operator',
-  'agent:approve': 'agent_operator',
+  'agent:approve_plan': 'agent_operator',
+  'agent:reject_plan': 'agent_operator',
+  'agent:approve_task': 'agent_operator',
   'session:create': 'agent_operator',
   'worktree:create': 'agent_operator',
   'worktree:update': 'agent_operator',
   // Admin actions
   'project:create': 'admin',
   'project:update': 'admin',
-  'task:delete': 'admin',
+  'project:delete': 'admin',
+  'project:manage_members': 'admin',
+  'project:sandbox_config': 'admin',
   'agent:delete': 'admin',
   'session:delete': 'admin',
   'worktree:delete': 'admin',
   'settings:update': 'admin',
   'keys:manage': 'admin',
-  'member:manage': 'admin',
-  'token:create': 'admin',
+  'team:manage_members': 'admin',
+  'team:create_tokens': 'admin',
+  'team:manage_settings': 'admin',
+  'team:view_audit': 'admin',
   // Owner actions
-  'project:delete': 'owner',
   'team:delete': 'owner',
-  'team:transfer': 'owner',
+  'team:transfer_owner': 'owner',
+  'team:promote_owner': 'owner',
 };
 
 export class RbacService {
@@ -63,37 +71,14 @@ export class RbacService {
       return directMember.role as RbacRole;
     }
 
-    // 2. Check team memberships via team_projects
-    // Find all teams that have this project
-    const projectTeams = await this.db
-      .select({ teamId: teamProjects.teamId })
-      .from(teamProjects)
-      .where(eq(teamProjects.projectId, projectId));
-
-    if (projectTeams.length === 0) return null;
-
-    const teamIds = projectTeams.map((t) => t.teamId);
-
-    // Find user's membership in those teams
+    // 2. Check team memberships via team_projects (single JOIN)
     const memberships = await this.db
       .select({ role: teamMembers.role })
       .from(teamMembers)
-      .where(and(eq(teamMembers.userId, userId), inArray(teamMembers.teamId, teamIds)));
+      .innerJoin(teamProjects, eq(teamMembers.teamId, teamProjects.teamId))
+      .where(and(eq(teamMembers.userId, userId), eq(teamProjects.projectId, projectId)));
 
-    if (memberships.length === 0) return null;
-
-    // Return highest role
-    let highestLevel = 0;
-    let highestRole: RbacRole = 'viewer';
-    for (const m of memberships) {
-      const level = RBAC_ROLE_LEVEL[m.role as RbacRole] ?? 0;
-      if (level > highestLevel) {
-        highestLevel = level;
-        highestRole = m.role as RbacRole;
-      }
-    }
-
-    return highestRole;
+    return resolveHighestRole(memberships)?.role ?? null;
   }
 
   /**
@@ -101,14 +86,11 @@ export class RbacService {
    * Used for team-level operations where no project context exists.
    */
   async resolveTeamRole(userId: string, teamId: string): Promise<RbacRole | null> {
-    const membership = await this.db
-      .select({ role: teamMembers.role })
-      .from(teamMembers)
-      .where(and(eq(teamMembers.userId, userId), eq(teamMembers.teamId, teamId)));
+    const membership = await this.db.query.teamMembers.findFirst({
+      where: and(eq(teamMembers.userId, userId), eq(teamMembers.teamId, teamId)),
+    });
 
-    const first = membership[0];
-    if (!first) return null;
-    return first.role as RbacRole;
+    return (membership?.role as RbacRole) ?? null;
   }
 
   /**
@@ -121,19 +103,7 @@ export class RbacService {
       .from(teamMembers)
       .where(eq(teamMembers.userId, userId));
 
-    if (memberships.length === 0) return null;
-
-    let highestLevel = 0;
-    let highestRole: RbacRole = 'viewer';
-    for (const m of memberships) {
-      const level = RBAC_ROLE_LEVEL[m.role as RbacRole] ?? 0;
-      if (level > highestLevel) {
-        highestLevel = level;
-        highestRole = m.role as RbacRole;
-      }
-    }
-
-    return highestRole;
+    return resolveHighestRole(memberships)?.role ?? null;
   }
 
   /**

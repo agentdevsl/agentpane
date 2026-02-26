@@ -34,69 +34,118 @@ export function createInvitationAcceptRoutes({ db }: InvitationAcceptDeps) {
     }
 
     try {
-      // Atomically claim the invitation (prevents TOCTOU race and rejects expired)
-      const [claimed] = await db
-        .update(teamInvitations)
-        .set({ status: 'accepted' })
-        .where(
-          and(
-            eq(teamInvitations.token, token),
-            eq(teamInvitations.status, 'pending'),
-            gt(teamInvitations.expiresAt, new Date().toISOString())
-          )
-        )
-        .returning();
-
-      if (!claimed) {
-        return json(
-          {
-            ok: false,
-            error: { code: 'NOT_FOUND', message: 'Invalid, expired, or already used invitation' },
-          },
-          404
-        );
-      }
-
-      // Verify the accepting user's email matches the invitation
-      if (auth.user?.email && claimed.email && auth.user.email !== claimed.email) {
-        // Roll back the claim - set status back to pending
-        await db
+      const result = await db.transaction(async (tx) => {
+        // Atomically claim the invitation
+        const [claimed] = await tx
           .update(teamInvitations)
-          .set({ status: 'pending' })
-          .where(eq(teamInvitations.id, claimed.id));
-        return json(
-          {
-            ok: false,
-            error: {
-              code: 'FORBIDDEN',
-              message: 'Invitation was sent to a different email address',
-            },
-          },
-          403
-        );
-      }
+          .set({ status: 'accepted' })
+          .where(
+            and(
+              eq(teamInvitations.token, token),
+              eq(teamInvitations.status, 'pending'),
+              gt(teamInvitations.expiresAt, new Date().toISOString())
+            )
+          )
+          .returning();
 
-      // Check if already a team member
-      const existing = await db
-        .select()
-        .from(teamMembers)
-        .where(and(eq(teamMembers.teamId, claimed.teamId), eq(teamMembers.userId, auth.userId)));
+        if (!claimed) return { status: 'not_found' } as const;
 
-      if (existing.length > 0) {
-        return json({
-          ok: true,
-          data: { teamId: claimed.teamId, role: existing[0]?.role, alreadyMember: true },
+        // Fail-closed email check: if invitation has a target email, verify it matches
+        if (claimed.email) {
+          if (!auth.user?.email) {
+            // Cannot verify email — roll back within transaction
+            await tx
+              .update(teamInvitations)
+              .set({ status: 'pending' })
+              .where(eq(teamInvitations.id, claimed.id));
+            return { status: 'no_email' } as const;
+          }
+          if (auth.user.email !== claimed.email) {
+            await tx
+              .update(teamInvitations)
+              .set({ status: 'pending' })
+              .where(eq(teamInvitations.id, claimed.id));
+            return { status: 'email_mismatch' } as const;
+          }
+        }
+
+        // Check if already a team member
+        const existing = await tx
+          .select()
+          .from(teamMembers)
+          .where(and(eq(teamMembers.teamId, claimed.teamId), eq(teamMembers.userId, auth.userId)));
+
+        if (existing.length > 0) {
+          return {
+            status: 'already_member',
+            teamId: claimed.teamId,
+            role: existing[0]?.role,
+          } as const;
+        }
+
+        // Add user to team
+        await tx.insert(teamMembers).values({
+          teamId: claimed.teamId,
+          userId: auth.userId,
+          role: claimed.role,
         });
-      }
 
-      // Add user to team
-      await db.insert(teamMembers).values({
-        teamId: claimed.teamId,
-        userId: auth.userId,
-        role: claimed.role,
+        return {
+          status: 'ok',
+          teamId: claimed.teamId,
+          role: claimed.role,
+          joinedAt: new Date().toISOString(),
+        } as const;
       });
 
-      return json({ ok: true, data: { teamId: claimed.teamId, role: claimed.role } });
+      switch (result.status) {
+        case 'not_found':
+          return json(
+            {
+              ok: false,
+              error: {
+                code: 'INVITATION_NOT_FOUND',
+                message: 'Invalid, expired, or already used invitation',
+              },
+            },
+            404
+          );
+        case 'no_email':
+          return json(
+            {
+              ok: false,
+              error: {
+                code: 'FORBIDDEN',
+                message: 'Cannot verify email address. Please set your email first.',
+              },
+            },
+            403
+          );
+        case 'email_mismatch':
+          return json(
+            {
+              ok: false,
+              error: {
+                code: 'INVITATION_EMAIL_MISMATCH',
+                message: 'Invitation was sent to a different email address',
+              },
+            },
+            403
+          );
+        case 'already_member':
+          return json(
+            {
+              ok: false,
+              error: { code: 'MEMBER_ALREADY_EXISTS', message: 'Already a member of this team' },
+            },
+            409
+          );
+        case 'ok':
+          return json({
+            ok: true,
+            data: { teamId: result.teamId, role: result.role, joinedAt: result.joinedAt },
+          });
+      }
     } catch (error) {
       log.error('Failed to accept invitation', { error });
       return json(
