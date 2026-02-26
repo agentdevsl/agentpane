@@ -539,25 +539,41 @@ export class DurableStreamsService {
       const timestamp = Date.now();
       const eventId = createId();
 
-      // Get next offset for this session from database (if db available)
+      // Get next offset and persist to database with retry on offset collision
       let offset = 0;
       if (this.db) {
-        const lastEvent = await this.db.query.sessionEvents.findFirst({
-          where: eq(sessionEvents.sessionId, streamId),
-          orderBy: [desc(sessionEvents.offset)],
-        });
-        offset = (lastEvent?.offset ?? -1) + 1;
+        const MAX_OFFSET_RETRIES = 3;
+        for (let attempt = 0; attempt < MAX_OFFSET_RETRIES; attempt++) {
+          const lastEvent = await this.db.query.sessionEvents.findFirst({
+            where: eq(sessionEvents.sessionId, streamId),
+            orderBy: [desc(sessionEvents.offset)],
+          });
+          offset = (lastEvent?.offset ?? -1) + 1;
 
-        // PERSIST TO DATABASE FIRST (ensures durability)
-        await this.db.insert(sessionEvents).values({
-          id: eventId,
-          sessionId: streamId,
-          offset,
-          type,
-          channel: this.getChannelForType(type),
-          data: data as unknown,
-          timestamp,
-        });
+          try {
+            // PERSIST TO DATABASE FIRST (ensures durability)
+            await this.db.insert(sessionEvents).values({
+              id: attempt === 0 ? eventId : createId(),
+              sessionId: streamId,
+              offset,
+              type,
+              channel: this.getChannelForType(type),
+              data: data as unknown,
+              timestamp,
+            });
+            break; // Success
+          } catch (insertErr) {
+            const isConstraintViolation =
+              insertErr instanceof Error &&
+              (insertErr.message.includes('UNIQUE constraint') ||
+                insertErr.message.includes('duplicate key'));
+            if (isConstraintViolation && attempt < MAX_OFFSET_RETRIES - 1) {
+              // Offset collision from concurrent publish — retry with fresh offset
+              continue;
+            }
+            throw insertErr;
+          }
+        }
       }
 
       // THEN publish to Caddy streams server for real-time delivery
@@ -669,26 +685,58 @@ export class DurableStreamsService {
    * Persists to database if available, then publishes to Caddy streams.
    */
   async publishSessionEvent(streamId: string, event: SessionEvent): Promise<void> {
-    const timestamp = Date.now();
-
-    if (this.db) {
-      const lastEvent = await this.db.query.sessionEvents.findFirst({
-        where: eq(sessionEvents.sessionId, streamId),
-        orderBy: [desc(sessionEvents.offset)],
-      });
-      const offset = (lastEvent?.offset ?? -1) + 1;
-
-      await this.db.insert(sessionEvents).values({
-        id: createId(),
-        sessionId: streamId,
-        offset,
-        type: event.type,
-        channel: 'session',
-        data: event.data as unknown,
-        timestamp,
-      });
+    if (!streamId || typeof streamId !== 'string' || streamId.trim() === '') {
+      throw new Error(
+        '[DurableStreamsService] publishSessionEvent: streamId is required and must be a non-empty string'
+      );
     }
 
-    await this.server.publish(streamId, event.type, event.data);
+    try {
+      const timestamp = event.timestamp || Date.now();
+
+      if (this.db) {
+        const MAX_OFFSET_RETRIES = 3;
+        for (let attempt = 0; attempt < MAX_OFFSET_RETRIES; attempt++) {
+          const lastEvent = await this.db.query.sessionEvents.findFirst({
+            where: eq(sessionEvents.sessionId, streamId),
+            orderBy: [desc(sessionEvents.offset)],
+          });
+          const offset = (lastEvent?.offset ?? -1) + 1;
+
+          try {
+            await this.db.insert(sessionEvents).values({
+              id: event.id || createId(),
+              sessionId: streamId,
+              offset,
+              type: event.type,
+              channel: 'session',
+              data: event.data as unknown,
+              timestamp,
+            });
+            break; // Success
+          } catch (insertErr) {
+            const isConstraintViolation =
+              insertErr instanceof Error &&
+              (insertErr.message.includes('UNIQUE constraint') ||
+                insertErr.message.includes('duplicate key'));
+            if (isConstraintViolation && attempt < MAX_OFFSET_RETRIES - 1) {
+              continue;
+            }
+            throw insertErr;
+          }
+        }
+      }
+
+      await this.server.publish(streamId, event.type, event.data);
+    } catch (error) {
+      console.error('[DurableStreamsService] publishSessionEvent failed:', {
+        streamId,
+        type: event.type,
+        error,
+      });
+      throw new Error(
+        `[DurableStreamsService] Failed to publish session event '${event.type}' to stream '${streamId}': ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   }
 }

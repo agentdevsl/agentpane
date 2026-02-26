@@ -1,4 +1,5 @@
-import { ok } from '../../utils/result.js';
+import { createError } from '../../errors/base.js';
+import { err, ok } from '../../utils/result.js';
 
 /**
  * Initialize durable streams for the client.
@@ -16,11 +17,18 @@ export const connectStreams = async (_ctx?: unknown) => {
       console.log(`[Streams] Caddy durable streams reachable at ${streamsUrl}`);
       return ok(null);
     }
-    console.warn(`[Streams] Caddy returned ${response.status}, proceeding anyway`);
-    return ok(null);
+    console.error(`[Streams] Caddy returned HTTP ${response.status} at ${streamsUrl}`);
+    return err(
+      createError('BOOTSTRAP_STREAMS_FAILED', `Caddy streams returned HTTP ${response.status}`, 503)
+    );
   } catch (e) {
-    console.warn(`[Streams] Caddy not reachable at ${streamsUrl}:`, e);
-    // Non-fatal: app can start, streams will connect when Caddy is available
-    return ok(null);
+    console.error(`[Streams] Caddy not reachable at ${streamsUrl}:`, e);
+    return err(
+      createError(
+        'BOOTSTRAP_STREAMS_FAILED',
+        `Caddy streams not reachable at ${streamsUrl}: ${e instanceof Error ? e.message : String(e)}`,
+        503
+      )
+    );
   }
 };

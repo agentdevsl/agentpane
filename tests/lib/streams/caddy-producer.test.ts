@@ -88,10 +88,12 @@ describe('CaddyDurableStreamsServer', () => {
       await expect(server.createStream('test-session', null)).resolves.toBeUndefined();
     });
 
-    it('rethrows non-CONFLICT_EXISTS errors', async () => {
+    it('rethrows non-CONFLICT_EXISTS errors with URL context', async () => {
       mocks.create.mockRejectedValueOnce(new Error('network error'));
 
-      await expect(server.createStream('test-session', null)).rejects.toThrow('network error');
+      await expect(server.createStream('test-session', null)).rejects.toThrow(
+        /Failed to create stream at .+: network error/
+      );
     });
 
     it('reuses cached producer on second call', async () => {

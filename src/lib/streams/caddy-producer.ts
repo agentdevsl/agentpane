@@ -41,6 +41,7 @@ interface ProducerEntry {
 export class CaddyDurableStreamsServer implements DurableStreamsServer {
   private baseUrl: string;
   private producers = new Map<string, ProducerEntry>();
+  private pendingProducers = new Map<string, Promise<ProducerEntry>>();
   private producerId: string;
 
   constructor(baseUrl?: string) {
@@ -52,10 +53,20 @@ export class CaddyDurableStreamsServer implements DurableStreamsServer {
     this.producerId = `api-server-${process.pid}`;
   }
 
-  private async getOrCreateProducer(id: string): Promise<ProducerEntry> {
-    let entry = this.producers.get(id);
-    if (entry) return entry;
+  private getOrCreateProducer(id: string): Promise<ProducerEntry> {
+    const entry = this.producers.get(id);
+    if (entry) return Promise.resolve(entry);
 
+    // Deduplicate concurrent initialization for the same stream ID
+    const pending = this.pendingProducers.get(id);
+    if (pending) return pending;
+
+    const promise = this.initProducer(id).finally(() => this.pendingProducers.delete(id));
+    this.pendingProducers.set(id, promise);
+    return promise;
+  }
+
+  private async initProducer(id: string): Promise<ProducerEntry> {
     const path = streamIdToPath(id);
     const url = `${this.baseUrl}${path}`;
 
@@ -77,7 +88,9 @@ export class CaddyDurableStreamsServer implements DurableStreamsServer {
       ) {
         // Stream already exists, that's fine
       } else {
-        throw err;
+        throw new Error(
+          `[CaddyStreams] Failed to create stream at ${url}: ${err instanceof Error ? err.message : String(err)}`
+        );
       }
     }
 
@@ -88,12 +101,16 @@ export class CaddyDurableStreamsServer implements DurableStreamsServer {
       maxInFlight: 5,
       onError: (error) => {
         console.error(`[CaddyStreams] Producer error for ${id}:`, error);
-        // Invalidate the cached producer so the next publish creates a fresh one
-        this.producers.delete(id);
+        // Only invalidate if this is still the current entry (avoid racing with a new producer)
+        const current = this.producers.get(id);
+        if (current && current.producer === producer) {
+          this.producers.delete(id);
+          producer.detach().catch(() => {});
+        }
       },
     });
 
-    entry = { stream, producer, offset: 0 };
+    const entry: ProducerEntry = { stream, producer, offset: 0 };
     this.producers.set(id, entry);
     return entry;
   }

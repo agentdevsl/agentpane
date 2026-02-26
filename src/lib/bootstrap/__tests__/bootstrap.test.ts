@@ -196,12 +196,28 @@ describe('bootstrap phases', () => {
     expect(result.ok).toBe(true);
   });
 
-  it('streams phase returns ok (no-op with Caddy durable streams)', async () => {
+  it('streams phase returns err when Caddy is not reachable', async () => {
     const { connectStreams } = await import('../phases/streams.js');
+
+    // Use a port that is definitely not running to test failure path
+    const original = process.env.CADDY_STREAMS_URL;
+    process.env.CADDY_STREAMS_URL = 'http://localhost:19999/v1/stream';
 
     const result = await connectStreams();
 
-    expect(result.ok).toBe(true);
+    // Restore env
+    if (original !== undefined) {
+      process.env.CADDY_STREAMS_URL = original;
+    } else {
+      delete process.env.CADDY_STREAMS_URL;
+    }
+
+    // Should return err when Caddy is unreachable (phase is recoverable so app still boots)
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toHaveProperty('code', 'BOOTSTRAP_STREAMS_FAILED');
+      expect(result.error).toHaveProperty('status', 503);
+    }
   });
 
   it('github phase returns ok when token missing', async () => {

@@ -123,7 +123,7 @@ function planSessionReducer(state: PlanSessionState, action: PlanSessionAction):
       };
 
     case 'RESET':
-      return initialState;
+      return { ...initialState, isLoading: false };
 
     default:
       return state;

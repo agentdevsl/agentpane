@@ -115,12 +115,16 @@ export class TerraformComposeService {
     this.cleanupSessions();
 
     // Run pipeline without awaiting — the caller returns the session ID immediately.
-    this.runPipeline(sid, messages, registryId, composeMode).catch((pipelineErr) => {
+    this.runPipeline(sid, messages, registryId, composeMode).catch(async (pipelineErr) => {
       log.error('Unhandled pipeline error', { error: pipelineErr });
-      this.publishEvent(sid, 'terraform:error', {
-        jobId: sid,
-        error: 'An unexpected error occurred. Please try again.',
-      });
+      try {
+        await this.publishEvent(sid, 'terraform:error', {
+          jobId: sid,
+          error: 'An unexpected error occurred. Please try again.',
+        });
+      } catch (publishErr) {
+        log.error('Failed to publish pipeline error event', { error: publishErr });
+      }
     });
 
     return ok({ sessionId: sid });
@@ -195,6 +199,16 @@ export class TerraformComposeService {
           data: { streamId },
           error: err,
         });
+        // Abort pipeline — without a stream, the client will never receive events
+        try {
+          await this.durableStreamsService.publish(streamId, 'terraform:error', {
+            jobId: sid,
+            error: 'Failed to initialize streaming. Please try again.',
+          } as never);
+        } catch {
+          // Best-effort error delivery
+        }
+        return;
       }
     }
 
