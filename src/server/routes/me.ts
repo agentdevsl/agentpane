@@ -109,25 +109,31 @@ export function createMeRoutes({ db }: MeDeps) {
     if (!parsed.ok) return parsed.response;
 
     try {
-      // H9: Check email uniqueness before update
-      if (parsed.data.email) {
-        const existingEmail = await db
-          .select({ id: users.id })
-          .from(users)
-          .where(and(eq(users.email, parsed.data.email), ne(users.id, auth.userId)));
-        if (existingEmail.length > 0) {
-          return json(
-            { ok: false, error: { code: 'EMAIL_ALREADY_EXISTS', message: 'Email already in use' } },
-            409
-          );
+      // H9: Check email uniqueness before update (in transaction to avoid TOCTOU race)
+      const [updated, txError] = await db.transaction(async (tx) => {
+        if (parsed.data.email) {
+          const existingEmail = await tx
+            .select({ id: users.id })
+            .from(users)
+            .where(and(eq(users.email, parsed.data.email), ne(users.id, auth.userId)));
+          if (existingEmail.length > 0) {
+            return [null, 'EMAIL_ALREADY_EXISTS'] as const;
+          }
         }
-      }
+        const result = await tx
+          .update(users)
+          .set({ ...parsed.data, updatedAt: new Date().toISOString() })
+          .where(eq(users.id, auth.userId))
+          .returning();
+        return [result[0], null] as const;
+      });
 
-      const [updated] = await db
-        .update(users)
-        .set({ ...parsed.data, updatedAt: new Date().toISOString() })
-        .where(eq(users.id, auth.userId))
-        .returning();
+      if (txError === 'EMAIL_ALREADY_EXISTS') {
+        return json(
+          { ok: false, error: { code: 'EMAIL_ALREADY_EXISTS', message: 'Email already in use' } },
+          409
+        );
+      }
 
       if (!updated) {
         return json({ ok: false, error: { code: 'NOT_FOUND', message: 'User not found' } }, 404);

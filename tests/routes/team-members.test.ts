@@ -244,6 +244,64 @@ describe('POST /api/teams/:id/members - Add member', () => {
     expect(res.status).toBe(400);
   });
 
+  it('returns 403 when non-owner admin tries to add member with admin role (H5)', async () => {
+    rbacService = buildMockRbacService({
+      resolveTeamRole: vi.fn().mockResolvedValue('admin'),
+      hasMinimumRole: vi.fn().mockReturnValue(true),
+    });
+    app = buildApp(db, rbacService, { authMethod: 'session', userId: 'user-admin-001' });
+
+    const res = await app.request(`/api/teams/${VALID_TEAM_ID}/members`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: VALID_USER_ID, role: 'admin' }),
+    });
+
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    expect(body.error.code).toBe('INSUFFICIENT_ROLE');
+  });
+
+  it('allows owner to add member with admin role (H5)', async () => {
+    rbacService = buildMockRbacService({
+      resolveTeamRole: vi.fn().mockResolvedValue('owner'),
+      hasMinimumRole: vi.fn().mockReturnValue(true),
+    });
+
+    db.transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      let callCount = 0;
+      const tx = {
+        select: vi.fn().mockImplementation(() => ({
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockImplementation(() => {
+              callCount++;
+              if (callCount === 1) return Promise.resolve([]); // no duplicate
+              return Promise.resolve([{ id: VALID_USER_ID }]); // user exists
+            }),
+          }),
+        })),
+        insert: vi.fn().mockReturnValue({
+          values: vi.fn().mockResolvedValue(undefined),
+        }),
+      };
+      return fn(tx);
+    });
+
+    app = buildApp(db, rbacService, { authMethod: 'session', userId: 'user-owner-001' });
+
+    const res = await app.request(`/api/teams/${VALID_TEAM_ID}/members`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: VALID_USER_ID, role: 'admin' }),
+    });
+
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.data.role).toBe('admin');
+  });
+
   it('returns 400 when attempting to assign owner role directly', async () => {
     const res = await app.request(`/api/teams/${VALID_TEAM_ID}/members`, {
       method: 'POST',
@@ -341,6 +399,14 @@ describe('GET /api/teams/:id/members - List members with pagination', () => {
     expect(res.status).toBe(200);
     // Verify that the DB select was called (role filter is applied via query)
     expect(db.select).toHaveBeenCalled();
+  });
+
+  it('returns 400 for invalid role filter query parameter (M9)', async () => {
+    const res = await app.request(`/api/teams/${VALID_TEAM_ID}/members?role=superadmin`);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    expect(body.error.code).toBe('VALIDATION_ERROR');
   });
 
   it('returns hasMore=true and nextCursor when results exceed limit', async () => {

@@ -21,6 +21,14 @@ import type { Database } from '../../types/database';
 import { createLogger } from '../logging/logger';
 import type { AuthContext } from './auth-middleware';
 
+interface CachedApiToken {
+  id: string;
+  role: string;
+  scopeProjectId: string | null;
+  scopeTags: string[] | null;
+  expiresAt: string | null;
+}
+
 const log = createLogger('RbacMiddleware');
 
 /**
@@ -48,7 +56,7 @@ export function enrichAuthContext(db: Database) {
     if (auth.authMethod === 'dev') {
       // Dev-mode should be unreachable in production (auth middleware gates on NODE_ENV).
       // Block here as defense-in-depth in case the auth layer is misconfigured.
-      if (process.env.NODE_ENV === 'production') {
+      if (process.env.NODE_ENV !== 'development') {
         log.error('SECURITY: Dev-mode authentication detected in production', {
           data: { userId: auth.userId, path: c.req.path },
         });
@@ -111,9 +119,7 @@ export function enrichAuthContext(db: Database) {
       // Load token scope for API token auth
       if (auth.authMethod === 'api_token') {
         // H1: Use cached token from createAuthMiddleware to avoid duplicate hash+query
-        const token = c.get('_resolvedApiToken') as
-          | { id: string; role: string; scopeProjectId: string | null; scopeTags: unknown; expiresAt: string | null }
-          | undefined;
+        const token = c.get('_resolvedApiToken') as CachedApiToken | undefined;
 
         if (token) {
           // Check if token has expired
@@ -123,7 +129,7 @@ export function enrichAuthContext(db: Database) {
               .update(apiTokens)
               .set({ status: 'expired' })
               .where(eq(apiTokens.id, token.id))
-              .catch((err) => log.warn('Failed to update expired token status', { error: err }));
+              .catch((err) => log.error('Failed to update expired token status', { error: err }));
             return c.json(
               { ok: false, error: { code: 'UNAUTHORIZED', message: 'API token has expired' } },
               401
@@ -157,7 +163,7 @@ export function enrichAuthContext(db: Database) {
               useCount: sql`COALESCE(${apiTokens.useCount}, 0) + 1`,
             })
             .where(eq(apiTokens.id, token.id))
-            .catch((err) => log.error('Failed to update token usage tracking', { error: err }));
+            .catch((err) => log.warn('Failed to update token usage tracking', { error: err }));
         } else {
           // Token not found in cache — deny access
           log.warn('API token not found or inactive', { data: { path: c.req.path } });
@@ -244,8 +250,13 @@ export function requireRole(minimumRole: RbacRole, rbacService: RbacService) {
         if (body && typeof body === 'object' && typeof body.projectId === 'string') {
           projectId = body.projectId;
         }
-      } catch {
-        // Body is not JSON or not available — continue without projectId
+      } catch (parseError) {
+        if (!(parseError instanceof SyntaxError)) {
+          log.error('Unexpected error parsing request body for projectId', {
+            error: parseError,
+            data: { path: c.req.path },
+          });
+        }
       }
     }
 
@@ -391,7 +402,12 @@ export function requireTagAccess(db: Database) {
       }
     }
 
-    if (!resourceType) return next();
+    if (!resourceType) {
+      log.warn('Tag-restricted token accessing unrecognized resource path', {
+        data: { path, tokenId: auth.tokenScope.tokenId },
+      });
+      return next();
+    }
 
     const resourceId = c.req.param('id');
     if (!resourceId) return next();

@@ -426,7 +426,7 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
         const teamProjectIds = await tx.select({ projectId: teamProjects.projectId }).from(teamProjects).where(eq(teamProjects.teamId, id));
         if (teamProjectIds.length > 0) {
           const pIds = teamProjectIds.map(r => r.projectId);
-          await tx.delete(projectMembers).where(inArray(projectMembers.projectId, pIds));
+          await tx.delete(projectMembers).where(and(inArray(projectMembers.projectId, pIds), eq(projectMembers.grantedByTeamId, id)));
         }
         await tx.delete(teamProjects).where(eq(teamProjects.teamId, id));
         await tx.delete(teamMembers).where(eq(teamMembers.teamId, id));

@@ -141,17 +141,14 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
         return json({ ok: false, error: { code: 'TAG_NOT_FOUND', message: 'Tag not found' } }, 404);
       }
 
-      // Auth check (skip for dev mode)
-      if (auth.authMethod !== 'dev') {
-        const denied = await requireTeamRole(
-          auth,
-          rbacService,
-          foundTag.teamId,
-          'admin',
-          'Requires admin role in team'
-        );
-        if (denied) return denied;
-      }
+      const denied = await requireTeamRole(
+        auth,
+        rbacService,
+        foundTag.teamId,
+        'admin',
+        'Requires admin role in team'
+      );
+      if (denied) return denied;
 
       await db.delete(tags).where(eq(tags.id, id));
       return json({ ok: true, data: { deleted: true } });
@@ -241,7 +238,7 @@ export function createProjectTagRoutes({
       return json({
         ok: true,
         data: { projectId, tagId: parsed.data.tagId, assignedAt: new Date().toISOString() },
-      });
+      }, 201);
     } catch (error) {
       log.error('Failed to assign tag to project', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to assign tag' } }, 500);
@@ -365,7 +362,7 @@ export function createTaskTagRoutes({
       return json({
         ok: true,
         data: { taskId, tagId: parsed.data.tagId, assignedAt: new Date().toISOString() },
-      });
+      }, 201);
     } catch (error) {
       log.error('Failed to assign tag to task', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to assign tag' } }, 500);
@@ -382,24 +379,22 @@ export function createTaskTagRoutes({
     }
 
     const auth = c.get('auth');
-    if (auth.authMethod !== 'dev') {
-      const taskRows = await db
-        .select({ projectId: tasks.projectId })
-        .from(tasks)
-        .where(eq(tasks.id, taskId as string));
-      const foundTask = taskRows[0];
-      if (!foundTask) {
-        return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Task not found' } }, 404);
-      }
-      const denied = await requireProjectRole(
-        auth,
-        rbacService,
-        foundTask.projectId,
-        'agent_operator',
-        'Requires agent_operator role on project'
-      );
-      if (denied) return denied;
+    const taskRows = await db
+      .select({ projectId: tasks.projectId })
+      .from(tasks)
+      .where(eq(tasks.id, taskId as string));
+    const foundTask = taskRows[0];
+    if (!foundTask) {
+      return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Task not found' } }, 404);
     }
+    const denied = await requireProjectRole(
+      auth,
+      rbacService,
+      foundTask.projectId,
+      'agent_operator',
+      'Requires agent_operator role on project'
+    );
+    if (denied) return denied;
 
     try {
       await db.delete(taskTags).where(and(eq(taskTags.taskId, taskId), eq(taskTags.tagId, tagId)));

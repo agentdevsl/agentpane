@@ -124,35 +124,47 @@ describe('enrichAuthContext', () => {
   });
 
   it('skips DB lookup for dev auth method and proceeds immediately', async () => {
-    const auth: AuthContext = { userId: 'dev-user', authMethod: 'dev' };
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'development';
+    try {
+      const auth: AuthContext = { userId: 'dev-user', authMethod: 'dev' };
 
-    const app = new Hono();
-    app.use('*', createAuthMiddleware(auth) as never);
-    app.use('*', enrichAuthContext(mockDb as never) as never);
-    app.get('/test', (c) => c.json({ ok: true }));
+      const app = new Hono();
+      app.use('*', createAuthMiddleware(auth) as never);
+      app.use('*', enrichAuthContext(mockDb as never) as never);
+      app.get('/test', (c) => c.json({ ok: true }));
 
-    const res = await app.request('/test');
-    expect(res.status).toBe(200);
-    // DB should not have been queried for dev users
-    expect(mockDb.query.users.findFirst).not.toHaveBeenCalled();
-    expect(mockDb.select).not.toHaveBeenCalled();
+      const res = await app.request('/test');
+      expect(res.status).toBe(200);
+      // DB should not have been queried for dev users
+      expect(mockDb.query.users.findFirst).not.toHaveBeenCalled();
+      expect(mockDb.select).not.toHaveBeenCalled();
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
   });
 
   it('grants owner role to dev auth method users', async () => {
-    const auth: AuthContext = { userId: 'dev-user', authMethod: 'dev' };
-    let capturedAuth: AuthContext | undefined;
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'development';
+    try {
+      const auth: AuthContext = { userId: 'dev-user', authMethod: 'dev' };
+      let capturedAuth: AuthContext | undefined;
 
-    const app = new Hono();
-    app.use('*', createAuthMiddleware(auth) as never);
-    app.use('*', enrichAuthContext(mockDb as never) as never);
-    app.get('/test', (c) => {
-      capturedAuth = c.get('auth') as AuthContext;
-      return c.json({ ok: true });
-    });
+      const app = new Hono();
+      app.use('*', createAuthMiddleware(auth) as never);
+      app.use('*', enrichAuthContext(mockDb as never) as never);
+      app.get('/test', (c) => {
+        capturedAuth = c.get('auth') as AuthContext;
+        return c.json({ ok: true });
+      });
 
-    await app.request('/test');
-    expect(capturedAuth?.resolvedRole).toBe('owner');
-    expect(capturedAuth?.roleLevel).toBe(RBAC_ROLE_LEVEL.owner);
+      await app.request('/test');
+      expect(capturedAuth?.resolvedRole).toBe('owner');
+      expect(capturedAuth?.roleLevel).toBe(RBAC_ROLE_LEVEL.owner);
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
   });
 
   it('skips token update for session auth method (no api_token path)', async () => {

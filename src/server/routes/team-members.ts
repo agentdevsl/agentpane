@@ -39,6 +39,17 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
     const parsed = await parseJsonBody(c, addTeamMemberSchema);
     if (!parsed.ok) return parsed.response;
 
+    // Only owners can add members with admin role
+    if (parsed.data.role === 'admin' && auth.authMethod !== 'dev') {
+      const callerRole = await rbacService.resolveTeamRole(auth.userId, teamId);
+      if (callerRole !== 'owner') {
+        return json(
+          { ok: false, error: { code: 'INSUFFICIENT_ROLE', message: 'Only owners can add members with admin role' } },
+          403
+        );
+      }
+    }
+
     try {
       const result = await db.transaction(async (tx) => {
         const existing = await tx
@@ -119,21 +130,24 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
         ? (rawRoleFilter as RbacRole)
         : undefined;
 
+    if (rawRoleFilter && !roleFilter) {
+      return json(
+        { ok: false, error: { code: 'VALIDATION_ERROR', message: `Invalid role filter. Must be one of: ${RBAC_ROLES.join(', ')}` } },
+        400
+      );
+    }
+
     try {
-      // Total count of members matching current filter
-      const countWhere = roleFilter
+      // Build base where clause (used for both count and query)
+      const baseWhere = roleFilter
         ? and(eq(teamMembers.teamId, teamId), eq(teamMembers.role, roleFilter))
         : eq(teamMembers.teamId, teamId);
       const [countResult] = await db
         .select({ total: count() })
         .from(teamMembers)
-        .where(countWhere);
+        .where(baseWhere);
       const totalCount = countResult?.total ?? 0;
 
-      // Build where clause with cursor support (cursor is userId)
-      const baseWhere = roleFilter
-        ? and(eq(teamMembers.teamId, teamId), eq(teamMembers.role, roleFilter))
-        : eq(teamMembers.teamId, teamId);
       const whereClause = cursor ? and(baseWhere, gt(teamMembers.userId, cursor)) : baseWhere;
 
       const members = await db

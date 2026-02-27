@@ -546,7 +546,7 @@ describe('POST /projects/:id/tags - Assign tag to project', () => {
       body: JSON.stringify({ tagId: 'tag-1' }),
     });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.data.projectId).toBe('proj-1');
@@ -682,7 +682,7 @@ describe('POST /projects/:id/tags - Assign tag to project', () => {
       body: JSON.stringify({ tagId: 'tag-1' }),
     });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
     expect(onConflictDoNothing).toHaveBeenCalledTimes(1);
   });
 });
@@ -804,7 +804,7 @@ describe('POST /tasks/:id/tags - Assign tag to task', () => {
       body: JSON.stringify({ tagId: 'tag-1' }),
     });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.data.taskId).toBe('task-1');
@@ -996,7 +996,14 @@ describe('DELETE /tasks/:id/tags/:tagId - Remove tag from task', () => {
     rbacService = buildMockRbacService();
   });
 
-  it('removes tag from task (dev mode — skips project lookup)', async () => {
+  it('removes tag from task (dev mode)', async () => {
+    // Task lookup now runs unconditionally; mock it to return a valid task
+    mockDb.select = vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue([{ projectId: 'proj-1' }]),
+      }),
+    });
+
     const routes = createTaskTagRoutes({ db: mockDb as never, rbacService });
     const app = new Hono();
     app.use('*', async (c, next) => {

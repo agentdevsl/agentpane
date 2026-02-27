@@ -3,6 +3,10 @@
  */
 
 import type { Context } from 'hono';
+import type { RbacRole } from '../db/schema/shared/enums';
+import { createLogger } from '../lib/logging/logger';
+
+const log = createLogger('SharedHelpers');
 
 /**
  * Cursor-based pagination parameters
@@ -94,16 +98,16 @@ export function isValidGitHubUrl(url: string): boolean {
 
 /**
  * Require that the authenticated user has at least the given team role.
- * Dev-mode users always pass. Returns a 403 Response if unauthorized, or null if authorized.
+ * Dev-mode users always pass. Returns null if authorized, a 404 Response if user has no team membership, or a 403 Response if role is insufficient.
  */
 export function requireTeamRole(
   auth: { authMethod: string; userId: string },
   rbacService: {
-    resolveTeamRole(userId: string, teamId: string): Promise<string | null>;
-    hasMinimumRole(userRole: string, minimumRole: string): boolean;
+    resolveTeamRole(userId: string, teamId: string): Promise<RbacRole | null>;
+    hasMinimumRole(userRole: RbacRole, minimumRole: RbacRole): boolean;
   },
   teamId: string,
-  minimumRole: string,
+  minimumRole: RbacRole,
   message = `Requires ${minimumRole} role`
 ): Promise<Response | null> {
   if (auth.authMethod === 'dev') return Promise.resolve(null);
@@ -115,21 +119,24 @@ export function requireTeamRole(
       return json({ ok: false, error: { code: 'INSUFFICIENT_ROLE', message } }, 403);
     }
     return null;
+  }).catch((error) => {
+    log.error('Failed to resolve team role', { error, data: { userId: auth.userId, teamId } });
+    return json({ ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to verify permissions' } }, 500);
   });
 }
 
 /**
  * Require that the authenticated user has at least the given project role.
- * Dev-mode users always pass. Returns a 403 Response if unauthorized, or null if authorized.
+ * Dev-mode users always pass. Returns null if authorized, or a 403 Response if the user lacks the required role (or has no project access).
  */
 export function requireProjectRole(
   auth: { authMethod: string; userId: string },
   rbacService: {
-    resolveUserRole(userId: string, projectId: string): Promise<string | null>;
-    hasMinimumRole(userRole: string, minimumRole: string): boolean;
+    resolveUserRole(userId: string, projectId: string): Promise<RbacRole | null>;
+    hasMinimumRole(userRole: RbacRole, minimumRole: RbacRole): boolean;
   },
   projectId: string,
-  minimumRole: string,
+  minimumRole: RbacRole,
   message = `Requires ${minimumRole} role`
 ): Promise<Response | null> {
   if (auth.authMethod === 'dev') return Promise.resolve(null);
@@ -138,6 +145,9 @@ export function requireProjectRole(
       return json({ ok: false, error: { code: 'INSUFFICIENT_ROLE', message } }, 403);
     }
     return null;
+  }).catch((error) => {
+    log.error('Failed to resolve project role', { error, data: { userId: auth.userId, projectId } });
+    return json({ ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to verify permissions' } }, 500);
   });
 }
 

@@ -186,40 +186,35 @@ export class RbacTokenService {
 
   /**
    * Resolve a raw token to its stored record.
-   * Returns null if not found, not active, or on DB error.
+   * Returns null if not found or not active.
+   * Throws on DB errors so callers can distinguish auth failures from outages.
    */
   async resolveToken(rawToken: string): Promise<ResolvedToken | null> {
     if (!this.isValidFormat(rawToken)) return null;
 
-    try {
-      const tokenHash = this.hashToken(rawToken);
-      const record = await this.db.query.apiTokens.findFirst({
-        where: and(eq(apiTokens.tokenHash, tokenHash), eq(apiTokens.status, 'active')),
-      });
+    const tokenHash = this.hashToken(rawToken);
+    const record = await this.db.query.apiTokens.findFirst({
+      where: and(eq(apiTokens.tokenHash, tokenHash), eq(apiTokens.status, 'active')),
+    });
 
-      if (!record) return null;
-      if (record.expiresAt && new Date(record.expiresAt) < new Date()) return null;
+    if (!record) return null;
+    if (record.expiresAt && new Date(record.expiresAt) < new Date()) return null;
 
-      return {
-        id: record.id,
-        userId: record.userId,
-        teamId: record.teamId,
-        role: record.role as RbacRole,
-        scopeProjectId: record.scopeProjectId,
-        scopeTags: record.scopeTags as string[] | null,
-        status: record.status as ApiTokenStatus,
-        expiresAt: record.expiresAt,
-      };
-    } catch (error) {
-      log.error('Failed to resolve token', { error });
-      return null;
-    }
+    return {
+      id: record.id,
+      userId: record.userId,
+      teamId: record.teamId,
+      role: record.role as RbacRole,
+      scopeProjectId: record.scopeProjectId,
+      scopeTags: record.scopeTags as string[] | null,
+      status: record.status as ApiTokenStatus,
+      expiresAt: record.expiresAt,
+    };
   }
 
   /**
    * Revoke a token.
-   * Note: re-revoking an already-revoked token overwrites `revokedAt`.
-   * Use the route handler's status check if you need to detect duplicates.
+   * Returns ALREADY_REVOKED if the token was previously revoked.
    */
   async revoke(
     tokenId: string,
@@ -229,10 +224,22 @@ export class RbacTokenService {
       const [revoked] = await this.db
         .update(apiTokens)
         .set({ status: 'revoked', revokedAt: new Date().toISOString() })
-        .where(and(eq(apiTokens.id, tokenId), eq(apiTokens.userId, userId)))
+        .where(and(
+          eq(apiTokens.id, tokenId),
+          eq(apiTokens.userId, userId),
+          ne(apiTokens.status, 'revoked')
+        ))
         .returning();
 
       if (!revoked) {
+        // Check if token exists but is already revoked
+        const existing = await this.db
+          .select({ status: apiTokens.status })
+          .from(apiTokens)
+          .where(and(eq(apiTokens.id, tokenId), eq(apiTokens.userId, userId)));
+        if (existing.length > 0 && existing[0]?.status === 'revoked') {
+          return { ok: false, error: 'ALREADY_REVOKED', message: 'Token is already revoked', status: 409 };
+        }
         return { ok: false, error: 'TOKEN_NOT_FOUND', message: 'Token not found', status: 404 };
       }
 
@@ -252,12 +259,7 @@ export class RbacTokenService {
     const tagRecords = await this.db
       .select({ id: tags.id, name: tags.name, color: tags.color })
       .from(tags)
-      .where(
-        scopeTags.length === 1
-          // biome-ignore lint/style/noNonNullAssertion: length checked above
-          ? eq(tags.id, scopeTags[0]!)
-          : inArray(tags.id, scopeTags)
-      );
+      .where(inArray(tags.id, scopeTags));
 
     return tagRecords;
   }
