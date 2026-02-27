@@ -24,34 +24,6 @@ import {
 // Mock Database Factory
 // =============================================================================
 
-function buildSelectChain(resolvedValue: unknown) {
-  const chain = {
-    from: vi.fn(),
-    innerJoin: vi.fn(),
-    where: vi.fn(),
-  };
-  chain.from.mockReturnValue(chain);
-  chain.innerJoin.mockReturnValue(chain);
-  chain.where.mockResolvedValue(resolvedValue);
-  return chain;
-}
-
-function buildUpdateChain() {
-  const chain = {
-    set: vi.fn(),
-    where: vi.fn(),
-    catch: vi.fn(),
-  };
-  chain.set.mockReturnValue(chain);
-  chain.where.mockReturnValue(chain);
-  chain.catch.mockResolvedValue(undefined);
-  // Return a thenable that resolves, so void ... works
-  (chain.where as ReturnType<typeof vi.fn>).mockReturnValue(
-    Object.assign(Promise.resolve(undefined), { catch: vi.fn().mockResolvedValue(undefined) })
-  );
-  return chain;
-}
-
 function createMockDb() {
   const updateChain = {
     set: vi.fn(),
@@ -95,30 +67,11 @@ function createMockRbacService() {
 }
 
 // =============================================================================
-// Test App Helper
+// Helpers
 // =============================================================================
 
 /**
- * Creates a Hono test app with the given middleware pre-applied.
- * The GET /test route sets auth context and returns 200 on success.
- */
-function createTestApp(
-  ...middlewares: Array<(c: Context, next: Next) => Promise<Response | void>>
-) {
-  const app = new Hono();
-  for (const mw of middlewares) {
-    app.use('*', mw as never);
-  }
-  app.get('/test', (c) => c.json({ ok: true }));
-  app.get('/api/projects/:id', (c) => c.json({ ok: true, id: c.req.param('id') }));
-  app.get('/api/tasks/:id', (c) => c.json({ ok: true, id: c.req.param('id') }));
-  app.get('/api/sessions/:id', (c) => c.json({ ok: true, id: c.req.param('id') }));
-  app.get('/api/agents/:id', (c) => c.json({ ok: true, id: c.req.param('id') }));
-  return app;
-}
-
-/**
- * Creates a request with the auth context pre-set in the Hono app.
+ * Creates a middleware that pre-sets auth context (and optional cached token).
  */
 function createAuthMiddleware(auth: AuthContext | undefined, resolvedToken?: object) {
   return async (c: Context, next: Next) => {
@@ -130,6 +83,20 @@ function createAuthMiddleware(auth: AuthContext | undefined, resolvedToken?: obj
     }
     await next();
   };
+}
+
+/**
+ * Creates a simple select chain mock: select({...}).from(table).where(cond)
+ * resolves with `resolvedValue`.
+ */
+function buildSelectChain(resolvedValue: unknown) {
+  const chain = {
+    from: vi.fn(),
+    where: vi.fn(),
+  };
+  chain.from.mockReturnValue(chain);
+  chain.where.mockResolvedValue(resolvedValue);
+  return chain;
 }
 
 // =============================================================================
@@ -156,16 +123,17 @@ describe('enrichAuthContext', () => {
     expect(body.error.code).toBe('UNAUTHORIZED');
   });
 
-  it('skips DB lookup for dev auth method and grants owner role', async () => {
+  it('skips DB lookup for dev auth method and proceeds immediately', async () => {
     const auth: AuthContext = { userId: 'dev-user', authMethod: 'dev' };
-    const app = createTestApp(
-      createAuthMiddleware(auth),
-      enrichAuthContext(mockDb as never) as never
-    );
+
+    const app = new Hono();
+    app.use('*', createAuthMiddleware(auth) as never);
+    app.use('*', enrichAuthContext(mockDb as never) as never);
+    app.get('/test', (c) => c.json({ ok: true }));
 
     const res = await app.request('/test');
     expect(res.status).toBe(200);
-    // DB should not have been queried
+    // DB should not have been queried for dev users
     expect(mockDb.query.users.findFirst).not.toHaveBeenCalled();
     expect(mockDb.select).not.toHaveBeenCalled();
   });
@@ -187,7 +155,7 @@ describe('enrichAuthContext', () => {
     expect(capturedAuth?.roleLevel).toBe(RBAC_ROLE_LEVEL.owner);
   });
 
-  it('skips token enrichment for session auth method', async () => {
+  it('skips token update for session auth method (no api_token path)', async () => {
     const auth: AuthContext = { userId: 'user-123', authMethod: 'session' };
 
     mockDb.query.users.findFirst.mockResolvedValue({
@@ -198,18 +166,17 @@ describe('enrichAuthContext', () => {
       email: 'test@example.com',
       avatarUrl: null,
     });
-
     const selectChain = buildSelectChain([]);
     mockDb.select.mockReturnValue(selectChain);
 
-    const app = createTestApp(
-      createAuthMiddleware(auth),
-      enrichAuthContext(mockDb as never) as never
-    );
+    const app = new Hono();
+    app.use('*', createAuthMiddleware(auth) as never);
+    app.use('*', enrichAuthContext(mockDb as never) as never);
+    app.get('/test', (c) => c.json({ ok: true }));
 
     const res = await app.request('/test');
     expect(res.status).toBe(200);
-    // No token update should have occurred
+    // No token update should have occurred for session auth
     expect(mockDb.update).not.toHaveBeenCalled();
   });
 
@@ -271,7 +238,7 @@ describe('enrichAuthContext', () => {
       email: null,
       avatarUrl: null,
     });
-    // User is admin via team membership
+    // User is owner via team membership
     const selectChain = buildSelectChain([{ teamId: 'team-1', role: 'owner' }]);
     mockDb.select.mockReturnValue(selectChain);
 
@@ -290,7 +257,7 @@ describe('enrichAuthContext', () => {
     expect(capturedAuth?.roleLevel).toBe(RBAC_ROLE_LEVEL.viewer);
   });
 
-  it('returns 401 for expired API token', async () => {
+  it('returns 401 for an expired API token', async () => {
     const auth: AuthContext = { userId: 'user-123', authMethod: 'api_token' };
     const expiredToken = {
       id: 'token-expired',
@@ -311,10 +278,10 @@ describe('enrichAuthContext', () => {
     const selectChain = buildSelectChain([]);
     mockDb.select.mockReturnValue(selectChain);
 
-    const app = createTestApp(
-      createAuthMiddleware(auth, expiredToken),
-      enrichAuthContext(mockDb as never) as never
-    );
+    const app = new Hono();
+    app.use('*', createAuthMiddleware(auth, expiredToken) as never);
+    app.use('*', enrichAuthContext(mockDb as never) as never);
+    app.get('/test', (c) => c.json({ ok: true }));
 
     const res = await app.request('/test');
     expect(res.status).toBe(401);
@@ -345,16 +312,16 @@ describe('enrichAuthContext', () => {
     const selectChain = buildSelectChain([]);
     mockDb.select.mockReturnValue(selectChain);
 
-    const app = createTestApp(
-      createAuthMiddleware(auth, validToken),
-      enrichAuthContext(mockDb as never) as never
-    );
+    const app = new Hono();
+    app.use('*', createAuthMiddleware(auth, validToken) as never);
+    app.use('*', enrichAuthContext(mockDb as never) as never);
+    app.get('/test', (c) => c.json({ ok: true }));
 
     const res = await app.request('/test');
     expect(res.status).toBe(200);
   });
 
-  it('returns 401 when API token is not in cache (_resolvedApiToken missing)', async () => {
+  it('returns 401 when API token is not cached (_resolvedApiToken missing)', async () => {
     const auth: AuthContext = { userId: 'user-123', authMethod: 'api_token' };
     // No cached token passed
 
@@ -369,10 +336,10 @@ describe('enrichAuthContext', () => {
     const selectChain = buildSelectChain([]);
     mockDb.select.mockReturnValue(selectChain);
 
-    const app = createTestApp(
-      createAuthMiddleware(auth, undefined), // no cached token
-      enrichAuthContext(mockDb as never) as never
-    );
+    const app = new Hono();
+    app.use('*', createAuthMiddleware(auth, undefined) as never); // no cached token
+    app.use('*', enrichAuthContext(mockDb as never) as never);
+    app.get('/test', (c) => c.json({ ok: true }));
 
     const res = await app.request('/test');
     expect(res.status).toBe(401);
@@ -381,7 +348,7 @@ describe('enrichAuthContext', () => {
     expect(body.error.code).toBe('UNAUTHORIZED');
   });
 
-  it('fires update for lastUsedAt and useCount asynchronously', async () => {
+  it('fires update for lastUsedAt and useCount asynchronously for api_token', async () => {
     const auth: AuthContext = { userId: 'user-123', authMethod: 'api_token' };
     const cachedToken = {
       id: 'token-track',
@@ -402,14 +369,14 @@ describe('enrichAuthContext', () => {
     const selectChain = buildSelectChain([]);
     mockDb.select.mockReturnValue(selectChain);
 
-    const app = createTestApp(
-      createAuthMiddleware(auth, cachedToken),
-      enrichAuthContext(mockDb as never) as never
-    );
+    const app = new Hono();
+    app.use('*', createAuthMiddleware(auth, cachedToken) as never);
+    app.use('*', enrichAuthContext(mockDb as never) as never);
+    app.get('/test', (c) => c.json({ ok: true }));
 
     await app.request('/test');
 
-    // update() should have been called for usage tracking
+    // db.update() should have been called for usage tracking (fire-and-forget)
     expect(mockDb.update).toHaveBeenCalled();
   });
 });
@@ -426,7 +393,7 @@ describe('requireRole', () => {
     vi.clearAllMocks();
   });
 
-  it('allows dev mode users to pass without role check', async () => {
+  it('allows dev mode users to pass without performing a role check', async () => {
     const auth: AuthContext = {
       userId: 'dev-user',
       authMethod: 'dev',
@@ -434,10 +401,10 @@ describe('requireRole', () => {
       roleLevel: RBAC_ROLE_LEVEL.owner,
     };
 
-    const app = createTestApp(
-      createAuthMiddleware(auth),
-      requireRole('admin', mockRbacService as never) as never
-    );
+    const app = new Hono();
+    app.use('*', createAuthMiddleware(auth) as never);
+    app.use('*', requireRole('admin', mockRbacService as never) as never);
+    app.get('/test', (c) => c.json({ ok: true }));
 
     const res = await app.request('/test');
     expect(res.status).toBe(200);
@@ -458,17 +425,17 @@ describe('requireRole', () => {
     expect(body.error.code).toBe('UNAUTHORIZED');
   });
 
-  it('returns 403 when user has no resolved role', async () => {
+  it('returns 403 when user has no resolved role (no team membership)', async () => {
     const auth: AuthContext = {
       userId: 'user-norole',
       authMethod: 'session',
       // resolvedRole intentionally omitted
     };
 
-    const app = createTestApp(
-      createAuthMiddleware(auth),
-      requireRole('viewer', mockRbacService as never) as never
-    );
+    const app = new Hono();
+    app.use('*', createAuthMiddleware(auth) as never);
+    app.use('*', requireRole('viewer', mockRbacService as never) as never);
+    app.get('/test', (c) => c.json({ ok: true }));
 
     const res = await app.request('/test');
     expect(res.status).toBe(403);
@@ -477,7 +444,7 @@ describe('requireRole', () => {
     expect(body.error.code).toBe('FORBIDDEN');
   });
 
-  it('allows users with sufficient global role (no project context)', async () => {
+  it('allows users with sufficient global role when no project context is present', async () => {
     const auth: AuthContext = {
       userId: 'user-admin',
       authMethod: 'session',
@@ -486,10 +453,10 @@ describe('requireRole', () => {
     };
     mockRbacService.hasMinimumRole.mockReturnValue(true);
 
-    const app = createTestApp(
-      createAuthMiddleware(auth),
-      requireRole('viewer', mockRbacService as never) as never
-    );
+    const app = new Hono();
+    app.use('*', createAuthMiddleware(auth) as never);
+    app.use('*', requireRole('viewer', mockRbacService as never) as never);
+    app.get('/test', (c) => c.json({ ok: true }));
 
     const res = await app.request('/test');
     expect(res.status).toBe(200);
@@ -504,10 +471,10 @@ describe('requireRole', () => {
     };
     mockRbacService.hasMinimumRole.mockReturnValue(false);
 
-    const app = createTestApp(
-      createAuthMiddleware(auth),
-      requireRole('admin', mockRbacService as never) as never
-    );
+    const app = new Hono();
+    app.use('*', createAuthMiddleware(auth) as never);
+    app.use('*', requireRole('admin', mockRbacService as never) as never);
+    app.get('/test', (c) => c.json({ ok: true }));
 
     const res = await app.request('/test');
     expect(res.status).toBe(403);
@@ -517,7 +484,7 @@ describe('requireRole', () => {
     expect(body.error.message).toContain('admin');
   });
 
-  it('resolves project-scoped role when project :id param is present', async () => {
+  it('resolves project-scoped role when project :id param is present (route-level middleware)', async () => {
     const auth: AuthContext = {
       userId: 'user-123',
       authMethod: 'session',
@@ -527,10 +494,15 @@ describe('requireRole', () => {
     mockRbacService.resolveUserRole.mockResolvedValue('admin' as RbacRole);
     mockRbacService.hasMinimumRole.mockReturnValue(true);
 
+    // Mount middleware at route level so c.req.param('id') is resolved
+    const mw = requireRole('viewer', mockRbacService as never) as never;
     const app = new Hono();
-    app.use('*', createAuthMiddleware(auth) as never);
-    app.use('*', requireRole('viewer', mockRbacService as never) as never);
-    app.get('/api/projects/:id', (c) => c.json({ ok: true }));
+    app.get(
+      '/api/projects/:id',
+      createAuthMiddleware(auth) as never,
+      mw,
+      (c) => c.json({ ok: true })
+    );
 
     const res = await app.request('/api/projects/proj-1');
     expect(res.status).toBe(200);
@@ -547,10 +519,14 @@ describe('requireRole', () => {
     mockRbacService.resolveUserRole.mockResolvedValue(null);
     mockRbacService.hasMinimumRole.mockReturnValue(false);
 
+    const mw = requireRole('viewer', mockRbacService as never) as never;
     const app = new Hono();
-    app.use('*', createAuthMiddleware(auth) as never);
-    app.use('*', requireRole('viewer', mockRbacService as never) as never);
-    app.get('/api/projects/:id', (c) => c.json({ ok: true }));
+    app.get(
+      '/api/projects/:id',
+      createAuthMiddleware(auth) as never,
+      mw,
+      (c) => c.json({ ok: true })
+    );
 
     const res = await app.request('/api/projects/proj-1');
     expect(res.status).toBe(403);
@@ -581,10 +557,14 @@ describe('requireTagAccess', () => {
       },
     };
 
+    const mw = requireTagAccess(mockDb as never) as never;
     const app = new Hono();
-    app.use('*', createAuthMiddleware(auth) as never);
-    app.use('*', requireTagAccess(mockDb as never) as never);
-    app.get('/api/projects/:id', (c) => c.json({ ok: true }));
+    app.get(
+      '/api/projects/:id',
+      createAuthMiddleware(auth) as never,
+      mw,
+      (c) => c.json({ ok: true })
+    );
 
     const res = await app.request('/api/projects/proj-1');
     expect(res.status).toBe(200);
@@ -597,17 +577,21 @@ describe('requireTagAccess', () => {
       authMethod: 'session',
     };
 
+    const mw = requireTagAccess(mockDb as never) as never;
     const app = new Hono();
-    app.use('*', createAuthMiddleware(auth) as never);
-    app.use('*', requireTagAccess(mockDb as never) as never);
-    app.get('/api/projects/:id', (c) => c.json({ ok: true }));
+    app.get(
+      '/api/projects/:id',
+      createAuthMiddleware(auth) as never,
+      mw,
+      (c) => c.json({ ok: true })
+    );
 
     const res = await app.request('/api/projects/proj-1');
     expect(res.status).toBe(200);
     expect(mockDb.select).not.toHaveBeenCalled();
   });
 
-  it('skips tag check when api_token has no tag restrictions', async () => {
+  it('skips tag check when api_token has no tag restrictions (null tags)', async () => {
     const auth: AuthContext = {
       userId: 'user-123',
       authMethod: 'api_token',
@@ -619,10 +603,14 @@ describe('requireTagAccess', () => {
       },
     };
 
+    const mw = requireTagAccess(mockDb as never) as never;
     const app = new Hono();
-    app.use('*', createAuthMiddleware(auth) as never);
-    app.use('*', requireTagAccess(mockDb as never) as never);
-    app.get('/api/projects/:id', (c) => c.json({ ok: true }));
+    app.get(
+      '/api/projects/:id',
+      createAuthMiddleware(auth) as never,
+      mw,
+      (c) => c.json({ ok: true })
+    );
 
     const res = await app.request('/api/projects/proj-1');
     expect(res.status).toBe(200);
@@ -641,10 +629,14 @@ describe('requireTagAccess', () => {
       },
     };
 
+    const mw = requireTagAccess(mockDb as never) as never;
     const app = new Hono();
-    app.use('*', createAuthMiddleware(auth) as never);
-    app.use('*', requireTagAccess(mockDb as never) as never);
-    app.get('/api/projects/:id', (c) => c.json({ ok: true }));
+    app.get(
+      '/api/projects/:id',
+      createAuthMiddleware(auth) as never,
+      mw,
+      (c) => c.json({ ok: true })
+    );
 
     const res = await app.request('/api/projects/proj-1');
     expect(res.status).toBe(200);
@@ -663,19 +655,18 @@ describe('requireTagAccess', () => {
       },
     };
 
-    // First select: projectTags query returns matching tag
-    const projectTagsChain = {
-      from: vi.fn(),
-      where: vi.fn(),
-    };
-    projectTagsChain.from.mockReturnValue(projectTagsChain);
-    projectTagsChain.where.mockResolvedValue([{ tagId: 'production' }]);
-    mockDb.select.mockReturnValue(projectTagsChain);
+    // projectTags query returns matching tag
+    const chain = buildSelectChain([{ tagId: 'production' }]);
+    mockDb.select.mockReturnValue(chain);
 
+    const mw = requireTagAccess(mockDb as never) as never;
     const app = new Hono();
-    app.use('*', createAuthMiddleware(auth) as never);
-    app.use('*', requireTagAccess(mockDb as never) as never);
-    app.get('/api/projects/:id', (c) => c.json({ ok: true }));
+    app.get(
+      '/api/projects/:id',
+      createAuthMiddleware(auth) as never,
+      mw,
+      (c) => c.json({ ok: true })
+    );
 
     const res = await app.request('/api/projects/proj-1');
     expect(res.status).toBe(200);
@@ -694,18 +685,17 @@ describe('requireTagAccess', () => {
     };
 
     // Project has 'staging' tag, token requires 'production'
-    const projectTagsChain = {
-      from: vi.fn(),
-      where: vi.fn(),
-    };
-    projectTagsChain.from.mockReturnValue(projectTagsChain);
-    projectTagsChain.where.mockResolvedValue([{ tagId: 'staging' }]);
-    mockDb.select.mockReturnValue(projectTagsChain);
+    const chain = buildSelectChain([{ tagId: 'staging' }]);
+    mockDb.select.mockReturnValue(chain);
 
+    const mw = requireTagAccess(mockDb as never) as never;
     const app = new Hono();
-    app.use('*', createAuthMiddleware(auth) as never);
-    app.use('*', requireTagAccess(mockDb as never) as never);
-    app.get('/api/projects/:id', (c) => c.json({ ok: true }));
+    app.get(
+      '/api/projects/:id',
+      createAuthMiddleware(auth) as never,
+      mw,
+      (c) => c.json({ ok: true })
+    );
 
     const res = await app.request('/api/projects/proj-1');
     expect(res.status).toBe(403);
@@ -727,18 +717,17 @@ describe('requireTagAccess', () => {
     };
 
     // Project has no tags
-    const projectTagsChain = {
-      from: vi.fn(),
-      where: vi.fn(),
-    };
-    projectTagsChain.from.mockReturnValue(projectTagsChain);
-    projectTagsChain.where.mockResolvedValue([]); // no tags
-    mockDb.select.mockReturnValue(projectTagsChain);
+    const chain = buildSelectChain([]); // no tags
+    mockDb.select.mockReturnValue(chain);
 
+    const mw = requireTagAccess(mockDb as never) as never;
     const app = new Hono();
-    app.use('*', createAuthMiddleware(auth) as never);
-    app.use('*', requireTagAccess(mockDb as never) as never);
-    app.get('/api/projects/:id', (c) => c.json({ ok: true }));
+    app.get(
+      '/api/projects/:id',
+      createAuthMiddleware(auth) as never,
+      mw,
+      (c) => c.json({ ok: true })
+    );
 
     const res = await app.request('/api/projects/proj-1');
     expect(res.status).toBe(403);
@@ -746,7 +735,7 @@ describe('requireTagAccess', () => {
     expect(body.error.message).toContain('tag-restricted token');
   });
 
-  it('applies tag access check for task resource type', async () => {
+  it('allows access for task resource type when tags match', async () => {
     const auth: AuthContext = {
       userId: 'user-123',
       authMethod: 'api_token',
@@ -759,24 +748,23 @@ describe('requireTagAccess', () => {
     };
 
     // taskTags returns matching tag
-    const taskTagsChain = {
-      from: vi.fn(),
-      where: vi.fn(),
-    };
-    taskTagsChain.from.mockReturnValue(taskTagsChain);
-    taskTagsChain.where.mockResolvedValue([{ tagId: 'production' }]);
-    mockDb.select.mockReturnValue(taskTagsChain);
+    const chain = buildSelectChain([{ tagId: 'production' }]);
+    mockDb.select.mockReturnValue(chain);
 
+    const mw = requireTagAccess(mockDb as never) as never;
     const app = new Hono();
-    app.use('*', createAuthMiddleware(auth) as never);
-    app.use('*', requireTagAccess(mockDb as never) as never);
-    app.get('/api/tasks/:id', (c) => c.json({ ok: true }));
+    app.get(
+      '/api/tasks/:id',
+      createAuthMiddleware(auth) as never,
+      mw,
+      (c) => c.json({ ok: true })
+    );
 
     const res = await app.request('/api/tasks/task-1');
     expect(res.status).toBe(200);
   });
 
-  it('task resource falls back to parent project tags when task has no tags', async () => {
+  it('task resource falls back to parent project tags when task has no direct tags', async () => {
     const auth: AuthContext = {
       userId: 'user-123',
       authMethod: 'api_token',
@@ -791,28 +779,28 @@ describe('requireTagAccess', () => {
     let callCount = 0;
     mockDb.select.mockImplementation(() => {
       callCount++;
-      const chain = {
-        from: vi.fn(),
-        where: vi.fn(),
-      };
-      chain.from.mockReturnValue(chain);
+      const chain = buildSelectChain(undefined); // placeholder
       if (callCount === 1) {
-        // First call: taskTags query returns empty (no task-level tags)
+        // taskTags query returns empty (no task-level tags)
         chain.where.mockResolvedValue([]);
       } else if (callCount === 2) {
-        // Second call: tasks query to get projectId
+        // tasks query to get projectId
         chain.where.mockResolvedValue([{ projectId: 'proj-fallback' }]);
       } else {
-        // Third call: projectTags for the parent project → matching tag
+        // projectTags for the parent project → matching tag
         chain.where.mockResolvedValue([{ tagId: 'production' }]);
       }
       return chain;
     });
 
+    const mw = requireTagAccess(mockDb as never) as never;
     const app = new Hono();
-    app.use('*', createAuthMiddleware(auth) as never);
-    app.use('*', requireTagAccess(mockDb as never) as never);
-    app.get('/api/tasks/:id', (c) => c.json({ ok: true }));
+    app.get(
+      '/api/tasks/:id',
+      createAuthMiddleware(auth) as never,
+      mw,
+      (c) => c.json({ ok: true })
+    );
 
     const res = await app.request('/api/tasks/task-1');
     expect(res.status).toBe(200);
@@ -820,7 +808,7 @@ describe('requireTagAccess', () => {
     expect(callCount).toBe(3);
   });
 
-  it('applies tag access check for session resource type', async () => {
+  it('allows access for session resource type when project tags match', async () => {
     const auth: AuthContext = {
       userId: 'user-123',
       authMethod: 'api_token',
@@ -835,10 +823,9 @@ describe('requireTagAccess', () => {
     let callCount = 0;
     mockDb.select.mockImplementation(() => {
       callCount++;
-      const chain = { from: vi.fn(), where: vi.fn() };
-      chain.from.mockReturnValue(chain);
+      const chain = buildSelectChain(undefined);
       if (callCount === 1) {
-        // sessions query returns session with projectId
+        // sessions query returns session with projectId (no taskId)
         chain.where.mockResolvedValue([{ taskId: null, projectId: 'proj-1' }]);
       } else {
         // projectTags for the project → matching tag
@@ -847,16 +834,20 @@ describe('requireTagAccess', () => {
       return chain;
     });
 
+    const mw = requireTagAccess(mockDb as never) as never;
     const app = new Hono();
-    app.use('*', createAuthMiddleware(auth) as never);
-    app.use('*', requireTagAccess(mockDb as never) as never);
-    app.get('/api/sessions/:id', (c) => c.json({ ok: true }));
+    app.get(
+      '/api/sessions/:id',
+      createAuthMiddleware(auth) as never,
+      mw,
+      (c) => c.json({ ok: true })
+    );
 
     const res = await app.request('/api/sessions/sess-1');
     expect(res.status).toBe(200);
   });
 
-  it('applies tag access check for agent resource type', async () => {
+  it('allows access for agent resource type when project tags match', async () => {
     const auth: AuthContext = {
       userId: 'user-123',
       authMethod: 'api_token',
@@ -871,8 +862,7 @@ describe('requireTagAccess', () => {
     let callCount = 0;
     mockDb.select.mockImplementation(() => {
       callCount++;
-      const chain = { from: vi.fn(), where: vi.fn() };
-      chain.from.mockReturnValue(chain);
+      const chain = buildSelectChain(undefined);
       if (callCount === 1) {
         // agents query returns agent with projectId
         chain.where.mockResolvedValue([{ projectId: 'proj-infra' }]);
@@ -883,19 +873,23 @@ describe('requireTagAccess', () => {
       return chain;
     });
 
+    const mw = requireTagAccess(mockDb as never) as never;
     const app = new Hono();
-    app.use('*', createAuthMiddleware(auth) as never);
-    app.use('*', requireTagAccess(mockDb as never) as never);
-    app.get('/api/agents/:id', (c) => c.json({ ok: true }));
+    app.get(
+      '/api/agents/:id',
+      createAuthMiddleware(auth) as never,
+      mw,
+      (c) => c.json({ ok: true })
+    );
 
     const res = await app.request('/api/agents/agent-1');
     expect(res.status).toBe(200);
   });
 
   it('returns 401 when called with no auth context', async () => {
+    const mw = requireTagAccess(mockDb as never) as never;
     const app = new Hono();
-    app.use('*', requireTagAccess(mockDb as never) as never);
-    app.get('/api/projects/:id', (c) => c.json({ ok: true }));
+    app.get('/api/projects/:id', mw, (c) => c.json({ ok: true }));
 
     const res = await app.request('/api/projects/proj-1');
     expect(res.status).toBe(401);
@@ -903,7 +897,7 @@ describe('requireTagAccess', () => {
     expect(body.error.code).toBe('UNAUTHORIZED');
   });
 
-  it('skips tag check for paths not matching any resource prefix', async () => {
+  it('skips tag check for paths not matching any known resource prefix', async () => {
     const auth: AuthContext = {
       userId: 'user-123',
       authMethod: 'api_token',
@@ -915,6 +909,7 @@ describe('requireTagAccess', () => {
       },
     };
 
+    // Global middleware for a non-resource path
     const app = new Hono();
     app.use('*', createAuthMiddleware(auth) as never);
     app.use('*', requireTagAccess(mockDb as never) as never);
@@ -954,9 +949,10 @@ describe('C4 token format validation', () => {
   });
 
   it('accepts tokens with mixed alphanumeric, underscore, and hyphen characters', () => {
-    const token = 'ap_' + 'aB3-xY_z9'.repeat(4) + 'aB34';
-    // 'aB3-xY_z9'.repeat(4) = 40 chars, plus 'aB34' = 44 chars
-    expect(token.length).toBe(47); // 3 + 44
+    // 'aB3-xY_z9' = 9 chars, repeat(4) = 36 chars, plus '---aB3456' = 9 chars → total = 45 chars
+    // Use a simpler construction: 42 alphanum + special chars
+    const token = 'ap_' + 'aB3-xY_z'.repeat(5) + 'aB'; // 8*5=40 + 2 = 42 chars
+    expect(token.length).toBe(45); // 3 + 42
     expect(AP_TOKEN_REGEX.test(token)).toBe(true);
   });
 
@@ -980,7 +976,7 @@ describe('C4 token format validation', () => {
     expect(AP_TOKEN_REGEX.test(token)).toBe(false);
   });
 
-  it('rejects tokens containing special characters like @ or #', () => {
+  it('rejects tokens containing special characters such as @ or #', () => {
     const tokenAt = 'ap_' + 'a'.repeat(41) + '@';
     const tokenHash = 'ap_' + 'a'.repeat(41) + '#';
     expect(AP_TOKEN_REGEX.test(tokenAt)).toBe(false);
@@ -992,11 +988,11 @@ describe('C4 token format validation', () => {
     expect(AP_TOKEN_REGEX.test(token)).toBe(false);
   });
 
-  it('rejects empty string', () => {
+  it('rejects an empty string', () => {
     expect(AP_TOKEN_REGEX.test('')).toBe(false);
   });
 
-  it('rejects the prefix alone with no suffix', () => {
+  it('rejects the prefix alone with no suffix characters', () => {
     expect(AP_TOKEN_REGEX.test('ap_')).toBe(false);
   });
 });
