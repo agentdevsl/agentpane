@@ -1,11 +1,12 @@
 /**
  * Simple in-memory rate limiter middleware for Hono.
  *
- * Uses a fixed window counter per IP address.
+ * Uses a fixed window counter per IP address (default) or per API token.
  * For production with multiple instances, replace with Redis-backed limiter.
  */
 
 import type { Context, Next } from 'hono';
+import type { AuthContext } from './auth-middleware.js';
 
 interface RateLimitEntry {
   count: number;
@@ -17,17 +18,28 @@ export interface RateLimitOptions {
   max?: number;
   /** Window size in milliseconds (default: 60_000 = 1 minute) */
   windowMs?: number;
+  /**
+   * When true, use the API token ID as the rate limiting key instead of IP.
+   * Requires the auth context to be enriched (must run after enrichAuthContext middleware).
+   * Falls back to skipping this limiter when no API token is present in the auth context.
+   */
+  keyOnToken?: boolean;
 }
 
 /**
  * Create a rate limiting middleware.
  *
  * @example
+ * // IP-based rate limiting (default)
  * app.use('/api/*', rateLimiter({ max: 100, windowMs: 60_000 }));
+ *
+ * // Per-token rate limiting (must run after enrichAuthContext)
+ * app.use('/api/*', rateLimiter({ max: 100, windowMs: 60_000, keyOnToken: true }));
  */
 export function rateLimiter(opts?: RateLimitOptions) {
   const max = opts?.max ?? 100;
   const windowMs = opts?.windowMs ?? 60_000;
+  const keyOnToken = opts?.keyOnToken ?? false;
 
   const store = new Map<string, RateLimitEntry>();
 
@@ -43,18 +55,36 @@ export function rateLimiter(opts?: RateLimitOptions) {
   cleanupInterval.unref();
 
   return async (c: Context, next: Next) => {
-    // Use forwarded IP or remote address
-    const ip =
-      c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ??
-      c.req.header('x-real-ip') ??
-      'unknown';
+    let rateLimitKey: string | null = null;
+
+    // When keyOnToken is enabled, try to use the API token ID as the key
+    if (keyOnToken) {
+      const auth = c.get('auth') as AuthContext | undefined;
+      if (auth?.tokenScope?.tokenId) {
+        rateLimitKey = `token:${auth.tokenScope.tokenId}`;
+      }
+    }
+
+    // Fall back to IP-based key when no token key is available
+    if (!rateLimitKey) {
+      // If keyOnToken mode and no token present, skip this limiter entirely
+      // (the request is not token-authenticated, so per-token limiting doesn't apply)
+      if (keyOnToken) {
+        return next();
+      }
+
+      rateLimitKey =
+        c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ??
+        c.req.header('x-real-ip') ??
+        'unknown';
+    }
 
     const now = Date.now();
-    let entry = store.get(ip);
+    let entry = store.get(rateLimitKey);
 
     if (!entry || entry.resetAt <= now) {
       entry = { count: 0, resetAt: now + windowMs };
-      store.set(ip, entry);
+      store.set(rateLimitKey, entry);
     }
 
     entry.count += 1;

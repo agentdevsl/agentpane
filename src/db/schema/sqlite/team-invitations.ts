@@ -14,7 +14,7 @@ export const teamInvitations = sqliteTable('team_invitations', {
     .references(() => teams.id, { onDelete: 'cascade' }),
   invitedBy: text('invited_by').references(() => users.id, { onDelete: 'set null' }),
   email: text('email').notNull(),
-  role: text('role').$type<RbacRole>().notNull(),
+  role: text('role').$type<RbacRole>().default('viewer').notNull(),
   token: text('token').notNull().unique(),
   status: text('status').$type<InvitationStatus>().default('pending').notNull(),
   expiresAt: text('expires_at').notNull(),

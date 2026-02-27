@@ -193,6 +193,10 @@ export function createRouter(deps: RouterDependencies) {
   app.use('/api/*', rateLimiter({ max: 200, windowMs: 60_000 }));
   app.use('/api/*', createAuthMiddleware(deps.db));
   app.use('/api/*', enrichAuthContext(deps.db));
+  // Per-token rate limiter: applies a stricter limit to API token requests.
+  // Must run after enrichAuthContext which populates tokenScope on the auth context.
+  // Non-token requests (session/dev auth) skip this limiter entirely.
+  app.use('/api/*', rateLimiter({ max: 100, windowMs: 60_000, keyOnToken: true }));
   app.use('/api/*', requireTagAccess(deps.db));
 
   // --- RBAC role guards for existing routes ---

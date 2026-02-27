@@ -3,16 +3,19 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto';
-import { and, eq, ne } from 'drizzle-orm';
+import { and, count, eq, gt, inArray, ne } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { RBAC_ROLE_LEVEL, type RbacRole } from '../../db/schema/shared/enums';
 import { apiTokens } from '../../db/schema/sqlite/api-tokens';
+import { projects } from '../../db/schema/sqlite/projects';
+import { tags } from '../../db/schema/sqlite/tags';
 import { teamProjects } from '../../db/schema/sqlite/team-projects';
+import { teams } from '../../db/schema/sqlite/teams';
 import type { AuthContext } from '../../lib/api/auth-middleware';
 import { createLogger } from '../../lib/logging/logger';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
-import { isValidId, json } from '../shared';
+import { isValidId, json, parsePagination } from '../shared';
 import { createApiTokenSchema, parseJsonBody } from '../validation';
 
 const log = createLogger('RbacTokensRoutes');
@@ -84,7 +87,70 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
       }
     }
 
+    // E3: Validate scopeTags exist and belong to the specified team
+    if (parsed.data.scopeTags && parsed.data.scopeTags.length > 0) {
+      const foundTags = await db
+        .select({ id: tags.id, teamId: tags.teamId })
+        .from(tags)
+        .where(inArray(tags.id, parsed.data.scopeTags));
+
+      const foundTagIds = new Set(foundTags.map((t) => t.id));
+      const missingTagIds = parsed.data.scopeTags.filter((id: string) => !foundTagIds.has(id));
+
+      if (missingTagIds.length > 0) {
+        return json(
+          {
+            ok: false,
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: `Tag(s) not found: ${missingTagIds.join(', ')}`,
+            },
+          },
+          400
+        );
+      }
+
+      const wrongTeamTags = foundTags.filter((t) => t.teamId !== parsed.data.teamId);
+      if (wrongTeamTags.length > 0) {
+        return json(
+          {
+            ok: false,
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: `Tag(s) do not belong to this team: ${wrongTeamTags.map((t) => t.id).join(', ')}`,
+            },
+          },
+          400
+        );
+      }
+    }
+
     try {
+      // E4: Check token name uniqueness per user (non-revoked tokens only)
+      const existingWithName = await db
+        .select({ id: apiTokens.id })
+        .from(apiTokens)
+        .where(
+          and(
+            eq(apiTokens.userId, auth.userId),
+            eq(apiTokens.name, parsed.data.name),
+            ne(apiTokens.status, 'revoked')
+          )
+        );
+
+      if (existingWithName.length > 0) {
+        return json(
+          {
+            ok: false,
+            error: {
+              code: 'TOKEN_NAME_EXISTS',
+              message: 'A non-revoked token with this name already exists',
+            },
+          },
+          409
+        );
+      }
+
       // Check token limit (max 25)
       const existingTokens = await db
         .select({ id: apiTokens.id })
@@ -128,6 +194,7 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
         );
       }
 
+      // E2: Include teamId, scopeTags, scopeProjectId in creation response
       return json({
         ok: true,
         data: {
@@ -135,6 +202,9 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
           name: created.name,
           tokenPrefix,
           role: created.role,
+          teamId: created.teamId,
+          scopeTags: created.scopeTags,
+          scopeProjectId: created.scopeProjectId,
           // Return raw token ONCE - never retrievable again
           token: rawToken,
           expiresAt: created.expiresAt,
@@ -155,16 +225,98 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
     const auth = c.get('auth');
     const showAll = c.req.query('status') === 'all';
     const teamId = c.req.query('teamId');
+    const allTeam = c.req.query('allTeam') === 'true';
+    const { cursor, limit } = parsePagination(c);
 
     try {
-      let whereClause = showAll
+      // E6: Admin team-wide token listing
+      if (allTeam && teamId) {
+        if (auth.authMethod !== 'dev') {
+          const role = await rbacService.resolveTeamRole(auth.userId, teamId);
+          if (!role || RBAC_ROLE_LEVEL[role] < RBAC_ROLE_LEVEL.admin) {
+            return json(
+              {
+                ok: false,
+                error: {
+                  code: 'FORBIDDEN',
+                  message: 'Only team admins and owners can list all team tokens',
+                },
+              },
+              403
+            );
+          }
+        }
+
+        // List all tokens for the team (not just current user's)
+        const teamBaseWhere = showAll
+          ? eq(apiTokens.teamId, teamId)
+          : and(eq(apiTokens.teamId, teamId), eq(apiTokens.status, 'active'));
+
+        // G2: Total count for pagination
+        const [teamCountResult] = await db
+          .select({ total: count() })
+          .from(apiTokens)
+          .where(teamBaseWhere);
+        const teamTotalCount = teamCountResult?.total ?? 0;
+
+        // G2: Apply cursor filter
+        const teamWhereClause = cursor
+          ? and(teamBaseWhere, gt(apiTokens.id, cursor))
+          : teamBaseWhere;
+
+        // E5: Include teamName via left join
+        const teamTokens = await db
+          .select({
+            id: apiTokens.id,
+            name: apiTokens.name,
+            tokenPrefix: apiTokens.tokenPrefix,
+            role: apiTokens.role,
+            scopeTags: apiTokens.scopeTags,
+            scopeProjectId: apiTokens.scopeProjectId,
+            status: apiTokens.status,
+            expiresAt: apiTokens.expiresAt,
+            lastUsedAt: apiTokens.lastUsedAt,
+            createdAt: apiTokens.createdAt,
+            teamName: teams.name,
+          })
+          .from(apiTokens)
+          .leftJoin(teams, eq(apiTokens.teamId, teams.id))
+          .where(teamWhereClause)
+          .orderBy(apiTokens.id)
+          .limit(limit + 1);
+
+        const teamHasMore = teamTokens.length > limit;
+        const teamItems = teamHasMore ? teamTokens.slice(0, limit) : teamTokens;
+        const teamNextCursor = teamHasMore ? teamItems[teamItems.length - 1]?.id : undefined;
+
+        return json({
+          ok: true,
+          data: {
+            items: teamItems,
+            nextCursor: teamNextCursor,
+            hasMore: teamHasMore,
+            totalCount: teamTotalCount,
+          },
+        });
+      }
+
+      // Standard user-scoped listing
+      let baseWhere = showAll
         ? eq(apiTokens.userId, auth.userId)
         : and(eq(apiTokens.userId, auth.userId), eq(apiTokens.status, 'active'));
 
       if (teamId) {
-        whereClause = and(whereClause, eq(apiTokens.teamId, teamId));
+        baseWhere = and(baseWhere, eq(apiTokens.teamId, teamId));
       }
 
+      // G2: Total count for pagination
+      const [countResult] = await db.select({ total: count() }).from(apiTokens).where(baseWhere);
+      const totalCount = countResult?.total ?? 0;
+
+      // G2: Apply cursor filter
+      const whereClause = cursor ? and(baseWhere, gt(apiTokens.id, cursor)) : baseWhere;
+
+      // E5: Include teamName via left join
       const tokens = await db
         .select({
           id: apiTokens.id,
@@ -177,11 +329,22 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
           expiresAt: apiTokens.expiresAt,
           lastUsedAt: apiTokens.lastUsedAt,
           createdAt: apiTokens.createdAt,
+          teamName: teams.name,
         })
         .from(apiTokens)
-        .where(whereClause);
+        .leftJoin(teams, eq(apiTokens.teamId, teams.id))
+        .where(whereClause)
+        .orderBy(apiTokens.id)
+        .limit(limit + 1);
 
-      return json({ ok: true, data: { items: tokens } });
+      const hasMore = tokens.length > limit;
+      const items = hasMore ? tokens.slice(0, limit) : tokens;
+      const nextCursor = hasMore ? items[items.length - 1]?.id : undefined;
+
+      return json({
+        ok: true,
+        data: { items, nextCursor, hasMore, totalCount },
+      });
     } catch (error) {
       log.error('Failed to list tokens', { error });
       return json(
@@ -201,6 +364,8 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
     }
 
     try {
+      // E5: Include teamName via left join
+      // F5: Include scopeProjectName via left join with projects
       const token = await db
         .select({
           id: apiTokens.id,
@@ -213,15 +378,40 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
           expiresAt: apiTokens.expiresAt,
           lastUsedAt: apiTokens.lastUsedAt,
           createdAt: apiTokens.createdAt,
+          teamName: teams.name,
+          scopeProjectName: projects.name,
         })
         .from(apiTokens)
+        .leftJoin(teams, eq(apiTokens.teamId, teams.id))
+        .leftJoin(projects, eq(apiTokens.scopeProjectId, projects.id))
         .where(and(eq(apiTokens.id, id), eq(apiTokens.userId, auth.userId)));
 
-      if (token.length === 0) {
+      const tokenData = token[0];
+      if (!tokenData) {
         return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Token not found' } }, 404);
       }
 
-      return json({ ok: true, data: token[0] });
+      // F5: Enrich scopeTags with tag details (name, color)
+      let enrichedScopeTags: Array<{ id: string; name: string; color: string }> | null = null;
+      if (
+        tokenData.scopeTags &&
+        Array.isArray(tokenData.scopeTags) &&
+        tokenData.scopeTags.length > 0
+      ) {
+        const tagRows = await db
+          .select({ id: tags.id, name: tags.name, color: tags.color })
+          .from(tags)
+          .where(inArray(tags.id, tokenData.scopeTags as string[]));
+        enrichedScopeTags = tagRows;
+      }
+
+      return json({
+        ok: true,
+        data: {
+          ...tokenData,
+          ...(enrichedScopeTags !== null && { scopeTags: enrichedScopeTags }),
+        },
+      });
     } catch (error) {
       log.error('Failed to get token', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to get token' } }, 500);
@@ -255,9 +445,10 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
         );
       }
 
+      // E1: Set revokedAt timestamp when revoking
       const result = await db
         .update(apiTokens)
-        .set({ status: 'revoked' })
+        .set({ status: 'revoked', revokedAt: new Date().toISOString() })
         .where(and(eq(apiTokens.id, id), eq(apiTokens.userId, auth.userId)))
         .returning();
 

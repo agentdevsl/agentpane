@@ -3,7 +3,7 @@
  */
 
 import { createId } from '@paralleldrive/cuid2';
-import { desc, eq, inArray } from 'drizzle-orm';
+import { and, count, eq, gt, inArray } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { apiTokens } from '../../db/schema/sqlite/api-tokens';
 import { tags } from '../../db/schema/sqlite/tags';
@@ -15,8 +15,13 @@ import type { AuthContext } from '../../lib/api/auth-middleware';
 import { createLogger } from '../../lib/logging/logger';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
-import { isValidId, json, requireTeamRole } from '../shared';
-import { createTeamSchema, parseJsonBody, updateTeamSchema } from '../validation';
+import { isValidId, json, parsePagination, requireTeamRole } from '../shared';
+import {
+  createTeamSchema,
+  parseJsonBody,
+  transferOwnershipSchema,
+  updateTeamSchema,
+} from '../validation';
 
 const log = createLogger('TeamsRoutes');
 
@@ -100,14 +105,48 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
   // GET /api/teams - List user's teams
   app.get('/', async (c) => {
     const auth = c.get('auth');
+    const { cursor, limit } = parsePagination(c);
 
     try {
       // For dev mode, return all teams
       if (auth.authMethod === 'dev') {
-        const allTeams = await db.query.teams.findMany({
-          orderBy: [desc(teams.updatedAt)],
+        // Total count
+        const [countResult] = await db.select({ total: count() }).from(teams);
+        const totalCount = countResult?.total ?? 0;
+
+        // Build cursor filter
+        const whereClause = cursor ? gt(teams.id, cursor) : undefined;
+
+        const allTeams = await db
+          .select()
+          .from(teams)
+          .where(whereClause)
+          .orderBy(teams.id)
+          .limit(limit + 1);
+
+        const hasMore = allTeams.length > limit;
+        const pagedTeams = hasMore ? allTeams.slice(0, limit) : allTeams;
+        const nextCursor = hasMore ? pagedTeams[pagedTeams.length - 1]?.id : undefined;
+
+        // Enrich each team with memberCount (myRole is null in dev mode)
+        const items = await Promise.all(
+          pagedTeams.map(async (team) => {
+            const [memberCountResult] = await db
+              .select({ total: count() })
+              .from(teamMembers)
+              .where(eq(teamMembers.teamId, team.id));
+            return {
+              ...team,
+              memberCount: memberCountResult?.total ?? 0,
+              myRole: null as string | null,
+            };
+          })
+        );
+
+        return json({
+          ok: true,
+          data: { items, nextCursor, hasMore, totalCount },
         });
-        return json({ ok: true, data: { items: allTeams ?? [] } });
       }
 
       // Find teams where user is a member
@@ -117,19 +156,52 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
         .where(eq(teamMembers.userId, auth.userId));
 
       if (memberships.length === 0) {
-        return json({ ok: true, data: { items: [] } });
+        return json({
+          ok: true,
+          data: { items: [], nextCursor: undefined, hasMore: false, totalCount: 0 },
+        });
       }
 
       const teamIds = memberships.map((m) => m.teamId);
-      const teamRows = await db.select().from(teams).where(inArray(teams.id, teamIds));
+      const totalCount = teamIds.length;
+
+      // Build where clause with cursor support
+      const baseWhere = inArray(teams.id, teamIds);
+      const whereClause = cursor ? and(baseWhere, gt(teams.id, cursor)) : baseWhere;
+
+      const teamRows = await db
+        .select()
+        .from(teams)
+        .where(whereClause)
+        .orderBy(teams.id)
+        .limit(limit + 1);
+
+      const hasMore = teamRows.length > limit;
+      const pagedRows = hasMore ? teamRows.slice(0, limit) : teamRows;
+      const nextCursor = hasMore ? pagedRows[pagedRows.length - 1]?.id : undefined;
 
       const roleByTeamId = new Map(memberships.map((m) => [m.teamId, m.role]));
-      const userTeams = teamRows.map((team) => ({
-        ...team,
-        memberRole: roleByTeamId.get(team.id),
-      }));
 
-      return json({ ok: true, data: { items: userTeams } });
+      // Enrich each team with memberCount and myRole
+      const items = await Promise.all(
+        pagedRows.map(async (team) => {
+          const [memberCountResult] = await db
+            .select({ total: count() })
+            .from(teamMembers)
+            .where(eq(teamMembers.teamId, team.id));
+          return {
+            ...team,
+            memberRole: roleByTeamId.get(team.id),
+            memberCount: memberCountResult?.total ?? 0,
+            myRole: roleByTeamId.get(team.id) ?? null,
+          };
+        })
+      );
+
+      return json({
+        ok: true,
+        data: { items, nextCursor, hasMore, totalCount },
+      });
     } catch (error) {
       log.error('Failed to list teams', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to list teams' } }, 500);
@@ -204,6 +276,86 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
       log.error('Failed to update team', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to update team' } },
+        500
+      );
+    }
+  });
+
+  // POST /api/teams/:id/transfer-ownership - Transfer team ownership
+  app.post('/:id/transfer-ownership', async (c) => {
+    const id = c.req.param('id');
+    const auth = c.get('auth');
+
+    if (!isValidId(id)) {
+      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID' } }, 400);
+    }
+
+    const denied = await requireTeamRole(
+      auth,
+      rbacService,
+      id,
+      'owner',
+      'Only team owner can transfer ownership'
+    );
+    if (denied) return denied;
+
+    const parsed = await parseJsonBody(c, transferOwnershipSchema);
+    if (!parsed.ok) return parsed.response;
+
+    if (parsed.data.targetUserId === auth.userId) {
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'CANNOT_TRANSFER_TO_SELF',
+            message: 'Cannot transfer ownership to yourself',
+          },
+        },
+        400
+      );
+    }
+
+    try {
+      const result = await db.transaction(async (tx) => {
+        // Verify target is a member of the team
+        const targetMember = await tx.query.teamMembers.findFirst({
+          where: and(eq(teamMembers.teamId, id), eq(teamMembers.userId, parsed.data.targetUserId)),
+        });
+        if (!targetMember) return 'TARGET_NOT_MEMBER' as const;
+
+        // Promote target to owner
+        await tx
+          .update(teamMembers)
+          .set({ role: 'owner' })
+          .where(and(eq(teamMembers.teamId, id), eq(teamMembers.userId, parsed.data.targetUserId)));
+
+        // Demote current owner to admin
+        await tx
+          .update(teamMembers)
+          .set({ role: 'admin' })
+          .where(and(eq(teamMembers.teamId, id), eq(teamMembers.userId, auth.userId)));
+
+        return 'OK' as const;
+      });
+
+      if (result === 'TARGET_NOT_MEMBER') {
+        return json(
+          {
+            ok: false,
+            error: { code: 'MEMBER_NOT_FOUND', message: 'Target user is not a team member' },
+          },
+          404
+        );
+      }
+
+      return json({
+        ok: true,
+        data: { teamId: id, newOwnerId: parsed.data.targetUserId, previousOwnerId: auth.userId },
+      });
+    } catch (error) {
+      log.error('Failed to transfer team ownership', { error });
+      return json(
+        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to transfer ownership' } },
         500
       );
     }

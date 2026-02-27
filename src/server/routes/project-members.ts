@@ -84,6 +84,7 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
           projectId,
           userId: parsed.data.userId,
           role: parsed.data.role,
+          effectiveRole: parsed.data.role,
           grantedAt: new Date().toISOString(),
         },
       });
@@ -210,7 +211,11 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
           404
         );
       }
-      return json({ ok: true, data: { removed: true } });
+
+      // After removing the direct override, resolve the user's inherited team role
+      const revertedToTeamRole = await rbacService.resolveUserRole(uid, projectId);
+
+      return json({ ok: true, data: { removed: true, revertedToTeamRole } });
     } catch (error) {
       log.error('Failed to remove member', { error });
       return json(

@@ -1,6 +1,6 @@
 import { createId } from '@paralleldrive/cuid2';
 import { sql } from 'drizzle-orm';
-import { sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import type { ApiTokenStatus, RbacRole } from '../shared/enums';
 import { projects } from './projects';
 import { teams } from './teams';
@@ -24,6 +24,7 @@ export const apiTokens = sqliteTable('api_tokens', {
   scopeProjectId: text('scope_project_id').references(() => projects.id, { onDelete: 'set null' }),
   status: text('status').$type<ApiTokenStatus>().default('active').notNull(),
   expiresAt: text('expires_at'),
+  useCount: integer('use_count').default(0),
   lastUsedAt: text('last_used_at'),
   revokedAt: text('revoked_at'),
   createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),

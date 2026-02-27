@@ -2,7 +2,7 @@
  * Tag routes
  */
 
-import { and, eq } from 'drizzle-orm';
+import { and, count, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { projectTags } from '../../db/schema/sqlite/project-tags';
 import { tags } from '../../db/schema/sqlite/tags';
@@ -94,7 +94,23 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
     try {
       const teamTags = await db.select().from(tags).where(eq(tags.teamId, teamId));
 
-      return json({ ok: true, data: { items: teamTags } });
+      // Enrich each tag with projectCount and taskCount
+      const enrichedTags = await Promise.all(
+        teamTags.map(async (tag) => {
+          const [projectCountResult, taskCountResult] = await Promise.all([
+            db.select({ total: count() }).from(projectTags).where(eq(projectTags.tagId, tag.id)),
+            db.select({ total: count() }).from(taskTags).where(eq(taskTags.tagId, tag.id)),
+          ]);
+
+          return {
+            ...tag,
+            projectCount: projectCountResult[0]?.total ?? 0,
+            taskCount: taskCountResult[0]?.total ?? 0,
+          };
+        })
+      );
+
+      return json({ ok: true, data: { items: enrichedTags } });
     } catch (error) {
       log.error('Failed to list tags', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to list tags' } }, 500);
@@ -216,7 +232,10 @@ export function createProjectTagRoutes({
         .values({ projectId, tagId: parsed.data.tagId })
         .onConflictDoNothing();
 
-      return json({ ok: true, data: { projectId, tagId: parsed.data.tagId } });
+      return json({
+        ok: true,
+        data: { projectId, tagId: parsed.data.tagId, assignedAt: new Date().toISOString() },
+      });
     } catch (error) {
       log.error('Failed to assign tag to project', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to assign tag' } }, 500);
@@ -337,7 +356,10 @@ export function createTaskTagRoutes({
     try {
       await db.insert(taskTags).values({ taskId, tagId: parsed.data.tagId }).onConflictDoNothing();
 
-      return json({ ok: true, data: { taskId, tagId: parsed.data.tagId } });
+      return json({
+        ok: true,
+        data: { taskId, tagId: parsed.data.tagId, assignedAt: new Date().toISOString() },
+      });
     } catch (error) {
       log.error('Failed to assign tag to task', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to assign tag' } }, 500);

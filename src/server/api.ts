@@ -57,6 +57,7 @@ import {
   CLI_SESSIONS_PERF_METRICS_MIGRATION_SQL,
   MIGRATION_SQL,
   PERFORMANCE_INDEXES_MIGRATION_SQL,
+  RBAC_GITHUB_TOKEN_MIGRATION_SQL,
   RBAC_MIGRATION_SQL,
   RBAC_SCHEMA_ADDITIONS,
   SANDBOX_CONTAINER_ID_MIGRATION_SQL,
@@ -253,9 +254,7 @@ if (DB_MODE === 'postgres') {
 
   // Apply github_tokens team_id column migration
   try {
-    sqlite.exec(
-      `ALTER TABLE github_tokens ADD COLUMN team_id TEXT REFERENCES "teams"("id") ON DELETE SET NULL`
-    );
+    sqlite.exec(RBAC_GITHUB_TOKEN_MIGRATION_SQL);
     log.info('GitHub tokens team_id migration applied');
   } catch (error) {
     if (!(error instanceof Error && error.message.includes('duplicate column name'))) {

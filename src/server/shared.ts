@@ -2,6 +2,34 @@
  * Shared utilities and types for API routes
  */
 
+import type { Context } from 'hono';
+
+/**
+ * Cursor-based pagination parameters
+ */
+export interface PaginationParams {
+  cursor?: string;
+  limit: number;
+}
+
+/**
+ * Parse cursor-based pagination parameters from query string.
+ * - `cursor`: optional string ID for cursor-based pagination
+ * - `limit`: integer clamped between 1 and 100, defaults to 50
+ */
+export function parsePagination(c: Context): PaginationParams {
+  const cursor = c.req.query('cursor') || undefined;
+  const rawLimit = c.req.query('limit');
+  let limit = 50;
+  if (rawLimit) {
+    const parsed = Number.parseInt(rawLimit, 10);
+    if (!Number.isNaN(parsed)) {
+      limit = Math.max(1, Math.min(100, parsed));
+    }
+  }
+  return { cursor, limit };
+}
+
 // CORS headers for dev
 export const corsHeaders = {
   'Access-Control-Allow-Origin': 'http://localhost:3000',

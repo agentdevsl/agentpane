@@ -2,7 +2,7 @@
  * Team member routes
  */
 
-import { and, eq } from 'drizzle-orm';
+import { and, count, eq, gt } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { teamMembers } from '../../db/schema/sqlite/team-members';
 import { users } from '../../db/schema/sqlite/users';
@@ -10,7 +10,7 @@ import type { AuthContext } from '../../lib/api/auth-middleware';
 import { createLogger } from '../../lib/logging/logger';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
-import { isValidId, json, requireTeamRole } from '../shared';
+import { isValidId, json, parsePagination, requireTeamRole } from '../shared';
 import { addTeamMemberSchema, parseJsonBody, updateTeamMemberSchema } from '../validation';
 
 const log = createLogger('TeamMembersRoutes');
@@ -111,7 +111,20 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
       }
     }
 
+    const { cursor, limit } = parsePagination(c);
+
     try {
+      // Total count of members in this team
+      const [countResult] = await db
+        .select({ total: count() })
+        .from(teamMembers)
+        .where(eq(teamMembers.teamId, teamId));
+      const totalCount = countResult?.total ?? 0;
+
+      // Build where clause with cursor support (cursor is userId)
+      const baseWhere = eq(teamMembers.teamId, teamId);
+      const whereClause = cursor ? and(baseWhere, gt(teamMembers.userId, cursor)) : baseWhere;
+
       const members = await db
         .select({
           userId: teamMembers.userId,
@@ -124,9 +137,18 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
         })
         .from(teamMembers)
         .leftJoin(users, eq(teamMembers.userId, users.id))
-        .where(eq(teamMembers.teamId, teamId));
+        .where(whereClause)
+        .orderBy(teamMembers.userId)
+        .limit(limit + 1);
 
-      return json({ ok: true, data: { items: members } });
+      const hasMore = members.length > limit;
+      const items = hasMore ? members.slice(0, limit) : members;
+      const nextCursor = hasMore ? items[items.length - 1]?.userId : undefined;
+
+      return json({
+        ok: true,
+        data: { items, nextCursor, hasMore, totalCount },
+      });
     } catch (error) {
       log.error('Failed to list members', { error });
       return json(

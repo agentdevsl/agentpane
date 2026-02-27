@@ -13,7 +13,7 @@ export const teamMembers = sqliteTable(
     userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    role: text('role').$type<RbacRole>().notNull(),
+    role: text('role').$type<RbacRole>().default('viewer').notNull(),
     joinedAt: text('joined_at').default(sql`(datetime('now'))`).notNull(),
   },
   (table) => [primaryKey({ columns: [table.teamId, table.userId] })]

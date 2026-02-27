@@ -570,6 +570,13 @@ CREATE INDEX IF NOT EXISTS idx_team_invitations_email ON team_invitations(email)
 CREATE INDEX IF NOT EXISTS idx_project_tags_tag ON project_tags(tag_id);
 CREATE INDEX IF NOT EXISTS idx_task_tags_tag ON task_tags(tag_id);
 CREATE INDEX IF NOT EXISTS "idx_team_invitations_team_email_status" ON "team_invitations" ("team_id", "email", "status");
+
+-- Additional RBAC indexes for query performance
+CREATE INDEX IF NOT EXISTS idx_users_github_login ON users(github_login);
+CREATE INDEX IF NOT EXISTS idx_github_tokens_team ON github_tokens(team_id);
+CREATE INDEX IF NOT EXISTS idx_tags_team ON tags(team_id);
+CREATE INDEX IF NOT EXISTS idx_project_tags_project ON project_tags(project_id);
+CREATE INDEX IF NOT EXISTS idx_task_tags_task ON task_tags(task_id);
 `;
 
 // RBAC schema additions for existing databases where CREATE TABLE IF NOT EXISTS
@@ -579,7 +586,11 @@ export const RBAC_SCHEMA_ADDITIONS = [
   `ALTER TABLE tags ADD COLUMN "updated_at" TEXT DEFAULT (datetime('now')) NOT NULL`,
   `ALTER TABLE project_tags ADD COLUMN "assigned_at" TEXT DEFAULT (datetime('now')) NOT NULL`,
   `ALTER TABLE task_tags ADD COLUMN "assigned_at" TEXT DEFAULT (datetime('now')) NOT NULL`,
+  `ALTER TABLE api_tokens ADD COLUMN "use_count" INTEGER DEFAULT 0`,
 ];
+
+// GitHub token team_id column migration (extracted for reuse)
+export const RBAC_GITHUB_TOKEN_MIGRATION_SQL = `ALTER TABLE github_tokens ADD COLUMN team_id TEXT REFERENCES "teams"("id") ON DELETE SET NULL`;
 
 /**
  * Interface for raw SQLite database objects that support prepare/exec.
@@ -649,7 +660,7 @@ export const validateSchema = async (ctx: BootstrapContext) => {
     // Run RBAC migration (idempotent)
     ctx.db.exec(RBAC_MIGRATION_SQL);
 
-    // Verify tables exist using SQLite syntax
+    // Verify core tables exist using SQLite syntax
     const result = ctx.db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='projects'")
       .get() as { name: string } | undefined;
@@ -659,6 +670,40 @@ export const validateSchema = async (ctx: BootstrapContext) => {
         createError(
           'BOOTSTRAP_SCHEMA_VALIDATION_FAILED',
           'Projects table not found after migration',
+          500
+        )
+      );
+    }
+
+    // Verify all 11 RBAC tables exist after migration
+    const RBAC_TABLES = [
+      'users',
+      'user_sessions',
+      'teams',
+      'team_members',
+      'team_projects',
+      'project_members',
+      'tags',
+      'project_tags',
+      'task_tags',
+      'api_tokens',
+      'team_invitations',
+    ] as const;
+
+    const existingTables = ctx.db
+      .prepare(
+        `SELECT name FROM sqlite_master WHERE type='table' AND name IN (${RBAC_TABLES.map(() => '?').join(', ')})`
+      )
+      .all(...RBAC_TABLES) as { name: string }[];
+
+    const existingTableNames = new Set(existingTables.map((t) => t.name));
+    const missingTables = RBAC_TABLES.filter((t) => !existingTableNames.has(t));
+
+    if (missingTables.length > 0) {
+      return err(
+        createError(
+          'BOOTSTRAP_SCHEMA_VALIDATION_FAILED',
+          `RBAC tables missing after migration: ${missingTables.join(', ')}`,
           500
         )
       );

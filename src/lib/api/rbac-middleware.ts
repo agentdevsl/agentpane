@@ -6,12 +6,15 @@
  */
 
 import { createHash } from 'node:crypto';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { Context, Next } from 'hono';
 import { RBAC_ROLE_LEVEL, type RbacRole, resolveHighestRole } from '../../db/schema/shared/enums';
+import { agents } from '../../db/schema/sqlite/agents';
 import { apiTokens } from '../../db/schema/sqlite/api-tokens';
 import { projectTags } from '../../db/schema/sqlite/project-tags';
+import { sessions } from '../../db/schema/sqlite/sessions';
 import { taskTags } from '../../db/schema/sqlite/task-tags';
+import { tasks } from '../../db/schema/sqlite/tasks';
 import { teamMembers } from '../../db/schema/sqlite/team-members';
 import { users } from '../../db/schema/sqlite/users';
 import type { RbacService } from '../../services/rbac.service';
@@ -159,10 +162,13 @@ export function enrichAuthContext(db: Database) {
               rbacAuth.roleLevel = RBAC_ROLE_LEVEL[token.role as RbacRole];
             }
 
-            // Update lastUsedAt asynchronously (fire-and-forget to avoid blocking the request)
+            // Update lastUsedAt and useCount asynchronously (fire-and-forget to avoid blocking the request)
             void db
               .update(apiTokens)
-              .set({ lastUsedAt: new Date().toISOString() })
+              .set({
+                lastUsedAt: new Date().toISOString(),
+                useCount: sql`COALESCE(${apiTokens.useCount}, 0) + 1`,
+              })
               .where(eq(apiTokens.id, token.id))
               .catch((err) => log.error('Failed to update token usage tracking', { error: err }));
           } else {
@@ -242,8 +248,20 @@ export function requireRole(minimumRole: RbacRole, rbacService: RbacService) {
       );
     }
 
-    // Try to extract projectId from route params or query
-    const projectId = c.req.param('id') ?? c.req.query('projectId');
+    // Try to extract projectId from route params, query, or request body
+    let projectId = c.req.param('id') ?? c.req.query('projectId');
+
+    // Fallback: try to extract projectId from the request body
+    if (!projectId) {
+      try {
+        const body = await c.req.raw.clone().json();
+        if (body && typeof body === 'object' && typeof body.projectId === 'string') {
+          projectId = body.projectId;
+        }
+      } catch {
+        // Body is not JSON or not available — continue without projectId
+      }
+    }
 
     let effectiveRole: RbacRole | null = null;
 
@@ -356,7 +374,7 @@ export function requireTagAccess(db: Database) {
       }
     }
 
-    // For task routes: check task tags
+    // For task routes: check task tags, fallback to parent project tags
     if (path.startsWith('/api/tasks/')) {
       const taskId = c.req.param('id');
       if (taskId) {
@@ -367,12 +385,146 @@ export function requireTagAccess(db: Database) {
 
         const resourceTagIds = taskTagRows.map((r) => r.tagId);
 
-        // If task has no tags, deny access for tag-restricted tokens
+        // Check task's own tags first
         if (!scopeTags.some((t) => resourceTagIds.includes(t))) {
+          // Fallback: look up the task's parent project and check project tags
+          const taskRows = await db
+            .select({ projectId: tasks.projectId })
+            .from(tasks)
+            .where(eq(tasks.id, taskId));
+
+          const taskRow = taskRows[0];
+          if (taskRow?.projectId) {
+            const parentProjectTagRows = await db
+              .select({ tagId: projectTags.tagId })
+              .from(projectTags)
+              .where(eq(projectTags.projectId, taskRow.projectId));
+
+            const parentTagIds = parentProjectTagRows.map((r) => r.tagId);
+
+            if (!scopeTags.some((t) => parentTagIds.includes(t))) {
+              return c.json(
+                {
+                  ok: false,
+                  error: {
+                    code: 'FORBIDDEN',
+                    message: 'Token tags do not match task or project tags',
+                  },
+                },
+                403
+              );
+            }
+          } else {
+            // Task not found or has no projectId — deny access
+            return c.json(
+              {
+                ok: false,
+                error: { code: 'FORBIDDEN', message: 'Token tags do not match task tags' },
+              },
+              403
+            );
+          }
+        }
+      }
+    }
+
+    // For session routes: check task tags (via session.taskId), fallback to project tags (via session.projectId)
+    if (path.startsWith('/api/sessions/')) {
+      const sessionId = c.req.param('id');
+      if (sessionId) {
+        const sessionRows = await db
+          .select({ taskId: sessions.taskId, projectId: sessions.projectId })
+          .from(sessions)
+          .where(eq(sessions.id, sessionId));
+
+        const sessionRow = sessionRows[0];
+        if (sessionRow) {
+          let tagMatch = false;
+
+          // First: check task tags if session has a taskId
+          if (sessionRow.taskId) {
+            const sessionTaskTagRows = await db
+              .select({ tagId: taskTags.tagId })
+              .from(taskTags)
+              .where(eq(taskTags.taskId, sessionRow.taskId));
+
+            const sessionTaskTagIds = sessionTaskTagRows.map((r) => r.tagId);
+            if (scopeTags.some((t) => sessionTaskTagIds.includes(t))) {
+              tagMatch = true;
+            }
+          }
+
+          // Fallback: check project tags via session.projectId
+          if (!tagMatch && sessionRow.projectId) {
+            const sessionProjectTagRows = await db
+              .select({ tagId: projectTags.tagId })
+              .from(projectTags)
+              .where(eq(projectTags.projectId, sessionRow.projectId));
+
+            const sessionProjectTagIds = sessionProjectTagRows.map((r) => r.tagId);
+            if (scopeTags.some((t) => sessionProjectTagIds.includes(t))) {
+              tagMatch = true;
+            }
+          }
+
+          if (!tagMatch) {
+            return c.json(
+              {
+                ok: false,
+                error: {
+                  code: 'FORBIDDEN',
+                  message: 'Token tags do not match session resource tags',
+                },
+              },
+              403
+            );
+          }
+        } else {
+          // Session not found — deny access for tag-restricted tokens
           return c.json(
             {
               ok: false,
-              error: { code: 'FORBIDDEN', message: 'Token tags do not match task tags' },
+              error: { code: 'FORBIDDEN', message: 'Session not found' },
+            },
+            403
+          );
+        }
+      }
+    }
+
+    // For agent routes: check project tags via agent.projectId
+    if (path.startsWith('/api/agents/')) {
+      const agentId = c.req.param('id');
+      if (agentId) {
+        const agentRows = await db
+          .select({ projectId: agents.projectId })
+          .from(agents)
+          .where(eq(agents.id, agentId));
+
+        const agentRow = agentRows[0];
+        if (agentRow?.projectId) {
+          const agentProjectTagRows = await db
+            .select({ tagId: projectTags.tagId })
+            .from(projectTags)
+            .where(eq(projectTags.projectId, agentRow.projectId));
+
+          const agentProjectTagIds = agentProjectTagRows.map((r) => r.tagId);
+
+          if (!scopeTags.some((t) => agentProjectTagIds.includes(t))) {
+            return c.json(
+              {
+                ok: false,
+                error: { code: 'FORBIDDEN', message: 'Token tags do not match agent project tags' },
+              },
+              403
+            );
+          }
+        } else {
+          // Agent not found — deny access for tag-restricted tokens
+          return c.json(
+            {
+              ok: false,
+              error: { code: 'FORBIDDEN', message: 'Agent not found' },
             },
             403
           );

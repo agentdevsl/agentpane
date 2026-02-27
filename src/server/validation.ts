@@ -184,6 +184,10 @@ export const assignTagSchema = z.object({
   tagId: idSchema,
 });
 
+export const transferOwnershipSchema = z.object({
+  targetUserId: idSchema,
+});
+
 export const updateProfileSchema = z
   .object({
     name: z.string().trim().min(1).max(200).optional(),
