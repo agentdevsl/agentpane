@@ -3,7 +3,7 @@
  */
 
 import { createId } from '@paralleldrive/cuid2';
-import { and, count, eq, gt, inArray, like } from 'drizzle-orm';
+import { and, count, eq, gt, inArray, like, ne } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { apiTokens } from '../../db/schema/sqlite/api-tokens';
 import { tags } from '../../db/schema/sqlite/tags';
@@ -12,6 +12,7 @@ import { teamMembers } from '../../db/schema/sqlite/team-members';
 import { teamProjects } from '../../db/schema/sqlite/team-projects';
 import { teams } from '../../db/schema/sqlite/teams';
 import { projectMembers } from '../../db/schema/sqlite/project-members';
+import type { RbacRole } from '../../db/schema/shared/enums';
 import type { AuthContext } from '../../lib/api/auth-middleware';
 import { createLogger } from '../../lib/logging/logger';
 import type { RbacService } from '../../services/rbac.service';
@@ -152,7 +153,7 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
 
         const hasMore = allTeams.length > limit;
         const pagedTeams = hasMore ? allTeams.slice(0, limit) : allTeams;
-        const nextCursor = hasMore ? pagedTeams[pagedTeams.length - 1]?.id : undefined;
+        const nextCursor = hasMore ? pagedTeams[pagedTeams.length - 1]?.id ?? null : null;
 
         // H2+H7: Batch-fetch counts with GROUP BY instead of N+1
         const teamIds = pagedTeams.map(t => t.id);
@@ -162,7 +163,7 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
           ...team,
           memberCount: memberMap.get(team.id) ?? 0,
           projectCount: projectMap.get(team.id) ?? 0,
-          myRole: null as string | null,
+          myRole: null as RbacRole | null,
         }));
 
         return json({
@@ -180,7 +181,7 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
       if (memberships.length === 0) {
         return json({
           ok: true,
-          data: { items: [], nextCursor: undefined, hasMore: false, totalCount: 0 },
+          data: { items: [], nextCursor: null, hasMore: false, totalCount: 0 },
         });
       }
 
@@ -207,7 +208,7 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
 
       const hasMore = teamRows.length > limit;
       const pagedRows = hasMore ? teamRows.slice(0, limit) : teamRows;
-      const nextCursor = hasMore ? pagedRows[pagedRows.length - 1]?.id : undefined;
+      const nextCursor = hasMore ? pagedRows[pagedRows.length - 1]?.id ?? null : null;
 
       const roleByTeamId = new Map(memberships.map((m) => [m.teamId, m.role]));
 
@@ -258,7 +259,7 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
       ]);
 
       // Get caller's role
-      let myRole: string | null = null;
+      let myRole: RbacRole | null = null;
       if (auth.authMethod !== 'dev') {
         myRole = await rbacService.resolveTeamRole(auth.userId, id);
       }
@@ -294,17 +295,38 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
     if (!parsed.ok) return parsed.response;
 
     try {
-      const [updated] = await db
-        .update(teams)
-        .set({ ...parsed.data, updatedAt: new Date().toISOString() })
-        .where(eq(teams.id, id))
-        .returning();
+      const result = await db.transaction(async (tx) => {
+        // Check slug uniqueness if slug is being updated
+        if (parsed.data.slug) {
+          const existingSlug = await tx.query.teams.findFirst({
+            where: and(eq(teams.slug, parsed.data.slug), ne(teams.id, id)),
+          });
+          if (existingSlug) {
+            return 'SLUG_EXISTS' as const;
+          }
+        }
 
-      if (!updated) {
+        const [updated] = await tx
+          .update(teams)
+          .set({ ...parsed.data, updatedAt: new Date().toISOString() })
+          .where(eq(teams.id, id))
+          .returning();
+
+        return updated ?? null;
+      });
+
+      if (result === 'SLUG_EXISTS') {
+        return json(
+          { ok: false, error: { code: 'TEAM_SLUG_EXISTS', message: 'Team slug already exists' } },
+          409
+        );
+      }
+
+      if (!result) {
         return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Team not found' } }, 404);
       }
 
-      return json({ ok: true, data: updated });
+      return json({ ok: true, data: result });
     } catch (error) {
       log.error('Failed to update team', { error });
       return json(

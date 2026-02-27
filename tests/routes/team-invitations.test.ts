@@ -154,22 +154,25 @@ describe('POST /api/teams/:id/invitations - Create invitation', () => {
 
   it('returns 201 and invitation data on success', async () => {
     // No pending invitation, no existing member, insert succeeds
-    let selectCall = 0;
-    db.select.mockImplementation(() => {
-      selectCall++;
-      const obj: Record<string, unknown> = {};
-      const methods = ['from', 'where', 'leftJoin', 'innerJoin', 'orderBy'];
-      for (const m of methods) obj[m] = vi.fn().mockReturnValue(obj);
-      obj.then = (fn: (v: unknown) => unknown) => {
-        const result = selectCall <= 2 ? [] : [];
-        return Promise.resolve(result).then(fn);
+    db.transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      let selectCall = 0;
+      const tx = {
+        select: vi.fn().mockImplementation(() => {
+          selectCall++;
+          const obj: Record<string, unknown> = {};
+          const methods = ['from', 'where', 'leftJoin', 'innerJoin', 'orderBy'];
+          for (const m of methods) obj[m] = vi.fn().mockReturnValue(obj);
+          obj.then = (fn: (v: unknown) => unknown) =>
+            Promise.resolve([]).then(fn);
+          return obj;
+        }),
+        insert: vi.fn().mockReturnValue({
+          values: vi.fn().mockReturnValue({
+            returning: vi.fn().mockResolvedValue([sampleInvitation]),
+          }),
+        }),
       };
-      return obj;
-    });
-    db.insert.mockReturnValue({
-      values: vi.fn().mockReturnValue({
-        returning: vi.fn().mockResolvedValue([sampleInvitation]),
-      }),
+      return fn(tx);
     });
 
     const res = await app.request(`/api/teams/${VALID_TEAM_ID}/invitations`, {
@@ -186,13 +189,18 @@ describe('POST /api/teams/:id/invitations - Create invitation', () => {
   });
 
   it('returns 409 when a pending invitation already exists', async () => {
-    db.select.mockImplementation(() => {
-      const obj: Record<string, unknown> = {};
-      const methods = ['from', 'where', 'leftJoin', 'innerJoin'];
-      for (const m of methods) obj[m] = vi.fn().mockReturnValue(obj);
-      obj.then = (fn: (v: unknown) => unknown) =>
-        Promise.resolve([sampleInvitation]).then(fn);
-      return obj;
+    db.transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        select: vi.fn().mockImplementation(() => {
+          const obj: Record<string, unknown> = {};
+          const methods = ['from', 'where', 'leftJoin', 'innerJoin'];
+          for (const m of methods) obj[m] = vi.fn().mockReturnValue(obj);
+          obj.then = (fn: (v: unknown) => unknown) =>
+            Promise.resolve([sampleInvitation]).then(fn);
+          return obj;
+        }),
+      };
+      return fn(tx);
     });
 
     const res = await app.request(`/api/teams/${VALID_TEAM_ID}/invitations`, {
@@ -206,19 +214,24 @@ describe('POST /api/teams/:id/invitations - Create invitation', () => {
   });
 
   it('returns 409 when user with that email is already a member', async () => {
-    let selectCall = 0;
-    db.select.mockImplementation(() => {
-      selectCall++;
-      const call = selectCall;
-      const obj: Record<string, unknown> = {};
-      const methods = ['from', 'where', 'leftJoin', 'innerJoin'];
-      for (const m of methods) obj[m] = vi.fn().mockReturnValue(obj);
-      obj.then = (fn: (v: unknown) => unknown) => {
-        // First call: no pending invitation; second call: user is already a member
-        const result = call === 1 ? [] : [{ userId: 'existing-user-001' }];
-        return Promise.resolve(result).then(fn);
+    db.transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      let selectCall = 0;
+      const tx = {
+        select: vi.fn().mockImplementation(() => {
+          selectCall++;
+          const call = selectCall;
+          const obj: Record<string, unknown> = {};
+          const methods = ['from', 'where', 'leftJoin', 'innerJoin'];
+          for (const m of methods) obj[m] = vi.fn().mockReturnValue(obj);
+          obj.then = (fn: (v: unknown) => unknown) => {
+            // First call: no pending invitation; second call: user is already a member
+            const result = call === 1 ? [] : [{ userId: 'existing-user-001' }];
+            return Promise.resolve(result).then(fn);
+          };
+          return obj;
+        }),
       };
-      return obj;
+      return fn(tx);
     });
 
     const res = await app.request(`/api/teams/${VALID_TEAM_ID}/invitations`, {
@@ -584,7 +597,7 @@ describe('POST /api/invitations/:token/accept - Accept invitation', () => {
       method: 'POST',
     });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.data.teamId).toBe(VALID_TEAM_ID);

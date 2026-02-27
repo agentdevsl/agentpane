@@ -909,7 +909,7 @@ describe('requireTagAccess', () => {
     expect(body.error.code).toBe('UNAUTHORIZED');
   });
 
-  it('skips tag check for paths not matching any known resource prefix', async () => {
+  it('denies tag-restricted token on unrecognized resource paths', async () => {
     const auth: AuthContext = {
       userId: 'user-123',
       authMethod: 'api_token',
@@ -928,8 +928,11 @@ describe('requireTagAccess', () => {
     app.get('/api/health', (c) => c.json({ ok: true }));
 
     const res = await app.request('/api/health');
-    expect(res.status).toBe(200);
-    expect(mockDb.select).not.toHaveBeenCalled();
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    expect(body.error.code).toBe('FORBIDDEN');
+    expect(body.error.message).toBe('Tag-restricted tokens cannot access this resource type');
   });
 });
 

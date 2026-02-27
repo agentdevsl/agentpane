@@ -64,23 +64,23 @@ export const RBAC_ROLE_LEVEL: Record<RbacRole, number> = {
   viewer: 1,
 };
 
-/** Resolve the highest role from a list of role strings. Returns null if empty. */
+/** Resolve the highest role from a list of role objects. Returns null if empty. */
 export function resolveHighestRole(
-  roles: Array<{ role: string }>
+  roles: Array<{ role: RbacRole }>
 ): { role: RbacRole; level: number } | null {
-  let highestLevel = 0;
-  let highestRole: RbacRole = 'viewer';
-  let found = false;
+  let highestRole: RbacRole | null = null;
+  let highestLevel = -1;
+
   for (const m of roles) {
-    if (!RBAC_ROLES.includes(m.role as RbacRole)) continue;
-    found = true;
-    const level = RBAC_ROLE_LEVEL[m.role as RbacRole];
+    const level = RBAC_ROLE_LEVEL[m.role];
     if (level > highestLevel) {
       highestLevel = level;
-      highestRole = m.role as RbacRole;
+      highestRole = m.role;
     }
   }
-  return found ? { role: highestRole, level: highestLevel } : null;
+
+  if (!highestRole) return null;
+  return { role: highestRole, level: highestLevel };
 }
 
 export const INVITATION_STATUS = ['pending', 'accepted', 'declined', 'expired', 'revoked'] as const;

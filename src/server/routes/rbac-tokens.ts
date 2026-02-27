@@ -244,7 +244,20 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
   // GET /api/tokens - List user's tokens
   app.get('/', async (c) => {
     const auth = c.get('auth');
-    const showAll = c.req.query('status') === 'all';
+    const statusParam = c.req.query('status');
+    if (statusParam && statusParam !== 'all') {
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Invalid status filter. Use "all" to include revoked tokens',
+          },
+        },
+        400
+      );
+    }
+    const showAll = statusParam === 'all';
     const teamId = c.req.query('teamId');
     const allTeam = c.req.query('allTeam') === 'true';
     const { cursor, limit } = parsePagination(c);
@@ -309,7 +322,7 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
 
         const teamHasMore = teamTokens.length > limit;
         const teamItems = teamHasMore ? teamTokens.slice(0, limit) : teamTokens;
-        const teamNextCursor = teamHasMore ? teamItems[teamItems.length - 1]?.id : undefined;
+        const teamNextCursor = teamHasMore ? teamItems[teamItems.length - 1]?.id ?? null : null;
 
         return json({
           ok: true,
@@ -362,7 +375,7 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
 
       const hasMore = tokens.length > limit;
       const items = hasMore ? tokens.slice(0, limit) : tokens;
-      const nextCursor = hasMore ? items[items.length - 1]?.id : undefined;
+      const nextCursor = hasMore ? items[items.length - 1]?.id ?? null : null;
 
       return json({
         ok: true,

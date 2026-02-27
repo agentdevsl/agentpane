@@ -101,7 +101,7 @@ export function isValidGitHubUrl(url: string): boolean {
  * Dev-mode users always pass. Returns null if authorized, a 404 Response if user has no team membership, or a 403 Response if role is insufficient.
  */
 export function requireTeamRole(
-  auth: { authMethod: string; userId: string },
+  auth: { authMethod: 'session' | 'api_token' | 'dev'; userId: string },
   rbacService: {
     resolveTeamRole(userId: string, teamId: string): Promise<RbacRole | null>;
     hasMinimumRole(userRole: RbacRole, minimumRole: RbacRole): boolean;
@@ -130,7 +130,7 @@ export function requireTeamRole(
  * Dev-mode users always pass. Returns null if authorized, or a 403 Response if the user lacks the required role (or has no project access).
  */
 export function requireProjectRole(
-  auth: { authMethod: string; userId: string },
+  auth: { authMethod: 'session' | 'api_token' | 'dev'; userId: string },
   rbacService: {
     resolveUserRole(userId: string, projectId: string): Promise<RbacRole | null>;
     hasMinimumRole(userRole: RbacRole, minimumRole: RbacRole): boolean;

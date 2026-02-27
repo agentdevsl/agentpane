@@ -152,7 +152,7 @@ export function createInvitationAcceptRoutes({ db }: InvitationAcceptDeps) {
           return json({
             ok: true,
             data: { teamId: result.teamId, role: result.role, joinedAt: result.joinedAt, teamName: result.teamName },
-          });
+          }, 201);
       }
     } catch (error) {
       log.error('Failed to accept invitation', { error });

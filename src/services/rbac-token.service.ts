@@ -162,9 +162,9 @@ export class RbacTokenService {
             id: created.id,
             name: created.name,
             tokenPrefix,
-            role: created.role as RbacRole,
+            role: created.role,
             teamId: created.teamId,
-            scopeTags: created.scopeTags as string[] | null,
+            scopeTags: created.scopeTags,
             scopeProjectId: created.scopeProjectId,
             token: rawToken,
             expiresAt: created.expiresAt,
@@ -204,10 +204,10 @@ export class RbacTokenService {
       id: record.id,
       userId: record.userId,
       teamId: record.teamId,
-      role: record.role as RbacRole,
+      role: record.role,
       scopeProjectId: record.scopeProjectId,
-      scopeTags: record.scopeTags as string[] | null,
-      status: record.status as ApiTokenStatus,
+      scopeTags: record.scopeTags,
+      status: record.status,
       expiresAt: record.expiresAt,
     };
   }
@@ -253,7 +253,7 @@ export class RbacTokenService {
   /**
    * Enrich token scope tags with full tag details.
    */
-  async enrichScopeTags(scopeTags: string[] | null): Promise<Array<{ id: string; name: string; color: string | null }>> {
+  async enrichScopeTags(scopeTags: string[] | null): Promise<Array<{ id: string; name: string; color: string }>> {
     if (!scopeTags || scopeTags.length === 0) return [];
 
     const tagRecords = await this.db

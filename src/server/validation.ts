@@ -102,9 +102,7 @@ export const commitWorktreeSchema = z.object({
 export const rbacRoleSchema = z.enum(['owner', 'admin', 'agent_operator', 'viewer']);
 
 /** Role schema that excludes 'owner' -- used for assignable roles */
-const assignableRoleSchema = rbacRoleSchema.refine((r) => r !== 'owner', {
-  message: 'Cannot assign owner role directly',
-});
+const assignableRoleSchema = z.enum(['admin', 'agent_operator', 'viewer']);
 
 export const createTeamSchema = z.object({
   name: z.string().min(1, 'Team name is required').max(100),

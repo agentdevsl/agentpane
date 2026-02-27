@@ -87,7 +87,7 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
           effectiveRole: parsed.data.role,
           grantedAt: new Date().toISOString(),
         },
-      });
+      }, 201);
     } catch (error) {
       log.error('Failed to add member', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to add member' } }, 500);

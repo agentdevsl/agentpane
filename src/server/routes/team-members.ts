@@ -168,7 +168,7 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
 
       const hasMore = members.length > limit;
       const items = hasMore ? members.slice(0, limit) : members;
-      const nextCursor = hasMore ? items[items.length - 1]?.userId : undefined;
+      const nextCursor = hasMore ? items[items.length - 1]?.userId ?? null : null;
 
       return json({
         ok: true,

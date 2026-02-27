@@ -38,7 +38,7 @@ export function createTeamProjectsRoutes({ db, rbacService }: TeamProjectsDeps) 
     try {
       body = await c.req.json();
     } catch {
-      return json({ ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON' } }, 400);
+      return json({ ok: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid JSON' } }, 400);
     }
 
     const { projectId } = body as { projectId?: string };
@@ -66,14 +66,14 @@ export function createTeamProjectsRoutes({ db, rbacService }: TeamProjectsDeps) 
 
       if (existing.length > 0) {
         return json(
-          { ok: false, error: { code: 'DUPLICATE', message: 'Project already assigned to team' } },
+          { ok: false, error: { code: 'PROJECT_ALREADY_ASSIGNED', message: 'Project already assigned to team' } },
           409
         );
       }
 
       await db.insert(teamProjects).values({ teamId, projectId });
 
-      return json({ ok: true, data: { teamId, projectId } });
+      return json({ ok: true, data: { teamId, projectId } }, 201);
     } catch (error) {
       log.error('Failed to assign project to team', { error });
       return json(

@@ -23,7 +23,7 @@ import type { AuthContext } from './auth-middleware';
 
 interface CachedApiToken {
   id: string;
-  role: string;
+  role: RbacRole;
   scopeProjectId: string | null;
   scopeTags: string[] | null;
   expiresAt: string | null;
@@ -135,24 +135,35 @@ export function enrichAuthContext(db: Database) {
               401
             );
           }
+          // Validate that the token's role is a recognized RBAC role
+          const tokenLevel = RBAC_ROLE_LEVEL[token.role];
+          if (tokenLevel === undefined) {
+            log.error('API token has invalid role in database', {
+              data: { tokenId: token.id, role: token.role },
+            });
+            return c.json(
+              { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Token configuration error' } },
+              500
+            );
+          }
+
           rbacAuth.tokenScope = {
             tokenId: token.id,
-            role: token.role as RbacRole,
+            role: token.role,
             projectId: token.scopeProjectId,
             tags: token.scopeTags as string[] | null,
           };
 
           // Cap the resolved role at the token's role ceiling
           if (rbacAuth.resolvedRole) {
-            const tokenLevel = RBAC_ROLE_LEVEL[token.role as RbacRole];
             if (rbacAuth.roleLevel && rbacAuth.roleLevel > tokenLevel) {
-              rbacAuth.resolvedRole = token.role as RbacRole;
+              rbacAuth.resolvedRole = token.role;
               rbacAuth.roleLevel = tokenLevel;
             }
           } else {
             // User has no membership role — use token role as effective role
-            rbacAuth.resolvedRole = token.role as RbacRole;
-            rbacAuth.roleLevel = RBAC_ROLE_LEVEL[token.role as RbacRole];
+            rbacAuth.resolvedRole = token.role;
+            rbacAuth.roleLevel = tokenLevel;
           }
 
           // Update lastUsedAt and useCount asynchronously (fire-and-forget to avoid blocking the request)
@@ -206,8 +217,7 @@ export function enrichAuthContext(db: Database) {
  * Middleware factory that requires a minimum RBAC role for the route.
  *
  * Resolves the effective role based on:
- * - Project context (from :id param or body.projectId)
- * - Team context (from :id param on team routes)
+ * - Project context (from :id param, ?projectId query, or body.projectId)
  * - Global context (highest role across all teams)
  *
  * Dev-mode users always pass (owner role).
@@ -256,6 +266,14 @@ export function requireRole(minimumRole: RbacRole, rbacService: RbacService) {
             error: parseError,
             data: { path: c.req.path },
           });
+          // If we couldn't extract a projectId from URL and body parsing failed unexpectedly,
+          // deny rather than falling back to potentially less-restrictive global role
+          if (!projectId) {
+            return c.json(
+              { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to verify permissions' } },
+              500
+            );
+          }
         }
       }
     }
@@ -359,7 +377,8 @@ const TAG_RESOLVERS: { [K in 'project' | 'task' | 'session' | 'agent']: TagResol
 };
 
 /** Map URL path prefixes to resource types */
-const PATH_TO_RESOURCE: Array<[string, string]> = [
+type TagResourceType = keyof typeof TAG_RESOLVERS;
+const PATH_TO_RESOURCE: Array<[string, TagResourceType]> = [
   ['/api/projects/', 'project'],
   ['/api/tasks/', 'task'],
   ['/api/sessions/', 'session'],
@@ -394,23 +413,34 @@ export function requireTagAccess(db: Database) {
     const path = c.req.path;
 
     // Determine resource type from path
-    let resourceType: keyof typeof TAG_RESOLVERS | null = null;
+    let resourceType: TagResourceType | null = null;
     for (const [prefix, type] of PATH_TO_RESOURCE) {
       if (path.startsWith(prefix)) {
-        resourceType = type as keyof typeof TAG_RESOLVERS;
+        resourceType = type;
         break;
       }
     }
 
     if (!resourceType) {
-      log.warn('Tag-restricted token accessing unrecognized resource path', {
+      log.warn('Tag-restricted token denied on unrecognized resource path', {
         data: { path, tokenId: auth.tokenScope.tokenId },
       });
-      return next();
+      return c.json(
+        { ok: false, error: { code: 'FORBIDDEN', message: 'Tag-restricted tokens cannot access this resource type' } },
+        403
+      );
     }
 
     const resourceId = c.req.param('id');
-    if (!resourceId) return next();
+    if (!resourceId) {
+      log.warn('Tag-restricted token denied on collection endpoint (no resource ID)', {
+        data: { path, resourceType, tokenId: auth.tokenScope.tokenId },
+      });
+      return c.json(
+        { ok: false, error: { code: 'FORBIDDEN', message: 'Tag-restricted tokens must specify a resource ID' } },
+        403
+      );
+    }
 
     const resolver = TAG_RESOLVERS[resourceType];
 
