@@ -152,7 +152,7 @@ describe('POST /api/teams/:id/invitations - Create invitation', () => {
     app = buildTeamInvitationsApp(db, rbacService);
   });
 
-  it('returns 200 and invitation data on success', async () => {
+  it('returns 201 and invitation data on success', async () => {
     // No pending invitation, no existing member, insert succeeds
     let selectCall = 0;
     db.select.mockImplementation(() => {
@@ -178,7 +178,7 @@ describe('POST /api/teams/:id/invitations - Create invitation', () => {
       body: JSON.stringify({ email: 'newuser@example.com', role: 'viewer' }),
     });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.data.email).toBe('newuser@example.com');

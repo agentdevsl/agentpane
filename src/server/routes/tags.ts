@@ -51,7 +51,7 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
         })
         .returning();
 
-      return json({ ok: true, data: created });
+      return json({ ok: true, data: created }, 201);
     } catch (error: unknown) {
       if (error instanceof Error && error.message.includes('UNIQUE constraint')) {
         return json(
@@ -133,26 +133,26 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
 
     const auth = c.get('auth');
 
-    // Always check tag existence first
-    const tagRows = await db.select({ teamId: tags.teamId }).from(tags).where(eq(tags.id, id));
-    const foundTag = tagRows[0];
-    if (!foundTag) {
-      return json({ ok: false, error: { code: 'TAG_NOT_FOUND', message: 'Tag not found' } }, 404);
-    }
-
-    // Auth check (skip for dev mode)
-    if (auth.authMethod !== 'dev') {
-      const denied = await requireTeamRole(
-        auth,
-        rbacService,
-        foundTag.teamId,
-        'admin',
-        'Requires admin role in team'
-      );
-      if (denied) return denied;
-    }
-
     try {
+      // Check tag existence
+      const tagRows = await db.select({ teamId: tags.teamId }).from(tags).where(eq(tags.id, id));
+      const foundTag = tagRows[0];
+      if (!foundTag) {
+        return json({ ok: false, error: { code: 'TAG_NOT_FOUND', message: 'Tag not found' } }, 404);
+      }
+
+      // Auth check (skip for dev mode)
+      if (auth.authMethod !== 'dev') {
+        const denied = await requireTeamRole(
+          auth,
+          rbacService,
+          foundTag.teamId,
+          'admin',
+          'Requires admin role in team'
+        );
+        if (denied) return denied;
+      }
+
       await db.delete(tags).where(eq(tags.id, id));
       return json({ ok: true, data: { deleted: true } });
     } catch (error) {
@@ -251,7 +251,7 @@ export function createProjectTagRoutes({
   // DELETE /api/projects/:id/tags/:tagId - Remove tag from project
   app.delete('/:tagId', async (c) => {
     const projectId = c.req.param('id') as string;
-    const tagId = c.req.param('tagId');
+    const tagId = c.req.param('tagId') as string;
 
     if (!isValidId(projectId) || !isValidId(tagId)) {
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID' } }, 400);
@@ -375,7 +375,7 @@ export function createTaskTagRoutes({
   // DELETE /api/tasks/:id/tags/:tagId - Remove tag from task
   app.delete('/:tagId', async (c) => {
     const taskId = c.req.param('id') as string;
-    const tagId = c.req.param('tagId');
+    const tagId = c.req.param('tagId') as string;
 
     if (!isValidId(taskId) || !isValidId(tagId)) {
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID' } }, 400);
@@ -386,7 +386,7 @@ export function createTaskTagRoutes({
       const taskRows = await db
         .select({ projectId: tasks.projectId })
         .from(tasks)
-        .where(eq(tasks.id, taskId));
+        .where(eq(tasks.id, taskId as string));
       const foundTask = taskRows[0];
       if (!foundTask) {
         return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Task not found' } }, 404);

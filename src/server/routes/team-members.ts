@@ -4,6 +4,7 @@
 
 import { and, count, eq, gt } from 'drizzle-orm';
 import { Hono } from 'hono';
+import { RBAC_ROLES, type RbacRole } from '../../db/schema/shared/enums';
 import { teamMembers } from '../../db/schema/sqlite/team-members';
 import { users } from '../../db/schema/sqlite/users';
 import type { AuthContext } from '../../lib/api/auth-middleware';
@@ -85,7 +86,7 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
           role: parsed.data.role,
           joinedAt: new Date().toISOString(),
         },
-      });
+      }, 201);
     } catch (error) {
       log.error('Failed to add member', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to add member' } }, 500);
@@ -112,14 +113,21 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
     }
 
     const { cursor, limit } = parsePagination(c);
-    const roleFilter = c.req.query('role');
+    const rawRoleFilter = c.req.query('role');
+    const roleFilter: RbacRole | undefined =
+      rawRoleFilter && (RBAC_ROLES as readonly string[]).includes(rawRoleFilter)
+        ? (rawRoleFilter as RbacRole)
+        : undefined;
 
     try {
-      // Total count of members in this team
+      // Total count of members matching current filter
+      const countWhere = roleFilter
+        ? and(eq(teamMembers.teamId, teamId), eq(teamMembers.role, roleFilter))
+        : eq(teamMembers.teamId, teamId);
       const [countResult] = await db
         .select({ total: count() })
         .from(teamMembers)
-        .where(eq(teamMembers.teamId, teamId));
+        .where(countWhere);
       const totalCount = countResult?.total ?? 0;
 
       // Build where clause with cursor support (cursor is userId)
@@ -288,7 +296,7 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
             message: 'Cannot remove yourself. Transfer ownership first.',
           },
         },
-        403
+        400
       );
     }
 

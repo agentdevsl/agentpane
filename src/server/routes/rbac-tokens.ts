@@ -451,31 +451,26 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
     }
 
     try {
-      // First check current status
-      const tokenRows = await db
-        .select({ id: apiTokens.id, status: apiTokens.status })
-        .from(apiTokens)
-        .where(and(eq(apiTokens.id, id), eq(apiTokens.userId, auth.userId)));
-
-      if (tokenRows.length === 0) {
-        return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Token not found' } }, 404);
-      }
-
-      if (tokenRows[0]?.status === 'revoked') {
-        return json(
-          { ok: false, error: { code: 'ALREADY_REVOKED', message: 'Token is already revoked' } },
-          409
-        );
-      }
-
-      // E1: Set revokedAt timestamp when revoking
+      // Atomic revoke: only update non-revoked tokens to avoid TOCTOU race
       const result = await db
         .update(apiTokens)
         .set({ status: 'revoked', revokedAt: new Date().toISOString() })
-        .where(and(eq(apiTokens.id, id), eq(apiTokens.userId, auth.userId)))
+        .where(and(eq(apiTokens.id, id), eq(apiTokens.userId, auth.userId), ne(apiTokens.status, 'revoked')))
         .returning();
 
       if (result.length === 0) {
+        // Distinguish not-found from already-revoked
+        const existing = await db
+          .select({ status: apiTokens.status })
+          .from(apiTokens)
+          .where(and(eq(apiTokens.id, id), eq(apiTokens.userId, auth.userId)));
+
+        if (existing.length > 0) {
+          return json(
+            { ok: false, error: { code: 'ALREADY_REVOKED', message: 'Token is already revoked' } },
+            409
+          );
+        }
         return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Token not found' } }, 404);
       }
 

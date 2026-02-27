@@ -101,7 +101,7 @@ export function createTeamInvitationsRoutes({ db, rbacService }: InvitationsDeps
         })
         .returning();
 
-      return json({ ok: true, data: invitation });
+      return json({ ok: true, data: invitation }, 201);
     } catch (error) {
       log.error('Failed to create invitation', { error });
       return json(
@@ -140,10 +140,9 @@ export function createTeamInvitationsRoutes({ db, rbacService }: InvitationsDeps
         .leftJoin(users, eq(teamInvitations.invitedBy, users.id))
         .where(and(eq(teamInvitations.teamId, teamId), eq(teamInvitations.status, 'pending')));
 
-      const enrichedInvitations = invitations.map(inv => ({
-        ...inv,
-        invitedBy: { userId: inv.invitedBy, name: inv.invitedByName },
-        invitedByName: undefined,
+      const enrichedInvitations = invitations.map(({ invitedByName, invitedBy, ...rest }) => ({
+        ...rest,
+        invitedBy: { userId: invitedBy, name: invitedByName },
       }));
 
       return json({ ok: true, data: { items: enrichedInvitations } });
@@ -190,8 +189,13 @@ export function createTeamInvitationsRoutes({ db, rbacService }: InvitationsDeps
       }
 
       // Verify the declining user is the invitee (check email match)
-      // In dev mode, skip this check
-      if (auth.authMethod !== 'dev' && auth.user?.email) {
+      if (auth.authMethod !== 'dev') {
+        if (!auth.user?.email) {
+          return json(
+            { ok: false, error: { code: 'FORBIDDEN', message: 'Cannot verify identity without email' } },
+            403
+          );
+        }
         if (invitation[0]?.email !== auth.user.email) {
           return json(
             { ok: false, error: { code: 'FORBIDDEN', message: 'Only the invitee can decline' } },

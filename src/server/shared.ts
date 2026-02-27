@@ -30,7 +30,7 @@ export function parsePagination(c: Context): PaginationParams {
   return { cursor, limit };
 }
 
-// CORS headers for dev
+// CORS headers for SSE endpoints that bypass Hono middleware
 export const corsHeaders = {
   'Access-Control-Allow-Origin': 'http://localhost:3000',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
@@ -141,34 +141,3 @@ export function requireProjectRole(
   });
 }
 
-/**
- * Standard API error structure
- */
-export interface ApiError {
-  code: string;
-  message: string;
-  status?: number;
-}
-
-/**
- * Create an error response with consistent structure
- */
-export function errorResponse(error: ApiError, status?: number): Response {
-  return json(
-    { ok: false, error: { code: error.code, message: error.message } },
-    status ?? error.status ?? 400
-  );
-}
-
-/**
- * Handle service result and return appropriate response
- * Returns null if result is ok, otherwise returns error Response
- */
-export function handleServiceError<T>(
-  result: { ok: false; error: ApiError } | { ok: true; value: T }
-): Response | null {
-  if (!result.ok) {
-    return errorResponse(result.error, result.error.status);
-  }
-  return null;
-}

@@ -111,7 +111,7 @@ describe('POST /api/teams/:id/members - Add member', () => {
     app = buildApp(db, rbacService);
   });
 
-  it('returns 200 and member data on successful add', async () => {
+  it('returns 201 and member data on successful add', async () => {
     // transaction resolves to 'OK'
     db.transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
       const tx = {
@@ -145,7 +145,7 @@ describe('POST /api/teams/:id/members - Add member', () => {
       body: JSON.stringify({ userId: VALID_USER_ID, role: 'viewer' }),
     });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.data.teamId).toBe(VALID_TEAM_ID);
@@ -572,13 +572,13 @@ describe('DELETE /api/teams/:id/members/:uid - Remove member', () => {
     expect(body.data.removed).toBe(true);
   });
 
-  it('returns 403 when user tries to remove themselves (non-dev)', async () => {
+  it('returns 400 when user tries to remove themselves (non-dev)', async () => {
     const app = buildApp(db, rbacService, { authMethod: 'session', userId: VALID_USER_ID });
     const res = await app.request(`/api/teams/${VALID_TEAM_ID}/members/${VALID_USER_ID}`, {
       method: 'DELETE',
     });
 
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(400);
     expect((await res.json()).error.code).toBe('CANNOT_REMOVE_SELF');
   });
 

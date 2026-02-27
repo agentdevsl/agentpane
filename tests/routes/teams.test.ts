@@ -143,7 +143,7 @@ describe('POST /teams', () => {
       body: JSON.stringify({ name: 'Acme Corp', slug: 'acme-corp' }),
     });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.data.id).toBe('team-abc123');

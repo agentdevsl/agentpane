@@ -711,12 +711,7 @@ describe('DELETE /tokens/:id', () => {
   it('revokes an active token and returns success', async () => {
     const db = createMockDb();
 
-    // Initial status check: active token
-    db.select.mockReturnValueOnce({
-      from: vi.fn().mockReturnThis(),
-      where: vi.fn().mockResolvedValue([{ id: 'token-abc123', status: 'active' }]),
-    });
-    // Update call
+    // Atomic update: ne(status, 'revoked') matches, returns the updated row
     mockUpdateChain(db, [{ id: 'token-abc123', status: 'revoked' }]);
 
     const rbacService = createMockRbacService();
@@ -732,10 +727,7 @@ describe('DELETE /tokens/:id', () => {
   it('sets status to revoked and revokedAt timestamp on update', async () => {
     const db = createMockDb();
 
-    db.select.mockReturnValueOnce({
-      from: vi.fn().mockReturnThis(),
-      where: vi.fn().mockResolvedValue([{ id: 'token-abc123', status: 'active' }]),
-    });
+    // Atomic update returns the updated row
     const updateChain = mockUpdateChain(db, [{ id: 'token-abc123', status: 'revoked' }]);
 
     const rbacService = createMockRbacService();
@@ -751,9 +743,12 @@ describe('DELETE /tokens/:id', () => {
   it('returns 409 when token is already revoked', async () => {
     const db = createMockDb();
 
+    // Atomic update: ne(status, 'revoked') doesn't match → returns empty
+    mockUpdateChain(db, []);
+    // Follow-up select to distinguish not-found vs already-revoked: token exists
     db.select.mockReturnValueOnce({
       from: vi.fn().mockReturnThis(),
-      where: vi.fn().mockResolvedValue([{ id: 'token-abc123', status: 'revoked' }]),
+      where: vi.fn().mockResolvedValue([{ status: 'revoked' }]),
     });
 
     const rbacService = createMockRbacService();
@@ -768,6 +763,9 @@ describe('DELETE /tokens/:id', () => {
   it('returns 404 when token not found', async () => {
     const db = createMockDb();
 
+    // Atomic update: no matching row → returns empty
+    mockUpdateChain(db, []);
+    // Follow-up select: token does not exist for this user
     db.select.mockReturnValueOnce({
       from: vi.fn().mockReturnThis(),
       where: vi.fn().mockResolvedValue([]),
@@ -784,7 +782,9 @@ describe('DELETE /tokens/:id', () => {
 
   it('can only revoke own tokens (userId filter applied)', async () => {
     const db = createMockDb();
-    // Token belongs to a different user — status check returns empty
+    // Atomic update: userId filter doesn't match → returns empty
+    mockUpdateChain(db, []);
+    // Follow-up select: token doesn't belong to this user
     db.select.mockReturnValueOnce({
       from: vi.fn().mockReturnThis(),
       where: vi.fn().mockResolvedValue([]),

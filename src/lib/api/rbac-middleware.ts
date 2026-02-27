@@ -46,10 +46,16 @@ export function enrichAuthContext(db: Database) {
 
     // Dev-mode users get owner role automatically
     if (auth.authMethod === 'dev') {
+      // Dev-mode should be unreachable in production (auth middleware gates on NODE_ENV).
+      // Block here as defense-in-depth in case the auth layer is misconfigured.
       if (process.env.NODE_ENV === 'production') {
         log.error('SECURITY: Dev-mode authentication detected in production', {
           data: { userId: auth.userId, path: c.req.path },
         });
+        return c.json(
+          { ok: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } },
+          401
+        );
       }
       rbacAuth.resolvedRole = 'owner';
       rbacAuth.roleLevel = RBAC_ROLE_LEVEL.owner;
@@ -299,7 +305,7 @@ export function requireRole(minimumRole: RbacRole, rbacService: RbacService) {
  */
 type TagResolver = (id: string, db: Database) => Promise<string[]>;
 
-const TAG_RESOLVERS: Record<string, TagResolver> = {
+const TAG_RESOLVERS: { [K in 'project' | 'task' | 'session' | 'agent']: TagResolver } = {
   project: async (id, db) => {
     const rows = await db.select({ tagId: projectTags.tagId })
       .from(projectTags).where(eq(projectTags.projectId, id));
@@ -363,8 +369,8 @@ export function requireTagAccess(db: Database) {
       );
     }
 
-    // Skip for non-token auth or dev mode
-    if (auth.authMethod === 'dev' || auth.authMethod !== 'api_token') {
+    // Only API tokens can have tag restrictions; skip for all other auth methods
+    if (auth.authMethod !== 'api_token') {
       return next();
     }
 
@@ -377,10 +383,10 @@ export function requireTagAccess(db: Database) {
     const path = c.req.path;
 
     // Determine resource type from path
-    let resourceType: string | null = null;
+    let resourceType: keyof typeof TAG_RESOLVERS | null = null;
     for (const [prefix, type] of PATH_TO_RESOURCE) {
       if (path.startsWith(prefix)) {
-        resourceType = type;
+        resourceType = type as keyof typeof TAG_RESOLVERS;
         break;
       }
     }
@@ -391,9 +397,17 @@ export function requireTagAccess(db: Database) {
     if (!resourceId) return next();
 
     const resolver = TAG_RESOLVERS[resourceType];
-    if (!resolver) return next();
 
-    const resourceTags = await resolver(resourceId, db);
+    let resourceTags: string[];
+    try {
+      resourceTags = await resolver(resourceId, db);
+    } catch (error) {
+      log.error('Failed to resolve resource tags', { error, data: { resourceType, resourceId } });
+      return c.json(
+        { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to check tag access' } },
+        500
+      );
+    }
 
     // Deny if resource has no tags (invisible to tag-restricted tokens)
     if (resourceTags.length === 0) {

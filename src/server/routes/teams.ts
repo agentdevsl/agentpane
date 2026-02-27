@@ -11,6 +11,7 @@ import { teamInvitations } from '../../db/schema/sqlite/team-invitations';
 import { teamMembers } from '../../db/schema/sqlite/team-members';
 import { teamProjects } from '../../db/schema/sqlite/team-projects';
 import { teams } from '../../db/schema/sqlite/teams';
+import { projectMembers } from '../../db/schema/sqlite/project-members';
 import type { AuthContext } from '../../lib/api/auth-middleware';
 import { createLogger } from '../../lib/logging/logger';
 import type { RbacService } from '../../services/rbac.service';
@@ -36,6 +37,10 @@ function slugify(name: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
     .substring(0, 100);
+}
+
+function escapeLike(s: string): string {
+  return s.replace(/%/g, '\\%').replace(/_/g, '\\_');
 }
 
 export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
@@ -92,7 +97,7 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
           ...created,
           membership: { userId: auth.userId, role: 'owner', joinedAt: created?.createdAt },
         },
-      });
+      }, 201);
     } catch (error) {
       log.error('Failed to create team', { error });
       return json(
@@ -130,11 +135,11 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
         // Build where filters
         const filters = [];
         if (cursor) filters.push(gt(teams.id, cursor));
-        if (search) filters.push(like(teams.name, `%${search}%`));
+        if (search) filters.push(like(teams.name, `%${escapeLike(search)}%`));
         const whereClause = filters.length > 0 ? and(...filters) : undefined;
 
         // Total count (with search filter)
-        const countWhere = search ? like(teams.name, `%${search}%`) : undefined;
+        const countWhere = search ? like(teams.name, `%${escapeLike(search)}%`) : undefined;
         const [countResult] = await db.select({ total: count() }).from(teams).where(countWhere);
         const totalCount = countResult?.total ?? 0;
 
@@ -184,12 +189,12 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
       // Build where clause with cursor + search support
       const filters = [inArray(teams.id, teamIds)];
       if (cursor) filters.push(gt(teams.id, cursor));
-      if (search) filters.push(like(teams.name, `%${search}%`));
+      if (search) filters.push(like(teams.name, `%${escapeLike(search)}%`));
       const whereClause = and(...filters);
 
       // Total count (with search filter)
       const countFilters = [inArray(teams.id, teamIds)];
-      if (search) countFilters.push(like(teams.name, `%${search}%`));
+      if (search) countFilters.push(like(teams.name, `%${escapeLike(search)}%`));
       const [countResult] = await db.select({ total: count() }).from(teams).where(and(...countFilters));
       const totalCount = countResult?.total ?? 0;
 
@@ -417,6 +422,12 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
         await tx.delete(teamInvitations).where(eq(teamInvitations.teamId, id));
         await tx.delete(apiTokens).where(eq(apiTokens.teamId, id));
         await tx.delete(tags).where(eq(tags.teamId, id)); // cascades to project_tags and task_tags
+        // Clean up project member overrides granted by this team
+        const teamProjectIds = await tx.select({ projectId: teamProjects.projectId }).from(teamProjects).where(eq(teamProjects.teamId, id));
+        if (teamProjectIds.length > 0) {
+          const pIds = teamProjectIds.map(r => r.projectId);
+          await tx.delete(projectMembers).where(inArray(projectMembers.projectId, pIds));
+        }
         await tx.delete(teamProjects).where(eq(teamProjects.teamId, id));
         await tx.delete(teamMembers).where(eq(teamMembers.teamId, id));
         await tx.delete(teams).where(eq(teams.id, id));

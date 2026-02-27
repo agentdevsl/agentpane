@@ -109,7 +109,7 @@ describe('POST /tags - Create tag', () => {
       body: JSON.stringify({ teamId: 'team-1', name: 'backend', color: '#ff0000' }),
     });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.data.name).toBe('backend');
@@ -133,7 +133,7 @@ describe('POST /tags - Create tag', () => {
       body: JSON.stringify({ teamId: 'team-1', name: 'no-color' }),
     });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
     expect((await res.json()).ok).toBe(true);
   });
 

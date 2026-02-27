@@ -1,5 +1,5 @@
 /**
- * RBAC Token Service (A1)
+ * RBAC Token Service
  *
  * Encapsulates API token operations:
  * - Token generation, hashing, validation
@@ -8,11 +8,10 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto';
-import { and, count, eq, gt, ne } from 'drizzle-orm';
-import { RBAC_ROLE_LEVEL, type RbacRole } from '../db/schema/shared/enums';
+import { and, count, eq, inArray, ne } from 'drizzle-orm';
+import type { ApiTokenStatus, RbacRole } from '../db/schema/shared/enums';
 import { apiTokens } from '../db/schema/sqlite/api-tokens';
 import { tags } from '../db/schema/sqlite/tags';
-import { teams } from '../db/schema/sqlite/teams';
 import { createLogger } from '../lib/logging/logger';
 import type { Database } from '../types/database';
 
@@ -51,10 +50,10 @@ export interface TokenListItem {
   id: string;
   name: string;
   tokenPrefix: string;
-  role: string;
-  scopeTags: unknown;
+  role: RbacRole;
+  scopeTags: string[] | null;
   scopeProjectId: string | null;
-  status: string;
+  status: ApiTokenStatus;
   expiresAt: string | null;
   lastUsedAt: string | null;
   useCount: number | null;
@@ -69,7 +68,7 @@ export interface ResolvedToken {
   role: RbacRole;
   scopeProjectId: string | null;
   scopeTags: string[] | null;
-  status: string;
+  status: ApiTokenStatus;
   expiresAt: string | null;
 }
 
@@ -175,7 +174,7 @@ export class RbacTokenService {
       });
 
       if ('error' in result) {
-        return { ok: false, error: result.error, message: result.message };
+        return { ok: false, error: result.error as string, message: result.message as string };
       }
 
       return { ok: true, data: result.created };
@@ -187,49 +186,61 @@ export class RbacTokenService {
 
   /**
    * Resolve a raw token to its stored record.
-   * Returns null if not found or not active.
+   * Returns null if not found, not active, or on DB error.
    */
   async resolveToken(rawToken: string): Promise<ResolvedToken | null> {
     if (!this.isValidFormat(rawToken)) return null;
 
-    const tokenHash = this.hashToken(rawToken);
-    const record = await this.db.query.apiTokens.findFirst({
-      where: and(eq(apiTokens.tokenHash, tokenHash), eq(apiTokens.status, 'active')),
-    });
+    try {
+      const tokenHash = this.hashToken(rawToken);
+      const record = await this.db.query.apiTokens.findFirst({
+        where: and(eq(apiTokens.tokenHash, tokenHash), eq(apiTokens.status, 'active')),
+      });
 
-    if (!record) return null;
-    if (record.expiresAt && new Date(record.expiresAt) < new Date()) return null;
+      if (!record) return null;
+      if (record.expiresAt && new Date(record.expiresAt) < new Date()) return null;
 
-    return {
-      id: record.id,
-      userId: record.userId,
-      teamId: record.teamId,
-      role: record.role as RbacRole,
-      scopeProjectId: record.scopeProjectId,
-      scopeTags: record.scopeTags as string[] | null,
-      status: record.status,
-      expiresAt: record.expiresAt,
-    };
+      return {
+        id: record.id,
+        userId: record.userId,
+        teamId: record.teamId,
+        role: record.role as RbacRole,
+        scopeProjectId: record.scopeProjectId,
+        scopeTags: record.scopeTags as string[] | null,
+        status: record.status as ApiTokenStatus,
+        expiresAt: record.expiresAt,
+      };
+    } catch (error) {
+      log.error('Failed to resolve token', { error });
+      return null;
+    }
   }
 
   /**
-   * Revoke a token (idempotent).
+   * Revoke a token.
+   * Note: re-revoking an already-revoked token overwrites `revokedAt`.
+   * Use the route handler's status check if you need to detect duplicates.
    */
   async revoke(
     tokenId: string,
     userId: string
   ): Promise<{ ok: true } | { ok: false; error: string; message: string; status: number }> {
-    const [revoked] = await this.db
-      .update(apiTokens)
-      .set({ status: 'revoked', revokedAt: new Date().toISOString() })
-      .where(and(eq(apiTokens.id, tokenId), eq(apiTokens.userId, userId)))
-      .returning();
+    try {
+      const [revoked] = await this.db
+        .update(apiTokens)
+        .set({ status: 'revoked', revokedAt: new Date().toISOString() })
+        .where(and(eq(apiTokens.id, tokenId), eq(apiTokens.userId, userId)))
+        .returning();
 
-    if (!revoked) {
-      return { ok: false, error: 'TOKEN_NOT_FOUND', message: 'Token not found', status: 404 };
+      if (!revoked) {
+        return { ok: false, error: 'TOKEN_NOT_FOUND', message: 'Token not found', status: 404 };
+      }
+
+      return { ok: true };
+    } catch (error) {
+      log.error('Failed to revoke token', { error });
+      return { ok: false, error: 'DB_ERROR', message: 'Failed to revoke token', status: 500 };
     }
-
-    return { ok: true };
   }
 
   /**
@@ -242,10 +253,10 @@ export class RbacTokenService {
       .select({ id: tags.id, name: tags.name, color: tags.color })
       .from(tags)
       .where(
-        // Use inArray if available, otherwise filter in JS
         scopeTags.length === 1
-          ? eq(tags.id, scopeTags[0] as string)
-          : eq(tags.id, scopeTags[0] as string) // Simplified - routes handle multiple
+          // biome-ignore lint/style/noNonNullAssertion: length checked above
+          ? eq(tags.id, scopeTags[0]!)
+          : inArray(tags.id, scopeTags)
       );
 
     return tagRecords;
