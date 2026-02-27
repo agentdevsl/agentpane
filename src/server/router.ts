@@ -123,6 +123,8 @@ function createAuthMiddleware(db: Database) {
         if (!apiToken) return null;
         // Check expiration if set
         if (apiToken.expiresAt && new Date(apiToken.expiresAt) < new Date()) return null;
+        // H1: Cache the resolved token record so enrichAuthContext doesn't re-query
+        c.set('_resolvedApiToken', apiToken);
         return apiToken.userId;
       },
     });

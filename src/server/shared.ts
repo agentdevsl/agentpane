@@ -108,7 +108,10 @@ export function requireTeamRole(
 ): Promise<Response | null> {
   if (auth.authMethod === 'dev') return Promise.resolve(null);
   return rbacService.resolveTeamRole(auth.userId, teamId).then((role) => {
-    if (!role || !rbacService.hasMinimumRole(role, minimumRole)) {
+    if (!role) {
+      return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Team not found' } }, 404);
+    }
+    if (!rbacService.hasMinimumRole(role, minimumRole)) {
       return json({ ok: false, error: { code: 'INSUFFICIENT_ROLE', message } }, 403);
     }
     return null;

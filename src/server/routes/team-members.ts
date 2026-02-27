@@ -112,6 +112,7 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
     }
 
     const { cursor, limit } = parsePagination(c);
+    const roleFilter = c.req.query('role');
 
     try {
       // Total count of members in this team
@@ -122,7 +123,9 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
       const totalCount = countResult?.total ?? 0;
 
       // Build where clause with cursor support (cursor is userId)
-      const baseWhere = eq(teamMembers.teamId, teamId);
+      const baseWhere = roleFilter
+        ? and(eq(teamMembers.teamId, teamId), eq(teamMembers.role, roleFilter))
+        : eq(teamMembers.teamId, teamId);
       const whereClause = cursor ? and(baseWhere, gt(teamMembers.userId, cursor)) : baseWhere;
 
       const members = await db

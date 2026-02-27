@@ -2,7 +2,7 @@
  * Tag routes
  */
 
-import { and, count, eq } from 'drizzle-orm';
+import { and, count, eq, inArray } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { projectTags } from '../../db/schema/sqlite/project-tags';
 import { tags } from '../../db/schema/sqlite/tags';
@@ -94,21 +94,27 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
     try {
       const teamTags = await db.select().from(tags).where(eq(tags.teamId, teamId));
 
-      // Enrich each tag with projectCount and taskCount
-      const enrichedTags = await Promise.all(
-        teamTags.map(async (tag) => {
-          const [projectCountResult, taskCountResult] = await Promise.all([
-            db.select({ total: count() }).from(projectTags).where(eq(projectTags.tagId, tag.id)),
-            db.select({ total: count() }).from(taskTags).where(eq(taskTags.tagId, tag.id)),
-          ]);
+      // H3: Batch-fetch counts with GROUP BY instead of 2N queries
+      const tagIds = teamTags.map(t => t.id);
+      let projectCountMap = new Map<string, number>();
+      let taskCountMap = new Map<string, number>();
 
-          return {
-            ...tag,
-            projectCount: projectCountResult[0]?.total ?? 0,
-            taskCount: taskCountResult[0]?.total ?? 0,
-          };
-        })
-      );
+      if (tagIds.length > 0) {
+        const [projectCounts, taskCounts] = await Promise.all([
+          db.select({ tagId: projectTags.tagId, total: count() })
+            .from(projectTags).where(inArray(projectTags.tagId, tagIds)).groupBy(projectTags.tagId),
+          db.select({ tagId: taskTags.tagId, total: count() })
+            .from(taskTags).where(inArray(taskTags.tagId, tagIds)).groupBy(taskTags.tagId),
+        ]);
+        projectCountMap = new Map(projectCounts.map(r => [r.tagId, r.total]));
+        taskCountMap = new Map(taskCounts.map(r => [r.tagId, r.total]));
+      }
+
+      const enrichedTags = teamTags.map(tag => ({
+        ...tag,
+        projectCount: projectCountMap.get(tag.id) ?? 0,
+        taskCount: taskCountMap.get(tag.id) ?? 0,
+      }));
 
       return json({ ok: true, data: { items: enrichedTags } });
     } catch (error) {

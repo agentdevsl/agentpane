@@ -6,6 +6,7 @@ import { and, eq, gt } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { teamInvitations } from '../../db/schema/sqlite/team-invitations';
 import { teamMembers } from '../../db/schema/sqlite/team-members';
+import { teams } from '../../db/schema/sqlite/teams';
 import type { AuthContext } from '../../lib/api/auth-middleware';
 import { createLogger } from '../../lib/logging/logger';
 import type { Database } from '../../types/database';
@@ -90,11 +91,18 @@ export function createInvitationAcceptRoutes({ db }: InvitationAcceptDeps) {
           role: claimed.role,
         });
 
+        // Get the team name
+        const team = await tx.query.teams.findFirst({
+          where: eq(teams.id, claimed.teamId),
+          columns: { name: true },
+        });
+
         return {
           status: 'ok',
           teamId: claimed.teamId,
           role: claimed.role,
           joinedAt: new Date().toISOString(),
+          teamName: team?.name ?? null,
         } as const;
       });
 
@@ -143,7 +151,7 @@ export function createInvitationAcceptRoutes({ db }: InvitationAcceptDeps) {
         case 'ok':
           return json({
             ok: true,
-            data: { teamId: result.teamId, role: result.role, joinedAt: result.joinedAt },
+            data: { teamId: result.teamId, role: result.role, joinedAt: result.joinedAt, teamName: result.teamName },
           });
       }
     } catch (error) {

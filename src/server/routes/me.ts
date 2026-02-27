@@ -2,7 +2,7 @@
  * Current user profile routes
  */
 
-import { eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { teamMembers } from '../../db/schema/sqlite/team-members';
 import { teams } from '../../db/schema/sqlite/teams';
@@ -74,6 +74,8 @@ export function createMeRoutes({ db }: MeDeps) {
           email: user.email,
           avatarUrl: user.avatarUrl,
           authMethod: auth.authMethod,
+          createdAt: user.createdAt,
+          updatedAt: user.updatedAt,
           teams: memberships.map((m) => ({
             teamId: m.teamId,
             role: m.role,
@@ -107,6 +109,20 @@ export function createMeRoutes({ db }: MeDeps) {
     if (!parsed.ok) return parsed.response;
 
     try {
+      // H9: Check email uniqueness before update
+      if (parsed.data.email) {
+        const existingEmail = await db
+          .select({ id: users.id })
+          .from(users)
+          .where(and(eq(users.email, parsed.data.email), ne(users.id, auth.userId)));
+        if (existingEmail.length > 0) {
+          return json(
+            { ok: false, error: { code: 'EMAIL_ALREADY_EXISTS', message: 'Email already in use' } },
+            409
+          );
+        }
+      }
+
       const [updated] = await db
         .update(users)
         .set({ ...parsed.data, updatedAt: new Date().toISOString() })

@@ -3,7 +3,7 @@
  */
 
 import { createId } from '@paralleldrive/cuid2';
-import { and, count, eq, gt, inArray } from 'drizzle-orm';
+import { and, count, eq, gt, inArray, like } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { apiTokens } from '../../db/schema/sqlite/api-tokens';
 import { tags } from '../../db/schema/sqlite/tags';
@@ -106,16 +106,37 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
   app.get('/', async (c) => {
     const auth = c.get('auth');
     const { cursor, limit } = parsePagination(c);
+    // H5: Support search query parameter
+    const search = c.req.query('search');
 
     try {
+      // Helper: batch-fetch member and project counts for a set of team IDs (H2+H7)
+      async function enrichTeamCounts(teamIds: string[]) {
+        if (teamIds.length === 0) return { memberMap: new Map<string, number>(), projectMap: new Map<string, number>() };
+        const [memberCounts, projectCounts] = await Promise.all([
+          db.select({ teamId: teamMembers.teamId, total: count() })
+            .from(teamMembers).where(inArray(teamMembers.teamId, teamIds)).groupBy(teamMembers.teamId),
+          db.select({ teamId: teamProjects.teamId, total: count() })
+            .from(teamProjects).where(inArray(teamProjects.teamId, teamIds)).groupBy(teamProjects.teamId),
+        ]);
+        return {
+          memberMap: new Map(memberCounts.map(r => [r.teamId, r.total])),
+          projectMap: new Map(projectCounts.map(r => [r.teamId, r.total])),
+        };
+      }
+
       // For dev mode, return all teams
       if (auth.authMethod === 'dev') {
-        // Total count
-        const [countResult] = await db.select({ total: count() }).from(teams);
-        const totalCount = countResult?.total ?? 0;
+        // Build where filters
+        const filters = [];
+        if (cursor) filters.push(gt(teams.id, cursor));
+        if (search) filters.push(like(teams.name, `%${search}%`));
+        const whereClause = filters.length > 0 ? and(...filters) : undefined;
 
-        // Build cursor filter
-        const whereClause = cursor ? gt(teams.id, cursor) : undefined;
+        // Total count (with search filter)
+        const countWhere = search ? like(teams.name, `%${search}%`) : undefined;
+        const [countResult] = await db.select({ total: count() }).from(teams).where(countWhere);
+        const totalCount = countResult?.total ?? 0;
 
         const allTeams = await db
           .select()
@@ -128,20 +149,16 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
         const pagedTeams = hasMore ? allTeams.slice(0, limit) : allTeams;
         const nextCursor = hasMore ? pagedTeams[pagedTeams.length - 1]?.id : undefined;
 
-        // Enrich each team with memberCount (myRole is null in dev mode)
-        const items = await Promise.all(
-          pagedTeams.map(async (team) => {
-            const [memberCountResult] = await db
-              .select({ total: count() })
-              .from(teamMembers)
-              .where(eq(teamMembers.teamId, team.id));
-            return {
-              ...team,
-              memberCount: memberCountResult?.total ?? 0,
-              myRole: null as string | null,
-            };
-          })
-        );
+        // H2+H7: Batch-fetch counts with GROUP BY instead of N+1
+        const teamIds = pagedTeams.map(t => t.id);
+        const { memberMap, projectMap } = await enrichTeamCounts(teamIds);
+
+        const items = pagedTeams.map(team => ({
+          ...team,
+          memberCount: memberMap.get(team.id) ?? 0,
+          projectCount: projectMap.get(team.id) ?? 0,
+          myRole: null as string | null,
+        }));
 
         return json({
           ok: true,
@@ -163,11 +180,18 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
       }
 
       const teamIds = memberships.map((m) => m.teamId);
-      const totalCount = teamIds.length;
 
-      // Build where clause with cursor support
-      const baseWhere = inArray(teams.id, teamIds);
-      const whereClause = cursor ? and(baseWhere, gt(teams.id, cursor)) : baseWhere;
+      // Build where clause with cursor + search support
+      const filters = [inArray(teams.id, teamIds)];
+      if (cursor) filters.push(gt(teams.id, cursor));
+      if (search) filters.push(like(teams.name, `%${search}%`));
+      const whereClause = and(...filters);
+
+      // Total count (with search filter)
+      const countFilters = [inArray(teams.id, teamIds)];
+      if (search) countFilters.push(like(teams.name, `%${search}%`));
+      const [countResult] = await db.select({ total: count() }).from(teams).where(and(...countFilters));
+      const totalCount = countResult?.total ?? 0;
 
       const teamRows = await db
         .select()
@@ -182,21 +206,16 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
 
       const roleByTeamId = new Map(memberships.map((m) => [m.teamId, m.role]));
 
-      // Enrich each team with memberCount and myRole
-      const items = await Promise.all(
-        pagedRows.map(async (team) => {
-          const [memberCountResult] = await db
-            .select({ total: count() })
-            .from(teamMembers)
-            .where(eq(teamMembers.teamId, team.id));
-          return {
-            ...team,
-            memberRole: roleByTeamId.get(team.id),
-            memberCount: memberCountResult?.total ?? 0,
-            myRole: roleByTeamId.get(team.id) ?? null,
-          };
-        })
-      );
+      // H2+H7: Batch-fetch counts with GROUP BY instead of N+1
+      const pagedTeamIds = pagedRows.map(t => t.id);
+      const { memberMap, projectMap } = await enrichTeamCounts(pagedTeamIds);
+
+      const items = pagedRows.map(team => ({
+        ...team,
+        memberCount: memberMap.get(team.id) ?? 0,
+        projectCount: projectMap.get(team.id) ?? 0,
+        myRole: roleByTeamId.get(team.id) ?? null,
+      }));
 
       return json({
         ok: true,
@@ -227,10 +246,11 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
         return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Team not found' } }, 404);
       }
 
-      const memberRows = await db
-        .select({ userId: teamMembers.userId })
-        .from(teamMembers)
-        .where(eq(teamMembers.teamId, id));
+      // H7: Fetch both memberCount and projectCount
+      const [[memberCountResult], [projectCountResult]] = await Promise.all([
+        db.select({ total: count() }).from(teamMembers).where(eq(teamMembers.teamId, id)),
+        db.select({ total: count() }).from(teamProjects).where(eq(teamProjects.teamId, id)),
+      ]);
 
       // Get caller's role
       let myRole: string | null = null;
@@ -238,7 +258,15 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
         myRole = await rbacService.resolveTeamRole(auth.userId, id);
       }
 
-      return json({ ok: true, data: { ...team, memberCount: memberRows.length, myRole } });
+      return json({
+        ok: true,
+        data: {
+          ...team,
+          memberCount: memberCountResult?.total ?? 0,
+          projectCount: projectCountResult?.total ?? 0,
+          myRole,
+        },
+      });
     } catch (error) {
       log.error('Failed to get team', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to get team' } }, 500);

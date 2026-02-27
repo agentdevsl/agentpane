@@ -129,6 +129,7 @@ export function createTeamInvitationsRoutes({ db, rbacService }: InvitationsDeps
           id: teamInvitations.id,
           teamId: teamInvitations.teamId,
           invitedBy: teamInvitations.invitedBy,
+          invitedByName: users.name,
           email: teamInvitations.email,
           role: teamInvitations.role,
           status: teamInvitations.status,
@@ -136,9 +137,16 @@ export function createTeamInvitationsRoutes({ db, rbacService }: InvitationsDeps
           createdAt: teamInvitations.createdAt,
         })
         .from(teamInvitations)
+        .leftJoin(users, eq(teamInvitations.invitedBy, users.id))
         .where(and(eq(teamInvitations.teamId, teamId), eq(teamInvitations.status, 'pending')));
 
-      return json({ ok: true, data: { items: invitations } });
+      const enrichedInvitations = invitations.map(inv => ({
+        ...inv,
+        invitedBy: { userId: inv.invitedBy, name: inv.invitedByName },
+        invitedByName: undefined,
+      }));
+
+      return json({ ok: true, data: { items: enrichedInvitations } });
     } catch (error) {
       log.error('Failed to list invitations', { error });
       return json(

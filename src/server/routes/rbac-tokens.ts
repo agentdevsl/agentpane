@@ -126,91 +126,112 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
     }
 
     try {
-      // E4: Check token name uniqueness per user (non-revoked tokens only)
-      const existingWithName = await db
-        .select({ id: apiTokens.id })
-        .from(apiTokens)
-        .where(
-          and(
-            eq(apiTokens.userId, auth.userId),
-            eq(apiTokens.name, parsed.data.name),
-            ne(apiTokens.status, 'revoked')
-          )
-        );
+      // M1: Wrap all checks + insert in a transaction to prevent TOCTOU races
+      const result = await db.transaction(async (tx) => {
+        // E4: Check token name uniqueness per user (non-revoked tokens only)
+        const existingWithName = await tx
+          .select({ id: apiTokens.id })
+          .from(apiTokens)
+          .where(
+            and(
+              eq(apiTokens.userId, auth.userId),
+              eq(apiTokens.name, parsed.data.name),
+              ne(apiTokens.status, 'revoked')
+            )
+          );
 
-      if (existingWithName.length > 0) {
-        return json(
-          {
-            ok: false,
-            error: {
-              code: 'TOKEN_NAME_EXISTS',
-              message: 'A non-revoked token with this name already exists',
+        if (existingWithName.length > 0) {
+          return { error: 'TOKEN_NAME_EXISTS' as const };
+        }
+
+        // Check token limit (max 25)
+        const [countResult] = await tx
+          .select({ total: count() })
+          .from(apiTokens)
+          .where(and(eq(apiTokens.userId, auth.userId), ne(apiTokens.status, 'revoked')));
+
+        if ((countResult?.total ?? 0) >= 25) {
+          return { error: 'LIMIT_EXCEEDED' as const };
+        }
+
+        const rawToken = generateToken();
+        const tokenHash = hashToken(rawToken);
+        const tokenPrefix = rawToken.substring(0, 12);
+
+        const expiresAt = parsed.data.expiresInDays
+          ? new Date(Date.now() + parsed.data.expiresInDays * 24 * 60 * 60 * 1000).toISOString()
+          : null;
+
+        const [created] = await tx
+          .insert(apiTokens)
+          .values({
+            userId: auth.userId,
+            teamId: parsed.data.teamId,
+            name: parsed.data.name,
+            tokenHash,
+            tokenPrefix,
+            role: parsed.data.role,
+            scopeTags: parsed.data.scopeTags ?? null,
+            scopeProjectId: parsed.data.scopeProjectId ?? null,
+            expiresAt,
+          })
+          .returning();
+
+        if (!created) {
+          return { error: 'DB_ERROR' as const };
+        }
+
+        return { created, rawToken, tokenPrefix };
+      });
+
+      if ('error' in result) {
+        if (result.error === 'TOKEN_NAME_EXISTS') {
+          return json(
+            {
+              ok: false,
+              error: {
+                code: 'TOKEN_NAME_EXISTS',
+                message: 'A non-revoked token with this name already exists',
+              },
             },
-          },
-          409
-        );
-      }
-
-      // Check token limit (max 25)
-      const existingTokens = await db
-        .select({ id: apiTokens.id })
-        .from(apiTokens)
-        .where(and(eq(apiTokens.userId, auth.userId), ne(apiTokens.status, 'revoked')));
-
-      if (existingTokens.length >= 25) {
-        return json(
-          { ok: false, error: { code: 'LIMIT_EXCEEDED', message: 'Max 25 active tokens' } },
-          400
-        );
-      }
-
-      const rawToken = generateToken();
-      const tokenHash = hashToken(rawToken);
-      const tokenPrefix = rawToken.substring(0, 12);
-
-      const expiresAt = parsed.data.expiresInDays
-        ? new Date(Date.now() + parsed.data.expiresInDays * 24 * 60 * 60 * 1000).toISOString()
-        : null;
-
-      const [created] = await db
-        .insert(apiTokens)
-        .values({
-          userId: auth.userId,
-          teamId: parsed.data.teamId,
-          name: parsed.data.name,
-          tokenHash,
-          tokenPrefix,
-          role: parsed.data.role,
-          scopeTags: parsed.data.scopeTags ?? null,
-          scopeProjectId: parsed.data.scopeProjectId ?? null,
-          expiresAt,
-        })
-        .returning();
-
-      if (!created) {
+            409
+          );
+        }
+        if (result.error === 'LIMIT_EXCEEDED') {
+          return json(
+            { ok: false, error: { code: 'LIMIT_EXCEEDED', message: 'Max 25 active tokens' } },
+            400
+          );
+        }
         return json(
           { ok: false, error: { code: 'DB_ERROR', message: 'Failed to create token' } },
           500
         );
       }
 
+      const { created, rawToken, tokenPrefix } = result;
+
       // E2: Include teamId, scopeTags, scopeProjectId in creation response
-      return json({
-        ok: true,
-        data: {
-          id: created.id,
-          name: created.name,
-          tokenPrefix,
-          role: created.role,
-          teamId: created.teamId,
-          scopeTags: created.scopeTags,
-          scopeProjectId: created.scopeProjectId,
-          // Return raw token ONCE - never retrievable again
-          token: rawToken,
-          expiresAt: created.expiresAt,
-          createdAt: created.createdAt,
+      // M2: Return 201 for resource creation
+      return json(
+        {
+          ok: true,
+          data: {
+            id: created.id,
+            name: created.name,
+            tokenPrefix,
+            role: created.role,
+            teamId: created.teamId,
+            scopeTags: created.scopeTags,
+            scopeProjectId: created.scopeProjectId,
+            // Return raw token ONCE - never retrievable again
+            token: rawToken,
+            expiresAt: created.expiresAt,
+            createdAt: created.createdAt,
+          },
         },
-      });
+        201
+      );
     } catch (error) {
       log.error('Failed to create token', { error });
       return json(
@@ -276,6 +297,7 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
             status: apiTokens.status,
             expiresAt: apiTokens.expiresAt,
             lastUsedAt: apiTokens.lastUsedAt,
+            useCount: apiTokens.useCount,
             createdAt: apiTokens.createdAt,
             teamName: teams.name,
           })
@@ -328,6 +350,7 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
           status: apiTokens.status,
           expiresAt: apiTokens.expiresAt,
           lastUsedAt: apiTokens.lastUsedAt,
+          useCount: apiTokens.useCount,
           createdAt: apiTokens.createdAt,
           teamName: teams.name,
         })
