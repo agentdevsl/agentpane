@@ -13,6 +13,7 @@ import { teamProjects } from '../../db/schema/sqlite/team-projects';
 import { teams } from '../../db/schema/sqlite/teams';
 import type { AuthContext } from '../../lib/api/auth-middleware';
 import { createLogger } from '../../lib/logging/logger';
+import { slugify } from '../../lib/utils/slugify.js';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
 import { isValidId, json, parsePagination, requireTeamRole } from '../shared';
@@ -30,14 +31,6 @@ interface TeamsDeps {
   rbacService: RbacService;
 }
 
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .substring(0, 100);
-}
-
 export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
   const app = new Hono<{ Variables: { auth: AuthContext } }>();
 
@@ -47,7 +40,7 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
     const parsed = await parseJsonBody(c, createTeamSchema);
     if (!parsed.ok) return parsed.response;
 
-    const slug = parsed.data.slug ?? slugify(parsed.data.name);
+    const slug = parsed.data.slug ?? slugify(parsed.data.name, 100);
 
     try {
       const created = await db.transaction(async (tx) => {
@@ -128,20 +121,23 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
         const pagedTeams = hasMore ? allTeams.slice(0, limit) : allTeams;
         const nextCursor = hasMore ? pagedTeams[pagedTeams.length - 1]?.id : undefined;
 
-        // Enrich each team with memberCount (myRole is null in dev mode)
-        const items = await Promise.all(
-          pagedTeams.map(async (team) => {
-            const [memberCountResult] = await db
-              .select({ total: count() })
-              .from(teamMembers)
-              .where(eq(teamMembers.teamId, team.id));
-            return {
-              ...team,
-              memberCount: memberCountResult?.total ?? 0,
-              myRole: null as string | null,
-            };
-          })
-        );
+        // Batch-fetch member counts to avoid N+1 queries
+        const devTeamIds = pagedTeams.map((t) => t.id);
+        let devCountMap = new Map<string, number>();
+        if (devTeamIds.length > 0) {
+          const memberCounts = await db
+            .select({ teamId: teamMembers.teamId, total: count() })
+            .from(teamMembers)
+            .where(inArray(teamMembers.teamId, devTeamIds))
+            .groupBy(teamMembers.teamId);
+          devCountMap = new Map(memberCounts.map((r) => [r.teamId, r.total]));
+        }
+
+        const items = pagedTeams.map((team) => ({
+          ...team,
+          memberCount: devCountMap.get(team.id) ?? 0,
+          myRole: null as string | null,
+        }));
 
         return json({
           ok: true,
@@ -182,21 +178,23 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
 
       const roleByTeamId = new Map(memberships.map((m) => [m.teamId, m.role]));
 
-      // Enrich each team with memberCount and myRole
-      const items = await Promise.all(
-        pagedRows.map(async (team) => {
-          const [memberCountResult] = await db
-            .select({ total: count() })
-            .from(teamMembers)
-            .where(eq(teamMembers.teamId, team.id));
-          return {
-            ...team,
-            memberRole: roleByTeamId.get(team.id),
-            memberCount: memberCountResult?.total ?? 0,
-            myRole: roleByTeamId.get(team.id) ?? null,
-          };
-        })
-      );
+      // Batch-fetch member counts to avoid N+1 queries
+      const authTeamIds = pagedRows.map((t) => t.id);
+      let authCountMap = new Map<string, number>();
+      if (authTeamIds.length > 0) {
+        const memberCounts = await db
+          .select({ teamId: teamMembers.teamId, total: count() })
+          .from(teamMembers)
+          .where(inArray(teamMembers.teamId, authTeamIds))
+          .groupBy(teamMembers.teamId);
+        authCountMap = new Map(memberCounts.map((r) => [r.teamId, r.total]));
+      }
+
+      const items = pagedRows.map((team) => ({
+        ...team,
+        memberCount: authCountMap.get(team.id) ?? 0,
+        myRole: roleByTeamId.get(team.id) ?? null,
+      }));
 
       return json({
         ok: true,

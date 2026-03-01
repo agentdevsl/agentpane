@@ -2,7 +2,7 @@
  * RBAC API token routes
  */
 
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { and, count, eq, gt, inArray, ne } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { RBAC_ROLE_LEVEL, type RbacRole } from '../../db/schema/shared/enums';
@@ -15,7 +15,7 @@ import type { AuthContext } from '../../lib/api/auth-middleware';
 import { createLogger } from '../../lib/logging/logger';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
-import { isValidId, json, parsePagination } from '../shared';
+import { hashToken, isValidId, json, parsePagination } from '../shared';
 import { createApiTokenSchema, parseJsonBody } from '../validation';
 
 const log = createLogger('RbacTokensRoutes');
@@ -29,12 +29,25 @@ function generateToken(): string {
   return `ap_${randomBytes(32).toString('base64url')}`;
 }
 
-function hashToken(token: string): string {
-  return createHash('sha256').update(token).digest('hex');
-}
+const MAX_TOKENS_PER_USER = 25;
 
 export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
   const app = new Hono<{ Variables: { auth: AuthContext } }>();
+
+  // Shared select columns for token list queries (E5: includes teamName via left join)
+  const tokenListSelect = {
+    id: apiTokens.id,
+    name: apiTokens.name,
+    tokenPrefix: apiTokens.tokenPrefix,
+    role: apiTokens.role,
+    scopeTags: apiTokens.scopeTags,
+    scopeProjectId: apiTokens.scopeProjectId,
+    status: apiTokens.status,
+    expiresAt: apiTokens.expiresAt,
+    lastUsedAt: apiTokens.lastUsedAt,
+    createdAt: apiTokens.createdAt,
+    teamName: teams.name,
+  } as const;
 
   // POST /api/tokens - Create token
   app.post('/', async (c) => {
@@ -126,19 +139,13 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
     }
 
     try {
-      // E4: Check token name uniqueness per user (non-revoked tokens only)
-      const existingWithName = await db
-        .select({ id: apiTokens.id })
+      // E4 + limit check: Single query to fetch all non-revoked tokens for name uniqueness and count limit
+      const existingTokens = await db
+        .select({ id: apiTokens.id, name: apiTokens.name })
         .from(apiTokens)
-        .where(
-          and(
-            eq(apiTokens.userId, auth.userId),
-            eq(apiTokens.name, parsed.data.name),
-            ne(apiTokens.status, 'revoked')
-          )
-        );
+        .where(and(eq(apiTokens.userId, auth.userId), ne(apiTokens.status, 'revoked')));
 
-      if (existingWithName.length > 0) {
+      if (existingTokens.some((t) => t.name === parsed.data.name)) {
         return json(
           {
             ok: false,
@@ -151,15 +158,15 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
         );
       }
 
-      // Check token limit (max 25)
-      const existingTokens = await db
-        .select({ id: apiTokens.id })
-        .from(apiTokens)
-        .where(and(eq(apiTokens.userId, auth.userId), ne(apiTokens.status, 'revoked')));
-
-      if (existingTokens.length >= 25) {
+      if (existingTokens.length >= MAX_TOKENS_PER_USER) {
         return json(
-          { ok: false, error: { code: 'LIMIT_EXCEEDED', message: 'Max 25 active tokens' } },
+          {
+            ok: false,
+            error: {
+              code: 'LIMIT_EXCEEDED',
+              message: `Max ${MAX_TOKENS_PER_USER} active tokens`,
+            },
+          },
           400
         );
       }
@@ -228,12 +235,16 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
     const allTeam = c.req.query('allTeam') === 'true';
     const { cursor, limit } = parsePagination(c);
 
+    if (teamId && !isValidId(teamId)) {
+      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid team ID' } }, 400);
+    }
+
     try {
       // E6: Admin team-wide token listing
       if (allTeam && teamId) {
         if (auth.authMethod !== 'dev') {
           const role = await rbacService.resolveTeamRole(auth.userId, teamId);
-          if (!role || RBAC_ROLE_LEVEL[role] < RBAC_ROLE_LEVEL.admin) {
+          if (!role || !rbacService.hasMinimumRole(role, 'admin')) {
             return json(
               {
                 ok: false,
@@ -266,19 +277,7 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
 
         // E5: Include teamName via left join
         const teamTokens = await db
-          .select({
-            id: apiTokens.id,
-            name: apiTokens.name,
-            tokenPrefix: apiTokens.tokenPrefix,
-            role: apiTokens.role,
-            scopeTags: apiTokens.scopeTags,
-            scopeProjectId: apiTokens.scopeProjectId,
-            status: apiTokens.status,
-            expiresAt: apiTokens.expiresAt,
-            lastUsedAt: apiTokens.lastUsedAt,
-            createdAt: apiTokens.createdAt,
-            teamName: teams.name,
-          })
+          .select(tokenListSelect)
           .from(apiTokens)
           .leftJoin(teams, eq(apiTokens.teamId, teams.id))
           .where(teamWhereClause)
@@ -318,19 +317,7 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
 
       // E5: Include teamName via left join
       const tokens = await db
-        .select({
-          id: apiTokens.id,
-          name: apiTokens.name,
-          tokenPrefix: apiTokens.tokenPrefix,
-          role: apiTokens.role,
-          scopeTags: apiTokens.scopeTags,
-          scopeProjectId: apiTokens.scopeProjectId,
-          status: apiTokens.status,
-          expiresAt: apiTokens.expiresAt,
-          lastUsedAt: apiTokens.lastUsedAt,
-          createdAt: apiTokens.createdAt,
-          teamName: teams.name,
-        })
+        .select(tokenListSelect)
         .from(apiTokens)
         .leftJoin(teams, eq(apiTokens.teamId, teams.id))
         .where(whereClause)
@@ -428,35 +415,37 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
     }
 
     try {
-      // First check current status
-      const tokenRows = await db
-        .select({ id: apiTokens.id, status: apiTokens.status })
-        .from(apiTokens)
-        .where(and(eq(apiTokens.id, id), eq(apiTokens.userId, auth.userId)));
-
-      if (tokenRows.length === 0) {
-        return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Token not found' } }, 404);
-      }
-
-      if (tokenRows[0]?.status === 'revoked') {
-        return json(
-          { ok: false, error: { code: 'ALREADY_REVOKED', message: 'Token is already revoked' } },
-          409
-        );
-      }
-
-      // E1: Set revokedAt timestamp when revoking
+      // E1: Single UPDATE with status guard - only revokes non-revoked tokens
       const result = await db
         .update(apiTokens)
         .set({ status: 'revoked', revokedAt: new Date().toISOString() })
-        .where(and(eq(apiTokens.id, id), eq(apiTokens.userId, auth.userId)))
-        .returning();
+        .where(
+          and(
+            eq(apiTokens.id, id),
+            eq(apiTokens.userId, auth.userId),
+            ne(apiTokens.status, 'revoked')
+          )
+        )
+        .returning({ id: apiTokens.id });
 
-      if (result.length === 0) {
+      if (result.length > 0) {
+        return json({ ok: true, data: { revoked: true } });
+      }
+
+      // UPDATE matched nothing - distinguish not-found from already-revoked
+      const existing = await db
+        .select({ status: apiTokens.status })
+        .from(apiTokens)
+        .where(and(eq(apiTokens.id, id), eq(apiTokens.userId, auth.userId)));
+
+      if (existing.length === 0) {
         return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Token not found' } }, 404);
       }
 
-      return json({ ok: true, data: { revoked: true } });
+      return json(
+        { ok: false, error: { code: 'ALREADY_REVOKED', message: 'Token is already revoked' } },
+        409
+      );
     } catch (error) {
       log.error('Failed to revoke token', { error });
       return json(

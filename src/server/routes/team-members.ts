@@ -4,13 +4,20 @@
 
 import { and, count, eq, gt } from 'drizzle-orm';
 import { Hono } from 'hono';
+import type { RbacRole } from '../../db/schema/shared/enums';
 import { teamMembers } from '../../db/schema/sqlite/team-members';
 import { users } from '../../db/schema/sqlite/users';
 import type { AuthContext } from '../../lib/api/auth-middleware';
 import { createLogger } from '../../lib/logging/logger';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
-import { isValidId, json, parsePagination, requireTeamRole } from '../shared';
+import {
+  isValidId,
+  json,
+  parsePagination,
+  requireTeamRole,
+  requireTeamRoleResolved,
+} from '../shared';
 import { addTeamMemberSchema, parseJsonBody, updateTeamMemberSchema } from '../validation';
 
 const log = createLogger('TeamMembersRoutes');
@@ -179,24 +186,30 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
       );
     }
 
-    const denied = await requireTeamRole(auth, rbacService, teamId, 'admin');
+    const { denied, role: callerRole } = await requireTeamRoleResolved(
+      auth,
+      rbacService,
+      teamId,
+      'admin'
+    );
     if (denied) return denied;
 
     const parsed = await parseJsonBody(c, updateTeamMemberSchema);
     if (!parsed.ok) return parsed.response;
 
     // Admins cannot assign admin role — only owners can
-    if (auth.authMethod !== 'dev') {
-      const callerRole = await rbacService.resolveTeamRole(auth.userId, teamId);
-      if (parsed.data.role === 'admin' && callerRole !== 'owner') {
-        return json(
-          {
-            ok: false,
-            error: { code: 'INSUFFICIENT_ROLE', message: 'Only owners can assign admin role' },
-          },
-          403
-        );
-      }
+    if (
+      callerRole &&
+      parsed.data.role === 'admin' &&
+      !rbacService.hasMinimumRole(callerRole as RbacRole, 'owner')
+    ) {
+      return json(
+        {
+          ok: false,
+          error: { code: 'INSUFFICIENT_ROLE', message: 'Only owners can assign admin role' },
+        },
+        403
+      );
     }
 
     try {
@@ -289,7 +302,12 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
       );
     }
 
-    const adminDenied = await requireTeamRole(auth, rbacService, teamId, 'admin');
+    const { denied: adminDenied, role: callerRole } = await requireTeamRoleResolved(
+      auth,
+      rbacService,
+      teamId,
+      'admin'
+    );
     if (adminDenied) return adminDenied;
 
     try {
@@ -306,11 +324,8 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
 
         if (targetMember[0]?.role === 'owner') {
           // Only owners can remove other owners
-          if (auth.authMethod !== 'dev') {
-            const callerRole = await rbacService.resolveTeamRole(auth.userId, teamId);
-            if (callerRole !== 'owner') {
-              return 'INSUFFICIENT_ROLE' as const;
-            }
+          if (callerRole && callerRole !== 'owner') {
+            return 'INSUFFICIENT_ROLE' as const;
           }
 
           const owners = await tx

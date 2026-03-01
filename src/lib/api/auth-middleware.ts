@@ -10,7 +10,7 @@
 
 import { err, ok, type Result } from '../utils/result.js';
 
-const SESSION_COOKIE_NAME = 'agentpane_session';
+export const SESSION_COOKIE_NAME = 'agentpane_session';
 
 /**
  * Authentication context available in routes

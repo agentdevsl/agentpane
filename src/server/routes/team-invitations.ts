@@ -183,10 +183,22 @@ export function createTeamInvitationsRoutes({ db, rbacService }: InvitationsDeps
 
       // Verify the declining user is the invitee (check email match)
       // In dev mode, skip this check
-      if (auth.authMethod !== 'dev' && auth.user?.email) {
+      if (auth.authMethod !== 'dev') {
+        if (!auth.user?.email) {
+          return json(
+            {
+              ok: false,
+              error: {
+                code: 'EMAIL_REQUIRED',
+                message: 'Cannot verify invitation ownership without email',
+              },
+            },
+            403
+          );
+        }
         if (invitation[0]?.email !== auth.user.email) {
           return json(
-            { ok: false, error: { code: 'FORBIDDEN', message: 'Only the invitee can decline' } },
+            { ok: false, error: { code: 'FORBIDDEN', message: 'Not your invitation' } },
             403
           );
         }

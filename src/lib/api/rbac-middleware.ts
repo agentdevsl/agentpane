@@ -5,18 +5,18 @@
  * Slots in after the existing authMiddleware in the request pipeline.
  */
 
-import { createHash } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import type { Context, Next } from 'hono';
 import { RBAC_ROLE_LEVEL, type RbacRole, resolveHighestRole } from '../../db/schema/shared/enums';
 import { agents } from '../../db/schema/sqlite/agents';
-import { apiTokens } from '../../db/schema/sqlite/api-tokens';
+import { type ApiToken, apiTokens } from '../../db/schema/sqlite/api-tokens';
 import { projectTags } from '../../db/schema/sqlite/project-tags';
 import { sessions } from '../../db/schema/sqlite/sessions';
 import { taskTags } from '../../db/schema/sqlite/task-tags';
 import { tasks } from '../../db/schema/sqlite/tasks';
 import { teamMembers } from '../../db/schema/sqlite/team-members';
 import { users } from '../../db/schema/sqlite/users';
+import { hashToken } from '../../server/shared';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
 import { createLogger } from '../logging/logger';
@@ -59,11 +59,17 @@ export function enrichAuthContext(db: Database) {
     }
 
     try {
-      // Look up user record
+      // Look up user record and team memberships in parallel
       if (auth.userId) {
-        const user = await db.query.users.findFirst({
-          where: eq(users.id, auth.userId),
-        });
+        const [user, memberships] = await Promise.all([
+          db.query.users.findFirst({
+            where: eq(users.id, auth.userId),
+          }),
+          db
+            .select({ teamId: teamMembers.teamId, role: teamMembers.role })
+            .from(teamMembers)
+            .where(eq(teamMembers.userId, auth.userId)),
+        ]);
 
         if (user) {
           rbacAuth.user = {
@@ -74,12 +80,6 @@ export function enrichAuthContext(db: Database) {
             email: user.email,
             avatarUrl: user.avatarUrl,
           };
-
-          // Load team memberships
-          const memberships = await db
-            .select({ teamId: teamMembers.teamId, role: teamMembers.role })
-            .from(teamMembers)
-            .where(eq(teamMembers.userId, user.id));
 
           rbacAuth.teamMemberships = memberships.map((m) => ({
             teamId: m.teamId,
@@ -105,83 +105,96 @@ export function enrichAuthContext(db: Database) {
 
       // Load token scope for API token auth
       if (auth.authMethod === 'api_token') {
-        const authHeader = c.req.header('Authorization');
-        if (authHeader?.startsWith('Bearer ')) {
-          const rawToken = authHeader.substring(7).trim();
-          if (!rawToken || (!rawToken.startsWith('ap_') && rawToken.length < 20)) {
-            return c.json(
-              { ok: false, error: { code: 'UNAUTHORIZED', message: 'Invalid API token format' } },
-              401
-            );
-          }
-          const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+        // Reuse the token record cached by createAuthMiddleware to avoid
+        // a redundant SHA-256 hash + DB query on every request.
+        const cachedRecord = c.get('apiTokenRecord') as ApiToken | undefined;
+        let token:
+          | Pick<ApiToken, 'id' | 'role' | 'scopeProjectId' | 'scopeTags' | 'expiresAt'>
+          | undefined;
 
-          const tokenRecords = await db
-            .select({
-              id: apiTokens.id,
-              role: apiTokens.role,
-              scopeProjectId: apiTokens.scopeProjectId,
-              scopeTags: apiTokens.scopeTags,
-              expiresAt: apiTokens.expiresAt,
-            })
-            .from(apiTokens)
-            .where(and(eq(apiTokens.tokenHash, tokenHash), eq(apiTokens.status, 'active')));
-
-          const token = tokenRecords[0];
-          if (token) {
-            // Check if token has expired
-            if (token.expiresAt && new Date(token.expiresAt) < new Date()) {
-              // Lazily update status to expired (fire-and-forget)
-              void db
-                .update(apiTokens)
-                .set({ status: 'expired' })
-                .where(eq(apiTokens.id, token.id))
-                .catch((err) => log.warn('Failed to update expired token status', { error: err }));
+        if (cachedRecord) {
+          token = cachedRecord;
+        } else {
+          // Fallback: re-derive from Authorization header (should not happen in normal flow)
+          const authHeader = c.req.header('Authorization');
+          if (authHeader?.startsWith('Bearer ')) {
+            const rawToken = authHeader.substring(7).trim();
+            if (!rawToken || (!rawToken.startsWith('ap_') && rawToken.length < 20)) {
               return c.json(
-                { ok: false, error: { code: 'UNAUTHORIZED', message: 'API token has expired' } },
+                { ok: false, error: { code: 'UNAUTHORIZED', message: 'Invalid API token format' } },
                 401
               );
             }
-            rbacAuth.tokenScope = {
-              tokenId: token.id,
-              role: token.role as RbacRole,
-              projectId: token.scopeProjectId,
-              tags: token.scopeTags as string[] | null,
-            };
+            const tokenHash = hashToken(rawToken);
 
-            // Cap the resolved role at the token's role ceiling
-            if (rbacAuth.resolvedRole) {
-              const tokenLevel = RBAC_ROLE_LEVEL[token.role as RbacRole];
-              if (rbacAuth.roleLevel && rbacAuth.roleLevel > tokenLevel) {
-                rbacAuth.resolvedRole = token.role as RbacRole;
-                rbacAuth.roleLevel = tokenLevel;
-              }
-            } else {
-              // User has no membership role — use token role as effective role
-              rbacAuth.resolvedRole = token.role as RbacRole;
-              rbacAuth.roleLevel = RBAC_ROLE_LEVEL[token.role as RbacRole];
-            }
+            const tokenRecords = await db
+              .select({
+                id: apiTokens.id,
+                role: apiTokens.role,
+                scopeProjectId: apiTokens.scopeProjectId,
+                scopeTags: apiTokens.scopeTags,
+                expiresAt: apiTokens.expiresAt,
+              })
+              .from(apiTokens)
+              .where(and(eq(apiTokens.tokenHash, tokenHash), eq(apiTokens.status, 'active')));
 
-            // Update lastUsedAt and useCount asynchronously (fire-and-forget to avoid blocking the request)
+            token = tokenRecords[0];
+          }
+        }
+
+        if (token) {
+          // Check if token has expired
+          if (token.expiresAt && new Date(token.expiresAt) < new Date()) {
+            // Lazily update status to expired (fire-and-forget)
             void db
               .update(apiTokens)
-              .set({
-                lastUsedAt: new Date().toISOString(),
-                useCount: sql`COALESCE(${apiTokens.useCount}, 0) + 1`,
-              })
+              .set({ status: 'expired' })
               .where(eq(apiTokens.id, token.id))
-              .catch((err) => log.error('Failed to update token usage tracking', { error: err }));
-          } else {
-            // Token hash not found or token is not active — deny access
-            log.warn('API token not found or inactive', { data: { path: c.req.path } });
+              .catch((err) => log.warn('Failed to update expired token status', { error: err }));
             return c.json(
-              {
-                ok: false,
-                error: { code: 'UNAUTHORIZED', message: 'Invalid or revoked API token' },
-              },
+              { ok: false, error: { code: 'UNAUTHORIZED', message: 'API token has expired' } },
               401
             );
           }
+          rbacAuth.tokenScope = {
+            tokenId: token.id,
+            role: token.role as RbacRole,
+            projectId: token.scopeProjectId,
+            tags: token.scopeTags as string[] | null,
+          };
+
+          // Cap the resolved role at the token's role ceiling
+          if (rbacAuth.resolvedRole) {
+            const tokenLevel = RBAC_ROLE_LEVEL[token.role as RbacRole];
+            if (rbacAuth.roleLevel && rbacAuth.roleLevel > tokenLevel) {
+              rbacAuth.resolvedRole = token.role as RbacRole;
+              rbacAuth.roleLevel = tokenLevel;
+            }
+          } else {
+            // User has no membership role — use token role as effective role
+            rbacAuth.resolvedRole = token.role as RbacRole;
+            rbacAuth.roleLevel = RBAC_ROLE_LEVEL[token.role as RbacRole];
+          }
+
+          // Update lastUsedAt and useCount asynchronously (fire-and-forget to avoid blocking the request)
+          void db
+            .update(apiTokens)
+            .set({
+              lastUsedAt: new Date().toISOString(),
+              useCount: sql`COALESCE(${apiTokens.useCount}, 0) + 1`,
+            })
+            .where(eq(apiTokens.id, token.id))
+            .catch((err) => log.error('Failed to update token usage tracking', { error: err }));
+        } else {
+          // Token hash not found or token is not active — deny access
+          log.warn('API token not found or inactive', { data: { path: c.req.path } });
+          return c.json(
+            {
+              ok: false,
+              error: { code: 'UNAUTHORIZED', message: 'Invalid or revoked API token' },
+            },
+            401
+          );
         }
       }
     } catch (error) {
@@ -251,8 +264,8 @@ export function requireRole(minimumRole: RbacRole, rbacService: RbacService) {
     // Try to extract projectId from route params, query, or request body
     let projectId = c.req.param('id') ?? c.req.query('projectId');
 
-    // Fallback: try to extract projectId from the request body
-    if (!projectId) {
+    // Fallback: try to extract projectId from the request body (only for methods that have a body)
+    if (!projectId && ['POST', 'PUT', 'PATCH'].includes(c.req.method)) {
       try {
         const body = await c.req.raw.clone().json();
         if (body && typeof body === 'object' && typeof body.projectId === 'string') {
@@ -441,8 +454,34 @@ export function requireTagAccess(db: Database) {
         if (sessionRow) {
           let tagMatch = false;
 
-          // First: check task tags if session has a taskId
-          if (sessionRow.taskId) {
+          // When both taskId and projectId are available, fetch tags in parallel
+          if (sessionRow.taskId && sessionRow.projectId) {
+            const [sessionTaskTagRows, sessionProjectTagRows] = await Promise.all([
+              db
+                .select({ tagId: taskTags.tagId })
+                .from(taskTags)
+                .where(eq(taskTags.taskId, sessionRow.taskId)),
+              db
+                .select({ tagId: projectTags.tagId })
+                .from(projectTags)
+                .where(eq(projectTags.projectId, sessionRow.projectId)),
+            ]);
+
+            // Check task tags first
+            const sessionTaskTagIds = sessionTaskTagRows.map((r) => r.tagId);
+            if (scopeTags.some((t) => sessionTaskTagIds.includes(t))) {
+              tagMatch = true;
+            }
+
+            // Fallback: check project tags
+            if (!tagMatch) {
+              const sessionProjectTagIds = sessionProjectTagRows.map((r) => r.tagId);
+              if (scopeTags.some((t) => sessionProjectTagIds.includes(t))) {
+                tagMatch = true;
+              }
+            }
+          } else if (sessionRow.taskId) {
+            // Only task tags to check
             const sessionTaskTagRows = await db
               .select({ tagId: taskTags.tagId })
               .from(taskTags)
@@ -452,10 +491,8 @@ export function requireTagAccess(db: Database) {
             if (scopeTags.some((t) => sessionTaskTagIds.includes(t))) {
               tagMatch = true;
             }
-          }
-
-          // Fallback: check project tags via session.projectId
-          if (!tagMatch && sessionRow.projectId) {
+          } else if (sessionRow.projectId) {
+            // Only project tags to check
             const sessionProjectTagRows = await db
               .select({ tagId: projectTags.tagId })
               .from(projectTags)

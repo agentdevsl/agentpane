@@ -1,4 +1,4 @@
-import { eq, isNull } from 'drizzle-orm';
+import { eq, inArray, isNull } from 'drizzle-orm';
 import { Octokit } from 'octokit';
 import { githubTokens, teamProjects } from '../db/schema';
 import {
@@ -160,16 +160,15 @@ export class GitHubTokenService {
         .from(teamProjects)
         .where(eq(teamProjects.projectId, projectId));
 
-      // Step 2: If the project has teams, look for a team-specific token
+      // Step 2: If the project has teams, look for a team-specific token (single query)
       if (projectTeams.length > 0) {
-        for (const { teamId } of projectTeams) {
-          const teamToken = await this.db.query.githubTokens.findFirst({
-            where: eq(githubTokens.teamId, teamId),
-          });
+        const teamIds = projectTeams.map((t) => t.teamId);
+        const teamToken = await this.db.query.githubTokens.findFirst({
+          where: inArray(githubTokens.teamId, teamIds),
+        });
 
-          if (teamToken) {
-            return decryptToken(teamToken.encryptedToken);
-          }
+        if (teamToken) {
+          return decryptToken(teamToken.encryptedToken);
         }
       }
 

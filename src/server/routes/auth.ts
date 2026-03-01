@@ -8,14 +8,12 @@ import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { userSessions } from '../../db/schema/sqlite/user-sessions';
 import { users } from '../../db/schema/sqlite/users';
-import type { AuthContext } from '../../lib/api/auth-middleware';
+import { type AuthContext, SESSION_COOKIE_NAME } from '../../lib/api/auth-middleware.js';
 import { createLogger } from '../../lib/logging/logger';
 import type { Database } from '../../types/database';
 import { json } from '../shared';
 
 const log = createLogger('AuthRoutes');
-
-const SESSION_COOKIE_NAME = 'agentpane_session';
 const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60; // 30 days
 
 interface AuthDeps {

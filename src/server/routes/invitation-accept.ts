@@ -9,7 +9,7 @@ import { teamMembers } from '../../db/schema/sqlite/team-members';
 import type { AuthContext } from '../../lib/api/auth-middleware';
 import { createLogger } from '../../lib/logging/logger';
 import type { Database } from '../../types/database';
-import { json } from '../shared';
+import { isValidId, json } from '../shared';
 
 const log = createLogger('InvitationAcceptRoutes');
 
@@ -26,7 +26,7 @@ export function createInvitationAcceptRoutes({ db }: InvitationAcceptDeps) {
     const auth = c.get('auth');
 
     // Validate token format
-    if (!token || token.length > 100 || !/^[a-zA-Z0-9_-]+$/.test(token)) {
+    if (!isValidId(token)) {
       return json(
         { ok: false, error: { code: 'INVALID_TOKEN', message: 'Invalid token format' } },
         400

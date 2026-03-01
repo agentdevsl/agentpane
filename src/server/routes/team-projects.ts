@@ -4,6 +4,7 @@
 
 import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
+import { z } from 'zod';
 import { projects } from '../../db/schema/sqlite/projects';
 import { teamProjects } from '../../db/schema/sqlite/team-projects';
 import type { AuthContext } from '../../lib/api/auth-middleware';
@@ -11,6 +12,7 @@ import { createLogger } from '../../lib/logging/logger';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
 import { isValidId, json, requireTeamRole } from '../shared';
+import { idSchema, parseJsonBody } from '../validation';
 
 const log = createLogger('TeamProjectsRoutes');
 
@@ -34,20 +36,11 @@ export function createTeamProjectsRoutes({ db, rbacService }: TeamProjectsDeps) 
     const denied = await requireTeamRole(auth, rbacService, teamId, 'admin');
     if (denied) return denied;
 
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return json({ ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON' } }, 400);
-    }
+    const assignProjectSchema = z.object({ projectId: idSchema });
+    const parsed = await parseJsonBody(c, assignProjectSchema);
+    if (!parsed.ok) return parsed.response;
 
-    const { projectId } = body as { projectId?: string };
-    if (!projectId || !isValidId(projectId)) {
-      return json(
-        { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Valid projectId is required' } },
-        400
-      );
-    }
+    const { projectId } = parsed.data;
 
     try {
       // Verify project exists

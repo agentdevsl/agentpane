@@ -4,7 +4,6 @@
  * Main router that combines all route modules.
  */
 
-import { createHash } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import type { Context, Next } from 'hono';
 import { Hono } from 'hono';
@@ -65,6 +64,7 @@ import { createWebhooksRoutes } from './routes/webhooks.js';
 import { createWorkflowDesignerRoutes } from './routes/workflow-designer.js';
 import { createWorkflowsRoutes } from './routes/workflows.js';
 import { createWorktreesRoutes } from './routes/worktrees.js';
+import { hashToken } from './shared.js';
 
 const routerLog = createLogger('Router');
 
@@ -116,13 +116,15 @@ function createAuthMiddleware(db: Database) {
         return session.userId;
       },
       validateApiKey: async (key: string) => {
-        const tokenHash = createHash('sha256').update(key).digest('hex');
+        const tokenHash = hashToken(key);
         const apiToken = await db.query.apiTokens.findFirst({
           where: and(eq(apiTokens.tokenHash, tokenHash), eq(apiTokens.status, 'active')),
         });
         if (!apiToken) return null;
         // Check expiration if set
         if (apiToken.expiresAt && new Date(apiToken.expiresAt) < new Date()) return null;
+        // Store the full token record on context so downstream middleware can skip re-querying
+        c.set('apiTokenRecord', apiToken);
         return apiToken.userId;
       },
     });

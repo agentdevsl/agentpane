@@ -2,7 +2,16 @@
  * Shared utilities and types for API routes
  */
 
+import { createHash } from 'node:crypto';
 import type { Context } from 'hono';
+
+/**
+ * Hash a raw API token using SHA-256.
+ * Used for storing and looking up token hashes in the database.
+ */
+export function hashToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
 
 /**
  * Cursor-based pagination parameters
@@ -113,6 +122,33 @@ export function requireTeamRole(
     }
     return null;
   });
+}
+
+/**
+ * Like requireTeamRole, but also returns the resolved role string.
+ * Useful when callers need the role for further authorization checks
+ * (e.g. distinguishing admin from owner) without a redundant resolveTeamRole call.
+ * Dev-mode users get role = null and denied = null.
+ */
+export async function requireTeamRoleResolved(
+  auth: { authMethod: string; userId: string },
+  rbacService: {
+    resolveTeamRole(userId: string, teamId: string): Promise<string | null>;
+    hasMinimumRole(userRole: string, minimumRole: string): boolean;
+  },
+  teamId: string,
+  minimumRole: string,
+  message = `Requires ${minimumRole} role`
+): Promise<{ denied: Response | null; role: string | null }> {
+  if (auth.authMethod === 'dev') return { denied: null, role: null };
+  const role = await rbacService.resolveTeamRole(auth.userId, teamId);
+  if (!role || !rbacService.hasMinimumRole(role, minimumRole)) {
+    return {
+      denied: json({ ok: false, error: { code: 'INSUFFICIENT_ROLE', message } }, 403),
+      role,
+    };
+  }
+  return { denied: null, role };
 }
 
 /**

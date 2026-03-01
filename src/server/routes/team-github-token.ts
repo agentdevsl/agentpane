@@ -8,6 +8,7 @@
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { Octokit } from 'octokit';
+import { z } from 'zod';
 import { githubTokens } from '../../db/schema/sqlite/github.js';
 import type { AuthContext } from '../../lib/api/auth-middleware.js';
 import {
@@ -20,6 +21,7 @@ import { createLogger } from '../../lib/logging/logger.js';
 import type { RbacService } from '../../services/rbac.service.js';
 import type { Database } from '../../types/database.js';
 import { isValidId, json, requireTeamRole } from '../shared.js';
+import { parseJsonBody } from '../validation.js';
 
 const log = createLogger('TeamGitHubTokenRoutes');
 
@@ -103,25 +105,14 @@ export function createTeamGitHubTokenRoutes({ db, rbacService }: TeamGitHubToken
     const denied = await requireTeamRole(auth, rbacService, teamId, 'admin');
     if (denied) return denied;
 
-    let body: { token: string };
-    try {
-      body = await c.req.json();
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON body' } },
-        400
-      );
-    }
+    const githubTokenSchema = z.object({ token: z.string().min(1).max(500) });
+    const parsed = await parseJsonBody(c, githubTokenSchema);
+    if (!parsed.ok) return parsed.response;
 
-    if (!body.token || typeof body.token !== 'string') {
-      return json(
-        { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Token is required' } },
-        400
-      );
-    }
+    const { token } = parsed.data;
 
     // Validate PAT format
-    if (!isValidPATFormat(body.token)) {
+    if (!isValidPATFormat(token)) {
       return json(
         {
           ok: false,
@@ -138,7 +129,7 @@ export function createTeamGitHubTokenRoutes({ db, rbacService }: TeamGitHubToken
     let githubLogin: string | null = null;
     let githubId: string | null = null;
     try {
-      const octokit = new Octokit({ auth: body.token });
+      const octokit = new Octokit({ auth: token });
       const { data: user } = await octokit.rest.users.getAuthenticated();
       githubLogin = user.login;
       githubId = String(user.id);
@@ -176,7 +167,7 @@ export function createTeamGitHubTokenRoutes({ db, rbacService }: TeamGitHubToken
       await db.delete(githubTokens).where(eq(githubTokens.teamId, teamId));
 
       // Encrypt and store
-      const encrypted = encryptToken(body.token);
+      const encrypted = encryptToken(token);
 
       const [saved] = await db
         .insert(githubTokens)
@@ -203,7 +194,7 @@ export function createTeamGitHubTokenRoutes({ db, rbacService }: TeamGitHubToken
         data: {
           tokenInfo: {
             id: saved.id,
-            maskedToken: maskToken(body.token),
+            maskedToken: maskToken(token),
             githubLogin: saved.githubLogin,
             isValid: saved.isValid ?? true,
             lastValidatedAt: saved.lastValidatedAt,

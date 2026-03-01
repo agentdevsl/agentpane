@@ -2,7 +2,7 @@
  * Tag routes
  */
 
-import { and, count, eq } from 'drizzle-orm';
+import { and, count, eq, inArray } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { projectTags } from '../../db/schema/sqlite/project-tags';
 import { tags } from '../../db/schema/sqlite/tags';
@@ -94,21 +94,35 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
     try {
       const teamTags = await db.select().from(tags).where(eq(tags.teamId, teamId));
 
-      // Enrich each tag with projectCount and taskCount
-      const enrichedTags = await Promise.all(
-        teamTags.map(async (tag) => {
-          const [projectCountResult, taskCountResult] = await Promise.all([
-            db.select({ total: count() }).from(projectTags).where(eq(projectTags.tagId, tag.id)),
-            db.select({ total: count() }).from(taskTags).where(eq(taskTags.tagId, tag.id)),
-          ]);
+      // Batch-fetch project and task counts to avoid N+1 queries
+      const tagIds = teamTags.map((t) => t.id);
 
-          return {
-            ...tag,
-            projectCount: projectCountResult[0]?.total ?? 0,
-            taskCount: taskCountResult[0]?.total ?? 0,
-          };
-        })
-      );
+      let projectCountMap = new Map<string, number>();
+      let taskCountMap = new Map<string, number>();
+
+      if (tagIds.length > 0) {
+        const [projectCounts, taskCounts] = await Promise.all([
+          db
+            .select({ tagId: projectTags.tagId, total: count() })
+            .from(projectTags)
+            .where(inArray(projectTags.tagId, tagIds))
+            .groupBy(projectTags.tagId),
+          db
+            .select({ tagId: taskTags.tagId, total: count() })
+            .from(taskTags)
+            .where(inArray(taskTags.tagId, tagIds))
+            .groupBy(taskTags.tagId),
+        ]);
+
+        projectCountMap = new Map(projectCounts.map((r) => [r.tagId, r.total]));
+        taskCountMap = new Map(taskCounts.map((r) => [r.tagId, r.total]));
+      }
+
+      const enrichedTags = teamTags.map((tag) => ({
+        ...tag,
+        projectCount: projectCountMap.get(tag.id) ?? 0,
+        taskCount: taskCountMap.get(tag.id) ?? 0,
+      }));
 
       return json({ ok: true, data: { items: enrichedTags } });
     } catch (error) {
@@ -134,17 +148,14 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
       return json({ ok: false, error: { code: 'TAG_NOT_FOUND', message: 'Tag not found' } }, 404);
     }
 
-    // Auth check (skip for dev mode)
-    if (auth.authMethod !== 'dev') {
-      const denied = await requireTeamRole(
-        auth,
-        rbacService,
-        foundTag.teamId,
-        'admin',
-        'Requires admin role in team'
-      );
-      if (denied) return denied;
-    }
+    const denied = await requireTeamRole(
+      auth,
+      rbacService,
+      foundTag.teamId,
+      'admin',
+      'Requires admin role in team'
+    );
+    if (denied) return denied;
 
     try {
       await db.delete(tags).where(eq(tags.id, id));
@@ -376,24 +387,22 @@ export function createTaskTagRoutes({
     }
 
     const auth = c.get('auth');
-    if (auth.authMethod !== 'dev') {
-      const taskRows = await db
-        .select({ projectId: tasks.projectId })
-        .from(tasks)
-        .where(eq(tasks.id, taskId));
-      const foundTask = taskRows[0];
-      if (!foundTask) {
-        return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Task not found' } }, 404);
-      }
-      const denied = await requireProjectRole(
-        auth,
-        rbacService,
-        foundTask.projectId,
-        'agent_operator',
-        'Requires agent_operator role on project'
-      );
-      if (denied) return denied;
+    const taskRows = await db
+      .select({ projectId: tasks.projectId })
+      .from(tasks)
+      .where(eq(tasks.id, taskId));
+    const foundTask = taskRows[0];
+    if (!foundTask) {
+      return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Task not found' } }, 404);
     }
+    const denied = await requireProjectRole(
+      auth,
+      rbacService,
+      foundTask.projectId,
+      'agent_operator',
+      'Requires agent_operator role on project'
+    );
+    if (denied) return denied;
 
     try {
       await db.delete(taskTags).where(and(eq(taskTags.taskId, taskId), eq(taskTags.tagId, tagId)));
