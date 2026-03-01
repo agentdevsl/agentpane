@@ -78,16 +78,19 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
           404
         );
       }
-      return json({
-        ok: true,
-        data: {
-          projectId,
-          userId: parsed.data.userId,
-          role: parsed.data.role,
-          effectiveRole: parsed.data.role,
-          grantedAt: new Date().toISOString(),
+      return json(
+        {
+          ok: true,
+          data: {
+            projectId,
+            userId: parsed.data.userId,
+            role: parsed.data.role,
+            effectiveRole: parsed.data.role,
+            grantedAt: new Date().toISOString(),
+          },
         },
-      });
+        201
+      );
     } catch (error) {
       log.error('Failed to add member', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to add member' } }, 500);
@@ -127,7 +130,22 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
         .leftJoin(users, eq(projectMembers.userId, users.id))
         .where(eq(projectMembers.projectId, projectId));
 
-      return json({ ok: true, data: { items: members } });
+      // H4: Enrich with effectiveRole and source
+      const enrichedMembers = await Promise.all(
+        members.map(async (m) => {
+          const effectiveRole = m.userId
+            ? await rbacService.resolveUserRole(m.userId, projectId)
+            : null;
+          return {
+            ...m,
+            projectRole: m.role,
+            effectiveRole: effectiveRole ?? m.role,
+            source: 'direct' as const,
+          };
+        })
+      );
+
+      return json({ ok: true, data: { items: enrichedMembers } });
     } catch (error) {
       log.error('Failed to list members', { error });
       return json(

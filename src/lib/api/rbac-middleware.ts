@@ -5,22 +5,29 @@
  * Slots in after the existing authMiddleware in the request pipeline.
  */
 
-import { and, eq, sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import type { Context, Next } from 'hono';
 import { RBAC_ROLE_LEVEL, type RbacRole, resolveHighestRole } from '../../db/schema/shared/enums';
 import { agents } from '../../db/schema/sqlite/agents';
-import { type ApiToken, apiTokens } from '../../db/schema/sqlite/api-tokens';
+import { apiTokens } from '../../db/schema/sqlite/api-tokens';
 import { projectTags } from '../../db/schema/sqlite/project-tags';
 import { sessions } from '../../db/schema/sqlite/sessions';
 import { taskTags } from '../../db/schema/sqlite/task-tags';
 import { tasks } from '../../db/schema/sqlite/tasks';
 import { teamMembers } from '../../db/schema/sqlite/team-members';
 import { users } from '../../db/schema/sqlite/users';
-import { hashToken } from '../../server/shared';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
 import { createLogger } from '../logging/logger';
 import type { AuthContext } from './auth-middleware';
+
+interface CachedApiToken {
+  id: string;
+  role: RbacRole;
+  scopeProjectId: string | null;
+  scopeTags: string[] | null;
+  expiresAt: string | null;
+}
 
 const log = createLogger('RbacMiddleware');
 
@@ -47,10 +54,16 @@ export function enrichAuthContext(db: Database) {
 
     // Dev-mode users get owner role automatically
     if (auth.authMethod === 'dev') {
-      if (process.env.NODE_ENV === 'production') {
+      // Dev-mode should be unreachable in production (auth middleware gates on NODE_ENV).
+      // Block here as defense-in-depth in case the auth layer is misconfigured.
+      if (process.env.NODE_ENV !== 'development') {
         log.error('SECURITY: Dev-mode authentication detected in production', {
           data: { userId: auth.userId, path: c.req.path },
         });
+        return c.json(
+          { ok: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } },
+          401
+        );
       }
       rbacAuth.resolvedRole = 'owner';
       rbacAuth.roleLevel = RBAC_ROLE_LEVEL.owner;
@@ -105,42 +118,8 @@ export function enrichAuthContext(db: Database) {
 
       // Load token scope for API token auth
       if (auth.authMethod === 'api_token') {
-        // Reuse the token record cached by createAuthMiddleware to avoid
-        // a redundant SHA-256 hash + DB query on every request.
-        const cachedRecord = c.get('apiTokenRecord') as ApiToken | undefined;
-        let token:
-          | Pick<ApiToken, 'id' | 'role' | 'scopeProjectId' | 'scopeTags' | 'expiresAt'>
-          | undefined;
-
-        if (cachedRecord) {
-          token = cachedRecord;
-        } else {
-          // Fallback: re-derive from Authorization header (should not happen in normal flow)
-          const authHeader = c.req.header('Authorization');
-          if (authHeader?.startsWith('Bearer ')) {
-            const rawToken = authHeader.substring(7).trim();
-            if (!rawToken || (!rawToken.startsWith('ap_') && rawToken.length < 20)) {
-              return c.json(
-                { ok: false, error: { code: 'UNAUTHORIZED', message: 'Invalid API token format' } },
-                401
-              );
-            }
-            const tokenHash = hashToken(rawToken);
-
-            const tokenRecords = await db
-              .select({
-                id: apiTokens.id,
-                role: apiTokens.role,
-                scopeProjectId: apiTokens.scopeProjectId,
-                scopeTags: apiTokens.scopeTags,
-                expiresAt: apiTokens.expiresAt,
-              })
-              .from(apiTokens)
-              .where(and(eq(apiTokens.tokenHash, tokenHash), eq(apiTokens.status, 'active')));
-
-            token = tokenRecords[0];
-          }
-        }
+        // Use cached token from createAuthMiddleware to avoid duplicate hash+query
+        const token = c.get('_resolvedApiToken') as CachedApiToken | undefined;
 
         if (token) {
           // Check if token has expired
@@ -150,30 +129,44 @@ export function enrichAuthContext(db: Database) {
               .update(apiTokens)
               .set({ status: 'expired' })
               .where(eq(apiTokens.id, token.id))
-              .catch((err) => log.warn('Failed to update expired token status', { error: err }));
+              .catch((err) => log.error('Failed to update expired token status', { error: err }));
             return c.json(
               { ok: false, error: { code: 'UNAUTHORIZED', message: 'API token has expired' } },
               401
             );
           }
+          // Validate that the token's role is a recognized RBAC role
+          const tokenLevel = RBAC_ROLE_LEVEL[token.role];
+          if (tokenLevel === undefined) {
+            log.error('API token has invalid role in database', {
+              data: { tokenId: token.id, role: token.role },
+            });
+            return c.json(
+              {
+                ok: false,
+                error: { code: 'INTERNAL_ERROR', message: 'Token configuration error' },
+              },
+              500
+            );
+          }
+
           rbacAuth.tokenScope = {
             tokenId: token.id,
-            role: token.role as RbacRole,
+            role: token.role,
             projectId: token.scopeProjectId,
             tags: token.scopeTags as string[] | null,
           };
 
           // Cap the resolved role at the token's role ceiling
           if (rbacAuth.resolvedRole) {
-            const tokenLevel = RBAC_ROLE_LEVEL[token.role as RbacRole];
             if (rbacAuth.roleLevel && rbacAuth.roleLevel > tokenLevel) {
-              rbacAuth.resolvedRole = token.role as RbacRole;
+              rbacAuth.resolvedRole = token.role;
               rbacAuth.roleLevel = tokenLevel;
             }
           } else {
             // User has no membership role — use token role as effective role
-            rbacAuth.resolvedRole = token.role as RbacRole;
-            rbacAuth.roleLevel = RBAC_ROLE_LEVEL[token.role as RbacRole];
+            rbacAuth.resolvedRole = token.role;
+            rbacAuth.roleLevel = tokenLevel;
           }
 
           // Update lastUsedAt and useCount asynchronously (fire-and-forget to avoid blocking the request)
@@ -184,9 +177,9 @@ export function enrichAuthContext(db: Database) {
               useCount: sql`COALESCE(${apiTokens.useCount}, 0) + 1`,
             })
             .where(eq(apiTokens.id, token.id))
-            .catch((err) => log.error('Failed to update token usage tracking', { error: err }));
+            .catch((err) => log.warn('Failed to update token usage tracking', { error: err }));
         } else {
-          // Token hash not found or token is not active — deny access
+          // Token not found in cache — deny access
           log.warn('API token not found or inactive', { data: { path: c.req.path } });
           return c.json(
             {
@@ -227,8 +220,7 @@ export function enrichAuthContext(db: Database) {
  * Middleware factory that requires a minimum RBAC role for the route.
  *
  * Resolves the effective role based on:
- * - Project context (from :id param or body.projectId)
- * - Team context (from :id param on team routes)
+ * - Project context (from :id param, ?projectId query, or body.projectId)
  * - Global context (highest role across all teams)
  *
  * Dev-mode users always pass (owner role).
@@ -271,8 +263,24 @@ export function requireRole(minimumRole: RbacRole, rbacService: RbacService) {
         if (body && typeof body === 'object' && typeof body.projectId === 'string') {
           projectId = body.projectId;
         }
-      } catch {
-        // Body is not JSON or not available — continue without projectId
+      } catch (parseError) {
+        if (!(parseError instanceof SyntaxError)) {
+          log.error('Unexpected error parsing request body for projectId', {
+            error: parseError,
+            data: { path: c.req.path },
+          });
+          // If we couldn't extract a projectId from URL and body parsing failed unexpectedly,
+          // deny rather than falling back to potentially less-restrictive global role
+          if (!projectId) {
+            return c.json(
+              {
+                ok: false,
+                error: { code: 'INTERNAL_ERROR', message: 'Failed to verify permissions' },
+              },
+              500
+            );
+          }
+        }
       }
     }
 
@@ -328,15 +336,73 @@ export function requireRole(minimumRole: RbacRole, rbacService: RbacService) {
 }
 
 /**
+ * Tag resolver functions - resolve tags for a given resource ID
+ */
+type TagResolver = (id: string, db: Database) => Promise<string[]>;
+
+const TAG_RESOLVERS: { [K in 'project' | 'task' | 'session' | 'agent']: TagResolver } = {
+  project: async (id, db) => {
+    const rows = await db
+      .select({ tagId: projectTags.tagId })
+      .from(projectTags)
+      .where(eq(projectTags.projectId, id));
+    return rows.map((r) => r.tagId);
+  },
+  task: async (id, db) => {
+    const rows = await db
+      .select({ tagId: taskTags.tagId })
+      .from(taskTags)
+      .where(eq(taskTags.taskId, id));
+    if (rows.length > 0) return rows.map((r) => r.tagId);
+    // Fallback to parent project tags
+    const taskRows = await db
+      .select({ projectId: tasks.projectId })
+      .from(tasks)
+      .where(eq(tasks.id, id));
+    if (taskRows[0]?.projectId) {
+      return TAG_RESOLVERS.project(taskRows[0].projectId, db);
+    }
+    return [];
+  },
+  session: async (id, db) => {
+    const sessionRows = await db
+      .select({ taskId: sessions.taskId, projectId: sessions.projectId })
+      .from(sessions)
+      .where(eq(sessions.id, id));
+    const session = sessionRows[0];
+    if (!session) return [];
+    if (session.taskId) {
+      const resolvedTaskTags = await TAG_RESOLVERS.task(session.taskId, db);
+      if (resolvedTaskTags.length > 0) return resolvedTaskTags;
+    }
+    if (session.projectId) {
+      return TAG_RESOLVERS.project(session.projectId, db);
+    }
+    return [];
+  },
+  agent: async (id, db) => {
+    const agentRows = await db
+      .select({ projectId: agents.projectId })
+      .from(agents)
+      .where(eq(agents.id, id));
+    if (agentRows[0]?.projectId) {
+      return TAG_RESOLVERS.project(agentRows[0].projectId, db);
+    }
+    return [];
+  },
+};
+
+/** Map URL path prefixes to resource types */
+type TagResourceType = keyof typeof TAG_RESOLVERS;
+const PATH_TO_RESOURCE: Array<[string, TagResourceType]> = [
+  ['/api/projects/', 'project'],
+  ['/api/tasks/', 'task'],
+  ['/api/sessions/', 'session'],
+  ['/api/agents/', 'agent'],
+];
+
+/**
  * Middleware that checks tag-based access for API tokens with tag restrictions.
- *
- * For API tokens with scopeTags, this middleware verifies that the requested
- * resource (project or task) has at least one tag matching the token's allowed tags.
- *
- * Bypassed when:
- * - User is not using an API token
- * - Token has no tag restrictions (scopeTags is null or empty)
- * - User is in dev mode
  */
 export function requireTagAccess(db: Database) {
   return async (c: Context, next: Next) => {
@@ -349,8 +415,8 @@ export function requireTagAccess(db: Database) {
       );
     }
 
-    // Skip for non-token auth or dev mode
-    if (auth.authMethod === 'dev' || auth.authMethod !== 'api_token') {
+    // Only API tokens can have tag restrictions; skip for all other auth methods
+    if (auth.authMethod !== 'api_token') {
       return next();
     }
 
@@ -360,213 +426,82 @@ export function requireTagAccess(db: Database) {
     }
 
     const scopeTags = auth.tokenScope.tags;
-
-    // Determine the resource type from the route path
     const path = c.req.path;
 
-    // For project routes: check project tags
-    if (path.startsWith('/api/projects/')) {
-      const projectId = c.req.param('id');
-      if (projectId) {
-        const projectTagRows = await db
-          .select({ tagId: projectTags.tagId })
-          .from(projectTags)
-          .where(eq(projectTags.projectId, projectId));
-
-        const resourceTagIds = projectTagRows.map((r) => r.tagId);
-
-        if (!scopeTags.some((t) => resourceTagIds.includes(t))) {
-          return c.json(
-            {
-              ok: false,
-              error: { code: 'FORBIDDEN', message: 'Token tags do not match project tags' },
-            },
-            403
-          );
-        }
+    // Determine resource type from path
+    let resourceType: TagResourceType | null = null;
+    for (const [prefix, type] of PATH_TO_RESOURCE) {
+      if (path.startsWith(prefix)) {
+        resourceType = type;
+        break;
       }
     }
 
-    // For task routes: check task tags, fallback to parent project tags
-    if (path.startsWith('/api/tasks/')) {
-      const taskId = c.req.param('id');
-      if (taskId) {
-        const taskTagRows = await db
-          .select({ tagId: taskTags.tagId })
-          .from(taskTags)
-          .where(eq(taskTags.taskId, taskId));
-
-        const resourceTagIds = taskTagRows.map((r) => r.tagId);
-
-        // Check task's own tags first
-        if (!scopeTags.some((t) => resourceTagIds.includes(t))) {
-          // Fallback: look up the task's parent project and check project tags
-          const taskRows = await db
-            .select({ projectId: tasks.projectId })
-            .from(tasks)
-            .where(eq(tasks.id, taskId));
-
-          const taskRow = taskRows[0];
-          if (taskRow?.projectId) {
-            const parentProjectTagRows = await db
-              .select({ tagId: projectTags.tagId })
-              .from(projectTags)
-              .where(eq(projectTags.projectId, taskRow.projectId));
-
-            const parentTagIds = parentProjectTagRows.map((r) => r.tagId);
-
-            if (!scopeTags.some((t) => parentTagIds.includes(t))) {
-              return c.json(
-                {
-                  ok: false,
-                  error: {
-                    code: 'FORBIDDEN',
-                    message: 'Token tags do not match task or project tags',
-                  },
-                },
-                403
-              );
-            }
-          } else {
-            // Task not found or has no projectId — deny access
-            return c.json(
-              {
-                ok: false,
-                error: { code: 'FORBIDDEN', message: 'Token tags do not match task tags' },
-              },
-              403
-            );
-          }
-        }
-      }
+    if (!resourceType) {
+      log.warn('Tag-restricted token denied on unrecognized resource path', {
+        data: { path, tokenId: auth.tokenScope.tokenId },
+      });
+      return c.json(
+        {
+          ok: false,
+          error: {
+            code: 'FORBIDDEN',
+            message: 'Tag-restricted tokens cannot access this resource type',
+          },
+        },
+        403
+      );
     }
 
-    // For session routes: check task tags (via session.taskId), fallback to project tags (via session.projectId)
-    if (path.startsWith('/api/sessions/')) {
-      const sessionId = c.req.param('id');
-      if (sessionId) {
-        const sessionRows = await db
-          .select({ taskId: sessions.taskId, projectId: sessions.projectId })
-          .from(sessions)
-          .where(eq(sessions.id, sessionId));
-
-        const sessionRow = sessionRows[0];
-        if (sessionRow) {
-          let tagMatch = false;
-
-          // When both taskId and projectId are available, fetch tags in parallel
-          if (sessionRow.taskId && sessionRow.projectId) {
-            const [sessionTaskTagRows, sessionProjectTagRows] = await Promise.all([
-              db
-                .select({ tagId: taskTags.tagId })
-                .from(taskTags)
-                .where(eq(taskTags.taskId, sessionRow.taskId)),
-              db
-                .select({ tagId: projectTags.tagId })
-                .from(projectTags)
-                .where(eq(projectTags.projectId, sessionRow.projectId)),
-            ]);
-
-            // Check task tags first
-            const sessionTaskTagIds = sessionTaskTagRows.map((r) => r.tagId);
-            if (scopeTags.some((t) => sessionTaskTagIds.includes(t))) {
-              tagMatch = true;
-            }
-
-            // Fallback: check project tags
-            if (!tagMatch) {
-              const sessionProjectTagIds = sessionProjectTagRows.map((r) => r.tagId);
-              if (scopeTags.some((t) => sessionProjectTagIds.includes(t))) {
-                tagMatch = true;
-              }
-            }
-          } else if (sessionRow.taskId) {
-            // Only task tags to check
-            const sessionTaskTagRows = await db
-              .select({ tagId: taskTags.tagId })
-              .from(taskTags)
-              .where(eq(taskTags.taskId, sessionRow.taskId));
-
-            const sessionTaskTagIds = sessionTaskTagRows.map((r) => r.tagId);
-            if (scopeTags.some((t) => sessionTaskTagIds.includes(t))) {
-              tagMatch = true;
-            }
-          } else if (sessionRow.projectId) {
-            // Only project tags to check
-            const sessionProjectTagRows = await db
-              .select({ tagId: projectTags.tagId })
-              .from(projectTags)
-              .where(eq(projectTags.projectId, sessionRow.projectId));
-
-            const sessionProjectTagIds = sessionProjectTagRows.map((r) => r.tagId);
-            if (scopeTags.some((t) => sessionProjectTagIds.includes(t))) {
-              tagMatch = true;
-            }
-          }
-
-          if (!tagMatch) {
-            return c.json(
-              {
-                ok: false,
-                error: {
-                  code: 'FORBIDDEN',
-                  message: 'Token tags do not match session resource tags',
-                },
-              },
-              403
-            );
-          }
-        } else {
-          // Session not found — deny access for tag-restricted tokens
-          return c.json(
-            {
-              ok: false,
-              error: { code: 'FORBIDDEN', message: 'Session not found' },
-            },
-            403
-          );
-        }
-      }
+    const resourceId = c.req.param('id');
+    if (!resourceId) {
+      log.warn('Tag-restricted token denied on collection endpoint (no resource ID)', {
+        data: { path, resourceType, tokenId: auth.tokenScope.tokenId },
+      });
+      return c.json(
+        {
+          ok: false,
+          error: { code: 'FORBIDDEN', message: 'Tag-restricted tokens must specify a resource ID' },
+        },
+        403
+      );
     }
 
-    // For agent routes: check project tags via agent.projectId
-    if (path.startsWith('/api/agents/')) {
-      const agentId = c.req.param('id');
-      if (agentId) {
-        const agentRows = await db
-          .select({ projectId: agents.projectId })
-          .from(agents)
-          .where(eq(agents.id, agentId));
+    const resolver = TAG_RESOLVERS[resourceType];
 
-        const agentRow = agentRows[0];
-        if (agentRow?.projectId) {
-          const agentProjectTagRows = await db
-            .select({ tagId: projectTags.tagId })
-            .from(projectTags)
-            .where(eq(projectTags.projectId, agentRow.projectId));
+    let resourceTags: string[];
+    try {
+      resourceTags = await resolver(resourceId, db);
+    } catch (error) {
+      log.error('Failed to resolve resource tags', { error, data: { resourceType, resourceId } });
+      return c.json(
+        { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to check tag access' } },
+        500
+      );
+    }
 
-          const agentProjectTagIds = agentProjectTagRows.map((r) => r.tagId);
+    // Deny if resource has no tags (invisible to tag-restricted tokens)
+    if (resourceTags.length === 0) {
+      return c.json(
+        {
+          ok: false,
+          error: {
+            code: 'FORBIDDEN',
+            message: 'Resource not accessible with tag-restricted token',
+          },
+        },
+        403
+      );
+    }
 
-          if (!scopeTags.some((t) => agentProjectTagIds.includes(t))) {
-            return c.json(
-              {
-                ok: false,
-                error: { code: 'FORBIDDEN', message: 'Token tags do not match agent project tags' },
-              },
-              403
-            );
-          }
-        } else {
-          // Agent not found — deny access for tag-restricted tokens
-          return c.json(
-            {
-              ok: false,
-              error: { code: 'FORBIDDEN', message: 'Agent not found' },
-            },
-            403
-          );
-        }
-      }
+    if (!scopeTags.some((t) => resourceTags.includes(t))) {
+      return c.json(
+        {
+          ok: false,
+          error: { code: 'FORBIDDEN', message: 'Token tags do not match resource tags' },
+        },
+        403
+      );
     }
 
     return next();

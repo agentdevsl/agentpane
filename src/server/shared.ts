@@ -4,6 +4,10 @@
 
 import { createHash } from 'node:crypto';
 import type { Context } from 'hono';
+import type { RbacRole } from '../db/schema/shared/enums';
+import { createLogger } from '../lib/logging/logger';
+
+const log = createLogger('SharedHelpers');
 
 /**
  * Hash a raw API token using SHA-256.
@@ -39,7 +43,7 @@ export function parsePagination(c: Context): PaginationParams {
   return { cursor, limit };
 }
 
-// CORS headers for dev
+// CORS headers for SSE endpoints that bypass Hono middleware
 export const corsHeaders = {
   'Access-Control-Allow-Origin': 'http://localhost:3000',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
@@ -103,25 +107,37 @@ export function isValidGitHubUrl(url: string): boolean {
 
 /**
  * Require that the authenticated user has at least the given team role.
- * Dev-mode users always pass. Returns a 403 Response if unauthorized, or null if authorized.
+ * Dev-mode users always pass. Returns null if authorized, or a 403 Response if role is insufficient or user has no team membership.
  */
 export function requireTeamRole(
-  auth: { authMethod: string; userId: string },
+  auth: { authMethod: 'session' | 'api_token' | 'dev'; userId: string },
   rbacService: {
-    resolveTeamRole(userId: string, teamId: string): Promise<string | null>;
-    hasMinimumRole(userRole: string, minimumRole: string): boolean;
+    resolveTeamRole(userId: string, teamId: string): Promise<RbacRole | null>;
+    hasMinimumRole(userRole: RbacRole, minimumRole: RbacRole): boolean;
   },
   teamId: string,
-  minimumRole: string,
+  minimumRole: RbacRole,
   message = `Requires ${minimumRole} role`
 ): Promise<Response | null> {
   if (auth.authMethod === 'dev') return Promise.resolve(null);
-  return rbacService.resolveTeamRole(auth.userId, teamId).then((role) => {
-    if (!role || !rbacService.hasMinimumRole(role, minimumRole)) {
-      return json({ ok: false, error: { code: 'INSUFFICIENT_ROLE', message } }, 403);
-    }
-    return null;
-  });
+  return rbacService
+    .resolveTeamRole(auth.userId, teamId)
+    .then((role) => {
+      if (!role) {
+        return json({ ok: false, error: { code: 'INSUFFICIENT_ROLE', message } }, 403);
+      }
+      if (!rbacService.hasMinimumRole(role, minimumRole)) {
+        return json({ ok: false, error: { code: 'INSUFFICIENT_ROLE', message } }, 403);
+      }
+      return null;
+    })
+    .catch((error) => {
+      log.error('Failed to resolve team role', { error, data: { userId: auth.userId, teamId } });
+      return json(
+        { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to verify permissions' } },
+        500
+      );
+    });
 }
 
 /**
@@ -153,55 +169,35 @@ export async function requireTeamRoleResolved(
 
 /**
  * Require that the authenticated user has at least the given project role.
- * Dev-mode users always pass. Returns a 403 Response if unauthorized, or null if authorized.
+ * Dev-mode users always pass. Returns null if authorized, or a 403 Response if the user lacks the required role (or has no project access).
  */
 export function requireProjectRole(
-  auth: { authMethod: string; userId: string },
+  auth: { authMethod: 'session' | 'api_token' | 'dev'; userId: string },
   rbacService: {
-    resolveUserRole(userId: string, projectId: string): Promise<string | null>;
-    hasMinimumRole(userRole: string, minimumRole: string): boolean;
+    resolveUserRole(userId: string, projectId: string): Promise<RbacRole | null>;
+    hasMinimumRole(userRole: RbacRole, minimumRole: RbacRole): boolean;
   },
   projectId: string,
-  minimumRole: string,
+  minimumRole: RbacRole,
   message = `Requires ${minimumRole} role`
 ): Promise<Response | null> {
   if (auth.authMethod === 'dev') return Promise.resolve(null);
-  return rbacService.resolveUserRole(auth.userId, projectId).then((role) => {
-    if (!role || !rbacService.hasMinimumRole(role, minimumRole)) {
-      return json({ ok: false, error: { code: 'INSUFFICIENT_ROLE', message } }, 403);
-    }
-    return null;
-  });
-}
-
-/**
- * Standard API error structure
- */
-export interface ApiError {
-  code: string;
-  message: string;
-  status?: number;
-}
-
-/**
- * Create an error response with consistent structure
- */
-export function errorResponse(error: ApiError, status?: number): Response {
-  return json(
-    { ok: false, error: { code: error.code, message: error.message } },
-    status ?? error.status ?? 400
-  );
-}
-
-/**
- * Handle service result and return appropriate response
- * Returns null if result is ok, otherwise returns error Response
- */
-export function handleServiceError<T>(
-  result: { ok: false; error: ApiError } | { ok: true; value: T }
-): Response | null {
-  if (!result.ok) {
-    return errorResponse(result.error, result.error.status);
-  }
-  return null;
+  return rbacService
+    .resolveUserRole(auth.userId, projectId)
+    .then((role) => {
+      if (!role || !rbacService.hasMinimumRole(role, minimumRole)) {
+        return json({ ok: false, error: { code: 'INSUFFICIENT_ROLE', message } }, 403);
+      }
+      return null;
+    })
+    .catch((error) => {
+      log.error('Failed to resolve project role', {
+        error,
+        data: { userId: auth.userId, projectId },
+      });
+      return json(
+        { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to verify permissions' } },
+        500
+      );
+    });
 }

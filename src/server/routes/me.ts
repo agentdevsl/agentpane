@@ -2,7 +2,7 @@
  * Current user profile routes
  */
 
-import { eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { teamMembers } from '../../db/schema/sqlite/team-members';
 import { teams } from '../../db/schema/sqlite/teams';
@@ -74,6 +74,8 @@ export function createMeRoutes({ db }: MeDeps) {
           email: user.email,
           avatarUrl: user.avatarUrl,
           authMethod: auth.authMethod,
+          createdAt: user.createdAt,
+          updatedAt: user.updatedAt,
           teams: memberships.map((m) => ({
             teamId: m.teamId,
             role: m.role,
@@ -107,11 +109,31 @@ export function createMeRoutes({ db }: MeDeps) {
     if (!parsed.ok) return parsed.response;
 
     try {
-      const [updated] = await db
-        .update(users)
-        .set({ ...parsed.data, updatedAt: new Date().toISOString() })
-        .where(eq(users.id, auth.userId))
-        .returning();
+      // H9: Check email uniqueness before update (in transaction to avoid TOCTOU race)
+      const [updated, txError] = await db.transaction(async (tx) => {
+        if (parsed.data.email) {
+          const existingEmail = await tx
+            .select({ id: users.id })
+            .from(users)
+            .where(and(eq(users.email, parsed.data.email), ne(users.id, auth.userId)));
+          if (existingEmail.length > 0) {
+            return [null, 'EMAIL_ALREADY_EXISTS'] as const;
+          }
+        }
+        const result = await tx
+          .update(users)
+          .set({ ...parsed.data, updatedAt: new Date().toISOString() })
+          .where(eq(users.id, auth.userId))
+          .returning();
+        return [result[0], null] as const;
+      });
+
+      if (txError === 'EMAIL_ALREADY_EXISTS') {
+        return json(
+          { ok: false, error: { code: 'EMAIL_ALREADY_EXISTS', message: 'Email already in use' } },
+          409
+        );
+      }
 
       if (!updated) {
         return json({ ok: false, error: { code: 'NOT_FOUND', message: 'User not found' } }, 404);

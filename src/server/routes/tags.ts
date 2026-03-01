@@ -51,7 +51,7 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
         })
         .returning();
 
-      return json({ ok: true, data: created });
+      return json({ ok: true, data: created }, 201);
     } catch (error: unknown) {
       if (error instanceof Error && error.message.includes('UNIQUE constraint')) {
         return json(
@@ -141,23 +141,23 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
 
     const auth = c.get('auth');
 
-    // Always check tag existence first
-    const tagRows = await db.select({ teamId: tags.teamId }).from(tags).where(eq(tags.id, id));
-    const foundTag = tagRows[0];
-    if (!foundTag) {
-      return json({ ok: false, error: { code: 'TAG_NOT_FOUND', message: 'Tag not found' } }, 404);
-    }
-
-    const denied = await requireTeamRole(
-      auth,
-      rbacService,
-      foundTag.teamId,
-      'admin',
-      'Requires admin role in team'
-    );
-    if (denied) return denied;
-
     try {
+      // Check tag existence
+      const tagRows = await db.select({ teamId: tags.teamId }).from(tags).where(eq(tags.id, id));
+      const foundTag = tagRows[0];
+      if (!foundTag) {
+        return json({ ok: false, error: { code: 'TAG_NOT_FOUND', message: 'Tag not found' } }, 404);
+      }
+
+      const denied = await requireTeamRole(
+        auth,
+        rbacService,
+        foundTag.teamId,
+        'admin',
+        'Requires admin role in team'
+      );
+      if (denied) return denied;
+
       await db.delete(tags).where(eq(tags.id, id));
       return json({ ok: true, data: { deleted: true } });
     } catch (error) {
@@ -243,10 +243,13 @@ export function createProjectTagRoutes({
         .values({ projectId, tagId: parsed.data.tagId })
         .onConflictDoNothing();
 
-      return json({
-        ok: true,
-        data: { projectId, tagId: parsed.data.tagId, assignedAt: new Date().toISOString() },
-      });
+      return json(
+        {
+          ok: true,
+          data: { projectId, tagId: parsed.data.tagId, assignedAt: new Date().toISOString() },
+        },
+        201
+      );
     } catch (error) {
       log.error('Failed to assign tag to project', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to assign tag' } }, 500);
@@ -256,7 +259,7 @@ export function createProjectTagRoutes({
   // DELETE /api/projects/:id/tags/:tagId - Remove tag from project
   app.delete('/:tagId', async (c) => {
     const projectId = c.req.param('id') as string;
-    const tagId = c.req.param('tagId');
+    const tagId = c.req.param('tagId') as string;
 
     if (!isValidId(projectId) || !isValidId(tagId)) {
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID' } }, 400);
@@ -367,10 +370,13 @@ export function createTaskTagRoutes({
     try {
       await db.insert(taskTags).values({ taskId, tagId: parsed.data.tagId }).onConflictDoNothing();
 
-      return json({
-        ok: true,
-        data: { taskId, tagId: parsed.data.tagId, assignedAt: new Date().toISOString() },
-      });
+      return json(
+        {
+          ok: true,
+          data: { taskId, tagId: parsed.data.tagId, assignedAt: new Date().toISOString() },
+        },
+        201
+      );
     } catch (error) {
       log.error('Failed to assign tag to task', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to assign tag' } }, 500);
@@ -380,7 +386,7 @@ export function createTaskTagRoutes({
   // DELETE /api/tasks/:id/tags/:tagId - Remove tag from task
   app.delete('/:tagId', async (c) => {
     const taskId = c.req.param('id') as string;
-    const tagId = c.req.param('tagId');
+    const tagId = c.req.param('tagId') as string;
 
     if (!isValidId(taskId) || !isValidId(tagId)) {
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID' } }, 400);

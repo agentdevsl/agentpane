@@ -4,7 +4,7 @@
 
 import { and, count, eq, gt } from 'drizzle-orm';
 import { Hono } from 'hono';
-import type { RbacRole } from '../../db/schema/shared/enums';
+import { RBAC_ROLES, type RbacRole } from '../../db/schema/shared/enums';
 import { teamMembers } from '../../db/schema/sqlite/team-members';
 import { users } from '../../db/schema/sqlite/users';
 import type { AuthContext } from '../../lib/api/auth-middleware';
@@ -45,6 +45,23 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
     const parsed = await parseJsonBody(c, addTeamMemberSchema);
     if (!parsed.ok) return parsed.response;
 
+    // Only owners can add members with admin role
+    if (parsed.data.role === 'admin' && auth.authMethod !== 'dev') {
+      const callerRole = await rbacService.resolveTeamRole(auth.userId, teamId);
+      if (callerRole !== 'owner') {
+        return json(
+          {
+            ok: false,
+            error: {
+              code: 'INSUFFICIENT_ROLE',
+              message: 'Only owners can add members with admin role',
+            },
+          },
+          403
+        );
+      }
+    }
+
     try {
       const result = await db.transaction(async (tx) => {
         const existing = await tx
@@ -84,15 +101,18 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
         );
       }
 
-      return json({
-        ok: true,
-        data: {
-          teamId,
-          userId: parsed.data.userId,
-          role: parsed.data.role,
-          joinedAt: new Date().toISOString(),
+      return json(
+        {
+          ok: true,
+          data: {
+            teamId,
+            userId: parsed.data.userId,
+            role: parsed.data.role,
+            joinedAt: new Date().toISOString(),
+          },
         },
-      });
+        201
+      );
     } catch (error) {
       log.error('Failed to add member', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to add member' } }, 500);
@@ -119,17 +139,33 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
     }
 
     const { cursor, limit } = parsePagination(c);
+    const rawRoleFilter = c.req.query('role');
+    const roleFilter: RbacRole | undefined =
+      rawRoleFilter && (RBAC_ROLES as readonly string[]).includes(rawRoleFilter)
+        ? (rawRoleFilter as RbacRole)
+        : undefined;
+
+    if (rawRoleFilter && !roleFilter) {
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: `Invalid role filter. Must be one of: ${RBAC_ROLES.join(', ')}`,
+          },
+        },
+        400
+      );
+    }
 
     try {
-      // Total count of members in this team
-      const [countResult] = await db
-        .select({ total: count() })
-        .from(teamMembers)
-        .where(eq(teamMembers.teamId, teamId));
+      // Build base where clause (used for both count and query)
+      const baseWhere = roleFilter
+        ? and(eq(teamMembers.teamId, teamId), eq(teamMembers.role, roleFilter))
+        : eq(teamMembers.teamId, teamId);
+      const [countResult] = await db.select({ total: count() }).from(teamMembers).where(baseWhere);
       const totalCount = countResult?.total ?? 0;
 
-      // Build where clause with cursor support (cursor is userId)
-      const baseWhere = eq(teamMembers.teamId, teamId);
       const whereClause = cursor ? and(baseWhere, gt(teamMembers.userId, cursor)) : baseWhere;
 
       const members = await db
@@ -150,7 +186,7 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
 
       const hasMore = members.length > limit;
       const items = hasMore ? members.slice(0, limit) : members;
-      const nextCursor = hasMore ? items[items.length - 1]?.userId : undefined;
+      const nextCursor = hasMore ? (items[items.length - 1]?.userId ?? null) : null;
 
       return json({
         ok: true,
@@ -295,10 +331,10 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
           ok: false,
           error: {
             code: 'CANNOT_REMOVE_SELF',
-            message: 'Cannot remove yourself. Transfer ownership first.',
+            message: 'You cannot remove yourself from the team via this endpoint.',
           },
         },
-        403
+        400
       );
     }
 

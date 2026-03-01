@@ -41,39 +41,61 @@ export function createTeamInvitationsRoutes({ db, rbacService }: InvitationsDeps
     if (!parsed.ok) return parsed.response;
 
     try {
-      // Check for existing pending invitation
-      const existing = await db
-        .select()
-        .from(teamInvitations)
-        .where(
-          and(
-            eq(teamInvitations.teamId, teamId),
-            eq(teamInvitations.email, parsed.data.email),
-            eq(teamInvitations.status, 'pending')
-          )
-        );
+      const result = await db.transaction(async (tx) => {
+        // Check for existing pending invitation
+        const existing = await tx
+          .select()
+          .from(teamInvitations)
+          .where(
+            and(
+              eq(teamInvitations.teamId, teamId),
+              eq(teamInvitations.email, parsed.data.email),
+              eq(teamInvitations.status, 'pending')
+            )
+          );
 
-      if (existing.length > 0) {
-        return json(
-          {
-            ok: false,
-            error: {
-              code: 'INVITATION_ALREADY_EXISTS',
-              message: 'Pending invitation already exists',
+        if (existing.length > 0) return { error: 'INVITATION_ALREADY_EXISTS' as const };
+
+        // Check if user with this email is already a member
+        const existingMember = await tx
+          .select({ userId: users.id })
+          .from(users)
+          .innerJoin(teamMembers, eq(teamMembers.userId, users.id))
+          .where(and(eq(teamMembers.teamId, teamId), eq(users.email, parsed.data.email)));
+
+        if (existingMember.length > 0) return { error: 'MEMBER_ALREADY_EXISTS' as const };
+
+        const token = randomBytes(32).toString('base64url');
+        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+        const [invitation] = await tx
+          .insert(teamInvitations)
+          .values({
+            teamId,
+            invitedBy: auth.userId,
+            email: parsed.data.email,
+            role: parsed.data.role,
+            token,
+            expiresAt,
+          })
+          .returning();
+
+        return { ok: true as const, invitation };
+      });
+
+      if ('error' in result) {
+        if (result.error === 'INVITATION_ALREADY_EXISTS') {
+          return json(
+            {
+              ok: false,
+              error: {
+                code: 'INVITATION_ALREADY_EXISTS',
+                message: 'Pending invitation already exists',
+              },
             },
-          },
-          409
-        );
-      }
-
-      // Check if user with this email is already a member
-      const existingMember = await db
-        .select({ userId: users.id })
-        .from(users)
-        .innerJoin(teamMembers, eq(teamMembers.userId, users.id))
-        .where(and(eq(teamMembers.teamId, teamId), eq(users.email, parsed.data.email)));
-
-      if (existingMember.length > 0) {
+            409
+          );
+        }
         return json(
           {
             ok: false,
@@ -86,22 +108,7 @@ export function createTeamInvitationsRoutes({ db, rbacService }: InvitationsDeps
         );
       }
 
-      const token = randomBytes(32).toString('base64url');
-      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-
-      const [invitation] = await db
-        .insert(teamInvitations)
-        .values({
-          teamId,
-          invitedBy: auth.userId,
-          email: parsed.data.email,
-          role: parsed.data.role,
-          token,
-          expiresAt,
-        })
-        .returning();
-
-      return json({ ok: true, data: invitation });
+      return json({ ok: true, data: result.invitation }, 201);
     } catch (error) {
       log.error('Failed to create invitation', { error });
       return json(
@@ -129,6 +136,7 @@ export function createTeamInvitationsRoutes({ db, rbacService }: InvitationsDeps
           id: teamInvitations.id,
           teamId: teamInvitations.teamId,
           invitedBy: teamInvitations.invitedBy,
+          invitedByName: users.name,
           email: teamInvitations.email,
           role: teamInvitations.role,
           status: teamInvitations.status,
@@ -136,9 +144,15 @@ export function createTeamInvitationsRoutes({ db, rbacService }: InvitationsDeps
           createdAt: teamInvitations.createdAt,
         })
         .from(teamInvitations)
+        .leftJoin(users, eq(teamInvitations.invitedBy, users.id))
         .where(and(eq(teamInvitations.teamId, teamId), eq(teamInvitations.status, 'pending')));
 
-      return json({ ok: true, data: { items: invitations } });
+      const enrichedInvitations = invitations.map(({ invitedByName, invitedBy, ...rest }) => ({
+        ...rest,
+        invitedBy: { userId: invitedBy, name: invitedByName },
+      }));
+
+      return json({ ok: true, data: { items: enrichedInvitations } });
     } catch (error) {
       log.error('Failed to list invitations', { error });
       return json(

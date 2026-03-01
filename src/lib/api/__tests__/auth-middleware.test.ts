@@ -35,6 +35,7 @@ describe('getAuthContext', () => {
 
   describe('cookie extraction', () => {
     it('should return auth context with method "session" when session cookie is present', async () => {
+      process.env.NODE_ENV = 'development';
       const request = makeRequest({
         Cookie: 'agentpane_session=abc123',
       });
@@ -53,6 +54,7 @@ describe('getAuthContext', () => {
     });
 
     it('should extract session cookie when multiple cookies are present', async () => {
+      process.env.NODE_ENV = 'development';
       const request = makeRequest({
         Cookie: 'other=xyz; agentpane_session=mytoken99; another=123',
       });
@@ -67,6 +69,7 @@ describe('getAuthContext', () => {
     });
 
     it('should use first 8 chars of token for userId when no validator is provided', async () => {
+      process.env.NODE_ENV = 'development';
       const request = makeRequest({
         Cookie: 'agentpane_session=abcdefghijklmnop',
       });
@@ -85,6 +88,7 @@ describe('getAuthContext', () => {
 
   describe('bearer token', () => {
     it('should return auth context with method "api_token" when Bearer token is present', async () => {
+      process.env.NODE_ENV = 'development';
       const request = makeRequest({
         Authorization: 'Bearer token123',
       });
@@ -99,6 +103,7 @@ describe('getAuthContext', () => {
     });
 
     it('should use first 8 chars of token for userId when no validator is provided', async () => {
+      process.env.NODE_ENV = 'development';
       const request = makeRequest({
         Authorization: 'Bearer abcdefghijklmnopqrstuvwxyz',
       });
@@ -113,6 +118,7 @@ describe('getAuthContext', () => {
     });
 
     it('should prefer session cookie over Bearer token when both are present', async () => {
+      process.env.NODE_ENV = 'development';
       const request = makeRequest({
         Cookie: 'agentpane_session=sesstoken',
         Authorization: 'Bearer apitoken',
