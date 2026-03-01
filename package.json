@@ -70,7 +70,7 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "0.2.55",
+    "@anthropic-ai/claude-agent-sdk": "0.2.63",
     "@anthropic-ai/sdk": "^0.72.1",
     "@cdktf/hcl2json": "^0.21.0",
     "@dnd-kit/core": "^6.3.1",
