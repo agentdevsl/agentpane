@@ -1,61 +1,12 @@
 {
   "hooks": {
-    "PreToolUse": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/hooks/dist/langfuse-hook.js\""
-          }
-        ]
-      }
-    ],
     "PostToolUse": [
       {
+        "matcher": "Edit|Write",
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/hooks/dist/langfuse-hook.js\""
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/hooks/dist/langfuse-hook.js\""
-          }
-        ]
-      }
-    ],
-    "PreCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/hooks/dist/langfuse-hook.js\""
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/hooks/dist/langfuse-hook.js\""
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/hooks/dist/langfuse-hook.js\""
+            "command": "jq -r '.tool_input.file_path' | xargs npx @biomejs/biome check --write"
           }
         ]
       }

@@ -1,0 +1,177 @@
+import { and, eq } from 'drizzle-orm';
+import {
+  isValidRbacRole,
+  RBAC_ROLE_LEVEL,
+  type RbacRole,
+  resolveHighestRole,
+} from '../db/schema/shared/enums';
+import { projectMembers } from '../db/schema/sqlite/project-members';
+import { teamMembers } from '../db/schema/sqlite/team-members';
+import { teamProjects } from '../db/schema/sqlite/team-projects';
+import { createLogger } from '../lib/logging/logger';
+import type { Database } from '../types/database';
+
+const log = createLogger('RbacService');
+
+/** Permission actions mapped to minimum role */
+const PERMISSION_MAP: Record<string, RbacRole> = {
+  // Viewer actions
+  'project:read': 'viewer',
+  'task:read': 'viewer',
+  'session:read': 'viewer',
+  'agent:read': 'viewer',
+  'worktree:read': 'viewer',
+  'settings:read': 'viewer',
+  // Agent Operator actions
+  'task:create': 'agent_operator',
+  'task:update': 'agent_operator',
+  'task:move': 'agent_operator',
+  'task:delete': 'agent_operator',
+  'task:label': 'agent_operator',
+  'agent:start': 'agent_operator',
+  'agent:stop': 'agent_operator',
+  'agent:approve_plan': 'agent_operator',
+  'agent:reject_plan': 'agent_operator',
+  'agent:approve_task': 'agent_operator',
+  'session:create': 'agent_operator',
+  'worktree:create': 'agent_operator',
+  'worktree:update': 'agent_operator',
+  // Admin actions
+  'project:create': 'admin',
+  'project:update': 'admin',
+  'project:delete': 'admin',
+  'project:manage_members': 'admin',
+  'project:sandbox_config': 'admin',
+  'agent:delete': 'admin',
+  'session:delete': 'admin',
+  'worktree:delete': 'admin',
+  'settings:update': 'admin',
+  'keys:manage': 'admin',
+  'team:manage_members': 'admin',
+  'team:create_tokens': 'admin',
+  'team:manage_settings': 'admin',
+  'team:view_audit': 'admin',
+  // Owner actions
+  'team:delete': 'owner',
+  'team:transfer_owner': 'owner',
+  'team:promote_owner': 'owner',
+};
+
+export class RbacService {
+  constructor(private db: Database) {}
+
+  /**
+   * Resolve the effective role for a user on a specific project.
+   * Resolution order:
+   * 1. Direct project_members override -> use that role
+   * 2. Team membership via team_projects -> highest role across linked teams
+   * 3. No membership -> null (deny)
+   */
+  async resolveUserRole(userId: string, projectId: string): Promise<RbacRole | null> {
+    // 1. Check direct project member override
+    const directMember = await this.db.query.projectMembers.findFirst({
+      where: and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)),
+    });
+    if (directMember) {
+      const validated = isValidRbacRole(directMember.role);
+      if (!validated) {
+        log.warn('Invalid role in project_members', {
+          data: { userId, projectId, role: directMember.role },
+        });
+        return null;
+      }
+      return validated;
+    }
+
+    // 2. Check team memberships via team_projects (single JOIN)
+    const memberships = await this.db
+      .select({ role: teamMembers.role })
+      .from(teamMembers)
+      .innerJoin(teamProjects, eq(teamMembers.teamId, teamProjects.teamId))
+      .where(and(eq(teamMembers.userId, userId), eq(teamProjects.projectId, projectId)));
+
+    return resolveHighestRole(memberships)?.role ?? null;
+  }
+
+  /**
+   * Resolve the highest team role for a user across all their teams.
+   * Used for team-level operations where no project context exists.
+   */
+  async resolveTeamRole(userId: string, teamId: string): Promise<RbacRole | null> {
+    const membership = await this.db.query.teamMembers.findFirst({
+      where: and(eq(teamMembers.userId, userId), eq(teamMembers.teamId, teamId)),
+    });
+
+    if (!membership) return null;
+    const validated = isValidRbacRole(membership.role);
+    if (!validated) {
+      log.warn('Invalid role in team_members', {
+        data: { userId, teamId, role: membership.role },
+      });
+      return null;
+    }
+    return validated;
+  }
+
+  /**
+   * Resolve the highest role a user has across ALL their teams.
+   * Used when no specific team or project context.
+   */
+  async resolveGlobalRole(userId: string): Promise<RbacRole | null> {
+    const memberships = await this.db
+      .select({ role: teamMembers.role })
+      .from(teamMembers)
+      .where(eq(teamMembers.userId, userId));
+
+    return resolveHighestRole(memberships)?.role ?? null;
+  }
+
+  /**
+   * Check if a role meets or exceeds the minimum required role.
+   */
+  hasMinimumRole(userRole: RbacRole, minimumRole: RbacRole): boolean {
+    return RBAC_ROLE_LEVEL[userRole] >= RBAC_ROLE_LEVEL[minimumRole];
+  }
+
+  /**
+   * Apply token ceiling: effective role = min(membership role, token role)
+   */
+  applyTokenCeiling(membershipRole: RbacRole, tokenRole: RbacRole): RbacRole {
+    const memberLevel = RBAC_ROLE_LEVEL[membershipRole];
+    const tokenLevel = RBAC_ROLE_LEVEL[tokenRole];
+    return memberLevel <= tokenLevel ? membershipRole : tokenRole;
+  }
+
+  /**
+   * Check if a user can perform a specific action.
+   */
+  canPerformAction(userRole: RbacRole, action: string): boolean {
+    const requiredRole = PERMISSION_MAP[action];
+    if (!requiredRole) {
+      log.warn('Unknown permission action', { data: { action } });
+      return false;
+    }
+    return this.hasMinimumRole(userRole, requiredRole);
+  }
+
+  /**
+   * Check if an API token's scope tags overlap with resource tags.
+   * Returns true if access is allowed.
+   */
+  checkTagAccess(tokenScopeTags: string[] | null, resourceTags: string[]): boolean {
+    // No tag restriction on token -- allow everything
+    if (!tokenScopeTags || tokenScopeTags.length === 0) return true;
+    // Resource has no tags and token is tag-restricted -- deny
+    if (resourceTags.length === 0) return false;
+    // Check overlap
+    return tokenScopeTags.some((t) => resourceTags.includes(t));
+  }
+
+  /**
+   * Check if an API token's project scope allows access to a given project.
+   */
+  checkProjectScope(tokenProjectId: string | null, requestedProjectId: string): boolean {
+    if (!tokenProjectId) return true; // No project restriction
+    return tokenProjectId === requestedProjectId;
+  }
+}

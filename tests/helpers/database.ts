@@ -1,7 +1,11 @@
 import Database, { type Database as SQLiteDatabase } from 'better-sqlite3';
 import { type BetterSQLite3Database, drizzle } from 'drizzle-orm/better-sqlite3';
 import * as schema from '../../src/db/schema/sqlite';
-import { MIGRATION_SQL } from '../../src/lib/bootstrap/phases/schema';
+import {
+  MIGRATION_SQL,
+  RBAC_GITHUB_TOKEN_MIGRATION_SQL,
+  RBAC_MIGRATION_SQL,
+} from '../../src/lib/bootstrap/phases/schema';
 import { createTestAgent } from '../factories/agent.factory';
 import { createTestProject } from '../factories/project.factory';
 import { createTestTask } from '../factories/task.factory';
@@ -46,8 +50,20 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
 
   testDb = drizzle(testSqlite, { schema });
 
-  // Run migrations using inline SQL
+  // Run base migrations
   testSqlite.exec(MIGRATION_SQL);
+
+  // Add team_id column to github_tokens before running RBAC migration.
+  // RBAC_MIGRATION_SQL creates an index on github_tokens(team_id), so the
+  // column must exist first. Ignore errors in case the column already exists.
+  try {
+    testSqlite.exec(RBAC_GITHUB_TOKEN_MIGRATION_SQL);
+  } catch {
+    // column may already exist — safe to ignore
+  }
+
+  // Run RBAC migrations (creates teams, task_tags, api_tokens, etc.)
+  testSqlite.exec(RBAC_MIGRATION_SQL);
 
   return testDb;
 }
@@ -96,6 +112,16 @@ export async function clearTestDatabase(): Promise<void> {
   await testDb.delete(schema.repositoryConfigs);
   await testDb.delete(schema.githubInstallations);
   await testDb.delete(schema.githubTokens);
+  // RBAC tables (FK-safe order)
+  await testDb.delete(schema.taskTags);
+  await testDb.delete(schema.projectTags);
+  await testDb.delete(schema.apiTokens);
+  await testDb.delete(schema.teamInvitations);
+  await testDb.delete(schema.projectMembers);
+  await testDb.delete(schema.teamProjects);
+  await testDb.delete(schema.teamMembers);
+  await testDb.delete(schema.tags);
+  await testDb.delete(schema.teams);
   await testDb.delete(schema.projects);
   await testDb.delete(schema.sandboxConfigs);
   await testDb.delete(schema.marketplaces);

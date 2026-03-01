@@ -1,3 +1,4 @@
+import { createId } from '@paralleldrive/cuid2';
 import { createError } from '../../errors/base.js';
 import { err, ok } from '../../utils/result.js';
 import type { BootstrapContext } from '../types.js';
@@ -448,6 +449,209 @@ CREATE INDEX IF NOT EXISTS idx_worktrees_project_id ON worktrees(project_id);
 CREATE INDEX IF NOT EXISTS idx_agents_project_id ON agents(project_id);
 `;
 
+// RBAC tables migration (idempotent — uses IF NOT EXISTS)
+export const RBAC_MIGRATION_SQL = `
+CREATE TABLE IF NOT EXISTS "users" (
+  "id" TEXT PRIMARY KEY NOT NULL,
+  "github_id" INTEGER NOT NULL UNIQUE,
+  "github_login" TEXT NOT NULL,
+  "name" TEXT,
+  "email" TEXT,
+  "github_email" TEXT,
+  "avatar_url" TEXT,
+  "created_at" TEXT DEFAULT (datetime('now')) NOT NULL,
+  "updated_at" TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS "user_sessions" (
+  "id" TEXT PRIMARY KEY NOT NULL,
+  "user_id" TEXT NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+  "token" TEXT NOT NULL UNIQUE,
+  "expires_at" TEXT NOT NULL,
+  "created_at" TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS "teams" (
+  "id" TEXT PRIMARY KEY NOT NULL,
+  "name" TEXT NOT NULL,
+  "slug" TEXT NOT NULL UNIQUE,
+  "description" TEXT,
+  "created_at" TEXT DEFAULT (datetime('now')) NOT NULL,
+  "updated_at" TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS "team_members" (
+  "team_id" TEXT NOT NULL REFERENCES "teams"("id") ON DELETE CASCADE,
+  "user_id" TEXT NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+  "role" TEXT NOT NULL,
+  "joined_at" TEXT DEFAULT (datetime('now')) NOT NULL,
+  PRIMARY KEY ("team_id", "user_id")
+);
+
+CREATE TABLE IF NOT EXISTS "team_projects" (
+  "team_id" TEXT NOT NULL REFERENCES "teams"("id") ON DELETE CASCADE,
+  "project_id" TEXT NOT NULL REFERENCES "projects"("id") ON DELETE CASCADE,
+  "assigned_at" TEXT DEFAULT (datetime('now')) NOT NULL,
+  PRIMARY KEY ("team_id", "project_id")
+);
+
+CREATE TABLE IF NOT EXISTS "project_members" (
+  "project_id" TEXT NOT NULL REFERENCES "projects"("id") ON DELETE CASCADE,
+  "user_id" TEXT NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+  "role" TEXT NOT NULL,
+  "granted_by_team_id" TEXT REFERENCES "teams"("id") ON DELETE SET NULL,
+  "created_at" TEXT DEFAULT (datetime('now')) NOT NULL,
+  PRIMARY KEY ("project_id", "user_id")
+);
+
+CREATE TABLE IF NOT EXISTS "tags" (
+  "id" TEXT PRIMARY KEY NOT NULL,
+  "team_id" TEXT NOT NULL REFERENCES "teams"("id") ON DELETE CASCADE,
+  "name" TEXT NOT NULL,
+  "color" TEXT NOT NULL DEFAULT '#6B7280',
+  "created_at" TEXT DEFAULT (datetime('now')) NOT NULL,
+  "updated_at" TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "tags_team_name_unique" ON "tags"("team_id", "name");
+
+CREATE TABLE IF NOT EXISTS "project_tags" (
+  "project_id" TEXT NOT NULL REFERENCES "projects"("id") ON DELETE CASCADE,
+  "tag_id" TEXT NOT NULL REFERENCES "tags"("id") ON DELETE CASCADE,
+  "assigned_at" TEXT DEFAULT (datetime('now')) NOT NULL,
+  PRIMARY KEY ("project_id", "tag_id")
+);
+
+CREATE TABLE IF NOT EXISTS "task_tags" (
+  "task_id" TEXT NOT NULL REFERENCES "tasks"("id") ON DELETE CASCADE,
+  "tag_id" TEXT NOT NULL REFERENCES "tags"("id") ON DELETE CASCADE,
+  "assigned_at" TEXT DEFAULT (datetime('now')) NOT NULL,
+  PRIMARY KEY ("task_id", "tag_id")
+);
+
+CREATE TABLE IF NOT EXISTS "api_tokens" (
+  "id" TEXT PRIMARY KEY NOT NULL,
+  "user_id" TEXT NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+  "team_id" TEXT NOT NULL REFERENCES "teams"("id") ON DELETE CASCADE,
+  "name" TEXT NOT NULL,
+  "token_hash" TEXT NOT NULL UNIQUE,
+  "token_prefix" TEXT NOT NULL,
+  "role" TEXT NOT NULL,
+  "scope_tags" TEXT,
+  "scope_project_id" TEXT REFERENCES "projects"("id") ON DELETE SET NULL,
+  "status" TEXT NOT NULL DEFAULT 'active',
+  "expires_at" TEXT,
+  "last_used_at" TEXT,
+  "use_count" INTEGER DEFAULT 0,
+  "revoked_at" TEXT,
+  "created_at" TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS "team_invitations" (
+  "id" TEXT PRIMARY KEY NOT NULL,
+  "team_id" TEXT NOT NULL REFERENCES "teams"("id") ON DELETE CASCADE,
+  "invited_by" TEXT NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+  "email" TEXT NOT NULL,
+  "role" TEXT NOT NULL,
+  "token" TEXT NOT NULL UNIQUE,
+  "status" TEXT NOT NULL DEFAULT 'pending',
+  "expires_at" TEXT NOT NULL,
+  "created_at" TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+-- RBAC performance indexes
+CREATE INDEX IF NOT EXISTS idx_team_members_user ON team_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_team_projects_project ON team_projects(project_id);
+CREATE INDEX IF NOT EXISTS idx_project_members_user ON project_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_team ON api_tokens(team_id);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_status ON api_tokens(status);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_team_invitations_team ON team_invitations(team_id);
+CREATE INDEX IF NOT EXISTS idx_team_invitations_email ON team_invitations(email);
+CREATE INDEX IF NOT EXISTS idx_project_tags_tag ON project_tags(tag_id);
+CREATE INDEX IF NOT EXISTS idx_task_tags_tag ON task_tags(tag_id);
+CREATE INDEX IF NOT EXISTS "idx_team_invitations_team_email_status" ON "team_invitations" ("team_id", "email", "status");
+
+-- Additional RBAC indexes for query performance
+CREATE INDEX IF NOT EXISTS idx_users_github_login ON users(github_login);
+CREATE INDEX IF NOT EXISTS idx_github_tokens_team ON github_tokens(team_id);
+CREATE INDEX IF NOT EXISTS idx_tags_team ON tags(team_id);
+CREATE INDEX IF NOT EXISTS idx_project_tags_project ON project_tags(project_id);
+CREATE INDEX IF NOT EXISTS idx_task_tags_task ON task_tags(task_id);
+`;
+
+// RBAC schema additions for existing databases where CREATE TABLE IF NOT EXISTS
+// won't add new columns to already-existing tables. Each ALTER TABLE is run
+// individually wrapped in try/catch so partial failures don't block others.
+export const RBAC_SCHEMA_ADDITIONS = [
+  `ALTER TABLE tags ADD COLUMN "updated_at" TEXT DEFAULT (datetime('now')) NOT NULL`,
+  `ALTER TABLE project_tags ADD COLUMN "assigned_at" TEXT DEFAULT (datetime('now')) NOT NULL`,
+  `ALTER TABLE task_tags ADD COLUMN "assigned_at" TEXT DEFAULT (datetime('now')) NOT NULL`,
+  `ALTER TABLE api_tokens ADD COLUMN "use_count" INTEGER DEFAULT 0`,
+  // GitHub email for invitation verification (immutable by user, set only during OAuth)
+  `ALTER TABLE users ADD COLUMN "github_email" TEXT`,
+];
+
+// GitHub token team_id column migration (extracted for reuse)
+export const RBAC_GITHUB_TOKEN_MIGRATION_SQL = `ALTER TABLE github_tokens ADD COLUMN team_id TEXT REFERENCES "teams"("id") ON DELETE SET NULL`;
+
+/**
+ * Interface for raw SQLite database objects that support prepare/exec.
+ * Compatible with both better-sqlite3 (bootstrap) and bun:sqlite (api.ts).
+ */
+interface RawSQLiteDatabase {
+  prepare(sql: string): {
+    get(...params: unknown[]): unknown;
+    all(...params: unknown[]): unknown[];
+    run(...params: unknown[]): unknown;
+  };
+}
+
+/**
+ * Seeds a default team for existing installations that have github_tokens
+ * but no teams. This migrates pre-RBAC installations by:
+ * 1. Creating a "Default Team" with slug "default"
+ * 2. Associating all orphaned github_tokens (team_id IS NULL) with it
+ * 3. Assigning all existing projects to the default team via team_projects
+ *
+ * This function is idempotent: it only runs when the teams table is empty
+ * AND there are github_tokens without a team_id.
+ */
+export function seedDefaultTeamForExistingTokens(db: RawSQLiteDatabase): void {
+  const teamCount = db.prepare('SELECT COUNT(*) as count FROM teams').get() as { count: number };
+  const orphanedTokens = db
+    .prepare('SELECT COUNT(*) as count FROM github_tokens WHERE team_id IS NULL')
+    .get() as { count: number };
+
+  if (teamCount.count === 0 && orphanedTokens.count > 0) {
+    const defaultTeamId = createId();
+
+    // Create the default team
+    db.prepare(
+      `INSERT INTO teams (id, name, slug, description, created_at, updated_at)
+       VALUES (?, 'Default Team', 'default', 'Auto-created during RBAC migration', datetime('now'), datetime('now'))`
+    ).run(defaultTeamId);
+
+    // Associate orphaned github_tokens with the default team
+    db.prepare('UPDATE github_tokens SET team_id = ? WHERE team_id IS NULL').run(defaultTeamId);
+
+    // Assign all existing projects to the default team
+    const existingProjects = db.prepare('SELECT id FROM projects').all() as { id: string }[];
+    const insertTeamProject = db.prepare(
+      `INSERT OR IGNORE INTO team_projects (team_id, project_id, assigned_at)
+       VALUES (?, ?, datetime('now'))`
+    );
+    for (const project of existingProjects) {
+      insertTeamProject.run(defaultTeamId, project.id);
+    }
+
+    console.log(
+      `[RBAC Migration] Created default team '${defaultTeamId}' and associated ${orphanedTokens.count} GitHub token(s) and ${existingProjects.length} project(s)`
+    );
+  }
+}
+
 export const validateSchema = async (ctx: BootstrapContext) => {
   if (!ctx.db) {
     return err(createError('BOOTSTRAP_NO_DATABASE', 'Database not initialized', 500));
@@ -457,7 +661,36 @@ export const validateSchema = async (ctx: BootstrapContext) => {
     // Run migrations by executing SQL directly against SQLite
     ctx.db.exec(MIGRATION_SQL);
 
-    // Verify tables exist using SQLite syntax
+    // Run RBAC migration (idempotent)
+    ctx.db.exec(RBAC_MIGRATION_SQL);
+
+    // Run individual schema additions (may already exist on re-runs)
+    for (const sql of RBAC_SCHEMA_ADDITIONS) {
+      try {
+        ctx.db.exec(sql);
+      } catch (e) {
+        // "duplicate column name" is expected for re-runs — only log unexpected errors
+        const msg = e instanceof Error ? e.message : String(e);
+        if (!msg.includes('duplicate column')) {
+          console.warn(`[Schema] ALTER TABLE migration note: ${msg}`);
+        }
+      }
+    }
+
+    // Add team_id column to github_tokens for team-scoped tokens
+    try {
+      ctx.db.exec(RBAC_GITHUB_TOKEN_MIGRATION_SQL);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!msg.includes('duplicate column')) {
+        console.warn(`[Schema] github_tokens migration note: ${msg}`);
+      }
+    }
+
+    // Seed default team for pre-RBAC installations with orphaned tokens
+    seedDefaultTeamForExistingTokens(ctx.db);
+
+    // Verify core tables exist using SQLite syntax
     const result = ctx.db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='projects'")
       .get() as { name: string } | undefined;
@@ -472,9 +705,43 @@ export const validateSchema = async (ctx: BootstrapContext) => {
       );
     }
 
+    // Verify all 11 RBAC tables exist after migration
+    const RBAC_TABLES = [
+      'users',
+      'user_sessions',
+      'teams',
+      'team_members',
+      'team_projects',
+      'project_members',
+      'tags',
+      'project_tags',
+      'task_tags',
+      'api_tokens',
+      'team_invitations',
+    ] as const;
+
+    const existingTables = ctx.db
+      .prepare(
+        `SELECT name FROM sqlite_master WHERE type='table' AND name IN (${RBAC_TABLES.map(() => '?').join(', ')})`
+      )
+      .all(...RBAC_TABLES) as { name: string }[];
+
+    const existingTableNames = new Set(existingTables.map((t) => t.name));
+    const missingTables = RBAC_TABLES.filter((t) => !existingTableNames.has(t));
+
+    if (missingTables.length > 0) {
+      return err(
+        createError(
+          'BOOTSTRAP_SCHEMA_VALIDATION_FAILED',
+          `RBAC tables missing after migration: ${missingTables.join(', ')}`,
+          500
+        )
+      );
+    }
+
     return ok(undefined);
   } catch (error) {
-    console.error('[Schema] Migration failed:', error);
+    console.error('[Schema] Migration failed:', error instanceof Error ? error.message : error);
     return err(
       createError('BOOTSTRAP_SCHEMA_VALIDATION_FAILED', 'Schema migration failed', 500, {
         error: String(error),

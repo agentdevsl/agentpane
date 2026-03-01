@@ -1,14 +1,18 @@
+import { eq, inArray, isNull } from 'drizzle-orm';
 import { Octokit } from 'octokit';
-import { githubTokens } from '../db/schema';
+import { githubTokens, teamProjects } from '../db/schema';
 import {
   decryptToken,
   encryptToken,
   isValidPATFormat,
   maskToken,
 } from '../lib/crypto/server-encryption.js';
+import { createLogger } from '../lib/logging/logger';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
 import type { Database } from '../types/database.js';
+
+const log = createLogger('GitHubTokenService');
 
 export type GitHubTokenError =
   | { code: 'INVALID_FORMAT'; message: string }
@@ -140,11 +144,50 @@ export class GitHubTokenService {
     try {
       return decryptToken(token.encryptedToken);
     } catch (error) {
-      console.error('[GitHubTokenService] Failed to decrypt token:', error);
+      log.error('Failed to decrypt GitHub token — encryption key may have changed', {
+        error,
+        data: { tokenId: token.id },
+      });
       throw new Error(
         'Failed to decrypt GitHub token. The encryption key may have changed or data is corrupted.'
       );
     }
+  }
+
+  /**
+   * Resolve a GitHub token for a project via its team associations.
+   * Resolution chain: team_projects → github_tokens by teamId → global fallback (team_id IS NULL)
+   */
+  async resolveGitHubTokenForProject(projectId: string): Promise<string | null> {
+    // Step 1: Find all teams associated with this project
+    const projectTeams = await this.db
+      .select({ teamId: teamProjects.teamId })
+      .from(teamProjects)
+      .where(eq(teamProjects.projectId, projectId));
+
+    // Step 2: If the project has teams, look for a team-specific token (single query)
+    if (projectTeams.length > 0) {
+      const teamIds = projectTeams.map((t) => t.teamId);
+      const teamToken = await this.db.query.githubTokens.findFirst({
+        where: inArray(githubTokens.teamId, teamIds),
+      });
+
+      if (teamToken) {
+        return decryptToken(teamToken.encryptedToken);
+      }
+    }
+
+    // Step 3: Fall back to global token (team_id IS NULL)
+    const globalToken = await this.db.query.githubTokens.findFirst({
+      where: isNull(githubTokens.teamId),
+    });
+
+    if (globalToken) {
+      return decryptToken(globalToken.encryptedToken);
+    }
+
+    return null;
+    // Errors (DB failures, decryption failures) propagate to callers
   }
 
   /**
@@ -206,6 +249,17 @@ export class GitHubTokenService {
   }
 
   /**
+   * Get an Octokit instance along with the token's database ID.
+   * Used internally so handleOctokitError can scope invalidation to the specific token.
+   */
+  private async getOctokitWithId(): Promise<{ octokit: Octokit; tokenId: string } | null> {
+    const tokenRow = await this.db.query.githubTokens.findFirst();
+    if (!tokenRow) return null;
+    const decrypted = await decryptToken(tokenRow.encryptedToken);
+    return { octokit: this.createOctokit(decrypted), tokenId: tokenRow.id };
+  }
+
+  /**
    * Validate a token with GitHub API
    */
   private async validateWithGitHub(
@@ -243,8 +297,8 @@ export class GitHubTokenService {
    * Get repository info
    */
   async getRepository(owner: string, repo: string): Promise<Result<GitHubRepo, GitHubTokenError>> {
-    const octokit = await this.getOctokit();
-    if (!octokit) {
+    const result = await this.getOctokitWithId();
+    if (!result) {
       return err({
         code: 'NOT_FOUND',
         message: 'No GitHub token configured',
@@ -252,7 +306,7 @@ export class GitHubTokenService {
     }
 
     try {
-      const { data } = await octokit.rest.repos.get({ owner, repo });
+      const { data } = await result.octokit.rest.repos.get({ owner, repo });
       return ok({
         id: data.id,
         name: data.name,
@@ -270,7 +324,7 @@ export class GitHubTokenService {
         is_template: data.is_template ?? false,
       });
     } catch (error) {
-      return this.handleOctokitError(error);
+      return this.handleOctokitError(error, result.tokenId);
     }
   }
 
@@ -281,8 +335,8 @@ export class GitHubTokenService {
     owner: string,
     repo: string
   ): Promise<Result<GitHubBranch[], GitHubTokenError>> {
-    const octokit = await this.getOctokit();
-    if (!octokit) {
+    const result = await this.getOctokitWithId();
+    if (!result) {
       return err({
         code: 'NOT_FOUND',
         message: 'No GitHub token configured',
@@ -290,7 +344,7 @@ export class GitHubTokenService {
     }
 
     try {
-      const { data } = await octokit.rest.repos.listBranches({ owner, repo });
+      const { data } = await result.octokit.rest.repos.listBranches({ owner, repo });
       return ok(
         data.map((branch) => ({
           name: branch.name,
@@ -298,7 +352,7 @@ export class GitHubTokenService {
         }))
       );
     } catch (error) {
-      return this.handleOctokitError(error);
+      return this.handleOctokitError(error, result.tokenId);
     }
   }
 
@@ -307,8 +361,8 @@ export class GitHubTokenService {
    * Sorted by most recently updated, limited to 50 repos
    */
   async listUserRepos(): Promise<Result<GitHubRepo[], GitHubTokenError>> {
-    const octokit = await this.getOctokit();
-    if (!octokit) {
+    const result = await this.getOctokitWithId();
+    if (!result) {
       return err({
         code: 'NOT_FOUND',
         message: 'No GitHub token configured',
@@ -316,7 +370,7 @@ export class GitHubTokenService {
     }
 
     try {
-      const { data } = await octokit.rest.repos.listForAuthenticatedUser({
+      const { data } = await result.octokit.rest.repos.listForAuthenticatedUser({
         sort: 'updated',
         per_page: 50,
       });
@@ -339,7 +393,7 @@ export class GitHubTokenService {
         }))
       );
     } catch (error) {
-      return this.handleOctokitError(error);
+      return this.handleOctokitError(error, result.tokenId);
     }
   }
 
@@ -347,8 +401,8 @@ export class GitHubTokenService {
    * List the authenticated user's organizations (plus their own account)
    */
   async listUserOrgs(): Promise<Result<GitHubOrg[], GitHubTokenError>> {
-    const octokit = await this.getOctokit();
-    if (!octokit) {
+    const result = await this.getOctokitWithId();
+    if (!result) {
       return err({
         code: 'NOT_FOUND',
         message: 'No GitHub token configured',
@@ -357,10 +411,10 @@ export class GitHubTokenService {
 
     try {
       // Get the authenticated user first
-      const { data: user } = await octokit.rest.users.getAuthenticated();
+      const { data: user } = await result.octokit.rest.users.getAuthenticated();
 
       // Get user's organizations
-      const { data: orgs } = await octokit.rest.orgs.listForAuthenticatedUser({
+      const { data: orgs } = await result.octokit.rest.orgs.listForAuthenticatedUser({
         per_page: 100,
       });
 
@@ -378,7 +432,7 @@ export class GitHubTokenService {
         })),
       ]);
     } catch (error) {
-      return this.handleOctokitError(error);
+      return this.handleOctokitError(error, result.tokenId);
     }
   }
 
@@ -386,8 +440,8 @@ export class GitHubTokenService {
    * List repositories for a specific owner (user or org)
    */
   async listReposForOwner(owner: string): Promise<Result<GitHubRepo[], GitHubTokenError>> {
-    const octokit = await this.getOctokit();
-    if (!octokit) {
+    const result = await this.getOctokitWithId();
+    if (!result) {
       return err({
         code: 'NOT_FOUND',
         message: 'No GitHub token configured',
@@ -396,19 +450,19 @@ export class GitHubTokenService {
 
     try {
       // Check if it's the authenticated user or an org
-      const { data: user } = await octokit.rest.users.getAuthenticated();
+      const { data: user } = await result.octokit.rest.users.getAuthenticated();
       const isAuthenticatedUser = user.login === owner;
 
       const repos = isAuthenticatedUser
         ? (
-            await octokit.rest.repos.listForAuthenticatedUser({
+            await result.octokit.rest.repos.listForAuthenticatedUser({
               sort: 'updated',
               per_page: 100,
               affiliation: 'owner',
             })
           ).data
         : (
-            await octokit.rest.repos.listForOrg({
+            await result.octokit.rest.repos.listForOrg({
               org: owner,
               sort: 'updated',
               per_page: 100,
@@ -434,7 +488,7 @@ export class GitHubTokenService {
         }))
       );
     } catch (error) {
-      return this.handleOctokitError(error);
+      return this.handleOctokitError(error, result.tokenId);
     }
   }
 
@@ -449,8 +503,8 @@ export class GitHubTokenService {
     description?: string;
     isPrivate?: boolean;
   }): Promise<Result<{ cloneUrl: string; fullName: string }, GitHubTokenError>> {
-    const octokit = await this.getOctokit();
-    if (!octokit) {
+    const result = await this.getOctokitWithId();
+    if (!result) {
       return err({
         code: 'NOT_FOUND',
         message: 'No GitHub token configured',
@@ -458,7 +512,7 @@ export class GitHubTokenService {
     }
 
     try {
-      const { data } = await octokit.rest.repos.createUsingTemplate({
+      const { data } = await result.octokit.rest.repos.createUsingTemplate({
         template_owner: params.templateOwner,
         template_repo: params.templateRepo,
         name: params.name,
@@ -482,21 +536,28 @@ export class GitHubTokenService {
           });
         }
       }
-      return this.handleOctokitError(error);
+      return this.handleOctokitError(error, result.tokenId);
     }
   }
 
   /**
-   * Handle Octokit errors consistently
+   * Handle Octokit errors consistently.
+   * @param tokenId Optional token ID to scope invalidation to the specific failing token
    */
-  private async handleOctokitError<T>(error: unknown): Promise<Result<T, GitHubTokenError>> {
+  private async handleOctokitError<T>(
+    error: unknown,
+    tokenId?: string
+  ): Promise<Result<T, GitHubTokenError>> {
     if (error instanceof Error && 'status' in error) {
       const status = (error as { status: number }).status;
       if (status === 401) {
-        // Mark token as invalid
-        await this.db
-          .update(githubTokens)
-          .set({ isValid: false, updatedAt: new Date().toISOString() });
+        // Mark the specific token as invalid (not all tokens)
+        if (tokenId) {
+          await this.db
+            .update(githubTokens)
+            .set({ isValid: false, updatedAt: new Date().toISOString() })
+            .where(eq(githubTokens.id, tokenId));
+        }
         return err({
           code: 'VALIDATION_FAILED',
           message: 'Token is no longer valid',

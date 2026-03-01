@@ -1,6 +1,7 @@
 import { createId } from '@paralleldrive/cuid2';
 import { sql } from 'drizzle-orm';
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { teams } from './teams';
 
 /**
  * Stores encrypted GitHub Personal Access Tokens
@@ -18,6 +19,7 @@ export const githubTokens = sqliteTable('github_tokens', {
   // Associated GitHub user info (from validation)
   githubLogin: text('github_login'),
   githubId: text('github_id'),
+  teamId: text('team_id').references(() => teams.id, { onDelete: 'set null' }),
   // Status (SQLite uses 0/1 for boolean)
   isValid: integer('is_valid', { mode: 'boolean' }).default(true),
   lastValidatedAt: text('last_validated_at'),

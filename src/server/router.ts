@@ -4,12 +4,16 @@
  * Main router that combines all route modules.
  */
 
+import { and, eq } from 'drizzle-orm';
 import type { Context, Next } from 'hono';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
+import { apiTokens } from '../db/schema/sqlite/api-tokens.js';
+import { userSessions } from '../db/schema/sqlite/user-sessions.js';
 import { getAuthContext } from '../lib/api/auth-middleware.js';
 import { rateLimiter } from '../lib/api/rate-limiter.js';
+import { enrichAuthContext, requireRole, requireTagAccess } from '../lib/api/rbac-middleware.js';
 import { createLogger } from '../lib/logging/logger.js';
 import type { EventEmittingSandboxProvider } from '../lib/sandbox/index.js';
 import type { AgentService } from '../services/agent.service.js';
@@ -17,6 +21,7 @@ import type { ApiKeyService } from '../services/api-key.service.js';
 import type { CliMonitorService } from '../services/cli-monitor/index.js';
 import type { GitHubTokenService } from '../services/github-token.service.js';
 import type { MarketplaceService } from '../services/marketplace.service.js';
+import { RbacService } from '../services/rbac.service.js';
 import type { SandboxConfigService } from '../services/sandbox-config.service.js';
 import type { SessionService } from '../services/session.service.js';
 import type { SettingsService } from '../services/settings.service.js';
@@ -29,25 +34,37 @@ import type { CommandRunner, WorktreeService } from '../services/worktree.servic
 import type { Database } from '../types/database.js';
 import { createAgentsRoutes } from './routes/agents.js';
 import { createApiKeysRoutes } from './routes/api-keys.js';
+import { createAuthRoutes } from './routes/auth.js';
 import { createCliMonitorRoutes } from './routes/cli-monitor.js';
 import { createFilesystemRoutes } from './routes/filesystem.js';
 import { createGitRoutes } from './routes/git.js';
 import { createGitHubRoutes } from './routes/github.js';
 import { createHealthRoutes } from './routes/health.js';
+import { createInvitationAcceptRoutes } from './routes/invitation-accept.js';
 import { createMarketplacesRoutes } from './routes/marketplaces.js';
+import { createMeRoutes } from './routes/me.js';
+import { createProjectMembersRoutes } from './routes/project-members.js';
 import { createProjectsRoutes } from './routes/projects.js';
+import { createRbacTokensRoutes } from './routes/rbac-tokens.js';
 import { createK8sRoutes, createNomadRoutes, createSandboxRoutes } from './routes/sandbox.js';
 import { createSandboxStatusRoutes } from './routes/sandbox-status.js';
 import { createSessionsRoutes } from './routes/sessions.js';
 import { createSettingsRoutes } from './routes/settings.js';
+import { createProjectTagRoutes, createTagsRoutes, createTaskTagRoutes } from './routes/tags.js';
 import { createTaskCreationRoutes } from './routes/task-creation.js';
 import { createTasksRoutes } from './routes/tasks.js';
+import { createTeamGitHubTokenRoutes } from './routes/team-github-token.js';
+import { createTeamInvitationsRoutes } from './routes/team-invitations.js';
+import { createTeamMembersRoutes } from './routes/team-members.js';
+import { createTeamProjectsRoutes } from './routes/team-projects.js';
+import { createTeamsRoutes } from './routes/teams.js';
 import { createTemplatesRoutes } from './routes/templates.js';
 import { createTerraformRoutes } from './routes/terraform.js';
 import { createWebhooksRoutes } from './routes/webhooks.js';
 import { createWorkflowDesignerRoutes } from './routes/workflow-designer.js';
 import { createWorkflowsRoutes } from './routes/workflows.js';
 import { createWorktreesRoutes } from './routes/worktrees.js';
+import { hashToken } from './shared.js';
 
 const routerLog = createLogger('Router');
 
@@ -77,22 +94,51 @@ async function securityHeaders(c: Context, next: Next) {
   }
 }
 
-async function authMiddleware(c: Context, next: Next) {
-  const path = c.req.path;
-  if (path === '/api/health' || path === '/api/healthz' || path === '/api/readyz') {
+/** Factory that creates auth middleware with access to database for token validation. */
+function createAuthMiddleware(db: Database) {
+  return async function authMiddleware(c: Context, next: Next) {
+    const path = c.req.path;
+    if (path === '/api/health' || path === '/api/healthz' || path === '/api/readyz') {
+      return next();
+    }
+    if (path.startsWith('/api/auth/')) {
+      return next();
+    }
+
+    const result = await getAuthContext(c.req.raw, {
+      validateSessionToken: async (token: string) => {
+        const session = await db.query.userSessions.findFirst({
+          where: and(eq(userSessions.token, hashToken(token))),
+        });
+        if (!session) return null;
+        // Check expiration
+        if (new Date(session.expiresAt) < new Date()) return null;
+        return session.userId;
+      },
+      validateApiKey: async (key: string) => {
+        const tokenHash = hashToken(key);
+        const apiToken = await db.query.apiTokens.findFirst({
+          where: and(eq(apiTokens.tokenHash, tokenHash), eq(apiTokens.status, 'active')),
+        });
+        if (!apiToken) return null;
+        // Check expiration if set
+        if (apiToken.expiresAt && new Date(apiToken.expiresAt) < new Date()) return null;
+        // Cache the resolved token record so enrichAuthContext doesn't re-query
+        c.set('_resolvedApiToken', apiToken);
+        return apiToken.userId;
+      },
+    });
+
+    if (!result.ok) {
+      return c.json(
+        { ok: false, error: { code: result.error.code, message: result.error.message } },
+        result.error.status as 401 | 403
+      );
+    }
+
+    c.set('auth', result.value);
     return next();
-  }
-
-  const result = await getAuthContext(c.req.raw);
-  if (!result.ok) {
-    return c.json(
-      { ok: false, error: { code: result.error.code, message: result.error.message } },
-      result.error.status as 401 | 403
-    );
-  }
-
-  c.set('auth', result.value);
-  return next();
+  };
 }
 
 /** Shared interface for reading sandbox provider health in routes (K8s, Nomad, etc.). */
@@ -125,6 +171,7 @@ export interface RouterDependencies {
   terraformRegistryService?: TerraformRegistryService;
   terraformComposeService?: TerraformComposeService;
   settingsService?: SettingsService;
+  rbacService?: RbacService;
 }
 
 export function createRouter(deps: RouterDependencies) {
@@ -146,7 +193,94 @@ export function createRouter(deps: RouterDependencies) {
   app.use('*', requestIdMiddleware);
   app.use('*', securityHeaders);
   app.use('/api/*', rateLimiter({ max: 200, windowMs: 60_000 }));
-  app.use('/api/*', authMiddleware);
+  app.use('/api/*', createAuthMiddleware(deps.db));
+  app.use('/api/*', enrichAuthContext(deps.db));
+  // Per-token rate limiter: applies a stricter limit to API token requests.
+  // Must run after enrichAuthContext which populates tokenScope on the auth context.
+  // Non-token requests (session/dev auth) skip this limiter entirely.
+  app.use('/api/*', rateLimiter({ max: 100, windowMs: 60_000, keyOnToken: true }));
+  app.use('/api/*', requireTagAccess(deps.db));
+
+  // --- RBAC role guards for existing routes ---
+  const rbacService = deps.rbacService ?? new RbacService(deps.db);
+
+  // Settings: admin required
+  app.use('/api/settings', requireRole('admin', rbacService));
+  app.use('/api/settings/*', requireRole('admin', rbacService));
+
+  // API keys: admin required
+  app.use('/api/keys', requireRole('admin', rbacService));
+  app.use('/api/keys/*', requireRole('admin', rbacService));
+
+  // Projects: viewer minimum (write operations checked in handlers)
+  app.use('/api/projects', requireRole('viewer', rbacService));
+  app.use('/api/projects/*', requireRole('viewer', rbacService));
+
+  // Tasks: viewer minimum (write operations checked in handlers)
+  app.use('/api/tasks', requireRole('viewer', rbacService));
+  app.use('/api/tasks/*', requireRole('viewer', rbacService));
+
+  // Agents: viewer minimum (action endpoints checked in handlers)
+  app.use('/api/agents', requireRole('viewer', rbacService));
+  app.use('/api/agents/*', requireRole('viewer', rbacService));
+
+  // Sessions: viewer minimum
+  app.use('/api/sessions', requireRole('viewer', rbacService));
+  app.use('/api/sessions/*', requireRole('viewer', rbacService));
+
+  // Worktrees: viewer minimum
+  app.use('/api/worktrees', requireRole('viewer', rbacService));
+  app.use('/api/worktrees/*', requireRole('viewer', rbacService));
+
+  // GitHub integration: viewer minimum (read repos/branches)
+  app.use('/api/github', requireRole('viewer', rbacService));
+  app.use('/api/github/*', requireRole('viewer', rbacService));
+
+  // Git operations: agent_operator minimum (executes git commands)
+  app.use('/api/git', requireRole('agent_operator', rbacService));
+  app.use('/api/git/*', requireRole('agent_operator', rbacService));
+
+  // Filesystem: admin required (arbitrary filesystem browsing)
+  app.use('/api/filesystem', requireRole('admin', rbacService));
+  app.use('/api/filesystem/*', requireRole('admin', rbacService));
+
+  // Sandbox configs: admin required (infrastructure management)
+  app.use('/api/sandbox-configs', requireRole('admin', rbacService));
+  app.use('/api/sandbox-configs/*', requireRole('admin', rbacService));
+  app.use('/api/sandbox/status', requireRole('viewer', rbacService));
+  app.use('/api/sandbox/status/*', requireRole('viewer', rbacService));
+  app.use('/api/sandbox/k8s', requireRole('admin', rbacService));
+  app.use('/api/sandbox/k8s/*', requireRole('admin', rbacService));
+  app.use('/api/sandbox/nomad', requireRole('admin', rbacService));
+  app.use('/api/sandbox/nomad/*', requireRole('admin', rbacService));
+
+  // Workflows and templates: viewer minimum
+  app.use('/api/workflows', requireRole('viewer', rbacService));
+  app.use('/api/workflows/*', requireRole('viewer', rbacService));
+  app.use('/api/templates', requireRole('viewer', rbacService));
+  app.use('/api/templates/*', requireRole('viewer', rbacService));
+  app.use('/api/workflow-designer', requireRole('viewer', rbacService));
+  app.use('/api/workflow-designer/*', requireRole('viewer', rbacService));
+
+  // Marketplaces: viewer minimum
+  app.use('/api/marketplaces', requireRole('viewer', rbacService));
+  app.use('/api/marketplaces/*', requireRole('viewer', rbacService));
+
+  // Webhooks: admin required
+  app.use('/api/webhooks', requireRole('admin', rbacService));
+  app.use('/api/webhooks/*', requireRole('admin', rbacService));
+
+  // Terraform: viewer minimum
+  app.use('/api/terraform', requireRole('viewer', rbacService));
+  app.use('/api/terraform/*', requireRole('viewer', rbacService));
+
+  // CLI monitor: viewer minimum
+  app.use('/api/cli-monitor', requireRole('viewer', rbacService));
+  app.use('/api/cli-monitor/*', requireRole('viewer', rbacService));
+
+  // Task creation with AI: agent_operator minimum
+  app.use('/api/tasks/create-with-ai', requireRole('agent_operator', rbacService));
+  app.use('/api/tasks/create-with-ai/*', requireRole('agent_operator', rbacService));
 
   app.route(
     '/api/health',
@@ -167,6 +301,9 @@ export function createRouter(deps: RouterDependencies) {
       return c.json({ ok: false, status: 'not_ready' }, 503);
     }
   });
+
+  // Auth routes (public — exempted from authMiddleware above)
+  app.route('/api/auth', createAuthRoutes({ db: deps.db }));
 
   app.route('/api/settings', createSettingsRoutes({ db: deps.db }));
   app.route('/api/projects', createProjectsRoutes({ db: deps.db }));
@@ -234,16 +371,34 @@ export function createRouter(deps: RouterDependencies) {
     );
   }
 
+  // RBAC routes
+  app.route('/api/teams', createTeamsRoutes({ db: deps.db, rbacService }));
+  app.route('/api/teams/:id/members', createTeamMembersRoutes({ db: deps.db, rbacService }));
+  app.route('/api/teams/:id/projects', createTeamProjectsRoutes({ db: deps.db, rbacService }));
+  app.route(
+    '/api/teams/:id/invitations',
+    createTeamInvitationsRoutes({ db: deps.db, rbacService })
+  );
+  app.route(
+    '/api/teams/:id/github-token',
+    createTeamGitHubTokenRoutes({ db: deps.db, rbacService })
+  );
+  app.route('/api/invitations', createInvitationAcceptRoutes({ db: deps.db }));
+  app.route('/api/projects/:id/members', createProjectMembersRoutes({ db: deps.db, rbacService }));
+  app.route('/api/tokens', createRbacTokensRoutes({ db: deps.db, rbacService }));
+  app.route('/api/tags', createTagsRoutes({ db: deps.db, rbacService }));
+  app.route('/api/projects/:id/tags', createProjectTagRoutes({ db: deps.db, rbacService }));
+  app.route('/api/tasks/:id/tags', createTaskTagRoutes({ db: deps.db, rbacService }));
+  app.route('/api/me', createMeRoutes({ db: deps.db }));
+
   app.onError((err, c) => {
     const requestId =
       c.req.header('x-request-id') ?? (c.res.headers.get('X-Request-Id') || undefined);
     routerLog.error('Unhandled error', { requestId, error: err });
 
-    const isProduction = process.env.NODE_ENV === 'production';
-    let message = 'Internal server error';
-    if (isProduction) {
-      message = 'An unexpected error occurred.';
-    } else if (err instanceof Error) {
+    const isDev = process.env.NODE_ENV === 'development';
+    let message = 'An unexpected error occurred.';
+    if (isDev && err instanceof Error) {
       message = err.message;
     }
 

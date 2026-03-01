@@ -10,7 +10,7 @@
 
 import { err, ok, type Result } from '../utils/result.js';
 
-const SESSION_COOKIE_NAME = 'agentpane_session';
+export const SESSION_COOKIE_NAME = 'agentpane_session';
 
 /**
  * Authentication context available in routes
@@ -18,6 +18,29 @@ const SESSION_COOKIE_NAME = 'agentpane_session';
 export interface AuthContext {
   userId: string;
   authMethod: 'session' | 'api_token' | 'dev';
+  // RBAC fields (populated by enrichAuthContext middleware)
+  user?: {
+    id: string;
+    githubId: number;
+    githubLogin: string;
+    name: string | null;
+    email: string | null;
+    /** Email from GitHub OAuth — immutable by user, used for invitation verification */
+    githubEmail: string | null;
+    avatarUrl: string | null;
+  };
+  resolvedRole?: import('../../db/schema/shared/enums').RbacRole;
+  roleLevel?: number;
+  teamMemberships?: Array<{
+    teamId: string;
+    role: import('../../db/schema/shared/enums').RbacRole;
+  }>;
+  tokenScope?: {
+    tokenId: string;
+    role: import('../../db/schema/shared/enums').RbacRole;
+    projectId: string | null;
+    tags: string[] | null;
+  };
 }
 
 /**
@@ -74,10 +97,20 @@ export async function getAuthContext(
       return ok({ userId, authMethod: 'session' });
     }
 
-    // Fallback: accept token without DB validation (dev / no validators configured)
-    return ok({
-      userId: `session:${sessionToken.substring(0, 8)}`,
-      authMethod: 'session',
+    // No validator provided
+    const isDev = process.env.NODE_ENV === 'development';
+    if (isDev) {
+      // Dev mode: accept without validation
+      return ok({
+        userId: `session:${sessionToken.substring(0, 8)}`,
+        authMethod: 'session',
+      });
+    }
+    // Production: reject - validator must be configured
+    return err({
+      code: 'UNAUTHORIZED',
+      message: 'Session validation not configured.',
+      status: 401,
     });
   }
 
@@ -98,16 +131,24 @@ export async function getAuthContext(
       return ok({ userId, authMethod: 'api_token' });
     }
 
-    // Fallback: accept token without DB validation (dev / no validators configured)
-    return ok({
-      userId: `token:${token.substring(0, 8)}`,
-      authMethod: 'api_token',
+    // No validator provided
+    const isDev = process.env.NODE_ENV === 'development';
+    if (isDev) {
+      return ok({
+        userId: `token:${token.substring(0, 8)}`,
+        authMethod: 'api_token',
+      });
+    }
+    return err({
+      code: 'UNAUTHORIZED',
+      message: 'API key validation not configured.',
+      status: 401,
     });
   }
 
   // 3. Development mode: Allow unauthenticated requests
-  // Treat unset NODE_ENV as development (matches api.ts convention)
-  const isDev = !process.env.NODE_ENV || process.env.NODE_ENV === 'development';
+  // Require explicit NODE_ENV=development - unset NODE_ENV means auth is required
+  const isDev = process.env.NODE_ENV === 'development';
   if (isDev) {
     // Check for explicit skip or default dev user
     const skipAuth = process.env.SKIP_AUTH === 'true';

@@ -97,7 +97,120 @@ export const commitWorktreeSchema = z.object({
   message: z.string().min(1, 'Commit message is required').max(2000),
 });
 
+// ─── RBAC Schemas ─────────────────────────────────────
+
+export const rbacRoleSchema = z.enum(['owner', 'admin', 'agent_operator', 'viewer']);
+
+/** Role schema that excludes 'owner' -- used for assignable roles */
+const assignableRoleSchema = z.enum(['admin', 'agent_operator', 'viewer']);
+
+export const createTeamSchema = z.object({
+  name: z.string().min(1, 'Team name is required').max(100),
+  slug: z
+    .string()
+    .min(1)
+    .max(100)
+    .regex(
+      /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/,
+      'Slug must start and end with alphanumeric, hyphens allowed between'
+    )
+    .optional(),
+  description: z.string().max(500).optional(),
+});
+
+export const updateTeamSchema = z
+  .object({
+    name: z.string().min(1).max(100).optional(),
+    slug: z
+      .string()
+      .min(1)
+      .max(100)
+      .regex(
+        /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/,
+        'Slug must start and end with alphanumeric, hyphens allowed between'
+      )
+      .optional(),
+    description: z.string().max(500).optional(),
+  })
+  .refine((data) => Object.values(data).some((v) => v !== undefined), {
+    message: 'At least one field must be provided',
+  });
+
+export const addTeamMemberSchema = z.object({
+  userId: idSchema,
+  role: assignableRoleSchema,
+});
+
+export const updateTeamMemberSchema = z.object({
+  role: assignableRoleSchema,
+});
+
+export const createInvitationSchema = z.object({
+  email: z.string().max(254).email('Valid email is required'),
+  role: assignableRoleSchema,
+});
+
+export const addProjectMemberSchema = z.object({
+  userId: idSchema,
+  role: assignableRoleSchema,
+  teamId: idSchema.optional(),
+});
+
+export const updateProjectMemberSchema = z.object({
+  role: assignableRoleSchema,
+});
+
+export const createApiTokenSchema = z.object({
+  name: z.string().min(1, 'Token name is required').max(100),
+  teamId: idSchema,
+  role: assignableRoleSchema,
+  scopeTags: z.array(z.string().min(1).max(50).trim()).max(20).optional(),
+  scopeProjectId: idSchema.optional(),
+  expiresInDays: z.number().int().min(1).max(365).optional(),
+});
+
+export const createTagSchema = z.object({
+  teamId: idSchema,
+  name: z.string().min(1, 'Tag name is required').max(50),
+  color: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/, 'Color must be a hex code')
+    .optional(),
+});
+
+export const assignTagSchema = z.object({
+  tagId: idSchema,
+});
+
+export const transferOwnershipSchema = z.object({
+  targetUserId: idSchema,
+});
+
+export const updateProfileSchema = z
+  .object({
+    name: z.string().trim().min(1).max(200).optional(),
+    email: z.string().trim().max(254).email().optional(),
+  })
+  .refine((data) => Object.values(data).some((v) => v !== undefined), {
+    message: 'At least one field must be provided',
+  });
+
 // ─── Helper ──────────────────────────────────────────
+
+type ParseResult<T> = { ok: true; data: T } | { ok: false; response: Response };
+
+function validationError(message: string): { ok: false; response: Response } {
+  return {
+    ok: false,
+    response: new Response(
+      JSON.stringify({
+        ok: false,
+        error: { code: 'VALIDATION_ERROR', message },
+      }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } }
+    ),
+  };
+}
 
 /**
  * Parse a Zod schema and return a validation error response or the parsed data.
@@ -105,23 +218,34 @@ export const commitWorktreeSchema = z.object({
  * @returns `{ ok: true, data }` or `{ ok: false, response }` where `response` is
  * a JSON Response ready to return from the handler.
  */
-export function parseBody<T>(
-  schema: z.ZodSchema<T>,
-  body: unknown
-): { ok: true; data: T } | { ok: false; response: Response } {
+export function parseBody<T>(schema: z.ZodSchema<T>, body: unknown): ParseResult<T> {
   const result = schema.safeParse(body);
   if (!result.success) {
-    const message = result.error.issues[0]?.message ?? 'Invalid request body';
-    return {
-      ok: false,
-      response: new Response(
-        JSON.stringify({
-          ok: false,
-          error: { code: 'VALIDATION_ERROR', message },
-        }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
-      ),
-    };
+    return validationError(result.error.issues[0]?.message ?? 'Invalid request body');
   }
   return { ok: true, data: result.data };
+}
+
+/**
+ * Parse JSON from a Hono request context and validate against a Zod schema.
+ * Combines JSON parsing and schema validation into one step.
+ *
+ * @returns `{ ok: true, data }` or `{ ok: false, response }` where `response` is
+ * a JSON Response ready to return from the handler.
+ */
+export async function parseJsonBody<T>(
+  c: { req: { json(): Promise<unknown> } },
+  schema: z.ZodSchema<T>
+): Promise<ParseResult<T>> {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return validationError('Invalid JSON');
+    }
+    // Unexpected error (stream error, body too large, etc.)
+    return validationError('Failed to read request body');
+  }
+  return parseBody(schema, body);
 }

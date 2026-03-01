@@ -53,3 +53,49 @@ export type SessionStatus = (typeof SESSION_STATUS)[number];
 
 export const SANDBOX_TYPES = ['docker', 'devcontainer', 'kubernetes', 'nomad'] as const;
 export type SandboxType = (typeof SANDBOX_TYPES)[number];
+
+export const RBAC_ROLES = ['owner', 'admin', 'agent_operator', 'viewer'] as const;
+export type RbacRole = (typeof RBAC_ROLES)[number];
+
+export const RBAC_ROLE_LEVEL: Readonly<Record<RbacRole, number>> = Object.freeze({
+  owner: 4,
+  admin: 3,
+  agent_operator: 2,
+  viewer: 1,
+});
+
+/** Validate that a string is a recognized RBAC role. Returns the role or null. */
+export function isValidRbacRole(value: string): RbacRole | null {
+  return (RBAC_ROLES as readonly string[]).includes(value) ? (value as RbacRole) : null;
+}
+
+/** Resolve the highest role from a list of role objects. Returns null if empty. */
+export function resolveHighestRole(
+  roles: Array<{ role: string }>
+): { role: RbacRole; level: number } | null {
+  let highestRole: RbacRole | null = null;
+  let highestLevel = -1;
+
+  for (const m of roles) {
+    const validated = isValidRbacRole(m.role);
+    if (!validated) {
+      // Log but don't crash — unknown role should not grant access
+      console.warn(`[RBAC] Unknown role value in database: "${m.role}"`);
+      continue;
+    }
+    const level = RBAC_ROLE_LEVEL[validated];
+    if (level > highestLevel) {
+      highestLevel = level;
+      highestRole = validated;
+    }
+  }
+
+  if (!highestRole) return null;
+  return { role: highestRole, level: highestLevel };
+}
+
+export const INVITATION_STATUS = ['pending', 'accepted', 'declined', 'expired', 'revoked'] as const;
+export type InvitationStatus = (typeof INVITATION_STATUS)[number];
+
+export const API_TOKEN_STATUS = ['active', 'revoked', 'expired'] as const;
+export type ApiTokenStatus = (typeof API_TOKEN_STATUS)[number];
