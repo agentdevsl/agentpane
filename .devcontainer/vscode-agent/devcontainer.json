@@ -9,7 +9,7 @@
   // "runArgs": ["--env-file", ".devcontainer/devcontainer.env"],
   // Features to add to the dev container. More info: https://containers.dev/features.
   "features": {
-    "ghcr.io/devcontainers/features/docker-in-docker:2.14.0": {}
+    "ghcr.io/devcontainers/features/docker-in-docker:2.16.0": {}
   },
 
   // Use 'forwardPorts' to make a list of ports inside the container available locally.
