@@ -39,12 +39,12 @@ Roles are ordered by privilege level. Higher roles inherit all permissions of lo
 | Role | Level | Description |
 |------|-------|-------------|
 | `viewer` | 1 | Read-only access to team resources |
-| `member` | 2 | Create/edit tasks, run agents |
+| `agent_operator` | 2 | Create/edit tasks, run agents |
 | `admin` | 3 | Manage members, invitations, settings |
 | `owner` | 4 | Full control including team deletion |
 
 ```typescript
-type TeamRole = 'viewer' | 'member' | 'admin' | 'owner';
+type TeamRole = 'viewer' | 'agent_operator' | 'admin' | 'owner';
 ```
 
 ---
@@ -265,7 +265,7 @@ Add a member to the team directly (bypassing invitation flow). Requires `admin` 
 ```typescript
 const addMemberSchema = z.object({
   userId: z.string().cuid2(),
-  role: z.enum(['viewer', 'member', 'admin']),
+  role: z.enum(['viewer', 'agent_operator', 'admin']),
 });
 ```
 
@@ -309,7 +309,7 @@ List team members. Any team member can access this endpoint.
 const listMembersSchema = z.object({
   cursor: z.string().optional(),
   limit: z.number().min(1).max(100).default(50),
-  role: z.enum(['viewer', 'member', 'admin', 'owner']).optional(),
+  role: z.enum(['viewer', 'agent_operator', 'admin', 'owner']).optional(),
 });
 ```
 
@@ -350,13 +350,13 @@ Update a member's role. Requires `admin` or `owner` role. Constraints:
 
 - Cannot change your own role (prevents accidental self-demotion)
 - Cannot demote the last remaining owner
-- Only `owner` can promote someone to `admin`; `admin` can only assign `viewer` or `member`
+- Only `owner` can promote someone to `admin`; `admin` can only assign `viewer` or `agent_operator`
 
 **Request Schema:**
 
 ```typescript
 const updateMemberRoleSchema = z.object({
-  role: z.enum(['viewer', 'member', 'admin']),
+  role: z.enum(['viewer', 'agent_operator', 'admin']),
 });
 ```
 
@@ -424,7 +424,7 @@ Create a team invitation. Requires `admin` or `owner` role. Generates a unique t
 ```typescript
 const createInvitationSchema = z.object({
   email: z.string().email(),
-  role: z.enum(['viewer', 'member', 'admin']),
+  role: z.enum(['viewer', 'agent_operator', 'admin']),
 });
 ```
 
@@ -569,7 +569,7 @@ Add a project-level role override. Requires `admin` role in the team that owns t
 ```typescript
 const addProjectMemberSchema = z.object({
   userId: z.string().cuid2(),
-  role: z.enum(['viewer', 'member', 'admin']),
+  role: z.enum(['viewer', 'agent_operator', 'admin']),
   teamId: z.string().cuid2().optional(),  // Required if project belongs to multiple teams
 });
 ```
@@ -644,7 +644,7 @@ Update a project-level role override.
 
 ```typescript
 const updateProjectMemberSchema = z.object({
-  role: z.enum(['viewer', 'member', 'admin']),
+  role: z.enum(['viewer', 'agent_operator', 'admin']),
 });
 ```
 
@@ -712,10 +712,10 @@ Create a scoped API token. The full token is returned only in this response.
 const createTokenSchema = z.object({
   name: z.string().min(1).max(100),
   teamId: z.string().cuid2(),
-  role: z.enum(['viewer', 'member', 'admin']),
+  role: z.enum(['viewer', 'agent_operator', 'admin']),
   scopeTags: z.array(z.string().cuid2()).optional(),      // Restrict to resources with these tags
   scopeProjectId: z.string().cuid2().optional(),           // Restrict to a single project
-  expiresInDays: z.number().min(1).max(365).optional(),    // Default: 90 days
+  expiresInDays: z.number().min(1).max(365).optional(),    // No expiry if omitted
 });
 ```
 
@@ -893,7 +893,7 @@ const createTagSchema = z.object({
 |--------|------|-----------|
 | 400 | `VALIDATION_ERROR` | Invalid input |
 | 401 | `AUTH_REQUIRED` | Not authenticated |
-| 403 | `INSUFFICIENT_ROLE` | Requires member role or above |
+| 403 | `INSUFFICIENT_ROLE` | Requires agent_operator role or above |
 | 404 | `TEAM_NOT_FOUND` | Team does not exist |
 | 409 | `TAG_NAME_EXISTS` | Tag with this name already exists in the team |
 
@@ -995,7 +995,7 @@ const assignProjectTagSchema = z.object({
 |--------|------|-----------|
 | 400 | `VALIDATION_ERROR` | Invalid input |
 | 401 | `AUTH_REQUIRED` | Not authenticated |
-| 403 | `INSUFFICIENT_ROLE` | Requires member role or above |
+| 403 | `INSUFFICIENT_ROLE` | Requires agent_operator role or above |
 | 404 | `PROJECT_NOT_FOUND` | Project does not exist |
 | 404 | `TAG_NOT_FOUND` | Tag does not exist |
 | 409 | `TAG_ALREADY_ASSIGNED` | Tag is already assigned to this project |
@@ -1020,7 +1020,7 @@ Remove a tag from a project.
 | Status | Code | Condition |
 |--------|------|-----------|
 | 401 | `AUTH_REQUIRED` | Not authenticated |
-| 403 | `INSUFFICIENT_ROLE` | Requires member role or above |
+| 403 | `INSUFFICIENT_ROLE` | Requires agent_operator role or above |
 | 404 | `PROJECT_NOT_FOUND` | Project does not exist |
 | 404 | `TAG_NOT_FOUND` | Tag is not assigned to this project |
 
@@ -1057,7 +1057,7 @@ const assignTaskTagSchema = z.object({
 |--------|------|-----------|
 | 400 | `VALIDATION_ERROR` | Invalid input |
 | 401 | `AUTH_REQUIRED` | Not authenticated |
-| 403 | `INSUFFICIENT_ROLE` | Requires member role or above |
+| 403 | `INSUFFICIENT_ROLE` | Requires agent_operator role or above |
 | 404 | `TASK_NOT_FOUND` | Task does not exist |
 | 404 | `TAG_NOT_FOUND` | Tag does not exist |
 | 409 | `TAG_ALREADY_ASSIGNED` | Tag is already assigned to this task |
@@ -1082,7 +1082,7 @@ Remove a tag from a task.
 | Status | Code | Condition |
 |--------|------|-----------|
 | 401 | `AUTH_REQUIRED` | Not authenticated |
-| 403 | `INSUFFICIENT_ROLE` | Requires member role or above |
+| 403 | `INSUFFICIENT_ROLE` | Requires agent_operator role or above |
 | 404 | `TASK_NOT_FOUND` | Task does not exist |
 | 404 | `TAG_NOT_FOUND` | Tag is not assigned to this task |
 

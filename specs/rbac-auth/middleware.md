@@ -564,10 +564,13 @@ export function requireTagAccess(): MiddlewareHandler {
     const allowedTags = auth.tokenScope.tags;
     const resourceTags = await extractResourceTags(c);
 
-    // If the resource has no tags, it's accessible by any token
-    // (tag restriction only filters resources that DO have tags)
+    // If the resource has no tags and the token is tag-restricted, deny access
+    // (tag-restricted tokens can only access resources with matching tags)
     if (resourceTags.length === 0) {
-      return next();
+      return c.json(
+        { ok: false, error: { code: 'FORBIDDEN', message: 'API token requires tag-scoped resources.' } },
+        403
+      );
     }
 
     // Check for overlap: at least one resource tag must be in the allowed set

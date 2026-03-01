@@ -550,7 +550,7 @@ CREATE TABLE IF NOT EXISTS "api_tokens" (
 CREATE TABLE IF NOT EXISTS "team_invitations" (
   "id" TEXT PRIMARY KEY NOT NULL,
   "team_id" TEXT NOT NULL REFERENCES "teams"("id") ON DELETE CASCADE,
-  "invited_by" TEXT REFERENCES "users"("id") ON DELETE SET NULL,
+  "invited_by" TEXT NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
   "email" TEXT NOT NULL,
   "role" TEXT NOT NULL,
   "token" TEXT NOT NULL UNIQUE,
