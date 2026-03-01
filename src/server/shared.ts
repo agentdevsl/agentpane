@@ -147,24 +147,35 @@ export function requireTeamRole(
  * Dev-mode users get role = null and denied = null.
  */
 export async function requireTeamRoleResolved(
-  auth: { authMethod: string; userId: string },
+  auth: { authMethod: 'session' | 'api_token' | 'dev'; userId: string },
   rbacService: {
-    resolveTeamRole(userId: string, teamId: string): Promise<string | null>;
-    hasMinimumRole(userRole: string, minimumRole: string): boolean;
+    resolveTeamRole(userId: string, teamId: string): Promise<RbacRole | null>;
+    hasMinimumRole(userRole: RbacRole, minimumRole: RbacRole): boolean;
   },
   teamId: string,
-  minimumRole: string,
+  minimumRole: RbacRole,
   message = `Requires ${minimumRole} role`
-): Promise<{ denied: Response | null; role: string | null }> {
+): Promise<{ denied: Response | null; role: RbacRole | null }> {
   if (auth.authMethod === 'dev') return { denied: null, role: null };
-  const role = await rbacService.resolveTeamRole(auth.userId, teamId);
-  if (!role || !rbacService.hasMinimumRole(role, minimumRole)) {
+  try {
+    const role = await rbacService.resolveTeamRole(auth.userId, teamId);
+    if (!role || !rbacService.hasMinimumRole(role, minimumRole)) {
+      return {
+        denied: json({ ok: false, error: { code: 'INSUFFICIENT_ROLE', message } }, 403),
+        role,
+      };
+    }
+    return { denied: null, role };
+  } catch (error) {
+    log.error('Failed to resolve team role', { error, data: { userId: auth.userId, teamId } });
     return {
-      denied: json({ ok: false, error: { code: 'INSUFFICIENT_ROLE', message } }, 403),
-      role,
+      denied: json(
+        { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to verify permissions' } },
+        500
+      ),
+      role: null,
     };
   }
-  return { denied: null, role };
 }
 
 /**

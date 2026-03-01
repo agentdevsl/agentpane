@@ -229,7 +229,22 @@ export function createAuthRoutes({ db }: AuthDeps) {
         // Delete the session from DB (token is stored as SHA-256 hash)
         await db.delete(userSessions).where(eq(userSessions.token, hashToken(sessionMatch[1])));
       } catch (error) {
-        log.error('Failed to delete session', { error });
+        log.error('Failed to delete session from database', { error });
+        // Still clear the cookie (best-effort client-side logout) but inform the user
+        c.header(
+          'Set-Cookie',
+          `${SESSION_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`
+        );
+        return json(
+          {
+            ok: false,
+            error: {
+              code: 'DB_ERROR',
+              message: 'Session may not be fully invalidated. Please try again.',
+            },
+          },
+          500
+        );
       }
     }
 

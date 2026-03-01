@@ -7,6 +7,7 @@ import { and, count, eq, gt, inArray, like, ne } from 'drizzle-orm';
 import { Hono } from 'hono';
 import type { RbacRole } from '../../db/schema/shared/enums';
 import { apiTokens } from '../../db/schema/sqlite/api-tokens';
+import { githubTokens } from '../../db/schema/sqlite/github';
 import { projectMembers } from '../../db/schema/sqlite/project-members';
 import { tags } from '../../db/schema/sqlite/tags';
 import { teamInvitations } from '../../db/schema/sqlite/team-invitations';
@@ -449,6 +450,7 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
         // Delete associated data
         await tx.delete(teamInvitations).where(eq(teamInvitations.teamId, id));
         await tx.delete(apiTokens).where(eq(apiTokens.teamId, id));
+        await tx.delete(githubTokens).where(eq(githubTokens.teamId, id));
         await tx.delete(tags).where(eq(tags.teamId, id)); // cascades to project_tags and task_tags
         // Clean up project member overrides granted by this team
         const teamProjectIds = await tx

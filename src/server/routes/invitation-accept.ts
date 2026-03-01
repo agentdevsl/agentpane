@@ -10,7 +10,7 @@ import { teams } from '../../db/schema/sqlite/teams';
 import type { AuthContext } from '../../lib/api/auth-middleware';
 import { createLogger } from '../../lib/logging/logger';
 import type { Database } from '../../types/database';
-import { isValidId, json } from '../shared';
+import { hashToken, isValidId, json } from '../shared';
 
 const log = createLogger('InvitationAcceptRoutes');
 
@@ -35,14 +35,15 @@ export function createInvitationAcceptRoutes({ db }: InvitationAcceptDeps) {
     }
 
     try {
+      const tokenHash = hashToken(token);
       const result = await db.transaction(async (tx) => {
-        // Atomically claim the invitation
+        // Atomically claim the invitation (token stored as SHA-256 hash)
         const [claimed] = await tx
           .update(teamInvitations)
           .set({ status: 'accepted' })
           .where(
             and(
-              eq(teamInvitations.token, token),
+              eq(teamInvitations.token, tokenHash),
               eq(teamInvitations.status, 'pending'),
               gt(teamInvitations.expiresAt, new Date().toISOString())
             )

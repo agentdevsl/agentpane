@@ -201,7 +201,7 @@ describe('POST /api/teams/:id/invitations - Create invitation', () => {
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.data.email).toBe('newuser@example.com');
-    expect(body.data.status).toBe('pending');
+    expect(body.data.role).toBe('viewer');
   });
 
   it('returns 409 when a pending invitation already exists', async () => {
@@ -419,7 +419,7 @@ describe('POST /api/teams/:id/invitations/:iid/decline - Decline invitation', ()
       }),
     });
 
-    // The invitee's email matches the invitation email
+    // The invitee's githubEmail matches the invitation email
     const app = buildTeamInvitationsApp(db, rbacService, {
       authMethod: 'session',
       userId: 'user-invitee-001',
@@ -429,6 +429,7 @@ describe('POST /api/teams/:id/invitations/:iid/decline - Decline invitation', ()
         githubLogin: 'invitee',
         name: 'Invitee',
         email: inviteeEmail,
+        githubEmail: inviteeEmail,
         avatarUrl: null,
       },
     });
@@ -452,7 +453,7 @@ describe('POST /api/teams/:id/invitations/:iid/decline - Decline invitation', ()
       return obj;
     });
 
-    // Different email than the invitation target
+    // Different githubEmail than the invitation target
     const app = buildTeamInvitationsApp(db, rbacService, {
       authMethod: 'session',
       userId: 'user-other-001',
@@ -462,6 +463,7 @@ describe('POST /api/teams/:id/invitations/:iid/decline - Decline invitation', ()
         githubLogin: 'other',
         name: 'Other',
         email: 'other@example.com',
+        githubEmail: 'other@example.com',
         avatarUrl: null,
       },
     });

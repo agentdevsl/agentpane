@@ -7,7 +7,12 @@
 
 import { eq, sql } from 'drizzle-orm';
 import type { Context, Next } from 'hono';
-import { RBAC_ROLE_LEVEL, type RbacRole, resolveHighestRole } from '../../db/schema/shared/enums';
+import {
+  RBAC_ROLE_LEVEL,
+  RBAC_ROLES,
+  type RbacRole,
+  resolveHighestRole,
+} from '../../db/schema/shared/enums';
 import { agents } from '../../db/schema/sqlite/agents';
 import { apiTokens } from '../../db/schema/sqlite/api-tokens';
 import { projectTags } from '../../db/schema/sqlite/project-tags';
@@ -93,16 +98,30 @@ export function enrichAuthContext(db: Database) {
             avatarUrl: user.avatarUrl,
           };
 
-          rbacAuth.teamMemberships = memberships.map((m) => ({
-            teamId: m.teamId,
-            role: m.role as RbacRole,
-          }));
+          rbacAuth.teamMemberships = memberships
+            .filter((m) => {
+              const valid = (RBAC_ROLES as readonly string[]).includes(m.role);
+              if (!valid) {
+                log.warn('Skipping team membership with invalid role', {
+                  data: { userId: auth.userId, teamId: m.teamId, role: m.role },
+                });
+              }
+              return valid;
+            })
+            .map((m) => ({
+              teamId: m.teamId,
+              role: m.role as RbacRole,
+            }));
 
-          // Find highest global role
+          // Find highest global role (resolveHighestRole validates roles internally)
           const highest = resolveHighestRole(memberships);
           if (highest) {
             rbacAuth.resolvedRole = highest.role;
             rbacAuth.roleLevel = highest.level;
+          } else if (memberships.length > 0) {
+            log.warn('User has team memberships but no valid role resolved', {
+              data: { userId: auth.userId, membershipCount: memberships.length, path: c.req.path },
+            });
           }
         } else {
           log.warn('User record not found for authenticated userId', {
@@ -128,7 +147,12 @@ export function enrichAuthContext(db: Database) {
               .update(apiTokens)
               .set({ status: 'expired' })
               .where(eq(apiTokens.id, token.id))
-              .catch((err) => log.error('Failed to update expired token status', { error: err }));
+              .catch((err) =>
+                log.error('Failed to update expired token status', {
+                  error: err,
+                  data: { tokenId: token.id },
+                })
+              );
             return c.json(
               { ok: false, error: { code: 'UNAUTHORIZED', message: 'API token has expired' } },
               401
@@ -176,7 +200,12 @@ export function enrichAuthContext(db: Database) {
               useCount: sql`COALESCE(${apiTokens.useCount}, 0) + 1`,
             })
             .where(eq(apiTokens.id, token.id))
-            .catch((err) => log.warn('Failed to update token usage tracking', { error: err }));
+            .catch((err) =>
+              log.error('Failed to update token usage tracking', {
+                error: err,
+                data: { tokenId: token.id },
+              })
+            );
         } else {
           // Token not found in cache — deny access
           log.warn('API token not found or inactive', { data: { path: c.req.path } });

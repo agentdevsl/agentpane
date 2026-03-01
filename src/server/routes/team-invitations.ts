@@ -12,7 +12,7 @@ import type { AuthContext } from '../../lib/api/auth-middleware';
 import { createLogger } from '../../lib/logging/logger';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
-import { isValidId, json, requireTeamRole } from '../shared';
+import { hashToken, isValidId, json, requireTeamRole } from '../shared';
 import { createInvitationSchema, parseJsonBody } from '../validation';
 
 const log = createLogger('TeamInvitationsRoutes');
@@ -40,6 +40,23 @@ export function createTeamInvitationsRoutes({ db, rbacService }: InvitationsDeps
     const parsed = await parseJsonBody(c, createInvitationSchema);
     if (!parsed.ok) return parsed.response;
 
+    // Only owners can create invitations with admin role (matches team-members.ts behavior)
+    if (parsed.data.role === 'admin' && auth.authMethod !== 'dev') {
+      const callerRole = await rbacService.resolveTeamRole(auth.userId, teamId);
+      if (callerRole !== 'owner') {
+        return json(
+          {
+            ok: false,
+            error: {
+              code: 'INSUFFICIENT_ROLE',
+              message: 'Only owners can invite with admin role',
+            },
+          },
+          403
+        );
+      }
+    }
+
     try {
       const result = await db.transaction(async (tx) => {
         // Check for existing pending invitation
@@ -57,30 +74,36 @@ export function createTeamInvitationsRoutes({ db, rbacService }: InvitationsDeps
         if (existing.length > 0) return { error: 'INVITATION_ALREADY_EXISTS' as const };
 
         // Check if user with this email is already a member
+        // Use githubEmail (immutable OAuth email) for consistency with invitation-accept.ts
         const existingMember = await tx
           .select({ userId: users.id })
           .from(users)
           .innerJoin(teamMembers, eq(teamMembers.userId, users.id))
-          .where(and(eq(teamMembers.teamId, teamId), eq(users.email, parsed.data.email)));
+          .where(and(eq(teamMembers.teamId, teamId), eq(users.githubEmail, parsed.data.email)));
 
         if (existingMember.length > 0) return { error: 'MEMBER_ALREADY_EXISTS' as const };
 
-        const token = randomBytes(32).toString('base64url');
+        const rawToken = randomBytes(32).toString('base64url');
+        const tokenHash = hashToken(rawToken);
         const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
-        const [invitation] = await tx
+        const rows = await tx
           .insert(teamInvitations)
           .values({
             teamId,
             invitedBy: auth.userId,
             email: parsed.data.email,
             role: parsed.data.role,
-            token,
+            token: tokenHash,
             expiresAt,
           })
           .returning();
 
-        return { ok: true as const, invitation };
+        const invitation = rows[0];
+        if (!invitation) return { error: 'DB_ERROR' as const };
+
+        // Return raw token (not the hash) so it can be shared with the invitee
+        return { ok: true as const, invitation, rawToken };
       });
 
       if ('error' in result) {
@@ -96,6 +119,12 @@ export function createTeamInvitationsRoutes({ db, rbacService }: InvitationsDeps
             409
           );
         }
+        if (result.error === 'DB_ERROR') {
+          return json(
+            { ok: false, error: { code: 'DB_ERROR', message: 'Failed to create invitation' } },
+            500
+          );
+        }
         return json(
           {
             ok: false,
@@ -108,7 +137,21 @@ export function createTeamInvitationsRoutes({ db, rbacService }: InvitationsDeps
         );
       }
 
-      return json({ ok: true, data: result.invitation }, 201);
+      return json(
+        {
+          ok: true,
+          data: {
+            id: result.invitation.id,
+            teamId: result.invitation.teamId,
+            email: result.invitation.email,
+            role: result.invitation.role,
+            token: result.rawToken,
+            expiresAt: result.invitation.expiresAt,
+            createdAt: result.invitation.createdAt,
+          },
+        },
+        201
+      );
     } catch (error) {
       log.error('Failed to create invitation', { error });
       return json(
@@ -196,21 +239,21 @@ export function createTeamInvitationsRoutes({ db, rbacService }: InvitationsDeps
       }
 
       // Verify the declining user is the invitee (check email match)
-      // In dev mode, skip this check
+      // Use githubEmail (immutable OAuth email) for consistency with invitation-accept.ts
       if (auth.authMethod !== 'dev') {
-        if (!auth.user?.email) {
+        if (!auth.user?.githubEmail) {
           return json(
             {
               ok: false,
               error: {
                 code: 'EMAIL_REQUIRED',
-                message: 'Cannot verify invitation ownership without email',
+                message: 'Cannot verify invitation ownership without verified email',
               },
             },
             403
           );
         }
-        if (invitation[0]?.email !== auth.user.email) {
+        if (invitation[0]?.email !== auth.user.githubEmail) {
           return json(
             { ok: false, error: { code: 'FORBIDDEN', message: 'Not your invitation' } },
             403

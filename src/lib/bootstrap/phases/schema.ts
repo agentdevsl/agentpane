@@ -664,6 +664,32 @@ export const validateSchema = async (ctx: BootstrapContext) => {
     // Run RBAC migration (idempotent)
     ctx.db.exec(RBAC_MIGRATION_SQL);
 
+    // Run individual schema additions (may already exist on re-runs)
+    for (const sql of RBAC_SCHEMA_ADDITIONS) {
+      try {
+        ctx.db.exec(sql);
+      } catch (e) {
+        // "duplicate column name" is expected for re-runs — only log unexpected errors
+        const msg = e instanceof Error ? e.message : String(e);
+        if (!msg.includes('duplicate column')) {
+          console.warn(`[Schema] ALTER TABLE migration note: ${msg}`);
+        }
+      }
+    }
+
+    // Add team_id column to github_tokens for team-scoped tokens
+    try {
+      ctx.db.exec(RBAC_GITHUB_TOKEN_MIGRATION_SQL);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!msg.includes('duplicate column')) {
+        console.warn(`[Schema] github_tokens migration note: ${msg}`);
+      }
+    }
+
+    // Seed default team for pre-RBAC installations with orphaned tokens
+    seedDefaultTeamForExistingTokens(ctx.db);
+
     // Verify core tables exist using SQLite syntax
     const result = ctx.db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='projects'")
@@ -715,7 +741,7 @@ export const validateSchema = async (ctx: BootstrapContext) => {
 
     return ok(undefined);
   } catch (error) {
-    console.error('[Schema] Migration failed:', error);
+    console.error('[Schema] Migration failed:', error instanceof Error ? error.message : error);
     return err(
       createError('BOOTSTRAP_SCHEMA_VALIDATION_FAILED', 'Schema migration failed', 500, {
         error: String(error),

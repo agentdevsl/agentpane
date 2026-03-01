@@ -237,7 +237,7 @@ export function createTeamMembersRoutes({ db, rbacService }: TeamMembersDeps) {
     if (
       callerRole &&
       parsed.data.role === 'admin' &&
-      !rbacService.hasMinimumRole(callerRole as RbacRole, 'owner')
+      !rbacService.hasMinimumRole(callerRole, 'owner')
     ) {
       return json(
         {

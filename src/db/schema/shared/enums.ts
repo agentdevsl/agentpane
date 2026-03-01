@@ -57,25 +57,36 @@ export type SandboxType = (typeof SANDBOX_TYPES)[number];
 export const RBAC_ROLES = ['owner', 'admin', 'agent_operator', 'viewer'] as const;
 export type RbacRole = (typeof RBAC_ROLES)[number];
 
-export const RBAC_ROLE_LEVEL: Record<RbacRole, number> = {
+export const RBAC_ROLE_LEVEL: Readonly<Record<RbacRole, number>> = Object.freeze({
   owner: 4,
   admin: 3,
   agent_operator: 2,
   viewer: 1,
-};
+});
+
+/** Validate that a string is a recognized RBAC role. Returns the role or null. */
+export function isValidRbacRole(value: string): RbacRole | null {
+  return (RBAC_ROLES as readonly string[]).includes(value) ? (value as RbacRole) : null;
+}
 
 /** Resolve the highest role from a list of role objects. Returns null if empty. */
 export function resolveHighestRole(
-  roles: Array<{ role: RbacRole }>
+  roles: Array<{ role: string }>
 ): { role: RbacRole; level: number } | null {
   let highestRole: RbacRole | null = null;
   let highestLevel = -1;
 
   for (const m of roles) {
-    const level = RBAC_ROLE_LEVEL[m.role];
+    const validated = isValidRbacRole(m.role);
+    if (!validated) {
+      // Log but don't crash — unknown role should not grant access
+      console.warn(`[RBAC] Unknown role value in database: "${m.role}"`);
+      continue;
+    }
+    const level = RBAC_ROLE_LEVEL[validated];
     if (level > highestLevel) {
       highestLevel = level;
-      highestRole = m.role;
+      highestRole = validated;
     }
   }
 

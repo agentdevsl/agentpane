@@ -43,21 +43,29 @@ export function createTeamProjectsRoutes({ db, rbacService }: TeamProjectsDeps) 
     const { projectId } = parsed.data;
 
     try {
-      // Verify project exists
-      const project = await db.query.projects.findFirst({
-        where: eq(projects.id, projectId),
+      const result = await db.transaction(async (tx) => {
+        // Verify project exists
+        const project = await tx.query.projects.findFirst({
+          where: eq(projects.id, projectId),
+        });
+        if (!project) return 'NOT_FOUND' as const;
+
+        // Check for duplicate assignment
+        const existing = await tx
+          .select()
+          .from(teamProjects)
+          .where(and(eq(teamProjects.teamId, teamId), eq(teamProjects.projectId, projectId)));
+
+        if (existing.length > 0) return 'DUPLICATE' as const;
+
+        await tx.insert(teamProjects).values({ teamId, projectId });
+        return 'OK' as const;
       });
-      if (!project) {
+
+      if (result === 'NOT_FOUND') {
         return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Project not found' } }, 404);
       }
-
-      // Check for duplicate assignment
-      const existing = await db
-        .select()
-        .from(teamProjects)
-        .where(and(eq(teamProjects.teamId, teamId), eq(teamProjects.projectId, projectId)));
-
-      if (existing.length > 0) {
+      if (result === 'DUPLICATE') {
         return json(
           {
             ok: false,
@@ -69,8 +77,6 @@ export function createTeamProjectsRoutes({ db, rbacService }: TeamProjectsDeps) 
           409
         );
       }
-
-      await db.insert(teamProjects).values({ teamId, projectId });
 
       return json({ ok: true, data: { teamId, projectId } }, 201);
     } catch (error) {

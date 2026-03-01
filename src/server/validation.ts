@@ -240,8 +240,12 @@ export async function parseJsonBody<T>(
   let body: unknown;
   try {
     body = await c.req.json();
-  } catch {
-    return validationError('Invalid JSON');
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return validationError('Invalid JSON');
+    }
+    // Unexpected error (stream error, body too large, etc.)
+    return validationError('Failed to read request body');
   }
   return parseBody(schema, body);
 }

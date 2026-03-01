@@ -1,5 +1,10 @@
 import { and, eq } from 'drizzle-orm';
-import { RBAC_ROLE_LEVEL, type RbacRole, resolveHighestRole } from '../db/schema/shared/enums';
+import {
+  isValidRbacRole,
+  RBAC_ROLE_LEVEL,
+  type RbacRole,
+  resolveHighestRole,
+} from '../db/schema/shared/enums';
 import { projectMembers } from '../db/schema/sqlite/project-members';
 import { teamMembers } from '../db/schema/sqlite/team-members';
 import { teamProjects } from '../db/schema/sqlite/team-projects';
@@ -68,7 +73,14 @@ export class RbacService {
       where: and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)),
     });
     if (directMember) {
-      return directMember.role as RbacRole;
+      const validated = isValidRbacRole(directMember.role);
+      if (!validated) {
+        log.warn('Invalid role in project_members', {
+          data: { userId, projectId, role: directMember.role },
+        });
+        return null;
+      }
+      return validated;
     }
 
     // 2. Check team memberships via team_projects (single JOIN)
@@ -90,7 +102,15 @@ export class RbacService {
       where: and(eq(teamMembers.userId, userId), eq(teamMembers.teamId, teamId)),
     });
 
-    return (membership?.role as RbacRole) ?? null;
+    if (!membership) return null;
+    const validated = isValidRbacRole(membership.role);
+    if (!validated) {
+      log.warn('Invalid role in team_members', {
+        data: { userId, teamId, role: membership.role },
+      });
+      return null;
+    }
+    return validated;
   }
 
   /**
