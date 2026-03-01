@@ -457,6 +457,7 @@ CREATE TABLE IF NOT EXISTS "users" (
   "github_login" TEXT NOT NULL,
   "name" TEXT,
   "email" TEXT,
+  "github_email" TEXT,
   "avatar_url" TEXT,
   "created_at" TEXT DEFAULT (datetime('now')) NOT NULL,
   "updated_at" TEXT DEFAULT (datetime('now')) NOT NULL
@@ -541,6 +542,7 @@ CREATE TABLE IF NOT EXISTS "api_tokens" (
   "status" TEXT NOT NULL DEFAULT 'active',
   "expires_at" TEXT,
   "last_used_at" TEXT,
+  "use_count" INTEGER DEFAULT 0,
   "revoked_at" TEXT,
   "created_at" TEXT DEFAULT (datetime('now')) NOT NULL
 );
@@ -587,6 +589,8 @@ export const RBAC_SCHEMA_ADDITIONS = [
   `ALTER TABLE project_tags ADD COLUMN "assigned_at" TEXT DEFAULT (datetime('now')) NOT NULL`,
   `ALTER TABLE task_tags ADD COLUMN "assigned_at" TEXT DEFAULT (datetime('now')) NOT NULL`,
   `ALTER TABLE api_tokens ADD COLUMN "use_count" INTEGER DEFAULT 0`,
+  // GitHub email for invitation verification (immutable by user, set only during OAuth)
+  `ALTER TABLE users ADD COLUMN "github_email" TEXT`,
 ];
 
 // GitHub token team_id column migration (extracted for reuse)

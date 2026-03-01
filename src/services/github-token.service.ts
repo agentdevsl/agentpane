@@ -153,39 +153,35 @@ export class GitHubTokenService {
    * Resolution chain: team_projects → github_tokens by teamId → global fallback (team_id IS NULL)
    */
   async resolveGitHubTokenForProject(projectId: string): Promise<string | null> {
-    try {
-      // Step 1: Find all teams associated with this project
-      const projectTeams = await this.db
-        .select({ teamId: teamProjects.teamId })
-        .from(teamProjects)
-        .where(eq(teamProjects.projectId, projectId));
+    // Step 1: Find all teams associated with this project
+    const projectTeams = await this.db
+      .select({ teamId: teamProjects.teamId })
+      .from(teamProjects)
+      .where(eq(teamProjects.projectId, projectId));
 
-      // Step 2: If the project has teams, look for a team-specific token (single query)
-      if (projectTeams.length > 0) {
-        const teamIds = projectTeams.map((t) => t.teamId);
-        const teamToken = await this.db.query.githubTokens.findFirst({
-          where: inArray(githubTokens.teamId, teamIds),
-        });
-
-        if (teamToken) {
-          return decryptToken(teamToken.encryptedToken);
-        }
-      }
-
-      // Step 3: Fall back to global token (team_id IS NULL)
-      const globalToken = await this.db.query.githubTokens.findFirst({
-        where: isNull(githubTokens.teamId),
+    // Step 2: If the project has teams, look for a team-specific token (single query)
+    if (projectTeams.length > 0) {
+      const teamIds = projectTeams.map((t) => t.teamId);
+      const teamToken = await this.db.query.githubTokens.findFirst({
+        where: inArray(githubTokens.teamId, teamIds),
       });
 
-      if (globalToken) {
-        return decryptToken(globalToken.encryptedToken);
+      if (teamToken) {
+        return decryptToken(teamToken.encryptedToken);
       }
-
-      return null;
-    } catch (error) {
-      console.error('[GitHubTokenService] Failed to resolve token for project:', error);
-      return null;
     }
+
+    // Step 3: Fall back to global token (team_id IS NULL)
+    const globalToken = await this.db.query.githubTokens.findFirst({
+      where: isNull(githubTokens.teamId),
+    });
+
+    if (globalToken) {
+      return decryptToken(globalToken.encryptedToken);
+    }
+
+    return null;
+    // Errors (DB failures, decryption failures) propagate to callers
   }
 
   /**

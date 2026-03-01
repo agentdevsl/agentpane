@@ -51,9 +51,11 @@ export function createInvitationAcceptRoutes({ db }: InvitationAcceptDeps) {
 
         if (!claimed) return { status: 'not_found' } as const;
 
-        // Fail-closed email check: if invitation has a target email, verify it matches
+        // Fail-closed email check: verify against the GitHub-authenticated email
+        // (not the user-editable profile email) to prevent email spoofing attacks.
         if (claimed.email) {
-          if (!auth.user?.email) {
+          const verifiedEmail = auth.user?.githubEmail;
+          if (!verifiedEmail) {
             // Cannot verify email — roll back within transaction
             await tx
               .update(teamInvitations)
@@ -61,7 +63,7 @@ export function createInvitationAcceptRoutes({ db }: InvitationAcceptDeps) {
               .where(eq(teamInvitations.id, claimed.id));
             return { status: 'no_email' } as const;
           }
-          if (auth.user.email !== claimed.email) {
+          if (verifiedEmail !== claimed.email) {
             await tx
               .update(teamInvitations)
               .set({ status: 'pending' })

@@ -123,6 +123,7 @@ function buildAcceptApp(db: MockDb, authContext: Partial<AuthContext> = {}) {
       githubLogin: 'invitee',
       name: 'Invitee',
       email: 'invitee@example.com',
+      githubEmail: 'invitee@example.com',
       avatarUrl: null,
     },
     ...authContext,
@@ -760,7 +761,7 @@ describe('POST /api/invitations/:token/accept - Accept invitation', () => {
       return fn(tx);
     });
 
-    // User has no email set in auth context
+    // User has no email set in auth context (GitHub returned no public email)
     const noEmailApp = buildAcceptApp(db, {
       userId: 'user-no-email-001',
       authMethod: 'session',
@@ -770,6 +771,7 @@ describe('POST /api/invitations/:token/accept - Accept invitation', () => {
         githubLogin: 'noemail',
         name: 'No Email',
         email: null,
+        githubEmail: null,
         avatarUrl: null,
       },
     });

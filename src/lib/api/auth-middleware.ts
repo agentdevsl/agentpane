@@ -25,6 +25,8 @@ export interface AuthContext {
     githubLogin: string;
     name: string | null;
     email: string | null;
+    /** Email from GitHub OAuth — immutable by user, used for invitation verification */
+    githubEmail: string | null;
     avatarUrl: string | null;
   };
   resolvedRole?: import('../../db/schema/shared/enums').RbacRole;

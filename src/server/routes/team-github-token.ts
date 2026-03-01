@@ -62,11 +62,16 @@ export function createTeamGitHubTokenRoutes({ db, rbacService }: TeamGitHubToken
 
       // Decrypt to produce masked version
       let maskedToken = '****';
+      let decryptionError = false;
       try {
         const decrypted = decryptToken(token.encryptedToken);
         maskedToken = maskToken(decrypted);
-      } catch {
-        // If decryption fails, still return metadata
+      } catch (error) {
+        log.error('Failed to decrypt team GitHub token — encryption key may have changed', {
+          error,
+          data: { tokenId: token.id, teamId },
+        });
+        decryptionError = true;
       }
 
       return json({
@@ -82,6 +87,7 @@ export function createTeamGitHubTokenRoutes({ db, rbacService }: TeamGitHubToken
           lastValidatedAt: token.lastValidatedAt,
           createdAt: token.createdAt,
           updatedAt: token.updatedAt,
+          ...(decryptionError && { decryptionError: true }),
         },
       });
     } catch (error) {
@@ -274,14 +280,32 @@ export function createTeamGitHubTokenRoutes({ db, rbacService }: TeamGitHubToken
       const decrypted = decryptToken(token.encryptedToken);
       let isValid = false;
       let githubLogin: string | undefined;
+      let validationError: string | undefined;
 
       try {
         const octokit = new Octokit({ auth: decrypted });
         const { data: user } = await octokit.rest.users.getAuthenticated();
         isValid = true;
         githubLogin = user.login;
-      } catch {
-        isValid = false;
+      } catch (error) {
+        const status =
+          error instanceof Error && 'status' in error
+            ? (error as { status: number }).status
+            : undefined;
+        if (status === 401) {
+          isValid = false;
+          validationError = 'Token is invalid or revoked';
+        } else if (status === 429) {
+          // Rate limited — preserve previous validation state
+          isValid = token.isValid ?? false;
+          validationError = 'GitHub rate limit exceeded — try again later';
+          log.warn('GitHub token validation rate-limited', { data: { teamId } });
+        } else {
+          // Network/server error — preserve previous validation state
+          isValid = token.isValid ?? false;
+          validationError = 'GitHub API unreachable — try again later';
+          log.warn('GitHub token validation failed', { error, data: { teamId, status } });
+        }
       }
 
       // Update validation status in database
@@ -295,7 +319,10 @@ export function createTeamGitHubTokenRoutes({ db, rbacService }: TeamGitHubToken
         })
         .where(eq(githubTokens.teamId, teamId));
 
-      return json({ ok: true, data: { isValid } });
+      return json({
+        ok: true,
+        data: { isValid, ...(validationError && { validationError }) },
+      });
     } catch (error) {
       log.error('Failed to validate team GitHub token', { error });
       return json(

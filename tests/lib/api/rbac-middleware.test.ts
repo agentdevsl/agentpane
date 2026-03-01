@@ -111,16 +111,15 @@ describe('enrichAuthContext', () => {
     vi.clearAllMocks();
   });
 
-  it('returns 401 when no auth context is present', async () => {
+  it('passes through when no auth context is present (unauthenticated path)', async () => {
     const app = new Hono();
     app.use('*', enrichAuthContext(mockDb as never) as never);
     app.get('/test', (c) => c.json({ ok: true }));
 
     const res = await app.request('/test');
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.ok).toBe(false);
-    expect(body.error.code).toBe('UNAUTHORIZED');
+    expect(body.ok).toBe(true);
   });
 
   it('skips DB lookup for dev auth method and proceeds immediately', async () => {
@@ -855,15 +854,15 @@ describe('requireTagAccess', () => {
     expect(res.status).toBe(200);
   });
 
-  it('returns 401 when called with no auth context', async () => {
+  it('passes through when no auth context is present (unauthenticated path)', async () => {
     const mw = requireTagAccess(mockDb as never) as never;
     const app = new Hono();
     app.get('/api/projects/:id', mw, (c) => c.json({ ok: true }));
 
     const res = await app.request('/api/projects/proj-1');
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.error.code).toBe('UNAUTHORIZED');
+    expect(body.ok).toBe(true);
   });
 
   it('denies tag-restricted token on unrecognized resource paths', async () => {

@@ -11,7 +11,7 @@ import { users } from '../../db/schema/sqlite/users';
 import { type AuthContext, SESSION_COOKIE_NAME } from '../../lib/api/auth-middleware.js';
 import { createLogger } from '../../lib/logging/logger';
 import type { Database } from '../../types/database';
-import { json } from '../shared';
+import { hashToken, json } from '../shared';
 
 const log = createLogger('AuthRoutes');
 const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60; // 30 days
@@ -150,13 +150,14 @@ export function createAuthRoutes({ db }: AuthDeps) {
       });
 
       if (user) {
-        // Update existing user
+        // Update existing user — always update githubEmail from OAuth source
         await db
           .update(users)
           .set({
             githubLogin: githubUser.login,
             name: githubUser.name,
             email: githubUser.email,
+            githubEmail: githubUser.email,
             avatarUrl: githubUser.avatar_url,
             updatedAt: new Date().toISOString(),
           })
@@ -171,6 +172,7 @@ export function createAuthRoutes({ db }: AuthDeps) {
             githubLogin: githubUser.login,
             name: githubUser.name,
             email: githubUser.email,
+            githubEmail: githubUser.email,
             avatarUrl: githubUser.avatar_url,
           })
           .returning();
@@ -184,14 +186,14 @@ export function createAuthRoutes({ db }: AuthDeps) {
         );
       }
 
-      // Create session
+      // Create session — store hashed token, send raw token in cookie
       const sessionToken = randomBytes(32).toString('base64url');
       const expiresAt = new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000).toISOString();
 
       await db.insert(userSessions).values({
         id: createId(),
         userId: user.id,
-        token: sessionToken,
+        token: hashToken(sessionToken),
         expiresAt,
       });
 
@@ -224,8 +226,8 @@ export function createAuthRoutes({ db }: AuthDeps) {
 
     if (sessionMatch?.[1]) {
       try {
-        // Delete the session from DB
-        await db.delete(userSessions).where(eq(userSessions.token, sessionMatch[1]));
+        // Delete the session from DB (token is stored as SHA-256 hash)
+        await db.delete(userSessions).where(eq(userSessions.token, hashToken(sessionMatch[1])));
       } catch (error) {
         log.error('Failed to delete session', { error });
       }

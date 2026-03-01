@@ -43,11 +43,9 @@ export function enrichAuthContext(db: Database) {
   return async (c: Context, next: Next) => {
     const auth = c.get('auth') as AuthContext | undefined;
     if (!auth) {
-      log.warn('enrichAuthContext called without auth context', { data: { path: c.req.path } });
-      return c.json(
-        { ok: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } },
-        401
-      );
+      // No auth context means the upstream authMiddleware intentionally skipped
+      // this request (e.g. /api/auth/*, health endpoints). Pass through silently.
+      return next();
     }
 
     const rbacAuth: AuthContext = { ...auth };
@@ -91,6 +89,7 @@ export function enrichAuthContext(db: Database) {
             githubLogin: user.githubLogin,
             name: user.name,
             email: user.email,
+            githubEmail: user.githubEmail,
             avatarUrl: user.avatarUrl,
           };
 
@@ -253,8 +252,14 @@ export function requireRole(minimumRole: RbacRole, rbacService: RbacService) {
       );
     }
 
-    // Try to extract projectId from route params, query, or request body
-    let projectId = c.req.param('id') ?? c.req.query('projectId');
+    // Try to extract projectId from route params, query, or request body.
+    // Only use :id as projectId on /api/projects/* routes — on other routes
+    // (tasks, sessions, agents, worktrees) the :id is a different resource.
+    const path = c.req.path;
+    let projectId = c.req.query('projectId');
+    if (!projectId && path.startsWith('/api/projects/')) {
+      projectId = c.req.param('id');
+    }
 
     // Fallback: try to extract projectId from the request body (only for methods that have a body)
     if (!projectId && ['POST', 'PUT', 'PATCH'].includes(c.req.method)) {
@@ -409,10 +414,8 @@ export function requireTagAccess(db: Database) {
     const auth = c.get('auth') as AuthContext | undefined;
 
     if (!auth) {
-      return c.json(
-        { ok: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } },
-        401
-      );
+      // No auth context — unauthenticated path (skipped by authMiddleware). Pass through.
+      return next();
     }
 
     // Only API tokens can have tag restrictions; skip for all other auth methods

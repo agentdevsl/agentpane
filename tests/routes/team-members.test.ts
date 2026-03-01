@@ -9,6 +9,7 @@
  */
 import { Hono } from 'hono';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { RBAC_ROLE_LEVEL } from '../../src/db/schema/shared/enums';
 import type { AuthContext } from '../../src/lib/api/auth-middleware';
 import { createTeamMembersRoutes } from '../../src/server/routes/team-members';
 import type { RbacService } from '../../src/services/rbac.service';
@@ -530,7 +531,13 @@ describe('PATCH /api/teams/:id/members/:uid - Update member role', () => {
   it('returns 403 when admin tries to assign admin role to another user', async () => {
     rbacService = buildMockRbacService({
       resolveTeamRole: vi.fn().mockResolvedValue('admin'),
-      hasMinimumRole: vi.fn().mockReturnValue(true),
+      // Use real role comparison: admin >= admin → true, admin >= owner → false
+      hasMinimumRole: vi.fn().mockImplementation((userRole: string, minimumRole: string) => {
+        return (
+          (RBAC_ROLE_LEVEL[userRole as keyof typeof RBAC_ROLE_LEVEL] ?? 0) >=
+          (RBAC_ROLE_LEVEL[minimumRole as keyof typeof RBAC_ROLE_LEVEL] ?? 0)
+        );
+      }),
     });
     const app = buildApp(db, rbacService, { authMethod: 'session', userId: 'user-admin-001' });
 

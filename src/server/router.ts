@@ -108,7 +108,7 @@ function createAuthMiddleware(db: Database) {
     const result = await getAuthContext(c.req.raw, {
       validateSessionToken: async (token: string) => {
         const session = await db.query.userSessions.findFirst({
-          where: and(eq(userSessions.token, token)),
+          where: and(eq(userSessions.token, hashToken(token))),
         });
         if (!session) return null;
         // Check expiration
@@ -231,6 +231,56 @@ export function createRouter(deps: RouterDependencies) {
   // Worktrees: viewer minimum
   app.use('/api/worktrees', requireRole('viewer', rbacService));
   app.use('/api/worktrees/*', requireRole('viewer', rbacService));
+
+  // GitHub integration: viewer minimum (read repos/branches)
+  app.use('/api/github', requireRole('viewer', rbacService));
+  app.use('/api/github/*', requireRole('viewer', rbacService));
+
+  // Git operations: agent_operator minimum (executes git commands)
+  app.use('/api/git', requireRole('agent_operator', rbacService));
+  app.use('/api/git/*', requireRole('agent_operator', rbacService));
+
+  // Filesystem: admin required (arbitrary filesystem browsing)
+  app.use('/api/filesystem', requireRole('admin', rbacService));
+  app.use('/api/filesystem/*', requireRole('admin', rbacService));
+
+  // Sandbox configs: admin required (infrastructure management)
+  app.use('/api/sandbox-configs', requireRole('admin', rbacService));
+  app.use('/api/sandbox-configs/*', requireRole('admin', rbacService));
+  app.use('/api/sandbox/status', requireRole('viewer', rbacService));
+  app.use('/api/sandbox/status/*', requireRole('viewer', rbacService));
+  app.use('/api/sandbox/k8s', requireRole('admin', rbacService));
+  app.use('/api/sandbox/k8s/*', requireRole('admin', rbacService));
+  app.use('/api/sandbox/nomad', requireRole('admin', rbacService));
+  app.use('/api/sandbox/nomad/*', requireRole('admin', rbacService));
+
+  // Workflows and templates: viewer minimum
+  app.use('/api/workflows', requireRole('viewer', rbacService));
+  app.use('/api/workflows/*', requireRole('viewer', rbacService));
+  app.use('/api/templates', requireRole('viewer', rbacService));
+  app.use('/api/templates/*', requireRole('viewer', rbacService));
+  app.use('/api/workflow-designer', requireRole('viewer', rbacService));
+  app.use('/api/workflow-designer/*', requireRole('viewer', rbacService));
+
+  // Marketplaces: viewer minimum
+  app.use('/api/marketplaces', requireRole('viewer', rbacService));
+  app.use('/api/marketplaces/*', requireRole('viewer', rbacService));
+
+  // Webhooks: admin required
+  app.use('/api/webhooks', requireRole('admin', rbacService));
+  app.use('/api/webhooks/*', requireRole('admin', rbacService));
+
+  // Terraform: viewer minimum
+  app.use('/api/terraform', requireRole('viewer', rbacService));
+  app.use('/api/terraform/*', requireRole('viewer', rbacService));
+
+  // CLI monitor: viewer minimum
+  app.use('/api/cli-monitor', requireRole('viewer', rbacService));
+  app.use('/api/cli-monitor/*', requireRole('viewer', rbacService));
+
+  // Task creation with AI: agent_operator minimum
+  app.use('/api/tasks/create-with-ai', requireRole('agent_operator', rbacService));
+  app.use('/api/tasks/create-with-ai/*', requireRole('agent_operator', rbacService));
 
   app.route(
     '/api/health',

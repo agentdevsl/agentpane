@@ -10,6 +10,8 @@ export const users = sqliteTable('users', {
   githubLogin: text('github_login').notNull(),
   name: text('name'),
   email: text('email'),
+  /** Email from GitHub OAuth — immutable by user, used for invitation verification */
+  githubEmail: text('github_email'),
   avatarUrl: text('avatar_url'),
   createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
   updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),

@@ -575,6 +575,8 @@ describe('GET /tokens', () => {
     const db = createMockDb();
     const rbacService = createMockRbacService({
       resolveTeamRole: vi.fn().mockResolvedValue('viewer'),
+      // viewer < admin → must return false for the role check to deny
+      hasMinimumRole: vi.fn().mockReturnValue(false),
     });
     const app = buildApp(makeAuth({ authMethod: 'session' }), db, rbacService);
 
