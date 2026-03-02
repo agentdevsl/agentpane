@@ -5,6 +5,15 @@
 
 import type { PlanSession } from '@/lib/plan-mode/types';
 import type { GitHubOrg, GitHubRepo, TokenInfo } from '@/services/github-token.service';
+import type {
+  CreateEventSourceInput,
+  CreateSubscriptionInput,
+  EventLogEntry,
+  EventSource,
+  EventSubscription,
+  UpdateEventSourceInput,
+  UpdateSubscriptionInput,
+} from '../events/types';
 import type { ApiResponse } from './response';
 import { API_ERROR_CODES } from './types';
 
@@ -1241,6 +1250,94 @@ export const apiClient = {
       }>('/api/terraform/validate', { method: 'POST', body: data }),
 
     getComposeUrl: () => `${API_BASE}/api/terraform/compose`,
+  },
+
+  events: {
+    sources: {
+      list: (params?: { teamId?: string }) => {
+        const sp = new URLSearchParams();
+        if (params?.teamId) sp.set('teamId', params.teamId);
+        const qs = sp.toString();
+        return apiServerFetch<{ items: EventSource[]; totalCount: number }>(
+          `/api/events/sources${qs ? `?${qs}` : ''}`
+        );
+      },
+      get: (id: string) =>
+        apiServerFetch<EventSource>(`/api/events/sources/${encodeURIComponent(id)}`),
+      create: (data: CreateEventSourceInput) =>
+        apiServerFetch<{ source: EventSource; webhookSecret: string; webhookUrl: string }>(
+          '/api/events/sources',
+          { method: 'POST', body: data }
+        ),
+      update: (id: string, data: UpdateEventSourceInput) =>
+        apiServerFetch<EventSource>(`/api/events/sources/${encodeURIComponent(id)}`, {
+          method: 'PATCH',
+          body: data,
+        }),
+      delete: (id: string) =>
+        apiServerFetch<{ deleted: boolean }>(`/api/events/sources/${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+        }),
+      rotateSecret: (id: string) =>
+        apiServerFetch<{ webhookSecret: string }>(
+          `/api/events/sources/${encodeURIComponent(id)}/rotate-secret`,
+          { method: 'POST' }
+        ),
+    },
+    subscriptions: {
+      list: (params?: { eventSourceId?: string; targetProjectId?: string }) => {
+        const sp = new URLSearchParams();
+        if (params?.eventSourceId) sp.set('eventSourceId', params.eventSourceId);
+        if (params?.targetProjectId) sp.set('targetProjectId', params.targetProjectId);
+        const qs = sp.toString();
+        return apiServerFetch<{ items: EventSubscription[]; totalCount: number }>(
+          `/api/events/subscriptions${qs ? `?${qs}` : ''}`
+        );
+      },
+      get: (id: string) =>
+        apiServerFetch<EventSubscription>(`/api/events/subscriptions/${encodeURIComponent(id)}`),
+      create: (data: CreateSubscriptionInput) =>
+        apiServerFetch<EventSubscription>('/api/events/subscriptions', {
+          method: 'POST',
+          body: data,
+        }),
+      update: (id: string, data: UpdateSubscriptionInput) =>
+        apiServerFetch<EventSubscription>(`/api/events/subscriptions/${encodeURIComponent(id)}`, {
+          method: 'PATCH',
+          body: data,
+        }),
+      delete: (id: string) =>
+        apiServerFetch<{ deleted: boolean }>(
+          `/api/events/subscriptions/${encodeURIComponent(id)}`,
+          { method: 'DELETE' }
+        ),
+    },
+    log: {
+      list: (params?: {
+        eventSourceId?: string;
+        status?: string;
+        eventType?: string;
+        cursor?: string;
+        limit?: number;
+      }) => {
+        const sp = new URLSearchParams();
+        if (params?.eventSourceId) sp.set('eventSourceId', params.eventSourceId);
+        if (params?.status) sp.set('status', params.status);
+        if (params?.eventType) sp.set('eventType', params.eventType);
+        if (params?.cursor) sp.set('cursor', params.cursor);
+        if (params?.limit) sp.set('limit', String(params.limit));
+        const qs = sp.toString();
+        return apiServerFetch<{
+          items: EventLogEntry[];
+          nextCursor: string | null;
+          hasMore: boolean;
+          totalCount: number;
+        }>(`/api/events/log${qs ? `?${qs}` : ''}`);
+      },
+      get: (id: string) =>
+        apiServerFetch<EventLogEntry>(`/api/events/log/${encodeURIComponent(id)}`),
+    },
+    getStreamUrl: () => `${API_BASE}/api/events/stream`,
   },
 
   cliMonitor: {

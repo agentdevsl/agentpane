@@ -9,6 +9,7 @@ import {
   GridFour,
   Hourglass,
   Kanban,
+  Lightning,
   Plus,
   PuzzlePiece,
   Robot,
@@ -52,6 +53,11 @@ const contentNavItems: readonly NavItem[] = [
   { label: 'Catalog', to: '/catalog', icon: GridFour, testId: 'nav-catalog' },
   { label: 'Marketplace', to: '/marketplace', icon: PuzzlePiece, testId: 'nav-marketplace' },
   { label: 'Terraform', to: '/terraform', icon: Cube, testId: 'nav-terraform' },
+] as const;
+
+// AUTOMATION section - event sources and subscriptions
+const automationNavItems: readonly NavItem[] = [
+  { label: 'Events', to: '/events', icon: Lightning, testId: 'nav-events' },
 ] as const;
 
 // EXECUTION section - runtime and sandbox configuration
@@ -350,6 +356,13 @@ export function Sidebar({ projectId: _projectId }: SidebarProps): React.JSX.Elem
         {/* CONTENT section - organization-wide templates */}
         <NavSection title="Content" testId="nav-section-content">
           {contentNavItems.map((item) => (
+            <NavLink key={item.label} item={item} />
+          ))}
+        </NavSection>
+
+        {/* AUTOMATION section - event handling */}
+        <NavSection title="Automation" testId="nav-section-automation">
+          {automationNavItems.map((item) => (
             <NavLink key={item.label} item={item} />
           ))}
         </NavSection>

@@ -99,3 +99,18 @@ export type InvitationStatus = (typeof INVITATION_STATUS)[number];
 
 export const API_TOKEN_STATUS = ['active', 'revoked', 'expired'] as const;
 export type ApiTokenStatus = (typeof API_TOKEN_STATUS)[number];
+
+export const EVENT_SOURCE_TYPES = ['github', 'linear', 'jira', 'generic_webhook'] as const;
+export type EventSourceType = (typeof EVENT_SOURCE_TYPES)[number];
+
+export const EVENT_SOURCE_STATUS = ['active', 'error', 'disabled'] as const;
+export type EventSourceStatus = (typeof EVENT_SOURCE_STATUS)[number];
+
+export const EVENT_LOG_STATUS = [
+  'received',
+  'matched',
+  'task_created',
+  'ignored',
+  'error',
+] as const;
+export type EventLogStatus = (typeof EVENT_LOG_STATUS)[number];

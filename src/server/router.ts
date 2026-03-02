@@ -19,6 +19,9 @@ import type { EventEmittingSandboxProvider } from '../lib/sandbox/index.js';
 import type { AgentService } from '../services/agent.service.js';
 import type { ApiKeyService } from '../services/api-key.service.js';
 import type { CliMonitorService } from '../services/cli-monitor/index.js';
+import type { EventProcessingService } from '../services/event-processing.service.js';
+import type { EventSourceService } from '../services/event-source.service.js';
+import type { EventSubscriptionService } from '../services/event-subscription.service.js';
 import type { GitHubTokenService } from '../services/github-token.service.js';
 import type { MarketplaceService } from '../services/marketplace.service.js';
 import { RbacService } from '../services/rbac.service.js';
@@ -36,6 +39,7 @@ import { createAgentsRoutes } from './routes/agents.js';
 import { createApiKeysRoutes } from './routes/api-keys.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createCliMonitorRoutes } from './routes/cli-monitor.js';
+import { createEventsRoutes, publishEventToStream } from './routes/events.js';
 import { createFilesystemRoutes } from './routes/filesystem.js';
 import { createGitRoutes } from './routes/git.js';
 import { createGitHubRoutes } from './routes/github.js';
@@ -172,6 +176,9 @@ export interface RouterDependencies {
   terraformComposeService?: TerraformComposeService;
   settingsService?: SettingsService;
   rbacService?: RbacService;
+  eventSourceService?: EventSourceService;
+  eventSubscriptionService?: EventSubscriptionService;
+  eventProcessingService?: EventProcessingService;
 }
 
 export function createRouter(deps: RouterDependencies) {
@@ -192,6 +199,38 @@ export function createRouter(deps: RouterDependencies) {
   app.use('*', logger());
   app.use('*', requestIdMiddleware);
   app.use('*', securityHeaders);
+  // Public webhook endpoint - no auth required (signature-verified by plugin)
+  if (deps.eventProcessingService) {
+    // Rate-limit webhooks: 60 requests per minute per IP
+    app.use('/hooks/events/*', rateLimiter({ max: 60, windowMs: 60_000 }));
+    app.post('/hooks/events/:slug', async (c) => {
+      try {
+        const slug = c.req.param('slug');
+        const rawBody = await c.req.text();
+        const result = await deps.eventProcessingService!.processIncomingEvent(
+          slug,
+          c.req.raw.headers,
+          rawBody
+        );
+        if (!result.ok) {
+          return c.json(
+            { ok: false, error: { code: result.error.code, message: result.error.message } },
+            result.error.status as any
+          );
+        }
+        // Publish to SSE subscribers for real-time UI updates
+        publishEventToStream({ type: 'event:processed', data: result.value });
+        return c.json({ ok: true, data: result.value });
+      } catch (error) {
+        routerLog.error('Webhook processing error', { error, data: { slug: c.req.param('slug') } });
+        return c.json(
+          { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Webhook processing failed' } },
+          500
+        );
+      }
+    });
+  }
+
   app.use('/api/*', rateLimiter({ max: 200, windowMs: 60_000 }));
   app.use('/api/*', createAuthMiddleware(deps.db));
   app.use('/api/*', enrichAuthContext(deps.db));
@@ -278,6 +317,10 @@ export function createRouter(deps: RouterDependencies) {
   app.use('/api/cli-monitor', requireRole('viewer', rbacService));
   app.use('/api/cli-monitor/*', requireRole('viewer', rbacService));
 
+  // Events: viewer minimum (write operations checked in handlers)
+  app.use('/api/events', requireRole('viewer', rbacService));
+  app.use('/api/events/*', requireRole('viewer', rbacService));
+
   // Task creation with AI: agent_operator minimum
   app.use('/api/tasks/create-with-ai', requireRole('agent_operator', rbacService));
   app.use('/api/tasks/create-with-ai/*', requireRole('agent_operator', rbacService));
@@ -358,6 +401,18 @@ export function createRouter(deps: RouterDependencies) {
     app.route(
       '/api/cli-monitor',
       createCliMonitorRoutes({ cliMonitorService: deps.cliMonitorService })
+    );
+  }
+
+  if (deps.eventSourceService && deps.eventSubscriptionService) {
+    app.route(
+      '/api/events',
+      createEventsRoutes({
+        eventSourceService: deps.eventSourceService,
+        eventSubscriptionService: deps.eventSubscriptionService,
+        db: deps.db,
+        rbacService,
+      })
     );
   }
 

@@ -67,6 +67,8 @@ import {
   TERRAFORM_MIGRATION_SQL,
 } from '../lib/bootstrap/phases/schema.js';
 import { decryptToken } from '../lib/crypto/server-encryption.js';
+import { PluginRegistry } from '../lib/events/plugin-registry.js';
+import { GitHubEventSourcePlugin } from '../lib/events/plugins/github.js';
 import { SandboxController } from '../lib/sandbox/controllers/sandbox-controller.js';
 import { createDockerProvider } from '../lib/sandbox/index.js';
 import { createAgentSandboxProvider } from '../lib/sandbox/providers/agent-sandbox-provider.js';
@@ -78,6 +80,9 @@ import { ApiKeyService } from '../services/api-key.service.js';
 import { CliMonitorService } from '../services/cli-monitor/index.js';
 import { createContainerAgentService } from '../services/container-agent.service.js';
 import { DurableStreamsService } from '../services/durable-streams.service.js';
+import { EventProcessingService } from '../services/event-processing.service.js';
+import { EventSourceService } from '../services/event-source.service.js';
+import { EventSubscriptionService } from '../services/event-subscription.service.js';
 import { GitHubTokenService } from '../services/github-token.service.js';
 import { MarketplaceService } from '../services/marketplace.service.js';
 import { SandboxConfigService } from '../services/sandbox-config.service.js';
@@ -1398,6 +1403,20 @@ const terraformComposeService = new TerraformComposeService(
 // AgentService for agent lifecycle management
 const agentService = new AgentService(db, worktreeService, taskService, sessionService);
 
+// Event plugin system
+const pluginRegistry = new PluginRegistry();
+pluginRegistry.register('github', new GitHubEventSourcePlugin());
+
+const eventSourceService = new EventSourceService(db);
+const eventSubscriptionService = new EventSubscriptionService(db);
+const eventProcessingService = new EventProcessingService(
+  db,
+  pluginRegistry,
+  eventSourceService,
+  eventSubscriptionService,
+  taskService
+);
+
 // Create the Hono router with all dependencies
 const app = createRouter({
   db,
@@ -1419,6 +1438,9 @@ const app = createRouter({
   terraformRegistryService,
   terraformComposeService,
   settingsService: settingsServiceForCompose,
+  eventSourceService,
+  eventSubscriptionService,
+  eventProcessingService,
 });
 
 // Start server
