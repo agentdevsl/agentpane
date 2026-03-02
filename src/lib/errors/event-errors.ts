@@ -40,11 +40,6 @@ export const EventErrors = {
     'Webhook signature verification failed',
     401
   ),
-  SIGNATURE_MISSING: createError(
-    'EVENT_SIGNATURE_MISSING',
-    'Webhook signature header is missing',
-    401
-  ),
   PARSE_FAILED: (reason: string) =>
     createError('EVENT_PARSE_FAILED', `Failed to parse webhook event: ${reason}`, 400, {
       reason,
@@ -52,12 +47,6 @@ export const EventErrors = {
   PLUGIN_NOT_FOUND: (type: string) =>
     createError('EVENT_PLUGIN_NOT_FOUND', `No plugin registered for source type: ${type}`, 400, {
       type,
-    }),
-  UNKNOWN_SOURCE_TYPE: (type: string) =>
-    createError('EVENT_UNKNOWN_SOURCE_TYPE', `Unknown event source type: ${type}`, 400, { type }),
-  DUPLICATE_DELIVERY: (deliveryId: string) =>
-    createError('EVENT_DUPLICATE_DELIVERY', `Duplicate event delivery: ${deliveryId}`, 200, {
-      deliveryId,
     }),
   PROCESSING_FAILED: (reason: string) =>
     createError('EVENT_PROCESSING_FAILED', `Event processing failed: ${reason}`, 500, {
@@ -68,13 +57,6 @@ export const EventErrors = {
     'Failed to decrypt webhook secret',
     500
   ),
-  TASK_CREATION_FAILED: (subscriptionId: string, reason: string) =>
-    createError(
-      'EVENT_TASK_CREATION_FAILED',
-      `Failed to create task for subscription ${subscriptionId}: ${reason}`,
-      500,
-      { subscriptionId, reason }
-    ),
 } as const;
 
 export type EventError =
@@ -85,11 +67,7 @@ export type EventError =
   | ReturnType<typeof EventErrors.SUBSCRIPTION_NOT_FOUND>
   | typeof EventErrors.PROJECT_TEAM_MISMATCH
   | typeof EventErrors.SIGNATURE_INVALID
-  | typeof EventErrors.SIGNATURE_MISSING
   | ReturnType<typeof EventErrors.PARSE_FAILED>
   | ReturnType<typeof EventErrors.PLUGIN_NOT_FOUND>
-  | ReturnType<typeof EventErrors.UNKNOWN_SOURCE_TYPE>
-  | ReturnType<typeof EventErrors.DUPLICATE_DELIVERY>
   | ReturnType<typeof EventErrors.PROCESSING_FAILED>
-  | typeof EventErrors.SECRET_DECRYPT_FAILED
-  | ReturnType<typeof EventErrors.TASK_CREATION_FAILED>;
+  | typeof EventErrors.SECRET_DECRYPT_FAILED;

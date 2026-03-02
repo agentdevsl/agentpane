@@ -192,15 +192,15 @@ export class EventSubscriptionService {
    * Delete a subscription by ID.
    */
   async delete(id: string): Promise<Result<void, AppError>> {
-    const subscription = await this.db.query.eventSubscriptions.findFirst({
-      where: eq(eventSubscriptions.id, id),
-    });
+    const [deleted] = await this.db
+      .delete(eventSubscriptions)
+      .where(eq(eventSubscriptions.id, id))
+      .returning({ id: eventSubscriptions.id });
 
-    if (!subscription) {
+    if (!deleted) {
       return err(EventErrors.SUBSCRIPTION_NOT_FOUND());
     }
 
-    await this.db.delete(eventSubscriptions).where(eq(eventSubscriptions.id, id));
     return ok(undefined);
   }
 

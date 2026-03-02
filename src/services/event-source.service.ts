@@ -8,6 +8,7 @@ import type { AppError } from '../lib/errors/base.js';
 import { EventErrors } from '../lib/errors/event-errors.js';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
+import { slugify } from '../lib/utils/slugify.js';
 import type { Database } from '../types/database.js';
 
 // ---------------------------------------------------------------------------
@@ -145,15 +146,15 @@ export class EventSourceService {
    * Delete an event source. Subscriptions are cascade-deleted by the FK constraint.
    */
   async delete(id: string): Promise<Result<void, AppError>> {
-    const source = await this.db.query.eventSources.findFirst({
-      where: eq(eventSources.id, id),
-    });
+    const [deleted] = await this.db
+      .delete(eventSources)
+      .where(eq(eventSources.id, id))
+      .returning({ id: eventSources.id });
 
-    if (!source) {
+    if (!deleted) {
       return err(EventErrors.SOURCE_NOT_FOUND());
     }
 
-    await this.db.delete(eventSources).where(eq(eventSources.id, id));
     return ok(undefined);
   }
 
@@ -163,25 +164,21 @@ export class EventSourceService {
    * the plaintext so the user can copy it once.
    */
   async rotateSecret(id: string): Promise<Result<{ secret: string }, AppError>> {
-    const source = await this.db.query.eventSources.findFirst({
-      where: eq(eventSources.id, id),
-    });
-
-    if (!source) {
-      return err(EventErrors.SOURCE_NOT_FOUND());
-    }
-
-    // Generate a cryptographically random secret
     const plaintextSecret = crypto.randomBytes(32).toString('hex');
     const encryptedSecret = encryptToken(plaintextSecret);
 
-    await this.db
+    const [updated] = await this.db
       .update(eventSources)
       .set({
         webhookSecret: encryptedSecret,
         updatedAt: new Date().toISOString(),
       })
-      .where(eq(eventSources.id, id));
+      .where(eq(eventSources.id, id))
+      .returning({ id: eventSources.id });
+
+    if (!updated) {
+      return err(EventErrors.SOURCE_NOT_FOUND());
+    }
 
     return ok({ secret: plaintextSecret });
   }
@@ -239,15 +236,8 @@ export class EventSourceService {
 
 /**
  * Generate a URL-safe slug from a name.
- * Lowercases, replaces non-alphanumeric runs with hyphens, trims hyphens,
- * and appends a short random suffix for uniqueness.
+ * Uses the shared slugify utility and appends a short random suffix for uniqueness.
  */
 function generateSlug(name: string): string {
-  const base = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-
-  const suffix = createId().slice(0, 6);
-  return `${base}-${suffix}`;
+  return `${slugify(name)}-${createId().slice(0, 6)}`;
 }

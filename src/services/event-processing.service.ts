@@ -2,7 +2,6 @@ import { createId } from '@paralleldrive/cuid2';
 import { eq } from 'drizzle-orm';
 import type { EventLogStatus } from '../db/schema/index.js';
 import { eventLog } from '../db/schema/index.js';
-import type { TaskColumn } from '../db/schema/shared/enums.js';
 import type { AppError } from '../lib/errors/base.js';
 import { EventErrors } from '../lib/errors/event-errors.js';
 import type { NormalizedEvent } from '../lib/events/plugin-interface.js';
@@ -71,7 +70,7 @@ export class EventProcessingService {
       data: { sourceId: source.id, sourceSlug, sourceType: source.type },
     });
 
-    if (source.status === 'disabled' || !source.isEnabled) {
+    if (source.status === 'disabled') {
       log.info('Ignoring event for disabled source', { data: { sourceId: source.id } });
       return err(EventErrors.SOURCE_DISABLED(source.id));
     }
@@ -136,7 +135,7 @@ export class EventProcessingService {
         eventSourceId: source.id,
         eventType: event.type,
         action: event.action,
-        status: 'received' as EventLogStatus,
+        status: 'received',
         payload: event.raw,
         matchedSubscriptions: [],
         deliveryId: event.deliveryId,
@@ -180,11 +179,7 @@ export class EventProcessingService {
 
     for (const subscription of matchingSubscriptions) {
       // Evaluate all filters — all must pass
-      const filters = (subscription.filters ?? []) as Array<{
-        field: 'repo' | 'branch' | 'labels' | 'author' | 'action';
-        operator: 'equals' | 'contains' | 'matches' | 'not_equals';
-        value: string;
-      }>;
+      const filters = subscription.filters ?? [];
 
       const allFiltersMatch = filters.every((filter) => plugin.matchesFilter(event, filter));
 
@@ -204,8 +199,8 @@ export class EventProcessingService {
         projectId: subscription.targetProjectId,
         title: taskTitle,
         description: renderedPrompt,
-        labels: (subscription.taskLabels as string[]) ?? [],
-        priority: (subscription.taskPriority as 'high' | 'medium' | 'low') ?? 'medium',
+        labels: subscription.taskLabels ?? [],
+        priority: subscription.taskPriority ?? 'medium',
       });
 
       if (taskResult.ok) {
@@ -217,7 +212,7 @@ export class EventProcessingService {
         });
 
         // Move task to the configured column if not backlog (default)
-        const targetColumn = (subscription.taskColumn as TaskColumn) ?? 'backlog';
+        const targetColumn = subscription.taskColumn ?? 'backlog';
         if (targetColumn !== 'backlog') {
           const moveResult = await this.taskService.moveColumn(task.id, targetColumn);
           if (!moveResult.ok) {

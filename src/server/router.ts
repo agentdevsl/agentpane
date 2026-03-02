@@ -218,8 +218,9 @@ export function createRouter(deps: RouterDependencies) {
             result.error.status as any
           );
         }
-        // Publish to SSE subscribers for real-time UI updates
-        publishEventToStream({ type: 'event:processed', data: result.value });
+        // Publish to SSE subscribers for real-time UI updates (deferred to not block response)
+        const eventData = result.value;
+        queueMicrotask(() => publishEventToStream({ type: 'event:processed', data: eventData }));
         return c.json({ ok: true, data: result.value });
       } catch (error) {
         routerLog.error('Webhook processing error', { error, data: { slug: c.req.param('slug') } });

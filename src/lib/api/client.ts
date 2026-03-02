@@ -1258,9 +1258,7 @@ export const apiClient = {
         const sp = new URLSearchParams();
         if (params?.teamId) sp.set('teamId', params.teamId);
         const qs = sp.toString();
-        return apiServerFetch<{ items: EventSource[]; totalCount: number }>(
-          `/api/events/sources${qs ? `?${qs}` : ''}`
-        );
+        return apiServerFetch<{ items: EventSource[] }>(`/api/events/sources${qs ? `?${qs}` : ''}`);
       },
       get: (id: string) =>
         apiServerFetch<EventSource>(`/api/events/sources/${encodeURIComponent(id)}`),
@@ -1290,7 +1288,7 @@ export const apiClient = {
         if (params?.eventSourceId) sp.set('eventSourceId', params.eventSourceId);
         if (params?.targetProjectId) sp.set('targetProjectId', params.targetProjectId);
         const qs = sp.toString();
-        return apiServerFetch<{ items: EventSubscription[]; totalCount: number }>(
+        return apiServerFetch<{ items: EventSubscription[] }>(
           `/api/events/subscriptions${qs ? `?${qs}` : ''}`
         );
       },
@@ -1331,7 +1329,6 @@ export const apiClient = {
           items: EventLogEntry[];
           nextCursor: string | null;
           hasMore: boolean;
-          totalCount: number;
         }>(`/api/events/log${qs ? `?${qs}` : ''}`);
       },
       get: (id: string) =>

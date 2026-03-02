@@ -906,22 +906,29 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
 
         // Keep-alive ping every 15s
         pingInterval = setInterval(() => {
+          if (streamClosed) {
+            if (pingInterval) clearInterval(pingInterval);
+            return;
+          }
           try {
             controller.enqueue(encoder.encode(`: ping\n\n`));
           } catch {
-            // Stream closed -- clean up
-            if (pingInterval) clearInterval(pingInterval);
-            if (listener) eventStreamListeners.delete(listener);
-            activeSSEConnections = Math.max(0, activeSSEConnections - 1);
-            try {
-              controller.close();
-            } catch {
-              /* already closed */
+            if (!streamClosed) {
+              streamClosed = true;
+              if (pingInterval) clearInterval(pingInterval);
+              if (listener) eventStreamListeners.delete(listener);
+              activeSSEConnections = Math.max(0, activeSSEConnections - 1);
+              try {
+                controller.close();
+              } catch {
+                /* already closed */
+              }
             }
           }
         }, 15_000);
       },
       cancel() {
+        if (streamClosed) return;
         streamClosed = true;
         activeSSEConnections = Math.max(0, activeSSEConnections - 1);
         if (pingInterval) clearInterval(pingInterval);
