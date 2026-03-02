@@ -168,10 +168,10 @@ The CAS lock prevents double-firing when ticks overlap (e.g., if a tick takes lo
 The `nextRunAt` timestamp is persisted in the `config` JSON column of the `event_sources` table. On server startup:
 
 1. The SchedulerService queries all enabled cron sources.
-2. For any source where `nextRunAt` is in the past, it fires the missed execution immediately (subject to budget checks) and advances `nextRunAt` to the next future occurrence.
+2. For any source where `nextRunAt` is in the past, it **skips the missed execution** and advances `nextRunAt` to the next future occurrence. Missed executions are NOT retroactively fired.
 3. For any source where `nextRunAt` is `null` (newly created), it calculates the first `nextRunAt` based on the schedule configuration.
 
-This ensures no scheduled executions are permanently lost due to downtime. At most one execution may be delayed; the system does not attempt to "catch up" multiple missed windows.
+This ensures minimal disruption after downtime. At most one execution may be delayed; the system does not attempt to "catch up" or fire missed windows.
 
 ### Team-Scoped Schedules with Project Targets
 
@@ -220,6 +220,7 @@ Permissions follow the existing RBAC model: creating and managing cron event sou
 | [scheduler-service.md](./scheduler-service.md) | `SchedulerService` background loop, tick logic, CAS locking, startup recovery |
 | [cron-plugin.md](./cron-plugin.md) | `CronEventSourcePlugin` implementing the `EventSourcePlugin` interface |
 | [api-endpoints.md](./api-endpoints.md) | REST endpoints for cron source CRUD, execution history, manual trigger |
+| [state-machine.md](./state-machine.md) | Schedule lifecycle and execution lifecycle state machines |
 
 ---
 

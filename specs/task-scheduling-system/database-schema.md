@@ -48,7 +48,8 @@ import type { BudgetWindow } from './enums';
 /**
  * Budget limits per time window.
  * All limits are optional; if not set, that window is unconstrained.
- * Limits are evaluated as rolling windows (e.g., "last 60 minutes" not "this clock hour").
+ * Limits are evaluated as calendar-aligned windows (e.g., "this clock hour" not "last 60 minutes").
+ * Reset boundaries: top of hour, midnight, Monday 00:00, 1st of month — all in the source's configured timezone.
  */
 export interface CronBudgetConfig {
   maxPerHour?: number;
@@ -517,5 +518,5 @@ export type CronBudgetConfig = z.infer<typeof budgetConfigSchema>;
 | [Enums](../../src/db/schema/shared/enums.ts) | `EVENT_SOURCE_TYPES` extended with `'cron'`; new `SCHEDULE_EXECUTION_STATUS` and `BUDGET_WINDOWS` enums |
 | [Task Scheduling README](./README.md) | System overview and architecture |
 | [Scheduler Service](./scheduler-service.md) | Reads `nextRunAt` from config, writes execution records |
-| [Budget Enforcement](./budget-enforcement.md) | Queries `schedule_executions` for window counting |
+| [Scheduler Service](./scheduler-service.md) | Budget enforcement logic and `schedule_executions` window counting |
 | [API Endpoints](./api-endpoints.md) | CRUD operations on cron sources and execution history queries |

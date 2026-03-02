@@ -19,7 +19,16 @@ import {
   teamProjects,
 } from '../../db/schema/index.js';
 import type { AuthContext } from '../../lib/api/auth-middleware.js';
+import { failure } from '../../lib/api/response.js';
 import type { AppError } from '../../lib/errors/base.js';
+import {
+  addStreamListener,
+  decrementSSEConnections,
+  getActiveSSEConnections,
+  incrementSSEConnections,
+  MAX_SSE_CONNECTIONS,
+  removeStreamListener,
+} from '../../lib/events/event-bus.js';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { EventSourceService } from '../../services/event-source.service.js';
 import type { EventSubscriptionService } from '../../services/event-subscription.service.js';
@@ -101,42 +110,11 @@ export interface EventsRouteDependencies {
 }
 
 // ---------------------------------------------------------------------------
-// SSE
-// ---------------------------------------------------------------------------
-
-const MAX_SSE_CONNECTIONS = 50;
-let activeSSEConnections = 0;
-
-// Simple in-process event bus for SSE subscribers
-type EventStreamListener = (event: { type: string; data: unknown }) => void;
-const eventStreamListeners = new Set<EventStreamListener>();
-
-/**
- * Publish an event to all connected SSE clients.
- * Call this from the event processing pipeline after an event is logged.
- */
-export function publishEventToStream(event: { type: string; data: unknown }): void {
-  for (const listener of eventStreamListeners) {
-    try {
-      listener(event);
-    } catch (err) {
-      log.warn('SSE listener error, removing stale listener', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-      eventStreamListeners.delete(listener);
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Convert a failed Result into a JSON error response.
- */
 function resultErrorResponse(error: AppError): Response {
-  return json({ ok: false, error: { code: error.code, message: error.message } }, error.status);
+  return json(failure(error), error.status);
 }
 
 /**
@@ -217,12 +195,12 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
         return json({ ok: true, data: { items: result.value.map(stripSourceSecret) } });
       }
 
-      // List sources across all user's teams
-      const allSources = await Promise.all(
-        teamIds.map((tid) => eventSourceService.listByTeam(tid))
-      );
-
-      const items = allSources.filter((r) => r.ok).flatMap((r) => (r.ok ? r.value : []));
+      // List sources across all user's teams in a single query
+      const items = await db
+        .select()
+        .from(eventSources)
+        .where(inArray(eventSources.teamId, teamIds))
+        .orderBy(desc(eventSources.createdAt));
 
       return json({ ok: true, data: { items: items.map(stripSourceSecret) } });
     } catch (error) {
@@ -861,8 +839,20 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
   // =========================================================================
 
   // GET /stream - SSE endpoint for real-time event notifications
-  app.get('/stream', () => {
-    if (activeSSEConnections >= MAX_SSE_CONNECTIONS) {
+  app.get('/stream', async (c) => {
+    // Validate authentication — reject unauthenticated requests
+    const auth = c.get('auth');
+    if (!auth?.userId) {
+      return json(
+        { ok: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } },
+        401
+      );
+    }
+
+    // Resolve the user's team IDs for event scoping
+    const teamIds = await getUserTeamIds(auth, db);
+
+    if (getActiveSSEConnections() >= MAX_SSE_CONNECTIONS) {
       return json(
         {
           ok: false,
@@ -871,31 +861,45 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
         429
       );
     }
-    activeSSEConnections++;
+    incrementSSEConnections();
 
-    let listener: EventStreamListener | null = null;
+    let listener: ((event: { type: string; data: unknown }) => void) | null = null;
     let pingInterval: ReturnType<typeof setInterval> | null = null;
-    let streamClosed = false;
+    let cleaned = false;
+
+    function cleanup() {
+      if (cleaned) return;
+      cleaned = true;
+      decrementSSEConnections();
+      if (pingInterval) clearInterval(pingInterval);
+      if (listener) removeStreamListener(listener);
+    }
 
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         const encoder = new TextEncoder();
         const send = (data: unknown) => {
-          if (streamClosed) return;
+          if (cleaned) return;
+
+          // Scope SSE events: only forward events for the user's teams
+          const eventData = data as { data?: { eventSourceId?: string; teamId?: string } };
+          if (eventData?.data?.teamId && !teamIds.includes(eventData.data.teamId)) {
+            return;
+          }
+
           try {
             controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
           } catch (sendErr) {
             log.warn('SSE send failed, cleaning up connection', {
               error: sendErr instanceof Error ? sendErr.message : String(sendErr),
             });
-            streamClosed = true;
-            if (pingInterval) clearInterval(pingInterval);
-            if (listener) eventStreamListeners.delete(listener);
-            activeSSEConnections = Math.max(0, activeSSEConnections - 1);
+            cleanup();
             try {
               controller.close();
-            } catch {
-              /* already closed */
+            } catch (closeErr) {
+              log.debug('Stream controller close failed', {
+                data: { error: closeErr instanceof Error ? closeErr.message : String(closeErr) },
+              });
             }
           }
         };
@@ -904,37 +908,30 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
         send({ type: 'connected', timestamp: new Date().toISOString() });
 
         listener = send;
-        eventStreamListeners.add(listener);
+        addStreamListener(listener);
 
         // Keep-alive ping every 15s
         pingInterval = setInterval(() => {
-          if (streamClosed) {
+          if (cleaned) {
             if (pingInterval) clearInterval(pingInterval);
             return;
           }
           try {
             controller.enqueue(encoder.encode(`: ping\n\n`));
           } catch {
-            if (!streamClosed) {
-              streamClosed = true;
-              if (pingInterval) clearInterval(pingInterval);
-              if (listener) eventStreamListeners.delete(listener);
-              activeSSEConnections = Math.max(0, activeSSEConnections - 1);
-              try {
-                controller.close();
-              } catch {
-                /* already closed */
-              }
+            cleanup();
+            try {
+              controller.close();
+            } catch (closeErr) {
+              log.debug('Stream controller close failed', {
+                data: { error: closeErr instanceof Error ? closeErr.message : String(closeErr) },
+              });
             }
           }
         }, 15_000);
       },
       cancel() {
-        if (streamClosed) return;
-        streamClosed = true;
-        activeSSEConnections = Math.max(0, activeSSEConnections - 1);
-        if (pingInterval) clearInterval(pingInterval);
-        if (listener) eventStreamListeners.delete(listener);
+        cleanup();
       },
     });
 

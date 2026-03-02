@@ -5,16 +5,15 @@
  * but are shaped for client-side consumption (string dates, serialized JSON).
  */
 
+import type {
+  EventLogStatus,
+  EventSourceStatus,
+  EventSourceType,
+} from '../../db/schema/shared/enums';
 import type { SubscriptionFilter } from './plugin-interface';
 
-// Re-export SubscriptionFilter so consumers only need one import
-export type { SubscriptionFilter };
-
-// ---- Enum types (mirrored from db/schema/shared/enums) ----
-
-export type EventSourceType = 'github' | 'linear' | 'jira' | 'generic_webhook';
-export type EventSourceStatus = 'active' | 'error' | 'disabled';
-export type EventLogStatus = 'received' | 'matched' | 'task_created' | 'ignored' | 'error';
+// Re-export so consumers only need one import
+export type { EventLogStatus, EventSourceStatus, EventSourceType, SubscriptionFilter };
 
 // ---- Entity types ----
 

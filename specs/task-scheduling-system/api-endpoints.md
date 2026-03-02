@@ -174,19 +174,19 @@ const listExecutionsSchema = z.object({
 **ScheduleExecution shape:**
 
 ```typescript
+// Matches the schedule_executions table schema in database-schema.md
 interface ScheduleExecution {
   id: string;
   eventSourceId: string;
   status: 'executed' | 'skipped_budget' | 'skipped_disabled' | 'error';
-  trigger: 'scheduled' | 'manual';
-  scheduledAt: string;       // ISO 8601 -- when the execution was due
-  executedAt: string | null; // ISO 8601 -- when processing started (null if skipped)
-  completedAt: string | null;// ISO 8601 -- when processing finished
-  taskIds: string[];         // tasks created by this execution
-  eventLogId: string | null; // FK to event_log (null if skipped before pipeline entry)
-  error: string | null;      // error message if status is 'error'
-  budgetWindow: string | null; // which window was exhausted (if skipped_budget)
-  createdAt: string;         // ISO 8601
+  scheduledAt: string;                // ISO 8601 -- the nextRunAt that triggered execution
+  executedAt: string;                 // ISO 8601 -- when processing ran
+  taskId: string | null;              // task created by this execution (null if skipped/error)
+  subscriptionId: string | null;      // matched subscription (null if skipped/no match)
+  budgetWindow: 'hour' | 'day' | 'week' | 'month' | null; // exceeded window (if skipped_budget)
+  windowExecutionCount: number;       // count within the checked budget window
+  error: string | null;               // error message if status is 'error'
+  createdAt: string;                  // ISO 8601
 }
 ```
 
@@ -437,7 +437,7 @@ data: {
 | [Database Schema](./database-schema.md) | `schedule_executions` table, `CronEventSourceConfig` shape |
 | [Scheduler Service](./scheduler-service.md) | Background tick loop that triggers scheduled executions |
 | [Cron Plugin](./cron-plugin.md) | `CronEventSourcePlugin` generates synthetic events |
-| [Budget Enforcement](./budget-enforcement.md) | Budget window counting and limit evaluation |
+| [Scheduler Service](./scheduler-service.md) | Budget window counting and limit evaluation |
 | [Event Plugin API](../event-plugin-system/api-endpoints.md) | Existing CRUD endpoints for event sources and subscriptions |
 | [Event Plugin State Machine](../event-plugin-system/state-machine.md) | Event processing pipeline reused by cron executions |
 | [Prompt Templates](../event-plugin-system/prompt-templates.md) | Template variables for cron events: `{{schedule.name}}`, `{{execution.time}}` |

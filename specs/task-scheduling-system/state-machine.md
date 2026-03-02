@@ -163,7 +163,7 @@ async function executeScheduledSource(
   // 1. Generate synthetic NormalizedEvent
   const event: NormalizedEvent = {
     type: execution.trigger === 'manual' ? 'schedule.manual_trigger' : 'schedule.tick',
-    action: 'manual',
+    action: execution.trigger === 'manual' ? 'manual' : 'tick',
     deliveryId: execution.id,  // use execution ID as delivery ID
     timestamp: new Date().toISOString(),
     raw: {
@@ -362,7 +362,7 @@ At each execution state transition, SSE events are emitted to connected clients 
 | [Database Schema](./database-schema.md) | `schedule_executions` table stores execution state; `CronEventSourceConfig` stores lifecycle metadata |
 | [Scheduler Service](./scheduler-service.md) | Background tick loop creates `pending` executions and drives transitions |
 | [Cron Plugin](./cron-plugin.md) | Generates synthetic `NormalizedEvent` during the `executing` state |
-| [Budget Enforcement](./budget-enforcement.md) | Budget check algorithm and window calculations |
+| [Scheduler Service](./scheduler-service.md) | Budget check algorithm and window calculations |
 | [Event Plugin State Machine](../event-plugin-system/state-machine.md) | Event processing pipeline reused during `executing` state |
 | [Event Plugin API](../event-plugin-system/api-endpoints.md) | SSE stream carries `schedule:*` events alongside `event:*` events |
 | [Task Service](../application/services/task-service.md) | Task creation at the `completed` transition |

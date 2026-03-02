@@ -166,7 +166,7 @@ export class GitHubEventSourcePlugin implements EventSourcePlugin {
     const result = await verifyWebhookSignature({ payload, signature, secret });
 
     if (!result.ok) {
-      return err(EventErrors.SIGNATURE_INVALID);
+      return err(EventErrors.SIGNATURE_INVALID());
     }
 
     return ok(true);

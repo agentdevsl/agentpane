@@ -71,6 +71,18 @@ export function buildTemplateContext(event: NormalizedEvent): Record<string, unk
       login: event.source.author ?? '',
     },
     delivery_id: event.deliveryId,
+    // Schedule-specific variables (populated by cron plugin)
+    schedule: {
+      name: event.data.scheduleName ?? '',
+      lastRunAt: event.data.lastRunAt ?? '',
+      executionCount: event.data.executionCount ?? '',
+      cronExpression: event.data.cronExpression ?? '',
+      interval: event.data.interval ?? '',
+      scheduleType: event.data.scheduleType ?? '',
+      timezone: (event.raw?.schedule as Record<string, unknown>)?.timezone ?? '',
+    },
+    timestamp: event.raw?.timestamp ?? '',
+    trigger: event.raw?.trigger ?? '',
   };
 }
 

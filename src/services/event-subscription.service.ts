@@ -87,7 +87,7 @@ export class EventSubscriptionService {
     });
 
     if (!teamProject) {
-      return err(EventErrors.PROJECT_TEAM_MISMATCH);
+      return err(EventErrors.PROJECT_TEAM_MISMATCH());
     }
 
     const now = new Date().toISOString();

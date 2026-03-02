@@ -1,6 +1,10 @@
+import type { EventLogStatus, EventSourceStatus } from '@/lib/events/types';
 import { cn } from '@/lib/utils/cn';
 
-const statusConfig: Record<string, { label: string; className: string }> = {
+const statusConfig: Record<
+  EventSourceStatus | EventLogStatus,
+  { label: string; className: string }
+> = {
   active: { label: 'Active', className: 'bg-success-muted text-success' },
   error: { label: 'Error', className: 'bg-danger-muted text-danger' },
   disabled: { label: 'Disabled', className: 'bg-surface-emphasis text-fg-muted' },
@@ -16,7 +20,7 @@ export function EventStatusBadge({
   status,
   className: extraClassName,
 }: {
-  status: string;
+  status: EventSourceStatus | EventLogStatus;
   className?: string;
 }): React.JSX.Element {
   const config = statusConfig[status];

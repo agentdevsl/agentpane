@@ -51,7 +51,7 @@ export class EventSourceService {
     });
 
     if (!team) {
-      return err(EventErrors.TEAM_NOT_FOUND);
+      return err(EventErrors.TEAM_NOT_FOUND());
     }
 
     // Generate slug: lowercase, replace non-alphanumeric with hyphens, trim, append suffix

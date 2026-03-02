@@ -3,15 +3,16 @@ import { CronExpressionParser } from 'cron-parser';
 import { and, eq, sql } from 'drizzle-orm';
 import type { EventSource } from '../db/schema/index.js';
 import { eventSources } from '../db/schema/index.js';
+import type { CronEventSourceConfig } from '../db/schema/shared/cron-config.js';
 import { scheduleExecutions } from '../db/schema/sqlite/schedule-executions.js';
 import type { AppError } from '../lib/errors/base.js';
 import { ScheduleErrors } from '../lib/errors/event-errors.js';
+import { publishEventToStream } from '../lib/events/event-bus.js';
 import type { PluginRegistry } from '../lib/events/plugin-registry.js';
-import type { CronEventSourceConfig, CronTickContext } from '../lib/events/plugins/cron-types.js';
+import type { CronTickContext } from '../lib/events/plugins/cron-plugin.js';
 import { createLogger } from '../lib/logging/logger.js';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
-import { publishEventToStream } from '../server/routes/events.js';
 import type { Database } from '../types/database.js';
 import type { EventProcessingService } from './event-processing.service.js';
 import type { EventSourceService } from './event-source.service.js';
@@ -30,9 +31,11 @@ export interface ManualTriggerResult {
   };
 }
 
+import type { BudgetWindow } from '../db/schema/shared/enums.js';
+
 interface BudgetCheckResult {
   ok: boolean;
-  window?: string;
+  window?: BudgetWindow;
   count?: number;
 }
 
@@ -152,7 +155,7 @@ export class SchedulerService {
         if (result.status === 'rejected') {
           results.errors++;
         } else {
-          switch (result.value) {
+          switch (result.value.outcome) {
             case 'executed':
               results.executed++;
               break;
@@ -182,7 +185,11 @@ export class SchedulerService {
   private async processSource(
     source: EventSource,
     trigger: 'tick' | 'manual'
-  ): Promise<'executed' | 'skipped_budget' | 'skipped_lock' | 'error'> {
+  ): Promise<{
+    outcome: 'executed' | 'skipped_budget' | 'skipped_lock' | 'error';
+    executionId: string;
+    tasksCreated: string[];
+  }> {
     const config = source.config as unknown as CronEventSourceConfig;
     const executionId = createId();
 
@@ -193,10 +200,15 @@ export class SchedulerService {
 
       // CAS lock for tick-triggered executions
       if (trigger === 'tick') {
-        const locked = await this.acquireLock(source.id, config.nextRunAt!, newNextRunAt);
+        if (!config.nextRunAt) {
+          log.warn('Source has null nextRunAt, recovering', { data: { sourceId: source.id } });
+          await this.updateNextRunAt(source.id, newNextRunAt);
+          return { outcome: 'skipped_lock', executionId, tasksCreated: [] };
+        }
+        const locked = await this.acquireLock(source.id, config.nextRunAt, newNextRunAt);
         if (!locked) {
           log.debug('Skipped source (lock contention)', { data: { sourceId: source.id } });
-          return 'skipped_lock';
+          return { outcome: 'skipped_lock', executionId, tasksCreated: [] };
         }
       }
 
@@ -207,7 +219,7 @@ export class SchedulerService {
           eventSourceId: source.id,
           status: 'skipped_budget',
           scheduledAt: config.nextRunAt ?? new Date().toISOString(),
-          budgetWindow: budgetResult.window as any,
+          budgetWindow: budgetResult.window,
           windowExecutionCount: budgetResult.count ?? 0,
         });
 
@@ -223,7 +235,7 @@ export class SchedulerService {
         log.info('Skipped source (budget exceeded)', {
           data: { sourceId: source.id, window: budgetResult.window },
         });
-        return 'skipped_budget';
+        return { outcome: 'skipped_budget', executionId, tasksCreated: [] };
       }
 
       // Get execution count for context
@@ -240,7 +252,7 @@ export class SchedulerService {
       const plugin = this.pluginRegistry.get('cron');
       if (!plugin) {
         log.error('Cron plugin not registered');
-        return 'error';
+        return { outcome: 'error', executionId, tasksCreated: [] };
       }
 
       const parseResult = plugin.parseEvent(new Headers(), JSON.stringify(tickContext));
@@ -251,7 +263,7 @@ export class SchedulerService {
           scheduledAt: config.nextRunAt ?? new Date().toISOString(),
           error: parseResult.error.message,
         });
-        return 'error';
+        return { outcome: 'error', executionId, tasksCreated: [] };
       }
 
       // Feed into event processing pipeline
@@ -276,7 +288,7 @@ export class SchedulerService {
           type: 'schedule:error',
           data: { eventSourceId: source.id, executionId, error: processingResult.error.message },
         });
-        return 'error';
+        return { outcome: 'error', executionId, tasksCreated: [] };
       }
 
       // Reset consecutive errors on success
@@ -296,20 +308,28 @@ export class SchedulerService {
         data: { sourceId: source.id, tasksCreated: tasksCreated.length },
       });
 
-      return 'executed';
+      return { outcome: 'executed', executionId, tasksCreated };
     } catch (err_) {
       log.error('Unexpected error processing source', {
         data: { sourceId: source.id },
         error: err_,
       });
-      await this.recordExecution({
-        eventSourceId: source.id,
-        status: 'error',
-        scheduledAt: config.nextRunAt ?? new Date().toISOString(),
-        error: String(err_),
-      });
-      await this.incrementConsecutiveErrors(source.id, config);
-      return 'error';
+      try {
+        await this.recordExecution({
+          eventSourceId: source.id,
+          status: 'error',
+          scheduledAt: config.nextRunAt ?? new Date().toISOString(),
+          error: String(err_),
+        });
+      } catch (recordErr) {
+        log.error('Failed to record execution after error', { error: recordErr });
+      }
+      try {
+        await this.incrementConsecutiveErrors(source.id, config);
+      } catch (incErr) {
+        log.error('Failed to increment consecutive errors', { error: incErr });
+      }
+      return { outcome: 'error', executionId, tasksCreated: [] };
     } finally {
       this.activeExecutions.delete(executionId);
     }
@@ -335,12 +355,50 @@ export class SchedulerService {
         AND json_extract(config, '$.nextRunAt') = ${expectedNextRunAt}
     `);
 
-    return (result as any).changes > 0;
+    return result.changes > 0;
   }
 
   // -------------------------------------------------------------------------
   // Budget Enforcement
   // -------------------------------------------------------------------------
+
+  /**
+   * Query execution counts for all budget windows in a single SQL query.
+   * Returns a map of window key to execution count.
+   */
+  private async queryWindowCounts(
+    sourceId: string,
+    timezone: string
+  ): Promise<Record<BudgetWindow, number>> {
+    const hourStart = this.getWindowStart('hour', timezone);
+    const dayStart = this.getWindowStart('day', timezone);
+    const weekStart = this.getWindowStart('week', timezone);
+    const monthStart = this.getWindowStart('month', timezone);
+
+    const rows = await this.db
+      .select({
+        countHour: sql<number>`sum(CASE WHEN ${scheduleExecutions.executedAt} >= ${hourStart} THEN 1 ELSE 0 END)`,
+        countDay: sql<number>`sum(CASE WHEN ${scheduleExecutions.executedAt} >= ${dayStart} THEN 1 ELSE 0 END)`,
+        countWeek: sql<number>`sum(CASE WHEN ${scheduleExecutions.executedAt} >= ${weekStart} THEN 1 ELSE 0 END)`,
+        countMonth: sql<number>`sum(CASE WHEN ${scheduleExecutions.executedAt} >= ${monthStart} THEN 1 ELSE 0 END)`,
+      })
+      .from(scheduleExecutions)
+      .where(
+        and(
+          eq(scheduleExecutions.eventSourceId, sourceId),
+          eq(scheduleExecutions.status, 'executed'),
+          sql`${scheduleExecutions.executedAt} >= ${monthStart}`
+        )
+      );
+
+    const row = rows[0];
+    return {
+      hour: row?.countHour ?? 0,
+      day: row?.countDay ?? 0,
+      week: row?.countWeek ?? 0,
+      month: row?.countMonth ?? 0,
+    };
+  }
 
   private async checkBudget(
     sourceId: string,
@@ -349,43 +407,25 @@ export class SchedulerService {
     const { budget } = config;
     if (!budget) return { ok: true };
 
-    const windows: Array<{ name: string; limit: number | undefined; start: string }> = [
-      {
-        name: 'hour',
-        limit: budget.maxPerHour,
-        start: this.getWindowStart('hour', config.timezone),
-      },
-      { name: 'day', limit: budget.maxPerDay, start: this.getWindowStart('day', config.timezone) },
-      {
-        name: 'week',
-        limit: budget.maxPerWeek,
-        start: this.getWindowStart('week', config.timezone),
-      },
-      {
-        name: 'month',
-        limit: budget.maxPerMonth,
-        start: this.getWindowStart('month', config.timezone),
-      },
+    const hasAnyLimit =
+      budget.maxPerHour !== undefined ||
+      budget.maxPerDay !== undefined ||
+      budget.maxPerWeek !== undefined ||
+      budget.maxPerMonth !== undefined;
+    if (!hasAnyLimit) return { ok: true };
+
+    const counts = await this.queryWindowCounts(sourceId, config.timezone);
+
+    const checks: Array<{ window: BudgetWindow; limit: number | undefined; count: number }> = [
+      { window: 'hour', limit: budget.maxPerHour, count: counts.hour },
+      { window: 'day', limit: budget.maxPerDay, count: counts.day },
+      { window: 'week', limit: budget.maxPerWeek, count: counts.week },
+      { window: 'month', limit: budget.maxPerMonth, count: counts.month },
     ];
 
-    for (const window of windows) {
-      if (window.limit === undefined) continue;
-
-      const rows = await this.db
-        .select({ count: sql<number>`count(*)` })
-        .from(scheduleExecutions)
-        .where(
-          and(
-            eq(scheduleExecutions.eventSourceId, sourceId),
-            eq(scheduleExecutions.status, 'executed'),
-            sql`${scheduleExecutions.executedAt} >= ${window.start}`
-          )
-        );
-
-      const count = rows[0]?.count ?? 0;
-
-      if (count >= window.limit) {
-        return { ok: false, window: window.name, count };
+    for (const check of checks) {
+      if (check.limit !== undefined && check.count >= check.limit) {
+        return { ok: false, window: check.window, count: check.count };
       }
     }
 
@@ -412,45 +452,51 @@ export class SchedulerService {
     const day = Number(parts.day);
     const hour = Number(parts.hour === '24' ? '0' : parts.hour);
 
-    const pad = (n: number) => String(n).padStart(2, '0');
+    // Get the UTC offset for this timezone so we can convert local time to UTC.
+    const offsetMs = this.getTimezoneOffsetMs(now, timezone);
 
     switch (window) {
       case 'hour': {
-        const dt = new Date(`${year}-${pad(month)}-${pad(day)}T${pad(hour)}:00:00`);
-        return this.toTimezoneISO(dt, timezone);
+        // Start of current hour in target timezone, converted to UTC
+        const localMs = Date.UTC(year, month - 1, day, hour, 0, 0);
+        return new Date(localMs - offsetMs).toISOString();
       }
       case 'day': {
-        const dt = new Date(`${year}-${pad(month)}-${pad(day)}T00:00:00`);
-        return this.toTimezoneISO(dt, timezone);
+        // Start of current day in target timezone, converted to UTC
+        const localMs = Date.UTC(year, month - 1, day, 0, 0, 0);
+        return new Date(localMs - offsetMs).toISOString();
       }
       case 'week': {
-        const current = new Date(`${year}-${pad(month)}-${pad(day)}T00:00:00`);
-        const dayOfWeek = current.getDay();
+        // Find Monday of current week in target timezone
+        // Use Date.UTC to avoid host timezone interference
+        const localMs = Date.UTC(year, month - 1, day, 0, 0, 0);
+        const utcDate = new Date(localMs);
+        const dayOfWeek = utcDate.getUTCDay();
         const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-        current.setDate(current.getDate() - daysToMonday);
-        return this.toTimezoneISO(current, timezone);
+        const mondayMs = localMs - daysToMonday * 86_400_000;
+        return new Date(mondayMs - offsetMs).toISOString();
       }
       case 'month': {
-        const dt = new Date(`${year}-${pad(month)}-01T00:00:00`);
-        return this.toTimezoneISO(dt, timezone);
+        // Start of current month in target timezone, converted to UTC
+        const localMs = Date.UTC(year, month - 1, 1, 0, 0, 0);
+        return new Date(localMs - offsetMs).toISOString();
       }
     }
   }
 
-  private toTimezoneISO(date: Date, timezone: string): string {
+  private getTimezoneOffsetMs(date: Date, timezone: string): number {
     const formatter = new Intl.DateTimeFormat('en-US', {
       timeZone: timezone,
       timeZoneName: 'shortOffset',
     });
     const parts = formatter.formatToParts(date);
-    const offsetPart = parts.find((p) => p.type === 'timeZoneName')?.value ?? '+0';
+    const offsetPart = parts.find((p) => p.type === 'timeZoneName')?.value ?? 'GMT';
     const match = offsetPart.match(/GMT([+-]?)(\d{1,2})(?::(\d{2}))?/);
-    if (!match) return date.toISOString();
+    if (!match) return 0;
     const sign = match[1] === '-' ? -1 : 1;
     const hours = Number(match[2]);
     const minutes = Number(match[3] ?? 0);
-    const offsetMs = sign * (hours * 60 + minutes) * 60_000;
-    return new Date(date.getTime() - offsetMs).toISOString();
+    return sign * (hours * 60 + minutes) * 60_000;
   }
 
   // -------------------------------------------------------------------------
@@ -485,6 +531,9 @@ export class SchedulerService {
       return next.toISOString();
     }
 
+    log.warn('Unknown scheduleType, defaulting to 60s interval', {
+      data: { scheduleType: config.scheduleType },
+    });
     return new Date(now.getTime() + 60_000).toISOString();
   }
 
@@ -550,7 +599,7 @@ export class SchedulerService {
     scheduledAt: string;
     taskId?: string;
     subscriptionId?: string;
-    budgetWindow?: string;
+    budgetWindow?: BudgetWindow;
     windowExecutionCount?: number;
     error?: string;
   }): Promise<void> {
@@ -563,7 +612,7 @@ export class SchedulerService {
         executedAt: new Date().toISOString(),
         taskId: params.taskId,
         subscriptionId: params.subscriptionId,
-        budgetWindow: params.budgetWindow as any,
+        budgetWindow: params.budgetWindow,
         windowExecutionCount: params.windowExecutionCount ?? 0,
         error: params.error,
       });
@@ -656,9 +705,9 @@ export class SchedulerService {
     );
 
     return ok({
-      triggered: result === 'executed',
-      executionId: createId(),
-      taskIds: [],
+      triggered: result.outcome === 'executed',
+      executionId: result.executionId,
+      taskIds: result.tasksCreated,
       budgetRemaining,
     });
   }
@@ -761,6 +810,15 @@ export class SchedulerService {
 
     if (!budget) return result;
 
+    const hasAnyLimit =
+      budget.maxPerHour !== undefined ||
+      budget.maxPerDay !== undefined ||
+      budget.maxPerWeek !== undefined ||
+      budget.maxPerMonth !== undefined;
+    if (!hasAnyLimit) return result;
+
+    const counts = await this.queryWindowCounts(sourceId, config.timezone);
+
     const windows = [
       { key: 'hour' as const, limit: budget.maxPerHour },
       { key: 'day' as const, limit: budget.maxPerDay },
@@ -770,19 +828,7 @@ export class SchedulerService {
 
     for (const w of windows) {
       if (w.limit === undefined) continue;
-      const start = this.getWindowStart(w.key, config.timezone);
-      const rows = await this.db
-        .select({ count: sql<number>`count(*)` })
-        .from(scheduleExecutions)
-        .where(
-          and(
-            eq(scheduleExecutions.eventSourceId, sourceId),
-            eq(scheduleExecutions.status, 'executed'),
-            sql`${scheduleExecutions.executedAt} >= ${start}`
-          )
-        );
-      const used = rows[0]?.count ?? 0;
-      result[w.key] = Math.max(0, w.limit - used);
+      result[w.key] = Math.max(0, w.limit - counts[w.key]);
     }
 
     return result;
@@ -798,11 +844,21 @@ export class SchedulerService {
     const limits: Record<string, { limit: number | null; used: number; remaining: number | null }> =
       {};
 
+    const hasAnyLimit =
+      budget?.maxPerHour !== undefined ||
+      budget?.maxPerDay !== undefined ||
+      budget?.maxPerWeek !== undefined ||
+      budget?.maxPerMonth !== undefined;
+
+    const counts = hasAnyLimit
+      ? await this.queryWindowCounts(sourceId, config.timezone)
+      : { hour: 0, day: 0, week: 0, month: 0 };
+
     const windows = [
-      { key: 'hour', limit: budget?.maxPerHour },
-      { key: 'day', limit: budget?.maxPerDay },
-      { key: 'week', limit: budget?.maxPerWeek },
-      { key: 'month', limit: budget?.maxPerMonth },
+      { key: 'hour' as const, limit: budget?.maxPerHour },
+      { key: 'day' as const, limit: budget?.maxPerDay },
+      { key: 'week' as const, limit: budget?.maxPerWeek },
+      { key: 'month' as const, limit: budget?.maxPerMonth },
     ];
 
     for (const w of windows) {
@@ -811,18 +867,7 @@ export class SchedulerService {
         continue;
       }
 
-      const start = this.getWindowStart(w.key as any, config.timezone);
-      const rows = await this.db
-        .select({ count: sql<number>`count(*)` })
-        .from(scheduleExecutions)
-        .where(
-          and(
-            eq(scheduleExecutions.eventSourceId, sourceId),
-            eq(scheduleExecutions.status, 'executed'),
-            sql`${scheduleExecutions.executedAt} >= ${start}`
-          )
-        );
-      const used = rows[0]?.count ?? 0;
+      const used = counts[w.key];
       limits[w.key] = { limit: w.limit, used, remaining: Math.max(0, w.limit - used) };
     }
 

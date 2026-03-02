@@ -1,7 +1,9 @@
 import { createId } from '@paralleldrive/cuid2';
+import type { CronEventSourceConfig } from '../../../db/schema/shared/cron-config.js';
 import type { AppError } from '../../errors/base.js';
+import { EventErrors } from '../../errors/event-errors.js';
 import type { Result } from '../../utils/result.js';
-import { ok } from '../../utils/result.js';
+import { err, ok } from '../../utils/result.js';
 import type {
   EventSourcePlugin,
   EventTypeDefinition,
@@ -9,7 +11,16 @@ import type {
   SubscriptionFilter,
   TemplateVariable,
 } from '../plugin-interface.js';
-import type { CronTickContext } from './cron-types.js';
+
+/**
+ * Context passed from the SchedulerService when invoking the cron plugin.
+ */
+export interface CronTickContext {
+  sourceName: string;
+  config: CronEventSourceConfig;
+  executionCount: number;
+  trigger: 'tick' | 'manual';
+}
 
 export class CronEventSourcePlugin implements EventSourcePlugin {
   readonly type = 'cron';
@@ -23,7 +34,12 @@ export class CronEventSourcePlugin implements EventSourcePlugin {
   }
 
   parseEvent(_headers: Headers, rawBody: string): Result<NormalizedEvent, AppError> {
-    const context: CronTickContext = JSON.parse(rawBody);
+    let context: CronTickContext;
+    try {
+      context = JSON.parse(rawBody) as CronTickContext;
+    } catch {
+      return err(EventErrors.PARSE_FAILED('Invalid JSON in cron tick context'));
+    }
     const { sourceName, config, executionCount, trigger } = context;
     const timestamp = new Date().toISOString();
     const isManual = trigger === 'manual';
@@ -128,8 +144,14 @@ export class CronEventSourcePlugin implements EventSourcePlugin {
           return event.action !== filter.value;
         case 'contains':
           return event.action?.includes(filter.value) ?? false;
-        case 'matches':
-          return new RegExp(filter.value).test(event.action ?? '');
+        case 'matches': {
+          if (filter.value.length > 200) return false;
+          try {
+            return new RegExp(filter.value).test(event.action ?? '');
+          } catch {
+            return false;
+          }
+        }
         default:
           return true;
       }

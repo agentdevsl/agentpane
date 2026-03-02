@@ -56,35 +56,21 @@ registry.register('cron', new CronEventSourcePlugin());   // <-- NEW
 The `config` JSON column on the `event_sources` table stores cron-specific configuration when `type = 'cron'`:
 
 ```typescript
-// src/lib/events/plugins/cron-types.ts
+// Canonical definition: src/db/schema/shared/cron-config.ts
+// See database-schema.md for the full annotated interface.
 
-export interface CronEventSourceConfig {
-  /** Whether to use a fixed interval or a cron expression */
-  scheduleType: 'interval' | 'cron';
+import type { CronEventSourceConfig } from '@/db/schema/shared/cron-config';
 
-  /** Interval in seconds between executions (when scheduleType = 'interval'). Minimum: 60 */
-  interval?: number;
-
-  /** Standard cron expression (when scheduleType = 'cron'). e.g., "0 9 * * 1-5" */
-  cronExpression?: string;
-
-  /** IANA timezone identifier for cron expression evaluation */
-  timezone: string;
-
-  /** Execution budget limits to prevent runaway costs */
-  budget: {
-    maxPerHour?: number;
-    maxPerDay?: number;
-    maxPerWeek?: number;
-    maxPerMonth?: number;
-  };
-
-  /** ISO-8601 timestamp of next scheduled execution (managed by SchedulerService) */
-  nextRunAt: string | null;
-
-  /** ISO-8601 timestamp of last successful execution */
-  lastRunAt: string | null;
-}
+// CronEventSourceConfig includes:
+//   scheduleType: 'interval' | 'cron'
+//   interval?: number              -- seconds (min 60, max 2592000)
+//   cronExpression?: string         -- standard 5-field cron
+//   timezone: string                -- IANA timezone
+//   budget: CronBudgetConfig        -- { maxPerHour?, maxPerDay?, maxPerWeek?, maxPerMonth? }
+//   nextRunAt: string | null        -- managed by SchedulerService
+//   lastRunAt: string | null        -- managed by SchedulerService
+//   consecutiveErrors: number       -- resets on success; auto-pauses at 5
+//   pausedAt: string | null         -- ISO 8601 timestamp when paused (null when active)
 ```
 
 ### Validation Schema
@@ -140,7 +126,7 @@ import type {
   TemplateVariable,
   SubscriptionFilter,
 } from '../plugin-interface';
-import type { CronEventSourceConfig } from './cron-types';
+import type { CronEventSourceConfig } from '@/db/schema/shared/cron-config';
 
 /**
  * Context passed from the SchedulerService when invoking the cron plugin.
