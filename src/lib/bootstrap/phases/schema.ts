@@ -434,6 +434,70 @@ ALTER TABLE sandbox_configs ADD COLUMN nomad_datacenter TEXT;
 ALTER TABLE sandbox_configs ADD COLUMN nomad_region TEXT;
 `;
 
+// Event system migration (event sources, subscriptions, event log)
+export const EVENT_SYSTEM_MIGRATION_SQL = `
+CREATE TABLE IF NOT EXISTS "event_sources" (
+  "id" TEXT PRIMARY KEY NOT NULL,
+  "team_id" TEXT NOT NULL REFERENCES "teams"("id") ON DELETE CASCADE,
+  "name" TEXT NOT NULL,
+  "type" TEXT NOT NULL,
+  "slug" TEXT NOT NULL UNIQUE,
+  "webhook_secret" TEXT,
+  "is_enabled" INTEGER DEFAULT 1 NOT NULL,
+  "config" TEXT DEFAULT '{}',
+  "event_count" INTEGER DEFAULT 0 NOT NULL,
+  "last_event_at" TEXT,
+  "status" TEXT DEFAULT 'active' NOT NULL,
+  "created_at" TEXT DEFAULT (datetime('now')) NOT NULL,
+  "updated_at" TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS "event_sources_team_idx" ON "event_sources"("team_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "event_sources_slug_idx" ON "event_sources"("slug");
+
+CREATE TABLE IF NOT EXISTS "event_subscriptions" (
+  "id" TEXT PRIMARY KEY NOT NULL,
+  "name" TEXT NOT NULL,
+  "event_source_id" TEXT NOT NULL REFERENCES "event_sources"("id") ON DELETE CASCADE,
+  "target_project_id" TEXT NOT NULL REFERENCES "projects"("id") ON DELETE CASCADE,
+  "is_enabled" INTEGER DEFAULT 1 NOT NULL,
+  "event_types" TEXT DEFAULT '[]',
+  "filters" TEXT DEFAULT '[]',
+  "prompt_template" TEXT NOT NULL,
+  "auto_start_agent" INTEGER DEFAULT 0 NOT NULL,
+  "task_column" TEXT DEFAULT 'backlog' NOT NULL,
+  "task_priority" TEXT DEFAULT 'medium' NOT NULL,
+  "task_labels" TEXT DEFAULT '[]',
+  "matched_count" INTEGER DEFAULT 0 NOT NULL,
+  "last_matched_at" TEXT,
+  "created_at" TEXT DEFAULT (datetime('now')) NOT NULL,
+  "updated_at" TEXT DEFAULT (datetime('now')) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS "event_subscriptions_source_idx" ON "event_subscriptions"("event_source_id");
+CREATE INDEX IF NOT EXISTS "event_subscriptions_project_idx" ON "event_subscriptions"("target_project_id");
+CREATE INDEX IF NOT EXISTS "event_subscriptions_source_enabled_idx" ON "event_subscriptions"("event_source_id", "is_enabled");
+
+CREATE TABLE IF NOT EXISTS "event_log" (
+  "id" TEXT PRIMARY KEY NOT NULL,
+  "event_source_id" TEXT REFERENCES "event_sources"("id") ON DELETE SET NULL,
+  "event_type" TEXT NOT NULL,
+  "action" TEXT,
+  "status" TEXT DEFAULT 'received' NOT NULL,
+  "payload" TEXT DEFAULT '{}',
+  "matched_subscriptions" TEXT DEFAULT '[]',
+  "error" TEXT,
+  "delivery_id" TEXT NOT NULL,
+  "received_at" TEXT DEFAULT (datetime('now')) NOT NULL,
+  "processed_at" TEXT
+);
+
+CREATE INDEX IF NOT EXISTS "event_log_source_idx" ON "event_log"("event_source_id");
+CREATE INDEX IF NOT EXISTS "event_log_received_at_idx" ON "event_log"("received_at");
+CREATE INDEX IF NOT EXISTS "event_log_source_status_idx" ON "event_log"("event_source_id", "status");
+CREATE UNIQUE INDEX IF NOT EXISTS "event_log_delivery_idx" ON "event_log"("event_source_id", "delivery_id");
+`;
+
 // Performance indexes migration
 export const PERFORMANCE_INDEXES_MIGRATION_SQL = `
 -- Index for looking up tasks by agent
