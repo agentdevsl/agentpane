@@ -186,7 +186,7 @@ describe('EventSubscriptionService', () => {
       expect(mockDb.insert).not.toHaveBeenCalled();
     });
 
-    it('returns SUBSCRIPTION_NOT_FOUND when insert returns empty', async () => {
+    it('returns PROCESSING_FAILED when insert returns empty', async () => {
       mockDb.query.eventSources.findFirst.mockResolvedValue({
         id: 'source-1',
         teamId: 'team-1',
@@ -201,7 +201,7 @@ describe('EventSubscriptionService', () => {
 
       expect(result.ok).toBe(false);
       if (result.ok) return;
-      expect(result.error.code).toBe('EVENT_SUBSCRIPTION_NOT_FOUND');
+      expect(result.error.code).toBe('EVENT_PROCESSING_FAILED');
     });
 
     it('generates a unique ID and timestamps for new subscription', async () => {

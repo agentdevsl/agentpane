@@ -15,9 +15,12 @@ import {
   eventLog,
   eventSources,
   eventSubscriptions,
+  scheduleExecutions,
   teamMembers,
   teamProjects,
 } from '../../db/schema/index.js';
+import type { CronEventSourceConfig } from '../../db/schema/shared/cron-config.js';
+import { SCHEDULE_EXECUTION_STATUS } from '../../db/schema/shared/enums.js';
 import type { AuthContext } from '../../lib/api/auth-middleware.js';
 import { failure } from '../../lib/api/response.js';
 import type { AppError } from '../../lib/errors/base.js';
@@ -136,8 +139,9 @@ async function getUserTeamIds(auth: AuthContext, db: Database): Promise<string[]
     return auth.teamMemberships.map((m) => m.teamId);
   }
 
-  // Dev mode: return all teams
+  // Dev mode: return all teams (bypasses team scoping)
   if (auth.authMethod === 'dev') {
+    log.warn('Dev mode: bypassing team scoping for user', { data: { userId: auth.userId } });
     const allTeams = await db.select({ teamId: teamMembers.teamId }).from(teamMembers);
     return [...new Set(allTeams.map((t) => t.teamId))];
   }
@@ -398,6 +402,282 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
       log.error('Failed to rotate webhook secret', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to rotate webhook secret' } },
+        500
+      );
+    }
+  });
+
+  // =========================================================================
+  // Schedule-Specific Endpoints (cron event sources)
+  // =========================================================================
+
+  // POST /sources/:id/trigger - Manually trigger a cron source
+  app.post('/sources/:id/trigger', async (c) => {
+    const id = c.req.param('id');
+    if (!isValidId(id)) {
+      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID' } }, 400);
+    }
+
+    const auth = c.get('auth');
+    const { schedulerService } = deps;
+    if (!schedulerService) {
+      return json(
+        { ok: false, error: { code: 'SERVICE_UNAVAILABLE', message: 'Scheduler not available' } },
+        503
+      );
+    }
+
+    try {
+      const existing = await eventSourceService.getById(id);
+      if (!existing.ok) return resultErrorResponse(existing.error);
+
+      const denied = await requireTeamRole(
+        auth,
+        rbacService,
+        existing.value.teamId,
+        'agent_operator',
+        'Requires agent_operator role in team'
+      );
+      if (denied) return denied;
+
+      const result = await schedulerService.triggerManual(id);
+      if (!result.ok) return resultErrorResponse(result.error);
+
+      return json({ ok: true, data: result.value });
+    } catch (error) {
+      log.error('Failed to trigger cron source', { error });
+      return json(
+        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to trigger cron source' } },
+        500
+      );
+    }
+  });
+
+  // POST /sources/:id/pause - Pause a cron source
+  app.post('/sources/:id/pause', async (c) => {
+    const id = c.req.param('id');
+    if (!isValidId(id)) {
+      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID' } }, 400);
+    }
+
+    const auth = c.get('auth');
+    const { schedulerService } = deps;
+    if (!schedulerService) {
+      return json(
+        { ok: false, error: { code: 'SERVICE_UNAVAILABLE', message: 'Scheduler not available' } },
+        503
+      );
+    }
+
+    try {
+      const existing = await eventSourceService.getById(id);
+      if (!existing.ok) return resultErrorResponse(existing.error);
+
+      const denied = await requireTeamRole(
+        auth,
+        rbacService,
+        existing.value.teamId,
+        'agent_operator',
+        'Requires agent_operator role in team'
+      );
+      if (denied) return denied;
+
+      const result = await schedulerService.pauseSource(id);
+      if (!result.ok) return resultErrorResponse(result.error);
+
+      return json({ ok: true, data: result.value });
+    } catch (error) {
+      log.error('Failed to pause cron source', { error });
+      return json(
+        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to pause cron source' } },
+        500
+      );
+    }
+  });
+
+  // POST /sources/:id/resume - Resume a paused/errored cron source
+  app.post('/sources/:id/resume', async (c) => {
+    const id = c.req.param('id');
+    if (!isValidId(id)) {
+      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID' } }, 400);
+    }
+
+    const auth = c.get('auth');
+    const { schedulerService } = deps;
+    if (!schedulerService) {
+      return json(
+        { ok: false, error: { code: 'SERVICE_UNAVAILABLE', message: 'Scheduler not available' } },
+        503
+      );
+    }
+
+    try {
+      const existing = await eventSourceService.getById(id);
+      if (!existing.ok) return resultErrorResponse(existing.error);
+
+      const denied = await requireTeamRole(
+        auth,
+        rbacService,
+        existing.value.teamId,
+        'agent_operator',
+        'Requires agent_operator role in team'
+      );
+      if (denied) return denied;
+
+      const result = await schedulerService.resumeSource(id);
+      if (!result.ok) return resultErrorResponse(result.error);
+
+      return json({ ok: true, data: result.value });
+    } catch (error) {
+      log.error('Failed to resume cron source', { error });
+      return json(
+        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to resume cron source' } },
+        500
+      );
+    }
+  });
+
+  // GET /sources/:id/budget - Get budget status for a cron source
+  app.get('/sources/:id/budget', async (c) => {
+    const id = c.req.param('id');
+    if (!isValidId(id)) {
+      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID' } }, 400);
+    }
+
+    const auth = c.get('auth');
+    const { schedulerService } = deps;
+    if (!schedulerService) {
+      return json(
+        { ok: false, error: { code: 'SERVICE_UNAVAILABLE', message: 'Scheduler not available' } },
+        503
+      );
+    }
+
+    try {
+      const existing = await eventSourceService.getById(id);
+      if (!existing.ok) return resultErrorResponse(existing.error);
+
+      if (existing.value.type !== 'cron') {
+        return json(
+          {
+            ok: false,
+            error: { code: 'SCHEDULE_NOT_CRON_TYPE', message: 'Source is not a cron type' },
+          },
+          400
+        );
+      }
+
+      const denied = await requireTeamRole(
+        auth,
+        rbacService,
+        existing.value.teamId,
+        'viewer',
+        'Not a member of this team'
+      );
+      if (denied) return denied;
+
+      const config = existing.value.config as unknown as CronEventSourceConfig;
+      const budgetStatus = await schedulerService.getBudgetStatus(id, config);
+
+      return json({ ok: true, data: budgetStatus });
+    } catch (error) {
+      log.error('Failed to get budget status', { error });
+      return json(
+        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to get budget status' } },
+        500
+      );
+    }
+  });
+
+  // GET /sources/:id/executions - List execution history for a cron source
+  app.get('/sources/:id/executions', async (c) => {
+    const id = c.req.param('id');
+    if (!isValidId(id)) {
+      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID' } }, 400);
+    }
+
+    const auth = c.get('auth');
+
+    try {
+      const existing = await eventSourceService.getById(id);
+      if (!existing.ok) return resultErrorResponse(existing.error);
+
+      if (existing.value.type !== 'cron') {
+        return json(
+          {
+            ok: false,
+            error: { code: 'SCHEDULE_NOT_CRON_TYPE', message: 'Source is not a cron type' },
+          },
+          400
+        );
+      }
+
+      const denied = await requireTeamRole(
+        auth,
+        rbacService,
+        existing.value.teamId,
+        'viewer',
+        'Not a member of this team'
+      );
+      if (denied) return denied;
+
+      const { cursor, limit } = parsePagination(c);
+      const statusFilter = c.req.query('status');
+      const since = c.req.query('since');
+      const until = c.req.query('until');
+
+      const conditions = [eq(scheduleExecutions.eventSourceId, id)];
+
+      if (statusFilter) {
+        if (!(SCHEDULE_EXECUTION_STATUS as readonly string[]).includes(statusFilter)) {
+          return json(
+            { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid status filter' } },
+            400
+          );
+        }
+        conditions.push(
+          eq(scheduleExecutions.status, statusFilter as (typeof SCHEDULE_EXECUTION_STATUS)[number])
+        );
+      }
+
+      if (since) {
+        conditions.push(sql`${scheduleExecutions.scheduledAt} >= ${since}`);
+      }
+      if (until) {
+        conditions.push(sql`${scheduleExecutions.scheduledAt} <= ${until}`);
+      }
+
+      if (cursor) {
+        const separatorIdx = cursor.lastIndexOf('|');
+        if (separatorIdx > 0) {
+          const cursorTime = cursor.slice(0, separatorIdx);
+          const cursorId = cursor.slice(separatorIdx + 1);
+          conditions.push(
+            sql`(${scheduleExecutions.scheduledAt} < ${cursorTime} OR (${scheduleExecutions.scheduledAt} = ${cursorTime} AND ${scheduleExecutions.id} < ${cursorId}))`
+          );
+        }
+      }
+
+      const entries = await db
+        .select()
+        .from(scheduleExecutions)
+        .where(and(...conditions))
+        .orderBy(desc(scheduleExecutions.scheduledAt), desc(scheduleExecutions.id))
+        .limit(limit + 1);
+
+      const hasMore = entries.length > limit;
+      const items = hasMore ? entries.slice(0, limit) : entries;
+      const lastItem = items[items.length - 1];
+      const nextCursor = hasMore && lastItem ? `${lastItem.scheduledAt}|${lastItem.id}` : null;
+
+      return json({
+        ok: true,
+        data: { items, nextCursor, hasMore },
+      });
+    } catch (error) {
+      log.error('Failed to list schedule executions', { error });
+      return json(
+        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to list schedule executions' } },
         500
       );
     }
@@ -849,8 +1129,16 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
       );
     }
 
-    // Resolve the user's team IDs for event scoping
+    // Resolve accessible source IDs for event scoping
     const teamIds = await getUserTeamIds(auth, db);
+    const teamSources =
+      teamIds.length > 0
+        ? await db
+            .select({ id: eventSources.id })
+            .from(eventSources)
+            .where(inArray(eventSources.teamId, teamIds))
+        : [];
+    const allowedSourceIds = new Set(teamSources.map((s) => s.id));
 
     if (getActiveSSEConnections() >= MAX_SSE_CONNECTIONS) {
       return json(
@@ -881,9 +1169,12 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
         const send = (data: unknown) => {
           if (cleaned) return;
 
-          // Scope SSE events: only forward events for the user's teams
-          const eventData = data as { data?: { eventSourceId?: string; teamId?: string } };
-          if (eventData?.data?.teamId && !teamIds.includes(eventData.data.teamId)) {
+          // Scope SSE events: only forward events for sources the user has access to
+          const eventData = data as { data?: { eventSourceId?: string } };
+          if (
+            eventData?.data?.eventSourceId &&
+            !allowedSourceIds.has(eventData.data.eventSourceId)
+          ) {
             return;
           }
 
@@ -918,7 +1209,10 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
           }
           try {
             controller.enqueue(encoder.encode(`: ping\n\n`));
-          } catch {
+          } catch (pingErr) {
+            log.debug('SSE ping failed, closing connection', {
+              data: { error: pingErr instanceof Error ? pingErr.message : String(pingErr) },
+            });
             cleanup();
             try {
               controller.close();

@@ -389,7 +389,11 @@ private async processSource(
     // Step 3: Check budget limits
     const budgetResult = await this.checkBudget(source.id, config);
     if (!budgetResult.ok) {
-      await this.recordExecution(source.id, 'skipped_budget', trigger, executionStart);
+      await this.recordExecution(
+        source.id, 'skipped_budget', config.nextRunAt!,
+        undefined, undefined, undefined,
+        budgetResult.window, budgetResult.used,
+      );
       log.info('Skipped source (budget exceeded)', {
         data: { sourceId: source.id, window: budgetResult.window },
       });
@@ -420,7 +424,7 @@ private async processSource(
     );
 
     if (!parseResult.ok) {
-      await this.recordExecution(source.id, 'error', trigger, executionStart, parseResult.error.message);
+      await this.recordExecution(source.id, 'error', config.nextRunAt!, parseResult.error.message);
       return 'error';
     }
 
@@ -441,17 +445,16 @@ private async processSource(
     );
 
     // Step 8: Record execution
-    const tasksCreated = processingResult.ok ? processingResult.value.tasksCreated : [];
-    const eventLogId = processingResult.ok ? processingResult.value.eventLogId : undefined;
+    const taskId = processingResult.ok ? processingResult.value.taskId : undefined;
+    const subscriptionId = processingResult.ok ? processingResult.value.subscriptionId : undefined;
 
     await this.recordExecution(
       source.id,
       processingResult.ok ? 'executed' : 'error',
-      trigger,
-      executionStart,
+      config.nextRunAt!,
       processingResult.ok ? undefined : processingResult.error.message,
-      eventLogId,
-      tasksCreated,
+      taskId,
+      subscriptionId,
     );
 
     // Step 9: Check consecutive error count
@@ -463,7 +466,7 @@ private async processSource(
     log.info('Source executed successfully', {
       data: {
         sourceId: source.id,
-        tasksCreated: tasksCreated.length,
+        taskId,
         durationMs: Date.now() - executionStart,
       },
     });
@@ -474,7 +477,7 @@ private async processSource(
       data: { sourceId: source.id },
       error: err,
     });
-    await this.recordExecution(source.id, 'error', trigger, executionStart, String(err));
+    await this.recordExecution(source.id, 'error', config.nextRunAt!, String(err));
     await this.checkConsecutiveErrors(source.id);
     return 'error';
   } finally {
@@ -494,7 +497,8 @@ Budget limits prevent runaway costs from misconfigured schedules. Each budget wi
 ```typescript
 interface BudgetCheckResult {
   ok: boolean;
-  window?: string;
+  window?: BudgetWindow;
+  used?: number;
 }
 
 /**
@@ -534,7 +538,7 @@ private async checkBudget(
       .then((rows) => rows[0]?.count ?? 0);
 
     if (count >= window.limit) {
-      return { ok: false, window: window.name };
+      return { ok: false, window: window.name as BudgetWindow, used: count };
     }
   }
 
@@ -910,22 +914,24 @@ All execution outcomes are recorded in the `schedule_executions` table:
 private async recordExecution(
   eventSourceId: string,
   status: ScheduleExecutionStatus,
-  trigger: 'tick' | 'manual',
-  startTime: number,
+  scheduledAt: string,
   error?: string,
-  eventLogId?: string,
-  tasksCreated?: string[],
+  taskId?: string,
+  subscriptionId?: string,
+  budgetWindow?: BudgetWindow,
+  windowExecutionCount?: number,
 ): Promise<void> {
   await this.db.insert(scheduleExecutions).values({
     id: createId(),
     eventSourceId,
     status,
-    trigger,
-    eventLogId,
-    tasksCreated: tasksCreated ?? [],
-    durationMs: Date.now() - startTime,
-    error,
+    scheduledAt,
     executedAt: new Date().toISOString(),
+    taskId: taskId ?? null,
+    subscriptionId: subscriptionId ?? null,
+    budgetWindow: budgetWindow ?? null,
+    windowExecutionCount: windowExecutionCount ?? 0,
+    error: error ?? null,
   });
 }
 ```

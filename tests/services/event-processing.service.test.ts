@@ -1057,4 +1057,296 @@ describe('EventProcessingService', () => {
       expect(createCall.labels).toEqual([]);
     });
   });
+
+  // ===========================================================================
+  // processScheduledEvent
+  // ===========================================================================
+
+  describe('processScheduledEvent', () => {
+    const cronSource = {
+      id: 'source-cron-1',
+      teamId: 'team-1',
+      type: 'cron',
+      slug: 'daily-review',
+      name: 'Daily Review',
+      webhookSecret: null,
+      isEnabled: true,
+      status: 'active' as const,
+      eventCount: 5,
+      config: {},
+      lastEventAt: null,
+      createdAt: '2026-03-01T00:00:00Z',
+      updatedAt: '2026-03-01T00:00:00Z',
+    };
+
+    function makeCronEvent(overrides: Partial<NormalizedEvent> = {}): NormalizedEvent {
+      return {
+        type: 'schedule.tick',
+        action: 'tick',
+        deliveryId: 'cron-delivery-001',
+        source: {
+          repo: undefined,
+          branch: undefined,
+          labels: [],
+          author: 'system',
+        },
+        data: {
+          title: 'Scheduled execution: Daily Review',
+          body: 'Scheduled task triggered at 2026-03-03T09:00:00Z',
+          scheduleName: 'Daily Review',
+          scheduleType: 'cron',
+          cronExpression: '0 9 * * 1-5',
+          executionCount: 42,
+        },
+        raw: {
+          trigger: 'tick',
+          timestamp: '2026-03-03T09:00:00Z',
+          executionCount: 42,
+          sourceName: 'Daily Review',
+        },
+        ...overrides,
+      };
+    }
+
+    it('processes scheduled event, creates tasks, returns processed', async () => {
+      // Configure the cron plugin mock
+      mockPlugin.type = 'cron';
+      mockPluginRegistry.get.mockReturnValue(mockPlugin);
+
+      // Subscription service returns a matching subscription
+      mockSubscriptionService.findMatchingSubscriptions.mockResolvedValue({
+        ok: true,
+        value: [
+          {
+            id: 'sub-cron-1',
+            name: 'Auto Review',
+            eventSourceId: 'source-cron-1',
+            targetProjectId: 'project-1',
+            filters: [],
+            promptTemplate: 'Run scheduled review: {{schedule.name}}',
+            autoStartAgent: false,
+            taskColumn: 'backlog',
+            taskPriority: 'high',
+            taskLabels: ['scheduled'],
+          },
+        ],
+      });
+
+      const result = await service.processScheduledEvent(cronSource as never, makeCronEvent());
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      expect(result.value.status).toBe('processed');
+      expect(result.value.matchCount).toBe(1);
+      expect(result.value.tasksCreated).toHaveLength(1);
+      expect(result.value.eventLogId).toBeTruthy();
+
+      // Verify the pipeline was invoked (no slug lookup, no signature verification)
+      expect(mockEventSourceService.getBySlug).not.toHaveBeenCalled();
+      expect(mockPlugin.verifySignature).not.toHaveBeenCalled();
+      expect(mockPlugin.parseEvent).not.toHaveBeenCalled();
+
+      // Should still go through processEventPipeline
+      expect(mockPluginRegistry.get).toHaveBeenCalledWith('cron');
+      expect(mockDb.insert).toHaveBeenCalledTimes(1);
+      expect(mockSubscriptionService.findMatchingSubscriptions).toHaveBeenCalledWith(
+        'source-cron-1',
+        'schedule.tick'
+      );
+      expect(mockTaskService.create).toHaveBeenCalledTimes(1);
+      expect(mockSubscriptionService.incrementMatchCount).toHaveBeenCalledWith('sub-cron-1');
+      expect(mockEventSourceService.incrementEventCount).toHaveBeenCalledWith('source-cron-1');
+    });
+
+    it('returns PLUGIN_NOT_FOUND error when plugin is not registered', async () => {
+      mockPluginRegistry.get.mockReturnValue(undefined);
+
+      const result = await service.processScheduledEvent(cronSource as never, makeCronEvent());
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.code).toBe('EVENT_PLUGIN_NOT_FOUND');
+
+      // Should not attempt any further processing
+      expect(mockDb.insert).not.toHaveBeenCalled();
+      expect(mockSubscriptionService.findMatchingSubscriptions).not.toHaveBeenCalled();
+    });
+
+    it('returns duplicate status when event deliveryId already exists', async () => {
+      mockPlugin.type = 'cron';
+      mockPluginRegistry.get.mockReturnValue(mockPlugin);
+
+      mockDb._insertChain.values.mockImplementationOnce(() => {
+        throw new Error('UNIQUE constraint failed: event_log.eventSourceId, event_log.deliveryId');
+      });
+
+      const result = await service.processScheduledEvent(cronSource as never, makeCronEvent());
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.value.status).toBe('duplicate');
+      expect(result.value.matchCount).toBe(0);
+      expect(result.value.tasksCreated).toEqual([]);
+      expect(result.value.eventLogId).toBe('');
+
+      // Should not continue to subscription matching
+      expect(mockSubscriptionService.findMatchingSubscriptions).not.toHaveBeenCalled();
+    });
+
+    it('returns ignored status when no matching subscriptions', async () => {
+      mockPlugin.type = 'cron';
+      mockPluginRegistry.get.mockReturnValue(mockPlugin);
+
+      mockSubscriptionService.findMatchingSubscriptions.mockResolvedValue({
+        ok: true,
+        value: [],
+      });
+
+      const result = await service.processScheduledEvent(cronSource as never, makeCronEvent());
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.value.status).toBe('ignored');
+      expect(result.value.matchCount).toBe(0);
+      expect(result.value.tasksCreated).toEqual([]);
+    });
+
+    it('continues processing remaining subscriptions when task creation fails for one', async () => {
+      mockPlugin.type = 'cron';
+      mockPluginRegistry.get.mockReturnValue(mockPlugin);
+
+      mockTaskService.create
+        .mockResolvedValueOnce({
+          ok: false,
+          error: { code: 'TASK_CREATE_FAILED', message: 'DB error', status: 500 },
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          value: { id: 'task-cron-2', title: 'Cron Task 2' },
+        });
+
+      mockSubscriptionService.findMatchingSubscriptions.mockResolvedValue({
+        ok: true,
+        value: [
+          {
+            id: 'sub-fail',
+            name: 'Failing Sub',
+            eventSourceId: 'source-cron-1',
+            targetProjectId: 'project-1',
+            filters: [],
+            promptTemplate: 'Review: {{schedule.name}}',
+            autoStartAgent: false,
+            taskColumn: 'backlog',
+            taskPriority: 'medium',
+            taskLabels: [],
+          },
+          {
+            id: 'sub-ok',
+            name: 'Working Sub',
+            eventSourceId: 'source-cron-1',
+            targetProjectId: 'project-2',
+            filters: [],
+            promptTemplate: 'Audit: {{schedule.name}}',
+            autoStartAgent: false,
+            taskColumn: 'backlog',
+            taskPriority: 'low',
+            taskLabels: ['audit'],
+          },
+        ],
+      });
+
+      const result = await service.processScheduledEvent(cronSource as never, makeCronEvent());
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      // Only the second task succeeded
+      expect(result.value.tasksCreated).toEqual(['task-cron-2']);
+      // Both subscriptions were matched
+      expect(result.value.matchCount).toBe(2);
+      expect(result.value.status).toBe('processed');
+
+      // Both create attempts were made
+      expect(mockTaskService.create).toHaveBeenCalledTimes(2);
+
+      // incrementMatchCount only called for the successful task
+      expect(mockSubscriptionService.incrementMatchCount).toHaveBeenCalledTimes(1);
+      expect(mockSubscriptionService.incrementMatchCount).toHaveBeenCalledWith('sub-ok');
+    });
+
+    it('uses source.type to look up the plugin, not hardcoded type', async () => {
+      const customSource = { ...cronSource, type: 'custom-scheduler' };
+      mockPluginRegistry.get.mockReturnValue(mockPlugin);
+
+      await service.processScheduledEvent(customSource as never, makeCronEvent());
+
+      expect(mockPluginRegistry.get).toHaveBeenCalledWith('custom-scheduler');
+    });
+
+    it('does not call getBySlug, decryptSecret, verifySignature, or parseEvent', async () => {
+      mockPlugin.type = 'cron';
+      mockPluginRegistry.get.mockReturnValue(mockPlugin);
+
+      await service.processScheduledEvent(cronSource as never, makeCronEvent());
+
+      expect(mockEventSourceService.getBySlug).not.toHaveBeenCalled();
+      expect(mockEventSourceService.decryptSecret).not.toHaveBeenCalled();
+      expect(mockPlugin.verifySignature).not.toHaveBeenCalled();
+      expect(mockPlugin.parseEvent).not.toHaveBeenCalled();
+    });
+
+    it('passes event type from NormalizedEvent to findMatchingSubscriptions', async () => {
+      mockPlugin.type = 'cron';
+      mockPluginRegistry.get.mockReturnValue(mockPlugin);
+
+      const manualEvent = makeCronEvent({
+        type: 'schedule.manual_trigger',
+        action: 'manual',
+      });
+
+      mockSubscriptionService.findMatchingSubscriptions.mockResolvedValue({
+        ok: true,
+        value: [],
+      });
+
+      await service.processScheduledEvent(cronSource as never, manualEvent);
+
+      expect(mockSubscriptionService.findMatchingSubscriptions).toHaveBeenCalledWith(
+        'source-cron-1',
+        'schedule.manual_trigger'
+      );
+    });
+
+    it('updates event log with task_created status on successful task creation', async () => {
+      mockPlugin.type = 'cron';
+      mockPluginRegistry.get.mockReturnValue(mockPlugin);
+
+      mockSubscriptionService.findMatchingSubscriptions.mockResolvedValue({
+        ok: true,
+        value: [
+          {
+            id: 'sub-1',
+            name: 'Cron Sub',
+            eventSourceId: 'source-cron-1',
+            targetProjectId: 'project-1',
+            filters: [],
+            promptTemplate: 'Run: {{schedule.name}}',
+            autoStartAgent: false,
+            taskColumn: 'backlog',
+            taskPriority: 'medium',
+            taskLabels: [],
+          },
+        ],
+      });
+
+      await service.processScheduledEvent(cronSource as never, makeCronEvent());
+
+      expect(mockDb.update).toHaveBeenCalledTimes(1);
+      const setCall = mockDb._updateChain.set.mock.calls[0][0];
+      expect(setCall.status).toBe('task_created');
+      expect(setCall.matchedSubscriptions).toEqual([{ subscriptionId: 'sub-1', taskId: 'task-1' }]);
+      expect(setCall.processedAt).toBeTruthy();
+    });
+  });
 });

@@ -114,7 +114,9 @@ export class EventSubscriptionService {
       .returning();
 
     if (!subscription) {
-      return err(EventErrors.SUBSCRIPTION_NOT_FOUND());
+      return err(
+        EventErrors.PROCESSING_FAILED('Failed to create subscription — insert returned no rows')
+      );
     }
 
     return ok(subscription);

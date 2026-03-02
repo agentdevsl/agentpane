@@ -201,14 +201,14 @@ describe('EventSourceService', () => {
       expect(insertValues.slug).toBe('my-source-mock-c');
     });
 
-    it('returns SOURCE_NOT_FOUND when insert returns empty', async () => {
+    it('returns PROCESSING_FAILED when insert returns empty', async () => {
       mockDb._insertChain.returning.mockResolvedValue([]);
 
       const result = await service.create(baseInput);
 
       expect(result.ok).toBe(false);
       if (result.ok) return;
-      expect(result.error.code).toBe('EVENT_SOURCE_NOT_FOUND');
+      expect(result.error.code).toBe('EVENT_PROCESSING_FAILED');
     });
 
     it('uses createId for the source ID', async () => {

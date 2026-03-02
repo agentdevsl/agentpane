@@ -17,6 +17,7 @@ export * from './projects';
 export * from './relations';
 export * from './sandbox-configs';
 export * from './sandboxes';
+export * from './schedule-executions';
 export * from './session-events';
 export * from './session-summaries';
 export * from './sessions';

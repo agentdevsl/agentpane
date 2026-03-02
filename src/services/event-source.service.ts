@@ -6,10 +6,13 @@ import { eventSources, teams } from '../db/schema/index.js';
 import { decryptToken, encryptToken } from '../lib/crypto/server-encryption.js';
 import type { AppError } from '../lib/errors/base.js';
 import { EventErrors } from '../lib/errors/event-errors.js';
+import { createLogger } from '../lib/logging/logger.js';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
 import { slugify } from '../lib/utils/slugify.js';
 import type { Database } from '../types/database.js';
+
+const log = createLogger('EventSourceService');
 
 // ---------------------------------------------------------------------------
 // Input types
@@ -59,7 +62,13 @@ export class EventSourceService {
 
     // Auto-generate webhook secret if not provided
     const plaintextSecret = webhookSecret ?? crypto.randomBytes(32).toString('hex');
-    const encryptedSecret = encryptToken(plaintextSecret);
+    let encryptedSecret: string;
+    try {
+      encryptedSecret = encryptToken(plaintextSecret);
+    } catch (encryptError) {
+      log.error('Failed to encrypt webhook secret', { error: encryptError });
+      return err(EventErrors.SECRET_DECRYPT_FAILED());
+    }
 
     const now = new Date().toISOString();
 
@@ -82,7 +91,9 @@ export class EventSourceService {
       .returning();
 
     if (!source) {
-      return err(EventErrors.SOURCE_NOT_FOUND());
+      return err(
+        EventErrors.PROCESSING_FAILED('Failed to create event source — insert returned no rows')
+      );
     }
 
     return ok({ source, plaintextSecret });
@@ -165,7 +176,13 @@ export class EventSourceService {
    */
   async rotateSecret(id: string): Promise<Result<{ secret: string }, AppError>> {
     const plaintextSecret = crypto.randomBytes(32).toString('hex');
-    const encryptedSecret = encryptToken(plaintextSecret);
+    let encryptedSecret: string;
+    try {
+      encryptedSecret = encryptToken(plaintextSecret);
+    } catch (encryptError) {
+      log.error('Failed to encrypt webhook secret during rotation', { error: encryptError });
+      return err(EventErrors.SECRET_DECRYPT_FAILED());
+    }
 
     const [updated] = await this.db
       .update(eventSources)

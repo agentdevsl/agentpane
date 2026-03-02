@@ -1263,7 +1263,7 @@ export const apiClient = {
       get: (id: string) =>
         apiServerFetch<EventSource>(`/api/events/sources/${encodeURIComponent(id)}`),
       create: (data: CreateEventSourceInput) =>
-        apiServerFetch<{ source: EventSource; webhookSecret: string; webhookUrl: string }>(
+        apiServerFetch<EventSource & { webhookSecret: string; webhookUrl: string }>(
           '/api/events/sources',
           { method: 'POST', body: data }
         ),
@@ -1277,7 +1277,7 @@ export const apiClient = {
           method: 'DELETE',
         }),
       rotateSecret: (id: string) =>
-        apiServerFetch<{ webhookSecret: string }>(
+        apiServerFetch<{ secret: string }>(
           `/api/events/sources/${encodeURIComponent(id)}/rotate-secret`,
           { method: 'POST' }
         ),

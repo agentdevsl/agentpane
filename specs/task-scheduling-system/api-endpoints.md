@@ -61,7 +61,7 @@ const manualTriggerSchema = z.object({
   data: {
     triggered: true,
     executionId: string,
-    taskIds: string[],       // tasks created from matched subscriptions
+    taskId: string | null,   // task created from matched subscription (null if no match)
     budgetRemaining: {
       hour: number | null,   // null = unlimited (no limit configured)
       day: number | null,

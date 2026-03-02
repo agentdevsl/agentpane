@@ -154,6 +154,7 @@ export class SchedulerService {
       for (const result of batchResults) {
         if (result.status === 'rejected') {
           results.errors++;
+          log.error('Source processing rejected unexpectedly', { error: result.reason });
         } else {
           switch (result.value.outcome) {
             case 'executed':
@@ -198,7 +199,7 @@ export class SchedulerService {
     try {
       const newNextRunAt = this.calculateNextRunAt(config);
 
-      // CAS lock for tick-triggered executions
+      // CAS lock for tick-triggered executions; manual triggers update state directly
       if (trigger === 'tick') {
         if (!config.nextRunAt) {
           log.warn('Source has null nextRunAt, recovering', { data: { sourceId: source.id } });
@@ -210,6 +211,17 @@ export class SchedulerService {
           log.debug('Skipped source (lock contention)', { data: { sourceId: source.id } });
           return { outcome: 'skipped_lock', executionId, tasksCreated: [] };
         }
+      } else {
+        // Manual trigger: update nextRunAt and lastRunAt outside of CAS lock
+        await this.db.run(sql`
+          UPDATE event_sources
+          SET config = json_set(
+                json_set(config, '$.nextRunAt', ${newNextRunAt}),
+                '$.lastRunAt', ${new Date().toISOString()}
+              ),
+              updated_at = datetime('now')
+          WHERE id = ${source.id}
+        `);
       }
 
       // Check budget
@@ -435,8 +447,17 @@ export class SchedulerService {
   private getWindowStart(window: 'hour' | 'day' | 'week' | 'month', timezone: string): string {
     const now = new Date();
 
+    let validTimezone = timezone;
+    try {
+      // Validate timezone by constructing a formatter — throws RangeError if invalid
+      Intl.DateTimeFormat(undefined, { timeZone: timezone });
+    } catch {
+      log.warn('Invalid timezone, falling back to UTC', { data: { timezone } });
+      validTimezone = 'UTC';
+    }
+
     const formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: timezone,
+      timeZone: validTimezone,
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
@@ -453,7 +474,7 @@ export class SchedulerService {
     const hour = Number(parts.hour === '24' ? '0' : parts.hour);
 
     // Get the UTC offset for this timezone so we can convert local time to UTC.
-    const offsetMs = this.getTimezoneOffsetMs(now, timezone);
+    const offsetMs = this.getTimezoneOffsetMs(now, validTimezone);
 
     switch (window) {
       case 'hour': {
@@ -542,41 +563,58 @@ export class SchedulerService {
   // -------------------------------------------------------------------------
 
   private async recoverSchedules(): Promise<void> {
-    const cronSources = await this.db
-      .select()
-      .from(eventSources)
-      .where(
-        and(
-          eq(eventSources.type, 'cron'),
-          eq(eventSources.status, 'active'),
-          eq(eventSources.isEnabled, true)
-        )
-      );
+    let cronSources: EventSource[];
+    try {
+      cronSources = await this.db
+        .select()
+        .from(eventSources)
+        .where(
+          and(
+            eq(eventSources.type, 'cron'),
+            eq(eventSources.status, 'active'),
+            eq(eventSources.isEnabled, true)
+          )
+        );
+    } catch (queryError) {
+      log.error('Failed to query cron sources for recovery — will retry on first tick', {
+        error: queryError,
+      });
+      return;
+    }
 
     let recovered = 0;
     let missed = 0;
+    let errors = 0;
 
     for (const source of cronSources) {
-      const config = source.config as unknown as CronEventSourceConfig;
+      try {
+        const config = source.config as unknown as CronEventSourceConfig;
 
-      if (!config.nextRunAt) {
-        const nextRunAt = this.calculateNextRunAt(config);
-        await this.updateNextRunAt(source.id, nextRunAt);
-        recovered++;
-        continue;
-      }
+        if (!config.nextRunAt) {
+          const nextRunAt = this.calculateNextRunAt(config);
+          await this.updateNextRunAt(source.id, nextRunAt);
+          recovered++;
+          continue;
+        }
 
-      const nextRunAt = new Date(config.nextRunAt);
-      if (nextRunAt <= new Date()) {
-        const newNextRunAt = this.calculateNextRunAt(config);
-        await this.updateNextRunAt(source.id, newNextRunAt);
-        recovered++;
-        missed++;
+        const nextRunAt = new Date(config.nextRunAt);
+        if (nextRunAt <= new Date()) {
+          const newNextRunAt = this.calculateNextRunAt(config);
+          await this.updateNextRunAt(source.id, newNextRunAt);
+          recovered++;
+          missed++;
+        }
+      } catch (sourceError) {
+        errors++;
+        log.error('Failed to recover schedule for source, skipping', {
+          data: { sourceId: source.id },
+          error: sourceError,
+        });
       }
     }
 
     log.info('Schedule recovery complete', {
-      data: { totalSources: cronSources.length, recovered, missedExecutions: missed },
+      data: { totalSources: cronSources.length, recovered, missedExecutions: missed, errors },
     });
   }
 
@@ -602,7 +640,7 @@ export class SchedulerService {
     budgetWindow?: BudgetWindow;
     windowExecutionCount?: number;
     error?: string;
-  }): Promise<void> {
+  }): Promise<boolean> {
     try {
       await this.db.insert(scheduleExecutions).values({
         id: createId(),
@@ -616,8 +654,13 @@ export class SchedulerService {
         windowExecutionCount: params.windowExecutionCount ?? 0,
         error: params.error,
       });
+      return true;
     } catch (insertError) {
-      log.error('Failed to record execution', { error: insertError });
+      log.error('Failed to record schedule execution — budget tracking may be inaccurate', {
+        data: { eventSourceId: params.eventSourceId, status: params.status },
+        error: insertError,
+      });
+      return false;
     }
   }
 

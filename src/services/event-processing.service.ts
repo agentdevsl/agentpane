@@ -70,8 +70,10 @@ export class EventProcessingService {
       data: { sourceId: source.id, sourceSlug, sourceType: source.type },
     });
 
-    if (source.status === 'disabled') {
-      log.info('Ignoring event for disabled source', { data: { sourceId: source.id } });
+    if (source.status === 'disabled' || source.status === 'error') {
+      log.info('Ignoring event for disabled/errored source', {
+        data: { sourceId: source.id, status: source.status },
+      });
       return err(EventErrors.SOURCE_DISABLED(source.id));
     }
 

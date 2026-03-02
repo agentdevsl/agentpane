@@ -2,8 +2,12 @@ import { createId } from '@paralleldrive/cuid2';
 import type { CronEventSourceConfig } from '../../../db/schema/shared/cron-config.js';
 import type { AppError } from '../../errors/base.js';
 import { EventErrors } from '../../errors/event-errors.js';
+import { createLogger } from '../../logging/logger.js';
 import type { Result } from '../../utils/result.js';
 import { err, ok } from '../../utils/result.js';
+
+const log = createLogger('CronPlugin');
+
 import type {
   EventSourcePlugin,
   EventTypeDefinition,
@@ -145,10 +149,18 @@ export class CronEventSourcePlugin implements EventSourcePlugin {
         case 'contains':
           return event.action?.includes(filter.value) ?? false;
         case 'matches': {
-          if (filter.value.length > 200) return false;
+          if (filter.value.length > 200) {
+            log.warn('Regex pattern too long (>200 chars), rejecting filter', {
+              data: { field: filter.field, length: filter.value.length },
+            });
+            return false;
+          }
           try {
             return new RegExp(filter.value).test(event.action ?? '');
           } catch {
+            log.warn('Invalid regex in cron filter', {
+              data: { field: filter.field, pattern: filter.value },
+            });
             return false;
           }
         }
