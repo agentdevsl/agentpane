@@ -317,18 +317,14 @@ describe('SchedulerService', () => {
       expect(new Date(result).getTime()).toBe(futureDate.getTime());
     });
 
-    it('defaults to 60s interval for unknown scheduleType', () => {
-      const now = Date.now();
+    it('throws for unknown scheduleType', () => {
       const config = makeCronConfig({
         scheduleType: 'unknown-type' as 'interval',
       });
 
-      const result = service.calculateNextRunAt(config);
-      const nextDate = new Date(result);
-
-      // Should be roughly now + 60s
-      expect(nextDate.getTime()).toBeGreaterThanOrEqual(now + 59_000);
-      expect(nextDate.getTime()).toBeLessThanOrEqual(now + 61_000);
+      expect(() => service.calculateNextRunAt(config)).toThrow(
+        'Unknown scheduleType "unknown-type"'
+      );
     });
   });
 

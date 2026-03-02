@@ -304,7 +304,14 @@ export class SchedulerService {
       }
 
       // Reset consecutive errors on success
-      await this.resetConsecutiveErrors(source.id);
+      try {
+        await this.resetConsecutiveErrors(source.id);
+      } catch (resetErr) {
+        log.error('Failed to reset consecutive errors after successful execution', {
+          data: { sourceId: source.id },
+          error: resetErr,
+        });
+      }
 
       publishEventToStream({
         type: 'schedule:executed',
@@ -540,22 +547,27 @@ export class SchedulerService {
     }
 
     if (config.scheduleType === 'cron' && config.cronExpression) {
-      const interval = CronExpressionParser.parse(config.cronExpression, {
-        currentDate: baseTime,
-        tz: config.timezone,
-      });
+      try {
+        const interval = CronExpressionParser.parse(config.cronExpression, {
+          currentDate: baseTime,
+          tz: config.timezone,
+        });
 
-      let next = interval.next().toDate();
-      while (next <= now) {
-        next = interval.next().toDate();
+        let next = interval.next().toDate();
+        while (next <= now) {
+          next = interval.next().toDate();
+        }
+        return next.toISOString();
+      } catch (cronError) {
+        throw new Error(
+          `Invalid cron expression "${config.cronExpression}" (timezone: ${config.timezone}): ${cronError instanceof Error ? cronError.message : String(cronError)}`
+        );
       }
-      return next.toISOString();
     }
 
-    log.warn('Unknown scheduleType, defaulting to 60s interval', {
-      data: { scheduleType: config.scheduleType },
-    });
-    return new Date(now.getTime() + 60_000).toISOString();
+    throw new Error(
+      `Unknown scheduleType "${config.scheduleType}". Expected "interval" or "cron". This indicates corrupted configuration data.`
+    );
   }
 
   // -------------------------------------------------------------------------

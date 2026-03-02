@@ -165,7 +165,7 @@ export class CronEventSourcePlugin implements EventSourcePlugin {
           }
         }
         default:
-          return true;
+          return false;
       }
     }
     // All other filter fields always match for cron events

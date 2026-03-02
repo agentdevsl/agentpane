@@ -22,6 +22,7 @@ const log = createLogger('EventProcessingService');
 // ---------------------------------------------------------------------------
 
 export type ProcessingResult = {
+  eventSourceId: string;
   eventLogId: string;
   status: 'processed' | 'duplicate' | 'ignored';
   matchCount: number;
@@ -70,7 +71,7 @@ export class EventProcessingService {
       data: { sourceId: source.id, sourceSlug, sourceType: source.type },
     });
 
-    if (source.status === 'disabled' || source.status === 'error') {
+    if (!source.isEnabled || source.status === 'disabled' || source.status === 'error') {
       log.info('Ignoring event for disabled/errored source', {
         data: { sourceId: source.id, status: source.status },
       });
@@ -192,6 +193,7 @@ export class EventProcessingService {
           data: { sourceId: source.id, deliveryId: event.deliveryId },
         });
         return ok({
+          eventSourceId: source.id,
           eventLogId: '',
           status: 'duplicate',
           matchCount: 0,
@@ -292,12 +294,11 @@ export class EventProcessingService {
       });
     }
 
-    try {
-      await this.eventSourceService.incrementEventCount(source.id);
-    } catch (countError) {
-      log.error('Failed to increment source event count', {
+    const countResult = await this.eventSourceService.incrementEventCount(source.id);
+    if (!countResult.ok) {
+      log.warn('Failed to increment source event count', {
         data: { sourceId: source.id },
-        error: countError,
+        error: countResult.error.message,
       });
     }
 
@@ -311,6 +312,7 @@ export class EventProcessingService {
     });
 
     return ok({
+      eventSourceId: source.id,
       eventLogId,
       status: tasksCreated.length > 0 || matchedSubRecords.length > 0 ? 'processed' : 'ignored',
       matchCount: matchedSubRecords.length,

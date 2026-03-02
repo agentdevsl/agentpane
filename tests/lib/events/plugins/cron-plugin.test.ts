@@ -434,15 +434,15 @@ describe('CronEventSourcePlugin', () => {
       expect(plugin.matchesFilter(tickEvent, filter)).toBe(true);
     });
 
-    // --- action field with unknown operator defaults to true ---
+    // --- action field with unknown operator defaults to false (fail-closed) ---
 
-    it('action field with unknown operator returns true', () => {
+    it('action field with unknown operator returns false', () => {
       const filter = {
         field: 'action',
         operator: 'unknown_op',
         value: 'tick',
       } as unknown as SubscriptionFilter;
-      expect(plugin.matchesFilter(tickEvent, filter)).toBe(true);
+      expect(plugin.matchesFilter(tickEvent, filter)).toBe(false);
     });
 
     // --- action field when event.action is null ---

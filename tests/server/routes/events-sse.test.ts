@@ -49,16 +49,32 @@ function createMockEventSubscriptionService() {
   };
 }
 
+/**
+ * Create a chainable query builder mock that resolves to `resolvedValue` at
+ * any point in the chain (where, orderBy, limit, or direct await).
+ */
+function createChainableQuery(resolvedValue: unknown[] = []) {
+  const chain: Record<string, ReturnType<typeof vi.fn>> = {};
+  chain.where = vi.fn().mockReturnValue(chain);
+  chain.orderBy = vi.fn().mockReturnValue(chain);
+  chain.limit = vi.fn().mockReturnValue(chain);
+  // Make the chain thenable so `await` works at any point in the chain.
+  // biome-ignore lint/suspicious/noThenProperty: intentional — mock must be thenable to simulate drizzle query builder
+  chain.then = vi
+    .fn()
+    .mockImplementation((resolve: (v: unknown) => void, reject?: (e: unknown) => void) =>
+      Promise.resolve(resolvedValue).then(resolve, reject)
+    );
+  return chain;
+}
+
 function createMockDb() {
+  const selectChain = createChainableQuery();
   return {
     select: vi.fn().mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue([]),
-        orderBy: vi.fn().mockReturnValue({
-          limit: vi.fn().mockResolvedValue([]),
-        }),
-      }),
+      from: vi.fn().mockReturnValue(selectChain),
     }),
+    _selectChain: selectChain,
     insert: vi.fn().mockReturnValue({
       values: vi.fn().mockReturnValue({
         returning: vi.fn().mockResolvedValue([]),
@@ -253,11 +269,11 @@ describe('GET /events/sources', () => {
       webhookSecret: 'super-secret-hash',
       slug: 'github-webhook-abc',
       isEnabled: true,
+      createdAt: '2026-01-01T00:00:00Z',
     };
-    deps.eventSourceService.listByTeam.mockResolvedValue({
-      ok: true,
-      value: [sampleSource],
-    });
+    // Configure mock DB to return the source from the paginated query
+    const selectChain = createChainableQuery([sampleSource]);
+    deps.db.select.mockReturnValue({ from: vi.fn().mockReturnValue(selectChain) });
 
     const app = createApp(deps);
     const res = await app.request('/events/sources?teamId=team-1');
@@ -766,18 +782,18 @@ describe('GET /events/subscriptions', () => {
 
   it('lists subscriptions by eventSourceId', async () => {
     const subs = [
-      { id: 'sub-1', name: 'Sub 1', eventSourceId: 'src-1' },
-      { id: 'sub-2', name: 'Sub 2', eventSourceId: 'src-1' },
+      { id: 'sub-1', name: 'Sub 1', eventSourceId: 'src-1', createdAt: '2026-01-02T00:00:00Z' },
+      { id: 'sub-2', name: 'Sub 2', eventSourceId: 'src-1', createdAt: '2026-01-01T00:00:00Z' },
     ];
 
     deps.eventSourceService.getById.mockResolvedValue({
       ok: true,
       value: { id: 'src-1', teamId: 'team-1' },
     });
-    deps.eventSubscriptionService.listBySource.mockResolvedValue({
-      ok: true,
-      value: subs,
-    });
+
+    // Configure mock DB to return subscriptions from the paginated query
+    const selectChain = createChainableQuery(subs);
+    deps.db.select.mockReturnValue({ from: vi.fn().mockReturnValue(selectChain) });
 
     const app = createApp(deps);
     const res = await app.request('/events/subscriptions?eventSourceId=src-1');
@@ -799,6 +815,10 @@ describe('GET /events/subscriptions', () => {
   });
 
   it('returns 400 for invalid targetProjectId', async () => {
+    // Provide a source so scope check doesn't exit early before targetProjectId validation
+    const selectChain = createChainableQuery([{ id: 'src-1' }]);
+    deps.db.select.mockReturnValue({ from: vi.fn().mockReturnValue(selectChain) });
+
     const app = createApp(deps);
     const res = await app.request('/events/subscriptions?targetProjectId=bad id!');
     const body = await res.json();

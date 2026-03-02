@@ -5,7 +5,7 @@
  * and an SSE stream for real-time event notifications.
  */
 
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { EventLogStatus, EventSourceType } from '../../db/schema/index.js';
@@ -20,7 +20,8 @@ import {
   teamProjects,
 } from '../../db/schema/index.js';
 import type { CronEventSourceConfig } from '../../db/schema/shared/cron-config.js';
-import { SCHEDULE_EXECUTION_STATUS } from '../../db/schema/shared/enums.js';
+import type { EventSourceStatus } from '../../db/schema/shared/enums.js';
+import { EVENT_SOURCE_STATUS, SCHEDULE_EXECUTION_STATUS } from '../../db/schema/shared/enums.js';
 import type { AuthContext } from '../../lib/api/auth-middleware.js';
 import { failure } from '../../lib/api/response.js';
 import type { AppError } from '../../lib/errors/base.js';
@@ -171,13 +172,16 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
   // GET /sources - List event sources for the user's teams
   app.get('/sources', async (c) => {
     const auth = c.get('auth');
+    const { cursor, limit } = parsePagination(c);
 
     try {
       const teamIds = await getUserTeamIds(auth, db);
 
       if (teamIds.length === 0) {
-        return json({ ok: true, data: { items: [] } });
+        return json({ ok: true, data: { items: [], nextCursor: null, hasMore: false } });
       }
+
+      const conditions = [];
 
       // Optionally filter by teamId query param
       const teamIdFilter = c.req.query('teamId');
@@ -194,19 +198,63 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
             403
           );
         }
-        const result = await eventSourceService.listByTeam(teamIdFilter);
-        if (!result.ok) return resultErrorResponse(result.error);
-        return json({ ok: true, data: { items: result.value.map(stripSourceSecret) } });
+        conditions.push(eq(eventSources.teamId, teamIdFilter));
+      } else {
+        conditions.push(inArray(eventSources.teamId, teamIds));
       }
 
-      // List sources across all user's teams in a single query
-      const items = await db
+      // Filter by source type
+      const typeFilter = c.req.query('type');
+      if (typeFilter) {
+        if (!(EVENT_SOURCE_TYPES as readonly string[]).includes(typeFilter)) {
+          return json(
+            { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid type filter' } },
+            400
+          );
+        }
+        conditions.push(eq(eventSources.type, typeFilter as EventSourceType));
+      }
+
+      // Filter by source status
+      const statusFilter = c.req.query('status');
+      if (statusFilter) {
+        if (!(EVENT_SOURCE_STATUS as readonly string[]).includes(statusFilter)) {
+          return json(
+            { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid status filter' } },
+            400
+          );
+        }
+        conditions.push(eq(eventSources.status, statusFilter as EventSourceStatus));
+      }
+
+      // Cursor-based pagination: "createdAt|id"
+      if (cursor) {
+        const separatorIdx = cursor.lastIndexOf('|');
+        if (separatorIdx > 0) {
+          const cursorTime = cursor.slice(0, separatorIdx);
+          const cursorId = cursor.slice(separatorIdx + 1);
+          conditions.push(
+            sql`(${eventSources.createdAt} < ${cursorTime} OR (${eventSources.createdAt} = ${cursorTime} AND ${eventSources.id} < ${cursorId}))`
+          );
+        }
+      }
+
+      const entries = await db
         .select()
         .from(eventSources)
-        .where(inArray(eventSources.teamId, teamIds))
-        .orderBy(desc(eventSources.createdAt));
+        .where(and(...conditions))
+        .orderBy(desc(eventSources.createdAt), desc(eventSources.id))
+        .limit(limit + 1);
 
-      return json({ ok: true, data: { items: items.map(stripSourceSecret) } });
+      const hasMore = entries.length > limit;
+      const items = hasMore ? entries.slice(0, limit) : entries;
+      const lastItem = items[items.length - 1];
+      const nextCursor = hasMore && lastItem ? `${lastItem.createdAt}|${lastItem.id}` : null;
+
+      return json({
+        ok: true,
+        data: { items: items.map(stripSourceSecret), nextCursor, hasMore },
+      });
     } catch (error) {
       log.error('Failed to list event sources', { error });
       return json(
@@ -687,13 +735,18 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
   // Event Subscriptions
   // =========================================================================
 
-  // GET /subscriptions - List subscriptions (filter by eventSourceId or targetProjectId)
+  // GET /subscriptions - List subscriptions (filter by eventSourceId, targetProjectId, isEnabled)
   app.get('/subscriptions', async (c) => {
     const auth = c.get('auth');
+    const { cursor, limit } = parsePagination(c);
     const eventSourceId = c.req.query('eventSourceId');
     const targetProjectId = c.req.query('targetProjectId');
+    const isEnabledParam = c.req.query('isEnabled');
 
     try {
+      // Determine base scope: source IDs the user has access to
+      let scopeSourceIds: string[] | null = null;
+
       if (eventSourceId) {
         if (!isValidId(eventSourceId)) {
           return json(
@@ -701,7 +754,6 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
             400
           );
         }
-
         // Verify access to the source's team
         const source = await eventSourceService.getById(eventSourceId);
         if (!source.ok) return resultErrorResponse(source.error);
@@ -713,11 +765,24 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
           'Not a member of this team'
         );
         if (denied) return denied;
-
-        const result = await eventSubscriptionService.listBySource(eventSourceId);
-        if (!result.ok) return resultErrorResponse(result.error);
-        return json({ ok: true, data: { items: result.value } });
+        scopeSourceIds = [eventSourceId];
+      } else {
+        // Scope to user's teams' sources
+        const teamIds = await getUserTeamIds(auth, db);
+        if (teamIds.length === 0) {
+          return json({ ok: true, data: { items: [], nextCursor: null, hasMore: false } });
+        }
+        const sources = await db
+          .select({ id: eventSources.id })
+          .from(eventSources)
+          .where(inArray(eventSources.teamId, teamIds));
+        if (sources.length === 0) {
+          return json({ ok: true, data: { items: [], nextCursor: null, hasMore: false } });
+        }
+        scopeSourceIds = sources.map((s) => s.id);
       }
+
+      const conditions = [inArray(eventSubscriptions.eventSourceId, scopeSourceIds)];
 
       if (targetProjectId) {
         if (!isValidId(targetProjectId)) {
@@ -726,14 +791,12 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
             400
           );
         }
-
         // Verify user has access to the project's team
         const teamIds = await getUserTeamIds(auth, db);
         const projectTeam = await db
           .select({ teamId: teamProjects.teamId })
           .from(teamProjects)
           .where(eq(teamProjects.projectId, targetProjectId));
-
         const hasAccess = projectTeam.some((tp) => teamIds.includes(tp.teamId));
         if (!hasAccess) {
           return json(
@@ -741,35 +804,43 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
             403
           );
         }
-
-        const result = await eventSubscriptionService.listByProject(targetProjectId);
-        if (!result.ok) return resultErrorResponse(result.error);
-        return json({ ok: true, data: { items: result.value } });
+        conditions.push(eq(eventSubscriptions.targetProjectId, targetProjectId));
       }
 
-      // No filter provided: list all subscriptions for user's teams' sources
-      const teamIds = await getUserTeamIds(auth, db);
-      if (teamIds.length === 0) {
-        return json({ ok: true, data: { items: [] } });
+      // Filter by isEnabled
+      if (isEnabledParam !== undefined) {
+        const isEnabled = isEnabledParam === 'true';
+        conditions.push(eq(eventSubscriptions.isEnabled, isEnabled));
       }
 
-      const sources = await db
-        .select({ id: eventSources.id })
-        .from(eventSources)
-        .where(inArray(eventSources.teamId, teamIds));
-
-      if (sources.length === 0) {
-        return json({ ok: true, data: { items: [] } });
+      // Cursor-based pagination: "createdAt|id"
+      if (cursor) {
+        const separatorIdx = cursor.lastIndexOf('|');
+        if (separatorIdx > 0) {
+          const cursorTime = cursor.slice(0, separatorIdx);
+          const cursorId = cursor.slice(separatorIdx + 1);
+          conditions.push(
+            sql`(${eventSubscriptions.createdAt} < ${cursorTime} OR (${eventSubscriptions.createdAt} = ${cursorTime} AND ${eventSubscriptions.id} < ${cursorId}))`
+          );
+        }
       }
 
-      const sourceIds = sources.map((s) => s.id);
-      const subscriptions = await db
+      const entries = await db
         .select()
         .from(eventSubscriptions)
-        .where(inArray(eventSubscriptions.eventSourceId, sourceIds))
-        .orderBy(desc(eventSubscriptions.createdAt));
+        .where(and(...conditions))
+        .orderBy(desc(eventSubscriptions.createdAt), desc(eventSubscriptions.id))
+        .limit(limit + 1);
 
-      return json({ ok: true, data: { items: subscriptions } });
+      const hasMore = entries.length > limit;
+      const items = hasMore ? entries.slice(0, limit) : entries;
+      const lastItem = items[items.length - 1];
+      const nextCursor = hasMore && lastItem ? `${lastItem.createdAt}|${lastItem.id}` : null;
+
+      return json({
+        ok: true,
+        data: { items, nextCursor, hasMore },
+      });
     } catch (error) {
       log.error('Failed to list subscriptions', { error });
       return json(
@@ -939,6 +1010,8 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
     const eventSourceId = c.req.query('eventSourceId');
     const status = c.req.query('status') as EventLogStatus | undefined;
     const eventType = c.req.query('eventType');
+    const since = c.req.query('since');
+    const until = c.req.query('until');
 
     try {
       // Build filter conditions
@@ -1007,6 +1080,14 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
 
       if (eventType) {
         conditions.push(eq(eventLog.eventType, eventType));
+      }
+
+      // Date range filters
+      if (since) {
+        conditions.push(gte(eventLog.receivedAt, since));
+      }
+      if (until) {
+        conditions.push(lte(eventLog.receivedAt, until));
       }
 
       // Composite cursor: "receivedAt|id" for stable descending pagination
@@ -1149,7 +1230,6 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
         429
       );
     }
-    incrementSSEConnections();
 
     let listener: ((event: { type: string; data: unknown }) => void) | null = null;
     let pingInterval: ReturnType<typeof setInterval> | null = null;
@@ -1165,6 +1245,7 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
 
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
+        incrementSSEConnections();
         const encoder = new TextEncoder();
         const send = (data: unknown) => {
           if (cleaned) return;

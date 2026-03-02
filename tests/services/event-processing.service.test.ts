@@ -912,9 +912,10 @@ describe('EventProcessingService', () => {
     });
 
     it('continues when incrementEventCount fails', async () => {
-      mockEventSourceService.incrementEventCount.mockRejectedValue(
-        new Error('Count increment failed')
-      );
+      mockEventSourceService.incrementEventCount.mockResolvedValue({
+        ok: false,
+        error: { code: 'DB_ERROR', message: 'Count increment failed', status: 500 },
+      });
 
       const result = await service.processIncomingEvent(
         'my-source',
