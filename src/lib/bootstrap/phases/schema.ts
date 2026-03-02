@@ -498,6 +498,28 @@ CREATE INDEX IF NOT EXISTS "event_log_source_status_idx" ON "event_log"("event_s
 CREATE UNIQUE INDEX IF NOT EXISTS "event_log_delivery_idx" ON "event_log"("event_source_id", "delivery_id");
 `;
 
+// Schedule executions migration (tracks cron/scheduled task executions)
+export const SCHEDULE_EXECUTIONS_MIGRATION_SQL = `
+CREATE TABLE IF NOT EXISTS schedule_executions (
+  id TEXT PRIMARY KEY,
+  event_source_id TEXT NOT NULL REFERENCES event_sources(id) ON DELETE CASCADE,
+  status TEXT NOT NULL,
+  scheduled_at TEXT NOT NULL,
+  executed_at TEXT NOT NULL,
+  task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+  subscription_id TEXT REFERENCES event_subscriptions(id) ON DELETE SET NULL,
+  budget_window TEXT,
+  window_execution_count INTEGER NOT NULL DEFAULT 0,
+  error TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS schedule_executions_event_source_idx ON schedule_executions(event_source_id);
+CREATE INDEX IF NOT EXISTS schedule_executions_source_status_idx ON schedule_executions(event_source_id, status);
+CREATE INDEX IF NOT EXISTS schedule_executions_source_executed_at_idx ON schedule_executions(event_source_id, executed_at);
+CREATE INDEX IF NOT EXISTS schedule_executions_source_scheduled_at_idx ON schedule_executions(event_source_id, scheduled_at);
+`;
+
 // Performance indexes migration
 export const PERFORMANCE_INDEXES_MIGRATION_SQL = `
 -- Index for looking up tasks by agent

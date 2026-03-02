@@ -24,6 +24,7 @@ import { createLogger } from '../../lib/logging/logger.js';
 import type { EventSourceService } from '../../services/event-source.service.js';
 import type { EventSubscriptionService } from '../../services/event-subscription.service.js';
 import type { RbacService } from '../../services/rbac.service.js';
+import type { SchedulerService } from '../../services/scheduler.service.js';
 import type { Database } from '../../types/database.js';
 import { isValidId, json, parsePagination, requireTeamRole } from '../shared.js';
 import { idSchema, parseJsonBody, taskColumnSchema, taskPrioritySchema } from '../validation.js';
@@ -96,6 +97,7 @@ export interface EventsRouteDependencies {
   eventSubscriptionService: EventSubscriptionService;
   db: Database;
   rbacService: RbacService;
+  schedulerService?: SchedulerService;
 }
 
 // ---------------------------------------------------------------------------
@@ -775,7 +777,7 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
       const items = hasMore ? entries.slice(0, limit) : entries;
       const nextCursor =
         hasMore && items.length > 0
-          ? `${items[items.length - 1]!.receivedAt}|${items[items.length - 1]!.id}`
+          ? `${items[items.length - 1]?.receivedAt}|${items[items.length - 1]?.id}`
           : null;
 
       return json({

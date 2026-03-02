@@ -121,7 +121,7 @@ function formatValue(value: unknown): string {
 function sanitizeValue(value: string): string {
   const collapsed = value.replace(/\n{3,}/g, '\n\n');
   if (collapsed.length > MAX_VALUE_LENGTH) {
-    return collapsed.slice(0, MAX_VALUE_LENGTH) + '...';
+    return `${collapsed.slice(0, MAX_VALUE_LENGTH)}...`;
   }
   return collapsed;
 }

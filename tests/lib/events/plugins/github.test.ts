@@ -53,7 +53,7 @@ describe('GitHubEventSourcePlugin', () => {
 
     it('tampered payload returns err', async () => {
       const signature = computeGitHubSignature(payload, secret);
-      const tampered = payload + 'TAMPERED';
+      const tampered = `${payload}TAMPERED`;
       const result = await plugin.verifySignature(tampered, signature, secret);
 
       expect(result.ok).toBe(false);

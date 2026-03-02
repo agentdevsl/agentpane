@@ -1,8 +1,8 @@
 import { eq } from '@tanstack/db';
-import { useLiveQuery } from '@tanstack/react-db';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiClient } from '@/lib/api/client';
 import { getTaskCreationToolsAsync } from '@/lib/constants/tools';
+import { useCollectionQuery } from '@/lib/db/use-collection-query';
 import { taskCreationMessagesCollection, taskCreationSessionsCollection } from './collections';
 import type {
   PendingQuestions,
@@ -82,11 +82,11 @@ export function useTaskCreationSession(sessionId: string | null): TaskCreationSe
   // Use empty string when no sessionId to create a valid query that returns nothing
   const queryId = sessionId ?? '';
 
-  const { data } = useLiveQuery(
+  const { data } = useCollectionQuery<TaskCreationSession>(
     (q) =>
       q
         .from({ sessions: taskCreationSessionsCollection })
-        .where(({ sessions }) => eq(sessions.id, queryId)),
+        .where(({ sessions }: { sessions: TaskCreationSession }) => eq(sessions.id, queryId)),
     [queryId]
   );
 
@@ -100,11 +100,13 @@ export function useTaskCreationMessages(sessionId: string | null): TaskCreationM
   // Use empty string when no sessionId to create a valid query that returns nothing
   const queryId = sessionId ?? '';
 
-  const { data } = useLiveQuery(
+  const { data } = useCollectionQuery<TaskCreationMessage>(
     (q) =>
       q
         .from({ messages: taskCreationMessagesCollection })
-        .where(({ messages }) => eq(messages.sessionId, queryId)),
+        .where(({ messages }: { messages: TaskCreationMessage }) =>
+          eq(messages.sessionId, queryId)
+        ),
     [queryId]
   );
 

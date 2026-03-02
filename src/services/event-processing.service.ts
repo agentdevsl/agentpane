@@ -1,6 +1,6 @@
 import { createId } from '@paralleldrive/cuid2';
 import { eq } from 'drizzle-orm';
-import type { EventLogStatus } from '../db/schema/index.js';
+import type { EventLogStatus, EventSource } from '../db/schema/index.js';
 import { eventLog } from '../db/schema/index.js';
 import type { AppError } from '../lib/errors/base.js';
 import { EventErrors } from '../lib/errors/event-errors.js';
@@ -274,6 +274,186 @@ export class EventProcessingService {
     }
 
     log.info('Event processing complete', {
+      data: {
+        eventLogId,
+        status: finalStatus,
+        matchCount: matchedSubRecords.length,
+        tasksCreated: tasksCreated.length,
+      },
+    });
+
+    return ok({
+      eventLogId,
+      status: tasksCreated.length > 0 || matchedSubRecords.length > 0 ? 'processed' : 'ignored',
+      matchCount: matchedSubRecords.length,
+      tasksCreated,
+    });
+  }
+
+  /**
+   * Process a scheduled (cron) event that has already been parsed by the scheduler.
+   *
+   * This is a slimmed-down variant of processIncomingEvent used by SchedulerService.
+   * It skips slug lookup, signature verification, and plugin parsing because those
+   * steps are already performed by the scheduler before calling this method.
+   *
+   * Steps:
+   * 1. Deduplicate by deliveryId
+   * 2. Log event
+   * 3. Match subscriptions and create tasks
+   * 4. Update event log with outcomes
+   */
+  async processScheduledEvent(
+    source: EventSource,
+    event: NormalizedEvent
+  ): Promise<Result<ProcessingResult, AppError>> {
+    log.info('Processing scheduled event', {
+      data: { sourceId: source.id, type: event.type, action: event.action },
+    });
+
+    const plugin = this.pluginRegistry.get(source.type);
+    if (!plugin) {
+      return err(EventErrors.PLUGIN_NOT_FOUND(source.type));
+    }
+
+    // Deduplicate via unique constraint on (eventSourceId, deliveryId)
+    const eventLogId = createId();
+    const now = new Date().toISOString();
+
+    try {
+      await this.db.insert(eventLog).values({
+        id: eventLogId,
+        eventSourceId: source.id,
+        eventType: event.type,
+        action: event.action,
+        status: 'received',
+        payload: event.raw,
+        matchedSubscriptions: [],
+        deliveryId: event.deliveryId,
+        receivedAt: now,
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        message.includes('UNIQUE constraint failed') ||
+        message.includes('unique constraint') ||
+        message.includes('SQLITE_CONSTRAINT')
+      ) {
+        log.info('Duplicate scheduled event delivery skipped', {
+          data: { sourceId: source.id, deliveryId: event.deliveryId },
+        });
+        return ok({
+          eventLogId: '',
+          status: 'duplicate',
+          matchCount: 0,
+          tasksCreated: [],
+        });
+      }
+      log.error('Failed to insert event log for scheduled event', {
+        data: { sourceId: source.id },
+        error: message,
+      });
+      return err(EventErrors.PROCESSING_FAILED(message));
+    }
+
+    // Find matching subscriptions
+    const subsResult = await this.subscriptionService.findMatchingSubscriptions(
+      source.id,
+      event.type
+    );
+    if (!subsResult.ok) {
+      return subsResult;
+    }
+    const matchingSubscriptions = subsResult.value;
+
+    // Evaluate filters and create tasks for each matching subscription
+    const tasksCreated: string[] = [];
+    const matchedSubRecords: Array<{ subscriptionId: string; taskId?: string }> = [];
+
+    for (const subscription of matchingSubscriptions) {
+      const filters = subscription.filters ?? [];
+      const allFiltersMatch = filters.every((filter) => plugin.matchesFilter(event, filter));
+
+      if (!allFiltersMatch) {
+        continue;
+      }
+
+      const templateContext = buildTemplateContext(event);
+      const renderedPrompt = interpolateTemplate(subscription.promptTemplate, templateContext);
+      const taskTitle = buildTaskTitle(event, subscription.name);
+
+      const taskResult = await this.taskService.create({
+        projectId: subscription.targetProjectId,
+        title: taskTitle,
+        description: renderedPrompt,
+        labels: subscription.taskLabels ?? [],
+        priority: subscription.taskPriority ?? 'medium',
+      });
+
+      if (taskResult.ok) {
+        const task = taskResult.value;
+        tasksCreated.push(task.id);
+        matchedSubRecords.push({ subscriptionId: subscription.id, taskId: task.id });
+        log.info('Created task from scheduled event', {
+          data: { taskId: task.id, subscriptionId: subscription.id, eventLogId },
+        });
+
+        const targetColumn = subscription.taskColumn ?? 'backlog';
+        if (targetColumn !== 'backlog') {
+          const moveResult = await this.taskService.moveColumn(task.id, targetColumn);
+          if (!moveResult.ok) {
+            log.error('Failed to move task to configured column', {
+              data: { taskId: task.id, targetColumn },
+              error: moveResult.error.message,
+            });
+          }
+        }
+
+        const incrementResult = await this.subscriptionService.incrementMatchCount(subscription.id);
+        if (!incrementResult.ok) {
+          log.warn('Failed to increment subscription match count', {
+            data: { subscriptionId: subscription.id },
+            error: incrementResult.error.message,
+          });
+        }
+      } else {
+        log.error('Failed to create task from scheduled event', {
+          data: { subscriptionId: subscription.id, targetProjectId: subscription.targetProjectId },
+          error: taskResult.error.message,
+        });
+        matchedSubRecords.push({ subscriptionId: subscription.id });
+      }
+    }
+
+    // Update event log with outcomes
+    const finalStatus: EventLogStatus = resolveEventStatus(tasksCreated, matchedSubRecords);
+
+    try {
+      await this.db
+        .update(eventLog)
+        .set({
+          status: finalStatus,
+          matchedSubscriptions: matchedSubRecords,
+          processedAt: new Date().toISOString(),
+        })
+        .where(eq(eventLog.id, eventLogId));
+    } catch (updateError) {
+      log.error('Failed to update event log with outcomes', {
+        data: { eventLogId },
+        error: updateError,
+      });
+    }
+
+    try {
+      await this.eventSourceService.incrementEventCount(source.id);
+    } catch (countError) {
+      log.error('Failed to increment source event count', {
+        data: { sourceId: source.id },
+        error: countError,
+      });
+    }
+
+    log.info('Scheduled event processing complete', {
       data: {
         eventLogId,
         status: finalStatus,

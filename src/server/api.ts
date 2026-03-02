@@ -55,6 +55,7 @@ import * as sqliteSchema from '../db/schema/sqlite/index.js';
 import {
   CLI_SESSIONS_MIGRATION_SQL,
   CLI_SESSIONS_PERF_METRICS_MIGRATION_SQL,
+  EVENT_SYSTEM_MIGRATION_SQL,
   MIGRATION_SQL,
   PERFORMANCE_INDEXES_MIGRATION_SQL,
   RBAC_GITHUB_TOKEN_MIGRATION_SQL,
@@ -62,12 +63,14 @@ import {
   RBAC_SCHEMA_ADDITIONS,
   SANDBOX_CONTAINER_ID_MIGRATION_SQL,
   SANDBOX_MIGRATION_SQL,
+  SCHEDULE_EXECUTIONS_MIGRATION_SQL,
   seedDefaultTeamForExistingTokens,
   TEMPLATE_SYNC_INTERVAL_MIGRATION_SQL,
   TERRAFORM_MIGRATION_SQL,
 } from '../lib/bootstrap/phases/schema.js';
 import { decryptToken } from '../lib/crypto/server-encryption.js';
 import { PluginRegistry } from '../lib/events/plugin-registry.js';
+import { CronEventSourcePlugin } from '../lib/events/plugins/cron-plugin.js';
 import { GitHubEventSourcePlugin } from '../lib/events/plugins/github.js';
 import { SandboxController } from '../lib/sandbox/controllers/sandbox-controller.js';
 import { createDockerProvider } from '../lib/sandbox/index.js';
@@ -86,6 +89,7 @@ import { EventSubscriptionService } from '../services/event-subscription.service
 import { GitHubTokenService } from '../services/github-token.service.js';
 import { MarketplaceService } from '../services/marketplace.service.js';
 import { SandboxConfigService } from '../services/sandbox-config.service.js';
+import { SchedulerService } from '../services/scheduler.service.js';
 import { SessionService } from '../services/session.service.js';
 import { SettingsService } from '../services/settings.service.js';
 import { TaskService } from '../services/task.service.js';
@@ -305,6 +309,14 @@ if (DB_MODE === 'postgres') {
       });
     }
   }
+
+  // Apply event system migration (idempotent — uses IF NOT EXISTS)
+  sqlite.exec(EVENT_SYSTEM_MIGRATION_SQL);
+  log.info('Event system migration applied');
+
+  // Apply schedule executions migration (idempotent — uses IF NOT EXISTS)
+  sqlite.exec(SCHEDULE_EXECUTIONS_MIGRATION_SQL);
+  log.info('Schedule executions migration applied');
 
   db = drizzle(sqlite, { schema: sqliteSchema }) as unknown as Database;
 }
@@ -1406,6 +1418,7 @@ const agentService = new AgentService(db, worktreeService, taskService, sessionS
 // Event plugin system
 const pluginRegistry = new PluginRegistry();
 pluginRegistry.register('github', new GitHubEventSourcePlugin());
+pluginRegistry.register('cron', new CronEventSourcePlugin());
 
 const eventSourceService = new EventSourceService(db);
 const eventSubscriptionService = new EventSubscriptionService(db);
@@ -1415,6 +1428,14 @@ const eventProcessingService = new EventProcessingService(
   eventSourceService,
   eventSubscriptionService,
   taskService
+);
+
+// Task scheduling service
+const schedulerService = new SchedulerService(
+  db,
+  pluginRegistry,
+  eventProcessingService,
+  eventSourceService
 );
 
 // Create the Hono router with all dependencies
@@ -1441,6 +1462,7 @@ const app = createRouter({
   eventSourceService,
   eventSubscriptionService,
   eventProcessingService,
+  schedulerService,
 });
 
 // Start server
@@ -1700,6 +1722,12 @@ log.info('[API Server] Template sync scheduler started');
 const stopTerraformSync = startTerraformSyncScheduler(db, terraformRegistryService);
 log.info('[API Server] Terraform sync scheduler started');
 
+// Start the task scheduler
+schedulerService.start().catch((err) => {
+  log.error('[API Server] Failed to start scheduler', { error: err });
+});
+log.info('[API Server] Task scheduler started');
+
 // Graceful shutdown: stop accepting requests, clean up services, close DB
 let isShuttingDown = false;
 
@@ -1753,6 +1781,9 @@ async function shutdownServer(signal: string) {
   // Stop schedulers
   stopTemplateSync();
   stopTerraformSync();
+
+  // Stop scheduler
+  await schedulerService.stop();
 
   // Clean up services
   cliMonitorService.destroy();

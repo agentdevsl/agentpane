@@ -9,6 +9,7 @@ import type { Context, Next } from 'hono';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
+import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { apiTokens } from '../db/schema/sqlite/api-tokens.js';
 import { userSessions } from '../db/schema/sqlite/user-sessions.js';
 import { getAuthContext } from '../lib/api/auth-middleware.js';
@@ -26,6 +27,7 @@ import type { GitHubTokenService } from '../services/github-token.service.js';
 import type { MarketplaceService } from '../services/marketplace.service.js';
 import { RbacService } from '../services/rbac.service.js';
 import type { SandboxConfigService } from '../services/sandbox-config.service.js';
+import type { SchedulerService } from '../services/scheduler.service.js';
 import type { SessionService } from '../services/session.service.js';
 import type { SettingsService } from '../services/settings.service.js';
 import type { TaskService } from '../services/task.service.js';
@@ -179,6 +181,7 @@ export interface RouterDependencies {
   eventSourceService?: EventSourceService;
   eventSubscriptionService?: EventSubscriptionService;
   eventProcessingService?: EventProcessingService;
+  schedulerService?: SchedulerService;
 }
 
 export function createRouter(deps: RouterDependencies) {
@@ -207,7 +210,19 @@ export function createRouter(deps: RouterDependencies) {
       try {
         const slug = c.req.param('slug');
         const rawBody = await c.req.text();
-        const result = await deps.eventProcessingService!.processIncomingEvent(
+        if (!deps.eventProcessingService) {
+          return c.json(
+            {
+              ok: false,
+              error: {
+                code: 'SERVICE_UNAVAILABLE',
+                message: 'Event processing service not initialized',
+              },
+            },
+            503
+          );
+        }
+        const result = await deps.eventProcessingService.processIncomingEvent(
           slug,
           c.req.raw.headers,
           rawBody
@@ -215,7 +230,7 @@ export function createRouter(deps: RouterDependencies) {
         if (!result.ok) {
           return c.json(
             { ok: false, error: { code: result.error.code, message: result.error.message } },
-            result.error.status as any
+            result.error.status as ContentfulStatusCode
           );
         }
         // Publish to SSE subscribers for real-time UI updates (deferred to not block response)
@@ -413,6 +428,7 @@ export function createRouter(deps: RouterDependencies) {
         eventSubscriptionService: deps.eventSubscriptionService,
         db: deps.db,
         rbacService,
+        schedulerService: deps.schedulerService,
       })
     );
   }

@@ -100,7 +100,7 @@ export type InvitationStatus = (typeof INVITATION_STATUS)[number];
 export const API_TOKEN_STATUS = ['active', 'revoked', 'expired'] as const;
 export type ApiTokenStatus = (typeof API_TOKEN_STATUS)[number];
 
-export const EVENT_SOURCE_TYPES = ['github', 'linear', 'jira', 'generic_webhook'] as const;
+export const EVENT_SOURCE_TYPES = ['github', 'linear', 'jira', 'generic_webhook', 'cron'] as const;
 export type EventSourceType = (typeof EVENT_SOURCE_TYPES)[number];
 
 export const EVENT_SOURCE_STATUS = ['active', 'error', 'disabled'] as const;
@@ -114,3 +114,14 @@ export const EVENT_LOG_STATUS = [
   'error',
 ] as const;
 export type EventLogStatus = (typeof EVENT_LOG_STATUS)[number];
+
+export const SCHEDULE_EXECUTION_STATUS = [
+  'executed',
+  'skipped_budget',
+  'skipped_disabled',
+  'error',
+] as const;
+export type ScheduleExecutionStatus = (typeof SCHEDULE_EXECUTION_STATUS)[number];
+
+export const BUDGET_WINDOWS = ['hour', 'day', 'week', 'month'] as const;
+export type BudgetWindow = (typeof BUDGET_WINDOWS)[number];

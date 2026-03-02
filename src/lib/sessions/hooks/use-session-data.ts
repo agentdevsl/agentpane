@@ -8,8 +8,8 @@
  */
 
 import { eq } from '@tanstack/db';
-import { useLiveQuery } from '@tanstack/react-db';
 import { useEffect, useRef, useState } from 'react';
+import { useCollectionQuery } from '../../db/use-collection-query.js';
 import {
   agentStateCollection,
   chunksCollection,
@@ -32,8 +32,10 @@ import { stopSessionSync, syncSessionToCollections } from '../sync.js';
  * Hook to get all chunks for a session with live updates
  */
 export function useSessionChunks(sessionId: string): ChunkEvent[] {
-  const { data } = useLiveQuery((q) =>
-    q.from({ chunks: chunksCollection }).where(({ chunks }) => eq(chunks.sessionId, sessionId))
+  const { data } = useCollectionQuery<ChunkEvent>((q) =>
+    q
+      .from({ chunks: chunksCollection })
+      .where(({ chunks }: { chunks: ChunkEvent }) => eq(chunks.sessionId, sessionId))
   );
 
   return data ?? [];
@@ -43,8 +45,10 @@ export function useSessionChunks(sessionId: string): ChunkEvent[] {
  * Hook to get all tool calls for a session with live updates
  */
 export function useSessionToolCalls(sessionId: string): ToolCallEvent[] {
-  const { data } = useLiveQuery((q) =>
-    q.from({ tools: toolCallsCollection }).where(({ tools }) => eq(tools.sessionId, sessionId))
+  const { data } = useCollectionQuery<ToolCallEvent>((q) =>
+    q
+      .from({ tools: toolCallsCollection })
+      .where(({ tools }: { tools: ToolCallEvent }) => eq(tools.sessionId, sessionId))
   );
 
   return data ?? [];
@@ -64,11 +68,11 @@ export function usePendingToolCalls(sessionId: string): ToolCallEvent[] {
 export function useSessionPresence(sessionId: string, maxAgeMs = 30000): PresenceEvent[] {
   const cutoff = Date.now() - maxAgeMs;
 
-  const { data } = useLiveQuery(
+  const { data } = useCollectionQuery<PresenceEvent>(
     (q) =>
       q
         .from({ presence: presenceCollection })
-        .where(({ presence }) => eq(presence.sessionId, sessionId)),
+        .where(({ presence }: { presence: PresenceEvent }) => eq(presence.sessionId, sessionId)),
     [sessionId]
   );
 
@@ -80,10 +84,10 @@ export function useSessionPresence(sessionId: string, maxAgeMs = 30000): Presenc
  * Hook to get terminal events for a session with live updates
  */
 export function useSessionTerminal(sessionId: string): TerminalEvent[] {
-  const { data } = useLiveQuery((q) =>
+  const { data } = useCollectionQuery<TerminalEvent>((q) =>
     q
       .from({ terminal: terminalCollection })
-      .where(({ terminal }) => eq(terminal.sessionId, sessionId))
+      .where(({ terminal }: { terminal: TerminalEvent }) => eq(terminal.sessionId, sessionId))
   );
 
   return data ?? [];
@@ -93,8 +97,10 @@ export function useSessionTerminal(sessionId: string): TerminalEvent[] {
  * Hook to get the current agent state for a session
  */
 export function useSessionAgentState(sessionId: string, agentId?: string): AgentStateEvent | null {
-  const { data } = useLiveQuery((q) =>
-    q.from({ state: agentStateCollection }).where(({ state }) => eq(state.sessionId, sessionId))
+  const { data } = useCollectionQuery<AgentStateEvent>((q) =>
+    q
+      .from({ state: agentStateCollection })
+      .where(({ state }: { state: AgentStateEvent }) => eq(state.sessionId, sessionId))
   );
 
   if (!data || data.length === 0) return null;
@@ -112,10 +118,10 @@ export function useSessionAgentState(sessionId: string, agentId?: string): Agent
  * Hook to get derived messages for a session
  */
 export function useSessionMessages(sessionId: string): Message[] {
-  const { data } = useLiveQuery((q) =>
+  const { data } = useCollectionQuery<Message>((q) =>
     q
       .from({ messages: messagesCollection })
-      .where(({ messages }) => eq(messages.sessionId, sessionId))
+      .where(({ messages }: { messages: Message }) => eq(messages.sessionId, sessionId))
   );
 
   return data ?? [];
