@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TerraformRouteImport } from './routes/terraform'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as EventsRouteImport } from './routes/events'
 import { Route as CliMonitorRouteImport } from './routes/cli-monitor'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WorktreesIndexRouteImport } from './routes/worktrees/index'
@@ -20,6 +21,7 @@ import { Route as SessionsIndexRouteImport } from './routes/sessions/index'
 import { Route as QueueIndexRouteImport } from './routes/queue/index'
 import { Route as ProjectsIndexRouteImport } from './routes/projects/index'
 import { Route as MarketplaceIndexRouteImport } from './routes/marketplace/index'
+import { Route as EventsIndexRouteImport } from './routes/events/index'
 import { Route as DesignerIndexRouteImport } from './routes/designer/index'
 import { Route as CliMonitorIndexRouteImport } from './routes/cli-monitor/index'
 import { Route as CatalogIndexRouteImport } from './routes/catalog/index'
@@ -42,6 +44,9 @@ import { Route as SettingsAppearanceRouteImport } from './routes/settings/appear
 import { Route as SettingsApiKeysRouteImport } from './routes/settings/api-keys'
 import { Route as SettingsAgentsRouteImport } from './routes/settings/agents'
 import { Route as SessionsSessionIdRouteImport } from './routes/sessions/$sessionId'
+import { Route as EventsSubscriptionsRouteImport } from './routes/events/subscriptions'
+import { Route as EventsSourcesRouteImport } from './routes/events/sources'
+import { Route as EventsLogRouteImport } from './routes/events/log'
 import { Route as CliMonitorTimelineRouteImport } from './routes/cli-monitor/timeline'
 import { Route as CliMonitorTerminalRouteImport } from './routes/cli-monitor/terminal'
 import { Route as CatalogWorkflowIdRouteImport } from './routes/catalog/$workflowId'
@@ -61,6 +66,11 @@ const TerraformRoute = TerraformRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EventsRoute = EventsRouteImport.update({
+  id: '/events',
+  path: '/events',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CliMonitorRoute = CliMonitorRouteImport.update({
@@ -107,6 +117,11 @@ const MarketplaceIndexRoute = MarketplaceIndexRouteImport.update({
   id: '/marketplace/',
   path: '/marketplace/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const EventsIndexRoute = EventsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => EventsRoute,
 } as any)
 const DesignerIndexRoute = DesignerIndexRouteImport.update({
   id: '/designer/',
@@ -219,6 +234,21 @@ const SessionsSessionIdRoute = SessionsSessionIdRouteImport.update({
   path: '/sessions/$sessionId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const EventsSubscriptionsRoute = EventsSubscriptionsRouteImport.update({
+  id: '/subscriptions',
+  path: '/subscriptions',
+  getParentRoute: () => EventsRoute,
+} as any)
+const EventsSourcesRoute = EventsSourcesRouteImport.update({
+  id: '/sources',
+  path: '/sources',
+  getParentRoute: () => EventsRoute,
+} as any)
+const EventsLogRoute = EventsLogRouteImport.update({
+  id: '/log',
+  path: '/log',
+  getParentRoute: () => EventsRoute,
+} as any)
 const CliMonitorTimelineRoute = CliMonitorTimelineRouteImport.update({
   id: '/timeline',
   path: '/timeline',
@@ -277,12 +307,16 @@ const ProjectsProjectIdTasksTaskIdRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/cli-monitor': typeof CliMonitorRouteWithChildren
+  '/events': typeof EventsRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
   '/terraform': typeof TerraformRouteWithChildren
   '/agents/$agentId': typeof AgentsAgentIdRoute
   '/catalog/$workflowId': typeof CatalogWorkflowIdRoute
   '/cli-monitor/terminal': typeof CliMonitorTerminalRoute
   '/cli-monitor/timeline': typeof CliMonitorTimelineRoute
+  '/events/log': typeof EventsLogRoute
+  '/events/sources': typeof EventsSourcesRoute
+  '/events/subscriptions': typeof EventsSubscriptionsRoute
   '/sessions/$sessionId': typeof SessionsSessionIdRoute
   '/settings/agents': typeof SettingsAgentsRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
@@ -305,6 +339,7 @@ export interface FileRoutesByFullPath {
   '/catalog/': typeof CatalogIndexRoute
   '/cli-monitor/': typeof CliMonitorIndexRoute
   '/designer/': typeof DesignerIndexRoute
+  '/events/': typeof EventsIndexRoute
   '/marketplace/': typeof MarketplaceIndexRoute
   '/projects/': typeof ProjectsIndexRoute
   '/queue/': typeof QueueIndexRoute
@@ -325,6 +360,9 @@ export interface FileRoutesByTo {
   '/catalog/$workflowId': typeof CatalogWorkflowIdRoute
   '/cli-monitor/terminal': typeof CliMonitorTerminalRoute
   '/cli-monitor/timeline': typeof CliMonitorTimelineRoute
+  '/events/log': typeof EventsLogRoute
+  '/events/sources': typeof EventsSourcesRoute
+  '/events/subscriptions': typeof EventsSubscriptionsRoute
   '/sessions/$sessionId': typeof SessionsSessionIdRoute
   '/settings/agents': typeof SettingsAgentsRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
@@ -347,6 +385,7 @@ export interface FileRoutesByTo {
   '/catalog': typeof CatalogIndexRoute
   '/cli-monitor': typeof CliMonitorIndexRoute
   '/designer': typeof DesignerIndexRoute
+  '/events': typeof EventsIndexRoute
   '/marketplace': typeof MarketplaceIndexRoute
   '/projects': typeof ProjectsIndexRoute
   '/queue': typeof QueueIndexRoute
@@ -365,12 +404,16 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/cli-monitor': typeof CliMonitorRouteWithChildren
+  '/events': typeof EventsRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
   '/terraform': typeof TerraformRouteWithChildren
   '/agents/$agentId': typeof AgentsAgentIdRoute
   '/catalog/$workflowId': typeof CatalogWorkflowIdRoute
   '/cli-monitor/terminal': typeof CliMonitorTerminalRoute
   '/cli-monitor/timeline': typeof CliMonitorTimelineRoute
+  '/events/log': typeof EventsLogRoute
+  '/events/sources': typeof EventsSourcesRoute
+  '/events/subscriptions': typeof EventsSubscriptionsRoute
   '/sessions/$sessionId': typeof SessionsSessionIdRoute
   '/settings/agents': typeof SettingsAgentsRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
@@ -393,6 +436,7 @@ export interface FileRoutesById {
   '/catalog/': typeof CatalogIndexRoute
   '/cli-monitor/': typeof CliMonitorIndexRoute
   '/designer/': typeof DesignerIndexRoute
+  '/events/': typeof EventsIndexRoute
   '/marketplace/': typeof MarketplaceIndexRoute
   '/projects/': typeof ProjectsIndexRoute
   '/queue/': typeof QueueIndexRoute
@@ -412,12 +456,16 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/cli-monitor'
+    | '/events'
     | '/settings'
     | '/terraform'
     | '/agents/$agentId'
     | '/catalog/$workflowId'
     | '/cli-monitor/terminal'
     | '/cli-monitor/timeline'
+    | '/events/log'
+    | '/events/sources'
+    | '/events/subscriptions'
     | '/sessions/$sessionId'
     | '/settings/agents'
     | '/settings/api-keys'
@@ -440,6 +488,7 @@ export interface FileRouteTypes {
     | '/catalog/'
     | '/cli-monitor/'
     | '/designer/'
+    | '/events/'
     | '/marketplace/'
     | '/projects/'
     | '/queue/'
@@ -460,6 +509,9 @@ export interface FileRouteTypes {
     | '/catalog/$workflowId'
     | '/cli-monitor/terminal'
     | '/cli-monitor/timeline'
+    | '/events/log'
+    | '/events/sources'
+    | '/events/subscriptions'
     | '/sessions/$sessionId'
     | '/settings/agents'
     | '/settings/api-keys'
@@ -482,6 +534,7 @@ export interface FileRouteTypes {
     | '/catalog'
     | '/cli-monitor'
     | '/designer'
+    | '/events'
     | '/marketplace'
     | '/projects'
     | '/queue'
@@ -499,12 +552,16 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/cli-monitor'
+    | '/events'
     | '/settings'
     | '/terraform'
     | '/agents/$agentId'
     | '/catalog/$workflowId'
     | '/cli-monitor/terminal'
     | '/cli-monitor/timeline'
+    | '/events/log'
+    | '/events/sources'
+    | '/events/subscriptions'
     | '/sessions/$sessionId'
     | '/settings/agents'
     | '/settings/api-keys'
@@ -527,6 +584,7 @@ export interface FileRouteTypes {
     | '/catalog/'
     | '/cli-monitor/'
     | '/designer/'
+    | '/events/'
     | '/marketplace/'
     | '/projects/'
     | '/queue/'
@@ -545,6 +603,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CliMonitorRoute: typeof CliMonitorRouteWithChildren
+  EventsRoute: typeof EventsRouteWithChildren
   SettingsRoute: typeof SettingsRouteWithChildren
   TerraformRoute: typeof TerraformRouteWithChildren
   AgentsAgentIdRoute: typeof AgentsAgentIdRoute
@@ -581,6 +640,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/events': {
+      id: '/events'
+      path: '/events'
+      fullPath: '/events'
+      preLoaderRoute: typeof EventsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/cli-monitor': {
@@ -645,6 +711,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/marketplace/'
       preLoaderRoute: typeof MarketplaceIndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/events/': {
+      id: '/events/'
+      path: '/'
+      fullPath: '/events/'
+      preLoaderRoute: typeof EventsIndexRouteImport
+      parentRoute: typeof EventsRoute
     }
     '/designer/': {
       id: '/designer/'
@@ -800,6 +873,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SessionsSessionIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/events/subscriptions': {
+      id: '/events/subscriptions'
+      path: '/subscriptions'
+      fullPath: '/events/subscriptions'
+      preLoaderRoute: typeof EventsSubscriptionsRouteImport
+      parentRoute: typeof EventsRoute
+    }
+    '/events/sources': {
+      id: '/events/sources'
+      path: '/sources'
+      fullPath: '/events/sources'
+      preLoaderRoute: typeof EventsSourcesRouteImport
+      parentRoute: typeof EventsRoute
+    }
+    '/events/log': {
+      id: '/events/log'
+      path: '/log'
+      fullPath: '/events/log'
+      preLoaderRoute: typeof EventsLogRouteImport
+      parentRoute: typeof EventsRoute
+    }
     '/cli-monitor/timeline': {
       id: '/cli-monitor/timeline'
       path: '/timeline'
@@ -889,6 +983,23 @@ const CliMonitorRouteWithChildren = CliMonitorRoute._addFileChildren(
   CliMonitorRouteChildren,
 )
 
+interface EventsRouteChildren {
+  EventsLogRoute: typeof EventsLogRoute
+  EventsSourcesRoute: typeof EventsSourcesRoute
+  EventsSubscriptionsRoute: typeof EventsSubscriptionsRoute
+  EventsIndexRoute: typeof EventsIndexRoute
+}
+
+const EventsRouteChildren: EventsRouteChildren = {
+  EventsLogRoute: EventsLogRoute,
+  EventsSourcesRoute: EventsSourcesRoute,
+  EventsSubscriptionsRoute: EventsSubscriptionsRoute,
+  EventsIndexRoute: EventsIndexRoute,
+}
+
+const EventsRouteWithChildren =
+  EventsRoute._addFileChildren(EventsRouteChildren)
+
 interface SettingsRouteChildren {
   SettingsAgentsRoute: typeof SettingsAgentsRoute
   SettingsApiKeysRoute: typeof SettingsApiKeysRoute
@@ -957,6 +1068,7 @@ const TerraformRouteWithChildren = TerraformRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CliMonitorRoute: CliMonitorRouteWithChildren,
+  EventsRoute: EventsRouteWithChildren,
   SettingsRoute: SettingsRouteWithChildren,
   TerraformRoute: TerraformRouteWithChildren,
   AgentsAgentIdRoute: AgentsAgentIdRoute,

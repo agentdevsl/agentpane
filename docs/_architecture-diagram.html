@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AgentPane Architecture</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0d1117; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+svg { display: block; }
+</style>
+</head>
+<body>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1520" width="1920" height="1520">
+<defs>
+  <marker id="arrow-gray" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6" fill="none" stroke="#484f58" stroke-width="1.5"/>
+  </marker>
+  <marker id="arrow-purple" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6" fill="none" stroke="#bc8cff" stroke-width="1.5"/>
+  </marker>
+  <marker id="arrow-orange" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6" fill="none" stroke="#d29922" stroke-width="1.5"/>
+  </marker>
+</defs>
+
+<!-- Background -->
+<rect width="1920" height="1520" fill="#0d1117"/>
+
+<!-- ==================== TOP ROW: Browser + TanStack DB ==================== -->
+<!-- Browser -->
+<rect x="140" y="25" width="200" height="55" rx="8" fill="none" stroke="#58a6ff" stroke-width="2"/>
+<text x="240" y="48" text-anchor="middle" fill="#58a6ff" font-size="16" font-weight="600">Browser</text>
+<text x="240" y="66" text-anchor="middle" fill="#8b949e" font-size="11">React SPA</text>
+
+<!-- TanStack DB -->
+<rect x="400" y="25" width="260" height="55" rx="8" fill="none" stroke="#58a6ff" stroke-width="2"/>
+<text x="530" y="48" text-anchor="middle" fill="#58a6ff" font-size="16" font-weight="600">TanStack DB</text>
+<text x="530" y="66" text-anchor="middle" fill="#8b949e" font-size="11">sessions(f7) · taskStub_t(1) · sandbox(1)</text>
+
+<!-- Connection: Browser <-> TanStack DB -->
+<line x1="340" y1="52" x2="400" y2="52" stroke="#484f58" stroke-width="1.5" stroke-dasharray="6,3"/>
+
+<!-- Connection: Browser -> Caddy -->
+<line x1="240" y1="80" x2="240" y2="125" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<text x="250" y="107" fill="#8b949e" font-size="10">HTTP</text>
+
+<!-- ==================== HOST SECTION (green dashed) ==================== -->
+<rect x="30" y="125" width="1120" height="560" rx="12" fill="none" stroke="#3fb950" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="50" y="145" fill="#3fb950" font-size="13" font-weight="600">Host</text>
+
+<!-- Caddy -->
+<rect x="70" y="158" width="700" height="48" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
+<text x="420" y="179" text-anchor="middle" fill="#3fb950" font-size="15" font-weight="600">Caddy</text>
+<text x="420" y="196" text-anchor="middle" fill="#8b949e" font-size="11">:3000 · reverse proxy · static files</text>
+
+<!-- Connections from Caddy -->
+<line x1="230" y1="206" x2="230" y2="240" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<text x="185" y="230" fill="#8b949e" font-size="10">/api/*</text>
+
+<line x1="580" y1="206" x2="580" y2="240" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<text x="590" y="230" fill="#8b949e" font-size="10">/v1/stream</text>
+
+<!-- Hono API Server -->
+<rect x="70" y="240" width="360" height="48" rx="8" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="250" y="261" text-anchor="middle" fill="#58a6ff" font-size="15" font-weight="600">Hono API Server</text>
+<text x="250" y="278" text-anchor="middle" fill="#8b949e" font-size="11">:3001</text>
+
+<!-- Durable Streams -->
+<rect x="480" y="240" width="290" height="48" rx="8" fill="#161b22" stroke="#bc8cff" stroke-width="1.5"/>
+<text x="625" y="261" text-anchor="middle" fill="#bc8cff" font-size="15" font-weight="600">Durable Streams</text>
+<text x="625" y="278" text-anchor="middle" fill="#8b949e" font-size="11">Caddy plugin · :1969</text>
+
+<!-- Connection: Hono -> Durable Streams -->
+<line x1="430" y1="264" x2="480" y2="264" stroke="#484f58" stroke-width="1.5" stroke-dasharray="6,3"/>
+
+<!-- ==================== EVENT SYSTEM (orange dashed) - inside Host ==================== -->
+<rect x="810" y="148" width="320" height="390" rx="10" fill="none" stroke="#d29922" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="830" y="168" fill="#d29922" font-size="13" font-weight="600">Event System</text>
+
+<!-- Event Bus -->
+<rect x="830" y="180" width="280" height="42" rx="7" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+<text x="970" y="199" text-anchor="middle" fill="#d29922" font-size="14" font-weight="600">Event Bus</text>
+<text x="970" y="214" text-anchor="middle" fill="#8b949e" font-size="10">SSE pub/sub · max 50 conns</text>
+
+<!-- Event Processing -->
+<rect x="830" y="236" width="280" height="42" rx="7" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+<text x="970" y="255" text-anchor="middle" fill="#d29922" font-size="14" font-weight="600">Event Processing</text>
+<text x="970" y="270" text-anchor="middle" fill="#8b949e" font-size="10">verify → parse → dedup → match</text>
+
+<!-- Scheduler Service -->
+<rect x="830" y="292" width="280" height="42" rx="7" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+<text x="970" y="311" text-anchor="middle" fill="#d29922" font-size="14" font-weight="600">Scheduler Service</text>
+<text x="970" y="326" text-anchor="middle" fill="#8b949e" font-size="10">CAS locking · budget · cron</text>
+
+<!-- Plugin Registry -->
+<rect x="830" y="348" width="280" height="42" rx="7" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+<text x="970" y="367" text-anchor="middle" fill="#d29922" font-size="14" font-weight="600">Plugin Registry</text>
+<text x="970" y="382" text-anchor="middle" fill="#8b949e" font-size="10">EventSourcePlugin interface</text>
+
+<!-- GitHub Plugin -->
+<rect x="830" y="404" width="130" height="38" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
+<text x="895" y="422" text-anchor="middle" fill="#f0883e" font-size="13" font-weight="600">GitHub</text>
+<text x="895" y="436" text-anchor="middle" fill="#8b949e" font-size="9">webhooks</text>
+
+<!-- Cron Plugin -->
+<rect x="980" y="404" width="130" height="38" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
+<text x="1045" y="422" text-anchor="middle" fill="#f0883e" font-size="13" font-weight="600">Cron</text>
+<text x="1045" y="436" text-anchor="middle" fill="#8b949e" font-size="9">scheduled ticks</text>
+
+<!-- Template Engine -->
+<rect x="830" y="456" width="280" height="22" rx="5" fill="#161b22" stroke="#8b949e" stroke-width="1"/>
+<text x="970" y="471" text-anchor="middle" fill="#8b949e" font-size="10">Template Engine · {{event.*}} interpolation</text>
+
+<!-- Internal Event System vertical connectors -->
+<line x1="970" y1="222" x2="970" y2="236" stroke="#d29922" stroke-width="1" stroke-dasharray="4,2"/>
+<line x1="970" y1="278" x2="970" y2="292" stroke="#d29922" stroke-width="1" stroke-dasharray="4,2"/>
+<line x1="970" y1="334" x2="970" y2="348" stroke="#d29922" stroke-width="1" stroke-dasharray="4,2"/>
+<line x1="895" y1="390" x2="895" y2="404" stroke="#d29922" stroke-width="1" stroke-dasharray="4,2"/>
+<line x1="1045" y1="390" x2="1045" y2="404" stroke="#d29922" stroke-width="1" stroke-dasharray="4,2"/>
+
+<!-- Connection: Hono -> Event Processing (horizontal route along top) -->
+<path d="M 430 257 L 460 257 L 460 228 L 808 228 L 808 257 L 830 257" fill="none" stroke="#d29922" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
+<text x="560" y="222" fill="#d29922" font-size="10">/api/events/* · /hooks/:slug</text>
+
+<!-- Connection: Event Bus -> Durable Streams (SSE) -->
+<path d="M 830 201 L 790 201 L 790 264 L 770 264" fill="none" stroke="#bc8cff" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+<text x="792" y="235" fill="#bc8cff" font-size="10">SSE</text>
+
+<!-- ==================== Drizzle ORM ==================== -->
+<rect x="70" y="318" width="700" height="48" rx="8" fill="#161b22" stroke="#7ee787" stroke-width="1.5"/>
+<text x="420" y="339" text-anchor="middle" fill="#7ee787" font-size="15" font-weight="600">Drizzle ORM</text>
+<text x="420" y="356" text-anchor="middle" fill="#8b949e" font-size="11">db_model · sqlite · postgres</text>
+
+<!-- Connection: Hono -> Drizzle -->
+<line x1="250" y1="288" x2="250" y2="318" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+
+<!-- Connection: Event Processing -> Drizzle (clean right-angle) -->
+<path d="M 830 270 L 800 270 L 800 342 L 770 342" fill="none" stroke="#d29922" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
+<text x="802" y="310" fill="#d29922" font-size="9">eventLog</text>
+
+<!-- SQLite -->
+<rect x="70" y="396" width="310" height="48" rx="8" fill="#161b22" stroke="#7ee787" stroke-width="1.5"/>
+<text x="225" y="417" text-anchor="middle" fill="#7ee787" font-size="15" font-weight="600">SQLite</text>
+<text x="225" y="434" text-anchor="middle" fill="#8b949e" font-size="11">agentpane.db · local</text>
+
+<!-- pg driver -->
+<rect x="420" y="396" width="310" height="48" rx="8" fill="#161b22" stroke="#7ee787" stroke-width="1.5"/>
+<text x="575" y="417" text-anchor="middle" fill="#7ee787" font-size="15" font-weight="600">pg driver</text>
+<text x="575" y="434" text-anchor="middle" fill="#8b949e" font-size="11">postgresql</text>
+
+<!-- Connection: Drizzle -> SQLite / pg -->
+<line x1="225" y1="366" x2="225" y2="396" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="575" y1="366" x2="575" y2="396" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+
+<!-- ==================== Container Agent ==================== -->
+<rect x="70" y="474" width="700" height="48" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
+<text x="420" y="495" text-anchor="middle" fill="#3fb950" font-size="15" font-weight="600">Container Agent</text>
+<text x="420" y="512" text-anchor="middle" fill="#8b949e" font-size="11">containers.ts</text>
+
+<!-- Connection: DB area -> Container Agent -->
+<line x1="420" y1="444" x2="420" y2="474" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+
+<!-- Connection: Event Processing -> Container Agent (creates tasks) -->
+<path d="M 830 260 L 810 260 L 810 495 L 770 495" fill="none" stroke="#d29922" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-orange)"/>
+<text x="812" y="490" fill="#d29922" font-size="9">creates tasks</text>
+
+<!-- Providers row -->
+<rect x="70" y="548" width="220" height="42" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
+<text x="180" y="574" text-anchor="middle" fill="#3fb950" font-size="13" font-weight="600">Docker Provider</text>
+
+<rect x="320" y="548" width="220" height="42" rx="8" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="430" y="574" text-anchor="middle" fill="#58a6ff" font-size="13" font-weight="600">K8s Provider</text>
+
+<rect x="570" y="548" width="220" height="42" rx="8" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
+<text x="680" y="574" text-anchor="middle" fill="#f0883e" font-size="13" font-weight="600">Nomad Provider</text>
+
+<!-- Connections: Container Agent -> Providers -->
+<line x1="180" y1="522" x2="180" y2="548" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="430" y1="522" x2="430" y2="548" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="680" y1="522" x2="680" y2="548" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+
+<!-- Connections: Providers -> runtime sections below -->
+<line x1="180" y1="590" x2="180" y2="740" stroke="#484f58" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-gray)"/>
+<line x1="430" y1="590" x2="430" y2="740" stroke="#484f58" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-gray)"/>
+<line x1="680" y1="590" x2="680" y2="740" stroke="#484f58" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-gray)"/>
+
+<!-- ==================== PostgreSQL (Remote) ==================== -->
+<rect x="1200" y="360" width="310" height="110" rx="10" fill="none" stroke="#8b949e" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="1218" y="380" fill="#8b949e" font-size="12" font-weight="600">PostgreSQL (Remote)</text>
+
+<rect x="1220" y="392" width="270" height="38" rx="7" fill="#161b22" stroke="#bc8cff" stroke-width="1.5"/>
+<text x="1355" y="411" text-anchor="middle" fill="#bc8cff" font-size="14" font-weight="600">PostgreSQL</text>
+<text x="1355" y="424" text-anchor="middle" fill="#8b949e" font-size="10">:5432</text>
+
+<rect x="1220" y="438" width="270" height="24" rx="5" fill="#161b22" stroke="#8b949e" stroke-width="1"/>
+<text x="1355" y="454" text-anchor="middle" fill="#8b949e" font-size="11">Drizzle Migrations · migrations-pgs</text>
+
+<!-- Connection: pg driver -> PostgreSQL -->
+<path d="M 730 420 L 1220 420" fill="none" stroke="#484f58" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-gray)"/>
+
+<!-- ==================== Event System Tables ==================== -->
+<rect x="1200" y="500" width="310" height="120" rx="10" fill="#161b22" stroke="#d29922" stroke-width="1.5" stroke-dasharray="6,3"/>
+<text x="1355" y="520" text-anchor="middle" fill="#d29922" font-size="13" font-weight="600">Event System Tables</text>
+
+<text x="1220" y="542" fill="#8b949e" font-size="12">eventSources</text>
+<text x="1220" y="560" fill="#8b949e" font-size="12">eventSubscriptions</text>
+<text x="1220" y="578" fill="#8b949e" font-size="12">eventLog</text>
+<text x="1220" y="596" fill="#8b949e" font-size="12">scheduleExecutions</text>
+
+<text x="1380" y="542" fill="#484f58" font-size="11">sources + secrets</text>
+<text x="1380" y="560" fill="#484f58" font-size="11">event → task maps</text>
+<text x="1380" y="578" fill="#484f58" font-size="11">processing history</text>
+<text x="1380" y="596" fill="#484f58" font-size="11">cron execution audit</text>
+
+<!-- Connection: Event tables -> Drizzle ORM -->
+<path d="M 1200 560 L 1170 560 L 1170 342 L 770 342" fill="none" stroke="#d29922" stroke-width="1" stroke-dasharray="4,2"/>
+
+<!-- ==================== LEGEND ==================== -->
+<rect x="1200" y="148" width="310" height="190" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+<text x="1355" y="172" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="600">Legend</text>
+
+<line x1="1222" y1="192" x2="1275" y2="192" stroke="#484f58" stroke-width="2"/>
+<text x="1285" y="196" fill="#8b949e" font-size="12">Data flow</text>
+
+<line x1="1222" y1="214" x2="1275" y2="214" stroke="#bc8cff" stroke-width="2"/>
+<text x="1285" y="218" fill="#8b949e" font-size="12">Streaming / SSE</text>
+
+<line x1="1222" y1="236" x2="1275" y2="236" stroke="#d29922" stroke-width="2"/>
+<text x="1285" y="240" fill="#8b949e" font-size="12">Event pipeline</text>
+
+<line x1="1222" y1="258" x2="1275" y2="258" stroke="#3fb950" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="1285" y="262" fill="#8b949e" font-size="12">Host boundary</text>
+
+<line x1="1222" y1="280" x2="1275" y2="280" stroke="#58a6ff" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="1285" y="284" fill="#8b949e" font-size="12">Cluster boundary</text>
+
+<line x1="1222" y1="302" x2="1275" y2="302" stroke="#f0883e" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="1285" y="306" fill="#8b949e" font-size="12">Runtime boundary</text>
+
+<rect x="1222" y="320" width="16" height="12" rx="3" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+<text x="1248" y="330" fill="#8b949e" font-size="12">Event system (new)</text>
+
+<!-- ==================== RUNTIME SECTIONS ==================== -->
+
+<!-- Docker (Local) -->
+<rect x="50" y="740" width="310" height="160" rx="10" fill="none" stroke="#3fb950" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="68" y="760" fill="#3fb950" font-size="12" font-weight="600">Docker (Local)</text>
+
+<rect x="72" y="774" width="268" height="45" rx="7" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
+<text x="206" y="794" text-anchor="middle" fill="#e6edf3" font-size="14">agent-sandbox</text>
+<text x="206" y="810" text-anchor="middle" fill="#8b949e" font-size="11">containers</text>
+
+<rect x="72" y="830" width="268" height="32" rx="7" fill="#161b22" stroke="#484f58" stroke-width="1"/>
+<text x="206" y="850" text-anchor="middle" fill="#8b949e" font-size="11">docker.socket</text>
+
+<!-- K8s Cluster -->
+<rect x="400" y="740" width="310" height="160" rx="10" fill="none" stroke="#58a6ff" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="418" y="760" fill="#58a6ff" font-size="12" font-weight="600">K8s Cluster</text>
+
+<rect x="422" y="774" width="268" height="45" rx="7" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="556" y="794" text-anchor="middle" fill="#e6edf3" font-size="14">K8s Pods</text>
+<text x="556" y="810" text-anchor="middle" fill="#8b949e" font-size="11">gVisor / kata / runc</text>
+
+<rect x="422" y="830" width="268" height="45" rx="7" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="556" y="850" text-anchor="middle" fill="#e6edf3" font-size="14">Sandbox CRDs</text>
+<text x="556" y="866" text-anchor="middle" fill="#8b949e" font-size="11">agentpane.io</text>
+
+<!-- Nomad Cluster -->
+<rect x="750" y="740" width="310" height="160" rx="10" fill="none" stroke="#f0883e" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="768" y="760" fill="#f0883e" font-size="12" font-weight="600">Nomad Cluster</text>
+
+<rect x="772" y="774" width="268" height="45" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
+<text x="906" y="794" text-anchor="middle" fill="#e6edf3" font-size="14">Nomad Jobs</text>
+<text x="906" y="810" text-anchor="middle" fill="#8b949e" font-size="11">docker driver</text>
+
+<rect x="772" y="830" width="268" height="45" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
+<text x="906" y="850" text-anchor="middle" fill="#e6edf3" font-size="14">Alloc Exec</text>
+<text x="906" y="866" text-anchor="middle" fill="#8b949e" font-size="11">stdin/stdout</text>
+
+<!-- ==================== EXTERNAL SERVICES ==================== -->
+<rect x="50" y="960" width="1460" height="140" rx="12" fill="none" stroke="#8b949e" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="70" y="980" fill="#8b949e" font-size="12" font-weight="600">External Services</text>
+
+<!-- Anthropic API -->
+<rect x="80" y="995" width="420" height="45" rx="8" fill="#161b22" stroke="#bc8cff" stroke-width="1.5"/>
+<text x="290" y="1014" text-anchor="middle" fill="#bc8cff" font-size="15" font-weight="600">Anthropic API</text>
+<text x="290" y="1032" text-anchor="middle" fill="#8b949e" font-size="11">Claude API · all sandbox containers</text>
+
+<!-- Service boxes row -->
+<rect x="80" y="1052" width="150" height="36" rx="7" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="155" y="1074" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="600">GitHub API</text>
+
+<rect x="250" y="1052" width="150" height="36" rx="7" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
+<text x="325" y="1074" text-anchor="middle" fill="#3fb950" font-size="12" font-weight="600">Docker Hub</text>
+
+<rect x="420" y="1052" width="160" height="36" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5" stroke-dasharray="5,3"/>
+<text x="500" y="1074" text-anchor="middle" fill="#f0883e" font-size="12" font-weight="600">npm Registry</text>
+
+<rect x="600" y="1052" width="180" height="36" rx="7" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+<text x="690" y="1074" text-anchor="middle" fill="#d29922" font-size="12" font-weight="600">HCP Terraform</text>
+
+<rect x="800" y="1052" width="170" height="36" rx="7" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="885" y="1074" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="600">GitHub OAuth</text>
+
+<rect x="990" y="1052" width="200" height="36" rx="7" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+<text x="1090" y="1070" text-anchor="middle" fill="#d29922" font-size="12" font-weight="600">GitHub Webhooks</text>
+<text x="1090" y="1084" text-anchor="middle" fill="#8b949e" font-size="9">POST /hooks/:slug</text>
+
+<!-- Connection: GitHub Webhooks -> Event System (right edge route) -->
+<path d="M 1190 1070 L 1250 1070 L 1250 920 L 1160 920 L 1160 478" fill="none" stroke="#d29922" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-orange)"/>
+<text x="1162" y="912" fill="#d29922" font-size="10">webhooks</text>
+
+<!-- Connections: containers -> Anthropic API -->
+<line x1="206" y1="862" x2="206" y2="995" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-purple)"/>
+<line x1="556" y1="875" x2="556" y2="960" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3"/>
+<line x1="906" y1="875" x2="906" y2="960" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3"/>
+
+</svg>
+</body>
+</html>

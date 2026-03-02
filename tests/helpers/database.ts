@@ -2,6 +2,7 @@ import Database, { type Database as SQLiteDatabase } from 'better-sqlite3';
 import { type BetterSQLite3Database, drizzle } from 'drizzle-orm/better-sqlite3';
 import * as schema from '../../src/db/schema/sqlite';
 import {
+  EVENT_SYSTEM_MIGRATION_SQL,
   MIGRATION_SQL,
   RBAC_GITHUB_TOKEN_MIGRATION_SQL,
   RBAC_MIGRATION_SQL,
@@ -65,6 +66,9 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
   // Run RBAC migrations (creates teams, task_tags, api_tokens, etc.)
   testSqlite.exec(RBAC_MIGRATION_SQL);
 
+  // Run event system migrations (event_sources, event_subscriptions, event_log)
+  testSqlite.exec(EVENT_SYSTEM_MIGRATION_SQL);
+
   return testDb;
 }
 
@@ -97,6 +101,7 @@ export async function clearTestDatabase(): Promise<void> {
       sandbox_configs, sandboxes, volume_mounts,
       terraform_modules, terraform_registries,
       workflows, plan_sessions, cli_sessions,
+      event_log, event_subscriptions, event_sources,
       api_keys, settings, marketplaces, projects
     CASCADE`;
     return;
@@ -104,6 +109,10 @@ export async function clearTestDatabase(): Promise<void> {
 
   // Delete in order respecting foreign key constraints
   await testDb.delete(schema.auditLogs);
+  // Event tables (FK-safe order: log has SET NULL on source, subscriptions CASCADE from source)
+  await testDb.delete(schema.eventLog);
+  await testDb.delete(schema.eventSubscriptions);
+  await testDb.delete(schema.eventSources);
   await testDb.delete(schema.agentRuns);
   await testDb.delete(schema.sessions);
   await testDb.delete(schema.worktrees);

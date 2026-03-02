@@ -1,6 +1,6 @@
 import { eq } from '@tanstack/db';
-import { useLiveQuery } from '@tanstack/react-db';
 import { useEffect } from 'react';
+import { useCollectionQuery } from '@/lib/db/use-collection-query';
 import {
   refreshSandboxStatus,
   type SandboxStatus,
@@ -22,11 +22,13 @@ export function useSandboxStatus(projectId: string): {
   refetch: () => void;
 } {
   // Subscribe to collection changes using TanStack DB live query
-  const { data } = useLiveQuery(
+  const { data } = useCollectionQuery<SandboxStatus>(
     (q) =>
       q
         .from({ sandboxStatus: sandboxStatusCollection })
-        .where(({ sandboxStatus }) => eq(sandboxStatus.projectId, projectId)),
+        .where(({ sandboxStatus }: { sandboxStatus: SandboxStatus }) =>
+          eq(sandboxStatus.projectId, projectId)
+        ),
     [projectId]
   );
 

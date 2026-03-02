@@ -3,6 +3,9 @@ import { agentRuns } from './agent-runs';
 import { agents } from './agents';
 import { apiTokens } from './api-tokens';
 import { auditLogs } from './audit-logs';
+import { eventLog } from './event-log';
+import { eventSources } from './event-sources';
+import { eventSubscriptions } from './event-subscriptions';
 import { githubInstallations, repositoryConfigs } from './github';
 import { planSessions } from './plan-sessions';
 import { projectMembers } from './project-members';
@@ -39,6 +42,7 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   teamProjects: many(teamProjects),
   projectMembers: many(projectMembers),
   projectTags: many(projectTags),
+  eventSubscriptions: many(eventSubscriptions),
   sandboxInstance: one(sandboxInstances, {
     fields: [projects.id],
     references: [sandboxInstances.projectId],
@@ -255,6 +259,7 @@ export const teamsRelations = relations(teams, ({ many }) => ({
   tags: many(tags),
   apiTokens: many(apiTokens),
   invitations: many(teamInvitations),
+  eventSources: many(eventSources),
 }));
 
 export const teamMembersRelations = relations(teamMembers, ({ one }) => ({
@@ -348,5 +353,34 @@ export const teamInvitationsRelations = relations(teamInvitations, ({ one }) => 
   invitedByUser: one(users, {
     fields: [teamInvitations.invitedBy],
     references: [users.id],
+  }),
+}));
+
+// Event system relations
+
+export const eventSourcesRelations = relations(eventSources, ({ one, many }) => ({
+  team: one(teams, {
+    fields: [eventSources.teamId],
+    references: [teams.id],
+  }),
+  subscriptions: many(eventSubscriptions),
+  eventLogs: many(eventLog),
+}));
+
+export const eventSubscriptionsRelations = relations(eventSubscriptions, ({ one }) => ({
+  eventSource: one(eventSources, {
+    fields: [eventSubscriptions.eventSourceId],
+    references: [eventSources.id],
+  }),
+  targetProject: one(projects, {
+    fields: [eventSubscriptions.targetProjectId],
+    references: [projects.id],
+  }),
+}));
+
+export const eventLogRelations = relations(eventLog, ({ one }) => ({
+  eventSource: one(eventSources, {
+    fields: [eventLog.eventSourceId],
+    references: [eventSources.id],
   }),
 }));

@@ -8,8 +8,8 @@
  */
 
 import { eq } from '@tanstack/db';
-import { useLiveQuery } from '@tanstack/react-db';
 import { useCallback, useMemo, useState } from 'react';
+import { useCollectionQuery } from '@/lib/db/use-collection-query';
 import { terminalCollection } from '@/lib/sessions/collections';
 import { type OptimisticWriteOptions, sendTerminalInput } from '@/lib/sessions/optimistic';
 import type { TerminalEvent } from '@/lib/sessions/schema';
@@ -52,11 +52,11 @@ export function useTerminal(sessionId: string): UseTerminalResult {
   const [lastError, setLastError] = useState<Error | null>(null);
 
   // Live query for terminal lines
-  const { data } = useLiveQuery(
+  const { data } = useCollectionQuery<TerminalEvent>(
     (q) =>
       q
         .from({ terminal: terminalCollection })
-        .where(({ terminal }) => eq(terminal.sessionId, sessionId)),
+        .where(({ terminal }: { terminal: TerminalEvent }) => eq(terminal.sessionId, sessionId)),
     [sessionId]
   );
 

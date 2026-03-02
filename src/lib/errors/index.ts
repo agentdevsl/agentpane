@@ -1,6 +1,7 @@
 export * from './agent-errors.js';
 export * from './base.js';
 export * from './concurrency-errors.js';
+export * from './event-errors.js';
 export * from './github-errors.js';
 export * from './k8s-errors.js';
 export * from './nomad-errors.js';

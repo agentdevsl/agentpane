@@ -150,6 +150,7 @@ The startup script includes health checks to ensure both servers are ready befor
 
 - **API offline**: If API requests fail, check that port 3001 is running. Restart with `npm run dev`.
 - **Frontend not loading**: Ensure port 3000 is available and Vite started successfully.
+- **linting errors**: Fix errors do not workaround
 
 ### Publishing `@agentpane/cli-monitor` to npm
 

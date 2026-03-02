@@ -5,7 +5,7 @@
  */
 
 import { eq } from '@tanstack/db';
-import { useLiveQuery } from '@tanstack/react-db';
+import { useCollectionQuery } from '../db/use-collection-query.js';
 import { cliSessionsCollection } from './collections.js';
 import type { CliSession } from './schema.js';
 
@@ -13,7 +13,9 @@ import type { CliSession } from './schema.js';
  * Hook to get all CLI sessions with live updates
  */
 export function useCliSessions(): CliSession[] {
-  const { data } = useLiveQuery((q) => q.from({ sessions: cliSessionsCollection }));
+  const { data } = useCollectionQuery<CliSession>((q) =>
+    q.from({ sessions: cliSessionsCollection })
+  );
   return data ?? [];
 }
 
@@ -21,11 +23,11 @@ export function useCliSessions(): CliSession[] {
  * Hook to get a single CLI session by ID with live updates
  */
 export function useCliSession(sessionId: string): CliSession | null {
-  const { data } = useLiveQuery(
+  const { data } = useCollectionQuery<CliSession>(
     (q) =>
       q
         .from({ sessions: cliSessionsCollection })
-        .where(({ sessions }) => eq(sessions.sessionId, sessionId)),
+        .where(({ sessions }: { sessions: CliSession }) => eq(sessions.sessionId, sessionId)),
     [sessionId]
   );
   return data?.[0] ?? null;
@@ -35,10 +37,10 @@ export function useCliSession(sessionId: string): CliSession | null {
  * Hook to get only top-level (non-subagent) CLI sessions
  */
 export function useActiveCliSessions(): CliSession[] {
-  const { data } = useLiveQuery((q) =>
+  const { data } = useCollectionQuery<CliSession>((q) =>
     q
       .from({ sessions: cliSessionsCollection })
-      .where(({ sessions }) => eq(sessions.isSubagent, false))
+      .where(({ sessions }: { sessions: CliSession }) => eq(sessions.isSubagent, false))
   );
   return data ?? [];
 }
