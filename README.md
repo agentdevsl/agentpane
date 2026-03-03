@@ -10,6 +10,10 @@
 
 ![AgentPane Architecture](docs/architecture.png)
 
+### Tenancy Model
+
+![Tenancy Model](docs/tenancy-model.png)
+
 ## Overview
 
 AgentPane is a multi-agent AI development platform built on the Claude Agent SDK. It enables concurrent AI agents to work on tasks with full project isolation via git worktrees and sandboxed containers. Agents follow a plan-then-execute workflow with teams mode (planned) for parallel execution.
