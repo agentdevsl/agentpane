@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AgentPane OpenShift Deployment Architecture</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0d1117; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+svg { display: block; }
+</style>
+</head>
+<body>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1200" width="1920" height="1200">
+<defs>
+  <marker id="arrow-gray" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6" fill="none" stroke="#484f58" stroke-width="1.5"/>
+  </marker>
+  <marker id="arrow-purple" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6" fill="none" stroke="#bc8cff" stroke-width="1.5"/>
+  </marker>
+  <marker id="arrow-green" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6" fill="none" stroke="#3fb950" stroke-width="1.5"/>
+  </marker>
+  <marker id="arrow-blue" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6" fill="none" stroke="#58a6ff" stroke-width="1.5"/>
+  </marker>
+  <marker id="arrow-orange" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6" fill="none" stroke="#d29922" stroke-width="1.5"/>
+  </marker>
+  <marker id="arrow-red" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6" fill="none" stroke="#f85149" stroke-width="1.5"/>
+  </marker>
+  <marker id="arrow-coral" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6" fill="none" stroke="#f0883e" stroke-width="1.5"/>
+  </marker>
+</defs>
+
+<!-- Background -->
+<rect width="1920" height="1200" fill="#0d1117"/>
+
+<!-- ==================== TITLE ==================== -->
+<text x="960" y="38" text-anchor="middle" fill="#e6edf3" font-size="22" font-weight="700">AgentPane — OpenShift Private Network Deployment</text>
+<text x="960" y="58" text-anchor="middle" fill="#8b949e" font-size="13">GitHub.com connectivity via egress proxy (outbound) and exposed webhook Route (inbound)</text>
+
+<!-- ==================== LEFT: CORPORATE NETWORK ==================== -->
+<rect x="40" y="80" width="1130" height="1080" rx="14" fill="none" stroke="#3fb950" stroke-width="2.5" stroke-dasharray="10,5"/>
+<text x="60" y="100" fill="#3fb950" font-size="14" font-weight="700">Private Network / Corporate LAN</text>
+
+<!-- ==================== USER BROWSER ==================== -->
+<rect x="80" y="120" width="280" height="55" rx="8" fill="#161b22" stroke="#58a6ff" stroke-width="2"/>
+<text x="220" y="143" text-anchor="middle" fill="#58a6ff" font-size="16" font-weight="600">User Browser</text>
+<text x="220" y="163" text-anchor="middle" fill="#8b949e" font-size="11">Corporate desktop, internet access</text>
+
+<!-- ==================== OPENSHIFT CLUSTER ==================== -->
+<rect x="60" y="210" width="1090" height="770" rx="12" fill="none" stroke="#f85149" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="80" y="232" fill="#f85149" font-size="14" font-weight="700">OpenShift Cluster</text>
+
+<!-- ====== OCP ROUTER / HAProxy ====== -->
+<rect x="100" y="248" width="1030" height="60" rx="8" fill="#161b22" stroke="#f85149" stroke-width="1.5"/>
+<text x="615" y="272" text-anchor="middle" fill="#f85149" font-size="15" font-weight="600">OpenShift Router (HAProxy)</text>
+<text x="615" y="290" text-anchor="middle" fill="#8b949e" font-size="11">Edge TLS termination · SNI routing</text>
+
+<!-- App Route (internal) -->
+<rect x="120" y="328" width="300" height="50" rx="7" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="270" y="350" text-anchor="middle" fill="#58a6ff" font-size="13" font-weight="600">Route: agentpane.apps.example.com</text>
+<text x="270" y="368" text-anchor="middle" fill="#8b949e" font-size="10">Internal only · all paths · edge TLS</text>
+
+<!-- Webhook Route (public-facing) -->
+<rect x="480" y="328" width="360" height="50" rx="7" fill="#161b22" stroke="#d29922" stroke-width="2"/>
+<text x="660" y="350" text-anchor="middle" fill="#d29922" font-size="13" font-weight="600">Route: webhooks.agentpane.apps.example.com</text>
+<text x="660" y="368" text-anchor="middle" fill="#8b949e" font-size="10">Public-facing · /hooks/events/* only · edge TLS</text>
+
+<!-- Connections: Router -> Routes -->
+<line x1="270" y1="308" x2="270" y2="328" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="660" y1="308" x2="660" y2="328" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+
+<!-- Connection: Browser -> Router -->
+<path d="M 220 175 L 220 200 L 270 200 L 270 248" fill="none" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+<text x="280" y="196" fill="#8b949e" font-size="10">HTTPS</text>
+
+<!-- ====== AGENTPANE NAMESPACE ====== -->
+<rect x="80" y="400" width="570" height="390" rx="10" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-dasharray="8,4"/>
+<text x="100" y="420" fill="#58a6ff" font-size="13" font-weight="600">Namespace: agentpane</text>
+
+<!-- ClusterIP Service -->
+<rect x="120" y="438" width="500" height="42" rx="7" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="370" y="457" text-anchor="middle" fill="#58a6ff" font-size="14" font-weight="600">Service: agentpane (ClusterIP :3001)</text>
+<text x="370" y="473" text-anchor="middle" fill="#8b949e" font-size="10">Routes → Service → Pod</text>
+
+<!-- Connections: Routes -> Service -->
+<line x1="270" y1="378" x2="270" y2="438" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="660" y1="378" x2="660" y2="405" stroke="#484f58" stroke-width="1.5"/>
+<path d="M 660 405 L 660 459 L 620 459" fill="none" stroke="#d29922" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
+
+<!-- AgentPane Pod -->
+<rect x="120" y="498" width="500" height="165" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="2"/>
+<text x="370" y="522" text-anchor="middle" fill="#3fb950" font-size="15" font-weight="600">AgentPane Pod</text>
+
+<!-- Bun API container -->
+<rect x="145" y="538" width="220" height="50" rx="6" fill="#1c2333" stroke="#58a6ff" stroke-width="1"/>
+<text x="255" y="558" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="600">Bun API Server</text>
+<text x="255" y="576" text-anchor="middle" fill="#8b949e" font-size="10">:3001 · Hono routes</text>
+
+<!-- Durable Streams container -->
+<rect x="385" y="538" width="220" height="50" rx="6" fill="#1c2333" stroke="#bc8cff" stroke-width="1"/>
+<text x="495" y="558" text-anchor="middle" fill="#bc8cff" font-size="12" font-weight="600">Caddy (Durable Streams)</text>
+<text x="495" y="576" text-anchor="middle" fill="#8b949e" font-size="10">:3000 · SSE pub/sub</text>
+
+<!-- Connection: Bun -> Caddy -->
+<line x1="365" y1="563" x2="385" y2="563" stroke="#bc8cff" stroke-width="1" stroke-dasharray="4,2"/>
+
+<!-- Key endpoints inside pod -->
+<rect x="145" y="600" width="120" height="28" rx="5" fill="#1c2333" stroke="#d29922" stroke-width="1"/>
+<text x="205" y="618" text-anchor="middle" fill="#d29922" font-size="10">/hooks/events/:slug</text>
+
+<rect x="280" y="600" width="120" height="28" rx="5" fill="#1c2333" stroke="#bc8cff" stroke-width="1"/>
+<text x="340" y="618" text-anchor="middle" fill="#bc8cff" font-size="10">/api/auth/github/*</text>
+
+<rect x="415" y="600" width="120" height="28" rx="5" fill="#1c2333" stroke="#7ee787" stroke-width="1"/>
+<text x="475" y="618" text-anchor="middle" fill="#7ee787" font-size="10">/api/* (all routes)</text>
+
+<rect x="145" y="636" width="170" height="24" rx="5" fill="#1c2333" stroke="#8b949e" stroke-width="1"/>
+<text x="230" y="652" text-anchor="middle" fill="#8b949e" font-size="10">HMAC-SHA256 verification</text>
+
+<rect x="330" y="636" width="120" height="24" rx="5" fill="#1c2333" stroke="#8b949e" stroke-width="1"/>
+<text x="390" y="652" text-anchor="middle" fill="#8b949e" font-size="10">60 req/min rate limit</text>
+
+<!-- Connection: Service -> Pod -->
+<line x1="370" y1="480" x2="370" y2="498" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+
+<!-- PostgreSQL -->
+<rect x="120" y="700" width="230" height="55" rx="8" fill="#161b22" stroke="#7ee787" stroke-width="1.5"/>
+<text x="235" y="722" text-anchor="middle" fill="#7ee787" font-size="14" font-weight="600">PostgreSQL</text>
+<text x="235" y="740" text-anchor="middle" fill="#8b949e" font-size="11">Bitnami subchart · :5432</text>
+
+<!-- PVC -->
+<rect x="390" y="700" width="230" height="55" rx="8" fill="#161b22" stroke="#8b949e" stroke-width="1"/>
+<text x="505" y="722" text-anchor="middle" fill="#8b949e" font-size="14" font-weight="600">PVC: data</text>
+<text x="505" y="740" text-anchor="middle" fill="#8b949e" font-size="11">encryption.key · streams LMDB</text>
+
+<!-- Connections: Pod -> PG, PVC -->
+<line x1="255" y1="663" x2="255" y2="700" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="475" y1="663" x2="475" y2="700" stroke="#484f58" stroke-width="1" stroke-dasharray="4,2"/>
+
+<!-- ====== SANDBOX NAMESPACE ====== -->
+<rect x="690" y="400" width="440" height="390" rx="10" fill="none" stroke="#f0883e" stroke-width="1.5" stroke-dasharray="8,4"/>
+<text x="710" y="420" fill="#f0883e" font-size="13" font-weight="600">Namespace: agentpane-sandboxes</text>
+
+<!-- Sandbox SCC -->
+<rect x="720" y="438" width="390" height="35" rx="6" fill="#161b22" stroke="#f85149" stroke-width="1"/>
+<text x="915" y="460" text-anchor="middle" fill="#f85149" font-size="12" font-weight="600">SCC: agentpane-sandbox (restricted-v2)</text>
+
+<!-- Network Policy -->
+<rect x="720" y="486" width="390" height="92" rx="8" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+<text x="915" y="508" text-anchor="middle" fill="#d29922" font-size="13" font-weight="600">NetworkPolicy: sandbox-egress</text>
+<text x="740" y="528" fill="#3fb950" font-size="11">ALLOW</text>
+<text x="785" y="528" fill="#8b949e" font-size="11">DNS :53 · HTTPS :443 · HTTP :80 · SSH :22</text>
+<text x="740" y="546" fill="#f85149" font-size="11">DENY</text>
+<text x="780" y="546" fill="#8b949e" font-size="11">RFC1918 (10.0/8, 172.16/12, 192.168/16)</text>
+<text x="740" y="564" fill="#8b949e" font-size="10">Sandbox pods can reach github.com + anthropic API, not cluster internals</text>
+
+<!-- Sandbox Pod 1 -->
+<rect x="720" y="596" width="185" height="85" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
+<text x="812" y="618" text-anchor="middle" fill="#f0883e" font-size="13" font-weight="600">Sandbox Pod</text>
+<text x="812" y="636" text-anchor="middle" fill="#8b949e" font-size="10">Claude Agent SDK</text>
+<text x="812" y="654" text-anchor="middle" fill="#8b949e" font-size="10">agent-sandbox image</text>
+<text x="812" y="670" text-anchor="middle" fill="#8b949e" font-size="10">/workspace mount</text>
+
+<!-- Sandbox Pod 2 -->
+<rect x="925" y="596" width="185" height="85" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
+<text x="1017" y="618" text-anchor="middle" fill="#f0883e" font-size="13" font-weight="600">Sandbox Pod</text>
+<text x="1017" y="636" text-anchor="middle" fill="#8b949e" font-size="10">Claude Agent SDK</text>
+<text x="1017" y="654" text-anchor="middle" fill="#8b949e" font-size="10">agent-sandbox image</text>
+<text x="1017" y="670" text-anchor="middle" fill="#8b949e" font-size="10">/workspace mount</text>
+
+<!-- Warm Pool -->
+<rect x="720" y="700" width="390" height="42" rx="6" fill="#161b22" stroke="#f0883e" stroke-width="1"/>
+<text x="915" y="719" text-anchor="middle" fill="#f0883e" font-size="12" font-weight="600">SandboxWarmPool CRD</text>
+<text x="915" y="735" text-anchor="middle" fill="#8b949e" font-size="10">desiredReady: 2 · maxSize: 5</text>
+
+<!-- Connection: AgentPane -> Sandbox Pods -->
+<path d="M 620 560 L 660 560 L 660 640 L 720 640" fill="none" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrow-coral)"/>
+<text x="665" y="555" fill="#f0883e" font-size="10">creates</text>
+
+<!-- ====== EGRESS PROXY ====== -->
+<rect x="80" y="820" width="400" height="55" rx="8" fill="#161b22" stroke="#bc8cff" stroke-width="2"/>
+<text x="280" y="842" text-anchor="middle" fill="#bc8cff" font-size="15" font-weight="600">Egress Proxy</text>
+<text x="280" y="860" text-anchor="middle" fill="#8b949e" font-size="11">HTTPS_PROXY · forward to internet</text>
+
+<!-- Connection: Pod -> Egress Proxy -->
+<path d="M 370 663 L 370 690 L 80 690 L 80 820" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3"/>
+<text x="380" y="685" fill="#bc8cff" font-size="10">HTTPS_PROXY</text>
+
+<!-- Connection: Sandbox -> Egress Proxy (via network policy) -->
+<path d="M 812 681 L 812 780 L 280 780 L 280 820" fill="none" stroke="#f0883e" stroke-width="1.5" stroke-dasharray="6,3"/>
+<text x="540" y="775" fill="#f0883e" font-size="10">sandbox egress (HTTPS only, no RFC1918)</text>
+
+<!-- ==================== FIREWALL ==================== -->
+<rect x="40" y="910" width="1130" height="50" rx="8" fill="#161b22" stroke="#f85149" stroke-width="2"/>
+<text x="605" y="932" text-anchor="middle" fill="#f85149" font-size="15" font-weight="700">Corporate Firewall</text>
+<text x="605" y="950" text-anchor="middle" fill="#8b949e" font-size="11">Outbound: all HTTPS allowed via proxy · Inbound: GitHub webhook IPs (140.82.112.0/20, 192.30.252.0/22) → webhook Route only</text>
+
+<!-- ==================== RIGHT: PUBLIC INTERNET ==================== -->
+<rect x="1230" y="80" width="650" height="1100" rx="14" fill="none" stroke="#8b949e" stroke-width="2" stroke-dasharray="10,5"/>
+<text x="1250" y="100" fill="#8b949e" font-size="14" font-weight="700">Public Internet</text>
+
+<!-- GitHub.com -->
+<rect x="1270" y="130" width="590" height="310" rx="10" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-dasharray="8,4"/>
+<text x="1290" y="152" fill="#58a6ff" font-size="13" font-weight="600">GitHub.com</text>
+
+<!-- GitHub OAuth -->
+<rect x="1300" y="168" width="250" height="50" rx="7" fill="#161b22" stroke="#bc8cff" stroke-width="1.5"/>
+<text x="1425" y="190" text-anchor="middle" fill="#bc8cff" font-size="13" font-weight="600">OAuth Authorization</text>
+<text x="1425" y="208" text-anchor="middle" fill="#8b949e" font-size="10">github.com/login/oauth/*</text>
+
+<!-- GitHub API -->
+<rect x="1300" y="232" width="250" height="50" rx="7" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="1425" y="254" text-anchor="middle" fill="#58a6ff" font-size="13" font-weight="600">REST API</text>
+<text x="1425" y="272" text-anchor="middle" fill="#8b949e" font-size="10">api.github.com · Octokit</text>
+
+<!-- GitHub Git -->
+<rect x="1300" y="296" width="250" height="45" rx="7" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
+<text x="1425" y="316" text-anchor="middle" fill="#3fb950" font-size="13" font-weight="600">Git HTTPS</text>
+<text x="1425" y="333" text-anchor="middle" fill="#8b949e" font-size="10">github.com/*.git clone/push</text>
+
+<!-- GitHub Webhooks (outgoing from GitHub) -->
+<rect x="1300" y="355" width="250" height="65" rx="7" fill="#161b22" stroke="#d29922" stroke-width="2"/>
+<text x="1425" y="377" text-anchor="middle" fill="#d29922" font-size="13" font-weight="600">Webhook Delivery</text>
+<text x="1425" y="395" text-anchor="middle" fill="#8b949e" font-size="10">POST to configured URL</text>
+<text x="1425" y="410" text-anchor="middle" fill="#8b949e" font-size="10">HMAC-SHA256 signed</text>
+
+<!-- GitHub App config note -->
+<rect x="1570" y="168" width="270" height="120" rx="7" fill="#161b22" stroke="#8b949e" stroke-width="1"/>
+<text x="1705" y="192" text-anchor="middle" fill="#8b949e" font-size="12" font-weight="600">GitHub App Configuration</text>
+<text x="1590" y="214" fill="#8b949e" font-size="10">Webhook URL:</text>
+<text x="1590" y="230" fill="#d29922" font-size="10">https://webhooks.agentpane</text>
+<text x="1590" y="244" fill="#d29922" font-size="10">.apps.example.com/hooks/events/:slug</text>
+<text x="1590" y="264" fill="#8b949e" font-size="10">Callback URL:</text>
+<text x="1590" y="278" fill="#58a6ff" font-size="10">https://agentpane.apps.example.com</text>
+<text x="1590" y="292" fill="#58a6ff" font-size="10">/api/auth/github/callback</text>
+
+<!-- Anthropic API -->
+<rect x="1270" y="470" width="290" height="55" rx="8" fill="#161b22" stroke="#bc8cff" stroke-width="1.5"/>
+<text x="1415" y="492" text-anchor="middle" fill="#bc8cff" font-size="15" font-weight="600">Anthropic API</text>
+<text x="1415" y="510" text-anchor="middle" fill="#8b949e" font-size="11">api.anthropic.com · Claude SDK</text>
+
+<!-- npm Registry -->
+<rect x="1270" y="545" width="290" height="45" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
+<text x="1415" y="570" text-anchor="middle" fill="#3fb950" font-size="12" font-weight="600">npm Registry</text>
+<text x="1415" y="584" text-anchor="middle" fill="#8b949e" font-size="10">registry.npmjs.org</text>
+
+<!-- ==================== FLOW ARROWS ==================== -->
+
+<!-- Outbound: Proxy -> GitHub API (via firewall) -->
+<path d="M 480 847 L 1170 847 L 1170 935 L 1230 935" fill="none" stroke="#bc8cff" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+<text x="750" y="840" fill="#bc8cff" font-size="10">outbound HTTPS via proxy</text>
+
+<!-- Outbound continues up to GitHub -->
+<path d="M 1230 935 L 1200 935 L 1200 252 L 1300 252" fill="none" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+<text x="1205" y="600" fill="#58a6ff" font-size="10" transform="rotate(-90 1205 600)">api.github.com</text>
+
+<!-- Outbound: Proxy -> Anthropic -->
+<path d="M 1230 935 L 1200 935 L 1200 497 L 1270 497" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-purple)"/>
+
+<!-- Inbound: GitHub Webhooks -> Firewall -> Router -> Route -> Pod -->
+<path d="M 1300 390 L 1195 390 L 1195 930 L 1170 930" fill="none" stroke="#d29922" stroke-width="2" marker-end="url(#arrow-orange)"/>
+<text x="1205" y="700" fill="#d29922" font-size="10" transform="rotate(-90 1205 700)">webhook POST</text>
+
+<!-- Inbound through firewall into cluster -->
+<path d="M 660 960 L 660 920" fill="none" stroke="#d29922" stroke-width="2"/>
+<text x="565" y="890" fill="#d29922" font-size="10">firewall allows GitHub IPs</text>
+
+<!-- Inbound up to router -->
+<path d="M 660 885 L 660 308" fill="none" stroke="#d29922" stroke-width="1.5" stroke-dasharray="6,3"/>
+
+<!-- Browser -> GitHub OAuth (direct, browser has internet) -->
+<path d="M 360 147 L 1170 147 L 1170 80 L 1230 80" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3"/>
+<path d="M 1230 80 L 1200 80 L 1200 190 L 1300 190" fill="none" stroke="#bc8cff" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+<text x="700" y="140" fill="#bc8cff" font-size="10">browser redirect (OAuth login)</text>
+
+<!-- ==================== OAUTH FLOW (bottom) ==================== -->
+<rect x="40" y="990" width="1130" height="115" rx="10" fill="#161b22" stroke="#bc8cff" stroke-width="1.5"/>
+<text x="605" y="1016" text-anchor="middle" fill="#bc8cff" font-size="14" font-weight="700">GitHub OAuth Flow (works through proxy — browser-initiated)</text>
+
+<rect x="70" y="1032" width="140" height="28" rx="5" fill="#1c2333" stroke="#58a6ff" stroke-width="1"/>
+<text x="140" y="1050" text-anchor="middle" fill="#58a6ff" font-size="10">1. Browser → App</text>
+
+<line x1="210" y1="1046" x2="230" y2="1046" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+
+<rect x="230" y="1032" width="170" height="28" rx="5" fill="#1c2333" stroke="#bc8cff" stroke-width="1"/>
+<text x="315" y="1050" text-anchor="middle" fill="#bc8cff" font-size="10">2. Redirect → github.com</text>
+
+<line x1="400" y1="1046" x2="420" y2="1046" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+
+<rect x="420" y="1032" width="170" height="28" rx="5" fill="#1c2333" stroke="#bc8cff" stroke-width="1"/>
+<text x="505" y="1050" text-anchor="middle" fill="#bc8cff" font-size="10">3. GitHub → callback</text>
+
+<line x1="590" y1="1046" x2="610" y2="1046" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+
+<rect x="610" y="1032" width="170" height="28" rx="5" fill="#1c2333" stroke="#3fb950" stroke-width="1"/>
+<text x="695" y="1050" text-anchor="middle" fill="#3fb950" font-size="10">4. Server → token (proxy)</text>
+
+<line x1="780" y1="1046" x2="800" y2="1046" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+
+<rect x="800" y="1032" width="170" height="28" rx="5" fill="#1c2333" stroke="#3fb950" stroke-width="1"/>
+<text x="885" y="1050" text-anchor="middle" fill="#3fb950" font-size="10">5. Server → user (proxy)</text>
+
+<line x1="970" y1="1046" x2="990" y2="1046" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+
+<rect x="990" y="1032" width="150" height="28" rx="5" fill="#1c2333" stroke="#58a6ff" stroke-width="1"/>
+<text x="1065" y="1050" text-anchor="middle" fill="#58a6ff" font-size="10">6. Set session cookie</text>
+
+<text x="70" y="1090" fill="#8b949e" font-size="10">Steps 1-3: browser redirects (user has internet access). Steps 4-5: server outbound via HTTPS_PROXY. Step 6: internal.</text>
+
+<!-- ==================== LEGEND ==================== -->
+<rect x="1270" y="630" width="590" height="240" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+<text x="1565" y="656" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="600">Legend</text>
+
+<line x1="1295" y1="678" x2="1348" y2="678" stroke="#3fb950" stroke-width="2" stroke-dasharray="10,5"/>
+<text x="1358" y="682" fill="#8b949e" font-size="12">Private network boundary</text>
+
+<line x1="1295" y1="700" x2="1348" y2="700" stroke="#f85149" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="1358" y="704" fill="#8b949e" font-size="12">OpenShift cluster</text>
+
+<line x1="1295" y1="722" x2="1348" y2="722" stroke="#58a6ff" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="1358" y="726" fill="#8b949e" font-size="12">Application namespace</text>
+
+<line x1="1295" y1="744" x2="1348" y2="744" stroke="#f0883e" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="1358" y="748" fill="#8b949e" font-size="12">Sandbox namespace</text>
+
+<line x1="1295" y1="766" x2="1348" y2="766" stroke="#bc8cff" stroke-width="2"/>
+<text x="1358" y="770" fill="#8b949e" font-size="12">Outbound (proxy) traffic</text>
+
+<line x1="1295" y1="788" x2="1348" y2="788" stroke="#d29922" stroke-width="2"/>
+<text x="1358" y="792" fill="#8b949e" font-size="12">Inbound webhook traffic</text>
+
+<line x1="1295" y1="810" x2="1348" y2="810" stroke="#484f58" stroke-width="2"/>
+<text x="1358" y="814" fill="#8b949e" font-size="12">Internal cluster traffic</text>
+
+<line x1="1295" y1="832" x2="1348" y2="832" stroke="#bc8cff" stroke-width="2" stroke-dasharray="6,3"/>
+<text x="1358" y="836" fill="#8b949e" font-size="12">Browser redirect (OAuth)</text>
+
+<rect x="1295" y="848" width="14" height="12" rx="3" fill="#161b22" stroke="#f85149" stroke-width="1.5"/>
+<text x="1319" y="858" fill="#8b949e" font-size="12">OpenShift-specific (SCC, Route)</text>
+
+<!-- ==================== KEY CONFIG ==================== -->
+<rect x="1270" y="900" width="590" height="255" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+<text x="1565" y="926" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="600">Key Configuration</text>
+
+<text x="1295" y="952" fill="#d29922" font-size="12" font-weight="600">Helm Values</text>
+<text x="1295" y="970" fill="#8b949e" font-size="11">openshift.enabled: true</text>
+<text x="1295" y="986" fill="#8b949e" font-size="11">route.enabled: true</text>
+<text x="1295" y="1002" fill="#8b949e" font-size="11">webhookRoute.enabled: true</text>
+<text x="1295" y="1018" fill="#8b949e" font-size="11">proxy.httpsProxy: http://proxy.corp:8080</text>
+
+<text x="1295" y="1046" fill="#d29922" font-size="12" font-weight="600">Environment Variables</text>
+<text x="1295" y="1064" fill="#8b949e" font-size="11">CORS_ORIGIN=https://agentpane.apps.example.com</text>
+<text x="1295" y="1080" fill="#8b949e" font-size="11">GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET</text>
+<text x="1295" y="1096" fill="#8b949e" font-size="11">GITHUB_WEBHOOK_SECRET</text>
+<text x="1295" y="1112" fill="#8b949e" font-size="11">ANTHROPIC_API_KEY</text>
+
+<text x="1295" y="1140" fill="#f85149" font-size="12" font-weight="600">Firewall Rule</text>
+<text x="1295" y="1158" fill="#8b949e" font-size="11">Allow 140.82.112.0/20, 192.30.252.0/22 → webhook Route :443</text>
+
+</svg>
+</body>
+</html>

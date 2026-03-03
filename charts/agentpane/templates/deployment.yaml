@@ -100,6 +100,15 @@ spec:
                   key: {{ .Values.github.secretKeys.webhookSecretKey | default "GITHUB_WEBHOOK_SECRET" }}
                   optional: true
             {{- end }}
+            {{/* ---- Egress Proxy ---- */}}
+            {{- if .Values.proxy.httpsProxy }}
+            - name: HTTPS_PROXY
+              value: {{ .Values.proxy.httpsProxy | quote }}
+            - name: HTTP_PROXY
+              value: {{ .Values.proxy.httpProxy | default .Values.proxy.httpsProxy | quote }}
+            - name: NO_PROXY
+              value: {{ .Values.proxy.noProxy | quote }}
+            {{- end }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}

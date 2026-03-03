@@ -1,0 +1,18 @@
+{{- if and (include "agentpane.openshift.enabled" .) .Values.route.enabled -}}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "agentpane.fullname" . }}
+  labels:
+    {{- include "agentpane.labels" . | nindent 4 }}
+spec:
+  host: {{ .Values.route.hostname }}
+  to:
+    kind: Service
+    name: {{ include "agentpane.fullname" . }}
+  port:
+    targetPort: 3001
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+{{- end }}

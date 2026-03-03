@@ -358,6 +358,33 @@ sandbox:
     minMemory: 256Mi
 
 # -----------------------------------------------------------------------------
+# OpenShift Routes
+# -----------------------------------------------------------------------------
+route:
+  # -- Create an OpenShift Route for the main app UI (requires openshift.enabled)
+  enabled: false
+  # -- Hostname for the app Route (internal users access AgentPane here)
+  hostname: "agentpane.apps.example.com"
+
+webhookRoute:
+  # -- Create a dedicated OpenShift Route for GitHub webhook ingress (requires openshift.enabled)
+  enabled: false
+  # -- Hostname for the webhook Route (exposed to GitHub via firewall rule)
+  hostname: "webhooks.agentpane.apps.example.com"
+
+# -----------------------------------------------------------------------------
+# Egress Proxy (for private-network deployments)
+# -----------------------------------------------------------------------------
+proxy:
+  # -- HTTPS proxy URL (e.g. http://proxy.corp:8080). Required for reaching
+  #    github.com, api.github.com, api.anthropic.com from a private network.
+  httpsProxy: ""
+  # -- HTTP proxy URL (defaults to httpsProxy if not set)
+  httpProxy: ""
+  # -- Comma-separated list of hosts/CIDRs to bypass the proxy
+  noProxy: "localhost,127.0.0.1,.svc,.cluster.local"
+
+# -----------------------------------------------------------------------------
 # OpenShift Compatibility
 # -----------------------------------------------------------------------------
 openshift:
