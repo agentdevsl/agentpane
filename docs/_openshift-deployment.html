@@ -76,7 +76,8 @@ svg { display: block; }
 
 <!-- Connection: Browser -> Router -->
 <path d="M 220 175 L 220 200 L 270 200 L 270 248" fill="none" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
-<text x="280" y="196" fill="#8b949e" font-size="10">HTTPS</text>
+<rect x="276" y="184" width="38" height="16" rx="3" fill="#0d1117" stroke="#8b949e" stroke-width="0.5"/>
+<text x="295" y="196" text-anchor="middle" fill="#8b949e" font-size="10">HTTPS</text>
 
 <!-- ====== AGENTPANE NAMESPACE ====== -->
 <rect x="80" y="400" width="570" height="390" rx="10" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-dasharray="8,4"/>
@@ -180,7 +181,8 @@ svg { display: block; }
 
 <!-- Connection: AgentPane -> Sandbox Pods -->
 <path d="M 620 560 L 660 560 L 660 640 L 720 640" fill="none" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrow-coral)"/>
-<text x="665" y="555" fill="#f0883e" font-size="10">creates</text>
+<rect x="661" y="543" width="50" height="16" rx="3" fill="#0d1117" stroke="#f0883e" stroke-width="0.5"/>
+<text x="686" y="555" text-anchor="middle" fill="#f0883e" font-size="10">creates</text>
 
 <!-- ====== EGRESS PROXY ====== -->
 <rect x="80" y="820" width="400" height="55" rx="8" fill="#161b22" stroke="#bc8cff" stroke-width="2"/>
@@ -189,14 +191,16 @@ svg { display: block; }
 
 <!-- Connection: Pod -> Egress Proxy -->
 <path d="M 370 663 L 370 690 L 80 690 L 80 820" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3"/>
-<text x="380" y="685" fill="#bc8cff" font-size="10">HTTPS_PROXY</text>
+<rect x="376" y="673" width="82" height="16" rx="3" fill="#0d1117" stroke="#bc8cff" stroke-width="0.5"/>
+<text x="417" y="685" text-anchor="middle" fill="#bc8cff" font-size="10">HTTPS_PROXY</text>
 
 <!-- Connection: Sandbox -> Egress Proxy (via network policy) -->
 <path d="M 812 681 L 812 780 L 280 780 L 280 820" fill="none" stroke="#f0883e" stroke-width="1.5" stroke-dasharray="6,3"/>
-<text x="540" y="775" fill="#f0883e" font-size="10">sandbox egress (HTTPS only, no RFC1918)</text>
+<rect x="430" y="763" width="240" height="16" rx="3" fill="#0d1117" stroke="#f0883e" stroke-width="0.5"/>
+<text x="550" y="775" text-anchor="middle" fill="#f0883e" font-size="10">sandbox egress (HTTPS only, no RFC1918)</text>
 
 <!-- ==================== FIREWALL ==================== -->
-<rect x="40" y="910" width="1130" height="50" rx="8" fill="#161b22" stroke="#f85149" stroke-width="2"/>
+<rect x="60" y="910" width="1090" height="50" rx="8" fill="#161b22" stroke="#f85149" stroke-width="2"/>
 <text x="605" y="932" text-anchor="middle" fill="#f85149" font-size="15" font-weight="700">Corporate Firewall</text>
 <text x="605" y="950" text-anchor="middle" fill="#8b949e" font-size="11">Outbound: all HTTPS allowed via proxy · Inbound: GitHub webhook IPs (140.82.112.0/20, 192.30.252.0/22) → webhook Route only</text>
 
@@ -230,14 +234,12 @@ svg { display: block; }
 <text x="1425" y="410" text-anchor="middle" fill="#8b949e" font-size="10">HMAC-SHA256 signed</text>
 
 <!-- GitHub App config note -->
-<rect x="1570" y="168" width="270" height="120" rx="7" fill="#161b22" stroke="#8b949e" stroke-width="1"/>
-<text x="1705" y="192" text-anchor="middle" fill="#8b949e" font-size="12" font-weight="600">GitHub App Configuration</text>
-<text x="1590" y="214" fill="#8b949e" font-size="10">Webhook URL:</text>
-<text x="1590" y="230" fill="#d29922" font-size="10">https://webhooks.agentpane</text>
-<text x="1590" y="244" fill="#d29922" font-size="10">.apps.example.com/hooks/events/:slug</text>
-<text x="1590" y="264" fill="#8b949e" font-size="10">Callback URL:</text>
-<text x="1590" y="278" fill="#58a6ff" font-size="10">https://agentpane.apps.example.com</text>
-<text x="1590" y="292" fill="#58a6ff" font-size="10">/api/auth/github/callback</text>
+<rect x="1560" y="168" width="310" height="108" rx="7" fill="#161b22" stroke="#8b949e" stroke-width="1"/>
+<text x="1715" y="192" text-anchor="middle" fill="#8b949e" font-size="12" font-weight="600">GitHub App Configuration</text>
+<text x="1575" y="214" fill="#8b949e" font-size="10">Webhook URL:</text>
+<text x="1575" y="230" fill="#d29922" font-size="8">https://webhooks.agentpane.apps.example.com/hooks/events/:slug</text>
+<text x="1575" y="250" fill="#8b949e" font-size="10">Callback URL:</text>
+<text x="1575" y="266" fill="#58a6ff" font-size="8">https://agentpane.apps.example.com/api/auth/github/callback</text>
 
 <!-- Anthropic API -->
 <rect x="1270" y="470" width="290" height="55" rx="8" fill="#161b22" stroke="#bc8cff" stroke-width="1.5"/>
@@ -253,22 +255,30 @@ svg { display: block; }
 
 <!-- Outbound: Proxy -> GitHub API (via firewall) -->
 <path d="M 480 847 L 1170 847 L 1170 935 L 1230 935" fill="none" stroke="#bc8cff" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
-<text x="750" y="840" fill="#bc8cff" font-size="10">outbound HTTPS via proxy</text>
+<rect x="746" y="828" width="148" height="16" rx="3" fill="#0d1117" stroke="#bc8cff" stroke-width="0.5"/>
+<text x="820" y="840" text-anchor="middle" fill="#bc8cff" font-size="10">outbound HTTPS via proxy</text>
 
 <!-- Outbound continues up to GitHub -->
 <path d="M 1230 935 L 1200 935 L 1200 252 L 1300 252" fill="none" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
-<text x="1205" y="600" fill="#58a6ff" font-size="10" transform="rotate(-90 1205 600)">api.github.com</text>
+<g transform="rotate(-90 1205 600)">
+<rect x="1201" y="588" width="88" height="16" rx="3" fill="#0d1117" stroke="#58a6ff" stroke-width="0.5"/>
+<text x="1245" y="600" text-anchor="middle" fill="#58a6ff" font-size="10">api.github.com</text>
+</g>
 
 <!-- Outbound: Proxy -> Anthropic -->
 <path d="M 1230 935 L 1200 935 L 1200 497 L 1270 497" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-purple)"/>
 
 <!-- Inbound: GitHub Webhooks -> Firewall -> Router -> Route -> Pod -->
 <path d="M 1300 390 L 1195 390 L 1195 930 L 1170 930" fill="none" stroke="#d29922" stroke-width="2" marker-end="url(#arrow-orange)"/>
-<text x="1205" y="700" fill="#d29922" font-size="10" transform="rotate(-90 1205 700)">webhook POST</text>
+<g transform="rotate(-90 1205 700)">
+<rect x="1201" y="688" width="78" height="16" rx="3" fill="#0d1117" stroke="#d29922" stroke-width="0.5"/>
+<text x="1240" y="700" text-anchor="middle" fill="#d29922" font-size="10">webhook POST</text>
+</g>
 
 <!-- Inbound through firewall into cluster -->
 <path d="M 660 960 L 660 920" fill="none" stroke="#d29922" stroke-width="2"/>
-<text x="565" y="890" fill="#d29922" font-size="10">firewall allows GitHub IPs</text>
+<rect x="561" y="878" width="158" height="16" rx="3" fill="#0d1117" stroke="#d29922" stroke-width="0.5"/>
+<text x="640" y="890" text-anchor="middle" fill="#d29922" font-size="10">firewall allows GitHub IPs</text>
 
 <!-- Inbound up to router -->
 <path d="M 660 885 L 660 308" fill="none" stroke="#d29922" stroke-width="1.5" stroke-dasharray="6,3"/>
@@ -276,10 +286,11 @@ svg { display: block; }
 <!-- Browser -> GitHub OAuth (direct, browser has internet) -->
 <path d="M 360 147 L 1170 147 L 1170 80 L 1230 80" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3"/>
 <path d="M 1230 80 L 1200 80 L 1200 190 L 1300 190" fill="none" stroke="#bc8cff" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
-<text x="700" y="140" fill="#bc8cff" font-size="10">browser redirect (OAuth login)</text>
+<rect x="616" y="128" width="172" height="16" rx="3" fill="#0d1117" stroke="#bc8cff" stroke-width="0.5"/>
+<text x="702" y="140" text-anchor="middle" fill="#bc8cff" font-size="10">browser redirect (OAuth login)</text>
 
 <!-- ==================== OAUTH FLOW (bottom) ==================== -->
-<rect x="40" y="990" width="1130" height="115" rx="10" fill="#161b22" stroke="#bc8cff" stroke-width="1.5"/>
+<rect x="60" y="990" width="1090" height="115" rx="10" fill="#161b22" stroke="#bc8cff" stroke-width="1.5"/>
 <text x="605" y="1016" text-anchor="middle" fill="#bc8cff" font-size="14" font-weight="700">GitHub OAuth Flow (works through proxy — browser-initiated)</text>
 
 <rect x="70" y="1032" width="140" height="28" rx="5" fill="#1c2333" stroke="#58a6ff" stroke-width="1"/>
@@ -344,7 +355,7 @@ svg { display: block; }
 <text x="1319" y="858" fill="#8b949e" font-size="12">OpenShift-specific (SCC, Route)</text>
 
 <!-- ==================== KEY CONFIG ==================== -->
-<rect x="1270" y="900" width="590" height="255" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+<rect x="1270" y="900" width="590" height="265" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
 <text x="1565" y="926" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="600">Key Configuration</text>
 
 <text x="1295" y="952" fill="#d29922" font-size="12" font-weight="600">Helm Values</text>
