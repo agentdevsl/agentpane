@@ -1028,6 +1028,28 @@ function SandboxSettingsPage(): React.JSX.Element {
 
   const agentcoreStatusDisplay = getAgentCoreStatusDisplay(agentcoreStatusLoading, agentcoreStatus);
 
+  const loadAgentCoreStatus = useCallback(async () => {
+    setAgentcoreStatusLoading(true);
+    setAgentcoreError(null);
+    try {
+      const res = await fetch('/api/sandbox/agentcore/validate', {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setAgentcoreStatus({ healthy: true, accountId: data.data?.accountId });
+      } else {
+        setAgentcoreStatus({ healthy: false });
+        setAgentcoreError(data.error?.message || 'Validation failed');
+      }
+    } catch (err) {
+      setAgentcoreStatus({ healthy: false });
+      setAgentcoreError(err instanceof Error ? err.message : 'Connection failed');
+    } finally {
+      setAgentcoreStatusLoading(false);
+    }
+  }, []);
+
   return (
     <div data-testid="sandbox-settings" className="mx-auto max-w-4xl px-6 py-8 sm:px-8">
       {/* Page Header with gradient accent - matching gold standard */}
@@ -2429,27 +2451,7 @@ function SandboxSettingsPage(): React.JSX.Element {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={async () => {
-                    setAgentcoreStatusLoading(true);
-                    setAgentcoreError(null);
-                    try {
-                      const res = await fetch('/api/sandbox/agentcore/validate', {
-                        method: 'POST',
-                      });
-                      const data = await res.json();
-                      if (data.ok) {
-                        setAgentcoreStatus({ healthy: true, accountId: data.data?.accountId });
-                      } else {
-                        setAgentcoreStatus({ healthy: false });
-                        setAgentcoreError(data.error?.message || 'Validation failed');
-                      }
-                    } catch (err) {
-                      setAgentcoreStatus({ healthy: false });
-                      setAgentcoreError(err instanceof Error ? err.message : 'Connection failed');
-                    } finally {
-                      setAgentcoreStatusLoading(false);
-                    }
-                  }}
+                  onClick={loadAgentCoreStatus}
                   disabled={agentcoreStatusLoading}
                   data-testid="validate-agentcore-btn"
                 >
