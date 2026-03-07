@@ -30,12 +30,12 @@ export function mapAgentCoreStatus(status?: string): SandboxStatus {
     case 'DELETING':
       return 'stopping';
     case 'DELETED':
+    case undefined:
       return 'stopped';
     case 'CREATE_FAILED':
     case 'UPDATE_FAILED':
       return 'error';
     default:
-      if (!status) return 'stopped';
       log.warn(`Unknown AgentCore runtime status: "${status}", treating as error`);
       return 'error';
   }
@@ -117,13 +117,9 @@ export class AgentCoreSandboxInstance implements Sandbox {
 
       const invocation = await this.dataClient.send(command);
 
-      // Parse the streaming response body
-      let responseBody = '{}';
-      if (invocation.response) {
-        // response is a StreamingBlobPayloadOutputTypes — use transformToString/transformToByteArray
-        const bytes = await invocation.response.transformToByteArray();
-        responseBody = new TextDecoder().decode(bytes);
-      }
+      const responseBody = invocation.response
+        ? new TextDecoder().decode(await invocation.response.transformToByteArray())
+        : '{}';
 
       let result: { exitCode?: number; stdout?: string; stderr?: string };
       try {
@@ -236,19 +232,14 @@ export class AgentCoreSandboxInstance implements Sandbox {
 
   async createTmuxSession(sessionName: string, taskId?: string): Promise<TmuxSession> {
     this.validateSessionName(sessionName);
-    this.assertRunning();
-    this.touch();
 
-    // Check if session already exists (handle "no tmux server" case gracefully)
     let sessionExists = false;
     try {
       const listResult = await this.exec('tmux', ['list-sessions', '-F', '#{session_name}']);
       sessionExists = listResult.stdout.split('\n').includes(sessionName);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (message.includes('no server running') || message.includes('no sessions')) {
-        sessionExists = false;
-      } else {
+      if (!message.includes('no server running') && !message.includes('no sessions')) {
         throw err;
       }
     }
@@ -279,9 +270,6 @@ export class AgentCoreSandboxInstance implements Sandbox {
   }
 
   async listTmuxSessions(): Promise<TmuxSession[]> {
-    this.assertRunning();
-    this.touch();
-
     let result: ExecResult;
     try {
       result = await this.exec('tmux', [
@@ -311,10 +299,7 @@ export class AgentCoreSandboxInstance implements Sandbox {
       .split('\n')
       .filter(Boolean)
       .map((line) => {
-        const parts = line.split(':');
-        const name = parts[0] ?? '';
-        const windows = parts[1] ?? '1';
-        const attached = parts[2] ?? '0';
+        const [name = '', windows = '1', attached = '0'] = line.split(':');
         return {
           name,
           sandboxId: this.id,
@@ -328,8 +313,6 @@ export class AgentCoreSandboxInstance implements Sandbox {
 
   async killTmuxSession(sessionName: string): Promise<void> {
     this.validateSessionName(sessionName);
-    this.assertRunning();
-    this.touch();
 
     const result = await this.exec('tmux', ['kill-session', '-t', sessionName]);
     if (result.exitCode !== 0) {
@@ -348,8 +331,6 @@ export class AgentCoreSandboxInstance implements Sandbox {
 
   async sendKeysToTmux(sessionName: string, keys: string): Promise<void> {
     this.validateSessionName(sessionName);
-    this.assertRunning();
-    this.touch();
 
     const result = await this.exec('tmux', ['send-keys', '-t', sessionName, keys, 'Enter']);
     if (result.exitCode !== 0) {
@@ -362,8 +343,6 @@ export class AgentCoreSandboxInstance implements Sandbox {
 
   async captureTmuxPane(sessionName: string, lines = 100): Promise<string> {
     this.validateSessionName(sessionName);
-    this.assertRunning();
-    this.touch();
 
     const result = await this.exec('tmux', [
       'capture-pane',
@@ -436,20 +415,17 @@ export class AgentCoreSandboxInstance implements Sandbox {
    */
   async refreshStatus(): Promise<void> {
     try {
-      const command = new GetAgentRuntimeCommand({
-        agentRuntimeId: this.runtimeId,
-      });
-      const response = await this.controlClient.send(command);
-      const runtimeStatus = response.status;
-
-      this._status = mapAgentCoreStatus(runtimeStatus);
+      const response = await this.controlClient.send(
+        new GetAgentRuntimeCommand({ agentRuntimeId: this.runtimeId })
+      );
+      this._status = mapAgentCoreStatus(response.status);
       this._lastRefreshError = null;
     } catch (error) {
-      // Check for not found
-      if (
+      const isNotFound =
         error instanceof Error &&
-        (error.name === 'ResourceNotFoundException' || error.name === 'NotFoundException')
-      ) {
+        (error.name === 'ResourceNotFoundException' || error.name === 'NotFoundException');
+
+      if (isNotFound) {
         log.info(`Runtime ${this.runtimeArn} no longer exists in AWS, marking as stopped`);
         this._status = 'stopped';
         this._lastRefreshError = null;

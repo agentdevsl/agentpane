@@ -67,6 +67,17 @@ function createAgentCoreTestApp(db?: ReturnType<typeof createMockDb>) {
   return app;
 }
 
+const FULL_CREDENTIALS = {
+  awsAccessKeyId: 'AKIA_TEST_KEY',
+  awsSecretAccessKey: 'encrypted-secret',
+  awsRegion: 'us-west-2',
+};
+
+const KEY_AND_SECRET = {
+  awsAccessKeyId: 'AKIA_TEST_KEY',
+  awsSecretAccessKey: 'encrypted-secret',
+};
+
 describe('AgentCore Routes', () => {
   let decryptTokenMock: ReturnType<typeof vi.fn>;
 
@@ -87,19 +98,21 @@ describe('AgentCore Routes', () => {
     vi.restoreAllMocks();
   });
 
-  // -- POST /validate --
+  async function requestJson(
+    app: ReturnType<typeof createAgentCoreTestApp>,
+    path: string,
+    init?: RequestInit
+  ) {
+    const res = await app.request(`/api/sandbox/agentcore${path}`, init);
+    const body = await res.json();
+    return { res, body };
+  }
 
   describe('POST /validate', () => {
     it('validates credentials successfully when configured', async () => {
-      const db = createMockDb({
-        awsAccessKeyId: 'AKIA_TEST_KEY',
-        awsSecretAccessKey: 'encrypted-secret',
-        awsRegion: 'us-west-2',
-      });
-      const app = createAgentCoreTestApp(db);
+      const app = createAgentCoreTestApp(createMockDb(FULL_CREDENTIALS));
 
-      const res = await app.request('/api/sandbox/agentcore/validate', { method: 'POST' });
-      const body = await res.json();
+      const { res, body } = await requestJson(app, '/validate', { method: 'POST' });
 
       expect(res.status).toBe(200);
       expect(body.ok).toBe(true);
@@ -108,11 +121,9 @@ describe('AgentCore Routes', () => {
     });
 
     it('returns 400 when no credentials are configured', async () => {
-      const db = createMockDb();
-      const app = createAgentCoreTestApp(db);
+      const app = createAgentCoreTestApp(createMockDb());
 
-      const res = await app.request('/api/sandbox/agentcore/validate', { method: 'POST' });
-      const body = await res.json();
+      const { res, body } = await requestJson(app, '/validate', { method: 'POST' });
 
       expect(res.status).toBe(400);
       expect(body.ok).toBe(false);
@@ -121,13 +132,9 @@ describe('AgentCore Routes', () => {
     });
 
     it('returns 400 when only access key is provided without secret', async () => {
-      const db = createMockDb({
-        awsAccessKeyId: 'AKIA_TEST_KEY',
-      });
-      const app = createAgentCoreTestApp(db);
+      const app = createAgentCoreTestApp(createMockDb({ awsAccessKeyId: 'AKIA_TEST_KEY' }));
 
-      const res = await app.request('/api/sandbox/agentcore/validate', { method: 'POST' });
-      const body = await res.json();
+      const { res, body } = await requestJson(app, '/validate', { method: 'POST' });
 
       expect(res.status).toBe(400);
       expect(body.ok).toBe(false);
@@ -135,18 +142,13 @@ describe('AgentCore Routes', () => {
     });
 
     it('returns 422 when STS rejects credentials', async () => {
-      const db = createMockDb({
-        awsAccessKeyId: 'AKIA_TEST_KEY',
-        awsSecretAccessKey: 'encrypted-secret',
-      });
-      const app = createAgentCoreTestApp(db);
+      const app = createAgentCoreTestApp(createMockDb(KEY_AND_SECRET));
 
       const stsError = new Error('The security token included in the request is invalid');
       stsError.name = 'InvalidClientTokenId';
       mockStsSend.mockRejectedValue(stsError);
 
-      const res = await app.request('/api/sandbox/agentcore/validate', { method: 'POST' });
-      const body = await res.json();
+      const { res, body } = await requestJson(app, '/validate', { method: 'POST' });
 
       expect(res.status).toBe(422);
       expect(body.ok).toBe(false);
@@ -154,16 +156,10 @@ describe('AgentCore Routes', () => {
     });
 
     it('returns 500 when STS call fails with network error', async () => {
-      const db = createMockDb({
-        awsAccessKeyId: 'AKIA_TEST_KEY',
-        awsSecretAccessKey: 'encrypted-secret',
-      });
-      const app = createAgentCoreTestApp(db);
-
+      const app = createAgentCoreTestApp(createMockDb(KEY_AND_SECRET));
       mockStsSend.mockRejectedValue(new Error('Network timeout'));
 
-      const res = await app.request('/api/sandbox/agentcore/validate', { method: 'POST' });
-      const body = await res.json();
+      const { res, body } = await requestJson(app, '/validate', { method: 'POST' });
 
       expect(res.status).toBe(500);
       expect(body.ok).toBe(false);
@@ -171,10 +167,9 @@ describe('AgentCore Routes', () => {
     });
 
     it('validates credentials from request body without requiring DB config', async () => {
-      const db = createMockDb(); // no stored credentials
-      const app = createAgentCoreTestApp(db);
+      const app = createAgentCoreTestApp(createMockDb());
 
-      const res = await app.request('/api/sandbox/agentcore/validate', {
+      const { res, body } = await requestJson(app, '/validate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -183,7 +178,6 @@ describe('AgentCore Routes', () => {
           awsRegion: 'eu-west-1',
         }),
       });
-      const body = await res.json();
 
       expect(res.status).toBe(200);
       expect(body.ok).toBe(true);
@@ -194,8 +188,7 @@ describe('AgentCore Routes', () => {
     it('returns 500 when no DB is provided', async () => {
       const app = createAgentCoreTestApp(undefined);
 
-      const res = await app.request('/api/sandbox/agentcore/validate', { method: 'POST' });
-      const body = await res.json();
+      const { res, body } = await requestJson(app, '/validate', { method: 'POST' });
 
       expect(res.status).toBe(500);
       expect(body.ok).toBe(false);
@@ -203,12 +196,13 @@ describe('AgentCore Routes', () => {
     });
 
     it('decrypts secret access key from database', async () => {
-      const db = createMockDb({
-        awsAccessKeyId: 'AKIA_TEST_KEY',
-        awsSecretAccessKey: 'encrypted-secret-value',
-        awsRegion: 'us-east-1',
-      });
-      const app = createAgentCoreTestApp(db);
+      const app = createAgentCoreTestApp(
+        createMockDb({
+          awsAccessKeyId: 'AKIA_TEST_KEY',
+          awsSecretAccessKey: 'encrypted-secret-value',
+          awsRegion: 'us-east-1',
+        })
+      );
 
       await app.request('/api/sandbox/agentcore/validate', { method: 'POST' });
 
@@ -228,8 +222,7 @@ describe('AgentCore Routes', () => {
       };
       const app = createAgentCoreTestApp(db);
 
-      const res = await app.request('/api/sandbox/agentcore/validate', { method: 'POST' });
-      const body = await res.json();
+      const { res, body } = await requestJson(app, '/validate', { method: 'POST' });
 
       expect(res.status).toBe(500);
       expect(body.ok).toBe(false);
@@ -241,35 +234,23 @@ describe('AgentCore Routes', () => {
         throw new Error('Decryption failed: key rotated');
       });
 
-      const db = createMockDb({
-        awsAccessKeyId: 'AKIA_TEST_KEY',
-        awsSecretAccessKey: 'bad-encrypted',
-      });
-      const app = createAgentCoreTestApp(db);
+      const app = createAgentCoreTestApp(
+        createMockDb({ awsAccessKeyId: 'AKIA_TEST_KEY', awsSecretAccessKey: 'bad-encrypted' })
+      );
 
-      const res = await app.request('/api/sandbox/agentcore/validate', { method: 'POST' });
-      const body = await res.json();
+      const { res, body } = await requestJson(app, '/validate', { method: 'POST' });
 
-      // Decryption failure now returns a distinct error code
       expect(res.status).toBe(500);
       expect(body.ok).toBe(false);
       expect(body.error.code).toBe('AGENTCORE_DECRYPTION_FAILED');
     });
   });
 
-  // -- GET /health --
-
   describe('GET /health', () => {
     it('returns healthy when credentials are configured and STS succeeds', async () => {
-      const db = createMockDb({
-        awsAccessKeyId: 'AKIA_TEST_KEY',
-        awsSecretAccessKey: 'encrypted-secret',
-        awsRegion: 'us-west-2',
-      });
-      const app = createAgentCoreTestApp(db);
+      const app = createAgentCoreTestApp(createMockDb(FULL_CREDENTIALS));
 
-      const res = await app.request('/api/sandbox/agentcore/health', { method: 'GET' });
-      const body = await res.json();
+      const { res, body } = await requestJson(app, '/health');
 
       expect(res.status).toBe(200);
       expect(body.ok).toBe(true);
@@ -278,11 +259,9 @@ describe('AgentCore Routes', () => {
     });
 
     it('returns unhealthy when no credentials are configured', async () => {
-      const db = createMockDb();
-      const app = createAgentCoreTestApp(db);
+      const app = createAgentCoreTestApp(createMockDb());
 
-      const res = await app.request('/api/sandbox/agentcore/health', { method: 'GET' });
-      const body = await res.json();
+      const { res, body } = await requestJson(app, '/health');
 
       expect(res.status).toBe(200);
       expect(body.ok).toBe(true);
@@ -293,8 +272,7 @@ describe('AgentCore Routes', () => {
     it('returns unhealthy when no DB is provided', async () => {
       const app = createAgentCoreTestApp(undefined);
 
-      const res = await app.request('/api/sandbox/agentcore/health', { method: 'GET' });
-      const body = await res.json();
+      const { res, body } = await requestJson(app, '/health');
 
       expect(res.status).toBe(200);
       expect(body.ok).toBe(true);
@@ -303,16 +281,10 @@ describe('AgentCore Routes', () => {
     });
 
     it('returns 200 with healthy:false when STS call fails', async () => {
-      const db = createMockDb({
-        awsAccessKeyId: 'AKIA_TEST_KEY',
-        awsSecretAccessKey: 'encrypted-secret',
-      });
-      const app = createAgentCoreTestApp(db);
-
+      const app = createAgentCoreTestApp(createMockDb(KEY_AND_SECRET));
       mockStsSend.mockRejectedValue(new Error('Network timeout'));
 
-      const res = await app.request('/api/sandbox/agentcore/health', { method: 'GET' });
-      const body = await res.json();
+      const { res, body } = await requestJson(app, '/health');
 
       expect(res.status).toBe(200);
       expect(body.ok).toBe(true);
@@ -325,14 +297,11 @@ describe('AgentCore Routes', () => {
         throw new Error('Decryption failed: key rotated');
       });
 
-      const db = createMockDb({
-        awsAccessKeyId: 'AKIA_TEST_KEY',
-        awsSecretAccessKey: 'bad-encrypted',
-      });
-      const app = createAgentCoreTestApp(db);
+      const app = createAgentCoreTestApp(
+        createMockDb({ awsAccessKeyId: 'AKIA_TEST_KEY', awsSecretAccessKey: 'bad-encrypted' })
+      );
 
-      const res = await app.request('/api/sandbox/agentcore/health', { method: 'GET' });
-      const body = await res.json();
+      const { res, body } = await requestJson(app, '/health');
 
       expect(res.status).toBe(200);
       expect(body.ok).toBe(true);
@@ -341,14 +310,9 @@ describe('AgentCore Routes', () => {
     });
 
     it('uses default region us-east-1 when no region is configured', async () => {
-      const db = createMockDb({
-        awsAccessKeyId: 'AKIA_TEST_KEY',
-        awsSecretAccessKey: 'encrypted-secret',
-      });
-      const app = createAgentCoreTestApp(db);
+      const app = createAgentCoreTestApp(createMockDb(KEY_AND_SECRET));
 
-      const res = await app.request('/api/sandbox/agentcore/health', { method: 'GET' });
-      const body = await res.json();
+      const { res, body } = await requestJson(app, '/health');
 
       expect(res.status).toBe(200);
       expect(body.data.region).toBe('us-east-1');

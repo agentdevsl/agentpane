@@ -110,6 +110,169 @@ const PROVIDER_LABELS: Record<string, string> = {
   agentcore: 'AgentCore',
 };
 
+const CONFIG_TYPE_BADGES: Record<string, string> = {
+  kubernetes: '☸️ K8s',
+  nomad: '⬡ Nomad',
+  devcontainer: '📦 DevContainer',
+  docker: '🐳 Docker',
+};
+
+function ConnectionStatusIndicator({
+  loading,
+  healthy,
+  statusUnknown,
+  title,
+  subtitle,
+  errorMessage,
+  onRefresh,
+  refreshLabel = 'Refresh',
+  refreshTestId,
+}: {
+  loading: boolean;
+  healthy: boolean;
+  statusUnknown?: boolean;
+  title: string;
+  subtitle?: React.ReactNode;
+  errorMessage?: string | null;
+  onRefresh: () => void;
+  refreshLabel?: string;
+  refreshTestId: string;
+}) {
+  let statusIcon: React.ReactNode;
+  if (loading) {
+    statusIcon = <CircleNotch className="h-5 w-5 animate-spin text-fg-muted" />;
+  } else if (healthy) {
+    statusIcon = (
+      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-success-muted">
+        <WifiHigh className="h-4 w-4 text-success" />
+      </div>
+    );
+  } else if (statusUnknown) {
+    statusIcon = (
+      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-surface">
+        <WifiSlash className="h-4 w-4 text-fg-muted" />
+      </div>
+    );
+  } else {
+    statusIcon = (
+      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-danger-muted">
+        <WifiSlash className="h-4 w-4 text-danger" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center justify-between rounded-lg border border-border bg-surface-subtle p-4">
+      <div className="flex items-center gap-3">
+        {statusIcon}
+        <div>
+          <p className="font-medium text-fg">{title}</p>
+          {subtitle}
+          {!healthy && errorMessage && <p className="text-xs text-danger">{errorMessage}</p>}
+        </div>
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={onRefresh}
+        disabled={loading}
+        data-testid={refreshTestId}
+      >
+        {loading ? <CircleNotch className="h-4 w-4 animate-spin" /> : refreshLabel}
+      </Button>
+    </div>
+  );
+}
+
+function ProviderCardButton({
+  selected,
+  onClick,
+  icon,
+  label,
+  description,
+  tags,
+  accentColor = 'accent',
+  testId,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+  description: string;
+  tags: Array<{ text: string; variant?: 'accent' | 'muted' }>;
+  accentColor?: string;
+  testId: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'relative cursor-pointer rounded-lg border-2 p-5 text-left transition-all',
+        selected
+          ? `border-${accentColor} bg-${accentColor}-muted/30`
+          : 'border-border hover:border-fg-subtle'
+      )}
+      data-testid={testId}
+    >
+      {selected && (
+        <div
+          className={`absolute right-3 top-3 flex h-5 w-5 items-center justify-center rounded-full bg-${accentColor}`}
+        >
+          <Check className="h-3 w-3 text-white" weight="bold" />
+        </div>
+      )}
+      <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-surface-muted text-2xl">
+        {icon}
+      </div>
+      <h3 className="font-semibold text-fg">{label}</h3>
+      <p className="mt-1 text-sm text-fg-muted">{description}</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {tags.map((tag) => (
+          <span
+            key={tag.text}
+            className={cn(
+              'rounded-full px-2.5 py-1 text-xs',
+              tag.variant === 'accent'
+                ? `bg-${accentColor}/15 text-${accentColor}`
+                : 'bg-surface-muted text-fg-muted'
+            )}
+          >
+            {tag.text}
+          </span>
+        ))}
+      </div>
+    </button>
+  );
+}
+
+function InitErrorBanner({
+  title,
+  error,
+  timestamp,
+  testId,
+}: {
+  title: string;
+  error: string;
+  timestamp: string;
+  testId: string;
+}) {
+  return (
+    <div className="rounded-lg border border-danger/30 bg-danger/10 p-4" data-testid={testId}>
+      <div className="flex items-start gap-3">
+        <Warning className="mt-0.5 h-5 w-5 flex-shrink-0 text-danger" weight="fill" />
+        <div>
+          <p className="text-sm font-medium text-danger">{title}</p>
+          <p className="mt-1 text-sm text-fg-muted">{error}</p>
+          <p className="mt-1 text-xs text-fg-subtle">
+            Last attempt: {new Date(timestamp).toLocaleString()}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Toggle({
   checked,
   onToggle,
@@ -917,58 +1080,35 @@ function SandboxSettingsPage(): React.JSX.Element {
     setIsSaving(true);
     setSaveError(null);
 
+    const input: CreateSandboxConfigInput & UpdateSandboxConfigInput = {
+      name: formName,
+      description: formDescription || undefined,
+      type: formType,
+      baseImage: formBaseImage,
+      memoryMb: formMemoryMb,
+      cpuCores: formCpuCores,
+      maxProcesses: formMaxProcesses,
+      timeoutMinutes: formTimeoutMinutes,
+      isDefault: formIsDefault,
+      volumeMountPath: formVolumeMountPath || undefined,
+      kubeConfigPath: formKubeConfigPath || undefined,
+      kubeContext: formKubeContext || undefined,
+      kubeNamespace: formKubeNamespace || undefined,
+      nomadAddress: formNomadAddress || undefined,
+      nomadToken: formNomadToken || undefined,
+      nomadNamespace: formNomadNamespace || undefined,
+      nomadDatacenter: formNomadDatacenter || undefined,
+      nomadRegion: formNomadRegion || undefined,
+    };
+
     try {
       if (editorMode === 'create') {
-        const input: CreateSandboxConfigInput = {
-          name: formName,
-          description: formDescription || undefined,
-          type: formType,
-          baseImage: formBaseImage,
-          memoryMb: formMemoryMb,
-          cpuCores: formCpuCores,
-          maxProcesses: formMaxProcesses,
-          timeoutMinutes: formTimeoutMinutes,
-          isDefault: formIsDefault,
-          volumeMountPath: formVolumeMountPath || undefined,
-          // K8s fields
-          kubeConfigPath: formKubeConfigPath || undefined,
-          kubeContext: formKubeContext || undefined,
-          kubeNamespace: formKubeNamespace || undefined,
-          // Nomad fields
-          nomadAddress: formNomadAddress || undefined,
-          nomadToken: formNomadToken || undefined,
-          nomadNamespace: formNomadNamespace || undefined,
-          nomadDatacenter: formNomadDatacenter || undefined,
-          nomadRegion: formNomadRegion || undefined,
-        };
         const result = await apiClient.sandboxConfigs.create(input);
         if (!result.ok) {
           setSaveError(result.error.message);
           return;
         }
       } else if (editorMode === 'edit' && editingConfig) {
-        const input: UpdateSandboxConfigInput = {
-          name: formName,
-          description: formDescription || undefined,
-          type: formType,
-          baseImage: formBaseImage,
-          memoryMb: formMemoryMb,
-          cpuCores: formCpuCores,
-          maxProcesses: formMaxProcesses,
-          timeoutMinutes: formTimeoutMinutes,
-          isDefault: formIsDefault,
-          volumeMountPath: formVolumeMountPath || undefined,
-          // K8s fields
-          kubeConfigPath: formKubeConfigPath || undefined,
-          kubeContext: formKubeContext || undefined,
-          kubeNamespace: formKubeNamespace || undefined,
-          // Nomad fields
-          nomadAddress: formNomadAddress || undefined,
-          nomadToken: formNomadToken || undefined,
-          nomadNamespace: formNomadNamespace || undefined,
-          nomadDatacenter: formNomadDatacenter || undefined,
-          nomadRegion: formNomadRegion || undefined,
-        };
         const result = await apiClient.sandboxConfigs.update(editingConfig.id, input);
         if (!result.ok) {
           setSaveError(result.error.message);
@@ -1002,44 +1142,14 @@ function SandboxSettingsPage(): React.JSX.Element {
     }
   };
 
-  function getAgentCoreStatusDisplay(loading: boolean, status: typeof agentcoreStatus) {
-    if (loading) {
-      return {
-        icon: <CircleNotch className="h-5 w-5 animate-spin text-fg-muted" />,
-        text: 'Validating credentials...',
-      };
-    }
-    if (status?.healthy) {
-      return {
-        icon: (
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-success-muted">
-            <WifiHigh className="h-4 w-4 text-success" />
-          </div>
-        ),
-        text: 'Connected',
-      };
-    }
-    if (status === null) {
-      return {
-        icon: (
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-surface">
-            <WifiSlash className="h-4 w-4 text-fg-muted" />
-          </div>
-        ),
-        text: 'Not checked',
-      };
-    }
-    return {
-      icon: (
-        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-danger-muted">
-          <WifiSlash className="h-4 w-4 text-danger" />
-        </div>
-      ),
-      text: 'Connection Failed',
-    };
+  function getAgentCoreStatusText(loading: boolean, status: typeof agentcoreStatus): string {
+    if (loading) return 'Validating credentials...';
+    if (status?.healthy) return 'Connected';
+    if (status === null) return 'Not checked';
+    return 'Connection Failed';
   }
 
-  const agentcoreStatusDisplay = getAgentCoreStatusDisplay(agentcoreStatusLoading, agentcoreStatus);
+  const agentcoreStatusText = getAgentCoreStatusText(agentcoreStatusLoading, agentcoreStatus);
 
   const loadAgentCoreStatus = useCallback(async () => {
     setAgentcoreStatusLoading(true);
@@ -1590,116 +1700,43 @@ function SandboxSettingsPage(): React.JSX.Element {
           testId="provider-section"
         >
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {/* Docker Provider */}
-            <button
-              type="button"
+            <ProviderCardButton
+              selected={selectedProvider === 'docker'}
               onClick={() => {
                 setSelectedProvider('docker');
                 setDefaultSettings((prev) => ({ ...prev, provider: 'docker' }));
               }}
-              className={cn(
-                'relative cursor-pointer rounded-lg border-2 p-5 text-left transition-all',
-                selectedProvider === 'docker'
-                  ? 'border-accent bg-accent-muted/30'
-                  : 'border-border hover:border-fg-subtle'
-              )}
-              data-testid="provider-docker"
-            >
-              {selectedProvider === 'docker' && (
-                <div className="absolute right-3 top-3 flex h-5 w-5 items-center justify-center rounded-full bg-accent">
-                  <Check className="h-3 w-3 text-white" weight="bold" />
-                </div>
-              )}
-              <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-surface-muted text-2xl">
-                🐳
-              </div>
-              <h3 className="font-semibold text-fg">Docker</h3>
-              <p className="mt-1 text-sm text-fg-muted">
-                Local container isolation. Best for development.
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <span className="rounded-full bg-surface-muted px-2.5 py-1 text-xs text-fg-muted">
-                  Network Isolation
-                </span>
-                <span className="rounded-full bg-surface-muted px-2.5 py-1 text-xs text-fg-muted">
-                  Resource Limits
-                </span>
-              </div>
-            </button>
-
-            {/* Kubernetes Provider */}
-            <button
-              type="button"
+              icon="🐳"
+              label="Docker"
+              description="Local container isolation. Best for development."
+              tags={[{ text: 'Network Isolation' }, { text: 'Resource Limits' }]}
+              testId="provider-docker"
+            />
+            <ProviderCardButton
+              selected={selectedProvider === 'kubernetes'}
               onClick={() => {
                 setSelectedProvider('kubernetes');
                 setDefaultSettings((prev) => ({ ...prev, provider: 'kubernetes' }));
               }}
-              className={cn(
-                'relative cursor-pointer rounded-lg border-2 p-5 text-left transition-all',
-                selectedProvider === 'kubernetes'
-                  ? 'border-accent bg-accent-muted/30'
-                  : 'border-border hover:border-fg-subtle'
-              )}
-              data-testid="provider-kubernetes"
-            >
-              {selectedProvider === 'kubernetes' && (
-                <div className="absolute right-3 top-3 flex h-5 w-5 items-center justify-center rounded-full bg-accent">
-                  <Check className="h-3 w-3 text-white" weight="bold" />
-                </div>
-              )}
-              <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-surface-muted text-2xl">
-                ☸️
-              </div>
-              <h3 className="font-semibold text-fg">Kubernetes</h3>
-              <p className="mt-1 text-sm text-fg-muted">
-                Local K8s via minikube/kind. Production-like isolation.
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <span className="rounded-full bg-success-muted px-2.5 py-1 text-xs text-success">
-                  Network Policies
-                </span>
-                <span className="rounded-full bg-surface-muted px-2.5 py-1 text-xs text-fg-muted">
-                  Warm Pool
-                </span>
-              </div>
-            </button>
-
-            {/* Nomad Provider */}
-            <button
-              type="button"
+              icon="☸️"
+              label="Kubernetes"
+              description="Local K8s via minikube/kind. Production-like isolation."
+              tags={[{ text: 'Network Policies', variant: 'accent' }, { text: 'Warm Pool' }]}
+              testId="provider-kubernetes"
+            />
+            <ProviderCardButton
+              selected={selectedProvider === 'nomad'}
               onClick={() => {
                 setSelectedProvider('nomad');
                 setDefaultSettings((prev) => ({ ...prev, provider: 'nomad' }));
               }}
-              className={cn(
-                'relative cursor-pointer rounded-lg border-2 p-5 text-left transition-all',
-                selectedProvider === 'nomad'
-                  ? 'border-attention bg-attention/10'
-                  : 'border-border hover:border-fg-subtle'
-              )}
-              data-testid="provider-nomad"
-            >
-              {selectedProvider === 'nomad' && (
-                <div className="absolute right-3 top-3 flex h-5 w-5 items-center justify-center rounded-full bg-attention">
-                  <Check className="h-3 w-3 text-white" weight="bold" />
-                </div>
-              )}
-              <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-surface-muted">
-                <Hexagon className="h-6 w-6 text-fg-muted" weight="duotone" />
-              </div>
-              <h3 className="font-semibold text-fg">Nomad</h3>
-              <p className="mt-1 text-sm text-fg-muted">
-                Run sandboxes as Nomad jobs using Docker task driver.
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <span className="rounded-full bg-attention/15 px-2.5 py-1 text-xs text-attention">
-                  Job Scheduling
-                </span>
-                <span className="rounded-full bg-surface-muted px-2.5 py-1 text-xs text-fg-muted">
-                  Multi-DC
-                </span>
-              </div>
-            </button>
+              icon={<Hexagon className="h-6 w-6 text-fg-muted" weight="duotone" />}
+              label="Nomad"
+              description="Run sandboxes as Nomad jobs using Docker task driver."
+              tags={[{ text: 'Job Scheduling', variant: 'accent' }, { text: 'Multi-DC' }]}
+              accentColor="attention"
+              testId="provider-nomad"
+            />
           </div>
         </ConfigSection>
 
@@ -1716,28 +1753,18 @@ function SandboxSettingsPage(): React.JSX.Element {
             testId="k8s-config-section"
           >
             <div className="space-y-6">
-              {/* Cluster Status Indicator */}
-              <div className="flex items-center justify-between rounded-lg border border-border bg-surface-subtle p-4">
-                <div className="flex items-center gap-3">
-                  {k8sStatusLoading ? (
-                    <CircleNotch className="h-5 w-5 animate-spin text-fg-muted" />
-                  ) : k8sStatus?.healthy ? (
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-success-muted">
-                      <WifiHigh className="h-4 w-4 text-success" />
-                    </div>
-                  ) : (
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-danger-muted">
-                      <WifiSlash className="h-4 w-4 text-danger" />
-                    </div>
-                  )}
-                  <div>
-                    <p className="font-medium text-fg">
-                      {k8sStatusLoading
-                        ? 'Checking connection...'
-                        : k8sStatus?.healthy
-                          ? 'Connected'
-                          : 'Cluster Unreachable'}
-                    </p>
+              <ConnectionStatusIndicator
+                loading={k8sStatusLoading}
+                healthy={!!k8sStatus?.healthy}
+                title={
+                  k8sStatusLoading
+                    ? 'Checking connection...'
+                    : k8sStatus?.healthy
+                      ? 'Connected'
+                      : 'Cluster Unreachable'
+                }
+                subtitle={
+                  <>
                     {k8sStatus?.healthy && k8sStatus.cluster && (
                       <p className="text-xs text-fg-muted">
                         {k8sStatus.cluster} ({k8sStatus.serverVersion})
@@ -1746,21 +1773,12 @@ function SandboxSettingsPage(): React.JSX.Element {
                     {!k8sStatus?.healthy && k8sStatus?.context && (
                       <p className="text-xs text-fg-muted">Context: {k8sStatus.context}</p>
                     )}
-                    {!k8sStatus?.healthy && k8sStatus?.message && (
-                      <p className="text-xs text-danger">{k8sStatus.message}</p>
-                    )}
-                  </div>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={loadK8sStatus}
-                  disabled={k8sStatusLoading}
-                  data-testid="refresh-k8s-status"
-                >
-                  {k8sStatusLoading ? <CircleNotch className="h-4 w-4 animate-spin" /> : 'Refresh'}
-                </Button>
-              </div>
+                  </>
+                }
+                errorMessage={!k8sStatus?.healthy ? k8sStatus?.message : null}
+                onRefresh={loadK8sStatus}
+                refreshTestId="refresh-k8s-status"
+              />
 
               {/* CRD Controller Status */}
               <div className="flex items-center justify-between rounded-lg border border-border bg-surface-subtle p-4">
@@ -2062,25 +2080,13 @@ function SandboxSettingsPage(): React.JSX.Element {
                 )}
               </div>
 
-              {/* K8s Initialization Error Banner */}
               {k8sInitError && (
-                <div
-                  className="rounded-lg border border-danger/30 bg-danger/10 p-4"
-                  data-testid="k8s-init-error-banner"
-                >
-                  <div className="flex items-start gap-3">
-                    <Warning className="mt-0.5 h-5 w-5 flex-shrink-0 text-danger" weight="fill" />
-                    <div>
-                      <p className="text-sm font-medium text-danger">
-                        Kubernetes Initialization Failed
-                      </p>
-                      <p className="mt-1 text-sm text-fg-muted">{k8sInitError.error}</p>
-                      <p className="mt-1 text-xs text-fg-subtle">
-                        Last attempt: {new Date(k8sInitError.timestamp).toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                <InitErrorBanner
+                  title="Kubernetes Initialization Failed"
+                  error={k8sInitError.error}
+                  timestamp={k8sInitError.timestamp}
+                  testId="k8s-init-error-banner"
+                />
               )}
 
               {/* Auto-install CRDs Toggle */}
@@ -2182,32 +2188,21 @@ function SandboxSettingsPage(): React.JSX.Element {
             testId="nomad-config-section"
           >
             <div className="space-y-6">
-              {/* Cluster Status Indicator */}
-              <div className="flex items-center justify-between rounded-lg border border-border bg-surface-subtle p-4">
-                <div className="flex items-center gap-3">
-                  {nomadStatusLoading ? (
-                    <CircleNotch className="h-5 w-5 animate-spin text-fg-muted" />
-                  ) : nomadStatus?.healthy ? (
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-success-muted">
-                      <WifiHigh className="h-4 w-4 text-success" />
-                    </div>
-                  ) : nomadStatus === null ? (
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-surface">
-                      <WifiSlash className="h-4 w-4 text-fg-muted" />
-                    </div>
-                  ) : (
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-danger-muted">
-                      <WifiSlash className="h-4 w-4 text-danger" />
-                    </div>
-                  )}
-                  <div>
-                    <p className="font-medium text-fg">
-                      {(() => {
-                        if (nomadStatusLoading) return 'Checking connection...';
-                        if (nomadStatus === null) return 'Not checked';
-                        return nomadStatus.healthy ? 'Connected' : 'Cluster Unreachable';
-                      })()}
-                    </p>
+              <ConnectionStatusIndicator
+                loading={nomadStatusLoading}
+                healthy={!!nomadStatus?.healthy}
+                statusUnknown={nomadStatus === null}
+                title={
+                  nomadStatusLoading
+                    ? 'Checking connection...'
+                    : nomadStatus === null
+                      ? 'Not checked'
+                      : nomadStatus.healthy
+                        ? 'Connected'
+                        : 'Cluster Unreachable'
+                }
+                subtitle={
+                  <>
                     {nomadStatus?.healthy && nomadStatus.version && (
                       <p className="text-xs text-fg-muted">
                         Nomad {nomadStatus.version}
@@ -2219,43 +2214,20 @@ function SandboxSettingsPage(): React.JSX.Element {
                         {nomadStatus.jobCount} sandbox job{nomadStatus.jobCount !== 1 ? 's' : ''}
                       </p>
                     )}
-                    {!nomadStatus?.healthy && nomadError && (
-                      <p className="text-xs text-danger">{nomadError}</p>
-                    )}
-                  </div>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={loadNomadStatus}
-                  disabled={nomadStatusLoading}
-                  data-testid="refresh-nomad-status"
-                >
-                  {nomadStatusLoading ? (
-                    <CircleNotch className="h-4 w-4 animate-spin" />
-                  ) : (
-                    'Refresh'
-                  )}
-                </Button>
-              </div>
+                  </>
+                }
+                errorMessage={!nomadStatus?.healthy ? nomadError : null}
+                onRefresh={loadNomadStatus}
+                refreshTestId="refresh-nomad-status"
+              />
 
-              {/* Nomad Init Error Banner */}
               {nomadInitError && (
-                <div
-                  className="rounded-lg border border-danger/30 bg-danger/10 p-4"
-                  data-testid="nomad-init-error-banner"
-                >
-                  <div className="flex items-start gap-3">
-                    <Warning className="mt-0.5 h-5 w-5 flex-shrink-0 text-danger" weight="fill" />
-                    <div>
-                      <p className="text-sm font-medium text-danger">Nomad Initialization Failed</p>
-                      <p className="mt-1 text-sm text-fg-muted">{nomadInitError.error}</p>
-                      <p className="mt-1 text-xs text-fg-subtle">
-                        Last attempt: {new Date(nomadInitError.timestamp).toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                <InitErrorBanner
+                  title="Nomad Initialization Failed"
+                  error={nomadInitError.error}
+                  timestamp={nomadInitError.timestamp}
+                  testId="nomad-init-error-banner"
+                />
               )}
 
               {/* Nomad Form Fields */}
@@ -2445,56 +2417,31 @@ function SandboxSettingsPage(): React.JSX.Element {
             testId="agentcore-config-section"
           >
             <div className="space-y-6">
-              {/* Connection Status Indicator */}
-              <div className="flex items-center justify-between rounded-lg border border-border bg-surface-subtle p-4">
-                <div className="flex items-center gap-3">
-                  {agentcoreStatusDisplay.icon}
-                  <div>
-                    <p className="font-medium text-fg">{agentcoreStatusDisplay.text}</p>
-                    {agentcoreStatus?.healthy && agentcoreStatus.accountId && (
-                      <p className="text-xs text-fg-muted">
-                        AWS Account: {agentcoreStatus.accountId}
-                      </p>
-                    )}
-                    {!agentcoreStatus?.healthy && agentcoreError && (
-                      <p className="text-xs text-danger">{agentcoreError}</p>
-                    )}
-                  </div>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={loadAgentCoreStatus}
-                  disabled={agentcoreStatusLoading}
-                  data-testid="validate-agentcore-btn"
-                >
-                  {agentcoreStatusLoading ? (
-                    <CircleNotch className="h-4 w-4 animate-spin" />
-                  ) : (
-                    'Validate'
-                  )}
-                </Button>
-              </div>
+              <ConnectionStatusIndicator
+                loading={agentcoreStatusLoading}
+                healthy={!!agentcoreStatus?.healthy}
+                statusUnknown={agentcoreStatus === null}
+                title={agentcoreStatusText}
+                subtitle={
+                  agentcoreStatus?.healthy && agentcoreStatus.accountId ? (
+                    <p className="text-xs text-fg-muted">
+                      AWS Account: {agentcoreStatus.accountId}
+                    </p>
+                  ) : undefined
+                }
+                errorMessage={!agentcoreStatus?.healthy ? agentcoreError : null}
+                onRefresh={loadAgentCoreStatus}
+                refreshLabel="Validate"
+                refreshTestId="validate-agentcore-btn"
+              />
 
-              {/* AgentCore Init Error Banner */}
               {agentcoreInitError && (
-                <div
-                  className="rounded-lg border border-danger/30 bg-danger/10 p-4"
-                  data-testid="agentcore-init-error-banner"
-                >
-                  <div className="flex items-start gap-3">
-                    <Warning className="mt-0.5 h-5 w-5 flex-shrink-0 text-danger" weight="fill" />
-                    <div>
-                      <p className="text-sm font-medium text-danger">
-                        AgentCore Initialization Failed
-                      </p>
-                      <p className="mt-1 text-sm text-fg-muted">{agentcoreInitError.error}</p>
-                      <p className="mt-1 text-xs text-fg-subtle">
-                        Last attempt: {new Date(agentcoreInitError.timestamp).toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                <InitErrorBanner
+                  title="AgentCore Initialization Failed"
+                  error={agentcoreInitError.error}
+                  timestamp={agentcoreInitError.timestamp}
+                  testId="agentcore-init-error-banner"
+                />
               )}
 
               {/* AgentCore Form Fields */}
@@ -2681,13 +2628,7 @@ function SandboxSettingsPage(): React.JSX.Element {
                       <div className="flex items-center gap-2">
                         <h3 className="text-sm font-medium text-fg">{config.name}</h3>
                         <span className="rounded bg-surface-muted px-1.5 py-0.5 text-[11px] font-medium text-fg-muted">
-                          {config.type === 'kubernetes'
-                            ? '☸️ K8s'
-                            : config.type === 'nomad'
-                              ? '⬡ Nomad'
-                              : config.type === 'devcontainer'
-                                ? '📦 DevContainer'
-                                : '🐳 Docker'}
+                          {CONFIG_TYPE_BADGES[config.type] ?? '🐳 Docker'}
                         </span>
                         {config.isDefault && (
                           <span className="rounded bg-success-muted px-1.5 py-0.5 text-[11px] font-medium text-success">

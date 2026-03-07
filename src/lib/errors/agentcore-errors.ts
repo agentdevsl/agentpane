@@ -1,4 +1,4 @@
-import { createError } from './base.js';
+import { AppErrorClass, createError } from './base.js';
 
 /**
  * Reserved AgentCore error IDs for monitoring/Sentry grouping.
@@ -8,13 +8,11 @@ import { createError } from './base.js';
  * 500-599 session, 600-699 reserved for future use, 700-799 API.
  */
 export const AGENTCORE_ERROR_IDS = {
-  // Connection / Auth (001-099)
   AWS_CREDENTIALS_INVALID: 'AGENTCORE-001',
   AWS_CREDENTIALS_EXPIRED: 'AGENTCORE-002',
   AWS_REGION_INVALID: 'AGENTCORE-003',
   AWS_STS_ERROR: 'AGENTCORE-004',
 
-  // Runtime lifecycle (100-199)
   RUNTIME_NOT_FOUND: 'AGENTCORE-100',
   RUNTIME_CREATION_FAILED: 'AGENTCORE-101',
   RUNTIME_STARTUP_TIMEOUT: 'AGENTCORE-102',
@@ -23,43 +21,26 @@ export const AGENTCORE_ERROR_IDS = {
   RUNTIME_ALREADY_EXISTS: 'AGENTCORE-105',
   RUNTIME_UPDATE_FAILED: 'AGENTCORE-106',
 
-  // Endpoint lifecycle (200-299)
   ENDPOINT_NOT_FOUND: 'AGENTCORE-200',
   ENDPOINT_CREATION_FAILED: 'AGENTCORE-201',
 
-  // Invocation (300-399)
   INVOCATION_FAILED: 'AGENTCORE-300',
   INVOCATION_TIMEOUT: 'AGENTCORE-301',
   INVOCATION_THROTTLED: 'AGENTCORE-302',
 
-  // ECR (400-499)
   ECR_AUTH_FAILED: 'AGENTCORE-400',
   ECR_PUSH_FAILED: 'AGENTCORE-401',
   ECR_IMAGE_NOT_FOUND: 'AGENTCORE-402',
   ECR_REPO_NOT_FOUND: 'AGENTCORE-403',
 
-  // Session (500-599)
   SESSION_CREATION_FAILED: 'AGENTCORE-500',
 
-  // API (700-799)
   API_ERROR: 'AGENTCORE-700',
   INTERNAL_ERROR: 'AGENTCORE-701',
 } as const;
 
-export type AgentCoreErrorId = (typeof AGENTCORE_ERROR_IDS)[keyof typeof AGENTCORE_ERROR_IDS];
-
-export type AgentCoreError = ReturnType<(typeof AgentCoreErrors)[keyof typeof AgentCoreErrors]>;
-
-/**
- * Check whether an error is an AgentCore error (has a code starting with 'AGENTCORE').
- */
 export function isAgentCoreError(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    'code' in error &&
-    typeof (error as Record<string, unknown>).code === 'string' &&
-    ((error as Record<string, unknown>).code as string).startsWith('AGENTCORE')
-  );
+  return error instanceof AppErrorClass && error.code.startsWith('AGENTCORE');
 }
 
 function agentcoreError(
@@ -75,7 +56,6 @@ function agentcoreError(
 }
 
 export const AgentCoreErrors = {
-  // Connection / Auth errors
   AWS_CREDENTIALS_INVALID: (reason: string) =>
     agentcoreError('AWS_CREDENTIALS_INVALID', 401, `AWS credentials invalid: ${reason}`),
 
@@ -88,7 +68,6 @@ export const AgentCoreErrors = {
   AWS_STS_ERROR: (reason: string) =>
     agentcoreError('AWS_STS_ERROR', 503, `AWS STS error: ${reason}`),
 
-  // Runtime lifecycle errors
   RUNTIME_NOT_FOUND: (runtimeArn: string) =>
     agentcoreError('RUNTIME_NOT_FOUND', 404, `AgentCore Runtime not found: ${runtimeArn}`, {
       runtimeArn,
@@ -139,7 +118,6 @@ export const AgentCoreErrors = {
       { runtimeArn }
     ),
 
-  // Endpoint lifecycle errors
   ENDPOINT_NOT_FOUND: (endpointName: string) =>
     agentcoreError('ENDPOINT_NOT_FOUND', 404, `AgentCore endpoint not found: ${endpointName}`, {
       endpointName,
@@ -153,7 +131,6 @@ export const AgentCoreErrors = {
       { runtimeArn }
     ),
 
-  // Invocation errors
   INVOCATION_FAILED: (runtimeArn: string, reason: string) =>
     agentcoreError('INVOCATION_FAILED', 500, `Failed to invoke AgentCore Runtime: ${reason}`, {
       runtimeArn,
@@ -170,7 +147,6 @@ export const AgentCoreErrors = {
   INVOCATION_THROTTLED: (runtimeArn: string) =>
     agentcoreError('INVOCATION_THROTTLED', 429, 'AgentCore invocation throttled', { runtimeArn }),
 
-  // ECR errors
   ECR_AUTH_FAILED: (reason: string) =>
     agentcoreError('ECR_AUTH_FAILED', 401, `ECR authentication failed: ${reason}`),
 
@@ -187,11 +163,9 @@ export const AgentCoreErrors = {
       repoUri,
     }),
 
-  // Session errors
   SESSION_CREATION_FAILED: (reason: string) =>
     agentcoreError('SESSION_CREATION_FAILED', 500, `Failed to create AgentCore session: ${reason}`),
 
-  // API errors
   API_ERROR: (statusCode: number, reason: string) =>
     agentcoreError('API_ERROR', statusCode, `AgentCore API error (${statusCode}): ${reason}`),
 

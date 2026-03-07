@@ -138,33 +138,7 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
         }
       }
 
-      const result = await sandboxConfigService.create({
-        name: body.name,
-        description: body.description,
-        type: body.type,
-        isDefault: body.isDefault,
-        baseImage: body.baseImage,
-        memoryMb: body.memoryMb,
-        cpuCores: body.cpuCores,
-        maxProcesses: body.maxProcesses,
-        timeoutMinutes: body.timeoutMinutes,
-        volumeMountPath: body.volumeMountPath,
-        kubeConfigPath: body.kubeConfigPath,
-        kubeContext: body.kubeContext,
-        kubeNamespace: body.kubeNamespace,
-        networkPolicyEnabled: body.networkPolicyEnabled,
-        allowedEgressHosts: body.allowedEgressHosts,
-        nomadAddress: body.nomadAddress,
-        nomadToken: body.nomadToken,
-        nomadNamespace: body.nomadNamespace,
-        nomadDatacenter: body.nomadDatacenter,
-        nomadRegion: body.nomadRegion,
-        awsAccessKeyId: body.awsAccessKeyId,
-        awsSecretAccessKey: body.awsSecretAccessKey,
-        awsRegion: body.awsRegion,
-        agentcoreRuntimeArn: body.agentcoreRuntimeArn,
-        ecrRepositoryUri: body.ecrRepositoryUri,
-      });
+      const result = await sandboxConfigService.create(body);
 
       if (!result.ok) {
         return json({ ok: false, error: result.error }, result.error.status);
@@ -255,33 +229,7 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
         }
       }
 
-      const result = await sandboxConfigService.update(id, {
-        name: body.name,
-        description: body.description,
-        type: body.type,
-        isDefault: body.isDefault,
-        baseImage: body.baseImage,
-        memoryMb: body.memoryMb,
-        cpuCores: body.cpuCores,
-        maxProcesses: body.maxProcesses,
-        timeoutMinutes: body.timeoutMinutes,
-        volumeMountPath: body.volumeMountPath,
-        kubeConfigPath: body.kubeConfigPath,
-        kubeContext: body.kubeContext,
-        kubeNamespace: body.kubeNamespace,
-        networkPolicyEnabled: body.networkPolicyEnabled,
-        allowedEgressHosts: body.allowedEgressHosts,
-        nomadAddress: body.nomadAddress,
-        nomadToken: body.nomadToken,
-        nomadNamespace: body.nomadNamespace,
-        nomadDatacenter: body.nomadDatacenter,
-        nomadRegion: body.nomadRegion,
-        awsAccessKeyId: body.awsAccessKeyId,
-        awsSecretAccessKey: body.awsSecretAccessKey,
-        awsRegion: body.awsRegion,
-        agentcoreRuntimeArn: body.agentcoreRuntimeArn,
-        ecrRepositoryUri: body.ecrRepositoryUri,
-      });
+      const result = await sandboxConfigService.update(id, body);
 
       if (!result.ok) {
         return json({ ok: false, error: result.error }, result.error.status);
@@ -397,11 +345,86 @@ async function waitForCrdRegistration(
   return false;
 }
 
-/**
- * Check if the given context is minikube.
- */
 function isMinikubeContext(context?: string): boolean {
   return context === 'minikube';
+}
+
+async function fetchK8sVersion(
+  serverUrl: string,
+  skipTLSVerify: boolean,
+  timeoutMs = 5000
+): Promise<{ version: string; reachable: true } | { version: string; reachable: false }> {
+  const https = await import('node:https');
+  const { URL } = await import('node:url');
+  const versionUrl = new URL('/version', serverUrl);
+
+  try {
+    const versionData = await new Promise<{
+      gitVersion?: string;
+      major?: string;
+      minor?: string;
+    }>((resolve, reject) => {
+      const req = https.request(
+        versionUrl,
+        {
+          method: 'GET',
+          rejectUnauthorized: !skipTLSVerify,
+          timeout: timeoutMs,
+        },
+        (res) => {
+          let data = '';
+          res.on('data', (chunk) => {
+            data += chunk;
+          });
+          res.on('end', () => {
+            try {
+              resolve(JSON.parse(data));
+            } catch (parseError) {
+              log.warn('K8s Status failed to parse version response', {
+                error: parseError instanceof Error ? parseError : new Error('parse error'),
+                data: { responsePreview: data.substring(0, 100) },
+              });
+              reject(new Error('Invalid JSON response from K8s version endpoint'));
+            }
+          });
+        }
+      );
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('Connection timed out'));
+      });
+      req.on('error', reject);
+      req.end();
+    });
+
+    return {
+      version: versionData.gitVersion || `v${versionData.major}.${versionData.minor}`,
+      reachable: true,
+    };
+  } catch (err) {
+    log.warn('K8s Status version fetch failed', {
+      error: err instanceof Error ? err : new Error(String(err)),
+    });
+    return { version: 'unknown', reachable: false };
+  }
+}
+
+function parseKubeconfigParam(raw: string | undefined): { path?: string } | Response {
+  if (!raw) return {};
+  try {
+    return { path: validateKubeconfigPath(raw) };
+  } catch (error) {
+    return json(
+      {
+        ok: false,
+        error: {
+          code: 'INVALID_KUBECONFIG_PATH',
+          message: error instanceof Error ? error.message : 'Invalid kubeconfig path',
+        },
+      },
+      400
+    );
+  }
 }
 
 /**
@@ -414,24 +437,11 @@ export function createK8sRoutes(deps?: { db?: Database }) {
   app.get('/status', async (c) => {
     const context = c.req.query('context') ?? undefined;
 
-    let kubeconfigPath: string | undefined;
-    try {
-      kubeconfigPath = validateKubeconfigPath(c.req.query('kubeconfigPath') ?? undefined);
-    } catch (error) {
-      return json(
-        {
-          ok: false,
-          error: {
-            code: 'INVALID_KUBECONFIG_PATH',
-            message: error instanceof Error ? error.message : 'Invalid kubeconfig path',
-          },
-        },
-        400
-      );
-    }
+    const kcResult = parseKubeconfigParam(c.req.query('kubeconfigPath') ?? undefined);
+    if (kcResult instanceof Response) return kcResult;
+    const kubeconfigPath = kcResult.path;
 
     try {
-      // Load kubeconfig
       const skipTLSVerify = c.req.query('skipTLSVerify') === 'true';
       const kc = loadKubeConfig({ kubeconfigPath, skipTLSVerify });
 
@@ -448,62 +458,13 @@ export function createK8sRoutes(deps?: { db?: Database }) {
       const k8s = await import('@kubernetes/client-node');
       const coreApi = kc.makeApiClient(k8s.CoreV1Api);
 
-      // Get server version using Node.js https module
-      // This also serves as the cluster connectivity check
       let serverVersion = 'unknown';
       let clusterReachable = false;
-      try {
-        const cluster = kc.getCurrentCluster();
-        if (cluster?.server) {
-          const https = await import('node:https');
-          const { URL } = await import('node:url');
-          const versionUrl = new URL('/version', cluster.server);
-
-          const versionData = await new Promise<{
-            gitVersion?: string;
-            major?: string;
-            minor?: string;
-          }>((resolve, reject) => {
-            const req = https.request(
-              versionUrl,
-              {
-                method: 'GET',
-                rejectUnauthorized: !skipTLSVerify,
-                timeout: 5000,
-              },
-              (res) => {
-                let data = '';
-                res.on('data', (chunk) => {
-                  data += chunk;
-                });
-                res.on('end', () => {
-                  try {
-                    resolve(JSON.parse(data));
-                  } catch (parseError) {
-                    log.warn('K8s Status failed to parse version response', {
-                      error: parseError instanceof Error ? parseError : new Error('parse error'),
-                      data: { responsePreview: data.substring(0, 100) },
-                    });
-                    reject(new Error('Invalid JSON response from K8s version endpoint'));
-                  }
-                });
-              }
-            );
-            req.on('timeout', () => {
-              req.destroy();
-              reject(new Error('Connection timed out'));
-            });
-            req.on('error', reject);
-            req.end();
-          });
-
-          serverVersion = versionData.gitVersion || `v${versionData.major}.${versionData.minor}`;
-          clusterReachable = true;
-        }
-      } catch (versionError) {
-        log.warn('K8s Status version fetch failed', {
-          error: versionError instanceof Error ? versionError : new Error(String(versionError)),
-        });
+      const cluster = kc.getCurrentCluster();
+      if (cluster?.server) {
+        const versionResult = await fetchK8sVersion(cluster.server, skipTLSVerify);
+        serverVersion = versionResult.version;
+        clusterReachable = versionResult.reachable;
       }
 
       // If version fetch failed, the cluster is not reachable
@@ -534,49 +495,10 @@ export function createK8sRoutes(deps?: { db?: Database }) {
           const startResult = await attemptMinikubeStart();
           if (startResult.started) {
             log.info('K8s Status minikube auto-started, retrying cluster check');
-            // Retry the version fetch after minikube starts
-            try {
-              const cluster = kc.getCurrentCluster();
-              if (cluster?.server) {
-                const https = await import('node:https');
-                const { URL } = await import('node:url');
-                const retryUrl = new URL('/version', cluster.server);
-                const retryData = await new Promise<{
-                  gitVersion?: string;
-                  major?: string;
-                  minor?: string;
-                }>((resolve, reject) => {
-                  const retryReq = https.request(
-                    retryUrl,
-                    { method: 'GET', rejectUnauthorized: false, timeout: 10000 },
-                    (res) => {
-                      let data = '';
-                      res.on('data', (chunk) => {
-                        data += chunk;
-                      });
-                      res.on('end', () => {
-                        try {
-                          resolve(JSON.parse(data));
-                        } catch {
-                          reject(new Error('Parse error'));
-                        }
-                      });
-                    }
-                  );
-                  retryReq.on('timeout', () => {
-                    retryReq.destroy();
-                    reject(new Error('Timeout'));
-                  });
-                  retryReq.on('error', reject);
-                  retryReq.end();
-                });
-                serverVersion = retryData.gitVersion || `v${retryData.major}.${retryData.minor}`;
-                clusterReachable = true;
-              }
-            } catch (retryErr) {
-              log.warn('Cluster still unreachable after minikube auto-start', {
-                error: retryErr instanceof Error ? retryErr : new Error(String(retryErr)),
-              });
+            if (cluster?.server) {
+              const retryResult = await fetchK8sVersion(cluster.server, true, 10000);
+              serverVersion = retryResult.version;
+              clusterReachable = retryResult.reachable;
             }
           }
         }
@@ -658,21 +580,9 @@ export function createK8sRoutes(deps?: { db?: Database }) {
 
   // GET /api/sandbox/k8s/contexts
   app.get('/contexts', async (c) => {
-    let kubeconfigPath: string | undefined;
-    try {
-      kubeconfigPath = validateKubeconfigPath(c.req.query('kubeconfigPath') ?? undefined);
-    } catch (error) {
-      return json(
-        {
-          ok: false,
-          error: {
-            code: 'INVALID_KUBECONFIG_PATH',
-            message: error instanceof Error ? error.message : 'Invalid kubeconfig path',
-          },
-        },
-        400
-      );
-    }
+    const kcResult = parseKubeconfigParam(c.req.query('kubeconfigPath') ?? undefined);
+    if (kcResult instanceof Response) return kcResult;
+    const kubeconfigPath = kcResult.path;
 
     try {
       const kc = loadKubeConfig({ kubeconfigPath });
@@ -706,21 +616,9 @@ export function createK8sRoutes(deps?: { db?: Database }) {
 
   // GET /api/sandbox/k8s/namespaces
   app.get('/namespaces', async (c) => {
-    let kubeconfigPath: string | undefined;
-    try {
-      kubeconfigPath = validateKubeconfigPath(c.req.query('kubeconfigPath') ?? undefined);
-    } catch (error) {
-      return json(
-        {
-          ok: false,
-          error: {
-            code: 'INVALID_KUBECONFIG_PATH',
-            message: error instanceof Error ? error.message : 'Invalid kubeconfig path',
-          },
-        },
-        400
-      );
-    }
+    const kcResult = parseKubeconfigParam(c.req.query('kubeconfigPath') ?? undefined);
+    if (kcResult instanceof Response) return kcResult;
+    const kubeconfigPath = kcResult.path;
 
     const context = c.req.query('context') ?? undefined;
     const limit = parseInt(c.req.query('limit') ?? '50', 10);
@@ -1344,8 +1242,11 @@ export function createNomadRoutes(deps?: NomadRouteDeps) {
     }
   });
 
-  // GET /api/sandbox/nomad/namespaces
-  app.get('/namespaces', async (c) => {
+  async function withNomadClient(
+    c: { req: { query: (key: string) => string | undefined } },
+    action: string,
+    fn: (client: Awaited<ReturnType<typeof getNomadClient>>) => Promise<unknown>
+  ): Promise<Response> {
     try {
       const { address, token, namespace } = await loadNomadSettings(deps?.db, {
         address: c.req.query('address') ?? undefined,
@@ -1363,45 +1264,29 @@ export function createNomadRoutes(deps?: NomadRouteDeps) {
       }
 
       const client = await getNomadClient({ address, token, namespace });
-      const namespaces = await client.listNamespaces();
-      return json({ ok: true, data: { namespaces } });
+      const data = await fn(client);
+      return json({ ok: true, data });
     } catch (error) {
-      log.error('Nomad namespaces list failed', {
+      log.error(`Nomad ${action} failed`, {
         error: error instanceof Error ? error : new Error(String(error)),
       });
-      const message = error instanceof Error ? error.message : 'Failed to list namespaces';
+      const message = error instanceof Error ? error.message : `Failed to ${action}`;
       return json({ ok: false, error: { code: 'NOMAD_API_ERROR', message } }, 500);
     }
+  }
+
+  // GET /api/sandbox/nomad/namespaces
+  app.get('/namespaces', async (c) => {
+    return withNomadClient(c, 'list namespaces', async (client) => ({
+      namespaces: await client.listNamespaces(),
+    }));
   });
 
   // GET /api/sandbox/nomad/datacenters
   app.get('/datacenters', async (c) => {
-    try {
-      const { address, token, namespace } = await loadNomadSettings(deps?.db, {
-        address: c.req.query('address') ?? undefined,
-        namespace: c.req.query('namespace') ?? undefined,
-      });
-
-      if (!address) {
-        return json(
-          {
-            ok: false,
-            error: { code: 'NOMAD_NOT_CONFIGURED', message: 'No Nomad address configured' },
-          },
-          400
-        );
-      }
-
-      const client = await getNomadClient({ address, token, namespace });
-      const datacenters = await client.listDatacenters();
-      return json({ ok: true, data: { datacenters } });
-    } catch (error) {
-      log.error('Nomad datacenters list failed', {
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-      const message = error instanceof Error ? error.message : 'Failed to list datacenters';
-      return json({ ok: false, error: { code: 'NOMAD_API_ERROR', message } }, 500);
-    }
+    return withNomadClient(c, 'list datacenters', async (client) => ({
+      datacenters: await client.listDatacenters(),
+    }));
   });
 
   // POST /api/sandbox/nomad/validate - Validate connection
@@ -1553,6 +1438,22 @@ async function loadAgentCoreCredentials(db: Database | undefined): Promise<
   return { ok: true, awsAccessKeyId, awsSecretAccessKey, awsRegion };
 }
 
+async function verifyStsCredentials(creds: {
+  awsAccessKeyId: string;
+  awsSecretAccessKey: string;
+  awsRegion: string;
+}): Promise<void> {
+  const { STSClient, GetCallerIdentityCommand } = await import('@aws-sdk/client-sts');
+  const stsClient = new STSClient({
+    region: creds.awsRegion,
+    credentials: {
+      accessKeyId: creds.awsAccessKeyId,
+      secretAccessKey: creds.awsSecretAccessKey,
+    },
+  });
+  await stsClient.send(new GetCallerIdentityCommand({}));
+}
+
 export function createAgentCoreRoutes(deps?: AgentCoreRouteDeps) {
   const app = new Hono();
 
@@ -1610,16 +1511,7 @@ export function createAgentCoreRoutes(deps?: AgentCoreRouteDeps) {
         awsRegion = creds.awsRegion;
       }
 
-      const { STSClient, GetCallerIdentityCommand } = await import('@aws-sdk/client-sts');
-      const stsClient = new STSClient({
-        region: awsRegion,
-        credentials: {
-          accessKeyId: awsAccessKeyId,
-          secretAccessKey: awsSecretAccessKey,
-        },
-      });
-
-      await stsClient.send(new GetCallerIdentityCommand({}));
+      await verifyStsCredentials({ awsAccessKeyId, awsSecretAccessKey, awsRegion });
 
       return json({
         ok: true,
@@ -1632,7 +1524,6 @@ export function createAgentCoreRoutes(deps?: AgentCoreRouteDeps) {
       log.error('AgentCore credential validation failed', {
         error: error instanceof Error ? error : new Error(String(error)),
       });
-      // STS auth errors (invalid credentials) are client errors, not server errors
       const isStsAuthError =
         error instanceof Error &&
         ('$metadata' in error ||
@@ -1640,7 +1531,6 @@ export function createAgentCoreRoutes(deps?: AgentCoreRouteDeps) {
           error.name === 'SignatureDoesNotMatch' ||
           error.name === 'ExpiredTokenException');
       const status = isStsAuthError ? 422 : 500;
-      // Sanitize: don't leak full AWS error details (may contain ARNs, account IDs)
       const message = isStsAuthError
         ? 'AWS credential validation failed — check your access key and secret'
         : 'Failed to validate AWS credentials';
@@ -1659,24 +1549,13 @@ export function createAgentCoreRoutes(deps?: AgentCoreRouteDeps) {
         });
       }
 
-      const { awsAccessKeyId, awsSecretAccessKey, awsRegion } = creds;
-
-      const { STSClient, GetCallerIdentityCommand } = await import('@aws-sdk/client-sts');
-      const stsClient = new STSClient({
-        region: awsRegion,
-        credentials: {
-          accessKeyId: awsAccessKeyId,
-          secretAccessKey: awsSecretAccessKey,
-        },
-      });
-
-      await stsClient.send(new GetCallerIdentityCommand({}));
+      await verifyStsCredentials(creds);
 
       return json({
         ok: true,
         data: {
           healthy: true,
-          region: awsRegion,
+          region: creds.awsRegion,
         },
       });
     } catch (error) {

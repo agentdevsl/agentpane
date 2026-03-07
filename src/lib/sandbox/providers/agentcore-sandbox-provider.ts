@@ -52,6 +52,16 @@ const PROVIDER_DEFAULTS = {
   readyTimeoutSeconds: 300,
 } as const;
 
+const HEALTH_CHECK_INFRA_ERRORS = new Set([
+  'AccessDeniedException',
+  'UnauthorizedException',
+  'ExpiredTokenException',
+  'InvalidIdentityTokenException',
+  'UnrecognizedClientException',
+  'ServiceException',
+  'NetworkingError',
+]);
+
 /**
  * Extract the runtime ID from an AgentCore Runtime ARN.
  *
@@ -135,8 +145,6 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
     this.stsClient = new STSClient({ region, credentials });
   }
 
-  // --- SandboxProvider interface ---
-
   async create(config: SandboxConfig): Promise<Sandbox> {
     // Guard against concurrent create() calls for the same project
     if (this.creatingProjects.has(config.projectId)) {
@@ -168,8 +176,7 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
     let runtimeId: string | undefined;
 
     try {
-      // Validate roleArn before creating the runtime
-      if (!this.roleArn || this.roleArn.trim() === '') {
+      if (!this.roleArn?.trim()) {
         throw AgentCoreErrors.RUNTIME_CREATION_FAILED(
           runtimeName,
           'IAM role ARN (roleArn) is required for runtime creation'
@@ -297,7 +304,6 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
         throw error;
       }
 
-      // Check for specific AWS error types
       if (error instanceof Error) {
         if (error.name === 'AccessDeniedException' || error.name === 'UnauthorizedException') {
           throw AgentCoreErrors.AWS_CREDENTIALS_INVALID(error.message);
@@ -307,32 +313,30 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
         }
       }
 
-      const message = error instanceof Error ? error.message : String(error);
-      throw AgentCoreErrors.RUNTIME_CREATION_FAILED(runtimeName, message);
+      throw AgentCoreErrors.RUNTIME_CREATION_FAILED(
+        runtimeName,
+        error instanceof Error ? error.message : String(error)
+      );
     } finally {
       this.creatingProjects.delete(config.projectId);
     }
   }
 
   async validateSandboxes(): Promise<void> {
-    const toEvict: string[] = [];
-    for (const [sandboxId, instance] of this.sandboxes) {
+    // Snapshot entries to allow safe mutation during iteration
+    const entries = [...this.sandboxes.entries()];
+    for (const [sandboxId, instance] of entries) {
+      let shouldEvict = false;
       try {
         await instance.refreshStatus();
+        shouldEvict = instance.status === 'error' || instance.status === 'stopped';
       } catch (error) {
         log.error(`refreshStatus failed for sandbox ${sandboxId}, treating as error`, {
           error: error instanceof Error ? error : new Error(String(error)),
         });
-        toEvict.push(sandboxId);
-        continue;
+        shouldEvict = true;
       }
-      if (instance.status === 'error' || instance.status === 'stopped') {
-        toEvict.push(sandboxId);
-      }
-    }
-    for (const sandboxId of toEvict) {
-      const instance = this.sandboxes.get(sandboxId);
-      if (instance) {
+      if (shouldEvict) {
         log.info('Evicting stale sandbox from cache', {
           data: { sandboxId, projectId: instance.projectId, status: instance.status },
         });
@@ -342,33 +346,30 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
   }
 
   async get(projectId: string): Promise<Sandbox | null> {
-    // Check in-memory cache first
     const sandboxId = this.projectToSandbox.get(projectId);
-    if (sandboxId) {
-      const cached = this.sandboxes.get(sandboxId);
-      if (cached) {
-        // Refresh status from API to avoid stale 'creating' status
-        try {
-          await cached.refreshStatus();
-        } catch (error) {
-          log.error(`refreshStatus failed for sandbox ${sandboxId} in get()`, {
-            error: error instanceof Error ? error : new Error(String(error)),
-            data: { projectId },
-          });
-          this.evictSandbox(sandboxId, projectId);
-          // Fall through to API query below
+    const cached = sandboxId ? this.sandboxes.get(sandboxId) : undefined;
+
+    if (cached && sandboxId) {
+      try {
+        await cached.refreshStatus();
+      } catch (error) {
+        log.error(`refreshStatus failed for sandbox ${sandboxId} in get()`, {
+          error: error instanceof Error ? error : new Error(String(error)),
+          data: { projectId },
+        });
+        this.evictSandbox(sandboxId, projectId);
+        // Fall through to API query below
+      }
+
+      // If still cached after refresh, check if usable or stale
+      if (this.sandboxes.has(sandboxId)) {
+        if (cached.status !== 'error' && cached.status !== 'stopped') {
+          return cached;
         }
-        if (this.sandboxes.has(sandboxId)) {
-          if (cached.status === 'error' || cached.status === 'stopped') {
-            log.info('Evicting stale sandbox from get() cache', {
-              data: { sandboxId, projectId, status: cached.status },
-            });
-            this.evictSandbox(sandboxId, projectId);
-            // Fall through to API query below
-          } else {
-            return cached;
-          }
-        }
+        log.info('Evicting stale sandbox from get() cache', {
+          data: { sandboxId, projectId, status: cached.status },
+        });
+        this.evictSandbox(sandboxId, projectId);
       }
     }
 
@@ -376,7 +377,6 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
       // Fall through to API query using ListAgentRuntimes (with pagination)
       const runtimes = await this.listAllRuntimes();
 
-      // Find a runtime with matching name prefix that is READY
       const namePrefix = `agentpane-${projectId.slice(0, 20)}-`
         .toLowerCase()
         .replace(/[^a-z0-9-]/g, '-');
@@ -449,33 +449,39 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
     try {
       const runtimes = await this.listAllRuntimes();
 
+      // Build a reverse lookup from ARN to cached sandbox for efficient matching
+      const arnToSandbox = new Map<string, { id: string; projectId: string }>();
+      for (const [sbxId, instance] of this.sandboxes.entries()) {
+        arnToSandbox.set(instance.containerId, { id: sbxId, projectId: instance.projectId });
+      }
+
       return runtimes
         .filter((runtime) => runtime.agentRuntimeName?.startsWith('agentpane-'))
         .map((runtime) => {
-          // Try to resolve sandboxId and projectId from cache by matching containerId (ARN)
-          let projectId = '';
-          let resolvedSandboxId = runtime.agentRuntimeArn ?? '';
-          for (const [sbxId, instance] of this.sandboxes.entries()) {
-            if (instance.containerId === runtime.agentRuntimeArn) {
-              resolvedSandboxId = sbxId;
-              projectId = instance.projectId;
-              break;
-            }
-          }
-          // Fallback: parse from runtime name (format: agentpane-{projectId}-{hash})
+          const arn = (runtime.agentRuntimeArn as string) ?? '';
+          const cached = arnToSandbox.get(arn);
+
+          let projectId = cached?.projectId ?? '';
           if (!projectId && runtime.agentRuntimeName) {
-            const match = runtime.agentRuntimeName.match(/^agentpane-(.+)-[a-z0-9]{8}$/);
+            const match = (runtime.agentRuntimeName as string).match(
+              /^agentpane-(.+)-[a-z0-9]{8}$/
+            );
             if (match) projectId = match[1];
           }
 
+          const timestamp =
+            runtime.lastUpdatedAt instanceof Date
+              ? runtime.lastUpdatedAt.toISOString()
+              : new Date().toISOString();
+
           return {
-            id: resolvedSandboxId,
+            id: cached?.id ?? arn,
             projectId,
-            containerId: runtime.agentRuntimeArn ?? '',
+            containerId: arn,
             status: mapAgentCoreStatus(runtime.status),
             image: this.image,
-            createdAt: runtime.lastUpdatedAt?.toISOString() ?? new Date().toISOString(),
-            lastActivityAt: runtime.lastUpdatedAt?.toISOString() ?? new Date().toISOString(),
+            createdAt: timestamp,
+            lastActivityAt: timestamp,
             memoryMb: 0,
             cpuCores: 0,
           };
@@ -490,33 +496,27 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
   }
 
   async pullImage(image: string): Promise<void> {
-    // Validate ECR access by requesting an authorization token.
-    // AgentCore handles image pulling internally; this just verifies connectivity.
-    if (!image || image.trim() === '') {
+    if (!image?.trim()) {
       throw AgentCoreErrors.ECR_IMAGE_NOT_FOUND(image);
     }
 
     try {
-      const command = new GetAuthorizationTokenCommand({});
-      await this.ecrClient.send(command);
+      await this.ecrClient.send(new GetAuthorizationTokenCommand({}));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw AgentCoreErrors.ECR_AUTH_FAILED(message);
     }
 
-    // After getting auth token, verify the image actually exists
-    const available = await this.isImageAvailable(image);
-    if (!available) {
+    if (!(await this.isImageAvailable(image))) {
       throw AgentCoreErrors.ECR_IMAGE_NOT_FOUND(image);
     }
   }
 
   async isImageAvailable(image: string): Promise<boolean> {
-    if (!image || image.trim() === '') {
+    if (!image?.trim()) {
       return false;
     }
 
-    // If no ECR repository URI configured, assume image is available
     if (!this.ecrRepositoryUri) {
       return true;
     }
@@ -572,30 +572,19 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
         },
       };
     } catch (error) {
-      if (error instanceof Error) {
-        // Treat known infrastructure/auth errors as "unhealthy"
-        if (
-          error.name === 'AccessDeniedException' ||
-          error.name === 'UnauthorizedException' ||
-          error.name === 'ExpiredTokenException' ||
-          error.name === 'InvalidIdentityTokenException' ||
-          error.name === 'UnrecognizedClientException' ||
-          error.name === 'ServiceException' ||
-          error.name === 'NetworkingError'
-        ) {
-          log.error(`AgentCore health check failed: ${error.message}`, { error });
-          return {
-            healthy: false,
-            message: `AgentCore health check failed — ${error.name}`,
-            details: {
-              provider: 'agentcore',
-              region: this.region,
-              errorName: error.name,
-            },
-          };
-        }
+      if (error instanceof Error && HEALTH_CHECK_INFRA_ERRORS.has(error.name)) {
+        log.error(`AgentCore health check failed: ${error.message}`, { error });
+        return {
+          healthy: false,
+          message: `AgentCore health check failed — ${error.name}`,
+          details: {
+            provider: 'agentcore',
+            region: this.region,
+            errorName: error.name,
+          },
+        };
       }
-      // Let programming errors propagate
+
       throw error;
     }
   }
@@ -656,14 +645,14 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
         const arn = runtime.agentRuntimeArn as string | undefined;
         const runtimeId = runtime.agentRuntimeId as string | undefined;
         if (!name?.startsWith('agentpane-') || !arn || !runtimeId) continue;
-        // Skip runtimes still tracked in cache (already handled in Phase 1)
         if (cachedArns.has(arn)) continue;
-        // Skip runtimes that are already being deleted
         if (runtime.status === 'DELETING' || runtime.status === 'DELETED') continue;
-        // Respect olderThan filter for orphans too (avoid deleting recently created runtimes)
-        if (options?.olderThan && runtime.lastUpdatedAt instanceof Date) {
-          if (runtime.lastUpdatedAt >= options.olderThan) continue;
-        }
+        if (
+          options?.olderThan &&
+          runtime.lastUpdatedAt instanceof Date &&
+          runtime.lastUpdatedAt >= options.olderThan
+        )
+          continue;
 
         try {
           await this.controlClient.send(
@@ -687,8 +676,6 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
 
     return cleaned;
   }
-
-  // --- Event emission (same pattern as NomadSandboxProvider) ---
 
   on(listener: SandboxProviderEventListener): () => void {
     this.listeners.add(listener);

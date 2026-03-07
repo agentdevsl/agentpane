@@ -158,6 +158,24 @@ async function autoHealK8sSandbox(
   }
 }
 
+async function countPods(
+  provider: SandboxProviderHealth
+): Promise<{ total: number; running: number }> {
+  if (!provider.listSandboxes) return { total: 0, running: 0 };
+  try {
+    const sandboxes = await provider.listSandboxes();
+    return {
+      total: sandboxes.length,
+      running: sandboxes.filter((s) => s.phase === 'Running').length,
+    };
+  } catch (err) {
+    log.warn('K8s listSandboxes failed', {
+      error: err instanceof Error ? err : new Error(String(err)),
+    });
+    return { total: 0, running: 0 };
+  }
+}
+
 export function createSandboxStatusRoutes({
   db,
   getDockerProvider,
@@ -240,36 +258,18 @@ export function createSandboxStatusRoutes({
           k8sCrdReady = details.crdRegistered === true && details.namespaceExists === true;
           k8sClusterVersion =
             typeof details.clusterVersion === 'string' ? details.clusterVersion : null;
-          // Pod counts come from listSandboxes if available
-          if (k8sProvider.listSandboxes) {
-            try {
-              const sandboxes = await k8sProvider.listSandboxes();
-              k8sPodCount = sandboxes.length;
-              k8sPodsRunning = sandboxes.filter((s) => s.phase === 'Running').length;
-            } catch (err) {
-              log.warn('K8s listSandboxes failed', {
-                error: err instanceof Error ? err : new Error(String(err)),
-              });
-            }
-          }
 
-          // Self-healing: auto-create K8s sandbox if cluster is healthy but no pods exist
+          let pods = await countPods(k8sProvider);
+          k8sPodCount = pods.total;
+          k8sPodsRunning = pods.running;
+
           if (k8sCrdReady && k8sPodCount === 0) {
             const lookupId = sandboxMode === 'shared' ? 'default' : projectId;
             const healed = await autoHealK8sSandbox(db, k8sProvider, lookupId);
             if (healed) {
-              // Re-count pods after healing
-              if (k8sProvider.listSandboxes) {
-                try {
-                  const sandboxes = await k8sProvider.listSandboxes();
-                  k8sPodCount = sandboxes.length;
-                  k8sPodsRunning = sandboxes.filter((s) => s.phase === 'Running').length;
-                } catch (err) {
-                  log.warn('K8s re-count pods failed after auto-heal', {
-                    error: err instanceof Error ? err : new Error(String(err)),
-                  });
-                }
-              }
+              pods = await countPods(k8sProvider);
+              k8sPodCount = pods.total;
+              k8sPodsRunning = pods.running;
             }
           }
         } catch (err) {

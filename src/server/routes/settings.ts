@@ -27,6 +27,11 @@ const ALLOWED_SETTINGS_KEYS = new Set([
   'general.agentModel',
 ]);
 
+const SENSITIVE_FIELDS: Record<string, { secretKey: string; flagKey: string }> = {
+  'sandbox.nomad': { secretKey: 'token', flagKey: 'hasToken' },
+  'sandbox.agentcore': { secretKey: 'awsSecretAccessKey', flagKey: 'hasSecretKey' },
+};
+
 // Validation schemas
 const updateSettingsSchema = z.object({
   settings: z.record(z.string(), z.unknown()),
@@ -68,30 +73,14 @@ export function createSettingsRoutes({ db }: SettingsDeps) {
       const settingsMap: Record<string, unknown> = {};
       for (const row of results) {
         try {
-          // Redact sensitive tokens before returning to client
-          if (row.key === 'sandbox.nomad') {
-            const parsed = JSON.parse(row.value);
-            if (parsed.token) {
-              parsed.hasToken = true;
-              delete parsed.token;
-            }
-            settingsMap[row.key] = parsed;
-            continue;
+          const parsed = JSON.parse(row.value);
+          const sensitive = SENSITIVE_FIELDS[row.key];
+          if (sensitive && parsed[sensitive.secretKey]) {
+            parsed[sensitive.flagKey] = true;
+            delete parsed[sensitive.secretKey];
           }
-
-          if (row.key === 'sandbox.agentcore') {
-            const parsed = JSON.parse(row.value);
-            if (parsed.awsSecretAccessKey) {
-              parsed.hasSecretKey = true;
-              delete parsed.awsSecretAccessKey;
-            }
-            settingsMap[row.key] = parsed;
-            continue;
-          }
-
-          settingsMap[row.key] = JSON.parse(row.value);
+          settingsMap[row.key] = parsed;
         } catch (parseError) {
-          // Log warning for potential data corruption - falling back to raw string
           console.warn(
             `[Settings] Failed to parse JSON for key "${row.key}":`,
             parseError instanceof Error ? parseError.message : 'parse error'
@@ -145,27 +134,15 @@ export function createSettingsRoutes({ db }: SettingsDeps) {
           continue; // Silently skip unknown keys
         }
 
-        // Encrypt sensitive tokens before storage (create a copy to avoid mutating the parsed input)
         let dbValue = value;
-        if (key === 'sandbox.nomad' && typeof value === 'object' && value !== null) {
-          const nomadCopy = { ...(value as Record<string, unknown>) };
-          if (nomadCopy.token && typeof nomadCopy.token === 'string') {
+        const sensitive = SENSITIVE_FIELDS[key];
+        if (sensitive && typeof value === 'object' && value !== null) {
+          const copy = { ...(value as Record<string, unknown>) };
+          if (copy[sensitive.secretKey] && typeof copy[sensitive.secretKey] === 'string') {
             const { encryptToken } = await import('../../lib/crypto/server-encryption.js');
-            nomadCopy.token = encryptToken(nomadCopy.token);
+            copy[sensitive.secretKey] = encryptToken(copy[sensitive.secretKey] as string);
           }
-          dbValue = nomadCopy;
-        }
-
-        if (key === 'sandbox.agentcore' && typeof value === 'object' && value !== null) {
-          const agentcoreCopy = { ...(value as Record<string, unknown>) };
-          if (
-            agentcoreCopy.awsSecretAccessKey &&
-            typeof agentcoreCopy.awsSecretAccessKey === 'string'
-          ) {
-            const { encryptToken } = await import('../../lib/crypto/server-encryption.js');
-            agentcoreCopy.awsSecretAccessKey = encryptToken(agentcoreCopy.awsSecretAccessKey);
-          }
-          dbValue = agentcoreCopy;
+          dbValue = copy;
         }
 
         const jsonValue = JSON.stringify(dbValue);

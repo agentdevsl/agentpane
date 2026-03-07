@@ -120,6 +120,23 @@ import {
   createAgentCoreSandboxProvider,
 } from '../agentcore-sandbox-provider.js';
 
+function makeExecResponse(response: { exitCode: number; stdout: string; stderr: string }) {
+  return {
+    response: {
+      transformToByteArray: () =>
+        Promise.resolve(new TextEncoder().encode(JSON.stringify(response))),
+    },
+  };
+}
+
+function mockControlDispatch(handlers: Record<string, () => Promise<unknown>>) {
+  mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
+    const handler = handlers[cmd._type ?? ''];
+    if (handler) return handler();
+    return Promise.resolve({});
+  });
+}
+
 describe('AgentCoreSandboxProvider', () => {
   const sampleConfig: SandboxConfig = {
     projectId: 'proj-123',
@@ -138,21 +155,11 @@ describe('AgentCoreSandboxProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // Default mock: CreateAgentRuntime returns an ARN
-    mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
-      if (cmd._type === 'CreateAgentRuntime') {
-        return Promise.resolve({ agentRuntimeArn: runtimeArn });
-      }
-      if (cmd._type === 'GetAgentRuntime') {
-        return Promise.resolve({ status: 'READY' });
-      }
-      if (cmd._type === 'ListAgentRuntimes') {
-        return Promise.resolve({ agentRuntimes: [] });
-      }
-      if (cmd._type === 'DeleteAgentRuntime') {
-        return Promise.resolve({});
-      }
-      return Promise.resolve({});
+    mockControlDispatch({
+      CreateAgentRuntime: () => Promise.resolve({ agentRuntimeArn: runtimeArn }),
+      GetAgentRuntime: () => Promise.resolve({ status: 'READY' }),
+      ListAgentRuntimes: () => Promise.resolve({ agentRuntimes: [] }),
+      DeleteAgentRuntime: () => Promise.resolve({}),
     });
   });
 
@@ -232,14 +239,9 @@ describe('AgentCoreSandboxProvider', () => {
     it('throws RUNTIME_CREATION_FAILED when no ARN is returned', async () => {
       const provider = createProvider();
 
-      mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
-        if (cmd._type === 'CreateAgentRuntime') {
-          return Promise.resolve({ agentRuntimeArn: undefined });
-        }
-        if (cmd._type === 'ListAgentRuntimes') {
-          return Promise.resolve({ agentRuntimes: [] });
-        }
-        return Promise.resolve({});
+      mockControlDispatch({
+        CreateAgentRuntime: () => Promise.resolve({ agentRuntimeArn: undefined }),
+        ListAgentRuntimes: () => Promise.resolve({ agentRuntimes: [] }),
       });
 
       await expect(provider.create(sampleConfig)).rejects.toMatchObject({
@@ -251,11 +253,9 @@ describe('AgentCoreSandboxProvider', () => {
       const provider = createProvider();
       let callCount = 0;
 
-      mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
-        if (cmd._type === 'CreateAgentRuntime') {
-          return Promise.resolve({ agentRuntimeArn: runtimeArn });
-        }
-        if (cmd._type === 'GetAgentRuntime') {
+      mockControlDispatch({
+        CreateAgentRuntime: () => Promise.resolve({ agentRuntimeArn: runtimeArn }),
+        GetAgentRuntime: () => {
           callCount++;
           if (callCount === 1) {
             return Promise.resolve({
@@ -264,14 +264,9 @@ describe('AgentCoreSandboxProvider', () => {
             });
           }
           return Promise.resolve({ status: 'CREATE_FAILED' });
-        }
-        if (cmd._type === 'ListAgentRuntimes') {
-          return Promise.resolve({ agentRuntimes: [] });
-        }
-        if (cmd._type === 'DeleteAgentRuntime') {
-          return Promise.resolve({});
-        }
-        return Promise.resolve({});
+        },
+        ListAgentRuntimes: () => Promise.resolve({ agentRuntimes: [] }),
+        DeleteAgentRuntime: () => Promise.resolve({}),
       });
 
       await expect(provider.create(sampleConfig)).rejects.toMatchObject({
@@ -303,14 +298,9 @@ describe('AgentCoreSandboxProvider', () => {
         events.push(event);
       });
 
-      mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
-        if (cmd._type === 'CreateAgentRuntime') {
-          return Promise.reject(new Error('API error'));
-        }
-        if (cmd._type === 'ListAgentRuntimes') {
-          return Promise.resolve({ agentRuntimes: [] });
-        }
-        return Promise.resolve({});
+      mockControlDispatch({
+        CreateAgentRuntime: () => Promise.reject(new Error('API error')),
+        ListAgentRuntimes: () => Promise.resolve({ agentRuntimes: [] }),
       });
 
       await expect(provider.create(sampleConfig)).rejects.toThrow();
@@ -321,14 +311,9 @@ describe('AgentCoreSandboxProvider', () => {
     it('handles registration failure gracefully', async () => {
       const provider = createProvider();
 
-      mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
-        if (cmd._type === 'CreateAgentRuntime') {
-          return Promise.reject(new Error('AgentCore API error'));
-        }
-        if (cmd._type === 'ListAgentRuntimes') {
-          return Promise.resolve({ agentRuntimes: [] });
-        }
-        return Promise.resolve({});
+      mockControlDispatch({
+        CreateAgentRuntime: () => Promise.reject(new Error('AgentCore API error')),
+        ListAgentRuntimes: () => Promise.resolve({ agentRuntimes: [] }),
       });
 
       await expect(provider.create(sampleConfig)).rejects.toMatchObject({
@@ -339,19 +324,14 @@ describe('AgentCoreSandboxProvider', () => {
     it('throws RUNTIME_STARTUP_TIMEOUT when runtime never reaches READY', async () => {
       const provider = new AgentCoreSandboxProvider({
         roleArn: 'arn:aws:iam::123456789012:role/test-role',
-        readyTimeoutSeconds: 0, // immediate timeout
+        readyTimeoutSeconds: 0,
       });
 
-      mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
-        if (cmd._type === 'CreateAgentRuntime') {
-          return Promise.resolve({ agentRuntimeArn: runtimeArn });
-        }
-        if (cmd._type === 'GetAgentRuntime') {
-          return Promise.resolve({ status: 'CREATING' }); // never becomes READY
-        }
-        if (cmd._type === 'DeleteAgentRuntime') return Promise.resolve({});
-        if (cmd._type === 'ListAgentRuntimes') return Promise.resolve({ agentRuntimes: [] });
-        return Promise.resolve({});
+      mockControlDispatch({
+        CreateAgentRuntime: () => Promise.resolve({ agentRuntimeArn: runtimeArn }),
+        GetAgentRuntime: () => Promise.resolve({ status: 'CREATING' }),
+        DeleteAgentRuntime: () => Promise.resolve({}),
+        ListAgentRuntimes: () => Promise.resolve({ agentRuntimes: [] }),
       });
 
       await expect(provider.create(sampleConfig)).rejects.toMatchObject({
@@ -389,11 +369,8 @@ describe('AgentCoreSandboxProvider', () => {
     it('returns null when no sandbox exists for project', async () => {
       const provider = createProvider();
 
-      mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
-        if (cmd._type === 'ListAgentRuntimes') {
-          return Promise.resolve({ agentRuntimes: [] });
-        }
-        return Promise.resolve({});
+      mockControlDispatch({
+        ListAgentRuntimes: () => Promise.resolve({ agentRuntimes: [] }),
       });
 
       const result = await provider.get('nonexistent');
@@ -403,9 +380,9 @@ describe('AgentCoreSandboxProvider', () => {
     it('falls back to API query when not cached', async () => {
       const provider = createProvider();
 
-      mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
-        if (cmd._type === 'ListAgentRuntimes') {
-          return Promise.resolve({
+      mockControlDispatch({
+        ListAgentRuntimes: () =>
+          Promise.resolve({
             agentRuntimes: [
               {
                 agentRuntimeName: 'agentpane-proj-456-abcdef',
@@ -415,12 +392,8 @@ describe('AgentCoreSandboxProvider', () => {
                 lastUpdatedAt: new Date(),
               },
             ],
-          });
-        }
-        if (cmd._type === 'GetAgentRuntime') {
-          return Promise.resolve({ status: 'READY' });
-        }
-        return Promise.resolve({});
+          }),
+        GetAgentRuntime: () => Promise.resolve({ status: 'READY' }),
       });
 
       const result = await provider.get('proj-456');
@@ -432,11 +405,8 @@ describe('AgentCoreSandboxProvider', () => {
       const notFoundErr = new Error('Runtime not found');
       notFoundErr.name = 'ResourceNotFoundException';
 
-      mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
-        if (cmd._type === 'ListAgentRuntimes') {
-          return Promise.reject(notFoundErr);
-        }
-        return Promise.resolve({});
+      mockControlDispatch({
+        ListAgentRuntimes: () => Promise.reject(notFoundErr),
       });
 
       const result = await provider.get('proj-456');
@@ -446,11 +416,8 @@ describe('AgentCoreSandboxProvider', () => {
     it('throws on non-NotFound API errors', async () => {
       const provider = createProvider();
 
-      mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
-        if (cmd._type === 'ListAgentRuntimes') {
-          return Promise.reject(new Error('network error'));
-        }
-        return Promise.resolve({});
+      mockControlDispatch({
+        ListAgentRuntimes: () => Promise.reject(new Error('network error')),
       });
 
       await expect(provider.get('proj-456')).rejects.toThrow('network error');
@@ -460,8 +427,8 @@ describe('AgentCoreSandboxProvider', () => {
       const provider = createProvider();
       let listCallCount = 0;
 
-      mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
-        if (cmd._type === 'ListAgentRuntimes') {
+      mockControlDispatch({
+        ListAgentRuntimes: () => {
           listCallCount++;
           if (listCallCount === 1) {
             return Promise.resolve({
@@ -479,9 +446,8 @@ describe('AgentCoreSandboxProvider', () => {
               },
             ],
           });
-        }
-        if (cmd._type === 'GetAgentRuntime') return Promise.resolve({ status: 'READY' });
-        return Promise.resolve({});
+        },
+        GetAgentRuntime: () => Promise.resolve({ status: 'READY' }),
       });
 
       const result = await provider.get('proj-paged');
@@ -511,14 +477,10 @@ describe('AgentCoreSandboxProvider', () => {
 
       const created = await provider.create(sampleConfig);
 
-      // Simulate runtime becoming not found
       const notFoundErr = new Error('not found');
       notFoundErr.name = 'ResourceNotFoundException';
-      mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
-        if (cmd._type === 'GetAgentRuntime') {
-          return Promise.reject(notFoundErr);
-        }
-        return Promise.resolve({});
+      mockControlDispatch({
+        GetAgentRuntime: () => Promise.reject(notFoundErr),
       });
 
       const retrieved = await provider.getById(created.id);
@@ -530,11 +492,8 @@ describe('AgentCoreSandboxProvider', () => {
     it('returns empty list when no sandboxes', async () => {
       const provider = createProvider();
 
-      mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
-        if (cmd._type === 'ListAgentRuntimes') {
-          return Promise.resolve({ agentRuntimes: [] });
-        }
-        return Promise.resolve({});
+      mockControlDispatch({
+        ListAgentRuntimes: () => Promise.resolve({ agentRuntimes: [] }),
       });
 
       const list = await provider.list();
@@ -544,9 +503,9 @@ describe('AgentCoreSandboxProvider', () => {
     it('returns mapped sandbox info from AgentCore runtimes', async () => {
       const provider = createProvider();
 
-      mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
-        if (cmd._type === 'ListAgentRuntimes') {
-          return Promise.resolve({
+      mockControlDispatch({
+        ListAgentRuntimes: () =>
+          Promise.resolve({
             agentRuntimes: [
               {
                 agentRuntimeName: 'agentpane-proj-1-abc',
@@ -570,31 +529,23 @@ describe('AgentCoreSandboxProvider', () => {
                 lastUpdatedAt: new Date('2026-01-03T00:00:00Z'),
               },
             ],
-          });
-        }
-        return Promise.resolve({});
+          }),
       });
 
       const list = await provider.list();
 
       expect(list).toHaveLength(3);
-      expect(list[0]).toMatchObject({
-        status: 'running',
-      });
-      expect(list[1]).toMatchObject({
-        status: 'creating',
-      });
-      expect(list[2]).toMatchObject({
-        status: 'error',
-      });
+      expect(list[0]).toMatchObject({ status: 'running' });
+      expect(list[1]).toMatchObject({ status: 'creating' });
+      expect(list[2]).toMatchObject({ status: 'error' });
     });
 
     it('filters out runtimes without agentpane- prefix', async () => {
       const provider = createProvider();
 
-      mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
-        if (cmd._type === 'ListAgentRuntimes') {
-          return Promise.resolve({
+      mockControlDispatch({
+        ListAgentRuntimes: () =>
+          Promise.resolve({
             agentRuntimes: [
               {
                 agentRuntimeName: 'agentpane-proj-1-abc',
@@ -611,9 +562,7 @@ describe('AgentCoreSandboxProvider', () => {
                 lastUpdatedAt: new Date(),
               },
             ],
-          });
-        }
-        return Promise.resolve({});
+          }),
       });
 
       const list = await provider.list();
@@ -623,11 +572,8 @@ describe('AgentCoreSandboxProvider', () => {
     it('throws on API error', async () => {
       const provider = createProvider();
 
-      mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
-        if (cmd._type === 'ListAgentRuntimes') {
-          return Promise.reject(new Error('API error'));
-        }
-        return Promise.resolve({});
+      mockControlDispatch({
+        ListAgentRuntimes: () => Promise.reject(new Error('API error')),
       });
 
       await expect(provider.list()).rejects.toThrow('API error');
@@ -643,11 +589,8 @@ describe('AgentCoreSandboxProvider', () => {
         Arn: 'arn:aws:iam::123456789012:user/test',
       });
 
-      mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
-        if (cmd._type === 'ListAgentRuntimes') {
-          return Promise.resolve({ agentRuntimes: [] });
-        }
-        return Promise.resolve({});
+      mockControlDispatch({
+        ListAgentRuntimes: () => Promise.resolve({ agentRuntimes: [] }),
       });
 
       const health = await provider.healthCheck();
@@ -780,36 +723,21 @@ describe('AgentCoreSandboxProvider', () => {
       const provider = createProvider();
       await provider.create(sampleConfig);
 
-      // Simulate the runtime being deleted — refreshStatus will set status to 'stopped'
       const notFoundErr = new Error('not found');
       notFoundErr.name = 'ResourceNotFoundException';
-      mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
-        if (cmd._type === 'GetAgentRuntime') {
-          return Promise.reject(notFoundErr);
-        }
-        if (cmd._type === 'ListAgentRuntimes') {
-          return Promise.resolve({ agentRuntimes: [] });
-        }
-        return Promise.resolve({});
+      mockControlDispatch({
+        GetAgentRuntime: () => Promise.reject(notFoundErr),
+        ListAgentRuntimes: () => Promise.resolve({ agentRuntimes: [] }),
       });
 
       await provider.validateSandboxes();
 
-      // Reset mocks for a fresh create
-      mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
-        if (cmd._type === 'CreateAgentRuntime') {
-          return Promise.resolve({ agentRuntimeArn: runtimeArn });
-        }
-        if (cmd._type === 'GetAgentRuntime') {
-          return Promise.resolve({ status: 'READY' });
-        }
-        if (cmd._type === 'ListAgentRuntimes') {
-          return Promise.resolve({ agentRuntimes: [] });
-        }
-        return Promise.resolve({});
+      mockControlDispatch({
+        CreateAgentRuntime: () => Promise.resolve({ agentRuntimeArn: runtimeArn }),
+        GetAgentRuntime: () => Promise.resolve({ status: 'READY' }),
+        ListAgentRuntimes: () => Promise.resolve({ agentRuntimes: [] }),
       });
 
-      // This should not throw RUNTIME_ALREADY_EXISTS
       await expect(provider.create(sampleConfig)).resolves.toBeDefined();
     });
   });
@@ -824,12 +752,8 @@ describe('AgentCoreSandboxInstance', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // Default: GetAgentRuntime returns READY
-    mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
-      if (cmd._type === 'GetAgentRuntime') {
-        return Promise.resolve({ status: 'READY' });
-      }
-      return Promise.resolve({});
+    mockControlDispatch({
+      GetAgentRuntime: () => Promise.resolve({ status: 'READY' }),
     });
 
     instance = new AgentCoreSandboxInstance(
@@ -846,15 +770,19 @@ describe('AgentCoreSandboxInstance', () => {
     vi.restoreAllMocks();
   });
 
-  /** Helper to transition instance to 'running' via refreshStatus */
   async function setRunning() {
-    mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
-      if (cmd._type === 'GetAgentRuntime') {
-        return Promise.resolve({ status: 'READY' });
-      }
-      return Promise.resolve({});
+    mockControlDispatch({
+      GetAgentRuntime: () => Promise.resolve({ status: 'READY' }),
     });
     await instance.refreshStatus();
+  }
+
+  function mockExec(response: { exitCode: number; stdout: string; stderr: string }) {
+    mockDataClientSend.mockResolvedValue(makeExecResponse(response));
+  }
+
+  function mockExecThrow(message: string) {
+    mockDataClientSend.mockRejectedValue(new Error(message));
   }
 
   describe('properties', () => {
@@ -878,35 +806,15 @@ describe('AgentCoreSandboxInstance', () => {
   describe('exec', () => {
     it('invokes runtime with exec payload and returns result', async () => {
       await setRunning();
-
-      mockDataClientSend.mockResolvedValue({
-        response: {
-          transformToByteArray: () =>
-            Promise.resolve(
-              new TextEncoder().encode(
-                JSON.stringify({
-                  exitCode: 0,
-                  stdout: 'hello world\n',
-                  stderr: '',
-                })
-              )
-            ),
-        },
-      });
+      mockExec({ exitCode: 0, stdout: 'hello world\n', stderr: '' });
 
       const result = await instance.exec('echo', ['hello', 'world']);
 
-      expect(result).toEqual({
-        exitCode: 0,
-        stdout: 'hello world',
-        stderr: '',
-      });
-
+      expect(result).toEqual({ exitCode: 0, stdout: 'hello world', stderr: '' });
       expect(mockDataClientSend).toHaveBeenCalledTimes(1);
     });
 
     it('throws when sandbox not in running state (assertRunning)', async () => {
-      // Instance is in 'creating' state by default
       await expect(instance.exec('ls')).rejects.toMatchObject({
         code: 'AGENTCORE-104',
       });
@@ -914,7 +822,7 @@ describe('AgentCoreSandboxInstance', () => {
 
     it('throws INVOCATION_FAILED on API error', async () => {
       await setRunning();
-      mockDataClientSend.mockRejectedValue(new Error('connection reset'));
+      mockExecThrow('connection reset');
 
       await expect(instance.exec('ls')).rejects.toMatchObject({
         code: 'AGENTCORE-300',
@@ -934,20 +842,7 @@ describe('AgentCoreSandboxInstance', () => {
 
     it('trims stdout and stderr', async () => {
       await setRunning();
-      mockDataClientSend.mockResolvedValue({
-        response: {
-          transformToByteArray: () =>
-            Promise.resolve(
-              new TextEncoder().encode(
-                JSON.stringify({
-                  exitCode: 0,
-                  stdout: '  trimmed  \n',
-                  stderr: '  warn  \n',
-                })
-              )
-            ),
-        },
-      });
+      mockExec({ exitCode: 0, stdout: '  trimmed  \n', stderr: '  warn  \n' });
 
       const result = await instance.exec('test');
       expect(result.stdout).toBe('trimmed');
@@ -967,35 +862,29 @@ describe('AgentCoreSandboxInstance', () => {
   });
 
   describe('getStatus / refreshStatus', () => {
-    it('returns mapped status from runtime state', async () => {
-      mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
-        if (cmd._type === 'GetAgentRuntime') {
-          return Promise.resolve({ status: 'READY' });
-        }
-        return Promise.resolve({});
+    it.each([
+      ['READY', 'running'],
+      ['CREATING', 'creating'],
+      ['CREATE_FAILED', 'error'],
+      ['DELETING', 'stopping'],
+    ] as const)('maps %s to %s', async (agentCoreStatus, expectedStatus) => {
+      mockControlDispatch({
+        GetAgentRuntime: () => Promise.resolve({ status: agentCoreStatus }),
       });
 
       await instance.refreshStatus();
-      expect(instance.status).toBe('running');
+      expect(instance.status).toBe(expectedStatus);
     });
 
-    it('updates internal status from AgentCore runtime state', async () => {
-      // First refresh: READY -> running
-      mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
-        if (cmd._type === 'GetAgentRuntime') {
-          return Promise.resolve({ status: 'READY' });
-        }
-        return Promise.resolve({});
+    it('updates internal status across multiple refreshes', async () => {
+      mockControlDispatch({
+        GetAgentRuntime: () => Promise.resolve({ status: 'READY' }),
       });
       await instance.refreshStatus();
       expect(instance.status).toBe('running');
 
-      // Second refresh: CREATING -> creating
-      mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
-        if (cmd._type === 'GetAgentRuntime') {
-          return Promise.resolve({ status: 'CREATING' });
-        }
-        return Promise.resolve({});
+      mockControlDispatch({
+        GetAgentRuntime: () => Promise.resolve({ status: 'CREATING' }),
       });
       await instance.refreshStatus();
       expect(instance.status).toBe('creating');
@@ -1016,48 +905,18 @@ describe('AgentCoreSandboxInstance', () => {
       await instance.refreshStatus();
       expect(instance.status).toBe('stopped');
     });
-
-    it('maps CREATE_FAILED to error', async () => {
-      mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
-        if (cmd._type === 'GetAgentRuntime') {
-          return Promise.resolve({ status: 'CREATE_FAILED' });
-        }
-        return Promise.resolve({});
-      });
-
-      await instance.refreshStatus();
-      expect(instance.status).toBe('error');
-    });
-
-    it('maps DELETING to stopping', async () => {
-      mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
-        if (cmd._type === 'GetAgentRuntime') {
-          return Promise.resolve({ status: 'DELETING' });
-        }
-        return Promise.resolve({});
-      });
-
-      await instance.refreshStatus();
-      expect(instance.status).toBe('stopping');
-    });
   });
 
   describe('getMetrics', () => {
     it('returns metrics with uptime', async () => {
-      mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
-        if (cmd._type === 'GetAgentRuntime') {
-          return Promise.resolve({ status: 'READY' });
-        }
-        return Promise.resolve({});
+      mockControlDispatch({
+        GetAgentRuntime: () => Promise.resolve({ status: 'READY' }),
       });
 
       const metrics = await instance.getMetrics();
 
-      expect(metrics).toHaveProperty('cpuUsagePercent');
-      expect(metrics).toHaveProperty('memoryUsageMb');
+      expect(metrics).toMatchObject({ cpuUsagePercent: 0, memoryUsageMb: 0 });
       expect(metrics).toHaveProperty('uptime');
-      expect(metrics.cpuUsagePercent).toBe(0);
-      expect(metrics.memoryUsageMb).toBe(0);
     });
 
     it('throws INTERNAL_ERROR on API error', async () => {
@@ -1105,63 +964,12 @@ describe('AgentCoreSandboxInstance', () => {
   });
 
   describe('tmux session methods', () => {
-    /** Helper to mock exec calls via the data client */
-    function mockExec(response: { exitCode: number; stdout: string; stderr: string }) {
-      mockDataClientSend.mockResolvedValue({
-        response: {
-          transformToByteArray: () =>
-            Promise.resolve(new TextEncoder().encode(JSON.stringify(response))),
-        },
-      });
-    }
-
-    /** Helper to mock exec to throw with a specific message */
-    function mockExecThrow(message: string) {
-      mockDataClientSend.mockRejectedValue(new Error(message));
-    }
-
     describe('createTmuxSession', () => {
       it('creates a tmux session (happy path)', async () => {
         await setRunning();
 
-        // First call: list-sessions (no existing sessions)
-        // Second call: new-session (success)
-        let callCount = 0;
-        mockDataClientSend.mockImplementation(() => {
-          callCount++;
-          if (callCount === 1) {
-            // list-sessions returns empty
-            return Promise.resolve({
-              response: {
-                transformToByteArray: () =>
-                  Promise.resolve(
-                    new TextEncoder().encode(
-                      JSON.stringify({
-                        exitCode: 0,
-                        stdout: '',
-                        stderr: '',
-                      })
-                    )
-                  ),
-              },
-            });
-          }
-          // new-session succeeds
-          return Promise.resolve({
-            response: {
-              transformToByteArray: () =>
-                Promise.resolve(
-                  new TextEncoder().encode(
-                    JSON.stringify({
-                      exitCode: 0,
-                      stdout: '',
-                      stderr: '',
-                    })
-                  )
-                ),
-            },
-          });
-        });
+        const emptySuccess = makeExecResponse({ exitCode: 0, stdout: '', stderr: '' });
+        mockDataClientSend.mockResolvedValue(emptySuccess);
 
         const session = await instance.createTmuxSession('my-session', 'task-1');
 
@@ -1187,29 +995,15 @@ describe('AgentCoreSandboxInstance', () => {
         await setRunning();
 
         let callCount = 0;
+        const emptySuccess = makeExecResponse({ exitCode: 0, stdout: '', stderr: '' });
         mockDataClientSend.mockImplementation(() => {
           callCount++;
           if (callCount === 1) {
-            // list-sessions throws "no server running"
             return Promise.reject(
               new Error('exec tmux: no server running on /tmp/tmux-1000/default')
             );
           }
-          // new-session succeeds
-          return Promise.resolve({
-            response: {
-              transformToByteArray: () =>
-                Promise.resolve(
-                  new TextEncoder().encode(
-                    JSON.stringify({
-                      exitCode: 0,
-                      stdout: '',
-                      stderr: '',
-                    })
-                  )
-                ),
-            },
-          });
+          return Promise.resolve(emptySuccess);
         });
 
         const session = await instance.createTmuxSession('new-session');
@@ -1223,37 +1017,11 @@ describe('AgentCoreSandboxInstance', () => {
         mockDataClientSend.mockImplementation(() => {
           callCount++;
           if (callCount === 1) {
-            // list-sessions: no sessions
-            return Promise.resolve({
-              response: {
-                transformToByteArray: () =>
-                  Promise.resolve(
-                    new TextEncoder().encode(
-                      JSON.stringify({
-                        exitCode: 0,
-                        stdout: '',
-                        stderr: '',
-                      })
-                    )
-                  ),
-              },
-            });
+            return Promise.resolve(makeExecResponse({ exitCode: 0, stdout: '', stderr: '' }));
           }
-          // new-session fails
-          return Promise.resolve({
-            response: {
-              transformToByteArray: () =>
-                Promise.resolve(
-                  new TextEncoder().encode(
-                    JSON.stringify({
-                      exitCode: 1,
-                      stdout: '',
-                      stderr: 'duplicate session: my-session',
-                    })
-                  )
-                ),
-            },
-          });
+          return Promise.resolve(
+            makeExecResponse({ exitCode: 1, stdout: '', stderr: 'duplicate session: my-session' })
+          );
         });
 
         await expect(instance.createTmuxSession('my-session')).rejects.toMatchObject({
@@ -1429,12 +1197,7 @@ describe('AgentCoreSandboxInstance', () => {
         response: {
           transformToByteArray: () =>
             Promise.resolve(
-              new TextEncoder().encode(
-                JSON.stringify({
-                  stdout: 'some output',
-                  stderr: '',
-                })
-              )
+              new TextEncoder().encode(JSON.stringify({ stdout: 'some output', stderr: '' }))
             ),
         },
       });
@@ -1491,44 +1254,19 @@ describe('AgentCoreSandboxInstance', () => {
 });
 
 describe('mapAgentCoreStatus', () => {
-  it('maps READY to running', () => {
-    expect(mapAgentCoreStatus('READY')).toBe('running');
-  });
-
-  it('maps CREATING to creating', () => {
-    expect(mapAgentCoreStatus('CREATING')).toBe('creating');
-  });
-
-  it('maps UPDATING to creating', () => {
-    expect(mapAgentCoreStatus('UPDATING')).toBe('creating');
-  });
-
-  it('maps CREATE_FAILED to error', () => {
-    expect(mapAgentCoreStatus('CREATE_FAILED')).toBe('error');
-  });
-
-  it('maps UPDATE_FAILED to error', () => {
-    expect(mapAgentCoreStatus('UPDATE_FAILED')).toBe('error');
-  });
-
-  it('maps DELETING to stopping', () => {
-    expect(mapAgentCoreStatus('DELETING')).toBe('stopping');
-  });
-
-  it('maps DELETED to stopped', () => {
-    expect(mapAgentCoreStatus('DELETED')).toBe('stopped');
-  });
-
-  it('maps undefined to stopped', () => {
-    expect(mapAgentCoreStatus(undefined)).toBe('stopped');
-  });
-
-  it('maps empty string to stopped', () => {
-    expect(mapAgentCoreStatus('')).toBe('stopped');
-  });
-
-  it('maps unknown string to error', () => {
-    expect(mapAgentCoreStatus('SOMETHING_UNKNOWN')).toBe('error');
+  it.each([
+    ['READY', 'running'],
+    ['CREATING', 'creating'],
+    ['UPDATING', 'creating'],
+    ['CREATE_FAILED', 'error'],
+    ['UPDATE_FAILED', 'error'],
+    ['DELETING', 'stopping'],
+    ['DELETED', 'stopped'],
+    [undefined, 'stopped'],
+    ['', 'error'],
+    ['SOMETHING_UNKNOWN', 'error'],
+  ] as const)('maps %s to %s', (input, expected) => {
+    expect(mapAgentCoreStatus(input as string | undefined)).toBe(expected);
   });
 });
 
