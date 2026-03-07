@@ -187,15 +187,15 @@ svg { display: block; }
 <line x1="535" y1="522" x2="535" y2="548" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
 <line x1="735" y1="522" x2="735" y2="548" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
 
-<!-- Connections: Providers -> runtime sections below (right-angle paths to avoid overlap) -->
+<!-- Connections: Providers -> runtime sections below (right-angle paths, staggered heights) -->
 <!-- Docker: straight down -->
 <line x1="155" y1="590" x2="155" y2="740" stroke="#484f58" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-gray)"/>
-<!-- K8s: drop down then jog right to K8s cluster center -->
-<path d="M 345 590 L 345 665 L 500 665 L 500 740" fill="none" stroke="#484f58" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-gray)"/>
-<!-- Nomad: drop down then jog right to Nomad cluster center -->
-<path d="M 535 590 L 535 640 L 810 640 L 810 740" fill="none" stroke="#484f58" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-gray)"/>
-<!-- AgentCore: drop down then jog right to AgentCore center -->
-<path d="M 735 590 L 735 620 L 1135 620 L 1135 740" fill="none" stroke="#f69d50" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-aws)"/>
+<!-- K8s: drop, jog right at y=710 (just above runtime boxes) -->
+<path d="M 345 590 L 345 710 L 500 710 L 500 740" fill="none" stroke="#484f58" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-gray)"/>
+<!-- Nomad: jog right at y=700 (above K8s jog) -->
+<path d="M 535 590 L 535 700 L 810 700 L 810 740" fill="none" stroke="#484f58" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-gray)"/>
+<!-- AgentCore: jog right at y=700, stays in its own lane far right -->
+<path d="M 735 590 L 735 700 L 1135 700 L 1135 740" fill="none" stroke="#f69d50" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-aws)"/>
 
 <!-- ==================== PostgreSQL (Remote) ==================== -->
 <rect x="1200" y="360" width="310" height="110" rx="10" fill="none" stroke="#8b949e" stroke-width="2" stroke-dasharray="8,4"/>
@@ -346,14 +346,14 @@ svg { display: block; }
 
 <!-- Connections: containers -> Anthropic API -->
 <line x1="190" y1="862" x2="190" y2="995" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-purple)"/>
-<line x1="500" y1="875" x2="500" y2="960" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3"/>
-<line x1="810" y1="875" x2="810" y2="960" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3"/>
+<line x1="500" y1="875" x2="500" y2="995" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-purple)"/>
+<path d="M 810 875 L 810 950 L 350 950 L 350 995" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-purple)"/>
 
 <!-- Connection: AgentCore runtimes -> AWS Bedrock API -->
 <line x1="1135" y1="875" x2="1160" y2="1052" stroke="#f69d50" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-aws)"/>
 
-<!-- Connection: AgentCore runtimes -> Anthropic API (agents use Claude) -->
-<path d="M 998 800 L 960 800 L 960 930 L 400 930 L 400 995" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-purple)"/>
+<!-- Connection: AgentCore runtimes -> Anthropic API (agents use Claude, routes below all runtime boxes) -->
+<path d="M 1135 900 L 1135 940 L 450 940 L 450 995" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-purple)"/>
 
 </svg>
 </body>
