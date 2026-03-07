@@ -317,7 +317,7 @@ describe('AgentCore Routes', () => {
       expect(res.status).toBe(200);
       expect(body.ok).toBe(true);
       expect(body.data.healthy).toBe(false);
-      expect(body.data.message).toContain('Network timeout');
+      expect(body.data.message).toContain('health check failed');
     });
 
     it('returns unhealthy when decryption fails', async () => {

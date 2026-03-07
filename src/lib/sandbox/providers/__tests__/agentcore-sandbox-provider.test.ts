@@ -667,7 +667,7 @@ describe('AgentCoreSandboxProvider', () => {
       const health = await provider.healthCheck();
 
       expect(health.healthy).toBe(false);
-      expect(health.message).toContain('Access denied');
+      expect(health.message).toContain('AccessDeniedException');
       expect(health.details?.errorName).toBe('AccessDeniedException');
     });
 
@@ -680,7 +680,7 @@ describe('AgentCoreSandboxProvider', () => {
       const health = await provider.healthCheck();
 
       expect(health.healthy).toBe(false);
-      expect(health.message).toContain('Token expired');
+      expect(health.message).toContain('ExpiredTokenException');
     });
 
     it('returns unhealthy on networking error', async () => {
@@ -692,7 +692,7 @@ describe('AgentCoreSandboxProvider', () => {
       const health = await provider.healthCheck();
 
       expect(health.healthy).toBe(false);
-      expect(health.message).toContain('Network timeout');
+      expect(health.message).toContain('NetworkingError');
     });
 
     it('throws on unknown errors (programming errors)', async () => {

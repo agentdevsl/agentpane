@@ -129,14 +129,13 @@ export class AgentCoreSandboxInstance implements Sandbox {
       try {
         result = JSON.parse(responseBody);
       } catch (parseError) {
-        const preview = responseBody.slice(0, 500);
         log.error(`Failed to parse exec response from ${this.runtimeArn}`, {
           error: parseError instanceof Error ? parseError : new Error(String(parseError)),
-          data: { cmd, responsePreview: preview },
+          data: { cmd, responsePreview: responseBody.slice(0, 500) },
         });
         throw AgentCoreErrors.INVOCATION_FAILED(
           this.runtimeArn,
-          `exec ${cmd}: response is not valid JSON (preview: ${preview})`
+          `exec ${cmd}: response is not valid JSON`
         );
       }
 

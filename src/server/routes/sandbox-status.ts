@@ -255,13 +255,7 @@ export function createSandboxStatusRoutes({
 
           // Self-healing: auto-create K8s sandbox if cluster is healthy but no pods exist
           if (k8sCrdReady && k8sPodCount === 0) {
-            const lookupId =
-              (await db.query.settings
-                .findFirst({ where: eq(settings.key, 'sandbox.mode') })
-                .then((s) => (s?.value ? JSON.parse(s.value) : 'shared'))
-                .catch(() => 'shared')) === 'shared'
-                ? 'default'
-                : projectId;
+            const lookupId = sandboxMode === 'shared' ? 'default' : projectId;
             const healed = await autoHealK8sSandbox(db, k8sProvider, lookupId);
             if (healed) {
               // Re-count pods after healing

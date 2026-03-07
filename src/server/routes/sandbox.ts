@@ -468,7 +468,7 @@ export function createK8sRoutes(deps?: { db?: Database }) {
               versionUrl,
               {
                 method: 'GET',
-                rejectUnauthorized: false,
+                rejectUnauthorized: !skipTLSVerify,
                 timeout: 5000,
               },
               (res) => {
@@ -1573,8 +1573,20 @@ export function createAgentCoreRoutes(deps?: AgentCoreRouteDeps) {
       let awsRegion: string;
 
       // Try request body first (for pre-save validation)
-      const body = await c.req.json().catch(() => ({}));
-      const parsed = validateBodySchema.safeParse(body);
+      const rawBody = await c.req.json().catch(() => null);
+      if (rawBody !== null && typeof rawBody !== 'object') {
+        return json(
+          {
+            ok: false,
+            error: {
+              code: 'INVALID_REQUEST',
+              message: 'Request body must be a JSON object',
+            },
+          },
+          400
+        );
+      }
+      const parsed = validateBodySchema.safeParse(rawBody ?? {});
       const bodyParams = parsed.success ? parsed.data : {};
 
       if (bodyParams.awsAccessKeyId && bodyParams.awsSecretAccessKey) {
@@ -1620,7 +1632,6 @@ export function createAgentCoreRoutes(deps?: AgentCoreRouteDeps) {
       log.error('AgentCore credential validation failed', {
         error: error instanceof Error ? error : new Error(String(error)),
       });
-      const message = error instanceof Error ? error.message : 'Failed to validate AWS credentials';
       // STS auth errors (invalid credentials) are client errors, not server errors
       const isStsAuthError =
         error instanceof Error &&
@@ -1629,6 +1640,10 @@ export function createAgentCoreRoutes(deps?: AgentCoreRouteDeps) {
           error.name === 'SignatureDoesNotMatch' ||
           error.name === 'ExpiredTokenException');
       const status = isStsAuthError ? 422 : 500;
+      // Sanitize: don't leak full AWS error details (may contain ARNs, account IDs)
+      const message = isStsAuthError
+        ? 'AWS credential validation failed — check your access key and secret'
+        : 'Failed to validate AWS credentials';
       return json({ ok: false, error: { code: 'AGENTCORE_VALIDATION_ERROR', message } }, status);
     }
   });
@@ -1668,10 +1683,12 @@ export function createAgentCoreRoutes(deps?: AgentCoreRouteDeps) {
       log.error('AgentCore health check failed', {
         error: error instanceof Error ? error : new Error(String(error)),
       });
-      const message = error instanceof Error ? error.message : 'Failed to check AgentCore health';
       return json({
         ok: true,
-        data: { healthy: false, message },
+        data: {
+          healthy: false,
+          message: 'AgentCore health check failed — check credentials and region',
+        },
       });
     }
   });

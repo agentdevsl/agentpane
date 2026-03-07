@@ -586,7 +586,7 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
           log.error(`AgentCore health check failed: ${error.message}`, { error });
           return {
             healthy: false,
-            message: `AgentCore health check failed: ${error.message}`,
+            message: `AgentCore health check failed — ${error.name}`,
             details: {
               provider: 'agentcore',
               region: this.region,
@@ -660,6 +660,10 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
         if (cachedArns.has(arn)) continue;
         // Skip runtimes that are already being deleted
         if (runtime.status === 'DELETING' || runtime.status === 'DELETED') continue;
+        // Respect olderThan filter for orphans too (avoid deleting recently created runtimes)
+        if (options?.olderThan && runtime.lastUpdatedAt instanceof Date) {
+          if (runtime.lastUpdatedAt >= options.olderThan) continue;
+        }
 
         try {
           await this.controlClient.send(

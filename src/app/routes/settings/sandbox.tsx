@@ -234,6 +234,16 @@ function SandboxSettingsPage(): React.JSX.Element {
   const [isSavingProvider, setIsSavingProvider] = useState(false);
   const [providerSaved, setProviderSaved] = useState(false);
 
+  // Timeout refs for cleanup on unmount
+  const defaultsSavedTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const providerSavedTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => {
+    return () => {
+      clearTimeout(defaultsSavedTimerRef.current);
+      clearTimeout(providerSavedTimerRef.current);
+    };
+  }, []);
+
   // K8s configuration state
   const [k8sStatus, setK8sStatus] = useState<K8sStatus | null>(null);
   const [k8sStatusLoading, setK8sStatusLoading] = useState(false);
@@ -562,7 +572,7 @@ function SandboxSettingsPage(): React.JSX.Element {
           setAgentcoreSecretKeyDirty(false);
           setAgentcoreHasSecretKey(!!agentcoreSecretKey);
         }
-        setTimeout(() => setDefaultsSaved(false), 2000);
+        defaultsSavedTimerRef.current = setTimeout(() => setDefaultsSaved(false), 2000);
       } else {
         setError('Failed to save default settings');
       }
@@ -827,7 +837,7 @@ function SandboxSettingsPage(): React.JSX.Element {
     try {
       await saveDefaultSettings();
       setProviderSaved(true);
-      setTimeout(() => setProviderSaved(false), 2000);
+      providerSavedTimerRef.current = setTimeout(() => setProviderSaved(false), 2000);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to save provider settings';
       setError(message);
