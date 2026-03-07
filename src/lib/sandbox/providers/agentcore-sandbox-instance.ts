@@ -17,7 +17,7 @@ const log = createLogger('AgentCoreSandboxInstance');
 /**
  * Map AgentCore runtime status to SandboxStatus.
  *
- * AgentCore statuses: 'CREATING' | 'CREATE_FAILED' | 'UPDATING' | 'UPDATE_FAILED' | 'READY' | 'DELETING'
+ * AgentCore statuses: 'CREATING' | 'CREATE_FAILED' | 'UPDATING' | 'UPDATE_FAILED' | 'READY' | 'DELETING' | 'DELETED'
  * SandboxStatus: 'stopped' | 'creating' | 'running' | 'idle' | 'stopping' | 'error'
  */
 export function mapAgentCoreStatus(status?: string): SandboxStatus {
@@ -29,6 +29,8 @@ export function mapAgentCoreStatus(status?: string): SandboxStatus {
       return 'running';
     case 'DELETING':
       return 'stopping';
+    case 'DELETED':
+      return 'stopped';
     case 'CREATE_FAILED':
     case 'UPDATE_FAILED':
       return 'error';
@@ -66,6 +68,9 @@ export class AgentCoreSandboxInstance implements Sandbox {
     /** AgentCore data plane client */
     private readonly dataClient: BedrockAgentCoreClient
   ) {
+    if (!id) throw new Error('AgentCoreSandboxInstance requires a non-empty id');
+    if (!runtimeArn) throw new Error('AgentCoreSandboxInstance requires a non-empty runtimeArn');
+    if (!runtimeId) throw new Error('AgentCoreSandboxInstance requires a non-empty runtimeId');
     this._lastActivity = new Date();
   }
 
@@ -114,19 +119,38 @@ export class AgentCoreSandboxInstance implements Sandbox {
         responseBody = new TextDecoder().decode(bytes);
       }
 
-      const result = JSON.parse(responseBody) as {
-        exitCode?: number;
-        stdout?: string;
-        stderr?: string;
-      };
+      let result: { exitCode?: number; stdout?: string; stderr?: string };
+      try {
+        result = JSON.parse(responseBody);
+      } catch (parseError) {
+        const preview = responseBody.slice(0, 500);
+        log.error(`Failed to parse exec response from ${this.runtimeArn}`, {
+          error: parseError instanceof Error ? parseError : new Error(String(parseError)),
+          data: { cmd, responsePreview: preview },
+        });
+        throw AgentCoreErrors.INVOCATION_FAILED(
+          this.runtimeArn,
+          `exec ${cmd}: response is not valid JSON (preview: ${preview})`
+        );
+      }
 
+      if (result.exitCode === undefined) {
+        log.warn(
+          `exec response missing exitCode for cmd "${cmd}" on ${this.runtimeArn}, defaulting to 0`
+        );
+      }
       return {
-        exitCode: result.exitCode ?? 1,
+        exitCode: result.exitCode ?? 0,
         stdout: (result.stdout ?? '').trim(),
         stderr: (result.stderr ?? '').trim(),
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+
+      log.error(`Failed to exec command on ${this.runtimeArn}`, {
+        error: error instanceof Error ? error : new Error(String(error)),
+        data: { cmd },
+      });
 
       // Check for throttling
       if (error instanceof Error && error.name === 'ThrottlingException') {
@@ -159,6 +183,9 @@ export class AgentCoreSandboxInstance implements Sandbox {
       this._status = 'stopped';
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      log.error(`Failed to stop sandbox ${this.runtimeArn}`, {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
       this._status = 'error';
       throw AgentCoreErrors.INVOCATION_FAILED(this.runtimeArn, `stop: ${message}`);
     }
@@ -384,6 +411,7 @@ export class AgentCoreSandboxInstance implements Sandbox {
         error instanceof Error &&
         (error.name === 'ResourceNotFoundException' || error.name === 'NotFoundException')
       ) {
+        log.info(`Runtime ${this.runtimeArn} no longer exists in AWS, marking as stopped`);
         this._status = 'stopped';
         this._lastRefreshError = null;
       } else {

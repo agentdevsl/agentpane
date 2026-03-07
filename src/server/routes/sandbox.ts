@@ -1475,6 +1475,74 @@ interface AgentCoreRouteDeps {
   db?: Database;
 }
 
+async function loadAgentCoreCredentials(db: Database | undefined): Promise<
+  | {
+      ok: true;
+      awsAccessKeyId: string;
+      awsSecretAccessKey: string;
+      awsRegion: string;
+    }
+  | {
+      ok: false;
+      error: string;
+      code?: string;
+      status: number;
+    }
+> {
+  if (!db) {
+    return { ok: false, error: 'Database not available', status: 500 };
+  }
+
+  const { eq } = await import('drizzle-orm');
+  const { settings } = await import('../../db/schema/index.js');
+  const agentcoreSetting = await db.query.settings.findFirst({
+    where: eq(settings.key, 'sandbox.agentcore'),
+  });
+
+  if (!agentcoreSetting?.value) {
+    return {
+      ok: false,
+      error: 'AWS credentials not configured',
+      code: 'AGENTCORE_NOT_CONFIGURED',
+      status: 400,
+    };
+  }
+
+  const parsed = JSON.parse(agentcoreSetting.value);
+  const awsAccessKeyId = parsed.awsAccessKeyId;
+  let awsSecretAccessKey: string | undefined;
+  const awsRegion = parsed.awsRegion ?? 'us-east-1';
+
+  if (parsed.awsSecretAccessKey) {
+    try {
+      const { decryptToken } = await import('../../lib/crypto/server-encryption.js');
+      awsSecretAccessKey = decryptToken(parsed.awsSecretAccessKey);
+    } catch (decryptErr) {
+      log.error('Failed to decrypt AgentCore AWS secret key', {
+        error: decryptErr instanceof Error ? decryptErr : new Error(String(decryptErr)),
+      });
+      return {
+        ok: false,
+        error:
+          'AWS secret key exists but could not be decrypted. Please re-enter your credentials.',
+        code: 'AGENTCORE_DECRYPTION_FAILED',
+        status: 500,
+      };
+    }
+  }
+
+  if (!awsAccessKeyId || !awsSecretAccessKey) {
+    return {
+      ok: false,
+      error: 'AWS credentials not configured',
+      code: 'AGENTCORE_NOT_CONFIGURED',
+      status: 400,
+    };
+  }
+
+  return { ok: true, awsAccessKeyId, awsSecretAccessKey, awsRegion };
+}
+
 export function createAgentCoreRoutes(deps?: AgentCoreRouteDeps) {
   const app = new Hono();
 
@@ -1482,40 +1550,18 @@ export function createAgentCoreRoutes(deps?: AgentCoreRouteDeps) {
   app.post('/validate', async (_c) => {
     try {
       // Load AgentCore settings from database
-      let awsAccessKeyId: string | undefined;
-      let awsSecretAccessKey: string | undefined;
-      let awsRegion = 'us-east-1';
-
-      if (deps?.db) {
-        const { eq } = await import('drizzle-orm');
-        const { settings } = await import('../../db/schema/index.js');
-        const agentcoreSetting = await deps.db.query.settings.findFirst({
-          where: eq(settings.key, 'sandbox.agentcore'),
-        });
-        if (agentcoreSetting?.value) {
-          const parsed = JSON.parse(agentcoreSetting.value);
-          awsAccessKeyId = parsed.awsAccessKeyId;
-          if (parsed.awsSecretAccessKey) {
-            try {
-              const { decryptToken } = await import('../../lib/crypto/server-encryption.js');
-              awsSecretAccessKey = decryptToken(parsed.awsSecretAccessKey);
-            } catch {
-              awsSecretAccessKey = undefined;
-            }
-          }
-          awsRegion = parsed.awsRegion ?? 'us-east-1';
-        }
-      }
-
-      if (!awsAccessKeyId || !awsSecretAccessKey) {
+      const creds = await loadAgentCoreCredentials(deps?.db);
+      if (!creds.ok) {
         return json(
           {
             ok: false,
-            error: { code: 'AGENTCORE_NOT_CONFIGURED', message: 'AWS credentials not configured' },
+            error: { code: creds.code ?? 'AGENTCORE_NOT_CONFIGURED', message: creds.error },
           },
-          400
+          creds.status
         );
       }
+
+      const { awsAccessKeyId, awsSecretAccessKey, awsRegion } = creds;
 
       const { STSClient, GetCallerIdentityCommand } = await import('@aws-sdk/client-sts');
       const stsClient = new STSClient({
@@ -1549,37 +1595,21 @@ export function createAgentCoreRoutes(deps?: AgentCoreRouteDeps) {
   // GET /api/sandbox/agentcore/health - Provider health check
   app.get('/health', async (_c) => {
     try {
-      let awsAccessKeyId: string | undefined;
-      let awsSecretAccessKey: string | undefined;
-      let awsRegion = 'us-east-1';
-
-      if (deps?.db) {
-        const { eq } = await import('drizzle-orm');
-        const { settings } = await import('../../db/schema/index.js');
-        const agentcoreSetting = await deps.db.query.settings.findFirst({
-          where: eq(settings.key, 'sandbox.agentcore'),
-        });
-        if (agentcoreSetting?.value) {
-          const parsed = JSON.parse(agentcoreSetting.value);
-          awsAccessKeyId = parsed.awsAccessKeyId;
-          if (parsed.awsSecretAccessKey) {
-            try {
-              const { decryptToken } = await import('../../lib/crypto/server-encryption.js');
-              awsSecretAccessKey = decryptToken(parsed.awsSecretAccessKey);
-            } catch {
-              awsSecretAccessKey = undefined;
-            }
-          }
-          awsRegion = parsed.awsRegion ?? 'us-east-1';
+      const creds = await loadAgentCoreCredentials(deps?.db);
+      if (!creds.ok) {
+        if (creds.code === 'AGENTCORE_DECRYPTION_FAILED') {
+          return json({
+            ok: true,
+            data: { healthy: false, message: creds.error },
+          });
         }
-      }
-
-      if (!awsAccessKeyId || !awsSecretAccessKey) {
         return json({
           ok: true,
-          data: { healthy: false, message: 'AWS credentials not configured' },
+          data: { healthy: false, message: creds.error },
         });
       }
+
+      const { awsAccessKeyId, awsSecretAccessKey, awsRegion } = creds;
 
       const { STSClient, GetCallerIdentityCommand } = await import('@aws-sdk/client-sts');
       const stsClient = new STSClient({

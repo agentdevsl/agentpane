@@ -20,10 +20,18 @@ vi.mock('../../../lib/crypto/server-encryption.js', () => ({
 const mockStsSend = vi.fn();
 
 vi.mock('@aws-sdk/client-sts', () => {
-  class MockGetCallerIdentityCommand { _type = 'GetCallerIdentity'; input: unknown; constructor(input: unknown) { this.input = input; } }
+  class MockGetCallerIdentityCommand {
+    _type = 'GetCallerIdentity';
+    input: unknown;
+    constructor(input: unknown) {
+      this.input = input;
+    }
+  }
 
   return {
-    STSClient: class { send = mockStsSend; },
+    STSClient: class {
+      send = mockStsSend;
+    },
     GetCallerIdentityCommand: MockGetCallerIdentityCommand,
   };
 });
@@ -134,7 +142,9 @@ describe('AgentCore Routes', () => {
       });
       const app = createAgentCoreTestApp(db);
 
-      mockStsSend.mockRejectedValue(new Error('InvalidClientTokenId: The security token included in the request is invalid'));
+      mockStsSend.mockRejectedValue(
+        new Error('InvalidClientTokenId: The security token included in the request is invalid')
+      );
 
       const res = await app.request('/api/sandbox/agentcore/validate', { method: 'POST' });
       const body = await res.json();
@@ -145,15 +155,15 @@ describe('AgentCore Routes', () => {
       expect(body.error.message).toContain('InvalidClientTokenId');
     });
 
-    it('returns 400 when no DB is provided', async () => {
+    it('returns 500 when no DB is provided', async () => {
       const app = createAgentCoreTestApp(undefined);
 
       const res = await app.request('/api/sandbox/agentcore/validate', { method: 'POST' });
       const body = await res.json();
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(500);
       expect(body.ok).toBe(false);
-      expect(body.error.code).toBe('AGENTCORE_NOT_CONFIGURED');
+      expect(body.error.message).toContain('Database not available');
     });
 
     it('decrypts secret access key from database', async () => {
@@ -183,10 +193,10 @@ describe('AgentCore Routes', () => {
       const res = await app.request('/api/sandbox/agentcore/validate', { method: 'POST' });
       const body = await res.json();
 
-      // When decryption fails, secretAccessKey is undefined, resulting in NOT_CONFIGURED
-      expect(res.status).toBe(400);
+      // Decryption failure now returns a distinct error code
+      expect(res.status).toBe(500);
       expect(body.ok).toBe(false);
-      expect(body.error.code).toBe('AGENTCORE_NOT_CONFIGURED');
+      expect(body.error.code).toBe('AGENTCORE_DECRYPTION_FAILED');
     });
   });
 
@@ -233,7 +243,7 @@ describe('AgentCore Routes', () => {
       expect(res.status).toBe(200);
       expect(body.ok).toBe(true);
       expect(body.data.healthy).toBe(false);
-      expect(body.data.message).toContain('not configured');
+      expect(body.data.message).toContain('Database not available');
     });
 
     it('returns 500 when STS call fails', async () => {

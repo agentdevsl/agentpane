@@ -296,6 +296,26 @@ if (DB_MODE === 'postgres') {
     }
   }
 
+  // AgentCore sandbox columns — run individually for partial-failure safety
+  const agentcoreColumns = [
+    `ALTER TABLE sandbox_configs ADD COLUMN aws_access_key_id TEXT`,
+    `ALTER TABLE sandbox_configs ADD COLUMN aws_secret_access_key TEXT`,
+    `ALTER TABLE sandbox_configs ADD COLUMN aws_region TEXT`,
+    `ALTER TABLE sandbox_configs ADD COLUMN agentcore_runtime_arn TEXT`,
+    `ALTER TABLE sandbox_configs ADD COLUMN ecr_repository_uri TEXT`,
+  ];
+  for (const sql of agentcoreColumns) {
+    try {
+      sqlite.exec(sql);
+    } catch (error) {
+      if (!(error instanceof Error && error.message.includes('duplicate column name'))) {
+        log.warn('AgentCore migration error', {
+          error: error instanceof Error ? error : new Error(String(error)),
+        });
+      }
+    }
+  }
+
   // Apply agents parent_agent_id migration (may fail if column already exists)
   try {
     sqlite.exec(
@@ -1271,11 +1291,16 @@ async function initSandboxProvider() {
           // Decrypt the stored secret key (encrypted at rest)
           if (agentcoreSettings.awsSecretAccessKey) {
             try {
-              agentcoreSettings.awsSecretAccessKey = decryptToken(agentcoreSettings.awsSecretAccessKey);
+              agentcoreSettings.awsSecretAccessKey = decryptToken(
+                agentcoreSettings.awsSecretAccessKey
+              );
             } catch (decryptErr) {
-              log.error('[API Server] AgentCore secret key decryption failed, key must be re-entered', {
-                error: decryptErr instanceof Error ? decryptErr : new Error(String(decryptErr)),
-              });
+              log.error(
+                '[API Server] AgentCore secret key decryption failed, key must be re-entered',
+                {
+                  error: decryptErr instanceof Error ? decryptErr : new Error(String(decryptErr)),
+                }
+              );
               agentcoreSettings.awsSecretAccessKey = undefined;
             }
           }
@@ -1287,7 +1312,9 @@ async function initSandboxProvider() {
       }
 
       if (!agentcoreSettings.awsAccessKeyId || !agentcoreSettings.awsSecretAccessKey) {
-        log.warn('[API Server] AgentCore credentials not configured, falling back to Docker');
+        log.info(
+          `[API Server] AgentCore credentials not configured.${agentcoreFallbackToDocker ? ' Will fall back to Docker.' : ' No fallback configured.'}`
+        );
       } else {
         const { createAgentCoreSandboxProvider } = await import(
           '../lib/sandbox/providers/agentcore-sandbox-provider.js'
@@ -1315,7 +1342,11 @@ async function initSandboxProvider() {
             await db
               .delete(schemaTables.settings)
               .where(eq(schemaTables.settings.key, 'sandbox.agentcore.lastError'));
-          } catch {}
+          } catch (dbErr) {
+            log.warn('[API Server] Failed to clear stale AgentCore error from database', {
+              error: dbErr instanceof Error ? dbErr : new Error(String(dbErr)),
+            });
+          }
 
           // Create default sandbox (mirrors Docker/K8s/Nomad pattern)
           await ensureDefaultSandbox(agentcoreProvider, 'AgentCore');
@@ -1328,7 +1359,10 @@ async function initSandboxProvider() {
           );
           // Persist error for UI display
           try {
-            const errorJson = JSON.stringify({ error: diagnosis, timestamp: new Date().toISOString() });
+            const errorJson = JSON.stringify({
+              error: diagnosis,
+              timestamp: new Date().toISOString(),
+            });
             await db
               .insert(schemaTables.settings)
               .values({ key: 'sandbox.agentcore.lastError', value: errorJson })
@@ -1336,7 +1370,11 @@ async function initSandboxProvider() {
                 target: schemaTables.settings.key,
                 set: { value: errorJson, updatedAt: new Date().toISOString() },
               });
-          } catch {}
+          } catch (dbErr) {
+            log.warn('[API Server] Failed to persist unhealthy AgentCore status to database', {
+              error: dbErr instanceof Error ? dbErr : new Error(String(dbErr)),
+            });
+          }
         }
       }
     } catch (error) {
@@ -1356,7 +1394,11 @@ async function initSandboxProvider() {
             target: schemaTables.settings.key,
             set: { value: errorJson, updatedAt: new Date().toISOString() },
           });
-      } catch {}
+      } catch (dbErr) {
+        log.warn('[API Server] Failed to persist AgentCore init error to database', {
+          error: dbErr instanceof Error ? dbErr : new Error(String(dbErr)),
+        });
+      }
     }
   }
 
@@ -1579,6 +1621,7 @@ const app = createRouter({
   getSandboxProvider: () => sandboxProvider,
   getK8sProvider,
   getNomadProvider,
+  getAgentCoreProvider,
   cliMonitorService,
   terraformRegistryService,
   terraformComposeService,

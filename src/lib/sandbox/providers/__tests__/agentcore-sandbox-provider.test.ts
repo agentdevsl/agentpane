@@ -9,13 +9,39 @@ const mockEcrClientSend = vi.fn();
 const mockStsClientSend = vi.fn();
 
 vi.mock('@aws-sdk/client-bedrock-agentcore-control', () => {
-  class MockCreateAgentRuntimeCommand { _type = 'CreateAgentRuntime'; input: unknown; constructor(input: unknown) { this.input = input; } }
-  class MockDeleteAgentRuntimeCommand { _type = 'DeleteAgentRuntime'; input: unknown; constructor(input: unknown) { this.input = input; } }
-  class MockGetAgentRuntimeCommand { _type = 'GetAgentRuntime'; input: unknown; constructor(input: unknown) { this.input = input; } }
-  class MockListAgentRuntimesCommand { _type = 'ListAgentRuntimes'; input: unknown; constructor(input: unknown) { this.input = input; } }
+  class MockCreateAgentRuntimeCommand {
+    _type = 'CreateAgentRuntime';
+    input: unknown;
+    constructor(input: unknown) {
+      this.input = input;
+    }
+  }
+  class MockDeleteAgentRuntimeCommand {
+    _type = 'DeleteAgentRuntime';
+    input: unknown;
+    constructor(input: unknown) {
+      this.input = input;
+    }
+  }
+  class MockGetAgentRuntimeCommand {
+    _type = 'GetAgentRuntime';
+    input: unknown;
+    constructor(input: unknown) {
+      this.input = input;
+    }
+  }
+  class MockListAgentRuntimesCommand {
+    _type = 'ListAgentRuntimes';
+    input: unknown;
+    constructor(input: unknown) {
+      this.input = input;
+    }
+  }
 
   return {
-    BedrockAgentCoreControlClient: class { send = mockControlClientSend; },
+    BedrockAgentCoreControlClient: class {
+      send = mockControlClientSend;
+    },
     CreateAgentRuntimeCommand: MockCreateAgentRuntimeCommand,
     DeleteAgentRuntimeCommand: MockDeleteAgentRuntimeCommand,
     GetAgentRuntimeCommand: MockGetAgentRuntimeCommand,
@@ -24,30 +50,60 @@ vi.mock('@aws-sdk/client-bedrock-agentcore-control', () => {
 });
 
 vi.mock('@aws-sdk/client-bedrock-agentcore', () => {
-  class MockInvokeAgentRuntimeCommand { _type = 'InvokeAgentRuntime'; input: unknown; constructor(input: unknown) { this.input = input; } }
+  class MockInvokeAgentRuntimeCommand {
+    _type = 'InvokeAgentRuntime';
+    input: unknown;
+    constructor(input: unknown) {
+      this.input = input;
+    }
+  }
 
   return {
-    BedrockAgentCoreClient: class { send = mockDataClientSend; },
+    BedrockAgentCoreClient: class {
+      send = mockDataClientSend;
+    },
     InvokeAgentRuntimeCommand: MockInvokeAgentRuntimeCommand,
   };
 });
 
 vi.mock('@aws-sdk/client-ecr', () => {
-  class MockDescribeImagesCommand { _type = 'DescribeImages'; input: unknown; constructor(input: unknown) { this.input = input; } }
-  class MockGetAuthorizationTokenCommand { _type = 'GetAuthorizationToken'; input: unknown; constructor(input: unknown) { this.input = input; } }
+  class MockDescribeImagesCommand {
+    _type = 'DescribeImages';
+    input: unknown;
+    constructor(input: unknown) {
+      this.input = input;
+    }
+  }
+  class MockGetAuthorizationTokenCommand {
+    _type = 'GetAuthorizationToken';
+    input: unknown;
+    constructor(input: unknown) {
+      this.input = input;
+    }
+  }
 
   return {
-    ECRClient: class { send = mockEcrClientSend; },
+    ECRClient: class {
+      send = mockEcrClientSend;
+    },
     DescribeImagesCommand: MockDescribeImagesCommand,
     GetAuthorizationTokenCommand: MockGetAuthorizationTokenCommand,
   };
 });
 
 vi.mock('@aws-sdk/client-sts', () => {
-  class MockGetCallerIdentityCommand { _type = 'GetCallerIdentity'; input: unknown; constructor(input: unknown) { this.input = input; } }
+  class MockGetCallerIdentityCommand {
+    _type = 'GetCallerIdentity';
+    input: unknown;
+    constructor(input: unknown) {
+      this.input = input;
+    }
+  }
 
   return {
-    STSClient: class { send = mockStsClientSend; },
+    STSClient: class {
+      send = mockStsClientSend;
+    },
     GetCallerIdentityCommand: MockGetCallerIdentityCommand,
   };
 });
@@ -58,7 +114,7 @@ vi.mock('@paralleldrive/cuid2', () => ({
 }));
 
 // Import after mocks
-import { AgentCoreSandboxInstance } from '../agentcore-sandbox-instance.js';
+import { AgentCoreSandboxInstance, mapAgentCoreStatus } from '../agentcore-sandbox-instance.js';
 import {
   AgentCoreSandboxProvider,
   createAgentCoreSandboxProvider,
@@ -77,7 +133,7 @@ describe('AgentCoreSandboxProvider', () => {
   };
 
   const runtimeArn = 'arn:aws:bedrock-agentcore:us-east-1:123456789012:runtime/rt-abc123';
-  const runtimeId = 'rt-abc123';
+  const _runtimeId = 'rt-abc123';
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -199,7 +255,10 @@ describe('AgentCoreSandboxProvider', () => {
         if (cmd._type === 'GetAgentRuntime') {
           callCount++;
           if (callCount === 1) {
-            return Promise.resolve({ status: 'CREATE_FAILED', failureReason: 'Insufficient capacity' });
+            return Promise.resolve({
+              status: 'CREATE_FAILED',
+              failureReason: 'Insufficient capacity',
+            });
           }
           return Promise.resolve({ status: 'CREATE_FAILED' });
         }
@@ -748,11 +807,15 @@ describe('AgentCoreSandboxInstance', () => {
       mockDataClientSend.mockResolvedValue({
         response: {
           transformToByteArray: () =>
-            Promise.resolve(new TextEncoder().encode(JSON.stringify({
-              exitCode: 0,
-              stdout: 'hello world\n',
-              stderr: '',
-            }))),
+            Promise.resolve(
+              new TextEncoder().encode(
+                JSON.stringify({
+                  exitCode: 0,
+                  stdout: 'hello world\n',
+                  stderr: '',
+                })
+              )
+            ),
         },
       });
 
@@ -799,11 +862,15 @@ describe('AgentCoreSandboxInstance', () => {
       mockDataClientSend.mockResolvedValue({
         response: {
           transformToByteArray: () =>
-            Promise.resolve(new TextEncoder().encode(JSON.stringify({
-              exitCode: 0,
-              stdout: '  trimmed  \n',
-              stderr: '  warn  \n',
-            }))),
+            Promise.resolve(
+              new TextEncoder().encode(
+                JSON.stringify({
+                  exitCode: 0,
+                  stdout: '  trimmed  \n',
+                  stderr: '  warn  \n',
+                })
+              )
+            ),
         },
       });
 
@@ -959,6 +1026,564 @@ describe('AgentCoreSandboxInstance', () => {
 
     it('getLastActivity returns Date', () => {
       expect(instance.getLastActivity()).toBeInstanceOf(Date);
+    });
+  });
+
+  describe('tmux session methods', () => {
+    /** Helper to mock exec calls via the data client */
+    function mockExec(response: { exitCode: number; stdout: string; stderr: string }) {
+      mockDataClientSend.mockResolvedValue({
+        response: {
+          transformToByteArray: () =>
+            Promise.resolve(new TextEncoder().encode(JSON.stringify(response))),
+        },
+      });
+    }
+
+    /** Helper to mock exec to throw with a specific message */
+    function mockExecThrow(message: string) {
+      mockDataClientSend.mockRejectedValue(new Error(message));
+    }
+
+    describe('createTmuxSession', () => {
+      it('creates a tmux session (happy path)', async () => {
+        await setRunning();
+
+        // First call: list-sessions (no existing sessions)
+        // Second call: new-session (success)
+        let callCount = 0;
+        mockDataClientSend.mockImplementation(() => {
+          callCount++;
+          if (callCount === 1) {
+            // list-sessions returns empty
+            return Promise.resolve({
+              response: {
+                transformToByteArray: () =>
+                  Promise.resolve(
+                    new TextEncoder().encode(
+                      JSON.stringify({
+                        exitCode: 0,
+                        stdout: '',
+                        stderr: '',
+                      })
+                    )
+                  ),
+              },
+            });
+          }
+          // new-session succeeds
+          return Promise.resolve({
+            response: {
+              transformToByteArray: () =>
+                Promise.resolve(
+                  new TextEncoder().encode(
+                    JSON.stringify({
+                      exitCode: 0,
+                      stdout: '',
+                      stderr: '',
+                    })
+                  )
+                ),
+            },
+          });
+        });
+
+        const session = await instance.createTmuxSession('my-session', 'task-1');
+
+        expect(session.name).toBe('my-session');
+        expect(session.sandboxId).toBe('sandbox-id-1');
+        expect(session.taskId).toBe('task-1');
+        expect(session.windowCount).toBe(1);
+        expect(session.attached).toBe(false);
+      });
+
+      it('throws when session already exists', async () => {
+        await setRunning();
+
+        // list-sessions returns the session name
+        mockExec({ exitCode: 0, stdout: 'my-session', stderr: '' });
+
+        await expect(instance.createTmuxSession('my-session')).rejects.toMatchObject({
+          code: 'AGENTCORE-300',
+        });
+      });
+
+      it('handles "no server running" gracefully and creates session', async () => {
+        await setRunning();
+
+        let callCount = 0;
+        mockDataClientSend.mockImplementation(() => {
+          callCount++;
+          if (callCount === 1) {
+            // list-sessions throws "no server running"
+            return Promise.reject(
+              new Error('exec tmux: no server running on /tmp/tmux-1000/default')
+            );
+          }
+          // new-session succeeds
+          return Promise.resolve({
+            response: {
+              transformToByteArray: () =>
+                Promise.resolve(
+                  new TextEncoder().encode(
+                    JSON.stringify({
+                      exitCode: 0,
+                      stdout: '',
+                      stderr: '',
+                    })
+                  )
+                ),
+            },
+          });
+        });
+
+        const session = await instance.createTmuxSession('new-session');
+        expect(session.name).toBe('new-session');
+      });
+
+      it('throws on non-zero exit code from new-session', async () => {
+        await setRunning();
+
+        let callCount = 0;
+        mockDataClientSend.mockImplementation(() => {
+          callCount++;
+          if (callCount === 1) {
+            // list-sessions: no sessions
+            return Promise.resolve({
+              response: {
+                transformToByteArray: () =>
+                  Promise.resolve(
+                    new TextEncoder().encode(
+                      JSON.stringify({
+                        exitCode: 0,
+                        stdout: '',
+                        stderr: '',
+                      })
+                    )
+                  ),
+              },
+            });
+          }
+          // new-session fails
+          return Promise.resolve({
+            response: {
+              transformToByteArray: () =>
+                Promise.resolve(
+                  new TextEncoder().encode(
+                    JSON.stringify({
+                      exitCode: 1,
+                      stdout: '',
+                      stderr: 'duplicate session: my-session',
+                    })
+                  )
+                ),
+            },
+          });
+        });
+
+        await expect(instance.createTmuxSession('my-session')).rejects.toMatchObject({
+          code: 'AGENTCORE-300',
+        });
+      });
+    });
+
+    describe('listTmuxSessions', () => {
+      it('parses tmux output correctly', async () => {
+        await setRunning();
+        mockExec({ exitCode: 0, stdout: 'session1:3:1\nsession2:1:0', stderr: '' });
+
+        const sessions = await instance.listTmuxSessions();
+
+        expect(sessions).toHaveLength(2);
+        expect(sessions[0]).toMatchObject({
+          name: 'session1',
+          sandboxId: 'sandbox-id-1',
+          windowCount: 3,
+          attached: true,
+        });
+        expect(sessions[1]).toMatchObject({
+          name: 'session2',
+          windowCount: 1,
+          attached: false,
+        });
+      });
+
+      it('returns empty array when "no server running" error is thrown', async () => {
+        await setRunning();
+        mockExecThrow('exec tmux: no server running on /tmp/tmux-1000/default');
+
+        const sessions = await instance.listTmuxSessions();
+        expect(sessions).toEqual([]);
+      });
+
+      it('returns empty array when "no sessions" error is thrown', async () => {
+        await setRunning();
+        mockExecThrow('exec tmux: no sessions');
+
+        const sessions = await instance.listTmuxSessions();
+        expect(sessions).toEqual([]);
+      });
+
+      it('returns empty array when stderr contains "no server running"', async () => {
+        await setRunning();
+        mockExec({
+          exitCode: 1,
+          stdout: '',
+          stderr: 'no server running on /tmp/tmux-1000/default',
+        });
+
+        const sessions = await instance.listTmuxSessions();
+        expect(sessions).toEqual([]);
+      });
+
+      it('throws on non-zero exit code with other errors', async () => {
+        await setRunning();
+        mockExec({ exitCode: 1, stdout: '', stderr: 'some unexpected error' });
+
+        await expect(instance.listTmuxSessions()).rejects.toMatchObject({
+          code: 'AGENTCORE-300',
+        });
+      });
+    });
+
+    describe('killTmuxSession', () => {
+      it('kills session successfully (happy path)', async () => {
+        await setRunning();
+        mockExec({ exitCode: 0, stdout: '', stderr: '' });
+
+        await expect(instance.killTmuxSession('my-session')).resolves.toBeUndefined();
+      });
+
+      it('succeeds silently when session not found', async () => {
+        await setRunning();
+        mockExec({ exitCode: 1, stdout: '', stderr: "can't find session: my-session" });
+
+        await expect(instance.killTmuxSession('my-session')).resolves.toBeUndefined();
+      });
+
+      it('succeeds silently when "session not found" in stderr', async () => {
+        await setRunning();
+        mockExec({ exitCode: 1, stdout: '', stderr: 'session not found: my-session' });
+
+        await expect(instance.killTmuxSession('my-session')).resolves.toBeUndefined();
+      });
+
+      it('throws on other errors', async () => {
+        await setRunning();
+        mockExec({ exitCode: 1, stdout: '', stderr: 'server exited unexpectedly' });
+
+        await expect(instance.killTmuxSession('my-session')).rejects.toMatchObject({
+          code: 'AGENTCORE-300',
+        });
+      });
+    });
+
+    describe('sendKeysToTmux', () => {
+      it('sends keys successfully (happy path)', async () => {
+        await setRunning();
+        mockExec({ exitCode: 0, stdout: '', stderr: '' });
+
+        await expect(instance.sendKeysToTmux('my-session', 'ls -la')).resolves.toBeUndefined();
+      });
+
+      it('throws on non-zero exit code', async () => {
+        await setRunning();
+        mockExec({ exitCode: 1, stdout: '', stderr: "can't find session: my-session" });
+
+        await expect(instance.sendKeysToTmux('my-session', 'ls')).rejects.toMatchObject({
+          code: 'AGENTCORE-300',
+        });
+      });
+    });
+
+    describe('captureTmuxPane', () => {
+      it('returns captured stdout', async () => {
+        await setRunning();
+        mockExec({ exitCode: 0, stdout: '$ ls\nfile1.txt\nfile2.txt', stderr: '' });
+
+        const output = await instance.captureTmuxPane('my-session');
+        expect(output).toBe('$ ls\nfile1.txt\nfile2.txt');
+      });
+
+      it('throws on non-zero exit code', async () => {
+        await setRunning();
+        mockExec({ exitCode: 1, stdout: '', stderr: "can't find session: my-session" });
+
+        await expect(instance.captureTmuxPane('my-session')).rejects.toMatchObject({
+          code: 'AGENTCORE-300',
+        });
+      });
+    });
+  });
+
+  describe('exec edge cases', () => {
+    it('handles null/empty response (no response field)', async () => {
+      await setRunning();
+
+      // No response field at all — responseBody defaults to '{}'
+      mockDataClientSend.mockResolvedValue({});
+
+      const result = await instance.exec('echo', ['hello']);
+
+      // Parsed from '{}' — exitCode defaults to 0, stdout/stderr default to ''
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toBe('');
+    });
+
+    it('throws INVOCATION_FAILED when response body is not valid JSON', async () => {
+      await setRunning();
+
+      mockDataClientSend.mockResolvedValue({
+        response: {
+          transformToByteArray: () =>
+            Promise.resolve(new TextEncoder().encode('this is not json <html>error</html>')),
+        },
+      });
+
+      await expect(instance.exec('bad-cmd')).rejects.toMatchObject({
+        code: 'AGENTCORE-300',
+        message: expect.stringContaining('not valid JSON'),
+      });
+    });
+
+    it('defaults exitCode to 0 when missing from response', async () => {
+      await setRunning();
+
+      mockDataClientSend.mockResolvedValue({
+        response: {
+          transformToByteArray: () =>
+            Promise.resolve(
+              new TextEncoder().encode(
+                JSON.stringify({
+                  stdout: 'some output',
+                  stderr: '',
+                })
+              )
+            ),
+        },
+      });
+
+      const result = await instance.exec('cmd-no-exit');
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe('some output');
+    });
+  });
+
+  describe('constructor validation', () => {
+    it('throws when id is empty', () => {
+      expect(
+        () =>
+          new AgentCoreSandboxInstance(
+            '',
+            runtimeArn,
+            runtimeId,
+            'proj-123',
+            { send: mockControlClientSend } as never,
+            { send: mockDataClientSend } as never
+          )
+      ).toThrow('non-empty id');
+    });
+
+    it('throws when runtimeArn is empty', () => {
+      expect(
+        () =>
+          new AgentCoreSandboxInstance(
+            'sandbox-1',
+            '',
+            runtimeId,
+            'proj-123',
+            { send: mockControlClientSend } as never,
+            { send: mockDataClientSend } as never
+          )
+      ).toThrow('non-empty runtimeArn');
+    });
+
+    it('throws when runtimeId is empty', () => {
+      expect(
+        () =>
+          new AgentCoreSandboxInstance(
+            'sandbox-1',
+            runtimeArn,
+            '',
+            'proj-123',
+            { send: mockControlClientSend } as never,
+            { send: mockDataClientSend } as never
+          )
+      ).toThrow('non-empty runtimeId');
+    });
+  });
+});
+
+describe('mapAgentCoreStatus', () => {
+  it('maps READY to running', () => {
+    expect(mapAgentCoreStatus('READY')).toBe('running');
+  });
+
+  it('maps CREATING to creating', () => {
+    expect(mapAgentCoreStatus('CREATING')).toBe('creating');
+  });
+
+  it('maps UPDATING to creating', () => {
+    expect(mapAgentCoreStatus('UPDATING')).toBe('creating');
+  });
+
+  it('maps CREATE_FAILED to error', () => {
+    expect(mapAgentCoreStatus('CREATE_FAILED')).toBe('error');
+  });
+
+  it('maps UPDATE_FAILED to error', () => {
+    expect(mapAgentCoreStatus('UPDATE_FAILED')).toBe('error');
+  });
+
+  it('maps DELETING to stopping', () => {
+    expect(mapAgentCoreStatus('DELETING')).toBe('stopping');
+  });
+
+  it('maps DELETED to stopped', () => {
+    expect(mapAgentCoreStatus('DELETED')).toBe('stopped');
+  });
+
+  it('maps undefined to stopped', () => {
+    expect(mapAgentCoreStatus(undefined)).toBe('stopped');
+  });
+
+  it('maps empty string to stopped', () => {
+    expect(mapAgentCoreStatus('')).toBe('stopped');
+  });
+
+  it('maps unknown string to error', () => {
+    expect(mapAgentCoreStatus('SOMETHING_UNKNOWN')).toBe('error');
+  });
+});
+
+describe('AgentCoreSandboxProvider - pullImage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockControlClientSend.mockResolvedValue({});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('throws on empty string image', async () => {
+    const provider = new AgentCoreSandboxProvider();
+    await expect(provider.pullImage('')).rejects.toMatchObject({
+      code: 'AGENTCORE-402',
+    });
+  });
+
+  it('throws on whitespace-only image', async () => {
+    const provider = new AgentCoreSandboxProvider();
+    await expect(provider.pullImage('   ')).rejects.toMatchObject({
+      code: 'AGENTCORE-402',
+    });
+  });
+
+  it('succeeds when ECR auth and image check pass (no ECR repo configured)', async () => {
+    // Without ecrRepositoryUri, isImageAvailable returns true
+    const provider = new AgentCoreSandboxProvider();
+    mockEcrClientSend.mockResolvedValue({ authorizationData: [] });
+
+    await expect(provider.pullImage('my-image:latest')).resolves.toBeUndefined();
+  });
+
+  it('throws ECR_IMAGE_NOT_FOUND when image is not available', async () => {
+    const provider = new AgentCoreSandboxProvider({
+      ecrRepositoryUri: '123456789012.dkr.ecr.us-east-1.amazonaws.com/my-repo',
+    });
+    mockEcrClientSend.mockImplementation((cmd: { _type?: string }) => {
+      if (cmd._type === 'GetAuthorizationToken') {
+        return Promise.resolve({ authorizationData: [] });
+      }
+      if (cmd._type === 'DescribeImages') {
+        const err = new Error('Image not found');
+        err.name = 'ImageNotFoundException';
+        return Promise.reject(err);
+      }
+      return Promise.resolve({});
+    });
+
+    await expect(provider.pullImage('my-image:latest')).rejects.toMatchObject({
+      code: 'AGENTCORE-402',
+    });
+  });
+
+  it('throws ECR_AUTH_FAILED when ECR authorization fails', async () => {
+    const provider = new AgentCoreSandboxProvider();
+    mockEcrClientSend.mockRejectedValue(new Error('ECR access denied'));
+
+    await expect(provider.pullImage('my-image:latest')).rejects.toMatchObject({
+      code: 'AGENTCORE-400',
+    });
+  });
+});
+
+describe('AgentCoreSandboxProvider - isImageAvailable', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockControlClientSend.mockResolvedValue({});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns false for empty string', async () => {
+    const provider = new AgentCoreSandboxProvider();
+    const result = await provider.isImageAvailable('');
+    expect(result).toBe(false);
+  });
+
+  it('returns true when no ECR repo configured', async () => {
+    const provider = new AgentCoreSandboxProvider();
+    const result = await provider.isImageAvailable('some-image:latest');
+    expect(result).toBe(true);
+  });
+
+  it('returns true when image is found in ECR', async () => {
+    const provider = new AgentCoreSandboxProvider({
+      ecrRepositoryUri: '123456789012.dkr.ecr.us-east-1.amazonaws.com/my-repo',
+    });
+    mockEcrClientSend.mockResolvedValue({ imageDetails: [{ imageDigest: 'sha256:abc' }] });
+
+    const result = await provider.isImageAvailable('my-image:latest');
+    expect(result).toBe(true);
+  });
+
+  it('returns false on ImageNotFoundException', async () => {
+    const provider = new AgentCoreSandboxProvider({
+      ecrRepositoryUri: '123456789012.dkr.ecr.us-east-1.amazonaws.com/my-repo',
+    });
+    const err = new Error('Image not found');
+    err.name = 'ImageNotFoundException';
+    mockEcrClientSend.mockRejectedValue(err);
+
+    const result = await provider.isImageAvailable('my-image:latest');
+    expect(result).toBe(false);
+  });
+
+  it('returns false on RepositoryNotFoundException', async () => {
+    const provider = new AgentCoreSandboxProvider({
+      ecrRepositoryUri: '123456789012.dkr.ecr.us-east-1.amazonaws.com/my-repo',
+    });
+    const err = new Error('Repository not found');
+    err.name = 'RepositoryNotFoundException';
+    mockEcrClientSend.mockRejectedValue(err);
+
+    const result = await provider.isImageAvailable('my-image:latest');
+    expect(result).toBe(false);
+  });
+
+  it('throws on infrastructure errors (not returns false)', async () => {
+    const provider = new AgentCoreSandboxProvider({
+      ecrRepositoryUri: '123456789012.dkr.ecr.us-east-1.amazonaws.com/my-repo',
+    });
+    mockEcrClientSend.mockRejectedValue(new Error('Network timeout'));
+
+    await expect(provider.isImageAvailable('my-image:latest')).rejects.toMatchObject({
+      code: 'AGENTCORE-400',
     });
   });
 });

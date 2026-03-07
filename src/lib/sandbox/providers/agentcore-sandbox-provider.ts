@@ -70,8 +70,8 @@ function extractRuntimeId(arn: string): string {
  * is an AgentCore Runtime running the agent sandbox container image. The
  * provider uses runtime name prefixes to track sandbox-to-project mappings.
  *
- * Implements EventEmittingSandboxProvider so it can be used as a drop-in
- * replacement for DockerProvider/NomadSandboxProvider in ContainerAgentService.
+ * Implements EventEmittingSandboxProvider for use alongside DockerProvider/NomadSandboxProvider
+ * in ContainerAgentService. Note: execAsRoot and execStream are not supported; getMetrics returns placeholder values.
  */
 export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
   readonly name = 'agentcore';
@@ -173,6 +173,7 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
       const startTime = Date.now();
       const timeoutMs = this.readyTimeoutSeconds * 1000;
 
+      let isReady = false;
       while (Date.now() - startTime < timeoutMs) {
         const getCommand = new GetAgentRuntimeCommand({
           agentRuntimeId: runtimeId,
@@ -181,6 +182,7 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
         const status = getResponse.status;
 
         if (status === 'READY') {
+          isReady = true;
           break;
         }
         if (status === 'CREATE_FAILED') {
@@ -194,13 +196,7 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
         await new Promise((resolve) => setTimeout(resolve, 5000));
       }
 
-      // Verify final status
-      const verifyCommand = new GetAgentRuntimeCommand({
-        agentRuntimeId: runtimeId,
-      });
-      const verifyResponse = await this.controlClient.send(verifyCommand);
-
-      if (verifyResponse.status !== 'READY') {
+      if (!isReady) {
         throw AgentCoreErrors.RUNTIME_STARTUP_TIMEOUT(runtimeArn, this.readyTimeoutSeconds);
       }
 
@@ -268,7 +264,12 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
       }
 
       // Re-throw if already an AgentCore error
-      if (error instanceof Error && 'id' in error) {
+      if (
+        error instanceof Error &&
+        'code' in error &&
+        typeof (error as Record<string, unknown>).code === 'string' &&
+        ((error as Record<string, unknown>).code as string).startsWith('AGENTCORE')
+      ) {
         throw error;
       }
 
@@ -423,17 +424,35 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
 
       return runtimes
         .filter((runtime) => runtime.agentRuntimeName?.startsWith('agentpane-'))
-        .map((runtime) => ({
-          id: runtime.agentRuntimeArn ?? '',
-          projectId: '', // Would need tag lookup for accurate project mapping
-          containerId: runtime.agentRuntimeArn ?? '',
-          status: mapAgentCoreStatus(runtime.status),
-          image: this.image,
-          createdAt: runtime.lastUpdatedAt?.toISOString() ?? new Date().toISOString(),
-          lastActivityAt: runtime.lastUpdatedAt?.toISOString() ?? new Date().toISOString(),
-          memoryMb: 0,
-          cpuCores: 0,
-        }));
+        .map((runtime) => {
+          const sandboxId = runtime.agentRuntimeArn ?? '';
+
+          // Try to resolve projectId from cache
+          let projectId = '';
+          for (const [projId, sbxId] of this.projectToSandbox.entries()) {
+            if (sbxId === sandboxId) {
+              projectId = projId;
+              break;
+            }
+          }
+          // Fallback: parse from runtime name (format: agentpane-{projectId}-{hash})
+          if (!projectId && runtime.agentRuntimeName) {
+            const match = runtime.agentRuntimeName.match(/^agentpane-(.+)-[a-z0-9]{8}$/);
+            if (match) projectId = match[1];
+          }
+
+          return {
+            id: sandboxId,
+            projectId,
+            containerId: runtime.agentRuntimeArn ?? '',
+            status: mapAgentCoreStatus(runtime.status),
+            image: this.image,
+            createdAt: runtime.lastUpdatedAt?.toISOString() ?? new Date().toISOString(),
+            lastActivityAt: runtime.lastUpdatedAt?.toISOString() ?? new Date().toISOString(),
+            memoryMb: 0,
+            cpuCores: 0,
+          };
+        });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       log.error(`Failed to list AgentCore runtimes: ${message}`, {
@@ -456,6 +475,12 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw AgentCoreErrors.ECR_AUTH_FAILED(message);
+    }
+
+    // After getting auth token, verify the image actually exists
+    const available = await this.isImageAvailable(image);
+    if (!available) {
+      throw AgentCoreErrors.ECR_IMAGE_NOT_FOUND(image);
     }
   }
 
@@ -491,10 +516,11 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
       ) {
         return false;
       }
-      // Treat other errors as "unknown availability" and log
       const message = error instanceof Error ? error.message : String(error);
-      log.warn(`Failed to check image availability for ${image}: ${message}`);
-      return false;
+      log.error(`Failed to check image availability for ${image}: ${message}`, {
+        error: error instanceof Error ? error : new Error(message),
+      });
+      throw AgentCoreErrors.ECR_AUTH_FAILED(`Unable to verify image availability: ${message}`);
     }
   }
 
@@ -565,22 +591,22 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
       if (!instance) continue;
       try {
         if (instance.status !== 'stopped') {
-          // Delete the AgentCore runtime
           const runtimeId = extractRuntimeId(instance.containerId);
-          const deleteCommand = new DeleteAgentRuntimeCommand({
-            agentRuntimeId: runtimeId,
-          });
+          const deleteCommand = new DeleteAgentRuntimeCommand({ agentRuntimeId: runtimeId });
           await this.controlClient.send(deleteCommand);
         }
+        // Only evict from cache on successful deletion or already-stopped
+        this.sandboxes.delete(sandboxId);
+        this.projectToSandbox.delete(instance.projectId);
         cleaned++;
       } catch (error) {
-        log.error(`Failed to delete runtime ${sandboxId} during cleanup — removing from cache`, {
-          error: error instanceof Error ? error : new Error(String(error)),
-        });
+        log.error(
+          `Failed to delete runtime ${sandboxId} during cleanup — keeping in cache for retry`,
+          {
+            error: error instanceof Error ? error : new Error(String(error)),
+          }
+        );
       }
-      // Always evict from cache regardless of delete success/failure
-      this.sandboxes.delete(sandboxId);
-      this.projectToSandbox.delete(instance.projectId);
     }
 
     return cleaned;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { AppErrorClass } from '../base.js';
 import { AGENTCORE_ERROR_IDS, AgentCoreErrors } from '../agentcore-errors.js';
+import { AppErrorClass } from '../base.js';
 
 describe('AGENTCORE_ERROR_IDS', () => {
   it('has the expected connection/auth error codes', () => {
@@ -96,18 +96,25 @@ describe('AgentCoreErrors', () => {
 
   describe('RUNTIME_NOT_FOUND', () => {
     it('returns error with AGENTCORE-100 code and message containing runtime ARN', () => {
-      const error = AgentCoreErrors.RUNTIME_NOT_FOUND('arn:aws:bedrock-agentcore:us-east-1:123:runtime/rt-abc');
+      const error = AgentCoreErrors.RUNTIME_NOT_FOUND(
+        'arn:aws:bedrock-agentcore:us-east-1:123:runtime/rt-abc'
+      );
 
       expect(error.code).toBe('AGENTCORE-100');
       expect(error.status).toBe(404);
       expect(error.message).toContain('arn:aws:bedrock-agentcore');
-      expect(error.details).toMatchObject({ runtimeArn: 'arn:aws:bedrock-agentcore:us-east-1:123:runtime/rt-abc' });
+      expect(error.details).toMatchObject({
+        runtimeArn: 'arn:aws:bedrock-agentcore:us-east-1:123:runtime/rt-abc',
+      });
     });
   });
 
   describe('RUNTIME_CREATION_FAILED', () => {
     it('returns error with AGENTCORE-101 code and message containing name and reason', () => {
-      const error = AgentCoreErrors.RUNTIME_CREATION_FAILED('agentpane-proj-1', 'insufficient capacity');
+      const error = AgentCoreErrors.RUNTIME_CREATION_FAILED(
+        'agentpane-proj-1',
+        'insufficient capacity'
+      );
 
       expect(error.code).toBe('AGENTCORE-101');
       expect(error.status).toBe(500);
@@ -148,7 +155,10 @@ describe('AgentCoreErrors', () => {
       expect(error.status).toBe(400);
       expect(error.message).toContain('arn:runtime/rt-1');
       expect(error.message).toContain('creating');
-      expect(error.details).toMatchObject({ runtimeArn: 'arn:runtime/rt-1', currentStatus: 'creating' });
+      expect(error.details).toMatchObject({
+        runtimeArn: 'arn:runtime/rt-1',
+        currentStatus: 'creating',
+      });
     });
   });
 
@@ -269,12 +279,16 @@ describe('AgentCoreErrors', () => {
 
   describe('ECR_REPO_NOT_FOUND', () => {
     it('returns error with AGENTCORE-403 code', () => {
-      const error = AgentCoreErrors.ECR_REPO_NOT_FOUND('123456789012.dkr.ecr.us-east-1.amazonaws.com/my-repo');
+      const error = AgentCoreErrors.ECR_REPO_NOT_FOUND(
+        '123456789012.dkr.ecr.us-east-1.amazonaws.com/my-repo'
+      );
 
       expect(error.code).toBe('AGENTCORE-403');
       expect(error.status).toBe(404);
       expect(error.message).toContain('my-repo');
-      expect(error.details).toMatchObject({ repoUri: '123456789012.dkr.ecr.us-east-1.amazonaws.com/my-repo' });
+      expect(error.details).toMatchObject({
+        repoUri: '123456789012.dkr.ecr.us-east-1.amazonaws.com/my-repo',
+      });
     });
   });
 

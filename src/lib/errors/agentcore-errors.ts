@@ -5,7 +5,7 @@ import { createError } from './base.js';
  * Format: AGENTCORE-NNN where NNN is a zero-padded category-specific number.
  * Ranges: 001-099 connection/auth, 100-199 runtime lifecycle,
  * 200-299 endpoint lifecycle, 300-399 invocation, 400-499 ECR,
- * 500-599 session, 700-799 API.
+ * 500-599 session, 600-699 reserved for future use, 700-799 API.
  */
 export const AGENTCORE_ERROR_IDS = {
   // Connection / Auth (001-099)
@@ -50,179 +50,142 @@ export type AgentCoreErrorId = (typeof AGENTCORE_ERROR_IDS)[keyof typeof AGENTCO
 
 export type AgentCoreError = ReturnType<(typeof AgentCoreErrors)[keyof typeof AgentCoreErrors]>;
 
+function agentcoreError(
+  key: string,
+  httpStatus: number,
+  message: string,
+  details?: Record<string, unknown>
+) {
+  return createError(
+    AGENTCORE_ERROR_IDS[key as keyof typeof AGENTCORE_ERROR_IDS],
+    message,
+    httpStatus,
+    { errorName: `AGENTCORE_${key}`, ...details }
+  );
+}
+
 export const AgentCoreErrors = {
   // Connection / Auth errors
   AWS_CREDENTIALS_INVALID: (reason: string) =>
-    createError(
-      AGENTCORE_ERROR_IDS.AWS_CREDENTIALS_INVALID,
-      `AWS credentials invalid: ${reason}`,
-      401,
-      { errorName: 'AGENTCORE_AWS_CREDENTIALS_INVALID' }
-    ),
+    agentcoreError('AWS_CREDENTIALS_INVALID', 401, `AWS credentials invalid: ${reason}`),
 
   AWS_CREDENTIALS_EXPIRED: () =>
-    createError(AGENTCORE_ERROR_IDS.AWS_CREDENTIALS_EXPIRED, 'AWS credentials have expired', 401, {
-      errorName: 'AGENTCORE_AWS_CREDENTIALS_EXPIRED',
-    }),
+    agentcoreError('AWS_CREDENTIALS_EXPIRED', 401, 'AWS credentials have expired'),
 
   AWS_REGION_INVALID: (region: string) =>
-    createError(AGENTCORE_ERROR_IDS.AWS_REGION_INVALID, `Invalid AWS region: ${region}`, 400, {
-      region,
-      errorName: 'AGENTCORE_AWS_REGION_INVALID',
-    }),
+    agentcoreError('AWS_REGION_INVALID', 400, `Invalid AWS region: ${region}`, { region }),
 
   AWS_STS_ERROR: (reason: string) =>
-    createError(AGENTCORE_ERROR_IDS.AWS_STS_ERROR, `AWS STS error: ${reason}`, 503, {
-      errorName: 'AGENTCORE_AWS_STS_ERROR',
-    }),
+    agentcoreError('AWS_STS_ERROR', 503, `AWS STS error: ${reason}`),
 
   // Runtime lifecycle errors
   RUNTIME_NOT_FOUND: (runtimeArn: string) =>
-    createError(
-      AGENTCORE_ERROR_IDS.RUNTIME_NOT_FOUND,
-      `AgentCore Runtime not found: ${runtimeArn}`,
-      404,
-      { runtimeArn, errorName: 'AGENTCORE_RUNTIME_NOT_FOUND' }
-    ),
+    agentcoreError('RUNTIME_NOT_FOUND', 404, `AgentCore Runtime not found: ${runtimeArn}`, {
+      runtimeArn,
+    }),
 
   RUNTIME_CREATION_FAILED: (name: string, reason: string) =>
-    createError(
-      AGENTCORE_ERROR_IDS.RUNTIME_CREATION_FAILED,
-      `Failed to create AgentCore Runtime ${name}: ${reason}`,
+    agentcoreError(
+      'RUNTIME_CREATION_FAILED',
       500,
-      { name, errorName: 'AGENTCORE_RUNTIME_CREATION_FAILED' }
+      `Failed to create AgentCore Runtime ${name}: ${reason}`,
+      { name }
     ),
 
   RUNTIME_STARTUP_TIMEOUT: (runtimeArn: string, timeoutSeconds: number) =>
-    createError(
-      AGENTCORE_ERROR_IDS.RUNTIME_STARTUP_TIMEOUT,
-      `AgentCore Runtime ${runtimeArn} failed to become ACTIVE within ${timeoutSeconds}s`,
+    agentcoreError(
+      'RUNTIME_STARTUP_TIMEOUT',
       408,
-      { runtimeArn, timeoutSeconds, errorName: 'AGENTCORE_RUNTIME_STARTUP_TIMEOUT' }
+      `AgentCore Runtime ${runtimeArn} failed to become ACTIVE within ${timeoutSeconds}s`,
+      { runtimeArn, timeoutSeconds }
     ),
 
   RUNTIME_DELETE_FAILED: (runtimeArn: string, reason: string) =>
-    createError(
-      AGENTCORE_ERROR_IDS.RUNTIME_DELETE_FAILED,
-      `Failed to delete AgentCore Runtime ${runtimeArn}: ${reason}`,
+    agentcoreError(
+      'RUNTIME_DELETE_FAILED',
       500,
-      { runtimeArn, errorName: 'AGENTCORE_RUNTIME_DELETE_FAILED' }
+      `Failed to delete AgentCore Runtime ${runtimeArn}: ${reason}`,
+      { runtimeArn }
     ),
 
   RUNTIME_NOT_ACTIVE: (runtimeArn: string, currentStatus: string) =>
-    createError(
-      AGENTCORE_ERROR_IDS.RUNTIME_NOT_ACTIVE,
-      `AgentCore Runtime ${runtimeArn} is not active (current: ${currentStatus})`,
+    agentcoreError(
+      'RUNTIME_NOT_ACTIVE',
       400,
-      { runtimeArn, currentStatus, errorName: 'AGENTCORE_RUNTIME_NOT_ACTIVE' }
+      `AgentCore Runtime ${runtimeArn} is not active (current: ${currentStatus})`,
+      { runtimeArn, currentStatus }
     ),
 
   RUNTIME_ALREADY_EXISTS: (projectId: string) =>
-    createError(
-      AGENTCORE_ERROR_IDS.RUNTIME_ALREADY_EXISTS,
-      'AgentCore Runtime already exists for project',
-      409,
-      { projectId, errorName: 'AGENTCORE_RUNTIME_ALREADY_EXISTS' }
-    ),
+    agentcoreError('RUNTIME_ALREADY_EXISTS', 409, 'AgentCore Runtime already exists for project', {
+      projectId,
+    }),
 
   RUNTIME_UPDATE_FAILED: (runtimeArn: string, reason: string) =>
-    createError(
-      AGENTCORE_ERROR_IDS.RUNTIME_UPDATE_FAILED,
-      `Failed to update AgentCore Runtime ${runtimeArn}: ${reason}`,
+    agentcoreError(
+      'RUNTIME_UPDATE_FAILED',
       500,
-      { runtimeArn, errorName: 'AGENTCORE_RUNTIME_UPDATE_FAILED' }
+      `Failed to update AgentCore Runtime ${runtimeArn}: ${reason}`,
+      { runtimeArn }
     ),
 
   // Endpoint lifecycle errors
   ENDPOINT_NOT_FOUND: (endpointName: string) =>
-    createError(
-      AGENTCORE_ERROR_IDS.ENDPOINT_NOT_FOUND,
-      `AgentCore endpoint not found: ${endpointName}`,
-      404,
-      { endpointName, errorName: 'AGENTCORE_ENDPOINT_NOT_FOUND' }
-    ),
+    agentcoreError('ENDPOINT_NOT_FOUND', 404, `AgentCore endpoint not found: ${endpointName}`, {
+      endpointName,
+    }),
 
   ENDPOINT_CREATION_FAILED: (runtimeArn: string, reason: string) =>
-    createError(
-      AGENTCORE_ERROR_IDS.ENDPOINT_CREATION_FAILED,
-      `Failed to create endpoint for Runtime ${runtimeArn}: ${reason}`,
+    agentcoreError(
+      'ENDPOINT_CREATION_FAILED',
       500,
-      { runtimeArn, errorName: 'AGENTCORE_ENDPOINT_CREATION_FAILED' }
+      `Failed to create endpoint for Runtime ${runtimeArn}: ${reason}`,
+      { runtimeArn }
     ),
 
   // Invocation errors
   INVOCATION_FAILED: (runtimeArn: string, reason: string) =>
-    createError(
-      AGENTCORE_ERROR_IDS.INVOCATION_FAILED,
-      `Failed to invoke AgentCore Runtime: ${reason}`,
-      500,
-      { runtimeArn, errorName: 'AGENTCORE_INVOCATION_FAILED' }
-    ),
+    agentcoreError('INVOCATION_FAILED', 500, `Failed to invoke AgentCore Runtime: ${reason}`, {
+      runtimeArn,
+    }),
 
   INVOCATION_TIMEOUT: (runtimeArn: string, timeoutMs: number) =>
-    createError(
-      AGENTCORE_ERROR_IDS.INVOCATION_TIMEOUT,
-      `AgentCore invocation timed out after ${timeoutMs}ms`,
+    agentcoreError(
+      'INVOCATION_TIMEOUT',
       408,
-      { runtimeArn, timeoutMs, errorName: 'AGENTCORE_INVOCATION_TIMEOUT' }
+      `AgentCore invocation timed out after ${timeoutMs}ms`,
+      { runtimeArn, timeoutMs }
     ),
 
   INVOCATION_THROTTLED: (runtimeArn: string) =>
-    createError(AGENTCORE_ERROR_IDS.INVOCATION_THROTTLED, 'AgentCore invocation throttled', 429, {
-      runtimeArn,
-      errorName: 'AGENTCORE_INVOCATION_THROTTLED',
-    }),
+    agentcoreError('INVOCATION_THROTTLED', 429, 'AgentCore invocation throttled', { runtimeArn }),
 
   // ECR errors
   ECR_AUTH_FAILED: (reason: string) =>
-    createError(AGENTCORE_ERROR_IDS.ECR_AUTH_FAILED, `ECR authentication failed: ${reason}`, 401, {
-      errorName: 'AGENTCORE_ECR_AUTH_FAILED',
-    }),
+    agentcoreError('ECR_AUTH_FAILED', 401, `ECR authentication failed: ${reason}`),
 
   ECR_PUSH_FAILED: (image: string, reason: string) =>
-    createError(
-      AGENTCORE_ERROR_IDS.ECR_PUSH_FAILED,
-      `Failed to push image ${image} to ECR: ${reason}`,
-      500,
-      { image, errorName: 'AGENTCORE_ECR_PUSH_FAILED' }
-    ),
-
-  ECR_IMAGE_NOT_FOUND: (image: string) =>
-    createError(AGENTCORE_ERROR_IDS.ECR_IMAGE_NOT_FOUND, `Image not found in ECR: ${image}`, 404, {
+    agentcoreError('ECR_PUSH_FAILED', 500, `Failed to push image ${image} to ECR: ${reason}`, {
       image,
-      errorName: 'AGENTCORE_ECR_IMAGE_NOT_FOUND',
     }),
 
+  ECR_IMAGE_NOT_FOUND: (image: string) =>
+    agentcoreError('ECR_IMAGE_NOT_FOUND', 404, `Image not found in ECR: ${image}`, { image }),
+
   ECR_REPO_NOT_FOUND: (repoUri: string) =>
-    createError(
-      AGENTCORE_ERROR_IDS.ECR_REPO_NOT_FOUND,
-      `ECR repository not found: ${repoUri}`,
-      404,
-      { repoUri, errorName: 'AGENTCORE_ECR_REPO_NOT_FOUND' }
-    ),
+    agentcoreError('ECR_REPO_NOT_FOUND', 404, `ECR repository not found: ${repoUri}`, {
+      repoUri,
+    }),
 
   // Session errors
   SESSION_CREATION_FAILED: (reason: string) =>
-    createError(
-      AGENTCORE_ERROR_IDS.SESSION_CREATION_FAILED,
-      `Failed to create AgentCore session: ${reason}`,
-      500,
-      { errorName: 'AGENTCORE_SESSION_CREATION_FAILED' }
-    ),
+    agentcoreError('SESSION_CREATION_FAILED', 500, `Failed to create AgentCore session: ${reason}`),
 
   // API errors
   API_ERROR: (statusCode: number, reason: string) =>
-    createError(
-      AGENTCORE_ERROR_IDS.API_ERROR,
-      `AgentCore API error (${statusCode}): ${reason}`,
-      statusCode,
-      { errorName: 'AGENTCORE_API_ERROR' }
-    ),
+    agentcoreError('API_ERROR', statusCode, `AgentCore API error (${statusCode}): ${reason}`),
 
-  INTERNAL_ERROR: (reason: string) =>
-    createError(AGENTCORE_ERROR_IDS.INTERNAL_ERROR, reason, 500, {
-      errorName: 'AGENTCORE_INTERNAL_ERROR',
-    }),
+  INTERNAL_ERROR: (reason: string) => agentcoreError('INTERNAL_ERROR', 500, reason),
 };
 
 // Type-level check: ensure AGENTCORE_ERROR_IDS and AgentCoreErrors have matching keys

@@ -179,6 +179,7 @@ export interface RouterDependencies {
   getSandboxProvider?: () => EventEmittingSandboxProvider | null;
   getK8sProvider?: () => SandboxProviderHealth | null;
   getNomadProvider?: () => SandboxProviderHealth | null;
+  getAgentCoreProvider?: () => SandboxProviderHealth | null;
   cliMonitorService?: CliMonitorService | null;
   terraformRegistryService?: TerraformRegistryService;
   terraformComposeService?: TerraformComposeService;

@@ -223,6 +223,11 @@ CREATE TABLE IF NOT EXISTS "sandbox_configs" (
   "nomad_namespace" TEXT DEFAULT 'default',
   "nomad_datacenter" TEXT,
   "nomad_region" TEXT,
+  "aws_access_key_id" TEXT,
+  "aws_secret_access_key" TEXT,
+  "aws_region" TEXT,
+  "agentcore_runtime_arn" TEXT,
+  "ecr_repository_uri" TEXT,
   "created_at" TEXT DEFAULT (datetime('now')) NOT NULL,
   "updated_at" TEXT DEFAULT (datetime('now')) NOT NULL
 );
@@ -432,6 +437,15 @@ ALTER TABLE sandbox_configs ADD COLUMN nomad_token TEXT;
 ALTER TABLE sandbox_configs ADD COLUMN nomad_namespace TEXT DEFAULT 'default';
 ALTER TABLE sandbox_configs ADD COLUMN nomad_datacenter TEXT;
 ALTER TABLE sandbox_configs ADD COLUMN nomad_region TEXT;
+`;
+
+// Migration for AgentCore columns on sandbox_configs (for existing databases)
+export const SANDBOX_AGENTCORE_MIGRATION_SQL = `
+ALTER TABLE sandbox_configs ADD COLUMN aws_access_key_id TEXT;
+ALTER TABLE sandbox_configs ADD COLUMN aws_secret_access_key TEXT;
+ALTER TABLE sandbox_configs ADD COLUMN aws_region TEXT;
+ALTER TABLE sandbox_configs ADD COLUMN agentcore_runtime_arn TEXT;
+ALTER TABLE sandbox_configs ADD COLUMN ecr_repository_uri TEXT;
 `;
 
 // Event system migration (event sources, subscriptions, event log)
