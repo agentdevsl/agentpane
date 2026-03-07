@@ -6,7 +6,7 @@ import {
   type BedrockAgentCoreControlClient,
   GetAgentRuntimeCommand,
 } from '@aws-sdk/client-bedrock-agentcore-control';
-import { AgentCoreErrors } from '../../errors/agentcore-errors.js';
+import { AgentCoreErrors, isAgentCoreError } from '../../errors/agentcore-errors.js';
 import { createLogger } from '../../logging/logger.js';
 import type { ExecResult, SandboxMetrics, SandboxStatus, TmuxSession } from '../types.js';
 import { SANDBOX_DEFAULTS } from '../types.js';
@@ -112,6 +112,7 @@ export class AgentCoreSandboxInstance implements Sandbox {
       const command = new InvokeAgentRuntimeCommand({
         agentRuntimeArn: this.runtimeArn,
         payload: new TextEncoder().encode(payload),
+        contentType: 'application/json',
       });
 
       const invocation = await this.dataClient.send(command);
@@ -141,22 +142,17 @@ export class AgentCoreSandboxInstance implements Sandbox {
 
       if (result.exitCode === undefined) {
         log.warn(
-          `exec response missing exitCode for cmd "${cmd}" on ${this.runtimeArn}, defaulting to 0`
+          `exec response missing exitCode for cmd "${cmd}" on ${this.runtimeArn}, defaulting to 1`
         );
       }
       return {
-        exitCode: result.exitCode ?? 0,
+        exitCode: result.exitCode ?? 1,
         stdout: (result.stdout ?? '').trim(),
         stderr: (result.stderr ?? '').trim(),
       };
     } catch (error) {
       // Pass through errors that are already AgentCore errors (avoid double-wrapping)
-      if (
-        error instanceof Error &&
-        'code' in error &&
-        typeof (error as Record<string, unknown>).code === 'string' &&
-        ((error as Record<string, unknown>).code as string).startsWith('AGENTCORE')
-      ) {
+      if (isAgentCoreError(error)) {
         throw error;
       }
 
@@ -167,9 +163,18 @@ export class AgentCoreSandboxInstance implements Sandbox {
         data: { cmd },
       });
 
-      // Check for throttling
-      if (error instanceof Error && error.name === 'ThrottlingException') {
-        throw AgentCoreErrors.INVOCATION_THROTTLED(this.runtimeArn);
+      // Check for specific AWS SDK error types
+      if (error instanceof Error) {
+        if (error.name === 'ThrottlingException') {
+          throw AgentCoreErrors.INVOCATION_THROTTLED(this.runtimeArn);
+        }
+        if (error.name === 'ResourceNotFoundException') {
+          this._status = 'stopped';
+          throw AgentCoreErrors.INVOCATION_FAILED(
+            this.runtimeArn,
+            `Runtime no longer exists: ${message}`
+          );
+        }
       }
 
       throw AgentCoreErrors.INVOCATION_FAILED(this.runtimeArn, `exec ${cmd}: ${message}`);
@@ -192,12 +197,19 @@ export class AgentCoreSandboxInstance implements Sandbox {
       const command = new InvokeAgentRuntimeCommand({
         agentRuntimeArn: this.runtimeArn,
         payload: new TextEncoder().encode(payload),
+        contentType: 'application/json',
       });
 
       await this.dataClient.send(command);
       this._status = 'stopped';
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      // If runtime was already deleted externally, treat as successfully stopped
+      if (error instanceof Error && error.name === 'ResourceNotFoundException') {
+        log.info(`Runtime ${this.runtimeArn} already deleted, marking as stopped`);
+        this._status = 'stopped';
+        return;
+      }
       log.error(`Failed to stop sandbox ${this.runtimeArn}`, {
         error: error instanceof Error ? error : new Error(String(error)),
       });
@@ -214,7 +226,17 @@ export class AgentCoreSandboxInstance implements Sandbox {
 
   // --- tmux session management ---
 
+  private validateSessionName(sessionName: string): void {
+    if (!/^[a-zA-Z0-9_-]+$/.test(sessionName)) {
+      throw AgentCoreErrors.INVOCATION_FAILED(
+        this.runtimeArn,
+        `Invalid tmux session name: "${sessionName}" — only alphanumeric, hyphens, and underscores are allowed`
+      );
+    }
+  }
+
   async createTmuxSession(sessionName: string, taskId?: string): Promise<TmuxSession> {
+    this.validateSessionName(sessionName);
     this.assertRunning();
     this.touch();
 
@@ -306,6 +328,7 @@ export class AgentCoreSandboxInstance implements Sandbox {
   }
 
   async killTmuxSession(sessionName: string): Promise<void> {
+    this.validateSessionName(sessionName);
     this.assertRunning();
     this.touch();
 
@@ -325,6 +348,7 @@ export class AgentCoreSandboxInstance implements Sandbox {
   }
 
   async sendKeysToTmux(sessionName: string, keys: string): Promise<void> {
+    this.validateSessionName(sessionName);
     this.assertRunning();
     this.touch();
 
@@ -338,6 +362,7 @@ export class AgentCoreSandboxInstance implements Sandbox {
   }
 
   async captureTmuxPane(sessionName: string, lines = 100): Promise<string> {
+    this.validateSessionName(sessionName);
     this.assertRunning();
     this.touch();
 

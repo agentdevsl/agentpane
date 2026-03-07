@@ -563,6 +563,8 @@ function SandboxSettingsPage(): React.JSX.Element {
           setAgentcoreHasSecretKey(!!agentcoreSecretKey);
         }
         setTimeout(() => setDefaultsSaved(false), 2000);
+      } else {
+        setError('Failed to save default settings');
       }
     } catch (_err) {
       setError('Failed to save default settings');
@@ -827,7 +829,8 @@ function SandboxSettingsPage(): React.JSX.Element {
       setProviderSaved(true);
       setTimeout(() => setProviderSaved(false), 2000);
     } catch (error) {
-      console.error('Failed to save provider settings:', error);
+      const message = error instanceof Error ? error.message : 'Failed to save provider settings';
+      setError(message);
     } finally {
       setIsSavingProvider(false);
     }

@@ -50,18 +50,28 @@ export type AgentCoreErrorId = (typeof AGENTCORE_ERROR_IDS)[keyof typeof AGENTCO
 
 export type AgentCoreError = ReturnType<(typeof AgentCoreErrors)[keyof typeof AgentCoreErrors]>;
 
+/**
+ * Check whether an error is an AgentCore error (has a code starting with 'AGENTCORE').
+ */
+export function isAgentCoreError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    'code' in error &&
+    typeof (error as Record<string, unknown>).code === 'string' &&
+    ((error as Record<string, unknown>).code as string).startsWith('AGENTCORE')
+  );
+}
+
 function agentcoreError(
-  key: string,
+  key: keyof typeof AGENTCORE_ERROR_IDS,
   httpStatus: number,
   message: string,
   details?: Record<string, unknown>
 ) {
-  return createError(
-    AGENTCORE_ERROR_IDS[key as keyof typeof AGENTCORE_ERROR_IDS],
-    message,
-    httpStatus,
-    { errorName: `AGENTCORE_${key}`, ...details }
-  );
+  return createError(AGENTCORE_ERROR_IDS[key], message, httpStatus, {
+    errorName: `AGENTCORE_${key}`,
+    ...details,
+  });
 }
 
 export const AgentCoreErrors = {

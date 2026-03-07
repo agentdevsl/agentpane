@@ -13,7 +13,7 @@ import {
 } from '@aws-sdk/client-ecr';
 import { GetCallerIdentityCommand, STSClient } from '@aws-sdk/client-sts';
 import { createId } from '@paralleldrive/cuid2';
-import { AgentCoreErrors } from '../../errors/agentcore-errors.js';
+import { AgentCoreErrors, isAgentCoreError } from '../../errors/agentcore-errors.js';
 import { createLogger } from '../../logging/logger.js';
 import type { SandboxConfig, SandboxHealthCheck, SandboxInfo } from '../types.js';
 import { SANDBOX_DEFAULTS } from '../types.js';
@@ -90,6 +90,28 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
   private projectToSandbox = new Map<string, string>();
   private listeners = new Set<SandboxProviderEventListener>();
   private creatingProjects = new Set<string>();
+
+  private evictSandbox(sandboxId: string, projectId: string): void {
+    this.sandboxes.delete(sandboxId);
+    if (this.projectToSandbox.get(projectId) === sandboxId) {
+      this.projectToSandbox.delete(projectId);
+    }
+  }
+
+  private async listAllRuntimes(): Promise<Array<Record<string, unknown>>> {
+    let nextToken: string | undefined;
+    const runtimes: Array<Record<string, unknown>> = [];
+    do {
+      const response = await this.controlClient.send(
+        new ListAgentRuntimesCommand({ maxResults: 100, nextToken })
+      );
+      if (response.agentRuntimes) {
+        runtimes.push(...response.agentRuntimes);
+      }
+      nextToken = response.nextToken;
+    } while (nextToken);
+    return runtimes;
+  }
 
   constructor(options: AgentCoreSandboxProviderOptions = {}) {
     const credentials =
@@ -177,7 +199,7 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
         );
       }
 
-      runtimeId = extractRuntimeId(runtimeArn);
+      runtimeId = createResponse.agentRuntimeId ?? extractRuntimeId(runtimeArn);
 
       // Poll GetAgentRuntimeCommand until status is READY (with timeout)
       const startTime = Date.now();
@@ -270,6 +292,11 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
         error: error instanceof Error ? error : new Error(String(error)),
       });
 
+      // Re-throw if already an AgentCore error (avoid double-wrapping)
+      if (isAgentCoreError(error)) {
+        throw error;
+      }
+
       // Check for specific AWS error types
       if (error instanceof Error) {
         if (error.name === 'AccessDeniedException' || error.name === 'UnauthorizedException') {
@@ -278,16 +305,6 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
         if (error.name === 'ExpiredTokenException') {
           throw AgentCoreErrors.AWS_CREDENTIALS_EXPIRED();
         }
-      }
-
-      // Re-throw if already an AgentCore error
-      if (
-        error instanceof Error &&
-        'code' in error &&
-        typeof (error as Record<string, unknown>).code === 'string' &&
-        ((error as Record<string, unknown>).code as string).startsWith('AGENTCORE')
-      ) {
-        throw error;
       }
 
       const message = error instanceof Error ? error.message : String(error);
@@ -319,10 +336,7 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
         log.info('Evicting stale sandbox from cache', {
           data: { sandboxId, projectId: instance.projectId, status: instance.status },
         });
-        this.sandboxes.delete(sandboxId);
-        if (this.projectToSandbox.get(instance.projectId) === sandboxId) {
-          this.projectToSandbox.delete(instance.projectId);
-        }
+        this.evictSandbox(sandboxId, instance.projectId);
       }
     }
   }
@@ -341,10 +355,7 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
             error: error instanceof Error ? error : new Error(String(error)),
             data: { projectId },
           });
-          this.sandboxes.delete(sandboxId);
-          if (this.projectToSandbox.get(projectId) === sandboxId) {
-            this.projectToSandbox.delete(projectId);
-          }
+          this.evictSandbox(sandboxId, projectId);
           // Fall through to API query below
         }
         if (this.sandboxes.has(sandboxId)) {
@@ -352,10 +363,7 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
             log.info('Evicting stale sandbox from get() cache', {
               data: { sandboxId, projectId, status: cached.status },
             });
-            this.sandboxes.delete(sandboxId);
-            if (this.projectToSandbox.get(projectId) === sandboxId) {
-              this.projectToSandbox.delete(projectId);
-            }
+            this.evictSandbox(sandboxId, projectId);
             // Fall through to API query below
           } else {
             return cached;
@@ -366,17 +374,7 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
 
     try {
       // Fall through to API query using ListAgentRuntimes (with pagination)
-      let nextToken: string | undefined;
-      const runtimes: Array<Record<string, unknown>> = [];
-      do {
-        const response = await this.controlClient.send(
-          new ListAgentRuntimesCommand({ maxResults: 100, nextToken })
-        );
-        if (response.agentRuntimes) {
-          runtimes.push(...response.agentRuntimes);
-        }
-        nextToken = response.nextToken;
-      } while (nextToken);
+      const runtimes = await this.listAllRuntimes();
 
       // Find a runtime with matching name prefix that is READY
       const namePrefix = `agentpane-${projectId.slice(0, 20)}-`
@@ -435,17 +433,11 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
         log.error(`refreshStatus failed for sandbox ${sandboxId} in getById`, {
           error: error instanceof Error ? error : new Error(String(error)),
         });
-        this.sandboxes.delete(sandboxId);
-        if (this.projectToSandbox.get(cached.projectId) === sandboxId) {
-          this.projectToSandbox.delete(cached.projectId);
-        }
+        this.evictSandbox(sandboxId, cached.projectId);
         return null;
       }
       if (cached.status === 'error' || cached.status === 'stopped') {
-        this.sandboxes.delete(sandboxId);
-        if (this.projectToSandbox.get(cached.projectId) === sandboxId) {
-          this.projectToSandbox.delete(cached.projectId);
-        }
+        this.evictSandbox(sandboxId, cached.projectId);
         return null;
       }
     }
@@ -455,17 +447,7 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
   async list(): Promise<SandboxInfo[]> {
     await this.validateSandboxes();
     try {
-      let nextToken: string | undefined;
-      const runtimes: Array<Record<string, unknown>> = [];
-      do {
-        const response = await this.controlClient.send(
-          new ListAgentRuntimesCommand({ maxResults: 100, nextToken })
-        );
-        if (response.agentRuntimes) {
-          runtimes.push(...response.agentRuntimes);
-        }
-        nextToken = response.nextToken;
-      } while (nextToken);
+      const runtimes = await this.listAllRuntimes();
 
       return runtimes
         .filter((runtime) => runtime.agentRuntimeName?.startsWith('agentpane-'))
@@ -565,7 +547,7 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
       log.error(`Failed to check image availability for ${image}: ${message}`, {
         error: error instanceof Error ? error : new Error(message),
       });
-      throw AgentCoreErrors.ECR_AUTH_FAILED(`Unable to verify image availability: ${message}`);
+      throw AgentCoreErrors.INTERNAL_ERROR(`Unable to verify image availability: ${message}`);
     }
   }
 
@@ -636,16 +618,17 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
       const instance = this.sandboxes.get(sandboxId);
       if (!instance) continue;
       try {
-        if (instance.status !== 'stopped') {
-          const deleteCommand = new DeleteAgentRuntimeCommand({
-            agentRuntimeId: instance.getRuntimeId(),
-          });
-          await this.controlClient.send(deleteCommand);
-        }
-        this.sandboxes.delete(sandboxId);
-        if (this.projectToSandbox.get(instance.projectId) === sandboxId) {
-          this.projectToSandbox.delete(instance.projectId);
-        }
+        // Always attempt to delete the AWS runtime (including stopped ones
+        // which only had their local status set without AWS deletion)
+        const deleteCommand = new DeleteAgentRuntimeCommand({
+          agentRuntimeId: instance.getRuntimeId(),
+        });
+        await this.controlClient.send(deleteCommand).catch((err: unknown) => {
+          // Ignore not-found errors — runtime may already be deleted
+          if (err instanceof Error && err.name === 'ResourceNotFoundException') return;
+          throw err;
+        });
+        this.evictSandbox(sandboxId, instance.projectId);
         cleaned++;
       } catch (error) {
         log.error(
@@ -660,17 +643,7 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
     // Phase 2: Reclaim orphaned runtimes from previous process lifetimes
     // by listing all AgentPane runtimes from AWS and deleting uncached ones
     try {
-      let nextToken: string | undefined;
-      const allRuntimes: Array<Record<string, unknown>> = [];
-      do {
-        const response = await this.controlClient.send(
-          new ListAgentRuntimesCommand({ maxResults: 100, nextToken })
-        );
-        if (response.agentRuntimes) {
-          allRuntimes.push(...response.agentRuntimes);
-        }
-        nextToken = response.nextToken;
-      } while (nextToken);
+      const allRuntimes = await this.listAllRuntimes();
 
       // Collect ARNs of runtimes still tracked in cache
       const cachedArns = new Set<string>();

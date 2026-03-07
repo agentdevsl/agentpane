@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AGENTCORE_ERROR_IDS, AgentCoreErrors } from '../agentcore-errors.js';
+import { AGENTCORE_ERROR_IDS, AgentCoreErrors, isAgentCoreError } from '../agentcore-errors.js';
 import { AppErrorClass } from '../base.js';
 
 describe('AGENTCORE_ERROR_IDS', () => {
@@ -379,5 +379,22 @@ describe('AgentCoreErrors', () => {
   it('details include errorName for debugging', () => {
     const error = AgentCoreErrors.AWS_CREDENTIALS_INVALID('test');
     expect(error.details).toHaveProperty('errorName', 'AGENTCORE_AWS_CREDENTIALS_INVALID');
+  });
+});
+
+describe('isAgentCoreError', () => {
+  it('returns true for AgentCore errors', () => {
+    const error = AgentCoreErrors.AWS_CREDENTIALS_INVALID('test');
+    expect(isAgentCoreError(error)).toBe(true);
+  });
+
+  it('returns false for plain Error', () => {
+    expect(isAgentCoreError(new Error('not agentcore'))).toBe(false);
+  });
+
+  it('returns false for non-error values', () => {
+    expect(isAgentCoreError(null)).toBe(false);
+    expect(isAgentCoreError('string')).toBe(false);
+    expect(isAgentCoreError(42)).toBe(false);
   });
 });

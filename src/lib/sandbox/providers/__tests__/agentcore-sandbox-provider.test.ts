@@ -1400,8 +1400,8 @@ describe('AgentCoreSandboxInstance', () => {
 
       const result = await instance.exec('echo', ['hello']);
 
-      // Parsed from '{}' — exitCode defaults to 0, stdout/stderr default to ''
-      expect(result.exitCode).toBe(0);
+      // Parsed from '{}' — exitCode defaults to 1 (missing exitCode), stdout/stderr default to ''
+      expect(result.exitCode).toBe(1);
       expect(result.stdout).toBe('');
       expect(result.stderr).toBe('');
     });
@@ -1422,7 +1422,7 @@ describe('AgentCoreSandboxInstance', () => {
       });
     });
 
-    it('defaults exitCode to 0 when missing from response', async () => {
+    it('defaults exitCode to 1 when missing from response', async () => {
       await setRunning();
 
       mockDataClientSend.mockResolvedValue({
@@ -1440,7 +1440,7 @@ describe('AgentCoreSandboxInstance', () => {
       });
 
       const result = await instance.exec('cmd-no-exit');
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode).toBe(1);
       expect(result.stdout).toBe('some output');
     });
   });
@@ -1658,7 +1658,7 @@ describe('AgentCoreSandboxProvider - isImageAvailable', () => {
     mockEcrClientSend.mockRejectedValue(new Error('Network timeout'));
 
     await expect(provider.isImageAvailable('my-image:latest')).rejects.toMatchObject({
-      code: 'AGENTCORE-400',
+      code: 'AGENTCORE-701',
     });
   });
 });
