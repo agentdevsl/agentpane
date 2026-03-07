@@ -21,6 +21,9 @@ svg { display: block; }
   <marker id="arrow-orange" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
     <path d="M0,0 L8,3 L0,6" fill="none" stroke="#d29922" stroke-width="1.5"/>
   </marker>
+  <marker id="arrow-aws" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6" fill="none" stroke="#f69d50" stroke-width="1.5"/>
+  </marker>
 </defs>
 
 <!-- Background -->
@@ -45,7 +48,7 @@ svg { display: block; }
 <text x="250" y="107" fill="#8b949e" font-size="10">HTTP</text>
 
 <!-- ==================== HOST SECTION (green dashed) ==================== -->
-<rect x="30" y="125" width="1120" height="560" rx="12" fill="none" stroke="#3fb950" stroke-width="2" stroke-dasharray="8,4"/>
+<rect x="30" y="125" width="1120" height="570" rx="12" fill="none" stroke="#3fb950" stroke-width="2" stroke-dasharray="8,4"/>
 <text x="50" y="145" fill="#3fb950" font-size="13" font-weight="600">Host</text>
 
 <!-- Caddy -->
@@ -164,25 +167,31 @@ svg { display: block; }
 <path d="M 830 260 L 810 260 L 810 495 L 770 495" fill="none" stroke="#d29922" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-orange)"/>
 <text x="812" y="490" fill="#d29922" font-size="9">creates tasks</text>
 
-<!-- Providers row -->
-<rect x="70" y="548" width="220" height="42" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
-<text x="180" y="574" text-anchor="middle" fill="#3fb950" font-size="13" font-weight="600">Docker Provider</text>
+<!-- Providers row (4 providers) -->
+<rect x="70" y="548" width="170" height="42" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
+<text x="155" y="574" text-anchor="middle" fill="#3fb950" font-size="13" font-weight="600">Docker Provider</text>
 
-<rect x="320" y="548" width="220" height="42" rx="8" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
-<text x="430" y="574" text-anchor="middle" fill="#58a6ff" font-size="13" font-weight="600">K8s Provider</text>
+<rect x="260" y="548" width="170" height="42" rx="8" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="345" y="574" text-anchor="middle" fill="#58a6ff" font-size="13" font-weight="600">K8s Provider</text>
 
-<rect x="570" y="548" width="220" height="42" rx="8" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
-<text x="680" y="574" text-anchor="middle" fill="#f0883e" font-size="13" font-weight="600">Nomad Provider</text>
+<rect x="450" y="548" width="170" height="42" rx="8" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
+<text x="535" y="574" text-anchor="middle" fill="#f0883e" font-size="13" font-weight="600">Nomad Provider</text>
+
+<rect x="640" y="548" width="190" height="42" rx="8" fill="#161b22" stroke="#f69d50" stroke-width="1.5"/>
+<text x="735" y="568" text-anchor="middle" fill="#f69d50" font-size="12" font-weight="600">AgentCore Provider</text>
+<text x="735" y="582" text-anchor="middle" fill="#8b949e" font-size="9">NEW</text>
 
 <!-- Connections: Container Agent -> Providers -->
-<line x1="180" y1="522" x2="180" y2="548" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
-<line x1="430" y1="522" x2="430" y2="548" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
-<line x1="680" y1="522" x2="680" y2="548" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="155" y1="522" x2="155" y2="548" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="345" y1="522" x2="345" y2="548" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="535" y1="522" x2="535" y2="548" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="735" y1="522" x2="735" y2="548" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
 
 <!-- Connections: Providers -> runtime sections below -->
-<line x1="180" y1="590" x2="180" y2="740" stroke="#484f58" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-gray)"/>
-<line x1="430" y1="590" x2="430" y2="740" stroke="#484f58" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-gray)"/>
-<line x1="680" y1="590" x2="680" y2="740" stroke="#484f58" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-gray)"/>
+<line x1="155" y1="590" x2="155" y2="740" stroke="#484f58" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-gray)"/>
+<line x1="345" y1="590" x2="450" y2="740" stroke="#484f58" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-gray)"/>
+<line x1="535" y1="590" x2="755" y2="740" stroke="#484f58" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-gray)"/>
+<line x1="735" y1="590" x2="1115" y2="740" stroke="#484f58" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-gray)"/>
 
 <!-- ==================== PostgreSQL (Remote) ==================== -->
 <rect x="1200" y="360" width="310" height="110" rx="10" fill="none" stroke="#8b949e" stroke-width="2" stroke-dasharray="8,4"/>
@@ -216,7 +225,7 @@ svg { display: block; }
 <path d="M 1200 560 L 1170 560 L 1170 342 L 770 342" fill="none" stroke="#d29922" stroke-width="1" stroke-dasharray="4,2"/>
 
 <!-- ==================== LEGEND ==================== -->
-<rect x="1200" y="148" width="310" height="190" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+<rect x="1200" y="148" width="310" height="195" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
 <text x="1355" y="172" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="600">Legend</text>
 
 <line x1="1222" y1="192" x2="1275" y2="192" stroke="#484f58" stroke-width="2"/>
@@ -237,45 +246,61 @@ svg { display: block; }
 <line x1="1222" y1="302" x2="1275" y2="302" stroke="#f0883e" stroke-width="2" stroke-dasharray="8,4"/>
 <text x="1285" y="306" fill="#8b949e" font-size="12">Runtime boundary</text>
 
-<rect x="1222" y="320" width="16" height="12" rx="3" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
-<text x="1248" y="330" fill="#8b949e" font-size="12">Event system (new)</text>
+<line x1="1222" y1="324" x2="1275" y2="324" stroke="#f69d50" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="1285" y="328" fill="#8b949e" font-size="12">AWS cloud boundary (new)</text>
 
 <!-- ==================== RUNTIME SECTIONS ==================== -->
 
 <!-- Docker (Local) -->
-<rect x="50" y="740" width="310" height="160" rx="10" fill="none" stroke="#3fb950" stroke-width="2" stroke-dasharray="8,4"/>
+<rect x="50" y="740" width="280" height="160" rx="10" fill="none" stroke="#3fb950" stroke-width="2" stroke-dasharray="8,4"/>
 <text x="68" y="760" fill="#3fb950" font-size="12" font-weight="600">Docker (Local)</text>
 
-<rect x="72" y="774" width="268" height="45" rx="7" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
-<text x="206" y="794" text-anchor="middle" fill="#e6edf3" font-size="14">agent-sandbox</text>
-<text x="206" y="810" text-anchor="middle" fill="#8b949e" font-size="11">containers</text>
+<rect x="68" y="774" width="244" height="45" rx="7" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
+<text x="190" y="794" text-anchor="middle" fill="#e6edf3" font-size="14">agent-sandbox</text>
+<text x="190" y="810" text-anchor="middle" fill="#8b949e" font-size="11">containers</text>
 
-<rect x="72" y="830" width="268" height="32" rx="7" fill="#161b22" stroke="#484f58" stroke-width="1"/>
-<text x="206" y="850" text-anchor="middle" fill="#8b949e" font-size="11">docker.socket</text>
+<rect x="68" y="830" width="244" height="32" rx="7" fill="#161b22" stroke="#484f58" stroke-width="1"/>
+<text x="190" y="850" text-anchor="middle" fill="#8b949e" font-size="11">docker.socket</text>
 
 <!-- K8s Cluster -->
-<rect x="400" y="740" width="310" height="160" rx="10" fill="none" stroke="#58a6ff" stroke-width="2" stroke-dasharray="8,4"/>
-<text x="418" y="760" fill="#58a6ff" font-size="12" font-weight="600">K8s Cluster</text>
+<rect x="360" y="740" width="280" height="160" rx="10" fill="none" stroke="#58a6ff" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="378" y="760" fill="#58a6ff" font-size="12" font-weight="600">K8s Cluster</text>
 
-<rect x="422" y="774" width="268" height="45" rx="7" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
-<text x="556" y="794" text-anchor="middle" fill="#e6edf3" font-size="14">K8s Pods</text>
-<text x="556" y="810" text-anchor="middle" fill="#8b949e" font-size="11">gVisor / kata / runc</text>
+<rect x="378" y="774" width="244" height="45" rx="7" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="500" y="794" text-anchor="middle" fill="#e6edf3" font-size="14">K8s Pods</text>
+<text x="500" y="810" text-anchor="middle" fill="#8b949e" font-size="11">gVisor / kata / runc</text>
 
-<rect x="422" y="830" width="268" height="45" rx="7" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
-<text x="556" y="850" text-anchor="middle" fill="#e6edf3" font-size="14">Sandbox CRDs</text>
-<text x="556" y="866" text-anchor="middle" fill="#8b949e" font-size="11">agentpane.io</text>
+<rect x="378" y="830" width="244" height="45" rx="7" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="500" y="850" text-anchor="middle" fill="#e6edf3" font-size="14">Sandbox CRDs</text>
+<text x="500" y="866" text-anchor="middle" fill="#8b949e" font-size="11">agentpane.io</text>
 
 <!-- Nomad Cluster -->
-<rect x="750" y="740" width="310" height="160" rx="10" fill="none" stroke="#f0883e" stroke-width="2" stroke-dasharray="8,4"/>
-<text x="768" y="760" fill="#f0883e" font-size="12" font-weight="600">Nomad Cluster</text>
+<rect x="670" y="740" width="280" height="160" rx="10" fill="none" stroke="#f0883e" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="688" y="760" fill="#f0883e" font-size="12" font-weight="600">Nomad Cluster</text>
 
-<rect x="772" y="774" width="268" height="45" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
-<text x="906" y="794" text-anchor="middle" fill="#e6edf3" font-size="14">Nomad Jobs</text>
-<text x="906" y="810" text-anchor="middle" fill="#8b949e" font-size="11">docker driver</text>
+<rect x="688" y="774" width="244" height="45" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
+<text x="810" y="794" text-anchor="middle" fill="#e6edf3" font-size="14">Nomad Jobs</text>
+<text x="810" y="810" text-anchor="middle" fill="#8b949e" font-size="11">docker driver</text>
 
-<rect x="772" y="830" width="268" height="45" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
-<text x="906" y="850" text-anchor="middle" fill="#e6edf3" font-size="14">Alloc Exec</text>
-<text x="906" y="866" text-anchor="middle" fill="#8b949e" font-size="11">stdin/stdout</text>
+<rect x="688" y="830" width="244" height="45" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
+<text x="810" y="850" text-anchor="middle" fill="#e6edf3" font-size="14">Alloc Exec</text>
+<text x="810" y="866" text-anchor="middle" fill="#8b949e" font-size="11">stdin/stdout</text>
+
+<!-- ==================== AWS Bedrock AgentCore (NEW) ==================== -->
+<rect x="980" y="740" width="310" height="160" rx="10" fill="none" stroke="#f69d50" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="998" y="760" fill="#f69d50" font-size="12" font-weight="600">AWS Bedrock AgentCore</text>
+
+<rect x="998" y="774" width="274" height="45" rx="7" fill="#161b22" stroke="#f69d50" stroke-width="1.5"/>
+<text x="1135" y="794" text-anchor="middle" fill="#e6edf3" font-size="14">Agent Runtimes</text>
+<text x="1135" y="810" text-anchor="middle" fill="#8b949e" font-size="11">create · invoke · destroy</text>
+
+<rect x="998" y="830" width="130" height="45" rx="7" fill="#161b22" stroke="#f69d50" stroke-width="1.5"/>
+<text x="1063" y="850" text-anchor="middle" fill="#e6edf3" font-size="12">STS</text>
+<text x="1063" y="864" text-anchor="middle" fill="#8b949e" font-size="9">auth · health</text>
+
+<rect x="1142" y="830" width="130" height="45" rx="7" fill="#161b22" stroke="#f69d50" stroke-width="1.5"/>
+<text x="1207" y="850" text-anchor="middle" fill="#e6edf3" font-size="12">ECR</text>
+<text x="1207" y="864" text-anchor="middle" fill="#8b949e" font-size="9">image check</text>
 
 <!-- ==================== EXTERNAL SERVICES ==================== -->
 <rect x="50" y="960" width="1460" height="140" rx="12" fill="none" stroke="#8b949e" stroke-width="2" stroke-dasharray="8,4"/>
@@ -287,33 +312,44 @@ svg { display: block; }
 <text x="290" y="1032" text-anchor="middle" fill="#8b949e" font-size="11">Claude API · all sandbox containers</text>
 
 <!-- Service boxes row -->
-<rect x="80" y="1052" width="150" height="36" rx="7" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
-<text x="155" y="1074" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="600">GitHub API</text>
+<rect x="80" y="1052" width="130" height="36" rx="7" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="145" y="1074" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="600">GitHub API</text>
 
-<rect x="250" y="1052" width="150" height="36" rx="7" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
-<text x="325" y="1074" text-anchor="middle" fill="#3fb950" font-size="12" font-weight="600">Docker Hub</text>
+<rect x="225" y="1052" width="130" height="36" rx="7" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
+<text x="290" y="1074" text-anchor="middle" fill="#3fb950" font-size="12" font-weight="600">Docker Hub</text>
 
-<rect x="420" y="1052" width="160" height="36" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5" stroke-dasharray="5,3"/>
-<text x="500" y="1074" text-anchor="middle" fill="#f0883e" font-size="12" font-weight="600">npm Registry</text>
+<rect x="370" y="1052" width="130" height="36" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5" stroke-dasharray="5,3"/>
+<text x="435" y="1074" text-anchor="middle" fill="#f0883e" font-size="12" font-weight="600">npm Registry</text>
 
-<rect x="600" y="1052" width="180" height="36" rx="7" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
-<text x="690" y="1074" text-anchor="middle" fill="#d29922" font-size="12" font-weight="600">HCP Terraform</text>
+<rect x="515" y="1052" width="155" height="36" rx="7" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+<text x="592" y="1074" text-anchor="middle" fill="#d29922" font-size="12" font-weight="600">HCP Terraform</text>
 
-<rect x="800" y="1052" width="170" height="36" rx="7" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
-<text x="885" y="1074" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="600">GitHub OAuth</text>
+<rect x="685" y="1052" width="150" height="36" rx="7" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="760" y="1074" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="600">GitHub OAuth</text>
 
-<rect x="990" y="1052" width="200" height="36" rx="7" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
-<text x="1090" y="1070" text-anchor="middle" fill="#d29922" font-size="12" font-weight="600">GitHub Webhooks</text>
-<text x="1090" y="1084" text-anchor="middle" fill="#8b949e" font-size="9">POST /hooks/:slug</text>
+<rect x="850" y="1052" width="180" height="36" rx="7" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+<text x="940" y="1070" text-anchor="middle" fill="#d29922" font-size="12" font-weight="600">GitHub Webhooks</text>
+<text x="940" y="1084" text-anchor="middle" fill="#8b949e" font-size="9">POST /hooks/:slug</text>
+
+<!-- AWS Bedrock API (NEW) -->
+<rect x="1050" y="1052" width="220" height="36" rx="7" fill="#161b22" stroke="#f69d50" stroke-width="1.5"/>
+<text x="1160" y="1068" text-anchor="middle" fill="#f69d50" font-size="12" font-weight="600">AWS Bedrock API</text>
+<text x="1160" y="1082" text-anchor="middle" fill="#8b949e" font-size="9">STS · ECR · Agent Runtime</text>
 
 <!-- Connection: GitHub Webhooks -> Event System (right edge route) -->
-<path d="M 1190 1070 L 1250 1070 L 1250 920 L 1160 920 L 1160 478" fill="none" stroke="#d29922" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-orange)"/>
+<path d="M 1030 1070 L 1310 1070 L 1310 920 L 1160 920 L 1160 478" fill="none" stroke="#d29922" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-orange)"/>
 <text x="1162" y="912" fill="#d29922" font-size="10">webhooks</text>
 
 <!-- Connections: containers -> Anthropic API -->
-<line x1="206" y1="862" x2="206" y2="995" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-purple)"/>
-<line x1="556" y1="875" x2="556" y2="960" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3"/>
-<line x1="906" y1="875" x2="906" y2="960" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3"/>
+<line x1="190" y1="862" x2="190" y2="995" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-purple)"/>
+<line x1="500" y1="875" x2="500" y2="960" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3"/>
+<line x1="810" y1="875" x2="810" y2="960" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3"/>
+
+<!-- Connection: AgentCore runtimes -> AWS Bedrock API -->
+<line x1="1135" y1="875" x2="1160" y2="1052" stroke="#f69d50" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-aws)"/>
+
+<!-- Connection: AgentCore runtimes -> Anthropic API (agents use Claude) -->
+<path d="M 998 800 L 960 800 L 960 940 L 290 940 L 290 1040" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3"/>
 
 </svg>
 </body>
