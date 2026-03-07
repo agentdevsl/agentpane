@@ -407,6 +407,7 @@ export function createRouter(deps: RouterDependencies) {
       getDockerProvider: deps.getSandboxProvider ?? (() => null),
       getK8sProvider: deps.getK8sProvider,
       getNomadProvider: deps.getNomadProvider,
+      getAgentCoreProvider: deps.getAgentCoreProvider,
     })
   );
   app.route('/api/sandbox/k8s', createK8sRoutes({ db: deps.db }));

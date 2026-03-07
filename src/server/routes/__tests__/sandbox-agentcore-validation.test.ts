@@ -134,16 +134,33 @@ describe('AgentCore Routes', () => {
       expect(body.error.code).toBe('AGENTCORE_NOT_CONFIGURED');
     });
 
-    it('returns 500 when STS call fails', async () => {
+    it('returns 422 when STS rejects credentials', async () => {
       const db = createMockDb({
         awsAccessKeyId: 'AKIA_TEST_KEY',
         awsSecretAccessKey: 'encrypted-secret',
       });
       const app = createAgentCoreTestApp(db);
 
-      mockStsSend.mockRejectedValue(
-        new Error('InvalidClientTokenId: The security token included in the request is invalid')
-      );
+      const stsError = new Error('The security token included in the request is invalid');
+      stsError.name = 'InvalidClientTokenId';
+      mockStsSend.mockRejectedValue(stsError);
+
+      const res = await app.request('/api/sandbox/agentcore/validate', { method: 'POST' });
+      const body = await res.json();
+
+      expect(res.status).toBe(422);
+      expect(body.ok).toBe(false);
+      expect(body.error.code).toBe('AGENTCORE_VALIDATION_ERROR');
+    });
+
+    it('returns 500 when STS call fails with network error', async () => {
+      const db = createMockDb({
+        awsAccessKeyId: 'AKIA_TEST_KEY',
+        awsSecretAccessKey: 'encrypted-secret',
+      });
+      const app = createAgentCoreTestApp(db);
+
+      mockStsSend.mockRejectedValue(new Error('Network timeout'));
 
       const res = await app.request('/api/sandbox/agentcore/validate', { method: 'POST' });
       const body = await res.json();
@@ -151,7 +168,27 @@ describe('AgentCore Routes', () => {
       expect(res.status).toBe(500);
       expect(body.ok).toBe(false);
       expect(body.error.code).toBe('AGENTCORE_VALIDATION_ERROR');
-      expect(body.error.message).toContain('InvalidClientTokenId');
+    });
+
+    it('validates credentials from request body without requiring DB config', async () => {
+      const db = createMockDb(); // no stored credentials
+      const app = createAgentCoreTestApp(db);
+
+      const res = await app.request('/api/sandbox/agentcore/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          awsAccessKeyId: 'AKIA_BODY_KEY',
+          awsSecretAccessKey: 'body-secret',
+          awsRegion: 'eu-west-1',
+        }),
+      });
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.ok).toBe(true);
+      expect(body.data.healthy).toBe(true);
+      expect(body.data.region).toBe('eu-west-1');
     });
 
     it('returns 500 when no DB is provided', async () => {

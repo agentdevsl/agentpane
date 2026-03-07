@@ -44,6 +44,7 @@ interface SandboxStatusDeps {
   getDockerProvider: () => EventEmittingSandboxProvider | null;
   getK8sProvider?: () => SandboxProviderHealth | null;
   getNomadProvider?: () => SandboxProviderHealth | null;
+  getAgentCoreProvider?: () => SandboxProviderHealth | null;
 }
 
 // Track in-flight auto-heal to prevent concurrent attempts
@@ -162,6 +163,7 @@ export function createSandboxStatusRoutes({
   getDockerProvider,
   getK8sProvider,
   getNomadProvider,
+  getAgentCoreProvider,
 }: SandboxStatusDeps) {
   const app = new Hono();
 
@@ -305,13 +307,32 @@ export function createSandboxStatusRoutes({
         }
       }
 
+      // Gather AgentCore health fields when the provider is available
+      let agentCoreHealthy = false;
+      let agentCoreRegion: string | null = null;
+
+      const agentCoreProvider = getAgentCoreProvider?.();
+      if (agentCoreProvider) {
+        try {
+          const health = await agentCoreProvider.healthCheck();
+          agentCoreHealthy = health.healthy;
+          const details = health.details ?? {};
+          agentCoreRegion = typeof details.region === 'string' ? details.region : null;
+        } catch (err) {
+          log.warn('AgentCore health check failed in status route', {
+            error: err instanceof Error ? err : new Error(String(err)),
+          });
+        }
+      }
+
       return json({
         ok: true,
         data: {
           mode: sandboxMode,
           containerStatus,
           containerId,
-          providerAvailable: !!dockerProvider || !!k8sProvider || !!nomadProvider,
+          providerAvailable:
+            !!dockerProvider || !!k8sProvider || !!nomadProvider || !!agentCoreProvider,
           provider: dockerProvider?.name ?? 'none',
           k8sCrdReady,
           k8sClusterVersion,
@@ -321,6 +342,8 @@ export function createSandboxStatusRoutes({
           nomadVersion,
           nomadLeader,
           nomadJobCount,
+          agentCoreHealthy,
+          agentCoreRegion,
         },
       });
     } catch (error) {

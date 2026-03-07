@@ -1557,21 +1557,46 @@ export function createAgentCoreRoutes(deps?: AgentCoreRouteDeps) {
   const app = new Hono();
 
   // POST /api/sandbox/agentcore/validate - Validate AWS credentials
-  app.post('/validate', async (_c) => {
-    try {
-      // Load AgentCore settings from database
-      const creds = await loadAgentCoreCredentials(deps?.db);
-      if (!creds.ok) {
-        return json(
-          {
-            ok: false,
-            error: { code: creds.code ?? 'AGENTCORE_NOT_CONFIGURED', message: creds.error },
-          },
-          creds.status
-        );
-      }
+  // Accepts optional body params { awsAccessKeyId, awsSecretAccessKey, awsRegion }
+  // to validate before saving (same pattern as Nomad /validate).
+  // Falls back to stored credentials if body params are not provided.
+  const validateBodySchema = z.object({
+    awsAccessKeyId: z.string().min(1).optional(),
+    awsSecretAccessKey: z.string().min(1).optional(),
+    awsRegion: z.string().min(1).optional(),
+  });
 
-      const { awsAccessKeyId, awsSecretAccessKey, awsRegion } = creds;
+  app.post('/validate', async (c) => {
+    try {
+      let awsAccessKeyId: string;
+      let awsSecretAccessKey: string;
+      let awsRegion: string;
+
+      // Try request body first (for pre-save validation)
+      const body = await c.req.json().catch(() => ({}));
+      const parsed = validateBodySchema.safeParse(body);
+      const bodyParams = parsed.success ? parsed.data : {};
+
+      if (bodyParams.awsAccessKeyId && bodyParams.awsSecretAccessKey) {
+        awsAccessKeyId = bodyParams.awsAccessKeyId;
+        awsSecretAccessKey = bodyParams.awsSecretAccessKey;
+        awsRegion = bodyParams.awsRegion ?? 'us-east-1';
+      } else {
+        // Fall back to stored credentials
+        const creds = await loadAgentCoreCredentials(deps?.db);
+        if (!creds.ok) {
+          return json(
+            {
+              ok: false,
+              error: { code: creds.code ?? 'AGENTCORE_NOT_CONFIGURED', message: creds.error },
+            },
+            creds.status
+          );
+        }
+        awsAccessKeyId = creds.awsAccessKeyId;
+        awsSecretAccessKey = creds.awsSecretAccessKey;
+        awsRegion = creds.awsRegion;
+      }
 
       const { STSClient, GetCallerIdentityCommand } = await import('@aws-sdk/client-sts');
       const stsClient = new STSClient({
@@ -1596,7 +1621,15 @@ export function createAgentCoreRoutes(deps?: AgentCoreRouteDeps) {
         error: error instanceof Error ? error : new Error(String(error)),
       });
       const message = error instanceof Error ? error.message : 'Failed to validate AWS credentials';
-      return json({ ok: false, error: { code: 'AGENTCORE_VALIDATION_ERROR', message } }, 500);
+      // STS auth errors (invalid credentials) are client errors, not server errors
+      const isStsAuthError =
+        error instanceof Error &&
+        ('$metadata' in error ||
+          error.name === 'InvalidClientTokenId' ||
+          error.name === 'SignatureDoesNotMatch' ||
+          error.name === 'ExpiredTokenException');
+      const status = isStsAuthError ? 422 : 500;
+      return json({ ok: false, error: { code: 'AGENTCORE_VALIDATION_ERROR', message } }, status);
     }
   });
 
