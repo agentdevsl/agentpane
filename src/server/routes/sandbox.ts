@@ -1582,14 +1582,12 @@ export function createAgentCoreRoutes(deps?: AgentCoreRouteDeps) {
         },
       });
 
-      const identity = await stsClient.send(new GetCallerIdentityCommand({}));
+      await stsClient.send(new GetCallerIdentityCommand({}));
 
       return json({
         ok: true,
         data: {
           healthy: true,
-          accountId: identity.Account,
-          arn: identity.Arn,
           region: awsRegion,
         },
       });
@@ -1624,13 +1622,12 @@ export function createAgentCoreRoutes(deps?: AgentCoreRouteDeps) {
         },
       });
 
-      const identity = await stsClient.send(new GetCallerIdentityCommand({}));
+      await stsClient.send(new GetCallerIdentityCommand({}));
 
       return json({
         ok: true,
         data: {
           healthy: true,
-          accountId: identity.Account,
           region: awsRegion,
         },
       });
@@ -1639,7 +1636,10 @@ export function createAgentCoreRoutes(deps?: AgentCoreRouteDeps) {
         error: error instanceof Error ? error : new Error(String(error)),
       });
       const message = error instanceof Error ? error.message : 'Failed to check AgentCore health';
-      return json({ ok: false, error: { code: 'AGENTCORE_HEALTH_ERROR', message } }, 500);
+      return json({
+        ok: true,
+        data: { healthy: false, message },
+      });
     }
   });
 

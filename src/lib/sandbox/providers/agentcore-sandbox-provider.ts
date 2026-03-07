@@ -397,9 +397,11 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
           );
           await instance.refreshStatus();
 
-          // Cache it
+          // Cache it — only if no fresher mapping exists
           this.sandboxes.set(id, instance);
-          this.projectToSandbox.set(projectId, id);
+          if (!this.projectToSandbox.has(projectId)) {
+            this.projectToSandbox.set(projectId, id);
+          }
 
           return instance;
         }

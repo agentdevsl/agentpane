@@ -8,6 +8,13 @@
       "when": 1769553382565,
       "tag": "0000_clever_red_skull",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1741305600000,
+      "tag": "0010_add_agentcore_columns",
+      "breakpoints": true
     }
   ]
 }

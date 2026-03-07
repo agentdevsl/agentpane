@@ -104,7 +104,6 @@ describe('AgentCore Routes', () => {
       expect(res.status).toBe(200);
       expect(body.ok).toBe(true);
       expect(body.data.healthy).toBe(true);
-      expect(body.data.accountId).toBe('123456789012');
       expect(body.data.region).toBe('us-west-2');
     });
 
@@ -217,7 +216,6 @@ describe('AgentCore Routes', () => {
       expect(res.status).toBe(200);
       expect(body.ok).toBe(true);
       expect(body.data.healthy).toBe(true);
-      expect(body.data.accountId).toBe('123456789012');
       expect(body.data.region).toBe('us-west-2');
     });
 
@@ -246,7 +244,7 @@ describe('AgentCore Routes', () => {
       expect(body.data.message).toContain('Database not available');
     });
 
-    it('returns 500 when STS call fails', async () => {
+    it('returns 200 with healthy:false when STS call fails', async () => {
       const db = createMockDb({
         awsAccessKeyId: 'AKIA_TEST_KEY',
         awsSecretAccessKey: 'encrypted-secret',
@@ -258,10 +256,10 @@ describe('AgentCore Routes', () => {
       const res = await app.request('/api/sandbox/agentcore/health', { method: 'GET' });
       const body = await res.json();
 
-      expect(res.status).toBe(500);
-      expect(body.ok).toBe(false);
-      expect(body.error.code).toBe('AGENTCORE_HEALTH_ERROR');
-      expect(body.error.message).toContain('Network timeout');
+      expect(res.status).toBe(200);
+      expect(body.ok).toBe(true);
+      expect(body.data.healthy).toBe(false);
+      expect(body.data.message).toContain('Network timeout');
     });
 
     it('uses default region us-east-1 when no region is configured', async () => {
