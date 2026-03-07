@@ -215,6 +215,27 @@ describe('AgentCore Routes', () => {
       expect(decryptTokenMock).toHaveBeenCalledWith('encrypted-secret-value');
     });
 
+    it('returns AGENTCORE_CONFIG_CORRUPT when stored settings are invalid JSON', async () => {
+      const db = {
+        query: {
+          settings: {
+            findFirst: vi.fn().mockResolvedValue({
+              key: 'sandbox.agentcore',
+              value: '{not valid json!!!',
+            }),
+          },
+        },
+      };
+      const app = createAgentCoreTestApp(db);
+
+      const res = await app.request('/api/sandbox/agentcore/validate', { method: 'POST' });
+      const body = await res.json();
+
+      expect(res.status).toBe(500);
+      expect(body.ok).toBe(false);
+      expect(body.error.code).toBe('AGENTCORE_CONFIG_CORRUPT');
+    });
+
     it('handles decryption failure gracefully', async () => {
       decryptTokenMock.mockImplementation(() => {
         throw new Error('Decryption failed: key rotated');
@@ -297,6 +318,26 @@ describe('AgentCore Routes', () => {
       expect(body.ok).toBe(true);
       expect(body.data.healthy).toBe(false);
       expect(body.data.message).toContain('Network timeout');
+    });
+
+    it('returns unhealthy when decryption fails', async () => {
+      decryptTokenMock.mockImplementation(() => {
+        throw new Error('Decryption failed: key rotated');
+      });
+
+      const db = createMockDb({
+        awsAccessKeyId: 'AKIA_TEST_KEY',
+        awsSecretAccessKey: 'bad-encrypted',
+      });
+      const app = createAgentCoreTestApp(db);
+
+      const res = await app.request('/api/sandbox/agentcore/health', { method: 'GET' });
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.ok).toBe(true);
+      expect(body.data.healthy).toBe(false);
+      expect(body.data.message).toContain('decrypt');
     });
 
     it('uses default region us-east-1 when no region is configured', async () => {

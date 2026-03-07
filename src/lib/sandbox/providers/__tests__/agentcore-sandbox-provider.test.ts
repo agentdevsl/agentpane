@@ -335,6 +335,45 @@ describe('AgentCoreSandboxProvider', () => {
         code: 'AGENTCORE-101',
       });
     });
+
+    it('throws RUNTIME_STARTUP_TIMEOUT when runtime never reaches READY', async () => {
+      const provider = new AgentCoreSandboxProvider({
+        roleArn: 'arn:aws:iam::123456789012:role/test-role',
+        readyTimeoutSeconds: 0, // immediate timeout
+      });
+
+      mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
+        if (cmd._type === 'CreateAgentRuntime') {
+          return Promise.resolve({ agentRuntimeArn: runtimeArn });
+        }
+        if (cmd._type === 'GetAgentRuntime') {
+          return Promise.resolve({ status: 'CREATING' }); // never becomes READY
+        }
+        if (cmd._type === 'DeleteAgentRuntime') return Promise.resolve({});
+        if (cmd._type === 'ListAgentRuntimes') return Promise.resolve({ agentRuntimes: [] });
+        return Promise.resolve({});
+      });
+
+      await expect(provider.create(sampleConfig)).rejects.toMatchObject({
+        code: 'AGENTCORE-102',
+      });
+    });
+
+    it('throws RUNTIME_CREATION_FAILED when roleArn is not provided', async () => {
+      const provider = new AgentCoreSandboxProvider({}); // no roleArn
+      await expect(provider.create(sampleConfig)).rejects.toMatchObject({
+        code: 'AGENTCORE-101',
+        message: expect.stringContaining('roleArn'),
+      });
+    });
+
+    it('throws RUNTIME_CREATION_FAILED when roleArn is empty string', async () => {
+      const provider = new AgentCoreSandboxProvider({ roleArn: '  ' });
+      await expect(provider.create(sampleConfig)).rejects.toMatchObject({
+        code: 'AGENTCORE-101',
+        message: expect.stringContaining('roleArn'),
+      });
+    });
   });
 
   describe('get', () => {
@@ -415,6 +454,39 @@ describe('AgentCoreSandboxProvider', () => {
       });
 
       await expect(provider.get('proj-456')).rejects.toThrow('network error');
+    });
+
+    it('follows pagination tokens when querying API', async () => {
+      const provider = createProvider();
+      let listCallCount = 0;
+
+      mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
+        if (cmd._type === 'ListAgentRuntimes') {
+          listCallCount++;
+          if (listCallCount === 1) {
+            return Promise.resolve({
+              agentRuntimes: [{ agentRuntimeName: 'unrelated-runtime', status: 'READY' }],
+              nextToken: 'page-2-token',
+            });
+          }
+          return Promise.resolve({
+            agentRuntimes: [
+              {
+                agentRuntimeName: 'agentpane-proj-paged-abcdef12',
+                agentRuntimeArn: 'arn:aws:bedrock-agentcore:us-east-1:123:runtime/rt-paged',
+                agentRuntimeId: 'rt-paged',
+                status: 'READY',
+              },
+            ],
+          });
+        }
+        if (cmd._type === 'GetAgentRuntime') return Promise.resolve({ status: 'READY' });
+        return Promise.resolve({});
+      });
+
+      const result = await provider.get('proj-paged');
+      expect(result).toBeInstanceOf(AgentCoreSandboxInstance);
+      expect(listCallCount).toBe(2);
     });
   });
 
