@@ -379,7 +379,7 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
       } while (nextToken);
 
       // Find a runtime with matching name prefix that is READY
-      const namePrefix = `agentpane-${projectId.slice(0, 20)}`
+      const namePrefix = `agentpane-${projectId.slice(0, 20)}-`
         .toLowerCase()
         .replace(/[^a-z0-9-]/g, '-');
 
@@ -620,8 +620,9 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
 
   async cleanup(options?: { olderThan?: Date; status?: string[] }): Promise<number> {
     let cleaned = 0;
-    const toClean: string[] = [];
 
+    // Phase 1: Clean cached sandboxes
+    const toClean: string[] = [];
     for (const [sandboxId, instance] of this.sandboxes) {
       const shouldClean =
         (options?.status?.includes(instance.status) ?? instance.status === 'stopped') &&
@@ -636,11 +637,11 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
       if (!instance) continue;
       try {
         if (instance.status !== 'stopped') {
-          const runtimeId = extractRuntimeId(instance.containerId);
-          const deleteCommand = new DeleteAgentRuntimeCommand({ agentRuntimeId: runtimeId });
+          const deleteCommand = new DeleteAgentRuntimeCommand({
+            agentRuntimeId: instance.getRuntimeId(),
+          });
           await this.controlClient.send(deleteCommand);
         }
-        // Only evict from cache on successful deletion or already-stopped
         this.sandboxes.delete(sandboxId);
         if (this.projectToSandbox.get(instance.projectId) === sandboxId) {
           this.projectToSandbox.delete(instance.projectId);
@@ -654,6 +655,57 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
           }
         );
       }
+    }
+
+    // Phase 2: Reclaim orphaned runtimes from previous process lifetimes
+    // by listing all AgentPane runtimes from AWS and deleting uncached ones
+    try {
+      let nextToken: string | undefined;
+      const allRuntimes: Array<Record<string, unknown>> = [];
+      do {
+        const response = await this.controlClient.send(
+          new ListAgentRuntimesCommand({ maxResults: 100, nextToken })
+        );
+        if (response.agentRuntimes) {
+          allRuntimes.push(...response.agentRuntimes);
+        }
+        nextToken = response.nextToken;
+      } while (nextToken);
+
+      // Collect ARNs of runtimes still tracked in cache
+      const cachedArns = new Set<string>();
+      for (const instance of this.sandboxes.values()) {
+        cachedArns.add(instance.containerId);
+      }
+
+      for (const runtime of allRuntimes) {
+        const name = runtime.agentRuntimeName as string | undefined;
+        const arn = runtime.agentRuntimeArn as string | undefined;
+        const runtimeId = runtime.agentRuntimeId as string | undefined;
+        if (!name?.startsWith('agentpane-') || !arn || !runtimeId) continue;
+        // Skip runtimes still tracked in cache (already handled in Phase 1)
+        if (cachedArns.has(arn)) continue;
+        // Skip runtimes that are already being deleted
+        if (runtime.status === 'DELETING' || runtime.status === 'DELETED') continue;
+
+        try {
+          await this.controlClient.send(
+            new DeleteAgentRuntimeCommand({ agentRuntimeId: runtimeId })
+          );
+          cleaned++;
+          log.info('Reclaimed orphaned AgentCore runtime', {
+            data: { runtimeId, name, arn },
+          });
+        } catch (error) {
+          log.warn(`Failed to reclaim orphaned runtime ${runtimeId}`, {
+            error: error instanceof Error ? error : new Error(String(error)),
+          });
+        }
+      }
+    } catch (error) {
+      log.warn('Failed to list AWS runtimes for orphan cleanup', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
     }
 
     return cleaned;

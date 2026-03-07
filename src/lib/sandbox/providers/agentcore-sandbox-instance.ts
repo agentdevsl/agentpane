@@ -83,6 +83,11 @@ export class AgentCoreSandboxInstance implements Sandbox {
     return this.runtimeArn;
   }
 
+  /** Returns the AgentCore Runtime ID for control plane operations. */
+  getRuntimeId(): string {
+    return this.runtimeId;
+  }
+
   get status(): SandboxStatus {
     return this._status;
   }
