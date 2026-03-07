@@ -595,6 +595,16 @@ function getNomadProvider() {
   return activeNomadProvider;
 }
 
+// Module-level reference to the AgentCore provider for health/status routes.
+let activeAgentCoreProvider:
+  | import('../lib/sandbox/providers/agentcore-sandbox-provider.js').AgentCoreSandboxProvider
+  | null = null;
+
+/** Getter for routes that need to check AgentCore provider health. */
+function getAgentCoreProvider() {
+  return activeAgentCoreProvider;
+}
+
 /**
  * Poll `kubectl get crd sandboxes.agents.x-k8s.io` every 1s until success
  * or the timeout is reached (default 10s). Returns true when the CRD is registered.
@@ -754,10 +764,11 @@ async function clearK8sLastError() {
  */
 async function initSandboxProvider() {
   // Step 1: Determine which provider to use from settings
-  type ProviderSelection = 'docker' | 'kubernetes' | 'nomad';
+  type ProviderSelection = 'docker' | 'kubernetes' | 'nomad' | 'agentcore';
   let providerType: ProviderSelection = 'docker'; // default
   let k8sFallbackToDocker = false;
   let nomadFallbackToDocker = false;
+  let agentcoreFallbackToDocker = false;
 
   try {
     const providerSetting = await db.query.settings.findFirst({
@@ -772,10 +783,13 @@ async function initSandboxProvider() {
         providerType = 'kubernetes';
       } else if (parsed.provider === 'nomad') {
         providerType = 'nomad';
+      } else if (parsed.provider === 'agentcore') {
+        providerType = 'agentcore';
       }
       k8sFallbackToDocker = parsed.fallbackToDocker ?? false;
       // Default nomadFallbackToDocker from shared setting; may be overridden below
       nomadFallbackToDocker = parsed.fallbackToDocker ?? false;
+      agentcoreFallbackToDocker = parsed.fallbackToDocker ?? false;
     }
 
     // Check for a separate Nomad-specific fallbackToDocker setting
@@ -1237,12 +1251,122 @@ async function initSandboxProvider() {
     }
   }
 
+  // Step 2c: AgentCore provider initialization
+  if (providerType === 'agentcore' && !sandboxProvider) {
+    try {
+      let agentcoreSettings: {
+        awsAccessKeyId?: string;
+        awsSecretAccessKey?: string;
+        awsRegion?: string;
+        ecrRepositoryUri?: string;
+        image?: string;
+      } = {};
+
+      try {
+        const agentcoreSetting = await db.query.settings.findFirst({
+          where: eq(schemaTables.settings.key, 'sandbox.agentcore'),
+        });
+        if (agentcoreSetting?.value) {
+          agentcoreSettings = JSON.parse(agentcoreSetting.value);
+          // Decrypt the stored secret key (encrypted at rest)
+          if (agentcoreSettings.awsSecretAccessKey) {
+            try {
+              agentcoreSettings.awsSecretAccessKey = decryptToken(agentcoreSettings.awsSecretAccessKey);
+            } catch (decryptErr) {
+              log.error('[API Server] AgentCore secret key decryption failed, key must be re-entered', {
+                error: decryptErr instanceof Error ? decryptErr : new Error(String(decryptErr)),
+              });
+              agentcoreSettings.awsSecretAccessKey = undefined;
+            }
+          }
+        }
+      } catch (dbErr) {
+        log.warn('[API Server] Failed to read AgentCore settings from database', {
+          error: dbErr instanceof Error ? dbErr.message : String(dbErr),
+        });
+      }
+
+      if (!agentcoreSettings.awsAccessKeyId || !agentcoreSettings.awsSecretAccessKey) {
+        log.warn('[API Server] AgentCore credentials not configured, falling back to Docker');
+      } else {
+        const { createAgentCoreSandboxProvider } = await import(
+          '../lib/sandbox/providers/agentcore-sandbox-provider.js'
+        );
+        const agentcoreProvider = createAgentCoreSandboxProvider({
+          awsAccessKeyId: agentcoreSettings.awsAccessKeyId,
+          awsSecretAccessKey: agentcoreSettings.awsSecretAccessKey,
+          awsRegion: agentcoreSettings.awsRegion,
+          ecrRepositoryUri: agentcoreSettings.ecrRepositoryUri,
+          image: agentcoreSettings.image,
+        });
+
+        const health = await agentcoreProvider.healthCheck();
+        if (health.healthy) {
+          sandboxProvider = agentcoreProvider;
+          activeAgentCoreProvider = agentcoreProvider;
+          log.info('[API Server] AgentCore sandbox provider initialized', {
+            data: {
+              region: agentcoreSettings.awsRegion ?? 'us-east-1',
+            },
+          });
+
+          // Clear any stale error
+          try {
+            await db
+              .delete(schemaTables.settings)
+              .where(eq(schemaTables.settings.key, 'sandbox.agentcore.lastError'));
+          } catch {}
+
+          // Create default sandbox (mirrors Docker/K8s/Nomad pattern)
+          await ensureDefaultSandbox(agentcoreProvider, 'AgentCore');
+        } else {
+          const diagnosis = health.message ?? 'AgentCore health check failed';
+          const willFallback = agentcoreFallbackToDocker;
+          const logFn = willFallback ? log.warn : log.error;
+          logFn(
+            `[API Server] AgentCore provider unhealthy: ${diagnosis}.${willFallback ? ' Falling back to Docker.' : ' No fallback configured — sandbox operations will be unavailable.'}`
+          );
+          // Persist error for UI display
+          try {
+            const errorJson = JSON.stringify({ error: diagnosis, timestamp: new Date().toISOString() });
+            await db
+              .insert(schemaTables.settings)
+              .values({ key: 'sandbox.agentcore.lastError', value: errorJson })
+              .onConflictDoUpdate({
+                target: schemaTables.settings.key,
+                set: { value: errorJson, updatedAt: new Date().toISOString() },
+              });
+          } catch {}
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const willFallback = agentcoreFallbackToDocker;
+      const logFn = willFallback ? log.warn : log.error;
+      logFn(
+        `[API Server] AgentCore provider init failed: ${message}.${willFallback ? ' Falling back to Docker.' : ' No fallback configured — sandbox operations will be unavailable.'}`
+      );
+      // Persist error for UI display
+      try {
+        const errorJson = JSON.stringify({ error: message, timestamp: new Date().toISOString() });
+        await db
+          .insert(schemaTables.settings)
+          .values({ key: 'sandbox.agentcore.lastError', value: errorJson })
+          .onConflictDoUpdate({
+            target: schemaTables.settings.key,
+            set: { value: errorJson, updatedAt: new Date().toISOString() },
+          });
+      } catch {}
+    }
+  }
+
   // Step 3: Fall back to Docker if K8s/Nomad was not initialized (or was not selected)
   // Skip Docker fallback if K8s or Nomad was configured and fallback is explicitly disabled
   if (
     !sandboxProvider &&
     !(providerType === 'kubernetes' && !k8sFallbackToDocker) &&
-    !(providerType === 'nomad' && !nomadFallbackToDocker)
+    !(providerType === 'nomad' && !nomadFallbackToDocker) &&
+    !(providerType === 'agentcore' && !agentcoreFallbackToDocker)
   ) {
     try {
       const dockerProvider = createDockerProvider();

@@ -38,6 +38,11 @@ const sandboxConfigBodySchema = z.object({
   nomadNamespace: z.string().max(200).optional(),
   nomadDatacenter: z.string().max(200).optional(),
   nomadRegion: z.string().max(200).optional(),
+  awsAccessKeyId: z.string().max(128).optional(),
+  awsSecretAccessKey: z.string().max(256).optional(),
+  awsRegion: z.string().max(64).optional(),
+  agentcoreRuntimeArn: z.string().max(2048).optional(),
+  ecrRepositoryUri: z.string().max(2048).optional(),
 });
 
 const sandboxConfigCreateSchema = sandboxConfigBodySchema.extend({
@@ -47,8 +52,10 @@ const sandboxConfigCreateSchema = sandboxConfigBodySchema.extend({
 const log = createLogger('SandboxRoutes');
 
 /** Strip the nomadToken field from a config before returning it to the client. */
-function redactConfig<T extends Record<string, unknown>>(config: T): Omit<T, 'nomadToken'> {
-  const { nomadToken: _token, ...safe } = config;
+function redactConfig<T extends Record<string, unknown>>(
+  config: T
+): Omit<T, 'nomadToken' | 'awsSecretAccessKey'> {
+  const { nomadToken: _token, awsSecretAccessKey: _awsSecret, ...safe } = config;
   return safe;
 }
 
@@ -152,6 +159,11 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
         nomadNamespace: body.nomadNamespace,
         nomadDatacenter: body.nomadDatacenter,
         nomadRegion: body.nomadRegion,
+        awsAccessKeyId: body.awsAccessKeyId,
+        awsSecretAccessKey: body.awsSecretAccessKey,
+        awsRegion: body.awsRegion,
+        agentcoreRuntimeArn: body.agentcoreRuntimeArn,
+        ecrRepositoryUri: body.ecrRepositoryUri,
       });
 
       if (!result.ok) {
@@ -264,6 +276,11 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
         nomadNamespace: body.nomadNamespace,
         nomadDatacenter: body.nomadDatacenter,
         nomadRegion: body.nomadRegion,
+        awsAccessKeyId: body.awsAccessKeyId,
+        awsSecretAccessKey: body.awsSecretAccessKey,
+        awsRegion: body.awsRegion,
+        agentcoreRuntimeArn: body.agentcoreRuntimeArn,
+        ecrRepositoryUri: body.ecrRepositoryUri,
       });
 
       if (!result.ok) {
@@ -1448,6 +1465,147 @@ export function createNomadRoutes(deps?: NomadRouteDeps) {
       const message =
         error instanceof Error ? error.message : 'Failed to validate Nomad connection';
       return json({ ok: false, error: { code: 'NOMAD_VALIDATION_ERROR', message } }, 500);
+    }
+  });
+
+  return app;
+}
+
+interface AgentCoreRouteDeps {
+  db?: Database;
+}
+
+export function createAgentCoreRoutes(deps?: AgentCoreRouteDeps) {
+  const app = new Hono();
+
+  // POST /api/sandbox/agentcore/validate - Validate AWS credentials
+  app.post('/validate', async (_c) => {
+    try {
+      // Load AgentCore settings from database
+      let awsAccessKeyId: string | undefined;
+      let awsSecretAccessKey: string | undefined;
+      let awsRegion = 'us-east-1';
+
+      if (deps?.db) {
+        const { eq } = await import('drizzle-orm');
+        const { settings } = await import('../../db/schema/index.js');
+        const agentcoreSetting = await deps.db.query.settings.findFirst({
+          where: eq(settings.key, 'sandbox.agentcore'),
+        });
+        if (agentcoreSetting?.value) {
+          const parsed = JSON.parse(agentcoreSetting.value);
+          awsAccessKeyId = parsed.awsAccessKeyId;
+          if (parsed.awsSecretAccessKey) {
+            try {
+              const { decryptToken } = await import('../../lib/crypto/server-encryption.js');
+              awsSecretAccessKey = decryptToken(parsed.awsSecretAccessKey);
+            } catch {
+              awsSecretAccessKey = undefined;
+            }
+          }
+          awsRegion = parsed.awsRegion ?? 'us-east-1';
+        }
+      }
+
+      if (!awsAccessKeyId || !awsSecretAccessKey) {
+        return json(
+          {
+            ok: false,
+            error: { code: 'AGENTCORE_NOT_CONFIGURED', message: 'AWS credentials not configured' },
+          },
+          400
+        );
+      }
+
+      const { STSClient, GetCallerIdentityCommand } = await import('@aws-sdk/client-sts');
+      const stsClient = new STSClient({
+        region: awsRegion,
+        credentials: {
+          accessKeyId: awsAccessKeyId,
+          secretAccessKey: awsSecretAccessKey,
+        },
+      });
+
+      const identity = await stsClient.send(new GetCallerIdentityCommand({}));
+
+      return json({
+        ok: true,
+        data: {
+          healthy: true,
+          accountId: identity.Account,
+          arn: identity.Arn,
+          region: awsRegion,
+        },
+      });
+    } catch (error) {
+      log.error('AgentCore credential validation failed', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
+      const message = error instanceof Error ? error.message : 'Failed to validate AWS credentials';
+      return json({ ok: false, error: { code: 'AGENTCORE_VALIDATION_ERROR', message } }, 500);
+    }
+  });
+
+  // GET /api/sandbox/agentcore/health - Provider health check
+  app.get('/health', async (_c) => {
+    try {
+      let awsAccessKeyId: string | undefined;
+      let awsSecretAccessKey: string | undefined;
+      let awsRegion = 'us-east-1';
+
+      if (deps?.db) {
+        const { eq } = await import('drizzle-orm');
+        const { settings } = await import('../../db/schema/index.js');
+        const agentcoreSetting = await deps.db.query.settings.findFirst({
+          where: eq(settings.key, 'sandbox.agentcore'),
+        });
+        if (agentcoreSetting?.value) {
+          const parsed = JSON.parse(agentcoreSetting.value);
+          awsAccessKeyId = parsed.awsAccessKeyId;
+          if (parsed.awsSecretAccessKey) {
+            try {
+              const { decryptToken } = await import('../../lib/crypto/server-encryption.js');
+              awsSecretAccessKey = decryptToken(parsed.awsSecretAccessKey);
+            } catch {
+              awsSecretAccessKey = undefined;
+            }
+          }
+          awsRegion = parsed.awsRegion ?? 'us-east-1';
+        }
+      }
+
+      if (!awsAccessKeyId || !awsSecretAccessKey) {
+        return json({
+          ok: true,
+          data: { healthy: false, message: 'AWS credentials not configured' },
+        });
+      }
+
+      const { STSClient, GetCallerIdentityCommand } = await import('@aws-sdk/client-sts');
+      const stsClient = new STSClient({
+        region: awsRegion,
+        credentials: {
+          accessKeyId: awsAccessKeyId,
+          secretAccessKey: awsSecretAccessKey,
+        },
+      });
+
+      const identity = await stsClient.send(new GetCallerIdentityCommand({}));
+
+      return json({
+        ok: true,
+        data: {
+          healthy: true,
+          accountId: identity.Account,
+          region: awsRegion,
+        },
+      });
+    } catch (error) {
+      log.error('AgentCore health check failed', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
+      const message = error instanceof Error ? error.message : 'Failed to check AgentCore health';
+      return json({ ok: false, error: { code: 'AGENTCORE_HEALTH_ERROR', message } }, 500);
     }
   });
 

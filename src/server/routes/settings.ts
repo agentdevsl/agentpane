@@ -18,6 +18,7 @@ const ALLOWED_SETTINGS_KEYS = new Set([
   'sandbox.provider',
   'sandbox.kubernetes',
   'sandbox.nomad',
+  'sandbox.agentcore',
   'anthropic.apiKey',
   'anthropic.model',
   'github.token',
@@ -73,6 +74,16 @@ export function createSettingsRoutes({ db }: SettingsDeps) {
             if (parsed.token) {
               parsed.hasToken = true;
               delete parsed.token;
+            }
+            settingsMap[row.key] = parsed;
+            continue;
+          }
+
+          if (row.key === 'sandbox.agentcore') {
+            const parsed = JSON.parse(row.value);
+            if (parsed.awsSecretAccessKey) {
+              parsed.hasSecretKey = true;
+              delete parsed.awsSecretAccessKey;
             }
             settingsMap[row.key] = parsed;
             continue;
@@ -143,6 +154,18 @@ export function createSettingsRoutes({ db }: SettingsDeps) {
             nomadCopy.token = encryptToken(nomadCopy.token);
           }
           dbValue = nomadCopy;
+        }
+
+        if (key === 'sandbox.agentcore' && typeof value === 'object' && value !== null) {
+          const agentcoreCopy = { ...(value as Record<string, unknown>) };
+          if (
+            agentcoreCopy.awsSecretAccessKey &&
+            typeof agentcoreCopy.awsSecretAccessKey === 'string'
+          ) {
+            const { encryptToken } = await import('../../lib/crypto/server-encryption.js');
+            agentcoreCopy.awsSecretAccessKey = encryptToken(agentcoreCopy.awsSecretAccessKey);
+          }
+          dbValue = agentcoreCopy;
         }
 
         const jsonValue = JSON.stringify(dbValue);

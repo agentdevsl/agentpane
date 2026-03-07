@@ -94,11 +94,20 @@ const NomadSettingsSchema = z.object({
   image: z.string().optional(),
 });
 
+const AgentCoreSettingsSchema = z.object({
+  awsAccessKeyId: z.string().optional(),
+  awsSecretAccessKey: z.string().optional(),
+  awsRegion: z.string().optional(),
+  ecrRepositoryUri: z.string().optional(),
+  agentcoreRuntimeArn: z.string().optional(),
+});
+
 const PROVIDER_LABELS: Record<string, string> = {
   docker: 'Docker',
   devcontainer: 'DevContainer',
   kubernetes: 'Kubernetes',
   nomad: 'Nomad',
+  agentcore: 'AgentCore',
 };
 
 function Toggle({
@@ -331,6 +340,25 @@ function SandboxSettingsPage(): React.JSX.Element {
     null
   );
 
+  // AgentCore configuration state
+  const [agentcoreAccessKeyId, setAgentcoreAccessKeyId] = useState('');
+  const [agentcoreSecretKey, setAgentcoreSecretKey] = useState('');
+  const [agentcoreHasSecretKey, setAgentcoreHasSecretKey] = useState(false);
+  const [agentcoreSecretKeyDirty, setAgentcoreSecretKeyDirty] = useState(false);
+  const [agentcoreRegion, setAgentcoreRegion] = useState('us-east-1');
+  const [agentcoreEcrUri, setAgentcoreEcrUri] = useState('');
+  const [agentcoreRuntimeArn, setAgentcoreRuntimeArn] = useState('');
+  const [agentcoreStatus, setAgentcoreStatus] = useState<{
+    healthy: boolean;
+    accountId?: string;
+  } | null>(null);
+  const [agentcoreStatusLoading, setAgentcoreStatusLoading] = useState(false);
+  const [agentcoreError, setAgentcoreError] = useState<string | null>(null);
+  const [agentcoreInitError, setAgentcoreInitError] = useState<{
+    error: string;
+    timestamp: string;
+  } | null>(null);
+
   const loadConfigs = useCallback(async () => {
     setIsLoading(true);
     setError(null);
@@ -358,6 +386,8 @@ function SandboxSettingsPage(): React.JSX.Element {
         'sandbox.kubernetes.lastError',
         'sandbox.nomad',
         'sandbox.nomad.lastError',
+        'sandbox.agentcore',
+        'sandbox.agentcore.lastError',
       ]);
       if (result.ok) {
         // Load default settings
@@ -433,6 +463,37 @@ function SandboxSettingsPage(): React.JSX.Element {
         } else {
           setNomadInitError(null);
         }
+
+        // Load AgentCore-specific settings
+        if (result.data.settings['sandbox.agentcore']) {
+          const parsed = AgentCoreSettingsSchema.safeParse(
+            result.data.settings['sandbox.agentcore']
+          );
+          if (parsed.success) {
+            const ac = parsed.data;
+            if (ac.awsAccessKeyId) setAgentcoreAccessKeyId(ac.awsAccessKeyId);
+            if (ac.awsSecretAccessKey) setAgentcoreSecretKey(ac.awsSecretAccessKey);
+            if (
+              (result.data.settings['sandbox.agentcore'] as Record<string, unknown>)?.hasSecretKey
+            ) {
+              setAgentcoreHasSecretKey(true);
+            }
+            if (ac.awsRegion) setAgentcoreRegion(ac.awsRegion);
+            if (ac.ecrRepositoryUri) setAgentcoreEcrUri(ac.ecrRepositoryUri);
+            if (ac.agentcoreRuntimeArn) setAgentcoreRuntimeArn(ac.agentcoreRuntimeArn);
+          }
+        }
+
+        // Load AgentCore initialization error
+        if (result.data.settings['sandbox.agentcore.lastError']) {
+          const lastError = result.data.settings['sandbox.agentcore.lastError'] as {
+            error: string;
+            timestamp: string;
+          };
+          setAgentcoreInitError(lastError);
+        } else {
+          setAgentcoreInitError(null);
+        }
       }
     } catch (loadErr) {
       console.error('[SandboxSettings] Failed to load default settings:', loadErr);
@@ -479,12 +540,27 @@ function SandboxSettingsPage(): React.JSX.Element {
         };
       }
 
+      // If AgentCore is selected, also persist AgentCore-specific settings
+      if (defaultSettings.provider === 'agentcore') {
+        settingsToSave['sandbox.agentcore'] = {
+          awsAccessKeyId: agentcoreAccessKeyId || undefined,
+          ...(agentcoreSecretKeyDirty && { awsSecretAccessKey: agentcoreSecretKey || undefined }),
+          awsRegion: agentcoreRegion || 'us-east-1',
+          ecrRepositoryUri: agentcoreEcrUri || undefined,
+          agentcoreRuntimeArn: agentcoreRuntimeArn || undefined,
+        };
+      }
+
       const result = await apiClient.settings.update(settingsToSave);
       if (result.ok) {
         setDefaultsSaved(true);
         if (nomadTokenDirty) {
           setNomadTokenDirty(false);
           setNomadHasToken(!!nomadToken);
+        }
+        if (agentcoreSecretKeyDirty) {
+          setAgentcoreSecretKeyDirty(false);
+          setAgentcoreHasSecretKey(!!agentcoreSecretKey);
         }
         setTimeout(() => setDefaultsSaved(false), 2000);
       }
@@ -1202,6 +1278,42 @@ function SandboxSettingsPage(): React.JSX.Element {
                     <span className="text-xs text-fg-muted">Scheduled jobs</span>
                     {defaultSettings.provider === 'nomad' && (
                       <div className="absolute right-2 top-2 h-2 w-2 rounded-full bg-attention" />
+                    )}
+                  </button>
+
+                  {/* AgentCore */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDefaultSettings((prev) => ({ ...prev, provider: 'agentcore' }));
+                      setSelectedProvider('agentcore');
+                    }}
+                    className={cn(
+                      'relative flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all',
+                      defaultSettings.provider === 'agentcore'
+                        ? 'border-positive bg-positive/10'
+                        : 'border-border hover:border-fg-subtle'
+                    )}
+                    data-testid="default-provider-agentcore"
+                  >
+                    <CloudArrowUp
+                      className={cn(
+                        'h-6 w-6',
+                        defaultSettings.provider === 'agentcore' ? 'text-positive' : 'text-fg-muted'
+                      )}
+                      weight={defaultSettings.provider === 'agentcore' ? 'duotone' : 'regular'}
+                    />
+                    <span
+                      className={cn(
+                        'text-sm font-medium',
+                        defaultSettings.provider === 'agentcore' ? 'text-positive' : 'text-fg'
+                      )}
+                    >
+                      AgentCore
+                    </span>
+                    <span className="text-xs text-fg-muted">AWS Bedrock</span>
+                    {defaultSettings.provider === 'agentcore' && (
+                      <div className="absolute right-2 top-2 h-2 w-2 rounded-full bg-positive" />
                     )}
                   </button>
                 </div>
@@ -2234,6 +2346,245 @@ function SandboxSettingsPage(): React.JSX.Element {
                   saved={defaultsSaved}
                   onClick={saveDefaultSettings}
                   testId="save-nomad-settings"
+                />
+              </div>
+            </div>
+          </ConfigSection>
+        )}
+
+        {/* AgentCore Configuration Section - Only shown when AgentCore selected */}
+        {selectedProvider === 'agentcore' && (
+          <ConfigSection
+            icon={CloudArrowUp}
+            title="AgentCore Configuration"
+            description="Configure your AWS Bedrock AgentCore connection"
+            badge={
+              agentcoreStatus === null
+                ? 'Unknown'
+                : agentcoreStatus.healthy
+                  ? 'Connected'
+                  : 'Disconnected'
+            }
+            badgeColor={
+              agentcoreStatus === null ? 'accent' : agentcoreStatus.healthy ? 'success' : 'accent'
+            }
+            testId="agentcore-config-section"
+          >
+            <div className="space-y-6">
+              {/* Connection Status Indicator */}
+              <div className="flex items-center justify-between rounded-lg border border-border bg-surface-subtle p-4">
+                <div className="flex items-center gap-3">
+                  {agentcoreStatusLoading ? (
+                    <CircleNotch className="h-5 w-5 animate-spin text-fg-muted" />
+                  ) : agentcoreStatus?.healthy ? (
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-success-muted">
+                      <WifiHigh className="h-4 w-4 text-success" />
+                    </div>
+                  ) : agentcoreStatus === null ? (
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-surface">
+                      <WifiSlash className="h-4 w-4 text-fg-muted" />
+                    </div>
+                  ) : (
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-danger-muted">
+                      <WifiSlash className="h-4 w-4 text-danger" />
+                    </div>
+                  )}
+                  <div>
+                    <p className="font-medium text-fg">
+                      {agentcoreStatusLoading
+                        ? 'Validating credentials...'
+                        : agentcoreStatus === null
+                          ? 'Not checked'
+                          : agentcoreStatus.healthy
+                            ? 'Connected'
+                            : 'Connection Failed'}
+                    </p>
+                    {agentcoreStatus?.healthy && agentcoreStatus.accountId && (
+                      <p className="text-xs text-fg-muted">
+                        AWS Account: {agentcoreStatus.accountId}
+                      </p>
+                    )}
+                    {!agentcoreStatus?.healthy && agentcoreError && (
+                      <p className="text-xs text-danger">{agentcoreError}</p>
+                    )}
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    setAgentcoreStatusLoading(true);
+                    setAgentcoreError(null);
+                    try {
+                      const res = await fetch('/api/sandbox/agentcore/validate', {
+                        method: 'POST',
+                      });
+                      const data = await res.json();
+                      if (data.ok) {
+                        setAgentcoreStatus({ healthy: true, accountId: data.data?.accountId });
+                      } else {
+                        setAgentcoreStatus({ healthy: false });
+                        setAgentcoreError(data.error?.message || 'Validation failed');
+                      }
+                    } catch (err) {
+                      setAgentcoreStatus({ healthy: false });
+                      setAgentcoreError(err instanceof Error ? err.message : 'Connection failed');
+                    } finally {
+                      setAgentcoreStatusLoading(false);
+                    }
+                  }}
+                  disabled={agentcoreStatusLoading}
+                  data-testid="validate-agentcore-btn"
+                >
+                  {agentcoreStatusLoading ? (
+                    <CircleNotch className="h-4 w-4 animate-spin" />
+                  ) : (
+                    'Validate'
+                  )}
+                </Button>
+              </div>
+
+              {/* AgentCore Init Error Banner */}
+              {agentcoreInitError && (
+                <div
+                  className="rounded-lg border border-danger/30 bg-danger/10 p-4"
+                  data-testid="agentcore-init-error-banner"
+                >
+                  <div className="flex items-start gap-3">
+                    <Warning className="mt-0.5 h-5 w-5 flex-shrink-0 text-danger" weight="fill" />
+                    <div>
+                      <p className="text-sm font-medium text-danger">
+                        AgentCore Initialization Failed
+                      </p>
+                      <p className="mt-1 text-sm text-fg-muted">{agentcoreInitError.error}</p>
+                      <p className="mt-1 text-xs text-fg-subtle">
+                        Last attempt: {new Date(agentcoreInitError.timestamp).toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* AgentCore Form Fields */}
+              <div className="space-y-4">
+                {/* AWS Access Key ID */}
+                <div>
+                  <label
+                    htmlFor="agentcore-access-key"
+                    className="mb-1.5 block text-sm font-medium text-fg"
+                  >
+                    AWS Access Key ID
+                  </label>
+                  <input
+                    id="agentcore-access-key"
+                    type="text"
+                    value={agentcoreAccessKeyId}
+                    onChange={(e) => setAgentcoreAccessKeyId(e.target.value)}
+                    placeholder="AKIAIOSFODNN7EXAMPLE"
+                    className="w-full rounded-md border border-border bg-surface-subtle px-3 py-2 font-mono text-sm text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                    data-testid="agentcore-access-key-input"
+                  />
+                </div>
+
+                {/* AWS Secret Access Key */}
+                <div>
+                  <label
+                    htmlFor="agentcore-secret-key"
+                    className="mb-1.5 block text-sm font-medium text-fg"
+                  >
+                    AWS Secret Access Key
+                  </label>
+                  <input
+                    id="agentcore-secret-key"
+                    type="password"
+                    value={agentcoreSecretKey}
+                    onChange={(e) => {
+                      setAgentcoreSecretKey(e.target.value);
+                      setAgentcoreSecretKeyDirty(true);
+                    }}
+                    placeholder={
+                      agentcoreHasSecretKey ? '••••••••  (key saved)' : 'Secret Access Key'
+                    }
+                    className="w-full rounded-md border border-border bg-surface-subtle px-3 py-2 font-mono text-sm text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                    data-testid="agentcore-secret-key-input"
+                  />
+                </div>
+
+                {/* AWS Region */}
+                <div>
+                  <label
+                    htmlFor="agentcore-region"
+                    className="mb-1.5 block text-sm font-medium text-fg"
+                  >
+                    AWS Region
+                  </label>
+                  <select
+                    id="agentcore-region"
+                    value={agentcoreRegion}
+                    onChange={(e) => setAgentcoreRegion(e.target.value)}
+                    className="w-full appearance-none rounded-md border border-border bg-surface-subtle px-3 py-2 text-sm text-fg focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                    data-testid="agentcore-region-select"
+                  >
+                    <option value="us-east-1">US East (N. Virginia)</option>
+                    <option value="us-west-2">US West (Oregon)</option>
+                    <option value="eu-west-1">Europe (Ireland)</option>
+                    <option value="eu-central-1">Europe (Frankfurt)</option>
+                    <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
+                    <option value="ap-northeast-1">Asia Pacific (Tokyo)</option>
+                  </select>
+                </div>
+
+                {/* ECR Repository URI */}
+                <div>
+                  <label
+                    htmlFor="agentcore-ecr-uri"
+                    className="mb-1.5 block text-sm font-medium text-fg"
+                  >
+                    ECR Repository URI
+                    <span className="ml-1 text-xs font-normal text-fg-subtle">(optional)</span>
+                  </label>
+                  <input
+                    id="agentcore-ecr-uri"
+                    type="text"
+                    value={agentcoreEcrUri}
+                    onChange={(e) => setAgentcoreEcrUri(e.target.value)}
+                    placeholder="123456789.dkr.ecr.us-east-1.amazonaws.com/agent-runner"
+                    className="w-full rounded-md border border-border bg-surface-subtle px-3 py-2 font-mono text-sm text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                    data-testid="agentcore-ecr-uri-input"
+                  />
+                  <p className="mt-1 text-xs text-fg-muted">
+                    ECR repository for the agent-runner container image
+                  </p>
+                </div>
+
+                {/* Runtime ARN (read-only) */}
+                {agentcoreRuntimeArn && (
+                  <div>
+                    <label
+                      htmlFor="agentcore-runtime-arn"
+                      className="mb-1.5 block text-sm font-medium text-fg"
+                    >
+                      Runtime ARN
+                    </label>
+                    <input
+                      id="agentcore-runtime-arn"
+                      type="text"
+                      value={agentcoreRuntimeArn}
+                      readOnly
+                      className="w-full rounded-md border border-border bg-surface px-3 py-2 font-mono text-sm text-fg-muted"
+                      data-testid="agentcore-runtime-arn-input"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Save Button */}
+              <div className="flex justify-end">
+                <SaveButton
+                  saving={isSavingDefaults}
+                  saved={defaultsSaved}
+                  onClick={saveDefaultSettings}
+                  testId="save-agentcore-settings"
                 />
               </div>
             </div>

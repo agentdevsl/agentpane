@@ -53,7 +53,12 @@ import { createMeRoutes } from './routes/me.js';
 import { createProjectMembersRoutes } from './routes/project-members.js';
 import { createProjectsRoutes } from './routes/projects.js';
 import { createRbacTokensRoutes } from './routes/rbac-tokens.js';
-import { createK8sRoutes, createNomadRoutes, createSandboxRoutes } from './routes/sandbox.js';
+import {
+  createAgentCoreRoutes,
+  createK8sRoutes,
+  createNomadRoutes,
+  createSandboxRoutes,
+} from './routes/sandbox.js';
 import { createSandboxStatusRoutes } from './routes/sandbox-status.js';
 import { createSessionsRoutes } from './routes/sessions.js';
 import { createSettingsRoutes } from './routes/settings.js';
@@ -403,6 +408,7 @@ export function createRouter(deps: RouterDependencies) {
   );
   app.route('/api/sandbox/k8s', createK8sRoutes({ db: deps.db }));
   app.route('/api/sandbox/nomad', createNomadRoutes({ db: deps.db }));
+  app.route('/api/sandbox/agentcore', createAgentCoreRoutes({ db: deps.db }));
   app.route('/api/keys', createApiKeysRoutes({ apiKeyService: deps.apiKeyService }));
   app.route('/api/filesystem', createFilesystemRoutes());
   app.route(
