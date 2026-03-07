@@ -989,6 +989,45 @@ function SandboxSettingsPage(): React.JSX.Element {
     }
   };
 
+  function getAgentCoreStatusDisplay(loading: boolean, status: typeof agentcoreStatus) {
+    if (loading) {
+      return {
+        icon: <CircleNotch className="h-5 w-5 animate-spin text-fg-muted" />,
+        text: 'Validating credentials...',
+      };
+    }
+    if (status?.healthy) {
+      return {
+        icon: (
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-success-muted">
+            <WifiHigh className="h-4 w-4 text-success" />
+          </div>
+        ),
+        text: 'Connected',
+      };
+    }
+    if (status === null) {
+      return {
+        icon: (
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-surface">
+            <WifiSlash className="h-4 w-4 text-fg-muted" />
+          </div>
+        ),
+        text: 'Not checked',
+      };
+    }
+    return {
+      icon: (
+        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-danger-muted">
+          <WifiSlash className="h-4 w-4 text-danger" />
+        </div>
+      ),
+      text: 'Connection Failed',
+    };
+  }
+
+  const agentcoreStatusDisplay = getAgentCoreStatusDisplay(agentcoreStatusLoading, agentcoreStatus);
+
   return (
     <div data-testid="sandbox-settings" className="mx-auto max-w-4xl px-6 py-8 sm:px-8">
       {/* Page Header with gradient accent - matching gold standard */}
@@ -2372,106 +2411,55 @@ function SandboxSettingsPage(): React.JSX.Element {
           >
             <div className="space-y-6">
               {/* Connection Status Indicator */}
-              {(() => {
-                function getAgentCoreStatusDisplay(
-                  loading: boolean,
-                  status: typeof agentcoreStatus
-                ) {
-                  if (loading) {
-                    return {
-                      icon: <CircleNotch className="h-5 w-5 animate-spin text-fg-muted" />,
-                      text: 'Validating credentials...',
-                    };
-                  }
-                  if (status?.healthy) {
-                    return {
-                      icon: (
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-success-muted">
-                          <WifiHigh className="h-4 w-4 text-success" />
-                        </div>
-                      ),
-                      text: 'Connected',
-                    };
-                  }
-                  if (status === null) {
-                    return {
-                      icon: (
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-surface">
-                          <WifiSlash className="h-4 w-4 text-fg-muted" />
-                        </div>
-                      ),
-                      text: 'Not checked',
-                    };
-                  }
-                  return {
-                    icon: (
-                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-danger-muted">
-                        <WifiSlash className="h-4 w-4 text-danger" />
-                      </div>
-                    ),
-                    text: 'Connection Failed',
-                  };
-                }
-
-                const agentcoreStatusDisplay = getAgentCoreStatusDisplay(
-                  agentcoreStatusLoading,
-                  agentcoreStatus
-                );
-
-                return (
-                  <div className="flex items-center justify-between rounded-lg border border-border bg-surface-subtle p-4">
-                    <div className="flex items-center gap-3">
-                      {agentcoreStatusDisplay.icon}
-                      <div>
-                        <p className="font-medium text-fg">{agentcoreStatusDisplay.text}</p>
-                        {agentcoreStatus?.healthy && agentcoreStatus.accountId && (
-                          <p className="text-xs text-fg-muted">
-                            AWS Account: {agentcoreStatus.accountId}
-                          </p>
-                        )}
-                        {!agentcoreStatus?.healthy && agentcoreError && (
-                          <p className="text-xs text-danger">{agentcoreError}</p>
-                        )}
-                      </div>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={async () => {
-                        setAgentcoreStatusLoading(true);
-                        setAgentcoreError(null);
-                        try {
-                          const res = await fetch('/api/sandbox/agentcore/validate', {
-                            method: 'POST',
-                          });
-                          const data = await res.json();
-                          if (data.ok) {
-                            setAgentcoreStatus({ healthy: true, accountId: data.data?.accountId });
-                          } else {
-                            setAgentcoreStatus({ healthy: false });
-                            setAgentcoreError(data.error?.message || 'Validation failed');
-                          }
-                        } catch (err) {
-                          setAgentcoreStatus({ healthy: false });
-                          setAgentcoreError(
-                            err instanceof Error ? err.message : 'Connection failed'
-                          );
-                        } finally {
-                          setAgentcoreStatusLoading(false);
-                        }
-                      }}
-                      disabled={agentcoreStatusLoading}
-                      data-testid="validate-agentcore-btn"
-                    >
-                      {agentcoreStatusLoading ? (
-                        <CircleNotch className="h-4 w-4 animate-spin" />
-                      ) : (
-                        'Validate'
-                      )}
-                    </Button>
+              <div className="flex items-center justify-between rounded-lg border border-border bg-surface-subtle p-4">
+                <div className="flex items-center gap-3">
+                  {agentcoreStatusDisplay.icon}
+                  <div>
+                    <p className="font-medium text-fg">{agentcoreStatusDisplay.text}</p>
+                    {agentcoreStatus?.healthy && agentcoreStatus.accountId && (
+                      <p className="text-xs text-fg-muted">
+                        AWS Account: {agentcoreStatus.accountId}
+                      </p>
+                    )}
+                    {!agentcoreStatus?.healthy && agentcoreError && (
+                      <p className="text-xs text-danger">{agentcoreError}</p>
+                    )}
                   </div>
-                );
-              })()}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    setAgentcoreStatusLoading(true);
+                    setAgentcoreError(null);
+                    try {
+                      const res = await fetch('/api/sandbox/agentcore/validate', {
+                        method: 'POST',
+                      });
+                      const data = await res.json();
+                      if (data.ok) {
+                        setAgentcoreStatus({ healthy: true, accountId: data.data?.accountId });
+                      } else {
+                        setAgentcoreStatus({ healthy: false });
+                        setAgentcoreError(data.error?.message || 'Validation failed');
+                      }
+                    } catch (err) {
+                      setAgentcoreStatus({ healthy: false });
+                      setAgentcoreError(err instanceof Error ? err.message : 'Connection failed');
+                    } finally {
+                      setAgentcoreStatusLoading(false);
+                    }
+                  }}
+                  disabled={agentcoreStatusLoading}
+                  data-testid="validate-agentcore-btn"
+                >
+                  {agentcoreStatusLoading ? (
+                    <CircleNotch className="h-4 w-4 animate-spin" />
+                  ) : (
+                    'Validate'
+                  )}
+                </Button>
+              </div>
 
               {/* AgentCore Init Error Banner */}
               {agentcoreInitError && (

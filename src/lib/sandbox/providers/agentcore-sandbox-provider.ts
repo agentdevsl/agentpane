@@ -143,7 +143,17 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
       projectId: config.projectId,
     });
 
+    let runtimeId: string | undefined;
+
     try {
+      // Validate roleArn before creating the runtime
+      if (!this.roleArn || this.roleArn.trim() === '') {
+        throw AgentCoreErrors.RUNTIME_CREATION_FAILED(
+          runtimeName,
+          'IAM role ARN (roleArn) is required for runtime creation'
+        );
+      }
+
       // Create the AgentCore Runtime
       const createCommand = new CreateAgentRuntimeCommand({
         agentRuntimeName: runtimeName,
@@ -153,7 +163,7 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
             containerUri: config.image || this.image,
           },
         },
-        roleArn: this.roleArn ?? '',
+        roleArn: this.roleArn,
         networkConfiguration: { networkMode: 'PUBLIC' },
       });
 
@@ -167,7 +177,7 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
         );
       }
 
-      const runtimeId = extractRuntimeId(runtimeArn);
+      runtimeId = extractRuntimeId(runtimeArn);
 
       // Poll GetAgentRuntimeCommand until status is READY (with timeout)
       const startTime = Date.now();
@@ -228,18 +238,25 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
     } catch (error) {
       // Best-effort cleanup of the created AgentCore runtime
       try {
-        // Attempt to find and delete the runtime by name
-        const listCommand = new ListAgentRuntimesCommand({});
-        const listResponse = await this.controlClient.send(listCommand);
-        const runtime = (listResponse.agentRuntimes ?? []).find(
-          (r) => r.agentRuntimeName === runtimeName
-        );
-        if (runtime?.agentRuntimeId) {
+        if (runtimeId) {
+          // We have the runtime ID — delete directly
           await this.controlClient.send(
-            new DeleteAgentRuntimeCommand({
-              agentRuntimeId: runtime.agentRuntimeId,
-            })
+            new DeleteAgentRuntimeCommand({ agentRuntimeId: runtimeId })
           );
+        } else {
+          // Fallback: find runtime by name via list
+          const listCommand = new ListAgentRuntimesCommand({ maxResults: 100 });
+          const listResponse = await this.controlClient.send(listCommand);
+          const runtime = (listResponse.agentRuntimes ?? []).find(
+            (r) => r.agentRuntimeName === runtimeName
+          );
+          if (runtime?.agentRuntimeId) {
+            await this.controlClient.send(
+              new DeleteAgentRuntimeCommand({
+                agentRuntimeId: runtime.agentRuntimeId,
+              })
+            );
+          }
         }
       } catch (cleanupError) {
         log.warn(`Failed to clean up runtime ${runtimeName} after creation failure`, {
@@ -303,7 +320,9 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
           data: { sandboxId, projectId: instance.projectId, status: instance.status },
         });
         this.sandboxes.delete(sandboxId);
-        this.projectToSandbox.delete(instance.projectId);
+        if (this.projectToSandbox.get(instance.projectId) === sandboxId) {
+          this.projectToSandbox.delete(instance.projectId);
+        }
       }
     }
   }
@@ -323,7 +342,9 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
             data: { projectId },
           });
           this.sandboxes.delete(sandboxId);
-          this.projectToSandbox.delete(projectId);
+          if (this.projectToSandbox.get(projectId) === sandboxId) {
+            this.projectToSandbox.delete(projectId);
+          }
           // Fall through to API query below
         }
         if (this.sandboxes.has(sandboxId)) {
@@ -332,7 +353,9 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
               data: { sandboxId, projectId, status: cached.status },
             });
             this.sandboxes.delete(sandboxId);
-            this.projectToSandbox.delete(projectId);
+            if (this.projectToSandbox.get(projectId) === sandboxId) {
+              this.projectToSandbox.delete(projectId);
+            }
             // Fall through to API query below
           } else {
             return cached;
@@ -342,10 +365,18 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
     }
 
     try {
-      // Fall through to API query using ListAgentRuntimes
-      const listCommand = new ListAgentRuntimesCommand({});
-      const listResponse = await this.controlClient.send(listCommand);
-      const runtimes = listResponse.agentRuntimes ?? [];
+      // Fall through to API query using ListAgentRuntimes (with pagination)
+      let nextToken: string | undefined;
+      const runtimes: Array<Record<string, unknown>> = [];
+      do {
+        const response = await this.controlClient.send(
+          new ListAgentRuntimesCommand({ maxResults: 100, nextToken })
+        );
+        if (response.agentRuntimes) {
+          runtimes.push(...response.agentRuntimes);
+        }
+        nextToken = response.nextToken;
+      } while (nextToken);
 
       // Find a runtime with matching name prefix that is READY
       const namePrefix = `agentpane-${projectId.slice(0, 20)}`
@@ -403,12 +434,16 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
           error: error instanceof Error ? error : new Error(String(error)),
         });
         this.sandboxes.delete(sandboxId);
-        this.projectToSandbox.delete(cached.projectId);
+        if (this.projectToSandbox.get(cached.projectId) === sandboxId) {
+          this.projectToSandbox.delete(cached.projectId);
+        }
         return null;
       }
       if (cached.status === 'error' || cached.status === 'stopped') {
         this.sandboxes.delete(sandboxId);
-        this.projectToSandbox.delete(cached.projectId);
+        if (this.projectToSandbox.get(cached.projectId) === sandboxId) {
+          this.projectToSandbox.delete(cached.projectId);
+        }
         return null;
       }
     }
@@ -418,20 +453,28 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
   async list(): Promise<SandboxInfo[]> {
     await this.validateSandboxes();
     try {
-      const listCommand = new ListAgentRuntimesCommand({});
-      const listResponse = await this.controlClient.send(listCommand);
-      const runtimes = listResponse.agentRuntimes ?? [];
+      let nextToken: string | undefined;
+      const runtimes: Array<Record<string, unknown>> = [];
+      do {
+        const response = await this.controlClient.send(
+          new ListAgentRuntimesCommand({ maxResults: 100, nextToken })
+        );
+        if (response.agentRuntimes) {
+          runtimes.push(...response.agentRuntimes);
+        }
+        nextToken = response.nextToken;
+      } while (nextToken);
 
       return runtimes
         .filter((runtime) => runtime.agentRuntimeName?.startsWith('agentpane-'))
         .map((runtime) => {
-          const sandboxId = runtime.agentRuntimeArn ?? '';
-
-          // Try to resolve projectId from cache
+          // Try to resolve sandboxId and projectId from cache by matching containerId (ARN)
           let projectId = '';
-          for (const [projId, sbxId] of this.projectToSandbox.entries()) {
-            if (sbxId === sandboxId) {
-              projectId = projId;
+          let resolvedSandboxId = runtime.agentRuntimeArn ?? '';
+          for (const [sbxId, instance] of this.sandboxes.entries()) {
+            if (instance.containerId === runtime.agentRuntimeArn) {
+              resolvedSandboxId = sbxId;
+              projectId = instance.projectId;
               break;
             }
           }
@@ -442,7 +485,7 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
           }
 
           return {
-            id: sandboxId,
+            id: resolvedSandboxId,
             projectId,
             containerId: runtime.agentRuntimeArn ?? '',
             status: mapAgentCoreStatus(runtime.status),
@@ -532,7 +575,7 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
       const accountId = stsResponse.Account;
 
       // 2. Verify AgentCore API access
-      const listCommand = new ListAgentRuntimesCommand({});
+      const listCommand = new ListAgentRuntimesCommand({ maxResults: 100 });
       await this.controlClient.send(listCommand);
 
       return {
@@ -597,7 +640,9 @@ export class AgentCoreSandboxProvider implements EventEmittingSandboxProvider {
         }
         // Only evict from cache on successful deletion or already-stopped
         this.sandboxes.delete(sandboxId);
-        this.projectToSandbox.delete(instance.projectId);
+        if (this.projectToSandbox.get(instance.projectId) === sandboxId) {
+          this.projectToSandbox.delete(instance.projectId);
+        }
         cleaned++;
       } catch (error) {
         log.error(

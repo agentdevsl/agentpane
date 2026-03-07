@@ -145,6 +145,16 @@ export class AgentCoreSandboxInstance implements Sandbox {
         stderr: (result.stderr ?? '').trim(),
       };
     } catch (error) {
+      // Pass through errors that are already AgentCore errors (avoid double-wrapping)
+      if (
+        error instanceof Error &&
+        'code' in error &&
+        typeof (error as Record<string, unknown>).code === 'string' &&
+        ((error as Record<string, unknown>).code as string).startsWith('AGENTCORE')
+      ) {
+        throw error;
+      }
+
       const message = error instanceof Error ? error.message : String(error);
 
       log.error(`Failed to exec command on ${this.runtimeArn}`, {

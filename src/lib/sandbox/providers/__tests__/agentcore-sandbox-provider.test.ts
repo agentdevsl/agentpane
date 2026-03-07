@@ -160,8 +160,11 @@ describe('AgentCoreSandboxProvider', () => {
     vi.restoreAllMocks();
   });
 
-  const createProvider = (options = {}) => {
-    return new AgentCoreSandboxProvider(options);
+  const createProvider = (options: Record<string, unknown> = {}) => {
+    return new AgentCoreSandboxProvider({
+      roleArn: 'arn:aws:iam::123456789012:role/test-role',
+      ...options,
+    });
   };
 
   describe('constructor', () => {

@@ -81,7 +81,7 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
       return json({
         ok: true,
         data: {
-          items: result.value.items.map(({ nomadToken, ...rest }) => rest),
+          items: result.value.items.map((item) => redactConfig(item)),
           totalCount: result.value.totalCount,
         },
       });
@@ -1508,7 +1508,17 @@ async function loadAgentCoreCredentials(db: Database | undefined): Promise<
     };
   }
 
-  const parsed = JSON.parse(agentcoreSetting.value);
+  let parsed: Record<string, string | undefined>;
+  try {
+    parsed = JSON.parse(agentcoreSetting.value);
+  } catch {
+    return {
+      ok: false,
+      error: 'Stored AgentCore settings are corrupted',
+      code: 'AGENTCORE_CONFIG_CORRUPT',
+      status: 500,
+    };
+  }
   const awsAccessKeyId = parsed.awsAccessKeyId;
   let awsSecretAccessKey: string | undefined;
   const awsRegion = parsed.awsRegion ?? 'us-east-1';
@@ -1597,12 +1607,6 @@ export function createAgentCoreRoutes(deps?: AgentCoreRouteDeps) {
     try {
       const creds = await loadAgentCoreCredentials(deps?.db);
       if (!creds.ok) {
-        if (creds.code === 'AGENTCORE_DECRYPTION_FAILED') {
-          return json({
-            ok: true,
-            data: { healthy: false, message: creds.error },
-          });
-        }
         return json({
           ok: true,
           data: { healthy: false, message: creds.error },
