@@ -8,7 +8,7 @@
 
 ## Architecture
 
-![AgentPane Architecture](docs/architecture.png)
+![AgentPane Architecture](docs/_architecture-diagram.png)
 
 ### Tenancy Model
 
@@ -44,6 +44,7 @@ The platform includes a visual Kanban board for task management, real-time strea
 - **Docker Containers** — Run agents in isolated Docker containers with project bind-mounts
 - **Kubernetes CRD** — Agent Sandbox SDK for Kubernetes pod provisioning via `agents.x-k8s.io/v1alpha1`
 - **Nomad Jobs** — HashiCorp Nomad sandbox provider for job-based agent isolation
+- **AWS Bedrock AgentCore** — Managed AWS runtimes with STS auth, ECR image validation, and orphan cleanup
 - **Per-Project or Shared** — Choose between a shared container or per-project isolation
 
 ### Terraform No-Code Composer
@@ -208,7 +209,7 @@ bun run build
 │   │       └── shared/          # Shared enums and types
 │   ├── lib/
 │   │   ├── agents/              # Claude Agent SDK integration
-│   │   ├── sandbox/             # Sandbox providers (Docker, K8s CRD, Nomad)
+│   │   ├── sandbox/             # Sandbox providers (Docker, K8s CRD, Nomad, AgentCore)
 │   │   ├── streams/             # Durable Streams / Caddy producer
 │   │   ├── state-machines/      # 4 state machines (agent, task, session, worktree)
 │   │   ├── terraform/           # Terraform compose prompts
@@ -274,6 +275,7 @@ Task moved to "In Progress"
 | Docker | Container-based isolation with project bind-mounts | Active |
 | Agent Sandbox SDK | Kubernetes CRD-based pod provisioning (`agents.x-k8s.io/v1alpha1`) | Active |
 | Nomad | HashiCorp Nomad job-based isolation via `@agentpane/nomad-sandbox-sdk` | Active |
+| AWS Bedrock AgentCore | Managed AWS runtimes via Bedrock Agent Runtime API with STS/ECR integration | Active |
 | Kubernetes (direct) | Direct K8s pod management with RBAC | Archived |
 
 ## Available Scripts
