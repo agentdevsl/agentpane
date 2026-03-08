@@ -377,6 +377,13 @@ async function fetchK8sVersion(
             data += chunk;
           });
           res.on('end', () => {
+            if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
+              log.warn('K8s version endpoint returned non-200 status', {
+                data: { statusCode: res.statusCode, responsePreview: data.substring(0, 200) },
+              });
+              reject(new Error(`K8s version endpoint returned HTTP ${res.statusCode}`));
+              return;
+            }
             try {
               resolve(JSON.parse(data));
             } catch (parseError) {
@@ -397,8 +404,18 @@ async function fetchK8sVersion(
       req.end();
     });
 
+    const version =
+      versionData.gitVersion ||
+      (versionData.major && versionData.minor
+        ? `v${versionData.major}.${versionData.minor}`
+        : null);
+    if (!version) {
+      log.warn('K8s version response missing version fields', {
+        data: { keys: Object.keys(versionData) },
+      });
+    }
     return {
-      version: versionData.gitVersion || `v${versionData.major}.${versionData.minor}`,
+      version: version ?? 'unknown',
       reachable: true,
     };
   } catch (err) {

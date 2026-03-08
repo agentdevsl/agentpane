@@ -159,9 +159,10 @@ async function autoHealK8sSandbox(
 }
 
 async function countPods(
-  provider: SandboxProviderHealth
-): Promise<{ total: number; running: number }> {
-  if (!provider.listSandboxes) return { total: 0, running: 0 };
+  provider: SandboxProviderHealth,
+  context?: string
+): Promise<{ total: number; running: number } | null> {
+  if (!provider.listSandboxes) return null;
   try {
     const sandboxes = await provider.listSandboxes();
     return {
@@ -169,10 +170,10 @@ async function countPods(
       running: sandboxes.filter((s) => s.phase === 'Running').length,
     };
   } catch (err) {
-    log.warn('K8s listSandboxes failed', {
+    log.warn(context ?? 'K8s listSandboxes failed', {
       error: err instanceof Error ? err : new Error(String(err)),
     });
-    return { total: 0, running: 0 };
+    return null;
   }
 }
 
@@ -259,17 +260,25 @@ export function createSandboxStatusRoutes({
           k8sClusterVersion =
             typeof details.clusterVersion === 'string' ? details.clusterVersion : null;
 
-          let pods = await countPods(k8sProvider);
-          k8sPodCount = pods.total;
-          k8sPodsRunning = pods.running;
+          const pods = await countPods(k8sProvider);
+          if (pods) {
+            k8sPodCount = pods.total;
+            k8sPodsRunning = pods.running;
+          }
 
-          if (k8sCrdReady && k8sPodCount === 0) {
+          // Only auto-heal when we KNOW there are zero pods, not when the count failed
+          if (k8sCrdReady && pods !== null && k8sPodCount === 0) {
             const lookupId = sandboxMode === 'shared' ? 'default' : projectId;
             const healed = await autoHealK8sSandbox(db, k8sProvider, lookupId);
             if (healed) {
-              pods = await countPods(k8sProvider);
-              k8sPodCount = pods.total;
-              k8sPodsRunning = pods.running;
+              const recount = await countPods(
+                k8sProvider,
+                'K8s re-count pods failed after auto-heal'
+              );
+              if (recount) {
+                k8sPodCount = recount.total;
+                k8sPodsRunning = recount.running;
+              }
             }
           }
         } catch (err) {
