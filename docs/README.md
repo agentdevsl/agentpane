@@ -57,6 +57,17 @@ End-to-end event streaming pipeline from service-side event emission to reactive
 
 ---
 
+### Events System
+
+![Events System](_events-system-architecture.png)
+
+Webhook ingestion, plugin-based normalization, subscription matching, and automated task creation. Shows the full event pipeline from external sources (GitHub, Linear, Jira, generic webhooks, cron scheduler) through HMAC verification, plugin-based parsing into `NormalizedEvent`, deduplication via unique constraints, subscription matching with field filters, `{{variable}}` template interpolation, and task creation with optional agent auto-start. Includes the database schema (4 tables), scheduler detail (CAS locking, budget enforcement, timezone-aware cron), real-time SSE broadcasting, and event log audit trail.
+
+- **HTML**: [`_events-system-architecture.html`](_events-system-architecture.html)
+- **PNG**: [`_events-system-architecture.png`](_events-system-architecture.png)
+
+---
+
 ## Written Documentation
 
 | Document | Description |

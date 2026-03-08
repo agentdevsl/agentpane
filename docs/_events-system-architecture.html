@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AgentPane Events System Architecture</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0d1117; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+svg { display: block; }
+</style>
+</head>
+<body>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1400" width="1920" height="1400">
+<defs>
+  <marker id="arrow-gray" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6" fill="none" stroke="#484f58" stroke-width="1.5"/>
+  </marker>
+  <marker id="arrow-coral" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6" fill="none" stroke="#f0883e" stroke-width="1.5"/>
+  </marker>
+  <marker id="arrow-orange" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6" fill="none" stroke="#d29922" stroke-width="1.5"/>
+  </marker>
+  <marker id="arrow-blue" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6" fill="none" stroke="#58a6ff" stroke-width="1.5"/>
+  </marker>
+  <marker id="arrow-purple" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6" fill="none" stroke="#bc8cff" stroke-width="1.5"/>
+  </marker>
+  <marker id="arrow-green" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6" fill="none" stroke="#3fb950" stroke-width="1.5"/>
+  </marker>
+</defs>
+
+<!-- Background -->
+<rect width="1920" height="1400" fill="#0d1117"/>
+
+<!-- ==================== TITLE ==================== -->
+<text x="960" y="38" text-anchor="middle" fill="#e6edf3" font-size="22" font-weight="700">AgentPane — Events System Architecture</text>
+<text x="960" y="58" text-anchor="middle" fill="#8b949e" font-size="13">Webhook ingestion, plugin-based normalization, subscription matching, and automated task creation</text>
+
+<!-- ==================== ZONE 1: EXTERNAL EVENT SOURCES (left) ==================== -->
+<rect x="30" y="80" width="230" height="540" rx="12" fill="none" stroke="#f0883e" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="50" y="100" fill="#f0883e" font-size="13" font-weight="600">External Event Sources</text>
+
+<!-- GitHub -->
+<rect x="48" y="118" width="195" height="65" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
+<text x="145" y="140" text-anchor="middle" fill="#f0883e" font-size="14" font-weight="600">GitHub</text>
+<text x="58" y="156" fill="#8b949e" font-size="9">issues · pull_request · push</text>
+<text x="58" y="168" fill="#8b949e" font-size="9">x-hub-signature-256 (HMAC)</text>
+
+<!-- Linear -->
+<rect x="48" y="196" width="195" height="55" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
+<text x="145" y="218" text-anchor="middle" fill="#f0883e" font-size="14" font-weight="600">Linear</text>
+<text x="58" y="234" fill="#8b949e" font-size="9">issue events · webhook signature</text>
+
+<!-- Jira -->
+<rect x="48" y="264" width="195" height="55" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
+<text x="145" y="286" text-anchor="middle" fill="#f0883e" font-size="14" font-weight="600">Jira</text>
+<text x="58" y="302" fill="#8b949e" font-size="9">issue events · HMAC verification</text>
+
+<!-- Generic Webhook -->
+<rect x="48" y="332" width="195" height="55" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
+<text x="145" y="354" text-anchor="middle" fill="#f0883e" font-size="14" font-weight="600">Generic Webhook</text>
+<text x="58" y="370" fill="#8b949e" font-size="9">any HTTP POST · custom headers</text>
+
+<!-- Cron / Scheduler (internal) -->
+<rect x="48" y="415" width="195" height="65" rx="7" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+<text x="145" y="437" text-anchor="middle" fill="#d29922" font-size="14" font-weight="600">Cron / Scheduler</text>
+<text x="58" y="453" fill="#8b949e" font-size="9">schedule.tick · schedule.manual_trigger</text>
+<text x="58" y="465" fill="#8b949e" font-size="9">internal source (not webhook)</text>
+
+<!-- EventSourceType enum -->
+<rect x="48" y="498" width="195" height="52" rx="6" fill="#1c2333" stroke="#8b949e" stroke-width="1"/>
+<text x="145" y="516" text-anchor="middle" fill="#8b949e" font-size="10" font-weight="600">EventSourceType</text>
+<text x="58" y="533" fill="#484f58" font-size="9">'github' | 'linear' | 'jira' |</text>
+<text x="58" y="544" fill="#484f58" font-size="9">'generic_webhook' | 'cron'</text>
+
+<!-- Arrows: Sources -> Zone 2 -->
+<line x1="243" y1="150" x2="285" y2="150" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrow-coral)"/>
+<path d="M 243 222 L 265 222 L 265 200 L 285 200" fill="none" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrow-coral)"/>
+<path d="M 243 290 L 270 290 L 270 250 L 285 250" fill="none" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrow-coral)"/>
+<path d="M 243 358 L 275 358 L 275 300 L 285 300" fill="none" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrow-coral)"/>
+
+<!-- Cron arrow goes to Zone 3 (bypasses webhook infra) -->
+<path d="M 243 447 L 268 447 L 268 600 L 700 600 L 700 245 L 730 245" fill="none" stroke="#d29922" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-orange)"/>
+<text x="400" y="612" fill="#d29922" font-size="9">scheduler tick (internal)</text>
+
+<!-- ==================== ZONE 2: WEBHOOK INFRASTRUCTURE (center-left) ==================== -->
+<rect x="285" y="80" width="400" height="540" rx="12" fill="none" stroke="#d29922" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="305" y="100" fill="#d29922" font-size="13" font-weight="600">Webhook Infrastructure</text>
+
+<!-- Public Endpoint -->
+<rect x="305" y="118" width="360" height="55" rx="7" fill="#161b22" stroke="#d29922" stroke-width="2"/>
+<text x="485" y="140" text-anchor="middle" fill="#d29922" font-size="14" font-weight="600">POST /hooks/events/:slug</text>
+<text x="315" y="158" fill="#8b949e" font-size="9">Public endpoint · 60 req/min rate limit · no auth required</text>
+
+<!-- HMAC Verification -->
+<rect x="305" y="188" width="360" height="65" rx="7" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+<text x="485" y="210" text-anchor="middle" fill="#d29922" font-size="13" font-weight="600">HMAC Signature Verification</text>
+<text x="315" y="228" fill="#8b949e" font-size="9">Web Crypto API (crypto.subtle.sign HMAC-SHA256)</text>
+<text x="315" y="240" fill="#8b949e" font-size="9">Headers: x-hub-signature-256 · x-gitlab-token · x-webhook-signature</text>
+
+<!-- Plugin Registry -->
+<rect x="305" y="268" width="360" height="68" rx="7" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+<text x="485" y="290" text-anchor="middle" fill="#d29922" font-size="13" font-weight="600">Plugin Registry</text>
+<text x="315" y="306" fill="#8b949e" font-size="9">EventSourcePlugin interface (DI, no global singleton)</text>
+<text x="315" y="318" fill="#8b949e" font-size="9">register(type, plugin) · get(type) · getRegisteredTypes()</text>
+<text x="315" y="330" fill="#484f58" font-size="9">plugin-registry.ts</text>
+
+<!-- Plugin Interface details -->
+<rect x="305" y="350" width="360" height="78" rx="7" fill="#1c2333" stroke="#d29922" stroke-width="1"/>
+<text x="485" y="370" text-anchor="middle" fill="#d29922" font-size="11" font-weight="600">EventSourcePlugin</text>
+<text x="315" y="388" fill="#8b949e" font-size="9">verifySignature(payload, signature, secret): Result&lt;boolean&gt;</text>
+<text x="315" y="400" fill="#8b949e" font-size="9">parseEvent(headers, rawBody): Result&lt;NormalizedEvent&gt;</text>
+<text x="315" y="412" fill="#8b949e" font-size="9">getEventTypes() · getTemplateVariables() · matchesFilter()</text>
+<text x="315" y="424" fill="#484f58" font-size="9">plugin-interface.ts</text>
+
+<!-- NormalizedEvent -->
+<rect x="305" y="442" width="360" height="78" rx="7" fill="#1c2333" stroke="#f0883e" stroke-width="1"/>
+<text x="485" y="462" text-anchor="middle" fill="#f0883e" font-size="11" font-weight="600">NormalizedEvent</text>
+<text x="315" y="478" fill="#8b949e" font-size="9">type · action · deliveryId</text>
+<text x="315" y="490" fill="#8b949e" font-size="9">source: { repo, branch, labels, author }</text>
+<text x="315" y="502" fill="#8b949e" font-size="9">data: { title, body, url, number } · raw</text>
+<text x="315" y="514" fill="#484f58" font-size="9">Unified shape for all plugin types</text>
+
+<!-- Plugins row -->
+<rect x="305" y="534" width="110" height="32" rx="5" fill="#161b22" stroke="#f0883e" stroke-width="1"/>
+<text x="360" y="554" text-anchor="middle" fill="#f0883e" font-size="10">GitHub Plugin</text>
+
+<rect x="425" y="534" width="110" height="32" rx="5" fill="#161b22" stroke="#f0883e" stroke-width="1"/>
+<text x="480" y="554" text-anchor="middle" fill="#f0883e" font-size="10">Cron Plugin</text>
+
+<rect x="545" y="534" width="110" height="32" rx="5" fill="#161b22" stroke="#8b949e" stroke-width="1" stroke-dasharray="4,2"/>
+<text x="600" y="554" text-anchor="middle" fill="#8b949e" font-size="10">Linear Plugin</text>
+
+<!-- Vertical connectors inside Zone 2 -->
+<line x1="485" y1="173" x2="485" y2="188" stroke="#d29922" stroke-width="1" stroke-dasharray="4,2"/>
+<line x1="485" y1="253" x2="485" y2="268" stroke="#d29922" stroke-width="1" stroke-dasharray="4,2"/>
+<line x1="485" y1="336" x2="485" y2="350" stroke="#d29922" stroke-width="1" stroke-dasharray="4,2"/>
+<line x1="485" y1="428" x2="485" y2="442" stroke="#d29922" stroke-width="1" stroke-dasharray="4,2"/>
+<line x1="360" y1="520" x2="360" y2="534" stroke="#d29922" stroke-width="1" stroke-dasharray="4,2"/>
+<line x1="480" y1="520" x2="480" y2="534" stroke="#d29922" stroke-width="1" stroke-dasharray="4,2"/>
+
+<!-- Arrow: Zone 2 -> Zone 3 -->
+<path d="M 665 480 L 730 480" fill="none" stroke="#d29922" stroke-width="2" marker-end="url(#arrow-orange)"/>
+<rect x="672" y="463" width="55" height="16" rx="3" fill="#0d1117" stroke="#d29922" stroke-width="0.5"/>
+<text x="699" y="475" text-anchor="middle" fill="#d29922" font-size="9">normalize</text>
+
+<!-- ==================== ZONE 3: EVENT PROCESSING PIPELINE (center) ==================== -->
+<rect x="730" y="80" width="370" height="540" rx="12" fill="none" stroke="#d29922" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="750" y="100" fill="#d29922" font-size="13" font-weight="600">Event Processing Pipeline</text>
+
+<!-- processIncomingEvent -->
+<rect x="750" y="118" width="330" height="42" rx="7" fill="#161b22" stroke="#d29922" stroke-width="2"/>
+<text x="915" y="138" text-anchor="middle" fill="#d29922" font-size="13" font-weight="600">processIncomingEvent()</text>
+<text x="915" y="152" text-anchor="middle" fill="#8b949e" font-size="9">event-processing.service.ts</text>
+
+<!-- Deduplication -->
+<rect x="750" y="175" width="330" height="55" rx="7" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+<text x="915" y="197" text-anchor="middle" fill="#d29922" font-size="13" font-weight="600">Deduplication</text>
+<text x="760" y="215" fill="#8b949e" font-size="9">UNIQUE(eventSourceId, deliveryId) in event_log</text>
+<text x="760" y="227" fill="#8b949e" font-size="9">Duplicate inserts caught → return 'duplicate' status</text>
+
+<!-- Subscription Matching -->
+<rect x="750" y="245" width="330" height="68" rx="7" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+<text x="915" y="267" text-anchor="middle" fill="#d29922" font-size="13" font-weight="600">Subscription Matching</text>
+<text x="760" y="285" fill="#8b949e" font-size="9">findMatchingSubscriptions(eventSourceId, eventType)</text>
+<text x="760" y="297" fill="#8b949e" font-size="9">eventTypes empty = wildcard match · enabled only</text>
+<text x="760" y="309" fill="#8b949e" font-size="9">eventTypes[] contains eventType</text>
+
+<!-- Filter Evaluation -->
+<rect x="750" y="328" width="330" height="78" rx="7" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+<text x="915" y="350" text-anchor="middle" fill="#d29922" font-size="13" font-weight="600">Filter Evaluation</text>
+<text x="760" y="368" fill="#8b949e" font-size="9">SubscriptionFilter: field + operator + value</text>
+<text x="760" y="380" fill="#8b949e" font-size="9">Fields: repo | branch | labels | author | action</text>
+<text x="760" y="392" fill="#8b949e" font-size="9">Operators: equals | contains | matches | not_equals</text>
+<text x="760" y="404" fill="#8b949e" font-size="9">All filters AND'd · regex limited to 200 chars (ReDoS)</text>
+
+<!-- Template Engine -->
+<rect x="750" y="421" width="330" height="78" rx="7" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+<text x="915" y="443" text-anchor="middle" fill="#d29922" font-size="13" font-weight="600">Template Engine</text>
+<text x="760" y="461" fill="#8b949e" font-size="9">{{path.to.variable}} interpolation (dot-notation)</text>
+<text x="760" y="473" fill="#8b949e" font-size="9">Namespaces: event.* · repo.* · issue.* · pr.* · author.*</text>
+<text x="760" y="485" fill="#8b949e" font-size="9">schedule.* · delivery_id · timestamp · trigger</text>
+<text x="760" y="497" fill="#8b949e" font-size="9">Sanitize: max 4096 chars · collapse 3+ newlines to 2</text>
+
+<!-- ProcessingResult -->
+<rect x="750" y="514" width="330" height="42" rx="6" fill="#1c2333" stroke="#8b949e" stroke-width="1"/>
+<text x="915" y="534" text-anchor="middle" fill="#8b949e" font-size="10" font-weight="600">ProcessingResult</text>
+<text x="760" y="548" fill="#484f58" font-size="9">status: 'processed' | 'duplicate' | 'ignored' · matchCount · tasksCreated[]</text>
+
+<!-- Vertical connectors inside Zone 3 -->
+<line x1="915" y1="160" x2="915" y2="175" stroke="#d29922" stroke-width="1" stroke-dasharray="4,2"/>
+<line x1="915" y1="230" x2="915" y2="245" stroke="#d29922" stroke-width="1" stroke-dasharray="4,2"/>
+<line x1="915" y1="313" x2="915" y2="328" stroke="#d29922" stroke-width="1" stroke-dasharray="4,2"/>
+<line x1="915" y1="406" x2="915" y2="421" stroke="#d29922" stroke-width="1" stroke-dasharray="4,2"/>
+<line x1="915" y1="499" x2="915" y2="514" stroke="#d29922" stroke-width="1" stroke-dasharray="4,2"/>
+
+<!-- Arrow: Zone 3 -> Zone 4 -->
+<path d="M 1080 440 L 1130 440" fill="none" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrow-blue)"/>
+<rect x="1082" y="423" width="46" height="16" rx="3" fill="#0d1117" stroke="#58a6ff" stroke-width="0.5"/>
+<text x="1105" y="435" text-anchor="middle" fill="#58a6ff" font-size="9">match!</text>
+
+<!-- ==================== ZONE 4: TASK CREATION & AGENT TRIGGER (center-right) ==================== -->
+<rect x="1130" y="80" width="340" height="540" rx="12" fill="none" stroke="#58a6ff" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="1150" y="100" fill="#58a6ff" font-size="13" font-weight="600">Task Creation &amp; Agent Trigger</text>
+
+<!-- taskService.create() -->
+<rect x="1150" y="118" width="300" height="65" rx="7" fill="#161b22" stroke="#58a6ff" stroke-width="2"/>
+<text x="1300" y="140" text-anchor="middle" fill="#58a6ff" font-size="14" font-weight="600">taskService.create()</text>
+<text x="1160" y="158" fill="#8b949e" font-size="9">Title from event data + subscription name</text>
+<text x="1160" y="170" fill="#8b949e" font-size="9">Description rendered from promptTemplate</text>
+
+<!-- Task Configuration -->
+<rect x="1150" y="198" width="300" height="78" rx="7" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="1300" y="220" text-anchor="middle" fill="#58a6ff" font-size="13" font-weight="600">Task Configuration</text>
+<text x="1160" y="238" fill="#8b949e" font-size="9">taskColumn: from subscription config</text>
+<text x="1160" y="250" fill="#8b949e" font-size="9">taskPriority: from subscription config</text>
+<text x="1160" y="262" fill="#8b949e" font-size="9">taskLabels: from subscription config</text>
+<text x="1160" y="274" fill="#8b949e" font-size="9">projectId: from subscription's event source</text>
+
+<!-- Column Placement -->
+<rect x="1150" y="291" width="300" height="55" rx="7" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="1300" y="313" text-anchor="middle" fill="#58a6ff" font-size="13" font-weight="600">Column Placement</text>
+<text x="1160" y="331" fill="#8b949e" font-size="9">Move to taskColumn if not 'backlog'</text>
+<text x="1160" y="343" fill="#8b949e" font-size="9">PATCH /api/tasks/:id/move</text>
+
+<!-- Agent Auto-Start -->
+<rect x="1150" y="361" width="300" height="68" rx="7" fill="#161b22" stroke="#3fb950" stroke-width="2"/>
+<text x="1300" y="383" text-anchor="middle" fill="#3fb950" font-size="14" font-weight="600">Agent Auto-Start</text>
+<text x="1160" y="401" fill="#3fb950" font-size="9" font-weight="600">column = 'in_progress' triggers agent</text>
+<text x="1160" y="413" fill="#8b949e" font-size="9">Find idle agent or create new → agentService.start()</text>
+<text x="1160" y="425" fill="#8b949e" font-size="9">Creates worktree → session → planning phase</text>
+
+<!-- Subscription Counters -->
+<rect x="1150" y="444" width="300" height="42" rx="7" fill="#161b22" stroke="#8b949e" stroke-width="1"/>
+<text x="1300" y="464" text-anchor="middle" fill="#8b949e" font-size="11" font-weight="600">Subscription Counters</text>
+<text x="1160" y="480" fill="#484f58" font-size="9">incrementMatchCount() · incrementEventCount()</text>
+
+<!-- Update Event Log -->
+<rect x="1150" y="501" width="300" height="55" rx="7" fill="#161b22" stroke="#7ee787" stroke-width="1.5"/>
+<text x="1300" y="523" text-anchor="middle" fill="#7ee787" font-size="13" font-weight="600">Update Event Log</text>
+<text x="1160" y="541" fill="#8b949e" font-size="9">status → 'task_created' | 'matched' | 'ignored'</text>
+<text x="1160" y="553" fill="#8b949e" font-size="9">matchedSubscriptions: [subscriptionId, ...]</text>
+
+<!-- Vertical connectors inside Zone 4 -->
+<line x1="1300" y1="183" x2="1300" y2="198" stroke="#58a6ff" stroke-width="1" stroke-dasharray="4,2"/>
+<line x1="1300" y1="276" x2="1300" y2="291" stroke="#58a6ff" stroke-width="1" stroke-dasharray="4,2"/>
+<line x1="1300" y1="346" x2="1300" y2="361" stroke="#58a6ff" stroke-width="1" stroke-dasharray="4,2"/>
+<line x1="1300" y1="429" x2="1300" y2="444" stroke="#58a6ff" stroke-width="1" stroke-dasharray="4,2"/>
+<line x1="1300" y1="486" x2="1300" y2="501" stroke="#58a6ff" stroke-width="1" stroke-dasharray="4,2"/>
+
+<!-- ==================== ZONE 5: REAL-TIME & AUDIT (right) ==================== -->
+
+<!-- Event Bus / SSE -->
+<rect x="1510" y="80" width="370" height="265" rx="12" fill="none" stroke="#bc8cff" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="1530" y="100" fill="#bc8cff" font-size="13" font-weight="600">Real-Time: Event Bus / SSE</text>
+
+<rect x="1530" y="118" width="330" height="55" rx="7" fill="#161b22" stroke="#bc8cff" stroke-width="1.5"/>
+<text x="1695" y="140" text-anchor="middle" fill="#bc8cff" font-size="13" font-weight="600">publishEventToStream()</text>
+<text x="1540" y="158" fill="#8b949e" font-size="9">Broadcasts to all connected SSE listeners</text>
+<text x="1540" y="170" fill="#8b949e" font-size="9">event-bus.ts · in-memory pub/sub</text>
+
+<rect x="1530" y="188" width="330" height="48" rx="7" fill="#161b22" stroke="#bc8cff" stroke-width="1.5"/>
+<text x="1695" y="210" text-anchor="middle" fill="#bc8cff" font-size="13" font-weight="600">GET /api/events/stream</text>
+<text x="1540" y="228" fill="#8b949e" font-size="9">SSE endpoint · max 50 connections · 30s keepalive ping</text>
+
+<!-- SSE Event Types -->
+<rect x="1530" y="250" width="330" height="78" rx="7" fill="#1c2333" stroke="#bc8cff" stroke-width="1"/>
+<text x="1695" y="270" text-anchor="middle" fill="#bc8cff" font-size="11" font-weight="600">SSE Event Types</text>
+<text x="1540" y="288" fill="#8b949e" font-size="9">event:processed · schedule:executed</text>
+<text x="1540" y="300" fill="#8b949e" font-size="9">schedule:skipped · schedule:error</text>
+<text x="1540" y="312" fill="#8b949e" font-size="9">schedule:paused · schedule:resumed</text>
+<text x="1540" y="324" fill="#484f58" font-size="9">Client-side filtering by source access</text>
+
+<!-- Arrow: Zone 4 -> Event Bus (SSE publish) -->
+<path d="M 1450 300 L 1510 300" fill="none" stroke="#bc8cff" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+<text x="1462" y="293" fill="#bc8cff" font-size="9">SSE</text>
+
+<!-- Arrow: Zone 3 -> Event Bus (event:processed) -->
+<path d="M 1080 140 L 1110 140 L 1110 110 L 1490 110 L 1490 150 L 1530 150" fill="none" stroke="#bc8cff" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+<text x="1250" y="105" fill="#bc8cff" font-size="9">event:processed</text>
+
+<!-- Event Log / Audit -->
+<rect x="1510" y="365" width="370" height="255" rx="12" fill="none" stroke="#7ee787" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="1530" y="385" fill="#7ee787" font-size="13" font-weight="600">Audit: Event Log</text>
+
+<rect x="1530" y="403" width="330" height="48" rx="7" fill="#161b22" stroke="#7ee787" stroke-width="1.5"/>
+<text x="1695" y="425" text-anchor="middle" fill="#7ee787" font-size="13" font-weight="600">GET /api/events/log</text>
+<text x="1540" y="443" fill="#8b949e" font-size="9">Filters: status, type, source · cursor-based pagination</text>
+
+<!-- Status Flow -->
+<rect x="1530" y="466" width="330" height="68" rx="7" fill="#1c2333" stroke="#7ee787" stroke-width="1"/>
+<text x="1695" y="486" text-anchor="middle" fill="#7ee787" font-size="11" font-weight="600">Event Log Status Flow</text>
+
+<!-- Status state machine row -->
+<rect x="1545" y="498" width="62" height="20" rx="4" fill="#1c2333" stroke="#d29922" stroke-width="1"/>
+<text x="1576" y="512" text-anchor="middle" fill="#d29922" font-size="8">received</text>
+
+<line x1="1607" y1="508" x2="1618" y2="508" stroke="#484f58" stroke-width="1" marker-end="url(#arrow-gray)"/>
+
+<rect x="1618" y="498" width="58" height="20" rx="4" fill="#1c2333" stroke="#d29922" stroke-width="1"/>
+<text x="1647" y="512" text-anchor="middle" fill="#d29922" font-size="8">matched</text>
+
+<line x1="1676" y1="508" x2="1688" y2="508" stroke="#484f58" stroke-width="1" marker-end="url(#arrow-gray)"/>
+
+<rect x="1688" y="498" width="78" height="20" rx="4" fill="#1c2333" stroke="#3fb950" stroke-width="1"/>
+<text x="1727" y="512" text-anchor="middle" fill="#3fb950" font-size="8">task_created</text>
+
+<rect x="1776" y="498" width="56" height="20" rx="4" fill="#1c2333" stroke="#8b949e" stroke-width="1"/>
+<text x="1804" y="512" text-anchor="middle" fill="#8b949e" font-size="8">ignored</text>
+
+<rect x="1688" y="524" width="56" height="18" rx="4" fill="#1c2333" stroke="#f85149" stroke-width="1"/>
+<text x="1716" y="537" text-anchor="middle" fill="#f85149" font-size="8">error</text>
+
+<!-- Event Log Details -->
+<rect x="1530" y="548" width="330" height="55" rx="7" fill="#1c2333" stroke="#8b949e" stroke-width="1"/>
+<text x="1540" y="566" fill="#8b949e" font-size="9">eventSourceId · deliveryId · eventType</text>
+<text x="1540" y="578" fill="#8b949e" font-size="9">payload (JSON) · matchedSubscriptions[]</text>
+<text x="1540" y="590" fill="#8b949e" font-size="9">status · processingTimeMs · createdAt</text>
+
+<!-- Arrow: Zone 4 (Update Event Log) -> Audit zone -->
+<path d="M 1450 530 L 1490 530 L 1490 445 L 1530 445" fill="none" stroke="#7ee787" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+<text x="1492" y="490" fill="#7ee787" font-size="9">log</text>
+
+<!-- ==================== BOTTOM SECTION: DATABASE SCHEMA ==================== -->
+<rect x="30" y="660" width="1130" height="230" rx="12" fill="none" stroke="#7ee787" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="50" y="682" fill="#7ee787" font-size="14" font-weight="700">Database Schema (Drizzle ORM · SQLite / PostgreSQL)</text>
+
+<!-- Table: event_sources -->
+<rect x="50" y="700" width="260" height="170" rx="8" fill="#161b22" stroke="#7ee787" stroke-width="1.5"/>
+<text x="180" y="722" text-anchor="middle" fill="#7ee787" font-size="13" font-weight="600">event_sources</text>
+<text x="60" y="740" fill="#8b949e" font-size="9">id: text (cuid2) PK</text>
+<text x="60" y="752" fill="#8b949e" font-size="9">projectId: text FK → projects.id</text>
+<text x="60" y="764" fill="#8b949e" font-size="9">name: text · slug: text UNIQUE</text>
+<text x="60" y="776" fill="#8b949e" font-size="9">type: EventSourceType</text>
+<text x="60" y="788" fill="#8b949e" font-size="9">webhookSecret: text (encrypted)</text>
+<text x="60" y="800" fill="#8b949e" font-size="9">config: JSON · status: text</text>
+<text x="60" y="812" fill="#8b949e" font-size="9">eventCount: integer</text>
+<text x="60" y="824" fill="#8b949e" font-size="9">createdAt · updatedAt</text>
+<text x="60" y="840" fill="#484f58" font-size="8">Slug used for webhook URL routing</text>
+<text x="60" y="852" fill="#484f58" font-size="8">Config stores cron schedule for 'cron' type</text>
+
+<!-- Table: event_subscriptions -->
+<rect x="330" y="700" width="260" height="170" rx="8" fill="#161b22" stroke="#7ee787" stroke-width="1.5"/>
+<text x="460" y="722" text-anchor="middle" fill="#7ee787" font-size="13" font-weight="600">event_subscriptions</text>
+<text x="340" y="740" fill="#8b949e" font-size="9">id: text (cuid2) PK</text>
+<text x="340" y="752" fill="#8b949e" font-size="9">eventSourceId: text FK → event_sources.id</text>
+<text x="340" y="764" fill="#8b949e" font-size="9">name: text · enabled: boolean</text>
+<text x="340" y="776" fill="#8b949e" font-size="9">eventTypes: JSON array (empty = wildcard)</text>
+<text x="340" y="788" fill="#8b949e" font-size="9">filters: JSON array [SubscriptionFilter]</text>
+<text x="340" y="800" fill="#8b949e" font-size="9">promptTemplate: text · taskColumn: text</text>
+<text x="340" y="812" fill="#8b949e" font-size="9">taskPriority: text · taskLabels: JSON</text>
+<text x="340" y="824" fill="#8b949e" font-size="9">matchedCount: integer</text>
+<text x="340" y="840" fill="#484f58" font-size="8">Maps events → task creation rules</text>
+<text x="340" y="852" fill="#484f58" font-size="8">Template uses {{variable}} syntax</text>
+
+<!-- Table: event_log -->
+<rect x="610" y="700" width="260" height="170" rx="8" fill="#161b22" stroke="#7ee787" stroke-width="1.5"/>
+<text x="740" y="722" text-anchor="middle" fill="#7ee787" font-size="13" font-weight="600">event_log</text>
+<text x="620" y="740" fill="#8b949e" font-size="9">id: text (cuid2) PK</text>
+<text x="620" y="752" fill="#8b949e" font-size="9">eventSourceId: text FK</text>
+<text x="620" y="764" fill="#d29922" font-size="9" font-weight="600">UNIQUE(eventSourceId, deliveryId)</text>
+<text x="620" y="776" fill="#8b949e" font-size="9">eventType: text · payload: JSON</text>
+<text x="620" y="788" fill="#8b949e" font-size="9">status: received | matched |</text>
+<text x="620" y="800" fill="#8b949e" font-size="9">       task_created | ignored | error</text>
+<text x="620" y="812" fill="#8b949e" font-size="9">matchedSubscriptions: JSON array</text>
+<text x="620" y="824" fill="#8b949e" font-size="9">processingTimeMs: integer</text>
+<text x="620" y="840" fill="#484f58" font-size="8">UNIQUE constraint enforces dedup</text>
+<text x="620" y="852" fill="#484f58" font-size="8">deliveryId from webhook header</text>
+
+<!-- Table: schedule_executions -->
+<rect x="890" y="700" width="260" height="170" rx="8" fill="#161b22" stroke="#7ee787" stroke-width="1.5"/>
+<text x="1020" y="722" text-anchor="middle" fill="#7ee787" font-size="13" font-weight="600">schedule_executions</text>
+<text x="900" y="740" fill="#8b949e" font-size="9">id: text (cuid2) PK</text>
+<text x="900" y="752" fill="#8b949e" font-size="9">eventSourceId: text FK</text>
+<text x="900" y="764" fill="#8b949e" font-size="9">status: executed | skipped_budget |</text>
+<text x="900" y="776" fill="#8b949e" font-size="9">       skipped_disabled | error</text>
+<text x="900" y="788" fill="#8b949e" font-size="9">trigger: 'tick' | 'manual'</text>
+<text x="900" y="800" fill="#8b949e" font-size="9">budgetWindow: hour | day | week | month</text>
+<text x="900" y="812" fill="#8b949e" font-size="9">errorMessage: text · durationMs: integer</text>
+<text x="900" y="824" fill="#8b949e" font-size="9">executedAt: integer</text>
+<text x="900" y="840" fill="#484f58" font-size="8">Audit trail for all schedule runs</text>
+<text x="900" y="852" fill="#484f58" font-size="8">Used for budget enforcement queries</text>
+
+<!-- FK arrows between tables -->
+<line x1="310" y1="750" x2="330" y2="750" stroke="#484f58" stroke-width="1" stroke-dasharray="4,2"/>
+<line x1="590" y1="750" x2="610" y2="750" stroke="#484f58" stroke-width="1" stroke-dasharray="4,2"/>
+<line x1="870" y1="750" x2="890" y2="750" stroke="#484f58" stroke-width="1" stroke-dasharray="4,2"/>
+
+<!-- Arrows from processing zones down to DB -->
+<path d="M 485 570 L 485 615 L 180 615 L 180 660" fill="none" stroke="#7ee787" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-green)"/>
+<text x="310" y="612" fill="#7ee787" font-size="9">lookup source</text>
+
+<path d="M 915 556 L 915 630 L 740 630 L 740 660" fill="none" stroke="#7ee787" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-green)"/>
+<text x="815" y="645" fill="#7ee787" font-size="9">dedup + log</text>
+
+<!-- ==================== BOTTOM SECTION: SCHEDULER DETAIL ==================== -->
+<rect x="1200" y="660" width="680" height="230" rx="12" fill="none" stroke="#d29922" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="1220" y="682" fill="#d29922" font-size="14" font-weight="700">Scheduler Service Detail</text>
+<text x="1220" y="697" fill="#8b949e" font-size="10">scheduler.service.ts · 932 lines</text>
+
+<!-- Tick Loop -->
+<rect x="1220" y="714" width="310" height="68" rx="7" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+<text x="1375" y="734" text-anchor="middle" fill="#d29922" font-size="13" font-weight="600">Tick Loop</text>
+<text x="1230" y="752" fill="#8b949e" font-size="9">30s default interval (SCHEDULER_TICK_INTERVAL_MS)</text>
+<text x="1230" y="764" fill="#8b949e" font-size="9">Queries: json_extract(config, '$.nextRunAt') &lt;= now</text>
+<text x="1230" y="776" fill="#8b949e" font-size="9">Concurrency limit: 5 (SCHEDULER_CONCURRENCY_LIMIT)</text>
+
+<!-- CAS Locking -->
+<rect x="1550" y="714" width="310" height="68" rx="7" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+<text x="1705" y="734" text-anchor="middle" fill="#d29922" font-size="13" font-weight="600">CAS Locking</text>
+<text x="1560" y="752" fill="#8b949e" font-size="9">Compare-and-swap on nextRunAt</text>
+<text x="1560" y="764" fill="#8b949e" font-size="9">Prevents race conditions between ticks</text>
+<text x="1560" y="776" fill="#8b949e" font-size="9">Manual trigger bypasses CAS lock</text>
+
+<!-- Budget Enforcement -->
+<rect x="1220" y="798" width="310" height="78" rx="7" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+<text x="1375" y="818" text-anchor="middle" fill="#d29922" font-size="13" font-weight="600">Budget Enforcement</text>
+<text x="1230" y="836" fill="#8b949e" font-size="9">4 windows: hour | day | week | month</text>
+<text x="1230" y="848" fill="#8b949e" font-size="9">maxPerHour · maxPerDay · maxPerWeek · maxPerMonth</text>
+<text x="1230" y="860" fill="#8b949e" font-size="9">Timezone-aware (Intl.DateTimeFormat, Monday-based week)</text>
+<text x="1230" y="872" fill="#8b949e" font-size="9">Exceeded → status: 'skipped_budget'</text>
+
+<!-- Recovery & Error Handling -->
+<rect x="1550" y="798" width="310" height="78" rx="7" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+<text x="1705" y="818" text-anchor="middle" fill="#d29922" font-size="13" font-weight="600">Recovery &amp; Error Handling</text>
+<text x="1560" y="836" fill="#8b949e" font-size="9">Startup: recalculate nextRunAt for missed schedules</text>
+<text x="1560" y="848" fill="#8b949e" font-size="9">Auto-pause after 5 consecutive errors</text>
+<text x="1560" y="860" fill="#8b949e" font-size="9">consecutiveErrors tracked, reset on success</text>
+<text x="1560" y="872" fill="#8b949e" font-size="9">Supports 'interval' (min 60s) and 'cron' schedules</text>
+
+<!-- Vertical connectors inside scheduler -->
+<line x1="1375" y1="782" x2="1375" y2="798" stroke="#d29922" stroke-width="1" stroke-dasharray="4,2"/>
+<line x1="1705" y1="782" x2="1705" y2="798" stroke="#d29922" stroke-width="1" stroke-dasharray="4,2"/>
+
+<!-- ==================== LEGEND & KEY FILES ==================== -->
+<rect x="30" y="920" width="1850" height="210" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+<text x="960" y="948" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="600">Legend &amp; Key Files</text>
+
+<!-- Legend items - row 1 -->
+<line x1="60" y1="976" x2="108" y2="976" stroke="#f0883e" stroke-width="2"/>
+<text x="118" y="980" fill="#8b949e" font-size="12">External event sources (webhooks)</text>
+
+<line x1="380" y1="976" x2="428" y2="976" stroke="#d29922" stroke-width="2"/>
+<text x="438" y="980" fill="#8b949e" font-size="12">Event pipeline (webhook infra, processing, scheduler)</text>
+
+<line x1="810" y1="976" x2="858" y2="976" stroke="#58a6ff" stroke-width="2"/>
+<text x="868" y="980" fill="#8b949e" font-size="12">Task creation / agent trigger</text>
+
+<line x1="1120" y1="976" x2="1168" y2="976" stroke="#bc8cff" stroke-width="2"/>
+<text x="1178" y="980" fill="#8b949e" font-size="12">Real-time SSE streaming</text>
+
+<line x1="1410" y1="976" x2="1458" y2="976" stroke="#7ee787" stroke-width="2"/>
+<text x="1468" y="980" fill="#8b949e" font-size="12">Database / audit persistence</text>
+
+<line x1="1700" y1="976" x2="1748" y2="976" stroke="#3fb950" stroke-width="2"/>
+<text x="1758" y="980" fill="#8b949e" font-size="12">Agent auto-start</text>
+
+<!-- Key files - row 2 -->
+<text x="60" y="1016" fill="#d29922" font-size="12" font-weight="600">Key Files</text>
+
+<text x="60" y="1038" fill="#8b949e" font-size="11">event-processing.service.ts</text>
+<text x="280" y="1038" fill="#484f58" font-size="11">Core pipeline: verify → parse → dedup → match → create tasks</text>
+
+<text x="60" y="1056" fill="#8b949e" font-size="11">event-source.service.ts</text>
+<text x="280" y="1056" fill="#484f58" font-size="11">CRUD, slug generation, secret rotation, encryption</text>
+
+<text x="60" y="1074" fill="#8b949e" font-size="11">event-subscription.service.ts</text>
+<text x="280" y="1074" fill="#484f58" font-size="11">Subscription CRUD, findMatchingSubscriptions()</text>
+
+<text x="60" y="1092" fill="#8b949e" font-size="11">scheduler.service.ts</text>
+<text x="280" y="1092" fill="#484f58" font-size="11">Tick loop, CAS locking, budget, recovery, auto-pause</text>
+
+<text x="700" y="1038" fill="#8b949e" font-size="11">plugin-interface.ts</text>
+<text x="920" y="1038" fill="#484f58" font-size="11">EventSourcePlugin, NormalizedEvent, SubscriptionFilter</text>
+
+<text x="700" y="1056" fill="#8b949e" font-size="11">plugin-registry.ts</text>
+<text x="920" y="1056" fill="#484f58" font-size="11">DI-based plugin registry (no global singleton)</text>
+
+<text x="700" y="1074" fill="#8b949e" font-size="11">template-engine.ts</text>
+<text x="920" y="1074" fill="#484f58" font-size="11">{{variable}} interpolation, dot-notation, sanitization</text>
+
+<text x="700" y="1092" fill="#8b949e" font-size="11">event-bus.ts</text>
+<text x="920" y="1092" fill="#484f58" font-size="11">In-memory SSE pub/sub, max 50 connections</text>
+
+<text x="1340" y="1038" fill="#8b949e" font-size="11">plugins/github.ts</text>
+<text x="1540" y="1038" fill="#484f58" font-size="11">GitHub webhook parsing, HMAC, filter matching</text>
+
+<text x="1340" y="1056" fill="#8b949e" font-size="11">plugins/cron-plugin.ts</text>
+<text x="1540" y="1056" fill="#484f58" font-size="11">Schedule tick events, template variables</text>
+
+<text x="1340" y="1074" fill="#8b949e" font-size="11">src/server/router.ts</text>
+<text x="1540" y="1074" fill="#484f58" font-size="11">POST /hooks/events/:slug endpoint (60/min rate limit)</text>
+
+<text x="1340" y="1092" fill="#8b949e" font-size="11">src/server/routes/events.ts</text>
+<text x="1540" y="1092" fill="#484f58" font-size="11">CRUD API: sources, subscriptions, log, SSE stream</text>
+
+<!-- ==================== END-TO-END FLOW SUMMARY ==================== -->
+<rect x="30" y="1150" width="1850" height="110" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+<text x="960" y="1178" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="600">End-to-End Event Flow</text>
+
+<!-- Flow steps -->
+<rect x="50" y="1195" width="175" height="35" rx="6" fill="#1c2333" stroke="#f0883e" stroke-width="1.5"/>
+<text x="137" y="1217" text-anchor="middle" fill="#f0883e" font-size="10" font-weight="600">1. Webhook received</text>
+
+<line x1="225" y1="1212" x2="240" y2="1212" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+
+<rect x="240" y="1195" width="175" height="35" rx="6" fill="#1c2333" stroke="#d29922" stroke-width="1.5"/>
+<text x="327" y="1217" text-anchor="middle" fill="#d29922" font-size="10" font-weight="600">2. Verify signature</text>
+
+<line x1="415" y1="1212" x2="430" y2="1212" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+
+<rect x="430" y="1195" width="175" height="35" rx="6" fill="#1c2333" stroke="#d29922" stroke-width="1.5"/>
+<text x="517" y="1217" text-anchor="middle" fill="#d29922" font-size="10" font-weight="600">3. Parse + normalize</text>
+
+<line x1="605" y1="1212" x2="620" y2="1212" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+
+<rect x="620" y="1195" width="145" height="35" rx="6" fill="#1c2333" stroke="#d29922" stroke-width="1.5"/>
+<text x="692" y="1217" text-anchor="middle" fill="#d29922" font-size="10" font-weight="600">4. Deduplicate</text>
+
+<line x1="765" y1="1212" x2="780" y2="1212" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+
+<rect x="780" y="1195" width="175" height="35" rx="6" fill="#1c2333" stroke="#d29922" stroke-width="1.5"/>
+<text x="867" y="1217" text-anchor="middle" fill="#d29922" font-size="10" font-weight="600">5. Match subscriptions</text>
+
+<line x1="955" y1="1212" x2="970" y2="1212" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+
+<rect x="970" y="1195" width="165" height="35" rx="6" fill="#1c2333" stroke="#d29922" stroke-width="1.5"/>
+<text x="1052" y="1217" text-anchor="middle" fill="#d29922" font-size="10" font-weight="600">6. Evaluate filters</text>
+
+<line x1="1135" y1="1212" x2="1150" y2="1212" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+
+<rect x="1150" y="1195" width="185" height="35" rx="6" fill="#1c2333" stroke="#d29922" stroke-width="1.5"/>
+<text x="1242" y="1217" text-anchor="middle" fill="#d29922" font-size="10" font-weight="600">7. Render template</text>
+
+<line x1="1335" y1="1212" x2="1350" y2="1212" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+
+<rect x="1350" y="1195" width="160" height="35" rx="6" fill="#1c2333" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="1430" y="1217" text-anchor="middle" fill="#58a6ff" font-size="10" font-weight="600">8. Create task</text>
+
+<line x1="1510" y1="1212" x2="1525" y2="1212" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+
+<rect x="1525" y="1195" width="175" height="35" rx="6" fill="#1c2333" stroke="#3fb950" stroke-width="1.5"/>
+<text x="1612" y="1217" text-anchor="middle" fill="#3fb950" font-size="10" font-weight="600">9. Agent auto-start</text>
+
+<line x1="1700" y1="1212" x2="1715" y2="1212" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+
+<rect x="1715" y="1195" width="145" height="35" rx="6" fill="#1c2333" stroke="#bc8cff" stroke-width="1.5"/>
+<text x="1787" y="1217" text-anchor="middle" fill="#bc8cff" font-size="10" font-weight="600">10. SSE publish</text>
+
+<!-- Summary stats -->
+<text x="50" y="1248" fill="#d29922" font-size="12" font-weight="600">Stats</text>
+<text x="100" y="1248" fill="#8b949e" font-size="11">5 source types · 4 filter operators · 4 budget windows · 5 log statuses · 6 SSE event types · max 50 SSE connections · 30s scheduler tick</text>
+
+<!-- ==================== ERROR CATALOG REFERENCE ==================== -->
+<rect x="30" y="1280" width="1850" height="90" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+<text x="960" y="1308" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="600">Error Catalog (event-errors.ts)</text>
+
+<!-- EventErrors row -->
+<text x="60" y="1332" fill="#f85149" font-size="11" font-weight="600">EventErrors</text>
+<text x="170" y="1332" fill="#8b949e" font-size="10">SOURCE_NOT_FOUND · SOURCE_DISABLED · SIGNATURE_INVALID · PARSE_FAILED · PLUGIN_NOT_FOUND · PROCESSING_FAILED</text>
+<text x="170" y="1348" fill="#8b949e" font-size="10">SECRET_DECRYPT_FAILED · SUBSCRIPTION_NOT_FOUND · PROJECT_TEAM_MISMATCH</text>
+
+<!-- ScheduleErrors row -->
+<text x="960" y="1332" fill="#f85149" font-size="11" font-weight="600">ScheduleErrors</text>
+<text x="1078" y="1332" fill="#8b949e" font-size="10">INVALID_CRON · INVALID_INTERVAL · INVALID_TIMEZONE · BUDGET_EXCEEDED</text>
+<text x="1078" y="1348" fill="#8b949e" font-size="10">SOURCE_PAUSED · EXECUTION_FAILED · NOT_CRON_TYPE · ALREADY_PAUSED · ALREADY_ACTIVE</text>
+
+</svg>
+</body>
+</html>

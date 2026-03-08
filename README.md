@@ -298,6 +298,53 @@ Task moved to "In Progress"
 | AWS Bedrock AgentCore | Managed AWS runtimes via Bedrock Agent Runtime API with STS/ECR integration | Active |
 | Kubernetes (direct) | Direct K8s pod management with RBAC | Archived |
 
+### Events System
+
+![Events System](docs/_events-system-architecture.png)
+
+AgentPane includes a pluggable event system that converts external signals — GitHub webhooks, scheduled cron jobs, or custom HTTP webhooks — into tasks that agents can automatically pick up and execute.
+
+```
+External Event (GitHub, Linear, Jira, Cron)
+  → /hooks/events/:slug (public, HMAC-verified)
+  → Plugin normalizes to NormalizedEvent
+  → Deduplicate via deliveryId (idempotent)
+  → Match subscriptions (event type + field filters)
+  → Interpolate prompt template with event data
+  → Create task (optionally auto-start agent)
+```
+
+**Event Sources** — Team-scoped webhook endpoints. Each source gets a unique slug and encrypted HMAC secret. Supported types:
+
+| Source | Signature Header | Events |
+|--------|-----------------|--------|
+| GitHub | `X-Hub-Signature-256` | `issues`, `pull_request`, `push`, `ping` |
+| Linear | `Linear-Signature` | Issue and project events |
+| Jira | `X-Hub-Signature` | Issue and sprint events |
+| Generic Webhook | `X-Webhook-Signature` | Any JSON payload |
+| Cron | N/A (internal) | `schedule.tick`, `schedule.manual_trigger` |
+
+**Event Subscriptions** — Route events from a source to a project. Each subscription defines which event types to match, optional field filters (repo, branch, labels, author, action), a prompt template with `{{variable}}` interpolation, and which Kanban column to place the created task in. If the target column is "In Progress", the task auto-starts an agent.
+
+**GitHub Issue Events** — When a GitHub issue is opened (or labeled, assigned, etc.), the webhook delivers the event, the GitHub plugin normalizes it, matching subscriptions render their prompt templates with issue data (`{{issue.title}}`, `{{issue.body}}`, `{{repo.full_name}}`, etc.), and a task is created in the target project. This enables fully automated issue-to-agent pipelines.
+
+**Webhookd** — The webhook delivery infrastructure. Public endpoint at `/hooks/events/:slug` sits outside the `/api/*` auth boundary (rate-limited at 60 req/min per IP). Webhook secrets are AES-256 encrypted at rest with rotation via `POST /api/events/sources/:id/rotate-secret`. Deduplication uses a unique constraint on `(eventSourceId, deliveryId)` so retried deliveries from external systems are silently accepted without creating duplicate tasks. The full event audit trail is stored in the `event_log` table with status tracking (`received` → `matched` → `task_created` | `ignored`).
+
+**Scheduler** — A lightweight polling-based scheduler for cron event sources. Ticks every 30 seconds (configurable via `SCHEDULER_TICK_INTERVAL_MS`), evaluates cron expressions and simple intervals, and feeds synthetic events through the same processing pipeline as webhooks. Features include:
+
+- **Budget enforcement** — Max executions per hour/day/week/month to prevent runaway costs
+- **Timezone-aware** — Cron expressions respect configured IANA timezones
+- **Auto-pause** — Sources auto-pause after 5 consecutive errors
+- **CAS locking** — Compare-and-swap on `nextRunAt` prevents duplicate execution
+- **Recovery** — On restart, missed executions are skipped (clock is not rewound)
+- **Manual trigger** — `POST /api/events/sources/:id/trigger` for on-demand execution
+
+Additional schedulers handle template sync and Terraform registry sync on configurable intervals (minimum 5 minutes).
+
+**Real-Time Streaming** — All event processing outcomes are broadcast to connected SSE clients via the in-process event bus, enabling live updates in the Events UI. Agent execution events flow through a separate path: `DurableStreamsService` dual-writes to SQLite and Caddy, with offset-based replay on reconnect (see [Durable Streams](#durable-streams) diagram above).
+
+**Plugin Architecture** — New event sources are added by implementing `EventSourcePlugin` (signature verification, event parsing, filter matching, template variables) and registering in the `PluginRegistry`. The registry is dependency-injected for test isolation.
+
 ## Available Scripts
 
 | Script | Description |
