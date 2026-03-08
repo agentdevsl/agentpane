@@ -157,6 +157,25 @@ async function autoHealK8sSandbox(
   }
 }
 
+async function countPods(
+  provider: SandboxProviderHealth,
+  context?: string
+): Promise<{ total: number; running: number } | null> {
+  if (!provider.listSandboxes) return null;
+  try {
+    const sandboxes = await provider.listSandboxes();
+    return {
+      total: sandboxes.length,
+      running: sandboxes.filter((s) => s.phase === 'Running').length,
+    };
+  } catch (err) {
+    log.warn(context ?? 'K8s listSandboxes failed', {
+      error: err instanceof Error ? err : new Error(String(err)),
+    });
+    return null;
+  }
+}
+
 export function createSandboxStatusRoutes({
   db,
   getDockerProvider,
@@ -178,7 +197,16 @@ export function createSandboxStatusRoutes({
       const modeSetting = await db.query.settings.findFirst({
         where: eq(settings.key, 'sandbox.mode'),
       });
-      const sandboxMode = modeSetting?.value ? JSON.parse(modeSetting.value) : 'shared';
+      let sandboxMode = 'shared';
+      if (modeSetting?.value) {
+        try {
+          sandboxMode = JSON.parse(modeSetting.value);
+        } catch {
+          log.warn('Failed to parse sandbox.mode setting, using default', {
+            data: { raw: modeSetting.value },
+          });
+        }
+      }
 
       // Get container status from docker provider (uses getter for deferred initialization)
       let containerStatus: 'stopped' | 'creating' | 'running' | 'idle' | 'error' | 'unavailable' =
@@ -238,41 +266,25 @@ export function createSandboxStatusRoutes({
           k8sCrdReady = details.crdRegistered === true && details.namespaceExists === true;
           k8sClusterVersion =
             typeof details.clusterVersion === 'string' ? details.clusterVersion : null;
-          // Pod counts come from listSandboxes if available
-          if (k8sProvider.listSandboxes) {
-            try {
-              const sandboxes = await k8sProvider.listSandboxes();
-              k8sPodCount = sandboxes.length;
-              k8sPodsRunning = sandboxes.filter((s) => s.phase === 'Running').length;
-            } catch (err) {
-              log.warn('K8s listSandboxes failed', {
-                error: err instanceof Error ? err : new Error(String(err)),
-              });
-            }
+
+          const pods = await countPods(k8sProvider);
+          if (pods) {
+            k8sPodCount = pods.total;
+            k8sPodsRunning = pods.running;
           }
 
-          // Self-healing: auto-create K8s sandbox if cluster is healthy but no pods exist
-          if (k8sCrdReady && k8sPodCount === 0) {
-            const lookupId =
-              (await db.query.settings
-                .findFirst({ where: eq(settings.key, 'sandbox.mode') })
-                .then((s) => (s?.value ? JSON.parse(s.value) : 'shared'))
-                .catch(() => 'shared')) === 'shared'
-                ? 'default'
-                : projectId;
+          // Only auto-heal when we KNOW there are zero pods, not when the count failed
+          if (k8sCrdReady && pods !== null && k8sPodCount === 0) {
+            const lookupId = sandboxMode === 'shared' ? 'default' : projectId;
             const healed = await autoHealK8sSandbox(db, k8sProvider, lookupId);
             if (healed) {
-              // Re-count pods after healing
-              if (k8sProvider.listSandboxes) {
-                try {
-                  const sandboxes = await k8sProvider.listSandboxes();
-                  k8sPodCount = sandboxes.length;
-                  k8sPodsRunning = sandboxes.filter((s) => s.phase === 'Running').length;
-                } catch (err) {
-                  log.warn('K8s re-count pods failed after auto-heal', {
-                    error: err instanceof Error ? err : new Error(String(err)),
-                  });
-                }
+              const recount = await countPods(
+                k8sProvider,
+                'K8s re-count pods failed after auto-heal'
+              );
+              if (recount) {
+                k8sPodCount = recount.total;
+                k8sPodsRunning = recount.running;
               }
             }
           }
@@ -353,7 +365,14 @@ export function createSandboxStatusRoutes({
       const modeSetting = await db.query.settings.findFirst({
         where: eq(settings.key, 'sandbox.mode'),
       });
-      const sandboxMode = modeSetting?.value ? JSON.parse(modeSetting.value) : 'shared';
+      let sandboxMode = 'shared';
+      if (modeSetting?.value) {
+        try {
+          sandboxMode = JSON.parse(modeSetting.value);
+        } catch {
+          log.warn('Failed to parse sandbox.mode setting in restart, using default');
+        }
+      }
       const lookupId = sandboxMode === 'shared' ? 'default' : projectId;
 
       // Cast to access restart method (it's on DockerProvider but not the interface)

@@ -9,8 +9,11 @@ import type { Readable } from 'node:stream';
 import type {
   DurableStreamsService,
   StreamEventMap,
-  TypedEventType,
 } from '../../services/durable-streams.service.js';
+import { type AgentRunnerEventType, EVENT_TYPE_MAP } from './event-type-map.js';
+
+// Re-export AgentRunnerEventType as ContainerAgentEventType for backwards compatibility
+export type ContainerAgentEventType = AgentRunnerEventType;
 
 // Debug logging helper
 const DEBUG = process.env.DEBUG_CONTAINER_BRIDGE === 'true' || process.env.DEBUG === 'true';
@@ -30,22 +33,6 @@ function infoLog(context: string, message: string, data?: Record<string, unknown
 }
 
 /**
- * Event types emitted by the container agent-runner.
- */
-export type ContainerAgentEventType =
-  | 'agent:started'
-  | 'agent:token'
-  | 'agent:turn'
-  | 'agent:tool:start'
-  | 'agent:tool:result'
-  | 'agent:message'
-  | 'agent:complete'
-  | 'agent:error'
-  | 'agent:cancelled'
-  | 'agent:plan_ready'
-  | 'agent:file_changed';
-
-/**
  * Raw event structure from the container stdout.
  */
 export interface ContainerAgentEvent {
@@ -55,23 +42,6 @@ export interface ContainerAgentEvent {
   sessionId: string;
   data: Record<string, unknown>;
 }
-
-/**
- * Maps container event types to DurableStreams event types.
- */
-const EVENT_TYPE_MAP: Record<ContainerAgentEventType, TypedEventType> = {
-  'agent:started': 'container-agent:started',
-  'agent:token': 'container-agent:token',
-  'agent:turn': 'container-agent:turn',
-  'agent:tool:start': 'container-agent:tool:start',
-  'agent:tool:result': 'container-agent:tool:result',
-  'agent:message': 'container-agent:message',
-  'agent:complete': 'container-agent:complete',
-  'agent:error': 'container-agent:error',
-  'agent:cancelled': 'container-agent:cancelled',
-  'agent:plan_ready': 'container-agent:plan_ready',
-  'agent:file_changed': 'container-agent:file_changed',
-};
 
 /**
  * Options for creating a container bridge.

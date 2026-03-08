@@ -309,7 +309,6 @@ export function createRouter(deps: RouterDependencies) {
   app.use('/api/sandbox/k8s/*', requireRole('admin', rbacService));
   app.use('/api/sandbox/nomad', requireRole('admin', rbacService));
   app.use('/api/sandbox/nomad/*', requireRole('admin', rbacService));
-
   // Workflows and templates: viewer minimum
   app.use('/api/workflows', requireRole('viewer', rbacService));
   app.use('/api/workflows/*', requireRole('viewer', rbacService));

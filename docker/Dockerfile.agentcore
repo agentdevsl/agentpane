@@ -1,0 +1,103 @@
+# AgentCore Dockerfile
+# Builds the agent-runner for deployment on AWS Bedrock AgentCore runtime.
+#
+# AgentCore requires ARM64 images — the container runs in a dedicated Firecracker
+# microVM, with /invocations exposed on port 8080 via BedrockAgentCoreApp.
+#
+# Usage:
+#   docker build --platform linux/arm64 -f docker/Dockerfile.agentcore -t agentpane-agentcore:latest .
+#
+# The image includes:
+# - Node.js 22 (ARM64)
+# - Claude Agent SDK + bedrock-agentcore runtime
+# - Claude Code CLI (required by the Agent SDK)
+# - ripgrep, fd-find, tree, git for agent file operations
+
+# ---------------------------------------------------------------------------
+# Stage 1: Build
+# ---------------------------------------------------------------------------
+FROM --platform=linux/arm64 node:22-bookworm-slim AS builder
+
+WORKDIR /opt/agent-runner
+
+# Copy package files first for better layer caching
+COPY agent-runner/package.json agent-runner/package-lock.json* ./
+COPY agent-runner/tsconfig.json ./
+
+# Install all dependencies (including devDependencies for TypeScript build)
+RUN npm install --ignore-scripts
+
+# Copy source
+COPY agent-runner/src ./src/
+
+# Build TypeScript to JavaScript
+RUN npm run build
+
+# Prune devDependencies for production
+RUN npm prune --production
+
+# ---------------------------------------------------------------------------
+# Stage 2: Runtime
+# ---------------------------------------------------------------------------
+FROM --platform=linux/arm64 node:22-bookworm-slim
+
+# Install system tools needed by the agent during execution
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    ripgrep \
+    fd-find \
+    tree \
+    curl \
+    sudo \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Install Claude Code CLI globally (required by Claude Agent SDK —
+# the SDK spawns the CLI process and communicates with it)
+RUN npm install -g @anthropic-ai/claude-code
+
+# Configure git for mounted / cloned volumes (prevents "dubious ownership" errors)
+RUN git config --system --add safe.directory '*' && \
+    git config --system user.email "agent@agentcore.local" && \
+    git config --system user.name "AgentPane AgentCore"
+
+# Create workspace directory
+RUN mkdir -p /workspace
+
+# Create .claude directories for SDK (plans, credentials, etc.)
+RUN mkdir -p /home/node/.claude/plans && chown -R node:node /home/node/.claude
+
+# Allow node user limited sudo for permission fixes only
+RUN echo "node ALL=(ALL) NOPASSWD: /bin/chown" >> /etc/sudoers.d/node-chown
+
+# Copy built application from builder stage
+COPY --from=builder /opt/agent-runner/dist /opt/agent-runner/dist
+COPY --from=builder /opt/agent-runner/node_modules /opt/agent-runner/node_modules
+COPY --from=builder /opt/agent-runner/package.json /opt/agent-runner/package.json
+
+# Ensure workspace is writable by node user
+RUN chown -R node:node /workspace /opt/agent-runner
+
+WORKDIR /workspace
+
+# Switch to non-root user for security
+USER node
+
+# Ensure .claude dir exists at runtime (may be overwritten by volume mounts)
+RUN mkdir -p /home/node/.claude/plans
+
+# AgentCore runtime listens on port 8080
+EXPOSE 8080
+
+# Health check — BedrockAgentCoreApp responds on /ping
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -sf http://localhost:8080/ping || exit 1
+
+# Entry point: run the AgentCore handler
+CMD ["node", "/opt/agent-runner/dist/agentcore-handler.js"]
+
+# Labels
+LABEL org.opencontainers.image.title="AgentPane AgentCore Runtime"
+LABEL org.opencontainers.image.description="Claude Agent SDK runner for AWS Bedrock AgentCore (ARM64)"
+LABEL org.opencontainers.image.base.name="node:22-bookworm-slim"

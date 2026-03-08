@@ -8,7 +8,7 @@
 
 ## Architecture
 
-![AgentPane Architecture](docs/architecture.png)
+![AgentPane Architecture](docs/_architecture-diagram.png)
 
 ### Tenancy Model
 
@@ -44,6 +44,7 @@ The platform includes a visual Kanban board for task management, real-time strea
 - **Docker Containers** — Run agents in isolated Docker containers with project bind-mounts
 - **Kubernetes CRD** — Agent Sandbox SDK for Kubernetes pod provisioning via `agents.x-k8s.io/v1alpha1`
 - **Nomad Jobs** — HashiCorp Nomad sandbox provider for job-based agent isolation
+- **AWS Bedrock AgentCore** — Managed AWS runtimes with STS auth, ECR image validation, and orphan cleanup
 - **Per-Project or Shared** — Choose between a shared container or per-project isolation
 
 ### Terraform No-Code Composer
@@ -102,6 +103,7 @@ The platform includes a visual Kanban board for task management, real-time strea
 | Linting | Biome | @biomejs/biome | 2.4.4 |
 | Containers | Dockerode | dockerode | 4.0.9 |
 | Kubernetes | K8s Client | @kubernetes/client-node | 1.4.0 |
+| AWS | AWS SDK | @aws-sdk/client-sts | 3.1004.0 |
 | GitHub | Octokit | octokit | 5.0.5 |
 
 ## Getting Started
@@ -111,6 +113,7 @@ The platform includes a visual Kanban board for task management, real-time strea
 - [Bun](https://bun.sh) 1.3.10+
 - [Node.js](https://nodejs.org) 24.0.0+
 - [Docker](https://docker.com) (optional, for sandboxed agent execution)
+- [AWS Account](https://aws.amazon.com) (optional, for AWS Bedrock AgentCore sandbox execution)
 
 ### Installation
 
@@ -141,6 +144,8 @@ Set the following environment variables (or configure via the Settings UI):
 | `GITHUB_PRIVATE_KEY` | No | GitHub App private key |
 | `GITHUB_WEBHOOK_SECRET` | No | Secret for verifying GitHub webhooks |
 | `CORS_ORIGIN` | Production | Allowed CORS origin |
+
+> **AWS Bedrock AgentCore** credentials (access key, secret key, region, runtime ARN) are configured via the **Settings UI** under `sandbox.agentcore`, not environment variables.
 
 ### Development
 
@@ -208,7 +213,7 @@ bun run build
 │   │       └── shared/          # Shared enums and types
 │   ├── lib/
 │   │   ├── agents/              # Claude Agent SDK integration
-│   │   ├── sandbox/             # Sandbox providers (Docker, K8s CRD, Nomad)
+│   │   ├── sandbox/             # Sandbox providers (Docker, K8s CRD, Nomad, AgentCore)
 │   │   ├── streams/             # Durable Streams / Caddy producer
 │   │   ├── state-machines/      # 4 state machines (agent, task, session, worktree)
 │   │   ├── terraform/           # Terraform compose prompts
@@ -274,6 +279,7 @@ Task moved to "In Progress"
 | Docker | Container-based isolation with project bind-mounts | Active |
 | Agent Sandbox SDK | Kubernetes CRD-based pod provisioning (`agents.x-k8s.io/v1alpha1`) | Active |
 | Nomad | HashiCorp Nomad job-based isolation via `@agentpane/nomad-sandbox-sdk` | Active |
+| AWS Bedrock AgentCore | Managed AWS runtimes via Bedrock Agent Runtime API with STS/ECR integration | Active |
 | Kubernetes (direct) | Direct K8s pod management with RBAC | Archived |
 
 ## Available Scripts

@@ -296,6 +296,26 @@ if (DB_MODE === 'postgres') {
     }
   }
 
+  // AgentCore sandbox columns — run individually for partial-failure safety
+  const agentcoreColumns = [
+    `ALTER TABLE sandbox_configs ADD COLUMN aws_access_key_id TEXT`,
+    `ALTER TABLE sandbox_configs ADD COLUMN aws_secret_access_key TEXT`,
+    `ALTER TABLE sandbox_configs ADD COLUMN aws_region TEXT`,
+    `ALTER TABLE sandbox_configs ADD COLUMN agentcore_runtime_arn TEXT`,
+    `ALTER TABLE sandbox_configs ADD COLUMN ecr_repository_uri TEXT`,
+  ];
+  for (const sql of agentcoreColumns) {
+    try {
+      sqlite.exec(sql);
+    } catch (error) {
+      if (!(error instanceof Error && error.message.includes('duplicate column name'))) {
+        log.warn('AgentCore migration error', {
+          error: error instanceof Error ? error : new Error(String(error)),
+        });
+      }
+    }
+  }
+
   // Apply agents parent_agent_id migration (may fail if column already exists)
   try {
     sqlite.exec(

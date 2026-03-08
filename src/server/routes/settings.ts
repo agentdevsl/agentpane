@@ -6,8 +6,11 @@ import { eq, or } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import * as schema from '../../db/schema/index.js';
+import { createLogger } from '../../lib/logging/logger';
 import type { Database } from '../../types/database.js';
 import { json } from '../shared.js';
+
+const log = createLogger('SettingsRoutes');
 
 // Allowlist of settings keys that can be written via the PUT endpoint.
 // Any key not in this list is silently rejected to prevent overwriting
@@ -18,6 +21,7 @@ const ALLOWED_SETTINGS_KEYS = new Set([
   'sandbox.provider',
   'sandbox.kubernetes',
   'sandbox.nomad',
+  'sandbox.agentcore',
   'anthropic.apiKey',
   'anthropic.model',
   'github.token',
@@ -25,6 +29,11 @@ const ALLOWED_SETTINGS_KEYS = new Set([
   'theme',
   'general.agentModel',
 ]);
+
+const SENSITIVE_FIELDS: Record<string, { secretKey: string; flagKey: string }> = {
+  'sandbox.nomad': { secretKey: 'token', flagKey: 'hasToken' },
+  'sandbox.agentcore': { secretKey: 'secretAccessKey', flagKey: 'hasSecretAccessKey' },
+};
 
 // Validation schemas
 const updateSettingsSchema = z.object({
@@ -67,31 +76,32 @@ export function createSettingsRoutes({ db }: SettingsDeps) {
       const settingsMap: Record<string, unknown> = {};
       for (const row of results) {
         try {
-          // Redact sensitive tokens before returning to client
-          if (row.key === 'sandbox.nomad') {
-            const parsed = JSON.parse(row.value);
-            if (parsed.token) {
-              parsed.hasToken = true;
-              delete parsed.token;
-            }
-            settingsMap[row.key] = parsed;
-            continue;
+          const parsed = JSON.parse(row.value);
+          const sensitive = SENSITIVE_FIELDS[row.key];
+          if (
+            sensitive &&
+            typeof parsed === 'object' &&
+            parsed !== null &&
+            parsed[sensitive.secretKey]
+          ) {
+            parsed[sensitive.flagKey] = true;
+            delete parsed[sensitive.secretKey];
           }
-
-          settingsMap[row.key] = JSON.parse(row.value);
+          settingsMap[row.key] = parsed;
         } catch (parseError) {
-          // Log warning for potential data corruption - falling back to raw string
-          console.warn(
-            `[Settings] Failed to parse JSON for key "${row.key}":`,
-            parseError instanceof Error ? parseError.message : 'parse error'
-          );
+          log.warn('Failed to parse JSON for settings key', {
+            error: parseError instanceof Error ? parseError : new Error('parse error'),
+            data: { key: row.key },
+          });
           settingsMap[row.key] = row.value;
         }
       }
 
       return json({ ok: true, data: { settings: settingsMap } });
     } catch (error) {
-      console.error('[API] Error getting settings:', error);
+      log.error('Failed to get settings', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
       return json(
         { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to get settings' } },
         500
@@ -134,15 +144,15 @@ export function createSettingsRoutes({ db }: SettingsDeps) {
           continue; // Silently skip unknown keys
         }
 
-        // Encrypt sensitive tokens before storage (create a copy to avoid mutating the parsed input)
         let dbValue = value;
-        if (key === 'sandbox.nomad' && typeof value === 'object' && value !== null) {
-          const nomadCopy = { ...(value as Record<string, unknown>) };
-          if (nomadCopy.token && typeof nomadCopy.token === 'string') {
+        const sensitive = SENSITIVE_FIELDS[key];
+        if (sensitive && typeof value === 'object' && value !== null) {
+          const copy = { ...(value as Record<string, unknown>) };
+          if (copy[sensitive.secretKey] && typeof copy[sensitive.secretKey] === 'string') {
             const { encryptToken } = await import('../../lib/crypto/server-encryption.js');
-            nomadCopy.token = encryptToken(nomadCopy.token);
+            copy[sensitive.secretKey] = encryptToken(copy[sensitive.secretKey] as string);
           }
-          dbValue = nomadCopy;
+          dbValue = copy;
         }
 
         const jsonValue = JSON.stringify(dbValue);
@@ -157,7 +167,9 @@ export function createSettingsRoutes({ db }: SettingsDeps) {
 
       return json({ ok: true });
     } catch (error) {
-      console.error('[API] Error updating settings:', error);
+      log.error('Failed to update settings', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
       return json(
         { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to update settings' } },
         500

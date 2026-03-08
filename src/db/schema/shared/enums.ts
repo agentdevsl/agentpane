@@ -51,7 +51,13 @@ export const SESSION_STATUS = [
 ] as const;
 export type SessionStatus = (typeof SESSION_STATUS)[number];
 
-export const SANDBOX_TYPES = ['docker', 'devcontainer', 'kubernetes', 'nomad'] as const;
+export const SANDBOX_TYPES = [
+  'docker',
+  'devcontainer',
+  'kubernetes',
+  'nomad',
+  'agentcore',
+] as const;
 export type SandboxType = (typeof SANDBOX_TYPES)[number];
 
 export const RBAC_ROLES = ['owner', 'admin', 'agent_operator', 'viewer'] as const;

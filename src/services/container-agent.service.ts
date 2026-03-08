@@ -1,11 +1,14 @@
 /**
- * ContainerAgentService - Orchestrates Claude Agent SDK execution inside sandbox containers.
+ * ContainerAgentService - Orchestrates Claude Agent SDK execution inside sandbox containers
+ * and AWS Bedrock AgentCore runtimes.
  *
- * This service manages the lifecycle of agent processes running in sandbox containers:
- * - Starts agent-runner process inside the sandbox (Docker or K8s pod)
- * - Bridges stdout events to DurableStreams
- * - Handles cancellation via sentinel files
- * - Tracks running agents per task
+ * This service manages the lifecycle of agent processes running in:
+ * - Sandbox containers (Docker, K8s pod, Nomad job) via stdout event bridging
+ * - AWS AgentCore runtimes via SSE invoke + AgentCoreBridge
+ *
+ * Common responsibilities:
+ * - Handles cancellation via sentinel files (containers) or instance.stop() (AgentCore)
+ * - Tracks running agents per task in separate maps (runningAgents / runningAgentCoreAgents)
  * - Initializes remote workspaces (clone + worktree) when using K8s or Nomad provider
  */
 import { eq } from 'drizzle-orm';
@@ -34,11 +37,18 @@ function warnLog(context: string, message: string, data?: Record<string, unknown
 }
 
 import { agents, projects, type StoredPlanOptions, sessions, tasks } from '../db/schema';
+import { type AgentCoreBridge, createAgentCoreBridge } from '../lib/agents/agentcore-bridge.js';
 import { type ContainerBridge, createContainerBridge } from '../lib/agents/container-bridge.js';
 import { DEFAULT_AGENT_MODEL, getFullModelId } from '../lib/constants/models.js';
 import { CONTAINER_WORKSPACE_PATH } from '../lib/constants/sandbox.js';
 import type { SandboxError } from '../lib/errors/sandbox-errors.js';
 import { SandboxErrors } from '../lib/errors/sandbox-errors.js';
+import type { AgentCoreSandboxInstance } from '../lib/sandbox/providers/agentcore-sandbox-instance.js';
+import {
+  type AgentCoreProviderConfig,
+  type AgentCoreSandboxProvider,
+  createAgentCoreProvider,
+} from '../lib/sandbox/providers/agentcore-sandbox-provider.js';
 import type {
   ExecStreamResult,
   Sandbox,
@@ -102,7 +112,7 @@ export interface AgentConfig {
 }
 
 /**
- * Running agent instance.
+ * Running agent instance (Docker/K8s/Nomad — container exec path).
  */
 interface RunningAgent {
   taskId: string;
@@ -116,6 +126,23 @@ interface RunningAgent {
   stopRequested: boolean;
   phase: AgentPhase;
   worktreeId?: string;
+  timeoutHandle?: ReturnType<typeof setTimeout>;
+}
+
+/**
+ * Running agent instance for AgentCore (invoke + SSE path — no container exec).
+ */
+interface RunningAgentCoreAgent {
+  taskId: string;
+  sessionId: string;
+  projectId: string;
+  sandboxId: string;
+  bridge: AgentCoreBridge;
+  instance: AgentCoreSandboxInstance;
+  runtimeSessionId: string;
+  startedAt: Date;
+  stopRequested: boolean;
+  phase: AgentPhase;
   timeoutHandle?: ReturnType<typeof setTimeout>;
 }
 
@@ -145,11 +172,15 @@ const PENDING_PLAN_TTL_MS = 60 * 60 * 1000;
 const PLAN_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 
 /**
- * ContainerAgentService manages Claude Agent SDK execution inside Docker containers.
+ * ContainerAgentService manages Claude Agent SDK execution inside sandbox
+ * containers (Docker/K8s/Nomad) or via AWS Bedrock AgentCore invoke.
  */
 export class ContainerAgentService {
-  /** Map of taskId -> running agent */
+  /** Map of taskId -> running agent (Docker/K8s/Nomad) */
   private runningAgents = new Map<string, RunningAgent>();
+
+  /** Map of taskId -> running AgentCore agent */
+  private runningAgentCoreAgents = new Map<string, RunningAgentCoreAgent>();
 
   /** Map of taskId -> pending plan data (awaiting approval) */
   private pendingPlans = new Map<string, PlanData>();
@@ -160,8 +191,12 @@ export class ContainerAgentService {
   /** Interval for cleaning up expired pending plans */
   private planCleanupInterval: ReturnType<typeof setInterval> | null = null;
 
+  /** AgentCore sandbox provider (lazily initialized when AgentCore config is set) */
+  private agentCoreProvider?: AgentCoreSandboxProvider;
+
   /** Expose provider name so callers (e.g. TaskService) can tag sessions at creation */
   get providerName(): string {
+    if (this.agentCoreProvider) return 'agentcore';
     return this.provider.name;
   }
 
@@ -180,6 +215,33 @@ export class ContainerAgentService {
     this.planCleanupInterval = setInterval(() => {
       this.cleanupExpiredPlans();
     }, PLAN_CLEANUP_INTERVAL_MS);
+  }
+
+  /**
+   * Check whether the active sandbox provider is AgentCore.
+   */
+  private isAgentCoreProvider(): boolean {
+    return this.agentCoreProvider !== undefined;
+  }
+
+  /**
+   * Configure the AgentCore sandbox provider.
+   * Call this when the user selects AgentCore as the sandbox provider (e.g. via Settings).
+   */
+  setAgentCoreProvider(config: AgentCoreProviderConfig): void {
+    this.agentCoreProvider = createAgentCoreProvider(config);
+    infoLog('setAgentCoreProvider', 'AgentCore provider configured', {
+      region: config.region,
+      runtimeArn: config.runtimeArn,
+    });
+  }
+
+  /**
+   * Remove the AgentCore provider (switch back to container-based execution).
+   */
+  clearAgentCoreProvider(): void {
+    this.agentCoreProvider = undefined;
+    infoLog('clearAgentCoreProvider', 'AgentCore provider cleared, using container exec path');
   }
 
   /**
@@ -688,12 +750,20 @@ export class ContainerAgentService {
   }
 
   /**
-   * Stop the plan cleanup interval (for testing or shutdown).
+   * Stop the plan cleanup interval and clean up AgentCore resources (for testing or shutdown).
    */
   dispose(): void {
     if (this.planCleanupInterval) {
       clearInterval(this.planCleanupInterval);
       this.planCleanupInterval = null;
+    }
+    // Clean up AgentCore provider on shutdown
+    if (this.agentCoreProvider) {
+      this.agentCoreProvider.cleanup().catch((cleanupErr) => {
+        warnLog('dispose', 'AgentCore cleanup failed', {
+          error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+        });
+      });
     }
   }
 
@@ -759,7 +829,7 @@ export class ContainerAgentService {
     });
 
     // Check if agent is already running for this task (fast, in-memory check)
-    if (this.runningAgents.has(taskId)) {
+    if (this.runningAgents.has(taskId) || this.runningAgentCoreAgents.has(taskId)) {
       infoLog('startAgent', 'Agent already running for task', { taskId });
       return err(SandboxErrors.AGENT_ALREADY_RUNNING(taskId));
     }
@@ -782,6 +852,17 @@ export class ContainerAgentService {
         infoLog('startAgent', 'Project not found', { projectId });
         return err(SandboxErrors.PROJECT_NOT_FOUND);
       }
+
+      // ------------------------------------------------------------------
+      // AgentCore branch: invoke + SSE path (no Docker/K8s exec)
+      // ------------------------------------------------------------------
+      if (this.isAgentCoreProvider()) {
+        return this.startAgentCoreAgent(input, project);
+      }
+
+      // ------------------------------------------------------------------
+      // Container exec branch: Docker / K8s / Nomad (existing path)
+      // ------------------------------------------------------------------
 
       // Use shared sandbox mode by default (fastest path - no per-project container creation)
       // Sandbox was already fetched in parallel above
@@ -1315,8 +1396,11 @@ export class ContainerAgentService {
                 turnCount: 0,
               });
               await this.handleAgentError(taskId, message, 0);
-            } catch {
-              // Ignore cleanup errors — best-effort notification
+            } catch (notifyErr) {
+              warnLog('startAgent', 'Failed to notify user of stream failure (best-effort)', {
+                taskId,
+                error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+              });
             }
           }
         });
@@ -1356,11 +1440,22 @@ export class ContainerAgentService {
   }
 
   /**
-   * Stop a running agent by writing a sentinel file.
+   * Stop a running agent by writing a sentinel file (container) or stopping the bridge (AgentCore).
    */
   async stopAgent(taskId: string): Promise<Result<void, SandboxError>> {
     infoLog('stopAgent', 'Stopping agent', { taskId });
 
+    // ------------------------------------------------------------------
+    // AgentCore branch: stop the bridge and SSE stream
+    // ------------------------------------------------------------------
+    const acAgent = this.runningAgentCoreAgents.get(taskId);
+    if (acAgent) {
+      return this.stopAgentCoreAgent(acAgent);
+    }
+
+    // ------------------------------------------------------------------
+    // Container exec branch: sentinel file + kill process
+    // ------------------------------------------------------------------
     const agent = this.runningAgents.get(taskId);
     if (!agent) {
       infoLog('stopAgent', 'Agent not found in running agents', {
@@ -1433,7 +1528,7 @@ export class ContainerAgentService {
    * Check if an agent is running for a task.
    */
   isAgentRunning(taskId: string): boolean {
-    return this.runningAgents.has(taskId);
+    return this.runningAgents.has(taskId) || this.runningAgentCoreAgents.has(taskId);
   }
 
   /**
@@ -1442,7 +1537,7 @@ export class ContainerAgentService {
   getRunningAgent(
     taskId: string
   ): { projectId: string; sessionId: string; startedAt: Date } | null {
-    const agent = this.runningAgents.get(taskId);
+    const agent = this.runningAgents.get(taskId) ?? this.runningAgentCoreAgents.get(taskId);
     if (!agent) {
       return null;
     }
@@ -1463,12 +1558,19 @@ export class ContainerAgentService {
     sessionId: string;
     startedAt: Date;
   }> {
-    return Array.from(this.runningAgents.values()).map((agent) => ({
+    const containerAgents = Array.from(this.runningAgents.values()).map((agent) => ({
       taskId: agent.taskId,
       projectId: agent.projectId,
       sessionId: agent.sessionId,
       startedAt: agent.startedAt,
     }));
+    const agentCoreAgents = Array.from(this.runningAgentCoreAgents.values()).map((agent) => ({
+      taskId: agent.taskId,
+      projectId: agent.projectId,
+      sessionId: agent.sessionId,
+      startedAt: agent.startedAt,
+    }));
+    return [...containerAgents, ...agentCoreAgents];
   }
 
   /**
@@ -2040,18 +2142,20 @@ export class ContainerAgentService {
         void this.cleanupWorktree(taskId, orphanedAgent.worktreeId);
       }
 
-      // Clean up running agent and return early
+      // Clean up running agent and return early (both maps)
       this.runningAgents.delete(taskId);
+      this.runningAgentCoreAgents.delete(taskId);
       return;
     }
 
-    // Clean up running agent (planning phase completed)
+    // Clean up running agent (planning phase completed — both maps)
     this.runningAgents.delete(taskId);
+    this.runningAgentCoreAgents.delete(taskId);
 
     infoLog('handlePlanReady', 'Plan persisted and stored, waiting for approval', {
       taskId,
       pendingPlans: this.pendingPlans.size,
-      remainingAgents: this.runningAgents.size,
+      remainingAgents: this.runningAgents.size + this.runningAgentCoreAgents.size,
     });
   }
 
@@ -2102,6 +2206,53 @@ export class ContainerAgentService {
       infoLog('approvePlan', 'No pending plan found', { taskId });
       return err(SandboxErrors.PLAN_NOT_FOUND(taskId));
     }
+
+    // ------------------------------------------------------------------
+    // AgentCore branch: microVM session persists up to 8 hours, so the
+    // sdkSessionId from the plan_ready event is always valid. No sandbox
+    // change detection needed.
+    // ------------------------------------------------------------------
+    if (this.isAgentCoreProvider()) {
+      infoLog('approvePlan', 'Approving plan via AgentCore path', {
+        taskId,
+        sdkSessionId: planData.sdkSessionId,
+      });
+
+      // Move task back to in_progress
+      try {
+        await this.db
+          .update(tasks)
+          .set({
+            column: 'in_progress',
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(tasks.id, taskId));
+      } catch (dbErr) {
+        const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
+        infoLog('approvePlan', 'Failed to move task to in_progress for execution (AgentCore)', {
+          taskId,
+          error: errorMessage,
+        });
+        return err(SandboxErrors.AGENT_START_FAILED(`DB update failed: ${errorMessage}`));
+      }
+
+      // Only remove from pending plans AFTER DB write succeeds
+      this.pendingPlans.delete(taskId);
+
+      // Start execution phase with the same runtimeSessionId (preserves microVM context)
+      return this.startAgent({
+        projectId: planData.projectId,
+        taskId: planData.taskId,
+        sessionId: planData.sessionId,
+        prompt: planData.plan,
+        phase: 'execute',
+        sdkSessionId: planData.sdkSessionId || undefined,
+      });
+    }
+
+    // ------------------------------------------------------------------
+    // Container exec branch: detect sandbox changes, start execution
+    // ------------------------------------------------------------------
 
     // Detect sandbox change: if the container was replaced since planning,
     // the SDK session's conversation history (stored on the container's filesystem)
@@ -2244,6 +2395,662 @@ export class ContainerAgentService {
 
     infoLog('rejectPlan', 'Plan rejected successfully', { taskId });
     return ok(undefined);
+  }
+
+  // ====================================================================
+  // AgentCore-specific methods (invoke + SSE path)
+  // ====================================================================
+
+  /**
+   * Start an agent via AgentCore invoke + SSE (no container exec).
+   * This is the AgentCore equivalent of the main startAgent() body.
+   *
+   * Shares: project lookup, agent/session/task DB records, stream setup, config resolution, OAuth.
+   * Differs: no sandbox container, no worktree, no sentinel file — uses invoke() + bridge.processStream().
+   */
+  private async startAgentCoreAgent(
+    input: StartAgentInput,
+    project: {
+      id: string;
+      name: string;
+      path: string | null;
+      config?: Record<string, unknown> | null;
+    }
+  ): Promise<Result<void, SandboxError>> {
+    const {
+      projectId,
+      taskId,
+      sessionId,
+      prompt,
+      model,
+      maxTurns,
+      phase = 'plan',
+      sdkSessionId,
+    } = input;
+
+    const provider = this.agentCoreProvider;
+    if (!provider) {
+      infoLog('startAgentCoreAgent', 'AgentCore provider was cleared during startup', { taskId });
+      return err(
+        SandboxErrors.AGENT_START_FAILED(
+          'AgentCore provider was removed while agent was starting. Please retry.'
+        )
+      );
+    }
+
+    infoLog('startAgentCoreAgent', 'Starting agent via AgentCore', {
+      taskId,
+      projectId,
+      sessionId,
+      phase,
+    });
+
+    // Fetch task
+    const task = await this.db.query.tasks.findFirst({
+      where: eq(tasks.id, taskId),
+    });
+    if (!task) {
+      infoLog('startAgentCoreAgent', 'Task not found', { taskId });
+      return err(SandboxErrors.TASK_NOT_FOUND(taskId));
+    }
+
+    // Create or reuse agent record
+    const agentId = `agent-${taskId}`;
+    try {
+      await this.db
+        .insert(agents)
+        .values({
+          id: agentId,
+          projectId,
+          name: 'AgentCore Agent',
+          type: 'task',
+          status: 'starting',
+          currentTaskId: taskId,
+          currentSessionId: sessionId,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        })
+        .onConflictDoUpdate({
+          target: agents.id,
+          set: {
+            status: 'starting',
+            currentTaskId: taskId,
+            currentSessionId: sessionId,
+            updatedAt: new Date().toISOString(),
+          },
+        });
+    } catch (dbErr) {
+      const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
+      infoLog('startAgentCoreAgent', 'Failed to create agent record', {
+        agentId,
+        error: errorMessage,
+      });
+      return err(SandboxErrors.AGENT_RECORD_FAILED(errorMessage));
+    }
+
+    // Create session record
+    const sandboxId = `agentcore-${projectId}`;
+    try {
+      await this.db
+        .insert(sessions)
+        .values({
+          id: sessionId,
+          projectId,
+          taskId,
+          agentId,
+          title: task.title ?? `AgentCore Agent - ${taskId}`,
+          url: `/projects/${projectId}/sessions/${sessionId}`,
+          status: 'active',
+          sandboxProvider: 'agentcore',
+          sandboxContainerId: null,
+          createdAt: new Date().toISOString(),
+        })
+        .onConflictDoUpdate({
+          target: sessions.id,
+          set: {
+            sandboxProvider: 'agentcore',
+            sandboxContainerId: null,
+            agentId,
+          },
+        });
+    } catch (dbErr) {
+      const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
+      infoLog('startAgentCoreAgent', 'Failed to create session record', {
+        sessionId,
+        error: errorMessage,
+      });
+      return err(SandboxErrors.SESSION_CREATE_FAILED(errorMessage));
+    }
+
+    // Link agent and session to task
+    try {
+      await this.db
+        .update(tasks)
+        .set({
+          agentId,
+          sessionId,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(tasks.id, taskId));
+    } catch (dbErr) {
+      const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
+      infoLog('startAgentCoreAgent', 'Failed to link task (non-critical)', {
+        taskId,
+        error: errorMessage,
+      });
+    }
+
+    // Create durable stream
+    try {
+      await this.streams.createStream(sessionId, {
+        type: 'container-agent',
+        projectId,
+        taskId,
+      });
+    } catch (streamErr) {
+      const errorMessage = streamErr instanceof Error ? streamErr.message : String(streamErr);
+      if (!errorMessage.includes('already exists') && !errorMessage.includes('duplicate')) {
+        infoLog('startAgentCoreAgent', 'Failed to create durable stream', {
+          sessionId,
+          error: errorMessage,
+        });
+        return err(SandboxErrors.STREAM_CREATE_FAILED(errorMessage));
+      }
+    }
+
+    // Publish initial status
+    try {
+      await this.streams.publish(sessionId, 'container-agent:status', {
+        taskId,
+        sessionId,
+        stage: 'initializing',
+        message: 'Starting via AgentCore...',
+      });
+    } catch (publishErr) {
+      const errorMessage = publishErr instanceof Error ? publishErr.message : String(publishErr);
+      infoLog('startAgentCoreAgent', 'Failed to publish initial status', {
+        sessionId,
+        error: errorMessage,
+      });
+      return err(SandboxErrors.STREAM_PUBLISH_FAILED(errorMessage));
+    }
+
+    // Resolve agent configuration
+    const projectModel = project.config?.model as string | undefined;
+    const resolvedModel =
+      (model ? getFullModelId(model) : undefined) ??
+      (projectModel ? getFullModelId(projectModel) : undefined) ??
+      (await getGlobalDefaultModel(this.db));
+    const agentConfig: AgentConfig = {
+      model: resolvedModel ?? getFullModelId(DEFAULT_AGENT_MODEL),
+      maxTurns: maxTurns ?? (project.config?.maxTurns as number | undefined) ?? 50,
+    };
+
+    await this.streams.publish(sessionId, 'container-agent:status', {
+      taskId,
+      sessionId,
+      stage: 'validating',
+      message: 'Configuration validated',
+    });
+
+    // Get OAuth token (AgentCore may need it for the agent-runner payload)
+    let oauthToken: string | null = null;
+    try {
+      oauthToken = await this.apiKeyService.getDecryptedKey('anthropic');
+    } catch (keyErr) {
+      infoLog('startAgentCoreAgent', 'Failed to get OAuth token from database', {
+        error: keyErr instanceof Error ? keyErr.message : String(keyErr),
+      });
+    }
+    if (!oauthToken) {
+      oauthToken = process.env.ANTHROPIC_AUTH_TOKEN ?? process.env.ANTHROPIC_API_KEY ?? null;
+    }
+    if (!oauthToken) {
+      infoLog('startAgentCoreAgent', 'No OAuth token available');
+      await this.streams.publish(sessionId, 'container-agent:message', {
+        taskId,
+        sessionId,
+        role: 'system',
+        content: 'No OAuth token configured. Please add your Anthropic API key in Settings.',
+      });
+      return err(SandboxErrors.API_KEY_NOT_CONFIGURED);
+    }
+
+    // Build invocation payload
+    // Note: permissionMode is derived from `phase` by the agentcore-handler, not sent in payload
+    const payload: Record<string, unknown> = {
+      prompt,
+      taskId,
+      sessionId,
+      model: agentConfig.model,
+      maxTurns: agentConfig.maxTurns,
+      phase,
+      oauthToken,
+      cwd: '/workspace',
+      ...(sdkSessionId ? { sdkSessionId } : {}),
+    };
+
+    // Get or create AgentCore instance and runtime session
+    const instance = provider.get(projectId) ?? provider.create(projectId, sandboxId);
+    const runtimeSessionId = provider.getOrCreateSession(projectId, taskId);
+
+    await this.streams.publish(sessionId, 'container-agent:status', {
+      taskId,
+      sessionId,
+      stage: 'executing',
+      message: phase === 'plan' ? 'Planning via AgentCore...' : 'Executing via AgentCore...',
+    });
+
+    try {
+      // Invoke the AgentCore runtime — returns an AsyncGenerator of SSE events
+      const events = instance.invoke(payload, runtimeSessionId);
+
+      // Create the AgentCore bridge (same callbacks as ContainerBridge)
+      const bridge = createAgentCoreBridge({
+        taskId,
+        sessionId,
+        projectId,
+        streams: this.streams,
+        onComplete: (status, turnCount) => {
+          infoLog('agentCoreBridge:onComplete', 'Agent completed', { taskId, status, turnCount });
+          this.handleAgentCoreComplete(taskId, status, turnCount);
+        },
+        onError: (error, turnCount) => {
+          infoLog('agentCoreBridge:onError', 'Agent error', { taskId, error, turnCount });
+          this.handleAgentCoreError(taskId, error, turnCount);
+        },
+        onPlanReady: (planData) => {
+          infoLog('agentCoreBridge:onPlanReady', 'Plan ready', {
+            taskId,
+            planLength: planData.plan.length,
+            sdkSessionId: planData.sdkSessionId,
+          });
+          this.handlePlanReady(taskId, sessionId, projectId, planData);
+        },
+      });
+
+      // Track the running AgentCore agent
+      const runningAgent: RunningAgentCoreAgent = {
+        taskId,
+        sessionId,
+        projectId,
+        sandboxId,
+        bridge,
+        instance,
+        runtimeSessionId,
+        startedAt: new Date(),
+        stopRequested: false,
+        phase,
+      };
+
+      this.runningAgentCoreAgents.set(taskId, runningAgent);
+
+      // Set max runtime timeout
+      const maxRuntimeMs = Number(process.env.AGENT_MAX_RUNTIME_MS) || 2 * 60 * 60 * 1000;
+      runningAgent.timeoutHandle = setTimeout(() => {
+        infoLog('startAgentCoreAgent', 'Agent exceeded max runtime, stopping', {
+          taskId,
+          maxRuntimeMs,
+        });
+        this.stopAgent(taskId);
+      }, maxRuntimeMs);
+      runningAgent.timeoutHandle.unref();
+
+      // Update agent status
+      try {
+        await this.db
+          .update(agents)
+          .set({
+            status: phase === 'plan' ? 'planning' : 'running',
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(agents.id, agentId));
+      } catch (dbErr) {
+        const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
+        infoLog('startAgentCoreAgent', 'Failed to update agent status (non-critical)', {
+          agentId,
+          error: errorMessage,
+        });
+      }
+
+      // Process the SSE stream asynchronously (don't await — mirrors the Docker path)
+      this.processAgentCoreOutput(runningAgent, events).catch(async (streamErr) => {
+        const message = streamErr instanceof Error ? streamErr.message : String(streamErr);
+        warnLog('startAgentCoreAgent', 'AgentCore output stream failed', {
+          taskId,
+          sessionId,
+          error: message,
+        });
+        if (this.runningAgentCoreAgents.has(taskId)) {
+          try {
+            await this.streams.publish(sessionId, 'container-agent:error', {
+              taskId,
+              sessionId,
+              error: 'Agent output stream failed unexpectedly.',
+              turnCount: 0,
+            });
+            await this.handleAgentCoreError(taskId, message, 0);
+          } catch (notifyErr) {
+            warnLog(
+              'startAgentCoreAgent',
+              'Failed to notify user of stream failure (best-effort)',
+              {
+                taskId,
+                error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+              }
+            );
+          }
+        }
+      });
+
+      // Publish running status
+      await this.streams.publish(sessionId, 'container-agent:status', {
+        taskId,
+        sessionId,
+        stage: 'running',
+        message: 'Running',
+      });
+      await this.streams.publish(sessionId, 'container-agent:started', {
+        taskId,
+        sessionId,
+        model: agentConfig.model,
+        maxTurns: agentConfig.maxTurns,
+        sandboxProvider: 'agentcore',
+      });
+
+      infoLog('startAgentCoreAgent', 'Agent started via AgentCore', { taskId, sessionId });
+      return ok(undefined);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      infoLog('startAgentCoreAgent', 'Failed to start agent', { taskId, error: message });
+      provider.removeSession(taskId);
+      return err(SandboxErrors.AGENT_START_FAILED(message));
+    }
+  }
+
+  /**
+   * Process SSE output from an AgentCore invocation.
+   */
+  private async processAgentCoreOutput(
+    agent: RunningAgentCoreAgent,
+    events: AsyncIterable<import('../lib/sandbox/providers/agentcore-sandbox-instance.js').SSEEvent>
+  ): Promise<void> {
+    debugLog('processAgentCoreOutput', 'Starting to process AgentCore SSE stream', {
+      taskId: agent.taskId,
+      sessionId: agent.sessionId,
+    });
+
+    try {
+      await agent.bridge.processStream(events);
+      debugLog('processAgentCoreOutput', 'Bridge finished processing stream', {
+        taskId: agent.taskId,
+      });
+
+      // If we're still tracked and the bridge didn't fire a terminal callback,
+      // treat stream end without completion event as an error (same as Docker path)
+      if (this.runningAgentCoreAgents.has(agent.taskId)) {
+        if (agent.stopRequested) {
+          infoLog('processAgentCoreOutput', 'Agent stopped via cancellation request', {
+            taskId: agent.taskId,
+          });
+          await this.handleAgentCoreComplete(agent.taskId, 'cancelled', 0);
+          return;
+        }
+
+        const errorMessage = 'Agent stream ended without emitting a completion event';
+        infoLog('processAgentCoreOutput', 'Stream ended without completion', {
+          taskId: agent.taskId,
+        });
+
+        await this.streams.publish(agent.sessionId, 'container-agent:error', {
+          taskId: agent.taskId,
+          sessionId: agent.sessionId,
+          error: errorMessage,
+          turnCount: 0,
+        });
+
+        await this.handleAgentCoreError(agent.taskId, errorMessage, 0);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      infoLog('processAgentCoreOutput', 'Error processing AgentCore stream', {
+        taskId: agent.taskId,
+        error: message,
+      });
+
+      if (this.runningAgentCoreAgents.has(agent.taskId)) {
+        if (agent.stopRequested) {
+          await this.handleAgentCoreComplete(agent.taskId, 'cancelled', 0);
+          return;
+        }
+
+        await this.streams.publish(agent.sessionId, 'container-agent:error', {
+          taskId: agent.taskId,
+          sessionId: agent.sessionId,
+          error: message,
+          turnCount: 0,
+        });
+
+        await this.handleAgentCoreError(agent.taskId, message, 0);
+      }
+    } finally {
+      debugLog('processAgentCoreOutput', 'Stream processing finished', {
+        taskId: agent.taskId,
+        stillRunning: this.runningAgentCoreAgents.has(agent.taskId),
+      });
+    }
+  }
+
+  /**
+   * Stop an AgentCore agent by stopping the bridge and instance.
+   */
+  private async stopAgentCoreAgent(
+    agent: RunningAgentCoreAgent
+  ): Promise<Result<void, SandboxError>> {
+    const { taskId, sessionId } = agent;
+    infoLog('stopAgentCoreAgent', 'Stopping AgentCore agent', {
+      taskId,
+      runtimeSessionId: agent.runtimeSessionId,
+    });
+
+    try {
+      // Stop the bridge (sets stopped=true, breaks out of processStream loop)
+      agent.bridge.stop();
+      agent.stopRequested = true;
+
+      // Stop the AgentCore instance (marks it stopped locally)
+      await agent.instance.stop();
+
+      // Clean up the runtime session from the provider
+      if (this.agentCoreProvider) {
+        this.agentCoreProvider.removeSession(taskId);
+      }
+
+      // Publish cancelled event
+      await this.streams.publish(sessionId, 'container-agent:cancelled', {
+        taskId,
+        sessionId,
+        turnCount: 0,
+      });
+
+      return ok(undefined);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      infoLog('stopAgentCoreAgent', 'Failed to stop agent', { taskId, error: message });
+      return err(SandboxErrors.AGENT_STOP_FAILED(message));
+    }
+  }
+
+  /**
+   * Shared cleanup for AgentCore agents: update agent DB status, remove runtime
+   * session, clear timeout, delete from running map.
+   */
+  private async cleanupAgentCoreRunState(
+    taskId: string,
+    agent: RunningAgentCoreAgent,
+    agentDbStatus: 'completed' | 'error',
+    context: string
+  ): Promise<void> {
+    const agentId = `agent-${taskId}`;
+    try {
+      await this.db
+        .update(agents)
+        .set({
+          status: agentDbStatus,
+          currentTaskId: null,
+          currentSessionId: null,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(agents.id, agentId));
+    } catch (dbErr) {
+      const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
+      warnLog(context, 'Failed to update agent status', { agentId, error: errorMessage });
+    }
+
+    if (this.agentCoreProvider) {
+      this.agentCoreProvider.removeSession(taskId);
+    }
+
+    clearTimeout(agent.timeoutHandle);
+    this.runningAgentCoreAgents.delete(taskId);
+    infoLog(context, 'AgentCore agent cleanup finished', {
+      taskId,
+      remainingAgents: this.runningAgents.size + this.runningAgentCoreAgents.size,
+    });
+  }
+
+  /**
+   * Handle AgentCore agent completion.
+   */
+  private async handleAgentCoreComplete(
+    taskId: string,
+    status: 'completed' | 'turn_limit' | 'cancelled',
+    turnCount: number
+  ): Promise<void> {
+    infoLog('handleAgentCoreComplete', 'AgentCore agent completion', { taskId, status, turnCount });
+
+    const agent = this.runningAgentCoreAgents.get(taskId);
+    if (!agent) {
+      debugLog('handleAgentCoreComplete', 'Agent not found in AgentCore agents map', { taskId });
+      return this.handleAgentComplete(taskId, status, turnCount);
+    }
+
+    // Update task status (same logic as container path)
+    try {
+      if (status === 'completed') {
+        await this.db
+          .update(tasks)
+          .set({
+            column: 'waiting_approval',
+            agentId: null,
+            sessionId: null,
+            lastAgentStatus: 'completed',
+            completedAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(tasks.id, taskId));
+      } else if (status === 'turn_limit') {
+        await this.db
+          .update(tasks)
+          .set({
+            column: 'waiting_approval',
+            agentId: null,
+            sessionId: null,
+            lastAgentStatus: 'turn_limit',
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(tasks.id, taskId));
+      } else {
+        await this.db
+          .update(tasks)
+          .set({
+            agentId: null,
+            sessionId: null,
+            lastAgentStatus: 'cancelled',
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(tasks.id, taskId));
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      infoLog('handleAgentCoreComplete', 'Failed to update task status', {
+        taskId,
+        error: errorMessage,
+      });
+      try {
+        await this.streams.publish(agent.sessionId, 'container-agent:task-update-failed', {
+          taskId,
+          sessionId: agent.sessionId,
+          error: errorMessage,
+          attemptedStatus: status,
+        });
+      } catch (publishErr) {
+        warnLog(
+          'handleAgentCoreComplete',
+          'Failed to publish task-update-failed event (best-effort)',
+          {
+            taskId,
+            error: publishErr instanceof Error ? publishErr.message : String(publishErr),
+          }
+        );
+      }
+    }
+
+    await this.cleanupAgentCoreRunState(taskId, agent, 'completed', 'handleAgentCoreComplete');
+  }
+
+  /**
+   * Handle AgentCore agent error.
+   */
+  private async handleAgentCoreError(
+    taskId: string,
+    error: string,
+    turnCount: number
+  ): Promise<void> {
+    infoLog('handleAgentCoreError', 'AgentCore agent error', { taskId, error, turnCount });
+
+    const agent = this.runningAgentCoreAgents.get(taskId);
+    if (!agent) {
+      return this.handleAgentError(taskId, error, turnCount);
+    }
+
+    // Update task — clear agent refs on error
+    try {
+      await this.db
+        .update(tasks)
+        .set({
+          agentId: null,
+          sessionId: null,
+          lastAgentStatus: 'error',
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(tasks.id, taskId));
+    } catch (dbErr) {
+      const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
+      infoLog('handleAgentCoreError', 'Failed to update task status', {
+        taskId,
+        error: errorMessage,
+      });
+      try {
+        await this.streams.publish(agent.sessionId, 'container-agent:task-update-failed', {
+          taskId,
+          sessionId: agent.sessionId,
+          error: errorMessage,
+          attemptedStatus: 'error',
+        });
+      } catch (publishErr) {
+        warnLog(
+          'handleAgentCoreError',
+          'Failed to publish task-update-failed event (best-effort)',
+          {
+            taskId,
+            error: publishErr instanceof Error ? publishErr.message : String(publishErr),
+          }
+        );
+      }
+    }
+
+    await this.cleanupAgentCoreRunState(taskId, agent, 'error', 'handleAgentCoreError');
   }
 }
 
