@@ -10,7 +10,7 @@ svg { display: block; }
 </style>
 </head>
 <body>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1200" width="1920" height="1200">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1260" width="1920" height="1260">
 <defs>
   <marker id="arrow-gray" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
     <path d="M0,0 L8,3 L0,6" fill="none" stroke="#484f58" stroke-width="1.5"/>
@@ -36,11 +36,11 @@ svg { display: block; }
 </defs>
 
 <!-- Background -->
-<rect width="1920" height="1200" fill="#0d1117"/>
+<rect width="1920" height="1260" fill="#0d1117"/>
 
 <!-- ==================== TITLE ==================== -->
-<text x="960" y="38" text-anchor="middle" fill="#e6edf3" font-size="22" font-weight="700">AgentPane — OpenShift Private Network Deployment</text>
-<text x="960" y="58" text-anchor="middle" fill="#8b949e" font-size="13">GitHub.com connectivity via egress proxy (outbound) and exposed webhook Route (inbound)</text>
+<text x="960" y="38" text-anchor="middle" fill="#e6edf3" font-size="22" font-weight="700">AgentPane — OpenShift Deployment with Cloudflare Tunnel</text>
+<text x="960" y="58" text-anchor="middle" fill="#8b949e" font-size="13">GitHub.com connectivity via egress proxy (outbound) and Cloudflare Tunnel (webhooks via agentpane.teams)</text>
 
 <!-- ==================== LEFT: CORPORATE NETWORK ==================== -->
 <rect x="40" y="80" width="1130" height="1080" rx="14" fill="none" stroke="#3fb950" stroke-width="2.5" stroke-dasharray="10,5"/>
@@ -60,19 +60,13 @@ svg { display: block; }
 <text x="615" y="272" text-anchor="middle" fill="#f85149" font-size="15" font-weight="600">OpenShift Router (HAProxy)</text>
 <text x="615" y="290" text-anchor="middle" fill="#8b949e" font-size="11">Edge TLS termination · SNI routing</text>
 
-<!-- App Route (internal) -->
+<!-- App Route (internal — agentpane.teams via split DNS) -->
 <rect x="120" y="328" width="300" height="50" rx="7" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
-<text x="270" y="350" text-anchor="middle" fill="#58a6ff" font-size="13" font-weight="600">Route: agentpane.apps.example.com</text>
-<text x="270" y="368" text-anchor="middle" fill="#8b949e" font-size="10">Internal only · all paths · edge TLS</text>
+<text x="270" y="350" text-anchor="middle" fill="#58a6ff" font-size="13" font-weight="600">Route: agentpane.teams</text>
+<text x="270" y="368" text-anchor="middle" fill="#8b949e" font-size="10">Internal (split DNS) · all paths · edge TLS</text>
 
-<!-- Webhook Route (public-facing) -->
-<rect x="480" y="328" width="360" height="50" rx="7" fill="#161b22" stroke="#d29922" stroke-width="2"/>
-<text x="660" y="350" text-anchor="middle" fill="#d29922" font-size="13" font-weight="600">Route: webhooks.agentpane.apps.example.com</text>
-<text x="660" y="368" text-anchor="middle" fill="#8b949e" font-size="10">Public-facing · /hooks/events/* only · edge TLS</text>
-
-<!-- Connections: Router -> Routes -->
+<!-- Connection: Router -> Route -->
 <line x1="270" y1="308" x2="270" y2="328" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
-<line x1="660" y1="308" x2="660" y2="328" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
 
 <!-- Connection: Browser -> Router -->
 <path d="M 220 175 L 220 200 L 270 200 L 270 248" fill="none" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
@@ -86,12 +80,10 @@ svg { display: block; }
 <!-- ClusterIP Service -->
 <rect x="120" y="438" width="500" height="42" rx="7" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
 <text x="370" y="457" text-anchor="middle" fill="#58a6ff" font-size="14" font-weight="600">Service: agentpane (ClusterIP :3001)</text>
-<text x="370" y="473" text-anchor="middle" fill="#8b949e" font-size="10">Routes → Service → Pod</text>
+<text x="370" y="473" text-anchor="middle" fill="#8b949e" font-size="10">Route → Service → Pod · cloudflared → Service</text>
 
-<!-- Connections: Routes -> Service -->
+<!-- Connection: Route -> Service -->
 <line x1="270" y1="378" x2="270" y2="438" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
-<line x1="660" y1="378" x2="660" y2="405" stroke="#484f58" stroke-width="1.5"/>
-<path d="M 660 405 L 660 459 L 620 459" fill="none" stroke="#d29922" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
 
 <!-- AgentPane Pod -->
 <rect x="120" y="498" width="500" height="165" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="2"/>
@@ -130,18 +122,31 @@ svg { display: block; }
 <line x1="370" y1="480" x2="370" y2="498" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
 
 <!-- PostgreSQL -->
-<rect x="120" y="700" width="230" height="55" rx="8" fill="#161b22" stroke="#7ee787" stroke-width="1.5"/>
-<text x="235" y="722" text-anchor="middle" fill="#7ee787" font-size="14" font-weight="600">PostgreSQL</text>
-<text x="235" y="740" text-anchor="middle" fill="#8b949e" font-size="11">Bitnami subchart · :5432</text>
+<rect x="120" y="700" width="170" height="55" rx="8" fill="#161b22" stroke="#7ee787" stroke-width="1.5"/>
+<text x="205" y="722" text-anchor="middle" fill="#7ee787" font-size="13" font-weight="600">PostgreSQL</text>
+<text x="205" y="740" text-anchor="middle" fill="#8b949e" font-size="10">Bitnami subchart · :5432</text>
+
+<!-- cloudflared Deployment (Cloudflare Tunnel) -->
+<rect x="300" y="700" width="170" height="55" rx="8" fill="#161b22" stroke="#d29922" stroke-width="2"/>
+<text x="385" y="722" text-anchor="middle" fill="#d29922" font-size="13" font-weight="600">cloudflared</text>
+<text x="385" y="740" text-anchor="middle" fill="#8b949e" font-size="10">Tunnel to Cloudflare Edge</text>
 
 <!-- PVC -->
-<rect x="390" y="700" width="230" height="55" rx="8" fill="#161b22" stroke="#8b949e" stroke-width="1"/>
-<text x="505" y="722" text-anchor="middle" fill="#8b949e" font-size="14" font-weight="600">PVC: data</text>
-<text x="505" y="740" text-anchor="middle" fill="#8b949e" font-size="11">encryption.key · streams LMDB</text>
+<rect x="480" y="700" width="140" height="55" rx="8" fill="#161b22" stroke="#8b949e" stroke-width="1"/>
+<text x="550" y="722" text-anchor="middle" fill="#8b949e" font-size="13" font-weight="600">PVC: data</text>
+<text x="550" y="740" text-anchor="middle" fill="#8b949e" font-size="10">enc.key · LMDB</text>
 
-<!-- Connections: Pod -> PG, PVC -->
-<line x1="255" y1="663" x2="255" y2="700" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
-<line x1="475" y1="663" x2="475" y2="700" stroke="#484f58" stroke-width="1" stroke-dasharray="4,2"/>
+<!-- Connections: Pod -> PG, cloudflared, PVC -->
+<line x1="205" y1="663" x2="205" y2="700" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="550" y1="663" x2="550" y2="700" stroke="#484f58" stroke-width="1" stroke-dasharray="4,2"/>
+
+<!-- Connection: cloudflared -> Service (internal webhook forwarding) -->
+<path d="M 300 725 L 92 725 L 92 460 L 120 460" fill="none" stroke="#d29922" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
+<rect x="93" y="560" width="16" height="90" rx="3" fill="#0d1117" stroke="none"/>
+<g transform="rotate(-90 101 605)">
+<rect x="50" y="593" width="102" height="16" rx="3" fill="#0d1117" stroke="#d29922" stroke-width="0.5"/>
+<text x="101" y="605" text-anchor="middle" fill="#d29922" font-size="9">forwarded webhooks</text>
+</g>
 
 <!-- ====== SANDBOX NAMESPACE ====== -->
 <rect x="690" y="400" width="440" height="390" rx="10" fill="none" stroke="#f0883e" stroke-width="1.5" stroke-dasharray="8,4"/>
@@ -190,22 +195,27 @@ svg { display: block; }
 <text x="280" y="860" text-anchor="middle" fill="#8b949e" font-size="11">HTTPS_PROXY · forward to internet</text>
 
 <!-- Connection: Pod -> Egress Proxy -->
-<path d="M 370 663 L 370 690 L 80 690 L 80 820" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3"/>
-<rect x="376" y="673" width="82" height="16" rx="3" fill="#0d1117" stroke="#bc8cff" stroke-width="0.5"/>
-<text x="417" y="685" text-anchor="middle" fill="#bc8cff" font-size="10">HTTPS_PROXY</text>
+<path d="M 160 663 L 160 678 L 80 678 L 80 820" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3"/>
+<rect x="86" y="735" width="82" height="16" rx="3" fill="#0d1117" stroke="#bc8cff" stroke-width="0.5"/>
+<text x="127" y="747" text-anchor="middle" fill="#bc8cff" font-size="10">HTTPS_PROXY</text>
 
 <!-- Connection: Sandbox -> Egress Proxy (via network policy) -->
 <path d="M 812 681 L 812 780 L 280 780 L 280 820" fill="none" stroke="#f0883e" stroke-width="1.5" stroke-dasharray="6,3"/>
 <rect x="430" y="763" width="240" height="16" rx="3" fill="#0d1117" stroke="#f0883e" stroke-width="0.5"/>
 <text x="550" y="775" text-anchor="middle" fill="#f0883e" font-size="10">sandbox egress (HTTPS only, no RFC1918)</text>
 
+<!-- Connection: cloudflared -> Egress Proxy (tunnel outbound) -->
+<path d="M 385 755 L 385 820" fill="none" stroke="#d29922" stroke-width="2" stroke-dasharray="6,3"/>
+<rect x="390" y="770" width="90" height="16" rx="3" fill="#0d1117" stroke="#d29922" stroke-width="0.5"/>
+<text x="435" y="782" text-anchor="middle" fill="#d29922" font-size="10">tunnel via proxy</text>
+
 <!-- ==================== FIREWALL ==================== -->
 <rect x="60" y="910" width="1090" height="50" rx="8" fill="#161b22" stroke="#f85149" stroke-width="2"/>
 <text x="605" y="932" text-anchor="middle" fill="#f85149" font-size="15" font-weight="700">Corporate Firewall</text>
-<text x="605" y="950" text-anchor="middle" fill="#8b949e" font-size="11">Outbound: all HTTPS allowed via proxy · Inbound: GitHub webhook IPs (140.82.112.0/20, 192.30.252.0/22) → webhook Route only</text>
+<text x="605" y="950" text-anchor="middle" fill="#8b949e" font-size="11">Outbound: all HTTPS allowed via proxy · No inbound rules needed (Cloudflare Tunnel is outbound-only)</text>
 
 <!-- ==================== RIGHT: PUBLIC INTERNET ==================== -->
-<rect x="1230" y="80" width="650" height="1100" rx="14" fill="none" stroke="#8b949e" stroke-width="2" stroke-dasharray="10,5"/>
+<rect x="1230" y="80" width="650" height="1140" rx="14" fill="none" stroke="#8b949e" stroke-width="2" stroke-dasharray="10,5"/>
 <text x="1250" y="100" fill="#8b949e" font-size="14" font-weight="700">Public Internet</text>
 
 <!-- GitHub.com -->
@@ -230,26 +240,32 @@ svg { display: block; }
 <!-- GitHub Webhooks (outgoing from GitHub) -->
 <rect x="1300" y="355" width="250" height="65" rx="7" fill="#161b22" stroke="#d29922" stroke-width="2"/>
 <text x="1425" y="377" text-anchor="middle" fill="#d29922" font-size="13" font-weight="600">Webhook Delivery</text>
-<text x="1425" y="395" text-anchor="middle" fill="#8b949e" font-size="10">POST to configured URL</text>
+<text x="1425" y="395" text-anchor="middle" fill="#8b949e" font-size="10">POST to agentpane.teams</text>
 <text x="1425" y="410" text-anchor="middle" fill="#8b949e" font-size="10">HMAC-SHA256 signed</text>
 
 <!-- GitHub App config note -->
-<rect x="1560" y="168" width="310" height="108" rx="7" fill="#161b22" stroke="#8b949e" stroke-width="1"/>
-<text x="1715" y="192" text-anchor="middle" fill="#8b949e" font-size="12" font-weight="600">GitHub App Configuration</text>
+<rect x="1560" y="168" width="280" height="108" rx="7" fill="#161b22" stroke="#8b949e" stroke-width="1"/>
+<text x="1700" y="192" text-anchor="middle" fill="#8b949e" font-size="12" font-weight="600">GitHub App Configuration</text>
 <text x="1575" y="214" fill="#8b949e" font-size="10">Webhook URL:</text>
-<text x="1575" y="230" fill="#d29922" font-size="8">https://webhooks.agentpane.apps.example.com/hooks/events/:slug</text>
+<text x="1575" y="230" fill="#d29922" font-size="9">https://agentpane.teams/hooks/events/:slug</text>
 <text x="1575" y="250" fill="#8b949e" font-size="10">Callback URL:</text>
-<text x="1575" y="266" fill="#58a6ff" font-size="8">https://agentpane.apps.example.com/api/auth/github/callback</text>
+<text x="1575" y="266" fill="#58a6ff" font-size="9">https://agentpane.teams/api/auth/github/callback</text>
+
+<!-- ==================== CLOUDFLARE EDGE (NEW) ==================== -->
+<rect x="1270" y="460" width="290" height="80" rx="8" fill="#161b22" stroke="#d29922" stroke-width="2"/>
+<text x="1415" y="486" text-anchor="middle" fill="#d29922" font-size="15" font-weight="600">Cloudflare Edge</text>
+<text x="1415" y="504" text-anchor="middle" fill="#8b949e" font-size="11">agentpane.teams · tunnel endpoint</text>
+<text x="1415" y="520" text-anchor="middle" fill="#8b949e" font-size="10">Receives webhooks, forwards via tunnel</text>
 
 <!-- Anthropic API -->
-<rect x="1270" y="470" width="290" height="55" rx="8" fill="#161b22" stroke="#bc8cff" stroke-width="1.5"/>
-<text x="1415" y="492" text-anchor="middle" fill="#bc8cff" font-size="15" font-weight="600">Anthropic API</text>
-<text x="1415" y="510" text-anchor="middle" fill="#8b949e" font-size="11">api.anthropic.com · Claude SDK</text>
+<rect x="1270" y="560" width="290" height="55" rx="8" fill="#161b22" stroke="#bc8cff" stroke-width="1.5"/>
+<text x="1415" y="582" text-anchor="middle" fill="#bc8cff" font-size="15" font-weight="600">Anthropic API</text>
+<text x="1415" y="600" text-anchor="middle" fill="#8b949e" font-size="11">api.anthropic.com · Claude SDK</text>
 
 <!-- npm Registry -->
-<rect x="1270" y="545" width="290" height="45" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
-<text x="1415" y="570" text-anchor="middle" fill="#3fb950" font-size="12" font-weight="600">npm Registry</text>
-<text x="1415" y="584" text-anchor="middle" fill="#8b949e" font-size="10">registry.npmjs.org</text>
+<rect x="1270" y="630" width="290" height="45" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
+<text x="1415" y="655" text-anchor="middle" fill="#3fb950" font-size="12" font-weight="600">npm Registry</text>
+<text x="1415" y="669" text-anchor="middle" fill="#8b949e" font-size="10">registry.npmjs.org</text>
 
 <!-- ==================== FLOW ARROWS ==================== -->
 
@@ -258,7 +274,7 @@ svg { display: block; }
 <rect x="746" y="828" width="148" height="16" rx="3" fill="#0d1117" stroke="#bc8cff" stroke-width="0.5"/>
 <text x="820" y="840" text-anchor="middle" fill="#bc8cff" font-size="10">outbound HTTPS via proxy</text>
 
-<!-- Outbound continues up to GitHub -->
+<!-- Outbound continues up to GitHub API -->
 <path d="M 1230 935 L 1200 935 L 1200 252 L 1300 252" fill="none" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
 <g transform="rotate(-90 1205 600)">
 <rect x="1201" y="588" width="88" height="16" rx="3" fill="#0d1117" stroke="#58a6ff" stroke-width="0.5"/>
@@ -266,22 +282,20 @@ svg { display: block; }
 </g>
 
 <!-- Outbound: Proxy -> Anthropic -->
-<path d="M 1230 935 L 1200 935 L 1200 497 L 1270 497" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-purple)"/>
+<path d="M 1230 935 L 1200 935 L 1200 587 L 1270 587" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-purple)"/>
 
-<!-- Inbound: GitHub Webhooks -> Firewall -> Router -> Route -> Pod -->
-<path d="M 1300 390 L 1195 390 L 1195 930 L 1170 930" fill="none" stroke="#d29922" stroke-width="2" marker-end="url(#arrow-orange)"/>
-<g transform="rotate(-90 1205 700)">
-<rect x="1201" y="688" width="78" height="16" rx="3" fill="#0d1117" stroke="#d29922" stroke-width="0.5"/>
-<text x="1240" y="700" text-anchor="middle" fill="#d29922" font-size="10">webhook POST</text>
+<!-- Cloudflare Tunnel: cloudflared -> firewall -> Cloudflare Edge (outbound-initiated) -->
+<path d="M 470 727 L 655 727 L 655 935 L 1190 935" fill="none" stroke="#d29922" stroke-width="2" stroke-dasharray="8,4"/>
+<path d="M 1190 935 L 1190 500 L 1270 500" fill="none" stroke="#d29922" stroke-width="2" marker-end="url(#arrow-orange)"/>
+<g transform="rotate(-90 1195 720)">
+<rect x="1128" y="708" width="134" height="16" rx="3" fill="#0d1117" stroke="#d29922" stroke-width="0.5"/>
+<text x="1195" y="720" text-anchor="middle" fill="#d29922" font-size="10">Cloudflare Tunnel</text>
 </g>
 
-<!-- Inbound through firewall into cluster -->
-<path d="M 660 960 L 660 920" fill="none" stroke="#d29922" stroke-width="2"/>
-<rect x="561" y="878" width="158" height="16" rx="3" fill="#0d1117" stroke="#d29922" stroke-width="0.5"/>
-<text x="640" y="890" text-anchor="middle" fill="#d29922" font-size="10">firewall allows GitHub IPs</text>
-
-<!-- Inbound up to router -->
-<path d="M 660 885 L 660 308" fill="none" stroke="#d29922" stroke-width="1.5" stroke-dasharray="6,3"/>
+<!-- GitHub Webhooks -> Cloudflare Edge -->
+<path d="M 1425 420 L 1425 460" fill="none" stroke="#d29922" stroke-width="2" marker-end="url(#arrow-orange)"/>
+<rect x="1432" y="428" width="78" height="16" rx="3" fill="#0d1117" stroke="#d29922" stroke-width="0.5"/>
+<text x="1471" y="440" text-anchor="middle" fill="#d29922" font-size="10">webhook POST</text>
 
 <!-- Browser -> GitHub OAuth (direct, browser has internet) -->
 <path d="M 360 147 L 1170 147 L 1170 80 L 1230 80" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3"/>
@@ -324,54 +338,55 @@ svg { display: block; }
 <text x="70" y="1090" fill="#8b949e" font-size="10">Steps 1-3: browser redirects (user has internet access). Steps 4-5: server outbound via HTTPS_PROXY. Step 6: internal.</text>
 
 <!-- ==================== LEGEND ==================== -->
-<rect x="1270" y="630" width="590" height="240" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
-<text x="1565" y="656" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="600">Legend</text>
+<rect x="1270" y="710" width="590" height="260" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+<text x="1565" y="736" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="600">Legend</text>
 
-<line x1="1295" y1="678" x2="1348" y2="678" stroke="#3fb950" stroke-width="2" stroke-dasharray="10,5"/>
-<text x="1358" y="682" fill="#8b949e" font-size="12">Private network boundary</text>
+<line x1="1295" y1="758" x2="1348" y2="758" stroke="#3fb950" stroke-width="2" stroke-dasharray="10,5"/>
+<text x="1358" y="762" fill="#8b949e" font-size="12">Private network boundary</text>
 
-<line x1="1295" y1="700" x2="1348" y2="700" stroke="#f85149" stroke-width="2" stroke-dasharray="8,4"/>
-<text x="1358" y="704" fill="#8b949e" font-size="12">OpenShift cluster</text>
+<line x1="1295" y1="780" x2="1348" y2="780" stroke="#f85149" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="1358" y="784" fill="#8b949e" font-size="12">OpenShift cluster</text>
 
-<line x1="1295" y1="722" x2="1348" y2="722" stroke="#58a6ff" stroke-width="2" stroke-dasharray="8,4"/>
-<text x="1358" y="726" fill="#8b949e" font-size="12">Application namespace</text>
+<line x1="1295" y1="802" x2="1348" y2="802" stroke="#58a6ff" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="1358" y="806" fill="#8b949e" font-size="12">Application namespace</text>
 
-<line x1="1295" y1="744" x2="1348" y2="744" stroke="#f0883e" stroke-width="2" stroke-dasharray="8,4"/>
-<text x="1358" y="748" fill="#8b949e" font-size="12">Sandbox namespace</text>
+<line x1="1295" y1="824" x2="1348" y2="824" stroke="#f0883e" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="1358" y="828" fill="#8b949e" font-size="12">Sandbox namespace</text>
 
-<line x1="1295" y1="766" x2="1348" y2="766" stroke="#bc8cff" stroke-width="2"/>
-<text x="1358" y="770" fill="#8b949e" font-size="12">Outbound (proxy) traffic</text>
+<line x1="1295" y1="846" x2="1348" y2="846" stroke="#bc8cff" stroke-width="2"/>
+<text x="1358" y="850" fill="#8b949e" font-size="12">Outbound (proxy) traffic</text>
 
-<line x1="1295" y1="788" x2="1348" y2="788" stroke="#d29922" stroke-width="2"/>
-<text x="1358" y="792" fill="#8b949e" font-size="12">Inbound webhook traffic</text>
+<line x1="1295" y1="868" x2="1348" y2="868" stroke="#d29922" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="1358" y="872" fill="#8b949e" font-size="12">Cloudflare Tunnel (webhook traffic)</text>
 
-<line x1="1295" y1="810" x2="1348" y2="810" stroke="#484f58" stroke-width="2"/>
-<text x="1358" y="814" fill="#8b949e" font-size="12">Internal cluster traffic</text>
+<line x1="1295" y1="890" x2="1348" y2="890" stroke="#484f58" stroke-width="2"/>
+<text x="1358" y="894" fill="#8b949e" font-size="12">Internal cluster traffic</text>
 
-<line x1="1295" y1="832" x2="1348" y2="832" stroke="#bc8cff" stroke-width="2" stroke-dasharray="6,3"/>
-<text x="1358" y="836" fill="#8b949e" font-size="12">Browser redirect (OAuth)</text>
+<line x1="1295" y1="912" x2="1348" y2="912" stroke="#bc8cff" stroke-width="2" stroke-dasharray="6,3"/>
+<text x="1358" y="916" fill="#8b949e" font-size="12">Browser redirect (OAuth)</text>
 
-<rect x="1295" y="848" width="14" height="12" rx="3" fill="#161b22" stroke="#f85149" stroke-width="1.5"/>
-<text x="1319" y="858" fill="#8b949e" font-size="12">OpenShift-specific (SCC, Route)</text>
+<rect x="1295" y="928" width="14" height="12" rx="3" fill="#161b22" stroke="#f85149" stroke-width="1.5"/>
+<text x="1319" y="938" fill="#8b949e" font-size="12">OpenShift-specific (SCC, Route)</text>
+
+<rect x="1295" y="948" width="14" height="12" rx="3" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+<text x="1319" y="958" fill="#8b949e" font-size="12">cloudflared tunnel pod</text>
 
 <!-- ==================== KEY CONFIG ==================== -->
-<rect x="1270" y="900" width="590" height="265" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
-<text x="1565" y="926" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="600">Key Configuration</text>
+<rect x="1270" y="1000" width="590" height="210" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+<text x="1565" y="1026" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="600">Key Configuration</text>
 
-<text x="1295" y="952" fill="#d29922" font-size="12" font-weight="600">Helm Values</text>
-<text x="1295" y="970" fill="#8b949e" font-size="11">openshift.enabled: true</text>
-<text x="1295" y="986" fill="#8b949e" font-size="11">route.enabled: true</text>
-<text x="1295" y="1002" fill="#8b949e" font-size="11">webhookRoute.enabled: true</text>
-<text x="1295" y="1018" fill="#8b949e" font-size="11">proxy.httpsProxy: http://proxy.corp:8080</text>
+<text x="1295" y="1052" fill="#d29922" font-size="12" font-weight="600">Helm Values</text>
+<text x="1295" y="1070" fill="#8b949e" font-size="11">openshift.enabled: true</text>
+<text x="1295" y="1086" fill="#8b949e" font-size="11">route.enabled: true</text>
+<text x="1295" y="1102" fill="#8b949e" font-size="11">proxy.httpsProxy: http://proxy.corp:8080</text>
 
-<text x="1295" y="1046" fill="#d29922" font-size="12" font-weight="600">Environment Variables</text>
-<text x="1295" y="1064" fill="#8b949e" font-size="11">CORS_ORIGIN=https://agentpane.apps.example.com</text>
-<text x="1295" y="1080" fill="#8b949e" font-size="11">GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET</text>
-<text x="1295" y="1096" fill="#8b949e" font-size="11">GITHUB_WEBHOOK_SECRET</text>
-<text x="1295" y="1112" fill="#8b949e" font-size="11">ANTHROPIC_API_KEY</text>
+<text x="1295" y="1126" fill="#d29922" font-size="12" font-weight="600">Environment Variables</text>
+<text x="1295" y="1144" fill="#8b949e" font-size="11">CORS_ORIGIN=https://agentpane.teams</text>
+<text x="1295" y="1160" fill="#8b949e" font-size="11">GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET</text>
+<text x="1295" y="1176" fill="#8b949e" font-size="11">GITHUB_WEBHOOK_SECRET · ANTHROPIC_API_KEY</text>
 
-<text x="1295" y="1140" fill="#f85149" font-size="12" font-weight="600">Firewall Rule</text>
-<text x="1295" y="1158" fill="#8b949e" font-size="11">Allow 140.82.112.0/20, 192.30.252.0/22 → webhook Route :443</text>
+<text x="1295" y="1200" fill="#d29922" font-size="12" font-weight="600">Cloudflare Tunnel</text>
+<text x="1295" y="1216" fill="#8b949e" font-size="11">cloudflared deployment · tunnel token secret · ingress: agentpane.teams → service:3001</text>
 
 </svg>
 </body>
