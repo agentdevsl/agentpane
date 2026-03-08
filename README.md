@@ -8,11 +8,27 @@
 
 ## Architecture
 
+System-level view of the AgentPane platform showing the browser client, TanStack DB, Caddy durable streams, Bun API server, SQLite database, and sandbox infrastructure.
+
 ![AgentPane Architecture](docs/_architecture-diagram.png)
 
 ### Tenancy Model
 
+Authentication, ownership hierarchy, and role-based access control — from GitHub OAuth through the organization/project/task ownership chain.
+
 ![Tenancy Model](docs/tenancy-model.png)
+
+### OpenShift Deployment
+
+Private network deployment on OpenShift with Cloudflare Tunnel for inbound webhook delivery via `agentpane.teams`. No inbound firewall rules needed — the `cloudflared` pod initiates an outbound-only tunnel to Cloudflare Edge.
+
+![OpenShift Deployment](docs/_openshift-deployment.png)
+
+### Durable Streams
+
+End-to-end event streaming pipeline: service-side emission through the type-safe `DurableStreamsService` (dual-write to SQLite + Caddy), SSE delivery to the browser, Zod validation, TanStack DB collection sync, and reactive UI updates.
+
+![Durable Streams](docs/_durable-streams-architecture.png)
 
 ## Overview
 
