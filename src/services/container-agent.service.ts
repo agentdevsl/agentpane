@@ -2614,14 +2614,13 @@ export class ContainerAgentService {
     }
 
     // Build invocation payload
-    const permissionMode = phase === 'plan' ? 'plan' : 'acceptEdits';
+    // Note: permissionMode is derived from `phase` by the agentcore-handler, not sent in payload
     const payload: Record<string, unknown> = {
       prompt,
       taskId,
       sessionId,
       model: agentConfig.model,
       maxTurns: agentConfig.maxTurns,
-      permissionMode,
       phase,
       oauthToken,
       cwd: '/workspace',
@@ -2880,8 +2879,45 @@ export class ContainerAgentService {
   }
 
   /**
+   * Shared cleanup for AgentCore agents: update agent DB status, remove runtime
+   * session, clear timeout, delete from running map.
+   */
+  private async cleanupAgentCoreRunState(
+    taskId: string,
+    agent: RunningAgentCoreAgent,
+    agentDbStatus: 'completed' | 'error',
+    context: string
+  ): Promise<void> {
+    const agentId = `agent-${taskId}`;
+    try {
+      await this.db
+        .update(agents)
+        .set({
+          status: agentDbStatus,
+          currentTaskId: null,
+          currentSessionId: null,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(agents.id, agentId));
+    } catch (dbErr) {
+      const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
+      warnLog(context, 'Failed to update agent status', { agentId, error: errorMessage });
+    }
+
+    if (this.agentCoreProvider) {
+      this.agentCoreProvider.removeSession(taskId);
+    }
+
+    clearTimeout(agent.timeoutHandle);
+    this.runningAgentCoreAgents.delete(taskId);
+    infoLog(context, 'AgentCore agent cleanup finished', {
+      taskId,
+      remainingAgents: this.runningAgents.size + this.runningAgentCoreAgents.size,
+    });
+  }
+
+  /**
    * Handle AgentCore agent completion.
-   * Mirrors handleAgentComplete but uses the runningAgentCoreAgents map.
    */
   private async handleAgentCoreComplete(
     taskId: string,
@@ -2893,7 +2929,6 @@ export class ContainerAgentService {
     const agent = this.runningAgentCoreAgents.get(taskId);
     if (!agent) {
       debugLog('handleAgentCoreComplete', 'Agent not found in AgentCore agents map', { taskId });
-      // Delegate to the shared handler for orphan DB cleanup
       return this.handleAgentComplete(taskId, status, turnCount);
     }
 
@@ -2923,7 +2958,6 @@ export class ContainerAgentService {
           })
           .where(eq(tasks.id, taskId));
       } else {
-        // cancelled
         await this.db
           .update(tasks)
           .set({
@@ -2959,43 +2993,11 @@ export class ContainerAgentService {
       }
     }
 
-    // Update agent status
-    const agentId = `agent-${taskId}`;
-    try {
-      await this.db
-        .update(agents)
-        .set({
-          status: 'completed',
-          currentTaskId: null,
-          currentSessionId: null,
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(agents.id, agentId));
-    } catch (dbErr) {
-      const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
-      warnLog('handleAgentCoreComplete', 'Failed to update agent status', {
-        agentId,
-        error: errorMessage,
-      });
-    }
-
-    // Clean up runtime session from provider
-    if (this.agentCoreProvider) {
-      this.agentCoreProvider.removeSession(taskId);
-    }
-
-    // Clear timeout and remove from running agents
-    clearTimeout(agent.timeoutHandle);
-    this.runningAgentCoreAgents.delete(taskId);
-    infoLog('handleAgentCoreComplete', 'AgentCore agent completion finished', {
-      taskId,
-      remainingAgents: this.runningAgents.size + this.runningAgentCoreAgents.size,
-    });
+    await this.cleanupAgentCoreRunState(taskId, agent, 'completed', 'handleAgentCoreComplete');
   }
 
   /**
    * Handle AgentCore agent error.
-   * Mirrors handleAgentError but uses the runningAgentCoreAgents map.
    */
   private async handleAgentCoreError(
     taskId: string,
@@ -3006,7 +3008,6 @@ export class ContainerAgentService {
 
     const agent = this.runningAgentCoreAgents.get(taskId);
     if (!agent) {
-      // Delegate to the shared handler for orphan DB cleanup
       return this.handleAgentError(taskId, error, turnCount);
     }
 
@@ -3046,38 +3047,7 @@ export class ContainerAgentService {
       }
     }
 
-    // Update agent status to error
-    const agentId = `agent-${taskId}`;
-    try {
-      await this.db
-        .update(agents)
-        .set({
-          status: 'error',
-          currentTaskId: null,
-          currentSessionId: null,
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(agents.id, agentId));
-    } catch (dbErr) {
-      const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
-      infoLog('handleAgentCoreError', 'Failed to update agent status', {
-        agentId,
-        error: errorMessage,
-      });
-    }
-
-    // Clean up runtime session
-    if (this.agentCoreProvider) {
-      this.agentCoreProvider.removeSession(taskId);
-    }
-
-    // Clear timeout and remove from running agents
-    clearTimeout(agent.timeoutHandle);
-    this.runningAgentCoreAgents.delete(taskId);
-    infoLog('handleAgentCoreError', 'AgentCore agent error handling finished', {
-      taskId,
-      remainingAgents: this.runningAgents.size + this.runningAgentCoreAgents.size,
-    });
+    await this.cleanupAgentCoreRunState(taskId, agent, 'error', 'handleAgentCoreError');
   }
 }
 

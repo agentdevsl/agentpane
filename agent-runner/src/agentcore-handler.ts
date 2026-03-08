@@ -394,6 +394,14 @@ async function* handleInvocation(
   let turn = 0;
   let accumulatedText = '';
   let capturedSdkSessionId: string | undefined;
+  let sessionClosed = false;
+
+  const closeSession = () => {
+    if (!sessionClosed && session) {
+      sessionClosed = true;
+      session.close();
+    }
+  };
 
   try {
     // Send prompt — use abbreviated prompt when resuming a planned session
@@ -418,7 +426,7 @@ async function* handleInvocation(
       if (await shouldStop(stopFile)) {
         console.error('[agentcore-handler] Stop file detected, cancelling...');
         yield evt('agent:cancelled', { turnCount: turn });
-        session.close();
+        closeSession();
         return;
       }
 
@@ -456,7 +464,7 @@ async function* handleInvocation(
               turnCount: turn,
               result: `Turn limit reached (${maxTurns}).${phase === 'plan' ? ' Planning incomplete.' : ' Task may need manual completion.'}`,
             } satisfies AgentCompleteData);
-            session.close();
+            closeSession();
             return;
           }
         }
@@ -545,7 +553,7 @@ async function* handleInvocation(
       if (msg.type === 'result') {
         flushAllToolResults();
         yield* drainQueue(pendingToolResults);
-        session.close();
+        closeSession();
 
         if (phase === 'plan') {
           // Planning phase: emit plan_ready if ExitPlanMode was called
@@ -592,7 +600,7 @@ async function* handleInvocation(
     console.error(`[agentcore-handler] Stream ended. Messages: ${messageCount}, turns: ${turn}`);
     flushAllToolResults();
     yield* drainQueue(pendingToolResults);
-    session.close();
+    closeSession();
 
     if (phase === 'plan' && accumulatedText) {
       yield evt('agent:plan_ready', {
@@ -625,7 +633,7 @@ async function* handleInvocation(
       turnCount: turn,
     } satisfies AgentErrorData);
 
-    session.close();
+    closeSession();
   }
 }
 

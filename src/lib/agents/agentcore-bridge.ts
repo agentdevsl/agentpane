@@ -138,7 +138,7 @@ export function createAgentCoreBridge(options: AgentCoreBridgeOptions): AgentCor
    */
   function handleComplete(data: Record<string, unknown>): void {
     const rawStatus = data.status as string;
-    const turnCount = typeof data.turnCount === 'number' ? (data.turnCount as number) : 0;
+    const turnCount = typeof data.turnCount === 'number' ? data.turnCount : 0;
 
     const validStatuses = ['completed', 'turn_limit', 'cancelled'] as const;
     const status = validStatuses.includes(rawStatus as (typeof validStatuses)[number])
@@ -173,10 +173,8 @@ export function createAgentCoreBridge(options: AgentCoreBridgeOptions): AgentCor
    */
   function handleError(data: Record<string, unknown>): void {
     const error =
-      typeof data.error === 'string'
-        ? (data.error as string)
-        : String(data.error ?? 'Unknown error');
-    const turnCount = typeof data.turnCount === 'number' ? (data.turnCount as number) : 0;
+      typeof data.error === 'string' ? data.error : String(data.error ?? 'Unknown error');
+    const turnCount = typeof data.turnCount === 'number' ? data.turnCount : 0;
 
     if (typeof data.error !== 'string' || typeof data.turnCount !== 'number') {
       warnLog('handleError', 'Unexpected error event data, using fallback values', {
@@ -202,7 +200,7 @@ export function createAgentCoreBridge(options: AgentCoreBridgeOptions): AgentCor
    * Uses fallback values for malformed data to ensure the callback always fires.
    */
   function handleCancelled(data: Record<string, unknown>): void {
-    const turnCount = typeof data.turnCount === 'number' ? (data.turnCount as number) : 0;
+    const turnCount = typeof data.turnCount === 'number' ? data.turnCount : 0;
 
     if (typeof data.turnCount !== 'number') {
       warnLog('handleCancelled', 'Unexpected cancelled event data, using fallback values', {
@@ -228,9 +226,9 @@ export function createAgentCoreBridge(options: AgentCoreBridgeOptions): AgentCor
    * silently dropping a plan_ready event would leave the task stuck in planning forever.
    */
   function handlePlanReady(data: Record<string, unknown>): void {
-    const plan = typeof data.plan === 'string' ? (data.plan as string) : JSON.stringify(data);
-    const turnCount = typeof data.turnCount === 'number' ? (data.turnCount as number) : 0;
-    const sdkSessionId = typeof data.sdkSessionId === 'string' ? (data.sdkSessionId as string) : '';
+    const plan = typeof data.plan === 'string' ? data.plan : JSON.stringify(data);
+    const turnCount = typeof data.turnCount === 'number' ? data.turnCount : 0;
+    const sdkSessionId = typeof data.sdkSessionId === 'string' ? data.sdkSessionId : '';
     const allowedPrompts = Array.isArray(data.allowedPrompts)
       ? (data.allowedPrompts as Array<{ tool: 'Bash'; prompt: string }>)
       : undefined;
