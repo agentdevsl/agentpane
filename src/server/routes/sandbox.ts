@@ -51,12 +51,33 @@ const sandboxConfigCreateSchema = sandboxConfigBodySchema.extend({
 
 const log = createLogger('SandboxRoutes');
 
-/** Strip the nomadToken field from a config before returning it to the client. */
+/** Strip sensitive credential fields from a config before returning it to the client. */
 function redactConfig<T extends Record<string, unknown>>(
   config: T
 ): Omit<T, 'nomadToken' | 'awsSecretAccessKey'> {
   const { nomadToken: _token, awsSecretAccessKey: _awsSecret, ...safe } = config;
   return safe;
+}
+
+/** Sensitive fields in sandbox configs that must be encrypted before storage. */
+const SANDBOX_CONFIG_SENSITIVE_FIELDS = ['nomadToken', 'awsSecretAccessKey'] as const;
+
+/** Encrypt sensitive credential fields in a sandbox config body before database storage. */
+async function encryptSensitiveFields<T extends Record<string, unknown>>(body: T): Promise<T> {
+  const copy = { ...body };
+  let encryptFn: ((token: string) => string) | null = null;
+
+  for (const field of SANDBOX_CONFIG_SENSITIVE_FIELDS) {
+    if (typeof copy[field] === 'string' && copy[field]) {
+      if (!encryptFn) {
+        const { encryptToken } = await import('../../lib/crypto/server-encryption.js');
+        encryptFn = encryptToken;
+      }
+      (copy as Record<string, unknown>)[field] = encryptFn(copy[field] as string);
+    }
+  }
+
+  return copy;
 }
 
 interface SandboxDeps {
@@ -138,7 +159,8 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
         }
       }
 
-      const result = await sandboxConfigService.create(body);
+      const encryptedBody = await encryptSensitiveFields(body);
+      const result = await sandboxConfigService.create(encryptedBody);
 
       if (!result.ok) {
         return json({ ok: false, error: result.error }, result.error.status);
@@ -229,7 +251,8 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
         }
       }
 
-      const result = await sandboxConfigService.update(id, body);
+      const encryptedBody = await encryptSensitiveFields(body);
+      const result = await sandboxConfigService.update(id, encryptedBody);
 
       if (!result.ok) {
         return json({ ok: false, error: result.error }, result.error.status);
