@@ -1,6 +1,8 @@
 # AgentPane
 
-**Multi-agent AI development platform with real-time task orchestration, sandboxed execution, and Terraform no-code composition**
+Background AI agents that work while you don't. A GitHub issue opens, a cron schedule fires, a webhook lands — AgentPane spins up agents in isolated sandboxed environments, plans the work, writes the code, and waits for your review. Every tool call, every file change, every decision streams back to you in real time through durable event streams that survive disconnects and replay on reconnect. You stay in control without staying in the loop.
+
+Running AI agents in the background creates hard problems: agents need filesystem isolation so they don't corrupt each other's work, long-running sessions need event streams that survive network drops without losing data, and external triggers need to flow through a verified pipeline before an agent touches your code. AgentPane solves these with git worktree isolation per agent, a dual-write event pipeline (SQLite for durability, Caddy SSE for real-time delivery) with offset-based replay on reconnect, and a pluggable webhook system with HMAC verification, subscription filters, and template interpolation that converts external signals into agent-ready tasks — all running inside isolated sandboxed environments across Docker, Kubernetes, Nomad, or AWS Bedrock AgentCore.
 
 [![Build](https://img.shields.io/badge/build-passing-brightgreen)](/)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen)](/)
@@ -35,12 +37,6 @@ End-to-end event streaming pipeline: service-side emission through the type-safe
 Webhook ingestion pipeline: external sources (GitHub, Linear, Jira, cron) through HMAC verification, plugin-based normalization, subscription matching with field filters, template interpolation, and automated task creation with agent auto-start.
 
 ![Events System](docs/_events-system-architecture.png)
-
-## Overview
-
-AgentPane is a multi-agent AI development platform built on the Claude Agent SDK. It enables concurrent AI agents to work on tasks with full project isolation via git worktrees and sandboxed containers. Agents follow a plan-then-execute workflow with teams mode (planned) for parallel execution.
-
-The platform includes a visual Kanban board for task management, real-time streaming of agent progress, integrated code review workflows, a Terraform no-code composer, plugin marketplace, and workflow designer.
 
 ## Features
 
