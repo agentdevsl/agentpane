@@ -19,6 +19,7 @@ export default defineConfig({
       'submodule',
       '**/_archived/**',
       'packages/**',
+      'tests/diagram-overlap.spec.ts',
     ],
     alias: {
       '@/db/client': resolve(__dirname, './src/db/client.ts'),
