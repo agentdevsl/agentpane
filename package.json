@@ -56,7 +56,7 @@
     "agent-browser": "0.7.6",
     "drizzle-kit": "^0.31.8",
     "jsdom": "^28.1.0",
-    "playwright": "^1.57.0",
+    "playwright": "^1.58.2",
     "typescript": "^5.7.2",
     "vitest": "^4.0.16"
   },
