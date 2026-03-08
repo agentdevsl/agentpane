@@ -103,6 +103,7 @@ The platform includes a visual Kanban board for task management, real-time strea
 | Linting | Biome | @biomejs/biome | 2.4.4 |
 | Containers | Dockerode | dockerode | 4.0.9 |
 | Kubernetes | K8s Client | @kubernetes/client-node | 1.4.0 |
+| AWS | AWS SDK | @aws-sdk/client-sts | 3.1004.0 |
 | GitHub | Octokit | octokit | 5.0.5 |
 
 ## Getting Started
@@ -112,6 +113,7 @@ The platform includes a visual Kanban board for task management, real-time strea
 - [Bun](https://bun.sh) 1.3.10+
 - [Node.js](https://nodejs.org) 24.0.0+
 - [Docker](https://docker.com) (optional, for sandboxed agent execution)
+- [AWS Account](https://aws.amazon.com) (optional, for AWS Bedrock AgentCore sandbox execution)
 
 ### Installation
 
@@ -142,6 +144,8 @@ Set the following environment variables (or configure via the Settings UI):
 | `GITHUB_PRIVATE_KEY` | No | GitHub App private key |
 | `GITHUB_WEBHOOK_SECRET` | No | Secret for verifying GitHub webhooks |
 | `CORS_ORIGIN` | Production | Allowed CORS origin |
+
+> **AWS Bedrock AgentCore** credentials (access key, secret key, region, runtime ARN) are configured via the **Settings UI** under `sandbox.agentcore`, not environment variables.
 
 ### Development
 
