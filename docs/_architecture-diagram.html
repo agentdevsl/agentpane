@@ -194,8 +194,8 @@ svg { display: block; }
 <path d="M 345 590 L 345 710 L 500 710 L 500 740" fill="none" stroke="#484f58" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-gray)"/>
 <!-- Nomad: jog right at y=700 (above K8s jog) -->
 <path d="M 535 590 L 535 700 L 810 700 L 810 740" fill="none" stroke="#484f58" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-gray)"/>
-<!-- AgentCore: jog right at y=700, stays in its own lane far right -->
-<path d="M 735 590 L 735 700 L 1135 700 L 1135 740" fill="none" stroke="#f69d50" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-aws)"/>
+<!-- AgentCore: jog right at y=690, offset from Nomad's y=700 to avoid overlap -->
+<path d="M 735 590 L 735 690 L 1135 690 L 1135 740" fill="none" stroke="#f69d50" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-aws)"/>
 
 <!-- ==================== PostgreSQL (Remote) ==================== -->
 <rect x="1200" y="360" width="310" height="110" rx="10" fill="none" stroke="#8b949e" stroke-width="2" stroke-dasharray="8,4"/>
@@ -360,20 +360,20 @@ svg { display: block; }
 <text x="1160" y="1188" text-anchor="middle" fill="#f69d50" font-size="12" font-weight="600">AWS Bedrock API</text>
 <text x="1160" y="1202" text-anchor="middle" fill="#8b949e" font-size="9">STS · ECR · Agent Runtime</text>
 
-<!-- Connection: GitHub Webhooks -> Event System (far right edge at x=1440, clear of all boxes) -->
-<path d="M 1030 1190 L 1440 1190 L 1440 478 L 1160 478" fill="none" stroke="#d29922" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-orange)"/>
-<text x="1445" y="880" fill="#d29922" font-size="10">webhooks</text>
+<!-- Connection: GitHub Webhooks -> Event System (far right edge at x=1560, clear of PostgreSQL + Event Tables boxes) -->
+<path d="M 1030 1190 L 1560 1190 L 1560 478 L 1160 478" fill="none" stroke="#d29922" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-orange)"/>
+<text x="1565" y="880" fill="#d29922" font-size="10">webhooks</text>
 
 <!-- Connections: containers -> Anthropic API -->
 <line x1="190" y1="862" x2="190" y2="1115" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-purple)"/>
 <line x1="500" y1="875" x2="500" y2="1115" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-purple)"/>
 <path d="M 810 875 L 810 1060 L 350 1060 L 350 1115" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-purple)"/>
 
-<!-- Connection: AgentCore handler -> AWS Bedrock API -->
-<line x1="1135" y1="1006" x2="1160" y2="1172" stroke="#f69d50" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-aws)"/>
+<!-- Connection: AgentCore -> AWS Bedrock API (right side, clean vertical) -->
+<path d="M 1200 1020 L 1200 1172" fill="none" stroke="#f69d50" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-aws)"/>
 
-<!-- Connection: AgentCore handler -> Anthropic API (agents use Claude, routes below all runtime boxes) -->
-<path d="M 1135 1020 L 1135 1050 L 450 1050 L 450 1115" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-purple)"/>
+<!-- Connection: AgentCore -> Anthropic API (left side, routes below Nomad's y=1060 to avoid crossing) -->
+<path d="M 1080 1020 L 1080 1070 L 450 1070 L 450 1115" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-purple)"/>
 
 </svg>
 </body>
