@@ -17,7 +17,13 @@ export type ContainerStatus =
   | 'error'
   | 'unavailable';
 
-export type SandboxProviderType = 'docker' | 'devcontainer' | 'kubernetes' | 'nomad' | 'none';
+export type SandboxProviderType =
+  | 'docker'
+  | 'devcontainer'
+  | 'kubernetes'
+  | 'nomad'
+  | 'agentcore'
+  | 'none';
 
 const statusDotVariants = cva('h-2 w-2 rounded-full', {
   variants: {
@@ -58,7 +64,14 @@ function getStatusLabel(status: ContainerStatus): string {
 }
 
 function getStatusDescription(status: ContainerStatus, provider: SandboxProviderType): string {
-  const target = provider === 'kubernetes' ? 'Pod' : provider === 'nomad' ? 'Job' : 'Container';
+  const target =
+    provider === 'kubernetes'
+      ? 'Pod'
+      : provider === 'nomad'
+        ? 'Job'
+        : provider === 'agentcore'
+          ? 'Runtime'
+          : 'Container';
   switch (status) {
     case 'creating':
       return `${target} is starting up...`;
@@ -96,6 +109,8 @@ function getProviderLabel(provider: SandboxProviderType): string {
       return 'Docker';
     case 'devcontainer':
       return 'DevContainer';
+    case 'agentcore':
+      return 'AgentCore';
     default:
       return 'Docker';
   }
@@ -111,6 +126,8 @@ function getProviderDescription(provider: SandboxProviderType): string {
       return 'Agents run in isolated Docker containers for security.';
     case 'devcontainer':
       return 'Agents run in VS Code-compatible DevContainers for reproducible environments.';
+    case 'agentcore':
+      return 'Agents run in AWS Bedrock AgentCore microVMs for managed isolation.';
     default:
       return 'Agents run in isolated containers for security.';
   }
@@ -139,6 +156,13 @@ function getUnavailableDescription(provider: SandboxProviderType): {
       title: 'DevContainer Not Available',
       description:
         'The sandbox requires Docker and a devcontainer.json configuration to run agent tasks in DevContainers. Please check your Docker installation and project configuration.',
+    };
+  }
+  if (provider === 'agentcore') {
+    return {
+      title: 'AgentCore Not Available',
+      description:
+        'The sandbox requires AWS Bedrock AgentCore credentials to run agent tasks in managed microVMs. Please check your AWS configuration in Settings.',
     };
   }
   return {

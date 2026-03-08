@@ -197,7 +197,16 @@ export function createSandboxStatusRoutes({
       const modeSetting = await db.query.settings.findFirst({
         where: eq(settings.key, 'sandbox.mode'),
       });
-      const sandboxMode = modeSetting?.value ? JSON.parse(modeSetting.value) : 'shared';
+      let sandboxMode = 'shared';
+      if (modeSetting?.value) {
+        try {
+          sandboxMode = JSON.parse(modeSetting.value);
+        } catch {
+          log.warn('Failed to parse sandbox.mode setting, using default', {
+            data: { raw: modeSetting.value },
+          });
+        }
+      }
 
       // Get container status from docker provider (uses getter for deferred initialization)
       let containerStatus: 'stopped' | 'creating' | 'running' | 'idle' | 'error' | 'unavailable' =
@@ -356,7 +365,14 @@ export function createSandboxStatusRoutes({
       const modeSetting = await db.query.settings.findFirst({
         where: eq(settings.key, 'sandbox.mode'),
       });
-      const sandboxMode = modeSetting?.value ? JSON.parse(modeSetting.value) : 'shared';
+      let sandboxMode = 'shared';
+      if (modeSetting?.value) {
+        try {
+          sandboxMode = JSON.parse(modeSetting.value);
+        } catch {
+          log.warn('Failed to parse sandbox.mode setting in restart, using default');
+        }
+      }
       const lookupId = sandboxMode === 'shared' ? 'default' : projectId;
 
       // Cast to access restart method (it's on DockerProvider but not the interface)

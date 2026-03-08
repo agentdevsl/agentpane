@@ -147,8 +147,10 @@ async function shouldStop(stopFile: string | undefined): Promise<boolean> {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
       return false;
     }
+    // Permission errors or other filesystem failures mean we can't reliably
+    // check for cancellation — stop the agent to avoid uncontrolled execution.
     console.error(`[agentcore-handler] Error checking stop file: ${(err as Error).message}`);
-    return false;
+    return true;
   }
 }
 
@@ -193,7 +195,7 @@ function getAssistantText(msg: unknown): string | null {
   return textBlocks.map((b) => b.text).join('') || null;
 }
 
-/** Drain all events from a queue, yielding each. */
+/** Drain all events from a queue, returning them as an array. */
 function drainQueue(queue: SSEEvent[]): SSEEvent[] {
   const items = queue.splice(0, queue.length);
   return items;
@@ -211,12 +213,12 @@ async function* handleInvocation(
     prompt,
     taskId,
     sessionId,
-    model = 'claude-opus-4-5-20251101',
+    model = 'claude-sonnet-4-6',
     maxTurns = 50,
     phase = 'execute',
     sdkSessionId,
-    allowedPrompts: _allowedPrompts,
-    cwd: _cwd = '/workspace',
+    allowedPrompts,
+    cwd = '/workspace',
     oauthToken,
     stopFile,
   } = payload;
@@ -328,6 +330,19 @@ async function* handleInvocation(
       );
     }
 
+    // In execution phase, auto-approve Bash commands that match allowedPrompts from planning
+    if (phase === 'execute' && toolName === 'Bash' && allowedPrompts) {
+      const bashInput = input as { command?: string } | undefined;
+      if (bashInput?.command) {
+        const isAllowed = allowedPrompts.some(
+          (ap) => ap.tool === 'Bash' && ap.prompt === bashInput.command
+        );
+        if (isAllowed) {
+          console.error(`[agentcore-handler] Auto-approved Bash command from allowedPrompts`);
+        }
+      }
+    }
+
     return { behavior: 'allow' as const, toolUseID: options.toolUseID };
   };
 
@@ -345,6 +360,7 @@ async function* handleInvocation(
       try {
         session = unstable_v2_resumeSession(sdkSessionId, {
           model,
+          cwd,
           env: { ...process.env },
           permissionMode,
           canUseTool,
@@ -364,6 +380,7 @@ async function* handleInvocation(
     if (!session) {
       session = unstable_v2_createSession({
         model,
+        cwd,
         env: { ...process.env },
         permissionMode,
         canUseTool,

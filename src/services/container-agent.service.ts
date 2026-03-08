@@ -1,11 +1,14 @@
 /**
- * ContainerAgentService - Orchestrates Claude Agent SDK execution inside sandbox containers.
+ * ContainerAgentService - Orchestrates Claude Agent SDK execution inside sandbox containers
+ * and AWS Bedrock AgentCore runtimes.
  *
- * This service manages the lifecycle of agent processes running in sandbox containers:
- * - Starts agent-runner process inside the sandbox (Docker or K8s pod)
- * - Bridges stdout events to DurableStreams
- * - Handles cancellation via sentinel files
- * - Tracks running agents per task
+ * This service manages the lifecycle of agent processes running in:
+ * - Sandbox containers (Docker, K8s pod, Nomad job) via stdout event bridging
+ * - AWS AgentCore runtimes via SSE invoke + AgentCoreBridge
+ *
+ * Common responsibilities:
+ * - Handles cancellation via sentinel files (containers) or instance.stop() (AgentCore)
+ * - Tracks running agents per task in separate maps (runningAgents / runningAgentCoreAgents)
  * - Initializes remote workspaces (clone + worktree) when using K8s or Nomad provider
  */
 import { eq } from 'drizzle-orm';
