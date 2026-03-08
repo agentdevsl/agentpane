@@ -30,6 +30,12 @@ End-to-end event streaming pipeline: service-side emission through the type-safe
 
 ![Durable Streams](docs/_durable-streams-architecture.png)
 
+### Events System
+
+Webhook ingestion pipeline: external sources (GitHub, Linear, Jira, cron) through HMAC verification, plugin-based normalization, subscription matching with field filters, template interpolation, and automated task creation with agent auto-start.
+
+![Events System](docs/_events-system-architecture.png)
+
 ## Overview
 
 AgentPane is a multi-agent AI development platform built on the Claude Agent SDK. It enables concurrent AI agents to work on tasks with full project isolation via git worktrees and sandboxed containers. Agents follow a plan-then-execute workflow with teams mode (planned) for parallel execution.
@@ -299,8 +305,6 @@ Task moved to "In Progress"
 | Kubernetes (direct) | Direct K8s pod management with RBAC | Archived |
 
 ### Events System
-
-![Events System](docs/_events-system-architecture.png)
 
 AgentPane includes a pluggable event system that converts external signals — GitHub webhooks, scheduled cron jobs, or custom HTTP webhooks — into tasks that agents can automatically pick up and execute.
 
