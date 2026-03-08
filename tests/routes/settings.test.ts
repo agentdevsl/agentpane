@@ -79,9 +79,7 @@ describe('GET /api/settings - sandbox.nomad redaction', () => {
     // should prevent accessing .token on a non-object and return the parsed value as-is.
     mockDb.select = vi.fn().mockReturnValue({
       from: vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue([
-          { key: 'sandbox.nomad', value: JSON.stringify('foo') },
-        ]),
+        where: vi.fn().mockResolvedValue([{ key: 'sandbox.nomad', value: JSON.stringify('foo') }]),
       }),
     });
 
@@ -97,9 +95,7 @@ describe('GET /api/settings - sandbox.nomad redaction', () => {
   it('returns numeric sandbox.nomad values without crashing (type guard)', async () => {
     mockDb.select = vi.fn().mockReturnValue({
       from: vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue([
-          { key: 'sandbox.nomad', value: JSON.stringify(42) },
-        ]),
+        where: vi.fn().mockResolvedValue([{ key: 'sandbox.nomad', value: JSON.stringify(42) }]),
       }),
     });
 
@@ -117,9 +113,7 @@ describe('GET /api/settings - sandbox.nomad redaction', () => {
     // so the guard must also check parsed !== null.
     mockDb.select = vi.fn().mockReturnValue({
       from: vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue([
-          { key: 'sandbox.nomad', value: 'null' },
-        ]),
+        where: vi.fn().mockResolvedValue([{ key: 'sandbox.nomad', value: 'null' }]),
       }),
     });
 
@@ -140,9 +134,9 @@ describe('GET /api/settings - sandbox.nomad redaction', () => {
     };
     mockDb.select = vi.fn().mockReturnValue({
       from: vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue([
-          { key: 'sandbox.nomad', value: JSON.stringify(nomadConfig) },
-        ]),
+        where: vi
+          .fn()
+          .mockResolvedValue([{ key: 'sandbox.nomad', value: JSON.stringify(nomadConfig) }]),
       }),
     });
 
@@ -167,9 +161,9 @@ describe('GET /api/settings - sandbox.nomad redaction', () => {
     };
     mockDb.select = vi.fn().mockReturnValue({
       from: vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue([
-          { key: 'sandbox.nomad', value: JSON.stringify(nomadConfig) },
-        ]),
+        where: vi
+          .fn()
+          .mockResolvedValue([{ key: 'sandbox.nomad', value: JSON.stringify(nomadConfig) }]),
       }),
     });
 
@@ -190,9 +184,9 @@ describe('GET /api/settings - sandbox.nomad redaction', () => {
     // Arrays are typeof "object" and not null, but won't have a meaningful .token
     mockDb.select = vi.fn().mockReturnValue({
       from: vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue([
-          { key: 'sandbox.nomad', value: JSON.stringify([1, 2, 3]) },
-        ]),
+        where: vi
+          .fn()
+          .mockResolvedValue([{ key: 'sandbox.nomad', value: JSON.stringify([1, 2, 3]) }]),
       }),
     });
 
@@ -219,9 +213,7 @@ describe('GET /api/settings - structured logging', () => {
   it('uses log.warn for JSON parse failures', async () => {
     mockDb.select = vi.fn().mockReturnValue({
       from: vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue([
-          { key: 'theme', value: 'not-valid-json{{{' },
-        ]),
+        where: vi.fn().mockResolvedValue([{ key: 'theme', value: 'not-valid-json{{{' }]),
       }),
     });
 
@@ -282,9 +274,7 @@ describe('GET /api/settings - general', () => {
   it('returns all settings when keys param is empty string (falsy)', async () => {
     // Empty string is falsy, so keysParam check falls through to "select all"
     mockDb.select = vi.fn().mockReturnValue({
-      from: vi.fn().mockResolvedValue([
-        { key: 'theme', value: JSON.stringify('dark') },
-      ]),
+      from: vi.fn().mockResolvedValue([{ key: 'theme', value: JSON.stringify('dark') }]),
     });
 
     const app = createApp(mockDb);

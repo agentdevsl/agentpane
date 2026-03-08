@@ -1,447 +1,400 @@
-import {
-  type BedrockAgentCoreClient,
-  InvokeAgentRuntimeCommand,
-} from '@aws-sdk/client-bedrock-agentcore';
-import {
-  type BedrockAgentCoreControlClient,
-  GetAgentRuntimeCommand,
-} from '@aws-sdk/client-bedrock-agentcore-control';
+/**
+ * AgentCore Sandbox Instance
+ *
+ * Represents a connection to an AWS Bedrock AgentCore runtime.
+ * Unlike Docker/K8s/Nomad sandbox instances, AgentCore is NOT a container
+ * you exec into. Instead, you invoke the runtime handler with a payload
+ * and receive Server-Sent Events (SSE) back.
+ *
+ * This class does NOT implement the Sandbox interface (sandbox-provider.ts)
+ * because AgentCore has no shell, exec, or tmux capabilities.
+ */
 import { AgentCoreErrors, isAgentCoreError } from '../../errors/agentcore-errors.js';
 import { createLogger } from '../../logging/logger.js';
-import type { ExecResult, SandboxMetrics, SandboxStatus, TmuxSession } from '../types.js';
-import { SANDBOX_DEFAULTS } from '../types.js';
-import type { ExecStreamOptions, ExecStreamResult, Sandbox } from './sandbox-provider.js';
+import type { SandboxStatus } from '../types.js';
 
 const log = createLogger('AgentCoreSandboxInstance');
 
-/**
- * Map AgentCore runtime status to SandboxStatus.
- *
- * AgentCore statuses: 'CREATING' | 'CREATE_FAILED' | 'UPDATING' | 'UPDATE_FAILED' | 'READY' | 'DELETING' | 'DELETED'
- * SandboxStatus: 'stopped' | 'creating' | 'running' | 'idle' | 'stopping' | 'error'
- */
-export function mapAgentCoreStatus(status?: string): SandboxStatus {
-  switch (status) {
-    case 'CREATING':
-    case 'UPDATING':
-      return 'creating';
-    case 'READY':
-      return 'running';
-    case 'DELETING':
-      return 'stopping';
-    case 'DELETED':
-    case undefined:
-      return 'stopped';
-    case 'CREATE_FAILED':
-    case 'UPDATE_FAILED':
-      return 'error';
-    default:
-      log.warn(`Unknown AgentCore runtime status: "${status}", treating as error`);
-      return 'error';
-  }
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface SSEEvent {
+  type: string;
+  data: Record<string, unknown>;
 }
 
+export interface AgentCoreInstanceOptions {
+  /** ARN of the AgentCore runtime to invoke */
+  runtimeArn: string;
+  /** AWS region (e.g. us-east-1) */
+  region: string;
+  /** AWS access key ID */
+  accessKeyId: string;
+  /** AWS secret access key */
+  secretAccessKey: string;
+  /** Project this instance belongs to */
+  projectId: string;
+  /** Unique sandbox identifier */
+  sandboxId: string;
+}
+
+// ---------------------------------------------------------------------------
+// AWS SigV4 Signing (minimal implementation for AgentCore invoke)
+// ---------------------------------------------------------------------------
+
 /**
- * Sandbox instance backed by an AWS Bedrock AgentCore Runtime.
+ * Minimal AWS Signature Version 4 signer for AgentCore invoke requests.
  *
- * Implements the Sandbox interface defined in sandbox-provider.ts by delegating
- * to the AgentCore SDK clients. The control plane client handles lifecycle
- * queries; the data plane client handles invocations (exec).
+ * TODO: Replace with `@aws-sdk/client-bedrock-agentcore` InvokeAgentRuntimeCommand
+ * once the package is added to dependencies. The SDK provides automatic signing,
+ * retries, and proper error parsing. This manual approach is a stopgap.
  */
-export class AgentCoreSandboxInstance implements Sandbox {
-  private _lastActivity: Date;
-  private _status: SandboxStatus = 'creating';
-  private readonly _createdAt = new Date();
-  private _lastRefreshError: Error | null = null;
+async function hmacSha256(key: ArrayBuffer | Uint8Array, data: string): Promise<ArrayBuffer> {
+  const rawKey = key instanceof ArrayBuffer ? new Uint8Array(key) : key;
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw',
+    rawKey as BufferSource,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  return crypto.subtle.sign('HMAC', cryptoKey, new TextEncoder().encode(data));
+}
 
-  constructor(
-    /** Unique sandbox ID (cuid2) */
-    public readonly id: string,
-    /** AgentCore Runtime ARN (used as containerId and for data plane invocations) */
-    private readonly runtimeArn: string,
-    /** AgentCore Runtime ID (used for control plane operations) */
-    private readonly runtimeId: string,
-    /** Project this sandbox belongs to */
-    public readonly projectId: string,
-    /** AgentCore control plane client */
-    private readonly controlClient: BedrockAgentCoreControlClient,
-    /** AgentCore data plane client */
-    private readonly dataClient: BedrockAgentCoreClient
-  ) {
-    if (!id) throw new Error('AgentCoreSandboxInstance requires a non-empty id');
-    if (!runtimeArn) throw new Error('AgentCoreSandboxInstance requires a non-empty runtimeArn');
-    if (!runtimeId) throw new Error('AgentCoreSandboxInstance requires a non-empty runtimeId');
-    this._lastActivity = new Date();
+async function sha256Hex(data: string): Promise<string> {
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
+  return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function getSignatureKey(
+  secretKey: string,
+  dateStamp: string,
+  region: string,
+  service: string
+): Promise<ArrayBuffer> {
+  let key = await hmacSha256(new TextEncoder().encode(`AWS4${secretKey}`), dateStamp);
+  key = await hmacSha256(key, region);
+  key = await hmacSha256(key, service);
+  key = await hmacSha256(key, 'aws4_request');
+  return key;
+}
+
+interface SignedHeaders {
+  Authorization: string;
+  'x-amz-date': string;
+  'x-amz-content-sha256': string;
+}
+
+async function signRequest(opts: {
+  method: string;
+  url: URL;
+  body: string;
+  region: string;
+  service: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+}): Promise<SignedHeaders> {
+  if (!globalThis.crypto?.subtle) {
+    throw AgentCoreErrors.INTERNAL_ERROR(
+      'Web Crypto API (crypto.subtle) is not available. AgentCore signing requires Node.js 18+ or a compatible runtime.'
+    );
   }
 
-  /**
-   * Maps to the AgentCore Runtime ARN for interface compatibility.
-   * The Sandbox interface requires a containerId; for AgentCore sandboxes
-   * the runtime ARN serves this purpose.
-   */
-  get containerId(): string {
-    return this.runtimeArn;
-  }
+  const now = new Date();
+  const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '');
+  const dateStamp = amzDate.slice(0, 8);
 
-  /** Returns the AgentCore Runtime ID for control plane operations. */
-  getRuntimeId(): string {
-    return this.runtimeId;
+  const payloadHash = await sha256Hex(opts.body);
+
+  const canonicalHeaders =
+    `host:${opts.url.host}\n` + `x-amz-content-sha256:${payloadHash}\n` + `x-amz-date:${amzDate}\n`;
+  const signedHeadersList = 'host;x-amz-content-sha256;x-amz-date';
+
+  const canonicalPath = opts.url.pathname || '/';
+  const canonicalQueryString = opts.url.search ? opts.url.search.slice(1) : '';
+
+  const canonicalRequest = [
+    opts.method,
+    canonicalPath,
+    canonicalQueryString,
+    canonicalHeaders,
+    signedHeadersList,
+    payloadHash,
+  ].join('\n');
+
+  const credentialScope = `${dateStamp}/${opts.region}/${opts.service}/aws4_request`;
+  const stringToSign = [
+    'AWS4-HMAC-SHA256',
+    amzDate,
+    credentialScope,
+    await sha256Hex(canonicalRequest),
+  ].join('\n');
+
+  const signingKey = await getSignatureKey(
+    opts.secretAccessKey,
+    dateStamp,
+    opts.region,
+    opts.service
+  );
+  const signatureBytes = await hmacSha256(signingKey, stringToSign);
+  const signature = [...new Uint8Array(signatureBytes)]
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+
+  return {
+    Authorization:
+      `AWS4-HMAC-SHA256 Credential=${opts.accessKeyId}/${credentialScope}, ` +
+      `SignedHeaders=${signedHeadersList}, Signature=${signature}`,
+    'x-amz-date': amzDate,
+    'x-amz-content-sha256': payloadHash,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// AgentCoreSandboxInstance
+// ---------------------------------------------------------------------------
+
+export class AgentCoreSandboxInstance {
+  readonly runtimeArn: string;
+  readonly projectId: string;
+  readonly sandboxId: string;
+  readonly createdAt: string;
+
+  private readonly region: string;
+  private readonly accessKeyId: string;
+  private readonly secretAccessKey: string;
+  private _status: SandboxStatus = 'running';
+
+  constructor(options: AgentCoreInstanceOptions) {
+    this.runtimeArn = options.runtimeArn;
+    this.projectId = options.projectId;
+    this.sandboxId = options.sandboxId;
+    this.createdAt = new Date().toISOString();
+    this.region = options.region;
+    this.accessKeyId = options.accessKeyId;
+    this.secretAccessKey = options.secretAccessKey;
   }
 
   get status(): SandboxStatus {
     return this._status;
   }
 
-  private assertRunning(): void {
-    if (this._status !== 'running') {
-      throw AgentCoreErrors.RUNTIME_NOT_ACTIVE(this.runtimeArn, this._status);
+  /**
+   * Invoke the AgentCore runtime handler and stream SSE events.
+   *
+   * Each invocation targets a specific `runtimeSessionId` which maps to
+   * an isolated microVM on the AgentCore side. This provides per-task
+   * isolation without managing containers ourselves.
+   *
+   * The response body is a text/event-stream formatted as:
+   *   data: {"type":"...", "data": {...}}\n\n
+   *
+   * TODO: Replace manual fetch + SigV4 signing with
+   * `@aws-sdk/client-bedrock-agentcore` InvokeAgentRuntimeCommand once the
+   * package is available. The SDK handles signing, retries, and streaming
+   * natively.
+   */
+  async *invoke(
+    payload: Record<string, unknown>,
+    runtimeSessionId: string
+  ): AsyncGenerator<SSEEvent> {
+    if (this._status === 'stopped') {
+      throw AgentCoreErrors.SESSION_INVOKE_FAILED('Instance is stopped');
     }
-  }
 
-  async exec(cmd: string, args: string[] = []): Promise<ExecResult> {
-    this.assertRunning();
-    this.touch();
+    const body = JSON.stringify(payload);
+
+    // Build the AgentCore invoke URL.
+    // Endpoint format: https://bedrock-agentcore.{region}.amazonaws.com
+    // Path: /agentruntimes/{runtimeArn}/sessions/{sessionId}/invoke
+    const runtimeId = this.extractRuntimeId(this.runtimeArn);
+    const url = new URL(
+      `/agentruntimes/${encodeURIComponent(runtimeId)}/sessions/${encodeURIComponent(runtimeSessionId)}/invoke`,
+      `https://bedrock-agentcore.${this.region}.amazonaws.com`
+    );
 
     try {
-      const payload = JSON.stringify({
-        action: 'exec',
-        cmd,
-        args,
+      const signed = await signRequest({
+        method: 'POST',
+        url,
+        body,
+        region: this.region,
+        service: 'bedrock-agentcore',
+        accessKeyId: this.accessKeyId,
+        secretAccessKey: this.secretAccessKey,
       });
 
-      const command = new InvokeAgentRuntimeCommand({
-        agentRuntimeArn: this.runtimeArn,
-        payload: new TextEncoder().encode(payload),
-        contentType: 'application/json',
+      log.info('Invoking AgentCore runtime', {
+        data: {
+          runtimeArn: this.runtimeArn,
+          runtimeSessionId,
+          region: this.region,
+        },
       });
 
-      const invocation = await this.dataClient.send(command);
+      const response = await fetch(url.toString(), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+          ...signed,
+        },
+        body,
+      });
 
-      const responseBody = invocation.response
-        ? new TextDecoder().decode(await invocation.response.transformToByteArray())
-        : '{}';
-
-      let result: { exitCode?: number; stdout?: string; stderr?: string };
-      try {
-        result = JSON.parse(responseBody);
-      } catch (parseError) {
-        log.error(`Failed to parse exec response from ${this.runtimeArn}`, {
-          error: parseError instanceof Error ? parseError : new Error(String(parseError)),
-          data: { cmd, responsePreview: responseBody.slice(0, 500) },
-        });
-        throw AgentCoreErrors.INVOCATION_FAILED(
-          this.runtimeArn,
-          `exec ${cmd}: response is not valid JSON`
-        );
+      if (!response.ok) {
+        const errorBody = await response.text().catch(() => 'unknown error');
+        throw AgentCoreErrors.SESSION_INVOKE_FAILED(`HTTP ${response.status}: ${errorBody}`);
       }
 
-      if (result.exitCode === undefined) {
-        log.warn(
-          `exec response missing exitCode for cmd "${cmd}" on ${this.runtimeArn}, defaulting to 1`
-        );
+      if (!response.body) {
+        throw AgentCoreErrors.SESSION_INVOKE_FAILED('Response body is empty');
       }
-      return {
-        exitCode: result.exitCode ?? 1,
-        stdout: (result.stdout ?? '').trim(),
-        stderr: (result.stderr ?? '').trim(),
-      };
+
+      // Parse SSE stream from response body
+      yield* this.parseSSEStream(response.body);
     } catch (error) {
-      // Pass through errors that are already AgentCore errors (avoid double-wrapping)
-      if (isAgentCoreError(error)) {
-        throw error;
-      }
-
-      const message = error instanceof Error ? error.message : String(error);
-
-      log.error(`Failed to exec command on ${this.runtimeArn}`, {
-        error: error instanceof Error ? error : new Error(String(error)),
-        data: { cmd },
-      });
-
-      // Check for specific AWS SDK error types
-      if (error instanceof Error) {
-        if (error.name === 'ThrottlingException') {
-          throw AgentCoreErrors.INVOCATION_THROTTLED(this.runtimeArn);
-        }
-        if (error.name === 'ResourceNotFoundException') {
-          this._status = 'stopped';
-          throw AgentCoreErrors.INVOCATION_FAILED(
-            this.runtimeArn,
-            `Runtime no longer exists: ${message}`
-          );
-        }
-      }
-
-      throw AgentCoreErrors.INVOCATION_FAILED(this.runtimeArn, `exec ${cmd}: ${message}`);
+      if (isAgentCoreError(error)) throw error;
+      throw AgentCoreErrors.SESSION_INVOKE_FAILED(
+        error instanceof Error ? error.message : String(error)
+      );
     }
   }
 
-  async execAsRoot(_cmd: string, _args: string[] = []): Promise<ExecResult> {
-    throw AgentCoreErrors.INVOCATION_FAILED(
-      this.runtimeArn,
-      'Root execution is not supported by the AgentCore sandbox provider'
-    );
+  /**
+   * Parse an SSE stream (text/event-stream) into typed events.
+   *
+   * Expected format per the SSE spec:
+   *   data: {"type":"agent:turn", "data": {"content":"..."}}\n\n
+   *
+   * Handles:
+   * - Multi-line data fields (joined with newline)
+   * - Event type fields (event: ...)
+   * - Comment lines (: ...)
+   * - Chunked delivery where event boundaries span multiple chunks
+   */
+  private async *parseSSEStream(body: ReadableStream<Uint8Array>): AsyncGenerator<SSEEvent> {
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    for await (const chunk of this.readableStreamToAsyncIterable(body)) {
+      buffer += decoder.decode(chunk, { stream: true });
+
+      // Split on double newlines (SSE event boundary)
+      const parts = buffer.split('\n\n');
+      // Keep the last incomplete part in the buffer
+      buffer = parts.pop() || '';
+
+      for (const part of parts) {
+        const event = this.parseSSEBlock(part);
+        if (event) {
+          yield event;
+        }
+      }
+    }
+
+    // Flush any remaining data in buffer after stream ends
+    buffer += decoder.decode();
+    if (buffer.trim()) {
+      const event = this.parseSSEBlock(buffer);
+      if (event) {
+        yield event;
+      }
+    }
+  }
+
+  /**
+   * Parse a single SSE block (text between double-newline boundaries) into
+   * an SSEEvent. Returns null if the block doesn't contain valid event data.
+   */
+  private parseSSEBlock(block: string): SSEEvent | null {
+    const lines = block.split('\n');
+    const dataLines: string[] = [];
+    let eventType: string | undefined;
+
+    for (const line of lines) {
+      if (line.startsWith(':')) continue;
+
+      if (line.startsWith('data: ')) {
+        dataLines.push(line.slice(6));
+      } else if (line.startsWith('data:')) {
+        dataLines.push(line.slice(5));
+      } else if (line.startsWith('event: ')) {
+        eventType = line.slice(7).trim();
+      } else if (line.startsWith('event:')) {
+        eventType = line.slice(6).trim();
+      }
+    }
+
+    if (dataLines.length === 0) return null;
+
+    const dataStr = dataLines.join('\n');
+    try {
+      const parsed = JSON.parse(dataStr);
+
+      // Support two formats:
+      // 1. Wrapped: data: {"type":"...", "data": {...}}
+      // 2. Unwrapped with event field: event: agent:turn\ndata: {...}
+      if (typeof parsed === 'object' && parsed !== null) {
+        if (parsed.type && parsed.data) {
+          return parsed as SSEEvent;
+        }
+        if (eventType) {
+          return { type: eventType, data: parsed };
+        }
+      }
+    } catch (parseErr) {
+      log.warn('Failed to parse SSE block as JSON', {
+        data: {
+          block: dataStr.slice(0, 200),
+          error: parseErr instanceof Error ? parseErr.message : 'parse error',
+        },
+      });
+    }
+
+    return null;
+  }
+
+  /**
+   * Convert a ReadableStream into an AsyncIterable.
+   * Required because not all environments support `for await` on ReadableStream.
+   */
+  private async *readableStreamToAsyncIterable(
+    stream: ReadableStream<Uint8Array>
+  ): AsyncGenerator<Uint8Array> {
+    const reader = stream.getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) yield value;
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
+  /**
+   * Extract the runtime ID from the full ARN.
+   * ARN format: arn:aws:bedrock-agentcore:{region}:{account}:runtime/{id}
+   * Returns the {id} portion, or the full string if it doesn't match.
+   */
+  private extractRuntimeId(arn: string): string {
+    const parts = arn.split('/');
+    return parts.length > 1 ? (parts[parts.length - 1] ?? arn) : arn;
   }
 
   async stop(): Promise<void> {
-    this._status = 'stopping';
-
-    try {
-      // Signal the current session to end (does NOT delete the runtime)
-      const payload = JSON.stringify({ action: 'stop' });
-      const command = new InvokeAgentRuntimeCommand({
-        agentRuntimeArn: this.runtimeArn,
-        payload: new TextEncoder().encode(payload),
-        contentType: 'application/json',
-      });
-
-      await this.dataClient.send(command);
-      this._status = 'stopped';
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      // If runtime was already deleted externally, treat as successfully stopped
-      if (error instanceof Error && error.name === 'ResourceNotFoundException') {
-        log.info(`Runtime ${this.runtimeArn} already deleted, marking as stopped`);
-        this._status = 'stopped';
-        return;
-      }
-      log.error(`Failed to stop sandbox ${this.runtimeArn}`, {
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-      this._status = 'error';
-      throw AgentCoreErrors.INVOCATION_FAILED(this.runtimeArn, `stop: ${message}`);
-    }
+    this._status = 'stopped';
+    log.info('AgentCore instance stopped', {
+      data: { sandboxId: this.sandboxId, projectId: this.projectId },
+    });
   }
 
-  /**
-   * Execute a command with streaming output.
-   * Not supported by AgentCore sandbox provider.
-   */
-  execStream?: (options: ExecStreamOptions) => Promise<ExecStreamResult>;
-
-  // --- tmux session management ---
-
-  private validateSessionName(sessionName: string): void {
-    if (!/^[a-zA-Z0-9_-]+$/.test(sessionName)) {
-      throw AgentCoreErrors.INVOCATION_FAILED(
-        this.runtimeArn,
-        `Invalid tmux session name: "${sessionName}" — only alphanumeric, hyphens, and underscores are allowed`
-      );
-    }
-  }
-
-  async createTmuxSession(sessionName: string, taskId?: string): Promise<TmuxSession> {
-    this.validateSessionName(sessionName);
-
-    let sessionExists = false;
-    try {
-      const listResult = await this.exec('tmux', ['list-sessions', '-F', '#{session_name}']);
-      sessionExists = listResult.stdout.split('\n').includes(sessionName);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (!message.includes('no server running') && !message.includes('no sessions')) {
-        throw err;
-      }
-    }
-    if (sessionExists) {
-      throw AgentCoreErrors.INVOCATION_FAILED(
-        this.runtimeArn,
-        `tmux session '${sessionName}' already exists`
-      );
-    }
-
-    // Create new tmux session
-    const result = await this.exec('tmux', ['new-session', '-d', '-s', sessionName]);
-    if (result.exitCode !== 0) {
-      throw AgentCoreErrors.INVOCATION_FAILED(
-        this.runtimeArn,
-        `Failed to create tmux session '${sessionName}': ${result.stderr}`
-      );
-    }
-
-    return {
-      name: sessionName,
-      sandboxId: this.id,
-      taskId,
-      createdAt: new Date().toISOString(),
-      windowCount: 1,
-      attached: false,
-    };
-  }
-
-  async listTmuxSessions(): Promise<TmuxSession[]> {
-    let result: ExecResult;
-    try {
-      result = await this.exec('tmux', [
-        'list-sessions',
-        '-F',
-        '#{session_name}:#{session_windows}:#{session_attached}',
-      ]);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (message.includes('no server running') || message.includes('no sessions')) {
-        return [];
-      }
-      throw err;
-    }
-
-    if (result.exitCode !== 0) {
-      if (result.stderr.includes('no server running') || result.stderr.includes('no sessions')) {
-        return [];
-      }
-      throw AgentCoreErrors.INVOCATION_FAILED(
-        this.runtimeArn,
-        `tmux list-sessions: ${result.stderr}`
-      );
-    }
-
-    return result.stdout
-      .split('\n')
-      .filter(Boolean)
-      .map((line) => {
-        const [name = '', windows = '1', attached = '0'] = line.split(':');
-        return {
-          name,
-          sandboxId: this.id,
-          createdAt: new Date().toISOString(),
-          windowCount: parseInt(windows, 10) || 1,
-          attached: attached === '1',
-        };
-      })
-      .filter((session) => session.name !== '');
-  }
-
-  async killTmuxSession(sessionName: string): Promise<void> {
-    this.validateSessionName(sessionName);
-
-    const result = await this.exec('tmux', ['kill-session', '-t', sessionName]);
-    if (result.exitCode !== 0) {
-      if (
-        result.stderr.includes('session not found') ||
-        result.stderr.includes("can't find session")
-      ) {
-        return;
-      }
-      throw AgentCoreErrors.INVOCATION_FAILED(
-        this.runtimeArn,
-        `tmux kill-session -t ${sessionName}: ${result.stderr}`
-      );
-    }
-  }
-
-  async sendKeysToTmux(sessionName: string, keys: string): Promise<void> {
-    this.validateSessionName(sessionName);
-
-    const result = await this.exec('tmux', ['send-keys', '-t', sessionName, keys, 'Enter']);
-    if (result.exitCode !== 0) {
-      throw AgentCoreErrors.INVOCATION_FAILED(
-        this.runtimeArn,
-        `tmux send-keys -t ${sessionName}: ${result.stderr}`
-      );
-    }
-  }
-
-  async captureTmuxPane(sessionName: string, lines = 100): Promise<string> {
-    this.validateSessionName(sessionName);
-
-    const result = await this.exec('tmux', [
-      'capture-pane',
-      '-t',
-      sessionName,
-      '-p',
-      '-S',
-      `-${lines}`,
-    ]);
-
-    if (result.exitCode !== 0) {
-      throw AgentCoreErrors.INVOCATION_FAILED(
-        this.runtimeArn,
-        `tmux capture-pane -t ${sessionName}: ${result.stderr}`
-      );
-    }
-
-    return result.stdout;
-  }
-
-  // --- Metrics ---
-
-  /**
-   * Placeholder metrics implementation. All resource values are hardcoded to zero.
-   * Uptime is calculated from the instance creation time.
-   */
-  async getMetrics(): Promise<SandboxMetrics> {
-    try {
-      // Verify runtime still exists before reporting metrics.
-      const command = new GetAgentRuntimeCommand({
-        agentRuntimeId: this.runtimeId,
-      });
-      await this.controlClient.send(command);
-
-      const uptime = Date.now() - this._createdAt.getTime();
-
-      return {
-        cpuUsagePercent: 0,
-        memoryUsageMb: 0,
-        memoryLimitMb: SANDBOX_DEFAULTS.memoryMb,
-        diskUsageMb: 0,
-        networkRxBytes: 0,
-        networkTxBytes: 0,
-        uptime,
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      log.error(`Failed to get metrics for ${this.runtimeArn}`, {
-        error: error instanceof Error ? error : new Error(message),
-      });
-      throw AgentCoreErrors.INTERNAL_ERROR(
-        `Failed to get metrics for ${this.runtimeArn}: ${message}`
-      );
-    }
-  }
-
-  // --- Activity tracking ---
-
-  touch(): void {
-    this._lastActivity = new Date();
-  }
-
-  getLastActivity(): Date {
-    return this._lastActivity;
-  }
-
-  /**
-   * Refresh status from the actual AgentCore runtime status.
-   * Called by the provider after constructing an instance from an API query.
-   */
-  async refreshStatus(): Promise<void> {
-    try {
-      const response = await this.controlClient.send(
-        new GetAgentRuntimeCommand({ agentRuntimeId: this.runtimeId })
-      );
-      this._status = mapAgentCoreStatus(response.status);
-      this._lastRefreshError = null;
-    } catch (error) {
-      const isNotFound =
-        error instanceof Error &&
-        (error.name === 'ResourceNotFoundException' || error.name === 'NotFoundException');
-
-      if (isNotFound) {
-        log.info(`Runtime ${this.runtimeArn} no longer exists in AWS, marking as stopped`);
-        this._status = 'stopped';
-        this._lastRefreshError = null;
-      } else {
-        const wrappedError = error instanceof Error ? error : new Error(String(error));
-        log.error(`refreshStatus failed for runtime ${this.runtimeArn}`, {
-          error: wrappedError,
-        });
-        this._lastRefreshError = wrappedError;
-        this._status = 'error';
-      }
-    }
-  }
-
-  /** The last error encountered during refreshStatus, if any. */
-  get lastRefreshError(): Error | null {
-    return this._lastRefreshError;
+  async refreshStatus(): Promise<SandboxStatus> {
+    // AgentCore runtimes are managed by AWS. There's no local container
+    // to probe. The status is tracked locally based on invoke lifecycle.
+    return this._status;
   }
 }

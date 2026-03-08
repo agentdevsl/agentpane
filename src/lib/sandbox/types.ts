@@ -75,8 +75,6 @@ export interface ProjectSandboxConfig {
   serviceAccount?: string;
   /** Nomad namespace. Only used when provider is 'nomad'. */
   nomadNamespace?: string;
-  /** AgentCore Runtime ARN. Only used when provider is 'agentcore'. */
-  agentcoreRuntimeArn?: string;
 }
 
 export interface SandboxHealthCheck {
@@ -123,5 +121,4 @@ export const projectSandboxConfigSchema = z.object({
   namespace: z.string().optional(),
   serviceAccount: z.string().optional(),
   nomadNamespace: z.string().optional(),
-  agentcoreRuntimeArn: z.string().optional(),
 });

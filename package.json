@@ -72,9 +72,6 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.2.63",
     "@anthropic-ai/sdk": "^0.72.1",
-    "@aws-sdk/client-bedrock-agentcore": "^3.1004.0",
-    "@aws-sdk/client-bedrock-agentcore-control": "^3.1004.0",
-    "@aws-sdk/client-ecr": "^3.1004.0",
     "@aws-sdk/client-sts": "^3.1004.0",
     "@cdktf/hcl2json": "^0.21.0",
     "@dnd-kit/core": "^6.3.1",

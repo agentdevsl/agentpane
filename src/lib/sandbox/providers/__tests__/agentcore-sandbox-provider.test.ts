@@ -1,1402 +1,474 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { SandboxConfig } from '../../types.js';
 
-// --- Mock AWS SDK clients ---
+// ---------------------------------------------------------------------------
+// Mock logger
+// ---------------------------------------------------------------------------
 
-const mockControlClientSend = vi.fn();
-const mockDataClientSend = vi.fn();
-const mockEcrClientSend = vi.fn();
-const mockStsClientSend = vi.fn();
-
-vi.mock('@aws-sdk/client-bedrock-agentcore-control', () => {
-  class MockCreateAgentRuntimeCommand {
-    _type = 'CreateAgentRuntime';
-    input: unknown;
-    constructor(input: unknown) {
-      this.input = input;
-    }
-  }
-  class MockDeleteAgentRuntimeCommand {
-    _type = 'DeleteAgentRuntime';
-    input: unknown;
-    constructor(input: unknown) {
-      this.input = input;
-    }
-  }
-  class MockGetAgentRuntimeCommand {
-    _type = 'GetAgentRuntime';
-    input: unknown;
-    constructor(input: unknown) {
-      this.input = input;
-    }
-  }
-  class MockListAgentRuntimesCommand {
-    _type = 'ListAgentRuntimes';
-    input: unknown;
-    constructor(input: unknown) {
-      this.input = input;
-    }
-  }
-
-  return {
-    BedrockAgentCoreControlClient: class {
-      send = mockControlClientSend;
-    },
-    CreateAgentRuntimeCommand: MockCreateAgentRuntimeCommand,
-    DeleteAgentRuntimeCommand: MockDeleteAgentRuntimeCommand,
-    GetAgentRuntimeCommand: MockGetAgentRuntimeCommand,
-    ListAgentRuntimesCommand: MockListAgentRuntimesCommand,
-  };
-});
-
-vi.mock('@aws-sdk/client-bedrock-agentcore', () => {
-  class MockInvokeAgentRuntimeCommand {
-    _type = 'InvokeAgentRuntime';
-    input: unknown;
-    constructor(input: unknown) {
-      this.input = input;
-    }
-  }
-
-  return {
-    BedrockAgentCoreClient: class {
-      send = mockDataClientSend;
-    },
-    InvokeAgentRuntimeCommand: MockInvokeAgentRuntimeCommand,
-  };
-});
-
-vi.mock('@aws-sdk/client-ecr', () => {
-  class MockDescribeImagesCommand {
-    _type = 'DescribeImages';
-    input: unknown;
-    constructor(input: unknown) {
-      this.input = input;
-    }
-  }
-  class MockGetAuthorizationTokenCommand {
-    _type = 'GetAuthorizationToken';
-    input: unknown;
-    constructor(input: unknown) {
-      this.input = input;
-    }
-  }
-
-  return {
-    ECRClient: class {
-      send = mockEcrClientSend;
-    },
-    DescribeImagesCommand: MockDescribeImagesCommand,
-    GetAuthorizationTokenCommand: MockGetAuthorizationTokenCommand,
-  };
-});
-
-vi.mock('@aws-sdk/client-sts', () => {
-  class MockGetCallerIdentityCommand {
-    _type = 'GetCallerIdentity';
-    input: unknown;
-    constructor(input: unknown) {
-      this.input = input;
-    }
-  }
-
-  return {
-    STSClient: class {
-      send = mockStsClientSend;
-    },
-    GetCallerIdentityCommand: MockGetCallerIdentityCommand,
-  };
-});
-
-// Mock cuid2
-vi.mock('@paralleldrive/cuid2', () => ({
-  createId: vi.fn(() => 'test-cuid-12345678'),
+vi.mock('../../../logging/logger.js', () => ({
+  createLogger: () => ({
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  }),
 }));
 
+// ---------------------------------------------------------------------------
+// Mock @aws-sdk/client-sts (used by healthCheck via dynamic import)
+// ---------------------------------------------------------------------------
+
+const { mockStsSend } = vi.hoisted(() => ({
+  mockStsSend: vi.fn(),
+}));
+
+vi.mock('@aws-sdk/client-sts', () => {
+  class MockSTSClient {
+    send = mockStsSend;
+  }
+  return {
+    STSClient: MockSTSClient,
+    GetCallerIdentityCommand: class MockGetCallerIdentityCommand {},
+  };
+});
+
+import { AgentCoreSandboxInstance } from '../agentcore-sandbox-instance.js';
 // Import after mocks
-import { AgentCoreSandboxInstance, mapAgentCoreStatus } from '../agentcore-sandbox-instance.js';
+import type { AgentCoreProviderConfig } from '../agentcore-sandbox-provider.js';
 import {
   AgentCoreSandboxProvider,
-  createAgentCoreSandboxProvider,
+  createAgentCoreProvider,
 } from '../agentcore-sandbox-provider.js';
 
-function makeExecResponse(response: { exitCode: number; stdout: string; stderr: string }) {
-  return {
-    response: {
-      transformToByteArray: () =>
-        Promise.resolve(new TextEncoder().encode(JSON.stringify(response))),
-    },
-  };
-}
+// ---------------------------------------------------------------------------
+// Test config
+// ---------------------------------------------------------------------------
 
-function mockControlDispatch(handlers: Record<string, () => Promise<unknown>>) {
-  mockControlClientSend.mockImplementation((cmd: { _type?: string }) => {
-    const handler = handlers[cmd._type ?? ''];
-    if (handler) return handler();
-    return Promise.resolve({});
-  });
-}
+const testConfig: AgentCoreProviderConfig = {
+  region: 'us-east-1',
+  accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
+  secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+  runtimeArn: 'arn:aws:bedrock-agentcore:us-east-1:123456789:runtime/test-runtime',
+};
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 describe('AgentCoreSandboxProvider', () => {
-  const sampleConfig: SandboxConfig = {
-    projectId: 'proj-123',
-    projectPath: '/home/user/project',
-    image: 'srlynch1/agent-sandbox:latest',
-    memoryMb: 4096,
-    cpuCores: 2,
-    idleTimeoutMinutes: 30,
-    volumeMounts: [],
-    env: { NODE_ENV: 'development' },
-  };
-
-  const runtimeArn = 'arn:aws:bedrock-agentcore:us-east-1:123456789012:runtime/rt-abc123';
-  const _runtimeId = 'rt-abc123';
-
   beforeEach(() => {
     vi.clearAllMocks();
-
-    mockControlDispatch({
-      CreateAgentRuntime: () => Promise.resolve({ agentRuntimeArn: runtimeArn }),
-      GetAgentRuntime: () => Promise.resolve({ status: 'READY' }),
-      ListAgentRuntimes: () => Promise.resolve({ agentRuntimes: [] }),
-      DeleteAgentRuntime: () => Promise.resolve({}),
-    });
+    // Suppress console.log noise from info/debug logs
+    vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  const createProvider = (options: Record<string, unknown> = {}) => {
-    return new AgentCoreSandboxProvider({
-      roleArn: 'arn:aws:iam::123456789012:role/test-role',
-      ...options,
-    });
-  };
+  function createProvider(
+    overrides: Partial<AgentCoreProviderConfig> = {}
+  ): AgentCoreSandboxProvider {
+    return new AgentCoreSandboxProvider({ ...testConfig, ...overrides });
+  }
+
+  // -------------------------------------------------------------------------
+  // Constructor and factory
+  // -------------------------------------------------------------------------
 
   describe('constructor', () => {
-    it('creates provider with default options', () => {
+    it('should have provider name "agentcore"', () => {
       const provider = createProvider();
       expect(provider.name).toBe('agentcore');
     });
 
-    it('creates provider with custom credentials and region', () => {
-      const provider = createProvider({
-        awsAccessKeyId: 'AKIA_TEST',
-        awsSecretAccessKey: 'secret-key',
-        awsRegion: 'us-west-2',
-      });
-      expect(provider.name).toBe('agentcore');
-    });
-
-    it('creates provider via factory function', () => {
-      const provider = createAgentCoreSandboxProvider({
-        awsRegion: 'eu-west-1',
-      });
+    it('should be creatable via factory function', () => {
+      const provider = createAgentCoreProvider(testConfig);
+      expect(provider).toBeInstanceOf(AgentCoreSandboxProvider);
       expect(provider.name).toBe('agentcore');
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Instance creation
+  // -------------------------------------------------------------------------
 
   describe('create', () => {
-    it('creates sandbox, polls until READY, returns AgentCoreSandboxInstance', async () => {
+    it('should create instances for projects', () => {
       const provider = createProvider();
+      const instance = provider.create('proj-001', 'sandbox-001');
 
-      const sandbox = await provider.create(sampleConfig);
-
-      expect(sandbox).toBeInstanceOf(AgentCoreSandboxInstance);
-      expect(sandbox.id).toBeDefined();
-      expect(sandbox.projectId).toBe('proj-123');
-      expect(sandbox.status).toBe('running');
+      expect(instance).toBeInstanceOf(AgentCoreSandboxInstance);
+      expect(instance.projectId).toBe('proj-001');
+      expect(instance.sandboxId).toBe('sandbox-001');
+      expect(instance.runtimeArn).toBe(testConfig.runtimeArn);
     });
 
-    it('calls CreateAgentRuntimeCommand and GetAgentRuntimeCommand', async () => {
+    it('should return existing instance if one already exists for project', () => {
       const provider = createProvider();
+      const instance1 = provider.create('proj-001', 'sandbox-001');
+      const instance2 = provider.create('proj-001', 'sandbox-002');
 
-      await provider.create(sampleConfig);
-
-      const createCalls = mockControlClientSend.mock.calls.filter(
-        ([cmd]: [{ _type?: string }]) => cmd._type === 'CreateAgentRuntime'
-      );
-      expect(createCalls.length).toBe(1);
-
-      // GetAgentRuntime is called for polling + verify + refreshStatus
-      const getCalls = mockControlClientSend.mock.calls.filter(
-        ([cmd]: [{ _type?: string }]) => cmd._type === 'GetAgentRuntime'
-      );
-      expect(getCalls.length).toBeGreaterThanOrEqual(1);
+      // Same instance returned (not a new one)
+      expect(instance2).toBe(instance1);
+      expect(instance2.sandboxId).toBe('sandbox-001'); // original sandboxId preserved
     });
 
-    it('throws RUNTIME_ALREADY_EXISTS when sandbox already exists for project', async () => {
+    it('should create new instance if existing one is stopped', async () => {
       const provider = createProvider();
+      const instance1 = provider.create('proj-001', 'sandbox-001');
+      await instance1.stop();
 
-      await provider.create(sampleConfig);
+      const instance2 = provider.create('proj-001', 'sandbox-002');
 
-      await expect(provider.create(sampleConfig)).rejects.toMatchObject({
-        code: 'AGENTCORE-105',
-      });
+      expect(instance2).not.toBe(instance1);
+      expect(instance2.sandboxId).toBe('sandbox-002');
     });
 
-    it('throws RUNTIME_CREATION_FAILED when no ARN is returned', async () => {
+    it('should create separate instances for different projects', () => {
       const provider = createProvider();
+      const instance1 = provider.create('proj-001', 'sandbox-001');
+      const instance2 = provider.create('proj-002', 'sandbox-002');
 
-      mockControlDispatch({
-        CreateAgentRuntime: () => Promise.resolve({ agentRuntimeArn: undefined }),
-        ListAgentRuntimes: () => Promise.resolve({ agentRuntimes: [] }),
-      });
-
-      await expect(provider.create(sampleConfig)).rejects.toMatchObject({
-        code: 'AGENTCORE-101',
-      });
-    });
-
-    it('throws RUNTIME_CREATION_FAILED when runtime reaches CREATE_FAILED state', async () => {
-      const provider = createProvider();
-      let callCount = 0;
-
-      mockControlDispatch({
-        CreateAgentRuntime: () => Promise.resolve({ agentRuntimeArn: runtimeArn }),
-        GetAgentRuntime: () => {
-          callCount++;
-          if (callCount === 1) {
-            return Promise.resolve({
-              status: 'CREATE_FAILED',
-              failureReason: 'Insufficient capacity',
-            });
-          }
-          return Promise.resolve({ status: 'CREATE_FAILED' });
-        },
-        ListAgentRuntimes: () => Promise.resolve({ agentRuntimes: [] }),
-        DeleteAgentRuntime: () => Promise.resolve({}),
-      });
-
-      await expect(provider.create(sampleConfig)).rejects.toMatchObject({
-        code: 'AGENTCORE-101',
-      });
-    });
-
-    it('emits sandbox:creating, sandbox:created, and sandbox:started events', async () => {
-      const provider = createProvider();
-      const events: { type: string }[] = [];
-
-      provider.on((event) => {
-        events.push(event);
-      });
-
-      await provider.create(sampleConfig);
-
-      const eventTypes = events.map((e) => e.type);
-      expect(eventTypes).toContain('sandbox:creating');
-      expect(eventTypes).toContain('sandbox:created');
-      expect(eventTypes).toContain('sandbox:started');
-    });
-
-    it('emits sandbox:error on failure', async () => {
-      const provider = createProvider();
-      const events: { type: string }[] = [];
-
-      provider.on((event) => {
-        events.push(event);
-      });
-
-      mockControlDispatch({
-        CreateAgentRuntime: () => Promise.reject(new Error('API error')),
-        ListAgentRuntimes: () => Promise.resolve({ agentRuntimes: [] }),
-      });
-
-      await expect(provider.create(sampleConfig)).rejects.toThrow();
-
-      expect(events.map((e) => e.type)).toContain('sandbox:error');
-    });
-
-    it('handles registration failure gracefully', async () => {
-      const provider = createProvider();
-
-      mockControlDispatch({
-        CreateAgentRuntime: () => Promise.reject(new Error('AgentCore API error')),
-        ListAgentRuntimes: () => Promise.resolve({ agentRuntimes: [] }),
-      });
-
-      await expect(provider.create(sampleConfig)).rejects.toMatchObject({
-        code: 'AGENTCORE-101',
-      });
-    });
-
-    it('throws RUNTIME_STARTUP_TIMEOUT when runtime never reaches READY', async () => {
-      const provider = new AgentCoreSandboxProvider({
-        roleArn: 'arn:aws:iam::123456789012:role/test-role',
-        readyTimeoutSeconds: 0,
-      });
-
-      mockControlDispatch({
-        CreateAgentRuntime: () => Promise.resolve({ agentRuntimeArn: runtimeArn }),
-        GetAgentRuntime: () => Promise.resolve({ status: 'CREATING' }),
-        DeleteAgentRuntime: () => Promise.resolve({}),
-        ListAgentRuntimes: () => Promise.resolve({ agentRuntimes: [] }),
-      });
-
-      await expect(provider.create(sampleConfig)).rejects.toMatchObject({
-        code: 'AGENTCORE-102',
-      });
-    });
-
-    it('throws RUNTIME_CREATION_FAILED when roleArn is not provided', async () => {
-      const provider = new AgentCoreSandboxProvider({}); // no roleArn
-      await expect(provider.create(sampleConfig)).rejects.toMatchObject({
-        code: 'AGENTCORE-101',
-        message: expect.stringContaining('roleArn'),
-      });
-    });
-
-    it('throws RUNTIME_CREATION_FAILED when roleArn is empty string', async () => {
-      const provider = new AgentCoreSandboxProvider({ roleArn: '  ' });
-      await expect(provider.create(sampleConfig)).rejects.toMatchObject({
-        code: 'AGENTCORE-101',
-        message: expect.stringContaining('roleArn'),
-      });
+      expect(instance1).not.toBe(instance2);
+      expect(instance1.projectId).toBe('proj-001');
+      expect(instance2.projectId).toBe('proj-002');
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Instance retrieval
+  // -------------------------------------------------------------------------
 
   describe('get', () => {
-    it('returns cached sandbox for existing project', async () => {
+    it('should retrieve existing instances', () => {
       const provider = createProvider();
-
-      const created = await provider.create(sampleConfig);
-      const retrieved = await provider.get(sampleConfig.projectId);
+      const created = provider.create('proj-001', 'sandbox-001');
+      const retrieved = provider.get('proj-001');
 
       expect(retrieved).toBe(created);
     });
 
-    it('returns null when no sandbox exists for project', async () => {
+    it('should return null for nonexistent project', () => {
       const provider = createProvider();
-
-      mockControlDispatch({
-        ListAgentRuntimes: () => Promise.resolve({ agentRuntimes: [] }),
-      });
-
-      const result = await provider.get('nonexistent');
+      const result = provider.get('nonexistent');
       expect(result).toBeNull();
     });
 
-    it('falls back to API query when not cached', async () => {
+    it('should return null for stopped instances', async () => {
       const provider = createProvider();
+      const instance = provider.create('proj-001', 'sandbox-001');
+      await instance.stop();
 
-      mockControlDispatch({
-        ListAgentRuntimes: () =>
-          Promise.resolve({
-            agentRuntimes: [
-              {
-                agentRuntimeName: 'agentpane-proj-456-abcdef',
-                agentRuntimeArn: 'arn:aws:bedrock-agentcore:us-east-1:123:runtime/rt-456',
-                agentRuntimeId: 'rt-456',
-                status: 'READY',
-                lastUpdatedAt: new Date(),
-              },
-            ],
-          }),
-        GetAgentRuntime: () => Promise.resolve({ status: 'READY' }),
-      });
-
-      const result = await provider.get('proj-456');
-      expect(result).toBeInstanceOf(AgentCoreSandboxInstance);
-    });
-
-    it('returns null on ResourceNotFoundException', async () => {
-      const provider = createProvider();
-      const notFoundErr = new Error('Runtime not found');
-      notFoundErr.name = 'ResourceNotFoundException';
-
-      mockControlDispatch({
-        ListAgentRuntimes: () => Promise.reject(notFoundErr),
-      });
-
-      const result = await provider.get('proj-456');
+      const result = provider.get('proj-001');
       expect(result).toBeNull();
-    });
-
-    it('throws on non-NotFound API errors', async () => {
-      const provider = createProvider();
-
-      mockControlDispatch({
-        ListAgentRuntimes: () => Promise.reject(new Error('network error')),
-      });
-
-      await expect(provider.get('proj-456')).rejects.toThrow('network error');
-    });
-
-    it('follows pagination tokens when querying API', async () => {
-      const provider = createProvider();
-      let listCallCount = 0;
-
-      mockControlDispatch({
-        ListAgentRuntimes: () => {
-          listCallCount++;
-          if (listCallCount === 1) {
-            return Promise.resolve({
-              agentRuntimes: [{ agentRuntimeName: 'unrelated-runtime', status: 'READY' }],
-              nextToken: 'page-2-token',
-            });
-          }
-          return Promise.resolve({
-            agentRuntimes: [
-              {
-                agentRuntimeName: 'agentpane-proj-paged-abcdef12',
-                agentRuntimeArn: 'arn:aws:bedrock-agentcore:us-east-1:123:runtime/rt-paged',
-                agentRuntimeId: 'rt-paged',
-                status: 'READY',
-              },
-            ],
-          });
-        },
-        GetAgentRuntime: () => Promise.resolve({ status: 'READY' }),
-      });
-
-      const result = await provider.get('proj-paged');
-      expect(result).toBeInstanceOf(AgentCoreSandboxInstance);
-      expect(listCallCount).toBe(2);
     });
   });
 
-  describe('getById', () => {
-    it('returns null for nonexistent sandbox', async () => {
+  // -------------------------------------------------------------------------
+  // Session management
+  // -------------------------------------------------------------------------
+
+  describe('getOrCreateSession', () => {
+    it('should create unique session IDs per task', () => {
       const provider = createProvider();
-      const result = await provider.getById('nonexistent');
-      expect(result).toBeNull();
+      const session1 = provider.getOrCreateSession('proj-001', 'task-001');
+      const session2 = provider.getOrCreateSession('proj-001', 'task-002');
+
+      expect(session1).not.toBe(session2);
+      expect(session1).toContain('proj-001');
+      expect(session1).toContain('task-001');
+      expect(session2).toContain('task-002');
     });
 
-    it('returns sandbox by id', async () => {
+    it('should reuse existing session for same task', () => {
       const provider = createProvider();
+      const session1 = provider.getOrCreateSession('proj-001', 'task-001');
+      const session2 = provider.getOrCreateSession('proj-001', 'task-001');
 
-      const created = await provider.create(sampleConfig);
-      const retrieved = await provider.getById(created.id);
+      expect(session2).toBe(session1);
+    });
+
+    it('should format session ID as projectId:taskId:timestamp', () => {
+      const provider = createProvider();
+      const session = provider.getOrCreateSession('proj-001', 'task-001');
+
+      // Format: {projectId}:{taskId}:{timestamp}
+      const parts = session.split(':');
+      expect(parts).toHaveLength(3);
+      expect(parts[0]).toBe('proj-001');
+      expect(parts[1]).toBe('task-001');
+      expect(Number(parts[2])).toBeGreaterThan(0);
+    });
+  });
+
+  describe('getSession', () => {
+    it('should return session for existing task', () => {
+      const provider = createProvider();
+      const created = provider.getOrCreateSession('proj-001', 'task-001');
+      const retrieved = provider.getSession('task-001');
 
       expect(retrieved).toBe(created);
     });
 
-    it('returns null when sandbox status becomes stopped after refresh', async () => {
+    it('should return null for nonexistent task', () => {
       const provider = createProvider();
-
-      const created = await provider.create(sampleConfig);
-
-      const notFoundErr = new Error('not found');
-      notFoundErr.name = 'ResourceNotFoundException';
-      mockControlDispatch({
-        GetAgentRuntime: () => Promise.reject(notFoundErr),
-      });
-
-      const retrieved = await provider.getById(created.id);
-      expect(retrieved).toBeNull();
+      expect(provider.getSession('nonexistent')).toBeNull();
     });
   });
 
-  describe('list', () => {
-    it('returns empty list when no sandboxes', async () => {
+  describe('removeSession', () => {
+    it('should remove existing session and return true', () => {
       const provider = createProvider();
+      provider.getOrCreateSession('proj-001', 'task-001');
 
-      mockControlDispatch({
-        ListAgentRuntimes: () => Promise.resolve({ agentRuntimes: [] }),
-      });
-
-      const list = await provider.list();
-      expect(list).toEqual([]);
+      const result = provider.removeSession('task-001');
+      expect(result).toBe(true);
+      expect(provider.getSession('task-001')).toBeNull();
     });
 
-    it('returns mapped sandbox info from AgentCore runtimes', async () => {
+    it('should return false for nonexistent session', () => {
       const provider = createProvider();
-
-      mockControlDispatch({
-        ListAgentRuntimes: () =>
-          Promise.resolve({
-            agentRuntimes: [
-              {
-                agentRuntimeName: 'agentpane-proj-1-abc',
-                agentRuntimeArn: 'arn:aws:bedrock-agentcore:us-east-1:123:runtime/rt-1',
-                agentRuntimeId: 'rt-1',
-                status: 'READY',
-                lastUpdatedAt: new Date('2026-01-01T00:00:00Z'),
-              },
-              {
-                agentRuntimeName: 'agentpane-proj-2-def',
-                agentRuntimeArn: 'arn:aws:bedrock-agentcore:us-east-1:123:runtime/rt-2',
-                agentRuntimeId: 'rt-2',
-                status: 'CREATING',
-                lastUpdatedAt: new Date('2026-01-02T00:00:00Z'),
-              },
-              {
-                agentRuntimeName: 'agentpane-proj-3-ghi',
-                agentRuntimeArn: 'arn:aws:bedrock-agentcore:us-east-1:123:runtime/rt-3',
-                agentRuntimeId: 'rt-3',
-                status: 'CREATE_FAILED',
-                lastUpdatedAt: new Date('2026-01-03T00:00:00Z'),
-              },
-            ],
-          }),
-      });
-
-      const list = await provider.list();
-
-      expect(list).toHaveLength(3);
-      expect(list[0]).toMatchObject({ status: 'running' });
-      expect(list[1]).toMatchObject({ status: 'creating' });
-      expect(list[2]).toMatchObject({ status: 'error' });
-    });
-
-    it('filters out runtimes without agentpane- prefix', async () => {
-      const provider = createProvider();
-
-      mockControlDispatch({
-        ListAgentRuntimes: () =>
-          Promise.resolve({
-            agentRuntimes: [
-              {
-                agentRuntimeName: 'agentpane-proj-1-abc',
-                agentRuntimeArn: 'arn:aws:bedrock-agentcore:us-east-1:123:runtime/rt-1',
-                agentRuntimeId: 'rt-1',
-                status: 'READY',
-                lastUpdatedAt: new Date(),
-              },
-              {
-                agentRuntimeName: 'unrelated-runtime',
-                agentRuntimeArn: 'arn:aws:bedrock-agentcore:us-east-1:123:runtime/rt-other',
-                agentRuntimeId: 'rt-other',
-                status: 'READY',
-                lastUpdatedAt: new Date(),
-              },
-            ],
-          }),
-      });
-
-      const list = await provider.list();
-      expect(list).toHaveLength(1);
-    });
-
-    it('throws on API error', async () => {
-      const provider = createProvider();
-
-      mockControlDispatch({
-        ListAgentRuntimes: () => Promise.reject(new Error('API error')),
-      });
-
-      await expect(provider.list()).rejects.toThrow('API error');
+      const result = provider.removeSession('nonexistent');
+      expect(result).toBe(false);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Health check
+  // -------------------------------------------------------------------------
 
   describe('healthCheck', () => {
-    it('returns healthy when AWS credentials and AgentCore API are accessible', async () => {
-      const provider = createProvider();
-
-      mockStsClientSend.mockResolvedValue({
+    it('should return healthy when STS succeeds', async () => {
+      mockStsSend.mockResolvedValue({
         Account: '123456789012',
-        Arn: 'arn:aws:iam::123456789012:user/test',
+        Arn: 'arn:aws:iam::123456789012:user/testuser',
       });
 
-      mockControlDispatch({
-        ListAgentRuntimes: () => Promise.resolve({ agentRuntimes: [] }),
-      });
-
+      const provider = createProvider();
       const health = await provider.healthCheck();
 
       expect(health.healthy).toBe(true);
       expect(health.details?.provider).toBe('agentcore');
-      expect(health.details?.accountId).toBe('123456789012');
-      expect(health.details?.apiAccessible).toBe(true);
+      expect(health.details?.region).toBe('us-east-1');
+      expect(health.details?.runtimeArn).toBe(testConfig.runtimeArn);
+      expect(health.details?.awsAccount).toBe('123456789012');
     });
 
-    it('returns unhealthy when STS call fails with AccessDeniedException', async () => {
-      const provider = createProvider();
-      const accessDenied = new Error('Access denied');
-      accessDenied.name = 'AccessDeniedException';
-      mockStsClientSend.mockRejectedValue(accessDenied);
+    it('should return unhealthy on STS failure', async () => {
+      mockStsSend.mockRejectedValue(new Error('STS service unavailable'));
 
+      const provider = createProvider();
       const health = await provider.healthCheck();
 
       expect(health.healthy).toBe(false);
-      expect(health.message).toContain('AccessDeniedException');
-      expect(health.details?.errorName).toBe('AccessDeniedException');
+      expect(health.message).toContain('STS');
     });
 
-    it('returns unhealthy when credentials are expired', async () => {
-      const provider = createProvider();
-      const expired = new Error('Token expired');
-      expired.name = 'ExpiredTokenException';
-      mockStsClientSend.mockRejectedValue(expired);
+    it('should detect expired credentials', async () => {
+      const expiredError = new Error('Token has expired');
+      Object.defineProperty(expiredError, 'name', {
+        value: 'ExpiredTokenException',
+        writable: true,
+        enumerable: true,
+        configurable: true,
+      });
 
+      mockStsSend.mockRejectedValue(expiredError);
+
+      const provider = createProvider();
       const health = await provider.healthCheck();
 
       expect(health.healthy).toBe(false);
-      expect(health.message).toContain('ExpiredTokenException');
+      expect(health.message).toContain('expired');
+      expect(health.details?.errorType).toBe('expired_credentials');
     });
 
-    it('returns unhealthy on networking error', async () => {
-      const provider = createProvider();
-      const networkErr = new Error('Network timeout');
-      networkErr.name = 'NetworkingError';
-      mockStsClientSend.mockRejectedValue(networkErr);
+    it('should detect invalid credentials', async () => {
+      const invalidError = new Error('The security token is not valid');
+      Object.defineProperty(invalidError, 'name', {
+        value: 'InvalidClientTokenId',
+        writable: true,
+        enumerable: true,
+        configurable: true,
+      });
 
+      mockStsSend.mockRejectedValue(invalidError);
+
+      const provider = createProvider();
       const health = await provider.healthCheck();
 
       expect(health.healthy).toBe(false);
-      expect(health.message).toContain('NetworkingError');
+      expect(health.message).toContain('invalid');
+      expect(health.details?.errorType).toBe('invalid_credentials');
     });
 
-    it('throws on unknown errors (programming errors)', async () => {
-      const provider = createProvider();
-      mockStsClientSend.mockRejectedValue(new TypeError('Cannot read properties of null'));
+    it('should include active instance and session counts in details', async () => {
+      mockStsSend.mockResolvedValue({ Account: '111', Arn: 'arn:test' });
 
-      await expect(provider.healthCheck()).rejects.toThrow('Cannot read properties of null');
+      const provider = createProvider();
+      provider.create('proj-001', 'sandbox-001');
+      provider.getOrCreateSession('proj-001', 'task-001');
+
+      const health = await provider.healthCheck();
+
+      expect(health.healthy).toBe(true);
+      expect(health.details?.activeInstances).toBe(1);
+      expect(health.details?.activeSessions).toBe(1);
     });
   });
 
+  // -------------------------------------------------------------------------
+  // Cleanup
+  // -------------------------------------------------------------------------
+
   describe('cleanup', () => {
-    it('returns 0 when nothing to clean', async () => {
+    it('should clean up all instances', async () => {
+      const provider = createProvider();
+      provider.create('proj-001', 'sandbox-001');
+      provider.create('proj-002', 'sandbox-002');
+      provider.getOrCreateSession('proj-001', 'task-001');
+
+      const cleaned = await provider.cleanup();
+
+      expect(cleaned).toBe(2);
+      expect(provider.get('proj-001')).toBeNull();
+      expect(provider.get('proj-002')).toBeNull();
+      expect(provider.getSession('task-001')).toBeNull();
+    });
+
+    it('should return 0 when nothing to clean', async () => {
       const provider = createProvider();
       const cleaned = await provider.cleanup();
       expect(cleaned).toBe(0);
     });
 
-    it('cleans up stopped sandboxes', async () => {
+    it('should stop each instance during cleanup', async () => {
       const provider = createProvider();
+      const instance = provider.create('proj-001', 'sandbox-001');
 
-      const sandbox = await provider.create(sampleConfig);
+      await provider.cleanup();
 
-      // Stop the sandbox via data client
-      mockDataClientSend.mockResolvedValue({});
-      await sandbox.stop();
-
-      const cleaned = await provider.cleanup();
-      expect(cleaned).toBe(1);
-    });
-
-    it('respects olderThan filter', async () => {
-      const provider = createProvider();
-
-      const sandbox = await provider.create(sampleConfig);
-      mockDataClientSend.mockResolvedValue({});
-      await sandbox.stop();
-
-      // Future date should match
-      const futureDate = new Date(Date.now() + 10000);
-      const cleaned = await provider.cleanup({ olderThan: futureDate });
-      expect(cleaned).toBe(1);
-    });
-  });
-
-  describe('events', () => {
-    it('on() adds listener and returns unsubscribe function', () => {
-      const provider = createProvider();
-      const listener = vi.fn();
-
-      const unsubscribe = provider.on(listener);
-      expect(typeof unsubscribe).toBe('function');
-
-      unsubscribe();
-    });
-
-    it('off() removes listener', async () => {
-      const provider = createProvider();
-      const listener = vi.fn();
-
-      provider.on(listener);
-      provider.off(listener);
-
-      await provider.create(sampleConfig);
-
-      expect(listener).not.toHaveBeenCalled();
-    });
-
-    it('handles listener errors gracefully', async () => {
-      const provider = createProvider();
-      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-      provider.on(() => {
-        throw new Error('listener error');
-      });
-
-      // Should not throw despite listener error
-      await provider.create(sampleConfig);
-
-      errorSpy.mockRestore();
-    });
-  });
-
-  describe('validateSandboxes', () => {
-    it('evicts sandboxes that become stopped after status refresh', async () => {
-      const provider = createProvider();
-      await provider.create(sampleConfig);
-
-      const notFoundErr = new Error('not found');
-      notFoundErr.name = 'ResourceNotFoundException';
-      mockControlDispatch({
-        GetAgentRuntime: () => Promise.reject(notFoundErr),
-        ListAgentRuntimes: () => Promise.resolve({ agentRuntimes: [] }),
-      });
-
-      await provider.validateSandboxes();
-
-      mockControlDispatch({
-        CreateAgentRuntime: () => Promise.resolve({ agentRuntimeArn: runtimeArn }),
-        GetAgentRuntime: () => Promise.resolve({ status: 'READY' }),
-        ListAgentRuntimes: () => Promise.resolve({ agentRuntimes: [] }),
-      });
-
-      await expect(provider.create(sampleConfig)).resolves.toBeDefined();
-    });
-  });
-});
-
-describe('AgentCoreSandboxInstance', () => {
-  let instance: AgentCoreSandboxInstance;
-
-  const runtimeArn = 'arn:aws:bedrock-agentcore:us-east-1:123456789012:runtime/rt-abc123';
-  const runtimeId = 'rt-abc123';
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-
-    mockControlDispatch({
-      GetAgentRuntime: () => Promise.resolve({ status: 'READY' }),
-    });
-
-    instance = new AgentCoreSandboxInstance(
-      'sandbox-id-1',
-      runtimeArn,
-      runtimeId,
-      'proj-123',
-      { send: mockControlClientSend } as never,
-      { send: mockDataClientSend } as never
-    );
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  async function setRunning() {
-    mockControlDispatch({
-      GetAgentRuntime: () => Promise.resolve({ status: 'READY' }),
-    });
-    await instance.refreshStatus();
-  }
-
-  function mockExec(response: { exitCode: number; stdout: string; stderr: string }) {
-    mockDataClientSend.mockResolvedValue(makeExecResponse(response));
-  }
-
-  function mockExecThrow(message: string) {
-    mockDataClientSend.mockRejectedValue(new Error(message));
-  }
-
-  describe('properties', () => {
-    it('has correct id', () => {
-      expect(instance.id).toBe('sandbox-id-1');
-    });
-
-    it('has correct projectId', () => {
-      expect(instance.projectId).toBe('proj-123');
-    });
-
-    it('containerId returns runtimeArn', () => {
-      expect(instance.containerId).toBe(runtimeArn);
-    });
-
-    it('initial status is creating', () => {
-      expect(instance.status).toBe('creating');
-    });
-  });
-
-  describe('exec', () => {
-    it('invokes runtime with exec payload and returns result', async () => {
-      await setRunning();
-      mockExec({ exitCode: 0, stdout: 'hello world\n', stderr: '' });
-
-      const result = await instance.exec('echo', ['hello', 'world']);
-
-      expect(result).toEqual({ exitCode: 0, stdout: 'hello world', stderr: '' });
-      expect(mockDataClientSend).toHaveBeenCalledTimes(1);
-    });
-
-    it('throws when sandbox not in running state (assertRunning)', async () => {
-      await expect(instance.exec('ls')).rejects.toMatchObject({
-        code: 'AGENTCORE-104',
-      });
-    });
-
-    it('throws INVOCATION_FAILED on API error', async () => {
-      await setRunning();
-      mockExecThrow('connection reset');
-
-      await expect(instance.exec('ls')).rejects.toMatchObject({
-        code: 'AGENTCORE-300',
-      });
-    });
-
-    it('throws INVOCATION_THROTTLED on ThrottlingException', async () => {
-      await setRunning();
-      const throttleErr = new Error('Too many requests');
-      throttleErr.name = 'ThrottlingException';
-      mockDataClientSend.mockRejectedValue(throttleErr);
-
-      await expect(instance.exec('ls')).rejects.toMatchObject({
-        code: 'AGENTCORE-302',
-      });
-    });
-
-    it('trims stdout and stderr', async () => {
-      await setRunning();
-      mockExec({ exitCode: 0, stdout: '  trimmed  \n', stderr: '  warn  \n' });
-
-      const result = await instance.exec('test');
-      expect(result.stdout).toBe('trimmed');
-      expect(result.stderr).toBe('warn');
-    });
-  });
-
-  describe('execAsRoot', () => {
-    it('throws INVOCATION_FAILED because root execution is not supported', async () => {
-      await expect(instance.execAsRoot('apt', ['install', '-y', 'curl'])).rejects.toMatchObject({
-        code: 'AGENTCORE-300',
-        message: expect.stringContaining('Root execution is not supported'),
-      });
-
-      expect(mockDataClientSend).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('getStatus / refreshStatus', () => {
-    it.each([
-      ['READY', 'running'],
-      ['CREATING', 'creating'],
-      ['CREATE_FAILED', 'error'],
-      ['DELETING', 'stopping'],
-    ] as const)('maps %s to %s', async (agentCoreStatus, expectedStatus) => {
-      mockControlDispatch({
-        GetAgentRuntime: () => Promise.resolve({ status: agentCoreStatus }),
-      });
-
-      await instance.refreshStatus();
-      expect(instance.status).toBe(expectedStatus);
-    });
-
-    it('updates internal status across multiple refreshes', async () => {
-      mockControlDispatch({
-        GetAgentRuntime: () => Promise.resolve({ status: 'READY' }),
-      });
-      await instance.refreshStatus();
-      expect(instance.status).toBe('running');
-
-      mockControlDispatch({
-        GetAgentRuntime: () => Promise.resolve({ status: 'CREATING' }),
-      });
-      await instance.refreshStatus();
-      expect(instance.status).toBe('creating');
-    });
-
-    it('sets status to error on API error', async () => {
-      mockControlClientSend.mockRejectedValue(new Error('API timeout'));
-
-      await instance.refreshStatus();
-      expect(instance.status).toBe('error');
-    });
-
-    it('sets status to stopped when runtime not found (ResourceNotFoundException)', async () => {
-      const notFound = new Error('not found');
-      notFound.name = 'ResourceNotFoundException';
-      mockControlClientSend.mockRejectedValue(notFound);
-
-      await instance.refreshStatus();
       expect(instance.status).toBe('stopped');
     });
   });
 
-  describe('getMetrics', () => {
-    it('returns metrics with uptime', async () => {
-      mockControlDispatch({
-        GetAgentRuntime: () => Promise.resolve({ status: 'READY' }),
+  // -------------------------------------------------------------------------
+  // List instances
+  // -------------------------------------------------------------------------
+
+  describe('list', () => {
+    it('should return empty list when no instances', () => {
+      const provider = createProvider();
+      const list = provider.list();
+      expect(list).toEqual([]);
+    });
+
+    it('should list all managed instances', () => {
+      const provider = createProvider();
+      provider.create('proj-001', 'sandbox-001');
+      provider.create('proj-002', 'sandbox-002');
+
+      const list = provider.list();
+
+      expect(list).toHaveLength(2);
+      expect(list.map((i) => i.projectId).sort()).toEqual(['proj-001', 'proj-002']);
+    });
+
+    it('should include correct info for each instance', () => {
+      const provider = createProvider();
+      provider.create('proj-001', 'sandbox-001');
+
+      const list = provider.list();
+
+      expect(list).toHaveLength(1);
+      expect(list[0]).toMatchObject({
+        sandboxId: 'sandbox-001',
+        projectId: 'proj-001',
+        runtimeArn: testConfig.runtimeArn,
+        status: 'running',
       });
-
-      const metrics = await instance.getMetrics();
-
-      expect(metrics).toMatchObject({ cpuUsagePercent: 0, memoryUsageMb: 0 });
-      expect(metrics).toHaveProperty('uptime');
+      expect(list[0]!.createdAt).toBeDefined();
+      expect(typeof list[0]!.activeSessions).toBe('number');
     });
 
-    it('throws INTERNAL_ERROR on API error', async () => {
-      mockControlClientSend.mockRejectedValue(new Error('not found'));
+    it('should count active sessions for each instance', () => {
+      const provider = createProvider();
+      provider.create('proj-001', 'sandbox-001');
+      provider.getOrCreateSession('proj-001', 'task-001');
+      provider.getOrCreateSession('proj-001', 'task-002');
 
-      await expect(instance.getMetrics()).rejects.toMatchObject({
-        code: 'AGENTCORE-701',
-      });
-    });
-  });
+      const list = provider.list();
 
-  describe('stop', () => {
-    it('stops the sandbox via data plane invocation', async () => {
-      mockDataClientSend.mockResolvedValue({});
-
-      await instance.stop();
-
-      expect(instance.status).toBe('stopped');
-      expect(mockDataClientSend).toHaveBeenCalledTimes(1);
-    });
-
-    it('sets status to error on failure', async () => {
-      mockDataClientSend.mockRejectedValue(new Error('stop failed'));
-
-      await expect(instance.stop()).rejects.toMatchObject({
-        code: 'AGENTCORE-300',
-      });
-      expect(instance.status).toBe('error');
-    });
-  });
-
-  describe('activity tracking', () => {
-    it('touch updates last activity time', async () => {
-      const before = instance.getLastActivity();
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      instance.touch();
-      const after = instance.getLastActivity();
-
-      expect(after.getTime()).toBeGreaterThan(before.getTime());
-    });
-
-    it('getLastActivity returns Date', () => {
-      expect(instance.getLastActivity()).toBeInstanceOf(Date);
+      expect(list).toHaveLength(1);
+      expect(list[0]!.activeSessions).toBe(2);
     });
   });
 
-  describe('tmux session methods', () => {
-    describe('createTmuxSession', () => {
-      it('creates a tmux session (happy path)', async () => {
-        await setRunning();
+  // -------------------------------------------------------------------------
+  // invokeForTask
+  // -------------------------------------------------------------------------
 
-        const emptySuccess = makeExecResponse({ exitCode: 0, stdout: '', stderr: '' });
-        mockDataClientSend.mockResolvedValue(emptySuccess);
+  describe('invokeForTask', () => {
+    it('should create instance and session if they do not exist', async () => {
+      // Mock fetch for the invoke call
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          body: new ReadableStream({
+            start(controller) {
+              controller.close();
+            },
+          }),
+          text: vi.fn(),
+        })
+      );
 
-        const session = await instance.createTmuxSession('my-session', 'task-1');
+      const provider = createProvider();
 
-        expect(session.name).toBe('my-session');
-        expect(session.sandboxId).toBe('sandbox-id-1');
-        expect(session.taskId).toBe('task-1');
-        expect(session.windowCount).toBe(1);
-        expect(session.attached).toBe(false);
-      });
-
-      it('throws when session already exists', async () => {
-        await setRunning();
-
-        // list-sessions returns the session name
-        mockExec({ exitCode: 0, stdout: 'my-session', stderr: '' });
-
-        await expect(instance.createTmuxSession('my-session')).rejects.toMatchObject({
-          code: 'AGENTCORE-300',
-        });
-      });
-
-      it('handles "no server running" gracefully and creates session', async () => {
-        await setRunning();
-
-        let callCount = 0;
-        const emptySuccess = makeExecResponse({ exitCode: 0, stdout: '', stderr: '' });
-        mockDataClientSend.mockImplementation(() => {
-          callCount++;
-          if (callCount === 1) {
-            return Promise.reject(
-              new Error('exec tmux: no server running on /tmp/tmux-1000/default')
-            );
-          }
-          return Promise.resolve(emptySuccess);
-        });
-
-        const session = await instance.createTmuxSession('new-session');
-        expect(session.name).toBe('new-session');
-      });
-
-      it('throws on non-zero exit code from new-session', async () => {
-        await setRunning();
-
-        let callCount = 0;
-        mockDataClientSend.mockImplementation(() => {
-          callCount++;
-          if (callCount === 1) {
-            return Promise.resolve(makeExecResponse({ exitCode: 0, stdout: '', stderr: '' }));
-          }
-          return Promise.resolve(
-            makeExecResponse({ exitCode: 1, stdout: '', stderr: 'duplicate session: my-session' })
-          );
-        });
-
-        await expect(instance.createTmuxSession('my-session')).rejects.toMatchObject({
-          code: 'AGENTCORE-300',
-        });
-      });
-    });
-
-    describe('listTmuxSessions', () => {
-      it('parses tmux output correctly', async () => {
-        await setRunning();
-        mockExec({ exitCode: 0, stdout: 'session1:3:1\nsession2:1:0', stderr: '' });
-
-        const sessions = await instance.listTmuxSessions();
-
-        expect(sessions).toHaveLength(2);
-        expect(sessions[0]).toMatchObject({
-          name: 'session1',
-          sandboxId: 'sandbox-id-1',
-          windowCount: 3,
-          attached: true,
-        });
-        expect(sessions[1]).toMatchObject({
-          name: 'session2',
-          windowCount: 1,
-          attached: false,
-        });
-      });
-
-      it('returns empty array when "no server running" error is thrown', async () => {
-        await setRunning();
-        mockExecThrow('exec tmux: no server running on /tmp/tmux-1000/default');
-
-        const sessions = await instance.listTmuxSessions();
-        expect(sessions).toEqual([]);
-      });
-
-      it('returns empty array when "no sessions" error is thrown', async () => {
-        await setRunning();
-        mockExecThrow('exec tmux: no sessions');
-
-        const sessions = await instance.listTmuxSessions();
-        expect(sessions).toEqual([]);
-      });
-
-      it('returns empty array when stderr contains "no server running"', async () => {
-        await setRunning();
-        mockExec({
-          exitCode: 1,
-          stdout: '',
-          stderr: 'no server running on /tmp/tmux-1000/default',
-        });
-
-        const sessions = await instance.listTmuxSessions();
-        expect(sessions).toEqual([]);
-      });
-
-      it('throws on non-zero exit code with other errors', async () => {
-        await setRunning();
-        mockExec({ exitCode: 1, stdout: '', stderr: 'some unexpected error' });
-
-        await expect(instance.listTmuxSessions()).rejects.toMatchObject({
-          code: 'AGENTCORE-300',
-        });
-      });
-    });
-
-    describe('killTmuxSession', () => {
-      it('kills session successfully (happy path)', async () => {
-        await setRunning();
-        mockExec({ exitCode: 0, stdout: '', stderr: '' });
-
-        await expect(instance.killTmuxSession('my-session')).resolves.toBeUndefined();
-      });
-
-      it('succeeds silently when session not found', async () => {
-        await setRunning();
-        mockExec({ exitCode: 1, stdout: '', stderr: "can't find session: my-session" });
-
-        await expect(instance.killTmuxSession('my-session')).resolves.toBeUndefined();
-      });
-
-      it('succeeds silently when "session not found" in stderr', async () => {
-        await setRunning();
-        mockExec({ exitCode: 1, stdout: '', stderr: 'session not found: my-session' });
-
-        await expect(instance.killTmuxSession('my-session')).resolves.toBeUndefined();
-      });
-
-      it('throws on other errors', async () => {
-        await setRunning();
-        mockExec({ exitCode: 1, stdout: '', stderr: 'server exited unexpectedly' });
-
-        await expect(instance.killTmuxSession('my-session')).rejects.toMatchObject({
-          code: 'AGENTCORE-300',
-        });
-      });
-    });
-
-    describe('sendKeysToTmux', () => {
-      it('sends keys successfully (happy path)', async () => {
-        await setRunning();
-        mockExec({ exitCode: 0, stdout: '', stderr: '' });
-
-        await expect(instance.sendKeysToTmux('my-session', 'ls -la')).resolves.toBeUndefined();
-      });
-
-      it('throws on non-zero exit code', async () => {
-        await setRunning();
-        mockExec({ exitCode: 1, stdout: '', stderr: "can't find session: my-session" });
-
-        await expect(instance.sendKeysToTmux('my-session', 'ls')).rejects.toMatchObject({
-          code: 'AGENTCORE-300',
-        });
-      });
-    });
-
-    describe('captureTmuxPane', () => {
-      it('returns captured stdout', async () => {
-        await setRunning();
-        mockExec({ exitCode: 0, stdout: '$ ls\nfile1.txt\nfile2.txt', stderr: '' });
-
-        const output = await instance.captureTmuxPane('my-session');
-        expect(output).toBe('$ ls\nfile1.txt\nfile2.txt');
-      });
-
-      it('throws on non-zero exit code', async () => {
-        await setRunning();
-        mockExec({ exitCode: 1, stdout: '', stderr: "can't find session: my-session" });
-
-        await expect(instance.captureTmuxPane('my-session')).rejects.toMatchObject({
-          code: 'AGENTCORE-300',
-        });
-      });
-    });
-  });
-
-  describe('exec edge cases', () => {
-    it('handles null/empty response (no response field)', async () => {
-      await setRunning();
-
-      // No response field at all — responseBody defaults to '{}'
-      mockDataClientSend.mockResolvedValue({});
-
-      const result = await instance.exec('echo', ['hello']);
-
-      // Parsed from '{}' — exitCode defaults to 1 (missing exitCode), stdout/stderr default to ''
-      expect(result.exitCode).toBe(1);
-      expect(result.stdout).toBe('');
-      expect(result.stderr).toBe('');
-    });
-
-    it('throws INVOCATION_FAILED when response body is not valid JSON', async () => {
-      await setRunning();
-
-      mockDataClientSend.mockResolvedValue({
-        response: {
-          transformToByteArray: () =>
-            Promise.resolve(new TextEncoder().encode('this is not json <html>error</html>')),
-        },
-      });
-
-      await expect(instance.exec('bad-cmd')).rejects.toMatchObject({
-        code: 'AGENTCORE-300',
-        message: expect.stringContaining('not valid JSON'),
-      });
-    });
-
-    it('defaults exitCode to 1 when missing from response', async () => {
-      await setRunning();
-
-      mockDataClientSend.mockResolvedValue({
-        response: {
-          transformToByteArray: () =>
-            Promise.resolve(
-              new TextEncoder().encode(JSON.stringify({ stdout: 'some output', stderr: '' }))
-            ),
-        },
-      });
-
-      const result = await instance.exec('cmd-no-exit');
-      expect(result.exitCode).toBe(1);
-      expect(result.stdout).toBe('some output');
-    });
-  });
-
-  describe('constructor validation', () => {
-    it('throws when id is empty', () => {
-      expect(
-        () =>
-          new AgentCoreSandboxInstance(
-            '',
-            runtimeArn,
-            runtimeId,
-            'proj-123',
-            { send: mockControlClientSend } as never,
-            { send: mockDataClientSend } as never
-          )
-      ).toThrow('non-empty id');
-    });
-
-    it('throws when runtimeArn is empty', () => {
-      expect(
-        () =>
-          new AgentCoreSandboxInstance(
-            'sandbox-1',
-            '',
-            runtimeId,
-            'proj-123',
-            { send: mockControlClientSend } as never,
-            { send: mockDataClientSend } as never
-          )
-      ).toThrow('non-empty runtimeArn');
-    });
-
-    it('throws when runtimeId is empty', () => {
-      expect(
-        () =>
-          new AgentCoreSandboxInstance(
-            'sandbox-1',
-            runtimeArn,
-            '',
-            'proj-123',
-            { send: mockControlClientSend } as never,
-            { send: mockDataClientSend } as never
-          )
-      ).toThrow('non-empty runtimeId');
-    });
-  });
-});
-
-describe('mapAgentCoreStatus', () => {
-  it.each([
-    ['READY', 'running'],
-    ['CREATING', 'creating'],
-    ['UPDATING', 'creating'],
-    ['CREATE_FAILED', 'error'],
-    ['UPDATE_FAILED', 'error'],
-    ['DELETING', 'stopping'],
-    ['DELETED', 'stopped'],
-    [undefined, 'stopped'],
-    ['', 'error'],
-    ['SOMETHING_UNKNOWN', 'error'],
-  ] as const)('maps %s to %s', (input, expected) => {
-    expect(mapAgentCoreStatus(input as string | undefined)).toBe(expected);
-  });
-});
-
-describe('AgentCoreSandboxProvider - pullImage', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockControlClientSend.mockResolvedValue({});
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it('throws on empty string image', async () => {
-    const provider = new AgentCoreSandboxProvider();
-    await expect(provider.pullImage('')).rejects.toMatchObject({
-      code: 'AGENTCORE-402',
-    });
-  });
-
-  it('throws on whitespace-only image', async () => {
-    const provider = new AgentCoreSandboxProvider();
-    await expect(provider.pullImage('   ')).rejects.toMatchObject({
-      code: 'AGENTCORE-402',
-    });
-  });
-
-  it('succeeds when ECR auth and image check pass (no ECR repo configured)', async () => {
-    // Without ecrRepositoryUri, isImageAvailable returns true
-    const provider = new AgentCoreSandboxProvider();
-    mockEcrClientSend.mockResolvedValue({ authorizationData: [] });
-
-    await expect(provider.pullImage('my-image:latest')).resolves.toBeUndefined();
-  });
-
-  it('throws ECR_IMAGE_NOT_FOUND when image is not available', async () => {
-    const provider = new AgentCoreSandboxProvider({
-      ecrRepositoryUri: '123456789012.dkr.ecr.us-east-1.amazonaws.com/my-repo',
-    });
-    mockEcrClientSend.mockImplementation((cmd: { _type?: string }) => {
-      if (cmd._type === 'GetAuthorizationToken') {
-        return Promise.resolve({ authorizationData: [] });
+      // Consume the generator
+      const events = [];
+      for await (const event of provider.invokeForTask('proj-001', 'task-001', 'sandbox-001', {
+        prompt: 'test',
+      })) {
+        events.push(event);
       }
-      if (cmd._type === 'DescribeImages') {
-        const err = new Error('Image not found');
-        err.name = 'ImageNotFoundException';
-        return Promise.reject(err);
+
+      // Should have created instance and session
+      expect(provider.get('proj-001')).not.toBeNull();
+      expect(provider.getSession('task-001')).not.toBeNull();
+
+      vi.unstubAllGlobals();
+    });
+
+    it('should reuse existing instance for same project', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          body: new ReadableStream({
+            start(controller) {
+              controller.close();
+            },
+          }),
+          text: vi.fn(),
+        })
+      );
+
+      const provider = createProvider();
+      const existingInstance = provider.create('proj-001', 'sandbox-001');
+
+      for await (const _event of provider.invokeForTask('proj-001', 'task-001', 'sandbox-new', {
+        prompt: 'test',
+      })) {
+        // no-op
       }
-      return Promise.resolve({});
-    });
 
-    await expect(provider.pullImage('my-image:latest')).rejects.toMatchObject({
-      code: 'AGENTCORE-402',
-    });
-  });
+      // Should have reused the existing instance
+      const retrieved = provider.get('proj-001');
+      expect(retrieved).toBe(existingInstance);
 
-  it('throws ECR_AUTH_FAILED when ECR authorization fails', async () => {
-    const provider = new AgentCoreSandboxProvider();
-    mockEcrClientSend.mockRejectedValue(new Error('ECR access denied'));
-
-    await expect(provider.pullImage('my-image:latest')).rejects.toMatchObject({
-      code: 'AGENTCORE-400',
-    });
-  });
-});
-
-describe('AgentCoreSandboxProvider - isImageAvailable', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockControlClientSend.mockResolvedValue({});
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it('returns false for empty string', async () => {
-    const provider = new AgentCoreSandboxProvider();
-    const result = await provider.isImageAvailable('');
-    expect(result).toBe(false);
-  });
-
-  it('returns true when no ECR repo configured', async () => {
-    const provider = new AgentCoreSandboxProvider();
-    const result = await provider.isImageAvailable('some-image:latest');
-    expect(result).toBe(true);
-  });
-
-  it('returns true when image is found in ECR', async () => {
-    const provider = new AgentCoreSandboxProvider({
-      ecrRepositoryUri: '123456789012.dkr.ecr.us-east-1.amazonaws.com/my-repo',
-    });
-    mockEcrClientSend.mockResolvedValue({ imageDetails: [{ imageDigest: 'sha256:abc' }] });
-
-    const result = await provider.isImageAvailable('my-image:latest');
-    expect(result).toBe(true);
-  });
-
-  it('returns false on ImageNotFoundException', async () => {
-    const provider = new AgentCoreSandboxProvider({
-      ecrRepositoryUri: '123456789012.dkr.ecr.us-east-1.amazonaws.com/my-repo',
-    });
-    const err = new Error('Image not found');
-    err.name = 'ImageNotFoundException';
-    mockEcrClientSend.mockRejectedValue(err);
-
-    const result = await provider.isImageAvailable('my-image:latest');
-    expect(result).toBe(false);
-  });
-
-  it('returns false on RepositoryNotFoundException', async () => {
-    const provider = new AgentCoreSandboxProvider({
-      ecrRepositoryUri: '123456789012.dkr.ecr.us-east-1.amazonaws.com/my-repo',
-    });
-    const err = new Error('Repository not found');
-    err.name = 'RepositoryNotFoundException';
-    mockEcrClientSend.mockRejectedValue(err);
-
-    const result = await provider.isImageAvailable('my-image:latest');
-    expect(result).toBe(false);
-  });
-
-  it('throws on infrastructure errors (not returns false)', async () => {
-    const provider = new AgentCoreSandboxProvider({
-      ecrRepositoryUri: '123456789012.dkr.ecr.us-east-1.amazonaws.com/my-repo',
-    });
-    mockEcrClientSend.mockRejectedValue(new Error('Network timeout'));
-
-    await expect(provider.isImageAvailable('my-image:latest')).rejects.toMatchObject({
-      code: 'AGENTCORE-701',
+      vi.unstubAllGlobals();
     });
   });
 });

@@ -53,18 +53,6 @@ export const sandboxConfigs = pgTable('sandbox_configs', {
   /** Nomad region */
   nomadRegion: text('nomad_region'),
 
-  // AgentCore-specific configuration fields
-  /** AWS IAM Access Key ID */
-  awsAccessKeyId: text('aws_access_key_id'),
-  /** AWS IAM Secret Access Key (encrypted at rest) */
-  awsSecretAccessKey: text('aws_secret_access_key'),
-  /** AWS region for AgentCore (e.g., us-west-2) */
-  awsRegion: text('aws_region'),
-  /** AgentCore Runtime ARN */
-  agentcoreRuntimeArn: text('agentcore_runtime_arn'),
-  /** ECR repository URI for agent-runner image */
-  ecrRepositoryUri: text('ecr_repository_uri'),
-
   createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { mode: 'string' }).defaultNow().notNull(),
 });
