@@ -661,7 +661,6 @@ CREATE INDEX IF NOT EXISTS "idx_team_invitations_team_email_status" ON "team_inv
 
 -- Additional RBAC indexes for query performance
 CREATE INDEX IF NOT EXISTS idx_users_github_login ON users(github_login);
-CREATE INDEX IF NOT EXISTS idx_github_tokens_team ON github_tokens(team_id);
 CREATE INDEX IF NOT EXISTS idx_tags_team ON tags(team_id);
 CREATE INDEX IF NOT EXISTS idx_project_tags_project ON project_tags(project_id);
 CREATE INDEX IF NOT EXISTS idx_task_tags_task ON task_tags(task_id);
@@ -771,6 +770,13 @@ export const validateSchema = async (ctx: BootstrapContext) => {
       if (!msg.includes('duplicate column')) {
         console.warn(`[Schema] github_tokens migration note: ${msg}`);
       }
+    }
+
+    // Create index on github_tokens(team_id) AFTER the column is added
+    try {
+      ctx.db.exec('CREATE INDEX IF NOT EXISTS idx_github_tokens_team ON github_tokens(team_id)');
+    } catch {
+      // Ignore if index already exists
     }
 
     // Seed default team for pre-RBAC installations with orphaned tokens

@@ -273,6 +273,13 @@ if (DB_MODE === 'postgres') {
     }
   }
 
+  // Create index on github_tokens(team_id) AFTER the column is added above
+  try {
+    sqlite.exec('CREATE INDEX IF NOT EXISTS idx_github_tokens_team ON github_tokens(team_id)');
+  } catch {
+    // Ignore — index already exists or column not yet added
+  }
+
   // Seed default team for existing installations with orphaned github_tokens
   seedDefaultTeamForExistingTokens(sqlite);
 
