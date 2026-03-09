@@ -78,6 +78,11 @@ export async function getAuthContext(
   request: Request,
   options?: AuthOptions
 ): Promise<Result<AuthContext, AuthError>> {
+  // 0. SKIP_AUTH bypass — takes priority over all other auth methods
+  if (process.env.SKIP_AUTH === 'true' && process.env.NODE_ENV === 'development') {
+    return ok({ userId: 'dev-user', authMethod: 'dev' });
+  }
+
   // 1. Check session cookie
   const cookies = request.headers.get('Cookie') ?? '';
   const sessionMatch = cookies.match(new RegExp(`${SESSION_COOKIE_NAME}=([^;]+)`));

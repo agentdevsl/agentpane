@@ -9,6 +9,14 @@
 const API_PORT = 3001;
 const VITE_PORT = 3000;
 const STREAMS_PORT = 3002;
+
+// Enable SKIP_AUTH via --skip-auth flag or SKIP_AUTH env var
+if (process.argv.includes('--skip-auth')) {
+  process.env.SKIP_AUTH = 'true';
+}
+if (process.env.SKIP_AUTH === 'true') {
+  process.env.NODE_ENV = 'development';
+}
 const API_URL = `http://localhost:${API_PORT}`;
 const HEALTH_URL = `${API_URL}/api/health`;
 const MAX_RETRIES = 30;
@@ -161,6 +169,11 @@ async function main() {
   console.log(
     `   ${colors.dim}Database: ${dbMode}${dbMode === 'postgres' ? ` (${process.env.DATABASE_URL?.replace(/:[^@]+@/, ':***@') ?? 'no URL'})` : ' (local)'}${colors.reset}`
   );
+  if (process.env.SKIP_AUTH === 'true') {
+    console.log(
+      `   ${colors.yellow}Auth: SKIP_AUTH enabled (all requests use dev-user)${colors.reset}`
+    );
+  }
   console.log(`${colors.dim}${'─'.repeat(50)}${colors.reset}`);
 
   // Kill any existing processes
@@ -206,6 +219,7 @@ async function main() {
     cwd: process.cwd(),
     stdout: 'pipe',
     stderr: 'pipe',
+    env: { ...process.env },
   });
 
   // Capture and display API startup output (stdout + stderr)
