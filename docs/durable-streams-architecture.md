@@ -6,12 +6,21 @@ This document describes the architecture of the Durable Streams system used for 
 
 Durable Streams provides a unified system for:
 
-- Real-time event streaming during active sessions
-- Persistent event storage for historical replay
-- Offset-based resumability for reconnection handling
+- Real-time event streaming during active sessions via Caddy's `durable_streams` plugin backed by **LMDB**
+- Persistent event storage for historical replay (SQLite source of truth)
+- Offset-based resumability for reconnection handling (LMDB enables resume from last offset)
 - Multi-channel event categorization
 - Optimistic UI updates with rollback support
 - TanStack DB collections for reactive state
+
+### Dual Persistence Model
+
+Events are written to **two** persistent stores:
+
+1. **SQLite** (source of truth) — Drizzle ORM `sessionEvents` table. Persisted first, always available for historical queries via `/api/sessions/:id/events`.
+2. **Caddy/LMDB** (real-time delivery) — The Caddy `durable_streams` plugin stores events in LMDB on disk at `/app/data/streams`. This powers the SSE + long-poll endpoints at `/v1/stream/*` and enables offset-based resume after client reconnects.
+
+If Caddy/LMDB is temporarily unavailable, events are still durable in SQLite. LMDB is not a cache — it is an on-disk persistent store that survives Caddy restarts.
 
 ## Architecture Diagram
 
@@ -155,25 +164,25 @@ Durable Streams provides a unified system for:
 │  └───────────────────────────────────────────────────────┼────┼────────────────┘│
 │                                                          │    │                  │
 │  ┌───────────────────────────────────┐   ┌───────────────┼────┼───────────────┐ │
-│  │ InMemoryDurableStreamsServer      │   │         SQLite│Database           │ │
-│  │                                   │   │               │    │               │ │
-│  │  Interface:                       │   │  ┌────────────┼────▼─────────────┐ │ │
-│  │  ┌─────────────────────────────┐  │   │  │     session_events           │ │ │
-│  │  │ createStream(id, schema)    │  │   │  │  ├─ id (PK)                  │ │ │
+│  │ CaddyDurableStreamsServer         │   │         SQLite│Database           │ │
+│  │ (caddy-producer.ts)               │   │               │    │               │ │
+│  │                                   │   │  ┌────────────┼────▼─────────────┐ │ │
+│  │  Caddy Plugin Interface:          │   │  │     session_events           │ │ │
+│  │  ┌─────────────────────────────┐  │   │  │  ├─ id (PK)                  │ │ │
 │  │  │ publish(id, type, data) ◄───┼──┼───┼──│  ├─ session_id (FK)          │ │ │
-│  │  │   → returns offset          │  │   │  │  ├─ offset (sequential)      │ │ │
-│  │  │ subscribe(id, options)      │  │   │  │  ├─ type                     │ │ │
-│  │  │   → AsyncIterable<Event>    │  │   │  │  ├─ channel                  │ │ │
-│  │  │ getEvents(id, options)      │  │   │  │  ├─ data (JSON)              │ │ │
-│  │  │ deleteStream(id)            │  │   │  │  ├─ timestamp                │ │ │
-│  │  └─────────────────────────────┘  │   │  │  └─ created_at               │ │ │
-│  │                                   │   │  └──────────────────────────────┘ │ │
-│  │  In-Memory (real-time only):      │   │                                   │ │
-│  │  ┌─────────────────────────────┐  │   │  ┌──────────────────────────────┐ │ │
-│  │  │ Map<streamId, {             │  │   │  │    session_summaries         │ │ │
-│  │  │   events: StoredEvent[],    │  │   │  │  ├─ id (PK)                  │ │ │
-│  │  │   subscribers: Set          │  │   │  │  ├─ session_id (FK,UQ)       │ │ │
-│  │  │ }>                          │  │   │  │  ├─ duration_ms              │ │ │
+│  │  │   → NDJSON to Caddy         │  │   │  │  ├─ offset (sequential)      │ │ │
+│  │  │ IdempotentProducer           │  │   │  │  ├─ type                     │ │ │
+│  │  │   → @durable-streams/client  │  │   │  │  ├─ channel                  │ │ │
+│  │  └─────────────────────────────┘  │   │  │  ├─ data (JSON)              │ │ │
+│  │                                   │   │  │  ├─ timestamp                │ │ │
+│  │  Caddy Server (:3000):            │   │  │  └─ created_at               │ │ │
+│  │  ┌─────────────────────────────┐  │   │  └──────────────────────────────┘ │ │
+│  │  │ LMDB on-disk persistence    │  │   │                                   │ │
+│  │  │   /app/data/streams         │  │   │  ┌──────────────────────────────┐ │ │
+│  │  │ SSE + long-poll delivery    │  │   │  │    session_summaries         │ │ │
+│  │  │ Offset-based resume from    │  │   │  │  ├─ id (PK)                  │ │ │
+│  │  │   last client offset        │  │   │  │  ├─ session_id (FK,UQ)       │ │ │
+│  │  │ /v1/stream/* endpoints      │  │   │  │  ├─ duration_ms              │ │ │
 │  │  └─────────────────────────────┘  │   │  │  ├─ turns_count, etc.        │ │ │
 │  └───────────────────────────────────┘   │  └──────────────────────────────┘ │ │
 │                                          └───────────────────────────────────┘ │
@@ -249,21 +258,22 @@ Server event types map to client channels:
 
 ```
 ┌─────────┐    ┌───────────────────┐    ┌──────────┐    ┌───────────────┐    ┌────────────────┐
-│  Agent  │───►│  DurableStreams   │───►│  SQLite  │───►│    In-Memory  │───►│   Subscriber   │
-│  SDK    │    │  Service.publish()│    │  Events  │    │    Stream     │    │   (SSE)        │
+│  Agent  │───►│  DurableStreams   │───►│  SQLite  │───►│  Caddy/LMDB   │───►│   Subscriber   │
+│  SDK    │    │  Service.publish()│    │  Events  │    │  (on-disk)    │    │   (SSE)        │
 └─────────┘    └───────────────────┘    └──────────┘    └───────────────┘    └────────────────┘
      │               │                       │                 │                    │
      │  emit event   │  1. persist to DB     │                 │                    │
      │──────────────►│──────────────────────►│                 │                    │
      │               │                       │                 │                    │
-     │               │  2. publish to memory │                 │  notify            │  yield event
-     │               │─────────────────────────────────────────►│───────────────────►│
+     │               │  2. publish to Caddy  │                 │  LMDB write        │  SSE event
+     │               │──────────────────────────────────────────►│───────────────────►│
      │               │                       │                 │                    │
 ```
 
-**Persist-First Pattern**: Events are written to SQLite BEFORE being published to the in-memory
-stream. This ensures durability - events survive server restarts or crashes, and are always
-available via the `/api/sessions/:id/events` endpoint.
+**Persist-First Pattern**: Events are written to SQLite BEFORE being published to Caddy/LMDB.
+SQLite is the source of truth for historical queries. Caddy's `durable_streams` plugin persists
+events to LMDB on disk and delivers them to SSE/long-poll subscribers. LMDB enables offset-based
+resume — clients reconnect with their last offset and Caddy replays missed events from LMDB.
 
 ### Client Write Flow (Optimistic Updates)
 
@@ -357,25 +367,28 @@ const unsub = syncSessionToCollections(sessionId);
 unsub();
 ```
 
-### 4. InMemoryDurableStreamsServer (`src/lib/streams/server.ts`)
+### 4. CaddyDurableStreamsServer (`src/lib/streams/caddy-producer.ts`)
 
-Server-side stream management:
+Server-side stream management via Caddy's `durable_streams` plugin:
 
 ```typescript
-interface DurableStreamsServer {
-  createStream(id: string, schema: unknown): Promise<void>;
-  publish(id: string, type: string, data: unknown): Promise<number>;  // Returns offset
-  subscribe(id: string, options?: { fromOffset?: number }): AsyncIterable<Event>;
-  getEvents(id: string, options?: { offset?: number; limit?: number }): Promise<Event[]>;
+// IdempotentProducer from @durable-streams/client
+// Publishes NDJSON events to Caddy which persists them in LMDB
+interface CaddyDurableStreamsServer {
+  publish(streamId: string, type: string, data: unknown): Promise<void>;
+  isConnected(): boolean;
 }
 ```
 
 **Implementation details:**
 
-- In-memory event storage (Map of streams)
-- Sequential offset assignment per stream
-- Subscriber notification via async iterables
-- Auto-creates stream on first publish
+- Events published as NDJSON to Caddy's `/v1/stream/*` endpoints
+- Caddy persists events to **LMDB** on disk at `/app/data/streams`
+- LMDB provides durable, ordered storage that survives Caddy restarts
+- SSE + long-poll delivery to subscribers with offset-based resume
+- IdempotentProducer handles batching (lingerMs: 5, maxBatchBytes: 1MB)
+- Lazy producer initialization per stream with dedup of concurrent init
+- Producer pool: `Map<streamId, { producer, initPromise }>`
 
 ### 5. Session Services (`src/services/session/`)
 
@@ -528,8 +541,8 @@ src/
 
 ### Persist-First Publishing
 
-Events are persisted to the database BEFORE being published to the in-memory stream.
-This ensures durability at the cost of slightly higher latency:
+Events are persisted to SQLite BEFORE being published to Caddy/LMDB.
+This ensures the source of truth is always consistent:
 
 ```typescript
 // 1. Get next offset from database
@@ -539,7 +552,7 @@ const lastEvent = await db.query.sessionEvents.findFirst({
 });
 const offset = (lastEvent?.offset ?? -1) + 1;
 
-// 2. PERSIST TO DATABASE FIRST (ensures durability)
+// 2. PERSIST TO SQLITE FIRST (source of truth)
 await db.insert(sessionEvents).values({
   id: eventId,
   sessionId: streamId,
@@ -550,16 +563,16 @@ await db.insert(sessionEvents).values({
   timestamp,
 });
 
-// 3. THEN publish to in-memory stream for real-time delivery
+// 3. THEN publish to Caddy/LMDB for real-time SSE delivery
 await server.publish(streamId, type, data);
+// Caddy persists to LMDB on disk and fans out to SSE subscribers
 ```
 
-**Why persist-first?**
+**Why dual-write (SQLite + Caddy/LMDB)?**
 
-- Events survive server restarts and crashes
-- `/api/sessions/:id/events` always returns complete history
-- Container agent errors (e.g., EPIPE) don't lose events
-- SSE reconnection can replay from database if in-memory stream is empty
+- **SQLite**: Source of truth. Events survive server restarts and crashes. `/api/sessions/:id/events` always returns complete history. Used for historical replay of closed sessions.
+- **Caddy/LMDB**: Real-time delivery layer. LMDB is an on-disk persistent store (not a cache). Enables offset-based SSE resume — clients reconnect with their last offset and Caddy replays missed events directly from LMDB without hitting SQLite. Long-poll timeout: 30s, SSE reconnect interval: 120s.
+- If Caddy is temporarily unavailable, events are still durable in SQLite
 
 ### Channel Routing
 
@@ -596,20 +609,21 @@ this.presenceService.join(sessionId, userId);
 
 ## Production Considerations
 
-**Current implementation (persist-first with in-memory real-time):**
+**Current implementation (persist-first with Caddy/LMDB real-time):**
 
-- Events persisted to SQLite survive server restarts
-- In-memory stream provides real-time SSE delivery
-- Single-process only (no clustering)
-- SQLite handles persistence; in-memory handles real-time fan-out
+- Events persisted to SQLite (source of truth) survive server restarts
+- Caddy `durable_streams` plugin with LMDB provides durable real-time SSE delivery
+- LMDB is an on-disk store — events survive Caddy restarts too
+- Caddy runs on `:3000` as the front door; Bun API on `:3001` (internal)
+- IdempotentProducer handles batching and dedup for Caddy writes
 
 **For production scaling, consider:**
 
-- Replace InMemoryDurableStreamsServer with Redis pub/sub for real-time fan-out
-- Keep SQLite persistence or migrate to PostgreSQL for durability
-- Implement proper clustering via message broker
+- Keep SQLite or migrate to PostgreSQL for the source of truth
+- Caddy/LMDB already handles real-time fan-out durably (no Redis needed for SSE)
+- For multi-instance deployments, configure shared LMDB volume or switch to distributed stream backend
 - Add authentication validation against real auth service (Phase 2)
-- Load balancing with sticky sessions or pub/sub
+- Load balancing with sticky sessions (Caddy SSE connections are long-lived)
 
 ## Future Enhancements
 

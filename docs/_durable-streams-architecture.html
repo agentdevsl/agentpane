@@ -37,7 +37,7 @@ svg { display: block; }
 
 <!-- ==================== TITLE ==================== -->
 <text x="960" y="38" text-anchor="middle" fill="#e6edf3" font-size="22" font-weight="700">AgentPane — Durable Streams Architecture</text>
-<text x="960" y="58" text-anchor="middle" fill="#8b949e" font-size="13">Type-safe event streaming with dual-write persistence (SQLite + Caddy) and offset-based resume</text>
+<text x="960" y="58" text-anchor="middle" fill="#8b949e" font-size="13">Type-safe event streaming with dual-write persistence (SQLite + Caddy/LMDB) and offset-based resume</text>
 
 <!-- ==================== SERVER-SIDE ZONE ==================== -->
 <rect x="30" y="80" width="1860" height="580" rx="14" fill="none" stroke="#58a6ff" stroke-width="2" stroke-dasharray="10,5"/>
@@ -106,12 +106,13 @@ svg { display: block; }
 <text x="370" y="348" fill="#8b949e" font-size="9">plan · sandbox · taskCreation · containerAgent · terraform</text>
 
 <!-- Dual-write strategy -->
-<rect x="360" y="372" width="270" height="58" rx="6" fill="#1c2333" stroke="#7ee787" stroke-width="1"/>
+<rect x="360" y="372" width="270" height="68" rx="6" fill="#1c2333" stroke="#7ee787" stroke-width="1.5"/>
 <text x="495" y="392" text-anchor="middle" fill="#7ee787" font-size="11" font-weight="600">Dual-Write Strategy</text>
-<text x="370" y="408" fill="#3fb950" font-size="9" font-weight="600">1. DB FIRST</text>
-<text x="435" y="408" fill="#8b949e" font-size="9">→ persistToDb() (durable)</text>
-<text x="370" y="422" fill="#8b949e" font-size="9">2. Caddy</text>
-<text x="416" y="422" fill="#8b949e" font-size="9">→ server.publish() (best-effort)</text>
+<text x="370" y="408" fill="#3fb950" font-size="9" font-weight="600">1. SQLite FIRST</text>
+<text x="450" y="408" fill="#8b949e" font-size="9">→ persistToDb() (durable source of truth)</text>
+<text x="370" y="422" fill="#bc8cff" font-size="9" font-weight="600">2. Caddy/LMDB</text>
+<text x="455" y="422" fill="#8b949e" font-size="9">→ server.publish() (real-time delivery)</text>
+<text x="370" y="436" fill="#8b949e" font-size="8">LMDB persists events on disk for offset-based SSE resume</text>
 
 <!-- Offset collision retry -->
 <rect x="360" y="442" width="270" height="40" rx="6" fill="#1c2333" stroke="#8b949e" stroke-width="1"/>
@@ -155,27 +156,30 @@ svg { display: block; }
 <text x="720" y="347" fill="#8b949e" font-size="9">Dedup concurrent init · producer pool: Map&lt;id, entry&gt;</text>
 
 <!-- Caddy Server -->
-<rect x="690" y="420" width="310" height="220" rx="10" fill="#161b22" stroke="#bc8cff" stroke-width="1.5"/>
-<text x="845" y="445" text-anchor="middle" fill="#bc8cff" font-size="14" font-weight="600">Caddy Server</text>
-<text x="845" y="463" text-anchor="middle" fill="#8b949e" font-size="10">durable_streams plugin · :3000</text>
+<rect x="690" y="420" width="310" height="240" rx="10" fill="#161b22" stroke="#bc8cff" stroke-width="1.5"/>
+<text x="845" y="445" text-anchor="middle" fill="#bc8cff" font-size="14" font-weight="600">Caddy Server · :3000</text>
+<text x="845" y="463" text-anchor="middle" fill="#8b949e" font-size="10">durable_streams plugin (custom binary)</text>
 
 <!-- LMDB -->
-<rect x="710" y="478" width="130" height="40" rx="5" fill="#1c2333" stroke="#7ee787" stroke-width="1"/>
-<text x="775" y="498" text-anchor="middle" fill="#7ee787" font-size="11" font-weight="600">LMDB</text>
-<text x="775" y="512" text-anchor="middle" fill="#8b949e" font-size="9">Persistent storage</text>
+<rect x="710" y="478" width="130" height="55" rx="5" fill="#1c2333" stroke="#7ee787" stroke-width="2"/>
+<text x="775" y="498" text-anchor="middle" fill="#7ee787" font-size="12" font-weight="700">LMDB</text>
+<text x="775" y="512" text-anchor="middle" fill="#8b949e" font-size="9">Persistent on-disk store</text>
+<text x="775" y="524" text-anchor="middle" fill="#8b949e" font-size="9">/app/data/streams</text>
 
-<!-- SSE -->
-<rect x="850" y="478" width="130" height="40" rx="5" fill="#1c2333" stroke="#3fb950" stroke-width="1"/>
-<text x="915" y="498" text-anchor="middle" fill="#3fb950" font-size="11" font-weight="600">SSE Protocol</text>
-<text x="915" y="512" text-anchor="middle" fill="#8b949e" font-size="9">Live reads</text>
+<!-- SSE + Long-Poll -->
+<rect x="850" y="478" width="130" height="55" rx="5" fill="#1c2333" stroke="#3fb950" stroke-width="2"/>
+<text x="915" y="498" text-anchor="middle" fill="#3fb950" font-size="12" font-weight="700">SSE + Long-Poll</text>
+<text x="915" y="512" text-anchor="middle" fill="#8b949e" font-size="9">Live event delivery</text>
+<text x="915" y="524" text-anchor="middle" fill="#8b949e" font-size="9">Offset-based resume</text>
 
 <!-- Stream URL routing -->
-<rect x="710" y="530" width="270" height="90" rx="6" fill="#1c2333" stroke="#d29922" stroke-width="1"/>
-<text x="845" y="550" text-anchor="middle" fill="#d29922" font-size="11" font-weight="600">Stream URL Routing</text>
-<text x="720" y="568" fill="#8b949e" font-size="9">/v1/stream/sessions/{sessionId}</text>
-<text x="720" y="580" fill="#8b949e" font-size="9">/v1/stream/plans/{sessionId}</text>
-<text x="720" y="592" fill="#8b949e" font-size="9">/v1/stream/terraform/{jobId}</text>
-<text x="720" y="604" fill="#8b949e" font-size="9">/v1/stream/cli-monitor</text>
+<rect x="710" y="545" width="270" height="95" rx="6" fill="#1c2333" stroke="#d29922" stroke-width="1"/>
+<text x="845" y="565" text-anchor="middle" fill="#d29922" font-size="11" font-weight="600">Stream URL Routing</text>
+<text x="720" y="583" fill="#8b949e" font-size="9">/v1/stream/sessions/{sessionId}</text>
+<text x="720" y="595" fill="#8b949e" font-size="9">/v1/stream/plans/{sessionId}</text>
+<text x="720" y="607" fill="#8b949e" font-size="9">/v1/stream/terraform/{jobId}</text>
+<text x="720" y="619" fill="#8b949e" font-size="9">/v1/stream/cli-monitor</text>
+<text x="720" y="633" fill="#7ee787" font-size="8">Events survive restarts — LMDB is the durable layer</text>
 
 <!-- Connection: CaddyServer -> Producer -->
 <line x1="845" y1="400" x2="845" y2="420" stroke="#bc8cff" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
@@ -334,11 +338,11 @@ svg { display: block; }
 <!-- Dual-write box -->
 <rect x="50" y="718" width="350" height="85" rx="8" fill="#161b22" stroke="#7ee787" stroke-width="1.5"/>
 <text x="225" y="738" text-anchor="middle" fill="#7ee787" font-size="12" font-weight="600">Dual-Write Pattern</text>
-<text x="65" y="758" fill="#3fb950" font-size="10" font-weight="600">1. SQLite (durable)</text>
-<text x="200" y="758" fill="#8b949e" font-size="10">→ persisted first, always available</text>
-<text x="65" y="774" fill="#8b949e" font-size="10" font-weight="600">2. Caddy (real-time)</text>
-<text x="215" y="774" fill="#8b949e" font-size="10">→ best-effort, for live subscribers</text>
-<text x="65" y="790" fill="#8b949e" font-size="10">If Caddy fails, event is still durable in SQLite</text>
+<text x="65" y="758" fill="#3fb950" font-size="10" font-weight="600">1. SQLite (source of truth)</text>
+<text x="240" y="758" fill="#8b949e" font-size="10">→ persisted first, always available</text>
+<text x="65" y="774" fill="#bc8cff" font-size="10" font-weight="600">2. Caddy/LMDB (real-time)</text>
+<text x="260" y="774" fill="#8b949e" font-size="10">→ on-disk SSE stream delivery</text>
+<text x="65" y="790" fill="#8b949e" font-size="10">LMDB enables offset-based resume after reconnect</text>
 
 <!-- Replay box -->
 <rect x="420" y="718" width="320" height="85" rx="8" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
@@ -386,7 +390,7 @@ svg { display: block; }
 <text x="1198" y="900" fill="#8b949e" font-size="12">Client / browser (SSE, reconnection)</text>
 
 <line x1="1480" y1="896" x2="1528" y2="896" stroke="#7ee787" stroke-width="2"/>
-<text x="1538" y="900" fill="#8b949e" font-size="12">Persistence (SQLite, LMDB)</text>
+<text x="1538" y="900" fill="#8b949e" font-size="12">Persistence (SQLite source-of-truth, Caddy/LMDB real-time)</text>
 
 <!-- Key files - row 2 -->
 <text x="60" y="936" fill="#d29922" font-size="12" font-weight="600">Key Files</text>
@@ -428,7 +432,7 @@ svg { display: block; }
 <line x1="510" y1="1092" x2="530" y2="1092" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
 
 <rect x="530" y="1075" width="230" height="35" rx="6" fill="#1c2333" stroke="#bc8cff" stroke-width="1.5"/>
-<text x="645" y="1097" text-anchor="middle" fill="#bc8cff" font-size="11" font-weight="600">3. Caddy publish (best-effort)</text>
+<text x="645" y="1097" text-anchor="middle" fill="#bc8cff" font-size="11" font-weight="600">3. Caddy/LMDB persist + stream</text>
 
 <line x1="760" y1="1092" x2="780" y2="1092" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
 
