@@ -63,5 +63,5 @@ export function getAvailableTools(): ToolName[] {
   return Object.keys(TOOL_REGISTRY) as ToolName[];
 }
 
-export { bashTool, editFile, globTool, grepTool, readFile, writeFile };
 export type { BashArgs, EditFileArgs, GlobArgs, GrepArgs, ReadFileArgs, WriteFileArgs };
+export { bashTool, editFile, globTool, grepTool, readFile, writeFile };

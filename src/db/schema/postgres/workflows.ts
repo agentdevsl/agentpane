@@ -3,7 +3,7 @@ import { boolean, integer, jsonb, pgTable, text, timestamp } from 'drizzle-orm/p
 import type { WorkflowEdge, WorkflowNode } from '@/lib/workflow-dsl/types';
 import { templates } from './templates';
 
-export type { WorkflowNode, WorkflowEdge };
+export type { WorkflowEdge, WorkflowNode };
 
 export const WORKFLOW_STATUSES = ['draft', 'published', 'archived'] as const;
 export type WorkflowStatus = (typeof WORKFLOW_STATUSES)[number];

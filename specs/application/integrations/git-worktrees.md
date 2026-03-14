@@ -14,12 +14,12 @@ Git worktrees enable parallel agent execution by providing isolated working dire
 
 ```text
 project/
-├── .git/                         # Shared git directory
-├── main/                         # Primary worktree (main branch)
-└── .worktrees/                   # Agent worktrees directory
-    ├── feature-{task-id}-auth/   # Agent 1 isolated workspace
-    ├── feature-{task-id}-api/    # Agent 2 isolated workspace
-    └── fix-{task-id}-bug/        # Agent 3 isolated workspace
+├── .git/                                      # Shared git directory
+├── main/                                      # Primary worktree (main branch)
+└── .worktrees/                                # Agent worktrees directory (configurable via project.config.worktreeRoot)
+    ├── fix-login-validation-abc123/           # Agent 1 isolated workspace
+    ├── add-user-authentication-def456/        # Agent 2 isolated workspace
+    └── refactor-api-endpoints-789abc/         # Agent 3 isolated workspace
 ```
 
 ### Branch Naming Convention
@@ -27,16 +27,17 @@ project/
 All agent branches follow the pattern:
 
 ```
-{type}/{task-id}-{slug}
+{task-slug}-{short-id}
 ```
 
 | Component | Description | Example |
 |-----------|-------------|---------|
-| `type` | Branch category | `feature`, `fix`, `refactor`, `docs`, `test` |
-| `task-id` | Task identifier (CUID2) | `cm1abc123def456` |
-| `slug` | Kebab-case description | `add-user-auth`, `fix-stream-reconnect` |
+| `task-slug` | Kebab-case slugified task title | `fix-login-validation`, `add-user-auth` |
+| `short-id` | First 6 characters of task CUID2 | `abc123`, `def456` |
 
-**Full Example**: `feature/cm1abc123def456-add-user-auth`
+**Full Example**: `fix-login-validation-abc123`
+
+The branch name is derived from the task title via `slugify()` and appended with the first 6 characters of the task ID for uniqueness. There is no type prefix or slash separator.
 
 ---
 
@@ -45,39 +46,62 @@ All agent branches follow the pattern:
 ### Interface Definition
 
 ```typescript
-// lib/worktrees/service.ts
-import { $ } from 'bun';
-import type { Result } from '@/lib/utils/result';
-import type { Worktree, WorktreeStatus } from '@/db/schema';
-import { WorktreeErrors } from '@/lib/errors/worktree-errors';
+// src/services/worktree.service.ts
+import type { Result } from '../lib/utils/result';
+import type { Worktree, WorktreeStatus } from '../db/schema';
+import type { WorktreeError } from '../lib/errors/worktree-errors';
+import type { Database } from '../types/database';
 
-export interface WorktreeService {
-  create(params: CreateWorktreeParams): Promise<Result<Worktree, WorktreeError>>;
-  merge(id: string): Promise<Result<void, WorktreeError>>;
-  remove(id: string, force?: boolean): Promise<Result<void, WorktreeError>>;
-  getStatus(id: string): Promise<Result<WorktreeStatus, WorktreeError>>;
-  list(projectId: string): Promise<Result<Worktree[], WorktreeError>>;
-  prune(projectId: string): Promise<Result<PruneResult, WorktreeError>>;
-  getDiskUsage(projectId: string): Promise<Result<DiskUsage, WorktreeError>>;
-}
-
-export interface CreateWorktreeParams {
+export type WorktreeCreateInput = {
   projectId: string;
+  agentId: string;
   taskId: string;
-  branchType: 'feature' | 'fix' | 'refactor' | 'docs' | 'test';
-  slug: string;
-  baseBranch?: string; // defaults to project.config.defaultBranch
-}
+  taskTitle: string;
+  baseBranch?: string; // defaults to 'main'
+};
 
-export interface PruneResult {
-  removedCount: number;
-  freedBytes: number;
-  removedPaths: string[];
-}
+export type WorktreeSetupOptions = {
+  skipEnvCopy?: boolean;
+  skipDepsInstall?: boolean;
+  skipInitScript?: boolean;
+};
 
-export interface DiskUsage {
-  totalBytes: number;
-  worktrees: { path: string; bytes: number }[];
+export type WorktreeStatusInfo = {
+  id: string;
+  branch: string;
+  status: WorktreeStatus;
+  path: string;
+  updatedAt: string | null;
+};
+
+export type PruneResult = {
+  pruned: number;
+  failed: Array<{ worktreeId: string; branch: string; error: string }>;
+};
+
+export type CommandRunner = {
+  exec: (command: string, cwd: string) => Promise<{ stdout: string; stderr: string }>;
+};
+
+// WorktreeService is a class that takes (db: Database, runner: CommandRunner) in its constructor.
+// It uses dependency-injected command execution, enabling both local (Bun shell)
+// and sandboxed (Docker container) execution via createSandboxCommandRunner().
+
+export class WorktreeService {
+  constructor(private db: Database, private runner: CommandRunner) {}
+
+  create(input: WorktreeCreateInput, options?: WorktreeSetupOptions): Promise<Result<Worktree, WorktreeError>>;
+  merge(worktreeId: string, targetBranch?: string): Promise<Result<void, WorktreeError>>;
+  remove(worktreeId: string, force?: boolean): Promise<Result<void, WorktreeError>>;
+  getStatus(worktreeId: string): Promise<Result<WorktreeStatusInfo, WorktreeError>>;
+  list(projectId: string): Promise<Result<WorktreeStatusInfo[], never>>;
+  prune(projectId: string): Promise<Result<PruneResult, WorktreeError>>;
+  commit(worktreeId: string, message: string): Promise<Result<string, WorktreeError>>;
+  getDiff(worktreeId: string): Promise<Result<GitDiff, WorktreeError>>;
+  getByBranch(projectId: string, branch: string): Promise<Result<Worktree | null, never>>;
+  copyEnv(worktreeId: string): Promise<Result<void, WorktreeError>>;
+  installDeps(worktreeId: string): Promise<Result<void, WorktreeError>>;
+  runInitScript(worktreeId: string): Promise<Result<void, WorktreeError>>;
 }
 ```
 
@@ -88,112 +112,108 @@ export interface DiskUsage {
 ### Step-by-Step Process
 
 ```typescript
-// lib/worktrees/create.ts
-import { $ } from 'bun';
-import { db } from '@/db/client';
-import { worktrees, projects } from '@/db/schema';
-import { eq } from 'drizzle-orm';
-import { ok, err, type Result } from '@/lib/utils/result';
-import { WorktreeErrors } from '@/lib/errors/worktree-errors';
-import { createId } from '@paralleldrive/cuid2';
+// src/services/worktree.service.ts (create method)
 
-export async function createWorktree(
-  params: CreateWorktreeParams
-): Promise<Result<Worktree, WorktreeError>> {
-  const { projectId, taskId, branchType, slug, baseBranch } = params;
+async create(
+  input: WorktreeCreateInput,
+  options?: WorktreeSetupOptions
+): WorktreeServiceResult<Worktree> {
+  const { projectId, agentId, taskId, taskTitle, baseBranch = 'main' } = input;
 
-  // 1. Get project configuration
-  const project = await db.query.projects.findFirst({
+  // 1. Get project and agent records
+  const project = await this.db.query.projects.findFirst({
     where: eq(projects.id, projectId),
   });
-
   if (!project) {
-    return err(WorktreeErrors.NOT_FOUND);
+    return err(WorktreeErrors.CREATION_FAILED('unknown', 'Project not found'));
   }
 
-  const base = baseBranch ?? project.config.defaultBranch;
-  const branch = `${branchType}/${taskId}-${slug}`;
-  const worktreePath = `${project.path}/${project.config.worktreeRoot}/${branchType}-${taskId}-${slug}`;
+  const agent = await this.db.query.agents.findFirst({
+    where: eq(agents.id, agentId),
+  });
+  if (!agent) {
+    return err(WorktreeErrors.CREATION_FAILED('unknown', 'Agent not found'));
+  }
 
-  // 2. Check if branch already exists
-  const branchCheck = await $`git -C ${project.path} rev-parse --verify ${branch} 2>/dev/null`.quiet();
-  if (branchCheck.exitCode === 0) {
+  // 2. Build branch name and worktree path from task title
+  const taskSlug = slugify(taskTitle);
+  const shortId = taskId.slice(0, 6);
+  const branch = `${taskSlug}-${shortId}`;
+  const root = project.config?.worktreeRoot ?? '.worktrees';
+  const worktreePath = path.join(project.path, root, branch);
+
+  // 3. Check if branch already exists
+  const branchCheck = await this.runner.exec(
+    `git branch --list "${escapeShellString(branch)}"`,
+    project.path
+  );
+  if (branchCheck.stdout.trim()) {
     return err(WorktreeErrors.BRANCH_EXISTS(branch));
   }
 
-  // 3. Create database record with 'creating' status
-  const worktreeId = createId();
-  const [worktreeRecord] = await db.insert(worktrees).values({
-    id: worktreeId,
+  // 4. Create git worktree FIRST (before DB insert)
+  try {
+    await this.runner.exec(
+      `git worktree add "${escapeShellString(worktreePath)}" -b "${escapeShellString(branch)}" "${escapeShellString(baseBranch)}"`,
+      project.path
+    );
+  } catch (error) {
+    return err(WorktreeErrors.CREATION_FAILED(branch, String(error)));
+  }
+
+  // 5. Create database record with 'creating' status
+  const [insertedWorktree] = await this.db.insert(worktrees).values({
     projectId,
+    agentId,
     taskId,
     branch,
-    baseBranch: base,
     path: worktreePath,
+    baseBranch,
     status: 'creating',
   }).returning();
 
-  try {
-    // 4. Create git worktree
-    const createResult = await $`git -C ${project.path} worktree add ${worktreePath} -b ${branch} ${base}`.quiet();
-    if (createResult.exitCode !== 0) {
-      throw new Error(createResult.stderr.toString());
-    }
+  const worktreeId = insertedWorktree.id;
 
-    // 5. Copy environment file if configured
-    if (project.config.envFile) {
-      const envSource = `${project.path}/${project.config.envFile}`;
-      const envDest = `${worktreePath}/.env`;
-      try {
-        await $`cp ${envSource} ${envDest}`.quiet();
-        await db.update(worktrees)
-          .set({ envCopied: true })
-          .where(eq(worktrees.id, worktreeId));
-      } catch (envError) {
-        return err(WorktreeErrors.ENV_COPY_FAILED(String(envError)));
-      }
-    }
-
-    // 6. Install dependencies
-    const installResult = await $`cd ${worktreePath} && bun install`.quiet();
-    if (installResult.exitCode !== 0) {
-      throw new Error(`Dependency installation failed: ${installResult.stderr.toString()}`);
-    }
-    await db.update(worktrees)
-      .set({ depsInstalled: true })
-      .where(eq(worktrees.id, worktreeId));
-
-    // 7. Run init script if configured
-    if (project.config.initScript) {
-      const initResult = await $`cd ${worktreePath} && ${project.config.initScript}`.quiet();
-      if (initResult.exitCode !== 0) {
-        return err(WorktreeErrors.INIT_SCRIPT_FAILED(
-          project.config.initScript,
-          initResult.stderr.toString()
-        ));
-      }
-      await db.update(worktrees)
-        .set({ initScriptRun: true })
+  // 6. Run setup steps (env copy, deps install, init script)
+  //    Each step can be skipped via WorktreeSetupOptions.
+  //    Failures set status to 'error' and return early.
+  if (!options?.skipEnvCopy) {
+    const envResult = await this.copyEnv(worktreeId);
+    if (!envResult.ok) {
+      await this.db.update(worktrees)
+        .set({ status: 'error', updatedAt: new Date().toISOString() })
         .where(eq(worktrees.id, worktreeId));
+      return envResult;
     }
-
-    // 8. Update status to 'active'
-    const [updatedWorktree] = await db.update(worktrees)
-      .set({ status: 'active', updatedAt: new Date() })
-      .where(eq(worktrees.id, worktreeId))
-      .returning();
-
-    return ok(updatedWorktree);
-
-  } catch (error) {
-    // Cleanup on failure
-    await $`git -C ${project.path} worktree remove ${worktreePath} --force`.quiet();
-    await db.update(worktrees)
-      .set({ status: 'error', lastError: String(error) })
-      .where(eq(worktrees.id, worktreeId));
-
-    return err(WorktreeErrors.CREATION_FAILED(branch, String(error)));
   }
+
+  if (!options?.skipDepsInstall) {
+    const depsResult = await this.installDeps(worktreeId);
+    if (!depsResult.ok) {
+      await this.db.update(worktrees)
+        .set({ status: 'error', updatedAt: new Date().toISOString() })
+        .where(eq(worktrees.id, worktreeId));
+      return depsResult;
+    }
+  }
+
+  if (!options?.skipInitScript && project.config?.initScript) {
+    const initResult = await this.runInitScript(worktreeId);
+    if (!initResult.ok) {
+      await this.db.update(worktrees)
+        .set({ status: 'error', updatedAt: new Date().toISOString() })
+        .where(eq(worktrees.id, worktreeId));
+      return initResult;
+    }
+  }
+
+  // 7. Update status to 'active'
+  const [updatedWorktree] = await this.db.update(worktrees)
+    .set({ status: 'active', updatedAt: new Date().toISOString() })
+    .where(eq(worktrees.id, worktreeId))
+    .returning();
+
+  return ok(updatedWorktree);
 }
 ```
 
@@ -201,17 +221,20 @@ export async function createWorktree(
 
 ```
 ┌─────────┐     ┌───────────────┐     ┌─────────┐     ┌────────────┐
-│ TaskSvc │     │ WorktreeSvc   │     │   Git   │     │     DB     │
+│ TaskSvc │     │ WorktreeSvc   │     │ CmdRunner│    │     DB     │
 └────┬────┘     └───────┬───────┘     └────┬────┘     └─────┬──────┘
      │                  │                  │                │
-     │ create(params)   │                  │                │
+     │ create(input)    │                  │                │
      │─────────────────>│                  │                │
+     │                  │                  │                │
+     │                  │ git branch --list│                │
+     │                  │─────────────────>│                │
+     │                  │                  │                │
+     │                  │ git worktree add │                │
+     │                  │─────────────────>│                │
      │                  │                  │                │
      │                  │ INSERT (creating)│                │
      │                  │─────────────────────────────────->│
-     │                  │                  │                │
-     │                  │ worktree add     │                │
-     │                  │─────────────────>│                │
      │                  │                  │                │
      │                  │ cp .env          │                │
      │                  │─────────────────>│                │
@@ -229,28 +252,22 @@ export async function createWorktree(
      │<─────────────────│                  │                │
 ```
 
+Note: The git worktree is created *before* the database record. This ensures the filesystem state is valid before tracking it. If git worktree creation fails, no orphaned DB record is left behind.
+
 ---
 
 ## Merge Workflow
 
 ### On Task Approval
 
-When a task is approved, the worktree branch is merged into the base branch.
+When a task is approved, the worktree branch is merged into the base branch. Merge and removal are **separate operations** -- after a successful merge the worktree stays in `active` status with a `mergedAt` timestamp. Call `remove()` separately to clean up the worktree.
 
 ```typescript
-// lib/worktrees/merge.ts
-import { $ } from 'bun';
-import { db } from '@/db/client';
-import { worktrees, projects, tasks } from '@/db/schema';
-import { eq } from 'drizzle-orm';
-import { ok, err, type Result } from '@/lib/utils/result';
-import { WorktreeErrors } from '@/lib/errors/worktree-errors';
+// src/services/worktree.service.ts (merge method)
 
-export async function mergeWorktree(
-  worktreeId: string
-): Promise<Result<void, WorktreeError>> {
+async merge(worktreeId: string, targetBranch?: string): WorktreeServiceResult<void> {
   // 1. Get worktree and project
-  const worktree = await db.query.worktrees.findFirst({
+  const worktree = await this.db.query.worktrees.findFirst({
     where: eq(worktrees.id, worktreeId),
     with: { project: true },
   });
@@ -259,78 +276,88 @@ export async function mergeWorktree(
     return err(WorktreeErrors.NOT_FOUND);
   }
 
-  const { project } = worktree;
+  const target = targetBranch ?? worktree.baseBranch;
 
   // 2. Update status to 'merging'
-  await db.update(worktrees)
-    .set({ status: 'merging' })
+  await this.db.update(worktrees)
+    .set({ status: 'merging', updatedAt: new Date().toISOString() })
     .where(eq(worktrees.id, worktreeId));
 
+  // 3. Auto-commit any uncommitted changes before merge
+  const commitResult = await this.commit(worktreeId, `Auto-commit before merge to ${target}`);
+  if (!commitResult.ok) {
+    return commitResult;
+  }
+
   try {
-    // 3. Check for uncommitted changes
-    const statusResult = await $`git -C ${worktree.path} status --porcelain`.quiet();
-    const uncommittedFiles = statusResult.stdout.toString().trim();
-    if (uncommittedFiles) {
-      const files = uncommittedFiles.split('\n').map(line => line.trim());
-      return err(WorktreeErrors.DIRTY(files));
-    }
+    // 4. Checkout target branch, pull latest, merge
+    await this.runner.exec(`git checkout "${escapeShellString(target)}"`, worktree.project.path);
+    await this.runner.exec('git pull --rebase', worktree.project.path);
+    const mergeMessage = escapeShellString(`Merge branch '${worktree.branch}'`);
+    const merge = await this.runner.exec(
+      `git merge "${escapeShellString(worktree.branch)}" --no-ff -m "${mergeMessage}"`,
+      worktree.project.path
+    );
 
-    // 4. Commit any staged changes (agent should have committed)
-    // This is a safety check - agents are expected to commit their work
-    const diffResult = await $`git -C ${worktree.path} diff --cached --stat`.quiet();
-    if (diffResult.stdout.toString().trim()) {
-      await $`git -C ${worktree.path} commit -m "Agent task completion"`.quiet();
-    }
+    // 5. Check for merge conflicts
+    if (merge.stderr.includes('CONFLICT')) {
+      const conflicts = await this.runner.exec(
+        'git diff --name-only --diff-filter=U',
+        worktree.project.path
+      );
 
-    // 5. Switch to base branch in main worktree and merge
-    const baseBranch = worktree.baseBranch;
-    await $`git -C ${project.path} checkout ${baseBranch}`.quiet();
-
-    const mergeResult = await $`git -C ${project.path} merge ${worktree.branch} --no-ff -m "Merge ${worktree.branch}"`.quiet();
-
-    if (mergeResult.exitCode !== 0) {
-      // Check for merge conflicts
-      const conflictResult = await $`git -C ${project.path} diff --name-only --diff-filter=U`.quiet();
-      const conflictingFiles = conflictResult.stdout.toString().trim().split('\n').filter(Boolean);
-
-      if (conflictingFiles.length > 0) {
-        // Abort merge and return error
-        await $`git -C ${project.path} merge --abort`.quiet();
-        return err(WorktreeErrors.MERGE_CONFLICT(conflictingFiles));
+      try {
+        await this.runner.exec('git merge --abort', worktree.project.path);
+      } catch {
+        // Merge abort can fail if merge wasn't in progress
       }
 
-      throw new Error(mergeResult.stderr.toString());
+      // Reset status back to 'active' (not stuck in 'merging')
+      await this.db.update(worktrees)
+        .set({ status: 'active', updatedAt: new Date().toISOString() })
+        .where(eq(worktrees.id, worktreeId));
+
+      return err(WorktreeErrors.MERGE_CONFLICT(
+        conflicts.stdout.trim().split('\n').filter(Boolean)
+      ));
     }
 
-    // 6. Update worktree status
-    await db.update(worktrees)
+    // 6. Update status back to 'active' with mergedAt timestamp
+    //    The worktree is NOT automatically removed after merge.
+    await this.db.update(worktrees)
       .set({
-        status: 'removing',
-        mergedAt: new Date(),
-      })
-      .where(eq(worktrees.id, worktreeId));
-
-    // 7. Remove worktree
-    await $`git -C ${project.path} worktree remove ${worktree.path}`.quiet();
-    await $`git -C ${project.path} branch -d ${worktree.branch}`.quiet();
-
-    // 8. Final status update
-    await db.update(worktrees)
-      .set({
-        status: 'removed',
-        removedAt: new Date(),
+        mergedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        status: 'active',
       })
       .where(eq(worktrees.id, worktreeId));
 
     return ok(undefined);
 
   } catch (error) {
-    await db.update(worktrees)
-      .set({ status: 'error', lastError: String(error) })
+    // Reset status on merge failure
+    await this.db.update(worktrees)
+      .set({ status: 'active', updatedAt: new Date().toISOString() })
       .where(eq(worktrees.id, worktreeId));
 
-    return err(WorktreeErrors.REMOVAL_FAILED(worktree.path, String(error)));
+    return err(WorktreeErrors.CREATION_FAILED(worktree.branch, String(error)));
   }
+}
+```
+
+### Removal (separate from merge)
+
+Worktree removal is a distinct operation. It transitions through `removing` to `removed`:
+
+```typescript
+// src/services/worktree.service.ts (remove method)
+
+async remove(worktreeId: string, force = false): WorktreeServiceResult<void> {
+  // 1. Set status to 'removing'
+  // 2. git worktree remove (with --force if requested)
+  // 3. git branch -D to delete the local branch
+  // 4. Set status to 'removed' with removedAt timestamp
+  // On failure: set status to 'error'
 }
 ```
 
@@ -340,193 +367,45 @@ export async function mergeWorktree(
 
 ### Stale Worktree Detection
 
-A worktree is considered stale when:
-
-1. **No recent activity**: No commits in the last 7 days (configurable)
-2. **Branch deleted**: Remote branch no longer exists
-3. **Task completed**: Associated task is in `verified` status
-4. **Orphaned**: No associated task record
+The `prune()` method finds and removes worktrees that have been inactive for more than 7 days (based on `updatedAt` timestamp). It queries for `active` worktrees with `updatedAt` older than the threshold and force-removes them.
 
 ```typescript
-// lib/worktrees/cleanup.ts
-import { $ } from 'bun';
-import { db } from '@/db/client';
-import { worktrees, projects, tasks } from '@/db/schema';
-import { eq, and, lt, isNull, inArray } from 'drizzle-orm';
-import { ok, err, type Result } from '@/lib/utils/result';
+// src/services/worktree.service.ts (prune method)
 
-export interface StaleWorktree {
-  id: string;
-  branch: string;
-  path: string;
-  reason: 'no_activity' | 'branch_deleted' | 'task_completed' | 'orphaned';
-  lastActivity: Date | null;
-  diskUsage: number;
-}
-
-export async function findStaleWorktrees(
-  projectId: string,
-  inactivityDays = 7
-): Promise<Result<StaleWorktree[], WorktreeError>> {
-  const project = await db.query.projects.findFirst({
-    where: eq(projects.id, projectId),
-  });
-
-  if (!project) {
-    return err(WorktreeErrors.NOT_FOUND);
-  }
-
-  const activeWorktrees = await db.query.worktrees.findMany({
+async prune(projectId: string): WorktreeServiceResult<PruneResult> {
+  // Use ISO string for comparison since SQLite stores dates as TEXT
+  const staleThreshold = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const stale = await this.db.query.worktrees.findMany({
     where: and(
       eq(worktrees.projectId, projectId),
-      eq(worktrees.status, 'active')
+      eq(worktrees.status, 'active'),
+      lt(worktrees.updatedAt, staleThreshold)
     ),
-    with: { task: true },
   });
 
-  const staleWorktrees: StaleWorktree[] = [];
-  const inactivityThreshold = new Date();
-  inactivityThreshold.setDate(inactivityThreshold.getDate() - inactivityDays);
+  let pruned = 0;
+  const failed: PruneResult['failed'] = [];
 
-  for (const worktree of activeWorktrees) {
-    // Check disk usage
-    const duResult = await $`du -sb ${worktree.path}`.quiet();
-    const diskUsage = parseInt(duResult.stdout.toString().split('\t')[0], 10) || 0;
-
-    // Check if branch exists on remote
-    const branchExists = await $`git -C ${project.path} ls-remote --heads origin ${worktree.branch}`.quiet();
-    const branchDeleted = branchExists.stdout.toString().trim() === '';
-
-    // Check last commit date
-    const lastCommitResult = await $`git -C ${worktree.path} log -1 --format=%ci`.quiet();
-    const lastActivity = lastCommitResult.exitCode === 0
-      ? new Date(lastCommitResult.stdout.toString().trim())
-      : null;
-
-    // Determine if stale
-    let reason: StaleWorktree['reason'] | null = null;
-
-    if (!worktree.task) {
-      reason = 'orphaned';
-    } else if (worktree.task.column === 'verified') {
-      reason = 'task_completed';
-    } else if (branchDeleted) {
-      reason = 'branch_deleted';
-    } else if (lastActivity && lastActivity < inactivityThreshold) {
-      reason = 'no_activity';
-    }
-
-    if (reason) {
-      staleWorktrees.push({
-        id: worktree.id,
+  for (const worktree of stale) {
+    const result = await this.remove(worktree.id, true);
+    if (result.ok) {
+      pruned += 1;
+    } else {
+      failed.push({
+        worktreeId: worktree.id,
         branch: worktree.branch,
-        path: worktree.path,
-        reason,
-        lastActivity,
-        diskUsage,
+        error: String(result.error),
       });
     }
   }
 
-  return ok(staleWorktrees);
-}
-
-export async function pruneWorktrees(
-  projectId: string,
-  worktreeIds: string[]
-): Promise<Result<PruneResult, WorktreeError>> {
-  const project = await db.query.projects.findFirst({
-    where: eq(projects.id, projectId),
-  });
-
-  if (!project) {
-    return err(WorktreeErrors.NOT_FOUND);
-  }
-
-  const worktreesToPrune = await db.query.worktrees.findMany({
-    where: and(
-      eq(worktrees.projectId, projectId),
-      inArray(worktrees.id, worktreeIds)
-    ),
-  });
-
-  let freedBytes = 0;
-  const removedPaths: string[] = [];
-
-  for (const worktree of worktreesToPrune) {
-    try {
-      // Get disk usage before removal
-      const duResult = await $`du -sb ${worktree.path}`.quiet();
-      const bytes = parseInt(duResult.stdout.toString().split('\t')[0], 10) || 0;
-
-      // Remove worktree
-      await $`git -C ${project.path} worktree remove ${worktree.path} --force`.quiet();
-
-      // Delete branch if it still exists locally
-      await $`git -C ${project.path} branch -D ${worktree.branch}`.quiet();
-
-      // Update database
-      await db.update(worktrees)
-        .set({ status: 'removed', removedAt: new Date() })
-        .where(eq(worktrees.id, worktree.id));
-
-      freedBytes += bytes;
-      removedPaths.push(worktree.path);
-    } catch (error) {
-      // Log error but continue with other worktrees
-      console.error(`Failed to prune worktree ${worktree.path}:`, error);
-    }
-  }
-
-  // Run git worktree prune to clean up stale references
-  await $`git -C ${project.path} worktree prune`.quiet();
-
-  return ok({
-    removedCount: removedPaths.length,
-    freedBytes,
-    removedPaths,
-  });
+  return ok({ pruned, failed });
 }
 ```
 
-### Auto-Cleanup Configuration
+### Filesystem Sync
 
-```typescript
-// lib/worktrees/auto-cleanup.ts
-import { CronJob } from 'cron';
-
-export interface AutoCleanupConfig {
-  enabled: boolean;
-  inactivityDays: number;      // Default: 7
-  maxDiskUsageBytes: number;   // Default: 5GB
-  runSchedule: string;         // Cron expression, default: '0 0 * * *' (midnight daily)
-}
-
-export function startAutoCleanup(projectId: string, config: AutoCleanupConfig) {
-  if (!config.enabled) return;
-
-  const job = new CronJob(config.runSchedule, async () => {
-    const staleResult = await findStaleWorktrees(projectId, config.inactivityDays);
-
-    if (!staleResult.ok) {
-      console.error('Failed to find stale worktrees:', staleResult.error);
-      return;
-    }
-
-    // Only auto-prune worktrees with deleted branches
-    const safeToPrune = staleResult.value
-      .filter(w => w.reason === 'branch_deleted' || w.reason === 'task_completed')
-      .map(w => w.id);
-
-    if (safeToPrune.length > 0) {
-      await pruneWorktrees(projectId, safeToPrune);
-    }
-  });
-
-  job.start();
-  return job;
-}
-```
+The `list()` method performs a filesystem consistency check: it verifies each worktree path still exists on disk using `existsSync()`. Any records pointing to missing directories are automatically cleaned up (deleted from the database) in the background.
 
 ---
 
@@ -549,105 +428,75 @@ All worktree errors are defined in the error catalog. Key error codes:
 
 ### Error Recovery Strategies
 
+Recovery from stuck states is handled by setting the worktree status to `error` via `updatedAt` timestamp updates. The `remove()` method with `force=true` can clean up any worktree regardless of its current state.
+
 ```typescript
-// lib/worktrees/recovery.ts
-
-// Recover from stuck 'creating' state
-export async function recoverStuckWorktree(worktreeId: string): Promise<void> {
-  const worktree = await db.query.worktrees.findFirst({
-    where: eq(worktrees.id, worktreeId),
-    with: { project: true },
-  });
-
-  if (!worktree || worktree.status !== 'creating') return;
-
-  // Check if worktree actually exists
-  const existsResult = await $`git -C ${worktree.project.path} worktree list --porcelain`.quiet();
-  const exists = existsResult.stdout.toString().includes(worktree.path);
-
-  if (exists) {
-    // Worktree exists but DB stuck - update status
-    await db.update(worktrees)
-      .set({ status: 'active' })
-      .where(eq(worktrees.id, worktreeId));
-  } else {
-    // Worktree doesn't exist - mark as error
-    await db.update(worktrees)
-      .set({ status: 'error', lastError: 'Worktree not found during recovery' })
-      .where(eq(worktrees.id, worktreeId));
-  }
-}
-
-// Force remove a stuck worktree
-export async function forceRemoveWorktree(worktreeId: string): Promise<void> {
-  const worktree = await db.query.worktrees.findFirst({
-    where: eq(worktrees.id, worktreeId),
-    with: { project: true },
-  });
-
-  if (!worktree) return;
-
-  // Force remove regardless of state
-  await $`git -C ${worktree.project.path} worktree remove ${worktree.path} --force`.quiet();
-  await $`rm -rf ${worktree.path}`.quiet(); // Ensure directory is gone
-  await $`git -C ${worktree.project.path} worktree prune`.quiet();
-
-  await db.update(worktrees)
-    .set({ status: 'removed', removedAt: new Date() })
-    .where(eq(worktrees.id, worktreeId));
-}
+// Force remove a stuck worktree via the service
+const result = await worktreeService.remove(worktreeId, true);
+// This will:
+// 1. Set status to 'removing'
+// 2. Run `git worktree remove --force`
+// 3. Run `git branch -D` to delete the local branch
+// 4. Set status to 'removed' with removedAt timestamp
+// On failure: set status to 'error'
 ```
+
+Note: The worktrees table does not have `lastError` or tracking columns for individual setup steps (`envCopied`, `depsInstalled`, `initScriptRun`). Errors during creation set status to `error` and return the error via the `Result` type.
 
 ---
 
-## Bun Shell Command Reference
+## Command Execution
+
+### CommandRunner Abstraction
+
+All shell commands are executed through a `CommandRunner` interface, not directly via Bun's `$` shell. This enables both local and sandboxed (Docker container) execution:
+
+```typescript
+export type CommandRunner = {
+  exec: (command: string, cwd: string) => Promise<{ stdout: string; stderr: string }>;
+};
+```
+
+For sandboxed execution, use `createSandboxCommandRunner()` which wraps commands in `sh -c` calls inside the container. All command arguments are escaped via `escapeShellString()` and validated against injection patterns via `validateShellCommand()`.
 
 ### Common Operations
 
 ```typescript
-import { $ } from 'bun';
-
 // Create worktree with new branch
-await $`git -C ${projectPath} worktree add ${worktreePath} -b ${branch} ${baseBranch}`;
-
-// List all worktrees
-const list = await $`git -C ${projectPath} worktree list --porcelain`;
+await runner.exec(`git worktree add "${path}" -b "${branch}" "${baseBranch}"`, projectPath);
 
 // Remove worktree
-await $`git -C ${projectPath} worktree remove ${worktreePath}`;
+await runner.exec(`git worktree remove "${path}"`, projectPath);
 
 // Force remove worktree
-await $`git -C ${projectPath} worktree remove ${worktreePath} --force`;
-
-// Prune stale worktree references
-await $`git -C ${projectPath} worktree prune`;
+await runner.exec(`git worktree remove "${path}" --force`, projectPath);
 
 // Check if branch exists
-const exists = await $`git -C ${projectPath} rev-parse --verify ${branch}`.quiet();
-
-// Get disk usage
-const du = await $`du -sb ${worktreePath}`;
+const check = await runner.exec(`git branch --list "${branch}"`, projectPath);
 
 // Copy environment file
-await $`cp ${envSource} ${envDest}`;
+await runner.exec(`cp "${envSource}" "${envTarget}"`, projectPath);
 
 // Install dependencies
-await $`cd ${worktreePath} && bun install`;
+await runner.exec('bun install', worktreePath);
+
+// Stage all changes and commit
+await runner.exec('git add -A', worktreePath);
+await runner.exec(`git commit -m "${message}"`, worktreePath);
 
 // Check for uncommitted changes
-const status = await $`git -C ${worktreePath} status --porcelain`;
+const status = await runner.exec('git status --porcelain', worktreePath);
 
-// Get last commit date
-const lastCommit = await $`git -C ${worktreePath} log -1 --format=%ci`;
-
-// Merge branch
-await $`git -C ${projectPath} merge ${branch} --no-ff -m "Merge ${branch}"`;
+// Merge branch (from main worktree)
+await runner.exec(`git checkout "${target}"`, projectPath);
+await runner.exec('git pull --rebase', projectPath);
+await runner.exec(`git merge "${branch}" --no-ff -m "${message}"`, projectPath);
 
 // Delete branch
-await $`git -C ${projectPath} branch -d ${branch}`;
+await runner.exec(`git branch -D "${branch}"`, projectPath);
 
-// Force delete branch
-await $`git -C ${projectPath} branch -D ${branch}`;
+// Get diff against base branch
+await runner.exec(`git diff --numstat "${baseBranch}"...HEAD`, worktreePath);
 ```
 
 ---
@@ -656,56 +505,59 @@ await $`git -C ${projectPath} branch -D ${branch}`;
 
 ### Worktree Table Schema
 
-Defined in `/specs/database/schema.md`:
+Defined in `src/db/schema/sqlite/worktrees.ts`:
 
 ```typescript
-export const worktrees = pgTable('worktrees', {
+import { createId } from '@paralleldrive/cuid2';
+import { sql } from 'drizzle-orm';
+import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import type { WorktreeStatus } from '../shared/enums';
+
+export const worktrees = sqliteTable('worktrees', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
-  taskId: text('task_id').references(() => tasks.id, { onDelete: 'set null' }),
+  agentId: text('agent_id').references((): AnySQLiteColumn => agents.id, { onDelete: 'set null' }),
+  taskId: text('task_id').references((): AnySQLiteColumn => tasks.id, { onDelete: 'set null' }),
   branch: text('branch').notNull(),
-  baseBranch: text('base_branch').notNull().default('main'),
   path: text('path').notNull(),
-  status: worktreeStatusEnum('status').notNull().default('creating'),
-  envCopied: boolean('env_copied').default(false),
-  depsInstalled: boolean('deps_installed').default(false),
-  initScriptRun: boolean('init_script_run').default(false),
-  lastError: text('last_error'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-  mergedAt: timestamp('merged_at'),
-  removedAt: timestamp('removed_at'),
+  baseBranch: text('base_branch').default('main').notNull(),
+  status: text('status').$type<WorktreeStatus>().default('creating').notNull(),
+  createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
+  updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
+  mergedAt: text('merged_at'),
+  removedAt: text('removed_at'),
 });
 ```
 
 ### Status Enum
 
+SQLite does not have native enums. Status values are defined as a const array in `src/db/schema/shared/enums.ts` and validated at the application level:
+
 ```typescript
-export const worktreeStatusEnum = pgEnum('worktree_status', [
+export const WORKTREE_STATUS = [
   'creating',   // Worktree being set up
   'active',     // Ready for agent use
   'merging',    // Being merged to base
   'removing',   // Being cleaned up
   'removed',    // Successfully removed
   'error',      // Failed state
-]);
+] as const;
+export type WorktreeStatus = (typeof WORKTREE_STATUS)[number];
 ```
 
 ---
 
 ## Workflow Events
 
-Published via Durable Streams when worktree state changes:
+Published via Durable Streams when worktree state changes. The event types are defined in `src/lib/sessions/schema.ts` and `src/lib/integrations/durable-streams/schema.ts`:
 
 ```typescript
-type WorktreeEvent =
-  | { type: 'worktree:creating'; worktreeId: string; branch: string; taskId: string }
-  | { type: 'worktree:created'; worktreeId: string; branch: string; path: string }
-  | { type: 'worktree:merging'; worktreeId: string; branch: string }
-  | { type: 'worktree:merged'; worktreeId: string; branch: string }
-  | { type: 'worktree:removing'; worktreeId: string; branch: string }
-  | { type: 'worktree:removed'; worktreeId: string; branch: string }
-  | { type: 'worktree:error'; worktreeId: string; branch: string; error: string };
+// Only three worktree event types are emitted:
+type WorktreeEventType =
+  | 'worktree:created'   // Worktree successfully created and active
+  | 'worktree:merged'    // Worktree branch merged into base
+  | 'worktree:removed';  // Worktree cleaned up and removed
 ```
 
 ---
@@ -719,3 +571,13 @@ type WorktreeEvent =
 | [User Stories](../user-stories.md) | Isolation requirements |
 | [Test Cases](../testing/test-cases.md) | Worktree lifecycle tests |
 | [GitHub App](./github-app.md) | Branch/PR operations |
+
+### Key Implementation Files
+
+| File | Purpose |
+|------|---------|
+| `src/services/worktree.service.ts` | WorktreeService class with all worktree operations |
+| `src/db/schema/sqlite/worktrees.ts` | SQLite table definition (sqliteTable, text columns) |
+| `src/db/schema/shared/enums.ts` | WORKTREE_STATUS const array (6 states) |
+| `src/lib/errors/worktree-errors.ts` | Worktree error definitions |
+| `src/lib/utils/slugify.ts` | Task title to branch name conversion |

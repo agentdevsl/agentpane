@@ -439,7 +439,7 @@ function ToasterContent({ toasts, onDismiss }: ToasterContentProps) {
 }
 
 // Re-export for external use
-export { ToastItem, ToasterContent };
+export { ToasterContent, ToastItem };
 
 // =============================================================================
 // Toaster Component (complete implementation with store integration)

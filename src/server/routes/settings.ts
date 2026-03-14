@@ -78,12 +78,7 @@ export function createSettingsRoutes({ db }: SettingsDeps) {
         try {
           const parsed = JSON.parse(row.value);
           const sensitive = SENSITIVE_FIELDS[row.key];
-          if (
-            sensitive &&
-            typeof parsed === 'object' &&
-            parsed !== null &&
-            parsed[sensitive.secretKey]
-          ) {
+          if (sensitive && typeof parsed === 'object' && parsed?.[sensitive.secretKey]) {
             parsed[sensitive.flagKey] = true;
             delete parsed[sensitive.secretKey];
           }

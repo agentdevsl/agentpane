@@ -1048,7 +1048,7 @@ export function createSessionStream(sessionId: string): DurableStreamClient<Sess
   return new DurableStreamClient<SessionStreamEvent>({
     streamId: `session:${sessionId}`,
     persistence: {
-      type: 'pglite',
+      type: 'sqlite',
       table: 'session_events',
     },
   });

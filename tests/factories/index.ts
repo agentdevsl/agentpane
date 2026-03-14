@@ -10,4 +10,4 @@ export { createTestSession } from './session.factory';
 export { createTestTask } from './task.factory';
 export { createTestWorktree } from './worktree.factory';
 
-export type { Project, Task, Agent, Session, Worktree, AgentRun };
+export type { Agent, AgentRun, Project, Session, Task, Worktree };

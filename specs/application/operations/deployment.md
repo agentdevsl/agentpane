@@ -9,18 +9,19 @@ This specification defines the deployment architecture, environment configuratio
 | Component | Technology | Version |
 |-----------|------------|---------|
 | Runtime | Bun | 1.3.10 |
-| Framework | TanStack Start | 1.150.0 |
-| Database | PGlite | 0.3.15 |
+| Framework | Vite + TanStack Router | 7.3.1 / 1.150.0 |
+| Database (default) | SQLite via better-sqlite3 | 12.6.2 |
+| Database (optional) | PostgreSQL via postgres.js | 3.4.8 |
 | ORM | Drizzle | 0.45.1 |
-| Agent Events | Durable Streams | 0.1.5 |
-| AI/Agents | Claude Agent SDK | 0.2.9 |
-| Testing | Vitest | 4.0.17 |
-| Linting | Biome | 2.3.11 |
+| Agent Events | Durable Streams | 0.2.x |
+| AI/Agents | Claude Agent SDK | 0.2.63 |
+| Testing | Vitest | 4.0.16 |
+| Linting | Biome | 2.4.4 |
 
 **Related Specifications:**
 
 - [App Bootstrap](../architecture/app-bootstrap.md) - Application initialization sequence
-- [Database Schema](../database/schema.md) - PGlite schema and migrations
+- [Database Schema](../database/schema.md) - SQLite/PostgreSQL schema and migrations
 - [Configuration Management](../configuration/config-management.md) - Environment and config handling
 - [Security Model](../security/security-model.md) - Secrets and credential management
 - [Durable Sessions](../integrations/durable-sessions.md) - Real-time event streaming
@@ -39,22 +40,26 @@ AgentPane is designed as a developer-first local application. The primary deploy
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                               │
 │  ┌─────────────────────────────────────────────────────────────────────────┐ │
-│  │                        AgentPane Process (Bun)                          │ │
+│  │                        AgentPane Processes                              │ │
 │  │                                                                         │ │
 │  │  ┌───────────────┐  ┌───────────────┐  ┌───────────────────────────┐   │ │
-│  │  │   TanStack    │  │   Durable     │  │    Claude Agent SDK       │   │ │
-│  │  │   Start       │  │   Streams     │  │    Workers (1-6)          │   │ │
-│  │  │   Server      │  │   Server      │  │                           │   │ │
-│  │  │   :5173       │  │   (SSE/WS)    │  │    ┌───┐ ┌───┐ ┌───┐     │   │ │
+│  │  │   Vite Dev    │  │   Durable     │  │    Claude Agent SDK       │   │ │
+│  │  │   Server      │  │   Streams     │  │    Workers (1-6)          │   │ │
+│  │  │   :3000       │  │   Server      │  │                           │   │ │
+│  │  │  (frontend)   │  │   :3002       │  │    ┌───┐ ┌───┐ ┌───┐     │   │ │
 │  │  │               │  │               │  │    │ A │ │ A │ │ A │     │   │ │
 │  │  └───────────────┘  └───────────────┘  │    └───┘ └───┘ └───┘     │   │ │
 │  │         │                   │          └───────────────────────────┘   │ │
-│  │         │                   │                      │                   │ │
+│  │         │   ┌───────────────┤                      │                   │ │
+│  │         │   │ Hono API      │                      │                   │ │
+│  │         │   │ Server        │                      │                   │ │
+│  │         │   │ :3001         │                      │                   │ │
+│  │         │   └───────────────┤                      │                   │ │
 │  │         └───────────────────┴──────────────────────┘                   │ │
 │  │                             │                                          │ │
 │  │  ┌──────────────────────────┴──────────────────────────────────────┐  │ │
-│  │  │                      PGlite Database                             │  │ │
-│  │  │                   ~/.agentpane/data/                             │  │ │
+│  │  │                      SQLite Database                             │  │ │
+│  │  │                    ./data/agentpane.db                           │  │ │
 │  │  └─────────────────────────────────────────────────────────────────┘  │ │
 │  └─────────────────────────────────────────────────────────────────────────┘ │
 │                                                                               │
@@ -90,23 +95,18 @@ bun install
 cp .env.example .env
 # Edit .env with your ANTHROPIC_API_KEY
 
-# 4. Initialize database
+# 4. Initialize database (auto-migrates on startup, or manual push)
 bun run db:push
 
-# 5. Start application
+# 5. Start application (3 processes: Vite :3000, API :3001, Streams :3002)
 bun run dev
 ```
 
 #### Directory Structure (Local)
 
 ```
-~/.agentpane/                    # Application data directory
-├── data/
-│   └── agentpane.db            # PGlite database file
-├── settings.json               # User preferences (theme, shortcuts)
-├── credentials.json            # Encrypted credentials (if not using env vars)
-├── sessions/                   # Session history cache
-└── cache/                      # Temporary cache
+./data/                          # Application data directory (project-local)
+└── agentpane.db                 # SQLite database file
 
 ~/.claude/                       # Global Claude configuration
 ├── settings.json               # Global user settings
@@ -120,124 +120,195 @@ bun run dev
 
 ### 1.2 Docker Containerization
 
+The production Docker image runs a Caddy-based reverse proxy (durable-streams-server) in front of the Bun API server, serving static assets and providing durable streams persistence via LMDB.
+
+#### Production Architecture (Docker)
+
+```
+┌──────────────────────────────────────────────────────┐
+│  Docker Container (agentpane)                          │
+│                                                        │
+│  ┌──────────────────────────────────────────────────┐ │
+│  │  durable-streams-server (Caddy)  :3000            │ │
+│  │  ┌──────────────┬──────────────┬────────────────┐ │ │
+│  │  │ /healthz     │ /v1/stream/* │ /api/*         │ │ │
+│  │  │ → "OK" 200   │ → LMDB      │ → reverse_proxy│ │ │
+│  │  │              │   streams    │   localhost:3001│ │ │
+│  │  │              │              ├────────────────┤ │ │
+│  │  │              │              │ /*             │ │ │
+│  │  │              │              │ → static files │ │ │
+│  │  │              │              │   /app/dist    │ │ │
+│  │  └──────────────┴──────────────┴────────────────┘ │ │
+│  └──────────────────────────────────────────────────┘ │
+│                          │                              │
+│  ┌──────────────────────────────────────────────────┐ │
+│  │  Bun API Server  :3001                            │ │
+│  │  (Hono routes, SQLite, agent orchestration)       │ │
+│  └──────────────────────────────────────────────────┘ │
+│                          │                              │
+│  ┌──────────────────────────────────────────────────┐ │
+│  │  /app/data/agentpane.db    (SQLite)               │ │
+│  │  /app/streams/             (LMDB durable streams) │ │
+│  └──────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────┘
+```
+
 #### Production Dockerfile
 
+The actual Dockerfile (`docker/Dockerfile`) uses a multi-stage build:
+
 ```dockerfile
-# Dockerfile
-FROM oven/bun:1.3.10-slim AS base
-WORKDIR /app
+# docker/Dockerfile
+# Stage 1: deps  - Install Bun + agent-runner dependencies
+FROM oven/bun:1.3.10-alpine AS deps
 
-# Install dependencies layer
-FROM base AS deps
-COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile --production
+# Stage 2: build - Build frontend (vite build), typecheck, agent-runner
+FROM oven/bun:1.3.10-alpine AS build
 
-# Build layer
-FROM base AS builder
-COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile
-COPY . .
-ENV NODE_ENV=production
-RUN bun run build
+# Stage 3: caddy - Download durable-streams-server binary (Caddy + LMDB plugin)
+FROM alpine:3.21 AS caddy
+# Downloads platform-specific binary from GitHub releases
 
-# Production layer
-FROM base AS runner
-WORKDIR /app
+# Stage 4: runtime - Production image
+FROM oven/bun:1.3.10-alpine AS runtime
+# Installs: git, tini, wget, bash
+# Copies: durable-streams-server, dist/, agent-runner/dist/, node_modules/
+# Copies: Caddyfile, start.sh
+# Creates: /app/data (SQLite), /app/streams (LMDB)
+# Runs as: bun user (non-root)
+# Exposes: 3000 (Caddy front door)
+# Entrypoint: tini -- /app/start.sh
+# Health: wget http://localhost:3000/healthz
+```
 
-ENV NODE_ENV=production
-ENV BUN_ENV=production
+**Key differences from a naive Dockerfile:**
+- Uses `tini` as PID 1 for proper signal handling
+- Runs `durable-streams-server` (Caddy) + `bun src/server/api.ts` via `start.sh`
+- Caddy handles static file serving, SSE streams (LMDB-backed), and reverse-proxies `/api/*` to the Bun API
+- Environment: `DB_PATH=/app/data/agentpane.db`
 
-# Create non-root user
-RUN addgroup --system --gid 1001 agentpane && \
-    adduser --system --uid 1001 --ingroup agentpane agentpane
+#### Caddyfile
 
-# Create data directories
-RUN mkdir -p /app/data /home/agentpane/.agentpane /home/agentpane/.claude && \
-    chown -R agentpane:agentpane /app /home/agentpane
+The `Caddyfile` in the project root configures the Caddy reverse proxy:
 
-# Copy built artifacts
-COPY --from=deps --chown=agentpane:agentpane /app/node_modules ./node_modules
-COPY --from=builder --chown=agentpane:agentpane /app/.output ./.output
-COPY --from=builder --chown=agentpane:agentpane /app/drizzle ./drizzle
+```
+{
+  admin off
+  auto_https off
+}
 
-USER agentpane
+:3000 {
+  # Health check for Caddy itself
+  handle /healthz {
+    respond "OK" 200
+  }
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:5173/api/health || exit 1
+  # Durable streams (LMDB persistence, SSE + long-poll)
+  @streams path /v1/stream /v1/stream/*
+  handle @streams {
+    durable_streams {
+      data_dir {$STREAMS_DATA_DIR:/app/data/streams}
+      long_poll_timeout 30s
+      sse_reconnect_interval 120s
+    }
+  }
 
-EXPOSE 5173
+  # Reverse proxy to Bun API server
+  handle /api/* {
+    reverse_proxy localhost:3001 {
+      flush_interval -1
+    }
+  }
 
-# Environment variable placeholders
-ENV ANTHROPIC_API_KEY=""
-ENV DATABASE_URL="/app/data/agentpane.db"
-ENV APP_URL="http://localhost:5173"
-ENV LOG_LEVEL="info"
-
-CMD ["bun", "run", ".output/server/index.mjs"]
+  # Static files with SPA fallback
+  handle {
+    root * /app/dist
+    encode gzip br
+    try_files {path} /index.html
+    file_server {
+      precompressed gzip br
+    }
+    @immutable path /assets/*
+    header @immutable Cache-Control "public, max-age=31536000, immutable"
+  }
+}
 ```
 
 #### Docker Compose Configuration
 
 ```yaml
-# docker-compose.yml
-version: '3.9'
-
+# docker/docker-compose.yml
 services:
   agentpane:
     build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: agentpane
-    restart: unless-stopped
+      context: ..
+      dockerfile: docker/Dockerfile
     ports:
-      - "5173:5173"
-    environment:
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
-      - DATABASE_URL=/app/data/agentpane.db
-      - APP_URL=${APP_URL:-http://localhost:5173}
-      - NODE_ENV=production
-      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - "3000:3000"
     volumes:
-      # Persistent database storage
       - agentpane-data:/app/data
-      # Mount user's Claude config (read-only)
-      - ${HOME}/.claude:/home/agentpane/.claude:ro
-      # Mount project directories for git worktrees
-      - ${PROJECT_ROOT:-/home/user/projects}:/projects:rw
+      - agentpane-streams:/app/streams
+    environment:
+      - NODE_ENV=production
+      - DB_PATH=/app/data/agentpane.db
+      - STREAMS_DATA_DIR=/app/streams
+      - CADDY_STREAMS_URL=http://localhost:3000/v1/stream
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - CLAUDE_OAUTH_TOKEN=${CLAUDE_OAUTH_TOKEN:-}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5173/api/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/healthz"]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
       start_period: 10s
-    security_opt:
-      - no-new-privileges:true
-    read_only: true
-    tmpfs:
-      - /tmp:mode=1777,size=100m
+    restart: unless-stopped
 
 volumes:
   agentpane-data:
-    driver: local
+  agentpane-streams:
+```
+
+#### Start Script (`docker/start.sh`)
+
+The start script runs both Caddy and the Bun API server as co-processes:
+
+```bash
+#!/bin/bash
+set -e
+trap 'kill $CADDY_PID $BUN_PID 2>/dev/null; wait' SIGTERM SIGINT
+
+# Start Caddy (durable-streams-server) in background
+/usr/local/bin/durable-streams-server run --config /app/Caddyfile &
+CADDY_PID=$!
+
+# Wait for Caddy to be ready, then start Bun API
+bun src/server/api.ts &
+BUN_PID=$!
+
+# Wait for either process to exit, then shut down the other
+wait -n
+kill $CADDY_PID $BUN_PID 2>/dev/null || true
+wait || true
 ```
 
 #### Docker Commands
 
 ```bash
-# Build image
-docker build -t agentpane:latest .
+# Build image (must specify TARGETARCH for durable-streams-server binary)
+docker build -f docker/Dockerfile --build-arg TARGETARCH=amd64 -t agentpane:latest .
 
 # Run container
 docker run -d \
   --name agentpane \
-  -p 5173:5173 \
+  -p 3000:3000 \
   -e ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}" \
   -v agentpane-data:/app/data \
-  -v "${HOME}/.claude:/home/agentpane/.claude:ro" \
-  -v "${HOME}/projects:/projects:rw" \
+  -v agentpane-streams:/app/streams \
   agentpane:latest
+
+# Run via docker compose
+docker compose -f docker/docker-compose.yml up --build
 
 # View logs
 docker logs -f agentpane
@@ -246,9 +317,84 @@ docker logs -f agentpane
 docker stop agentpane && docker rm agentpane
 ```
 
+#### Optional: PostgreSQL via Docker Compose
+
+For teams that prefer PostgreSQL over SQLite:
+
+```yaml
+# docker/docker-compose.postgres.yml
+services:
+  postgres:
+    image: postgres:18
+    container_name: agentpane-postgres
+    environment:
+      POSTGRES_DB: agentpane
+      POSTGRES_USER: agentpane
+      POSTGRES_PASSWORD: agentpane_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentpane -d agentpane"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  pgdata:
+```
+
+```bash
+# Start PostgreSQL
+npm run docker:pg
+
+# Run with PostgreSQL mode
+DB_MODE=postgres DATABASE_URL=postgresql://agentpane:agentpane_dev@localhost:5432/agentpane bun run dev
+
+# Stop PostgreSQL
+npm run docker:pg:down
+```
+
 ---
 
-### 1.3 Cloud Deployment Options
+### 1.3 Agent Sandbox Containers
+
+AgentPane can run Claude agents inside isolated Docker containers. Two sandbox Dockerfiles exist:
+
+#### Agent Sandbox (`docker/Dockerfile.agent-sandbox`)
+
+Based on `srlynch1/terraform-ai-tools`, adds:
+- Claude Code CLI (globally installed)
+- Agent runner (`agent-runner/dist/`)
+- ripgrep, fd-find, tree
+- Git safe directory config
+- Non-root `node` user with limited sudo
+- Entrypoint script for permission fixes on bind-mounted volumes
+
+```bash
+# Build agent sandbox
+./docker/build-agent-sandbox.sh
+# or
+docker build -f docker/Dockerfile.agent-sandbox -t agentpane/agent-sandbox:latest .
+```
+
+#### AgentCore (`docker/Dockerfile.agentcore`)
+
+For AWS Bedrock AgentCore deployment (ARM64 only):
+- Based on `node:22-bookworm-slim`
+- Claude Agent SDK + bedrock-agentcore runtime
+- Exposes port 8080 for `/invocations` and `/ping`
+- Entry point: `node /opt/agent-runner/dist/agentcore-handler.js`
+
+```bash
+docker build --platform linux/arm64 -f docker/Dockerfile.agentcore -t agentpane-agentcore:latest .
+```
+
+---
+
+### 1.4 Cloud Deployment Options
 
 For teams requiring multi-user access or higher availability, AgentPane can be deployed to cloud infrastructure.
 
@@ -280,7 +426,8 @@ For teams requiring multi-user access or higher availability, AgentPane can be d
 │  │                          Shared Storage                                 │ │
 │  │                    (EFS / Cloud Filestore)                              │ │
 │  │                                                                         │ │
-│  │  ├── /data/agentpane.db         # PGlite database (single-writer)      │ │
+│  │  ├── /data/agentpane.db         # SQLite database (single-writer)      │ │
+│  │  ├── /streams/                  # LMDB durable streams data            │ │
 │  │  ├── /projects/                 # Mounted project repositories          │ │
 │  │  └── /config/                   # Shared configuration                  │ │
 │  └─────────────────────────────────────────────────────────────────────────┘ │
@@ -350,26 +497,26 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1001
-        fsGroup: 1001
       containers:
         - name: agentpane
           image: ghcr.io/your-org/agentpane:latest
           ports:
-            - containerPort: 5173
+            - containerPort: 3000
           env:
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: agentpane-secrets
                   key: anthropic-api-key
-            - name: DATABASE_URL
+            - name: DB_PATH
               value: "/data/agentpane.db"
             - name: NODE_ENV
               value: "production"
           volumeMounts:
             - name: data
-              mountPath: /data
+              mountPath: /app/data
+            - name: streams
+              mountPath: /app/streams
             - name: projects
               mountPath: /projects
           resources:
@@ -381,20 +528,23 @@ spec:
               memory: "4Gi"
           livenessProbe:
             httpGet:
-              path: /api/health
-              port: 5173
+              path: /healthz
+              port: 3000
             initialDelaySeconds: 10
             periodSeconds: 30
           readinessProbe:
             httpGet:
-              path: /api/health/ready
-              port: 5173
+              path: /api/health
+              port: 3000
             initialDelaySeconds: 5
             periodSeconds: 10
       volumes:
         - name: data
           persistentVolumeClaim:
             claimName: agentpane-data
+        - name: streams
+          persistentVolumeClaim:
+            claimName: agentpane-streams
         - name: projects
           persistentVolumeClaim:
             claimName: agentpane-projects
@@ -411,7 +561,7 @@ spec:
 | Requirement | Minimum | Recommended |
 |-------------|---------|-------------|
 | Bun | 1.3.0+ | 1.3.10 |
-| Node.js | 22.0+ | 22.x LTS |
+| Node.js | 24.0+ | 24.x |
 | Git | 2.40+ | Latest |
 | Disk Space | 1 GB | 5 GB |
 | RAM | 4 GB | 8 GB+ |
@@ -432,12 +582,24 @@ bun install
 # Copy environment template
 cp .env.example .env.development.local
 
-# Initialize database
+# Initialize database (auto-migrates on startup)
 bun run db:push
 
-# Start development server with hot reload
+# Start development server (3 processes: Vite, API, Streams)
 bun run dev
 ```
+
+#### Development Process Architecture
+
+The `npm run dev` command runs `scripts/start-dev.ts`, which starts three processes:
+
+1. **DurableStreamTestServer** on port 3002 (Durable Streams for dev)
+2. **Bun API server** on port 3001 (`bun src/server/api.ts`)
+3. **Vite dev server** on port 3000 (with proxy rules to API and streams)
+
+The Vite dev server proxies:
+- `/api/*` requests to `http://localhost:3001`
+- `/v1/stream/*` requests to `http://localhost:3002`
 
 #### Development Environment File (.env.development.local)
 
@@ -445,11 +607,15 @@ bun run dev
 # Required
 ANTHROPIC_API_KEY=sk-ant-api03-...
 
-# Database (local PGlite)
-DATABASE_URL=./data/agentpane.db
+# Database mode (sqlite or postgres)
+DB_MODE=sqlite
+# For SQLite: data stored in ./data/agentpane.db by default
+# SQLITE_DATA_DIR=./data
+
+# For PostgreSQL (when DB_MODE=postgres):
+# DATABASE_URL=postgresql://agentpane:agentpane_dev@localhost:5432/agentpane
 
 # Application
-APP_URL=http://localhost:5173
 NODE_ENV=development
 LOG_LEVEL=debug
 
@@ -464,9 +630,8 @@ GITHUB_CLIENT_SECRET=...
 GITHUB_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"
 GITHUB_WEBHOOK_SECRET=whsec_...
 
-# Development-specific
-VITE_DEV_TOOLS=true
-DEBUG=agentpane:*
+# Optional: Skip authentication in dev mode
+SKIP_AUTH=true
 ```
 
 ---
@@ -489,16 +654,20 @@ DEBUG=agentpane:*
 ANTHROPIC_API_KEY=sk-ant-api03-...
 
 # Required - Database
-DATABASE_URL=/app/data/agentpane.db
-
-# Required - Application URL (for session sharing links)
-APP_URL=https://agentpane.your-domain.com
+DB_PATH=/app/data/agentpane.db
 
 # Required - Environment
 NODE_ENV=production
 
 # Logging
 LOG_LEVEL=info
+
+# Durable Streams
+STREAMS_DATA_DIR=/app/streams
+CADDY_STREAMS_URL=http://localhost:3000/v1/stream
+
+# Optional - Claude OAuth Token (for container agent execution)
+CLAUDE_OAUTH_TOKEN=sk-ant-oat01-...
 
 # Optional - GitHub Integration
 GITHUB_TOKEN=ghp_...
@@ -550,7 +719,7 @@ AGENT_TIMEOUT_MS=600000
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │ 5. Application Defaults (lowest priority)                                    │
-│    - Hard-coded in lib/config/defaults.ts                                   │
+│    - Hard-coded in src/db/client.ts and src/server/api.ts                   │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -559,10 +728,17 @@ AGENT_TIMEOUT_MS=600000
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `ANTHROPIC_API_KEY` | Yes | - | Claude API key |
-| `DATABASE_URL` | No | `./data/agentpane.db` | PGlite database path |
-| `APP_URL` | No | `http://localhost:5173` | Application base URL |
+| `DB_MODE` | No | `sqlite` | Database mode (`sqlite` or `postgres`) |
+| `DB_PATH` | No | `./data/agentpane.db` | SQLite database path (production) |
+| `SQLITE_DATA_DIR` | No | `./data` | SQLite data directory (dev) |
+| `DATABASE_URL` | No* | - | PostgreSQL connection string (*required when DB_MODE=postgres) |
 | `NODE_ENV` | No | `development` | Environment mode |
 | `LOG_LEVEL` | No | `info` | Logging verbosity |
+| `CORS_ORIGIN` | No | `http://localhost:3000` | CORS origin for API |
+| `STREAMS_DATA_DIR` | No | `/app/data/streams` | LMDB streams data directory |
+| `CADDY_STREAMS_URL` | No | - | Durable streams Caddy URL |
+| `SKIP_AUTH` | No | `false` | Skip authentication in dev mode |
+| `CLAUDE_OAUTH_TOKEN` | No | - | OAuth token for container agent execution |
 | `GITHUB_TOKEN` | No | - | GitHub PAT for basic integration |
 | `GITHUB_APP_ID` | No | - | GitHub App ID |
 | `GITHUB_CLIENT_ID` | No | - | OAuth client ID |
@@ -650,31 +826,39 @@ export async function loadSecrets(): Promise<SecretConfig> {
 ```json
 {
   "scripts": {
-    "dev": "vinxi dev",
-    "build": "vinxi build",
-    "start": "vinxi start",
-    "preview": "vinxi build && vinxi start",
+    "dev": "bun scripts/start-dev.ts",
+    "dev:simple": "bun run dev:api & vite",
+    "dev:vite": "vite",
+    "dev:api": "bun src/server/api.ts",
+    "build": "vite build && tsc --noEmit && npm run build:agent-runner",
+    "build:agent-runner": "cd agent-runner && npm run build",
 
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
+    "db:generate:pg": "drizzle-kit generate --config=drizzle.config.pg.ts",
+    "db:migrate:pg": "drizzle-kit migrate --config=drizzle.config.pg.ts",
+    "db:push:pg": "drizzle-kit push --config=drizzle.config.pg.ts",
+    "db:studio:pg": "drizzle-kit studio --config=drizzle.config.pg.ts",
+    "db:migrate:sqlite-to-pg": "bun scripts/migrate-sqlite-to-pg.ts",
 
-    "test": "vitest",
-    "test:ui": "vitest --ui",
-    "test:coverage": "vitest --coverage",
-    "test:e2e": "playwright test",
+    "docker:pg": "docker compose -f docker/docker-compose.postgres.yml up -d",
+    "docker:pg:down": "docker compose -f docker/docker-compose.postgres.yml down",
 
-    "lint": "biome check .",
-    "lint:fix": "biome check --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "vitest --config vitest.e2e.config.ts",
+    "test:ui": "bun scripts/run-ui-tests.ts",
+
+    "lint": "biome lint .",
+    "lint:fix": "biome lint --write .",
     "format": "biome format --write .",
-    "typecheck": "tsc --noEmit",
-
-    "clean": "rm -rf .output node_modules/.vite",
-    "clean:all": "rm -rf .output node_modules .vinxi",
-
-    "bundle:analyze": "ANALYZE=true bun run build",
-    "build:docker": "docker build -t agentpane:latest ."
+    "format:check": "biome format .",
+    "check": "biome check .",
+    "check:fix": "biome check --write .",
+    "typecheck": "tsc --noEmit"
   }
 }
 ```
@@ -683,9 +867,8 @@ export async function loadSecrets(): Promise<SecretConfig> {
 
 ```bash
 # Full build pipeline
-bun run clean
 bun run typecheck
-bun run lint
+bun run check
 bun run test
 bun run build
 ```
@@ -696,103 +879,51 @@ bun run build
 
 #### Vite Configuration
 
+The actual `vite.config.ts` uses:
+
 ```typescript
-// vite.config.ts
-import { defineConfig } from 'vite';
-import tailwindcss from '@tailwindcss/vite';
-import react from '@vitejs/plugin-react';
-import { visualizer } from 'rollup-plugin-visualizer';
-
-export default defineConfig(({ mode }) => ({
-  plugins: [
-    react(),
-    tailwindcss(),
-    mode === 'analyze' && visualizer({
-      open: true,
-      filename: '.output/stats.html',
-      gzipSize: true,
-      brotliSize: true,
-    }),
-  ].filter(Boolean),
-
-  build: {
-    // Enable minification
-    minify: 'esbuild',
-
-    // Code splitting
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          // Vendor chunks
-          'vendor-react': ['react', 'react-dom'],
-          'vendor-tanstack': [
-            '@tanstack/react-router',
-            '@tanstack/react-query',
-            '@tanstack/db',
-          ],
-          'vendor-radix': [
-            '@radix-ui/react-dialog',
-            '@radix-ui/react-dropdown-menu',
-            '@radix-ui/react-tabs',
-            '@radix-ui/react-tooltip',
-          ],
-          'vendor-dnd': ['@dnd-kit/core', '@dnd-kit/sortable'],
-        },
-      },
+export default defineConfig({
+  server: {
+    port: Number(process.env.PORT) || 3000,
+    proxy: {
+      '/api': { target: 'http://localhost:3001', changeOrigin: true, timeout: 0 },
+      '/v1/stream': { target: 'http://localhost:3002', changeOrigin: true, timeout: 0 },
     },
-
-    // Asset handling
-    assetsInlineLimit: 4096, // Inline assets < 4KB
-
-    // Source maps for production debugging
-    sourcemap: mode === 'production' ? 'hidden' : true,
-
-    // Output directory
-    outDir: '.output/client',
   },
-
-  // Optimize dependencies
+  plugins: [
+    tailwindcss(),
+    tsConfigPaths(),
+    TanStackRouterVite({ routesDirectory: './src/app/routes' }),
+    react(),
+    serverOnlyStubs(),  // Replaces server-only agent tools with browser stubs
+  ],
   optimizeDeps: {
-    include: [
-      'react',
-      'react-dom',
-      '@tanstack/react-router',
-      '@dnd-kit/core',
-    ],
+    exclude: ['@anthropic-ai/claude-agent-sdk', 'better-sqlite3'],
   },
-}));
+  build: {
+    target: 'esnext',
+    rollupOptions: { external: ['better-sqlite3'] },
+  },
+});
 ```
 
 #### Build Output Structure
 
 ```
-.output/
-├── client/                      # Client-side assets
-│   ├── assets/
-│   │   ├── index-[hash].js      # Main bundle
-│   │   ├── vendor-react-[hash].js
-│   │   ├── vendor-tanstack-[hash].js
-│   │   ├── vendor-radix-[hash].js
-│   │   └── index-[hash].css     # Compiled Tailwind CSS
-│   └── index.html
-├── server/
-│   └── index.mjs                # Server entry point
-└── stats.html                   # Bundle analysis (if ANALYZE=true)
+dist/                            # Client-side assets (Vite build output)
+├── assets/
+│   ├── index-[hash].js          # Main bundle
+│   ├── [chunk]-[hash].js        # Code-split chunks
+│   └── index-[hash].css         # Compiled Tailwind CSS
+└── index.html
+
+agent-runner/dist/               # Agent runner (compiled TypeScript)
+└── *.js
 ```
 
 ---
 
 ### 3.3 Bundle Analysis
-
-#### Analyze Build Size
-
-```bash
-# Generate bundle analysis
-ANALYZE=true bun run build
-
-# Opens interactive treemap in browser
-# Shows gzip and brotli sizes for each chunk
-```
 
 #### Size Budgets
 
@@ -800,143 +931,45 @@ ANALYZE=true bun run build
 |--------|-----------------|-------------|
 | Main JS | 150 KB | Core application code |
 | Vendor React | 50 KB | React and React DOM |
-| Vendor TanStack | 80 KB | Router, Query, DB |
+| Vendor TanStack | 80 KB | Router, DB |
 | Vendor Radix | 60 KB | UI components |
 | CSS | 30 KB | Tailwind styles |
 | Total Initial | 300 KB | First load |
-
-#### Performance Monitoring
-
-```typescript
-// lib/metrics/bundle-metrics.ts
-export function reportBundleMetrics() {
-  if (typeof window === 'undefined') return;
-
-  // Report to analytics
-  const entries = performance.getEntriesByType('resource');
-  const jsEntries = entries.filter(e => e.name.endsWith('.js'));
-  const cssEntries = entries.filter(e => e.name.endsWith('.css'));
-
-  const metrics = {
-    jsSize: jsEntries.reduce((sum, e) => sum + (e as PerformanceResourceTiming).transferSize, 0),
-    cssSize: cssEntries.reduce((sum, e) => sum + (e as PerformanceResourceTiming).transferSize, 0),
-    jsCount: jsEntries.length,
-    loadTime: performance.now(),
-  };
-
-  console.log('[Bundle Metrics]', metrics);
-}
-```
 
 ---
 
 ## 4. Database Management
 
-### 4.1 PGlite Initialization
+### 4.1 Database Initialization
+
+The application supports two database backends, controlled by `DB_MODE` environment variable:
+
+- **SQLite** (default): Uses `better-sqlite3`, stores data in `./data/agentpane.db`
+- **PostgreSQL** (optional): Uses `postgres.js`, requires `DATABASE_URL`
 
 #### Database Client Setup
 
 ```typescript
-// lib/db/client.ts
-import { PGlite } from '@electric-sql/pglite';
-import { drizzle } from 'drizzle-orm/pglite';
-import * as schema from './schema';
-import { configService } from '../config/config-service';
+// src/db/client.ts
+import Database from 'better-sqlite3';
+import { drizzle as drizzleSqlite } from 'drizzle-orm/better-sqlite3';
+import { drizzle as drizzlePg } from 'drizzle-orm/postgres-js';
+import postgres from 'postgres';
 
-let pglite: PGlite | null = null;
-let db: ReturnType<typeof drizzle> | null = null;
+const mode = getDbMode(); // 'sqlite' | 'postgres'
 
-export async function initializeDatabase(): Promise<ReturnType<typeof drizzle>> {
-  if (db) return db;
-
-  const appConfig = configService.getAppConfig();
-  const databasePath = appConfig.databasePath;
-
-  console.log(`[Database] Initializing PGlite at: ${databasePath}`);
-
-  pglite = new PGlite(databasePath, {
-    // Enable WAL mode for better concurrent access
-    pragmas: {
-      journal_mode: 'wal',
-      synchronous: 'normal',
-      cache_size: -64000, // 64MB cache
-    },
-  });
-
-  db = drizzle(pglite, { schema });
-
-  // Run migrations on startup
-  await runMigrations(db);
-
-  console.log('[Database] Initialization complete');
-  return db;
-}
-
-export function getDatabase(): ReturnType<typeof drizzle> {
-  if (!db) {
-    throw new Error('Database not initialized. Call initializeDatabase() first.');
-  }
-  return db;
-}
-
-export async function closeDatabase(): Promise<void> {
-  if (pglite) {
-    await pglite.close();
-    pglite = null;
-    db = null;
-    console.log('[Database] Connection closed');
-  }
-}
+// SQLite: creates ./data/agentpane.db with WAL mode and FK constraints
+// PostgreSQL: connects via DATABASE_URL
+// Both: run schema migration on startup (CREATE TABLE IF NOT EXISTS)
 ```
 
 #### Database Health Check
 
+The health check endpoint at `/api/health` verifies database connectivity:
+
 ```typescript
-// lib/db/health.ts
-import { getDatabase } from './client';
-import { sql } from 'drizzle-orm';
-
-export interface DatabaseHealth {
-  status: 'healthy' | 'unhealthy';
-  latencyMs: number;
-  size: number;
-  walSize: number;
-  error?: string;
-}
-
-export async function checkDatabaseHealth(): Promise<DatabaseHealth> {
-  const startTime = performance.now();
-
-  try {
-    const db = getDatabase();
-
-    // Simple connectivity check
-    await db.execute(sql`SELECT 1`);
-
-    // Get database stats
-    const [stats] = await db.execute<{ size: number; wal_size: number }>(sql`
-      SELECT
-        page_count * page_size as size,
-        (SELECT page_count * page_size FROM pragma_wal_checkpoint) as wal_size
-      FROM pragma_page_count, pragma_page_size
-    `);
-
-    return {
-      status: 'healthy',
-      latencyMs: Math.round(performance.now() - startTime),
-      size: stats?.size ?? 0,
-      walSize: stats?.wal_size ?? 0,
-    };
-  } catch (error) {
-    return {
-      status: 'unhealthy',
-      latencyMs: Math.round(performance.now() - startTime),
-      size: 0,
-      walSize: 0,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    };
-  }
-}
+// Checks SQLite version or PostgreSQL connectivity
+// Returns: { ok: true, data: { status, responseTimeMs } }
 ```
 
 ---
@@ -945,52 +978,55 @@ export async function checkDatabaseHealth(): Promise<DatabaseHealth> {
 
 #### Drizzle Migrations
 
-```typescript
-// lib/db/migrations.ts
-import { migrate } from 'drizzle-orm/pglite/migrator';
-import type { PgDatabase } from 'drizzle-orm/pg-core';
+The project has two separate migration configs:
 
-export async function runMigrations(db: PgDatabase): Promise<void> {
-  console.log('[Migrations] Running database migrations...');
-
-  try {
-    await migrate(db, {
-      migrationsFolder: './drizzle',
-    });
-    console.log('[Migrations] All migrations applied successfully');
-  } catch (error) {
-    console.error('[Migrations] Failed to run migrations:', error);
-    throw error;
-  }
-}
-```
+- **SQLite**: `drizzle.config.ts` - schema at `src/db/schema/sqlite/`, migrations at `src/db/migrations/`
+- **PostgreSQL**: `drizzle.config.pg.ts` - schema at `src/db/schema/postgres/`, migrations at `src/db/migrations-pg/`
 
 #### Migration Commands
 
 ```bash
-# Generate migration from schema changes
-bun run db:generate
+# SQLite (default)
+bun run db:generate     # Generate migration from schema changes
+bun run db:migrate      # Apply migrations
+bun run db:push         # Push schema directly (development only)
+bun run db:studio       # Open Drizzle Studio
 
-# Apply migrations to database
-bun run db:migrate
+# PostgreSQL
+bun run db:generate:pg
+bun run db:migrate:pg
+bun run db:push:pg
+bun run db:studio:pg
 
-# Push schema directly (development only)
-bun run db:push
-
-# Open Drizzle Studio for database inspection
-bun run db:studio
+# Migrate data from SQLite to PostgreSQL
+bun run db:migrate:sqlite-to-pg
 ```
 
 #### Migration File Structure
 
 ```
-drizzle/
-├── meta/
-│   └── _journal.json           # Migration history
-├── 0000_initial_schema.sql     # Initial tables
-├── 0001_add_sessions.sql       # Add sessions table
-├── 0002_add_worktrees.sql      # Add worktrees table
-└── 0003_add_github_config.sql  # GitHub integration
+src/db/
+├── schema/
+│   ├── sqlite/                  # SQLite schema definitions
+│   │   ├── index.ts
+│   │   ├── projects.ts
+│   │   ├── tasks.ts
+│   │   ├── sessions.ts
+│   │   └── ...
+│   ├── postgres/                # PostgreSQL schema definitions
+│   │   ├── index.ts
+│   │   └── ...
+│   └── shared/                  # Shared types/enums
+├── migrations/                  # SQLite migrations
+│   ├── meta/_journal.json
+│   ├── 0000_clever_red_skull.sql
+│   ├── ...
+│   └── 0011_drop_agentcore_columns.sql
+├── migrations-pg/               # PostgreSQL migrations
+│   ├── meta/_journal.json
+│   ├── 0000_little_wrecking_crew.sql
+│   └── ...
+└── client.ts                    # Database client (SQLite + PostgreSQL)
 ```
 
 ---
@@ -1006,8 +1042,8 @@ drizzle/
 set -euo pipefail
 
 # Configuration
-DATA_DIR="${DATA_DIR:-$HOME/.agentpane/data}"
-BACKUP_DIR="${BACKUP_DIR:-$HOME/.agentpane/backups}"
+DATA_DIR="${DATA_DIR:-./data}"
+BACKUP_DIR="${BACKUP_DIR:-./backups}"
 DB_FILE="agentpane.db"
 RETENTION_DAYS="${RETENTION_DAYS:-7}"
 
@@ -1042,10 +1078,6 @@ echo "[Backup] Size: $SIZE"
 echo "[Backup] Cleaning backups older than $RETENTION_DAYS days..."
 find "$BACKUP_DIR" -name "agentpane_*.db.gz" -mtime +$RETENTION_DAYS -delete
 
-# List current backups
-echo "[Backup] Current backups:"
-ls -lh "$BACKUP_DIR"/*.gz 2>/dev/null || echo "  No backups found"
-
 echo "[Backup] Complete"
 ```
 
@@ -1057,12 +1089,10 @@ echo "[Backup] Complete"
 
 set -euo pipefail
 
-# Configuration
-DATA_DIR="${DATA_DIR:-$HOME/.agentpane/data}"
-BACKUP_DIR="${BACKUP_DIR:-$HOME/.agentpane/backups}"
+DATA_DIR="${DATA_DIR:-./data}"
+BACKUP_DIR="${BACKUP_DIR:-./backups}"
 DB_FILE="agentpane.db"
 
-# Usage
 if [ $# -eq 0 ]; then
   echo "Usage: $0 <backup-file>"
   echo ""
@@ -1073,159 +1103,15 @@ fi
 
 BACKUP_FILE="$1"
 
-# Validate backup file
-if [ ! -f "$BACKUP_FILE" ]; then
-  echo "[Restore] Error: Backup file not found: $BACKUP_FILE"
-  exit 1
-fi
-
-echo "[Restore] Starting database restore from: $BACKUP_FILE"
-
-# Stop AgentPane if running
-if pgrep -f "agentpane" > /dev/null; then
-  echo "[Restore] Warning: AgentPane is running. Please stop it first."
-  exit 1
-fi
-
-# Backup current database (safety)
-if [ -f "$DATA_DIR/$DB_FILE" ]; then
-  CURRENT_BACKUP="$BACKUP_DIR/agentpane_pre_restore_$(date +%Y%m%d_%H%M%S).db"
-  echo "[Restore] Backing up current database to: $CURRENT_BACKUP"
-  cp "$DATA_DIR/$DB_FILE" "$CURRENT_BACKUP"
-fi
-
+# Stop AgentPane first
 # Remove WAL files
 rm -f "$DATA_DIR/$DB_FILE-wal" "$DATA_DIR/$DB_FILE-shm"
 
 # Restore from backup
-echo "[Restore] Decompressing backup..."
 gunzip -c "$BACKUP_FILE" > "$DATA_DIR/$DB_FILE"
 
 # Verify restored database
-echo "[Restore] Verifying database integrity..."
-if sqlite3 "$DATA_DIR/$DB_FILE" "PRAGMA integrity_check;" | grep -q "ok"; then
-  echo "[Restore] Database integrity check passed"
-else
-  echo "[Restore] Error: Database integrity check failed!"
-  exit 1
-fi
-
-echo "[Restore] Complete. You can now start AgentPane."
-```
-
-#### Automated Backup (Cron)
-
-```bash
-# crontab -e
-# Daily backup at 2 AM
-0 2 * * * /path/to/agentpane/scripts/backup-database.sh >> /var/log/agentpane-backup.log 2>&1
-```
-
----
-
-### 4.4 Data Directory Management
-
-#### Directory Structure
-
-```
-~/.agentpane/
-├── data/
-│   ├── agentpane.db            # Main database file
-│   ├── agentpane.db-wal        # Write-ahead log (auto-managed)
-│   └── agentpane.db-shm        # Shared memory (auto-managed)
-├── backups/
-│   ├── agentpane_20260117_020000.db.gz
-│   └── agentpane_20260116_020000.db.gz
-├── cache/
-│   └── github/                 # Cached GitHub API responses
-├── logs/
-│   ├── agentpane.log           # Application logs
-│   └── agent-*.log             # Agent execution logs
-└── sessions/
-    └── *.json                  # Session state snapshots
-```
-
-#### Disk Space Management
-
-```typescript
-// lib/storage/disk-manager.ts
-import { readdir, stat, unlink } from 'node:fs/promises';
-import { join } from 'node:path';
-
-interface DiskUsage {
-  database: number;
-  backups: number;
-  cache: number;
-  logs: number;
-  total: number;
-}
-
-export async function getDiskUsage(dataDir: string): Promise<DiskUsage> {
-  const usage: DiskUsage = {
-    database: 0,
-    backups: 0,
-    cache: 0,
-    logs: 0,
-    total: 0,
-  };
-
-  // Calculate database size
-  try {
-    const dbStat = await stat(join(dataDir, 'data', 'agentpane.db'));
-    usage.database = dbStat.size;
-  } catch {}
-
-  // Calculate directory sizes
-  usage.backups = await getDirectorySize(join(dataDir, 'backups'));
-  usage.cache = await getDirectorySize(join(dataDir, 'cache'));
-  usage.logs = await getDirectorySize(join(dataDir, 'logs'));
-
-  usage.total = usage.database + usage.backups + usage.cache + usage.logs;
-
-  return usage;
-}
-
-export async function cleanupCache(
-  dataDir: string,
-  maxAgeDays: number = 7
-): Promise<number> {
-  const cacheDir = join(dataDir, 'cache');
-  const threshold = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
-  let freedBytes = 0;
-
-  const files = await readdir(cacheDir, { recursive: true });
-
-  for (const file of files) {
-    const filePath = join(cacheDir, file);
-    const fileStat = await stat(filePath);
-
-    if (fileStat.isFile() && fileStat.mtimeMs < threshold) {
-      freedBytes += fileStat.size;
-      await unlink(filePath);
-    }
-  }
-
-  return freedBytes;
-}
-
-async function getDirectorySize(dirPath: string): Promise<number> {
-  let size = 0;
-
-  try {
-    const files = await readdir(dirPath, { recursive: true });
-
-    for (const file of files) {
-      try {
-        const fileStat = await stat(join(dirPath, file));
-        if (fileStat.isFile()) {
-          size += fileStat.size;
-        }
-      } catch {}
-    }
-  } catch {}
-
-  return size;
-}
+sqlite3 "$DATA_DIR/$DB_FILE" "PRAGMA integrity_check;"
 ```
 
 ---
@@ -1234,199 +1120,84 @@ async function getDirectorySize(dirPath: string): Promise<number> {
 
 ### 5.1 GitHub Actions Workflow
 
+The actual CI workflow (`.github/workflows/ci.yml`) has two jobs:
+
 ```yaml
 # .github/workflows/ci.yml
-name: CI/CD Pipeline
+name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
   pull_request:
     branches: [main]
 
+env:
+  BUN_VERSION: '1.3.10'
+
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  BUN_VERSION: "1.3.10"
-  NODE_VERSION: "22"
-
 jobs:
-  # ─────────────────────────────────────────────────────────────────
-  # Lint and Type Check
-  # ─────────────────────────────────────────────────────────────────
-  lint:
-    name: Lint & Type Check
+  lint-and-typecheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: oven-sh/setup-bun@v2
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Cache Bun packages
+        uses: actions/cache@v5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-packages-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/package.json') }}
+          restore-keys: |
+            bun-packages-${{ runner.os }}-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Run Biome lint
-        run: bun run lint
-
-      - name: Run TypeScript type check
+      - name: Type check
         run: bun run typecheck
 
-  # ─────────────────────────────────────────────────────────────────
-  # Unit Tests
-  # ─────────────────────────────────────────────────────────────────
-  test:
-    name: Unit Tests
-    runs-on: ubuntu-latest
-    needs: lint
-    steps:
-      - uses: actions/checkout@v4
+      - name: Lint and Format Check
+        run: bun run check
 
-      - uses: oven-sh/setup-bun@v2
+  test:
+    runs-on: ubuntu-latest
+    needs: lint-and-typecheck
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Cache Bun packages
+        uses: actions/cache@v5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-packages-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/package.json') }}
+          restore-keys: |
+            bun-packages-${{ runner.os }}-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Run unit tests
+      - name: Test
         run: bun run test:coverage
 
-      - name: Upload coverage report
-        uses: codecov/codecov-action@v4
+      - name: Upload coverage
+        uses: actions/upload-artifact@v7
+        if: always()
         with:
-          files: ./coverage/lcov.info
-          fail_ci_if_error: true
-
-  # ─────────────────────────────────────────────────────────────────
-  # Build
-  # ─────────────────────────────────────────────────────────────────
-  build:
-    name: Build Application
-    runs-on: ubuntu-latest
-    needs: [lint, test]
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: ${{ env.BUN_VERSION }}
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Build application
-        run: bun run build
-        env:
-          NODE_ENV: production
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-output
-          path: .output/
-          retention-days: 7
-
-  # ─────────────────────────────────────────────────────────────────
-  # E2E Tests
-  # ─────────────────────────────────────────────────────────────────
-  e2e:
-    name: E2E Tests
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: ${{ env.BUN_VERSION }}
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Install Playwright browsers
-        run: bunx playwright install --with-deps chromium
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: build-output
-          path: .output/
-
-      - name: Run E2E tests
-        run: bun run test:e2e
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY_TEST }}
-
-      - name: Upload test results
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report
-          path: playwright-report/
-
-  # ─────────────────────────────────────────────────────────────────
-  # Docker Build
-  # ─────────────────────────────────────────────────────────────────
-  docker:
-    name: Build Docker Image
-    runs-on: ubuntu-latest
-    needs: build
-    if: github.ref == 'refs/heads/main'
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=ref,event=branch
-            type=sha,prefix=
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-
-      - name: Build and push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-  # ─────────────────────────────────────────────────────────────────
-  # Deploy (Production)
-  # ─────────────────────────────────────────────────────────────────
-  deploy:
-    name: Deploy to Production
-    runs-on: ubuntu-latest
-    needs: [e2e, docker]
-    if: github.ref == 'refs/heads/main'
-    environment: production
-    steps:
-      - name: Deploy to production
-        run: |
-          echo "Deploying to production..."
-          # Add deployment commands here
-          # e.g., kubectl rollout, AWS ECS update, etc.
+          name: coverage-report
+          path: coverage/
 ```
 
 ---
@@ -1435,32 +1206,20 @@ jobs:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                              CI/CD Pipeline                                   │
+│                              CI Pipeline                                       │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                               │
-│  ┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌───────────┐ │
-│  │    Lint     │────▶│    Test     │────▶│    Build    │────▶│    E2E    │ │
-│  │             │     │             │     │             │     │           │ │
-│  │ - Biome     │     │ - Vitest    │     │ - vinxi     │     │ - Playwright │
-│  │ - TypeScript│     │ - Coverage  │     │ - Bundle    │     │           │ │
-│  └─────────────┘     └─────────────┘     └─────────────┘     └───────────┘ │
-│        │                   │                   │                   │         │
-│        └───────────────────┴───────────────────┴───────────────────┘         │
-│                                    │                                          │
-│                                    ▼                                          │
-│                          ┌─────────────────┐                                 │
-│                          │     Docker      │                                 │
-│                          │   Build/Push    │                                 │
-│                          └─────────────────┘                                 │
-│                                    │                                          │
-│                                    ▼                                          │
-│                          ┌─────────────────┐                                 │
-│                          │     Deploy      │                                 │
-│                          │  (Production)   │                                 │
-│                          └─────────────────┘                                 │
+│  ┌───────────────────────────┐     ┌───────────────────────────────────┐    │
+│  │  lint-and-typecheck       │────▶│           test                    │    │
+│  │                           │     │                                   │    │
+│  │  - bun run typecheck      │     │  - bun run test:coverage          │    │
+│  │  - bun run check (Biome)  │     │  - Upload coverage artifact       │    │
+│  └───────────────────────────┘     └───────────────────────────────────┘    │
 │                                                                               │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+**Note:** The CI pipeline does not currently include build, E2E test, or Docker image build/push jobs. These can be added as the project matures.
 
 ---
 
@@ -1470,10 +1229,7 @@ jobs:
 
 | Artifact | Contents | Retention |
 |----------|----------|-----------|
-| `build-output` | `.output/` directory | 7 days |
-| `playwright-report` | E2E test results | 7 days (on failure) |
-| `coverage-report` | Test coverage data | 30 days |
-| `docker-image` | Container image | Permanent (latest + tags) |
+| `coverage-report` | Test coverage data (`coverage/`) | Always uploaded |
 
 #### Docker Image Tags
 
@@ -1482,7 +1238,6 @@ jobs:
 | `latest` | Most recent main build | Every main merge |
 | `<sha>` | Specific commit | Every build |
 | `v<version>` | Release version | On release |
-| `develop` | Development branch | Every develop merge |
 
 ---
 
@@ -1492,17 +1247,18 @@ jobs:
 
 ```bash
 # List available image tags
-docker images ghcr.io/your-org/agentpane --format "{{.Tag}}"
+docker images agentpane --format "{{.Tag}}"
 
 # Rollback to previous version
 docker stop agentpane
 docker rm agentpane
 docker run -d \
   --name agentpane \
-  -p 5173:5173 \
+  -p 3000:3000 \
   -e ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}" \
   -v agentpane-data:/app/data \
-  ghcr.io/your-org/agentpane:<previous-sha>
+  -v agentpane-streams:/app/streams \
+  agentpane:<previous-tag>
 ```
 
 #### Kubernetes Rollback
@@ -1529,10 +1285,10 @@ kubectl rollout status deployment/agentpane
 docker stop agentpane
 
 # 2. Restore from pre-migration backup
-./scripts/restore-database.sh ~/.agentpane/backups/agentpane_pre_migrate.db.gz
+./scripts/restore-database.sh ./backups/agentpane_pre_migrate.db.gz
 
 # 3. Deploy previous application version
-docker run ... ghcr.io/your-org/agentpane:<previous-version>
+docker run ... agentpane:<previous-version>
 ```
 
 ---
@@ -1574,7 +1330,7 @@ docker run ... ghcr.io/your-org/agentpane:<previous-version>
 
 | Port | Protocol | Source | Purpose |
 |------|----------|--------|---------|
-| 5173 | TCP | localhost / LAN | Application |
+| 3000 | TCP | localhost / LAN | Application (Caddy front door) |
 | 443 | TCP | GitHub IPs | Webhooks (if enabled) |
 
 #### Proxy Configuration
@@ -1597,308 +1353,71 @@ export NO_PROXY=localhost,127.0.0.1,.company.com
 
 #### Required Browser Features
 
-- WebSocket support
 - Server-Sent Events (SSE)
 - ES2022+ JavaScript
 - CSS Grid and Flexbox
-- IndexedDB (for offline caching)
 
 ---
 
 ## 7. Startup Sequence
 
-### 7.1 Service Initialization Order
+### 7.1 Development Startup (`scripts/start-dev.ts`)
 
-```typescript
-// lib/bootstrap/startup.ts
-import { initializeDatabase } from '../db/client';
-import { validateEnv } from '../config/validate-env';
-import { initializeDurableStreams } from '../streams/server';
-import { initializeAgentPool } from '../agents/pool';
-import { startHealthCheck } from '../health/server';
-import { startServer } from '../server';
-
-export async function bootstrap(): Promise<void> {
-  console.log('[Bootstrap] Starting AgentPane...');
-
-  // ─────────────────────────────────────────────────────────────────
-  // Phase 1: Configuration Validation
-  // ─────────────────────────────────────────────────────────────────
-  console.log('[Bootstrap] Phase 1: Validating configuration...');
-
-  const envResult = validateEnv();
-  if (!envResult.ok) {
-    console.error('[Bootstrap] Environment validation failed:', envResult.error);
-    process.exit(1);
-  }
-
-  // ─────────────────────────────────────────────────────────────────
-  // Phase 2: Database Initialization
-  // ─────────────────────────────────────────────────────────────────
-  console.log('[Bootstrap] Phase 2: Initializing database...');
-
-  try {
-    await initializeDatabase();
-  } catch (error) {
-    console.error('[Bootstrap] Database initialization failed:', error);
-    process.exit(1);
-  }
-
-  // ─────────────────────────────────────────────────────────────────
-  // Phase 3: Durable Streams Setup
-  // ─────────────────────────────────────────────────────────────────
-  console.log('[Bootstrap] Phase 3: Initializing Durable Streams...');
-
-  try {
-    await initializeDurableStreams();
-  } catch (error) {
-    console.error('[Bootstrap] Durable Streams initialization failed:', error);
-    process.exit(1);
-  }
-
-  // ─────────────────────────────────────────────────────────────────
-  // Phase 4: Agent Pool Initialization
-  // ─────────────────────────────────────────────────────────────────
-  console.log('[Bootstrap] Phase 4: Initializing agent pool...');
-
-  try {
-    await initializeAgentPool({
-      maxConcurrent: envResult.value.MAX_CONCURRENT_AGENTS ?? 3,
-    });
-  } catch (error) {
-    console.error('[Bootstrap] Agent pool initialization failed:', error);
-    process.exit(1);
-  }
-
-  // ─────────────────────────────────────────────────────────────────
-  // Phase 5: Health Check Server
-  // ─────────────────────────────────────────────────────────────────
-  console.log('[Bootstrap] Phase 5: Starting health check endpoint...');
-
-  startHealthCheck();
-
-  // ─────────────────────────────────────────────────────────────────
-  // Phase 6: HTTP Server
-  // ─────────────────────────────────────────────────────────────────
-  console.log('[Bootstrap] Phase 6: Starting HTTP server...');
-
-  await startServer();
-
-  console.log('[Bootstrap] AgentPane started successfully');
-}
-```
-
-#### Startup Sequence Diagram
+The development startup script orchestrates three processes:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                           Startup Sequence                                    │
+│                        Development Startup Sequence                           │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                               │
-│  Time ─────────────────────────────────────────────────────────────────────▶ │
+│  1. Kill existing processes on ports 3000, 3001, 3002                         │
+│  2. Check agent-sandbox Docker image (optional)                               │
+│  3. Start DurableStreamTestServer on :3002                                    │
+│  4. Wait for streams server ready                                             │
+│  5. Start Bun API server on :3001 (bun src/server/api.ts)                    │
+│  6. Wait for API health check (/api/health)                                  │
+│  7. Start Vite dev server on :3000 (bunx vite)                               │
+│  8. All three processes run concurrently                                      │
 │                                                                               │
-│  ┌──────────────┐                                                            │
-│  │ Phase 1:     │ Validate environment variables                             │
-│  │ Config       │ Load .env files                                            │
-│  └──────────────┘ Check required secrets                                     │
-│         │                                                                     │
-│         ▼                                                                     │
-│  ┌──────────────┐                                                            │
-│  │ Phase 2:     │ Initialize PGlite connection                               │
-│  │ Database     │ Run pending migrations                                     │
-│  └──────────────┘ Verify database health                                     │
-│         │                                                                     │
-│         ▼                                                                     │
-│  ┌──────────────┐                                                            │
-│  │ Phase 3:     │ Initialize server publisher                                │
-│  │ Streams      │ Set up event routing                                       │
-│  └──────────────┘ Connect to session store                                   │
-│         │                                                                     │
-│         ▼                                                                     │
-│  ┌──────────────┐                                                            │
-│  │ Phase 4:     │ Create agent worker pool                                   │
-│  │ Agent Pool   │ Initialize concurrency limiter                             │
-│  └──────────────┘ Restore pending tasks                                      │
-│         │                                                                     │
-│         ▼                                                                     │
-│  ┌──────────────┐                                                            │
-│  │ Phase 5:     │ Start /api/health endpoint                                 │
-│  │ Health Check │ Register liveness probe                                    │
-│  └──────────────┘ Register readiness probe                                   │
-│         │                                                                     │
-│         ▼                                                                     │
-│  ┌──────────────┐                                                            │
-│  │ Phase 6:     │ Bind to port 5173                                          │
-│  │ HTTP Server  │ Start accepting requests                                   │
-│  └──────────────┘ Application ready                                          │
+│  Shutdown: SIGINT/SIGTERM kills all three processes                           │
 │                                                                               │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
----
+### 7.2 Production Startup (`docker/start.sh`)
 
-### 7.2 Health Check Integration
+In production (Docker), two processes run via `tini`:
 
-#### Health Check Endpoints
-
-```typescript
-// app/routes/api/health.ts
-import { createServerFileRoute } from '@tanstack/react-start/server';
-import { checkDatabaseHealth } from '@/lib/db/health';
-import { checkAgentPoolHealth } from '@/lib/agents/health';
-import { checkStreamsHealth } from '@/lib/streams/health';
-
-interface HealthResponse {
-  status: 'healthy' | 'degraded' | 'unhealthy';
-  version: string;
-  uptime: number;
-  checks: {
-    database: { status: string; latencyMs: number };
-    agentPool: { status: string; activeAgents: number; maxAgents: number };
-    streams: { status: string; activeConnections: number };
-  };
-}
-
-export const ServerRoute = createServerFileRoute().methods({
-  // Liveness probe - is the process alive?
-  GET: async () => {
-    const startTime = process.hrtime.bigint();
-
-    const [dbHealth, poolHealth, streamsHealth] = await Promise.all([
-      checkDatabaseHealth(),
-      checkAgentPoolHealth(),
-      checkStreamsHealth(),
-    ]);
-
-    const allHealthy =
-      dbHealth.status === 'healthy' &&
-      poolHealth.status === 'healthy' &&
-      streamsHealth.status === 'healthy';
-
-    const response: HealthResponse = {
-      status: allHealthy ? 'healthy' : 'degraded',
-      version: process.env.npm_package_version ?? '0.0.0',
-      uptime: process.uptime(),
-      checks: {
-        database: {
-          status: dbHealth.status,
-          latencyMs: dbHealth.latencyMs,
-        },
-        agentPool: {
-          status: poolHealth.status,
-          activeAgents: poolHealth.activeAgents,
-          maxAgents: poolHealth.maxAgents,
-        },
-        streams: {
-          status: streamsHealth.status,
-          activeConnections: streamsHealth.activeConnections,
-        },
-      },
-    };
-
-    return Response.json(response, {
-      status: allHealthy ? 200 : 503,
-    });
-  },
-});
-
-// Readiness probe - is the app ready to receive traffic?
-export const ReadyRoute = createServerFileRoute('/api/health/ready').methods({
-  GET: async () => {
-    const dbHealth = await checkDatabaseHealth();
-
-    if (dbHealth.status !== 'healthy') {
-      return Response.json(
-        { ready: false, reason: 'Database not ready' },
-        { status: 503 }
-      );
-    }
-
-    return Response.json({ ready: true }, { status: 200 });
-  },
-});
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        Production Startup Sequence                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                               │
+│  1. tini (PID 1) starts start.sh                                             │
+│  2. Start durable-streams-server (Caddy) on :3000                            │
+│  3. Wait for Caddy to be ready (/healthz)                                    │
+│  4. Start Bun API server on :3001 (bun src/server/api.ts)                    │
+│  5. Wait for either process to exit                                          │
+│  6. If one exits, kill the other and propagate exit code                      │
+│                                                                               │
+│  Signal handling: SIGTERM/SIGINT forwarded to both processes                 │
+│                                                                               │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
----
+### 7.3 Health Check Endpoints
 
-### 7.3 Graceful Shutdown
+| Endpoint | Purpose | Implementation |
+|----------|---------|----------------|
+| `/healthz` | Caddy liveness | Responds "OK" 200 (Caddy built-in) |
+| `/api/health` | Application health | Checks DB connectivity, returns status + response time |
 
-```typescript
-// lib/bootstrap/shutdown.ts
-import { closeDatabase } from '../db/client';
-import { stopAgentPool } from '../agents/pool';
-import { closeDurableStreams } from '../streams/server';
+### 7.4 Graceful Shutdown
 
-let isShuttingDown = false;
+On receiving SIGINT or SIGTERM:
 
-export function setupGracefulShutdown(): void {
-  const signals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGQUIT'];
-
-  for (const signal of signals) {
-    process.on(signal, () => handleShutdown(signal));
-  }
-
-  // Handle uncaught errors
-  process.on('uncaughtException', (error) => {
-    console.error('[Shutdown] Uncaught exception:', error);
-    handleShutdown('UNCAUGHT_EXCEPTION');
-  });
-
-  process.on('unhandledRejection', (reason) => {
-    console.error('[Shutdown] Unhandled rejection:', reason);
-    // Don't exit on unhandled rejection, just log
-  });
-}
-
-async function handleShutdown(signal: string): Promise<void> {
-  if (isShuttingDown) {
-    console.log('[Shutdown] Already shutting down...');
-    return;
-  }
-
-  isShuttingDown = true;
-  console.log(`[Shutdown] Received ${signal}, starting graceful shutdown...`);
-
-  const shutdownTimeout = setTimeout(() => {
-    console.error('[Shutdown] Timeout exceeded, forcing exit');
-    process.exit(1);
-  }, 30000); // 30 second timeout
-
-  try {
-    // ─────────────────────────────────────────────────────────────────
-    // Phase 1: Stop accepting new requests
-    // ─────────────────────────────────────────────────────────────────
-    console.log('[Shutdown] Phase 1: Stopping HTTP server...');
-    // Server stop handled by TanStack Start
-
-    // ─────────────────────────────────────────────────────────────────
-    // Phase 2: Wait for running agents to complete (with timeout)
-    // ─────────────────────────────────────────────────────────────────
-    console.log('[Shutdown] Phase 2: Waiting for agents to complete...');
-    await stopAgentPool({ timeout: 15000 });
-
-    // ─────────────────────────────────────────────────────────────────
-    // Phase 3: Close Durable Streams connections
-    // ─────────────────────────────────────────────────────────────────
-    console.log('[Shutdown] Phase 3: Closing stream connections...');
-    await closeDurableStreams();
-
-    // ─────────────────────────────────────────────────────────────────
-    // Phase 4: Close database connection
-    // ─────────────────────────────────────────────────────────────────
-    console.log('[Shutdown] Phase 4: Closing database...');
-    await closeDatabase();
-
-    clearTimeout(shutdownTimeout);
-    console.log('[Shutdown] Graceful shutdown complete');
-    process.exit(0);
-  } catch (error) {
-    console.error('[Shutdown] Error during shutdown:', error);
-    clearTimeout(shutdownTimeout);
-    process.exit(1);
-  }
-}
-```
+1. **Development**: `start-dev.ts` kills API, Streams, and Vite processes
+2. **Production**: `start.sh` forwards signal to Caddy and Bun API, waits for exit
 
 ---
 
@@ -1917,16 +1436,13 @@ async function handleShutdown(signal: string): Promise<void> {
 
 ```bash
 # Check for stale processes
-pgrep -f agentpane
-
-# Kill stale processes
-pkill -f agentpane
+pgrep -f "bun.*api.ts"
 
 # Verify database integrity
-sqlite3 ~/.agentpane/data/agentpane.db "PRAGMA integrity_check;"
+sqlite3 ./data/agentpane.db "PRAGMA integrity_check;"
 
 # Vacuum database to reclaim space
-sqlite3 ~/.agentpane/data/agentpane.db "VACUUM;"
+sqlite3 ./data/agentpane.db "VACUUM;"
 ```
 
 #### Agent Issues
@@ -1954,8 +1470,8 @@ git worktree remove --force .worktrees/stale-branch
 | Issue | Symptoms | Solution |
 |-------|----------|----------|
 | SSE disconnects | Real-time updates stop | Check network; refresh browser |
-| WebSocket failures | Terminal doesn't respond | Verify proxy settings; check firewall |
 | API timeouts | Slow responses from Anthropic | Check network latency; retry |
+| Port conflicts | Startup fails | Kill processes on ports 3000, 3001, 3002 |
 
 ---
 
@@ -1965,121 +1481,10 @@ git worktree remove --force .worktrees/stale-branch
 
 ```bash
 # Development
-DEBUG=agentpane:* LOG_LEVEL=debug bun run dev
+LOG_LEVEL=debug bun run dev
 
 # Production (temporary)
 LOG_LEVEL=debug docker restart agentpane
-```
-
-#### Debug Environment Variables
-
-```bash
-# Enable all debug output
-DEBUG=agentpane:*
-
-# Enable specific modules
-DEBUG=agentpane:agents,agentpane:db
-
-# Enable verbose API logging
-DEBUG_ANTHROPIC_API=true
-
-# Enable SQL query logging
-DEBUG_SQL=true
-```
-
-#### Logging Configuration
-
-```typescript
-// lib/logging/logger.ts
-import pino from 'pino';
-
-export const logger = pino({
-  level: process.env.LOG_LEVEL ?? 'info',
-  transport: process.env.NODE_ENV === 'development'
-    ? {
-        target: 'pino-pretty',
-        options: {
-          colorize: true,
-          translateTime: 'SYS:standard',
-        },
-      }
-    : undefined,
-  redact: {
-    paths: [
-      'ANTHROPIC_API_KEY',
-      'GITHUB_TOKEN',
-      'GITHUB_CLIENT_SECRET',
-      'GITHUB_PRIVATE_KEY',
-    ],
-    censor: '[REDACTED]',
-  },
-});
-```
-
----
-
-### 8.3 Log Analysis
-
-#### Log Locations
-
-| Log Type | Location | Purpose |
-|----------|----------|---------|
-| Application | stdout/stderr | Main application logs |
-| Agent execution | `~/.agentpane/logs/agent-*.log` | Per-agent execution logs |
-| Database | `~/.agentpane/logs/db.log` | Query and migration logs |
-| Access | `~/.agentpane/logs/access.log` | HTTP request logs |
-
-#### Log Format
-
-```
-# Standard log entry
-{"level":"info","time":1705500000000,"msg":"Agent started","agentId":"clx123","taskId":"task456"}
-
-# Error log entry
-{"level":"error","time":1705500001000,"msg":"Agent execution failed","agentId":"clx123","err":{"message":"Tool failed","code":"TOOL_ERROR"}}
-```
-
-#### Log Analysis Commands
-
-```bash
-# View recent errors
-cat ~/.agentpane/logs/agentpane.log | jq 'select(.level == "error")' | head -20
-
-# Count errors by type
-cat ~/.agentpane/logs/agentpane.log | jq -r 'select(.level == "error") | .err.code' | sort | uniq -c
-
-# Find slow operations (>5s)
-cat ~/.agentpane/logs/agentpane.log | jq 'select(.duration > 5000)'
-
-# Track specific agent
-cat ~/.agentpane/logs/agentpane.log | jq 'select(.agentId == "clx123")'
-```
-
-#### Centralized Logging (Production)
-
-```typescript
-// lib/logging/transport.ts
-import pino from 'pino';
-
-// For cloud deployments, ship logs to centralized logging
-export const cloudTransport = pino.transport({
-  targets: [
-    // Console output
-    {
-      target: 'pino/file',
-      options: { destination: 1 }, // stdout
-    },
-    // CloudWatch (AWS)
-    {
-      target: '@serdnam/pino-cloudwatch-transport',
-      options: {
-        logGroupName: 'agentpane-production',
-        logStreamName: process.env.HOSTNAME ?? 'unknown',
-        awsRegion: process.env.AWS_REGION ?? 'us-east-1',
-      },
-    },
-  ],
-});
 ```
 
 ---

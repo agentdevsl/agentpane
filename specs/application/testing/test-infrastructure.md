@@ -16,11 +16,17 @@ Comprehensive test infrastructure for AgentPane, providing mock implementations,
 
 | Component | Version | Purpose |
 |-----------|---------|---------|
-| Vitest | 4.0.17 | Unit and integration testing |
-| Agent Browser | 0.5.0 | E2E testing with AI-powered interactions |
-| PGlite | 0.3.15 | In-memory PostgreSQL for test isolation |
-| Drizzle ORM | 0.45.1 | Type-safe database operations |
-| @paralleldrive/cuid2 | 3.0.6 | Deterministic ID generation for tests |
+| Vitest | ^4.0.16 | Unit and integration testing |
+| Playwright | ^1.58.2 | E2E browser automation |
+| Agent Browser | 0.7.6 | AI-powered E2E test interactions |
+| better-sqlite3 | ^12.6.2 | In-memory SQLite for test isolation (`:memory:`) |
+| jsdom | ^28.1.0 | Browser environment for component tests |
+| @testing-library/react | ^16.3.0 | React component testing utilities |
+| @testing-library/jest-dom | ^6.8.0 | Custom DOM matchers for Vitest |
+| @testing-library/user-event | ^14.6.1 | User interaction simulation |
+| @vitest/coverage-v8 | ^4.0.16 | Code coverage provider |
+| Drizzle ORM | ^0.45.1 | Type-safe database operations |
+| @paralleldrive/cuid2 | ^3.3.0 | Collision-resistant ID generation for tests |
 
 ---
 
@@ -30,161 +36,132 @@ Comprehensive test infrastructure for AgentPane, providing mock implementations,
 
 ```typescript
 // vitest.config.ts
+import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
-import { resolve } from 'path';
+
+export default defineConfig({
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: ['./tests/setup.ts'],
+    env: {
+      PGLITE_DATA_DIR: '',
+    },
+    include: ['**/*.{test,spec}.{ts,tsx}'],
+    exclude: [
+      '**/node_modules/**',
+      'node_modules',
+      'dist',
+      '.claude',
+      '.worktrees',
+      'submodule',
+      '**/_archived/**',
+      'packages/**',
+      'tests/diagram-overlap.spec.ts',
+    ],
+    alias: {
+      '@/db/client': resolve(__dirname, './src/db/client.ts'),
+      '@/services/agent.service': resolve(__dirname, './src/services/agent.service.ts'),
+      '@/services/session.service': resolve(__dirname, './src/services/session.service.ts'),
+      '@/services/task.service': resolve(__dirname, './src/services/task.service.ts'),
+      '@/services/worktree.service': resolve(__dirname, './src/services/worktree.service.ts'),
+      '@/services/project.service': resolve(__dirname, './src/services/project.service.ts'),
+    },
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.ts', 'src/**/*.tsx'],
+      exclude: [
+        'src/**/*.{test,spec}.ts',
+        'src/**/*.{test,spec}.tsx',
+        'src/**/*.d.ts',
+        'src/**/types.ts',
+        'src/**/index.ts',
+        'src/app/**/*.ts',
+        'src/app/**/*.tsx',
+        'src/types/**/*.ts',
+        'src/lib/types/**/*.ts',
+      ],
+      reporter: ['text', 'lcov', 'html'],
+      thresholds: {
+        statements: 74,
+        branches: 64,
+        functions: 80,
+        lines: 74,
+      },
+    },
+    testTimeout: 10000,
+    hookTimeout: 10000,
+  },
+  resolve: {
+    alias: {
+      '@': resolve(__dirname, './src'),
+      '@agentpane/agent-sandbox-sdk': resolve(
+        __dirname,
+        './packages/agent-sandbox-sdk/src/index.ts'
+      ),
+      '@agentpane/nomad-sandbox-sdk': resolve(
+        __dirname,
+        './packages/nomad-sandbox-sdk/src/index.ts'
+      ),
+    },
+  },
+});
+```
+
+There is also a separate E2E config:
+
+```typescript
+// vitest.e2e.config.ts
+import { resolve } from 'node:path';
+import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['tests/**/*.{test,spec}.{ts,tsx}'],
-    exclude: ['tests/e2e/**', 'node_modules', 'dist'],
-    setupFiles: ['tests/setup.ts'],
-
-    // Test isolation
-    isolate: true,
-    pool: 'forks',
-    poolOptions: {
-      forks: {
-        singleFork: false,
-        isolate: true,
-      },
+    include: ['tests/e2e/smoke.test.ts', 'tests/e2e/**/*.test.ts'],
+    exclude: ['tests/e2e/k8s/**'],
+    testTimeout: 60000,
+    hookTimeout: 30000,
+    setupFiles: ['./tests/e2e/setup.ts'],
+    sequence: {
+      concurrent: false,
     },
-
-    // Timeouts
-    testTimeout: 10000,
-    hookTimeout: 10000,
-
-    // Coverage configuration
-    coverage: {
-      provider: 'v8',
-      include: ['lib/**/*.ts', 'app/**/*.ts', 'db/**/*.ts'],
-      exclude: [
-        '**/*.d.ts',
-        '**/types.ts',
-        '**/index.ts',
-        '**/*.test.ts',
-        '**/*.spec.ts',
-        '**/mocks/**',
-        '**/fixtures/**',
-      ],
-      reporter: ['text', 'json', 'html', 'lcov'],
-      thresholds: {
-        statements: 80,
-        branches: 80,
-        functions: 80,
-        lines: 80,
-      },
-    },
-
-    // Reporter configuration
-    reporters: ['default', 'html', 'json'],
-    outputFile: {
-      html: 'coverage/test-report.html',
-      json: 'coverage/test-results.json',
-    },
+    maxConcurrency: 1,
+    maxWorkers: 1,
   },
-
   resolve: {
     alias: {
-      '@': resolve(__dirname, './'),
-      '@/lib': resolve(__dirname, './lib'),
-      '@/db': resolve(__dirname, './db'),
-      '@/app': resolve(__dirname, './app'),
-      '@/tests': resolve(__dirname, './tests'),
+      '@': resolve(__dirname, './src'),
     },
   },
 });
 ```
 
-### 1.2 Vitest Workspace Configuration
-
-```typescript
-// vitest.workspace.ts
-import { defineWorkspace } from 'vitest/config';
-
-export default defineWorkspace([
-  {
-    extends: './vitest.config.ts',
-    test: {
-      name: 'unit',
-      include: ['tests/unit/**/*.test.ts'],
-    },
-  },
-  {
-    extends: './vitest.config.ts',
-    test: {
-      name: 'integration',
-      include: ['tests/integration/**/*.test.ts'],
-      setupFiles: ['tests/integration/setup.ts'],
-      testTimeout: 30000,
-    },
-  },
-]);
-```
+> **Note**: No `vitest.workspace.ts` file is used. Unit, integration, and service tests all live under the same config. Integration tests can be targeted via `vitest --include 'tests/integration/**'`.
 
 ### 1.3 Test Setup File
 
 ```typescript
 // tests/setup.ts
-import { beforeAll, afterAll, afterEach, vi } from 'vitest';
-import { setupTestDatabase, teardownTestDatabase, clearTestDatabase } from './helpers/database';
-import { resetMocks } from './mocks';
+import '@testing-library/jest-dom/vitest';
+import { afterAll, afterEach, beforeAll, vi } from 'vitest';
+import { clearTestDatabase, closeTestDatabase, setupTestDatabase } from './helpers/database';
 
-// Global test setup
+vi.stubEnv('ANTHROPIC_API_KEY', 'test-api-key');
+vi.stubEnv('NODE_ENV', 'test');
+
 beforeAll(async () => {
-  // Initialize test database
   await setupTestDatabase();
-
-  // Set test environment variables
-  process.env.NODE_ENV = 'test';
-  process.env.ANTHROPIC_API_KEY = 'test-api-key';
-  process.env.GITHUB_APP_ID = 'test-app-id';
-  process.env.GITHUB_PRIVATE_KEY = 'test-private-key';
-  process.env.GITHUB_CLIENT_ID = 'test-client-id';
-  process.env.GITHUB_CLIENT_SECRET = 'test-client-secret';
-  process.env.GITHUB_WEBHOOK_SECRET = 'test-webhook-secret';
 });
 
-// Cleanup after each test
 afterEach(async () => {
-  // Clear database state
   await clearTestDatabase();
-
-  // Reset all mocks
-  resetMocks();
   vi.clearAllMocks();
 });
 
-// Global teardown
 afterAll(async () => {
-  await teardownTestDatabase();
-});
-
-// Extend Vitest matchers
-expect.extend({
-  toBeValidCuid2(received: string) {
-    const cuid2Regex = /^[a-z0-9]{24,}$/;
-    const pass = cuid2Regex.test(received);
-    return {
-      pass,
-      message: () =>
-        pass
-          ? `Expected ${received} not to be a valid CUID2`
-          : `Expected ${received} to be a valid CUID2`,
-    };
-  },
-
-  toBeISODate(received: string) {
-    const pass = !isNaN(Date.parse(received));
-    return {
-      pass,
-      message: () =>
-        pass
-          ? `Expected ${received} not to be a valid ISO date`
-          : `Expected ${received} to be a valid ISO date`,
-    };
-  },
+  await closeTestDatabase();
 });
 ```
 
@@ -192,101 +169,131 @@ expect.extend({
 
 ```typescript
 // tests/helpers/env.ts
+import { vi } from 'vitest';
+
 export const TEST_ENV = {
-  // Database
-  DATABASE_URL: 'memory://',
-
-  // Anthropic
-  ANTHROPIC_API_KEY: 'test-anthropic-key-sk-ant-xxxxx',
-
-  // GitHub App
+  ANTHROPIC_API_KEY: 'test-api-key-sk-ant-12345',
   GITHUB_APP_ID: '123456',
-  GITHUB_APP_NAME: 'agentpane-test',
-  GITHUB_CLIENT_ID: 'Iv1.test123',
-  GITHUB_CLIENT_SECRET: 'test-secret-123',
-  GITHUB_PRIVATE_KEY: `-----BEGIN RSA PRIVATE KEY-----
-MIIEowIBAAKCAQEA0Z3VS5JJcds3xfn/ygWyF8PbnGy0AHB7MvMj
------END RSA PRIVATE KEY-----`,
-  GITHUB_WEBHOOK_SECRET: 'whsec_test123',
-
-  // Application
-  APP_URL: 'http://localhost:5173',
+  GITHUB_APP_PRIVATE_KEY: 'test-private-key',
+  GITHUB_CLIENT_ID: 'test-client-id',
+  GITHUB_CLIENT_SECRET: 'test-client-secret',
+  GITHUB_WEBHOOK_SECRET: 'test-webhook-secret',
+  SESSION_SECRET: 'test-session-secret-32-chars-long!',
+  BASE_URL: 'http://localhost:3000',
+  PGLITE_DATA_DIR: '',
   NODE_ENV: 'test',
 } as const;
 
 export function setupTestEnv(): void {
-  Object.entries(TEST_ENV).forEach(([key, value]) => {
-    process.env[key] = value;
-  });
+  for (const [key, value] of Object.entries(TEST_ENV)) {
+    vi.stubEnv(key, value);
+  }
 }
 
-export function cleanupTestEnv(): void {
-  Object.keys(TEST_ENV).forEach((key) => {
-    delete process.env[key];
-  });
+export function resetTestEnv(): void {
+  vi.unstubAllEnvs();
+}
+
+export function withTestEnv<T>(overrides: Partial<typeof TEST_ENV>, fn: () => T): T {
+  const originalEnv = { ...process.env };
+  try {
+    setupTestEnv();
+    for (const [key, value] of Object.entries(overrides)) {
+      vi.stubEnv(key, value);
+    }
+    return fn();
+  } finally {
+    vi.unstubAllEnvs();
+    Object.assign(process.env, originalEnv);
+  }
+}
+
+export function mockEnvVar(key: string, value: string): () => void {
+  const original = process.env[key];
+  vi.stubEnv(key, value);
+  return () => {
+    if (original === undefined) {
+      delete process.env[key];
+    } else {
+      vi.stubEnv(key, original);
+    }
+  };
 }
 ```
 
-### 1.5 Agent Browser E2E Configuration
+### 1.5 E2E Test Setup (Playwright)
+
+E2E tests use Playwright for browser automation, configured via `vitest.e2e.config.ts` (see section 1.1) and a shared setup file:
 
 ```typescript
-// tests/e2e/agent-browser.config.ts
-import { defineConfig } from 'agent-browser';
+// tests/e2e/setup.ts
+import type { Browser, Page } from 'playwright';
+import { chromium } from 'playwright';
+import { afterAll, beforeAll } from 'vitest';
 
-export default defineConfig({
-  // Browser settings
-  browser: {
-    headless: process.env.CI === 'true',
-    slowMo: process.env.CI ? 0 : 50,
+const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:3000';
+
+// Server is considered running if E2E_BASE_URL is explicitly set
+export const serverRunning = process.env.E2E_BASE_URL !== undefined;
+export let browserReady = false;
+
+let browser: Browser | null = null;
+let page: Page | null = null;
+
+// Exported helpers: open(), goto(), click(), fill(), getText(),
+// waitForSelector(), waitForHidden(), waitForNetworkIdle(),
+// screenshot(), drag(), exists(), getAll(), type(), press(),
+// hover(), getAttribute(), getUrl(), close()
+
+beforeAll(async () => {
+  if (!serverRunning) return;
+  browser = await chromium.launch({ headless: true });
+  const context = await browser.newContext({
     viewport: { width: 1280, height: 720 },
-  },
+  });
+  page = await context.newPage();
+  browserReady = true;
+}, 30000);
 
-  // Application settings
-  baseUrl: process.env.TEST_BASE_URL ?? 'http://localhost:5173',
-
-  // Timeouts
-  timeout: 30000,
-  navigationTimeout: 60000,
-
-  // Retry configuration
-  retries: process.env.CI ? 2 : 0,
-
-  // Screenshot and video capture
-  screenshot: {
-    mode: 'only-on-failure',
-    fullPage: true,
-  },
-  video: {
-    mode: 'on-first-retry',
-  },
-
-  // Trace collection for debugging
-  trace: {
-    mode: 'on-first-retry',
-    screenshots: true,
-    snapshots: true,
-    sources: true,
-  },
-
-  // Test isolation
-  testIsolation: true,
-
-  // Parallel execution
-  workers: process.env.CI ? 2 : 1,
-  fullyParallel: false,
-
-  // Output directories
-  outputDir: 'tests/e2e/results',
-
-  // Custom setup
-  globalSetup: 'tests/e2e/global-setup.ts',
-  globalTeardown: 'tests/e2e/global-teardown.ts',
+afterAll(async () => {
+  if (browser) {
+    await browser.close().catch(() => {});
+    browser = null;
+    page = null;
+    browserReady = false;
+  }
 });
+```
+
+Run E2E tests with:
+```bash
+E2E_BASE_URL=http://localhost:3000 bun run test:e2e
 ```
 
 ---
 
 ## 2. Mock Strategies
+
+> **Actual file layout**: The mock code examples below use illustrative subdirectory paths (e.g., `tests/mocks/github/`, `tests/mocks/claude/`). In the actual codebase, all mocks live as flat files in `tests/mocks/`:
+>
+> ```
+> tests/mocks/
+> ├── index.ts                  # Barrel export (re-exports all mocks)
+> ├── external.ts               # Claude SDK, Durable Streams, Octokit auto-mocks
+> ├── mock-builders.ts          # Type-safe Drizzle DB mock builders
+> ├── mock-api.ts               # Hono context, request/response mocks
+> ├── mock-git.ts               # Git command runner mocks
+> ├── mock-sandbox.ts           # Sandbox provider/instance mocks
+> ├── mock-streams.ts           # Durable Streams mock utilities
+> ├── mock-services.ts          # Service interface mocks
+> ├── mock-scenarios.ts         # Fully-wired service scenario builders
+> ├── mock-agent-lifecycle.ts   # Agent lifecycle mock objects
+> ├── mock-container-bridge.ts  # Container bridge event generators
+> ├── git.ts                    # Legacy git command mocks
+> └── services.ts               # Legacy service mocks
+> ```
+>
+> Additionally, `tests/helpers/simulate-agent-stream.ts` provides mock SDK stream generators for planning/execution flow testing.
 
 ### 2.1 GitHub API Mocks (Octokit)
 
@@ -1157,242 +1164,84 @@ export function createMockBunShell(worktreeOps: ReturnType<typeof createMockWork
 
 ### 3.1 Core Entity Factories
 
+Factories are **DB-backed**: each `createTest*` function inserts a record into the in-memory SQLite test database and returns the persisted row. Each entity type lives in its own file under `tests/factories/`. A corresponding `build*` function creates the plain object without inserting.
+
+```
+tests/factories/
+├── index.ts               # Barrel re-exports + shared types
+├── project.factory.ts     # createTestProject, createTestProjects, buildProject
+├── task.factory.ts         # createTestTask, createTestTasks, createTasksInColumns, buildTask
+├── agent.factory.ts        # createTestAgent, createTestAgents, createRunningAgent, buildAgent
+├── session.factory.ts      # createTestSession, createTestSessions, createActiveSession, createClosedSession, buildSession
+├── worktree.factory.ts     # createTestWorktree, createTestWorktrees, createActiveWorktree, createMergedWorktree, createRemovedWorktree, buildWorktree
+├── agent-run.factory.ts    # createTestAgentRun, createTestAgentRuns, createCompletedAgentRun, createFailedAgentRun, buildAgentRun
+└── event-source.factory.ts # createTestEventSource, createTestSubscription, buildEventSource, buildSubscription
+```
+
 ```typescript
 // tests/factories/index.ts
+import type { Agent, AgentRun, Project, Session, Task, Worktree } from '../../src/db/schema';
+
+export type PartialBy<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
+
+export { createTestAgent } from './agent.factory';
+export { createTestAgentRun } from './agent-run.factory';
+export * from './event-source.factory';
+export { createTestProject } from './project.factory';
+export { createTestSession } from './session.factory';
+export { createTestTask } from './task.factory';
+export { createTestWorktree } from './worktree.factory';
+
+export type { Project, Task, Agent, Session, Worktree, AgentRun };
+```
+
+Example factory (project):
+
+```typescript
+// tests/factories/project.factory.ts
 import { createId } from '@paralleldrive/cuid2';
-import type {
-  Project, NewProject, ProjectConfig,
-  Task, NewTask, TaskColumn,
-  Agent, NewAgent, AgentConfig, AgentStatus,
-  Worktree, NewWorktree, WorktreeStatus,
-  Session, NewSession,
-  AgentRun, NewAgentRun,
-} from '@/db/schema';
+import type { NewProject, Project, ProjectConfig } from '../../src/db/schema';
+import { projects } from '../../src/db/schema';
+import { getTestDb } from '../helpers/database';
 
-// Deterministic ID generation for reproducible tests
-let idCounter = 0;
-export function createTestId(prefix: string = 'test'): string {
-  idCounter++;
-  return `${prefix}_${idCounter.toString().padStart(8, '0')}`;
-}
-
-export function resetIdCounter(): void {
-  idCounter = 0;
-}
-
-// ============ Project Factory ============
-export interface CreateTestProjectOptions extends Partial<Omit<Project, 'id' | 'createdAt' | 'updatedAt'>> {
+export type ProjectFactoryOptions = Partial<NewProject> & {
   config?: Partial<ProjectConfig>;
-}
+};
 
-export function createTestProject(options: CreateTestProjectOptions = {}): Project {
-  const now = new Date();
+const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
+  worktreeRoot: '.worktrees',
+  defaultBranch: 'main',
+  allowedTools: ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep'],
+  maxTurns: 50,
+};
 
-  return {
-    id: createTestId('proj'),
-    name: 'Test Project',
-    path: '/tmp/test-projects/test-project',
-    description: 'A test project for unit tests',
-    config: {
-      worktreeRoot: '.worktrees',
-      defaultBranch: 'main',
-      allowedTools: ['Read', 'Edit', 'Bash', 'Glob', 'Grep'],
-      maxTurns: 50,
-      model: 'claude-sonnet-4-6',
-      ...options.config,
-    },
-    maxConcurrentAgents: 3,
-    githubOwner: null,
-    githubRepo: null,
-    githubInstallationId: null,
-    configPath: '.claude',
-    createdAt: now,
-    updatedAt: now,
-    ...options,
-  };
-}
-
-// ============ Task Factory ============
-export interface CreateTestTaskOptions extends Partial<Omit<Task, 'id' | 'createdAt' | 'updatedAt'>> {
-  projectId?: string;
-}
-
-export function createTestTask(options: CreateTestTaskOptions = {}): Task {
-  const now = new Date();
-
-  return {
-    id: createTestId('task'),
-    projectId: options.projectId ?? createTestId('proj'),
-    agentId: null,
-    sessionId: null,
-    title: 'Test Task',
-    description: 'A test task description',
-    column: 'backlog' as TaskColumn,
-    position: 0,
-    branch: null,
-    worktreeId: null,
-    diffSummary: null,
-    filesChanged: null,
-    linesAdded: null,
-    linesRemoved: null,
-    approvedAt: null,
-    approvedBy: null,
-    rejectionReason: null,
-    rejectionCount: 0,
-    startedAt: null,
-    completedAt: null,
-    turnCount: 0,
-    labels: [],
-    metadata: {},
-    createdAt: now,
-    updatedAt: now,
-    ...options,
-  };
-}
-
-// ============ Agent Factory ============
-export interface CreateTestAgentOptions extends Partial<Omit<Agent, 'id' | 'createdAt' | 'updatedAt'>> {
-  projectId?: string;
-  config?: Partial<AgentConfig>;
-}
-
-export function createTestAgent(options: CreateTestAgentOptions = {}): Agent {
-  const now = new Date();
-
-  return {
-    id: createTestId('agent'),
-    projectId: options.projectId ?? createTestId('proj'),
-    name: 'Test Agent',
-    type: 'task',
-    status: 'idle' as AgentStatus,
-    config: {
-      allowedTools: ['Read', 'Edit', 'Bash', 'Glob', 'Grep'],
-      maxTurns: 50,
-      model: 'claude-sonnet-4-6',
-      ...options.config,
-    },
-    currentTaskId: null,
-    currentSessionId: null,
-    currentWorktreeId: null,
-    totalTasks: 0,
-    completedTasks: 0,
-    failedTasks: 0,
-    lastError: null,
-    lastErrorAt: null,
-    createdAt: now,
-    updatedAt: now,
-    ...options,
-  };
-}
-
-// ============ Session Factory ============
-export interface CreateTestSessionOptions extends Partial<Omit<Session, 'id' | 'createdAt' | 'updatedAt'>> {
-  projectId?: string;
-}
-
-export function createTestSession(options: CreateTestSessionOptions = {}): Session {
-  const now = new Date();
-  const id = createTestId('sess');
-
+export function buildProject(options: ProjectFactoryOptions = {}): NewProject {
+  const id = options.id ?? createId();
   return {
     id,
-    projectId: options.projectId ?? createTestId('proj'),
-    taskId: null,
-    agentId: null,
-    title: 'Test Session',
-    url: `/sessions/${id}`,
-    isActive: true,
-    activeUsers: [],
-    messageCount: 0,
-    toolCallCount: 0,
-    createdAt: now,
-    updatedAt: now,
-    closedAt: null,
-    ...options,
+    name: options.name ?? `Test Project ${id.slice(0, 6)}`,
+    path: options.path ?? `/tmp/test-project-${id}`,
+    description: options.description ?? null,
+    config: { ...DEFAULT_PROJECT_CONFIG, ...options.config },
+    maxConcurrentAgents: options.maxConcurrentAgents ?? 3,
+    githubOwner: options.githubOwner ?? null,
+    githubRepo: options.githubRepo ?? null,
+    githubInstallationId: options.githubInstallationId ?? null,
+    configPath: options.configPath ?? '.claude',
+    sandboxConfigId: options.sandboxConfigId ?? null,
   };
 }
 
-// ============ Worktree Factory ============
-export interface CreateTestWorktreeOptions extends Partial<Omit<Worktree, 'id' | 'createdAt' | 'updatedAt'>> {
-  projectId?: string;
-  taskId?: string;
-}
-
-export function createTestWorktree(options: CreateTestWorktreeOptions = {}): Worktree {
-  const now = new Date();
-  const projectId = options.projectId ?? createTestId('proj');
-  const taskId = options.taskId ?? createTestId('task');
-
-  return {
-    id: createTestId('wt'),
-    projectId,
-    taskId,
-    branch: `feature/${taskId}-test-feature`,
-    baseBranch: 'main',
-    path: `/tmp/test-projects/.worktrees/feature-${taskId}-test-feature`,
-    status: 'active' as WorktreeStatus,
-    envCopied: true,
-    depsInstalled: true,
-    initScriptRun: false,
-    lastError: null,
-    createdAt: now,
-    updatedAt: now,
-    mergedAt: null,
-    removedAt: null,
-    ...options,
-  };
-}
-
-// ============ Agent Run Factory ============
-export interface CreateTestAgentRunOptions extends Partial<Omit<AgentRun, 'id' | 'startedAt'>> {
-  agentId?: string;
-  projectId?: string;
-}
-
-export function createTestAgentRun(options: CreateTestAgentRunOptions = {}): AgentRun {
-  const now = new Date();
-
-  return {
-    id: createTestId('run'),
-    agentId: options.agentId ?? createTestId('agent'),
-    taskId: null,
-    projectId: options.projectId ?? createTestId('proj'),
-    sessionId: null,
-    status: 'running' as AgentStatus,
-    prompt: 'Test prompt for agent execution',
-    result: null,
-    turnCount: 0,
-    tokenInputCount: 0,
-    tokenOutputCount: 0,
-    toolCalls: [],
-    error: null,
-    errorType: null,
-    startedAt: now,
-    completedAt: null,
-    duration: null,
-    ...options,
-  };
-}
-
-// ============ User Factory ============
-export interface TestUser {
-  id: string;
-  login: string;
-  email: string;
-  avatarUrl: string;
-}
-
-export function createTestUser(options: Partial<TestUser> = {}): TestUser {
-  const id = createTestId('user');
-  return {
-    id,
-    login: `test-user-${id}`,
-    email: `test-${id}@example.com`,
-    avatarUrl: `https://avatars.githubusercontent.com/u/${id}`,
-    ...options,
-  };
+export async function createTestProject(options: ProjectFactoryOptions = {}): Promise<Project> {
+  const db = getTestDb();
+  const data = buildProject(options);
+  const [project] = await db.insert(projects).values(data).returning();
+  if (!project) throw new Error('Failed to create test project');
+  return project;
 }
 ```
+
+All other entity factories follow the same pattern: `build*()` for the plain object, `createTest*()` for DB insertion.
 
 ### 3.2 GitHub Entity Factories
 
@@ -1567,170 +1416,145 @@ export function createTestPresenceEvent(options: Partial<PresenceEvent> = {}): P
 
 ## 4. Test Database
 
-### 4.1 In-Memory PGlite Setup
+### 4.1 In-Memory better-sqlite3 Setup
+
+The test database uses better-sqlite3 with `:memory:` mode for fast, isolated test execution. It also supports an optional `DB_MODE=postgres` path for Postgres integration testing.
 
 ```typescript
 // tests/helpers/database.ts
-import { PGlite } from '@electric-sql/pglite';
-import { drizzle, type PgliteDatabase } from 'drizzle-orm/pglite';
-import { migrate } from 'drizzle-orm/pglite/migrator';
-import * as schema from '@/db/schema';
+import Database, { type Database as SQLiteDatabase } from 'better-sqlite3';
+import { type BetterSQLite3Database, drizzle } from 'drizzle-orm/better-sqlite3';
+import * as schema from '../../src/db/schema/sqlite';
+import {
+  EVENT_SYSTEM_MIGRATION_SQL,
+  MIGRATION_SQL,
+  RBAC_GITHUB_TOKEN_MIGRATION_SQL,
+  RBAC_MIGRATION_SQL,
+} from '../../src/lib/bootstrap/phases/schema';
 
-let pglite: PGlite | null = null;
-let db: PgliteDatabase<typeof schema> | null = null;
+const DB_MODE = process.env.DB_MODE ?? 'sqlite';
+type TestDatabase = BetterSQLite3Database<typeof schema>;
 
-export async function setupTestDatabase(): Promise<PgliteDatabase<typeof schema>> {
-  // Create in-memory PGlite instance
-  pglite = new PGlite();
-  db = drizzle(pglite, { schema });
+let testSqlite: SQLiteDatabase | null = null;
+let testDb: TestDatabase | null = null;
 
-  // Run migrations
-  await migrate(db, { migrationsFolder: './db/migrations' });
+export async function setupTestDatabase(): Promise<TestDatabase> {
+  if (testDb) return testDb;
 
-  return db;
+  // Use in-memory SQLite for tests
+  testSqlite = new Database(':memory:');
+  testSqlite.pragma('foreign_keys = ON');
+  testDb = drizzle(testSqlite, { schema });
+
+  // Run base migrations
+  testSqlite.exec(MIGRATION_SQL);
+
+  // Add team_id column before RBAC migration (which creates an index on it)
+  try {
+    testSqlite.exec(RBAC_GITHUB_TOKEN_MIGRATION_SQL);
+  } catch {
+    // column may already exist
+  }
+
+  // Run RBAC migrations (teams, task_tags, api_tokens, etc.)
+  testSqlite.exec(RBAC_MIGRATION_SQL);
+
+  // Run event system migrations (event_sources, event_subscriptions, event_log)
+  testSqlite.exec(EVENT_SYSTEM_MIGRATION_SQL);
+
+  return testDb;
 }
 
-export async function getTestDatabase(): Promise<PgliteDatabase<typeof schema>> {
-  if (!db) {
-    return setupTestDatabase();
-  }
-  return db;
+export function getTestDb(): TestDatabase {
+  if (!testDb) throw new Error('Test database not initialized');
+  return testDb;
 }
 
 export async function clearTestDatabase(): Promise<void> {
-  if (!db) return;
+  if (!testDb) return;
 
-  // Clear all tables in reverse dependency order
-  await db.delete(schema.auditLogs);
-  await db.delete(schema.agentRuns);
-  await db.delete(schema.sessions);
-  await db.delete(schema.worktrees);
-  await db.delete(schema.tasks);
-  await db.delete(schema.agents);
-  await db.delete(schema.repositoryConfigs);
-  await db.delete(schema.githubInstallations);
-  await db.delete(schema.projects);
+  // Delete in order respecting foreign key constraints
+  await testDb.delete(schema.auditLogs);
+  await testDb.delete(schema.eventLog);
+  await testDb.delete(schema.eventSubscriptions);
+  await testDb.delete(schema.eventSources);
+  await testDb.delete(schema.agentRuns);
+  await testDb.delete(schema.sessions);
+  await testDb.delete(schema.worktrees);
+  await testDb.delete(schema.tasks);
+  await testDb.delete(schema.agents);
+  await testDb.delete(schema.repositoryConfigs);
+  await testDb.delete(schema.githubInstallations);
+  await testDb.delete(schema.githubTokens);
+  // RBAC tables
+  await testDb.delete(schema.taskTags);
+  await testDb.delete(schema.projectTags);
+  await testDb.delete(schema.apiTokens);
+  await testDb.delete(schema.teamInvitations);
+  await testDb.delete(schema.projectMembers);
+  await testDb.delete(schema.teamProjects);
+  await testDb.delete(schema.teamMembers);
+  await testDb.delete(schema.tags);
+  await testDb.delete(schema.teams);
+  await testDb.delete(schema.projects);
+  await testDb.delete(schema.sandboxConfigs);
+  await testDb.delete(schema.marketplaces);
 }
 
-export async function teardownTestDatabase(): Promise<void> {
-  if (pglite) {
-    await pglite.close();
-    pglite = null;
-    db = null;
+export async function closeTestDatabase(): Promise<void> {
+  if (testSqlite) {
+    testSqlite.close();
+    testSqlite = null;
+    testDb = null;
   }
 }
 
-// Seed database with test data
-export async function seedTestDatabase(options: {
+// Seed database with test data using factories
+import { createTestAgent } from '../factories/agent.factory';
+import { createTestProject } from '../factories/project.factory';
+import { createTestTask } from '../factories/task.factory';
+
+export type SeedOptions = {
   projects?: number;
   tasksPerProject?: number;
   agentsPerProject?: number;
-} = {}): Promise<{
-  projects: schema.Project[];
-  tasks: schema.Task[];
-  agents: schema.Agent[];
-}> {
-  const {
-    projects: projectCount = 1,
-    tasksPerProject = 3,
-    agentsPerProject = 1,
-  } = options;
+};
 
-  if (!db) {
-    throw new Error('Database not initialized');
-  }
+export async function seedTestDatabase(options: SeedOptions = {}): Promise<schema.Project[]> {
+  const { projects = 1, tasksPerProject = 5, agentsPerProject = 2 } = options;
 
-  const projects: schema.Project[] = [];
-  const tasks: schema.Task[] = [];
-  const agents: schema.Agent[] = [];
+  const createdProjects: schema.Project[] = [];
 
-  for (let i = 0; i < projectCount; i++) {
-    const [project] = await db.insert(schema.projects).values({
-      name: `Test Project ${i + 1}`,
-      path: `/tmp/test-projects/project-${i + 1}`,
-      config: {
-        worktreeRoot: '.worktrees',
-        defaultBranch: 'main',
-        allowedTools: ['Read', 'Edit', 'Bash'],
-        maxTurns: 50,
-        model: 'claude-sonnet-4-6',
-      },
-    }).returning();
-    projects.push(project);
+  for (let projectIndex = 0; projectIndex < projects; projectIndex += 1) {
+    const project = await createTestProject({
+      name: `Test Project ${projectIndex + 1}`,
+    });
+    createdProjects.push(project);
 
-    for (let j = 0; j < tasksPerProject; j++) {
-      const column = ['backlog', 'in_progress', 'waiting_approval', 'verified'][j % 4] as schema.TaskColumn;
-      const [task] = await db.insert(schema.tasks).values({
-        projectId: project.id,
-        title: `Task ${j + 1} for Project ${i + 1}`,
-        description: `Description for task ${j + 1}`,
-        column,
-        position: j,
-      }).returning();
-      tasks.push(task);
+    for (let agentIndex = 0; agentIndex < agentsPerProject; agentIndex += 1) {
+      await createTestAgent(project.id, { name: `Agent ${agentIndex + 1}` });
     }
 
-    for (let k = 0; k < agentsPerProject; k++) {
-      const [agent] = await db.insert(schema.agents).values({
-        projectId: project.id,
-        name: `Agent ${k + 1} for Project ${i + 1}`,
-        type: 'task',
-        status: 'idle',
-        config: {
-          allowedTools: ['Read', 'Edit', 'Bash'],
-          maxTurns: 50,
-          model: 'claude-sonnet-4-6',
-        },
-      }).returning();
-      agents.push(agent);
+    for (let taskIndex = 0; taskIndex < tasksPerProject; taskIndex += 1) {
+      await createTestTask(project.id, { title: `Task ${taskIndex + 1}` });
     }
   }
 
-  return { projects, tasks, agents };
+  return createdProjects;
 }
 ```
 
-### 4.2 Transaction-Based Test Isolation
+### 4.2 Test Isolation Strategy
+
+Tests use the `clearTestDatabase()` function in `afterEach` (called from `tests/setup.ts`) to delete all rows between tests, rather than transaction-based rollback. This approach is simpler with SQLite's in-memory mode and avoids complexity around SQLite's limited savepoint support.
+
+For tests that need additional raw SQL (e.g., custom migrations), the `execRawSql()` helper is available:
 
 ```typescript
-// tests/helpers/transaction.ts
-import { sql } from 'drizzle-orm';
-import { getTestDatabase } from './database';
-import type { PgliteDatabase } from 'drizzle-orm/pglite';
-import type * as schema from '@/db/schema';
-
-export interface TransactionContext {
-  db: PgliteDatabase<typeof schema>;
-  rollback: () => Promise<void>;
-}
-
-// Create a transaction that can be rolled back after each test
-export async function createTestTransaction(): Promise<TransactionContext> {
-  const db = await getTestDatabase();
-
-  // Start a savepoint for rollback
-  await db.execute(sql`SAVEPOINT test_savepoint`);
-
-  return {
-    db,
-    rollback: async () => {
-      await db.execute(sql`ROLLBACK TO SAVEPOINT test_savepoint`);
-    },
-  };
-}
-
-// Higher-order function for transaction-wrapped tests
-export function withTestTransaction<T>(
-  testFn: (ctx: TransactionContext) => Promise<T>
-): () => Promise<T> {
-  return async () => {
-    const ctx = await createTestTransaction();
-    try {
-      return await testFn(ctx);
-    } finally {
-      await ctx.rollback();
-    }
-  };
+// tests/helpers/database.ts (excerpt)
+export function execRawSql(sql: string): void {
+  if (!testSqlite) throw new Error('Test database not initialized');
+  testSqlite.exec(sql);
 }
 ```
 
@@ -1740,93 +1564,30 @@ export function withTestTransaction<T>(
 
 ### 5.1 React Component Testing
 
+Component tests use `@testing-library/react` directly with `render`, `screen`, and `fireEvent`. The Vitest environment is set to `jsdom` (see vitest.config.ts) and `@testing-library/jest-dom/vitest` is imported in `tests/setup.ts` for custom DOM matchers.
+
 ```typescript
-// tests/helpers/react.tsx
-import { render, type RenderOptions } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { RouterProvider, createMemoryRouter, type RouteObject } from '@tanstack/react-router';
-import type { ReactElement, ReactNode } from 'react';
+// Example component test pattern
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { MyComponent } from '@/app/components/features/my-component';
 
-// Create a fresh QueryClient for each test
-function createTestQueryClient() {
-  return new QueryClient({
-    defaultOptions: {
-      queries: {
-        retry: false,
-        gcTime: 0,
-        staleTime: 0,
-      },
-      mutations: {
-        retry: false,
-      },
-    },
-  });
-}
-
-interface TestProvidersProps {
-  children: ReactNode;
-  queryClient?: QueryClient;
-}
-
-function TestProviders({ children, queryClient }: TestProvidersProps) {
-  const client = queryClient ?? createTestQueryClient();
-
-  return (
-    <QueryClientProvider client={client}>
-      {children}
-    </QueryClientProvider>
-  );
-}
-
-// Custom render with providers
-export function renderWithProviders(
-  ui: ReactElement,
-  options?: Omit<RenderOptions, 'wrapper'> & {
-    queryClient?: QueryClient;
-  }
-): ReturnType<typeof render> & { queryClient: QueryClient } {
-  const queryClient = options?.queryClient ?? createTestQueryClient();
-
-  const result = render(ui, {
-    wrapper: ({ children }) => (
-      <TestProviders queryClient={queryClient}>
-        {children}
-      </TestProviders>
-    ),
-    ...options,
+describe('MyComponent', () => {
+  it('renders correctly', () => {
+    render(<MyComponent />);
+    expect(screen.getByText('Expected text')).toBeInTheDocument();
   });
 
-  return {
-    ...result,
-    queryClient,
-  };
-}
-
-// Create test router for route testing
-export function createTestRouter(routes: RouteObject[], initialEntries: string[] = ['/']) {
-  return createMemoryRouter(routes, {
-    initialEntries,
+  it('handles user interaction', async () => {
+    const onAction = vi.fn();
+    render(<MyComponent onAction={onAction} />);
+    fireEvent.click(screen.getByRole('button'));
+    expect(onAction).toHaveBeenCalled();
   });
-}
-
-// Render with router
-export function renderWithRouter(
-  routes: RouteObject[],
-  options?: {
-    initialEntries?: string[];
-    queryClient?: QueryClient;
-  }
-) {
-  const router = createTestRouter(routes, options?.initialEntries);
-  const queryClient = options?.queryClient ?? createTestQueryClient();
-
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>
-  );
-}
+});
 ```
+
+> **Note**: This project uses `@tanstack/db` and `@tanstack/react-db` for client state (not `@tanstack/react-query`). There is no `QueryClientProvider` wrapper needed for component tests.
 
 ### 5.2 Async Utilities
 
@@ -1964,6 +1725,8 @@ export function mockUseAuth(context: MockAuthContext) {
 ---
 
 ## 6. Fixture Data
+
+> **Note**: The `tests/fixtures/` directory does not currently exist in the codebase. The DB-backed factories in `tests/factories/` serve as the primary mechanism for creating test data. The patterns below are reference designs for future fixture files if needed.
 
 ### 6.1 Sample Projects
 
@@ -2323,173 +2086,76 @@ export const sampleWebhooks = {
 
 ## 7. E2E Test Setup
 
-### 7.1 Global Setup
+E2E tests use **Playwright** (not agent-browser) for browser automation, run via `vitest.e2e.config.ts`. The setup is in `tests/e2e/setup.ts` (see section 1.5).
 
-```typescript
-// tests/e2e/global-setup.ts
-import { execSync } from 'child_process';
-import { seedTestDatabase, setupTestDatabase } from '../helpers/database';
+### 7.1 Running E2E Tests
 
-export default async function globalSetup() {
-  console.log('Setting up E2E test environment...');
+The server must be running separately before E2E tests execute. Tests are gated by the `E2E_BASE_URL` environment variable:
 
-  // Start test server
-  const serverProcess = execSync('bun run dev &', {
-    stdio: 'inherit',
-    env: {
-      ...process.env,
-      NODE_ENV: 'test',
-      PORT: '5173',
-    },
-  });
+```bash
+# Start dev server first
+npm run dev
 
-  // Wait for server to be ready
-  let retries = 30;
-  while (retries > 0) {
-    try {
-      const response = await fetch('http://localhost:5173/api/health');
-      if (response.ok) break;
-    } catch {
-      // Server not ready yet
-    }
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    retries--;
-  }
-
-  if (retries === 0) {
-    throw new Error('Test server failed to start');
-  }
-
-  // Setup and seed database
-  await setupTestDatabase();
-  await seedTestDatabase({ projects: 2, tasksPerProject: 5, agentsPerProject: 2 });
-
-  console.log('E2E test environment ready');
-}
+# Then run E2E tests in another terminal
+E2E_BASE_URL=http://localhost:3000 bun run test:e2e
 ```
 
-### 7.2 Global Teardown
+### 7.2 E2E Test Structure
 
-```typescript
-// tests/e2e/global-teardown.ts
-import { execSync } from 'child_process';
-import { teardownTestDatabase } from '../helpers/database';
+E2E tests live in `tests/e2e/` and include component-level tests and workflow tests:
 
-export default async function globalTeardown() {
-  console.log('Tearing down E2E test environment...');
-
-  // Stop test server
-  try {
-    execSync('pkill -f "bun run dev"');
-  } catch {
-    // Server might already be stopped
-  }
-
-  // Cleanup database
-  await teardownTestDatabase();
-
-  console.log('E2E test environment cleaned up');
-}
+```
+tests/e2e/
+├── setup.ts                     # Playwright browser lifecycle (beforeAll/afterAll)
+├── smoke.test.ts                # Basic health checks (run first)
+├── kanban-workflow.test.ts      # Kanban board E2E flow
+├── agent-session.test.ts        # Agent session E2E
+├── workflow.test.ts             # Full workflow E2E
+├── project-workflow.test.ts     # Project lifecycle E2E
+├── k8s/                         # Kubernetes E2E tests
+│   └── agent-sandbox-e2e.test.ts
+└── components/                  # Component-focused E2E tests
+    ├── navigation.test.ts
+    ├── kanban.test.ts
+    ├── session.test.ts
+    ├── settings.test.ts
+    ├── global-settings.test.ts
+    ├── dialogs.test.ts
+    ├── sidebar.test.ts
+    ├── shortcuts.test.ts
+    ├── states.test.ts
+    └── ui-components.test.ts
 ```
 
-### 7.3 E2E Test Utilities
+### 7.3 E2E Helpers
 
-```typescript
-// tests/e2e/helpers.ts
-import type { Page, Browser } from 'agent-browser';
-import { seedTestDatabase, clearTestDatabase } from '../helpers/database';
-import { createTestProject, createTestTask } from '../factories';
+The `tests/e2e/setup.ts` exports Playwright helper functions used by all E2E tests:
 
-export interface E2ETestContext {
-  page: Page;
-  browser: Browser;
-}
+| Helper | Purpose |
+|--------|---------|
+| `goto(path)` | Navigate to a path (relative to BASE_URL) |
+| `click(selector)` | Click an element |
+| `fill(selector, text)` | Fill an input field |
+| `getText(selector)` | Get text content |
+| `waitForSelector(selector)` | Wait for element to appear |
+| `waitForHidden(selector)` | Wait for element to disappear |
+| `waitForNetworkIdle()` | Wait for network to settle |
+| `screenshot(name)` | Take a screenshot |
+| `drag(source, target)` | Drag and drop |
+| `exists(selector)` | Check if element is visible |
+| `type(selector, text)` | Type text character by character |
+| `press(key)` | Press a keyboard key |
+| `hover(selector)` | Hover over an element |
 
-// Setup test project for E2E
-export async function setupE2ETestProject(ctx: E2ETestContext): Promise<{
-  project: ReturnType<typeof createTestProject>;
-  tasks: ReturnType<typeof createTestTask>[];
-}> {
-  await clearTestDatabase();
+### 7.4 E2E Configuration
 
-  const { projects, tasks } = await seedTestDatabase({
-    projects: 1,
-    tasksPerProject: 5,
-    agentsPerProject: 1,
-  });
+E2E tests run sequentially (no parallelism) with a single browser instance:
 
-  return {
-    project: projects[0],
-    tasks,
-  };
-}
-
-// Navigate and wait for page load
-export async function navigateTo(ctx: E2ETestContext, path: string): Promise<void> {
-  await ctx.page.goto(`http://localhost:5173${path}`);
-  await ctx.page.waitForLoadState('networkidle');
-}
-
-// Wait for element with text
-export async function waitForText(
-  ctx: E2ETestContext,
-  text: string,
-  timeout: number = 5000
-): Promise<void> {
-  await ctx.page.waitForSelector(`text=${text}`, { timeout });
-}
-
-// Take screenshot on failure
-export async function captureScreenshotOnFailure(
-  ctx: E2ETestContext,
-  testName: string
-): Promise<string> {
-  const screenshotPath = `tests/e2e/results/screenshots/${testName}-${Date.now()}.png`;
-  await ctx.page.screenshot({ path: screenshotPath, fullPage: true });
-  return screenshotPath;
-}
-
-// Drag and drop helper for Kanban
-export async function dragTask(
-  ctx: E2ETestContext,
-  taskTitle: string,
-  targetColumn: 'backlog' | 'in_progress' | 'waiting_approval' | 'verified'
-): Promise<void> {
-  const taskCard = await ctx.page.locator(`[data-testid="task-card"]:has-text("${taskTitle}")`);
-  const targetDropzone = await ctx.page.locator(`[data-testid="column-${targetColumn}"]`);
-
-  await taskCard.dragTo(targetDropzone);
-  await ctx.page.waitForSelector(`[data-testid="column-${targetColumn}"] [data-testid="task-card"]:has-text("${taskTitle}")`);
-}
-```
-
-### 7.4 Parallel Test Configuration
-
-```typescript
-// tests/e2e/parallel.config.ts
-import { defineConfig } from 'agent-browser';
-
-export default defineConfig({
-  // Enable sharding for parallel execution across CI workers
-  shard: {
-    current: parseInt(process.env.SHARD_INDEX ?? '1', 10),
-    total: parseInt(process.env.SHARD_TOTAL ?? '1', 10),
-  },
-
-  // Worker configuration
-  workers: process.env.CI ? 4 : 1,
-  fullyParallel: true,
-
-  // Test isolation between workers
-  testIsolation: true,
-
-  // Report merging for parallel runs
-  reporter: [
-    ['html', { outputFolder: `tests/e2e/results/shard-${process.env.SHARD_INDEX ?? '1'}` }],
-    ['json', { outputFile: `tests/e2e/results/shard-${process.env.SHARD_INDEX ?? '1'}/results.json` }],
-  ],
-});
-```
+- `maxConcurrency: 1`, `maxWorkers: 1`
+- `testTimeout: 60000` (60 seconds per test)
+- `hookTimeout: 30000` (30 seconds for setup/teardown)
+- Smoke test runs first to verify server health
+- K8s E2E tests excluded by default (run via `bun run test:k8s-e2e`)
 
 ---
 
@@ -2531,14 +2197,11 @@ jobs:
       - name: Lint
         run: bun run lint
 
-      - name: Unit tests
-        run: bun run test:unit --coverage
+      - name: Unit + Integration tests
+        run: bun run test:coverage
 
-      - name: Integration tests
-        run: bun run test:integration --coverage
-
-      - name: Merge coverage reports
-        run: bun run coverage:merge
+      - name: Integration tests (targeted)
+        run: bun run test:integration
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -2573,12 +2236,13 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Install Agent Browser dependencies
-        run: bunx agent-browser install
+      - name: Install Playwright browsers
+        run: bunx playwright install --with-deps chromium
 
       - name: Run E2E tests (shard ${{ matrix.shard }}/4)
         run: bun run test:e2e --shard=${{ matrix.shard }}/4
         env:
+          E2E_BASE_URL: http://localhost:3000
           SHARD_INDEX: ${{ matrix.shard }}
           SHARD_TOTAL: 4
 
@@ -2649,12 +2313,12 @@ jobs:
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:unit": "vitest run --project unit",
-    "test:integration": "vitest run --project integration",
-    "test:e2e": "agent-browser test tests/e2e/",
     "test:coverage": "vitest run --coverage",
-    "coverage:merge": "nyc merge coverage/ coverage/merged.json && nyc report --reporter=lcov --temp-dir=coverage",
-    "e2e:merge-reports": "bun scripts/merge-e2e-reports.ts"
+    "test:e2e": "vitest --config vitest.e2e.config.ts",
+    "test:ui": "bun scripts/run-ui-tests.ts",
+    "test:integration": "vitest --include 'tests/integration/**'",
+    "test:k8s": "K8S_INTEGRATION_TESTS=true vitest run --include 'src/lib/sandbox/providers/__tests__/k8s-tmux.integration.test.ts'",
+    "test:k8s-e2e": "K8S_E2E=true vitest run tests/e2e/k8s/"
   }
 }
 ```
@@ -2668,14 +2332,14 @@ jobs:
 ```typescript
 // tests/performance/benchmark.ts
 import { bench, describe } from 'vitest';
-import { getTestDatabase, seedTestDatabase } from '../helpers/database';
+import { getTestDb, seedTestDatabase } from '../helpers/database';
 import { createTestProject, createTestTask } from '../factories';
 import * as schema from '@/db/schema';
 import { eq } from 'drizzle-orm';
 
 describe('Database Performance', () => {
   bench('Insert 100 tasks', async () => {
-    const db = await getTestDatabase();
+    const db = await getTestDb();
     const project = createTestProject();
 
     await db.insert(schema.projects).values(project);
@@ -2688,7 +2352,7 @@ describe('Database Performance', () => {
   }, { iterations: 10 });
 
   bench('Query tasks by project', async () => {
-    const db = await getTestDatabase();
+    const db = await getTestDb();
     await seedTestDatabase({ projects: 1, tasksPerProject: 100 });
 
     const projects = await db.select().from(schema.projects).limit(1);
@@ -2698,7 +2362,7 @@ describe('Database Performance', () => {
   }, { iterations: 100 });
 
   bench('Update task position (Kanban drag)', async () => {
-    const db = await getTestDatabase();
+    const db = await getTestDb();
     const { tasks } = await seedTestDatabase({ projects: 1, tasksPerProject: 50 });
 
     await db.update(schema.tasks)
@@ -2775,7 +2439,7 @@ describe('Load Tests', () => {
   it('should handle 100 concurrent task queries', async () => {
     const result = await runLoadTest(
       async () => {
-        await fetch('http://localhost:5173/api/tasks');
+        await fetch('http://localhost:3000/api/tasks');
       },
       { duration: 10, concurrency: 100 }
     );
@@ -3039,8 +2703,8 @@ export function toMatchApiSnapshot(response: unknown): void {
 
 // Snapshot test helper for database state
 export async function toMatchDatabaseSnapshot(tableName: string): Promise<void> {
-  const { getTestDatabase } = await import('../helpers/database');
-  const db = await getTestDatabase();
+  const { getTestDb } = await import('../helpers/database');
+  const db = await getTestDb();
 
   // Query all rows from the table
   const rows = await db.execute(`SELECT * FROM ${tableName} ORDER BY created_at`);

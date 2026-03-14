@@ -37,10 +37,7 @@ export const edgeTypes = {
 
 export type EdgeType = keyof typeof edgeTypes;
 
-// Re-export individual components
-export { SequentialEdge, HandoffEdge, DataflowEdge };
-
 // Re-export data types for edge configuration
-export type { SequentialEdgeData };
-export type { HandoffEdgeData };
-export type { DataflowEdgeData };
+export type { DataflowEdgeData, HandoffEdgeData, SequentialEdgeData };
+// Re-export individual components
+export { DataflowEdge, HandoffEdge, SequentialEdge };

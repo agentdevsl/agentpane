@@ -335,23 +335,23 @@ When performing any research, concurrent subagents can be used for performance a
 | Layer              | Technology       | Package                                                                                             | Version          |
 | ------------------ | ---------------- | --------------------------------------------------------------------------------------------------- | ---------------- |
 | Runtime            | Bun              | https://bun.sh                                                                                      | 1.3.10           |
-| Framework          | TanStack Start   | @tanstack/react-start (https://github.com/TanStack/router)                                          | 1.150.0          |
-| API Router         | Hono             | hono (https://github.com/honojs/hono)                                                               | 4.11.5           |
+| Framework          | TanStack Start   | @tanstack/react-start (https://github.com/TanStack/router)                                          | 1.166.9          |
+| API Router         | Hono             | hono (https://github.com/honojs/hono)                                                               | 4.12.7           |
 | Database           | SQLite           | better-sqlite3 (https://github.com/WiseLibs/better-sqlite3)                                         | 12.6.2           |
-| ORM                | Drizzle          | drizzle-orm + drizzle-kit (https://github.com/drizzle-team/drizzle-orm)                             | 0.45.1 / 0.31.8  |
-| Client State       | TanStack DB      | @tanstack/db + @tanstack/react-db (https://github.com/TanStack/db)                                  | 0.5.20 / 0.1.64  |
-| Agent Events       | Durable Streams  | @durable-streams/* (https://github.com/durable-streams/durable-streams)                              | 0.2.0            |
-| AI / Agents        | Claude Agent SDK | @anthropic-ai/claude-agent-sdk (https://github.com/anthropics/claude-agent-sdk-typescript)          | 0.2.19           |
-| AI / API           | Anthropic SDK    | @anthropic-ai/sdk (https://github.com/anthropics/anthropic-sdk-typescript)                          | 0.71.2           |
-| UI                 | Radix + Tailwind | @radix-ui/* + tailwindcss (https://github.com/radix-ui/primitives)                                  | 1.2.4 / 4.1.18   |
-| Workflow Designer  | React Flow       | @xyflow/react (https://github.com/xyflow/xyflow)                                                    | 12.10.0          |
-| Graph Layout       | ELK              | elkjs (https://github.com/kieler/elkjs)                                                             | 0.11.0           |
+| ORM                | Drizzle          | drizzle-orm + drizzle-kit (https://github.com/drizzle-team/drizzle-orm)                             | 0.45.1 / 0.31.9  |
+| Client State       | TanStack DB      | @tanstack/db + @tanstack/react-db (https://github.com/TanStack/db)                                  | 0.5.30 / 0.1.77  |
+| Agent Events       | Durable Streams  | @durable-streams/* (https://github.com/durable-streams/durable-streams)                              | 0.2.2            |
+| AI / Agents        | Claude Agent SDK | @anthropic-ai/claude-agent-sdk (https://github.com/anthropics/claude-agent-sdk-typescript)          | 0.2.63           |
+| AI / API           | Anthropic SDK    | @anthropic-ai/sdk (https://github.com/anthropics/anthropic-sdk-typescript)                          | 0.72.1           |
+| UI                 | Radix + Tailwind | @radix-ui/* + tailwindcss (https://github.com/radix-ui/primitives)                                  | 1.2.4 / 4.2.1    |
+| Workflow Designer  | React Flow       | @xyflow/react (https://github.com/xyflow/xyflow)                                                    | 12.10.1          |
+| Graph Layout       | ELK              | elkjs (https://github.com/kieler/elkjs)                                                             | 0.11.1           |
 | Drag & Drop        | dnd-kit          | @dnd-kit/core + @dnd-kit/sortable (https://github.com/clauderic/dnd-kit)                            | 6.3.1 / 10.0.0   |
 | Icons              | Phosphor         | @phosphor-icons/react (https://github.com/phosphor-icons/react)                                     | 2.1.10           |
-| Testing            | Vitest           | vitest (https://github.com/vitest-dev/vitest)                                                       | 4.0.16           |
+| Testing            | Vitest           | vitest (https://github.com/vitest-dev/vitest)                                                       | 4.1.0            |
 | UI Testing         | Agent Browser    | agent-browser (https://github.com/anthropics/agent-browser)                                         | 0.7.6            |
-| E2E Testing        | Playwright       | playwright + @playwright/test (https://github.com/microsoft/playwright)                             | 1.57.0           |
-| Linting/Formatting | Biome            | @biomejs/biome (https://github.com/biomejs/biome)                                                   | 2.3.11           |
+| E2E Testing        | Playwright       | playwright + @playwright/test (https://github.com/microsoft/playwright)                             | 1.58.2           |
+| Linting/Formatting | Biome            | @biomejs/biome (https://github.com/biomejs/biome)                                                   | 2.4.7            |
 | CI/CD              | GitHub Actions   | https://github.com/features/actions                                                                 | -                |
 
 ### Utility Libraries
@@ -359,13 +359,13 @@ When performing any research, concurrent subagents can be used for performance a
 | Package                  | Version | Purpose                                |
 | ------------------------ | ------- | -------------------------------------- |
 | class-variance-authority | 0.7.1   | Component variant styling (cva)        |
-| @paralleldrive/cuid2     | 3.0.6   | Secure collision-resistant IDs         |
+| @paralleldrive/cuid2     | 3.3.0   | Secure collision-resistant IDs         |
 | zod                      | 4.3.6   | Schema validation                      |
 | @radix-ui/react-slot     | 1.2.4   | asChild prop support                   |
-| @tailwindcss/vite        | 4.1.18  | Tailwind v4 Vite plugin                |
+| @tailwindcss/vite        | 4.2.1   | Tailwind v4 Vite plugin                |
 | octokit                  | 5.0.5   | GitHub API client (REST + GraphQL)     |
 | react-markdown           | 10.1.0  | Markdown rendering                     |
 | dockerode                | 4.0.9   | Docker API client                      |
 | @kubernetes/client-node  | 1.4.0   | Kubernetes API client                  |
 | vite                     | 7.3.1   | Build tool                             |
-| react                    | 19.2.3  | UI framework                           |
+| react                    | 19.2.4  | UI framework                           |

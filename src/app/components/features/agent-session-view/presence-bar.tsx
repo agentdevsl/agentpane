@@ -217,4 +217,4 @@ export function PresenceBar({ users, shareUrl }: PresenceBarProps): React.JSX.El
 }
 
 // Export Avatar for potential reuse
-export { Avatar, getUserGradient, getInitials };
+export { Avatar, getInitials, getUserGradient };

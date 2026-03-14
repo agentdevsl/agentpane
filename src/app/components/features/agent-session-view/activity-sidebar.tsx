@@ -218,4 +218,4 @@ export function ActivitySidebar({
 }
 
 // Export for use in other components
-export { activityIconVariants, activityIcons, formatRelativeTime };
+export { activityIcons, activityIconVariants, formatRelativeTime };

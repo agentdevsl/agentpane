@@ -4,6 +4,20 @@
 
 Comprehensive monitoring, logging, metrics collection, health checks, alerting, and distributed tracing specification for AgentPane. This specification enables deep visibility into agent execution, system health, and operational metrics across the local-first architecture.
 
+### Implementation Status
+
+| Area | Status | Notes |
+|------|--------|-------|
+| Structured Logging | **Implemented** | `src/lib/logging/logger.ts` -- `createLogger(context)` with level filtering and JSON/human-readable output |
+| Health Checks | **Implemented** | `src/server/routes/health.ts` -- Hono routes at `/api/health`, `/api/health/liveness`, `/api/health/readiness` |
+| Request ID Middleware | **Implemented** | `src/server/router.ts` -- `requestIdMiddleware` sets `X-Request-Id` header |
+| HTTP Request Logging | **Implemented** | Hono built-in `logger()` middleware in `src/server/router.ts` |
+| Metrics Collection | Planned | No `lib/observability/metrics*` files exist yet |
+| Distributed Tracing | Planned | No `lib/observability/tracing*` files exist yet |
+| Alerting | Planned | No `lib/observability/alerts*` files exist yet |
+| Sensitive Data Masking | Planned | No `lib/logging/masking.ts` exists yet |
+| Dashboards | Planned | Specification only; no Grafana/Prometheus integration |
+
 ---
 
 ## Technology Context
@@ -11,8 +25,8 @@ Comprehensive monitoring, logging, metrics collection, health checks, alerting, 
 | Component | Technology | Role in Observability |
 |-----------|------------|----------------------|
 | Runtime | Bun 1.3.10 | Process metrics, native tracing hooks |
-| Framework | TanStack Start | Request/response instrumentation |
-| Database | PGlite 0.3.15 | Query metrics, connection health |
+| Framework | Hono (API) + TanStack Start (SSR) | Request/response instrumentation |
+| Database | SQLite (better-sqlite3 / bun:sqlite) or PostgreSQL (dual-mode via `DB_MODE`) | Query metrics, connection health |
 | Streaming | Durable Streams | Event throughput, latency metrics |
 | Agents | Claude Agent SDK | Turn metrics, tool execution tracing |
 
@@ -31,10 +45,12 @@ Comprehensive monitoring, logging, metrics collection, health checks, alerting, 
 
 ### Structured Logging Format
 
+> **Current implementation note:** The actual logger at `src/lib/logging/logger.ts` uses a simpler interface than what is specified below. It uses `createLogger(context: string)` which returns an object with `debug/info/warn/error` methods. In production it outputs JSON; in development it outputs human-readable format. The spec below describes the target schema for the structured log entries.
+
 All logs use JSON format for machine parsing and structured querying:
 
 ```typescript
-// lib/observability/logger.ts
+// src/lib/logging/logger.ts
 import { z } from 'zod';
 
 export const logEntrySchema = z.object({
@@ -96,10 +112,12 @@ export const logEntrySchema = z.object({
 export type LogEntry = z.infer<typeof logEntrySchema>;
 ```
 
-### Logger Implementation
+### Logger Implementation (Target)
+
+> **Current implementation:** The actual logger (`src/lib/logging/logger.ts`) is a simpler module that uses `createLogger(context: string)` returning `{ debug, info, warn, error }` methods. Each method accepts `(message, opts?)` where opts can include `requestId`, `data`, and `error`. It delegates to `console.log/warn/error/debug` with JSON output in production and human-readable output in development. The class-based `Logger` with component enums, trace IDs, and child loggers shown below is the target design.
 
 ```typescript
-// lib/observability/logger.impl.ts
+// src/lib/logging/logger.ts (implementation)
 import { createId } from '@paralleldrive/cuid2';
 import type { LogEntry } from './logger';
 
@@ -311,7 +329,7 @@ logger.error('Stream connection lost', connectionError, { sessionId, reconnectAt
 ### Sensitive Data Masking
 
 ```typescript
-// lib/observability/masking.ts
+// src/lib/logging/masking.ts (planned)
 
 const SENSITIVE_PATTERNS = [
   /ANTHROPIC_API_KEY/i,
@@ -391,7 +409,7 @@ export function createMaskedLogger(baseLogger: Logger): Logger {
 ### Log Rotation and Retention
 
 ```typescript
-// lib/observability/log-config.ts
+// src/lib/logging/log-config.ts (planned)
 
 export const LOG_CONFIG = {
   // File-based logging (when not using centralized logging)
@@ -428,7 +446,7 @@ export const LOG_CONFIG = {
 ### TypeScript Interfaces
 
 ```typescript
-// lib/observability/metrics.ts
+// src/lib/observability/metrics.ts (planned)
 import { z } from 'zod';
 
 export const metricTypeSchema = z.enum(['counter', 'gauge', 'histogram', 'summary']);
@@ -496,7 +514,7 @@ export interface Histogram {
 ### Business Metrics
 
 ```typescript
-// lib/observability/metrics-definitions.ts
+// src/lib/observability/metrics-definitions.ts (planned)
 
 export const BUSINESS_METRICS: MetricDefinition[] = [
   // Agent metrics
@@ -613,7 +631,7 @@ export const BUSINESS_METRICS: MetricDefinition[] = [
 ### Technical Metrics
 
 ```typescript
-// lib/observability/metrics-definitions.ts (continued)
+// src/lib/observability/metrics-definitions.ts (planned, continued)
 
 export const TECHNICAL_METRICS: MetricDefinition[] = [
   // HTTP metrics
@@ -806,7 +824,7 @@ export const TECHNICAL_METRICS: MetricDefinition[] = [
 ### Cardinality Considerations
 
 ```typescript
-// lib/observability/metrics-cardinality.ts
+// src/lib/observability/metrics-cardinality.ts (planned)
 
 // High cardinality labels to AVOID
 const HIGH_CARDINALITY_LABELS = [
@@ -839,7 +857,7 @@ export const CARDINALITY_LIMITS = {
 ### Metrics Registry Implementation
 
 ```typescript
-// lib/observability/metrics-registry.ts
+// src/lib/observability/metrics-registry.ts (planned)
 
 interface StoredMetric {
   definition: MetricDefinition;
@@ -993,7 +1011,7 @@ export const registry = new MetricsRegistry();
 ### Health Check Interfaces
 
 ```typescript
-// lib/observability/health.ts
+// src/lib/observability/health.ts (planned)
 import { z } from 'zod';
 
 export const healthStatusSchema = z.enum(['healthy', 'degraded', 'unhealthy']);
@@ -1024,102 +1042,83 @@ export type HealthResponse = z.infer<typeof healthResponseSchema>;
 export type HealthCheck = () => Promise<ComponentHealth>;
 ```
 
-### Liveness Probe: /health/live
+### Liveness Probe: /api/health/liveness
 
 Returns immediately if the process is running. No dependency checks.
 
+The health routes are implemented as Hono routes in `src/server/routes/health.ts` and mounted at `/api/health` via the main router (`src/server/router.ts`).
+
 ```typescript
-// app/routes/api/health/live.ts
-import { createServerFileRoute } from '@tanstack/react-start/server';
-
-export const ServerRoute = createServerFileRoute().methods({
-  GET: async () => {
-    const startTime = process.hrtime.bigint();
-
-    return Response.json({
-      status: 'healthy',
-      version: process.env.APP_VERSION ?? '0.0.0',
-      uptime: Math.floor((Date.now() - global.startTime) / 1000),
-      timestamp: new Date().toISOString(),
-    }, {
-      status: 200,
-      headers: {
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'X-Health-Check-Duration': `${Number(process.hrtime.bigint() - startTime) / 1e6}ms`,
-      },
-    });
-  },
+// src/server/routes/health.ts (actual implementation)
+// Liveness: GET /api/health/liveness
+app.get('/liveness', (_c) => {
+  return json({ ok: true, status: 'alive' });
 });
 ```
 
-### Readiness Probe: /health/ready
+There is also a legacy alias at `GET /api/healthz` that returns the same response.
 
-Checks all dependencies before accepting traffic.
+### Readiness Probe: /api/health/readiness
+
+Checks database connectivity before accepting traffic.
 
 ```typescript
-// app/routes/api/health/ready.ts
-import { createServerFileRoute } from '@tanstack/react-start/server';
-import { runHealthChecks, type HealthResponse } from '@/lib/observability/health-checks';
-
-export const ServerRoute = createServerFileRoute().methods({
-  GET: async () => {
-    const health = await runHealthChecks();
-
-    const status = health.status === 'healthy' ? 200 :
-                   health.status === 'degraded' ? 200 : 503;
-
-    return Response.json(health, {
-      status,
-      headers: {
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-      },
+// src/server/routes/health.ts (actual implementation)
+// Readiness: GET /api/health/readiness
+app.get('/readiness', async (_c) => {
+  try {
+    const dbStart = Date.now();
+    await db.query.projects.findFirst();
+    return json({
+      ok: true,
+      status: 'ready',
+      dbLatencyMs: Date.now() - dbStart,
     });
-  },
+  } catch (error) {
+    return json(
+      {
+        ok: false,
+        status: 'not_ready',
+        error: error instanceof Error ? error.message : 'Database unreachable',
+      },
+      503
+    );
+  }
 });
 ```
+
+There is also a legacy alias at `GET /api/readyz` that returns a simplified response.
 
 ### Component Health Checks
 
+The comprehensive health check endpoint is `GET /api/health` (Hono route). It checks multiple subsystems in a single request.
+
 ```typescript
-// lib/observability/health-checks.ts
-import { db } from '@/db/client';
-import { sql } from 'drizzle-orm';
-import type { ComponentHealth, HealthResponse, HealthStatus } from './health';
+// src/server/routes/health.ts (actual implementation)
+// GET /api/health — comprehensive health check
+//
+// The health route checks: database, GitHub token, sandbox provider, and
+// optionally Kubernetes provider health.
 
-const TIMEOUT_MS = 5000;
-
-// PGlite health check
-async function checkPGlite(): Promise<ComponentHealth> {
-  const start = performance.now();
-  const name = 'pglite';
-
-  try {
-    const result = await Promise.race([
-      db.execute(sql`SELECT 1 as health`),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Timeout')), TIMEOUT_MS)
-      ),
-    ]);
-
-    return {
-      name,
-      status: 'healthy',
-      latency: performance.now() - start,
-      lastCheck: new Date().toISOString(),
-      details: {
-        database: 'agentpane',
-        version: '0.3.15',
-      },
-    };
-  } catch (error) {
-    return {
-      name,
-      status: 'unhealthy',
-      message: error instanceof Error ? error.message : 'Unknown error',
-      latency: performance.now() - start,
-      lastCheck: new Date().toISOString(),
-    };
-  }
+// Database health check (supports both SQLite and PostgreSQL via DB_MODE)
+// Queries projects table and database version
+try {
+  const dbStart = Date.now();
+  const result = await db.query.projects.findFirst();
+  // For SQLite: SELECT sqlite_version()
+  // For Postgres: SELECT version()
+  checks.database = {
+    status: 'ok',
+    latencyMs: Date.now() - dbStart,
+    mode: DB_MODE,   // 'sqlite' or 'postgres'
+    version,         // e.g. "SQLite 3.45.0" or "PostgreSQL 16.2"
+  };
+} catch (error) {
+  checks.database = {
+    status: 'error',
+    mode: DB_MODE,
+    error: error instanceof Error ? error.message : 'Database query failed',
+  };
 }
 
 // Durable Streams health check
@@ -1250,14 +1249,9 @@ async function checkFileSystem(): Promise<ComponentHealth> {
   }
 }
 
-// Run all health checks in parallel
-export async function runHealthChecks(): Promise<HealthResponse> {
-  const checks = await Promise.all([
-    checkPGlite(),
-    checkDurableStreams(),
-    checkGitHub(),
-    checkFileSystem(),
-  ]);
+// All checks run within a single Hono handler (GET /api/health)
+// Checks: database, GitHub token, sandbox provider, Kubernetes (optional)
+// The actual implementation runs checks sequentially within one handler:
 
   // Determine overall status
   let overallStatus: HealthStatus = 'healthy';
@@ -1283,51 +1277,45 @@ export async function runHealthChecks(): Promise<HealthResponse> {
 
 ### Health Check Response Format
 
+The actual `GET /api/health` response format:
+
 ```json
 {
-  "status": "healthy",
-  "version": "1.2.3",
-  "uptime": 86400,
-  "timestamp": "2026-01-17T10:30:00.000Z",
-  "components": [
-    {
-      "name": "pglite",
-      "status": "healthy",
-      "latency": 2.5,
-      "lastCheck": "2026-01-17T10:30:00.000Z",
-      "details": {
-        "database": "agentpane",
-        "version": "0.3.15"
+  "ok": true,
+  "data": {
+    "status": "healthy",
+    "timestamp": "2026-01-17T10:30:00.000Z",
+    "uptime": 86400,
+    "checks": {
+      "database": {
+        "status": "ok",
+        "latencyMs": 2,
+        "mode": "sqlite",
+        "version": "SQLite 3.45.0"
+      },
+      "github": {
+        "status": "ok",
+        "login": "octocat"
+      },
+      "sandbox": {
+        "status": "ok",
+        "containerCount": 1,
+        "containerId": "abc123"
+      },
+      "kubernetes": {
+        "status": "ok",
+        "crdRegistered": true,
+        "namespaceExists": true,
+        "controllerInstalled": true,
+        "clusterVersion": "v1.28.0"
       }
     },
-    {
-      "name": "durable_streams",
-      "status": "healthy",
-      "latency": 5.2,
-      "lastCheck": "2026-01-17T10:30:00.000Z"
-    },
-    {
-      "name": "github",
-      "status": "healthy",
-      "latency": 150.3,
-      "lastCheck": "2026-01-17T10:30:00.000Z",
-      "details": {
-        "rateLimit": {
-          "remaining": 4500,
-          "limit": 5000,
-          "percentRemaining": "90.0"
-        }
-      }
-    },
-    {
-      "name": "filesystem",
-      "status": "healthy",
-      "latency": 1.1,
-      "lastCheck": "2026-01-17T10:30:00.000Z"
-    }
-  ]
+    "responseTimeMs": 15
+  }
 }
 ```
+
+Note: The `kubernetes` field only appears when a K8s provider is configured. The `sandbox` field shows `"not_configured"` when no sandbox provider is available.
 
 ---
 
@@ -1344,7 +1332,7 @@ export async function runHealthChecks(): Promise<HealthResponse> {
 ### Alert Definitions
 
 ```typescript
-// lib/observability/alerts.ts
+// src/lib/observability/alerts.ts (planned)
 import { z } from 'zod';
 
 export const alertSeveritySchema = z.enum(['critical', 'warning', 'info']);
@@ -1385,13 +1373,13 @@ export const ALERTS: AlertDefinition[] = [
   {
     name: 'DatabaseUnhealthy',
     severity: 'critical',
-    description: 'PGlite database is not responding',
-    condition: 'agentpane_health_check_status{component="pglite"} == 0',
+    description: 'Database is not responding (SQLite or PostgreSQL depending on DB_MODE)',
+    condition: 'agentpane_health_check_status{component="database"} == 0',
     for: '30s',
     labels: { team: 'platform' },
     annotations: {
       summary: 'Database health check failing',
-      description: 'PGlite database has been unhealthy for 30 seconds',
+      description: 'Database has been unhealthy for 30 seconds',
       runbook: 'https://runbooks.agentpane.dev/db-unhealthy',
     },
   },
@@ -1545,7 +1533,7 @@ export const ALERTS: AlertDefinition[] = [
 ### Alert Routing and Escalation
 
 ```typescript
-// lib/observability/alert-routing.ts
+// src/lib/observability/alert-routing.ts (planned)
 
 export interface AlertRoute {
   match: {
@@ -1642,7 +1630,7 @@ export const ALERT_ROUTES: AlertRoute[] = [
 ### On-Call Considerations
 
 ```typescript
-// lib/observability/oncall.ts
+// src/lib/observability/oncall.ts (planned)
 
 export interface OnCallSchedule {
   team: string;
@@ -1685,7 +1673,7 @@ export const ONCALL_CONFIG = {
 ### Trace Context Propagation
 
 ```typescript
-// lib/observability/tracing.ts
+// src/lib/observability/tracing.ts (planned)
 import { createId } from '@paralleldrive/cuid2';
 
 // W3C Trace Context format
@@ -1761,7 +1749,7 @@ export function clearTrace(requestId: string) {
 ### Span Implementation
 
 ```typescript
-// lib/observability/spans.ts
+// src/lib/observability/spans.ts (planned)
 import { createId } from '@paralleldrive/cuid2';
 import type { TraceContext } from './tracing';
 import { loggers } from './logger.impl';
@@ -1868,7 +1856,7 @@ export class SpanBuilder {
 ### Request Tracing Middleware
 
 ```typescript
-// lib/observability/tracing-middleware.ts
+// src/lib/observability/tracing-middleware.ts (planned)
 import { createTraceContext, parseTraceParent, formatTraceParent, setCurrentTrace, clearTrace } from './tracing';
 import { SpanBuilder } from './spans';
 import { registry } from './metrics-registry';
@@ -1952,7 +1940,7 @@ export function createTracingMiddleware() {
 ### Cross-Service Context Propagation
 
 ```typescript
-// lib/observability/context-propagation.ts
+// src/lib/observability/context-propagation.ts (planned)
 import { formatTraceParent, type TraceContext } from './tracing';
 
 // Propagate context to outgoing HTTP requests
@@ -2302,15 +2290,19 @@ export const INFRASTRUCTURE_DASHBOARD = {
 
 ---
 
-## Prometheus Metrics Endpoint
+## Prometheus Metrics Endpoint (Planned)
+
+A `/api/metrics` endpoint is not yet implemented. When added, it should be a Hono route (consistent with all other API routes) rather than a TanStack Start file route:
 
 ```typescript
-// app/routes/api/metrics.ts
-import { createServerFileRoute } from '@tanstack/react-start/server';
-import { registry } from '@/lib/observability/metrics-registry';
+// src/server/routes/metrics.ts (planned)
+import { Hono } from 'hono';
+import { registry } from '../../lib/observability/metrics-registry.js';
 
-export const ServerRoute = createServerFileRoute().methods({
-  GET: async () => {
+export function createMetricsRoutes() {
+  const app = new Hono();
+
+  app.get('/', (_c) => {
     const metrics = registry.toPrometheus();
 
     return new Response(metrics, {
@@ -2319,8 +2311,10 @@ export const ServerRoute = createServerFileRoute().methods({
         'Content-Type': 'text/plain; version=0.0.4; charset=utf-8',
       },
     });
-  },
-});
+  });
+
+  return app;
+}
 ```
 
 ---
@@ -2359,9 +2353,18 @@ registry.counter('agentpane_errors_total', {
 
 | Spec | Relationship |
 |------|--------------|
-| [Error Catalog](/specs/errors/error-catalog.md) | Error codes for logging and metrics |
-| [API Endpoints](/specs/api/endpoints.md) | HTTP metrics instrumentation points |
-| [Agent Service](/specs/services/agent-service.md) | Agent execution metrics |
-| [Session Service](/specs/services/session-service.md) | Stream and presence metrics |
-| [Database Schema](/specs/database/schema.md) | Database query metrics |
-| [Durable Sessions](/specs/integrations/durable-sessions.md) | Stream event metrics |
+| [Error Catalog](/specs/application/errors/error-catalog.md) | Error codes for logging and metrics |
+| [API Endpoints](/specs/application/api/endpoints.md) | HTTP metrics instrumentation points |
+| [Agent Service](/specs/application/services/agent-service.md) | Agent execution metrics |
+| [Session Service](/specs/application/services/session-service.md) | Stream and presence metrics |
+| [Database Schema](/specs/application/database/schema.md) | Database query metrics |
+| [Durable Sessions](/specs/application/integrations/durable-sessions.md) | Stream event metrics |
+
+### Implemented Files
+
+| File | Purpose |
+|------|---------|
+| `src/lib/logging/logger.ts` | Structured logger with level filtering, JSON/human-readable output |
+| `src/server/routes/health.ts` | Health check routes (liveness, readiness, comprehensive) |
+| `src/server/router.ts` | Request ID middleware, Hono logger middleware, error handling |
+| `src/db/client.ts` | Database client with dual-mode SQLite/PostgreSQL support |

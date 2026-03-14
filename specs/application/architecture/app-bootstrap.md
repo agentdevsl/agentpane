@@ -2,14 +2,14 @@
 
 ## Overview
 
-Complete specification for the AgentPane application bootstrap process. This document covers the client/server architecture with SQLite database on the server, REST API for data access, and client-side initialization for React components, Durable Streams connection, and GitHub token validation.
+Complete specification for the AgentPane application bootstrap process. This document covers the client/server architecture with dual database support (SQLite default, PostgreSQL via `DB_MODE` env var) on the server, Hono-based REST API for data access, and client-side initialization for React components, Durable Streams connection, and GitHub token validation.
 
 ---
 
 ## Architecture Overview
 
 AgentPane uses a **client/server architecture** where:
-- **Server**: Runs SQLite database with Drizzle ORM, handles all data persistence via REST API endpoints
+- **Server**: Hono-based API server with dual database support (SQLite default or PostgreSQL) via Drizzle ORM, handles all data persistence via REST API endpoints
 - **Client**: React SPA that fetches data via API, manages UI state, and connects to real-time streams
 
 ```
@@ -28,24 +28,39 @@ AgentPane uses a **client/server architecture** where:
 ┌───────────┼───────────────────┼───────────────────────────┼─────────────────┐
 │           ▼                   ▼                           ▼                 │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────────────┐  │
-│  │  TanStack Start │  │  API Endpoints  │  │  Durable Streams Server     │  │
-│  │  (SSR/Routing)  │  │  (/api/*)       │  │  (/api/streams)             │  │
+│  │  TanStack Start │  │  Hono API       │  │  Durable Streams Server     │  │
+│  │  (SSR/Routing)  │  │  (/api/*)       │  │  (SSE via Caddy/LMDB)      │  │
 │  └────────┬────────┘  └────────┬────────┘  └──────────────┬──────────────┘  │
 │           │                    │                          │                 │
 │           └────────────────────┼──────────────────────────┘                 │
 │                                ▼                                            │
 │                       ┌─────────────────┐                                   │
 │                       │   Drizzle ORM   │                                   │
-│                       │   (better-sqlite3)                                  │
 │                       └────────┬────────┘                                   │
-│                                ▼                                            │
-│                       ┌─────────────────┐                                   │
-│                       │  SQLite Database│                                   │
-│                       │  (server-only)  │                                   │
-│                       └─────────────────┘                                   │
+│                    ┌───────────┴───────────┐                                │
+│                    ▼                       ▼                                │
+│           ┌─────────────────┐    ┌─────────────────┐                        │
+│           │ SQLite (default)│    │   PostgreSQL    │                        │
+│           │ better-sqlite3  │    │ (DB_MODE=postgres│                       │
+│           │ bun:sqlite      │    │  + DATABASE_URL) │                       │
+│           └─────────────────┘    └─────────────────┘                        │
 │                              Server                                         │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+### Database Mode Selection
+
+The server supports two database backends, controlled by the `DB_MODE` environment variable:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DB_MODE` | `sqlite` | Database backend: `sqlite` or `postgres` |
+| `DATABASE_URL` | _(none)_ | PostgreSQL connection string (required when `DB_MODE=postgres`) |
+| `SQLITE_DATA_DIR` | `./data` | Directory for SQLite database file |
+| `DB_PATH` | `./data/agentpane.db` | SQLite database file path (API server) |
+
+- **SQLite mode** (default): Uses `better-sqlite3` for the bootstrap client and `bun:sqlite` for the API server. The database file is created at `data/agentpane.db` with WAL journal mode and foreign keys enabled.
+- **PostgreSQL mode**: Uses the `postgres` package with `drizzle-orm/postgres-js`. Requires `DATABASE_URL` to be set. Migrations are applied via Drizzle Kit from `src/db/migrations-pg/`.
 
 ---
 
@@ -55,9 +70,12 @@ AgentPane uses a **client/server architecture** where:
 |-----------|---------|---------|
 | Bun | 1.3.10 | JavaScript runtime |
 | TanStack Start | 1.150.0 | Full-stack React framework |
-| better-sqlite3 | 11.x | SQLite database (server-only) |
-| Drizzle ORM | 0.45.1 | Type-safe SQL query builder |
-| Durable Streams | 0.1.5 | Real-time event streaming |
+| Hono | 4.11.9 | API routing framework (server) |
+| better-sqlite3 | 12.6.2 | SQLite database (bootstrap, server-only) |
+| bun:sqlite | _(built-in)_ | SQLite database (API server) |
+| postgres | 3.4.8 | PostgreSQL client (when `DB_MODE=postgres`) |
+| Drizzle ORM | 0.45.1 | Type-safe SQL query builder (SQLite + PostgreSQL) |
+| Durable Streams | 0.2.0 | Real-time event streaming (SSE via Caddy/LMDB) |
 
 ---
 
@@ -217,18 +235,36 @@ The bootstrap process is split between server and client:
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│  SQLite Database Initialization                                  │
-│  ├─ Create/open database file (data/agentpane.db)               │
-│  ├─ Run Drizzle migrations (drizzle-kit push)                   │
-│  └─ Database ready for API requests                              │
+│  Environment Validation                                          │
+│  ├─ Check DB_MODE (sqlite | postgres, default: sqlite)          │
+│  ├─ Validate CORS_ORIGIN, NODE_ENV                              │
+│  └─ Log startup configuration                                   │
 └─────────────────────────────────────────────────────────────────┘
                               │
+                    ┌─────────┴─────────┐
+                    ▼                   ▼
+┌───────────────────────────┐ ┌───────────────────────────┐
+│  SQLite (DB_MODE=sqlite)  │ │  PostgreSQL (DB_MODE=     │
+│  ├─ Open/create DB file   │ │           postgres)       │
+│  │  (data/agentpane.db)   │ │  ├─ Connect via           │
+│  ├─ Enable WAL mode       │ │  │  DATABASE_URL          │
+│  ├─ Enable foreign keys   │ │  ├─ Run Drizzle Kit       │
+│  ├─ Run inline SQL        │ │  │  migrations from       │
+│  │  migrations (CREATE    │ │  │  src/db/migrations-pg/  │
+│  │  TABLE IF NOT EXISTS)  │ │  └─ Database ready        │
+│  ├─ Run ALTER TABLE       │ └───────────────────────────┘
+│  │  migrations (try/catch │
+│  │  for idempotency)      │
+│  └─ Database ready        │
+└───────────────────────────┘
+                    └─────────┬─────────┘
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│  API Server Ready                                                │
+│  Hono API Server Ready                                           │
 │  ├─ REST endpoints available (/api/*)                           │
-│  ├─ Durable Streams endpoint ready (/api/streams)               │
-│  └─ Accepting client connections                                 │
+│  ├─ Durable Streams endpoint ready (SSE)                        │
+│  ├─ CORS, logging, rate-limiting middleware                     │
+│  └─ Accepting client connections on port 3001                    │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -282,35 +318,65 @@ The bootstrap process is split between server and client:
 
 ## Server-Side: Database Initialization
 
-The server handles all database operations. SQLite (better-sqlite3) runs on the server and is accessed via Drizzle ORM.
+The server handles all database operations. It supports two database backends selected via the `DB_MODE` environment variable (`sqlite` or `postgres`).
+
+### SQLite Mode (Default)
+
+The bootstrap client (`src/db/client.ts`) uses `better-sqlite3`, while the API server (`src/server/api.ts`) uses `bun:sqlite` for native Bun performance. Both apply inline SQL migrations on startup.
 
 ```typescript
-// db/index.ts (server-only)
+// db/client.ts (server-only, bootstrap path)
 import Database from 'better-sqlite3';
-import { drizzle } from 'drizzle-orm/better-sqlite3';
-import * as schema from './schema';
+import { drizzle as drizzleSqlite } from 'drizzle-orm/better-sqlite3';
+import * as sqliteSchema from './schema/sqlite';
+import { MIGRATION_SQL } from '../lib/bootstrap/phases/schema';
 
-/**
- * SQLite database connection (server-only)
- * This file should never be imported in client-side code
- */
-const sqlite = new Database('data/agentpane.db');
-sqlite.pragma('journal_mode = WAL'); // Better concurrent access
+const dataDir = process.env.SQLITE_DATA_DIR || './data';
+const sqlite = new Database(`${dataDir}/agentpane.db`);
+sqlite.pragma('journal_mode = WAL');
+sqlite.pragma('foreign_keys = ON');
+sqlite.exec(MIGRATION_SQL); // Idempotent CREATE TABLE IF NOT EXISTS
 
-export const db = drizzle(sqlite, { schema });
-export type DbClient = typeof db;
+export const db = drizzleSqlite(sqlite, { schema: sqliteSchema });
 ```
+
+### PostgreSQL Mode
+
+When `DB_MODE=postgres` is set, the server connects via the `postgres` package and applies Drizzle Kit file-based migrations.
+
+```typescript
+// db/client.ts (PostgreSQL path)
+import { drizzle as drizzlePg } from 'drizzle-orm/postgres-js';
+import postgres from 'postgres';
+import * as pgSchema from './schema/postgres';
+
+const client = postgres(process.env.DATABASE_URL!);
+export const db = drizzlePg(client, { schema: pgSchema });
+
+// API server runs Drizzle Kit migrations on startup:
+// migrate(db, { migrationsFolder: './src/db/migrations-pg' });
+```
+
+### Database Schemas
+
+The codebase maintains separate schema definitions for each database:
+- `src/db/schema/sqlite/` -- SQLite-specific column types and defaults
+- `src/db/schema/postgres/` -- PostgreSQL-specific column types and defaults
+
+Both schemas define structurally identical tables; the difference is in SQL dialect specifics (e.g., `datetime('now')` vs `now()`).
 
 ### Database Migrations
 
-Migrations are run via Drizzle Kit on server startup or during deployment:
+**SQLite**: Migrations are inline SQL strings in `src/lib/bootstrap/phases/schema.ts` using `CREATE TABLE IF NOT EXISTS` for idempotency. ALTER TABLE migrations are wrapped in try/catch to handle duplicate column errors on re-runs.
+
+**PostgreSQL**: Migrations use Drizzle Kit file-based migrations from `src/db/migrations-pg/`:
 
 ```bash
-# Push schema changes to database
-bun drizzle-kit push
+# Generate PostgreSQL migration files
+bun drizzle-kit generate --config=drizzle-pg.config.ts
 
-# Generate migration files (if using migration files)
-bun drizzle-kit generate
+# Push schema changes directly (development)
+bun drizzle-kit push
 ```
 
 ---

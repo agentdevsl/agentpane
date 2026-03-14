@@ -5,7 +5,7 @@ import type { ToastAction, ToastVariant } from '@/app/components/ui/toast';
 // Types
 // =============================================================================
 
-export type { ToastVariant, ToastAction };
+export type { ToastAction, ToastVariant };
 
 export interface ToastData {
   id: string;

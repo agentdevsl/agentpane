@@ -191,12 +191,10 @@ function StreamLine({ line }: { line: string }) {
       <div className="mb-px whitespace-pre-wrap break-words text-fg-muted">
         {parts.map((part, i) =>
           filePathPattern.test(part) ? (
-            // biome-ignore lint/suspicious/noArrayIndexKey: stable ordered parts
             <span key={`${part}-${i}`} className="text-success">
               {part}
             </span>
           ) : (
-            // biome-ignore lint/suspicious/noArrayIndexKey: stable ordered parts
             <span key={`${part}-${i}`}>{part}</span>
           )
         )}

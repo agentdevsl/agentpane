@@ -14,7 +14,7 @@ The Configuration Management system handles all configuration loading, validatio
 
 - [Project Service](../services/project-service.md) - Uses config for project-level settings
 - [GitHub App](../integrations/github-app.md) - Repository config sync via webhooks
-- [Database Schema](../database/schema.md) - `projects.config` JSONB field
+- [Database Schema](../database/schema.md) - `projects.config` JSON field (SQLite `text` with `mode: 'json'`)
 
 ---
 
@@ -262,7 +262,8 @@ export interface EnvConfig {
 
   // Optional with defaults
   GITHUB_TOKEN?: string;
-  DATABASE_URL?: string;
+  SQLITE_DATA_DIR?: string;   // SQLite data directory (default: './data')
+  DATABASE_URL?: string;      // PostgreSQL connection string (only when DB_MODE=postgres)
   APP_URL?: string;
 
   // GitHub App (optional)
@@ -281,9 +282,11 @@ export interface EnvConfig {
 
 ### Project Configuration
 
+The `ProjectConfig` type is defined in `src/db/schema/shared/types.ts` and stored as JSON in the `projects.config` column (SQLite `text` with `mode: 'json'`). Note that `maxConcurrentAgents` is a **separate column** on the `projects` table, not part of the `config` JSON blob.
+
 ```typescript
-// lib/config/types.ts
-export interface ProjectConfig {
+// src/db/schema/shared/types.ts
+export type ProjectConfig = {
   /** Directory for git worktrees relative to project root */
   worktreeRoot: string;
 
@@ -295,9 +298,6 @@ export interface ProjectConfig {
 
   /** Default branch for the repository */
   defaultBranch: string;
-
-  /** Maximum concurrent agents for this project (3-6 recommended) */
-  maxConcurrentAgents: number;
 
   /** Whitelist of tools agents can use */
   allowedTools: string[];
@@ -314,10 +314,31 @@ export interface ProjectConfig {
   /** Temperature for model responses (0-1) */
   temperature?: number;
 
-  /** Skills to load from repository (subfolder names or URLs) */
-  skills?: string[];
-}
+  /** Environment variables to inject into agent sessions */
+  envVars?: Record<string, string>;
+
+  /** Sandbox configuration for containerized execution */
+  sandbox?: ProjectSandboxConfig | null;
+};
+
+// AgentConfig is a subset used for per-agent overrides
+export type AgentConfig = {
+  allowedTools: string[];
+  maxTurns: number;
+  model?: string;
+  systemPrompt?: string;
+  temperature?: number;
+};
 ```
+
+The `projects` table also has a dedicated `maxConcurrentAgents` integer column (default 3) separate from the JSON config:
+
+```typescript
+// src/db/schema/sqlite/projects.ts (excerpt)
+maxConcurrentAgents: integer('max_concurrent_agents').default(3),
+config: text('config', { mode: 'json' }).$type<ProjectConfig>(),
+```
+
 
 ### Skills Configuration
 
@@ -679,7 +700,7 @@ export interface AppConfig {
   /** Base URL for session sharing links */
   appUrl: string;
 
-  /** PGlite database path */
+  /** SQLite database path (better-sqlite3) */
   databasePath: string;
 
   /** Server port */
@@ -767,12 +788,15 @@ export type ConfigSource = {
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `ANTHROPIC_API_KEY` | Yes | - | Claude API access key |
+| `ANTHROPIC_API_KEY` | No | - | Claude API access key (can also be set via Settings UI) |
 | `GITHUB_TOKEN` | No | - | Personal access token for GitHub integration |
-| `DATABASE_URL` | No | `./data/agentpane.db` | Override PGlite storage path |
-| `APP_URL` | No | `http://localhost:5173` | Base URL for session sharing |
+| `SQLITE_DATA_DIR` | No | `./data` | Directory for SQLite database file (better-sqlite3) |
+| `DATABASE_URL` | No | - | PostgreSQL connection string (only when `DB_MODE=postgres`) |
+| `DB_MODE` | No | `sqlite` | Database engine: `sqlite` or `postgres` |
+| `APP_URL` | No | `http://localhost:3000` | Base URL for session sharing |
 | `NODE_ENV` | No | `development` | Environment mode |
 | `LOG_LEVEL` | No | `info` | Logging verbosity |
+| `SKIP_AUTH` | No | - | Bypass authentication in dev mode |
 | `GITHUB_APP_ID` | No | - | GitHub App ID for App authentication |
 | `GITHUB_APP_NAME` | No | - | GitHub App name (URL slug) |
 | `GITHUB_CLIENT_ID` | No | - | GitHub OAuth client ID |
@@ -782,102 +806,38 @@ export type ConfigSource = {
 
 ### Zod Schemas
 
+The actual Zod schemas live in `src/lib/config/schemas.ts`. The implementation uses plain `z.string()` for model and tool names rather than restrictive enums, giving flexibility as new models and tools are added.
+
 ```typescript
-// lib/config/schemas.ts
+// src/lib/config/schemas.ts
 import { z } from 'zod';
 
-// Valid Claude models
-const claudeModelSchema = z.enum([
-  'claude-sonnet-4-6',
-  'claude-opus-4-20250514',
-  'claude-haiku-3-20240307',
-]).default('claude-sonnet-4-6');
-
-// Valid tool names
-const toolNameSchema = z.enum([
-  'Read',
-  'Edit',
-  'Write',
-  'Bash',
-  'Glob',
-  'Grep',
-  'WebSearch',
-  'WebFetch',
-  'NotebookEdit',
-  'TodoWrite',
-  'Task',
-]);
-
-// Environment schema
-export const envConfigSchema = z.object({
-  ANTHROPIC_API_KEY: z.string().min(1, 'ANTHROPIC_API_KEY is required'),
-
-  GITHUB_TOKEN: z.string().optional(),
-  DATABASE_URL: z.string().optional(),
-  APP_URL: z.string().url().optional(),
-
-  GITHUB_APP_ID: z.string().optional(),
-  GITHUB_APP_NAME: z.string().optional(),
-  GITHUB_CLIENT_ID: z.string().optional(),
-  GITHUB_CLIENT_SECRET: z.string().optional(),
-  GITHUB_PRIVATE_KEY: z.string().optional(),
-  GITHUB_WEBHOOK_SECRET: z.string().optional(),
-
-  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-  LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
-});
-
-// Project config schema
+// Project config schema — validates the JSON config blob on the projects table.
+// Note: maxConcurrentAgents is a separate column, not in this schema.
 export const projectConfigSchema = z.object({
-  worktreeRoot: z.string().min(1).default('.worktrees'),
-
+  worktreeRoot: z.string().default('.worktrees'),
   initScript: z.string().optional(),
-
-  envFile: z.string()
-    .refine(
-      (path) => !path || !path.startsWith('/'),
-      'envFile must be a relative path'
-    )
-    .optional(),
-
-  defaultBranch: z.string().min(1).default('main'),
-
-  maxConcurrentAgents: z.number()
-    .int()
-    .min(1, 'At least 1 concurrent agent required')
-    .max(10, 'Maximum 10 concurrent agents')
-    .default(3),
-
-  allowedTools: z.array(toolNameSchema)
-    .min(1, 'At least one tool must be allowed')
-    .default(['Read', 'Edit', 'Bash', 'Glob', 'Grep']),
-
-  maxTurns: z.number()
-    .int()
-    .min(1, 'At least 1 turn required')
-    .max(500, 'Maximum 500 turns')
-    .default(50),
-
-  model: claudeModelSchema.optional(),
-
-  systemPrompt: z.string().max(10000).optional(),
-
+  envFile: z.string().optional(),
+  defaultBranch: z.string().default('main'),
+  maxConcurrentAgents: z.number().min(1).max(10).default(3),
+  allowedTools: z.array(z.string()).default(['Read', 'Edit', 'Bash', 'Glob', 'Grep']),
+  maxTurns: z.number().min(1).max(500).default(50),
+  model: z.string().optional(),
+  systemPrompt: z.string().optional(),
   temperature: z.number().min(0).max(1).optional(),
 });
 
-// Application config schema
-export const appConfigSchema = z.object({
-  appUrl: z.string().url().default('http://localhost:5173'),
-  databasePath: z.string().default('./data/agentpane.db'),
-  port: z.number().int().min(1).max(65535).default(5173),
-  isDevelopment: z.boolean().default(true),
+// Global config schema — validates environment-level keys
+export const globalConfigSchema = z.object({
+  anthropicApiKey: z.string(),
+  githubToken: z.string().optional(),
+  databaseUrl: z.string().optional(),
+  appUrl: z.string().optional(),
 });
-
-// Export types from schemas
-export type EnvConfig = z.infer<typeof envConfigSchema>;
-export type ProjectConfig = z.infer<typeof projectConfigSchema>;
-export type AppConfig = z.infer<typeof appConfigSchema>;
 ```
+
+**Note:** The application uses port 3000 for the frontend (Vite) and port 3001 for the API (Hono). The database defaults to `./data/agentpane.db` via better-sqlite3.
+
 
 ---
 
@@ -1319,9 +1279,9 @@ export class ConfigService implements IConfigService {
     }
 
     return {
-      appUrl: env.value.APP_URL ?? 'http://localhost:5173',
+      appUrl: env.value.APP_URL ?? 'http://localhost:3000',
       databasePath: env.value.DATABASE_URL ?? './data/agentpane.db',
-      port: 5173,
+      port: 3000,
       isDevelopment: env.value.NODE_ENV === 'development',
     };
   }
@@ -1336,9 +1296,9 @@ export class ConfigService implements IConfigService {
         maxTurns: 50,
       },
       app: {
-        appUrl: 'http://localhost:5173',
+        appUrl: 'http://localhost:3000',
         databasePath: './data/agentpane.db',
-        port: 5173,
+        port: 3000,
         isDevelopment: true,
       },
     };
@@ -1369,10 +1329,14 @@ export class ConfigService implements IConfigService {
     const localConfig = localResult.ok ? localResult.value : null;
 
     // 4. Get GitHub config if available
+    // Note: repositoryConfigs table has separate `owner` and `repo` columns (no `fullName`)
     let githubConfig: Partial<ProjectConfig> | null = null;
     if (project.githubOwner && project.githubRepo) {
       const repoConfig = await db.query.repositoryConfigs.findFirst({
-        where: eq(repositoryConfigs.fullName, `${project.githubOwner}/${project.githubRepo}`),
+        where: and(
+          eq(repositoryConfigs.owner, project.githubOwner),
+          eq(repositoryConfigs.repo, project.githubRepo),
+        ),
       });
 
       if (repoConfig?.config) {
@@ -1586,12 +1550,13 @@ export interface ConfigChangedEvent {
 ```json
 // .claude/settings.json
 {
-  "defaultBranch": "main",
-  "maxConcurrentAgents": 3
+  "defaultBranch": "main"
 }
 ```
 
 ### Full Project Config
+
+Note: `maxConcurrentAgents` is stored as a separate integer column on the `projects` table, not inside the JSON config blob. The `sandbox` and `envVars` fields are also available.
 
 ```json
 // .claude/settings.json
@@ -1600,13 +1565,17 @@ export interface ConfigChangedEvent {
   "initScript": "bun install && bun run db:migrate",
   "envFile": ".env.development",
   "defaultBranch": "main",
-  "maxConcurrentAgents": 6,
   "allowedTools": ["Read", "Edit", "Bash", "Glob", "Grep", "WebSearch"],
   "maxTurns": 100,
   "model": "claude-sonnet-4-6",
   "systemPrompt": "You are a helpful coding assistant for this project.",
   "temperature": 0.7,
-  "skills": ["code-review", "testing", "docs"]
+  "envVars": { "CI": "true" },
+  "sandbox": {
+    "enabled": true,
+    "provider": "docker",
+    "idleTimeoutMinutes": 30
+  }
 }
 ```
 
@@ -1697,13 +1666,17 @@ Perform safe, incremental refactoring with verification.
 ### Environment File (.env)
 
 ```bash
-# Required
+# Claude API key (can alternatively be set via Settings UI → anthropic.apiKey)
 ANTHROPIC_API_KEY=sk-ant-api03-...
+
+# Database (default: SQLite in ./data/agentpane.db)
+# DB_MODE=sqlite                  # or 'postgres'
+# SQLITE_DATA_DIR=./data          # SQLite data directory
+# DATABASE_URL=postgresql://...   # Only when DB_MODE=postgres
 
 # Optional
 GITHUB_TOKEN=ghp_...
-DATABASE_URL=./data/agentpane.db
-APP_URL=http://localhost:5173
+APP_URL=http://localhost:3000
 
 # GitHub App (optional)
 GITHUB_APP_ID=123456
@@ -1716,6 +1689,7 @@ GITHUB_WEBHOOK_SECRET=whsec_abc123
 # Development
 NODE_ENV=development
 LOG_LEVEL=debug
+# SKIP_AUTH=true                  # Bypass auth for local development
 ```
 
 ---
@@ -1770,7 +1744,92 @@ async function startAgent(projectId: string, taskId: string) {
 |------|--------------|
 | [Project Service](../services/project-service.md) | Uses `validateConfig` and `updateConfig` methods |
 | [GitHub App](../integrations/github-app.md) | Syncs config from `.claude/settings.json` in repos |
-| [Database Schema](../database/schema.md) | `projects.config` JSONB stores validated ProjectConfig |
+| [Database Schema](../database/schema.md) | `projects.config` JSON column stores validated ProjectConfig (SQLite `text` with `mode: 'json'`) |
 | [Agent Service](../services/agent-service.md) | Reads merged config for agent execution parameters |
 | [Error Catalog](../errors/error-catalog.md) | ConfigError types defined here |
 | [Worktree Service](../services/worktree-service.md) | Uses `worktreeRoot`, `initScript`, `envFile` settings |
+
+---
+
+## Implemented: Settings Table and Service
+
+The application stores global key-value settings in a dedicated `settings` SQLite table (separate from project-level config). This is used for application-wide preferences, API keys, theme, and sandbox defaults.
+
+### Settings Schema
+
+```typescript
+// src/db/schema/sqlite/settings.ts
+export const settings = sqliteTable('settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),           // JSON-encoded value
+  updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
+});
+```
+
+### Settings Service (`src/services/settings.service.ts`)
+
+The `SettingsService` class provides typed access to the settings table:
+
+| Method | Description |
+|--------|-------------|
+| `get(key)` | Get a single setting by key |
+| `getMany(keys)` | Get multiple settings, returns parsed JSON map |
+| `getAll()` | Get all settings as parsed JSON map |
+| `set(key, value)` | Upsert a setting (JSON-serialized) |
+| `setMany(settings)` | Upsert multiple settings in a transaction |
+| `delete(key)` | Delete a setting by key |
+| `getValue<T>(key, default)` | Get a typed value with fallback |
+| `getTaskCreationModel()` | Get the AI task creation model |
+| `setTaskCreationModel(model)` | Set the AI task creation model |
+| `getTaskCreationTools()` | Get available task creation tools |
+| `setTaskCreationTools(tools)` | Set available task creation tools |
+
+A standalone `getGlobalDefaultModel(db)` function reads the `default_model` key for the global agent model.
+
+### Settings API Routes (`src/server/routes/settings.ts`)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/settings` | GET | Fetch settings (optional `?keys=` filter) |
+| `/api/settings` | PUT | Upsert settings (`{ settings: { key: value } }`) |
+
+**Allowed keys** (enforced by allowlist):
+
+| Key | Description |
+|-----|-------------|
+| `sandbox.defaults` | Default sandbox configuration |
+| `sandbox.mode` | Sandbox mode (shared / per-project) |
+| `sandbox.provider` | Sandbox provider type |
+| `sandbox.kubernetes` | Kubernetes sandbox settings |
+| `sandbox.nomad` | Nomad sandbox settings (token encrypted) |
+| `sandbox.agentcore` | AgentCore sandbox settings (secret key encrypted) |
+| `anthropic.apiKey` | Anthropic API key |
+| `anthropic.model` | Default Anthropic model |
+| `github.token` | GitHub token |
+| `github.appId` | GitHub App ID |
+| `theme` | UI theme preference |
+| `general.agentModel` | Default agent model |
+
+**Sensitive field handling:** The `sandbox.nomad` and `sandbox.agentcore` settings have their secret fields (`token` and `secretAccessKey` respectively) encrypted on write via `encryptToken()` and redacted on read (replaced with boolean flags `hasToken` / `hasSecretAccessKey`).
+
+---
+
+## Implementation Status
+
+The following sections of this spec describe **aspirational architecture** that is not yet fully implemented:
+
+| Feature | Status |
+|---------|--------|
+| `ConfigService` class (`lib/config/config-service.ts`) | Not implemented — settings are managed via `SettingsService` and the settings API routes |
+| Config hot-reload with file watching | Not implemented |
+| Skill/command/subagent discovery and merging | Not implemented |
+| `~/.claude/` global config loading | Not implemented |
+| GitHub config sync pipeline (`SyncResult`) | Not implemented (repository_configs table exists but sync logic is partial) |
+| Secret detection in config files | Not implemented |
+| `MergedConfig` resolution | Not implemented |
+
+The actual runtime configuration is managed through:
+1. **Environment variables** (process.env)
+2. **Settings table** (via `SettingsService` + REST API)
+3. **Project `config` JSON column** (via project CRUD endpoints)
+4. **Hard-coded defaults** (in `src/lib/config/schemas.ts` and `src/lib/constants/models.ts`)

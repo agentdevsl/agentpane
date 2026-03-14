@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.3.11/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.4.7/schema.json",
   "vcs": {
     "enabled": true,
     "clientKind": "git",
@@ -15,7 +15,8 @@
         "**/routeTree.gen.ts",
         ".claude/settings.local.json",
         "specs/archive/**",
-        "charts/**"
+        "charts/**",
+        "src/types/bun.d.ts"
       ],
       "linter": { "enabled": false },
       "formatter": { "enabled": false },
@@ -87,7 +88,8 @@
       },
       "suspicious": {
         "noExplicitAny": "warn",
-        "noControlCharactersInRegex": "off"
+        "noControlCharactersInRegex": "off",
+        "noArrayIndexKey": "off"
       }
     }
   },

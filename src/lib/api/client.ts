@@ -96,12 +96,11 @@ const apiFetch = createApiFetch();
 // Fetch from API server (port 3001)
 const apiServerFetch = createApiFetch(API_BASE);
 
-// Export factory for custom base URLs
-export { createApiFetch };
-
 // Re-export shared types for convenience
 export type { TaskCreationStatus, TaskSuggestion } from './types';
 export { API_ERROR_CODES } from './types';
+// Export factory for custom base URLs
+export { createApiFetch };
 
 // Project types
 export type ProjectListItem = {

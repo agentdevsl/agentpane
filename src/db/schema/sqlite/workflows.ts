@@ -5,7 +5,7 @@ import type { WorkflowEdge, WorkflowNode } from '@/lib/workflow-dsl/types';
 import { templates } from './templates';
 
 // Re-export DSL types for convenience
-export type { WorkflowNode, WorkflowEdge };
+export type { WorkflowEdge, WorkflowNode };
 
 // Workflow status enum
 export const WORKFLOW_STATUSES = ['draft', 'published', 'archived'] as const;

@@ -21,7 +21,7 @@ import type {
 } from '../../app/hooks/use-session';
 
 // Re-export types for convenience
-export type { SessionChunk, SessionToolCall, SessionPresence, SessionTerminal, SessionAgentState };
+export type { SessionAgentState, SessionChunk, SessionPresence, SessionTerminal, SessionToolCall };
 
 /**
  * Zod schemas for validating raw event data from server

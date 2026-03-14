@@ -2,57 +2,80 @@
 
 ## Overview
 
-Formal state machine definition for git worktree lifecycle management in AgentPane. This machine governs the complete lifecycle of isolated agent execution environments, from creation through cleanup, managing git operations and automatic pruning. Uses a simplified 6-state model.
+Formal state machine definition for git worktree lifecycle management in AgentPane. This machine governs the complete lifecycle of isolated agent execution environments, from creation through cleanup. Uses a simplified 6-state model where the `active` state absorbs uncommitted-change tracking and commit operations internally.
 
 ---
 
 ## State Diagram
 
 ```
-                                    ERROR
-                              +---------------+
-                              |               |
-                              v               |
-+----------+    CREATE    +----------+    READY    +--------+
-|  (none)  |------------->| creating |------------>| active |
-+----------+              +----------+             +--------+
-                               |                     |   |
-                               |                     |   |
-                               |  ERROR              |   | MERGE
-                               |                     |   |
-                               v                     |   v
-                         +---------+                 | +---------+
-                         |  error  |<----------------+ | merging |
-                         +---------+                 | +---------+
-                               ^                     |     |
-                               |                     |     | COMPLETE
-                               |     +---------------+     |
-                               |     |                     v
-                               |     |  REMOVE        +----------+
-                               |     |                | removing |
-                               |     |                +----------+
-                               |     v                     |
-                               +--+----------+             |
-                                  | removing |<------------+
-                                  +----------+
-                                       |
-                                       v
-                                  +---------+
-                                  | removed |
-                                  +---------+
-                                  (terminal)
+                                    +----------+
+                                    |  (none)  |
+                                    +----------+
+                                         |
+                                         | CREATE
+                                         v
+                                    +----------+
+                               +--->| creating |---+
+                               |    +----------+   |
+                               |         |         |
+                               |  CREATED |         | ERROR
+                               |         v         |
+                               |    +--------+     |
+                               |    | active |<-+  |
+                               |    +--------+  |  |
+                               |      |    |    |  |
+                               |      |    |    |  |
+                         RETRY |      |    |    |  |
+                               |      |    |  ABORT_MERGE
+                               |      |    |    |  |
+                               |      |    |    |  |
+                               |  REMOVE  MERGE |  |
+                               |      |    |    |  |
+                               |      |    v    |  |
+                               |      | +---------+|
+                               |      | | merging ||
+                               |      | +---------+|
+                               |      |    |    |  |
+                               |      |    |    +--+
+                               |      |   ERROR    |
+                               |      |    |       |
+                               |      v    v       v
+                               |    +---------+
+                               +----| error   |
+                                    +---------+
+                                      |
+                                      | REMOVE
+                                      v
+                                    +----------+
+                               +--->| removing |
+                               |    +----------+
+                               |         |
+                               |         | COMPLETE
+                               |         v
+                               |    +---------+
+                               |    | removed |
+                               |    +---------+
+                               |    (terminal)
+                               |
+                    (from active via REMOVE)
 
 
 ASCII State Diagram (Primary Flow):
 
-    +----------+      +----------+      +--------+      +---------+      +----------+      +---------+
-    |  CREATE  |----->| creating |----->| active |----->| merging |----->| removing |----->| removed |
-    +----------+      +----------+      +--------+      +---------+      +----------+      +---------+
-                           |                |                |                |
-                           v                v                v                v
-                       +-------+        +-------+       +-------+        +-------+
-                       | error |<-------| error |<------| error |<-------| error |
-                       +-------+        +-------+       +-------+        +-------+
+    +----------+      +----------+      +--------+      +---------+
+    |  CREATE  |----->| creating |----->| active |----->| merging |
+    +----------+      +----------+      +--------+      +---------+
+                           |                |                |
+                           v                |                v
+                       +-------+            |           +-------+
+                       | error |<-----------+           | error |
+                       +-------+            |           +-------+
+                           |                v
+                           v           +----------+      +---------+
+                      +---------+      | removing |----->| removed |
+                      | removed |      +----------+      +---------+
+                      +---------+
 ```
 
 ---
@@ -61,8 +84,8 @@ ASCII State Diagram (Primary Flow):
 
 | State | Description | Git Ops Allowed | Agent Access | Cleanup Allowed |
 |-------|-------------|-----------------|--------------|-----------------|
-| `creating` | Worktree being created via git (includes branch creation, env copy, dep install) | None | No | No |
-| `active` | Worktree ready for agent use | All local | Yes | Yes |
+| `creating` | Worktree being created via git | None | No | No |
+| `active` | Worktree ready for agent use (includes uncommitted changes and commits) | All local | Yes | Yes |
 | `merging` | Merge to base branch in progress | None | No | No |
 | `removing` | Cleanup in progress | None | No | No |
 | `removed` | Terminal state, worktree deleted | N/A | No | N/A |
@@ -131,11 +154,12 @@ interface WorktreeStateMetadata {
 | Event | Description | Payload | Source |
 |-------|-------------|---------|--------|
 | `CREATE` | Create new worktree | `{ projectId, taskId, branch, baseBranch? }` | Task workflow |
-| `READY` | Worktree creation complete, ready for use | `{ path, branch }` | WorktreeService |
+| `CREATED` | Worktree creation completed | `{}` | WorktreeService |
 | `MERGE` | Merge branch to target | `{ targetBranch?, strategy? }` | Approval workflow |
-| `MERGE_COMPLETE` | Merge finished successfully | `{ commitHash }` | Git operation |
+| `MERGE_COMPLETE` | Merge completed successfully | `{}` | WorktreeService |
+| `ABORT_MERGE` | Abort merge operation | `{ reason? }` | User |
 | `REMOVE` | Remove worktree | `{ force?: boolean, pruneBranch?: boolean }` | Cleanup / User |
-| `REMOVE_COMPLETE` | Removal finished | `{}` | Git operation |
+| `COMPLETE` | Removal completed | `{}` | WorktreeService |
 | `ERROR` | Operation failed | `{ error, operation, recoverable }` | Any operation |
 | `RETRY` | Retry failed operation | `{ operation }` | User |
 | `PRUNE` | Stale worktree cleanup | `{ reason: 'stale' \| 'orphaned' \| 'manual' }` | Scheduler |
@@ -148,11 +172,12 @@ import type { z } from 'zod';
 
 export type WorktreeEvent =
   | { type: 'CREATE'; projectId: string; taskId: string; branch: string; baseBranch?: string; options?: WorktreeOptions }
-  | { type: 'READY'; path: string; branch: string }
+  | { type: 'CREATED' }
   | { type: 'MERGE'; targetBranch?: string; strategy?: MergeStrategy }
-  | { type: 'MERGE_COMPLETE'; commitHash: string }
+  | { type: 'MERGE_COMPLETE' }
+  | { type: 'ABORT_MERGE'; reason?: string }
   | { type: 'REMOVE'; force?: boolean; pruneBranch?: boolean }
-  | { type: 'REMOVE_COMPLETE' }
+  | { type: 'COMPLETE' }
   | { type: 'ERROR'; error: WorktreeError; operation: WorktreeOperation; recoverable: boolean }
   | { type: 'RETRY'; operation: WorktreeOperation }
   | { type: 'PRUNE'; reason: PruneReason };
@@ -181,31 +206,16 @@ export const createEventSchema = z.object({
   }).optional(),
 });
 
-export const readyEventSchema = z.object({
-  type: z.literal('READY'),
-  path: z.string(),
-  branch: z.string(),
-});
-
 export const mergeEventSchema = z.object({
   type: z.literal('MERGE'),
   targetBranch: z.string().optional(),
   strategy: z.enum(['merge', 'squash', 'rebase']).optional().default('merge'),
 });
 
-export const mergeCompleteEventSchema = z.object({
-  type: z.literal('MERGE_COMPLETE'),
-  commitHash: z.string(),
-});
-
 export const removeEventSchema = z.object({
   type: z.literal('REMOVE'),
   force: z.boolean().optional().default(false),
   pruneBranch: z.boolean().optional().default(true),
-});
-
-export const removeCompleteEventSchema = z.object({
-  type: z.literal('REMOVE_COMPLETE'),
 });
 
 export const errorEventSchema = z.object({
@@ -229,12 +239,13 @@ Guards are boolean functions that determine if a transition is allowed.
 | Guard | Description | Checks |
 |-------|-------------|--------|
 | `canCreate` | Can create new worktree | Branch doesn't exist, path available, project exists |
-| `canMerge` | Can merge to target branch | Worktree is active, agent not running |
+| `canMerge` | Can merge to target branch | Worktree is active, no active conflicts |
 | `canRemove` | Can remove worktree | Not in use by agent, not in transient state |
 | `canForceRemove` | Can force remove worktree | Admin permission or cleanup task |
 | `isStale` | Worktree is stale | No activity for 7+ days |
 | `isOrphaned` | Branch no longer exists | Remote branch deleted |
 | `agentNotActive` | No agent using worktree | Task not in in_progress state |
+| `canRetry` | Error is recoverable | Error marked as recoverable |
 
 ### Guard Implementations
 
@@ -267,7 +278,7 @@ export const guards = {
     return ctx.project !== undefined && ctx.project.path !== undefined;
   },
 
-  canMerge: (ctx: WorktreeContext) => {
+  canMerge: async (ctx: WorktreeContext) => {
     if (!ctx.worktree) return false;
 
     // Must be in active state
@@ -365,8 +376,12 @@ Actions are side effects executed during transitions.
 | Action | Description | Async | Publishes Event |
 |--------|-------------|-------|-----------------|
 | `createBranch` | Create git branch from base | Yes | None |
-| `createWorktree` | Execute git worktree add, copy env, install deps | Yes | `worktree:creating` |
+| `createWorktree` | Execute git worktree add | Yes | `worktree:creating` |
+| `copyEnvFile` | Copy .env to worktree | Yes | None |
+| `installDependencies` | Run bun install | Yes | None |
+| `runInitScript` | Execute project init script | Yes | None |
 | `mergeBranch` | Merge branch to target | Yes | `worktree:merging` |
+| `abortMerge` | Abort in-progress merge | Yes | `worktree:merge_aborted` |
 | `removeWorktree` | Execute git worktree remove | Yes | `worktree:removing` |
 | `pruneBranch` | Delete branch after removal | Yes | None |
 | `cleanupDirectory` | Remove orphaned directory | Yes | None |
@@ -390,6 +405,30 @@ import { ok, err } from '@/lib/utils/result';
 import { publishWorktreeEvent } from '@/lib/streams/server';
 
 export const actions = {
+  createBranch: async (
+    ctx: WorktreeContext,
+    event: Extract<WorktreeEvent, { type: 'CREATE' }>
+  ) => {
+    const baseBranch = event.baseBranch ?? ctx.project.config.defaultBranch ?? 'main';
+
+    try {
+      // Check if branch already exists
+      const branchExists = await $`cd ${ctx.project.path} && git show-ref --verify --quiet refs/heads/${event.branch}`.nothrow();
+
+      if (branchExists.exitCode !== 0) {
+        // Create new branch from base
+        await $`cd ${ctx.project.path} && git branch ${event.branch} ${baseBranch}`;
+      }
+
+      return ok(undefined);
+    } catch (error) {
+      return err({
+        code: 'BRANCH_CREATION_FAILED',
+        message: `Failed to create branch ${event.branch}: ${error}`,
+      });
+    }
+  },
+
   createWorktree: async (
     ctx: WorktreeContext,
     event: Extract<WorktreeEvent, { type: 'CREATE' }>
@@ -421,24 +460,11 @@ export const actions = {
       const branchExists = await $`cd ${ctx.project.path} && git show-ref --verify --quiet refs/heads/${event.branch}`.nothrow();
 
       if (branchExists.exitCode === 0) {
+        // Branch exists, create worktree from existing branch
         await $`cd ${ctx.project.path} && git worktree add ${worktreePath} ${event.branch}`;
       } else {
+        // Create new branch from base
         await $`cd ${ctx.project.path} && git worktree add ${worktreePath} -b ${event.branch} ${baseBranch}`;
-      }
-
-      // Copy env file if configured
-      if (event.options?.copyEnv !== false) {
-        const envFile = ctx.project.config.envFile ?? '.env';
-        const sourcePath = path.join(ctx.project.path, envFile);
-        const sourceExists = await Bun.file(sourcePath).exists();
-        if (sourceExists) {
-          await $`cp ${sourcePath} ${path.join(worktreePath, envFile)}`;
-        }
-      }
-
-      // Install dependencies if configured
-      if (event.options?.installDeps !== false) {
-        await $`cd ${worktreePath} && bun install`.timeout(300_000).nothrow();
       }
 
       return ok(worktree);
@@ -461,6 +487,82 @@ export const actions = {
       return err({
         code: 'WORKTREE_CREATION_FAILED',
         message: errorMessage,
+      });
+    }
+  },
+
+  copyEnvFile: async (ctx: WorktreeContext) => {
+    if (!ctx.worktree?.path) return ok(false);
+
+    const envFile = ctx.project.config.envFile ?? '.env';
+    const sourcePath = path.join(ctx.project.path, envFile);
+    const destPath = path.join(ctx.worktree.path, envFile);
+
+    try {
+      const sourceExists = await Bun.file(sourcePath).exists();
+      if (!sourceExists) {
+        return ok(false); // No env file to copy, not an error
+      }
+
+      await $`cp ${sourcePath} ${destPath}`;
+
+      await db.update(worktrees).set({
+        envCopied: true,
+        updatedAt: new Date(),
+      }).where(eq(worktrees.id, ctx.worktree.id));
+
+      return ok(true);
+    } catch (error) {
+      return err({
+        code: 'ENV_COPY_FAILED',
+        message: `Failed to copy env file: ${error}`,
+      });
+    }
+  },
+
+  installDependencies: async (ctx: WorktreeContext) => {
+    if (!ctx.worktree?.path) return ok(false);
+
+    try {
+      await $`cd ${ctx.worktree.path} && bun install`.timeout(300_000); // 5 min timeout
+
+      await db.update(worktrees).set({
+        depsInstalled: true,
+        updatedAt: new Date(),
+      }).where(eq(worktrees.id, ctx.worktree.id));
+
+      return ok(true);
+    } catch (error) {
+      const errorMessage = error.stderr?.toString() ?? String(error);
+      return err({
+        code: 'DEPS_INSTALL_FAILED',
+        message: `Failed to install dependencies: ${errorMessage}`,
+      });
+    }
+  },
+
+  runInitScript: async (ctx: WorktreeContext) => {
+    if (!ctx.worktree?.path) return ok(false);
+
+    const initScript = ctx.project.config.initScript;
+    if (!initScript) {
+      return ok(false); // No script to run
+    }
+
+    try {
+      await $`cd ${ctx.worktree.path} && ${initScript}`.timeout(600_000); // 10 min timeout
+
+      await db.update(worktrees).set({
+        initScriptRun: true,
+        updatedAt: new Date(),
+      }).where(eq(worktrees.id, ctx.worktree.id));
+
+      return ok(true);
+    } catch (error) {
+      const errorMessage = error.stderr?.toString() ?? String(error);
+      return err({
+        code: 'INIT_SCRIPT_FAILED',
+        message: `Init script failed: ${errorMessage}`,
       });
     }
   },
@@ -505,18 +607,6 @@ export const actions = {
       }
 
       if (mergeResult.exitCode !== 0) {
-        // Check for merge conflicts
-        const conflictFiles = await $`cd ${ctx.project.path} && git diff --name-only --diff-filter=U`.text();
-
-        if (conflictFiles.trim()) {
-          // Update context with conflict files
-          return err({
-            code: 'MERGE_CONFLICT',
-            message: 'Merge conflicts detected',
-            conflictFiles: conflictFiles.trim().split('\n'),
-          });
-        }
-
         return err({
           code: 'MERGE_FAILED',
           message: mergeResult.stderr?.toString() ?? 'Merge failed',
@@ -541,6 +631,29 @@ export const actions = {
       return err({
         code: 'MERGE_FAILED',
         message: error.stderr?.toString() ?? String(error),
+      });
+    }
+  },
+
+  abortMerge: async (ctx: WorktreeContext) => {
+    try {
+      await $`cd ${ctx.project.path} && git merge --abort`.nothrow();
+      await $`cd ${ctx.project.path} && git rebase --abort`.nothrow();
+
+      // Publish event
+      if (ctx.worktree) {
+        await publishWorktreeEvent(ctx.worktree.id, {
+          type: 'worktree:merge_aborted',
+          payload: { worktreeId: ctx.worktree.id },
+          timestamp: Date.now(),
+        });
+      }
+
+      return ok(undefined);
+    } catch (error) {
+      return err({
+        code: 'ABORT_FAILED',
+        message: String(error),
       });
     }
   },
@@ -679,38 +792,38 @@ export type Action = keyof typeof actions;
 | # | From State | Event | Guard(s) | Action(s) | To State |
 |---|------------|-------|----------|-----------|----------|
 | 1 | `(none)` | `CREATE` | `canCreate` | `createWorktree`, `updateStatus` | `creating` |
-| 2 | `creating` | `READY` | - | `updateStatus`, `publishEvent` | `active` |
+| 2 | `creating` | `CREATED` | - | `copyEnvFile`, `installDependencies`, `runInitScript`, `updateStatus` | `active` |
 | 3 | `creating` | `ERROR` | - | `recordError`, `updateStatus` | `error` |
-| 4 | `active` | `MERGE` | `canMerge`, `agentNotActive` | `mergeBranch`, `updateStatus` | `merging` |
+| 4 | `active` | `MERGE` | `canMerge` | `mergeBranch`, `updateStatus` | `merging` |
 | 5 | `active` | `REMOVE` | `canRemove`, `agentNotActive` | `removeWorktree`, `pruneBranch`, `updateStatus` | `removing` |
 | 6 | `active` | `ERROR` | - | `recordError`, `updateStatus` | `error` |
 | 7 | `active` | `PRUNE` | `isStale` or `isOrphaned` | `markStale`, `removeWorktree`, `updateStatus` | `removing` |
-| 8 | `merging` | `MERGE_COMPLETE` | - | `updateStatus`, `publishEvent` | `removing` |
+| 8 | `merging` | `MERGE_COMPLETE` | - | `removeWorktree`, `pruneBranch`, `updateStatus` | `removing` |
 | 9 | `merging` | `ERROR` | - | `recordError`, `updateStatus` | `error` |
-| 10 | `removing` | `REMOVE_COMPLETE` | - | `pruneBranch`, `cleanupDirectory`, `updateStatus` | `removed` |
-| 11 | `removing` | `ERROR` | - | `recordError`, `cleanupDirectory`, `updateStatus` | `error` |
-| 12 | `error` | `RETRY` | `canRetry` | `updateStatus` | (previous state) |
-| 13 | `error` | `REMOVE` | - | `cleanupDirectory`, `updateStatus` | `removed` |
-| 14 | `removed` | - | - | - | (terminal) |
+| 10 | `merging` | `ABORT_MERGE` | - | `abortMerge`, `updateStatus` | `active` |
+| 11 | `removing` | `COMPLETE` | - | `pruneBranch`, `cleanupDirectory`, `updateStatus` | `removed` |
+| 12 | `removing` | `ERROR` | - | `recordError`, `cleanupDirectory`, `updateStatus` | `error` |
+| 13 | `error` | `RETRY` | `canRetry` | `updateStatus` | `active` |
+| 14 | `error` | `REMOVE` | - | `cleanupDirectory`, `updateStatus` | `removed` |
+| 15 | `removed` | - | - | - | (terminal) |
 
 ### Transition Validation Matrix
 
 ```
-               | CREATE | READY | MERGE | MERGE_COMPLETE | REMOVE | REMOVE_COMPLETE | ERROR | RETRY | PRUNE |
----------------+--------+-------+-------+----------------+--------+-----------------+-------+-------+-------|
-(none)         |   X    |   -   |   -   |       -        |   -    |        -        |   -   |   -   |   -   |
-creating       |   -    |   X   |   -   |       -        |   -    |        -        |   X   |   -   |   -   |
-active         |   -    |   -   |   X   |       -        |   X    |        -        |   X   |   -   |   X   |
-merging        |   -    |   -   |   -   |       X        |   -    |        -        |   X   |   -   |   -   |
-removing       |   -    |   -   |   -   |       -        |   -    |        X        |   X   |   -   |   -   |
-error          |   -    |   -   |   -   |       -        |   X    |        -        |   -   |   X   |   -   |
-removed        |   -    |   -   |   -   |       -        |   -    |        -        |   -   |   -   |   -   |
+               | CREATE | CREATED | MERGE | MERGE_COMPLETE | ABORT_MERGE | REMOVE | COMPLETE | ERROR | RETRY | PRUNE |
+---------------+--------+---------+-------+----------------+-------------+--------+----------+-------+-------+-------|
+(none)         |   X    |    -    |   -   |       -        |      -      |   -    |    -     |   -   |   -   |   -   |
+creating       |   -    |    X    |   -   |       -        |      -      |   -    |    -     |   X   |   -   |   -   |
+active         |   -    |    -    |   X   |       -        |      -      |   X    |    -     |   X   |   -   |   X   |
+merging        |   -    |    -    |   -   |       X        |      X      |   -    |    -     |   X   |   -   |   -   |
+removing       |   -    |    -    |   -   |       -        |      -      |   -    |    X     |   X   |   -   |   -   |
+error          |   -    |    -    |   -   |       -        |      -      |   X    |    -     |   -   |   X   |   -   |
+removed        |   -    |    -    |   -   |       -        |      -      |   -    |    -     |   -   |   -   |   -   |
 
 Legend: X = valid transition, - = invalid/no-op
 ```
 
 ---
-
 
 ## XState Machine Configuration
 
@@ -733,20 +846,21 @@ export const worktreeLifecycleMachine = createMachine({
         CREATE: {
           target: 'creating',
           guard: 'canCreate',
-          actions: ['createWorktree', 'updateStatus'],
+          actions: ['createWorktree', 'updateStatusCreating'],
         },
       },
     },
 
     creating: {
+      entry: ['copyEnvFile', 'installDependencies', 'runInitScript'],
       on: {
-        READY: {
+        CREATED: {
           target: 'active',
-          actions: ['updateStatus', 'publishEvent'],
+          actions: ['updateStatusActive', 'publishCreatedEvent'],
         },
         ERROR: {
           target: 'error',
-          actions: ['recordError', 'updateStatus'],
+          actions: ['recordError', 'updateStatusError'],
         },
       },
     },
@@ -755,22 +869,22 @@ export const worktreeLifecycleMachine = createMachine({
       on: {
         MERGE: {
           target: 'merging',
-          guard: 'canMergeAndAgentNotActive',
-          actions: ['mergeBranch', 'updateStatus'],
+          guard: 'canMerge',
+          actions: ['mergeBranch', 'updateStatusMerging'],
         },
         REMOVE: {
           target: 'removing',
-          guard: 'canRemoveAndAgentNotActive',
-          actions: ['removeWorktree', 'pruneBranch', 'updateStatus'],
-        },
-        PRUNE: {
-          target: 'removing',
-          guard: 'isStaleOrOrphaned',
-          actions: ['markStale', 'removeWorktree', 'updateStatus'],
+          guard: { type: 'and', guards: ['canRemove', 'agentNotActive'] },
+          actions: ['removeWorktree', 'pruneBranch', 'updateStatusRemoving'],
         },
         ERROR: {
           target: 'error',
-          actions: ['recordError', 'updateStatus'],
+          actions: ['recordError', 'updateStatusError'],
+        },
+        PRUNE: {
+          target: 'removing',
+          guard: { type: 'or', guards: ['isStale', 'isOrphaned'] },
+          actions: ['markStale', 'removeWorktree', 'updateStatusRemoving'],
         },
       },
     },
@@ -779,24 +893,28 @@ export const worktreeLifecycleMachine = createMachine({
       on: {
         MERGE_COMPLETE: {
           target: 'removing',
-          actions: ['updateStatus', 'publishEvent'],
+          actions: ['removeWorktree', 'pruneBranch', 'updateStatusRemoving'],
         },
         ERROR: {
           target: 'error',
-          actions: ['recordError', 'updateStatus'],
+          actions: ['recordError', 'updateStatusError'],
+        },
+        ABORT_MERGE: {
+          target: 'active',
+          actions: ['abortMerge', 'updateStatusActive'],
         },
       },
     },
 
     removing: {
       on: {
-        REMOVE_COMPLETE: {
+        COMPLETE: {
           target: 'removed',
-          actions: ['pruneBranch', 'cleanupDirectory', 'updateStatus'],
+          actions: ['pruneBranch', 'cleanupDirectory', 'updateStatusRemoved'],
         },
         ERROR: {
           target: 'error',
-          actions: ['recordError', 'cleanupDirectory', 'updateStatus'],
+          actions: ['recordError', 'cleanupDirectory', 'updateStatusError'],
         },
       },
     },
@@ -806,11 +924,11 @@ export const worktreeLifecycleMachine = createMachine({
         RETRY: {
           target: 'active',
           guard: 'canRetry',
-          actions: ['clearError', 'updateStatus'],
+          actions: ['clearError', 'updateStatusActive'],
         },
         REMOVE: {
           target: 'removed',
-          actions: ['cleanupDirectory', 'updateStatus'],
+          actions: ['cleanupDirectory', 'updateStatusRemoved'],
         },
       },
     },
@@ -819,9 +937,899 @@ export const worktreeLifecycleMachine = createMachine({
       type: 'final',
     },
   },
+}, {
+  guards: {
+    canCreate: (ctx, event) => guards.canCreate(ctx, event),
+    canMerge: (ctx) => guards.canMerge(ctx),
+    canRemove: (ctx, event) => guards.canRemove(ctx, event),
+    canForceRemove: (ctx) => guards.canForceRemove(ctx),
+    isStale: (ctx) => guards.isStale(ctx),
+    isOrphaned: (ctx) => guards.isOrphaned(ctx),
+    agentNotActive: (ctx) => guards.agentNotActive(ctx),
+    canRetry: (ctx) => guards.canRetry(ctx),
+  },
+  actions: {
+    createWorktree: (ctx, event) => actions.createWorktree(ctx, event),
+    copyEnvFile: (ctx) => actions.copyEnvFile(ctx),
+    installDependencies: (ctx) => actions.installDependencies(ctx),
+    runInitScript: (ctx) => actions.runInitScript(ctx),
+    mergeBranch: (ctx, event) => actions.mergeBranch(ctx, event),
+    abortMerge: (ctx) => actions.abortMerge(ctx),
+    removeWorktree: (ctx, event) => actions.removeWorktree(ctx, event),
+    pruneBranch: (ctx) => actions.pruneBranch(ctx),
+    cleanupDirectory: (ctx) => actions.cleanupDirectory(ctx),
+    recordError: (ctx, event) => actions.recordError(ctx, event),
+    markStale: (ctx) => actions.markStale(ctx),
+    publishCreatedEvent: (ctx) => actions.publishEvent(ctx, { type: 'CREATE', ...ctx }),
+    updateStatusCreating: assign({ worktree: (ctx) => ({ ...ctx.worktree, status: 'creating' }) }),
+    updateStatusActive: assign({ worktree: (ctx) => ({ ...ctx.worktree, status: 'active' }) }),
+    updateStatusMerging: assign({ worktree: (ctx) => ({ ...ctx.worktree, status: 'merging' }) }),
+    updateStatusRemoving: assign({ worktree: (ctx) => ({ ...ctx.worktree, status: 'removing' }) }),
+    updateStatusRemoved: assign({ worktree: (ctx) => ({ ...ctx.worktree, status: 'removed' }) }),
+    updateStatusError: assign({ worktree: (ctx) => ({ ...ctx.worktree, status: 'error' }) }),
+    clearError: assign({ lastError: undefined }),
+  },
 });
 
 export type WorktreeLifecycleMachine = typeof worktreeLifecycleMachine;
+```
+
+---
+
+## Git Operations
+
+### Allowed Operations by State
+
+| State | Read Ops | Write Ops | Branch Ops | Merge Ops |
+|-------|----------|-----------|------------|-----------|
+| `creating` | - | - | - | - |
+| `active` | status, log, diff, show | add, restore, commit, reset | checkout (local) | - |
+| `merging` | status, log, diff | - | - | - |
+| `removing` | - | - | - | - |
+| `error` | status, log | - | - | - |
+
+### Blocked Operations
+
+The following git operations are **blocked** in all worktree states:
+
+| Operation | Reason | Alternative |
+|-----------|--------|-------------|
+| `git push` | Remote sync managed by merge workflow | Use MERGE event |
+| `git pull` | Conflicts with worktree isolation | Create new worktree |
+| `git fetch` | Managed at project level | Use project git operations |
+| `git rebase -i` | Interactive operations not supported | Use merge strategy |
+| `git reset --hard` | Destructive, may lose agent work | Use REMOVE with force |
+| `git stash` | Worktrees should not use stash | Commit or discard |
+| `git checkout <remote>` | May break worktree | Create new worktree |
+
+### Command Validation
+
+```typescript
+// lib/state-machines/worktree-lifecycle/git-validator.ts
+import type { WorktreeContext } from './guards';
+
+export const BLOCKED_COMMANDS = [
+  'push',
+  'pull',
+  'fetch',
+  'rebase -i',
+  'reset --hard',
+  'stash',
+] as const;
+
+export const STATE_ALLOWED_COMMANDS: Record<WorktreeStatus, string[]> = {
+  creating: [],
+  active: ['status', 'log', 'diff', 'show', 'add', 'restore', 'commit', 'reset', 'checkout'],
+  merging: ['status', 'log', 'diff'],
+  removing: [],
+  removed: [],
+  error: ['status', 'log'],
+};
+
+export function validateGitCommand(
+  ctx: WorktreeContext,
+  command: string
+): { allowed: boolean; reason?: string } {
+  const status = ctx.worktree?.status;
+  if (!status) return { allowed: false, reason: 'No worktree context' };
+
+  // Check blocked commands first
+  const baseCommand = command.split(' ')[0];
+  for (const blocked of BLOCKED_COMMANDS) {
+    if (command.startsWith(blocked)) {
+      return {
+        allowed: false,
+        reason: getBlockedReason(blocked),
+      };
+    }
+  }
+
+  // Check state-specific allowed commands
+  const allowedCommands = STATE_ALLOWED_COMMANDS[status] ?? [];
+
+  if (!allowedCommands.includes(baseCommand)) {
+    return {
+      allowed: false,
+      reason: `Command '${baseCommand}' not allowed in state '${status}'`,
+    };
+  }
+
+  return { allowed: true };
+}
+
+function getBlockedReason(command: string): string {
+  switch (command) {
+    case 'push': return 'Use the merge workflow to sync changes.';
+    case 'pull': return 'Worktrees are isolated. Create a new worktree for latest changes.';
+    case 'fetch': return 'Fetch is managed at the project level.';
+    case 'rebase -i': return 'Interactive rebase is not supported.';
+    case 'reset --hard': return 'Use REMOVE with force flag instead.';
+    case 'stash': return 'Commit or discard changes instead.';
+    default: return '';
+  }
+}
+```
+
+---
+
+## Cleanup
+
+### Stale Worktree Detection
+
+Worktrees are considered **stale** after 7 days of inactivity (configurable per project).
+
+```typescript
+// lib/state-machines/worktree-lifecycle/cleanup.ts
+import { db } from '@/db/client';
+import { worktrees, tasks, projects } from '@/db/schema';
+import { eq, and, lt, isNull, ne } from 'drizzle-orm';
+
+export interface StaleWorktreeInfo {
+  worktreeId: string;
+  branch: string;
+  lastActivity: Date;
+  daysSinceActivity: number;
+  reason: PruneReason;
+  taskStatus?: string;
+}
+
+export async function findStaleWorktrees(
+  projectId: string,
+  options?: { maxAgeDays?: number }
+): Promise<StaleWorktreeInfo[]> {
+  const maxAgeDays = options?.maxAgeDays ?? 7;
+  const staleThreshold = new Date();
+  staleThreshold.setDate(staleThreshold.getDate() - maxAgeDays);
+
+  // Query for potentially stale worktrees
+  const candidates = await db.query.worktrees.findMany({
+    where: and(
+      eq(worktrees.projectId, projectId),
+      eq(worktrees.status, 'active'),
+      lt(worktrees.updatedAt, staleThreshold),
+      isNull(worktrees.removedAt)
+    ),
+    with: {
+      task: true,
+    },
+  });
+
+  const project = await db.query.projects.findFirst({
+    where: eq(projects.id, projectId),
+  });
+
+  const staleWorktrees: StaleWorktreeInfo[] = [];
+
+  for (const worktree of candidates) {
+    // Skip if task is actively in progress
+    if (worktree.task?.column === 'in_progress') {
+      continue;
+    }
+
+    // Calculate days since activity
+    const daysSinceActivity = Math.floor(
+      (Date.now() - new Date(worktree.updatedAt).getTime()) / (1000 * 60 * 60 * 24)
+    );
+
+    // Determine reason
+    let reason: PruneReason = 'stale';
+
+    // Check if branch still exists
+    const branchExists = await checkBranchExists(project?.path ?? '', worktree.branch);
+    if (!branchExists) {
+      reason = 'branch_deleted';
+    }
+
+    // Check if task is completed
+    if (worktree.task?.column === 'verified') {
+      reason = 'task_completed';
+    }
+
+    staleWorktrees.push({
+      worktreeId: worktree.id,
+      branch: worktree.branch,
+      lastActivity: worktree.updatedAt,
+      daysSinceActivity,
+      reason,
+      taskStatus: worktree.task?.column,
+    });
+  }
+
+  return staleWorktrees;
+}
+```
+
+### Automatic Cleanup Triggers
+
+| Trigger | Condition | Action |
+|---------|-----------|--------|
+| Task Verified | Task moved to verified column | Schedule removal (24h delay) |
+| Branch Deleted | Remote branch removed | Immediate prune |
+| Inactivity | No updates for 7+ days | Mark stale, notify user |
+| Disk Space | Worktree root > threshold | Prune oldest stale first |
+| Manual | User requests cleanup | Immediate removal |
+
+```typescript
+// lib/state-machines/worktree-lifecycle/auto-cleanup.ts
+import { CronJob } from 'cron';
+
+export interface CleanupConfig {
+  maxAgeDays: number;        // Default: 7
+  autoCleanupEnabled: boolean;
+  diskThresholdGB: number;   // Default: 10
+  cleanupSchedule: string;   // Cron expression, default: '0 2 * * *' (2am daily)
+}
+
+export function setupAutoCleanup(config: CleanupConfig) {
+  if (!config.autoCleanupEnabled) return;
+
+  const job = new CronJob(config.cleanupSchedule, async () => {
+    console.log('[Worktree Cleanup] Starting scheduled cleanup...');
+
+    // Get all projects
+    const allProjects = await db.query.projects.findMany();
+
+    for (const project of allProjects) {
+      // Find stale worktrees
+      const stale = await findStaleWorktrees(project.id, {
+        maxAgeDays: config.maxAgeDays,
+      });
+
+      // Prune each stale worktree
+      for (const worktreeInfo of stale) {
+        try {
+          await worktreeService.remove(worktreeInfo.worktreeId, true);
+          console.log(`[Worktree Cleanup] Removed stale worktree: ${worktreeInfo.branch}`);
+        } catch (error) {
+          console.error(`[Worktree Cleanup] Failed to remove ${worktreeInfo.branch}:`, error);
+        }
+      }
+    }
+
+    // Check disk space
+    await checkDiskSpaceAndCleanup(config.diskThresholdGB);
+
+    console.log('[Worktree Cleanup] Scheduled cleanup complete');
+  });
+
+  job.start();
+  return job;
+}
+
+async function checkDiskSpaceAndCleanup(thresholdGB: number) {
+  // Get worktree root disk usage
+  const worktreeRoots = await db.query.projects.findMany({
+    columns: { id: true, path: true, config: true },
+  });
+
+  for (const project of worktreeRoots) {
+    const worktreeRoot = project.config.worktreeRoot ?? '.worktrees';
+    const fullPath = `${project.path}/${worktreeRoot}`;
+
+    try {
+      const usage = await $`du -sg ${fullPath}`.text();
+      const sizeGB = parseInt(usage.split('\t')[0]) || 0;
+
+      if (sizeGB > thresholdGB) {
+        console.log(`[Worktree Cleanup] ${fullPath} exceeds ${thresholdGB}GB (${sizeGB}GB)`);
+        // Additional aggressive cleanup could be triggered here
+      }
+    } catch {
+      // Directory might not exist
+    }
+  }
+}
+```
+
+### Manual Cleanup API
+
+```typescript
+// lib/services/worktree-cleanup.ts
+export interface CleanupResult {
+  removed: string[];
+  failed: Array<{ id: string; error: string }>;
+  skipped: string[];
+}
+
+export async function cleanupWorktrees(
+  projectId: string,
+  options?: {
+    filter?: 'stale' | 'orphaned' | 'completed' | 'all';
+    dryRun?: boolean;
+    force?: boolean;
+  }
+): Promise<CleanupResult> {
+  const filter = options?.filter ?? 'stale';
+  const dryRun = options?.dryRun ?? false;
+  const force = options?.force ?? false;
+
+  const result: CleanupResult = {
+    removed: [],
+    failed: [],
+    skipped: [],
+  };
+
+  // Find worktrees to clean based on filter
+  let candidates: StaleWorktreeInfo[];
+
+  switch (filter) {
+    case 'stale':
+      candidates = await findStaleWorktrees(projectId);
+      break;
+    case 'orphaned':
+      candidates = (await findStaleWorktrees(projectId)).filter(w => w.reason === 'branch_deleted');
+      break;
+    case 'completed':
+      candidates = (await findStaleWorktrees(projectId)).filter(w => w.reason === 'task_completed');
+      break;
+    case 'all':
+      candidates = await findStaleWorktrees(projectId, { maxAgeDays: 0 });
+      break;
+  }
+
+  for (const candidate of candidates) {
+    if (dryRun) {
+      result.removed.push(candidate.worktreeId);
+      continue;
+    }
+
+    try {
+      const removeResult = await worktreeService.remove(candidate.worktreeId, force);
+      if (removeResult.ok) {
+        result.removed.push(candidate.worktreeId);
+      } else {
+        result.failed.push({ id: candidate.worktreeId, error: removeResult.error.message });
+      }
+    } catch (error) {
+      result.failed.push({ id: candidate.worktreeId, error: String(error) });
+    }
+  }
+
+  return result;
+}
+```
+
+---
+
+## Error Handling
+
+### Error Categories
+
+| Category | Error Codes | Recoverable | User Action |
+|----------|-------------|-------------|-------------|
+| **Creation** | `BRANCH_EXISTS`, `PATH_EXISTS`, `BRANCH_CREATION_FAILED` | Yes | Fix conflict, retry |
+| **Git Operation** | `MERGE_FAILED`, `CHECKOUT_FAILED` | Usually | Review output, retry |
+| **Permission** | `PERMISSION_DENIED`, `READONLY_FS` | No | Fix permissions |
+| **Disk Space** | `NO_SPACE_LEFT`, `QUOTA_EXCEEDED` | No | Free space, retry |
+| **Network** | `FETCH_FAILED`, `TIMEOUT` | Yes | Check connection, retry |
+| **Internal** | `WORKTREE_NOT_FOUND`, `INVALID_STATE` | No | Report bug |
+
+### Error Type Definitions
+
+```typescript
+// lib/state-machines/worktree-lifecycle/errors.ts
+export type WorktreeErrorCode =
+  // Creation errors
+  | 'BRANCH_EXISTS'
+  | 'BRANCH_CHECKED_OUT'
+  | 'PATH_EXISTS'
+  | 'BRANCH_CREATION_FAILED'
+  | 'WORKTREE_CREATION_FAILED'
+  // Setup errors
+  | 'ENV_COPY_FAILED'
+  | 'DEPS_INSTALL_FAILED'
+  | 'INIT_SCRIPT_FAILED'
+  // Git operation errors
+  | 'MERGE_FAILED'
+  | 'CHECKOUT_FAILED'
+  | 'ABORT_FAILED'
+  // Removal errors
+  | 'WORKTREE_REMOVAL_FAILED'
+  | 'WORKTREE_IN_USE'
+  // General errors
+  | 'NO_WORKTREE'
+  | 'INVALID_STATE'
+  | 'PERMISSION_DENIED'
+  | 'NO_SPACE_LEFT';
+
+export interface WorktreeError {
+  code: WorktreeErrorCode;
+  message: string;
+  details?: Record<string, unknown>;
+  recoverable: boolean;
+  suggestedAction?: string;
+}
+
+export const WorktreeErrors = {
+  BRANCH_EXISTS: (branch: string): WorktreeError => ({
+    code: 'BRANCH_EXISTS',
+    message: `Branch '${branch}' already exists`,
+    recoverable: true,
+    suggestedAction: 'Use a different branch name or delete the existing branch',
+  }),
+
+  BRANCH_CHECKED_OUT: (branch: string): WorktreeError => ({
+    code: 'BRANCH_CHECKED_OUT',
+    message: `Branch '${branch}' is already checked out in another worktree`,
+    recoverable: true,
+    suggestedAction: 'Remove the other worktree first or use a different branch',
+  }),
+
+  PATH_EXISTS: (path: string): WorktreeError => ({
+    code: 'PATH_EXISTS',
+    message: `Worktree path already exists: ${path}`,
+    recoverable: true,
+    suggestedAction: 'Remove the existing directory or use git worktree prune',
+  }),
+
+  WORKTREE_IN_USE: (agentId: string): WorktreeError => ({
+    code: 'WORKTREE_IN_USE',
+    message: 'Worktree is being used by an active agent',
+    details: { agentId },
+    recoverable: false,
+    suggestedAction: 'Wait for agent to complete or abort the agent first',
+  }),
+
+  NO_SPACE_LEFT: (required: number, available: number): WorktreeError => ({
+    code: 'NO_SPACE_LEFT',
+    message: `Not enough disk space. Required: ${required}MB, Available: ${available}MB`,
+    details: { required, available },
+    recoverable: false,
+    suggestedAction: 'Free up disk space and retry',
+  }),
+} as const;
+```
+
+### Recovery Procedures
+
+```typescript
+// lib/state-machines/worktree-lifecycle/recovery.ts
+export interface RecoveryProcedure {
+  errorCode: WorktreeErrorCode;
+  steps: RecoveryStep[];
+  automatic: boolean;
+}
+
+export interface RecoveryStep {
+  description: string;
+  action: () => Promise<Result<void, WorktreeError>>;
+  rollback?: () => Promise<void>;
+}
+
+export const recoveryProcedures: Record<string, RecoveryProcedure> = {
+  BRANCH_EXISTS: {
+    errorCode: 'BRANCH_EXISTS',
+    automatic: false,
+    steps: [
+      {
+        description: 'Check if branch is used by another worktree',
+        action: async () => {
+          // Implementation
+        },
+      },
+      {
+        description: 'Delete branch if orphaned',
+        action: async () => {
+          // Implementation
+        },
+      },
+    ],
+  },
+
+  NO_SPACE_LEFT: {
+    errorCode: 'NO_SPACE_LEFT',
+    automatic: true,
+    steps: [
+      {
+        description: 'Prune stale worktrees to free space',
+        action: async () => {
+          // Implementation
+        },
+      },
+      {
+        description: 'Retry operation',
+        action: async () => {
+          // Retry the failed operation
+        },
+      },
+    ],
+  },
+};
+
+export async function attemptRecovery(
+  ctx: WorktreeContext,
+  error: WorktreeError
+): Promise<Result<void, WorktreeError>> {
+  const procedure = recoveryProcedures[error.code];
+
+  if (!procedure) {
+    return err(error); // No recovery procedure available
+  }
+
+  if (!procedure.automatic) {
+    // Requires user intervention
+    await publishWorktreeEvent(ctx.worktree?.id ?? 'system', {
+      type: 'worktree:recovery_needed',
+      payload: {
+        error,
+        procedure: procedure.steps.map(s => s.description),
+      },
+      timestamp: Date.now(),
+    });
+    return err(error);
+  }
+
+  // Attempt automatic recovery
+  for (const step of procedure.steps) {
+    const result = await step.action();
+    if (!result.ok) {
+      // Rollback if available
+      if (step.rollback) {
+        await step.rollback();
+      }
+      return result;
+    }
+  }
+
+  return ok(undefined);
+}
+```
+
+---
+
+## Implementation
+
+### Service Integration
+
+```typescript
+// lib/services/worktree-service.ts
+import { interpret } from 'xstate';
+import { worktreeLifecycleMachine } from '@/lib/state-machines/worktree-lifecycle';
+import type { WorktreeContext } from '@/lib/state-machines/worktree-lifecycle/guards';
+import type { WorktreeEvent } from '@/lib/state-machines/worktree-lifecycle/events';
+import { db } from '@/db/client';
+import { worktrees, projects, tasks } from '@/db/schema';
+import { eq } from 'drizzle-orm';
+
+export class WorktreeService implements IWorktreeService {
+  private machines: Map<string, ReturnType<typeof interpret>> = new Map();
+
+  private async getMachine(worktreeId: string) {
+    if (this.machines.has(worktreeId)) {
+      return this.machines.get(worktreeId)!;
+    }
+
+    // Load context from database
+    const worktree = await this.getWorktree(worktreeId);
+    const project = await db.query.projects.findFirst({
+      where: eq(projects.id, worktree?.projectId ?? ''),
+    });
+    const task = await db.query.tasks.findFirst({
+      where: eq(tasks.worktreeId, worktreeId),
+    });
+
+    const context: WorktreeContext = {
+      worktree,
+      project: project!,
+      task,
+    };
+
+    const machine = interpret(
+      worktreeLifecycleMachine.withContext(context)
+    ).start(worktree?.status ?? 'idle');
+
+    this.machines.set(worktreeId, machine);
+    return machine;
+  }
+
+  async send(worktreeId: string, event: WorktreeEvent): Promise<Result<void, WorktreeError>> {
+    const machine = await this.getMachine(worktreeId);
+    const currentState = machine.getSnapshot();
+
+    // Check if transition is valid
+    const nextState = worktreeLifecycleMachine.transition(currentState, event);
+
+    if (!nextState.changed) {
+      return err({
+        code: 'INVALID_STATE',
+        message: `Cannot process ${event.type} in state ${currentState.value}`,
+        recoverable: false,
+      });
+    }
+
+    // Execute transition
+    machine.send(event);
+
+    // Wait for actions to complete
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // Sync state to database
+    const newState = machine.getSnapshot();
+    await this.updateStatus(worktreeId, newState.value as WorktreeStatus);
+
+    return ok(undefined);
+  }
+
+  // Lifecycle methods delegate to state machine
+  async create(input: WorktreeCreateInput, options?: WorktreeSetupOptions) {
+    // Create initial record
+    const [worktree] = await db.insert(worktrees).values({
+      projectId: input.projectId,
+      taskId: input.taskId,
+      branch: input.branch,
+      baseBranch: input.baseBranch ?? 'main',
+      path: '', // Will be set by action
+      status: 'creating',
+    }).returning();
+
+    // Send CREATE event
+    return this.send(worktree.id, {
+      type: 'CREATE',
+      ...input,
+      options,
+    });
+  }
+
+  async merge(worktreeId: string, targetBranch?: string) {
+    return this.send(worktreeId, { type: 'MERGE', targetBranch });
+  }
+
+  async remove(worktreeId: string, force?: boolean) {
+    return this.send(worktreeId, { type: 'REMOVE', force });
+  }
+
+  // ... other methods
+}
+
+export const worktreeService = new WorktreeService();
+```
+
+### Database Status Sync
+
+```typescript
+// lib/state-machines/worktree-lifecycle/db-sync.ts
+import { db } from '@/db/client';
+import { worktrees } from '@/db/schema';
+import { eq } from 'drizzle-orm';
+
+export interface WorktreeDbState {
+  status: WorktreeStatus;
+  lastError?: string;
+  envCopied: boolean;
+  depsInstalled: boolean;
+  initScriptRun: boolean;
+  mergedAt?: Date;
+  removedAt?: Date;
+}
+
+export async function syncStateToDb(
+  worktreeId: string,
+  state: WorktreeDbState
+): Promise<void> {
+  await db.update(worktrees).set({
+    status: state.status,
+    lastError: state.lastError ?? null,
+    envCopied: state.envCopied,
+    depsInstalled: state.depsInstalled,
+    initScriptRun: state.initScriptRun,
+    mergedAt: state.mergedAt,
+    removedAt: state.removedAt,
+    updatedAt: new Date(),
+  }).where(eq(worktrees.id, worktreeId));
+}
+
+export async function loadStateFromDb(worktreeId: string): Promise<WorktreeDbState | null> {
+  const worktree = await db.query.worktrees.findFirst({
+    where: eq(worktrees.id, worktreeId),
+  });
+
+  if (!worktree) return null;
+
+  return {
+    status: worktree.status,
+    lastError: worktree.lastError ?? undefined,
+    envCopied: worktree.envCopied,
+    depsInstalled: worktree.depsInstalled,
+    initScriptRun: worktree.initScriptRun,
+    mergedAt: worktree.mergedAt ?? undefined,
+    removedAt: worktree.removedAt ?? undefined,
+  };
+}
+
+// Subscription for real-time updates
+export function subscribeToStateChanges(
+  worktreeId: string,
+  callback: (state: WorktreeDbState) => void
+): () => void {
+  // Implementation depends on your real-time infrastructure
+  // Could use SQLite triggers, Durable Streams, etc.
+  return () => {};
+}
+```
+
+---
+
+## Worktree Events (Durable Streams)
+
+Events published during worktree lifecycle for real-time sync:
+
+```typescript
+// lib/events/worktree.ts
+type WorktreeStreamEvent =
+  // Lifecycle events
+  | { type: 'worktree:creating'; payload: { worktreeId: string; branch: string; path: string } }
+  | { type: 'worktree:created'; payload: { worktreeId: string; branch: string; path: string } }
+  | { type: 'worktree:removing'; payload: { worktreeId: string; branch: string } }
+  | { type: 'worktree:removed'; payload: { worktreeId: string; branch: string } }
+  // Git operation events
+  | { type: 'worktree:merging'; payload: { worktreeId: string; targetBranch: string; strategy: string } }
+  | { type: 'worktree:merged'; payload: { worktreeId: string; branch: string; targetBranch: string } }
+  | { type: 'worktree:merge_aborted'; payload: { worktreeId: string } }
+  // Error and status events
+  | { type: 'worktree:error'; payload: { worktreeId: string; error: string; message: string; recoverable: boolean } }
+  | { type: 'worktree:stale'; payload: { worktreeId: string; lastActivity: Date } }
+  | { type: 'worktrees:pruned'; payload: { projectId: string; count: number } }
+  // State updates
+  | { type: 'state:update'; payload: { status: WorktreeStatus; error?: string } }
+  // Recovery events
+  | { type: 'worktree:recovery_needed'; payload: { error: WorktreeError; procedure: string[] } };
+
+interface WorktreeState {
+  status: WorktreeStatus;
+  branch?: string;
+  path?: string;
+  lastError?: string;
+}
+```
+
+---
+
+## Testing
+
+### Unit Tests
+
+```typescript
+// tests/state-machines/worktree-lifecycle.test.ts
+import { describe, it, expect, beforeEach } from 'vitest';
+import { worktreeLifecycleMachine } from '@/lib/state-machines/worktree-lifecycle';
+
+describe('Worktree Lifecycle State Machine', () => {
+  describe('Creation flow', () => {
+    it('transitions from idle to creating on CREATE', () => {
+      const state = worktreeLifecycleMachine.transition('idle', {
+        type: 'CREATE',
+        projectId: 'project-1',
+        taskId: 'task-1',
+        branch: 'feature/test',
+      });
+      expect(state.value).toBe('creating');
+    });
+
+    it('transitions from creating to active on CREATED', () => {
+      const state = worktreeLifecycleMachine.transition('creating', {
+        type: 'CREATED',
+      });
+      expect(state.value).toBe('active');
+    });
+  });
+
+  describe('Merge flow', () => {
+    it('transitions from active to merging on MERGE', () => {
+      const state = worktreeLifecycleMachine.transition('active', {
+        type: 'MERGE',
+        targetBranch: 'main',
+      });
+      expect(state.value).toBe('merging');
+    });
+
+    it('transitions from merging to removing on MERGE_COMPLETE', () => {
+      const state = worktreeLifecycleMachine.transition('merging', {
+        type: 'MERGE_COMPLETE',
+      });
+      expect(state.value).toBe('removing');
+    });
+
+    it('transitions from merging to active on ABORT_MERGE', () => {
+      const state = worktreeLifecycleMachine.transition('merging', {
+        type: 'ABORT_MERGE',
+      });
+      expect(state.value).toBe('active');
+    });
+
+    it('transitions from merging to error on ERROR', () => {
+      const state = worktreeLifecycleMachine.transition('merging', {
+        type: 'ERROR',
+        error: { code: 'MERGE_FAILED', message: 'Merge failed' },
+        operation: 'merge',
+        recoverable: true,
+      });
+      expect(state.value).toBe('error');
+    });
+  });
+
+  describe('Removal flow', () => {
+    it('transitions from active to removing on REMOVE', () => {
+      const state = worktreeLifecycleMachine.transition('active', {
+        type: 'REMOVE',
+      });
+      expect(state.value).toBe('removing');
+    });
+
+    it('transitions from removing to removed on COMPLETE', () => {
+      const state = worktreeLifecycleMachine.transition('removing', {
+        type: 'COMPLETE',
+      });
+      expect(state.value).toBe('removed');
+    });
+  });
+
+  describe('Error handling', () => {
+    it('transitions from creating to error on ERROR', () => {
+      const state = worktreeLifecycleMachine.transition('creating', {
+        type: 'ERROR',
+        error: { code: 'WORKTREE_CREATION_FAILED', message: 'Failed' },
+        operation: 'create',
+        recoverable: true,
+      });
+      expect(state.value).toBe('error');
+    });
+
+    it('transitions from error to active on RETRY', () => {
+      const state = worktreeLifecycleMachine.transition('error', {
+        type: 'RETRY',
+        operation: 'create',
+      });
+      expect(state.value).toBe('active');
+    });
+
+    it('transitions from error to removed on REMOVE', () => {
+      const state = worktreeLifecycleMachine.transition('error', {
+        type: 'REMOVE',
+      });
+      expect(state.value).toBe('removed');
+    });
+  });
+
+  describe('Invalid transitions', () => {
+    it('rejects CREATE in active state', () => {
+      const state = worktreeLifecycleMachine.transition('active', {
+        type: 'CREATE',
+        projectId: 'project-1',
+        taskId: 'task-1',
+        branch: 'feature/test',
+      });
+      expect(state.changed).toBe(false);
+    });
+
+    it('rejects MERGE from creating state', () => {
+      const state = worktreeLifecycleMachine.transition('creating', {
+        type: 'MERGE',
+        targetBranch: 'main',
+      });
+      expect(state.changed).toBe(false);
+    });
+  });
+});
 ```
 
 ---
@@ -832,6 +1840,7 @@ export type WorktreeLifecycleMachine = typeof worktreeLifecycleMachine;
 |-------|-----------|-----------|
 | All states | [worktree-management.html](../wireframes/worktree-management.html) | Worktree status list |
 | `error` | [error-state-expanded.html](../wireframes/error-state-expanded.html) | Error details and recovery |
+| Cleanup | [worktree-cleanup.html](../wireframes/worktree-cleanup.html) | Stale worktree cleanup UI |
 
 ---
 
@@ -845,3 +1854,4 @@ export type WorktreeLifecycleMachine = typeof worktreeLifecycleMachine;
 | [Database Schema](../database/schema.md) | `worktrees` table definition |
 | [Error Catalog](../errors/error-catalog.md) | Worktree error codes |
 | [Git Worktrees](../integrations/git-worktrees.md) | Git worktree technical details |
+| [User Stories](../user-stories.md) | Worktree lifecycle requirements |

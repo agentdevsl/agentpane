@@ -44,7 +44,6 @@ function ParallelNodeComponent({ data, selected }: NodeProps<ParallelNodeType>):
         const offset = (i - (branchCount - 1) / 2) * 24;
         return (
           <Handle
-            // biome-ignore lint/suspicious/noArrayIndexKey: Branch handles are positioned by index, order is stable
             key={`branch-${i}`}
             type="source"
             position={Position.Bottom}

@@ -53,7 +53,7 @@ async function releaseLock(): Promise<void> {
   }
 }
 
-export { LOCK_FILE, acquireLock, releaseLock, isProcessRunning };
+export { acquireLock, isProcessRunning, LOCK_FILE, releaseLock };
 
 export interface DaemonOptions {
   port: number;

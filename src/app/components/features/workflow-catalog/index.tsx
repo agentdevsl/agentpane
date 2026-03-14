@@ -311,7 +311,6 @@ function Pagination({
       <div className="flex items-center gap-1 mx-2">
         {pages.map((page, index) =>
           page === 'ellipsis' ? (
-            // biome-ignore lint/suspicious/noArrayIndexKey: Ellipsis positions are stable within pagination
             <span key={`ellipsis-${index}`} className="px-2 text-fg-muted">
               ...
             </span>
@@ -466,7 +465,6 @@ export function WorkflowCatalog({
         {/* Grid skeleton */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {Array.from({ length: 8 }).map((_, i) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: Loading skeletons have no stable IDs
             <WorkflowCardSkeleton key={i} />
           ))}
         </div>

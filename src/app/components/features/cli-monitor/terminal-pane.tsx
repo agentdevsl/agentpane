@@ -155,7 +155,6 @@ function TerminalOutput({ output, isWorking }: { output: string; isWorking: bool
   return (
     <>
       {lines.map((line, i) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: stable ordered lines
         <TerminalLine key={i} line={line} />
       ))}
       {isWorking && (
