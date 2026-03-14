@@ -327,22 +327,24 @@ Queue functionality is **not yet implemented**. All methods return stub values:
 
 ---
 
-## Swarm Mode
+## Team Mode
 
-When the agent calls `ExitPlanMode`, it can request swarm execution via `ExitPlanModeOptions`:
+Team mode allows agents to spawn parallel sub-agents for complex tasks. When the planning agent calls `ExitPlanMode` with `launchSwarm: true`, the execution phase creates multiple agent sessions that work concurrently on different parts of the plan.
+
+The agent requests team execution via `ExitPlanModeOptions`:
 
 ```typescript
 interface ExitPlanModeOptions {
   allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
-  launchSwarm?: boolean;
-  teammateCount?: number;
-  pushToRemote?: boolean;
+  launchSwarm?: boolean;      // Enable team mode
+  teammateCount?: number;     // Number of parallel agents
+  pushToRemote?: boolean;     // Remote session support
 }
 ```
 
 Plan options are stored on the task record as `planOptions` (type `StoredPlanOptions`) which extends `ExitPlanModeOptions` with `sdkSessionId` and `planningSandboxId`.
 
-Swarm children reference their parent via `parentAgentId` on the agent record.
+The `parentAgentId` field on the agent record references the parent agent for team sub-agents.
 
 ---
 
@@ -368,7 +370,7 @@ agents = sqliteTable('agents', {
 Key fields:
 - `type` - One of `task`, `conversational`, `background`
 - `currentTurn` - Tracks the current turn count during execution
-- `parentAgentId` - References parent agent for swarm children
+- `parentAgentId` - References parent agent for team sub-agents
 
 ---
 

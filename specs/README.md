@@ -91,7 +91,7 @@ specs/
 │   │   └── security-model.md          # Tool sandbox, audit logging
 │   │
 │   ├── services/
-│   │   ├── agent-service.md           # Agent lifecycle (planning, execution, swarm)
+│   │   ├── agent-service.md           # Agent lifecycle (planning, execution, queue)
 │   │   ├── cli-monitor-service.md     # CLI monitor package
 │   │   ├── container-agent-service.md # Docker container agent execution
 │   │   ├── event-service.md           # Event sources, subscriptions, processing

@@ -340,7 +340,7 @@ type SessionEventType =
   | 'container-agent:tool:result' | 'container-agent:message'
   | 'container-agent:complete' | 'container-agent:error'
   | 'container-agent:cancelled' | 'container-agent:plan_ready'
-  // Topology (swarm) events
+  // Topology events
   | 'topology:agent_spawned' | 'topology:agent_status'
   | 'topology:agent_progress' | 'topology:agent_completed'
   | 'topology:agent_failed' | 'topology:decision' | 'topology:snapshot';

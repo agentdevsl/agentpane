@@ -69,7 +69,7 @@ specs/application/
 │
 ├── integrations/                      # External Integrations
 │   ├── caddy.md                       # Caddy reverse proxy
-│   ├── claude-agent-sdk.md            # Claude Agent SDK (v0.2.19, plan mode, swarm)
+│   ├── claude-agent-sdk.md            # Claude Agent SDK (v0.2.63, plan mode, team)
 │   ├── durable-sessions.md            # Durable Streams (v0.2.0)
 │   ├── git-worktrees.md               # Git worktree isolation
 │   ├── github-app.md                  # GitHub App OAuth and webhooks
@@ -89,7 +89,7 @@ specs/application/
 │   └── security-model.md              # Tool sandboxing, audit logging
 │
 ├── services/                          # Business Logic Services (9 specs)
-│   ├── agent-service.md               # Agent lifecycle (planning, execution, swarm)
+│   ├── agent-service.md               # Agent lifecycle (planning, execution, queue)
 │   ├── cli-monitor-service.md         # CLI monitor package
 │   ├── container-agent-service.md     # Docker container agent execution
 │   ├── event-service.md               # Event sources, subscriptions, processing
@@ -176,7 +176,7 @@ specs/application/
 
 | Spec | Purpose | Key Contents |
 |------|---------|--------------|
-| [agent-service.md](./services/agent-service.md) | Agent Logic | Planning, execution, swarm, queue |
+| [agent-service.md](./services/agent-service.md) | Agent Logic | Planning, execution, queue |
 | [task-service.md](./services/task-service.md) | Task Logic | 5-column workflow, plan approval |
 | [project-service.md](./services/project-service.md) | Project Logic | CRUD, config sync |
 | [session-service.md](./services/session-service.md) | Session Logic | 7-state lifecycle, SSE streaming |
@@ -209,7 +209,7 @@ specs/application/
 | Spec | Purpose | Key Contents |
 |------|---------|--------------|
 | [caddy.md](./integrations/caddy.md) | Reverse Proxy | Caddy, HTTPS, routing |
-| [claude-agent-sdk.md](./integrations/claude-agent-sdk.md) | AI | Plan mode, swarm, SDK v0.2.19 |
+| [claude-agent-sdk.md](./integrations/claude-agent-sdk.md) | AI | Plan mode, SDK v0.2.63 |
 | [durable-sessions.md](./integrations/durable-sessions.md) | Real-time | Durable Streams v0.2.0, SSE |
 | [git-worktrees.md](./integrations/git-worktrees.md) | Git | Isolation, merge, cleanup |
 | [github-app.md](./integrations/github-app.md) | GitHub | OAuth, webhooks, config sync |

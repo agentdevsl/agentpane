@@ -228,10 +228,9 @@ When the agent calls `ExitPlanMode` during planning, it can pass these options:
 ```typescript
 interface ExitPlanModeOptions {
   allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
-  // Future (pending GA):
-  // launchSwarm?: boolean;
-  // teammateCount?: number;
-  // pushToRemote?: boolean;
+  launchSwarm?: boolean;
+  teammateCount?: number;
+  pushToRemote?: boolean;
 }
 ```
 

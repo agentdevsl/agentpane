@@ -59,7 +59,7 @@ flowchart TB
         AgentExec["AgentExecutionService<br/><small>lifecycle · abort · hooks</small>"]
         PlanPhase["Planning Phase<br/><small>permissionMode: plan<br/>ExitPlanMode tool</small>"]
         ExecPhase["Execution Phase<br/><small>permissionMode: acceptEdits</small>"]
-        SwarmMode["Swarm Mode<br/><small>parallel agent spawning</small>"]
+        TeamMode["Team Mode<br/><small>parallel agent spawning</small>"]
         StreamHandler["Stream Handler<br/><small>SDK session management<br/>tool hooks · event publish</small>"]
     end
 
@@ -129,7 +129,7 @@ flowchart TB
     ContainerAgentSvc --> Sandbox
     AgentExec --> PlanPhase
     PlanPhase -->|"plan approved"| ExecPhase
-    ExecPhase -->|"launchSwarm"| SwarmMode
+    ExecPhase -->|"team mode"| TeamMode
     AgentExec --> StreamHandler
 
     %% ── Agent Runtime → External ──
@@ -172,7 +172,7 @@ flowchart TB
     class Frontend,TanStackStart,UIComponents,ClientState,DurableClient,ReactFlow,DndKit frontend
     class API,Routes,Auth,Validation api
     class Services,ProjectSvc,TaskSvc,AgentSvc,SessionSvc,WorktreeSvc,SandboxSvc,ContainerAgentSvc,StreamsSvc,SchedulerSvc,TerraformSvc,TaskCreationSvc,TemplateSvc service
-    class AgentRuntime,AgentExec,PlanPhase,ExecPhase,SwarmMode,StreamHandler runtime
+    class AgentRuntime,AgentExec,PlanPhase,ExecPhase,TeamMode,StreamHandler runtime
     class Database,SQLite,PostgreSQL,Drizzle db
     class Sandbox,DockerProv,NomadProv,AgentCoreProv,AgentSandboxProv sandbox
     class External,AnthropicAPI,GitHubAPI,GitWorktrees external

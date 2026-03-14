@@ -2,7 +2,7 @@
 
 ## Overview
 
-Specification for integrating the Claude Agent SDK (`@anthropic-ai/claude-agent-sdk` v0.2.63) into AgentPane. This document covers the `unstable_v2_createSession` API, plan mode with `ExitPlanMode`, execution mode with `acceptEdits`, streaming event handling, swarm mode, stored plan options, and session events published to Durable Streams.
+Specification for integrating the Claude Agent SDK (`@anthropic-ai/claude-agent-sdk` v0.2.63) into AgentPane. This document covers the `unstable_v2_createSession` API, plan mode with `ExitPlanMode`, execution mode with `acceptEdits`, streaming event handling, stored plan options, and session events published to Durable Streams.
 
 ---
 
@@ -124,19 +124,19 @@ The `ExitPlanMode` tool is called by the agent when it has finished creating its
 
 export interface ExitPlanModeOptions {
   allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
-  // TODO: Pending GA — swarm and remote session features
-  // launchSwarm?: boolean;
-  // teammateCount?: number;
-  // pushToRemote?: boolean;
+  // Team and remote session features
+  launchSwarm?: boolean;
+  teammateCount?: number;
+  pushToRemote?: boolean;
 }
 ```
 
-**Planned swarm fields** (not yet active in implementation):
+**Team fields** for parallel agent spawning:
 
 ```typescript
 interface ExitPlanModeOptions {
   allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
-  launchSwarm?: boolean;      // Enable swarm mode
+  launchSwarm?: boolean;      // Enable team mode
   teammateCount?: number;     // Number of parallel agents
   pushToRemote?: boolean;     // Remote session support
 }
@@ -206,16 +206,18 @@ During execution:
 
 ---
 
-## Swarm Mode (Pending GA)
+## Team Mode
 
-When the agent calls `ExitPlanMode` with `launchSwarm: true`, the execution phase will spawn multiple parallel agents to work on different parts of the plan. The swarm fields on `ExitPlanModeOptions` (`launchSwarm`, `teammateCount`, `pushToRemote`) are currently commented out in the implementation pending GA release.
+Team mode enables parallel agent execution for complex tasks. When the planning agent determines that a task can be decomposed into independent subtasks, it requests team execution via `ExitPlanModeOptions`.
 
-When active, the execution flow will be:
+The execution flow is:
 
 1. Agent calls `ExitPlanMode` with `launchSwarm: true` and `teammateCount: N`
-2. `runAgentExecution` detects swarm configuration in `planOptions`
+2. `runAgentExecution` detects team configuration in `planOptions`
 3. Multiple agent sessions are spawned in parallel, each working on a subset of the plan
-4. If `pushToRemote: true`, agents can work in remote sessions
+4. Each sub-agent gets its own worktree for isolated work
+5. If `pushToRemote: true`, agents can work in remote sessions
+6. The parent agent coordinates results and merges changes on completion
 
 ---
 
@@ -463,7 +465,7 @@ Hooks are used in the `executeToolWithHooks()` function for custom tool executio
 |------|--------------|
 | [Durable Sessions](./durable-sessions.md) | Receives agent events via session publish |
 | [Database Schema](../database/schema.md) | Agent, Session, Task tables; `StoredPlanOptions` type |
-| [Agent Service](../services/agent-service.md) | Agent lifecycle state machine and swarm orchestration |
+| [Agent Service](../services/agent-service.md) | Agent lifecycle state machine |
 | [Task Service](../services/task-service.md) | Task workflow including plan approval |
 | [Error Catalog](../errors/error-catalog.md) | AgentError types |
 | [Sandbox](../security/sandbox.md) | Container execution environment |

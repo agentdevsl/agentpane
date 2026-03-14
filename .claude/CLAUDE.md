@@ -136,7 +136,7 @@ When a task is moved to `in_progress` (via drag-drop on the Kanban board):
    - Creates Claude Agent SDK session with `permissionMode: 'plan'`
    - Agent explores codebase and creates implementation plan
    - Agent calls `ExitPlanMode` tool when plan is ready
-   - Captures plan content and options (including swarm settings)
+   - Captures plan content and options
    - Publishes `agent:plan_ready` event
    - Task stays in `in_progress`, agent status is `planning`
 
@@ -147,24 +147,21 @@ When a task is moved to `in_progress` (via drag-drop on the Kanban board):
 
 6. **Execution Phase** (`src/lib/agents/stream-handler.ts:runAgentExecution`)
    - Creates session with `permissionMode: 'acceptEdits'`
-   - If `launchSwarm: true` in planOptions, spawns multiple agents
    - Executes the approved plan
    - On completion: task moves to `waiting_approval`
 
-### Swarm Mode
+### Team Mode
 
-When the agent calls `ExitPlanMode`, it can request swarm execution:
+Team mode enables parallel agent execution for complex tasks. When the planning agent calls `ExitPlanMode` with `launchSwarm: true`, the execution phase spawns multiple sub-agents that work concurrently on different parts of the plan. Each sub-agent gets its own worktree for isolated work.
 
 ```typescript
 interface ExitPlanModeOptions {
   allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
-  launchSwarm?: boolean;      // Enable swarm mode
+  launchSwarm?: boolean;      // Enable team mode
   teammateCount?: number;     // Number of parallel agents
   pushToRemote?: boolean;     // Remote session support
 }
 ```
-
-If `launchSwarm: true`, the execution phase will spawn multiple agents to work on different parts of the plan in parallel.
 
 ### Key Files
 

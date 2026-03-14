@@ -322,7 +322,7 @@ export const agents = sqliteTable('agents', {
 | currentTaskId | text | | Currently assigned task |
 | currentSessionId | text | | Active session |
 | currentTurn | integer | default 0 | Current turn counter |
-| parentAgentId | text | | For swarm sub-agents |
+| parentAgentId | text | | For team sub-agents |
 | createdAt | text | NOT NULL, default now | |
 | updatedAt | text | NOT NULL, default now | |
 
