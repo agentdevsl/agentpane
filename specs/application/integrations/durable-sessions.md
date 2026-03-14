@@ -2,7 +2,7 @@
 
 ## Overview
 
-Specification for integrating Durable Sessions (@durable-streams/* v0.1.5) into AgentPane. This document covers session schema definition, server/client setup, event multiplexing, optimistic writes, TanStack DB integration, and React hooks.
+Specification for integrating Durable Streams (@durable-streams/* v0.2.x) into AgentPane. This document covers the DurableStreamsService, event type system, server/client setup, event persistence, and streaming transport.
 
 Pattern reference: [Electric SQL Durable Sessions](https://electric-sql.com/blog/2026/01/12/durable-sessions-for-collaborative-ai)
 
@@ -12,9 +12,9 @@ Pattern reference: [Electric SQL Durable Sessions](https://electric-sql.com/blog
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| @durable-streams/client | 0.1.5 | Client-side session subscription |
-| @durable-streams/server | 0.1.5 | Server-side event publishing |
-| @durable-streams/state | 0.1.5 | Schema-aware structured state |
+| @durable-streams/client | ^0.2.1 | Client-side stream subscription |
+| @durable-streams/server | ^0.2.2 | Server-side event publishing (Caddy integration) |
+| @durable-streams/state | ^0.2.0 | Schema-aware structured state |
 | @tanstack/db | 0.5.20 | Client state collections |
 | @tanstack/react-db | 0.1.64 | React bindings for live queries |
 

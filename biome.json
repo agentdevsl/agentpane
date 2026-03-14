@@ -14,7 +14,7 @@
       "includes": [
         "**/routeTree.gen.ts",
         ".claude/settings.local.json",
-        "specs/ideas/**",
+        "specs/archive/**",
         "charts/**"
       ],
       "linter": { "enabled": false },

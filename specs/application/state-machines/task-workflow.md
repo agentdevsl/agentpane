@@ -2,49 +2,49 @@
 
 ## Overview
 
-Formal state machine definition for task lifecycle in the AgentPane Kanban workflow. This machine governs transitions between the 4-column Kanban board and orchestrates agent assignment, work execution, approval flow, and git operations.
+Formal state machine definition for task lifecycle in the AgentPane Kanban workflow. This machine governs transitions between the 5-column Kanban board and orchestrates agent assignment, queuing, work execution, approval flow, and git operations.
 
 ---
 
 ## State Diagram
 
 ```
-                                    CANCEL
-        +----------------------------------------------------------+
-        |                                                          |
-        v                                                          |
-+-------------+      ASSIGN       +---------------+     COMPLETE   |
-|   backlog   |------------------>|  in_progress  |--------------->|
-+-------------+                   +---------------+                |
-      ^                                 |   ^                      |
-      |                                 |   |                      |
-      |   REJECT (with feedback)        |   | REJECT               |
-      |   +-----------------------------+   | (retry)              |
-      |   |                                 |                      |
-      |   v                                 |                      |
-      |  +-------------------+              |                      |
-      +--|  waiting_approval |<-------------+                      |
-         +-------------------+     COMPLETE                        |
-                |                                                  |
-                | APPROVE                                          |
-                v                                                  |
-         +-------------+                                           |
-         |  verified   |-------------------------------------------+
+                                         CANCEL
+        +----------------------------------------------------------------------+
+        |                                                                      |
+        v                                                                      |
++-------------+      QUEUE       +--------+     ASSIGN     +---------------+   |
+|   backlog   |----------------->| queued |--------------->|  in_progress  |-->|
++-------------+                  +--------+                +---------------+   |
+      ^                               |                         |   ^          |
+      |                               |                         |   |          |
+      |   REJECT (with feedback)      | CANCEL                  |   | REJECT   |
+      |   +---------------------------)-------------------------+   | (retry)  |
+      |   |                           |                             |          |
+      |   v                           v                             |          |
+      |  +-------------------+   +---------+                        |          |
+      +--|  waiting_approval |<--|         |<-----------------------+          |
+         +-------------------+   +---------+           COMPLETE                |
+                |                                                              |
+                | APPROVE                                                      |
+                v                                                              |
+         +-------------+                                                       |
+         |  verified   |-------------------------------------------------------+
          +-------------+
 
 
 ASCII State Diagram (Simplified Flow):
 
-    +-----------+        +--------------+        +------------------+        +----------+
-    |  BACKLOG  |------->| IN_PROGRESS  |------->| WAITING_APPROVAL |------->| VERIFIED |
-    +-----------+        +--------------+        +------------------+        +----------+
-         |                     ^   |                    |     |
-         |                     |   |                    |     |
-         |                     +---+--------------------+     |
-         |                         REJECT                     |
-         |                                                    |
-         +<---------------------------------------------------+
-                           CANCEL (from any state)
+    +-----------+        +--------+        +--------------+        +------------------+        +----------+
+    |  BACKLOG  |------->| QUEUED |------->| IN_PROGRESS  |------->| WAITING_APPROVAL |------->| VERIFIED |
+    +-----------+        +--------+        +--------------+        +------------------+        +----------+
+         |                   |                   ^   |                    |     |
+         |                   |                   |   |                    |     |
+         |                   |                   +---+--------------------+     |
+         |                   |                       REJECT                     |
+         |                   |                                                  |
+         +<------------------+<-------------------------------------------------+
+                           CANCEL (from any non-verified state)
 ```
 
 ---
@@ -54,26 +54,34 @@ ASCII State Diagram (Simplified Flow):
 | State | Description | UI Column | Agent Status | Worktree |
 |-------|-------------|-----------|--------------|----------|
 | `backlog` | Task awaiting assignment | Backlog | None | None |
-| `in_progress` | Agent actively working | In Progress | `running` | Active |
+| `queued` | Task waiting for an available agent | Queued | None (all agents busy) | None |
+| `in_progress` | Agent actively working | In Progress | `planning` or `running` | Active |
 | `waiting_approval` | Work complete, pending review | Waiting Approval | `paused` | Active (read-only) |
 | `verified` | Approved and merged | Verified | `completed` | Removed |
 
 ### State Properties
 
 ```typescript
-// db/schema/enums.ts
-export const taskColumnEnum = pgEnum('task_column', [
+// db/schema/shared/enums.ts
+export const TASK_COLUMNS = [
   'backlog',
+  'queued',
   'in_progress',
   'waiting_approval',
   'verified',
-]);
+] as const;
+export type TaskColumn = (typeof TASK_COLUMNS)[number];
 
 // State metadata
 interface TaskStateMetadata {
   backlog: {
     allowsManualMove: true;
     requiresAgent: false;
+    hasWorktree: false;
+  };
+  queued: {
+    allowsManualMove: false;  // Automatically dequeued when agent available
+    requiresAgent: false;     // Waiting for agent to become idle
     hasWorktree: false;
   };
   in_progress: {
@@ -100,7 +108,8 @@ interface TaskStateMetadata {
 
 | Event | Description | Payload | Source |
 |-------|-------------|---------|--------|
-| `ASSIGN` | Assign task to agent | `{ agentId, priority? }` | User drag / Auto-scheduler |
+| `QUEUE` | Queue task for agent assignment | `{ priority? }` | User drag / Auto-scheduler |
+| `ASSIGN` | Assign task to agent (dequeue) | `{ agentId, priority? }` | Auto-scheduler (agent becomes idle) |
 | `COMPLETE` | Agent finished work | `{ diff, filesChanged, turnCount }` | Agent SDK |
 | `APPROVE` | User approves changes | `{ approver, feedback? }` | Approval Dialog |
 | `REJECT` | User rejects with feedback | `{ reason, feedback }` | Approval Dialog |
@@ -185,9 +194,13 @@ export interface TaskContext {
 }
 
 export const guards = {
+  canQueue: (ctx: TaskContext) => {
+    return ctx.task.column === 'backlog' && ctx.task.agentId === null;
+  },
+
   canAssign: (ctx: TaskContext, event: Extract<TaskEvent, { type: 'ASSIGN' }>) => {
     return (
-      ctx.task.column === 'backlog' &&
+      (ctx.task.column === 'backlog' || ctx.task.column === 'queued') &&
       ctx.task.agentId === null &&
       ctx.runningAgentCount < ctx.project.maxConcurrentAgents
     );
@@ -410,23 +423,27 @@ export type Action = keyof typeof actions;
 
 | # | From State | Event | Guard(s) | Action(s) | To State |
 |---|------------|-------|----------|-----------|----------|
-| 1 | `backlog` | `ASSIGN` | `canAssign`, `hasAvailableAgent`, `withinConcurrencyLimit` | `createWorktree`, `assignAgent`, `updateTaskColumn` | `in_progress` |
-| 2 | `in_progress` | `COMPLETE` | - | `generateDiff`, `pauseAgent`, `updateTaskColumn` | `waiting_approval` |
-| 3 | `in_progress` | `CANCEL` | `canCancel` | `cleanupWorktree`, `updateTaskColumn` | `backlog` |
-| 4 | `waiting_approval` | `APPROVE` | `hasDiff`, `isValidApprover` | `mergeBranch`, `cleanupWorktree`, `updateTaskColumn` | `verified` |
-| 5 | `waiting_approval` | `REJECT` | `canReject` | `incrementRejectionCount`, `resumeAgent`, `updateTaskColumn` | `in_progress` |
-| 6 | `waiting_approval` | `CANCEL` | `canCancel` | `cleanupWorktree`, `updateTaskColumn` | `backlog` |
-| 7 | `verified` | - | - | - | (terminal) |
+| 1 | `backlog` | `QUEUE` | `canQueue` | `updateTaskColumn` | `queued` |
+| 2 | `backlog` | `ASSIGN` | `canAssign`, `hasAvailableAgent`, `withinConcurrencyLimit` | `createWorktree`, `assignAgent`, `updateTaskColumn` | `in_progress` |
+| 3 | `queued` | `ASSIGN` | `canAssign`, `hasAvailableAgent`, `withinConcurrencyLimit` | `createWorktree`, `assignAgent`, `updateTaskColumn` | `in_progress` |
+| 4 | `queued` | `CANCEL` | `canCancel` | `updateTaskColumn` | `backlog` |
+| 5 | `in_progress` | `COMPLETE` | - | `generateDiff`, `pauseAgent`, `updateTaskColumn` | `waiting_approval` |
+| 6 | `in_progress` | `CANCEL` | `canCancel` | `cleanupWorktree`, `updateTaskColumn` | `backlog` |
+| 7 | `waiting_approval` | `APPROVE` | `hasDiff`, `isValidApprover` | `mergeBranch`, `cleanupWorktree`, `updateTaskColumn` | `verified` |
+| 8 | `waiting_approval` | `REJECT` | `canReject` | `incrementRejectionCount`, `resumeAgent`, `updateTaskColumn` | `in_progress` |
+| 9 | `waiting_approval` | `CANCEL` | `canCancel` | `cleanupWorktree`, `updateTaskColumn` | `backlog` |
+| 10 | `verified` | - | - | - | (terminal) |
 
 ### Transition Validation Matrix
 
 ```
-              | ASSIGN | COMPLETE | APPROVE | REJECT | CANCEL |
---------------+--------+----------+---------+--------+--------|
-backlog       |   X    |    -     |    -    |   -    |   -    |
-in_progress   |   -    |    X     |    -    |   -    |   X    |
-waiting_appr. |   -    |    -     |    X    |   X    |   X    |
-verified      |   -    |    -     |    -    |   -    |   -    |
+              | QUEUE | ASSIGN | COMPLETE | APPROVE | REJECT | CANCEL |
+--------------+-------+--------+----------+---------+--------+--------|
+backlog       |   X   |   X    |    -     |    -    |   -    |   -    |
+queued        |   -   |   X    |    -     |    -    |   -    |   X    |
+in_progress   |   -   |   -    |    X     |    -    |   -    |   X    |
+waiting_appr. |   -   |   -    |    -     |    X    |   X    |   X    |
+verified      |   -   |   -    |    -     |    -    |   -    |   -    |
 
 Legend: X = valid transition, - = invalid/no-op
 ```
@@ -451,10 +468,30 @@ export const taskWorkflowMachine = createMachine({
   states: {
     backlog: {
       on: {
+        QUEUE: {
+          target: 'queued',
+          guard: 'canQueue',
+          actions: ['updateTaskColumn'],
+        },
         ASSIGN: {
           target: 'in_progress',
           guard: 'canAssignAndHasCapacity',
           actions: ['createWorktree', 'assignAgent', 'updateTaskColumn'],
+        },
+      },
+    },
+
+    queued: {
+      on: {
+        ASSIGN: {
+          target: 'in_progress',
+          guard: 'canAssignAndHasCapacity',
+          actions: ['createWorktree', 'assignAgent', 'updateTaskColumn'],
+        },
+        CANCEL: {
+          target: 'backlog',
+          guard: 'canCancel',
+          actions: ['updateTaskColumn'],
         },
       },
     },
@@ -499,6 +536,7 @@ export const taskWorkflowMachine = createMachine({
   },
 }, {
   guards: {
+    canQueue: (ctx) => guards.canQueue(ctx),
     canAssignAndHasCapacity: (ctx, event) =>
       guards.canAssign(ctx, event) &&
       guards.hasAvailableAgent(ctx, event) &&
@@ -535,7 +573,7 @@ export type TaskWorkflowMachine = typeof taskWorkflowMachine;
 |------------|-----------------|------------|----------|
 | `ASSIGN` | Agent not found | `AGENT_NOT_FOUND` | Select different agent |
 | `ASSIGN` | Agent busy | `AGENT_ALREADY_RUNNING` | Wait or use different agent |
-| `ASSIGN` | Concurrency limit | `CONCURRENCY_LIMIT_EXCEEDED` | Task queued |
+| `ASSIGN` | Concurrency limit | `CONCURRENCY_LIMIT_EXCEEDED` | Task remains in `queued` |
 | `ASSIGN` | Worktree creation failed | `WORKTREE_CREATION_FAILED` | Retry or manual cleanup |
 | `COMPLETE` | No diff generated | `TASK_NO_DIFF` | Task returns to in_progress |
 | `APPROVE` | Merge conflict | `WORKTREE_MERGE_CONFLICT` | Manual resolution required |
@@ -604,9 +642,9 @@ type WorkflowEvent =
 
 | State | Wireframe | Component |
 |-------|-----------|-----------|
-| All states | [kanban-board-full.html](../wireframes/kanban-board-full.html) | Task cards in columns |
+| All states | [kanban-board-full.html](../wireframes/kanban-board-full.html) | Task cards in 5 columns |
+| `queued` | [queue-waiting-state.html](../wireframes/queue-waiting-state.html) | Tasks waiting for available agent |
 | `waiting_approval` | [approval-dialog.html](../wireframes/approval-dialog.html) | Diff review modal |
-| Queue (pre-assign) | [queue-waiting-state.html](../wireframes/queue-waiting-state.html) | Tasks awaiting agent |
 | Error during transition | [error-state-expanded.html](../wireframes/error-state-expanded.html) | Error recovery UI |
 
 ---

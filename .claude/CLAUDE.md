@@ -13,95 +13,37 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Application Specifications
 
-The `/specs/application` directory contains **100% complete specifications** for building AgentPane. Always consult these before implementing features.
+The `/specs/` directory contains all specifications. See `/specs/README.md` for the full master index.
 
 ### Specification Structure
 
 ```
-specs/application/
-├── README.md                    # Spec overview and document tree
-├── user-stories.md              # 23 user stories with acceptance criteria
-│
-├── api/                         # REST API (28 endpoints)
-│   ├── endpoints.md             # All API endpoints
-│   └── pagination.md            # Cursor-based pagination
-│
-├── architecture/                # System Architecture
-│   └── app-bootstrap.md         # 6-phase initialization
-│
-├── components/                  # UI Components (19 specs)
-│   ├── kanban-board.md          # Task board with drag-drop
-│   ├── approval-dialog.md       # Code review modal
-│   ├── agent-session-view.md    # Real-time agent UI
-│   ├── task-detail-dialog.md    # Task editor
-│   ├── new-project-dialog.md    # Project wizard
-│   ├── project-picker.md        # Command palette
-│   ├── form-inputs.md           # Form components
-│   ├── toast-notifications.md   # Toast system
-│   ├── breadcrumbs.md           # Navigation
-│   ├── loading-skeletons.md     # Loading states
-│   ├── agent-config-dialog.md   # Agent execution settings
-│   ├── theme-toggle.md          # Light/dark/system theme
-│   ├── empty-states.md          # Empty state presets
-│   ├── project-settings.md      # Project configuration
-│   ├── session-history.md       # Session list with filters
-│   ├── worktree-management.md   # Git worktree management
-│   ├── queue-waiting-state.md   # Queue position display
-│   ├── github-app-setup.md      # GitHub OAuth integration
-│   └── error-state.md           # Error visualization
-│
-├── configuration/               # Configuration
-│   └── config-management.md     # Project config, env vars
-│
-├── database/                    # Database
-│   └── schema.md                # Drizzle schema (9 tables)
-│
-├── errors/                      # Error Handling
-│   └── error-catalog.md         # 44 error codes
-│
-├── implementation/              # Implementation Patterns
-│   ├── component-patterns.md    # CVA, Radix patterns
-│   ├── animation-system.md      # Animation tokens
-│   └── mobile-responsive.md     # Responsive design
-│
-├── integrations/                # External Integrations
-│   ├── claude-agent-sdk.md      # Claude SDK
-│   ├── github-app.md            # GitHub OAuth
-│   ├── durable-sessions.md      # Real-time sync
-│   └── git-worktrees.md         # Git isolation
-│
-├── operations/                  # DevOps
-│   ├── deployment.md            # Docker, CI/CD
-│   └── monitoring.md            # Logging, metrics
-│
-├── routing/                     # Routing
-│   └── routes.md                # TanStack Router
-│
-├── security/                    # Security
-│   ├── authentication.md        # OAuth, sessions
-│   ├── sandbox.md               # Container isolation, DevContainers
-│   └── security-model.md        # Tool sandbox, audit logging
-│
-├── services/                    # Business Logic (5 services)
-│   ├── agent-service.md         # Agent lifecycle
-│   ├── task-service.md          # Task workflow
-│   ├── project-service.md       # Project CRUD
-│   ├── session-service.md       # Sessions
-│   └── worktree-service.md      # Git worktrees
-│
-├── state-machines/              # State Machines (4 machines)
-│   ├── agent-lifecycle.md       # idle → completed
-│   ├── task-workflow.md         # backlog → verified
-│   ├── session-lifecycle.md     # active → closed
-│   └── worktree-lifecycle.md    # creating → removed
-│
-├── testing/                     # Testing
-│   ├── test-cases.md            # 164+ test cases
-│   └── test-infrastructure.md   # Mocks, factories
-│
-└── wireframes/                  # Visual Designs (20 HTML files)
-    ├── design-tokens.css        # Design system
-    └── *.html                   # UI wireframes
+specs/
+├── README.md                          # Master index with status dashboard
+├── application/                       # Core specs (source of truth)
+│   ├── api/                           # REST API (33 route modules, 60+ endpoints)
+│   │   ├── endpoints.md               # All endpoints (Hono-based)
+│   │   └── pagination.md              # Pagination patterns
+│   ├── architecture/                  # System Architecture
+│   ├── components/                    # UI Components (19 specs)
+│   ├── configuration/                 # Project config, env vars
+│   ├── database/
+│   │   └── schema.md                  # Drizzle schema (36 tables, SQLite + PostgreSQL)
+│   ├── errors/                        # 44 error codes
+│   ├── implementation/                # CVA, animation, responsive patterns
+│   ├── integrations/                  # Claude SDK, GitHub, Caddy, Terraform, Durable Streams
+│   ├── operations/                    # Docker, CI/CD, monitoring
+│   ├── routing/                       # TanStack Router (all frontend routes)
+│   ├── security/                      # Auth, RBAC, sandbox, security model
+│   ├── services/                      # 9 service specs (agent, task, session, etc.)
+│   ├── state-machines/                # 4 machines (agent, task, session, worktree)
+│   ├── testing/                       # 164+ test cases
+│   └── wireframes/                    # 20 HTML visual designs
+├── sandbox/                           # Deep sandbox architecture (18 files)
+├── diagrams/                          # 9 Mermaid architecture diagrams
+├── reviews/                           # Architecture reviews
+├── roadmap/                           # Future plans (NOT for implementation)
+└── archive/                           # Historical/superseded specs
 ```
 
 ### Using Specifications
@@ -113,6 +55,8 @@ specs/application/
 | **UI component** | `components/*.md` → `implementation/component-patterns.md` |
 | **State logic** | `state-machines/*.md` → service spec |
 | **Database** | `database/schema.md` |
+| **Architecture** | `specs/diagrams/01-system-architecture.md` |
+| **Agent execution** | `specs/diagrams/02-agent-execution-flow.md` → `services/agent-service.md` |
 | **Testing** | `testing/test-infrastructure.md` → `test-cases.md` |
 | **Deployment** | `operations/deployment.md` |
 | **Debugging** | `errors/error-catalog.md` → `operations/monitoring.md` |

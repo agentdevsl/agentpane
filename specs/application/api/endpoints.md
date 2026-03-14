@@ -2,1194 +2,767 @@
 
 ## Overview
 
-Complete REST API specification for AgentPane using TanStack Start server routes. All endpoints return JSON with consistent `ok/error` response structure.
+Complete REST API specification for AgentPane. The API is built on **Hono** (`hono` v4.11.5), a lightweight web framework. Each domain area is implemented as a Hono sub-application in a dedicated route file under `src/server/routes/`, then mounted onto the main router via `app.route()` in `src/server/router.ts`.
+
+All endpoints are prefixed with `/api/` and return JSON with a consistent `ok/error` response structure.
+
+**Route files:** 33 files producing 120+ endpoints across 20 domain groups.
 
 ---
 
-## Response Format
+## Architecture
 
-### Success Response
+### Router Structure
+
+```
+src/server/
+├── router.ts            # Main Hono app — mounts all sub-routes, middleware
+├── shared.ts            # Shared helpers: json(), isValidId(), parsePagination()
+├── validation.ts        # Shared Zod schemas and parseBody/parseJsonBody helpers
+└── routes/
+    ├── agents.ts
+    ├── api-keys.ts
+    ├── auth.ts
+    ├── cli-monitor.ts
+    ├── events.ts
+    ├── filesystem.ts
+    ├── git.ts
+    ├── github.ts
+    ├── health.ts
+    ├── invitation-accept.ts
+    ├── marketplaces.ts
+    ├── me.ts
+    ├── project-members.ts
+    ├── projects.ts
+    ├── rbac-tokens.ts
+    ├── sandbox.ts          # 3 exported factories: sandbox configs, K8s, Nomad
+    ├── sandbox-status.ts
+    ├── sessions.ts
+    ├── settings.ts
+    ├── tags.ts             # 3 exported factories: tags, project-tags, task-tags
+    ├── task-creation.ts
+    ├── tasks.ts
+    ├── team-github-token.ts
+    ├── team-invitations.ts
+    ├── team-members.ts
+    ├── team-projects.ts
+    ├── teams.ts
+    ├── templates.ts
+    ├── terraform.ts
+    ├── webhooks.ts
+    ├── workflow-designer.ts
+    ├── workflows.ts
+    └── worktrees.ts
+```
+
+### Route Factory Pattern
+
+Each route file exports a factory function that receives service dependencies and returns a Hono sub-app:
 
 ```typescript
-{
-  "ok": true,
-  "data": T  // Response data type varies by endpoint
+import { Hono } from 'hono';
+import { json } from '../shared.js';
+
+interface ProjectsDeps {
+  db: Database;
+}
+
+export function createProjectsRoutes({ db }: ProjectsDeps) {
+  const app = new Hono();
+
+  app.get('/', async (c) => {
+    // ...
+    return json({ ok: true, data: { items } });
+  });
+
+  return app;
 }
 ```
 
-### Error Response
+The main router mounts it:
+
+```typescript
+app.route('/api/projects', createProjectsRoutes({ db }));
+```
+
+### Response Format
+
+**Success:**
+
+```typescript
+{ ok: true, data: T }
+```
+
+**Error:**
 
 ```typescript
 {
-  "ok": false,
-  "error": {
-    "code": string,      // Error code from error-catalog.md
-    "message": string,   // Human-readable message
-    "details"?: object   // Additional error context
+  ok: false,
+  error: {
+    code: string,       // Machine-readable error code
+    message: string     // Human-readable message
   }
 }
 ```
 
----
+### Authentication & Authorization
 
-## Projects
+All `/api/*` routes pass through a middleware chain defined in `router.ts`:
 
-### GET /api/projects
+1. **Rate limiter** -- 200 req/min per IP, 100 req/min per API token
+2. **`createAuthMiddleware`** -- validates session cookie or `Authorization: Bearer <token>` header; populates `auth` context variable
+3. **`enrichAuthContext`** -- loads full user record and token scope metadata
+4. **`requireTagAccess`** -- filters API token requests by tag scope
+5. **`requireRole` guards** -- per-route-group RBAC minimum role checks (see table below)
 
-List all projects.
+**Exception:** `/api/auth/*` and `/api/health/*` are exempt from auth middleware. Health probes `/api/healthz` and `/api/readyz` are inline handlers exempt from auth.
 
-**Request Schema:**
+**RBAC Role Guards by Route Group:**
+
+| Route Prefix | Minimum Role |
+|---|---|
+| `/api/settings` | `admin` |
+| `/api/keys` | `admin` |
+| `/api/filesystem` | `admin` |
+| `/api/sandbox-configs` | `admin` |
+| `/api/sandbox/k8s` | `admin` |
+| `/api/sandbox/nomad` | `admin` |
+| `/api/webhooks` | `admin` |
+| `/api/tasks/create-with-ai` | `agent_operator` |
+| `/api/git` | `agent_operator` |
+| `/api/projects`, `/api/tasks`, `/api/agents`, `/api/sessions`, `/api/worktrees` | `viewer` |
+| `/api/github`, `/api/workflows`, `/api/templates`, `/api/workflow-designer` | `viewer` |
+| `/api/marketplaces`, `/api/terraform`, `/api/cli-monitor`, `/api/events` | `viewer` |
+| `/api/sandbox/status` | `viewer` |
+
+Some route handlers perform additional fine-grained role checks (e.g., `requireTeamRole`, `requireProjectRole`) internally.
+
+### Validation Pattern
+
+Routes use either inline Zod validation or the shared `parseBody` / `parseJsonBody` helpers from `src/server/validation.ts`:
 
 ```typescript
-// Query parameters
-const listProjectsSchema = z.object({
-  cursor: z.string().optional(),
-  limit: z.number().min(1).max(100).default(20),
-  search: z.string().optional(),
-});
-```
-
-**Response Schema:**
-
-```typescript
-{
-  ok: true,
-  data: {
-    items: Project[],
-    nextCursor: string | null,
-    hasMore: boolean,
-    totalCount: number
-  }
+// Inline pattern
+const parsed = createProjectSchema.safeParse(body);
+if (!parsed.success) {
+  return json({ ok: false, error: { code: 'VALIDATION_ERROR', message: '...' } }, 400);
 }
-```
 
-**Error Responses:**
-
-| Status | Code | Condition |
-|--------|------|-----------|
-| 400 | `VALIDATION_ERROR` | Invalid query parameters |
-
-**Example:**
-
-```bash
-curl -X GET "/api/projects?limit=10"
-```
-
-```json
-{
-  "ok": true,
-  "data": {
-    "items": [
-      {
-        "id": "clx1234567890",
-        "name": "AgentPane",
-        "path": "~/git/agentpane",
-        "config": { "defaultBranch": "main", "maxTurns": 50 },
-        "maxConcurrentAgents": 3,
-        "createdAt": "2026-01-15T10:00:00Z"
-      }
-    ],
-    "nextCursor": null,
-    "hasMore": false,
-    "totalCount": 1
-  }
-}
+// Shared helper pattern
+const parsed = await parseJsonBody(c, updateProfileSchema);
+if (!parsed.ok) return parsed.response;
 ```
 
 ---
 
-### POST /api/projects
+## Health & Probes
 
-Create a new project.
+**File:** `health.ts` | **Mount:** `/api/health`
 
-**Request Schema:**
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/health` | Full health check (database, GitHub, sandbox, K8s) |
+| `GET` | `/api/health/liveness` | Liveness probe -- confirms process is running |
+| `GET` | `/api/health/readiness` | Readiness probe -- confirms DB is reachable |
 
-```typescript
-const createProjectSchema = z.object({
-  name: z.string().min(1).max(100),
-  path: z.string().min(1),
-  description: z.string().max(500).optional(),
-  config: projectConfigSchema.optional(),
-  maxConcurrentAgents: z.number().min(1).max(10).optional(),
-  githubOwner: z.string().optional(),
-  githubRepo: z.string().optional(),
-});
-```
+**Inline routes in `router.ts`:**
 
-**Response Schema:**
-
-```typescript
-{
-  ok: true,
-  data: Project
-}
-```
-
-**Error Responses:**
-
-| Status | Code | Condition |
-|--------|------|-----------|
-| 400 | `VALIDATION_ERROR` | Invalid request body |
-| 400 | `PROJECT_PATH_INVALID` | Path doesn't exist |
-| 409 | `PROJECT_PATH_EXISTS` | Project with path already exists |
-
-**Example:**
-
-```bash
-curl -X POST "/api/projects" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "My Project", "path": "~/git/my-project"}'
-```
-
----
-
-### GET /api/projects/:id
-
-Get project by ID.
-
-**Response Schema:**
-
-```typescript
-{
-  ok: true,
-  data: Project
-}
-```
-
-**Error Responses:**
-
-| Status | Code | Condition |
-|--------|------|-----------|
-| 400 | `INVALID_ID` | Invalid project ID format |
-| 404 | `PROJECT_NOT_FOUND` | Project doesn't exist |
-
----
-
-### PATCH /api/projects/:id
-
-Update a project.
-
-**Request Schema:**
-
-```typescript
-const updateProjectSchema = z.object({
-  name: z.string().min(1).max(100).optional(),
-  description: z.string().max(500).optional(),
-  config: projectConfigSchema.partial().optional(),
-  maxConcurrentAgents: z.number().min(1).max(10).optional(),
-});
-```
-
-**Response Schema:**
-
-```typescript
-{
-  ok: true,
-  data: Project
-}
-```
-
-**Error Responses:**
-
-| Status | Code | Condition |
-|--------|------|-----------|
-| 400 | `VALIDATION_ERROR` | Invalid request body |
-| 404 | `PROJECT_NOT_FOUND` | Project doesn't exist |
-
----
-
-### DELETE /api/projects/:id
-
-Delete a project.
-
-**Response Schema:**
-
-```typescript
-{
-  ok: true,
-  data: { deleted: true }
-}
-```
-
-**Error Responses:**
-
-| Status | Code | Condition |
-|--------|------|-----------|
-| 404 | `PROJECT_NOT_FOUND` | Project doesn't exist |
-| 409 | `PROJECT_HAS_RUNNING_AGENTS` | Project has running agents |
-
----
-
-## Tasks
-
-### GET /api/tasks
-
-List tasks with filtering.
-
-**Request Schema:**
-
-```typescript
-const listTasksSchema = z.object({
-  projectId: z.string().cuid2(),
-  column: z.enum(['backlog', 'in_progress', 'waiting_approval', 'verified']).optional(),
-  agentId: z.string().cuid2().optional(),
-  cursor: z.string().optional(),
-  limit: z.number().min(1).max(100).default(50),
-});
-```
-
-**Response Schema:**
-
-```typescript
-{
-  ok: true,
-  data: {
-    items: Task[],
-    nextCursor: string | null,
-    hasMore: boolean,
-    // Column counts for Kanban view
-    counts: {
-      backlog: number,
-      in_progress: number,
-      waiting_approval: number,
-      verified: number
-    }
-  }
-}
-```
-
-**Error Responses:**
-
-| Status | Code | Condition |
-|--------|------|-----------|
-| 400 | `VALIDATION_ERROR` | Invalid query parameters |
-
----
-
-### POST /api/tasks
-
-Create a new task.
-
-**Request Schema:**
-
-```typescript
-const createTaskSchema = z.object({
-  projectId: z.string().cuid2(),
-  title: z.string().min(1).max(200),
-  description: z.string().max(5000).optional(),
-  labels: z.array(z.string()).max(10).optional(),
-});
-```
-
-**Response Schema:**
-
-```typescript
-{
-  ok: true,
-  data: Task  // Created in 'backlog' column by default
-}
-```
-
-**Error Responses:**
-
-| Status | Code | Condition |
-|--------|------|-----------|
-| 400 | `VALIDATION_ERROR` | Invalid request body |
-| 404 | `PROJECT_NOT_FOUND` | Project doesn't exist |
-
-**Example:**
-
-```bash
-curl -X POST "/api/tasks" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "projectId": "clx1234567890",
-    "title": "Implement real-time collaboration",
-    "description": "Add presence indicators and cursor tracking",
-    "labels": ["feature", "priority:high"]
-  }'
-```
-
----
-
-### GET /api/tasks/:id
-
-Get task by ID.
-
-**Response Schema:**
-
-```typescript
-{
-  ok: true,
-  data: Task & {
-    // Include related data
-    agent?: Agent,
-    worktree?: Worktree,
-    session?: Session
-  }
-}
-```
-
-**Error Responses:**
-
-| Status | Code | Condition |
-|--------|------|-----------|
-| 404 | `TASK_NOT_FOUND` | Task doesn't exist |
-
----
-
-### PATCH /api/tasks/:id
-
-Update a task.
-
-**Request Schema:**
-
-```typescript
-const updateTaskSchema = z.object({
-  title: z.string().min(1).max(200).optional(),
-  description: z.string().max(5000).optional(),
-  labels: z.array(z.string()).max(10).optional(),
-});
-```
-
-**Response Schema:**
-
-```typescript
-{
-  ok: true,
-  data: Task
-}
-```
-
-**Error Responses:**
-
-| Status | Code | Condition |
-|--------|------|-----------|
-| 400 | `VALIDATION_ERROR` | Invalid request body |
-| 404 | `TASK_NOT_FOUND` | Task doesn't exist |
-
----
-
-### DELETE /api/tasks/:id
-
-Delete a task.
-
-**Response Schema:**
-
-```typescript
-{
-  ok: true,
-  data: { deleted: true }
-}
-```
-
-**Error Responses:**
-
-| Status | Code | Condition |
-|--------|------|-----------|
-| 404 | `TASK_NOT_FOUND` | Task doesn't exist |
-| 409 | `TASK_ALREADY_ASSIGNED` | Task has running agent |
-
----
-
-### POST /api/tasks/:id/move
-
-Move task to a different column (Kanban drag-drop).
-
-**Request Schema:**
-
-```typescript
-const moveTaskSchema = z.object({
-  column: z.enum(['backlog', 'in_progress', 'waiting_approval', 'verified']),
-  position: z.number().min(0),
-});
-```
-
-**Response Schema:**
-
-```typescript
-{
-  ok: true,
-  data: Task
-}
-```
-
-**Error Responses:**
-
-| Status | Code | Condition |
-|--------|------|-----------|
-| 400 | `VALIDATION_ERROR` | Invalid request body |
-| 400 | `TASK_INVALID_TRANSITION` | Invalid column transition |
-| 404 | `TASK_NOT_FOUND` | Task doesn't exist |
-| 409 | `TASK_POSITION_CONFLICT` | Concurrent position update |
-
-**Valid Transitions:**
-
-```
-backlog -> in_progress (auto-assigns agent)
-in_progress -> waiting_approval (agent completed)
-waiting_approval -> verified (user approves)
-waiting_approval -> in_progress (user rejects)
-```
-
-**Example:**
-
-```bash
-curl -X POST "/api/tasks/clx1234567890/move" \
-  -H "Content-Type: application/json" \
-  -d '{"column": "in_progress", "position": 0}'
-```
-
----
-
-### POST /api/tasks/:id/approve
-
-Approve task changes (merge branch).
-
-**Request Schema:**
-
-```typescript
-const approveTaskSchema = z.object({
-  approvedBy: z.string().optional(),  // User ID
-});
-```
-
-**Response Schema:**
-
-```typescript
-{
-  ok: true,
-  data: Task & {
-    mergedAt: string,
-    approvedAt: string
-  }
-}
-```
-
-**Error Responses:**
-
-| Status | Code | Condition |
-|--------|------|-----------|
-| 400 | `TASK_NOT_WAITING_APPROVAL` | Task not in waiting_approval |
-| 400 | `TASK_NO_DIFF` | No changes to approve |
-| 404 | `TASK_NOT_FOUND` | Task doesn't exist |
-| 409 | `TASK_ALREADY_APPROVED` | Already approved |
-| 409 | `WORKTREE_MERGE_CONFLICT` | Git merge conflict |
-
----
-
-### POST /api/tasks/:id/reject
-
-Reject task changes (resume agent with feedback).
-
-**Request Schema:**
-
-```typescript
-const rejectTaskSchema = z.object({
-  reason: z.string().min(1).max(1000),
-});
-```
-
-**Response Schema:**
-
-```typescript
-{
-  ok: true,
-  data: Task & {
-    rejectionCount: number,
-    rejectionReason: string
-  }
-}
-```
-
-**Error Responses:**
-
-| Status | Code | Condition |
-|--------|------|-----------|
-| 400 | `VALIDATION_ERROR` | Missing reason |
-| 400 | `TASK_NOT_WAITING_APPROVAL` | Task not in waiting_approval |
-| 404 | `TASK_NOT_FOUND` | Task doesn't exist |
-
----
-
-## Agents
-
-### GET /api/agents
-
-List agents for a project.
-
-**Request Schema:**
-
-```typescript
-const listAgentsSchema = z.object({
-  projectId: z.string().cuid2(),
-  status: z.enum(['idle', 'starting', 'running', 'paused', 'error', 'completed']).optional(),
-  type: z.enum(['task', 'conversational', 'background']).optional(),
-});
-```
-
-**Response Schema:**
-
-```typescript
-{
-  ok: true,
-  data: Agent[]
-}
-```
-
----
-
-### POST /api/agents
-
-Create a new agent.
-
-**Request Schema:**
-
-```typescript
-const createAgentSchema = z.object({
-  projectId: z.string().cuid2(),
-  name: z.string().min(1).max(100),
-  type: z.enum(['task', 'conversational', 'background']).default('task'),
-  config: agentConfigSchema.optional(),
-});
-```
-
-**Response Schema:**
-
-```typescript
-{
-  ok: true,
-  data: Agent
-}
-```
-
-**Error Responses:**
-
-| Status | Code | Condition |
-|--------|------|-----------|
-| 400 | `VALIDATION_ERROR` | Invalid request body |
-| 404 | `PROJECT_NOT_FOUND` | Project doesn't exist |
-
----
-
-### GET /api/agents/:id
-
-Get agent by ID.
-
-**Response Schema:**
-
-```typescript
-{
-  ok: true,
-  data: Agent & {
-    currentTask?: Task,
-    currentSession?: Session,
-    currentWorktree?: Worktree
-  }
-}
-```
-
-**Error Responses:**
-
-| Status | Code | Condition |
-|--------|------|-----------|
-| 404 | `AGENT_NOT_FOUND` | Agent doesn't exist |
-
----
-
-### PATCH /api/agents/:id
-
-Update agent configuration.
-
-**Request Schema:**
-
-```typescript
-const updateAgentSchema = z.object({
-  name: z.string().min(1).max(100).optional(),
-  config: agentConfigSchema.partial().optional(),
-});
-```
-
-**Response Schema:**
-
-```typescript
-{
-  ok: true,
-  data: Agent
-}
-```
-
----
-
-### DELETE /api/agents/:id
-
-Delete an agent.
-
-**Response Schema:**
-
-```typescript
-{
-  ok: true,
-  data: { deleted: true }
-}
-```
-
-**Error Responses:**
-
-| Status | Code | Condition |
-|--------|------|-----------|
-| 400 | `AGENT_NOT_RUNNING` | Agent is running (stop first) |
-| 404 | `AGENT_NOT_FOUND` | Agent doesn't exist |
-
----
-
-### POST /api/agents/:id/start
-
-Start an agent on a task.
-
-**Request Schema:**
-
-```typescript
-const startAgentSchema = z.object({
-  taskId: z.string().cuid2().optional(),  // If not provided, picks from backlog
-});
-```
-
-**Response Schema:**
-
-```typescript
-{
-  ok: true,
-  data: {
-    agent: Agent,
-    task: Task,
-    session: Session,
-    worktree: Worktree
-  }
-}
-```
-
-**Error Responses:**
-
-| Status | Code | Condition |
-|--------|------|-----------|
-| 400 | `AGENT_NO_AVAILABLE_TASK` | No tasks in backlog |
-| 404 | `AGENT_NOT_FOUND` | Agent doesn't exist |
-| 404 | `TASK_NOT_FOUND` | Specified task doesn't exist |
-| 409 | `AGENT_ALREADY_RUNNING` | Agent is already running |
-| 409 | `TASK_ALREADY_ASSIGNED` | Task assigned to another agent |
-| 429 | `CONCURRENCY_LIMIT_EXCEEDED` | Too many concurrent agents |
-
-**Example:**
-
-```bash
-curl -X POST "/api/agents/clx1234567890/start" \
-  -H "Content-Type: application/json" \
-  -d '{"taskId": "clx0987654321"}'
-```
-
----
-
-### POST /api/agents/:id/stop
-
-Stop a running agent.
-
-**Response Schema:**
-
-```typescript
-{
-  ok: true,
-  data: {
-    agent: Agent,  // status: 'paused'
-    task: Task     // moved back to appropriate column
-  }
-}
-```
-
-**Error Responses:**
-
-| Status | Code | Condition |
-|--------|------|-----------|
-| 400 | `AGENT_NOT_RUNNING` | Agent not running |
-| 404 | `AGENT_NOT_FOUND` | Agent doesn't exist |
-
----
-
-### GET /api/agents/:id/status
-
-Get agent execution status.
-
-**Response Schema:**
-
-```typescript
-{
-  ok: true,
-  data: {
-    status: AgentStatus,
-    turn: number,
-    progress: number,
-    currentTool?: string,
-    sessionId?: string,
-    taskId?: string,
-    startedAt?: string,
-    elapsedMs?: number
-  }
-}
-```
-
----
-
-## Sessions
-
-### POST /api/sessions
-
-Create a new session.
-
-**Request Schema:**
-
-```typescript
-const createSessionSchema = z.object({
-  projectId: z.string().cuid2(),
-  taskId: z.string().cuid2().optional(),
-  agentId: z.string().cuid2().optional(),
-  title: z.string().max(200).optional(),
-});
-```
-
-**Response Schema:**
-
-```typescript
-{
-  ok: true,
-  data: Session & {
-    url: string  // Full shareable URL
-  }
-}
-```
-
-**Error Responses:**
-
-| Status | Code | Condition |
-|--------|------|-----------|
-| 400 | `VALIDATION_ERROR` | Invalid request body |
-| 404 | `PROJECT_NOT_FOUND` | Project doesn't exist |
-
----
-
-### GET /api/sessions/:id
-
-Get session by ID.
-
-**Response Schema:**
-
-```typescript
-{
-  ok: true,
-  data: Session & {
-    activeUsers: ActiveUser[],
-    viewerCount: number,
-    task?: Task,
-    agent?: Agent
-  }
-}
-```
-
-**Error Responses:**
-
-| Status | Code | Condition |
-|--------|------|-----------|
-| 404 | `SESSION_NOT_FOUND` | Session doesn't exist |
-
----
-
-### GET /api/sessions/:id/stream
-
-Server-Sent Events endpoint for real-time session events.
-
-**Response:**
-
-- Content-Type: `text/event-stream`
-- Events: `SessionEvent` objects (see session-service.md)
-
-**Event Format:**
-
-```
-event: chunk
-data: {"type":"chunk","agentId":"agt_123","text":"Hello","timestamp":1705420800000}
-
-event: tool:start
-data: {"type":"tool:start","agentId":"agt_123","tool":"Read","input":{"path":"/src/index.ts"},"timestamp":1705420801000}
-
-event: presence:joined
-data: {"type":"presence:joined","userId":"usr_456","timestamp":1705420802000}
-```
-
-**Error Responses:**
-
-| Status | Code | Condition |
-|--------|------|-----------|
-| 404 | `SESSION_NOT_FOUND` | Session doesn't exist |
-| 502 | `SESSION_CONNECTION_FAILED` | Stream connection failed |
-
-**Example:**
-
-```javascript
-const eventSource = new EventSource('/api/sessions/clx123/stream');
-
-eventSource.addEventListener('chunk', (e) => {
-  const event = JSON.parse(e.data);
-  console.log('Token:', event.text);
-});
-
-eventSource.addEventListener('tool:start', (e) => {
-  const event = JSON.parse(e.data);
-  console.log('Tool:', event.tool, event.input);
-});
-```
-
----
-
-### GET /api/sessions/:id/history
-
-Get historical session events (replay).
-
-**Request Schema:**
-
-```typescript
-const historySchema = z.object({
-  startTime: z.number().optional(),
-  endTime: z.number().optional(),
-  eventTypes: z.array(z.string()).optional(),
-  cursor: z.string().optional(),
-  limit: z.number().min(1).max(1000).default(100),
-});
-```
-
-**Response Schema:**
-
-```typescript
-{
-  ok: true,
-  data: {
-    events: SessionEvent[],
-    nextCursor: string | null,
-    hasMore: boolean
-  }
-}
-```
-
----
-
-### POST /api/sessions/:id/close
-
-Close a session.
-
-**Response Schema:**
-
-```typescript
-{
-  ok: true,
-  data: Session & {
-    closedAt: string
-  }
-}
-```
-
-**Error Responses:**
-
-| Status | Code | Condition |
-|--------|------|-----------|
-| 400 | `SESSION_CLOSED` | Already closed |
-| 404 | `SESSION_NOT_FOUND` | Session doesn't exist |
-
----
-
-### GET /api/sessions/:id/presence
-
-Get active users in session.
-
-**Response Schema:**
-
-```typescript
-{
-  ok: true,
-  data: {
-    users: ActiveUser[],
-    viewerCount: number
-  }
-}
-```
-
----
-
-### POST /api/sessions/:id/presence
-
-Update presence (cursor, activity).
-
-**Request Schema:**
-
-```typescript
-const presenceUpdateSchema = z.object({
-  cursor: z.object({
-    x: z.number(),
-    y: z.number(),
-  }).optional(),
-  activeFile: z.string().optional(),
-});
-```
-
-**Response Schema:**
-
-```typescript
-{
-  ok: true,
-  data: null
-}
-```
-
----
-
-## Webhooks
-
-### POST /api/webhooks/github
-
-GitHub webhook handler for push events and config sync.
-
-**Headers:**
-
-- `X-GitHub-Event`: Event type (push, installation, etc.)
-- `X-Hub-Signature-256`: HMAC signature for verification
-
-**Request Body:** GitHub webhook payload
-
-**Response Schema:**
-
-```typescript
-{
-  ok: true,
-  data: { received: true }
-}
-```
-
-**Error Responses:**
-
-| Status | Code | Condition |
-|--------|------|-----------|
-| 401 | `GITHUB_WEBHOOK_INVALID` | Invalid signature |
-
-**Handled Events:**
-
-- `push`: Sync config if `.claude/` files changed
-- `installation`: Handle app install/uninstall
-- `pull_request`: Auto-create tasks from PRs (optional)
-
----
-
-## TanStack Start Route Implementation
-
-### Example: Tasks Routes
-
-```typescript
-// app/routes/api/tasks/index.ts
-import { createServerFileRoute } from '@tanstack/react-start/server';
-import { taskService } from '@/lib/services/task-service';
-import { handleApiError } from '@/lib/api/error-handler';
-import { listTasksSchema, createTaskSchema } from '@/db/schema/validation';
-
-export const ServerRoute = createServerFileRoute().methods({
-  // GET /api/tasks
-  GET: async ({ request }) => {
-    const url = new URL(request.url);
-    const params = Object.fromEntries(url.searchParams);
-
-    const parsed = listTasksSchema.safeParse(params);
-    if (!parsed.success) {
-      return Response.json(
-        { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid parameters' } },
-        { status: 400 }
-      );
-    }
-
-    const result = await taskService.list(parsed.data);
-    if (!result.ok) {
-      return handleApiError(result.error);
-    }
-
-    return Response.json({ ok: true, data: result.value });
-  },
-
-  // POST /api/tasks
-  POST: async ({ request }) => {
-    const body = await request.json();
-
-    const parsed = createTaskSchema.safeParse(body);
-    if (!parsed.success) {
-      return Response.json(
-        { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid body' } },
-        { status: 400 }
-      );
-    }
-
-    const result = await taskService.create(parsed.data);
-    if (!result.ok) {
-      return handleApiError(result.error);
-    }
-
-    return Response.json({ ok: true, data: result.value }, { status: 201 });
-  },
-});
-```
-
-### Example: Task Move Route
-
-```typescript
-// app/routes/api/tasks/$id/move.ts
-import { createServerFileRoute } from '@tanstack/react-start/server';
-import { taskService } from '@/lib/services/task-service';
-import { handleApiError } from '@/lib/api/error-handler';
-import { moveTaskSchema } from '@/db/schema/validation';
-
-export const ServerRoute = createServerFileRoute().methods({
-  POST: async ({ request, params }) => {
-    const body = await request.json();
-
-    const parsed = moveTaskSchema.safeParse(body);
-    if (!parsed.success) {
-      return Response.json(
-        { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid body' } },
-        { status: 400 }
-      );
-    }
-
-    const result = await taskService.moveColumn(params.id, parsed.data);
-    if (!result.ok) {
-      return handleApiError(result.error);
-    }
-
-    return Response.json({ ok: true, data: result.value });
-  },
-});
-```
-
-### Example: Session SSE Stream
-
-```typescript
-// app/routes/api/sessions/$id/stream.ts
-import { createServerFileRoute } from '@tanstack/react-start/server';
-import { sessionService } from '@/lib/services/session-service';
-
-export const ServerRoute = createServerFileRoute().methods({
-  GET: async ({ params, request }) => {
-    // Verify session exists
-    const session = await sessionService.getById(params.id);
-    if (!session.ok) {
-      return Response.json(
-        { ok: false, error: session.error },
-        { status: 404 }
-      );
-    }
-
-    // Get user ID from auth (simplified)
-    const userId = request.headers.get('X-User-ID') ?? 'anonymous';
-
-    // Join session for presence tracking
-    await sessionService.join(params.id, userId);
-
-    // Create SSE stream
-    const stream = new ReadableStream({
-      async start(controller) {
-        const encoder = new TextEncoder();
-
-        // Subscribe to session events
-        for await (const event of sessionService.subscribe(params.id)) {
-          const data = `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
-          controller.enqueue(encoder.encode(data));
-        }
-      },
-      cancel() {
-        // Leave session on disconnect
-        sessionService.leave(params.id, userId);
-      },
-    });
-
-    return new Response(stream, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-      },
-    });
-  },
-});
-```
-
----
-
-## Rate Limiting
-
-| Endpoint Group | Limit | Window |
-|----------------|-------|--------|
-| Read operations (GET) | 1000 | 1 minute |
-| Write operations (POST/PATCH) | 100 | 1 minute |
-| Agent start/stop | 20 | 1 minute |
-| Session stream connect | 10 | 1 minute |
-| Webhook handler | 100 | 1 minute |
-
-**Rate Limit Response:**
-
-```typescript
-{
-  "ok": false,
-  "error": {
-    "code": "RATE_LIMITED",
-    "message": "Too many requests",
-    "details": {
-      "retryAfter": 30,  // seconds
-      "limit": 100,
-      "remaining": 0
-    }
-  }
-}
-```
-
-**Rate Limit Headers:**
-
-```
-X-RateLimit-Limit: 100
-X-RateLimit-Remaining: 0
-X-RateLimit-Reset: 1705420800
-Retry-After: 30
-```
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/healthz` | Lightweight liveness probe (alias) |
+| `GET` | `/api/readyz` | Lightweight readiness probe (alias) |
 
 ---
 
 ## Authentication
 
-All endpoints require authentication via one of:
+**File:** `auth.ts` | **Mount:** `/api/auth`
 
-- `Authorization: Bearer <token>` header
-- Session cookie (for browser clients)
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/auth/github` | Redirect to GitHub OAuth authorization |
+| `GET` | `/api/auth/github/callback` | Handle OAuth callback, create/update user, set session cookie |
+| `POST` | `/api/auth/logout` | End session, clear cookie, delete session from DB |
 
-**Unauthenticated Response:**
+---
+
+## Current User Profile
+
+**File:** `me.ts` | **Mount:** `/api/me`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/me` | Get current user profile with team memberships |
+| `PATCH` | `/api/me` | Update current user profile (name, email) |
+
+---
+
+## Projects
+
+**File:** `projects.ts` | **Mount:** `/api/projects`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/projects` | List all projects (ordered by `updatedAt` desc) |
+| `POST` | `/api/projects` | Create a new project (validates unique path) |
+| `GET` | `/api/projects/summaries` | List projects with task counts, running agents, status |
+| `GET` | `/api/projects/:id` | Get project by ID |
+| `PATCH` | `/api/projects/:id` | Update project (name, description, config, maxConcurrentAgents) |
+| `DELETE` | `/api/projects/:id` | Delete project (optionally delete files with `?deleteFiles=true`) |
+
+**Validation (inline Zod):**
 
 ```typescript
-{
-  "ok": false,
-  "error": {
-    "code": "UNAUTHORIZED",
-    "message": "Authentication required"
-  }
-}
+const createProjectSchema = z.object({
+  name: z.string().min(1),
+  path: z.string().min(1),
+  description: z.string().optional(),
+});
+
+const updateProjectSchema = z.object({
+  name: z.string().min(1).optional(),
+  description: z.string().optional(),
+  maxConcurrentAgents: z.number().int().positive().optional(),
+  config: z.record(z.string(), z.unknown()).optional(),
+});
 ```
+
+---
+
+## Project Members
+
+**File:** `project-members.ts` | **Mount:** `/api/projects/:id/members`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/projects/:id/members` | List project members with effective roles |
+| `POST` | `/api/projects/:id/members` | Add project member override (requires `admin` role) |
+| `PATCH` | `/api/projects/:id/members/:uid` | Update member role (requires `admin` role) |
+| `DELETE` | `/api/projects/:id/members/:uid` | Remove project member override (requires `admin` role) |
+
+---
+
+## Tasks
+
+**File:** `tasks.ts` | **Mount:** `/api/tasks`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/tasks` | List tasks for a project (requires `projectId` query param) |
+| `POST` | `/api/tasks` | Create a new task |
+| `GET` | `/api/tasks/:id` | Get task by ID |
+| `PUT` | `/api/tasks/:id` | Update a task (title, description, labels, priority) |
+| `DELETE` | `/api/tasks/:id` | Delete a task |
+| `GET` | `/api/tasks/:id/diff` | Get diff for a task |
+| `PATCH` | `/api/tasks/:id/move` | Move task to a different column (Kanban drag-drop) |
+| `POST` | `/api/tasks/:id/approve-plan` | Approve a pending plan and start execution |
+| `POST` | `/api/tasks/:id/reject-plan` | Reject a pending plan (optional `reason` in body) |
+| `POST` | `/api/tasks/:id/stop-agent` | Stop a running container agent for a task |
+
+**Key behavior:** When `PATCH /api/tasks/:id/move` moves a task to `in_progress`, it can optionally auto-start an agent (controlled by `startAgent` field in body, defaults to `true`). The response includes `{ task, agentError? }`.
+
+**Validation (shared schemas from `validation.ts`):**
+
+```typescript
+const moveTaskSchema = z.object({
+  column: z.enum(['backlog', 'queued', 'in_progress', 'waiting_approval', 'verified']),
+  position: z.number().int().min(0),
+  startAgent: z.boolean().optional(),
+});
+```
+
+---
+
+## Task Tags
+
+**File:** `tags.ts` (exported as `createTaskTagRoutes`) | **Mount:** `/api/tasks/:id/tags`
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/tasks/:id/tags` | Assign a tag to a task |
+| `DELETE` | `/api/tasks/:id/tags/:tagId` | Remove a tag from a task |
+
+---
+
+## Task Creation with AI
+
+**File:** `task-creation.ts` | **Mount:** `/api/tasks/create-with-ai`
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/tasks/create-with-ai/start` | Start an AI-assisted task creation conversation |
+| `POST` | `/api/tasks/create-with-ai/message` | Send a message in the conversation |
+| `POST` | `/api/tasks/create-with-ai/accept` | Accept the AI-suggested task (creates the task) |
+| `POST` | `/api/tasks/create-with-ai/cancel` | Cancel the conversation |
+| `POST` | `/api/tasks/create-with-ai/answer` | Answer clarifying questions from the AI |
+| `POST` | `/api/tasks/create-with-ai/skip` | Skip clarifying questions |
+| `GET` | `/api/tasks/create-with-ai/stream` | SSE endpoint for real-time task creation updates |
+
+The SSE stream emits events: `connected`, `task-creation:token`, `task-creation:message`, `task-creation:questions`, `task-creation:suggestion`, `task-creation:completed`, `task-creation:cancelled`, `task-creation:error`.
+
+---
+
+## Agents
+
+**File:** `agents.ts` | **Mount:** `/api/agents`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/agents` | List agents for a project (requires `projectId` query param) |
+| `POST` | `/api/agents` | Create a new agent |
+| `GET` | `/api/agents/:id` | Get agent by ID |
+| `PATCH` | `/api/agents/:id` | Update agent configuration |
+| `DELETE` | `/api/agents/:id` | Delete an agent |
+| `POST` | `/api/agents/:id/start` | Start an agent (optionally with `taskId` in body) |
+| `GET` | `/api/agents/:id/status` | Get agent execution status |
+| `POST` | `/api/agents/:id/stop` | Stop a running agent |
+| `POST` | `/api/agents/:id/pause` | Pause a running agent |
+| `POST` | `/api/agents/:id/resume` | Resume a paused agent (optional `feedback` in body) |
+
+---
+
+## Sessions
+
+**File:** `sessions.ts` | **Mount:** `/api/sessions`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/sessions` | List sessions (optional `projectId`, `status`, `agentId`, `search`, `dateFrom`, `dateTo` filters) |
+| `POST` | `/api/sessions` | Create a new session |
+| `GET` | `/api/sessions/:id` | Get session by ID |
+| `DELETE` | `/api/sessions/:id` | Delete a session |
+| `GET` | `/api/sessions/:id/events` | Get session events (paginated with `limit`/`offset`) |
+| `GET` | `/api/sessions/:id/summary` | Get session summary (duration, turns, tokens, files modified) |
+| `POST` | `/api/sessions/:id/export` | Export session in JSON, Markdown, or CSV format |
+
+Note: The SSE streaming endpoint has been removed. Clients subscribe to Caddy durable streams at `/v1/stream/sessions/:id` directly.
+
+---
+
+## Worktrees
+
+**File:** `worktrees.ts` | **Mount:** `/api/worktrees`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/worktrees` | List worktrees for a project (requires `projectId` query param) |
+| `POST` | `/api/worktrees` | Create a new worktree |
+| `POST` | `/api/worktrees/prune` | Prune stale worktrees for a project |
+| `GET` | `/api/worktrees/:id` | Get worktree status |
+| `DELETE` | `/api/worktrees/:id` | Remove a worktree (`?force=true` to force) |
+| `GET` | `/api/worktrees/:id/diff` | Get diff for a worktree |
+| `POST` | `/api/worktrees/:id/commit` | Commit changes in a worktree |
+| `POST` | `/api/worktrees/:id/merge` | Merge worktree branch (optional `deleteAfterMerge` and `targetBranch` in body) |
+
+---
+
+## Git
+
+**File:** `git.ts` | **Mount:** `/api/git`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/git/status` | Get git status for a project (requires `projectId` query param) |
+| `GET` | `/api/git/branches` | List local branches for a project |
+| `GET` | `/api/git/commits` | List commits (optional `branch` and `limit` query params) |
+| `GET` | `/api/git/remote-branches` | List remote branches (fetches from remote first) |
+
+---
+
+## GitHub Integration
+
+**File:** `github.ts` | **Mount:** `/api/github`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/github/orgs` | List authenticated user's GitHub organizations |
+| `GET` | `/api/github/repos` | List authenticated user's repositories |
+| `GET` | `/api/github/repos/:owner` | List repositories for a specific owner/org |
+| `POST` | `/api/github/clone` | Clone a GitHub repository to local filesystem |
+| `POST` | `/api/github/create-from-template` | Create repo from GitHub template and clone it |
+| `GET` | `/api/github/token` | Get GitHub token info (masked) |
+| `POST` | `/api/github/token` | Save a GitHub personal access token |
+| `DELETE` | `/api/github/token` | Delete the stored GitHub token |
+| `POST` | `/api/github/revalidate` | Revalidate the stored GitHub token |
+
+---
+
+## Teams
+
+**File:** `teams.ts` | **Mount:** `/api/teams`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/teams` | List user's teams (with cursor pagination, search, member/project counts) |
+| `POST` | `/api/teams` | Create a new team (creator becomes owner) |
+| `GET` | `/api/teams/:id` | Get team details (with member/project counts and caller's role) |
+| `PATCH` | `/api/teams/:id` | Update team (name, slug, description; requires `admin` role) |
+| `DELETE` | `/api/teams/:id` | Delete team and all associated data (requires `owner` role) |
+| `POST` | `/api/teams/:id/transfer-ownership` | Transfer team ownership to another member (requires `owner` role) |
+
+---
+
+## Team Members
+
+**File:** `team-members.ts` | **Mount:** `/api/teams/:id/members`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/teams/:id/members` | List team members (with cursor pagination and role filter) |
+| `POST` | `/api/teams/:id/members` | Add a member to the team (requires `admin` role) |
+| `PATCH` | `/api/teams/:id/members/:uid` | Update member role (requires `admin`; only `owner` can assign `admin`) |
+| `DELETE` | `/api/teams/:id/members/:uid` | Remove member from team (prevents removing last owner) |
+
+---
+
+## Team Projects
+
+**File:** `team-projects.ts` | **Mount:** `/api/teams/:id/projects`
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/teams/:id/projects` | Assign a project to the team (requires `admin` role) |
+| `DELETE` | `/api/teams/:id/projects/:projectId` | Remove a project from the team (requires `admin` role) |
+
+---
+
+## Team Invitations
+
+**File:** `team-invitations.ts` | **Mount:** `/api/teams/:id/invitations`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/teams/:id/invitations` | List pending invitations (requires `admin` role) |
+| `POST` | `/api/teams/:id/invitations` | Create an invitation (requires `admin`; only `owner` can invite with `admin` role) |
+| `POST` | `/api/teams/:id/invitations/:iid/decline` | Decline an invitation (invitee only, verified by GitHub email) |
+| `DELETE` | `/api/teams/:id/invitations/:iid` | Revoke an invitation (requires `admin` role) |
+
+---
+
+## Invitation Accept
+
+**File:** `invitation-accept.ts` | **Mount:** `/api/invitations`
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/invitations/:token/accept` | Accept a team invitation using the raw token |
+
+Validates token hash, checks email match against GitHub OAuth email, and adds user to team in a transaction.
+
+---
+
+## Team GitHub Token
+
+**File:** `team-github-token.ts` | **Mount:** `/api/teams/:id/github-token`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/teams/:id/github-token` | Get team's GitHub token info (masked, never raw; requires `admin`) |
+| `PUT` | `/api/teams/:id/github-token` | Set/replace team's GitHub token (validates with GitHub API first; requires `admin`) |
+| `DELETE` | `/api/teams/:id/github-token` | Delete team's GitHub token (requires `admin`) |
+| `POST` | `/api/teams/:id/github-token/validate` | Validate token against GitHub API (requires `admin`) |
+
+---
+
+## Tags
+
+**File:** `tags.ts` (exported as `createTagsRoutes`) | **Mount:** `/api/tags`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/tags` | List tags for a team (requires `teamId` query param) |
+| `POST` | `/api/tags` | Create a tag (requires `agent_operator` role in team) |
+| `DELETE` | `/api/tags/:id` | Delete a tag (requires `admin` role in team) |
+
+---
+
+## Project Tags
+
+**File:** `tags.ts` (exported as `createProjectTagRoutes`) | **Mount:** `/api/projects/:id/tags`
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/projects/:id/tags` | Assign a tag to a project (requires `agent_operator` on project) |
+| `DELETE` | `/api/projects/:id/tags/:tagId` | Remove a tag from a project |
+
+---
+
+## API Tokens (RBAC)
+
+**File:** `rbac-tokens.ts` | **Mount:** `/api/tokens`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/tokens` | List user's API tokens (cursor pagination, optional `teamId`, `status`, `allTeam` filters) |
+| `POST` | `/api/tokens` | Create an API token (validates team membership, role ceiling, scope tags) |
+| `GET` | `/api/tokens/:id` | Get token details (enriched with team name and scope tag details) |
+| `DELETE` | `/api/tokens/:id` | Revoke a token (soft delete, sets status to `revoked`) |
+
+Tokens are generated with `ap_` prefix and stored as SHA-256 hashes. The raw token is returned only once on creation. Max 25 active tokens per user.
+
+---
+
+## API Keys (Service Keys)
+
+**File:** `api-keys.ts` | **Mount:** `/api/keys`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/keys/:service` | Get key info for a service (e.g., `anthropic`) |
+| `POST` | `/api/keys/:service` | Save an API key for a service |
+| `DELETE` | `/api/keys/:service` | Delete an API key for a service |
+
+---
+
+## Settings
+
+**File:** `settings.ts` | **Mount:** `/api/settings`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/settings` | Get settings (optional `keys` query param for filtering) |
+| `PUT` | `/api/settings` | Update settings (upserts allowed keys only) |
+
+**Allowed settings keys:** `sandbox.defaults`, `sandbox.mode`, `sandbox.provider`, `sandbox.kubernetes`, `sandbox.nomad`, `sandbox.agentcore`, `anthropic.apiKey`, `anthropic.model`, `github.token`, `github.appId`, `theme`, `general.agentModel`.
+
+Sensitive fields (`sandbox.nomad.token`, `sandbox.agentcore.secretAccessKey`) are encrypted on write and redacted on read.
+
+---
+
+## Templates
+
+**File:** `templates.ts` | **Mount:** `/api/templates`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/templates` | List templates (optional `scope`, `projectId`, `limit` filters) |
+| `POST` | `/api/templates` | Create a template (requires `name`, `scope`, `githubUrl`) |
+| `GET` | `/api/templates/:id` | Get template by ID |
+| `PATCH` | `/api/templates/:id` | Update a template |
+| `DELETE` | `/api/templates/:id` | Delete a template |
+| `POST` | `/api/templates/:id/sync` | Sync template from GitHub |
+
+---
+
+## Marketplaces
+
+**File:** `marketplaces.ts` | **Mount:** `/api/marketplaces`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/marketplaces` | List marketplaces (optional `limit`, `includeDisabled` filters) |
+| `POST` | `/api/marketplaces` | Create a marketplace |
+| `POST` | `/api/marketplaces/seed` | Seed the default marketplace |
+| `GET` | `/api/marketplaces/plugins` | List all plugins across marketplaces (optional `search`, `category`, `marketplaceId`) |
+| `GET` | `/api/marketplaces/categories` | List plugin categories |
+| `GET` | `/api/marketplaces/:id` | Get marketplace by ID (includes cached plugins) |
+| `DELETE` | `/api/marketplaces/:id` | Delete a marketplace |
+| `POST` | `/api/marketplaces/:id/sync` | Sync marketplace plugins from GitHub |
+
+---
+
+## Workflows
+
+**File:** `workflows.ts` | **Mount:** `/api/workflows`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/workflows` | List workflows (offset pagination, optional `status`, `search` filters) |
+| `POST` | `/api/workflows` | Create a workflow |
+| `GET` | `/api/workflows/:id` | Get workflow by ID |
+| `PATCH` | `/api/workflows/:id` | Update a workflow |
+| `DELETE` | `/api/workflows/:id` | Delete a workflow |
+
+---
+
+## Workflow Designer
+
+**File:** `workflow-designer.ts` | **Mount:** `/api/workflow-designer`
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/workflow-designer/analyze` | Analyze a template and generate a workflow graph using AI (Claude Agent SDK) |
+
+Accepts either a `templateId` to fetch from DB, or inline `skills`/`commands`/`agents` arrays. Returns a complete `Workflow` object with AI-positioned nodes and edges (laid out via ELK).
+
+---
+
+## Terraform
+
+**File:** `terraform.ts` | **Mount:** `/api/terraform` (conditional -- only if services are available)
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/terraform/registries` | List all Terraform registries |
+| `POST` | `/api/terraform/registries` | Create a registry |
+| `GET` | `/api/terraform/registries/:id` | Get registry detail |
+| `PATCH` | `/api/terraform/registries/:id` | Update registry settings |
+| `DELETE` | `/api/terraform/registries/:id` | Delete a registry |
+| `POST` | `/api/terraform/registries/:id/sync` | Trigger manual registry sync |
+| `GET` | `/api/terraform/modules` | List all modules (optional `search`, `provider`, `registryId`, `limit`) |
+| `GET` | `/api/terraform/modules/:id` | Get module detail |
+| `POST` | `/api/terraform/validate` | Validate generated HCL code |
+| `POST` | `/api/terraform/compose` | Start a compose job (returns 202 with sessionId) |
+
+Note: The SSE streaming endpoint has been removed. Clients subscribe to Caddy durable streams at `/v1/stream/terraform/{sessionId}` directly.
+
+---
+
+## CLI Monitor
+
+**File:** `cli-monitor.ts` | **Mount:** `/api/cli-monitor` (conditional -- only if service is available)
+
+### Daemon-to-Server (push from CLI daemon):
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/cli-monitor/register` | Daemon announces itself |
+| `POST` | `/api/cli-monitor/heartbeat` | Daemon keepalive |
+| `POST` | `/api/cli-monitor/ingest` | Daemon pushes session updates (up to 500 sessions, 5MB limit) |
+| `POST` | `/api/cli-monitor/deregister` | Daemon shutting down |
+
+### Frontend-to-Server (queried by UI):
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/cli-monitor/status` | Check if daemon is connected |
+| `GET` | `/api/cli-monitor/sessions` | List live sessions (optional `limit`/`offset` pagination) |
+| `GET` | `/api/cli-monitor/history` | Query historical sessions from DB (optional `projectHash`, `since`, `limit`) |
+| `GET` | `/api/cli-monitor/stream` | SSE endpoint for live session updates (max 50 concurrent connections) |
+| `GET` | `/api/cli-monitor/topology` | Get topology graph for a root session (requires `rootSessionId` query param) |
+
+The SSE stream sends an initial `cli-monitor:snapshot` event, then relays live events from the daemon. Keep-alive pings every 15s.
+
+---
+
+## Events (Plugin System)
+
+**File:** `events.ts` | **Mount:** `/api/events` (conditional -- only if services are available)
+
+### Event Sources:
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/events/sources` | List event sources (optional `teamId`, `type`, `status` filters) |
+| `GET` | `/api/events/sources/:id` | Get event source by ID |
+| `POST` | `/api/events/sources` | Create an event source (webhook, cron, or manual) |
+| `PATCH` | `/api/events/sources/:id` | Update an event source |
+| `DELETE` | `/api/events/sources/:id` | Delete an event source |
+| `POST` | `/api/events/sources/:id/rotate-secret` | Rotate webhook secret |
+| `POST` | `/api/events/sources/:id/trigger` | Manually trigger an event source |
+| `POST` | `/api/events/sources/:id/pause` | Pause an event source |
+| `POST` | `/api/events/sources/:id/resume` | Resume a paused event source |
+| `GET` | `/api/events/sources/:id/budget` | Get budget/usage info for an event source |
+| `GET` | `/api/events/sources/:id/executions` | List cron schedule executions |
+
+### Event Subscriptions:
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/events/subscriptions` | List subscriptions (optional `sourceId`, `projectId` filters) |
+| `GET` | `/api/events/subscriptions/:id` | Get subscription by ID |
+| `POST` | `/api/events/subscriptions` | Create a subscription |
+| `PATCH` | `/api/events/subscriptions/:id` | Update a subscription |
+| `DELETE` | `/api/events/subscriptions/:id` | Delete a subscription |
+
+### Event Log:
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/events/log` | Query event log (optional `sourceId`, `status`, `since`/`until`, cursor pagination) |
+| `GET` | `/api/events/log/:id` | Get event log entry by ID |
+
+### Streaming:
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/events/stream` | SSE endpoint for real-time event notifications (max 50 connections) |
+
+---
+
+## Sandbox Configs
+
+**File:** `sandbox.ts` (exported as `createSandboxRoutes`) | **Mount:** `/api/sandbox-configs`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/sandbox-configs` | List sandbox configurations (paginated) |
+| `POST` | `/api/sandbox-configs` | Create a sandbox configuration |
+| `GET` | `/api/sandbox-configs/:id` | Get sandbox config by ID |
+| `PATCH` | `/api/sandbox-configs/:id` | Update a sandbox configuration |
+| `DELETE` | `/api/sandbox-configs/:id` | Delete a sandbox configuration |
+
+---
+
+## Sandbox Status
+
+**File:** `sandbox-status.ts` | **Mount:** `/api/sandbox/status`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/sandbox/status/:projectId` | Get sandbox mode, container status, and provider health (Docker, K8s, Nomad) |
+| `POST` | `/api/sandbox/status/:projectId/restart` | Restart the sandbox container |
+
+Includes self-healing: auto-creates the default sandbox when Docker/K8s is available but no container exists.
+
+---
+
+## Sandbox K8s
+
+**File:** `sandbox.ts` (exported as `createK8sRoutes`) | **Mount:** `/api/sandbox/k8s`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/sandbox/k8s/status` | Get Kubernetes cluster health and CRD status |
+| `GET` | `/api/sandbox/k8s/contexts` | List available kube contexts |
+| `GET` | `/api/sandbox/k8s/namespaces` | List Kubernetes namespaces |
+| `GET` | `/api/sandbox/k8s/controller` | Get AgentPane controller installation status |
+| `POST` | `/api/sandbox/k8s/minikube/start` | Start minikube for local development |
+| `POST` | `/api/sandbox/k8s/install-crds` | Install AgentPane CRDs in the cluster |
+
+---
+
+## Sandbox Nomad
+
+**File:** `sandbox.ts` (exported as `createNomadRoutes`) | **Mount:** `/api/sandbox/nomad`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/sandbox/nomad/status` | Get Nomad cluster health |
+| `GET` | `/api/sandbox/nomad/namespaces` | List Nomad namespaces |
+| `GET` | `/api/sandbox/nomad/datacenters` | List Nomad datacenters |
+| `POST` | `/api/sandbox/nomad/validate` | Validate Nomad connection settings |
+
+---
+
+## Filesystem
+
+**File:** `filesystem.ts` | **Mount:** `/api/filesystem`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/filesystem/discover-repos` | Discover git repositories in common directories (`~/git`, `~/projects`, etc.) |
+
+Returns up to 20 most recently modified repositories. Includes warnings for inaccessible directories.
+
+---
+
+## Webhooks
+
+**File:** `webhooks.ts` | **Mount:** `/api/webhooks`
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/webhooks/github` | GitHub webhook handler (verifies `x-hub-signature-256`, handles `push` events to auto-sync templates) |
 
 ---
 
 ## Cross-References
 
 | Spec | Relationship |
-|------|--------------|
-| [Database Schema](/specs/database/schema.md) | Data types and validation schemas |
-| [Error Catalog](/specs/errors/error-catalog.md) | Error codes and messages |
-| [Session Service](/specs/services/session-service.md) | Session management implementation |
-| [AGENTS.md](/AGENTS.md) | TanStack Start server route patterns |
-| [User Stories](/specs/user-stories.md) | Feature requirements |
+|---|---|
+| [Database Schema](../database/schema.md) | Data types and table definitions |
+| [Error Catalog](../errors/error-catalog.md) | Error codes and messages |
+| [Authentication](../security/authentication.md) | OAuth and session management |
+| [Pagination](./pagination.md) | Cursor-based pagination patterns |
+| [User Stories](../user-stories.md) | Feature requirements |

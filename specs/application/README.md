@@ -6,10 +6,13 @@ This directory contains the complete application specifications for AgentPane, a
 
 | Metric | Value |
 |--------|-------|
-| **Total Spec Files** | 42 markdown files |
+| **Total Spec Files** | 50+ markdown files |
 | **Total Wireframes** | 20 HTML files |
-| **Estimated Lines** | ~45,000+ |
-| **Coverage** | 100% |
+| **Database Tables** | 36 (SQLite + PostgreSQL) |
+| **API Route Modules** | 33 (60+ endpoints) |
+| **Service Specs** | 9 |
+| **State Machines** | 4 |
+| **UI Component Specs** | 19 |
 
 ---
 
@@ -22,29 +25,38 @@ specs/application/
 ├── wireframe-review.md                # Wireframe coverage analysis
 │
 ├── api/                               # REST API Specifications
-│   ├── endpoints.md                   # All API endpoints (28 endpoints)
-│   └── pagination.md                  # Cursor-based pagination patterns
+│   ├── endpoints.md                   # All API endpoints (33 route modules, 60+ endpoints, Hono-based)
+│   └── pagination.md                  # Pagination patterns
 │
 ├── architecture/                      # System Architecture
 │   └── app-bootstrap.md               # 6-phase initialization sequence
 │
-├── components/                        # UI Component Specifications
+├── components/                        # UI Component Specifications (19 specs)
+│   ├── agent-config-dialog.md         # Agent execution settings
 │   ├── agent-session-view.md          # Real-time agent session interface
 │   ├── approval-dialog.md             # Code review and approval modal
 │   ├── breadcrumbs.md                 # Navigation breadcrumbs
+│   ├── empty-states.md                # Empty state presets
+│   ├── error-state.md                 # Error visualization
 │   ├── form-inputs.md                 # Form components (10 input types)
-│   ├── kanban-board.md                # 4-column task board with dnd-kit
+│   ├── github-app-setup.md            # GitHub OAuth integration
+│   ├── kanban-board.md                # 5-column task board with dnd-kit
 │   ├── loading-skeletons.md           # Loading placeholder patterns
 │   ├── new-project-dialog.md          # Project creation wizard
 │   ├── project-picker.md              # Command palette project switcher
+│   ├── project-settings.md            # Project configuration
+│   ├── queue-waiting-state.md         # Queue position display
+│   ├── session-history.md             # Session list with filters
 │   ├── task-detail-dialog.md          # Task view/edit modal
-│   └── toast-notifications.md         # Toast notification system
+│   ├── theme-toggle.md                # Light/dark/system theme
+│   ├── toast-notifications.md         # Toast notification system
+│   └── worktree-management.md         # Git worktree management
 │
 ├── configuration/                     # Configuration Management
 │   └── config-management.md           # Project config, env vars, skills
 │
 ├── database/                          # Database Specifications
-│   └── schema.md                      # Drizzle ORM schema (9 tables)
+│   └── schema.md                      # Drizzle ORM schema (36 tables, SQLite + PostgreSQL)
 │
 ├── errors/                            # Error Handling
 │   └── error-catalog.md               # 44 error codes with HTTP mappings
@@ -56,10 +68,12 @@ specs/application/
 │   └── mobile-responsive.md           # Responsive design patterns
 │
 ├── integrations/                      # External Integrations
-│   ├── claude-agent-sdk.md            # Claude Agent SDK integration
-│   ├── durable-sessions.md            # Durable Streams real-time sync
+│   ├── caddy.md                       # Caddy reverse proxy
+│   ├── claude-agent-sdk.md            # Claude Agent SDK (v0.2.19, plan mode, swarm)
+│   ├── durable-sessions.md            # Durable Streams (v0.2.0)
 │   ├── git-worktrees.md               # Git worktree isolation
-│   └── github-app.md                  # GitHub App OAuth and webhooks
+│   ├── github-app.md                  # GitHub App OAuth and webhooks
+│   └── terraform-registry.md          # Terraform No-Code Composer
 │
 ├── operations/                        # Operations & DevOps
 │   ├── deployment.md                  # Docker, CI/CD, startup sequence
@@ -70,21 +84,26 @@ specs/application/
 │
 ├── security/                          # Security Specifications
 │   ├── authentication.md              # OAuth, sessions, API tokens
-│   ├── sandbox.md                     # Container isolation, DevContainers
+│   ├── rbac.md                        # Role-based access control (4 roles)
+│   ├── sandbox.md                     # Container isolation, multi-provider
 │   └── security-model.md              # Tool sandboxing, audit logging
 │
-├── services/                          # Business Logic Services
-│   ├── agent-service.md               # Agent lifecycle management
+├── services/                          # Business Logic Services (9 specs)
+│   ├── agent-service.md               # Agent lifecycle (planning, execution, swarm)
+│   ├── cli-monitor-service.md         # CLI monitor package
+│   ├── container-agent-service.md     # Docker container agent execution
+│   ├── event-service.md               # Event sources, subscriptions, processing
 │   ├── project-service.md             # Project CRUD and config
-│   ├── session-service.md             # Real-time session management
-│   ├── task-service.md                # Task workflow and kanban
+│   ├── scheduler-service.md           # Task scheduling and cron
+│   ├── session-service.md             # Session management (7-state lifecycle)
+│   ├── task-service.md                # Task workflow (5 columns)
 │   └── worktree-service.md            # Git worktree operations
 │
 ├── state-machines/                    # State Machine Definitions
-│   ├── agent-lifecycle.md             # Agent execution states
-│   ├── session-lifecycle.md           # Session connection states
-│   ├── task-workflow.md               # Kanban column transitions
-│   └── worktree-lifecycle.md          # Git worktree states
+│   ├── agent-lifecycle.md             # 7 states: idle → planning → completed
+│   ├── session-lifecycle.md           # 7 states: idle → closed
+│   ├── task-workflow.md               # 5 columns: backlog → queued → verified
+│   └── worktree-lifecycle.md          # 6 states: creating → removed
 │
 ├── testing/                           # Testing Specifications
 │   ├── test-cases.md                  # 164+ test case definitions
@@ -127,7 +146,7 @@ specs/application/
 
 | Spec | Purpose | Key Contents |
 |------|---------|--------------|
-| [endpoints.md](./api/endpoints.md) | REST API | 28 endpoints, request/response schemas |
+| [endpoints.md](./api/endpoints.md) | REST API | 33 route modules, 60+ endpoints (Hono) |
 | [pagination.md](./api/pagination.md) | Pagination | Cursor encoding, Drizzle patterns, React Query |
 | [routes.md](./routing/routes.md) | Routing | TanStack Router, guards, loaders |
 
@@ -135,14 +154,14 @@ specs/application/
 
 | Spec | Purpose | Key Contents |
 |------|---------|--------------|
-| [schema.md](./database/schema.md) | Database | 9 tables, indexes, relationships |
+| [schema.md](./database/schema.md) | Database | 36 tables (SQLite + PostgreSQL), indexes, relationships |
 | [config-management.md](./configuration/config-management.md) | Configuration | Project config, env vars, skills, commands |
 
 ### UI Components
 
 | Spec | Purpose | Key Contents |
 |------|---------|--------------|
-| [kanban-board.md](./components/kanban-board.md) | Task Board | 4 columns, drag-drop, multi-select |
+| [kanban-board.md](./components/kanban-board.md) | Task Board | 5 columns, drag-drop, multi-select |
 | [approval-dialog.md](./components/approval-dialog.md) | Code Review | Diff viewer, approve/reject flow |
 | [agent-session-view.md](./components/agent-session-view.md) | Agent UI | Streaming, presence, activity feed |
 | [task-detail-dialog.md](./components/task-detail-dialog.md) | Task Editor | View/edit modes, actions by state |
@@ -157,37 +176,44 @@ specs/application/
 
 | Spec | Purpose | Key Contents |
 |------|---------|--------------|
-| [agent-service.md](./services/agent-service.md) | Agent Logic | Start/stop, concurrency, hooks |
-| [task-service.md](./services/task-service.md) | Task Logic | CRUD, workflow, approval |
+| [agent-service.md](./services/agent-service.md) | Agent Logic | Planning, execution, swarm, queue |
+| [task-service.md](./services/task-service.md) | Task Logic | 5-column workflow, plan approval |
 | [project-service.md](./services/project-service.md) | Project Logic | CRUD, config sync |
-| [session-service.md](./services/session-service.md) | Session Logic | Create, join, presence |
+| [session-service.md](./services/session-service.md) | Session Logic | 7-state lifecycle, SSE streaming |
 | [worktree-service.md](./services/worktree-service.md) | Git Logic | Create, merge, cleanup |
+| [event-service.md](./services/event-service.md) | Events | Sources, subscriptions, processing |
+| [scheduler-service.md](./services/scheduler-service.md) | Scheduling | Cron, task scheduling |
+| [cli-monitor-service.md](./services/cli-monitor-service.md) | CLI Monitor | npm package, heartbeat |
+| [container-agent-service.md](./services/container-agent-service.md) | Container Agent | Docker sandbox execution |
 
 ### State Machines
 
 | Spec | Purpose | Key Contents |
 |------|---------|--------------|
-| [agent-lifecycle.md](./state-machines/agent-lifecycle.md) | Agent States | idle → running → completed |
-| [task-workflow.md](./state-machines/task-workflow.md) | Task States | backlog → verified |
-| [session-lifecycle.md](./state-machines/session-lifecycle.md) | Session States | active → closed |
-| [worktree-lifecycle.md](./state-machines/worktree-lifecycle.md) | Worktree States | creating → removed |
+| [agent-lifecycle.md](./state-machines/agent-lifecycle.md) | Agent States | 7 states: idle → planning → completed |
+| [task-workflow.md](./state-machines/task-workflow.md) | Task States | 5 columns: backlog → queued → verified |
+| [session-lifecycle.md](./state-machines/session-lifecycle.md) | Session States | 7 states: idle → closed |
+| [worktree-lifecycle.md](./state-machines/worktree-lifecycle.md) | Worktree States | 6 states: creating → removed |
 
 ### Security
 
 | Spec | Purpose | Key Contents |
 |------|---------|--------------|
-| [authentication.md](./security/authentication.md) | Auth | GitHub OAuth, sessions, tokens |
-| [sandbox.md](./security/sandbox.md) | Isolation | Docker containers, DevContainers, resource limits |
+| [authentication.md](./security/authentication.md) | Auth | GitHub OAuth, sessions, API tokens |
+| [rbac.md](./security/rbac.md) | RBAC | 4 roles, team-based access |
+| [sandbox.md](./security/sandbox.md) | Isolation | Multi-provider (Docker, K8s, Nomad, AgentCore) |
 | [security-model.md](./security/security-model.md) | Security | Tool sandbox, audit logging |
 
 ### Integrations
 
 | Spec | Purpose | Key Contents |
 |------|---------|--------------|
-| [claude-agent-sdk.md](./integrations/claude-agent-sdk.md) | AI | Query API, tools, hooks |
-| [github-app.md](./integrations/github-app.md) | GitHub | OAuth, webhooks, config sync |
-| [durable-sessions.md](./integrations/durable-sessions.md) | Real-time | Streams, presence, events |
+| [caddy.md](./integrations/caddy.md) | Reverse Proxy | Caddy, HTTPS, routing |
+| [claude-agent-sdk.md](./integrations/claude-agent-sdk.md) | AI | Plan mode, swarm, SDK v0.2.19 |
+| [durable-sessions.md](./integrations/durable-sessions.md) | Real-time | Durable Streams v0.2.0, SSE |
 | [git-worktrees.md](./integrations/git-worktrees.md) | Git | Isolation, merge, cleanup |
+| [github-app.md](./integrations/github-app.md) | GitHub | OAuth, webhooks, config sync |
+| [terraform-registry.md](./integrations/terraform-registry.md) | Terraform | No-Code Composer, HCL gen |
 
 ### Operations
 

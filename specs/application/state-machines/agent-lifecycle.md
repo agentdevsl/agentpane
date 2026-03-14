@@ -13,29 +13,29 @@ Formal state machine definition for agent execution lifecycle in AgentPane. This
                                  +-------------------+
                                  |                   |
                                  v                   |
-+--------+     START     +-----------+    STEP    +---------+
-|  idle  |-------------->| starting  |----------->| running |<--+
-+--------+               +-----------+            +---------+   |
-    ^                          |                    |   |  |    |
-    |                          |                    |   |  |    |
-    |       ERROR              |         ERROR      |   |  +----+
-    |   (unrecoverable)        |    (unrecoverable) |   |  STEP (continue)
-    |           +              |          +         |   |
-    |           |              |          |         |   |
-    |           v              v          v         |   | PAUSE
-    |       +---------------------------------+     |   |
-    |       |             error               |     |   v
-    |       +---------------------------------+     | +--------+
-    |                     |                        | | paused |
-    |                     |                        | +--------+
-    |                     | (after cleanup)        |     |
-    |                     v                        |     | RESUME
-    +<--------------------+                        |     |
-                                                   |     v
-                                                   +-----+
-                                                   |
-                          COMPLETE                 |
-                             +---------------------+
++--------+     START     +-----------+  PLAN_READY  +----------+    STEP    +---------+
+|  idle  |-------------->| starting  |------------->| planning |---------->| running |<--+
++--------+               +-----------+              +----------+           +---------+   |
+    ^                          |                         |                   |   |  |    |
+    |                          |                         |                   |   |  |    |
+    |       ERROR              |              ERROR      |        ERROR      |   |  +----+
+    |   (unrecoverable)        |         (unrecoverable) |   (unrecoverable) |   |  STEP (continue)
+    |           +              |                +        |         +         |   |
+    |           |              |                |        |         |         |   |
+    |           v              v                v        v         v         |   | PAUSE
+    |       +----------------------------------------------+                |   |
+    |       |                    error                     |                |   v
+    |       +----------------------------------------------+                | +--------+
+    |                     |                                                 | | paused |
+    |                     |                                                 | +--------+
+    |                     | (after cleanup)                                 |     |
+    |                     v                                                 |     | RESUME
+    +<--------------------+                                                 |     |
+                                                                            |     v
+                                                                            +-----+
+                                                                            |
+                          COMPLETE                                          |
+                             +----------------------------------------------+
                              |
                              v
                       +------------+
@@ -45,16 +45,16 @@ Formal state machine definition for agent execution lifecycle in AgentPane. This
 
 ASCII State Diagram (Execution Flow):
 
-    +------+      +----------+      +---------+      +--------+      +-----------+
-    | idle |----->| starting |----->| running |----->| paused |----->| completed |
-    +------+      +----------+      +---------+      +--------+      +-----------+
-       ^               |               |  |             |
-       |               |               |  +<------------+
-       |               v               v  RESUME
-       |          +-------+       +-------+
-       +<---------|  error|<------|       |
-                  +-------+       +-------+
-                       |          (on ERROR)
+    +------+      +----------+      +----------+      +---------+      +--------+      +-----------+
+    | idle |----->| starting |----->| planning |----->| running |----->| paused |----->| completed |
+    +------+      +----------+      +----------+      +---------+      +--------+      +-----------+
+       ^               |                |                 |  |             |
+       |               |                |                 |  +<------------+
+       |               v                v                 v  RESUME
+       |          +-------+        +-------+         +-------+
+       +<---------|  error|<-------|       |<--------|       |
+                  +-------+        +-------+         +-------+
+                       |          (on ERROR)         (on ERROR)
                        v
                   (cleanup & return to idle)
 ```
@@ -67,6 +67,7 @@ ASCII State Diagram (Execution Flow):
 |-------|-------------|-------------------|--------------|---------------|
 | `idle` | Agent available, no active task | No | No | Yes (START) |
 | `starting` | Initializing execution context | No | `agent:starting` | No |
+| `planning` | Exploring codebase and creating implementation plan | Yes (read-only) | `agent:planning`, `agent:plan_ready` | No |
 | `running` | Actively executing steps | Yes | `agent:step`, `tool:*` | No |
 | `paused` | Waiting for user input/approval | No | `agent:paused` | Yes (RESUME) |
 | `error` | Execution failed, awaiting decision | No | `agent:error` | Yes (retry/abort) |
@@ -75,15 +76,17 @@ ASCII State Diagram (Execution Flow):
 ### State Properties
 
 ```typescript
-// db/schema/enums.ts
-export const agentStatusEnum = pgEnum('agent_status', [
+// db/schema/shared/enums.ts
+export const AGENT_STATUS = [
   'idle',
   'starting',
+  'planning',
   'running',
   'paused',
   'error',
   'completed',
-]);
+] as const;
+export type AgentStatus = (typeof AGENT_STATUS)[number];
 
 // State metadata
 interface AgentStateMetadata {
@@ -96,6 +99,13 @@ interface AgentStateMetadata {
     canStart: false;
     hasActiveTask: true;
     resourcesAllocated: true;
+  };
+  planning: {
+    canStart: false;
+    hasActiveTask: true;
+    resourcesAllocated: true;
+    canExecuteTools: true;  // Read-only tools for codebase exploration
+    awaitingPlanApproval: false;
   };
   running: {
     canStart: false;
@@ -130,6 +140,8 @@ interface AgentStateMetadata {
 | Event | Description | Payload | Source |
 |-------|-------------|---------|--------|
 | `START` | Begin agent execution | `{ taskId, prompt, options }` | Task workflow |
+| `PLAN_READY` | Agent finished planning, plan ready for review | `{ plan, options }` | Agent SDK (ExitPlanMode tool) |
+| `APPROVE_PLAN` | User approves the plan, begin execution | `{ feedback? }` | User action |
 | `STEP` | Agent completed one turn | `{ turn, toolCalls, output }` | Agent SDK |
 | `PAUSE` | Pause for user input | `{ reason, context }` | Agent SDK / User |
 | `RESUME` | Continue execution | `{ feedback?, input? }` | User action |
@@ -145,12 +157,21 @@ import type { z } from 'zod';
 
 export type AgentEvent =
   | { type: 'START'; taskId: string; prompt: string; options?: AgentOptions }
+  | { type: 'PLAN_READY'; plan: string; options?: PlanOptions }
+  | { type: 'APPROVE_PLAN'; feedback?: string }
   | { type: 'STEP'; turn: number; toolCalls: ToolCall[]; output?: string }
   | { type: 'PAUSE'; reason: 'user_input' | 'approval_required' | 'confirmation'; context?: unknown }
   | { type: 'RESUME'; feedback?: string; input?: string }
   | { type: 'ERROR'; error: AppError; recoverable: boolean }
   | { type: 'COMPLETE'; result: string; diff?: string; turnCount: number }
   | { type: 'ABORT'; reason: string };
+
+interface PlanOptions {
+  allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
+  launchSwarm?: boolean;
+  teammateCount?: number;
+  pushToRemote?: boolean;
+}
 
 interface AgentOptions {
   maxTurns?: number;
@@ -267,7 +288,7 @@ export const guards = {
   },
 
   hasValidSession: (ctx: AgentContext) => {
-    return ctx.session?.isActive === true;
+    return ctx.session?.status === 'active';
   },
 
   canPause: (ctx: AgentContext) => {
@@ -480,32 +501,38 @@ export type Action = keyof typeof actions;
 | # | From State | Event | Guard(s) | Action(s) | To State |
 |---|------------|-------|----------|-----------|----------|
 | 1 | `idle` | `START` | `hasValidTask` | `initializeExecution`, `updateStatus` | `starting` |
-| 2 | `starting` | `STEP` | - | `incrementTurn`, `updateStatus` | `running` |
+| 2 | `starting` | `STEP` | - | `incrementTurn`, `updateStatus` | `planning` |
 | 3 | `starting` | `ERROR` | - | `captureError`, `updateStatus` | `error` |
-| 4 | `running` | `STEP` | `withinTurnLimit` | `executeToolCall`, `auditToolCall`, `incrementTurn`, `publishEvent` | `running` |
-| 5 | `running` | `STEP` | `atTurnLimit` | `publishEvent`, `updateStatus` | `paused` (turn limit) |
-| 6 | `running` | `PAUSE` | `canPause` | `updateStatus`, `publishEvent` | `paused` |
-| 7 | `running` | `COMPLETE` | - | `updateStatus`, `publishEvent`, `cleanup` | `completed` |
-| 8 | `running` | `ERROR` | `isRecoverable` | `captureError`, `updateStatus` | `error` |
-| 9 | `running` | `ERROR` | `!isRecoverable` | `captureError`, `updateStatus`, `cleanup` | `idle` |
-| 10 | `running` | `ABORT` | - | `updateStatus`, `cleanup` | `idle` |
-| 11 | `paused` | `RESUME` | `canResume` | `updateStatus`, `publishEvent` | `running` |
-| 12 | `paused` | `ABORT` | - | `updateStatus`, `cleanup` | `idle` |
-| 13 | `error` | `RESUME` | `canResume`, `isRecoverable` | `updateStatus` | `running` |
-| 14 | `error` | `ABORT` | - | `cleanup`, `updateStatus` | `idle` |
-| 15 | `completed` | `START` | `hasValidTask` | `initializeExecution`, `updateStatus` | `starting` |
+| 4 | `planning` | `PLAN_READY` | - | `capturePlan`, `publishEvent`, `updateStatus` | `planning` (awaiting approval) |
+| 5 | `planning` | `APPROVE_PLAN` | `hasPlan` | `updateStatus`, `publishEvent` | `running` |
+| 6 | `planning` | `ERROR` | `isRecoverable` | `captureError`, `updateStatus` | `error` |
+| 7 | `planning` | `ERROR` | `!isRecoverable` | `captureError`, `updateStatus`, `cleanup` | `idle` |
+| 8 | `planning` | `ABORT` | - | `updateStatus`, `cleanup` | `idle` |
+| 9 | `running` | `STEP` | `withinTurnLimit` | `executeToolCall`, `auditToolCall`, `incrementTurn`, `publishEvent` | `running` |
+| 10 | `running` | `STEP` | `atTurnLimit` | `publishEvent`, `updateStatus` | `paused` (turn limit) |
+| 11 | `running` | `PAUSE` | `canPause` | `updateStatus`, `publishEvent` | `paused` |
+| 12 | `running` | `COMPLETE` | - | `updateStatus`, `publishEvent`, `cleanup` | `completed` |
+| 13 | `running` | `ERROR` | `isRecoverable` | `captureError`, `updateStatus` | `error` |
+| 14 | `running` | `ERROR` | `!isRecoverable` | `captureError`, `updateStatus`, `cleanup` | `idle` |
+| 15 | `running` | `ABORT` | - | `updateStatus`, `cleanup` | `idle` |
+| 16 | `paused` | `RESUME` | `canResume` | `updateStatus`, `publishEvent` | `running` |
+| 17 | `paused` | `ABORT` | - | `updateStatus`, `cleanup` | `idle` |
+| 18 | `error` | `RESUME` | `canResume`, `isRecoverable` | `updateStatus` | `running` |
+| 19 | `error` | `ABORT` | - | `cleanup`, `updateStatus` | `idle` |
+| 20 | `completed` | `START` | `hasValidTask` | `initializeExecution`, `updateStatus` | `starting` |
 
 ### Transition Validation Matrix
 
 ```
-              | START | STEP | PAUSE | RESUME | ERROR | COMPLETE | ABORT |
---------------+-------+------+-------+--------+-------+----------+-------|
-idle          |   X   |  -   |   -   |   -    |   -   |    -     |   -   |
-starting      |   -   |  X   |   -   |   -    |   X   |    -     |   X   |
-running       |   -   |  X   |   X   |   -    |   X   |    X     |   X   |
-paused        |   -   |  -   |   -   |   X    |   -   |    -     |   X   |
-error         |   -   |  -   |   -   |   X    |   -   |    -     |   X   |
-completed     |   X   |  -   |   -   |   -    |   -   |    -     |   -   |
+              | START | STEP | PLAN_READY | APPROVE_PLAN | PAUSE | RESUME | ERROR | COMPLETE | ABORT |
+--------------+-------+------+------------+--------------+-------+--------+-------+----------+-------|
+idle          |   X   |  -   |     -      |      -       |   -   |   -    |   -   |    -     |   -   |
+starting      |   -   |  X   |     -      |      -       |   -   |   -    |   X   |    -     |   X   |
+planning      |   -   |  -   |     X      |      X       |   -   |   -    |   X   |    -     |   X   |
+running       |   -   |  X   |     -      |      -       |   X   |   -    |   X   |    X     |   X   |
+paused        |   -   |  -   |     -      |      -       |   -   |   X    |   -   |    -     |   X   |
+error         |   -   |  -   |     -      |      -       |   -   |   X    |   -   |    -     |   X   |
+completed     |   X   |  -   |     -      |      -       |   -   |   -    |   -   |    -     |   -   |
 
 Legend: X = valid transition, - = invalid/no-op
 ```
@@ -541,7 +568,7 @@ export const agentLifecycleMachine = createMachine({
     starting: {
       on: {
         STEP: {
-          target: 'running',
+          target: 'planning',
           actions: ['incrementTurn', 'updateStatus'],
         },
         ERROR: {
@@ -551,6 +578,38 @@ export const agentLifecycleMachine = createMachine({
         ABORT: {
           target: 'idle',
           actions: ['cleanup', 'updateStatus'],
+        },
+      },
+    },
+
+    planning: {
+      // Agent explores codebase with permissionMode: 'plan'
+      // and calls ExitPlanMode tool when plan is ready
+      on: {
+        PLAN_READY: {
+          target: 'planning',
+          actions: ['capturePlan', 'publishEvent', 'updateStatus'],
+        },
+        APPROVE_PLAN: {
+          target: 'running',
+          guard: 'hasPlan',
+          actions: ['updateStatus', 'publishEvent'],
+        },
+        ERROR: [
+          {
+            target: 'error',
+            guard: 'isRecoverable',
+            actions: ['captureError', 'updateStatus'],
+          },
+          {
+            target: 'idle',
+            guard: ({ event }) => !event.recoverable,
+            actions: ['captureError', 'updateStatus', 'cleanup'],
+          },
+        ],
+        ABORT: {
+          target: 'idle',
+          actions: ['updateStatus', 'cleanup'],
         },
       },
     },
@@ -765,7 +824,7 @@ type AgentEvent =
   | { type: 'stream:token'; text: string };
 
 interface AgentState {
-  status: 'idle' | 'starting' | 'running' | 'paused' | 'error' | 'completed';
+  status: 'idle' | 'starting' | 'planning' | 'running' | 'paused' | 'error' | 'completed';
   sessionId?: string;
   taskId?: string;
   turn?: number;
@@ -773,6 +832,8 @@ interface AgentState {
   currentTool?: string;
   diff?: string;
   feedback?: string;
+  plan?: string;
+  planOptions?: PlanOptions;
 }
 ```
 

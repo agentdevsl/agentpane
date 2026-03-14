@@ -75,8 +75,8 @@ ASCII State Diagram (Session Flow):
 ### State Properties
 
 ```typescript
-// db/schema/enums.ts
-export const sessionStatusEnum = pgEnum('session_status', [
+// db/schema/shared/enums.ts
+export const SESSION_STATUS = [
   'idle',
   'initializing',
   'active',
@@ -84,7 +84,8 @@ export const sessionStatusEnum = pgEnum('session_status', [
   'closing',
   'closed',
   'error',
-]);
+] as const;
+export type SessionStatus = (typeof SESSION_STATUS)[number];
 
 // State metadata
 interface SessionStateMetadata {
