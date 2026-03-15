@@ -1,4 +1,5 @@
-import { createContext, type ReactNode, useContext, useMemo, useReducer } from 'react';
+import { createContext, type ReactNode, useContext, useEffect, useMemo, useReducer } from 'react';
+import { useTopologyStream } from '@/app/hooks/use-topology-stream';
 import type { TopologyDecision, TopologyGraph, TopologyNode } from '@/lib/topology/types';
 
 interface TopologyMetrics {
@@ -19,7 +20,7 @@ interface TopologyState {
   structureVersion: number;
 }
 
-type TopologyAction =
+export type TopologyAction =
   | {
       type: 'ADD_NODE';
       node: TopologyNode;
@@ -131,7 +132,7 @@ interface TopologyProviderProps {
   initialData?: TopologyGraph;
 }
 
-export function TopologyProvider({ children, initialData }: TopologyProviderProps) {
+export function TopologyProvider({ children, sessionId, initialData }: TopologyProviderProps) {
   const initial: TopologyState = {
     graph: initialData ?? EMPTY_GRAPH,
     metrics: computeMetrics(initialData ?? EMPTY_GRAPH),
@@ -141,6 +142,16 @@ export function TopologyProvider({ children, initialData }: TopologyProviderProp
   };
 
   const [state, dispatch] = useReducer(topologyReducer, initial);
+
+  // Sync initialData prop changes into reducer (e.g. async fetch after mount)
+  useEffect(() => {
+    if (initialData) {
+      dispatch({ type: 'REPLACE_GRAPH', graph: initialData });
+    }
+  }, [initialData]);
+
+  // Subscribe to live topology events when sessionId is provided
+  useTopologyStream(sessionId, dispatch);
 
   const selectedNode = useMemo(
     () => state.graph.nodes.find((n) => n.id === state.selectedNodeId) ?? null,

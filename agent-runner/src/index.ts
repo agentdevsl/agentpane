@@ -33,6 +33,120 @@ import {
 import type { AgentFileChangedData } from './event-emitter.js';
 import { createEventEmitter } from './event-emitter.js';
 
+/** Map SDK agent_type or task description to a topology role */
+function mapAgentRole(agentType?: string, description?: string): string {
+  const text = `${agentType ?? ''} ${description ?? ''}`.toLowerCase();
+  if (text.includes('plan')) return 'planner';
+  if (text.includes('review') || text.includes('code-review')) return 'reviewer';
+  if (text.includes('test') || text.includes('pr-test')) return 'tester';
+  if (text.includes('scan') || text.includes('security') || text.includes('silent-failure'))
+    return 'scanner';
+  if (text.includes('deploy')) return 'deployer';
+  if (text.includes('orchestrat') || text.includes('lead') || text.includes('team'))
+    return 'orchestrator';
+  return 'coder';
+}
+
+/** Derive display name from SDK task description or agent_type */
+function deriveAgentName(agentType?: string, description?: string): string {
+  if (description) {
+    return description.length > 40 ? `${description.slice(0, 37)}...` : description;
+  }
+  if (agentType) {
+    return agentType
+      .split('-')
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+  }
+  return 'Agent';
+}
+
+/** Tracks subagent topology state. Maps SDK task_id → generated node id. */
+interface TopologyTracker {
+  taskToNodeId: Map<string, string>;
+  rootEmitted: boolean;
+}
+
+/** Handle SDK system messages for subagent lifecycle */
+function handleTopologySystemMsg(
+  msg: Record<string, unknown>,
+  tracker: TopologyTracker,
+  events: ReturnType<typeof createEventEmitter>,
+  rootAgentId: string
+): void {
+  const subtype = msg.subtype as string | undefined;
+  if (!subtype) return;
+
+  if (subtype === 'task_started') {
+    const sdkTaskId = msg.task_id as string;
+    const description = msg.description as string | undefined;
+    const taskType = msg.task_type as string | undefined;
+    if (!sdkTaskId) return;
+
+    // Emit root orchestrator on first subagent
+    if (!tracker.rootEmitted) {
+      tracker.rootEmitted = true;
+      events.topologySpawned({
+        agentId: rootAgentId,
+        name: 'Orchestrator',
+        role: 'orchestrator',
+        parentId: null,
+      });
+    }
+
+    const nodeId = `sub-${sdkTaskId.slice(0, 8)}-${Date.now()}`;
+    tracker.taskToNodeId.set(sdkTaskId, nodeId);
+
+    events.topologySpawned({
+      agentId: nodeId,
+      name: deriveAgentName(taskType, description),
+      role: mapAgentRole(taskType, description),
+      parentId: rootAgentId,
+      sdkTaskId,
+    });
+  }
+
+  if (subtype === 'task_progress') {
+    const sdkTaskId = msg.task_id as string;
+    const nodeId = tracker.taskToNodeId.get(sdkTaskId);
+    if (!nodeId) return;
+
+    const usage = msg.usage as
+      | { total_tokens?: number; tool_uses?: number; duration_ms?: number }
+      | undefined;
+
+    events.topologyProgress({
+      agentId: nodeId,
+      sdkTaskId,
+      tokens: usage?.total_tokens ?? 0,
+      toolUses: usage?.tool_uses ?? 0,
+      durationMs: usage?.duration_ms ?? 0,
+      summary: msg.summary as string | undefined,
+      lastToolName: msg.last_tool_name as string | undefined,
+    });
+  }
+
+  if (subtype === 'task_notification') {
+    const sdkTaskId = msg.task_id as string;
+    const nodeId = tracker.taskToNodeId.get(sdkTaskId);
+    if (!nodeId) return;
+
+    const usage = msg.usage as
+      | { total_tokens?: number; tool_uses?: number; duration_ms?: number }
+      | undefined;
+
+    events.topologyCompleted({
+      agentId: nodeId,
+      sdkTaskId,
+      status: (msg.status as 'completed' | 'failed' | 'stopped') ?? 'completed',
+      summary: msg.summary as string | undefined,
+      tokens: usage?.total_tokens,
+      toolUses: usage?.tool_uses,
+      durationMs: usage?.duration_ms,
+    });
+  }
+}
+
 /** File-modifying tool names and how to extract the path from their input */
 const FILE_MODIFY_TOOLS: Record<
   string,
@@ -462,9 +576,9 @@ async function runPlanningPhase(): Promise<void> {
 
       // Capture SDK session ID from init message
       if (msg.type === 'system') {
-        const sysMsg = msg as { subtype?: string; session_id?: string };
-        if (sysMsg.subtype === 'init' && sysMsg.session_id) {
-          sdkSessionId = sysMsg.session_id;
+        const sysMsg = msg as { subtype?: string };
+        if (sysMsg.subtype === 'init') {
+          sdkSessionId = session.sessionId;
           console.error(`[agent-runner] SDK session ID: ${sdkSessionId}`);
         }
       }
@@ -532,41 +646,48 @@ async function runPlanningPhase(): Promise<void> {
         });
       }
 
+      // Handle rate_limit_event (SDK v0.2.76+)
+      if (msg.type === 'rate_limit_event') {
+        const rateLimitMsg = msg as {
+          rate_limit_info: { status: string; resetsAt?: number };
+        };
+        console.error(`[agent-runner] Rate limit: ${rateLimitMsg.rate_limit_info.status}`);
+      }
+
       // Handle tool_use_summary events (actual tool completion with results from SDK)
       if (msg.type === 'tool_use_summary') {
         const toolSummary = msg as {
-          tool_use_id?: string;
-          tool_name?: string;
-          tool_input?: Record<string, unknown>;
-          tool_result?: string;
-          is_error?: boolean;
+          summary: string;
+          preceding_tool_use_ids: string[];
         };
 
         console.error(
-          `[agent-runner] Tool summary: ${toolSummary.tool_name} (id: ${toolSummary.tool_use_id ?? 'none'}, error: ${toolSummary.is_error})`
+          `[agent-runner] Tool summary: ids=${toolSummary.preceding_tool_use_ids.join(',')}`
         );
 
-        if (toolSummary.tool_use_id) {
-          // Remove from activeTools to avoid duplicate emission
-          const startInfo = activeTools.get(toolSummary.tool_use_id);
-          activeTools.delete(toolSummary.tool_use_id);
+        // Emit tool results for each preceding tool using tracked activeTools
+        for (const toolId of toolSummary.preceding_tool_use_ids) {
+          const startInfo = activeTools.get(toolId);
+          if (startInfo) {
+            activeTools.delete(toolId);
+            const durationMs = Date.now() - startInfo.startTime;
+            events.toolResult({
+              toolName: startInfo.toolName,
+              toolId,
+              result: toolSummary.summary ?? '',
+              isError: false,
+              durationMs,
+            });
 
-          // Emit tool result with actual content from SDK
-          const startTime = startInfo?.startTime ?? Date.now();
-          events.toolResult({
-            toolName: toolSummary.tool_name ?? 'unknown',
-            toolId: toolSummary.tool_use_id,
-            result: toolSummary.tool_result ?? '',
-            isError: toolSummary.is_error ?? false,
-            durationMs: Date.now() - startTime,
-          });
-        }
-
-        // ExitPlanMode tool completed — do NOT close session here.
-        // The stream will naturally flow to a 'result' message, which is the safe exit point.
-        // Closing mid-iteration causes "Operation aborted" unhandled rejections.
-        if (toolSummary.tool_name === 'ExitPlanMode' && !toolSummary.is_error) {
-          console.error('[agent-runner] ExitPlanMode tool completed — waiting for result message');
+            // ExitPlanMode tool completed — do NOT close session here.
+            // The stream will naturally flow to a 'result' message, which is the safe exit point.
+            // Closing mid-iteration causes "Operation aborted" unhandled rejections.
+            if (startInfo.toolName === 'ExitPlanMode') {
+              console.error(
+                '[agent-runner] ExitPlanMode tool completed — waiting for result message'
+              );
+            }
+          }
         }
       }
 
@@ -675,6 +796,10 @@ async function runExecutionPhase(): Promise<void> {
     model: config.model,
     maxTurns: config.maxTurns,
   });
+
+  // Topology tracker for subagent lifecycle events
+  const topology: TopologyTracker = { taskToNodeId: new Map(), rootEmitted: false };
+  const rootAgentId = `agent-${config.taskId}`;
 
   console.error('[agent-runner] Starting EXECUTION phase...');
   if (config.sdkSessionId) {
@@ -882,34 +1007,51 @@ async function runExecutionPhase(): Promise<void> {
         }
       }
 
+      // Handle rate_limit_event (SDK v0.2.76+)
+      if (msg.type === 'rate_limit_event') {
+        const rateLimitMsg = msg as {
+          rate_limit_info: { status: string; resetsAt?: number };
+        };
+        console.error(`[agent-runner] Rate limit: ${rateLimitMsg.rate_limit_info.status}`);
+      }
+
+      // Handle system messages for subagent topology (task_started, task_progress, task_notification)
+      if (msg.type === 'system') {
+        const sysMsg = msg as Record<string, unknown>;
+        const sysSubtype = sysMsg.subtype as string | undefined;
+        if (
+          sysSubtype === 'task_started' ||
+          sysSubtype === 'task_progress' ||
+          sysSubtype === 'task_notification'
+        ) {
+          handleTopologySystemMsg(sysMsg, topology, events, rootAgentId);
+        }
+      }
+
       // Handle tool_use_summary events (actual tool completion with results from SDK)
       if (msg.type === 'tool_use_summary') {
         const toolSummary = msg as {
-          tool_use_id?: string;
-          tool_name?: string;
-          tool_input?: Record<string, unknown>;
-          tool_result?: string;
-          is_error?: boolean;
+          summary: string;
+          preceding_tool_use_ids: string[];
         };
 
         console.error(
-          `[agent-runner] Tool summary: ${toolSummary.tool_name} (error: ${toolSummary.is_error})`
+          `[agent-runner] Tool summary: ids=${toolSummary.preceding_tool_use_ids.join(',')}`
         );
 
-        if (toolSummary.tool_use_id) {
-          // Remove from activeTools to avoid duplicate emission
-          const startInfo = activeTools.get(toolSummary.tool_use_id);
-          activeTools.delete(toolSummary.tool_use_id);
-
-          // Emit tool result with actual content from SDK
-          const startTime = startInfo?.startTime ?? Date.now();
-          events.toolResult({
-            toolName: toolSummary.tool_name ?? 'unknown',
-            toolId: toolSummary.tool_use_id,
-            result: toolSummary.tool_result ?? '',
-            isError: toolSummary.is_error ?? false,
-            durationMs: Date.now() - startTime,
-          });
+        for (const toolId of toolSummary.preceding_tool_use_ids) {
+          const startInfo = activeTools.get(toolId);
+          if (startInfo) {
+            activeTools.delete(toolId);
+            const durationMs = Date.now() - startInfo.startTime;
+            events.toolResult({
+              toolName: startInfo.toolName,
+              toolId,
+              result: toolSummary.summary ?? '',
+              isError: false,
+              durationMs,
+            });
+          }
         }
       }
 

@@ -20,7 +20,10 @@ export type AgentRunnerEventType =
   | 'agent:error'
   | 'agent:cancelled'
   | 'agent:plan_ready'
-  | 'agent:file_changed';
+  | 'agent:file_changed'
+  | 'agent:topology:spawned'
+  | 'agent:topology:progress'
+  | 'agent:topology:completed';
 
 /**
  * Maps agent-runner event types to durable streams event types.
@@ -38,6 +41,9 @@ export const EVENT_TYPE_MAP: Record<AgentRunnerEventType, TypedEventType> = {
   'agent:cancelled': 'container-agent:cancelled',
   'agent:plan_ready': 'container-agent:plan_ready',
   'agent:file_changed': 'container-agent:file_changed',
+  'agent:topology:spawned': 'topology:agent_spawned',
+  'agent:topology:progress': 'topology:agent_progress',
+  'agent:topology:completed': 'topology:agent_completed',
 } as const;
 
 /**

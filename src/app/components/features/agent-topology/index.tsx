@@ -3,13 +3,15 @@ import { AgentTopology as AgentTopologyInner } from './agent-topology';
 import { TopologyProvider } from './topology-context';
 
 interface AgentTopologyProps {
+  /** Session ID to subscribe to for live topology events */
   sessionId?: string;
-  mockData?: TopologyGraph;
+  /** Static topology data (used when no sessionId is provided) */
+  initialData?: TopologyGraph;
 }
 
-export function AgentTopology({ sessionId, mockData }: AgentTopologyProps): React.JSX.Element {
+export function AgentTopology({ sessionId, initialData }: AgentTopologyProps): React.JSX.Element {
   return (
-    <TopologyProvider sessionId={sessionId} initialData={mockData}>
+    <TopologyProvider sessionId={sessionId} initialData={initialData}>
       <AgentTopologyInner />
     </TopologyProvider>
   );

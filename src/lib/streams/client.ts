@@ -180,6 +180,38 @@ const rawContainerAgentFileChangedSchema = z.object({
 });
 
 /**
+ * Topology event schemas
+ */
+const rawTopologyAgentSpawnedSchema = z.object({
+  agentId: z.string(),
+  taskId: z.string().optional(),
+  name: z.string(),
+  role: z.string(),
+  parentId: z.string().nullable(),
+  sdkTaskId: z.string().optional(),
+});
+
+const rawTopologyAgentProgressSchema = z.object({
+  agentId: z.string(),
+  sdkTaskId: z.string(),
+  tokens: z.number(),
+  toolUses: z.number(),
+  durationMs: z.number(),
+  summary: z.string().optional(),
+  lastToolName: z.string().optional(),
+});
+
+const rawTopologyAgentCompletedSchema = z.object({
+  agentId: z.string(),
+  sdkTaskId: z.string().optional(),
+  status: z.enum(['completed', 'failed', 'stopped']),
+  summary: z.string().optional(),
+  tokens: z.number().optional(),
+  toolUses: z.number().optional(),
+  durationMs: z.number().optional(),
+});
+
+/**
  * Reconnection configuration
  */
 export interface ReconnectConfig {
@@ -232,7 +264,11 @@ export type SessionEventType =
   | 'container-agent:cancelled'
   | 'container-agent:plan_ready'
   | 'container-agent:worktree'
-  | 'container-agent:file_changed';
+  | 'container-agent:file_changed'
+  // Topology events
+  | 'topology:agent_spawned'
+  | 'topology:agent_progress'
+  | 'topology:agent_completed';
 
 /**
  * Raw event from the server
@@ -371,6 +407,41 @@ export interface ContainerAgentFileChanged {
 }
 
 /**
+ * Topology event types
+ */
+export interface TopologyAgentSpawned {
+  agentId: string;
+  taskId?: string;
+  name: string;
+  role: string;
+  parentId: string | null;
+  sdkTaskId?: string;
+  timestamp: number;
+}
+
+export interface TopologyAgentProgress {
+  agentId: string;
+  sdkTaskId: string;
+  tokens: number;
+  toolUses: number;
+  durationMs: number;
+  summary?: string;
+  lastToolName?: string;
+  timestamp: number;
+}
+
+export interface TopologyAgentCompleted {
+  agentId: string;
+  sdkTaskId?: string;
+  status: 'completed' | 'failed' | 'stopped';
+  summary?: string;
+  tokens?: number;
+  toolUses?: number;
+  durationMs?: number;
+  timestamp: number;
+}
+
+/**
  * Typed session event for callback routing
  */
 export type TypedSessionEvent =
@@ -391,7 +462,10 @@ export type TypedSessionEvent =
   | { channel: 'containerAgent:cancelled'; data: ContainerAgentCancelled; offset?: number }
   | { channel: 'containerAgent:planReady'; data: ContainerAgentPlanReady; offset?: number }
   | { channel: 'containerAgent:worktree'; data: ContainerAgentWorktree; offset?: number }
-  | { channel: 'containerAgent:fileChanged'; data: ContainerAgentFileChanged; offset?: number };
+  | { channel: 'containerAgent:fileChanged'; data: ContainerAgentFileChanged; offset?: number }
+  | { channel: 'topology:agentSpawned'; data: TopologyAgentSpawned; offset?: number }
+  | { channel: 'topology:agentProgress'; data: TopologyAgentProgress; offset?: number }
+  | { channel: 'topology:agentCompleted'; data: TopologyAgentCompleted; offset?: number };
 
 /**
  * Callbacks for session subscription
@@ -470,6 +544,22 @@ export interface SessionCallbacks {
   onContainerAgentFileChanged?: (event: {
     channel: 'containerAgent:fileChanged';
     data: ContainerAgentFileChanged;
+    offset?: number;
+  }) => void;
+  // Topology callbacks
+  onTopologyAgentSpawned?: (event: {
+    channel: 'topology:agentSpawned';
+    data: TopologyAgentSpawned;
+    offset?: number;
+  }) => void;
+  onTopologyAgentProgress?: (event: {
+    channel: 'topology:agentProgress';
+    data: TopologyAgentProgress;
+    offset?: number;
+  }) => void;
+  onTopologyAgentCompleted?: (event: {
+    channel: 'topology:agentCompleted';
+    data: TopologyAgentCompleted;
     offset?: number;
   }) => void;
   onError?: (error: Error) => void;
@@ -1057,6 +1147,55 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
       };
     }
 
+    // Topology events
+    case 'topology:agent_spawned': {
+      const parsed = rawTopologyAgentSpawnedSchema.safeParse(raw.data);
+      if (!parsed.success) {
+        console.warn(
+          '[DurableStreamsClient] Invalid topology:agent_spawned:',
+          parsed.error.message
+        );
+        return null;
+      }
+      return {
+        channel: 'topology:agentSpawned',
+        data: { ...parsed.data, timestamp: raw.timestamp },
+        offset: raw.offset,
+      };
+    }
+
+    case 'topology:agent_progress': {
+      const parsed = rawTopologyAgentProgressSchema.safeParse(raw.data);
+      if (!parsed.success) {
+        console.warn(
+          '[DurableStreamsClient] Invalid topology:agent_progress:',
+          parsed.error.message
+        );
+        return null;
+      }
+      return {
+        channel: 'topology:agentProgress',
+        data: { ...parsed.data, timestamp: raw.timestamp },
+        offset: raw.offset,
+      };
+    }
+
+    case 'topology:agent_completed': {
+      const parsed = rawTopologyAgentCompletedSchema.safeParse(raw.data);
+      if (!parsed.success) {
+        console.warn(
+          '[DurableStreamsClient] Invalid topology:agent_completed:',
+          parsed.error.message
+        );
+        return null;
+      }
+      return {
+        channel: 'topology:agentCompleted',
+        data: { ...parsed.data, timestamp: raw.timestamp },
+        offset: raw.offset,
+      };
+    }
+
     default:
       console.warn(
         '[DurableStreamsClient] Unknown event type received:',
@@ -1127,6 +1266,16 @@ function routeEventToCallback(event: TypedSessionEvent, callbacks: SessionCallba
       break;
     case 'containerAgent:fileChanged':
       callbacks.onContainerAgentFileChanged?.(event);
+      break;
+    // Topology events
+    case 'topology:agentSpawned':
+      callbacks.onTopologyAgentSpawned?.(event);
+      break;
+    case 'topology:agentProgress':
+      callbacks.onTopologyAgentProgress?.(event);
+      break;
+    case 'topology:agentCompleted':
+      callbacks.onTopologyAgentCompleted?.(event);
       break;
   }
 }

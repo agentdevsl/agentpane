@@ -362,6 +362,45 @@ export interface TerraformErrorEvent {
 }
 
 // ============================================
+// Topology events
+// ============================================
+
+export interface TopologyAgentSpawnedEvent {
+  agentId: string;
+  taskId: string;
+  name: string;
+  role: string;
+  parentId: string | null;
+  sdkTaskId?: string;
+}
+
+export interface TopologyAgentStatusEvent {
+  agentId: string;
+  status: string;
+  progress?: number;
+}
+
+export interface TopologyAgentProgressEvent {
+  agentId: string;
+  sdkTaskId: string;
+  tokens: number;
+  toolUses: number;
+  durationMs: number;
+  summary?: string;
+  lastToolName?: string;
+}
+
+export interface TopologyAgentCompletedEvent {
+  agentId: string;
+  sdkTaskId?: string;
+  status: 'completed' | 'failed' | 'stopped';
+  summary?: string;
+  tokens?: number;
+  toolUses?: number;
+  durationMs?: number;
+}
+
+// ============================================
 // Type-safe Event Map
 // ============================================
 
@@ -416,6 +455,12 @@ export interface StreamEventMap {
   'container-agent:plan_ready': ContainerAgentPlanReadyEvent;
   'container-agent:worktree': ContainerAgentWorktreeEvent;
   'container-agent:file_changed': ContainerAgentFileChangedEvent;
+
+  // Topology events
+  'topology:agent_spawned': TopologyAgentSpawnedEvent;
+  'topology:agent_status': TopologyAgentStatusEvent;
+  'topology:agent_progress': TopologyAgentProgressEvent;
+  'topology:agent_completed': TopologyAgentCompletedEvent;
 
   // Terraform compose events
   'terraform:status': TerraformStatusEvent;

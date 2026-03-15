@@ -1,6 +1,7 @@
 import { type CanUseTool, unstable_v2_createSession } from '@anthropic-ai/claude-agent-sdk';
 import { createId } from '@paralleldrive/cuid2';
 import type { SessionEvent } from '../../services/session.service.js';
+import { deriveAgentName, mapAgentRole } from '../topology/map-agent-role.js';
 import { buildSdkEnv } from './agent-sdk-utils.js';
 import { getToolHandler } from './tools/index.js';
 import type { AgentHooks, ToolContext, ToolResponse } from './types.js';
@@ -121,6 +122,133 @@ async function publishCompactBoundary(
   });
 }
 
+/**
+ * Tracks subagent topology state during a session.
+ * Maps SDK task_id → topology node id for correlating progress/completion events.
+ */
+interface TopologyTracker {
+  /** SDK task_id → generated topology node id */
+  taskToNodeId: Map<string, string>;
+  /** Whether the root orchestrator node has been emitted */
+  rootEmitted: boolean;
+}
+
+function createTopologyTracker(): TopologyTracker {
+  return { taskToNodeId: new Map(), rootEmitted: false };
+}
+
+/**
+ * Handle SDK system messages related to subagent lifecycle.
+ * Returns true if the message was a topology event (consumed).
+ */
+async function handleTopologySystemMessage(
+  msg: Record<string, unknown>,
+  tracker: TopologyTracker,
+  sessionService: { publish: (sessionId: string, event: SessionEvent) => Promise<unknown> },
+  sessionId: string,
+  agentId: string,
+  taskId?: string
+): Promise<boolean> {
+  const subtype = msg.subtype as string | undefined;
+  if (!subtype) return false;
+
+  if (subtype === 'task_started') {
+    const sdkTaskId = msg.task_id as string;
+    const description = msg.description as string | undefined;
+    const taskType = msg.task_type as string | undefined;
+    if (!sdkTaskId) return false;
+
+    // Emit root orchestrator node on first subagent spawn
+    if (!tracker.rootEmitted) {
+      tracker.rootEmitted = true;
+      await sessionService.publish(sessionId, {
+        id: createId(),
+        type: 'topology:agent_spawned',
+        timestamp: Date.now(),
+        data: {
+          agentId,
+          taskId: taskId ?? '',
+          name: 'Orchestrator',
+          role: 'orchestrator',
+          parentId: null,
+        },
+      });
+    }
+
+    const nodeId = createId();
+    tracker.taskToNodeId.set(sdkTaskId, nodeId);
+
+    await sessionService.publish(sessionId, {
+      id: createId(),
+      type: 'topology:agent_spawned',
+      timestamp: Date.now(),
+      data: {
+        agentId: nodeId,
+        taskId: taskId ?? '',
+        name: deriveAgentName(taskType, description),
+        role: mapAgentRole(taskType, description),
+        parentId: agentId,
+        sdkTaskId,
+      },
+    });
+    return true;
+  }
+
+  if (subtype === 'task_progress') {
+    const sdkTaskId = msg.task_id as string;
+    const nodeId = tracker.taskToNodeId.get(sdkTaskId);
+    if (!nodeId) return false;
+
+    const usage = msg.usage as
+      | { total_tokens?: number; tool_uses?: number; duration_ms?: number }
+      | undefined;
+
+    await sessionService.publish(sessionId, {
+      id: createId(),
+      type: 'topology:agent_progress',
+      timestamp: Date.now(),
+      data: {
+        agentId: nodeId,
+        sdkTaskId,
+        tokens: usage?.total_tokens ?? 0,
+        toolUses: usage?.tool_uses ?? 0,
+        durationMs: usage?.duration_ms ?? 0,
+        summary: msg.summary as string | undefined,
+        lastToolName: msg.last_tool_name as string | undefined,
+      },
+    });
+    return true;
+  }
+
+  if (subtype === 'task_notification') {
+    const sdkTaskId = msg.task_id as string;
+    const nodeId = tracker.taskToNodeId.get(sdkTaskId);
+    if (!nodeId) return false;
+
+    const usage = msg.usage as
+      | { total_tokens?: number; tool_uses?: number; duration_ms?: number }
+      | undefined;
+
+    await sessionService.publish(sessionId, {
+      id: createId(),
+      type: 'topology:agent_completed',
+      timestamp: Date.now(),
+      data: {
+        agentId: nodeId,
+        sdkTaskId,
+        status: (msg.status as string) ?? 'completed',
+        summary: msg.summary as string | undefined,
+        tokens: usage?.total_tokens,
+        toolUses: usage?.tool_uses,
+        durationMs: usage?.duration_ms,
+      },
+    });
+    return true;
+  }
+
+  return false;
+}
+
 function extractResultMetrics(result: Record<string, unknown>): AgentRunResult['metrics'] {
   return {
     totalCostUsd: typeof result.total_cost_usd === 'number' ? result.total_cost_usd : undefined,
@@ -195,10 +323,28 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
     data: { agentId, runId, model },
   });
 
-  // Create canUseTool callback to capture ExitPlanMode options.
-  // The SDK's tool_use_summary may not include tool_input in newer versions,
+  // Track active tools by toolUseID for correlating with tool_use_summary
+  const activeTools = new Map<string, { toolName: string; startTime: number }>();
+
+  // Create canUseTool callback to capture ExitPlanMode options and emit tool:start events.
+  // The SDK's tool_use_summary in v0.2.76+ no longer includes tool_name/tool_input,
   // so we intercept via canUseTool which always receives the full input.
   const canUseTool: CanUseTool = async (toolName, input, toolOptions) => {
+    activeTools.set(toolOptions.toolUseID, { toolName, startTime: Date.now() });
+
+    await sessionService.publish(sessionId, {
+      id: createId(),
+      type: 'tool:start',
+      timestamp: Date.now(),
+      data: {
+        agentId,
+        toolId: toolOptions.toolUseID,
+        tool: toolName,
+        input: input as Record<string, unknown>,
+        phase: 'planning',
+      },
+    });
+
     if (toolName === 'ExitPlanMode') {
       const planOptions = input as ExitPlanModeOptions | undefined;
       exitPlanModeOptions = planOptions;
@@ -271,45 +417,64 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
           timestamp: Date.now(),
           data: { agentId, turn, phase: 'planning' },
         });
+
+        // Check for SDK-level errors on assistant messages (v0.2.76+)
+        const assistantError = (msg as { error?: string }).error;
+        if (assistantError) {
+          console.warn(`[StreamHandler] Agent ${agentId} assistant error: ${assistantError}`);
+          sessionService
+            .publish(sessionId, {
+              id: createId(),
+              type: 'agent:error',
+              timestamp: Date.now(),
+              data: {
+                agentId,
+                runId,
+                error: `Assistant error: ${assistantError}`,
+                phase: 'planning',
+              },
+            })
+            .catch((err) => {
+              console.warn(
+                '[StreamHandler] Failed to publish assistant error:',
+                err instanceof Error ? err.message : String(err)
+              );
+            });
+        }
       }
 
-      // Handle tool_use_summary - detect ExitPlanMode
+      // Handle tool_use_summary (SDK v0.2.76+: summary + preceding_tool_use_ids)
       if (msg.type === 'tool_use_summary') {
         const toolSummary = msg as {
-          tool_name?: string;
-          tool_input?: Record<string, unknown>;
-          tool_result?: string;
+          summary: string;
+          preceding_tool_use_ids: string[];
         };
 
-        // Publish tool event
-        await sessionService.publish(sessionId, {
-          id: createId(),
-          type: 'tool:start',
-          timestamp: Date.now(),
-          data: {
-            agentId,
-            tool: toolSummary.tool_name,
-            input: toolSummary.tool_input,
-            phase: 'planning',
-          },
-        });
+        for (const toolUseId of toolSummary.preceding_tool_use_ids) {
+          const tracked = activeTools.get(toolUseId);
+          if (!tracked) continue;
 
-        // Check if this is ExitPlanMode - this means the plan is ready
-        if (toolSummary.tool_name === 'ExitPlanMode') {
-          // Prefer options already captured by canUseTool callback (reliable).
-          // Fall back to tool_use_summary.tool_input if canUseTool didn't fire.
-          if (
-            !exitPlanModeOptions &&
-            toolSummary.tool_input &&
-            Object.keys(toolSummary.tool_input).length > 0
-          ) {
-            exitPlanModeOptions = toolSummary.tool_input as ExitPlanModeOptions;
+          await sessionService.publish(sessionId, {
+            id: createId(),
+            type: 'tool:result',
+            timestamp: Date.now(),
+            data: {
+              agentId,
+              toolId: toolUseId,
+              tool: tracked.toolName,
+              output: toolSummary.summary?.slice(0, 1000),
+              isError: false,
+              phase: 'planning',
+            },
+          });
+
+          // Check if this is ExitPlanMode - this means the plan is ready
+          if (tracked.toolName === 'ExitPlanMode') {
+            planContent = accumulated;
+            console.log(`[StreamHandler] Agent ${agentId} ExitPlanMode completed - plan is ready`);
           }
 
-          console.log(`[StreamHandler] Agent ${agentId} ExitPlanMode completed - plan is ready`);
-
-          // The plan content is in the accumulated text
-          planContent = accumulated;
+          activeTools.delete(toolUseId);
         }
       }
 
@@ -328,19 +493,41 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
         });
       }
 
-      // Handle compact_boundary events
-      if (msg.type === 'system' && (msg as { subtype?: string }).subtype === 'compact_boundary') {
-        publishCompactBoundary(
-          sessionService,
-          sessionId,
-          agentId,
-          msg as Record<string, unknown>
-        ).catch((err) => {
-          console.warn(
-            '[StreamHandler] Failed to publish compact_boundary:',
-            err instanceof Error ? err.message : String(err)
-          );
-        });
+      // Handle rate_limit_event (SDK v0.2.76+)
+      if (msg.type === 'rate_limit_event') {
+        const rateLimitMsg = msg as {
+          rate_limit_info: { status: string; resetsAt?: number };
+        };
+        sessionService
+          .publish(sessionId, {
+            id: createId(),
+            type: 'agent:rate_limit',
+            timestamp: Date.now(),
+            data: {
+              agentId,
+              status: rateLimitMsg.rate_limit_info.status,
+              resetsAt: rateLimitMsg.rate_limit_info.resetsAt,
+            },
+          })
+          .catch((err) => {
+            console.warn(
+              '[StreamHandler] Failed to publish rate_limit:',
+              err instanceof Error ? err.message : String(err)
+            );
+          });
+      }
+
+      // Handle system messages (compact_boundary) during planning
+      if (msg.type === 'system') {
+        const sysMsg = msg as Record<string, unknown>;
+        if ((sysMsg.subtype as string) === 'compact_boundary') {
+          publishCompactBoundary(sessionService, sessionId, agentId, sysMsg).catch((err) => {
+            console.warn(
+              '[StreamHandler] Failed to publish compact_boundary:',
+              err instanceof Error ? err.message : String(err)
+            );
+          });
+        }
       }
 
       // Handle result (planning session finished)
@@ -434,6 +621,9 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
   let turn = 0;
   let accumulated = '';
 
+  // Topology tracker for subagent lifecycle events
+  const topology = createTopologyTracker();
+
   // Publish agent started event
   await sessionService.publish(sessionId, {
     id: createId(),
@@ -442,6 +632,27 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
     data: { agentId, runId, maxTurns, model, phase: 'execution' },
   });
 
+  // Track active tools by toolUseID for correlating with tool_use_summary
+  const activeTools = new Map<string, { toolName: string; startTime: number }>();
+
+  const canUseTool: CanUseTool = async (toolName, input, toolOptions) => {
+    activeTools.set(toolOptions.toolUseID, { toolName, startTime: Date.now() });
+
+    await sessionService.publish(sessionId, {
+      id: createId(),
+      type: 'tool:start',
+      timestamp: Date.now(),
+      data: {
+        agentId,
+        toolId: toolOptions.toolUseID,
+        tool: toolName,
+        input: input as Record<string, unknown>,
+      },
+    });
+
+    return { behavior: 'allow' as const, toolUseID: toolOptions.toolUseID };
+  };
+
   // Create Claude Agent SDK session for execution
   const session = unstable_v2_createSession({
     model,
@@ -449,6 +660,7 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
     allowedTools,
     permissionMode: 'acceptEdits', // Auto-accept edits for execution
     executableArgs: ['--add-dir', cwd],
+    canUseTool,
   });
 
   try {
@@ -514,6 +726,25 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
           },
         });
 
+        // Check for SDK-level errors on assistant messages (v0.2.76+)
+        const assistantError = (msg as { error?: string }).error;
+        if (assistantError) {
+          console.warn(`[StreamHandler] Agent ${agentId} assistant error: ${assistantError}`);
+          sessionService
+            .publish(sessionId, {
+              id: createId(),
+              type: 'agent:error',
+              timestamp: Date.now(),
+              data: { agentId, runId, error: `Assistant error: ${assistantError}` },
+            })
+            .catch((err) => {
+              console.warn(
+                '[StreamHandler] Failed to publish assistant error:',
+                err instanceof Error ? err.message : String(err)
+              );
+            });
+        }
+
         if (turn >= maxTurns) {
           await sessionService.publish(sessionId, {
             id: createId(),
@@ -532,33 +763,32 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
         }
       }
 
-      // Handle tool_use_summary events
+      // Handle tool_use_summary events (SDK v0.2.76+: summary + preceding_tool_use_ids)
       if (msg.type === 'tool_use_summary') {
         const toolSummary = msg as {
-          tool_name?: string;
-          tool_input?: Record<string, unknown>;
-          tool_result?: string;
-          is_error?: boolean;
+          summary: string;
+          preceding_tool_use_ids: string[];
         };
 
-        await sessionService.publish(sessionId, {
-          id: createId(),
-          type: 'tool:start',
-          timestamp: Date.now(),
-          data: { agentId, tool: toolSummary.tool_name, input: toolSummary.tool_input },
-        });
+        for (const toolUseId of toolSummary.preceding_tool_use_ids) {
+          const tracked = activeTools.get(toolUseId);
+          if (!tracked) continue;
 
-        await sessionService.publish(sessionId, {
-          id: createId(),
-          type: 'tool:result',
-          timestamp: Date.now(),
-          data: {
-            agentId,
-            tool: toolSummary.tool_name,
-            output: toolSummary.tool_result?.slice(0, 1000),
-            isError: toolSummary.is_error,
-          },
-        });
+          await sessionService.publish(sessionId, {
+            id: createId(),
+            type: 'tool:result',
+            timestamp: Date.now(),
+            data: {
+              agentId,
+              toolId: toolUseId,
+              tool: tracked.toolName,
+              output: toolSummary.summary?.slice(0, 1000),
+              isError: false,
+            },
+          });
+
+          activeTools.delete(toolUseId);
+        }
       }
 
       // Handle tool_progress events
@@ -576,19 +806,59 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
         });
       }
 
-      // Handle compact_boundary events
-      if (msg.type === 'system' && (msg as { subtype?: string }).subtype === 'compact_boundary') {
-        publishCompactBoundary(
-          sessionService,
-          sessionId,
-          agentId,
-          msg as Record<string, unknown>
-        ).catch((err) => {
-          console.warn(
-            '[StreamHandler] Failed to publish compact_boundary:',
-            err instanceof Error ? err.message : String(err)
+      // Handle rate_limit_event (SDK v0.2.76+)
+      if (msg.type === 'rate_limit_event') {
+        const rateLimitMsg = msg as {
+          rate_limit_info: { status: string; resetsAt?: number };
+        };
+        sessionService
+          .publish(sessionId, {
+            id: createId(),
+            type: 'agent:rate_limit',
+            timestamp: Date.now(),
+            data: {
+              agentId,
+              status: rateLimitMsg.rate_limit_info.status,
+              resetsAt: rateLimitMsg.rate_limit_info.resetsAt,
+            },
+          })
+          .catch((err) => {
+            console.warn(
+              '[StreamHandler] Failed to publish rate_limit:',
+              err instanceof Error ? err.message : String(err)
+            );
+          });
+      }
+
+      // Handle system messages (compact_boundary + subagent topology)
+      if (msg.type === 'system') {
+        const sysMsg = msg as Record<string, unknown>;
+        const sysSubtype = sysMsg.subtype as string | undefined;
+
+        if (sysSubtype === 'compact_boundary') {
+          publishCompactBoundary(sessionService, sessionId, agentId, sysMsg).catch((err) => {
+            console.warn(
+              '[StreamHandler] Failed to publish compact_boundary:',
+              err instanceof Error ? err.message : String(err)
+            );
+          });
+        }
+
+        // Handle subagent lifecycle events (task_started, task_progress, task_notification)
+        if (
+          sysSubtype === 'task_started' ||
+          sysSubtype === 'task_progress' ||
+          sysSubtype === 'task_notification'
+        ) {
+          handleTopologySystemMessage(sysMsg, topology, sessionService, sessionId, agentId).catch(
+            (err) => {
+              console.warn(
+                '[StreamHandler] Failed to publish topology event:',
+                err instanceof Error ? err.message : String(err)
+              );
+            }
           );
-        });
+        }
       }
 
       // Handle result (agent finished)

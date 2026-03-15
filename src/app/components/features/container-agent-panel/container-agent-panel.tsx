@@ -1,7 +1,6 @@
 import { Square } from '@phosphor-icons/react';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { AgentTopology } from '@/app/components/features/agent-topology';
-import { createLargeTopologyGraph } from '@/app/components/features/agent-topology/mock/mock-topology-data';
 import { Button } from '@/app/components/ui/button';
 import { useContainerAgent } from '@/app/hooks/use-container-agent';
 import { cn } from '@/lib/utils/cn';
@@ -52,7 +51,6 @@ export function ContainerAgentPanel({
   const hasChanges = state.fileChanges.length > 0;
   // Prefer stream event provider, fall back to session record
   const resolvedProvider = state.sandboxProvider ?? sessionSandboxProvider;
-  const mockTopology = useMemo(() => createLargeTopologyGraph(), []);
 
   return (
     <div className="flex flex-1 min-h-0 min-w-0 flex-col rounded-lg border border-border bg-surface">
@@ -173,7 +171,7 @@ export function ContainerAgentPanel({
           </div>
         ) : (
           <div className="flex-1 min-h-0 min-w-0 flex flex-col">
-            <AgentTopology mockData={mockTopology} />
+            <AgentTopology sessionId={sessionId ?? undefined} />
           </div>
         )}
       </div>
