@@ -1,5 +1,6 @@
 import {
   ArrowClockwise,
+  ArrowSquareOut,
   Calendar,
   ChatCircle,
   CheckCircle,
@@ -7,11 +8,13 @@ import {
   Cube,
   CurrencyDollar,
   Folder,
+  GitBranch,
   Play,
   Trash,
   Wrench,
 } from '@phosphor-icons/react';
 import { useState } from 'react';
+import { AgentTopology } from '@/app/components/features/agent-topology';
 import { Button } from '@/app/components/ui/button';
 import { ExecutionBadge } from '@/app/components/ui/execution-badge';
 import { Skeleton, SkeletonText } from '@/app/components/ui/skeleton';
@@ -26,7 +29,7 @@ import { StreamViewer } from './stream-viewer';
 import { ToolCallsFullView } from './tool-calls-full-view';
 
 /** Active view tab type */
-type ViewTab = 'replay' | 'tools';
+type ViewTab = 'replay' | 'tools' | 'topology';
 
 export function SessionDetailView({
   session,
@@ -209,11 +212,21 @@ export function SessionDetailView({
                   : session.status.charAt(0).toUpperCase() + session.status.slice(1)}
             </span>
           </div>
-          {onRefresh && (
-            <Button variant="ghost" size="sm" onClick={onRefresh} title="Refresh session">
-              <ArrowClockwise className="h-4 w-4" />
-            </Button>
-          )}
+          <div className="flex items-center gap-1">
+            <a
+              href={`/sessions/${session.id}`}
+              className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-fg-muted hover:bg-surface-subtle hover:text-fg transition-colors"
+              title="Open full session view"
+            >
+              <ArrowSquareOut className="h-3.5 w-3.5" />
+              Open
+            </a>
+            {onRefresh && (
+              <Button variant="ghost" size="sm" onClick={onRefresh} title="Refresh session">
+                <ArrowClockwise className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Meta info - unified row with separators */}
@@ -281,6 +294,23 @@ export function SessionDetailView({
                 </span>
               )}
             </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeView === 'topology'}
+              aria-controls="topology-panel"
+              className={cn(
+                'flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-all duration-fast',
+                activeView === 'topology'
+                  ? 'bg-accent text-white shadow-sm'
+                  : 'text-fg-muted hover:bg-surface-muted hover:text-fg'
+              )}
+              onClick={() => setActiveView('topology')}
+              data-testid="tab-topology"
+            >
+              <GitBranch className="h-4 w-4" weight={activeView === 'topology' ? 'fill' : 'bold'} />
+              Topology
+            </button>
           </div>
         </div>
       </header>
@@ -295,7 +325,7 @@ export function SessionDetailView({
         >
           <StreamViewer entries={entries} isLoading={eventsLoading} />
         </div>
-      ) : (
+      ) : activeView === 'tools' ? (
         <div
           id="tool-calls-panel"
           role="tabpanel"
@@ -307,6 +337,15 @@ export function SessionDetailView({
             stats={toolCallStats}
             isLoading={eventsLoading}
           />
+        </div>
+      ) : (
+        <div
+          id="topology-panel"
+          role="tabpanel"
+          aria-labelledby="tab-topology"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+        >
+          <AgentTopology sessionId={session.id} />
         </div>
       )}
 

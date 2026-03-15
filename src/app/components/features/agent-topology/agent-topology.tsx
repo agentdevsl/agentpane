@@ -104,7 +104,11 @@ function TopologyInner(): React.JSX.Element {
   if (isEmpty) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-12 text-center">
-        <p className="text-sm text-fg-muted">No topology data available.</p>
+        <p className="text-sm font-medium text-fg-muted">No subagent topology yet</p>
+        <p className="max-w-sm text-xs text-fg-subtle">
+          The topology graph appears when the agent spawns subagents during execution. Subagent
+          events are captured in real-time from the SDK.
+        </p>
       </div>
     );
   }

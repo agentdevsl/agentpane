@@ -10,9 +10,11 @@ const API_PORT = 3001;
 const VITE_PORT = 3000;
 const STREAMS_PORT = 3002;
 
-// Enable SKIP_AUTH via --skip-auth flag or SKIP_AUTH env var
-if (process.argv.includes('--skip-auth')) {
-  process.env.SKIP_AUTH = 'true';
+// Enable SKIP_AUTH by default in dev (opt out with --no-skip-auth or SKIP_AUTH=false)
+if (process.argv.includes('--skip-auth') || !process.argv.includes('--no-skip-auth')) {
+  if (process.env.SKIP_AUTH !== 'false') {
+    process.env.SKIP_AUTH = 'true';
+  }
 }
 if (process.env.SKIP_AUTH === 'true') {
   process.env.NODE_ENV = 'development';

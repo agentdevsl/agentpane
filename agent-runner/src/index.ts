@@ -817,8 +817,16 @@ async function runExecutionPhase(): Promise<void> {
   });
 
   // Topology tracker for subagent lifecycle events
-  const topology: TopologyTracker = { taskToNodeId: new Map(), rootEmitted: false };
+  const topology: TopologyTracker = { taskToNodeId: new Map(), rootEmitted: true };
   const rootAgentId = `agent-${config.taskId}`;
+
+  // Always emit root agent node in topology
+  events.topologySpawned({
+    agentId: rootAgentId,
+    name: 'Agent',
+    role: 'orchestrator',
+    parentId: null,
+  });
 
   console.error('[agent-runner] Starting EXECUTION phase...');
   if (config.sdkSessionId) {

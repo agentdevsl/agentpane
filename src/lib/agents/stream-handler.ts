@@ -643,6 +643,20 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
     data: { agentId, runId, maxTurns, model, phase: 'execution' },
   });
 
+  // Always emit root agent node in topology
+  topology.rootEmitted = true;
+  await sessionService.publish(sessionId, {
+    id: createId(),
+    type: 'topology:agent_spawned',
+    timestamp: Date.now(),
+    data: {
+      agentId,
+      name: 'Agent',
+      role: 'orchestrator',
+      parentId: null,
+    },
+  });
+
   // Track active tools by toolUseID for correlating with tool_use_summary
   const activeTools = new Map<string, { toolName: string; startTime: number }>();
 
@@ -883,6 +897,14 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
           result.usage != null && typeof result.usage === 'object'
             ? (result.usage as { input_tokens?: number; output_tokens?: number })
             : undefined;
+
+        // Complete root topology node
+        await sessionService.publish(sessionId, {
+          id: createId(),
+          type: 'topology:agent_completed',
+          timestamp: Date.now(),
+          data: { agentId, status: 'completed' },
+        });
 
         await sessionService.publish(sessionId, {
           id: createId(),

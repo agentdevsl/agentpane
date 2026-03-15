@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AgentTopology } from '@/app/components/features/agent-topology';
 import { ErrorState } from '@/app/components/features/error-state';
 import { Skeleton } from '@/app/components/ui/skeleton';
 import { TooltipProvider } from '@/app/components/ui/tooltip';
 import { useAgentStream } from '@/app/hooks/use-agent-stream';
 import { usePresence } from '@/app/hooks/use-presence';
 import { useSession } from '@/app/hooks/use-session';
+import { cn } from '@/lib/utils/cn';
 import { type ActivityItem, type ActivityItemType, ActivitySidebar } from './activity-sidebar';
 import { type AgentStatus, HeaderBar } from './header-bar';
 import { InputArea } from './input-area';
 import { PresenceBar } from './presence-bar';
 import { StreamPanel } from './stream-panel';
 import { useStreamParser } from './use-stream-parser';
+
+type SessionTab = 'stream' | 'topology';
 
 export interface AgentSessionViewProps {
   sessionId: string;
@@ -139,6 +143,7 @@ export function AgentSessionView({
   const { state, leave } = useSession(sessionId, userId);
   const { isStreaming } = useAgentStream(sessionId);
   const { users } = usePresence(sessionId, userId);
+  const [activeTab, setActiveTab] = useState<SessionTab>('stream');
 
   // Parse stream content into display lines
   const streamLines = useStreamParser(state.chunks, state.toolCalls, state.terminal);
@@ -372,8 +377,49 @@ export function AgentSessionView({
           <PresenceBar users={users} shareUrl={shareUrl} />
         </div>
 
-        {/* Stream panel - left column */}
-        <StreamPanel lines={streamLines} isStreaming={isStreaming} viewerColors={viewerColors} />
+        {/* Main content - left column with tabs */}
+        <div className="flex flex-col min-h-0">
+          {/* Tab bar */}
+          <div className="flex border-b border-border bg-surface-subtle px-2">
+            <button
+              type="button"
+              className={cn(
+                'px-4 py-2 text-sm font-medium transition-colors',
+                activeTab === 'stream'
+                  ? 'border-b-2 border-accent text-fg'
+                  : 'text-fg-muted hover:text-fg'
+              )}
+              onClick={() => setActiveTab('stream')}
+            >
+              Stream
+            </button>
+            <button
+              type="button"
+              className={cn(
+                'px-4 py-2 text-sm font-medium transition-colors',
+                activeTab === 'topology'
+                  ? 'border-b-2 border-accent text-fg'
+                  : 'text-fg-muted hover:text-fg'
+              )}
+              onClick={() => setActiveTab('topology')}
+            >
+              Topology
+            </button>
+          </div>
+
+          {/* Tab content */}
+          {activeTab === 'stream' ? (
+            <StreamPanel
+              lines={streamLines}
+              isStreaming={isStreaming}
+              viewerColors={viewerColors}
+            />
+          ) : (
+            <div className="flex-1 min-h-0">
+              <AgentTopology sessionId={sessionId} />
+            </div>
+          )}
+        </div>
 
         {/* Activity sidebar - right column, spans into input row */}
         <div className="row-span-2">
