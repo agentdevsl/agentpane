@@ -174,7 +174,11 @@ export function TopologyProvider({ children, sessionId, initialData }: TopologyP
     }
   }, [initialData]);
 
-  // Subscribe to live topology events when sessionId is provided
+  // Subscribe to live topology events when sessionId is provided.
+  // Note: The session detail view already subscribes via useSessionEvents.
+  // Passing undefined avoids opening a duplicate SSE connection which crashes the stream client.
+  // Topology events from the existing subscription are routed via the container-agent hook instead.
+  // Only subscribe when used standalone (e.g., container-agent-panel which passes sessionId directly).
   useTopologyStream(sessionId, dispatch);
 
   const selectedNode = useMemo(

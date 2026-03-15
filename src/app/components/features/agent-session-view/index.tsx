@@ -416,7 +416,7 @@ export function AgentSessionView({
             />
           ) : (
             <div className="flex-1 min-h-0">
-              <AgentTopology sessionId={sessionId} />
+              <AgentTopology />
             </div>
           )}
         </div>
