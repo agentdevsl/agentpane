@@ -362,6 +362,39 @@ export interface TerraformErrorEvent {
 }
 
 // ============================================
+// Topology events
+// ============================================
+
+export interface TopologyAgentSpawnedEvent {
+  agentId: string;
+  taskId?: string;
+  name: string;
+  role: string;
+  parentId: string | null;
+  sdkTaskId?: string;
+}
+
+export interface TopologyAgentProgressEvent {
+  agentId: string;
+  sdkTaskId: string;
+  tokens: number;
+  toolUses: number;
+  durationMs: number;
+  summary?: string;
+  lastToolName?: string;
+}
+
+export interface TopologyAgentCompletedEvent {
+  agentId: string;
+  sdkTaskId?: string;
+  status: 'completed' | 'failed' | 'stopped';
+  summary?: string;
+  tokens?: number;
+  toolUses?: number;
+  durationMs?: number;
+}
+
+// ============================================
 // Type-safe Event Map
 // ============================================
 
@@ -417,6 +450,11 @@ export interface StreamEventMap {
   'container-agent:worktree': ContainerAgentWorktreeEvent;
   'container-agent:file_changed': ContainerAgentFileChangedEvent;
 
+  // Topology events
+  'topology:agent_spawned': TopologyAgentSpawnedEvent;
+  'topology:agent_progress': TopologyAgentProgressEvent;
+  'topology:agent_completed': TopologyAgentCompletedEvent;
+
   // Terraform compose events
   'terraform:status': TerraformStatusEvent;
   'terraform:text': TerraformTextEvent;
@@ -471,6 +509,7 @@ export class DurableStreamsService {
     if (type.startsWith('sandbox:')) return 'sandbox';
     if (type.startsWith('task-creation:')) return 'taskCreation';
     if (type.startsWith('container-agent:')) return 'containerAgent';
+    if (type.startsWith('topology:')) return 'topology';
     if (type.startsWith('terraform:')) return 'terraform';
     return 'default';
   }

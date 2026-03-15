@@ -218,7 +218,6 @@ async function* handleInvocation(
     phase = 'execute',
     sdkSessionId,
     allowedPrompts,
-    cwd = '/workspace',
     oauthToken,
     stopFile,
   } = payload;
@@ -360,7 +359,6 @@ async function* handleInvocation(
       try {
         session = unstable_v2_resumeSession(sdkSessionId, {
           model,
-          cwd,
           env: { ...process.env },
           permissionMode,
           canUseTool,
@@ -380,7 +378,6 @@ async function* handleInvocation(
     if (!session) {
       session = unstable_v2_createSession({
         model,
-        cwd,
         env: { ...process.env },
         permissionMode,
         canUseTool,
@@ -449,9 +446,9 @@ async function* handleInvocation(
 
       // -- system: capture SDK session ID ---------------------------------
       if (msg.type === 'system') {
-        const sysMsg = msg as { subtype?: string; session_id?: string };
-        if (sysMsg.subtype === 'init' && sysMsg.session_id) {
-          capturedSdkSessionId = sysMsg.session_id;
+        const sysMsg = msg as { subtype?: string };
+        if (sysMsg.subtype === 'init') {
+          capturedSdkSessionId = session.sessionId;
           console.error(`[agentcore-handler] SDK session ID: ${capturedSdkSessionId}`);
         }
       }
@@ -521,32 +518,38 @@ async function* handleInvocation(
         }
       }
 
+      // -- rate_limit_event (SDK v0.2.76+) ---------------------------------
+      if (msg.type === 'rate_limit_event') {
+        const rateLimitMsg = msg as {
+          rate_limit_info: { status: string; resetsAt?: number };
+        };
+        console.error(`[agentcore-handler] Rate limit: ${rateLimitMsg.rate_limit_info.status}`);
+      }
+
       // -- tool_use_summary -----------------------------------------------
       if (msg.type === 'tool_use_summary') {
         const toolSummary = msg as {
-          tool_use_id?: string;
-          tool_name?: string;
-          tool_input?: Record<string, unknown>;
-          tool_result?: string;
-          is_error?: boolean;
+          summary: string;
+          preceding_tool_use_ids: string[];
         };
 
-        if (toolSummary.tool_use_id) {
-          const startInfo = activeTools.get(toolSummary.tool_use_id);
-          activeTools.delete(toolSummary.tool_use_id);
-          const startTime = startInfo?.startTime ?? Date.now();
-          yield evt('agent:tool:result', {
-            toolName: toolSummary.tool_name ?? 'unknown',
-            toolId: toolSummary.tool_use_id,
-            result: toolSummary.tool_result ?? '',
-            isError: toolSummary.is_error ?? false,
-            durationMs: Date.now() - startTime,
-          } satisfies AgentToolResultData);
-        }
+        for (const toolId of toolSummary.preceding_tool_use_ids) {
+          const startInfo = activeTools.get(toolId);
+          if (startInfo) {
+            activeTools.delete(toolId);
+            const durationMs = Date.now() - startInfo.startTime;
+            yield evt('agent:tool:result', {
+              toolName: startInfo.toolName,
+              toolId,
+              result: toolSummary.summary ?? '',
+              isError: false,
+              durationMs,
+            } satisfies AgentToolResultData);
 
-        // ExitPlanMode completed — wait for result message
-        if (toolSummary.tool_name === 'ExitPlanMode' && !toolSummary.is_error) {
-          console.error('[agentcore-handler] ExitPlanMode tool completed — waiting for result');
+            if (startInfo.toolName === 'ExitPlanMode') {
+              console.error('[agentcore-handler] ExitPlanMode tool completed — waiting for result');
+            }
+          }
         }
       }
 
@@ -660,7 +663,7 @@ async function* handleInvocation(
 
 const app = new BedrockAgentCoreApp({
   invocationHandler: {
-    process: handleInvocation,
+    process: handleInvocation as (payload: unknown, context: unknown) => AsyncGenerator<SSEEvent>,
   },
 });
 

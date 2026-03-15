@@ -300,6 +300,7 @@ describe('Hot Reload', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     // @ts-expect-error
     fs.watch = originalWatch;
   });

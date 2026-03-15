@@ -5,7 +5,7 @@
  * Used by both task creation and workflow analyzer.
  */
 
-import { unstable_v2_createSession } from '@anthropic-ai/claude-agent-sdk';
+import { unstable_v2_createSession, unstable_v2_prompt } from '@anthropic-ai/claude-agent-sdk';
 import { DEFAULT_TASK_CREATION_MODEL, getFullModelId } from '../constants/models.js';
 
 // =============================================================================
@@ -178,6 +178,46 @@ export async function agentQuery(
   } finally {
     session.close();
   }
+}
+
+/**
+ * Send a one-shot prompt to the Claude Agent SDK without manual session management.
+ *
+ * Uses `unstable_v2_prompt()` which handles session creation, streaming, and
+ * cleanup internally. Ideal for callers that don't need streaming callbacks.
+ *
+ * @param prompt - The prompt to send
+ * @param options - Optional configuration (model only; onToken not supported)
+ * @returns The complete response from the agent
+ */
+export async function agentPrompt(
+  prompt: string,
+  options: Omit<AgentQueryOptions, 'onToken'> = {}
+): Promise<AgentQueryResult> {
+  const { model = DEFAULT_MODEL } = options;
+
+  const result = await unstable_v2_prompt(prompt, {
+    model,
+    env: buildSdkEnv({ CLAUDE_CODE_ENABLE_TASKS: 'true' }),
+  });
+
+  // SDKResultMessage is SDKResultSuccess | SDKResultError
+  if (result.is_error) {
+    const errors = 'errors' in result ? (result.errors as string[]) : [];
+    throw new Error(errors[0] ?? 'Agent prompt failed');
+  }
+
+  const text = 'result' in result && typeof result.result === 'string' ? result.result : '';
+  const usage = result.usage;
+
+  return {
+    text,
+    usage: {
+      inputTokens: usage.input_tokens,
+      outputTokens: usage.output_tokens,
+    },
+    model: model,
+  };
 }
 
 // =============================================================================

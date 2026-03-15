@@ -23,6 +23,7 @@ export const STATUS_COLORS: Record<TopologyAgentStatus, string> = {
   verifying: '#FFD866',
   blocked: '#FCA572',
   failed: '#F87171',
+  stopped: '#94A3B8',
   queued: '#475569',
 };
 

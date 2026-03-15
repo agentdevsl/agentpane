@@ -318,10 +318,10 @@ export class TerraformComposeService {
           }
         }
 
-        // Handle tool_use_summary — detect AskUserQuestion completions
+        // Handle tool_use_summary — publish any captured questions from AskUserQuestion
+        // SDK v0.2.76+: tool_name is no longer available, but canUseTool already captured questions
         if (msg.type === 'tool_use_summary') {
-          const toolSummary = msg as { tool_name?: string; tool_input?: Record<string, unknown> };
-          if (toolSummary.tool_name === 'AskUserQuestion' && capturedQuestions.length > 0) {
+          if (capturedQuestions.length > 0) {
             const questions = capturedQuestions.map((q) => ({
               category: q.header ?? 'General',
               question: q.question,

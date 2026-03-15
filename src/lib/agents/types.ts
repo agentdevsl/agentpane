@@ -43,6 +43,12 @@ export const agentMessageSchema = z.discriminatedUnion('type', [
       })
     ),
   }),
+  // Tool use summary (SDK v0.2.76+)
+  z.object({
+    type: z.literal('tool_use_summary'),
+    summary: z.string(),
+    preceding_tool_use_ids: z.array(z.string()),
+  }),
   // Final result
   z.object({
     type: z.literal('result'),

@@ -18,6 +18,9 @@ describe('EVENT_TYPE_MAP', () => {
     'agent:cancelled': 'container-agent:cancelled',
     'agent:plan_ready': 'container-agent:plan_ready',
     'agent:file_changed': 'container-agent:file_changed',
+    'agent:topology:spawned': 'topology:agent_spawned',
+    'agent:topology:progress': 'topology:agent_progress',
+    'agent:topology:completed': 'topology:agent_completed',
   };
 
   it('should map all expected agent event types', () => {
@@ -31,14 +34,15 @@ describe('EVENT_TYPE_MAP', () => {
     }
   });
 
-  it('should contain exactly 11 mappings', () => {
-    expect(Object.keys(EVENT_TYPE_MAP)).toHaveLength(11);
+  it('should contain exactly 14 mappings', () => {
+    expect(Object.keys(EVENT_TYPE_MAP)).toHaveLength(14);
   });
 
-  it('should prefix all mapped types with container-agent:', () => {
-    for (const [, value] of Object.entries(EVENT_TYPE_MAP)) {
-      expect(value).toMatch(/^container-agent:/);
-    }
+  it('should map container-agent events with correct prefix', () => {
+    const containerEvents = Object.entries(EVENT_TYPE_MAP).filter(([, v]) =>
+      v.startsWith('container-agent:')
+    );
+    expect(containerEvents).toHaveLength(11);
   });
 
   it('should map each agent event to the correct container-agent event', () => {
@@ -47,8 +51,9 @@ describe('EVENT_TYPE_MAP', () => {
     }
   });
 
-  it('should preserve the event suffix after prefix replacement', () => {
+  it('should preserve the event suffix for container-agent mappings', () => {
     for (const [key, value] of Object.entries(EVENT_TYPE_MAP)) {
+      if (!value.startsWith('container-agent:')) continue;
       // 'agent:started' -> 'started', 'container-agent:started' -> 'started'
       const inputSuffix = key.replace(/^agent:/, '');
       const outputSuffix = value.replace(/^container-agent:/, '');
@@ -77,5 +82,11 @@ describe('EVENT_TYPE_MAP', () => {
   it('should include plan and file events', () => {
     expect(EVENT_TYPE_MAP['agent:plan_ready']).toBe('container-agent:plan_ready');
     expect(EVENT_TYPE_MAP['agent:file_changed']).toBe('container-agent:file_changed');
+  });
+
+  it('should include topology events', () => {
+    expect(EVENT_TYPE_MAP['agent:topology:spawned']).toBe('topology:agent_spawned');
+    expect(EVENT_TYPE_MAP['agent:topology:progress']).toBe('topology:agent_progress');
+    expect(EVENT_TYPE_MAP['agent:topology:completed']).toBe('topology:agent_completed');
   });
 });

@@ -156,13 +156,20 @@ export const BROWSER_STUBS: Record<string, string> = {
 
   // @anthropic-ai/claude-agent-sdk stub
   '\0claude-agent-sdk-stub': `
-    export const unstable_v2_createSession = () => {
-      throw new Error('Claude Agent SDK is only available on the server');
-    };
-    export const query = async () => {
-      throw new Error('Claude Agent SDK is only available on the server');
-    };
-    export default { unstable_v2_createSession, query };
+    const serverOnly = () => { throw new Error('Claude Agent SDK is only available on the server'); };
+    export const unstable_v2_createSession = serverOnly;
+    export const unstable_v2_resumeSession = serverOnly;
+    export const unstable_v2_prompt = async () => serverOnly();
+    export const query = async () => serverOnly();
+    export const listSessions = async () => serverOnly();
+    export const getSessionInfo = async () => serverOnly();
+    export const getSessionMessages = async () => serverOnly();
+    export const forkSession = async () => serverOnly();
+    export const renameSession = async () => serverOnly();
+    export const tagSession = async () => serverOnly();
+    export const tool = serverOnly;
+    export const createSdkMcpServer = serverOnly;
+    export default { unstable_v2_createSession, unstable_v2_resumeSession, unstable_v2_prompt, query };
   `,
 
   // @anthropic-ai/sdk stub

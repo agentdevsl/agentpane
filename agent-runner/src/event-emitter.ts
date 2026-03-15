@@ -23,7 +23,10 @@ export type AgentEventType =
   | 'agent:error'
   | 'agent:cancelled'
   | 'agent:plan_ready'
-  | 'agent:file_changed';
+  | 'agent:file_changed'
+  | 'agent:topology:spawned'
+  | 'agent:topology:progress'
+  | 'agent:topology:completed';
 
 export interface AgentEvent {
   type: AgentEventType;
@@ -90,6 +93,34 @@ export interface AgentFileChangedData {
   toolName: string;
   additions?: number;
   deletions?: number;
+}
+
+export interface AgentTopologySpawnedData {
+  agentId: string;
+  name: string;
+  role: string;
+  parentId: string | null;
+  sdkTaskId?: string;
+}
+
+export interface AgentTopologyProgressData {
+  agentId: string;
+  sdkTaskId: string;
+  tokens: number;
+  toolUses: number;
+  durationMs: number;
+  summary?: string;
+  lastToolName?: string;
+}
+
+export interface AgentTopologyCompletedData {
+  agentId: string;
+  sdkTaskId?: string;
+  status: 'completed' | 'failed' | 'stopped';
+  summary?: string;
+  tokens?: number;
+  toolUses?: number;
+  durationMs?: number;
 }
 
 export interface AgentPlanReadyData {
@@ -235,6 +266,27 @@ export class EventEmitter {
    */
   planReady(data: AgentPlanReadyData): void {
     this.emit('agent:plan_ready', { ...data }, true);
+  }
+
+  /**
+   * Emit agent:topology:spawned event (SYNC - important for UI node creation).
+   */
+  topologySpawned(data: AgentTopologySpawnedData): void {
+    this.emit('agent:topology:spawned', { ...data }, true);
+  }
+
+  /**
+   * Emit agent:topology:progress event (ASYNC - frequent metric updates).
+   */
+  topologyProgress(data: AgentTopologyProgressData): void {
+    this.emit('agent:topology:progress', { ...data }, false);
+  }
+
+  /**
+   * Emit agent:topology:completed event (SYNC - important for UI completion).
+   */
+  topologyCompleted(data: AgentTopologyCompletedData): void {
+    this.emit('agent:topology:completed', { ...data }, true);
   }
 }
 
