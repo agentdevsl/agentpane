@@ -122,6 +122,16 @@ async function publishCompactBoundary(
   });
 }
 
+const VALID_TOPOLOGY_STATUSES = new Set(['completed', 'failed', 'stopped']);
+
+/** Normalize SDK status to a value the client Zod schema accepts */
+function normalizeTopologyStatus(raw: unknown): 'completed' | 'failed' | 'stopped' {
+  if (typeof raw === 'string' && VALID_TOPOLOGY_STATUSES.has(raw)) {
+    return raw as 'completed' | 'failed' | 'stopped';
+  }
+  return 'completed';
+}
+
 /**
  * Tracks subagent topology state during a session.
  * Maps SDK task_id → topology node id for correlating progress/completion events.
@@ -236,7 +246,7 @@ async function handleTopologySystemMessage(
       data: {
         agentId: nodeId,
         sdkTaskId,
-        status: typeof msg.status === 'string' ? msg.status : 'completed',
+        status: normalizeTopologyStatus(msg.status),
         summary: typeof msg.summary === 'string' ? msg.summary : undefined,
         tokens: usage?.total_tokens,
         toolUses: usage?.tool_uses,
