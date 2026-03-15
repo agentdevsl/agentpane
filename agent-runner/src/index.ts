@@ -43,7 +43,11 @@ function normalizeTopologyStatus(raw: unknown): 'completed' | 'failed' | 'stoppe
   return 'completed';
 }
 
-/** Map SDK agent_type or task description to a topology role */
+/**
+ * Map SDK agent_type or task description to a topology role.
+ * Canonical source: src/lib/topology/map-agent-role.ts — keep in sync.
+ * Duplicated here due to agent-runner build boundary (separate package).
+ */
 function mapAgentRole(agentType?: string, description?: string): string {
   const text = `${agentType ?? ''} ${description ?? ''}`.toLowerCase();
   if (text.includes('deploy')) return 'deployer';
@@ -62,7 +66,10 @@ function mapAgentRole(agentType?: string, description?: string): string {
   return 'coder';
 }
 
-/** Derive display name from SDK task description or agent_type */
+/**
+ * Derive display name from SDK task description or agent_type.
+ * Canonical source: src/lib/topology/map-agent-role.ts — keep in sync.
+ */
 function deriveAgentName(agentType?: string, description?: string): string {
   if (description) {
     return description.length > 40 ? `${description.slice(0, 37)}...` : description;

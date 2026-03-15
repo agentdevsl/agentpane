@@ -41,6 +41,14 @@ function createNodeFromSpawned(data: TopologyAgentSpawned): TopologyNode {
   };
 }
 
+// Progress/cost estimation constants
+/** Rough estimate: ~500 tokens per 1% progress */
+const TOKENS_PER_PROGRESS_POINT = 500;
+/** Blended average token cost ($3/M input + $15/M output ≈ $9/M average) */
+const AVERAGE_TOKEN_COST = 0.000009;
+/** Rough estimate: one message exchange every ~5 seconds */
+const MS_PER_MESSAGE_ESTIMATE = 5000;
+
 /**
  * Hook that subscribes to topology SSE events and dispatches to the topology context.
  */
@@ -63,10 +71,8 @@ export function useTopologyStream(
   const handleProgress = useCallback(
     (event: { data: TopologyAgentProgress }) => {
       const { agentId, tokens, durationMs } = event.data;
-      // Estimate progress from token usage (rough heuristic: cap at 95% until completion)
-      const estimatedProgress = Math.min(95, Math.floor(tokens / 500));
-      // Rough cost estimate: $3/M input + $15/M output ≈ ~$0.000009/token average
-      const estimatedCost = Number.parseFloat((tokens * 0.000009).toFixed(4));
+      const estimatedProgress = Math.min(95, Math.floor(tokens / TOKENS_PER_PROGRESS_POINT));
+      const estimatedCost = Number.parseFloat((tokens * AVERAGE_TOKEN_COST).toFixed(4));
 
       dispatch({
         type: 'UPDATE_NODE',
@@ -76,7 +82,7 @@ export function useTopologyStream(
           cost: estimatedCost,
           progress: estimatedProgress,
           turns: event.data.toolUses,
-          messages: Math.ceil(durationMs / 5000), // rough message count estimate
+          messages: Math.ceil(durationMs / MS_PER_MESSAGE_ESTIMATE),
         },
       });
     },
