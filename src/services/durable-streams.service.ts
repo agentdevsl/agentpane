@@ -367,17 +367,11 @@ export interface TerraformErrorEvent {
 
 export interface TopologyAgentSpawnedEvent {
   agentId: string;
-  taskId: string;
+  taskId?: string;
   name: string;
   role: string;
   parentId: string | null;
   sdkTaskId?: string;
-}
-
-export interface TopologyAgentStatusEvent {
-  agentId: string;
-  status: string;
-  progress?: number;
 }
 
 export interface TopologyAgentProgressEvent {
@@ -458,7 +452,6 @@ export interface StreamEventMap {
 
   // Topology events
   'topology:agent_spawned': TopologyAgentSpawnedEvent;
-  'topology:agent_status': TopologyAgentStatusEvent;
   'topology:agent_progress': TopologyAgentProgressEvent;
   'topology:agent_completed': TopologyAgentCompletedEvent;
 
@@ -516,6 +509,7 @@ export class DurableStreamsService {
     if (type.startsWith('sandbox:')) return 'sandbox';
     if (type.startsWith('task-creation:')) return 'taskCreation';
     if (type.startsWith('container-agent:')) return 'containerAgent';
+    if (type.startsWith('topology:')) return 'topology';
     if (type.startsWith('terraform:')) return 'terraform';
     return 'default';
   }

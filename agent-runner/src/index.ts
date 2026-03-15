@@ -36,13 +36,18 @@ import { createEventEmitter } from './event-emitter.js';
 /** Map SDK agent_type or task description to a topology role */
 function mapAgentRole(agentType?: string, description?: string): string {
   const text = `${agentType ?? ''} ${description ?? ''}`.toLowerCase();
+  if (text.includes('deploy')) return 'deployer';
   if (text.includes('plan')) return 'planner';
   if (text.includes('review') || text.includes('code-review')) return 'reviewer';
   if (text.includes('test') || text.includes('pr-test')) return 'tester';
   if (text.includes('scan') || text.includes('security') || text.includes('silent-failure'))
     return 'scanner';
-  if (text.includes('deploy')) return 'deployer';
-  if (text.includes('orchestrat') || text.includes('lead') || text.includes('team'))
+  if (
+    text.includes('orchestrat') ||
+    text.includes('lead') ||
+    text.includes('team') ||
+    text.includes('coordinator')
+  )
     return 'orchestrator';
   return 'coder';
 }
@@ -94,7 +99,7 @@ function handleTopologySystemMsg(
       });
     }
 
-    const nodeId = `sub-${sdkTaskId.slice(0, 8)}-${Date.now()}`;
+    const nodeId = `sub-${sdkTaskId.slice(0, 8)}-${crypto.randomUUID().slice(0, 8)}`;
     tracker.taskToNodeId.set(sdkTaskId, nodeId);
 
     events.topologySpawned({
@@ -104,9 +109,7 @@ function handleTopologySystemMsg(
       parentId: rootAgentId,
       sdkTaskId,
     });
-  }
-
-  if (subtype === 'task_progress') {
+  } else if (subtype === 'task_progress') {
     const sdkTaskId = msg.task_id as string;
     const nodeId = tracker.taskToNodeId.get(sdkTaskId);
     if (!nodeId) return;
@@ -121,12 +124,10 @@ function handleTopologySystemMsg(
       tokens: usage?.total_tokens ?? 0,
       toolUses: usage?.tool_uses ?? 0,
       durationMs: usage?.duration_ms ?? 0,
-      summary: msg.summary as string | undefined,
-      lastToolName: msg.last_tool_name as string | undefined,
+      summary: typeof msg.summary === 'string' ? msg.summary : undefined,
+      lastToolName: typeof msg.last_tool_name === 'string' ? msg.last_tool_name : undefined,
     });
-  }
-
-  if (subtype === 'task_notification') {
+  } else if (subtype === 'task_notification') {
     const sdkTaskId = msg.task_id as string;
     const nodeId = tracker.taskToNodeId.get(sdkTaskId);
     if (!nodeId) return;
@@ -138,12 +139,16 @@ function handleTopologySystemMsg(
     events.topologyCompleted({
       agentId: nodeId,
       sdkTaskId,
-      status: (msg.status as 'completed' | 'failed' | 'stopped') ?? 'completed',
-      summary: msg.summary as string | undefined,
+      status:
+        typeof msg.status === 'string'
+          ? (msg.status as 'completed' | 'failed' | 'stopped')
+          : 'completed',
+      summary: typeof msg.summary === 'string' ? msg.summary : undefined,
       tokens: usage?.total_tokens,
       toolUses: usage?.tool_uses,
       durationMs: usage?.duration_ms,
     });
+    tracker.taskToNodeId.delete(sdkTaskId);
   }
 }
 

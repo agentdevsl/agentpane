@@ -1,4 +1,12 @@
-import { createContext, type ReactNode, useContext, useEffect, useMemo, useReducer } from 'react';
+import {
+  createContext,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+} from 'react';
 import { useTopologyStream } from '@/app/hooks/use-topology-stream';
 import type { TopologyDecision, TopologyGraph, TopologyNode } from '@/lib/topology/types';
 
@@ -27,7 +35,12 @@ export type TopologyAction =
       edges?: Array<{ id: string; sourceId: string; targetId: string }>;
     }
   | { type: 'UPDATE_NODE'; nodeId: string; updates: Partial<TopologyNode> }
-  | { type: 'COMPLETE_NODE'; nodeId: string; status: 'completed' | 'failed'; completedAt: number }
+  | {
+      type: 'COMPLETE_NODE';
+      nodeId: string;
+      status: 'completed' | 'failed' | 'stopped';
+      completedAt: number;
+    }
   | { type: 'ADD_DECISION'; nodeId: string; decision: TopologyDecision }
   | { type: 'REPLACE_GRAPH'; graph: TopologyGraph }
   | { type: 'SELECT_NODE'; nodeId: string | null }
@@ -48,9 +61,17 @@ function computeMetrics(graph: TopologyGraph): TopologyMetrics {
 function topologyReducer(state: TopologyState, action: TopologyAction): TopologyState {
   switch (action.type) {
     case 'ADD_NODE': {
+      const parentId = action.node.parentId;
+      // Update parent's childIds if the new node has a parent
+      const updatedNodes = parentId
+        ? state.graph.nodes.map((n) =>
+            n.id === parentId ? { ...n, childIds: [...n.childIds, action.node.id] } : n
+          )
+        : [...state.graph.nodes];
+      updatedNodes.push(action.node);
       const newGraph = {
         ...state.graph,
-        nodes: [...state.graph.nodes, action.node],
+        nodes: updatedNodes,
         edges: action.edges ? [...state.graph.edges, ...action.edges] : state.graph.edges,
       };
       return {
@@ -68,15 +89,16 @@ function topologyReducer(state: TopologyState, action: TopologyAction): Topology
       return { ...state, graph: newGraph, metrics: computeMetrics(newGraph) };
     }
     case 'COMPLETE_NODE': {
-      const newNodes = state.graph.nodes.map((n) =>
-        n.id === action.nodeId
-          ? {
-              ...n,
-              status: action.status,
-              completedAt: action.completedAt,
-              progress: action.status === 'completed' ? 100 : n.progress,
-            }
-          : n
+      const newNodes = state.graph.nodes.map(
+        (n): TopologyNode =>
+          n.id === action.nodeId
+            ? {
+                ...n,
+                status: action.status,
+                completedAt: action.completedAt,
+                progress: action.status === 'completed' ? 100 : n.progress,
+              }
+            : n
       );
       const newGraph = { ...state.graph, nodes: newNodes };
       return { ...state, graph: newGraph, metrics: computeMetrics(newGraph) };
@@ -143,9 +165,11 @@ export function TopologyProvider({ children, sessionId, initialData }: TopologyP
 
   const [state, dispatch] = useReducer(topologyReducer, initial);
 
-  // Sync initialData prop changes into reducer (e.g. async fetch after mount)
+  // Sync initialData prop changes into reducer (skip first render — already in initial state)
+  const prevInitialDataRef = useRef(initialData);
   useEffect(() => {
-    if (initialData) {
+    if (initialData && initialData !== prevInitialDataRef.current) {
+      prevInitialDataRef.current = initialData;
       dispatch({ type: 'REPLACE_GRAPH', graph: initialData });
     }
   }, [initialData]);

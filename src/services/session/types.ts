@@ -40,12 +40,8 @@ export type SessionEventType =
   | 'container-agent:plan_ready'
   // Topology event types
   | 'topology:agent_spawned'
-  | 'topology:agent_status'
   | 'topology:agent_progress'
-  | 'topology:agent_completed'
-  | 'topology:agent_failed'
-  | 'topology:decision'
-  | 'topology:snapshot';
+  | 'topology:agent_completed';
 
 export type SessionEvent = {
   id: string;

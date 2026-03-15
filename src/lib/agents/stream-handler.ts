@@ -236,13 +236,14 @@ async function handleTopologySystemMessage(
       data: {
         agentId: nodeId,
         sdkTaskId,
-        status: (msg.status as string) ?? 'completed',
-        summary: msg.summary as string | undefined,
+        status: typeof msg.status === 'string' ? msg.status : 'completed',
+        summary: typeof msg.summary === 'string' ? msg.summary : undefined,
         tokens: usage?.total_tokens,
         toolUses: usage?.tool_uses,
         durationMs: usage?.duration_ms,
       },
     });
+    tracker.taskToNodeId.delete(sdkTaskId);
     return true;
   }
 
@@ -845,19 +846,13 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
         }
 
         // Handle subagent lifecycle events (task_started, task_progress, task_notification)
+        // Awaited (not fire-and-forget) to preserve event ordering — spawned must precede progress/completed
         if (
           sysSubtype === 'task_started' ||
           sysSubtype === 'task_progress' ||
           sysSubtype === 'task_notification'
         ) {
-          handleTopologySystemMessage(sysMsg, topology, sessionService, sessionId, agentId).catch(
-            (err) => {
-              console.warn(
-                '[StreamHandler] Failed to publish topology event:',
-                err instanceof Error ? err.message : String(err)
-              );
-            }
-          );
+          await handleTopologySystemMessage(sysMsg, topology, sessionService, sessionId, agentId);
         }
       }
 

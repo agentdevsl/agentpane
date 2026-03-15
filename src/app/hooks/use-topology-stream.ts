@@ -86,7 +86,9 @@ export function useTopologyStream(
   const handleCompleted = useCallback(
     (event: { data: TopologyAgentCompleted }) => {
       const { agentId, status, tokens } = event.data;
-      const finalStatus = status === 'completed' ? 'completed' : 'failed';
+      // Map SDK status to topology status (completed, failed, stopped)
+      const finalStatus: 'completed' | 'failed' | 'stopped' =
+        status === 'completed' ? 'completed' : status === 'stopped' ? 'stopped' : 'failed';
 
       // Update final metrics before completing
       if (tokens) {

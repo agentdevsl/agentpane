@@ -7,12 +7,12 @@ import type { TopologyAgentRole } from './types.js';
 export function mapAgentRole(agentType?: string, description?: string): TopologyAgentRole {
   const text = `${agentType ?? ''} ${description ?? ''}`.toLowerCase();
 
+  if (text.includes('deploy')) return 'deployer';
   if (text.includes('plan')) return 'planner';
   if (text.includes('review') || text.includes('code-review')) return 'reviewer';
   if (text.includes('test') || text.includes('pr-test')) return 'tester';
   if (text.includes('scan') || text.includes('security') || text.includes('silent-failure'))
     return 'scanner';
-  if (text.includes('deploy')) return 'deployer';
   if (
     text.includes('orchestrat') ||
     text.includes('lead') ||

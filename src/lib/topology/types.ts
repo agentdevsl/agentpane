@@ -13,7 +13,8 @@ export type TopologyAgentStatus =
   | 'verifying'
   | 'completed'
   | 'blocked'
-  | 'failed';
+  | 'failed'
+  | 'stopped';
 
 export type TopologyDecisionType =
   | 'auto_verify'
