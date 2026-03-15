@@ -1479,7 +1479,13 @@ const app = createRouter({
   marketplaceService,
   agentService,
   commandRunner: bunCommandRunner,
-  getSandboxProvider: () => sandboxProvider,
+  getSandboxProvider: () => {
+    // In dev mode, trigger a lazy re-init if provider is null and no retry is pending
+    if (!sandboxProvider && isDev && !sandboxRetryTimer) {
+      scheduleSandboxRetry();
+    }
+    return sandboxProvider;
+  },
   getK8sProvider,
   getNomadProvider,
   cliMonitorService,
@@ -1668,9 +1674,10 @@ function startNomadHealInterval() {
 // Then start K8s/Nomad auto-heal intervals if providers are active.
 // If initialization fails (e.g. cluster not running at startup), retry with backoff.
 let sandboxRetryCount = 0;
-const SANDBOX_MAX_RETRIES = 10;
-const SANDBOX_BASE_DELAY_MS = 15_000; // 15 seconds
-const SANDBOX_MAX_DELAY_MS = 300_000; // 5 minutes
+const isDev = process.env.NODE_ENV === 'development';
+const SANDBOX_MAX_RETRIES = isDev ? 0 : 10; // 0 = unlimited in dev
+const SANDBOX_BASE_DELAY_MS = isDev ? 3_000 : 15_000; // 3s in dev, 15s in prod
+const SANDBOX_MAX_DELAY_MS = isDev ? 30_000 : 300_000; // 30s in dev, 5m in prod
 let sandboxRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
 function onSandboxProviderReady() {
@@ -1690,7 +1697,7 @@ function onSandboxProviderReady() {
 }
 
 function scheduleSandboxRetry() {
-  if (sandboxRetryCount >= SANDBOX_MAX_RETRIES) {
+  if (SANDBOX_MAX_RETRIES > 0 && sandboxRetryCount >= SANDBOX_MAX_RETRIES) {
     log.warn(
       `[API Server] Sandbox provider initialization failed after ${SANDBOX_MAX_RETRIES} retries — giving up. Restart the server to try again.`
     );
