@@ -405,20 +405,21 @@ export function useContainerAgent(sessionId: string | null): {
       onContainerAgentFileChanged: (event) => callbacksRef.current.handleFileChanged(event.data),
       onError: (error) => {
         console.error('[useContainerAgent] Stream error:', error);
-        setConnectionState('disconnected');
+      },
+      onConnectionStateChange: (nextState) => {
+        setConnectionState(nextState);
       },
       onReconnect: () => {
         console.log('[useContainerAgent] Reconnected to session stream');
-        setConnectionState('connected');
       },
       onDisconnect: () => {
         console.log('[useContainerAgent] Disconnected from session stream');
-        setConnectionState('reconnecting');
       },
     };
 
     const subscription = subscribeToSession(sessionId, callbacks);
     subscriptionRef.current = subscription;
+    setConnectionState(subscription.getState());
 
     return () => {
       subscription.unsubscribe();

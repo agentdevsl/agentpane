@@ -3,6 +3,8 @@
  */
 
 import { Hono } from 'hono';
+import { RBAC_ROLE_LEVEL } from '../../db/schema/shared/enums.js';
+import type { AuthContext } from '../../lib/api/auth-middleware.js';
 import {
   composeRequestSchema,
   createRegistrySchema,
@@ -20,9 +22,26 @@ interface TerraformDeps {
 /** Strip the internal tokenSettingKey before returning registry data to the client. */
 function omitTokenKey<T extends { tokenSettingKey: string }>(
   registry: T
-): Omit<T, 'tokenSettingKey'> {
+): Omit<T, 'tokenSettingKey'> & { hasToken: boolean } {
   const { tokenSettingKey: _, ...rest } = registry;
-  return rest;
+  return { ...rest, hasToken: true };
+}
+
+function requireTerraformAdmin(c: {
+  get: (key: 'auth') => AuthContext | undefined;
+}): Response | null {
+  const auth = c.get('auth');
+  const roleLevel = auth?.roleLevel ?? 0;
+
+  if (auth?.authMethod === 'dev') {
+    return null;
+  }
+
+  if (roleLevel < RBAC_ROLE_LEVEL.admin) {
+    return json({ ok: false, error: { code: 'FORBIDDEN', message: 'Requires admin role' } }, 403);
+  }
+
+  return null;
 }
 
 export function createTerraformRoutes({
@@ -46,6 +65,7 @@ export function createTerraformRoutes({
             id: r.id,
             name: r.name,
             orgName: r.orgName,
+            hasToken: true,
             status: r.status,
             lastSyncedAt: r.lastSyncedAt,
             syncError: r.syncError,
@@ -72,7 +92,7 @@ export function createTerraformRoutes({
     let body: {
       name: string;
       orgName: string;
-      tokenSettingKey: string;
+      apiToken: string;
       syncIntervalMinutes?: number;
     };
     try {
@@ -85,6 +105,11 @@ export function createTerraformRoutes({
     }
 
     try {
+      const denied = requireTerraformAdmin(c);
+      if (denied) {
+        return denied;
+      }
+
       const parsed = createRegistrySchema.safeParse(body);
       if (!parsed.success) {
         return json(
@@ -153,6 +178,11 @@ export function createTerraformRoutes({
     }
 
     try {
+      const denied = requireTerraformAdmin(c);
+      if (denied) {
+        return denied;
+      }
+
       const result = await terraformRegistryService.deleteRegistry(id);
       if (!result.ok) {
         return json({ ok: false, error: result.error }, result.error.status);
@@ -182,7 +212,7 @@ export function createTerraformRoutes({
     let body: {
       name?: string;
       orgName?: string;
-      tokenSettingKey?: string;
+      apiToken?: string;
       syncIntervalMinutes?: number | null;
     };
     try {
@@ -195,6 +225,11 @@ export function createTerraformRoutes({
     }
 
     try {
+      const denied = requireTerraformAdmin(c);
+      if (denied) {
+        return denied;
+      }
+
       const parsed = updateRegistrySchema.safeParse(body);
       if (!parsed.success) {
         return json(
@@ -236,6 +271,11 @@ export function createTerraformRoutes({
     }
 
     try {
+      const denied = requireTerraformAdmin(c);
+      if (denied) {
+        return denied;
+      }
+
       console.log(`[Terraform] Syncing registry ${id}`);
       const result = await terraformRegistryService.sync(id);
       if (!result.ok) {

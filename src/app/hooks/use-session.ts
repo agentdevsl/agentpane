@@ -199,23 +199,25 @@ export function useSession(
 
       onError: (error) => {
         console.error('[useSession] Stream error:', error);
-        setConnectionState('disconnected');
+      },
+
+      onConnectionStateChange: (nextState) => {
+        setConnectionState(nextState);
       },
 
       onReconnect: () => {
         console.log('[useSession] Reconnected to session stream');
-        setConnectionState('connected');
       },
 
       onDisconnect: () => {
         console.log('[useSession] Disconnected from session stream');
-        setConnectionState('reconnecting');
       },
     };
 
     // Subscribe using the durable streams client with automatic reconnection
     const subscription = subscribeToSession(sessionId, callbacks);
     subscriptionRef.current = subscription;
+    setConnectionState(subscription.getState());
 
     return () => {
       subscription.unsubscribe();

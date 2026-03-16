@@ -1,3 +1,4 @@
+import { createId } from '@paralleldrive/cuid2';
 import { and, desc, eq, like, or } from 'drizzle-orm';
 import type {
   NewTerraformRegistry,
@@ -7,6 +8,7 @@ import type {
   TerraformVariable,
 } from '../db/schema';
 import { settings, terraformModules, terraformRegistries } from '../db/schema';
+import { decryptToken, encryptToken } from '../lib/crypto/server-encryption.js';
 import type { TerraformError } from '../lib/errors/terraform-errors.js';
 import { TerraformErrors } from '../lib/errors/terraform-errors.js';
 import { type RegistryConfig, syncAllModules } from '../lib/terraform/registry-client.js';
@@ -17,14 +19,14 @@ import type { Database } from '../types/database.js';
 export interface CreateRegistryInput {
   name: string;
   orgName: string;
-  tokenSettingKey: string;
+  apiToken: string;
   syncIntervalMinutes?: number | null;
 }
 
 export interface UpdateRegistryInput {
   name?: string;
   orgName?: string;
-  tokenSettingKey?: string;
+  apiToken?: string;
   syncIntervalMinutes?: number | null;
 }
 
@@ -49,6 +51,32 @@ export class TerraformRegistryService {
     return new Date().toISOString();
   }
 
+  private getTokenSettingKey(registryId: string): string {
+    return `terraform.registry.${registryId}.apiToken`;
+  }
+
+  private async saveEncryptedToken(
+    key: string,
+    apiToken: string,
+    updatedAt: string
+  ): Promise<void> {
+    const encryptedToken = encryptToken(apiToken);
+    await this.db
+      .insert(settings)
+      .values({
+        key,
+        value: encryptedToken,
+        updatedAt,
+      })
+      .onConflictDoUpdate({
+        target: settings.key,
+        set: {
+          value: encryptedToken,
+          updatedAt,
+        },
+      });
+  }
+
   /**
    * Create a new Terraform registry
    */
@@ -67,12 +95,17 @@ export class TerraformRegistryService {
     }
 
     const now = this.updateTimestamp();
+    const registryId = createId();
+    const tokenSettingKey = this.getTokenSettingKey(registryId);
+    await this.saveEncryptedToken(tokenSettingKey, input.apiToken, now);
+
     const [created] = await this.db
       .insert(terraformRegistries)
       .values({
+        id: registryId,
         name: input.name,
         orgName: input.orgName,
-        tokenSettingKey: input.tokenSettingKey,
+        tokenSettingKey,
         status: 'active',
         syncIntervalMinutes: input.syncIntervalMinutes ?? null,
         nextSyncAt: input.syncIntervalMinutes
@@ -84,6 +117,7 @@ export class TerraformRegistryService {
       .returning();
 
     if (!created) {
+      await this.db.delete(settings).where(eq(settings.key, tokenSettingKey));
       console.error('[TerraformRegistryService] Failed to create registry');
       return err(TerraformErrors.REGISTRY_CREATE_FAILED);
     }
@@ -125,13 +159,29 @@ export class TerraformRegistryService {
     id: string,
     input: UpdateRegistryInput
   ): Promise<Result<TerraformRegistry, TerraformError>> {
+    const now = this.updateTimestamp();
+    const existing = await this.db.query.terraformRegistries.findFirst({
+      where: eq(terraformRegistries.id, id),
+    });
+
+    if (!existing) {
+      return err(TerraformErrors.REGISTRY_NOT_FOUND);
+    }
+
+    const previousTokenSetting = await this.db.query.settings.findFirst({
+      where: eq(settings.key, existing.tokenSettingKey),
+    });
+
+    if (input.apiToken !== undefined) {
+      await this.saveEncryptedToken(existing.tokenSettingKey, input.apiToken, now);
+    }
+
     const updates: Partial<TerraformRegistry> = {
-      updatedAt: this.updateTimestamp(),
+      updatedAt: now,
     };
 
     if (input.name !== undefined) updates.name = input.name;
     if (input.orgName !== undefined) updates.orgName = input.orgName;
-    if (input.tokenSettingKey !== undefined) updates.tokenSettingKey = input.tokenSettingKey;
     if (input.syncIntervalMinutes !== undefined) {
       updates.syncIntervalMinutes = input.syncIntervalMinutes;
       updates.nextSyncAt = input.syncIntervalMinutes
@@ -146,6 +196,23 @@ export class TerraformRegistryService {
       .returning();
 
     if (!updated) {
+      if (input.apiToken !== undefined) {
+        if (previousTokenSetting) {
+          await this.db
+            .insert(settings)
+            .values(previousTokenSetting)
+            .onConflictDoUpdate({
+              target: settings.key,
+              set: {
+                value: previousTokenSetting.value,
+                updatedAt: previousTokenSetting.updatedAt,
+              },
+            });
+        } else {
+          await this.db.delete(settings).where(eq(settings.key, existing.tokenSettingKey));
+        }
+      }
+
       return err(TerraformErrors.REGISTRY_NOT_FOUND);
     }
 
@@ -167,9 +234,9 @@ export class TerraformRegistryService {
       return err(TerraformErrors.REGISTRY_NOT_FOUND);
     }
 
-    // Delete modules first, then registry
     await this.db.delete(terraformModules).where(eq(terraformModules.registryId, id));
     await this.db.delete(terraformRegistries).where(eq(terraformRegistries.id, id));
+    await this.db.delete(settings).where(eq(settings.key, registry.tokenSettingKey));
 
     console.log('[TerraformRegistryService] Deleted registry:', id);
     return ok(undefined);
@@ -218,13 +285,18 @@ export class TerraformRegistryService {
       .where(eq(terraformRegistries.id, id));
 
     try {
-      // Settings values are stored JSON-encoded in the DB; parse to get the raw token string
       let token: string;
       try {
-        token = JSON.parse(tokenSetting.value) as string;
-      } catch (_parseError) {
-        console.warn('[TerraformRegistryService] Token value is not JSON-encoded, using raw value');
-        token = tokenSetting.value;
+        token = decryptToken(tokenSetting.value);
+      } catch (_decryptError) {
+        try {
+          token = JSON.parse(tokenSetting.value) as string;
+        } catch (_parseError) {
+          console.warn(
+            '[TerraformRegistryService] Token value is not JSON-encoded, using raw value'
+          );
+          token = tokenSetting.value;
+        }
       }
 
       if (!token || typeof token !== 'string' || token.trim().length === 0) {

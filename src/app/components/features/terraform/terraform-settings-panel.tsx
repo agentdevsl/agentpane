@@ -1,11 +1,9 @@
 import { ArrowsClockwise, Eye, EyeSlash, Plus, Trash, WarningCircle } from '@phosphor-icons/react';
 import { useNavigate } from '@tanstack/react-router';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiClient } from '@/lib/api/client';
 import { useTerraform } from './terraform-context';
 import { formatTimeAgo } from './terraform-utils';
-
-const TOKEN_SETTING_KEY = 'tfe_api_token';
 
 const SYNC_INTERVALS = [
   { value: null, label: 'Manual only' },
@@ -43,16 +41,22 @@ export function TerraformSettingsPanel(): React.JSX.Element {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [hasToken, setHasToken] = useState(false);
 
-  // Initialize form from registry data (derive during render with ref).
-  // Token is masked -- the real value is never sent to the client.
-  const prevRegistryIdRef = useRef(registry?.id);
-  if (registry && registry.id !== prevRegistryIdRef.current) {
-    prevRegistryIdRef.current = registry.id;
+  useEffect(() => {
+    if (!registry) {
+      setOrgName('');
+      setSyncInterval(30);
+      setToken('');
+      setHasToken(false);
+      return;
+    }
+
     setOrgName(registry.orgName);
     setSyncInterval(registry.syncIntervalMinutes);
-    setToken('sk-tfe-xxxxxxxxxxxxxxxxxxxxxxxx');
-  }
+    setToken('');
+    setHasToken(registry.hasToken);
+  }, [registry]);
 
   const status = registry?.status ?? 'active';
   const isError = status === 'error';
@@ -83,47 +87,45 @@ export function TerraformSettingsPanel(): React.JSX.Element {
     setIsSaving(true);
     setSaveError(null);
     try {
-      const isRealToken = token && !token.startsWith('sk-tfe-xxxx');
-      if (isRealToken) {
-        const settingsRes = await apiClient.settings.update({ [TOKEN_SETTING_KEY]: token });
-        if (!settingsRes.ok) {
-          setSaveError('Failed to save API token');
-          return;
-        }
-      }
+      const normalizedToken = token.trim();
+      const hasNewToken = normalizedToken.length > 0;
 
       if (registry) {
         const updateData: {
           orgName?: string;
           syncIntervalMinutes?: number | null;
-          tokenSettingKey?: string;
+          apiToken?: string;
         } = {
           orgName,
           syncIntervalMinutes: syncInterval,
         };
-        if (isRealToken) {
-          updateData.tokenSettingKey = TOKEN_SETTING_KEY;
+        if (hasNewToken) {
+          updateData.apiToken = normalizedToken;
         }
         const result = await apiClient.terraform.updateRegistry(registry.id, updateData);
         if (!result.ok) {
           setSaveError(result.error?.message ?? 'Failed to update registry');
           return;
         }
+        setHasToken(true);
+        setToken('');
       } else {
-        if (!isRealToken) {
+        if (!hasNewToken) {
           setSaveError('A valid TFE API token is required to connect a registry');
           return;
         }
         const result = await apiClient.terraform.createRegistry({
           name: orgName,
           orgName,
-          tokenSettingKey: TOKEN_SETTING_KEY,
+          apiToken: normalizedToken,
           syncIntervalMinutes: syncInterval ?? undefined,
         });
         if (!result.ok) {
           setSaveError(result.error?.message ?? 'Failed to create registry');
           return;
         }
+        setHasToken(true);
+        setToken('');
       }
       await refreshModules();
     } catch (err) {
@@ -279,6 +281,11 @@ export function TerraformSettingsPanel(): React.JSX.Element {
             <span className="mb-2 block text-xs text-fg-subtle">
               Your HCP Terraform or Terraform Enterprise API token. Stored encrypted.
             </span>
+            {hasToken ? (
+              <span className="mb-2 block text-xs text-fg-muted">
+                A token is already stored. Leave this blank to keep the existing token.
+              </span>
+            ) : null}
             <div className="relative flex items-center">
               <input
                 id="tfe-token"
@@ -288,7 +295,11 @@ export function TerraformSettingsPanel(): React.JSX.Element {
                 }`}
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
-                placeholder="Enter your TFE API token"
+                placeholder={
+                  hasToken
+                    ? 'Enter a new token to replace the existing one'
+                    : 'Enter your TFE API token'
+                }
               />
               <button
                 type="button"

@@ -83,22 +83,24 @@ export function useAgentStream(sessionId: string): {
 
       onError: (error) => {
         console.error('[useAgentStream] Stream error:', error);
-        setConnectionState('disconnected');
         setIsStreaming(false);
+      },
+
+      onConnectionStateChange: (nextState) => {
+        setConnectionState(nextState);
       },
 
       onReconnect: () => {
         console.log('[useAgentStream] Reconnected to stream');
-        setConnectionState('connected');
       },
 
       onDisconnect: () => {
         console.log('[useAgentStream] Disconnected from stream');
-        setConnectionState('reconnecting');
       },
     });
 
     subscriptionRef.current = subscription;
+    setConnectionState(subscription.getState());
 
     return () => {
       subscription.unsubscribe();
