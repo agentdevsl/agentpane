@@ -84,7 +84,7 @@ describe('API Client', () => {
       await apiClient.projects.create({ name: 'Test', path: '/test' });
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/projects',
+        '/api/projects',
         expect.objectContaining({
           headers: { 'Content-Type': 'application/json' },
         })
@@ -101,7 +101,7 @@ describe('API Client', () => {
       await apiClient.projects.list();
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/projects',
+        '/api/projects',
         expect.objectContaining({
           headers: undefined,
         })
@@ -116,7 +116,7 @@ describe('API Client', () => {
       await apiClient.projects.update('proj-1', { name: 'Updated' });
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/projects/proj-1',
+        '/api/projects/proj-1',
         expect.objectContaining({
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -189,10 +189,7 @@ describe('API Client', () => {
       const { apiClient } = await import('@/lib/api/client');
       await apiClient.projects.list({ limit: 10 });
 
-      expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/projects?limit=10',
-        expect.any(Object)
-      );
+      expect(global.fetch).toHaveBeenCalledWith('/api/projects?limit=10', expect.any(Object));
     });
 
     it('builds query string for tasks list with multiple params', async () => {
@@ -238,10 +235,7 @@ describe('API Client', () => {
       const { apiClient } = await import('@/lib/api/client');
       await apiClient.projects.list();
 
-      expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/projects',
-        expect.any(Object)
-      );
+      expect(global.fetch).toHaveBeenCalledWith('/api/projects', expect.any(Object));
     });
 
     it('encodes special characters in URL parameters', async () => {
@@ -252,7 +246,7 @@ describe('API Client', () => {
       await apiClient.projects.update('proj/1&special', { name: 'Test' });
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/projects/proj%2F1%26special',
+        '/api/projects/proj%2F1%26special',
         expect.any(Object)
       );
     });
@@ -505,7 +499,7 @@ describe('API Client', () => {
       await apiClient.projects.list();
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/projects',
+        '/api/projects',
         expect.objectContaining({ method: 'GET' })
       );
     });
@@ -520,7 +514,7 @@ describe('API Client', () => {
       await apiClient.projects.listWithSummaries({ limit: 5 });
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/projects/summaries?limit=5',
+        '/api/projects/summaries?limit=5',
         expect.any(Object)
       );
     });
@@ -533,7 +527,7 @@ describe('API Client', () => {
       await apiClient.projects.get('proj-1');
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/projects/proj-1',
+        '/api/projects/proj-1',
         expect.objectContaining({ method: 'GET' })
       );
     });
@@ -551,7 +545,7 @@ describe('API Client', () => {
       });
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/projects',
+        '/api/projects',
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({
@@ -575,7 +569,7 @@ describe('API Client', () => {
       });
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/projects/proj-1',
+        '/api/projects/proj-1',
         expect.objectContaining({
           method: 'PATCH',
           body: JSON.stringify({ name: 'Updated Name', maxConcurrentAgents: 5 }),
@@ -591,7 +585,7 @@ describe('API Client', () => {
       await apiClient.projects.delete('proj-1');
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/projects/proj-1',
+        '/api/projects/proj-1',
         expect.objectContaining({ method: 'DELETE' })
       );
     });
@@ -620,10 +614,7 @@ describe('API Client', () => {
       const { apiClient } = await import('@/lib/api/client');
       await apiClient.tasks.get('task-1');
 
-      expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/tasks/task-1',
-        expect.any(Object)
-      );
+      expect(global.fetch).toHaveBeenCalledWith('/api/tasks/task-1', expect.any(Object));
     });
 
     it('tasks.create sends POST with task data', async () => {
@@ -642,7 +633,7 @@ describe('API Client', () => {
       });
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/tasks',
+        '/api/tasks',
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({
@@ -717,10 +708,7 @@ describe('API Client', () => {
       const { apiClient } = await import('@/lib/api/client');
       await apiClient.sessions.get('session-1');
 
-      expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/sessions/session-1',
-        expect.any(Object)
-      );
+      expect(global.fetch).toHaveBeenCalledWith('/api/sessions/session-1', expect.any(Object));
     });
 
     it('sessions.getEvents calls events endpoint with pagination', async () => {
@@ -748,7 +736,7 @@ describe('API Client', () => {
       await apiClient.sessions.getSummary('session-1');
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/sessions/session-1/summary',
+        '/api/sessions/session-1/summary',
         expect.any(Object)
       );
     });
@@ -767,7 +755,7 @@ describe('API Client', () => {
       await apiClient.sessions.export('session-1', 'markdown');
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/sessions/session-1/export',
+        '/api/sessions/session-1/export',
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({ format: 'markdown' }),
@@ -788,7 +776,7 @@ describe('API Client', () => {
       await apiClient.worktrees.list({ projectId: 'proj-1' });
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/worktrees?projectId=proj-1',
+        '/api/worktrees?projectId=proj-1',
         expect.any(Object)
       );
     });
@@ -800,10 +788,7 @@ describe('API Client', () => {
       const { apiClient } = await import('@/lib/api/client');
       await apiClient.worktrees.get('wt-1');
 
-      expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/worktrees/wt-1',
-        expect.any(Object)
-      );
+      expect(global.fetch).toHaveBeenCalledWith('/api/worktrees/wt-1', expect.any(Object));
     });
 
     it('worktrees.create sends POST with data', async () => {
@@ -820,7 +805,7 @@ describe('API Client', () => {
       });
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/worktrees',
+        '/api/worktrees',
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({ projectId: 'proj-1', taskId: 'task-1', baseBranch: 'main' }),
@@ -836,7 +821,7 @@ describe('API Client', () => {
       await apiClient.worktrees.remove('wt-1', true);
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/worktrees/wt-1?force=true',
+        '/api/worktrees/wt-1?force=true',
         expect.objectContaining({ method: 'DELETE' })
       );
     });
@@ -849,7 +834,7 @@ describe('API Client', () => {
       await apiClient.worktrees.commit('wt-1', 'Fix bug');
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/worktrees/wt-1/commit',
+        '/api/worktrees/wt-1/commit',
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({ message: 'Fix bug' }),
@@ -870,7 +855,7 @@ describe('API Client', () => {
       });
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/worktrees/wt-1/merge',
+        '/api/worktrees/wt-1/merge',
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({
@@ -892,10 +877,7 @@ describe('API Client', () => {
       const { apiClient } = await import('@/lib/api/client');
       await apiClient.worktrees.getDiff('wt-1');
 
-      expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/worktrees/wt-1/diff',
-        expect.any(Object)
-      );
+      expect(global.fetch).toHaveBeenCalledWith('/api/worktrees/wt-1/diff', expect.any(Object));
     });
 
     it('worktrees.prune sends POST with projectId', async () => {
@@ -906,7 +888,7 @@ describe('API Client', () => {
       await apiClient.worktrees.prune('proj-1');
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/worktrees/prune',
+        '/api/worktrees/prune',
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({ projectId: 'proj-1' }),
@@ -929,7 +911,7 @@ describe('API Client', () => {
       await apiClient.git.status('proj-1');
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/git/status?projectId=proj-1',
+        '/api/git/status?projectId=proj-1',
         expect.any(Object)
       );
     });
@@ -942,7 +924,7 @@ describe('API Client', () => {
       await apiClient.git.branches('proj-1');
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/git/branches?projectId=proj-1',
+        '/api/git/branches?projectId=proj-1',
         expect.any(Object)
       );
     });
@@ -969,7 +951,7 @@ describe('API Client', () => {
       await apiClient.git.remoteBranches('proj-1');
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/git/remote-branches?projectId=proj-1',
+        '/api/git/remote-branches?projectId=proj-1',
         expect.any(Object)
       );
     });
@@ -986,10 +968,7 @@ describe('API Client', () => {
       const { apiClient } = await import('@/lib/api/client');
       await apiClient.github.listOrgs();
 
-      expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/github/orgs',
-        expect.any(Object)
-      );
+      expect(global.fetch).toHaveBeenCalledWith('/api/github/orgs', expect.any(Object));
     });
 
     it('github.listReposForOwner calls repos endpoint with owner', async () => {
@@ -999,10 +978,7 @@ describe('API Client', () => {
       const { apiClient } = await import('@/lib/api/client');
       await apiClient.github.listReposForOwner('octocat');
 
-      expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/github/repos/octocat',
-        expect.any(Object)
-      );
+      expect(global.fetch).toHaveBeenCalledWith('/api/github/repos/octocat', expect.any(Object));
     });
 
     it('github.clone sends POST with url and destination', async () => {
@@ -1013,7 +989,7 @@ describe('API Client', () => {
       await apiClient.github.clone('https://github.com/user/repo.git', '/destination');
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/github/clone',
+        '/api/github/clone',
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({
@@ -1032,7 +1008,7 @@ describe('API Client', () => {
       await apiClient.github.saveToken('ghp_xxx');
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/github/token',
+        '/api/github/token',
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({ token: 'ghp_xxx' }),
@@ -1048,7 +1024,7 @@ describe('API Client', () => {
       await apiClient.github.deleteToken();
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/github/token',
+        '/api/github/token',
         expect.objectContaining({ method: 'DELETE' })
       );
     });
@@ -1069,7 +1045,7 @@ describe('API Client', () => {
       });
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/github/create-from-template',
+        '/api/github/create-from-template',
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({
@@ -1103,10 +1079,7 @@ describe('API Client', () => {
       const { apiClient } = await import('@/lib/api/client');
       const result = await apiClient.system.health();
 
-      expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/health',
-        expect.any(Object)
-      );
+      expect(global.fetch).toHaveBeenCalledWith('/api/health', expect.any(Object));
       expect(result.ok).toBe(true);
     });
   });
@@ -1122,10 +1095,7 @@ describe('API Client', () => {
       const { apiClient } = await import('@/lib/api/client');
       await apiClient.apiKeys.get('anthropic');
 
-      expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/keys/anthropic',
-        expect.any(Object)
-      );
+      expect(global.fetch).toHaveBeenCalledWith('/api/keys/anthropic', expect.any(Object));
     });
 
     it('apiKeys.save sends POST with key', async () => {
@@ -1138,7 +1108,7 @@ describe('API Client', () => {
       await apiClient.apiKeys.save('anthropic', 'sk-test-key');
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/keys/anthropic',
+        '/api/keys/anthropic',
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({ key: 'sk-test-key' }),
@@ -1154,7 +1124,7 @@ describe('API Client', () => {
       await apiClient.apiKeys.delete('anthropic');
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/keys/anthropic',
+        '/api/keys/anthropic',
         expect.objectContaining({ method: 'DELETE' })
       );
     });
@@ -1190,7 +1160,7 @@ describe('API Client', () => {
       });
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/templates',
+        '/api/templates',
         expect.objectContaining({
           method: 'POST',
         })
@@ -1205,7 +1175,7 @@ describe('API Client', () => {
       await apiClient.templates.update('tmpl-1', { name: 'Updated Name' });
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/templates/tmpl-1',
+        '/api/templates/tmpl-1',
         expect.objectContaining({
           method: 'PATCH',
           body: JSON.stringify({ name: 'Updated Name' }),
@@ -1221,7 +1191,7 @@ describe('API Client', () => {
       await apiClient.templates.sync('tmpl-1');
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/templates/tmpl-1/sync',
+        '/api/templates/tmpl-1/sync',
         expect.objectContaining({ method: 'POST' })
       );
     });
@@ -1258,7 +1228,7 @@ describe('API Client', () => {
       });
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/sandbox-configs',
+        '/api/sandbox-configs',
         expect.objectContaining({
           method: 'POST',
         })
@@ -1273,7 +1243,7 @@ describe('API Client', () => {
       await apiClient.sandboxConfigs.update('sandbox-1', { memoryMb: 4096 });
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/sandbox-configs/sandbox-1',
+        '/api/sandbox-configs/sandbox-1',
         expect.objectContaining({
           method: 'PATCH',
           body: JSON.stringify({ memoryMb: 4096 }),
@@ -1362,7 +1332,7 @@ describe('API Client', () => {
       await apiClient.taskCreation.start('proj-1');
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/tasks/create-with-ai/start',
+        '/api/tasks/create-with-ai/start',
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({ projectId: 'proj-1' }),
@@ -1380,7 +1350,7 @@ describe('API Client', () => {
       await apiClient.taskCreation.sendMessage('tc-1', 'I want to add a new button');
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/tasks/create-with-ai/message',
+        '/api/tasks/create-with-ai/message',
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({ sessionId: 'tc-1', message: 'I want to add a new button' }),
@@ -1398,7 +1368,7 @@ describe('API Client', () => {
       await apiClient.taskCreation.accept('tc-1', { title: 'Custom Title' });
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/tasks/create-with-ai/accept',
+        '/api/tasks/create-with-ai/accept',
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({ sessionId: 'tc-1', overrides: { title: 'Custom Title' } }),
@@ -1416,7 +1386,7 @@ describe('API Client', () => {
       await apiClient.taskCreation.cancel('tc-1');
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/tasks/create-with-ai/cancel',
+        '/api/tasks/create-with-ai/cancel',
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({ sessionId: 'tc-1' }),
@@ -1428,7 +1398,7 @@ describe('API Client', () => {
       const { apiClient } = await import('@/lib/api/client');
       const url = apiClient.taskCreation.getStreamUrl('tc-1');
 
-      expect(url).toBe('http://localhost:3001/api/tasks/create-with-ai/stream?sessionId=tc-1');
+      expect(url).toBe('/api/tasks/create-with-ai/stream?sessionId=tc-1');
     });
   });
 
@@ -1456,10 +1426,7 @@ describe('API Client', () => {
       const { apiClient } = await import('@/lib/api/client');
       await apiClient.marketplaces.get('mp-1');
 
-      expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/marketplaces/mp-1',
-        expect.any(Object)
-      );
+      expect(global.fetch).toHaveBeenCalledWith('/api/marketplaces/mp-1', expect.any(Object));
     });
 
     it('marketplaces.create sends POST with data', async () => {
@@ -1475,7 +1442,7 @@ describe('API Client', () => {
       });
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/marketplaces',
+        '/api/marketplaces',
         expect.objectContaining({
           method: 'POST',
         })
@@ -1490,7 +1457,7 @@ describe('API Client', () => {
       await apiClient.marketplaces.delete('mp-1');
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/marketplaces/mp-1',
+        '/api/marketplaces/mp-1',
         expect.objectContaining({ method: 'DELETE' })
       );
     });
@@ -1505,7 +1472,7 @@ describe('API Client', () => {
       await apiClient.marketplaces.sync('mp-1');
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/marketplaces/mp-1/sync',
+        '/api/marketplaces/mp-1/sync',
         expect.objectContaining({ method: 'POST' })
       );
     });
@@ -1518,7 +1485,7 @@ describe('API Client', () => {
       await apiClient.marketplaces.seed();
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/marketplaces/seed',
+        '/api/marketplaces/seed',
         expect.objectContaining({ method: 'POST' })
       );
     });
@@ -1550,10 +1517,7 @@ describe('API Client', () => {
       const { apiClient } = await import('@/lib/api/client');
       await apiClient.marketplaces.getCategories();
 
-      expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/marketplaces/categories',
-        expect.any(Object)
-      );
+      expect(global.fetch).toHaveBeenCalledWith('/api/marketplaces/categories', expect.any(Object));
     });
   });
 
@@ -1571,7 +1535,7 @@ describe('API Client', () => {
       await apiClient.filesystem.discoverRepos();
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/filesystem/discover-repos',
+        '/api/filesystem/discover-repos',
         expect.any(Object)
       );
     });
@@ -1588,10 +1552,7 @@ describe('API Client', () => {
       const { apiClient } = await import('@/lib/api/client');
       await apiClient.projects.update('proj/1', { name: 'Test' });
 
-      expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/projects/proj%2F1',
-        expect.any(Object)
-      );
+      expect(global.fetch).toHaveBeenCalledWith('/api/projects/proj%2F1', expect.any(Object));
     });
 
     it('encodes special characters in worktree id', async () => {
@@ -1602,7 +1563,7 @@ describe('API Client', () => {
       await apiClient.worktrees.get('wt/special&chars');
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/worktrees/wt%2Fspecial%26chars',
+        '/api/worktrees/wt%2Fspecial%26chars',
         expect.any(Object)
       );
     });
@@ -1615,7 +1576,7 @@ describe('API Client', () => {
       await apiClient.sessions.getEvents('session/1');
 
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/sessions/session%2F1/events',
+        '/api/sessions/session%2F1/events',
         expect.any(Object)
       );
     });
