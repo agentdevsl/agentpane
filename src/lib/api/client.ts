@@ -17,8 +17,10 @@ import type {
 import type { ApiResponse } from './response';
 import { API_ERROR_CODES } from './types';
 
-// API server base URL (separate Bun server for database access)
-const API_BASE = 'http://localhost:3001';
+// API server base URL — use relative URLs in the browser so requests go through
+// the Vite dev proxy (port 3000 → 3001), sharing the HTTP/2 connection pool.
+// Direct connections to port 3001 exhaust the HTTP/1.1 6-connection browser limit.
+const API_BASE = typeof window !== 'undefined' ? '' : 'http://localhost:3001';
 
 type FetchOptions = {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';

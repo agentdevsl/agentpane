@@ -1318,7 +1318,6 @@ export function subscribeToSession(sessionId: string, callbacks: SessionCallback
   let entry = sharedSubscriptions.get(sessionId);
 
   if (!entry) {
-    // First subscriber for this session — create the actual SSE connection
     const subscriberMap = new Map<number, SessionCallbacks>();
 
     // Fan-out callbacks: route each event to all registered subscribers

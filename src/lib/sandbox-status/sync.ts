@@ -9,8 +9,8 @@ import { type SandboxStatus, updateSandboxStatus } from './collections.js';
 // Active sync intervals per project
 const activeSyncs = new Map<string, NodeJS.Timeout>();
 
-// API base URL
-const API_BASE = import.meta.env?.DEV ? 'http://localhost:3001' : '';
+// API base URL — use relative URLs in the browser so requests go through Vite proxy
+const API_BASE = '';
 
 /**
  * Fetch sandbox status from the API
