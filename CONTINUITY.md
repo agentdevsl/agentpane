@@ -1,7 +1,7 @@
 ## Goal (incl. success criteria)
 
-- Fix high-severity code review findings in stream subscription lifecycle and Terraform registry settings.
-- Success criteria: connection state is correct for shared late subscribers, reconnect ownership is not duplicated, Terraform settings hydrate correctly on first render, Terraform token persistence is atomic and encrypted, and targeted regression tests pass.
+- Fix high-severity code review findings in stream subscription lifecycle and Terraform registry settings, and clear the remaining Biome validation blocker.
+- Success criteria: connection state is correct for shared late subscribers, reconnect ownership is not duplicated, Terraform settings hydrate correctly on first render, Terraform token persistence is atomic and encrypted, targeted regression tests pass, and `bun run check` is no longer blocked by Biome config version mismatch.
 
 ## Constraints/Assumptions
 
@@ -19,7 +19,7 @@
 
 ## State
 
-- In progress; core fixes and targeted regressions are implemented.
+- In progress; validation has been reconfirmed, and the current worktree only shows `biome.json` plus this ledger as modified.
 
 ## Done
 
@@ -31,14 +31,17 @@
 - Implemented Terraform token persistence via Terraform domain APIs, added `hasToken` response metadata, and enforced admin-only mutating Terraform routes.
 - Fixed Terraform settings panel initial hydration and token replacement UX.
 - Verified targeted tests pass and `bun run typecheck` passes.
+- Confirmed `lint/nursery/noLeakedRender` diagnostics are info-only and not `bun run check` blockers under current config.
+- Aligned `biome.json` schema version with installed Biome CLI and verified `bun run check` now exits successfully with info-only diagnostics.
+- Re-ran `bun run check` and `bun run typecheck`; both still pass, with `bun run check` reporting only info-level `noLeakedRender` diagnostics.
 
 ## Now
 
-- Record outcomes and note remaining validation constraint from repo-wide Biome config/findings.
+- Communicate that the identified critical/high-severity issues from this review pass are fixed and validated; only optional follow-up work remains.
 
 ## Next
 
-- Update `SPEC_UPDATES.md` with the Terraform settings/API corrections.
+- If validation still passes, offer the user the natural follow-up of preparing a commit.
 - Optionally run broader test coverage if requested.
 
 ## Open questions (UNCONFIRMED if needed)
@@ -47,6 +50,8 @@
 
 ## Working set (files/ids/commands)
 
+- `git status --short`
+- `git diff --stat`
 - `src/lib/streams/client.ts`
 - `src/app/hooks/use-session.ts`
 - `src/app/hooks/use-agent-stream.ts`
@@ -65,4 +70,5 @@
 - `tests/helpers/database.ts`
 - `bun run test tests/lib/streams/client.test.ts tests/services/terraform-registry.service.test.ts tests/routes/terraform.test.ts tests/components/terraform-settings-panel.test.tsx`
 - `bun run typecheck`
-- `bun run check` (blocked by pre-existing Biome schema mismatch and unrelated nursery diagnostics)
+- `biome.json`
+- `bun run check`
