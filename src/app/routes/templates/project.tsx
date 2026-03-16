@@ -17,6 +17,38 @@ export const Route = createFileRoute('/templates/project')({
   component: ProjectTemplatesPage,
 });
 
+function TemplateGrid({
+  templates,
+  onSync,
+  onEdit,
+  onDelete,
+  syncingTemplateIds,
+}: {
+  templates: Template[];
+  onSync: (id: string) => Promise<void>;
+  onEdit: (id: string) => void;
+  onDelete: (id: string) => Promise<void>;
+  syncingTemplateIds: Set<string>;
+}): React.JSX.Element {
+  return (
+    <div
+      className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3"
+      data-testid="template-grid"
+    >
+      {templates.map((template) => (
+        <TemplateCard
+          key={template.id}
+          template={template}
+          onSync={() => onSync(template.id)}
+          onEdit={() => onEdit(template.id)}
+          onDelete={() => onDelete(template.id)}
+          isSyncing={syncingTemplateIds.has(template.id)}
+        />
+      ))}
+    </div>
+  );
+}
+
 function ProjectTemplatesPage(): React.JSX.Element {
   // Data state
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -45,7 +77,7 @@ function ProjectTemplatesPage(): React.JSX.Element {
       }
     };
 
-    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('mousedown', handleClickOutside, { passive: true });
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showProjectDropdown]);
 
@@ -187,25 +219,6 @@ function ProjectTemplatesPage(): React.JSX.Element {
     }
   };
 
-  // Render template grid
-  const renderTemplateGrid = (templatesToRender: Template[]): React.JSX.Element => (
-    <div
-      className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3"
-      data-testid="template-grid"
-    >
-      {templatesToRender.map((template) => (
-        <TemplateCard
-          key={template.id}
-          template={template}
-          onSync={() => handleSync(template.id)}
-          onEdit={() => handleEdit(template.id)}
-          onDelete={() => handleDelete(template.id)}
-          isSyncing={syncingTemplateIds.has(template.id)}
-        />
-      ))}
-    </div>
-  );
-
   // Loading state
   if (isLoading) {
     return (
@@ -237,7 +250,7 @@ function ProjectTemplatesPage(): React.JSX.Element {
               <span>{selectedProjectName}</span>
               <CaretDown className="h-4 w-4 text-fg-muted" />
             </button>
-            {showProjectDropdown && (
+            {showProjectDropdown ? (
               <div
                 className="absolute right-0 top-full z-50 mt-1 min-w-[200px] rounded-md border border-border bg-surface py-1 shadow-lg"
                 data-testid="project-dropdown"
@@ -270,7 +283,7 @@ function ProjectTemplatesPage(): React.JSX.Element {
                   </button>
                 ))}
               </div>
-            )}
+            ) : null}
           </div>
 
           <Button
@@ -310,13 +323,25 @@ function ProjectTemplatesPage(): React.JSX.Element {
                   <Files className="h-5 w-5 text-fg-muted" />
                   {group.project?.name ?? 'Unknown Project'}
                 </h2>
-                {renderTemplateGrid(group.templates)}
+                <TemplateGrid
+                  templates={group.templates}
+                  onSync={handleSync}
+                  onEdit={handleEdit}
+                  onDelete={handleDelete}
+                  syncingTemplateIds={syncingTemplateIds}
+                />
               </div>
             ))}
           </div>
         ) : (
           // Single project view
-          renderTemplateGrid(filteredTemplates)
+          <TemplateGrid
+            templates={filteredTemplates}
+            onSync={handleSync}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+            syncingTemplateIds={syncingTemplateIds}
+          />
         )}
       </div>
 

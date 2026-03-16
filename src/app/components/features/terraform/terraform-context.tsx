@@ -21,41 +21,53 @@ import type {
   TerraformRegistryView,
 } from '@/lib/terraform/types';
 
+// Hoisted regex patterns for inferOptions / parseClarifyingQuestions (avoid re-creation per call)
+const BACKTICK_EXAMPLES_RE = /`([^`]+)`/g;
+const YES_NO_RE = /\b(should i|do you want|would you like|do you need|include)\b/i;
+const REGION_RE = /\b(region|where.*(?:bucket|deploy|host|live))\b/i;
+const DOMAIN_RE = /\b(domain|hostname|url|site)\b/i;
+const SSL_RE = /\b(ssl|certificate|https|tls|acm)\b/i;
+const ENVIRONMENT_RE = /\b(environment|env|stage)\b/i;
+const INSTANCE_TYPE_RE = /\b(instance.*type|size|capacity)\b/i;
+const HCL_FENCE_RE = /```(?:hcl|terraform|tf)\n/i;
+const QUESTION_LINE_RE = /^(?:\d+[.)]\s*|-\s*|\*\s*)(.+\?)\s*$/;
+const BOLD_CATEGORY_RE = /\*\*(.+?)\*\*\s*[-–:]\s*/;
+
 /** Infer clickable options from a question's text based on common patterns. */
 function inferOptions(question: string): string[] {
   const q = question.toLowerCase();
 
   // Extract inline examples: (e.g., `us-east-1`, `eu-west-1`)
-  const backtickExamples = [...question.matchAll(/`([^`]+)`/g)].map((m) => m[1] ?? '');
+  const backtickExamples = [...question.matchAll(BACKTICK_EXAMPLES_RE)].map((m) => m[1] ?? '');
   if (backtickExamples.length >= 2) return backtickExamples.slice(0, 4);
 
   // Yes/no patterns: "Should I include...", "Do you want..."
-  if (/\b(should i|do you want|would you like|do you need|include)\b/i.test(q)) {
+  if (YES_NO_RE.test(q)) {
     return ['Yes', 'No'];
   }
 
   // Region questions
-  if (/\b(region|where.*(?:bucket|deploy|host|live))\b/i.test(q)) {
+  if (REGION_RE.test(q)) {
     return ['us-east-1', 'us-west-2', 'eu-west-1', 'ap-southeast-2'];
   }
 
   // Domain questions
-  if (/\b(domain|hostname|url|site)\b/i.test(q)) {
+  if (DOMAIN_RE.test(q)) {
     return ['Use default:example.com'];
   }
 
   // SSL/certificate questions
-  if (/\b(ssl|certificate|https|tls|acm)\b/i.test(q)) {
+  if (SSL_RE.test(q)) {
     return ['Yes, include ACM', 'No, skip SSL'];
   }
 
   // Environment questions
-  if (/\b(environment|env|stage)\b/i.test(q)) {
+  if (ENVIRONMENT_RE.test(q)) {
     return ['Production', 'Staging', 'Development'];
   }
 
   // Instance type / size questions
-  if (/\b(instance.*type|size|capacity)\b/i.test(q)) {
+  if (INSTANCE_TYPE_RE.test(q)) {
     return ['t3.micro', 't3.small', 't3.medium', 't3.large'];
   }
 
@@ -71,22 +83,22 @@ function inferOptions(question: string): string[] {
  */
 function parseClarifyingQuestions(text: string): ClarifyingQuestion[] {
   // Only look for questions if there are no HCL code blocks (i.e. AI is asking, not generating)
-  if (/```(?:hcl|terraform|tf)\n/i.test(text)) return [];
+  if (HCL_FENCE_RE.test(text)) return [];
 
   const questions: ClarifyingQuestion[] = [];
   const lines = text.split('\n');
   for (const line of lines) {
     const trimmed = line.trim();
     // Match "1. ...", "- ...", "* ..." patterns ending with "?"
-    const match = trimmed.match(/^(?:\d+[.)]\s*|-\s*|\*\s*)(.+\?)\s*$/);
+    const match = trimmed.match(QUESTION_LINE_RE);
     if (!match) continue;
 
     const raw = match[1] ?? '';
     // Extract category from bold markers: **Category** or **Category:**
-    const categoryMatch = raw.match(/\*\*(.+?)\*\*\s*[-–:]\s*/);
+    const categoryMatch = raw.match(BOLD_CATEGORY_RE);
     const category = categoryMatch ? (categoryMatch[1] ?? 'General') : 'General';
     // Clean question text: remove bold markers
-    const question = raw.replace(/\*\*(.+?)\*\*\s*[-–:]\s*/, '').trim();
+    const question = raw.replace(BOLD_CATEGORY_RE, '').trim();
 
     if (question.length > 10) {
       const options = inferOptions(question);
@@ -252,8 +264,7 @@ export function TerraformProvider({ children }: { children: React.ReactNode }): 
   }, [loadRegistries, loadModules]);
 
   const refreshModules = useCallback(async () => {
-    await loadModules();
-    await loadRegistries();
+    await Promise.all([loadModules(), loadRegistries()]);
   }, [loadModules, loadRegistries]);
 
   const syncRegistry = useCallback(
@@ -615,6 +626,8 @@ export function TerraformProvider({ children }: { children: React.ReactNode }): 
     }
   }, []);
 
+  const clearError = useCallback(() => setError(null), []);
+
   const syncStatus = useMemo(
     () => ({
       lastSynced: registries[0]?.lastSyncedAt ?? null,
@@ -644,7 +657,7 @@ export function TerraformProvider({ children }: { children: React.ReactNode }): 
       setSelectedModuleId,
       refreshModules,
       syncRegistry,
-      clearError: () => setError(null),
+      clearError,
     }),
     [
       messages,
@@ -664,6 +677,7 @@ export function TerraformProvider({ children }: { children: React.ReactNode }): 
       resetConversation,
       refreshModules,
       syncRegistry,
+      clearError,
     ]
   );
 

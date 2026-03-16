@@ -15,7 +15,7 @@ import {
   TreeStructure,
   WarningCircle,
 } from '@phosphor-icons/react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   ClarifyingQuestion,
   ComposeMessage,
@@ -107,7 +107,7 @@ function CollapsibleText({ text }: { text: string }) {
       <div className="whitespace-pre-wrap break-words">{expanded ? text : firstParagraph}</div>
       <button
         type="button"
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => setExpanded((prev) => !prev)}
         className="mt-1 flex items-center gap-1 text-[11px] text-fg-muted hover:text-fg transition-colors"
       >
         {expanded ? (
@@ -136,13 +136,25 @@ const CATEGORY_COLORS: Record<string, string> = {
   storage: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
 };
 
+const categoryColorCache = new Map<string, string>();
+
 function getCategoryColor(category: string): string {
+  const cached = categoryColorCache.get(category);
+  if (cached) return cached;
   const key = category.toLowerCase();
   for (const [k, v] of Object.entries(CATEGORY_COLORS)) {
-    if (key.includes(k)) return v;
+    if (key.includes(k)) {
+      categoryColorCache.set(category, v);
+      return v;
+    }
   }
-  return 'bg-surface-emphasis text-fg-muted';
+  const fallback = 'bg-surface-emphasis text-fg-muted';
+  categoryColorCache.set(category, fallback);
+  return fallback;
 }
+
+const HCL_BLOCK_RE = /```(?:hcl|terraform|tf)[\s\S]*?```/g;
+const QUESTION_LINE_RE = /^\s*(?:\d+[.)]\s*|-\s*|\*\s*)\*?\*?/m;
 
 /**
  * Strip content from an assistant message for display.
@@ -151,12 +163,12 @@ function getCategoryColor(category: string): string {
  *   so only the introductory text remains (questions are shown in ClarifyingQuestionsUI).
  */
 function stripAssistantContent(msg: ComposeMessage): string {
-  let text = msg.content.replace(/```(?:hcl|terraform|tf)[\s\S]*?```/g, '').trim();
+  let text = msg.content.replace(HCL_BLOCK_RE, '').trim();
 
   if (msg.clarifyingQuestions && msg.clarifyingQuestions.length > 0) {
     // Keep only the introductory text before the first numbered/bulleted question.
     // This avoids issues with multi-line questions or trailing parenthetical text.
-    const firstQuestionIdx = text.search(/^\s*(?:\d+[.)]\s*|-\s*|\*\s*)\*?\*?/m);
+    const firstQuestionIdx = text.search(QUESTION_LINE_RE);
     if (firstQuestionIdx > 0) {
       text = text.slice(0, firstQuestionIdx).trim();
     }
@@ -179,7 +191,10 @@ function ClarifyingQuestionsUI({
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [customMode, setCustomMode] = useState<Record<string, boolean>>({});
 
-  const answeredCount = questions.filter((q) => answers[q.question]?.trim()).length;
+  const answeredCount = useMemo(
+    () => questions.filter((q) => answers[q.question]?.trim()).length,
+    [questions, answers]
+  );
   const allAnswered = answeredCount === questions.length;
 
   return (
@@ -274,15 +289,14 @@ function ClarifyingQuestionsUI({
                             key={opt}
                             type="button"
                             onClick={() =>
-                              setAnswers((prev) =>
-                                prev[q.question] === answerValue
-                                  ? (() => {
-                                      const next = { ...prev };
-                                      delete next[q.question];
-                                      return next;
-                                    })()
-                                  : { ...prev, [q.question]: answerValue }
-                              )
+                              setAnswers((prev) => {
+                                if (prev[q.question] === answerValue) {
+                                  const next = { ...prev };
+                                  delete next[q.question];
+                                  return next;
+                                }
+                                return { ...prev, [q.question]: answerValue };
+                              })
                             }
                             className={cn(
                               'flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[13px] transition-colors',

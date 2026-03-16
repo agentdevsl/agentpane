@@ -18,14 +18,14 @@ export const composeRequestSchema = z.object({
 export const createRegistrySchema = z.object({
   name: z.string().min(1, 'Name is required'),
   orgName: z.string().min(1, 'Organization name is required'),
-  tokenSettingKey: z.string().min(1, 'Token setting key is required'),
+  apiToken: z.string().min(1, 'API token is required'),
   syncIntervalMinutes: z.number().int().min(5).optional(),
 });
 
 export const updateRegistrySchema = z.object({
   name: z.string().min(1).optional(),
   orgName: z.string().min(1).optional(),
-  tokenSettingKey: z.string().min(1).optional(),
+  apiToken: z.string().min(1).optional(),
   syncIntervalMinutes: z.number().int().min(5).nullable().optional(),
 });
 

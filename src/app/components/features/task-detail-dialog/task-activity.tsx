@@ -2,6 +2,7 @@ import { Brain, ChatText, Check, Clock, File, Play, Terminal, X } from '@phospho
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/app/components/ui/tabs';
 import type { Task } from '@/db/schema';
 import { cn } from '@/lib/utils/cn';
+import { formatRelativeTime } from '@/lib/utils/format-time';
 import type { ActivityEntry } from './index';
 import { useTaskActivity } from './use-task-activity';
 
@@ -15,23 +16,6 @@ interface TaskActivityProps {
   task: Task;
   activeTab: 'timeline' | 'comments' | 'history';
   onTabChange: (tab: 'timeline' | 'comments' | 'history') => void;
-}
-
-function formatRelativeTime(timestamp: number): string {
-  const now = Date.now();
-  const diffMs = now - timestamp;
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 1) return 'Just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return new Date(timestamp).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-  });
 }
 
 function getActivityIcon(type: ActivityEntry['type'], message?: string): React.ElementType {

@@ -212,6 +212,18 @@ const rawTopologyAgentCompletedSchema = z.object({
 });
 
 /**
+ * Fatal error codes that should not be retried
+ */
+const FATAL_ERROR_CODES = [
+  'NOT_FOUND',
+  'UNAUTHORIZED',
+  'FORBIDDEN',
+  'BAD_REQUEST',
+  'ALREADY_CONSUMED',
+  'ALREADY_CLOSED',
+] as const;
+
+/**
  * Reconnection configuration
  */
 export interface ReconnectConfig {
@@ -234,6 +246,12 @@ export const DEFAULT_RECONNECT_CONFIG: ReconnectConfig = {
   maxDelay: 30000,
   backoffMultiplier: 2,
 };
+
+/**
+ * Maximum number of reconnection attempts on clean stream closure
+ * before giving up and staying disconnected.
+ */
+const MAX_RECONNECT_ATTEMPTS = 8;
 
 /**
  * Session event types from the server
@@ -563,6 +581,7 @@ export interface SessionCallbacks {
     offset?: number;
   }) => void;
   onError?: (error: Error) => void;
+  onConnectionStateChange?: (state: ConnectionState) => void;
   onReconnect?: () => void;
   onDisconnect?: () => void;
 }
@@ -610,19 +629,44 @@ export class DurableStreamsClient {
    * Subscribe to a session's event stream via @durable-streams/client
    */
   subscribeToSession(sessionId: string, callbacks: SessionCallbacks): Subscription {
-    const MAX_RECONNECT_ATTEMPTS = 50;
     let state: ConnectionState = 'disconnected';
     let lastOffset: string = '-1';
     let unsubscribeFn: (() => void) | null = null;
     let responseCancelFn: (() => void) | null = null;
     let isUnsubscribed = false;
+    let hasConnected = false;
     let reconnectCount = 0;
     let reconnectTimerId: ReturnType<typeof setTimeout> | null = null;
+
+    const setConnectionState = (nextState: ConnectionState) => {
+      if (state === nextState) {
+        return;
+      }
+
+      state = nextState;
+      callbacks.onConnectionStateChange?.(nextState);
+    };
+
+    const markConnected = () => {
+      const previousState = state;
+      hasConnected = true;
+      setConnectionState('connected');
+
+      if (previousState === 'reconnecting') {
+        callbacks.onReconnect?.();
+      }
+    };
 
     const connect = async () => {
       if (isUnsubscribed) return;
 
-      state = reconnectCount > 0 ? 'reconnecting' : 'connecting';
+      if (!streamsAvailable) {
+        setConnectionState('disconnected');
+        callbacks.onError?.(new Error('Streams endpoint not available'));
+        return;
+      }
+
+      setConnectionState(hasConnected ? 'reconnecting' : 'connecting');
 
       try {
         const url = `${this.streamsBaseUrl}/${sessionId}`;
@@ -632,22 +676,21 @@ export class DurableStreamsClient {
           offset: lastOffset,
           json: true,
           onError: (error) => {
+            const normalizedError = error instanceof Error ? error : new Error(String(error));
+
             if (!isUnsubscribed) {
-              callbacks.onError?.(error instanceof Error ? error : new Error(String(error)));
+              callbacks.onError?.(normalizedError);
             }
+
             // Fatal errors should not be retried
             const errorStr = String(error);
-            const isFatal = [
-              'NOT_FOUND',
-              'UNAUTHORIZED',
-              'FORBIDDEN',
-              'BAD_REQUEST',
-              'ALREADY_CONSUMED',
-              'ALREADY_CLOSED',
-            ].some((code) => errorStr.includes(code));
+            const isFatal = FATAL_ERROR_CODES.some((code) => errorStr.includes(code));
             if (isFatal) {
+              setConnectionState('disconnected');
               return; // Return void to stop retrying
             }
+
+            setConnectionState(hasConnected ? 'reconnecting' : 'connecting');
             return {}; // Return empty object to signal retry
           },
         });
@@ -657,16 +700,15 @@ export class DurableStreamsClient {
           return;
         }
 
-        state = 'connected';
         responseCancelFn = () => response.cancel();
-
-        if (reconnectCount > 0) {
-          callbacks.onReconnect?.();
-        }
-        reconnectCount = 0;
+        markConnected();
 
         // Subscribe to JSON batches from the stream
         unsubscribeFn = response.subscribeJson<StreamEventItem>((batch) => {
+          if (state !== 'connected') {
+            markConnected();
+          }
+
           // Update offset tracking from the batch metadata
           if (batch.offset) {
             lastOffset = batch.offset;
@@ -696,24 +738,17 @@ export class DurableStreamsClient {
         // Monitor for stream closure
         response.closed
           .then(() => {
-            if (!isUnsubscribed) {
-              state = 'disconnected';
-              callbacks.onDisconnect?.();
-              // Auto-reconnect unless stream is permanently closed or limit reached
-              if (!response.streamClosed && reconnectCount < MAX_RECONNECT_ATTEMPTS) {
-                const delay = Math.min(2000 * 2 ** reconnectCount, 30000);
-                reconnectCount++;
-                reconnectTimerId = setTimeout(() => {
-                  if (isUnsubscribed) return;
-                  connect().catch((err) => {
-                    if (!isUnsubscribed) {
-                      callbacks.onError?.(err instanceof Error ? err : new Error(String(err)));
-                    }
-                  });
-                }, delay);
-              } else if (reconnectCount >= MAX_RECONNECT_ATTEMPTS) {
-                callbacks.onError?.(new Error('Maximum reconnection attempts reached'));
-              }
+            if (isUnsubscribed) return;
+            setConnectionState('disconnected');
+            callbacks.onDisconnect?.();
+            // Auto-reconnect on clean closure (server restart, proxy timeout)
+            // unless the stream was explicitly closed or we've been unsubscribed
+            if (!response.streamClosed && reconnectCount < MAX_RECONNECT_ATTEMPTS) {
+              const delay = Math.min(2000 * 2 ** reconnectCount, 30000);
+              reconnectCount++;
+              reconnectTimerId = setTimeout(() => {
+                if (!isUnsubscribed) connect();
+              }, delay);
             }
           })
           .catch((err) => {
@@ -723,20 +758,16 @@ export class DurableStreamsClient {
           });
       } catch (error) {
         if (!isUnsubscribed) {
-          state = 'disconnected';
-          callbacks.onError?.(
-            error instanceof Error ? error : new Error('Failed to connect to stream')
+          const normalizedError =
+            error instanceof Error ? error : new Error('Failed to connect to stream');
+          callbacks.onError?.(normalizedError);
+
+          // Check if error is fatal (e.g. 404) before retrying
+          const errorStr = String(error);
+          const isFatal = FATAL_ERROR_CODES.some((code) => errorStr.includes(code));
+          setConnectionState(
+            isFatal ? 'disconnected' : hasConnected ? 'reconnecting' : 'connecting'
           );
-          // Retry after delay with exponential backoff (capped at 30s)
-          if (reconnectCount < MAX_RECONNECT_ATTEMPTS) {
-            const delay = Math.min(2000 * 2 ** reconnectCount, 30000);
-            reconnectCount++;
-            reconnectTimerId = setTimeout(() => {
-              if (!isUnsubscribed) connect();
-            }, delay);
-          } else {
-            callbacks.onError?.(new Error('Maximum reconnection attempts reached'));
-          }
         }
       }
     };
@@ -744,7 +775,7 @@ export class DurableStreamsClient {
     const unsubscribe = () => {
       isUnsubscribed = true;
       state = 'disconnected';
-      if (reconnectTimerId) {
+      if (reconnectTimerId !== null) {
         clearTimeout(reconnectTimerId);
         reconnectTimerId = null;
       }
@@ -786,6 +817,7 @@ export class DurableStreamsClient {
       onState: (event: { channel: 'agentState'; data: SessionAgentState }) => void;
       onStep: (event: TypedSessionEvent) => void;
       onError?: (error: Error) => void;
+      onConnectionStateChange?: (state: ConnectionState) => void;
       onReconnect?: () => void;
     }
   ): Subscription {
@@ -796,6 +828,7 @@ export class DurableStreamsClient {
       onToolCall: callbacks.onStep,
       onTerminal: callbacks.onStep,
       onError: callbacks.onError,
+      onConnectionStateChange: callbacks.onConnectionStateChange,
       onReconnect: callbacks.onReconnect,
     });
   }
@@ -1280,6 +1313,21 @@ function routeEventToCallback(event: TypedSessionEvent, callbacks: SessionCallba
   }
 }
 
+/**
+ * Streams availability flag — set by bootstrap, checked before connecting.
+ * When false (e.g. Caddy not running in dev), subscriptions are skipped
+ * to avoid exhausting the browser's HTTP/1.1 connection limit with retries.
+ */
+let streamsAvailable = false;
+
+export function setStreamsAvailable(available: boolean): void {
+  streamsAvailable = available;
+}
+
+export function isStreamsAvailable(): boolean {
+  return streamsAvailable;
+}
+
 // Create singleton client instance
 let clientInstance: DurableStreamsClient | null = null;
 
@@ -1345,6 +1393,7 @@ export function subscribeToSession(sessionId: string, callbacks: SessionCallback
       'onTopologyAgentProgress',
       'onTopologyAgentCompleted',
       'onError',
+      'onConnectionStateChange',
       'onReconnect',
       'onDisconnect',
     ];
@@ -1368,6 +1417,7 @@ export function subscribeToSession(sessionId: string, callbacks: SessionCallback
   // Register this subscriber
   const subscriberId = entry.nextId++;
   entry.subscribers.set(subscriberId, callbacks);
+  callbacks.onConnectionStateChange?.(entry.subscription.getState());
 
   const currentEntry = entry;
 
@@ -1394,6 +1444,7 @@ export function subscribeToAgent(
     onState: (event: { channel: 'agentState'; data: SessionAgentState }) => void;
     onStep: (event: TypedSessionEvent) => void;
     onError?: (error: Error) => void;
+    onConnectionStateChange?: (state: ConnectionState) => void;
     onReconnect?: () => void;
   }
 ): Subscription {

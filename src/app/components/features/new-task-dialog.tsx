@@ -49,21 +49,30 @@ function getDialogDefaults(): DialogSize {
   };
 }
 
+/**
+ * Hook for making the dialog resizable.
+ * Uses refs + direct DOM manipulation to avoid re-renders during resize.
+ */
 function useResizableDialog() {
-  const [size, setSize] = useState<DialogSize>(getDialogDefaults);
+  const sizeRef = useRef<DialogSize>(getDialogDefaults());
+  const resizeElementRef = useRef<HTMLDivElement>(null);
   const [isResizing, setIsResizing] = useState(false);
   const startPos = useRef({ x: 0, y: 0 });
   const startSize = useRef({ width: 0, height: 0 });
 
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      setIsResizing(true);
-      startPos.current = { x: e.clientX, y: e.clientY };
-      startSize.current = { ...size };
-    },
-    [size]
-  );
+  const applySize = useCallback(() => {
+    if (resizeElementRef.current) {
+      resizeElementRef.current.style.width = `${sizeRef.current.width}px`;
+      resizeElementRef.current.style.height = `${sizeRef.current.height}px`;
+    }
+  }, []);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+    startPos.current = { x: e.clientX, y: e.clientY };
+    startSize.current = { ...sizeRef.current };
+  }, []);
 
   useEffect(() => {
     if (!isResizing) return;
@@ -72,7 +81,7 @@ function useResizableDialog() {
       const deltaX = e.clientX - startPos.current.x;
       const deltaY = e.clientY - startPos.current.y;
 
-      setSize({
+      sizeRef.current = {
         width: Math.max(
           MIN_WIDTH,
           Math.min(window.innerWidth - 40, startSize.current.width + deltaX * 2)
@@ -81,7 +90,8 @@ function useResizableDialog() {
           MIN_HEIGHT,
           Math.min(window.innerHeight - 40, startSize.current.height + deltaY * 2)
         ),
-      });
+      };
+      applySize();
     };
 
     const handleMouseUp = () => {
@@ -95,44 +105,52 @@ function useResizableDialog() {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isResizing]);
+  }, [isResizing, applySize]);
 
   const reset = useCallback(() => {
-    setSize(getDialogDefaults());
-  }, []);
+    sizeRef.current = getDialogDefaults();
+    applySize();
+  }, [applySize]);
 
-  return { size, isResizing, handleMouseDown, reset };
+  return { sizeRef, resizeElementRef, isResizing, handleMouseDown, reset };
 }
 
 /**
- * Hook for making the dialog draggable
+ * Hook for making the dialog draggable.
+ * Uses refs + direct DOM manipulation to avoid re-renders during drag.
  */
 function useDraggableDialog() {
-  const [position, setPosition] = useState<DialogPosition | null>(null);
+  const positionRef = useRef<DialogPosition>({ x: 0, y: 0 });
+  const dragElementRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const startPos = useRef({ x: 0, y: 0 });
   const startOffset = useRef({ x: 0, y: 0 });
 
-  const handleDragStart = useCallback(
-    (e: React.MouseEvent) => {
-      // Don't start drag if clicking on buttons or inputs
-      const target = e.target as HTMLElement;
-      if (
-        target.closest('button') ||
-        target.closest('input') ||
-        target.closest('textarea') ||
-        target.closest('[role="slider"]')
-      ) {
-        return;
-      }
+  const applyPosition = useCallback(() => {
+    if (dragElementRef.current) {
+      const { x, y } = positionRef.current;
+      dragElementRef.current.style.left = `calc(50% + ${x}px)`;
+      dragElementRef.current.style.top = `calc(50% + ${y}px)`;
+    }
+  }, []);
 
-      e.preventDefault();
-      setIsDragging(true);
-      startPos.current = { x: e.clientX, y: e.clientY };
-      startOffset.current = position ?? { x: 0, y: 0 };
-    },
-    [position]
-  );
+  const handleDragStart = useCallback((e: React.MouseEvent) => {
+    // Don't start drag if clicking on buttons or inputs
+    const target = e.target as HTMLElement;
+    if (
+      target.closest('button') ||
+      target.closest('input') ||
+      target.closest('textarea') ||
+      target.closest('[role="slider"]')
+    ) {
+      return;
+    }
+
+    e.preventDefault();
+    setIsDragging(true);
+    startPos.current = { x: e.clientX, y: e.clientY };
+    startOffset.current = { ...positionRef.current };
+  }, []);
 
   useEffect(() => {
     if (!isDragging) return;
@@ -141,10 +159,11 @@ function useDraggableDialog() {
       const deltaX = e.clientX - startPos.current.x;
       const deltaY = e.clientY - startPos.current.y;
 
-      setPosition({
+      positionRef.current = {
         x: startOffset.current.x + deltaX,
         y: startOffset.current.y + deltaY,
-      });
+      };
+      applyPosition();
     };
 
     const handleMouseUp = () => {
@@ -158,13 +177,14 @@ function useDraggableDialog() {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDragging]);
+  }, [isDragging, applyPosition]);
 
   const resetPosition = useCallback(() => {
-    setPosition(null);
-  }, []);
+    positionRef.current = { x: 0, y: 0 };
+    applyPosition();
+  }, [applyPosition]);
 
-  return { position, isDragging, handleDragStart, resetPosition };
+  return { isDragging, handleDragStart, resetPosition, dragElementRef };
 }
 
 // ============================================================================
@@ -304,6 +324,10 @@ const THINKING_PHRASES = [
   'Almost there',
 ];
 
+const pulseDotStyle = (
+  <style>{`@keyframes pulse-dot { 0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); } 40% { opacity: 1; transform: scale(1); } }`}</style>
+);
+
 /**
  * Claude-style thinking indicator with cycling breadcrumb words
  */
@@ -351,12 +375,7 @@ function ThinkingIndicator(): React.JSX.Element {
       <span className="text-sm text-fg-muted">
         <span className="inline-block animate-pulse">...</span>
       </span>
-      <style>{`
-        @keyframes pulse-dot {
-          0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
-          40% { opacity: 1; transform: scale(1); }
-        }
-      `}</style>
+      {pulseDotStyle}
     </div>
   );
 }
@@ -961,8 +980,17 @@ export function NewTaskDialog({
   } = useTaskCreation(projectId);
 
   // Resizable and draggable dialog
-  const { size, isResizing, handleMouseDown } = useResizableDialog();
-  const { position, isDragging, handleDragStart, resetPosition } = useDraggableDialog();
+  const { sizeRef, resizeElementRef, isResizing, handleMouseDown } = useResizableDialog();
+  const { isDragging, handleDragStart, resetPosition, dragElementRef } = useDraggableDialog();
+
+  // Combine resize and drag refs into a single callback ref for the dialog element
+  const dialogRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      (resizeElementRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+      (dragElementRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+    },
+    [resizeElementRef, dragElementRef]
+  );
 
   const [input, setInput] = useState('');
   const [editableSuggestion, setEditableSuggestion] = useState<EditableSuggestion | null>(null);
@@ -977,8 +1005,10 @@ export function NewTaskDialog({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Convert TaskSuggestion to EditableSuggestion when suggestion changes
-  useEffect(() => {
+  // Derive editableSuggestion from suggestion prop without an extra render cycle
+  const prevSuggestionRef = useRef<TaskSuggestion | null>(null);
+  if (suggestion !== prevSuggestionRef.current) {
+    prevSuggestionRef.current = suggestion;
     if (suggestion) {
       setEditableSuggestion({
         title: suggestion.title,
@@ -987,7 +1017,7 @@ export function NewTaskDialog({
         priority: suggestion.priority as Priority,
       });
     }
-  }, [suggestion]);
+  }
 
   // Reset selected answers when new questions arrive
   // Track which question ID the selected answers belong to (prevents race conditions)
@@ -1255,6 +1285,7 @@ export function NewTaskDialog({
         />
 
         <DialogPrimitive.Content
+          ref={dialogRef}
           className={cn(
             'fixed z-50',
             'bg-surface border border-border rounded-xl overflow-hidden',
@@ -1266,11 +1297,10 @@ export function NewTaskDialog({
             (isResizing || isDragging) && 'select-none'
           )}
           style={{
-            width: `${size.width}px`,
-            height: `${size.height}px`,
-            // Use position offset or center the dialog
-            left: position ? `calc(50% + ${position.x}px)` : '50%',
-            top: position ? `calc(50% + ${position.y}px)` : '50%',
+            width: `${sizeRef.current.width}px`,
+            height: `${sizeRef.current.height}px`,
+            left: '50%',
+            top: '50%',
             transform: 'translate(-50%, -50%)',
           }}
           data-testid="new-task-dialog"
@@ -1530,7 +1560,7 @@ export function NewTaskDialog({
             aria-label="Resize dialog"
             aria-valuemin={MIN_WIDTH}
             aria-valuemax={window.innerWidth - 40}
-            aria-valuenow={size.width}
+            aria-valuenow={sizeRef.current.width}
             tabIndex={0}
             onMouseDown={handleMouseDown}
             className={cn(

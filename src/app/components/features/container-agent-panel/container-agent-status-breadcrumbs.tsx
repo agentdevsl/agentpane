@@ -111,14 +111,14 @@ export function ContainerAgentStatusBreadcrumbs({
                 <span className={stageLabelVariants({ state })}>{stageLabels[stage]}</span>
               </div>
 
-              {!isLast && <CaretRight className="mx-1.5 h-3 w-3 text-fg-muted/50" />}
+              {!isLast ? <CaretRight className="mx-1.5 h-3 w-3 text-fg-muted/50" /> : null}
             </div>
           );
         })}
       </div>
 
       {/* Current status message */}
-      {statusMessage && <p className="mt-1.5 text-xs text-fg-muted">{statusMessage}</p>}
+      {statusMessage ? <p className="mt-1.5 text-xs text-fg-muted">{statusMessage}</p> : null}
     </div>
   );
 }

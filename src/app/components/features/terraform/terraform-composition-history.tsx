@@ -5,19 +5,26 @@ import type { CompositionEntry } from '@/lib/terraform/types';
 
 const STORAGE_KEY = 'terraform-compositions';
 
-/** Group compositions by date bucket */
+/** Group compositions by date bucket (single pass) */
 function groupByDate(entries: CompositionEntry[]): { label: string; items: CompositionEntry[] }[] {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const yesterday = today - 86_400_000;
   const lastWeek = today - 7 * 86_400_000;
 
-  const groups: { label: string; items: CompositionEntry[] }[] = [];
-  const todayItems = entries.filter((e) => e.timestamp >= today);
-  const yesterdayItems = entries.filter((e) => e.timestamp >= yesterday && e.timestamp < today);
-  const lastWeekItems = entries.filter((e) => e.timestamp >= lastWeek && e.timestamp < yesterday);
-  const olderItems = entries.filter((e) => e.timestamp < lastWeek);
+  const todayItems: CompositionEntry[] = [];
+  const yesterdayItems: CompositionEntry[] = [];
+  const lastWeekItems: CompositionEntry[] = [];
+  const olderItems: CompositionEntry[] = [];
 
+  for (const e of entries) {
+    if (e.timestamp >= today) todayItems.push(e);
+    else if (e.timestamp >= yesterday) yesterdayItems.push(e);
+    else if (e.timestamp >= lastWeek) lastWeekItems.push(e);
+    else olderItems.push(e);
+  }
+
+  const groups: { label: string; items: CompositionEntry[] }[] = [];
   if (todayItems.length) groups.push({ label: 'Today', items: todayItems });
   if (yesterdayItems.length) groups.push({ label: 'Yesterday', items: yesterdayItems });
   if (lastWeekItems.length) groups.push({ label: 'Last Week', items: lastWeekItems });

@@ -1112,6 +1112,7 @@ export const apiClient = {
           id: string;
           name: string;
           orgName: string;
+          hasToken: boolean;
           status: 'active' | 'syncing' | 'error';
           lastSyncedAt: string | null;
           syncError: string | null;
@@ -1127,13 +1128,14 @@ export const apiClient = {
     createRegistry: (data: {
       name: string;
       orgName: string;
-      tokenSettingKey: string;
+      apiToken: string;
       syncIntervalMinutes?: number;
     }) =>
       apiServerFetch<{
         id: string;
         name: string;
         orgName: string;
+        hasToken: boolean;
         status: string;
         moduleCount: number;
         createdAt: string;
@@ -1145,6 +1147,7 @@ export const apiClient = {
         id: string;
         name: string;
         orgName: string;
+        hasToken: boolean;
         status: string;
         lastSyncedAt: string | null;
         syncError: string | null;
@@ -1165,7 +1168,7 @@ export const apiClient = {
       data: {
         name?: string;
         orgName?: string;
-        tokenSettingKey?: string;
+        apiToken?: string;
         syncIntervalMinutes?: number | null;
       }
     ) =>
@@ -1173,6 +1176,7 @@ export const apiClient = {
         id: string;
         name: string;
         orgName: string;
+        hasToken: boolean;
         status: string;
         syncIntervalMinutes: number | null;
         updatedAt: string;

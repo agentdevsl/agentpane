@@ -1,4 +1,5 @@
 import { Code, Folder, Lightning, Robot, Spinner, Terminal } from '@phosphor-icons/react';
+import { useMemo } from 'react';
 import type { Template } from '@/db/schema';
 import { cn } from '@/lib/utils/cn';
 
@@ -151,6 +152,17 @@ export function TemplatePicker({
   isLoading = false,
   className,
 }: TemplatePickerProps): React.JSX.Element {
+  // Group templates by scope in a single pass (hook must be before early returns)
+  const { orgTemplates, projectTemplates } = useMemo(() => {
+    const org: Template[] = [];
+    const project: Template[] = [];
+    for (const t of templates) {
+      if (t.scope === 'org') org.push(t);
+      else if (t.scope === 'project') project.push(t);
+    }
+    return { orgTemplates: org, projectTemplates: project };
+  }, [templates]);
+
   if (isLoading) {
     return <LoadingState />;
   }
@@ -158,10 +170,6 @@ export function TemplatePicker({
   if (templates.length === 0) {
     return <EmptyState />;
   }
-
-  // Group templates by scope
-  const orgTemplates = templates.filter((t) => t.scope === 'org');
-  const projectTemplates = templates.filter((t) => t.scope === 'project');
 
   return (
     <div className={cn('space-y-6', className)} data-testid="template-picker">

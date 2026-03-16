@@ -125,10 +125,18 @@ export function KanbanBoard({
     void onTaskMove(taskId, overTask.column, overTask.position ?? 0);
   };
 
-  const getTasksByColumn = (column: TaskColumn) =>
-    tasks
-      .filter((task) => task.column === column)
-      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  const tasksByColumn = useMemo(() => {
+    const grouped = new Map<TaskColumn, Task[]>();
+    for (const col of COLUMNS) {
+      grouped.set(
+        col.id,
+        tasks
+          .filter((task) => task.column === col.id)
+          .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+      );
+    }
+    return grouped;
+  }, [tasks]);
 
   const handleSelectAll = () => {
     selectAll(tasks);
@@ -233,7 +241,7 @@ export function KanbanBoard({
               key={column.id}
               id={column.id}
               title={column.label}
-              tasks={getTasksByColumn(column.id)}
+              tasks={tasksByColumn.get(column.id) ?? []}
               onTaskClick={onTaskClick}
               onTaskSelect={toggleSelection}
               isTaskSelected={isSelected}

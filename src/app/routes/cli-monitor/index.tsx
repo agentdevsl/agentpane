@@ -30,11 +30,11 @@ function CliMonitorCardsView(): React.JSX.Element {
 
   return (
     <>
-      {pageState === 'install' && <InstallState />}
-      {pageState === 'waiting' && <WaitingState />}
-      {pageState === 'active' && (
+      {pageState === 'install' ? <InstallState /> : null}
+      {pageState === 'waiting' ? <WaitingState /> : null}
+      {pageState === 'active' ? (
         <ActiveState sessions={sessions} alerts={alerts} onDismissAlert={dismissAlert} />
-      )}
+      ) : null}
     </>
   );
 }
@@ -219,14 +219,15 @@ function ActiveState({
     }
   }, [selectedSessionId, sessions]);
 
-  useEffect(() => {
-    if (!selectedSessionId) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setSelectedSessionId(null);
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [selectedSessionId]);
+  // Escape to close - handled via onKeyDown on container
+  const handleContainerKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Escape' && selectedSessionId) {
+        setSelectedSessionId(null);
+      }
+    },
+    [selectedSessionId]
+  );
 
   useEffect(() => {
     const el = loadMoreRef.current;
@@ -245,6 +246,12 @@ function ActiveState({
 
   const flatSessions = useMemo(() => sessions.filter((s) => !s.isSubagent), [sessions]);
 
+  // Use refs for values that change frequently to avoid re-attaching the keydown listener
+  const focusedIndexRef = useRef(focusedIndex);
+  focusedIndexRef.current = focusedIndex;
+  const selectedSessionIdRef = useRef(selectedSessionId);
+  selectedSessionIdRef.current = selectedSessionId;
+
   useEffect(() => {
     const el = sessionListRef.current;
     if (!el) return;
@@ -255,17 +262,23 @@ function ActiveState({
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
         setFocusedIndex((prev) => Math.max(prev - 1, 0));
-      } else if (e.key === 'Enter' && focusedIndex >= 0 && focusedIndex < flatSessions.length) {
+      } else if (
+        e.key === 'Enter' &&
+        focusedIndexRef.current >= 0 &&
+        focusedIndexRef.current < flatSessions.length
+      ) {
         e.preventDefault();
-        const session = flatSessions[focusedIndex];
+        const session = flatSessions[focusedIndexRef.current];
         if (session) {
-          setSelectedSessionId(session.sessionId === selectedSessionId ? null : session.sessionId);
+          setSelectedSessionId(
+            session.sessionId === selectedSessionIdRef.current ? null : session.sessionId
+          );
         }
       }
     };
     el.addEventListener('keydown', handler);
     return () => el.removeEventListener('keydown', handler);
-  }, [flatSessions, focusedIndex, selectedSessionId]);
+  }, [flatSessions]);
 
   useEffect(() => {
     if (focusedIndex < 0) return;
@@ -277,20 +290,38 @@ function ActiveState({
 
   const projectGroups = useMemo(() => {
     const groups = new Map<string, CliSession[]>();
-    for (const s of sessions) {
-      if (s.isSubagent) continue;
+    for (const s of flatSessions) {
       const key = s.projectName || 'Unknown';
       const arr = groups.get(key) || [];
       arr.push(s);
       groups.set(key, arr);
     }
     return groups;
-  }, [sessions]);
+  }, [flatSessions]);
+
+  // Pre-compute visible project groups to avoid IIFE in JSX
+  const visibleProjectGroups = useMemo(() => {
+    let rendered = 0;
+    const groups = Array.from(projectGroups.entries());
+    return groups.map(([projectName, projectSessions]) => {
+      if (rendered >= visibleCount) return null;
+      const remainingSlots = visibleCount - rendered;
+      const visibleProjectSessions = projectSessions.slice(0, remainingSlots);
+      const startIdx = rendered;
+      rendered += visibleProjectSessions.length;
+      const firstSession = projectSessions[0];
+      return { projectName, projectSessions, visibleProjectSessions, startIdx, firstSession };
+    });
+  }, [projectGroups, visibleCount]);
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div
+      className="flex flex-1 flex-col overflow-hidden"
+      role="application"
+      onKeyDown={handleContainerKeyDown}
+    >
       {/* Alert Toasts */}
-      {alerts.length > 0 && (
+      {alerts.length > 0 ? (
         <output className="flex flex-col items-center gap-2 px-6 py-2" aria-live="polite">
           {alerts.slice(0, 3).map((alert) => (
             <AlertToastItem
@@ -299,11 +330,11 @@ function ActiveState({
               onDismiss={() => onDismissAlert(alert.id)}
             />
           ))}
-          {alerts.length > 3 && (
+          {alerts.length > 3 ? (
             <span className="text-xs text-fg-subtle">+{alerts.length - 3} more</span>
-          )}
+          ) : null}
         </output>
-      )}
+      ) : null}
 
       {/* Summary Strip */}
       <SummaryStrip sessions={sessions} />
@@ -321,64 +352,62 @@ function ActiveState({
           tabIndex={0}
         >
           <div className="space-y-6">
-            {(() => {
-              let rendered = 0;
-              const groups = Array.from(projectGroups.entries());
-              return groups.map(([projectName, projectSessions]) => {
-                if (rendered >= visibleCount) return null;
-                const remainingSlots = visibleCount - rendered;
-                const visibleProjectSessions = projectSessions.slice(0, remainingSlots);
-                const startIdx = rendered;
-                rendered += visibleProjectSessions.length;
-                const firstSession = projectSessions[0];
-                return (
-                  <div key={projectName}>
-                    {/* Project Group Header */}
-                    <div className="flex items-center gap-2 mb-3 pb-2 border-b border-border">
-                      <FolderOpen size={16} className="text-fg-subtle shrink-0" />
-                      <span className="text-sm font-semibold text-fg">{projectName}</span>
-                      {firstSession?.cwd && (
-                        <span className="font-mono text-[11px] text-fg-subtle truncate">
-                          {firstSession.cwd}
-                        </span>
-                      )}
-                      <span className="ml-auto rounded-full bg-emphasis px-2 py-0.5 text-[11px] font-medium text-fg-muted">
-                        {projectSessions.length}
+            {visibleProjectGroups.map((group) => {
+              if (!group) return null;
+              const {
+                projectName,
+                projectSessions,
+                visibleProjectSessions,
+                startIdx,
+                firstSession,
+              } = group;
+              return (
+                <div key={projectName}>
+                  {/* Project Group Header */}
+                  <div className="flex items-center gap-2 mb-3 pb-2 border-b border-border">
+                    <FolderOpen size={16} className="text-fg-subtle shrink-0" />
+                    <span className="text-sm font-semibold text-fg">{projectName}</span>
+                    {firstSession?.cwd ? (
+                      <span className="font-mono text-[11px] text-fg-subtle truncate">
+                        {firstSession.cwd}
                       </span>
-                    </div>
-                    {/* Session Cards Grid */}
-                    <div className="grid grid-cols-[repeat(auto-fill,minmax(340px,1fr))] gap-3">
-                      {visibleProjectSessions.map((session, i) => (
-                        <SessionCard
-                          key={session.sessionId}
-                          session={session}
-                          selected={session.sessionId === selectedSessionId}
-                          focused={startIdx + i === focusedIndex}
-                          dataIndex={startIdx + i}
-                          onClick={() =>
-                            setSelectedSessionId(
-                              session.sessionId === selectedSessionId ? null : session.sessionId
-                            )
-                          }
-                        />
-                      ))}
-                    </div>
+                    ) : null}
+                    <span className="ml-auto rounded-full bg-emphasis px-2 py-0.5 text-[11px] font-medium text-fg-muted">
+                      {projectSessions.length}
+                    </span>
                   </div>
-                );
-              });
-            })()}
-            {flatSessions.length > visibleCount && (
+                  {/* Session Cards Grid */}
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(340px,1fr))] gap-3">
+                    {visibleProjectSessions.map((session, i) => (
+                      <SessionCard
+                        key={session.sessionId}
+                        session={session}
+                        selected={session.sessionId === selectedSessionId}
+                        focused={startIdx + i === focusedIndex}
+                        dataIndex={startIdx + i}
+                        onClick={() =>
+                          setSelectedSessionId(
+                            session.sessionId === selectedSessionId ? null : session.sessionId
+                          )
+                        }
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+            {flatSessions.length > visibleCount ? (
               <div ref={loadMoreRef} className="py-2 text-center text-xs text-fg-subtle">
                 Showing {visibleCount} of {flatSessions.length} sessions &mdash; scroll to load more
               </div>
-            )}
+            ) : null}
           </div>
         </div>
 
         {/* Right: Detail Panel */}
-        {selectedSession && (
+        {selectedSession ? (
           <CardsRightPanel session={selectedSession} onClose={() => setSelectedSessionId(null)} />
-        )}
+        ) : null}
       </div>
     </div>
   );
@@ -481,11 +510,11 @@ function SessionCard({
         <span className="font-mono text-[11px] text-fg-subtle">
           {session.sessionId.slice(0, 8)}
         </span>
-        {session.gitBranch && (
+        {session.gitBranch ? (
           <span className="rounded bg-[#a371f7]/15 px-1.5 py-0.5 text-[10px] font-mono font-medium text-[#a371f7] truncate max-w-[140px]">
             {session.gitBranch}
           </span>
-        )}
+        ) : null}
         <span className={`ml-auto rounded px-1.5 py-0.5 text-[10px] font-semibold ${config.badge}`}>
           {config.text}
         </span>
@@ -500,43 +529,35 @@ function SessionCard({
       </div>
 
       {/* Output Preview */}
-      {session.recentOutput && (
+      {session.recentOutput ? (
         <div className="mx-3 mb-2 relative">
           <div className="rounded bg-subtle dark:bg-[#0a0e14]/60 px-2.5 py-2 font-mono text-[10px] leading-relaxed text-fg-muted max-h-[56px] overflow-hidden">
-            {(() => {
-              const trimmed = session.recentOutput.trimStart();
-              const looksLikeJson =
-                trimmed.startsWith('"') || trimmed.startsWith('{') || trimmed.startsWith('[');
-              if (looksLikeJson) {
-                return session.goal || 'Processing...';
-              }
-              return session.recentOutput.split('\n').slice(-3).join('\n');
-            })()}
+            <OutputPreviewText recentOutput={session.recentOutput} goal={session.goal} />
           </div>
           <div className="absolute bottom-0 left-0 right-0 h-4 bg-gradient-to-t from-subtle dark:from-[#0a0e14]/60 to-transparent rounded-b pointer-events-none" />
         </div>
-      )}
+      ) : null}
 
       {/* Pending tool badge */}
-      {session.pendingToolUse && (
+      {session.pendingToolUse ? (
         <div className="mx-3 mb-2">
           <span className="inline-flex items-center gap-1.5 rounded bg-attention/15 px-2 py-1 text-[11px] font-medium text-attention">
             <span className="h-1.5 w-1.5 rounded-full bg-attention" />
             {session.pendingToolUse.toolName}
           </span>
         </div>
-      )}
+      ) : null}
 
       {/* Card Footer */}
       <div className="flex items-center gap-3 border-t border-border px-3 py-2 mt-auto">
         <span className="text-[11px] text-fg-subtle">{session.messageCount} msgs</span>
         <span className="text-[11px] text-fg-subtle">{timeAgo}</span>
-        {(session.performanceMetrics?.compactionCount ?? 0) > 0 && (
+        {(session.performanceMetrics?.compactionCount ?? 0) > 0 ? (
           <span className="text-[10px] text-attention font-mono">
             {session.performanceMetrics?.compactionCount} compaction
             {session.performanceMetrics?.compactionCount === 1 ? '' : 's'}
           </span>
-        )}
+        ) : null}
         <span className="ml-auto font-mono text-[11px] text-fg-muted">
           {formatTokenCount(totalTokens)}
         </span>
@@ -545,6 +566,18 @@ function SessionCard({
       <ContextPressureBar session={session} />
     </button>
   );
+}
+
+// -- Output Preview Text --
+
+function OutputPreviewText({ recentOutput, goal }: { recentOutput: string; goal?: string }) {
+  const trimmed = recentOutput.trimStart();
+  const looksLikeJson =
+    trimmed.startsWith('"') || trimmed.startsWith('{') || trimmed.startsWith('[');
+  if (looksLikeJson) {
+    return <>{goal || 'Processing...'}</>;
+  }
+  return <>{recentOutput.split('\n').slice(-3).join('\n')}</>;
 }
 
 // -- Health Badge --

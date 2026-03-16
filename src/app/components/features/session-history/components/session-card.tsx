@@ -68,12 +68,12 @@ export function SessionCard({
           <span className="font-mono text-xs font-medium text-accent">
             #{session.id.slice(0, 7)}
           </span>
-          {session.projectName && (
+          {session.projectName ? (
             <>
               <span className="text-fg-subtle">·</span>
               <span className="truncate text-xs text-fg-muted">{session.projectName}</span>
             </>
-          )}
+          ) : null}
         </div>
         <span className="shrink-0 text-xs text-fg-subtle">
           {formatTimeOfDay(session.createdAt)}
@@ -81,25 +81,25 @@ export function SessionCard({
       </div>
 
       {/* Agent name */}
-      {!compact && session.agentName && (
+      {!compact && session.agentName ? (
         <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-fg">
           <Wrench className="h-3 w-3 text-fg-muted" />
           {session.agentName}
         </div>
-      )}
+      ) : null}
 
       {/* Task info */}
-      {session.taskId && (
+      {session.taskId ? (
         <div className="mb-1.5 text-xs text-fg-muted line-clamp-1">
           <span className="font-mono text-done">#{session.taskId.slice(0, 7)}</span>
-          {session.taskTitle && <span className="opacity-70"> {session.taskTitle}</span>}
+          {session.taskTitle ? <span className="opacity-70"> {session.taskTitle}</span> : null}
         </div>
-      )}
+      ) : null}
 
       {/* Session title (if no task) */}
-      {!session.taskId && session.title && (
+      {!session.taskId && session.title ? (
         <div className="mb-1.5 text-xs text-fg-muted line-clamp-1">{session.title}</div>
-      )}
+      ) : null}
 
       {/* Meta row */}
       <div className="flex flex-wrap items-center gap-2 text-xs text-fg-subtle">
@@ -120,19 +120,19 @@ export function SessionCard({
         </span>
 
         {/* Tokens */}
-        {session.tokensUsed > 0 && (
+        {session.tokensUsed > 0 ? (
           <span className="flex items-center gap-1">
             <Coins className="h-3 w-3" />
             {formatTokens(session.tokensUsed)}
           </span>
-        )}
+        ) : null}
 
         {/* Cost */}
-        {session.costUsd != null && session.costUsd > 0 && (
+        {session.costUsd != null && session.costUsd > 0 ? (
           <span className="flex items-center gap-1">
             <CurrencyDollar className="h-3 w-3" />${session.costUsd.toFixed(3)}
           </span>
-        )}
+        ) : null}
 
         {/* Execution badge */}
         <ExecutionBadge

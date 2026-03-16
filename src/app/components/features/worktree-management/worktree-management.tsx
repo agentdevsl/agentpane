@@ -6,7 +6,7 @@ import {
   GitFork,
   GitPullRequest,
 } from '@phosphor-icons/react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/app/components/ui/button';
 import { Skeleton } from '@/app/components/ui/skeleton';
 import { cn } from '@/lib/utils/cn';
@@ -333,7 +333,10 @@ export function WorktreeManagement({
   } = useWorktreeDiff(mergeDialogOpen || commitDialogOpen ? (dialogWorktree?.id ?? null) : null);
 
   // All worktrees for display (combine active and stale)
-  const allWorktrees = [...activeWorktrees, ...staleWorktrees];
+  const allWorktrees = useMemo(
+    () => [...activeWorktrees, ...staleWorktrees],
+    [activeWorktrees, staleWorktrees]
+  );
 
   // Keyboard shortcuts
   useKeyboardShortcuts({

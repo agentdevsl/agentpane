@@ -9,7 +9,7 @@ export type PresenceUser = {
 
 export function usePresence(
   sessionId: string,
-  userId: string
+  _userId: string
 ): {
   users: PresenceUser[];
 } {
@@ -25,8 +25,8 @@ export function usePresence(
         if (mounted && data.ok) {
           setUsers(data.data as PresenceUser[]);
         }
-      } catch {
-        // API may not be ready
+      } catch (error) {
+        console.debug('[usePresence] fetch failed:', error);
       }
     };
 
@@ -39,23 +39,9 @@ export function usePresence(
     };
   }, [sessionId]);
 
-  useEffect(() => {
-    const updatePresence = async () => {
-      try {
-        await fetch(`/api/sessions/${sessionId}/presence`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId }),
-        });
-      } catch {
-        // Ignore presence update errors
-      }
-    };
-
-    const interval = window.setInterval(updatePresence, 15000);
-
-    return () => window.clearInterval(interval);
-  }, [sessionId, userId]);
+  // Note: POST heartbeat is intentionally omitted here.
+  // useSession already sends presence heartbeats every 10s, and usePresence
+  // is always used alongside useSession. This avoids duplicate POSTs.
 
   return { users };
 }

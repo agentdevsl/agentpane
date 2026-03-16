@@ -1,5 +1,5 @@
-import { createError } from '../../errors/base.js';
-import { err, ok } from '../../utils/result.js';
+import { setStreamsAvailable } from '../../streams/client.js';
+import { ok } from '../../utils/result.js';
 
 /**
  * Initialize durable streams for the client.
@@ -7,6 +7,10 @@ import { err, ok } from '../../utils/result.js';
  * With Caddy durable streams, the client connects directly to the Caddy
  * SSE endpoints (e.g. /v1/stream/sessions/:id). This phase verifies
  * Caddy is reachable before declaring the streams subsystem ready.
+ *
+ * A 404 from Vite (when Caddy isn't running) is NOT treated as "reachable" —
+ * it means the streams endpoint doesn't exist, so SSE subscriptions are disabled
+ * to prevent retry loops that exhaust the browser's connection limit.
  */
 export const connectStreams = async (_ctx?: unknown) => {
   // Build an absolute URL that works in both browser and SSR contexts.
@@ -20,23 +24,22 @@ export const connectStreams = async (_ctx?: unknown) => {
 
   try {
     const response = await fetch(streamsUrl, { method: 'HEAD', signal: AbortSignal.timeout(3000) });
-    if (response.ok || response.status === 404) {
-      // 404 is expected — no streams exist yet, but the endpoint is reachable
-      console.log(`[Streams] Caddy durable streams reachable at ${streamsUrl}`);
+    // A durable-streams server (Caddy or test server) returns stream-specific headers
+    // even on 404 (no streams yet). A plain Vite 404 won't have these.
+    const isDurableStreams =
+      response.ok || response.headers.get('access-control-allow-headers')?.includes('Stream-Seq');
+    if (isDurableStreams) {
+      console.log(`[Streams] Durable streams reachable at ${streamsUrl} (HTTP ${response.status})`);
+      setStreamsAvailable(true);
       return ok(null);
     }
-    console.error(`[Streams] Caddy returned HTTP ${response.status} at ${streamsUrl}`);
-    return err(
-      createError('BOOTSTRAP_STREAMS_FAILED', `Caddy streams returned HTTP ${response.status}`, 503)
-    );
-  } catch (e) {
-    console.error(`[Streams] Caddy not reachable at ${streamsUrl}:`, e);
-    return err(
-      createError(
-        'BOOTSTRAP_STREAMS_FAILED',
-        `Caddy streams not reachable at ${streamsUrl}: ${e instanceof Error ? e.message : String(e)}`,
-        503
-      )
-    );
+    // No stream-specific headers = Vite or other non-streams server responding
+    console.warn(`[Streams] Streams server not available (HTTP ${response.status}). SSE disabled.`);
+    setStreamsAvailable(false);
+    return ok(null);
+  } catch (error) {
+    console.warn(`[Streams] Caddy not reachable at ${streamsUrl}. SSE streams disabled.`, error);
+    setStreamsAvailable(false);
+    return ok(null); // Non-fatal in dev mode
   }
 };

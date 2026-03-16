@@ -10,47 +10,46 @@ import type { PlanSessionViewProps } from './types';
 import { usePlanSession } from './use-plan-session';
 
 /**
- * Loading skeleton for the plan session view
+ * Static loading skeleton for the plan session view.
+ * Hoisted to module scope since it produces identical JSX on every render.
  */
-function PlanLoadingSkeleton(): React.JSX.Element {
-  return (
-    <div className="flex flex-col h-full" data-testid="plan-skeleton">
-      {/* Header skeleton */}
-      <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-        <div className="flex items-center gap-3">
-          <Skeleton className="h-8 w-8 rounded-lg" />
-          <Skeleton className="h-5 w-28" />
-        </div>
-        <Skeleton className="h-8 w-20 rounded-md" />
+const planLoadingSkeleton = (
+  <div className="flex flex-col h-full" data-testid="plan-skeleton">
+    {/* Header skeleton */}
+    <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+      <div className="flex items-center gap-3">
+        <Skeleton className="h-8 w-8 rounded-lg" />
+        <Skeleton className="h-5 w-28" />
       </div>
+      <Skeleton className="h-8 w-20 rounded-md" />
+    </div>
 
-      {/* Stream panel skeleton */}
-      <div className="flex-1 p-5 space-y-4 overflow-hidden">
-        <div className="space-y-4">
-          <div className="flex gap-3">
-            <Skeleton className="h-8 w-8 rounded-full shrink-0" />
-            <div className="flex-1 space-y-2">
-              <Skeleton className="h-4 w-20" />
-              <Skeleton className="h-20 w-full rounded-lg" />
-            </div>
-          </div>
-          <div className="flex gap-3">
-            <Skeleton className="h-8 w-8 rounded-full shrink-0" />
-            <div className="flex-1 space-y-2">
-              <Skeleton className="h-4 w-16" />
-              <Skeleton className="h-32 w-full rounded-lg" />
-            </div>
+    {/* Stream panel skeleton */}
+    <div className="flex-1 p-5 space-y-4 overflow-hidden">
+      <div className="space-y-4">
+        <div className="flex gap-3">
+          <Skeleton className="h-8 w-8 rounded-full shrink-0" />
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-4 w-20" />
+            <Skeleton className="h-20 w-full rounded-lg" />
           </div>
         </div>
-      </div>
-
-      {/* Input area skeleton */}
-      <div className="p-4 border-t border-border">
-        <Skeleton className="h-24 w-full rounded-xl" />
+        <div className="flex gap-3">
+          <Skeleton className="h-8 w-8 rounded-full shrink-0" />
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-4 w-16" />
+            <Skeleton className="h-32 w-full rounded-lg" />
+          </div>
+        </div>
       </div>
     </div>
-  );
-}
+
+    {/* Input area skeleton */}
+    <div className="p-4 border-t border-border">
+      <Skeleton className="h-24 w-full rounded-xl" />
+    </div>
+  </div>
+);
 
 /**
  * Completion banner showing GitHub issue link
@@ -170,12 +169,10 @@ export function PlanSessionView({
   );
 
   const handleAnswerInteraction = useCallback(
-    (answers: Record<string, string>) => {
-      if (state.pendingInteraction) {
-        answerInteraction(state.pendingInteraction.id, answers);
-      }
+    (interactionId: string, answers: Record<string, string>) => {
+      answerInteraction(interactionId, answers);
     },
-    [state.pendingInteraction, answerInteraction]
+    [answerInteraction]
   );
 
   const handleCancel = useCallback(async () => {
@@ -187,7 +184,7 @@ export function PlanSessionView({
 
   // Loading state
   if (state.isLoading) {
-    return <PlanLoadingSkeleton />;
+    return planLoadingSkeleton;
   }
 
   // Error state
@@ -332,7 +329,8 @@ export function PlanSessionView({
         {state.pendingInteraction && (
           <PlanInteraction
             interaction={state.pendingInteraction}
-            onAnswer={handleAnswerInteraction}
+            // biome-ignore lint/style/noNonNullAssertion: guarded by state.pendingInteraction && check above
+            onAnswer={(answers) => handleAnswerInteraction(state.pendingInteraction!.id, answers)}
             isSubmitting={state.isStreaming}
           />
         )}

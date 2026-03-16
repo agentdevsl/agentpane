@@ -14,7 +14,7 @@ import {
   Warning,
 } from '@phosphor-icons/react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/app/components/ui/button';
 import { ConfigSection } from '@/app/components/ui/config-section';
 import { ModelSelector } from '@/app/components/ui/model-selector';
@@ -206,7 +206,10 @@ function ModelOptimizationsPage(): React.JSX.Element {
     loadSettings();
   }, []);
 
-  const handleSave = async () => {
+  const isSavingRef = useRef(false);
+  const handleSave = useCallback(async () => {
+    if (isSavingRef.current) return;
+    isSavingRef.current = true;
     setIsSaving(true);
     setError(null);
     try {
@@ -230,9 +233,18 @@ function ModelOptimizationsPage(): React.JSX.Element {
       console.error('Error saving settings:', err);
       setError('Failed to save settings. Please try again.');
     } finally {
+      isSavingRef.current = false;
       setIsSaving(false);
     }
-  };
+  }, [
+    defaultModel,
+    taskCreationModel,
+    workflowModel,
+    agentTools,
+    taskCreationTools,
+    workflowTools,
+    apiEndpoint,
+  ]);
 
   return (
     <div data-testid="model-optimizations-settings" className="mx-auto max-w-4xl px-6 py-8 sm:px-8">

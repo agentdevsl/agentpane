@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AgentTopology } from '@/app/components/features/agent-topology';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
+const AgentTopology = lazy(() =>
+  import('@/app/components/features/agent-topology').then((m) => ({ default: m.AgentTopology }))
+);
+
 import { ErrorState } from '@/app/components/features/error-state';
 import { Skeleton } from '@/app/components/ui/skeleton';
 import { TooltipProvider } from '@/app/components/ui/tooltip';
-import { useAgentStream } from '@/app/hooks/use-agent-stream';
 import { usePresence } from '@/app/hooks/use-presence';
 import { useSession } from '@/app/hooks/use-session';
 import { cn } from '@/lib/utils/cn';
@@ -141,7 +144,7 @@ export function AgentSessionView({
   onError,
 }: AgentSessionViewProps): React.JSX.Element {
   const { state, leave } = useSession(sessionId, userId);
-  const { isStreaming } = useAgentStream(sessionId);
+  const isStreaming = state.agentState?.status === 'running';
   const { users } = usePresence(sessionId, userId);
   const [activeTab, setActiveTab] = useState<SessionTab>('stream');
 
@@ -178,14 +181,16 @@ export function AgentSessionView({
   }, [agentStatus]);
 
   // Mark as loaded after first state update
+  const hasData = state.chunks.length > 0 || state.agentState !== null;
   useEffect(() => {
-    if (state.chunks.length > 0 || state.agentState !== null) {
+    if (hasData) {
       setIsLoading(false);
+      return;
     }
     // Timeout after 5 seconds
     const timeout = setTimeout(() => setIsLoading(false), 5000);
     return () => clearTimeout(timeout);
-  }, [state]);
+  }, [hasData]);
 
   // Track user joins/leaves
   useEffect(() => {
@@ -319,6 +324,27 @@ export function AgentSessionView({
     onSessionEnd?.();
   }, [handleStop, leave, onSessionEnd]);
 
+  // Get viewer colors for stream panel (memoized to avoid new array refs every render)
+  const viewerColors = useMemo<string[]>(
+    () =>
+      users.slice(0, 3).map((u) => {
+        const colors = [
+          'bg-red-500',
+          'bg-blue-500',
+          'bg-green-500',
+          'bg-yellow-500',
+          'bg-purple-500',
+        ];
+        let hash = 0;
+        const id = u.userId || '';
+        for (let i = 0; i < id.length; i++) {
+          hash = id.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        return colors[Math.abs(hash) % colors.length] ?? 'bg-blue-500';
+      }),
+    [users]
+  );
+
   // Loading state
   if (isLoading) {
     return <SessionLoadingSkeleton />;
@@ -342,17 +368,6 @@ export function AgentSessionView({
       </div>
     );
   }
-
-  // Get viewer colors for stream panel
-  const viewerColors: string[] = users.slice(0, 3).map((u) => {
-    const colors = ['bg-red-500', 'bg-blue-500', 'bg-green-500', 'bg-yellow-500', 'bg-purple-500'];
-    let hash = 0;
-    const userId = u.userId || '';
-    for (let i = 0; i < userId.length; i++) {
-      hash = userId.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    return colors[Math.abs(hash) % colors.length] ?? 'bg-blue-500';
-  });
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -416,7 +431,15 @@ export function AgentSessionView({
             />
           ) : (
             <div className="flex-1 min-h-0">
-              <AgentTopology />
+              <Suspense
+                fallback={
+                  <div className="flex-1 flex items-center justify-center text-sm text-fg-muted">
+                    Loading topology...
+                  </div>
+                }
+              >
+                <AgentTopology />
+              </Suspense>
             </div>
           )}
         </div>

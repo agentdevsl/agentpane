@@ -70,7 +70,7 @@ export function ContainerAgentPanel({
         />
 
         {/* Stop button */}
-        {isActive && onStop && (
+        {isActive && onStop ? (
           <Button
             variant="destructive"
             size="sm"
@@ -80,17 +80,17 @@ export function ContainerAgentPanel({
             <Square className="h-4 w-4" weight="fill" />
             Stop
           </Button>
-        )}
+        ) : null}
       </div>
 
       {/* Status breadcrumbs during startup */}
-      {state.status === 'starting' && state.statusHistory.length > 0 && (
+      {state.status === 'starting' && state.statusHistory.length > 0 ? (
         <ContainerAgentStatusBreadcrumbs
           currentStage={state.currentStage}
           statusMessage={state.statusMessage}
           statusHistory={state.statusHistory}
         />
-      )}
+      ) : null}
 
       {/* Tab bar */}
       <div className="flex border-b border-border bg-surface-subtle" data-testid="panel-tabs">
@@ -106,7 +106,7 @@ export function ContainerAgentPanel({
         >
           Output
         </button>
-        {hasChanges && (
+        {hasChanges ? (
           <button
             type="button"
             className={cn(
@@ -122,7 +122,7 @@ export function ContainerAgentPanel({
               {state.fileChanges.length}
             </span>
           </button>
-        )}
+        ) : null}
         <button
           type="button"
           className={cn(
@@ -159,11 +159,11 @@ export function ContainerAgentPanel({
             </div>
 
             {/* Tool executions sidebar */}
-            {state.toolExecutions.length > 0 && (
+            {state.toolExecutions.length > 0 ? (
               <div className="flex flex-col min-h-0 w-full border-t border-border lg:w-96 lg:border-l lg:border-t-0">
                 <ContainerAgentToolList tools={state.toolExecutions} />
               </div>
-            )}
+            ) : null}
           </>
         ) : activeTab === 'changes' ? (
           <div className="flex-1 min-h-0 min-w-0 flex flex-col">

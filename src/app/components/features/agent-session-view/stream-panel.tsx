@@ -17,15 +17,16 @@ export function StreamPanel({
   viewerColors = [],
 }: StreamPanelProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [autoScroll, setAutoScroll] = useState(true);
-  const [userScrolled, setUserScrolled] = useState(false);
+  const autoScrollRef = useRef(true);
+  const userScrolledRef = useRef(false);
+  const [showScrollButton, setShowScrollButton] = useState(false);
 
   // Auto-scroll to bottom when new lines arrive
   useEffect(() => {
-    if (autoScroll && containerRef.current) {
+    if (autoScrollRef.current && containerRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
-  }, [autoScroll]);
+  });
 
   // Detect user scroll to disable auto-scroll
   const handleScroll = useCallback(() => {
@@ -35,24 +36,27 @@ export function StreamPanel({
     const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
 
     // If user scrolled up, disable auto-scroll
-    if (!isAtBottom && !userScrolled) {
-      setUserScrolled(true);
-      setAutoScroll(false);
+    if (!isAtBottom && !userScrolledRef.current) {
+      userScrolledRef.current = true;
+      autoScrollRef.current = false;
+      setShowScrollButton(true);
     }
 
     // If user scrolled back to bottom, re-enable auto-scroll
-    if (isAtBottom && userScrolled) {
-      setUserScrolled(false);
-      setAutoScroll(true);
+    if (isAtBottom && userScrolledRef.current) {
+      userScrolledRef.current = false;
+      autoScrollRef.current = true;
+      setShowScrollButton(false);
     }
-  }, [userScrolled]);
+  }, []);
 
   // Scroll to bottom button
   const scrollToBottom = useCallback(() => {
     if (containerRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
-      setAutoScroll(true);
-      setUserScrolled(false);
+      autoScrollRef.current = true;
+      userScrolledRef.current = false;
+      setShowScrollButton(false);
     }
   }, []);
 
@@ -103,7 +107,12 @@ export function StreamPanel({
         ) : (
           <div className="space-y-0">
             {lines.map((line) => (
-              <StreamLine key={line.id} line={line} showTimestamp />
+              <div
+                key={line.id}
+                className="[content-visibility:auto] [contain-intrinsic-size:0_28px]"
+              >
+                <StreamLine line={line} showTimestamp />
+              </div>
             ))}
             {isStreaming && (
               <div className="flex items-center gap-2 py-0.5 pl-16">
@@ -115,7 +124,7 @@ export function StreamPanel({
       </div>
 
       {/* Scroll to bottom indicator */}
-      {!autoScroll && lines.length > 0 && (
+      {showScrollButton && lines.length > 0 && (
         <button
           type="button"
           onClick={scrollToBottom}

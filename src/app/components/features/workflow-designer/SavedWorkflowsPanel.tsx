@@ -39,6 +39,20 @@ interface SavedWorkflowsPanelProps {
   onSave: () => void;
 }
 
+function formatRelativeTime(date: Date): string {
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString();
+}
+
 /**
  * Panel displaying saved workflows catalog with selection, creation, and delete functionality.
  * Shows save status and provides quick access to workflow management.
@@ -72,20 +86,6 @@ export function SavedWorkflowsPanel({
     [deleteConfirm, onDelete]
   );
 
-  const formatRelativeTime = (date: Date): string => {
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
-    return date.toLocaleDateString();
-  };
-
   return (
     <aside
       className={cn(
@@ -107,7 +107,7 @@ export function SavedWorkflowsPanel({
           </h3>
 
           {/* Save status indicator */}
-          {activeWorkflowId && (
+          {activeWorkflowId ? (
             <div className="flex items-center gap-1.5 ml-auto mr-2">
               {hasUnsavedChanges ? (
                 <button
@@ -125,7 +125,7 @@ export function SavedWorkflowsPanel({
                 </div>
               )}
             </div>
-          )}
+          ) : null}
         </div>
 
         <Button
@@ -214,9 +214,9 @@ export function SavedWorkflowsPanel({
                 )}
               >
                 {/* Blueprint micro-pattern for active card */}
-                {isActive && (
+                {isActive ? (
                   <div className="absolute inset-0 opacity-[0.07] bg-[linear-gradient(var(--accent-fg)_1px,transparent_1px),linear-gradient(90deg,var(--accent-fg)_1px,transparent_1px)] bg-[size:12px_12px] pointer-events-none" />
-                )}
+                ) : null}
 
                 <div className="relative">
                   {/* Header row */}
@@ -272,11 +272,11 @@ export function SavedWorkflowsPanel({
                   </div>
 
                   {/* Description */}
-                  {workflow.description && (
+                  {workflow.description ? (
                     <p className="text-[10px] text-[var(--fg-muted)] line-clamp-2 mb-2 leading-relaxed">
                       {workflow.description}
                     </p>
-                  )}
+                  ) : null}
 
                   {/* Meta row */}
                   <div className="flex items-center gap-3 text-[9px] font-mono text-[var(--fg-subtle)] uppercase tracking-wider">
@@ -301,13 +301,13 @@ export function SavedWorkflowsPanel({
       </div>
 
       {/* Footer with count */}
-      {workflows.length > 0 && (
+      {workflows.length > 0 ? (
         <div className="border-t border-[var(--border-default)] px-[var(--space-3)] py-[var(--space-2)] bg-[var(--bg-subtle)]">
           <span className="text-[9px] font-mono text-[var(--fg-subtle)] uppercase tracking-wider">
             {workflows.length} workflow{workflows.length !== 1 ? 's' : ''}
           </span>
         </div>
-      )}
+      ) : null}
     </aside>
   );
 }

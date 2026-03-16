@@ -96,6 +96,7 @@ export interface TerraformRegistryView {
   id: string;
   name: string;
   orgName: string;
+  hasToken: boolean;
   status: 'active' | 'syncing' | 'error';
   lastSyncedAt: string | null;
   syncError: string | null;

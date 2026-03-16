@@ -15,7 +15,7 @@ import {
   Warning,
 } from '@phosphor-icons/react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/app/components/ui/button';
 import { ConfigSection } from '@/app/components/ui/config-section';
 import { apiClient } from '@/lib/api/client';
@@ -208,7 +208,10 @@ function PreferencesSettingsPage(): React.JSX.Element {
     loadSettings();
   }, []);
 
-  const handleSave = async () => {
+  const isSavingRef = useRef(false);
+  const handleSave = useCallback(async () => {
+    if (isSavingRef.current) return;
+    isSavingRef.current = true;
     setIsSaving(true);
     setError(null);
     try {
@@ -229,9 +232,10 @@ function PreferencesSettingsPage(): React.JSX.Element {
       console.error('Error saving settings:', err);
       setError('Failed to save settings. Please try again.');
     } finally {
+      isSavingRef.current = false;
       setIsSaving(false);
     }
-  };
+  }, [maxTurns, maxConcurrentAgents, autoStartAgents, soundEnabled]);
 
   // Count active settings for stats
   const activeFeatures = [autoStartAgents, soundEnabled].filter(Boolean).length;

@@ -8,7 +8,7 @@
  */
 
 import { eq } from '@tanstack/db';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useCollectionQuery } from '../../db/use-collection-query.js';
 import {
   agentStateCollection,
@@ -66,7 +66,14 @@ export function usePendingToolCalls(sessionId: string): ToolCallEvent[] {
  * Hook to get active presence for a session (users seen in last 30 seconds)
  */
 export function useSessionPresence(sessionId: string, maxAgeMs = 30000): PresenceEvent[] {
-  const cutoff = Date.now() - maxAgeMs;
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const cutoff = now - maxAgeMs;
 
   const { data } = useCollectionQuery<PresenceEvent>(
     (q) =>
@@ -180,10 +187,11 @@ export function useSessionData(sessionId: string): UseSessionDataResult {
   const messages = useSessionMessages(sessionId);
   const agentState = useSessionAgentState(sessionId);
 
-  const pendingToolCalls = toolCalls.filter(
-    (t) => t.status === 'pending' || t.status === 'running'
+  const pendingToolCalls = useMemo(
+    () => toolCalls.filter((t) => t.status === 'pending' || t.status === 'running'),
+    [toolCalls]
   );
-  const fullText = chunks.map((c) => c.text).join('');
+  const fullText = useMemo(() => chunks.map((c) => c.text).join(''), [chunks]);
 
   // Consider loading if syncing and no data yet
   const isLoading = isSyncing && chunks.length === 0 && terminal.length === 0;

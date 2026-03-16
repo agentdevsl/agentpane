@@ -24,14 +24,14 @@ export function SessionSummary({ metrics }: SessionSummaryProps): React.JSX.Elem
           <span className="font-medium text-danger">-{metrics.linesRemoved}</span>
         </span>
 
-        {hasTests && (
+        {hasTests ? (
           <span className="text-fg-muted">
             Tests{' '}
             <span className={`font-medium ${allTestsPassed ? 'text-success' : ''}`}>
               {metrics.testsPassed}/{metrics.testsRun}
             </span>
           </span>
-        )}
+        ) : null}
 
         <span className="text-fg-muted">
           Tokens <span className="font-medium text-fg">{formatTokens(metrics.tokensUsed)}</span>
@@ -48,12 +48,12 @@ export function SessionSummary({ metrics }: SessionSummaryProps): React.JSX.Elem
           </span>
         </span>
 
-        {metrics.costUsd != null && metrics.costUsd > 0 && (
+        {metrics.costUsd != null && metrics.costUsd > 0 ? (
           <span className="flex items-center gap-1 text-fg-muted">
             <CurrencyDollar className="h-3 w-3" />
             Cost <span className="font-medium text-fg">${metrics.costUsd.toFixed(3)}</span>
           </span>
-        )}
+        ) : null}
       </div>
     </div>
   );

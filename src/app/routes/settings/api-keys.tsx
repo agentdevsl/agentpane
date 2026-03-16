@@ -113,12 +113,12 @@ function KeyInputCard({
             </button>
           </div>
 
-          {error && (
+          {error ? (
             <p className="flex items-center gap-1.5 text-xs text-danger">
               <Warning className="h-3.5 w-3.5" />
               {error}
             </p>
-          )}
+          ) : null}
 
           <Button
             data-testid={testIdSave}
@@ -161,22 +161,20 @@ function ApiKeysSettingsPage(): React.JSX.Element {
 
   // Load saved keys on mount
   useEffect(() => {
-    const loadAnthropicKey = async () => {
-      const result = await apiClient.apiKeys.get('anthropic');
-      if (result.ok && result.data.keyInfo) {
-        setSavedAnthropicKey(result.data.keyInfo.maskedKey);
+    const loadKeys = async () => {
+      const [keyResult, tokenResult] = await Promise.all([
+        apiClient.apiKeys.get('anthropic'),
+        apiClient.github.getTokenInfo(),
+      ]);
+      if (keyResult.ok && keyResult.data.keyInfo) {
+        setSavedAnthropicKey(keyResult.data.keyInfo.maskedKey);
+      }
+      if (tokenResult.ok && tokenResult.data.tokenInfo) {
+        setSavedGithubPat(tokenResult.data.tokenInfo.maskedToken);
+        setGithubLogin(tokenResult.data.tokenInfo.githubLogin);
       }
     };
-    loadAnthropicKey();
-
-    const loadGitHubToken = async () => {
-      const result = await apiClient.github.getTokenInfo();
-      if (result.ok && result.data.tokenInfo) {
-        setSavedGithubPat(result.data.tokenInfo.maskedToken);
-        setGithubLogin(result.data.tokenInfo.githubLogin);
-      }
-    };
-    loadGitHubToken();
+    loadKeys();
   }, []);
 
   const handleSaveAnthropicKey = async () => {
@@ -285,14 +283,14 @@ function ApiKeysSettingsPage(): React.JSX.Element {
               <Shield className="h-4 w-4 text-success" />
               <span className="text-xs text-fg-muted">AES-256-GCM encrypted</span>
             </div>
-            {githubLogin && (
+            {githubLogin ? (
               <div className="flex items-center gap-2">
                 <GithubLogo className="h-4 w-4 text-fg-subtle" weight="fill" />
                 <span className="text-xs text-fg-muted">
                   <span className="font-medium text-fg">@{githubLogin}</span>
                 </span>
               </div>
-            )}
+            ) : null}
           </div>
         </div>
       </header>

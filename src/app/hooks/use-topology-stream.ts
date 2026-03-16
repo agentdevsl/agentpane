@@ -143,7 +143,7 @@ export function useTopologyStream(
       onDisconnect: () => {
         disconnectCount++;
         // If we've disconnected 5 times without ever receiving an event,
-        // the session likely has no topology data — stop reconnecting
+        // the session likely has no topology data — stop retrying
         if (!hasReceivedEvent && disconnectCount >= 5) {
           console.warn('[useTopologyStream] No topology events after 5 reconnects, unsubscribing');
           subscription.unsubscribe();

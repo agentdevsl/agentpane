@@ -185,20 +185,6 @@ export function SaveWorkflowDialog({
     }
   }, [open, workflow]);
 
-  // Handle Escape key explicitly for reliable dialog closing
-  useEffect(() => {
-    if (!open) return;
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !isSaving) {
-        onOpenChange(false);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [open, onOpenChange, isSaving]);
-
   // Handle field blur for validation
   const handleBlur = useCallback((field: string) => {
     setTouched((prev) => ({ ...prev, [field]: true }));

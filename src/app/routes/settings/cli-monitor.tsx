@@ -1,7 +1,7 @@
 import type { Icon } from '@phosphor-icons/react';
 import { Check, CircleNotch, Database, Terminal, Timer, Warning } from '@phosphor-icons/react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/app/components/ui/button';
 import { ConfigSection } from '@/app/components/ui/config-section';
 import { apiClient } from '@/lib/api/client';
@@ -99,7 +99,10 @@ function CliMonitorSettingsPage(): React.JSX.Element {
     loadSettings();
   }, []);
 
-  const handleSave = async () => {
+  const isSavingRef = useRef(false);
+  const handleSave = useCallback(async () => {
+    if (isSavingRef.current) return;
+    isSavingRef.current = true;
     setIsSaving(true);
     setError(null);
     try {
@@ -115,9 +118,10 @@ function CliMonitorSettingsPage(): React.JSX.Element {
     } catch {
       setError('Failed to save settings. Please try again.');
     } finally {
+      isSavingRef.current = false;
       setIsSaving(false);
     }
-  };
+  }, [retentionDays]);
 
   return (
     <div data-testid="cli-monitor-settings" className="mx-auto max-w-4xl px-6 py-8 sm:px-8">

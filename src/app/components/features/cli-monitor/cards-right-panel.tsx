@@ -142,8 +142,15 @@ function StreamTab({ session }: { session: CliSession }) {
   );
 }
 
+const USER_RE = /^\[user\](.*)/;
+const CLAUDE_RE = /^\[claude\](.*)/;
+const TOOL_RE = /^\[tool:([^\]]+)\](.*)/;
+const SYSTEM_RE = /^\[system\](.*)/;
+const FILE_PATH_RE = /((?:\/[\w.-]+)+(?:\.\w+)?)/;
+const FILE_PATH_SPLIT_RE = /((?:\/[\w.-]+)+(?:\.\w+)?)/g;
+
 function StreamLine({ line }: { line: string }) {
-  const userMatch = line.match(/^\[user\](.*)/);
+  const userMatch = line.match(USER_RE);
   if (userMatch) {
     return (
       <div className="mb-px">
@@ -153,7 +160,7 @@ function StreamLine({ line }: { line: string }) {
     );
   }
 
-  const claudeMatch = line.match(/^\[claude\](.*)/);
+  const claudeMatch = line.match(CLAUDE_RE);
   if (claudeMatch) {
     return (
       <div className="mb-px">
@@ -163,7 +170,7 @@ function StreamLine({ line }: { line: string }) {
     );
   }
 
-  const toolMatch = line.match(/^\[tool:([^\]]+)\](.*)/);
+  const toolMatch = line.match(TOOL_RE);
   if (toolMatch) {
     return (
       <div className="mb-px bg-attention/[0.06] border-l-2 border-attention pl-2 py-px my-0.5">
@@ -173,7 +180,7 @@ function StreamLine({ line }: { line: string }) {
     );
   }
 
-  const systemMatch = line.match(/^\[system\](.*)/);
+  const systemMatch = line.match(SYSTEM_RE);
   if (systemMatch) {
     return (
       <div className="mb-px">
@@ -183,14 +190,13 @@ function StreamLine({ line }: { line: string }) {
     );
   }
 
-  // Highlight file paths — use non-global regex for .test() to avoid lastIndex state issues
-  const filePathPattern = /((?:\/[\w.-]+)+(?:\.\w+)?)/;
-  if (filePathPattern.test(line)) {
-    const parts = line.split(new RegExp(filePathPattern.source, 'g'));
+  // Highlight file paths
+  if (FILE_PATH_RE.test(line)) {
+    const parts = line.split(FILE_PATH_SPLIT_RE);
     return (
       <div className="mb-px whitespace-pre-wrap break-words text-fg-muted">
         {parts.map((part, i) =>
-          filePathPattern.test(part) ? (
+          FILE_PATH_RE.test(part) ? (
             <span key={`${part}-${i}`} className="text-success">
               {part}
             </span>

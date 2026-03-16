@@ -195,7 +195,7 @@ export function ToolCallsFullView({
           </div>
 
           {/* Tool name filter dropdown */}
-          {uniqueToolNames.length > 1 && (
+          {uniqueToolNames.length > 1 ? (
             <div className="flex items-center gap-2">
               <Funnel className="h-3.5 w-3.5 text-fg-subtle" weight="bold" />
               <select
@@ -217,7 +217,7 @@ export function ToolCallsFullView({
                 ))}
               </select>
             </div>
-          )}
+          ) : null}
         </div>
       </header>
 

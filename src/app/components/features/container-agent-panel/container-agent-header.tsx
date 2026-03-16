@@ -8,7 +8,7 @@ import {
   WifiSlash,
 } from '@phosphor-icons/react';
 import { cva } from 'class-variance-authority';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { ExecutionBadge } from '@/app/components/ui/execution-badge';
 import type { ConnectionState } from '@/lib/streams/client';
 
@@ -105,18 +105,22 @@ export function ContainerAgentHeader({
   connectionState,
   isStreaming,
 }: ContainerAgentHeaderProps): React.JSX.Element {
-  const [elapsedTime, setElapsedTime] = useState<string>('0:00');
+  const elapsedRef = useRef<HTMLSpanElement>(null);
 
-  // Update elapsed time every second when running
+  // Update elapsed time every second when running (direct DOM update to avoid re-renders)
   useEffect(() => {
     if (!startedAt || (status !== 'running' && status !== 'starting')) {
       return;
     }
 
-    setElapsedTime(formatElapsedTime(startedAt));
+    if (elapsedRef.current) {
+      elapsedRef.current.textContent = formatElapsedTime(startedAt);
+    }
 
     const interval = window.setInterval(() => {
-      setElapsedTime(formatElapsedTime(startedAt));
+      if (elapsedRef.current) {
+        elapsedRef.current.textContent = formatElapsedTime(startedAt);
+      }
     }, 1000);
 
     return () => window.clearInterval(interval);
@@ -131,7 +135,7 @@ export function ContainerAgentHeader({
         <Robot className="h-5 w-5 text-fg-muted" weight="duotone" />
         <div>
           <p className="text-sm font-medium text-fg">Container Agent</p>
-          {model && <p className="text-xs text-fg-muted">{model}</p>}
+          {model ? <p className="text-xs text-fg-muted">{model}</p> : null}
         </div>
       </div>
 
@@ -153,7 +157,7 @@ export function ContainerAgentHeader({
       />
 
       {/* Branch indicator */}
-      {branch && (
+      {branch ? (
         <div
           className="flex items-center gap-1.5 text-sm text-fg-muted"
           data-testid="branch-indicator"
@@ -162,28 +166,30 @@ export function ContainerAgentHeader({
           <GitBranch className="h-4 w-4" />
           <span className="max-w-[160px] truncate font-mono text-xs">{branch}</span>
         </div>
-      )}
+      ) : null}
 
       {/* Turn counter */}
-      {maxTurns && (
+      {maxTurns ? (
         <div className="flex items-center gap-1.5 text-sm text-fg-muted" data-testid="turn-counter">
           <ArrowsClockwise className="h-4 w-4" />
           <span className="font-mono tabular-nums">
             {currentTurn}/{maxTurns}
           </span>
         </div>
-      )}
+      ) : null}
 
       {/* Elapsed time */}
-      {startedAt && isActive && (
+      {startedAt && isActive ? (
         <div className="flex items-center gap-1.5 text-sm text-fg-muted" data-testid="elapsed-time">
           <Timer className="h-4 w-4" />
-          <span className="font-mono tabular-nums">{elapsedTime}</span>
+          <span ref={elapsedRef} className="font-mono tabular-nums">
+            0:00
+          </span>
         </div>
-      )}
+      ) : null}
 
       {/* Streaming indicator */}
-      {isStreaming && (
+      {isStreaming ? (
         <div
           className="flex items-center gap-1.5 text-xs text-success"
           data-testid="streaming-indicator"
@@ -191,20 +197,19 @@ export function ContainerAgentHeader({
           <CircleNotch className="h-3 w-3 animate-spin" />
           <span>Streaming</span>
         </div>
-      )}
+      ) : null}
 
       {/* Connection state */}
       <div className="flex items-center gap-1" title={`Connection: ${connectionState}`}>
-        {connectionState === 'connected' && (
+        {connectionState === 'connected' ? (
           <WifiHigh className="h-4 w-4 text-success" weight="fill" />
-        )}
-        {connectionState === 'connecting' && (
+        ) : connectionState === 'connecting' ? (
           <WifiHigh className="h-4 w-4 text-fg-muted animate-pulse" />
-        )}
-        {connectionState === 'reconnecting' && (
+        ) : connectionState === 'reconnecting' ? (
           <WifiHigh className="h-4 w-4 text-warning animate-pulse" />
-        )}
-        {connectionState === 'disconnected' && <WifiSlash className="h-4 w-4 text-danger" />}
+        ) : connectionState === 'disconnected' ? (
+          <WifiSlash className="h-4 w-4 text-danger" />
+        ) : null}
       </div>
     </div>
   );

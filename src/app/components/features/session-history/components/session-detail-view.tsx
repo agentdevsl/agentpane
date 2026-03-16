@@ -221,11 +221,11 @@ export function SessionDetailView({
               <ArrowSquareOut className="h-3.5 w-3.5" />
               Open
             </a>
-            {onRefresh && (
+            {onRefresh ? (
               <Button variant="ghost" size="sm" onClick={onRefresh} title="Refresh session">
                 <ArrowClockwise className="h-4 w-4" />
               </Button>
-            )}
+            ) : null}
           </div>
         </div>
 
@@ -283,7 +283,7 @@ export function SessionDetailView({
             >
               <Wrench className="h-4 w-4" weight={activeView === 'tools' ? 'fill' : 'bold'} />
               Tool Calls
-              {toolCalls.length > 0 && (
+              {toolCalls.length > 0 ? (
                 <span
                   className={cn(
                     'rounded-full px-2 py-0.5 text-xs font-medium',
@@ -292,7 +292,7 @@ export function SessionDetailView({
                 >
                   {toolCalls.length}
                 </span>
-              )}
+              ) : null}
             </button>
             <button
               type="button"
@@ -371,16 +371,16 @@ export function SessionDetailView({
       {/* Footer actions */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-surface-subtle p-3 md:p-4">
         <div className="flex items-center gap-3">
-          {onExport && <ExportDropdown onExport={onExport} />}
+          {onExport ? <ExportDropdown onExport={onExport} /> : null}
         </div>
 
         <div className="flex items-center gap-3">
-          {onDelete && (
+          {onDelete ? (
             <Button variant="ghost" size="sm" onClick={onDelete} className="text-danger">
               <Trash className="h-4 w-4" />
               Delete Session
             </Button>
-          )}
+          ) : null}
         </div>
       </div>
     </section>
