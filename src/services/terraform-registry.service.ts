@@ -234,9 +234,11 @@ export class TerraformRegistryService {
       return err(TerraformErrors.REGISTRY_NOT_FOUND);
     }
 
-    await this.db.delete(terraformModules).where(eq(terraformModules.registryId, id));
-    await this.db.delete(terraformRegistries).where(eq(terraformRegistries.id, id));
-    await this.db.delete(settings).where(eq(settings.key, registry.tokenSettingKey));
+    await this.db.transaction(async (tx) => {
+      await tx.delete(terraformModules).where(eq(terraformModules.registryId, id));
+      await tx.delete(terraformRegistries).where(eq(terraformRegistries.id, id));
+      await tx.delete(settings).where(eq(settings.key, registry.tokenSettingKey));
+    });
 
     console.log('[TerraformRegistryService] Deleted registry:', id);
     return ok(undefined);
@@ -288,7 +290,11 @@ export class TerraformRegistryService {
       let token: string;
       try {
         token = decryptToken(tokenSetting.value);
-      } catch (_decryptError) {
+      } catch (decryptError) {
+        console.warn(
+          '[TerraformRegistryService] Token decryption failed, trying JSON parse fallback:',
+          decryptError
+        );
         try {
           token = JSON.parse(tokenSetting.value) as string;
         } catch (_parseError) {

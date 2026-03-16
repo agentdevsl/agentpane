@@ -157,6 +157,30 @@ describe('stream client shared subscriptions', () => {
     subscription.unsubscribe();
   });
 
+  it('blocks subscriptions when streamsAvailable is false', async () => {
+    const streamModule = await import('../../../src/lib/streams/client');
+    // Do NOT call setStreamsAvailable(true)
+    // or explicitly call setStreamsAvailable(false)
+    streamModule.setStreamsAvailable(false);
+
+    const callbacks = {
+      onError: vi.fn(),
+      onConnectionStateChange: vi.fn(),
+    };
+
+    const sub = streamModule.subscribeToSession('blocked-session', callbacks);
+
+    // Wait for the async connect() to execute
+    await flushPromises();
+
+    // No underlying durable stream should have been created
+    expect(durableMocks.stream).not.toHaveBeenCalled();
+    // Subscription should remain disconnected
+    expect(sub.getState()).toBe('disconnected');
+
+    sub.unsubscribe();
+  });
+
   it('treats fatal errors as disconnected and does not request retry', async () => {
     const streamModule = await import('../../../src/lib/streams/client');
     streamModule.setStreamsAvailable(true);

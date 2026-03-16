@@ -34,8 +34,8 @@ export const connectStreams = async (_ctx?: unknown) => {
     console.warn(`[Streams] Caddy not available (HTTP ${response.status}). SSE streams disabled.`);
     setStreamsAvailable(false);
     return ok(null); // Still succeed bootstrap (streams are optional in dev)
-  } catch {
-    console.warn(`[Streams] Caddy not reachable at ${streamsUrl}. SSE streams disabled.`);
+  } catch (error) {
+    console.warn(`[Streams] Caddy not reachable at ${streamsUrl}. SSE streams disabled.`, error);
     setStreamsAvailable(false);
     return ok(null); // Non-fatal in dev mode
   }

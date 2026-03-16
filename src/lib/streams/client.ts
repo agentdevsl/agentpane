@@ -248,6 +248,12 @@ export const DEFAULT_RECONNECT_CONFIG: ReconnectConfig = {
 };
 
 /**
+ * Maximum number of reconnection attempts on clean stream closure
+ * before giving up and staying disconnected.
+ */
+const MAX_RECONNECT_ATTEMPTS = 8;
+
+/**
  * Session event types from the server
  */
 export type SessionEventType =
@@ -629,6 +635,8 @@ export class DurableStreamsClient {
     let responseCancelFn: (() => void) | null = null;
     let isUnsubscribed = false;
     let hasConnected = false;
+    let reconnectCount = 0;
+    let reconnectTimerId: ReturnType<typeof setTimeout> | null = null;
 
     const setConnectionState = (nextState: ConnectionState) => {
       if (state === nextState) {
@@ -730,9 +738,17 @@ export class DurableStreamsClient {
         // Monitor for stream closure
         response.closed
           .then(() => {
-            if (!isUnsubscribed) {
-              setConnectionState('disconnected');
-              callbacks.onDisconnect?.();
+            if (isUnsubscribed) return;
+            setConnectionState('disconnected');
+            callbacks.onDisconnect?.();
+            // Auto-reconnect on clean closure (server restart, proxy timeout)
+            // unless the stream was explicitly closed or we've been unsubscribed
+            if (!response.streamClosed && reconnectCount < MAX_RECONNECT_ATTEMPTS) {
+              const delay = Math.min(2000 * 2 ** reconnectCount, 30000);
+              reconnectCount++;
+              reconnectTimerId = setTimeout(() => {
+                if (!isUnsubscribed) connect();
+              }, delay);
             }
           })
           .catch((err) => {
@@ -759,6 +775,10 @@ export class DurableStreamsClient {
     const unsubscribe = () => {
       isUnsubscribed = true;
       state = 'disconnected';
+      if (reconnectTimerId !== null) {
+        clearTimeout(reconnectTimerId);
+        reconnectTimerId = null;
+      }
       if (unsubscribeFn) {
         unsubscribeFn();
         unsubscribeFn = null;

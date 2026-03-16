@@ -25,8 +25,8 @@ export function usePresence(
         if (mounted && data.ok) {
           setUsers(data.data as PresenceUser[]);
         }
-      } catch {
-        // API may not be ready
+      } catch (error) {
+        console.debug('[usePresence] fetch failed:', error);
       }
     };
 

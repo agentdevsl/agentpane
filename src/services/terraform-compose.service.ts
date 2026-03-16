@@ -587,7 +587,7 @@ function formatPrompt(systemPrompt: string, messages: ComposeMessage[]): string 
   return parts.join('\n\n');
 }
 
-function extractHclCode(text: string): string | null {
+export function extractHclCode(text: string): string | null {
   // Match ```hcl, ```terraform, and ```tf fenced code blocks
   const matches = [...text.matchAll(/```(?:hcl|terraform|tf)\n([\s\S]*?)```/g)]
     .map((m) => m[1]?.trim())
@@ -601,7 +601,7 @@ function extractHclCode(text: string): string | null {
  * Supports title annotations: ```hcl title="filename.tfcomponent.hcl"
  * Falls back to content-based filename inference when titles are missing.
  */
-function extractStacksFiles(text: string): { filename: string; code: string }[] {
+export function extractStacksFiles(text: string): { filename: string; code: string }[] {
   const files: { filename: string; code: string }[] = [];
 
   // Match fenced code blocks with optional title annotations
@@ -633,7 +633,7 @@ function extractStacksFiles(text: string): { filename: string; code: string }[] 
 }
 
 /** Infer a Stacks filename from HCL content based on block types present. */
-function inferStacksFilename(code: string): string {
+export function inferStacksFilename(code: string): string {
   if (/\bdeployment\s+"/.test(code) || /\bdeployment_group\s+"/.test(code))
     return 'deployments.tfdeploy.hcl';
   if (/\bprovider\s+"/.test(code)) return 'providers.tfcomponent.hcl';
@@ -666,7 +666,10 @@ export interface TerraformDiagnostic {
   detail?: string;
 }
 
-function matchModulesInResponse(response: string, modules: TerraformModule[]): ModuleMatch[] {
+export function matchModulesInResponse(
+  response: string,
+  modules: TerraformModule[]
+): ModuleMatch[] {
   const matched: ModuleMatch[] = [];
   const seen = new Set<string>();
   const responseLower = response.toLowerCase();
@@ -718,7 +721,7 @@ function matchModulesInResponse(response: string, modules: TerraformModule[]): M
  * Similar to the client-side parser in terraform-context.tsx but with
  * independently maintained option inference.
  */
-function parseClarifyingQuestionsFromText(text: string): ClarifyingQuestion[] {
+export function parseClarifyingQuestionsFromText(text: string): ClarifyingQuestion[] {
   // Skip if the response contains HCL code blocks (model generated code, not questions)
   if (/```(?:hcl|terraform|tf)\n/i.test(text)) return [];
 

@@ -1071,19 +1071,13 @@ export function NewTaskDialog({
     }
   }, [open, reset, resetPosition]);
 
-  // Handle task creation completion (derive during render to avoid extra cycle)
-  const prevCreatedTaskIdRef = useRef<string | null>(null);
-  if (createdTaskId && createdTaskId !== prevCreatedTaskIdRef.current) {
-    prevCreatedTaskIdRef.current = createdTaskId;
-    // Schedule callbacks after render via microtask to avoid setState-during-render warnings
-    queueMicrotask(() => {
+  // Handle task creation completion
+  useEffect(() => {
+    if (createdTaskId) {
       onTaskCreated?.(createdTaskId);
       onOpenChange(false);
-    });
-  }
-  if (!createdTaskId) {
-    prevCreatedTaskIdRef.current = null;
-  }
+    }
+  }, [createdTaskId, onTaskCreated, onOpenChange]);
 
   // Auto-scroll to bottom when messages change or streaming
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional trigger deps for scroll behavior

@@ -198,6 +198,7 @@ describe('bootstrap phases', () => {
 
   it('streams phase returns ok when Caddy is not reachable (non-fatal in dev)', async () => {
     const { connectStreams } = await import('../phases/streams.js');
+    const { isStreamsAvailable } = await import('../../streams/client.js');
 
     // Mock fetch to simulate Caddy being unreachable
     const originalFetch = globalThis.fetch;
@@ -210,6 +211,8 @@ describe('bootstrap phases', () => {
 
     // Should return ok — streams are optional, app still boots without them
     expect(result.ok).toBe(true);
+    // Verify streamsAvailable was set to false
+    expect(isStreamsAvailable()).toBe(false);
   });
 
   it('github phase returns ok when token missing', async () => {
