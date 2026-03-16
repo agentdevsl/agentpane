@@ -622,7 +622,7 @@ export class DurableStreamsClient {
    * Subscribe to a session's event stream via @durable-streams/client
    */
   subscribeToSession(sessionId: string, callbacks: SessionCallbacks): Subscription {
-    const MAX_RECONNECT_ATTEMPTS = 50;
+    const MAX_RECONNECT_ATTEMPTS = 10;
     let state: ConnectionState = 'disconnected';
     let lastOffset: string = '-1';
     let unsubscribeFn: (() => void) | null = null;
@@ -633,6 +633,11 @@ export class DurableStreamsClient {
 
     const connect = async () => {
       if (isUnsubscribed) return;
+
+      if (!streamsAvailable) {
+        callbacks.onError?.(new Error('Streams endpoint not available'));
+        return;
+      }
 
       state = reconnectCount > 0 ? 'reconnecting' : 'connecting';
 
@@ -732,14 +737,16 @@ export class DurableStreamsClient {
           callbacks.onError?.(
             error instanceof Error ? error : new Error('Failed to connect to stream')
           );
-          // Retry after delay with exponential backoff (capped at 30s)
-          if (reconnectCount < MAX_RECONNECT_ATTEMPTS) {
+          // Check if error is fatal (e.g. 404) before retrying
+          const errorStr = String(error);
+          const isFatal = FATAL_ERROR_CODES.some((code) => errorStr.includes(code));
+          if (!isFatal && reconnectCount < MAX_RECONNECT_ATTEMPTS) {
             const delay = Math.min(2000 * 2 ** reconnectCount, 30000);
             reconnectCount++;
             reconnectTimerId = setTimeout(() => {
               if (!isUnsubscribed) connect();
             }, delay);
-          } else {
+          } else if (!isFatal) {
             callbacks.onError?.(new Error('Maximum reconnection attempts reached'));
           }
         }
@@ -1283,6 +1290,21 @@ function routeEventToCallback(event: TypedSessionEvent, callbacks: SessionCallba
       callbacks.onTopologyAgentCompleted?.(event);
       break;
   }
+}
+
+/**
+ * Streams availability flag — set by bootstrap, checked before connecting.
+ * When false (e.g. Caddy not running in dev), subscriptions are skipped
+ * to avoid exhausting the browser's HTTP/1.1 connection limit with retries.
+ */
+let streamsAvailable = false;
+
+export function setStreamsAvailable(available: boolean): void {
+  streamsAvailable = available;
+}
+
+export function isStreamsAvailable(): boolean {
+  return streamsAvailable;
 }
 
 // Create singleton client instance

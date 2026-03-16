@@ -19,6 +19,19 @@ import { isValidId, json } from '../shared.js';
 
 const log = createLogger('SandboxStatus');
 
+/** Wrap a promise with a timeout. Rejects with a descriptive error on expiry. */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_resolve, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    ),
+  ]);
+}
+
+/** Default timeout for provider health checks and container lookups (5 seconds). */
+const PROVIDER_TIMEOUT_MS = 5_000;
+
 /** Extended sandbox provider health interface for status routes (includes auto-heal support). */
 interface SandboxProviderHealth {
   healthCheck(): Promise<{
@@ -223,12 +236,20 @@ export function createSandboxStatusRoutes({
             typeof (dockerProvider as unknown as { validateContainers: () => Promise<void> })
               .validateContainers === 'function'
           ) {
-            await (
-              dockerProvider as unknown as { validateContainers: () => Promise<void> }
-            ).validateContainers();
+            await withTimeout(
+              (
+                dockerProvider as unknown as { validateContainers: () => Promise<void> }
+              ).validateContainers(),
+              PROVIDER_TIMEOUT_MS,
+              'Docker validateContainers'
+            );
           }
 
-          let sandbox = await dockerProvider.get(lookupId);
+          let sandbox = await withTimeout(
+            dockerProvider.get(lookupId),
+            PROVIDER_TIMEOUT_MS,
+            'Docker get sandbox'
+          );
 
           // Self-healing: auto-create sandbox if Docker is available but container is missing
           if (!sandbox) {
@@ -261,13 +282,21 @@ export function createSandboxStatusRoutes({
       const k8sProvider = getK8sProvider?.();
       if (k8sProvider) {
         try {
-          const health = await k8sProvider.healthCheck();
+          const health = await withTimeout(
+            k8sProvider.healthCheck(),
+            PROVIDER_TIMEOUT_MS,
+            'K8s healthCheck'
+          );
           const details = health.details ?? {};
           k8sCrdReady = details.crdRegistered === true && details.namespaceExists === true;
           k8sClusterVersion =
             typeof details.clusterVersion === 'string' ? details.clusterVersion : null;
 
-          const pods = await countPods(k8sProvider);
+          const pods = await withTimeout(
+            countPods(k8sProvider),
+            PROVIDER_TIMEOUT_MS,
+            'K8s countPods'
+          );
           if (pods) {
             k8sPodCount = pods.total;
             k8sPodsRunning = pods.running;
@@ -304,7 +333,11 @@ export function createSandboxStatusRoutes({
       const nomadProvider = getNomadProvider?.();
       if (nomadProvider) {
         try {
-          const health = await nomadProvider.healthCheck();
+          const health = await withTimeout(
+            nomadProvider.healthCheck(),
+            PROVIDER_TIMEOUT_MS,
+            'Nomad healthCheck'
+          );
           nomadHealthy = health.healthy;
           const details = health.details ?? {};
           nomadVersion = typeof details.version === 'string' ? details.version : null;
