@@ -75,6 +75,19 @@ function formatDuration(ms: number): string {
   return `${minutes}m ${remainingSeconds.toFixed(0)}s`;
 }
 
+function StatusIconDisplay({ status }: { status: keyof typeof statusIcons }): React.JSX.Element {
+  const StatusIcon = statusIcons[status];
+  const statusColor = statusColors[status];
+  return (
+    <StatusIcon
+      className={cn('h-4 w-4', statusColor, {
+        'animate-spin': status === 'running',
+      })}
+      weight={status === 'running' ? 'regular' : 'fill'}
+    />
+  );
+}
+
 export function StreamEntry({ entry, isCurrent = false }: StreamEntryProps): React.JSX.Element {
   const [isExpanded, setIsExpanded] = useState(false);
   const config = STREAM_ENTRY_TYPE_CONFIG[entry.type];
@@ -107,22 +120,22 @@ export function StreamEntry({ entry, isCurrent = false }: StreamEntryProps): Rea
             </span>
 
             {/* Model badge inline for assistant messages */}
-            {entry.type === 'assistant' && entry.model && (
+            {entry.type === 'assistant' && entry.model ? (
               <span className="inline-flex items-center gap-1 rounded border border-accent/30 bg-accent/10 px-1.5 py-0.5 font-mono text-[10px] text-accent">
                 <Code className="h-3 w-3" weight="bold" />
                 {entry.model}
               </span>
-            )}
+            ) : null}
           </div>
 
           {/* Token usage for assistant messages */}
-          {entry.type === 'assistant' && entry.usage && entry.usage.totalTokens > 0 && (
+          {entry.type === 'assistant' && entry.usage && entry.usage.totalTokens > 0 ? (
             <span className="flex items-center gap-1 text-xs text-fg-muted">
               <Lightning className="h-3 w-3 text-warning" weight="fill" />
               <span className="tabular-nums">{entry.usage.totalTokens.toLocaleString()}</span>
               <span className="text-fg-subtle">tokens</span>
             </span>
-          )}
+          ) : null}
         </div>
 
         {/* Main content */}
@@ -133,7 +146,7 @@ export function StreamEntry({ entry, isCurrent = false }: StreamEntryProps): Rea
         )}
 
         {/* Tool call details */}
-        {entry.toolCall && (
+        {entry.toolCall ? (
           <div className="mt-2 rounded-md border border-border bg-surface-muted">
             <button
               type="button"
@@ -142,36 +155,25 @@ export function StreamEntry({ entry, isCurrent = false }: StreamEntryProps): Rea
             >
               <div className="flex items-center gap-2">
                 {/* Status icon */}
-                {(() => {
-                  const StatusIcon = statusIcons[entry.toolCall.status];
-                  const statusColor = statusColors[entry.toolCall.status];
-                  return (
-                    <StatusIcon
-                      className={cn('h-4 w-4', statusColor, {
-                        'animate-spin': entry.toolCall.status === 'running',
-                      })}
-                      weight={entry.toolCall.status === 'running' ? 'regular' : 'fill'}
-                    />
-                  );
-                })()}
+                <StatusIconDisplay status={entry.toolCall.status} />
                 <span className="font-mono text-xs font-medium text-fg">{entry.toolCall.name}</span>
               </div>
 
               <div className="flex items-center gap-3">
-                {/* Timeline: start → end (duration) */}
+                {/* Timeline: start -> end (duration) */}
                 <span className="flex items-center gap-1.5 font-mono text-[10px] text-fg-subtle">
                   <span>{entry.toolCall.startTimeOffset}</span>
-                  {entry.toolCall.endTimeOffset && (
+                  {entry.toolCall.endTimeOffset ? (
                     <>
                       <ArrowRight className="h-3 w-3" />
                       <span>{entry.toolCall.endTimeOffset}</span>
                     </>
-                  )}
-                  {entry.toolCall.duration !== undefined && (
+                  ) : null}
+                  {entry.toolCall.duration !== undefined ? (
                     <span className="ml-1 rounded bg-surface-subtle px-1 py-0.5 text-fg-muted">
                       {formatDuration(entry.toolCall.duration)}
                     </span>
-                  )}
+                  ) : null}
                 </span>
 
                 <span className="flex items-center gap-1 text-xs text-fg-muted">
@@ -184,14 +186,14 @@ export function StreamEntry({ entry, isCurrent = false }: StreamEntryProps): Rea
               </div>
             </button>
 
-            {isExpanded && (
+            {isExpanded ? (
               <div className="border-t border-border bg-surface-subtle p-3">
                 {/* Error message if present */}
-                {entry.toolCall.error && (
+                {entry.toolCall.error ? (
                   <div className="mb-3 rounded border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
                     {entry.toolCall.error}
                   </div>
-                )}
+                ) : null}
                 <pre className="overflow-x-auto font-mono text-xs text-fg-muted">
                   <code>
                     {JSON.stringify(
@@ -207,9 +209,9 @@ export function StreamEntry({ entry, isCurrent = false }: StreamEntryProps): Rea
                   </code>
                 </pre>
               </div>
-            )}
+            ) : null}
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

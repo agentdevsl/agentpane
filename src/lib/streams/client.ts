@@ -670,9 +670,8 @@ export class DurableStreamsClient {
         state = 'connected';
         responseCancelFn = () => response.cancel();
 
-        if (reconnectCount > 0) {
-          callbacks.onReconnect?.();
-        }
+        // Notify subscribers that the connection is live (both initial and reconnect)
+        callbacks.onReconnect?.();
         reconnectCount = 0;
 
         // Subscribe to JSON batches from the stream

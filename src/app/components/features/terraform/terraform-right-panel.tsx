@@ -32,21 +32,21 @@ export function TerraformRightPanel(): React.JSX.Element {
   const displayFilename =
     activeFile?.filename ?? (composeMode === 'stacks' ? 'stack.tfcomponent.hcl' : 'main.tf');
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reset file index when files change
-  useEffect(() => {
-    setActiveFileIdx(0);
-  }, [generatedFiles]);
+  // Reset file index when files change (derive during render with ref)
+  const prevFilesRef = useRef(generatedFiles);
+  if (prevFilesRef.current !== generatedFiles) {
+    prevFilesRef.current = generatedFiles;
+    if (activeFileIdx !== 0) setActiveFileIdx(0);
+  }
 
   // Derive effective tab: force 'code' when in stacks mode (dependencies/variables tabs hidden)
   const effectiveTab = isStacks && activeTab !== 'code' ? 'code' : activeTab;
 
-  // Auto-switch tab when code is first generated
-  useEffect(() => {
-    if (generatedCode && !prevCodeRef.current) {
-      setActiveTab(composeMode === 'stacks' ? 'code' : 'dependencies');
-    }
-    prevCodeRef.current = generatedCode;
-  }, [generatedCode, composeMode]);
+  // Auto-switch tab when code is first generated (derive during render with ref)
+  if (generatedCode && !prevCodeRef.current) {
+    setActiveTab(composeMode === 'stacks' ? 'code' : 'dependencies');
+  }
+  prevCodeRef.current = generatedCode;
 
   return (
     <Tabs
@@ -61,30 +61,30 @@ export function TerraformRightPanel(): React.JSX.Element {
             <Code className="h-3 w-3" />
             {isStacks ? 'Files' : 'Code'}
           </TabsTrigger>
-          {!isStacks && (
+          {!isStacks ? (
             <TabsTrigger value="dependencies" className="h-6 gap-1 px-2 text-[11px]">
               <GitBranch className="h-3 w-3" />
               Dependencies
             </TabsTrigger>
-          )}
-          {!isStacks && (
+          ) : null}
+          {!isStacks ? (
             <TabsTrigger value="variables" className="h-6 gap-1 px-2 text-[11px]">
               <Sliders className="h-3 w-3" />
               Variables
-              {variableCount > 0 && (
+              {variableCount > 0 ? (
                 <span className="ml-1 rounded-full bg-accent/15 px-1.5 text-[9px] font-medium text-accent">
                   {variableCount}
                 </span>
-              )}
+              ) : null}
             </TabsTrigger>
-          )}
+          ) : null}
         </TabsList>
       </div>
 
       {/* Code tab */}
       <TabsContent value="code" className="mt-0 min-h-0 flex-1 overflow-hidden flex flex-col">
         {/* File sub-tabs when multiple stacks files */}
-        {generatedFiles && generatedFiles.length > 1 && (
+        {generatedFiles && generatedFiles.length > 1 ? (
           <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-border bg-surface-subtle px-3 py-1.5">
             {generatedFiles.map((file, idx) => (
               <button
@@ -103,25 +103,25 @@ export function TerraformRightPanel(): React.JSX.Element {
               </button>
             ))}
           </div>
-        )}
+        ) : null}
         <div className="min-h-0 flex-1 overflow-y-auto">
           <CodePreview code={displayCode} filename={displayFilename} />
         </div>
       </TabsContent>
 
       {/* Dependencies tab (standard Terraform only) */}
-      {!isStacks && (
+      {!isStacks ? (
         <TabsContent value="dependencies" className="mt-0 min-h-0 flex-1">
           <TerraformDependencyDiagram />
         </TabsContent>
-      )}
+      ) : null}
 
       {/* Variables tab (standard Terraform only) */}
-      {!isStacks && (
+      {!isStacks ? (
         <TabsContent value="variables" className="mt-0 min-h-0 flex-1 overflow-y-auto">
           <TerraformVariablesForm />
         </TabsContent>
-      )}
+      ) : null}
     </Tabs>
   );
 }
@@ -218,7 +218,7 @@ function CodePreview({
             aria-label="Copy to clipboard"
           >
             <Copy className="h-3.5 w-3.5" />
-            {copied && <span className="ml-1 text-[10px] text-success">Copied!</span>}
+            {copied ? <span className="ml-1 text-[10px] text-success">Copied!</span> : null}
           </button>
           <button
             type="button"

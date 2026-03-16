@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useCliMonitor } from '@/app/components/features/cli-monitor/cli-monitor-context';
 import { SummaryStrip } from '@/app/components/features/cli-monitor/summary-strip';
 import { TimelineDetailPanel } from '@/app/components/features/cli-monitor/timeline-detail-panel';
@@ -26,15 +26,15 @@ function TimelineView(): React.JSX.Element {
     }
   }, [selectedSessionId, sessions]);
 
-  // Escape to close
-  useEffect(() => {
-    if (!selectedSessionId) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setSelectedSessionId(null);
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [selectedSessionId]);
+  // Escape to close - handled via onKeyDown on container
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Escape' && selectedSessionId) {
+        setSelectedSessionId(null);
+      }
+    },
+    [selectedSessionId]
+  );
 
   if (pageState !== 'active') {
     return (
@@ -47,7 +47,12 @@ function TimelineView(): React.JSX.Element {
   }
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div
+      className="flex flex-1 flex-col overflow-hidden"
+      role="application"
+      onKeyDown={handleKeyDown}
+      tabIndex={-1}
+    >
       {/* Time range selector + summary */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-default shrink-0">
         <div className="flex items-center gap-0.5 rounded border border-border bg-subtle overflow-hidden">
@@ -79,9 +84,9 @@ function TimelineView(): React.JSX.Element {
       />
 
       {/* Detail panel */}
-      {selectedSession && (
+      {selectedSession ? (
         <TimelineDetailPanel session={selectedSession} onClose={() => setSelectedSessionId(null)} />
-      )}
+      ) : null}
     </div>
   );
 }

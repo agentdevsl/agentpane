@@ -63,8 +63,8 @@ function NotFoundComponent() {
   );
 }
 
-export const Route = createRootRouteWithContext<RouterContext>()({
-  component: () => (
+function RootComponent() {
+  return (
     <ShortcutsProvider>
       <ProjectContextProvider>
         <TooltipProvider delayDuration={300}>
@@ -76,7 +76,11 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         </TooltipProvider>
       </ProjectContextProvider>
     </ShortcutsProvider>
-  ),
+  );
+}
+
+export const Route = createRootRouteWithContext<RouterContext>()({
+  component: RootComponent,
   errorComponent: RootErrorComponent,
   notFoundComponent: NotFoundComponent,
 });

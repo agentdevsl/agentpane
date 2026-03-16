@@ -58,16 +58,17 @@ export function ContainerAgentStream({
   isPlanActionPending,
 }: ContainerAgentStreamProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [autoScroll, setAutoScroll] = useState(true);
-  const [userScrolled, setUserScrolled] = useState(false);
+  const autoScrollRef = useRef(true);
+  const userScrolledRef = useRef(false);
+  const [showScrollButton, setShowScrollButton] = useState(false);
 
   // Auto-scroll to bottom when content changes
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally trigger on content changes
   useEffect(() => {
-    if (autoScroll && containerRef.current) {
+    if (autoScrollRef.current && containerRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
-  }, [streamedText, messages, autoScroll]);
+  }, [streamedText, messages]);
 
   // Detect user scroll
   const handleScroll = useCallback(() => {
@@ -76,22 +77,25 @@ export function ContainerAgentStream({
     const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
     const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
 
-    if (!isAtBottom && !userScrolled) {
-      setUserScrolled(true);
-      setAutoScroll(false);
+    if (!isAtBottom && !userScrolledRef.current) {
+      userScrolledRef.current = true;
+      autoScrollRef.current = false;
+      setShowScrollButton(true);
     }
 
-    if (isAtBottom && userScrolled) {
-      setUserScrolled(false);
-      setAutoScroll(true);
+    if (isAtBottom && userScrolledRef.current) {
+      userScrolledRef.current = false;
+      autoScrollRef.current = true;
+      setShowScrollButton(false);
     }
-  }, [userScrolled]);
+  }, []);
 
   const scrollToBottom = useCallback(() => {
     if (containerRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
-      setAutoScroll(true);
-      setUserScrolled(false);
+      autoScrollRef.current = true;
+      userScrolledRef.current = false;
+      setShowScrollButton(false);
     }
   }, []);
 
@@ -104,12 +108,12 @@ export function ContainerAgentStream({
         <div className="flex items-center gap-2 text-sm text-fg-muted">
           <Terminal className="h-4 w-4" weight="bold" />
           <span className="font-medium">Agent Output</span>
-          {isStreaming && (
+          {isStreaming ? (
             <span className="flex items-center gap-1.5 text-xs text-success">
               <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
               Live
             </span>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -160,21 +164,21 @@ export function ContainerAgentStream({
             ))}
 
             {/* Currently streaming text */}
-            {streamedText && (
+            {streamedText ? (
               <div className="rounded-lg border border-border bg-surface p-3">
                 <div className="mb-1 flex items-center gap-2 text-xs text-fg-muted">
                   <span className="font-medium">Assistant</span>
-                  {isStreaming && <span className="text-success">Streaming...</span>}
+                  {isStreaming ? <span className="text-success">Streaming...</span> : null}
                 </div>
                 <div className="whitespace-pre-wrap text-fg">
                   {streamedText}
-                  {isStreaming && <StreamCursor />}
+                  {isStreaming ? <StreamCursor /> : null}
                 </div>
               </div>
-            )}
+            ) : null}
 
             {/* Plan review */}
-            {status === 'plan_ready' && plan && (
+            {status === 'plan_ready' && plan ? (
               <div className="space-y-4">
                 <div className="rounded-lg border border-attention/30 bg-attention/5 p-4">
                   <div className="mb-3 flex items-center gap-2 text-attention">
@@ -190,9 +194,9 @@ export function ContainerAgentStream({
                 </div>
 
                 {/* Approve/Reject buttons */}
-                {(onApprovePlan || onRejectPlan) && (
+                {onApprovePlan || onRejectPlan ? (
                   <div className="flex items-center justify-end gap-3">
-                    {onRejectPlan && (
+                    {onRejectPlan ? (
                       <Button
                         variant="destructive"
                         size="sm"
@@ -204,8 +208,8 @@ export function ContainerAgentStream({
                         <XCircle className="h-4 w-4" weight="bold" />
                         Reject Plan
                       </Button>
-                    )}
-                    {onApprovePlan && (
+                    ) : null}
+                    {onApprovePlan ? (
                       <Button
                         size="sm"
                         onClick={onApprovePlan}
@@ -220,14 +224,14 @@ export function ContainerAgentStream({
                         )}
                         Approve Plan
                       </Button>
-                    )}
+                    ) : null}
                   </div>
-                )}
+                ) : null}
               </div>
-            )}
+            ) : null}
 
             {/* Final result (non-plan) */}
-            {status === 'completed' && result && !plan && (
+            {status === 'completed' && result && !plan ? (
               <div className="rounded-lg border border-success/30 bg-success/10 p-3">
                 <div className="mb-2 flex items-center gap-2 text-success">
                   <CheckCircle className="h-4 w-4" weight="fill" />
@@ -235,20 +239,20 @@ export function ContainerAgentStream({
                 </div>
                 <div className="whitespace-pre-wrap text-sm text-fg">{result}</div>
               </div>
-            )}
+            ) : null}
 
             {/* Cancelled state */}
-            {status === 'cancelled' && (
+            {status === 'cancelled' ? (
               <div className="rounded-lg border border-warning/30 bg-warning/10 p-3">
                 <div className="flex items-center gap-2 text-warning">
                   <Warning className="h-4 w-4" weight="fill" />
                   <span className="text-sm font-medium">Cancelled</span>
                 </div>
               </div>
-            )}
+            ) : null}
 
             {/* Error state */}
-            {status === 'error' && error && (
+            {status === 'error' && error ? (
               <div className="rounded-lg border border-danger/30 bg-danger/10 p-3">
                 <div className="mb-2 flex items-center gap-2 text-danger">
                   <XCircle className="h-4 w-4" weight="fill" />
@@ -256,13 +260,13 @@ export function ContainerAgentStream({
                 </div>
                 <div className="whitespace-pre-wrap text-sm text-fg">{error}</div>
               </div>
-            )}
+            ) : null}
           </div>
         )}
       </div>
 
       {/* Scroll to bottom button */}
-      {!autoScroll && hasContent && (
+      {showScrollButton && hasContent ? (
         <button
           type="button"
           onClick={scrollToBottom}
@@ -270,7 +274,7 @@ export function ContainerAgentStream({
         >
           Scroll to bottom
         </button>
-      )}
+      ) : null}
     </div>
   );
 }

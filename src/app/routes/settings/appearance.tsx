@@ -44,11 +44,11 @@ function ThemeOption({
       )}
     >
       {/* Selection indicator */}
-      {isSelected && (
+      {isSelected ? (
         <div className="absolute -right-1.5 -top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-accent shadow-sm">
           <Check className="h-3.5 w-3.5 text-white" weight="bold" />
         </div>
-      )}
+      ) : null}
 
       {/* Theme preview */}
       <div
@@ -60,7 +60,7 @@ function ThemeOption({
             'bg-gradient-to-r from-white via-gray-300 to-[#0d1117] ring-1 ring-black/10'
         )}
       >
-        {theme !== 'system' && (
+        {theme !== 'system' ? (
           <IconComponent
             className={cn(
               'h-8 w-8 transition-transform group-hover/theme:scale-110',
@@ -68,14 +68,14 @@ function ThemeOption({
             )}
             weight="duotone"
           />
-        )}
-        {theme === 'system' && (
+        ) : null}
+        {theme === 'system' ? (
           <div className="flex items-center gap-1">
             <Sun className="h-6 w-6 text-amber-500" weight="duotone" />
             <span className="text-gray-400">/</span>
             <Moon className="h-6 w-6 text-indigo-400" weight="duotone" />
           </div>
-        )}
+        ) : null}
       </div>
 
       {/* Label and description */}
@@ -109,7 +109,7 @@ function AppearanceSettingsPage(): React.JSX.Element {
   const handleThemeChange = (newTheme: Theme) => {
     setTheme(newTheme);
     localStorage.setItem('theme', newTheme);
-    applyTheme(newTheme);
+    // applyTheme is handled by the useEffect on theme change
   };
 
   const themeLabel = theme === 'light' ? 'Light' : theme === 'dark' ? 'Dark' : 'System';

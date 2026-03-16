@@ -48,9 +48,9 @@ function LoopNodeComponent({ data, selected }: NodeProps<LoopNodeType>): React.J
       <span className={cn(nodeLabelVariants({ nodeType: 'loop' }))} title={nodeData.label}>
         {nodeData.label || 'Loop'}
       </span>
-      {nodeData.maxIterations && (
+      {nodeData.maxIterations != null ? (
         <span className="text-xs text-fg-muted">max: {nodeData.maxIterations}</span>
-      )}
+      ) : null}
 
       {/* Source handle - bottom (continue flow) */}
       <Handle

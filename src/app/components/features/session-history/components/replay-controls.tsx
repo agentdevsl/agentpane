@@ -260,12 +260,12 @@ export function ReplayControls({
           data-testid="replay-progress-bar"
         >
           {/* Hover indicator */}
-          {hoverPosition !== null && !isDragging && (
+          {hoverPosition !== null && !isDragging ? (
             <div
               className="absolute top-0 h-full rounded-full bg-fg-subtle/30"
               style={{ width: `${hoverPosition}%` }}
             />
-          )}
+          ) : null}
 
           {/* Progress fill */}
           <div

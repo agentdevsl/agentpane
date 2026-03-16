@@ -183,18 +183,20 @@ export function ToolCallCard({
         </span>
 
         {/* Input summary (truncated) */}
-        {inputSummary && <span className="truncate text-xs text-fg-muted">{inputSummary}</span>}
+        {inputSummary ? (
+          <span className="truncate text-xs text-fg-muted">{inputSummary}</span>
+        ) : null}
 
         {/* Spacer */}
         <span className="flex-1" />
 
         {/* Duration badge */}
-        {toolCall.duration !== undefined && (
+        {toolCall.duration !== undefined ? (
           <span className="inline-flex flex-shrink-0 items-center gap-1 rounded bg-surface-muted px-1.5 py-0.5 text-[10px] font-medium text-fg-muted">
             <Clock className="h-3 w-3" weight="bold" />
             {formatDuration(toolCall.duration)}
           </span>
-        )}
+        ) : null}
 
         {/* Status badge */}
         <span className={cn(statusBadgeVariants({ status: toolCall.status }), 'flex-shrink-0')}>
@@ -207,15 +209,15 @@ export function ToolCallCard({
       </button>
 
       {/* Expanded content */}
-      {isExpanded && (
+      {isExpanded ? (
         <div className="border-t border-border bg-surface-subtle p-3">
           {/* Error message */}
-          {hasError && (
+          {hasError ? (
             <div className="mb-3 rounded border border-danger/30 bg-danger/10 p-2">
               <span className="text-xs font-medium text-danger">Error: </span>
               <span className="text-xs text-danger">{toolCall.error}</span>
             </div>
-          )}
+          ) : null}
 
           {/* Input section */}
           <div className="mb-3">
@@ -228,7 +230,7 @@ export function ToolCallCard({
           </div>
 
           {/* Output section */}
-          {hasOutput && (
+          {hasOutput ? (
             <div>
               <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-fg-muted">
                 Output
@@ -237,9 +239,9 @@ export function ToolCallCard({
                 <code>{formatPayload(toolCall.output, isExpanded)}</code>
               </pre>
             </div>
-          )}
+          ) : null}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

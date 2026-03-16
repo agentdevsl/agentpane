@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useCliMonitor } from '@/app/components/features/cli-monitor/cli-monitor-context';
 import { SessionPicker } from '@/app/components/features/cli-monitor/session-picker';
 import { TerminalGrid } from '@/app/components/features/cli-monitor/terminal-grid';
@@ -17,8 +17,22 @@ function TerminalView(): React.JSX.Element {
   // Non-subagent sessions
   const activeSessions = useMemo(() => sessions.filter((s) => !s.isSubagent), [sessions]);
 
-  // Auto-assign first 4 sessions on mount or when sessions change
+  // Track previous session IDs to avoid unnecessary pane re-assignments
+  const prevActiveIdsRef = useRef<string>('');
+  const activeIdsKey = useMemo(
+    () =>
+      activeSessions
+        .map((s) => s.sessionId)
+        .sort()
+        .join(','),
+    [activeSessions]
+  );
+
+  // Auto-assign first 4 sessions on mount or when session IDs actually change
   useEffect(() => {
+    if (activeIdsKey === prevActiveIdsRef.current) return;
+    prevActiveIdsRef.current = activeIdsKey;
+
     setPaneAssignments((prev) => {
       // Keep existing valid assignments
       const next = new Map<number, string>();
@@ -47,7 +61,7 @@ function TerminalView(): React.JSX.Element {
 
       return next;
     });
-  }, [activeSessions]);
+  }, [activeSessions, activeIdsKey]);
 
   const handleAssign = useCallback((sessionId: string) => {
     setPaneAssignments((prev) => {
@@ -87,13 +101,13 @@ function TerminalView(): React.JSX.Element {
     <div className="flex flex-1 flex-col overflow-hidden">
       <TerminalGrid paneAssignments={paneAssignments} sessions={sessions} />
       <TerminalStatusBar sessions={sessions} />
-      {showPicker && (
+      {showPicker ? (
         <SessionPicker
           sessions={sessions}
           paneAssignments={paneAssignments}
           onAssign={handleAssign}
         />
-      )}
+      ) : null}
     </div>
   );
 }

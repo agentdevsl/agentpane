@@ -92,7 +92,7 @@ function StatusCard({
         </div>
         <div>
           <h3 className="text-sm font-medium text-fg">{title}</h3>
-          {subtitle && <p className="text-xs text-fg-muted">{subtitle}</p>}
+          {subtitle ? <p className="text-xs text-fg-muted">{subtitle}</p> : null}
         </div>
       </div>
       <span
@@ -127,7 +127,7 @@ function MetricCard({
       <p className="text-xs font-medium uppercase tracking-wider text-fg-subtle">{label}</p>
       <p className="mt-1 font-mono text-lg font-semibold text-fg">
         {value}
-        {unit && <span className="ml-0.5 text-sm font-normal text-fg-muted">{unit}</span>}
+        {unit ? <span className="ml-0.5 text-sm font-normal text-fg-muted">{unit}</span> : null}
       </p>
     </div>
   );
@@ -146,26 +146,23 @@ function SystemHealthPage(): React.JSX.Element {
   const checkHealth = useCallback(async () => {
     setIsLoading(true);
 
-    // Check frontend (Vite dev server)
-    try {
-      const viteResponse = await fetch('/');
+    const [viteResult, apiResult] = await Promise.allSettled([
+      fetch('/'),
+      apiClient.system.health(),
+    ]);
+
+    if (viteResult.status === 'fulfilled') {
       setFrontendHealth({
-        status: viteResponse.ok ? 'ok' : 'error',
-        viteServer: viteResponse.ok,
+        status: viteResult.value.ok ? 'ok' : 'error',
+        viteServer: viteResult.value.ok,
       });
-    } catch {
+    } else {
       setFrontendHealth({ status: 'error', viteServer: false });
     }
 
-    // Check backend (Bun API server)
-    try {
-      const result = await apiClient.system.health();
-      if (result.ok) {
-        setBackendHealth(result.data);
-      } else {
-        setBackendHealth(null);
-      }
-    } catch {
+    if (apiResult.status === 'fulfilled' && apiResult.value.ok) {
+      setBackendHealth(apiResult.value.data);
+    } else {
       setBackendHealth(null);
     }
 
@@ -222,7 +219,7 @@ function SystemHealthPage(): React.JSX.Element {
                   </span>
                 </span>
               </div>
-              {lastChecked && (
+              {lastChecked ? (
                 <div className="flex items-center gap-2">
                   <Clock className="h-4 w-4 text-fg-subtle" />
                   <span className="text-xs text-fg-muted">
@@ -230,7 +227,7 @@ function SystemHealthPage(): React.JSX.Element {
                     <span className="font-medium text-fg">{lastChecked.toLocaleTimeString()}</span>
                   </span>
                 </div>
-              )}
+              ) : null}
             </div>
             <Button variant="outline" size="sm" onClick={checkHealth} disabled={isLoading}>
               {isLoading ? (

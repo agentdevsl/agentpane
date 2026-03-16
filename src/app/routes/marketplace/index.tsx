@@ -1,6 +1,6 @@
 import { ArrowsClockwise, Plus, PuzzlePiece, Spinner } from '@phosphor-icons/react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AddMarketplaceDialog } from '@/app/components/features/add-marketplace-dialog';
 import { EmptyState } from '@/app/components/features/empty-state';
 import { LayoutShell } from '@/app/components/features/layout-shell';
@@ -215,19 +215,23 @@ function MarketplacePage(): React.JSX.Element {
     }
   };
 
-  // Get plugins for a specific marketplace
-  const getPluginsForMarketplace = (marketplaceId: string): CachedPlugin[] => {
-    return plugins
-      .filter((p) => p.marketplaceId === marketplaceId)
-      .map((p) => ({
+  // Pre-group plugins by marketplace ID for O(1) lookup
+  const pluginsByMarketplace = useMemo(() => {
+    const map = new Map<string, CachedPlugin[]>();
+    for (const p of plugins) {
+      const list = map.get(p.marketplaceId) || [];
+      list.push({
         id: p.id,
         name: p.name,
         description: p.description,
         author: p.author,
         version: p.version,
         category: p.category,
-      }));
-  };
+      });
+      map.set(p.marketplaceId, list);
+    }
+    return map;
+  }, [plugins]);
 
   // Loading state
   if (isLoading) {
@@ -255,14 +259,14 @@ function MarketplacePage(): React.JSX.Element {
     >
       <div data-testid="marketplace-page" className="p-6">
         {/* Error state */}
-        {error && (
+        {error ? (
           <div className="mb-6 p-4 rounded-xl bg-danger-muted/50 border border-danger/20 text-sm text-danger flex items-center justify-between">
             <span>{error}</span>
             <Button variant="ghost" size="sm" onClick={fetchData} className="ml-4 shrink-0">
               Retry
             </Button>
           </div>
-        )}
+        ) : null}
 
         {/* Empty state - no marketplaces */}
         {marketplaces.length === 0 ? (
@@ -281,7 +285,7 @@ function MarketplacePage(): React.JSX.Element {
           /* Marketplace cards - single column, left-aligned */
           <div className="flex flex-col gap-5" data-testid="marketplace-grid">
             {marketplaces.map((marketplace) => {
-              const marketplacePlugins = getPluginsForMarketplace(marketplace.id);
+              const marketplacePlugins = pluginsByMarketplace.get(marketplace.id) ?? [];
               const hasPlugins = marketplacePlugins.length > 0;
               return (
                 <div
@@ -307,14 +311,14 @@ function MarketplacePage(): React.JSX.Element {
         )}
 
         {/* Syncing indicator for auto-sync */}
-        {syncingIds.size > 0 && plugins.length === 0 && (
+        {syncingIds.size > 0 && plugins.length === 0 ? (
           <div className="mt-8 flex items-center justify-center py-8">
             <div className="flex items-center gap-3 text-fg-muted bg-surface-subtle px-5 py-3 rounded-full">
               <ArrowsClockwise className="h-4 w-4 animate-spin text-accent" />
               <span className="text-sm">Syncing plugins from GitHub...</span>
             </div>
           </div>
-        )}
+        ) : null}
 
         {/* Add Marketplace Dialog */}
         <AddMarketplaceDialog

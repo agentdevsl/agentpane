@@ -9,7 +9,7 @@ import {
   Warning,
   XCircle,
 } from '@phosphor-icons/react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Select,
   SelectContent,
@@ -54,7 +54,10 @@ export function TerraformVariablesForm(): React.JSX.Element {
   const [validation, setValidation] = useState<ValidationResult | null>(null);
 
   // When variables change (code regenerated), merge existing values with new variable set
-  useEffect(() => {
+  // Derive during render with ref instead of useEffect
+  const prevVariablesRef = useRef(variables);
+  if (prevVariablesRef.current !== variables) {
+    prevVariablesRef.current = variables;
     setValues((prev) => {
       const next: Record<string, string> = {};
       for (const v of variables) {
@@ -66,9 +69,8 @@ export function TerraformVariablesForm(): React.JSX.Element {
       }
       return next;
     });
-    // Clear validation when code changes
     setValidation(null);
-  }, [variables]);
+  }
 
   const tfvarsContent = useMemo(() => generateTfvars(variables, values), [variables, values]);
 
@@ -79,7 +81,7 @@ export function TerraformVariablesForm(): React.JSX.Element {
 
   const setValue = useCallback((name: string, value: string) => {
     setValues((prev) => ({ ...prev, [name]: value }));
-    setValidation(null); // Clear stale validation on change
+    setValidation(null);
   }, []);
 
   const handleCopy = useCallback(async () => {
@@ -145,7 +147,6 @@ export function TerraformVariablesForm(): React.JSX.Element {
 
   return (
     <div className="flex h-full flex-col animate-slide-up">
-      {/* Header bar */}
       <div className="flex shrink-0 items-center justify-between border-b border-border bg-surface-subtle px-3 py-2">
         <span className="flex items-center gap-1.5 font-mono text-xs text-fg-muted">
           <FileCode className="h-3.5 w-3.5 text-fg-subtle" />
@@ -161,7 +162,7 @@ export function TerraformVariablesForm(): React.JSX.Element {
             aria-label="Copy to clipboard"
           >
             <Copy className="h-3.5 w-3.5" />
-            {copied && <span className="ml-1 text-[10px] text-success">Copied!</span>}
+            {copied ? <span className="ml-1 text-[10px] text-success">Copied!</span> : null}
           </button>
           <button
             type="button"
@@ -176,7 +177,6 @@ export function TerraformVariablesForm(): React.JSX.Element {
         </div>
       </div>
 
-      {/* Variable list */}
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3">
         {variables.map((v) => (
           <VariableField
@@ -188,10 +188,8 @@ export function TerraformVariablesForm(): React.JSX.Element {
         ))}
       </div>
 
-      {/* Validation results */}
-      {validation && <ValidationBanner result={validation} />}
+      {validation ? <ValidationBanner result={validation} /> : null}
 
-      {/* Footer */}
       <div className="flex shrink-0 items-center justify-between border-t border-border bg-surface-subtle px-3 py-2">
         <span className="text-[11px] text-fg-muted">
           {configuredCount} of {variables.length} configured
@@ -245,7 +243,7 @@ function ValidationBanner({ result }: { result: ValidationResult }): React.JSX.E
           )}
           <div className="min-w-0">
             <p className="text-[11px] font-medium text-fg">{d.summary}</p>
-            {d.detail && <p className="text-[10px] text-fg-muted">{d.detail}</p>}
+            {d.detail ? <p className="text-[10px] text-fg-muted">{d.detail}</p> : null}
           </div>
         </div>
       ))}
@@ -266,23 +264,20 @@ function VariableField({
 
   return (
     <div className="space-y-1.5">
-      {/* Name + badges */}
       <div className="flex items-center gap-2">
         <span className="font-mono text-xs font-medium text-fg">{variable.name}</span>
-        {variable.required && (
+        {variable.required ? (
           <span className="rounded bg-attention/15 px-1.5 py-0.5 text-[9px] font-medium text-attention">
             required
           </span>
-        )}
-        {variable.sensitive && <Lock className="h-3 w-3 text-fg-subtle" weight="fill" />}
+        ) : null}
+        {variable.sensitive ? <Lock className="h-3 w-3 text-fg-subtle" weight="fill" /> : null}
       </div>
 
-      {/* Description */}
-      {variable.description && (
+      {variable.description ? (
         <p className="text-[11px] leading-relaxed text-fg-muted">{variable.description}</p>
-      )}
+      ) : null}
 
-      {/* Widget */}
       <VariableWidget
         variable={variable}
         smartWidget={smartWidget}
@@ -290,12 +285,11 @@ function VariableField({
         onChange={onChange}
       />
 
-      {/* Default hint */}
-      {variable.default !== null && (
+      {variable.default !== null ? (
         <p className="text-[10px] text-fg-subtle">
           Default: <span className="font-mono">{variable.default}</span>
         </p>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -311,7 +305,6 @@ function VariableWidget({
   value: string;
   onChange: (value: string) => void;
 }): React.JSX.Element {
-  // Smart select widget
   if (smartWidget?.kind === 'select' && smartWidget.options) {
     return (
       <Select value={value} onValueChange={onChange}>
@@ -329,7 +322,6 @@ function VariableWidget({
     );
   }
 
-  // Bool switch
   if (smartWidget?.kind === 'switch' || variable.normalizedType === 'bool') {
     return (
       <div className="flex items-center gap-2">
@@ -342,7 +334,6 @@ function VariableWidget({
     );
   }
 
-  // Number input
   if (variable.normalizedType === 'number') {
     return (
       <input
@@ -355,7 +346,6 @@ function VariableWidget({
     );
   }
 
-  // List/map/object textarea
   if (
     variable.normalizedType === 'list' ||
     variable.normalizedType === 'map' ||
@@ -378,7 +368,6 @@ function VariableWidget({
     );
   }
 
-  // Sensitive text input
   if (variable.sensitive) {
     return (
       <div className="relative">
@@ -386,7 +375,7 @@ function VariableWidget({
           type="password"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder="••••••••"
+          placeholder="\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"
           className="h-8 w-full rounded-md border border-border bg-surface-subtle px-2.5 pr-8 font-mono text-xs text-fg transition duration-fast focus:border-accent focus:ring-2 focus:ring-accent-muted focus:outline-none"
         />
         <Lock className="absolute right-2.5 top-2 h-3.5 w-3.5 text-fg-subtle" />
@@ -394,7 +383,6 @@ function VariableWidget({
     );
   }
 
-  // Default string input (with optional smart placeholder)
   return (
     <input
       type="text"

@@ -90,6 +90,9 @@
         "noExplicitAny": "warn",
         "noControlCharactersInRegex": "off",
         "noArrayIndexKey": "off"
+      },
+      "nursery": {
+        "noLeakedRender": "info"
       }
     }
   },

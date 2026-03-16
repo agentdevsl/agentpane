@@ -52,22 +52,22 @@ export function ContainerAgentChangesTab({
                 <span className="truncate font-medium text-fg" title={change.path}>
                   {fileName}
                 </span>
-                {dir && (
+                {dir ? (
                   <span className="truncate text-xs text-fg-muted" title={dir}>
                     {dir}
                   </span>
-                )}
+                ) : null}
               </div>
-              {(change.additions !== undefined || change.deletions !== undefined) && (
+              {change.additions !== undefined || change.deletions !== undefined ? (
                 <div className="flex items-center gap-1.5 text-xs shrink-0">
-                  {change.additions !== undefined && change.additions > 0 && (
+                  {change.additions !== undefined && change.additions > 0 ? (
                     <span className="text-[var(--syntax-added)]">+{change.additions}</span>
-                  )}
-                  {change.deletions !== undefined && change.deletions > 0 && (
+                  ) : null}
+                  {change.deletions !== undefined && change.deletions > 0 ? (
                     <span className="text-[var(--syntax-removed)]">-{change.deletions}</span>
-                  )}
+                  ) : null}
                 </div>
-              )}
+              ) : null}
             </li>
           );
         })}

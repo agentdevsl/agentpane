@@ -46,48 +46,47 @@ export function useSessions(projectId: string, filters?: SessionFilters, sort?: 
         // Transform the response to match our expected type
         const items = (result.data.data as SessionListItem[]) ?? [];
 
-        // Apply client-side filtering
-        let filtered = items;
+        // Apply client-side filtering in a single pass
+        const statusSet = filters?.status?.length ? new Set(filters.status) : null;
+        const searchLower = filters?.search?.toLowerCase() ?? null;
 
-        if (filters?.status && filters.status.length > 0) {
-          filtered = filtered.filter((s) => filters.status?.includes(s.status));
-        }
-
-        if (filters?.agentId) {
-          filtered = filtered.filter((s) => s.agentId === filters.agentId);
-        }
-
-        if (filters?.taskId) {
-          filtered = filtered.filter((s) => s.taskId === filters.taskId);
-        }
-
-        if (filters?.search) {
-          const searchLower = filters.search.toLowerCase();
-          filtered = filtered.filter(
-            (s) =>
-              s.title?.toLowerCase().includes(searchLower) ||
-              s.taskTitle?.toLowerCase().includes(searchLower) ||
-              s.agentName?.toLowerCase().includes(searchLower)
-          );
-        }
-
+        let fromDate: Date | null = null;
         if (filters?.dateFrom) {
-          const fromDate = new Date(filters.dateFrom);
-          if (Number.isNaN(fromDate.getTime())) {
+          const d = new Date(filters.dateFrom);
+          if (Number.isNaN(d.getTime())) {
             console.warn('[useSessions] Invalid dateFrom filter value:', filters.dateFrom);
           } else {
-            filtered = filtered.filter((s) => new Date(s.createdAt) >= fromDate);
+            fromDate = d;
           }
         }
 
+        let toDate: Date | null = null;
         if (filters?.dateTo) {
-          const toDate = new Date(filters.dateTo);
-          if (Number.isNaN(toDate.getTime())) {
+          const d = new Date(filters.dateTo);
+          if (Number.isNaN(d.getTime())) {
             console.warn('[useSessions] Invalid dateTo filter value:', filters.dateTo);
           } else {
-            filtered = filtered.filter((s) => new Date(s.createdAt) <= toDate);
+            toDate = d;
           }
         }
+
+        let filtered = items.filter((s) => {
+          if (statusSet && !statusSet.has(s.status)) return false;
+          if (filters?.agentId && s.agentId !== filters.agentId) return false;
+          if (filters?.taskId && s.taskId !== filters.taskId) return false;
+          if (searchLower) {
+            if (
+              !s.title?.toLowerCase().includes(searchLower) &&
+              !s.taskTitle?.toLowerCase().includes(searchLower) &&
+              !s.agentName?.toLowerCase().includes(searchLower)
+            ) {
+              return false;
+            }
+          }
+          if (fromDate && new Date(s.createdAt) < fromDate) return false;
+          if (toDate && new Date(s.createdAt) > toDate) return false;
+          return true;
+        });
 
         // Apply sorting
         if (sort) {

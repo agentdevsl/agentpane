@@ -419,7 +419,6 @@ export function useContainerAgent(sessionId: string | null): {
 
     const subscription = subscribeToSession(sessionId, callbacks);
     subscriptionRef.current = subscription;
-    setConnectionState('connected');
 
     return () => {
       subscription.unsubscribe();

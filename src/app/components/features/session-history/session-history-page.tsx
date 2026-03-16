@@ -174,11 +174,11 @@ export function SessionHistoryPage({
           </Button>
 
           {/* Clear filters */}
-          {hasActiveFilters && (
+          {hasActiveFilters ? (
             <Button variant="ghost" size="sm" onClick={clearFilters}>
               Clear Filters
             </Button>
-          )}
+          ) : null}
 
           {/* Export all */}
           <Button

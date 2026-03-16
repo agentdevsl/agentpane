@@ -216,7 +216,6 @@ export function useSession(
     // Subscribe using the durable streams client with automatic reconnection
     const subscription = subscribeToSession(sessionId, callbacks);
     subscriptionRef.current = subscription;
-    setConnectionState('connected');
 
     return () => {
       subscription.unsubscribe();

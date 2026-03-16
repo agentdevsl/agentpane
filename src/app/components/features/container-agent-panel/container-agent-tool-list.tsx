@@ -83,13 +83,13 @@ function ToolItem({ tool }: { tool: ContainerAgentToolExecution }): React.JSX.El
 
         <span className={toolStatusVariants({ status: tool.status })}>{statusIcon}</span>
 
-        {tool.durationMs !== undefined && (
+        {tool.durationMs !== undefined ? (
           <span className="text-xs text-fg-muted font-mono">{formatDuration(tool.durationMs)}</span>
-        )}
+        ) : null}
       </button>
 
       {/* Expanded content */}
-      {isExpanded && (
+      {isExpanded ? (
         <div className="border-t border-border bg-surface-subtle px-3 py-2 space-y-2 min-w-0">
           {/* Input */}
           <div>
@@ -100,7 +100,7 @@ function ToolItem({ tool }: { tool: ContainerAgentToolExecution }): React.JSX.El
           </div>
 
           {/* Result */}
-          {tool.result !== undefined && (
+          {tool.result !== undefined ? (
             <div>
               <p
                 className={cn(
@@ -119,9 +119,9 @@ function ToolItem({ tool }: { tool: ContainerAgentToolExecution }): React.JSX.El
                 {tool.result}
               </pre>
             </div>
-          )}
+          ) : null}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -143,24 +143,24 @@ export function ContainerAgentToolList({ tools }: ContainerAgentToolListProps): 
         <div className="flex items-center justify-between">
           <span className="text-sm font-medium text-fg">Tool Executions</span>
           <div className="flex items-center gap-2 text-xs">
-            {runningCount > 0 && (
+            {runningCount > 0 ? (
               <span className="flex items-center gap-1 text-accent">
                 <CircleNotch className="h-3 w-3 animate-spin" />
                 {runningCount}
               </span>
-            )}
-            {completedCount > 0 && (
+            ) : null}
+            {completedCount > 0 ? (
               <span className="flex items-center gap-1 text-success">
                 <CheckCircle className="h-3 w-3" weight="fill" />
                 {completedCount}
               </span>
-            )}
-            {errorCount > 0 && (
+            ) : null}
+            {errorCount > 0 ? (
               <span className="flex items-center gap-1 text-danger">
                 <XCircle className="h-3 w-3" weight="fill" />
                 {errorCount}
               </span>
-            )}
+            ) : null}
           </div>
         </div>
       </div>

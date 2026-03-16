@@ -345,7 +345,7 @@ function BadgeNode({ node, x, y, width, size, maxChars }: BadgeNodeProps) {
 
   // Truncate label based on calculated maxChars
   const displayLabel =
-    node.label.length > maxChars ? `${node.label.slice(0, maxChars)}…` : node.label;
+    node.label.length > maxChars ? `${node.label.slice(0, maxChars)}\u2026` : node.label;
 
   const iconColor = isStartOrEnd ? BG_DEFAULT : colors.fill;
   const IconComponent = NODE_TYPE_ICONS[node.type] ?? LogicIcon;
@@ -408,12 +408,19 @@ export function WorkflowPreviewSvg({
   const size: 'mini' | 'large' = width > 200 ? 'large' : 'mini';
 
   // Sort nodes: start first, then middle nodes by position, then end last
+  // Single pass to classify nodes into start, end, and middle
   const sortedNodes = useMemo(() => {
     if (nodes.length === 0) return [];
 
-    const startNode = nodes.find((n) => n.type === 'start');
-    const endNode = nodes.find((n) => n.type === 'end');
-    const middleNodes = nodes.filter((n) => n.type !== 'start' && n.type !== 'end');
+    let startNode: WorkflowNode | undefined;
+    let endNode: WorkflowNode | undefined;
+    const middleNodes: WorkflowNode[] = [];
+
+    for (const n of nodes) {
+      if (n.type === 'start') startNode = n;
+      else if (n.type === 'end') endNode = n;
+      else middleNodes.push(n);
+    }
 
     // Sort by dominant axis: if workflow is more vertical than horizontal,
     // sort by Y position; otherwise sort by X for natural reading order
@@ -431,7 +438,7 @@ export function WorkflowPreviewSvg({
       return a.position.x - b.position.x;
     });
 
-    // Build result: start → middle → end
+    // Build result: start -> middle -> end
     const result: WorkflowNode[] = [];
     if (startNode) result.push(startNode);
     result.push(...sortedMiddle);
@@ -474,7 +481,7 @@ export function WorkflowPreviewSvg({
           strokeDasharray="4 2"
           rx={4}
         />
-        {size === 'large' && (
+        {size === 'large' ? (
           <text
             x={width / 2}
             y={height / 2}
@@ -486,7 +493,7 @@ export function WorkflowPreviewSvg({
           >
             No nodes yet
           </text>
-        )}
+        ) : null}
       </svg>
     );
   }

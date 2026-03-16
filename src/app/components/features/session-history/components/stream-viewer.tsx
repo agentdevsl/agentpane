@@ -77,7 +77,7 @@ export function StreamViewer({
       aria-label="Session event stream"
     >
       {/* Startup logs section - collapsible */}
-      {startupEntries.length > 0 && (
+      {startupEntries.length > 0 ? (
         <div className="mb-3 rounded-md border border-border bg-surface-subtle">
           <button
             type="button"
@@ -95,7 +95,7 @@ export function StreamViewer({
               {startupEntries.length}
             </span>
           </button>
-          {startupExpanded && (
+          {startupExpanded ? (
             <div className={cn('border-t border-border p-2 space-y-1')}>
               {startupEntries.map((entry) => {
                 const isCurrent = entry.id === currentEntryId;
@@ -106,9 +106,9 @@ export function StreamViewer({
                 );
               })}
             </div>
-          )}
+          ) : null}
         </div>
-      )}
+      ) : null}
 
       {/* Main entries */}
       {mainEntries.map((entry) => {

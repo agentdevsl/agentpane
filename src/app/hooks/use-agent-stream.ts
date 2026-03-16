@@ -99,7 +99,6 @@ export function useAgentStream(sessionId: string): {
     });
 
     subscriptionRef.current = subscription;
-    setConnectionState('connected');
 
     return () => {
       subscription.unsubscribe();

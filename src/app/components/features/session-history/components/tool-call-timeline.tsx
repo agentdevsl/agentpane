@@ -109,7 +109,7 @@ export function ToolCallTimeline({
         </div>
 
         {/* Filter dropdown */}
-        {uniqueToolNames.length > 1 && onFilterChange && (
+        {uniqueToolNames.length > 1 && onFilterChange ? (
           <select
             value={filterTool ?? ''}
             onChange={handleFilterChange}
@@ -126,7 +126,7 @@ export function ToolCallTimeline({
               </option>
             ))}
           </select>
-        )}
+        ) : null}
       </header>
 
       {/* Summary bar */}

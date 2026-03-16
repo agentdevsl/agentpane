@@ -1,6 +1,6 @@
 import { ArrowsClockwise, Eye, EyeSlash, Plus, Trash, WarningCircle } from '@phosphor-icons/react';
 import { useNavigate } from '@tanstack/react-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { apiClient } from '@/lib/api/client';
 import { useTerraform } from './terraform-context';
 import { formatTimeAgo } from './terraform-utils';
@@ -44,14 +44,15 @@ export function TerraformSettingsPanel(): React.JSX.Element {
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Initialize form from registry data. Token is masked -- the real value is never sent to the client.
-  useEffect(() => {
-    if (registry) {
-      setOrgName(registry.orgName);
-      setSyncInterval(registry.syncIntervalMinutes);
-      setToken('sk-tfe-xxxxxxxxxxxxxxxxxxxxxxxx');
-    }
-  }, [registry]);
+  // Initialize form from registry data (derive during render with ref).
+  // Token is masked -- the real value is never sent to the client.
+  const prevRegistryIdRef = useRef(registry?.id);
+  if (registry && registry.id !== prevRegistryIdRef.current) {
+    prevRegistryIdRef.current = registry.id;
+    setOrgName(registry.orgName);
+    setSyncInterval(registry.syncIntervalMinutes);
+    setToken('sk-tfe-xxxxxxxxxxxxxxxxxxxxxxxx');
+  }
 
   const status = registry?.status ?? 'active';
   const isError = status === 'error';
@@ -82,7 +83,6 @@ export function TerraformSettingsPanel(): React.JSX.Element {
     setIsSaving(true);
     setSaveError(null);
     try {
-      // Store the token as a setting (if user entered a real token, not the masked placeholder)
       const isRealToken = token && !token.startsWith('sk-tfe-xxxx');
       if (isRealToken) {
         const settingsRes = await apiClient.settings.update({ [TOKEN_SETTING_KEY]: token });
@@ -93,7 +93,6 @@ export function TerraformSettingsPanel(): React.JSX.Element {
       }
 
       if (registry) {
-        // Update existing registry
         const updateData: {
           orgName?: string;
           syncIntervalMinutes?: number | null;
@@ -111,7 +110,6 @@ export function TerraformSettingsPanel(): React.JSX.Element {
           return;
         }
       } else {
-        // Create new registry
         if (!isRealToken) {
           setSaveError('A valid TFE API token is required to connect a registry');
           return;
@@ -157,7 +155,6 @@ export function TerraformSettingsPanel(): React.JSX.Element {
     void navigate({ to: '/terraform' });
   }, [navigate]);
 
-  // Border color priority: error (danger) > syncing (accent) > default
   const statusCardBorder = isError
     ? 'border-danger'
     : isSyncingStatus
@@ -168,7 +165,6 @@ export function TerraformSettingsPanel(): React.JSX.Element {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* Content */}
       <div className="flex flex-1 justify-center overflow-y-auto p-8">
         <div className="w-full max-w-[600px]">
           <h1 className="mb-2 text-lg font-semibold tracking-tight">Terraform Registry Settings</h1>
@@ -176,35 +172,32 @@ export function TerraformSettingsPanel(): React.JSX.Element {
             Connect to your HCP Terraform private registry to sync modules for the no-code composer.
           </p>
 
-          {displayError && (
+          {displayError ? (
             <div className="mb-4 rounded-md border border-danger bg-danger-muted p-3">
               <div className="flex items-center gap-2 text-sm text-danger">
                 <WarningCircle size={16} />
                 {displayError}
               </div>
             </div>
-          )}
+          ) : null}
 
-          {/* Status Card */}
-          {registry && (
+          {registry ? (
             <div className={`mb-6 rounded-md border bg-surface p-4 ${statusCardBorder}`}>
               <div className="mb-4 flex items-center justify-between">
                 <span className="text-[13px] font-semibold text-fg">Registry Status</span>
                 <StatusBadge status={status} />
               </div>
 
-              {/* Error banner */}
-              {isError && registry.syncError && (
+              {isError && registry.syncError ? (
                 <div className="mt-2 rounded bg-danger-muted p-3">
                   <div className="mb-1 text-[13px] font-medium text-danger">
                     Authentication failed
                   </div>
                   <div className="text-xs leading-relaxed text-fg-muted">{registry.syncError}</div>
                 </div>
-              )}
+              ) : null}
 
-              {/* Stats grid */}
-              {!isError && (
+              {!isError ? (
                 <div className="grid grid-cols-3 gap-4">
                   <div>
                     <div className="mb-1 text-[11px] uppercase tracking-wider text-fg-subtle">
@@ -248,12 +241,11 @@ export function TerraformSettingsPanel(): React.JSX.Element {
                     </>
                   )}
                 </div>
-              )}
+              ) : null}
             </div>
-          )}
+          ) : null}
 
-          {/* Sync Button */}
-          {registry && (
+          {registry ? (
             <div className="mb-6">
               <button
                 type="button"
@@ -276,11 +268,10 @@ export function TerraformSettingsPanel(): React.JSX.Element {
                 )}
               </button>
             </div>
-          )}
+          ) : null}
 
           <hr className="my-6 border-border" />
 
-          {/* TFE API Token */}
           <div className="mb-6">
             <label htmlFor="tfe-token" className="mb-2 block text-[13px] font-semibold text-fg">
               TFE API Token
@@ -308,15 +299,14 @@ export function TerraformSettingsPanel(): React.JSX.Element {
                 {showToken ? <EyeSlash size={14} /> : <Eye size={14} />}
               </button>
             </div>
-            {isError && (
+            {isError ? (
               <span className="mt-1 flex items-center gap-1 text-xs text-danger">
                 <WarningCircle size={12} />
                 Token is invalid or expired
               </span>
-            )}
+            ) : null}
           </div>
 
-          {/* Organization Name */}
           <div className="mb-6">
             <label htmlFor="org-name" className="mb-2 block text-[13px] font-semibold text-fg">
               Organization Name
@@ -334,7 +324,6 @@ export function TerraformSettingsPanel(): React.JSX.Element {
             />
           </div>
 
-          {/* Sync Interval */}
           <div className="mb-6">
             <label htmlFor="sync-interval" className="mb-2 block text-[13px] font-semibold text-fg">
               Sync Interval
@@ -364,7 +353,6 @@ export function TerraformSettingsPanel(): React.JSX.Element {
 
           <hr className="my-6 border-border" />
 
-          {/* Actions */}
           <div className="flex items-center justify-between pt-1">
             {registry ? (
               <button
@@ -413,25 +401,15 @@ export function TerraformSettingsPanel(): React.JSX.Element {
 
 function StatusBadge({ status }: { status: 'active' | 'syncing' | 'error' }): React.JSX.Element {
   const styles = {
-    active: {
-      badge: 'bg-success-muted text-success',
-      dot: 'bg-success',
-      label: 'Active',
-    },
+    active: { badge: 'bg-success-muted text-success', dot: 'bg-success', label: 'Active' },
     syncing: {
       badge: 'bg-accent-muted text-accent',
       dot: 'bg-accent animate-pulse',
       label: 'Syncing',
     },
-    error: {
-      badge: 'bg-danger-muted text-danger',
-      dot: 'bg-danger',
-      label: 'Error',
-    },
+    error: { badge: 'bg-danger-muted text-danger', dot: 'bg-danger', label: 'Error' },
   };
-
   const s = styles[status];
-
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium ${s.badge}`}
