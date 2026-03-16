@@ -82,6 +82,48 @@ describe('Sessions API Routes', () => {
       expect(json.ok).toBe(false);
       expect(json.error.code).toBe('SERVER_ERROR');
     });
+
+    it('returns hasMore = true when result count equals limit', async () => {
+      const { app, sessionService } = createTestApp();
+      // Return exactly 5 results when limit is 5
+      const fiveSessions = Array.from({ length: 5 }, (_, i) => ({
+        id: `sess-${i}`,
+        status: 'active',
+      }));
+      sessionService.list.mockResolvedValue({ ok: true, value: fiveSessions });
+
+      const res = await request(app, 'GET', '/api/sessions?limit=5');
+
+      const json = await res.json();
+      expect(json.pagination.hasMore).toBe(true);
+    });
+
+    it('returns hasMore = false when result count is less than limit', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.list.mockResolvedValue({
+        ok: true,
+        value: [{ id: 'sess-1', status: 'active' }],
+      });
+
+      const res = await request(app, 'GET', '/api/sessions?limit=10');
+
+      const json = await res.json();
+      expect(json.pagination.hasMore).toBe(false);
+    });
+
+    it('returns error when list returns error result', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.list.mockResolvedValue({
+        ok: false,
+        error: { code: 'DB_ERROR', message: 'Failed', status: 500 },
+      });
+
+      const res = await request(app, 'GET', '/api/sessions');
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+    });
   });
 
   // ── POST /api/sessions ──
@@ -138,6 +180,52 @@ describe('Sessions API Routes', () => {
       expect(json.ok).toBe(true);
       expect(json.data.taskId).toBe('task-1');
     });
+
+    it('returns 500 when create throws', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.create.mockRejectedValue(new Error('DB crashed'));
+
+      const res = await request(app, 'POST', '/api/sessions', {
+        projectId: 'proj-1',
+      });
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.error.code).toBe('SERVER_ERROR');
+    });
+
+    it('returns error when create returns error result', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.create.mockResolvedValue({
+        ok: false,
+        error: { code: 'NOT_FOUND', message: 'Project not found', status: 404 },
+      });
+
+      const res = await request(app, 'POST', '/api/sessions', {
+        projectId: 'proj-nonexistent',
+      });
+
+      expect(res.status).toBe(404);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+    });
+
+    it('passes title to create service', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.create.mockResolvedValue({
+        ok: true,
+        value: { id: 'sess-1', projectId: 'proj-1', title: 'My Title' },
+      });
+
+      await request(app, 'POST', '/api/sessions', {
+        projectId: 'proj-1',
+        title: 'My Title',
+      });
+
+      expect(sessionService.create).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'My Title' })
+      );
+    });
   });
 
   // ── GET /api/sessions/:id ──
@@ -180,6 +268,17 @@ describe('Sessions API Routes', () => {
       expect(json.ok).toBe(false);
       expect(json.error.code).toBe('NOT_FOUND');
     });
+
+    it('returns 500 when getById throws', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.getById.mockRejectedValue(new Error('DB crash'));
+
+      const res = await request(app, 'GET', '/api/sessions/sess-1');
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.error.code).toBe('SERVER_ERROR');
+    });
   });
 
   // ── DELETE /api/sessions/:id ──
@@ -218,6 +317,17 @@ describe('Sessions API Routes', () => {
       expect(res.status).toBe(404);
       const json = await res.json();
       expect(json.ok).toBe(false);
+    });
+
+    it('returns 500 when delete throws', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.delete.mockRejectedValue(new Error('DB crash'));
+
+      const res = await request(app, 'DELETE', '/api/sessions/sess-1');
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.error.code).toBe('SERVER_ERROR');
     });
   });
 
@@ -262,6 +372,52 @@ describe('Sessions API Routes', () => {
         offset: 10,
       });
     });
+
+    it('defaults to limit=100 and offset=0', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.getEventsBySession.mockResolvedValue({ ok: true, value: [] });
+
+      await request(app, 'GET', '/api/sessions/sess-1/events');
+
+      expect(sessionService.getEventsBySession).toHaveBeenCalledWith('sess-1', {
+        limit: 100,
+        offset: 0,
+      });
+    });
+
+    it('returns error when service returns error result', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.getEventsBySession.mockResolvedValue({
+        ok: false,
+        error: { code: 'NOT_FOUND', message: 'Session not found', status: 404 },
+      });
+
+      const res = await request(app, 'GET', '/api/sessions/sess-1/events');
+
+      expect(res.status).toBe(404);
+    });
+
+    it('returns 500 when getEventsBySession throws', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.getEventsBySession.mockRejectedValue(new Error('crash'));
+
+      const res = await request(app, 'GET', '/api/sessions/sess-1/events');
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.error.code).toBe('SERVER_ERROR');
+    });
+
+    it('returns pagination total matching data length', async () => {
+      const { app, sessionService } = createTestApp();
+      const events = [{ id: 'ev-1', type: 'agent:started', timestamp: Date.now(), data: {} }];
+      sessionService.getEventsBySession.mockResolvedValue({ ok: true, value: events });
+
+      const res = await request(app, 'GET', '/api/sessions/sess-1/events');
+      const json = await res.json();
+
+      expect(json.pagination.total).toBe(1);
+    });
   });
 
   // ── GET /api/sessions/:id/summary ──
@@ -301,6 +457,9 @@ describe('Sessions API Routes', () => {
       expect(json.ok).toBe(true);
       expect(json.data.turnsCount).toBe(0);
       expect(json.data.tokensUsed).toBe(0);
+      expect(json.data.durationMs).toBeNull();
+      expect(json.data.finalStatus).toBeNull();
+      expect(json.data.sessionId).toBe('sess-1');
     });
 
     it('returns 400 for invalid id', async () => {
@@ -311,6 +470,29 @@ describe('Sessions API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.error.code).toBe('INVALID_ID');
+    });
+
+    it('returns error when service returns error result', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.getSessionSummary.mockResolvedValue({
+        ok: false,
+        error: { code: 'NOT_FOUND', message: 'Session not found', status: 404 },
+      });
+
+      const res = await request(app, 'GET', '/api/sessions/sess-1/summary');
+
+      expect(res.status).toBe(404);
+    });
+
+    it('returns 500 when getSessionSummary throws', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.getSessionSummary.mockRejectedValue(new Error('crash'));
+
+      const res = await request(app, 'GET', '/api/sessions/sess-1/summary');
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.error.code).toBe('SERVER_ERROR');
     });
   });
 
@@ -354,6 +536,7 @@ describe('Sessions API Routes', () => {
       expect(res.status).toBe(200);
       const json = await res.json();
       expect(json.data.contentType).toBe('text/markdown');
+      expect(json.data.filename).toContain('.md');
     });
 
     it('exports session as CSV', async () => {
@@ -371,6 +554,7 @@ describe('Sessions API Routes', () => {
       expect(res.status).toBe(200);
       const json = await res.json();
       expect(json.data.contentType).toBe('text/csv');
+      expect(json.data.filename).toContain('_events_');
     });
 
     it('returns 400 for invalid format', async () => {
@@ -412,6 +596,219 @@ describe('Sessions API Routes', () => {
       expect(res.status).toBe(404);
       const json = await res.json();
       expect(json.ok).toBe(false);
+    });
+
+    it('returns 500 when export throws', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.getById.mockRejectedValue(new Error('DB crash'));
+
+      const res = await request(app, 'POST', '/api/sessions/sess-1/export', {
+        format: 'json',
+      });
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.error.code).toBe('SERVER_ERROR');
+    });
+
+    it('handles events fetch failure gracefully during export', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.getById.mockResolvedValue({
+        ok: true,
+        value: { id: 'sess-1', title: 'Test', status: 'closed' },
+      });
+      // Events fetch returns error — should still export with empty events
+      sessionService.getEventsBySession.mockResolvedValue({
+        ok: false,
+        error: { code: 'DB_ERROR', message: 'Events table corrupted', status: 500 },
+      });
+
+      const res = await request(app, 'POST', '/api/sessions/sess-1/export', {
+        format: 'json',
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.ok).toBe(true);
+      // Should export with empty events array
+      const content = JSON.parse(json.data.content);
+      expect(content.events).toEqual([]);
+    });
+
+    it('sanitizes session title for filename', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.getById.mockResolvedValue({
+        ok: true,
+        value: { id: 'sess-1', title: 'My Session / with special chars!', status: 'closed' },
+      });
+      sessionService.getEventsBySession.mockResolvedValue({ ok: true, value: [] });
+
+      const res = await request(app, 'POST', '/api/sessions/sess-1/export', {
+        format: 'json',
+      });
+
+      const json = await res.json();
+      // Special chars should be replaced with underscores
+      expect(json.data.filename).not.toContain('/');
+      expect(json.data.filename).not.toContain('!');
+    });
+
+    it('uses session id fallback when title is empty', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.getById.mockResolvedValue({
+        ok: true,
+        value: { id: 'sess-1', title: '', status: 'closed' },
+      });
+      sessionService.getEventsBySession.mockResolvedValue({ ok: true, value: [] });
+
+      const res = await request(app, 'POST', '/api/sessions/sess-1/export', {
+        format: 'json',
+      });
+
+      const json = await res.json();
+      expect(json.data.filename).toContain('session');
+    });
+
+    it('exports markdown with container-agent:message events formatted', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.getById.mockResolvedValue({
+        ok: true,
+        value: { id: 'sess-1', title: 'Test', status: 'closed', createdAt: '2026-03-16T00:00:00Z' },
+      });
+      sessionService.getEventsBySession.mockResolvedValue({
+        ok: true,
+        value: [
+          {
+            id: 'ev-1',
+            type: 'container-agent:message',
+            timestamp: 1710547200000,
+            data: { role: 'assistant', content: 'Hello world' },
+          },
+        ],
+      });
+
+      const res = await request(app, 'POST', '/api/sessions/sess-1/export', {
+        format: 'markdown',
+      });
+
+      const json = await res.json();
+      expect(json.data.content).toContain('**assistant:**');
+      expect(json.data.content).toContain('Hello world');
+    });
+
+    it('exports markdown with tool events formatted', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.getById.mockResolvedValue({
+        ok: true,
+        value: { id: 'sess-1', title: 'Test', status: 'closed' },
+      });
+      sessionService.getEventsBySession.mockResolvedValue({
+        ok: true,
+        value: [
+          {
+            id: 'ev-1',
+            type: 'tool:result',
+            timestamp: 1710547200000,
+            data: {
+              toolName: 'Read',
+              input: { path: '/tmp/test.ts' },
+              output: 'file contents here',
+            },
+          },
+        ],
+      });
+
+      const res = await request(app, 'POST', '/api/sessions/sess-1/export', {
+        format: 'markdown',
+      });
+
+      const json = await res.json();
+      expect(json.data.content).toContain('**Tool:** Read');
+      expect(json.data.content).toContain('file contents here');
+    });
+
+    it('exports CSV with proper header and event rows', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.getById.mockResolvedValue({
+        ok: true,
+        value: { id: 'sess-1', title: 'Test', status: 'closed' },
+      });
+      sessionService.getEventsBySession.mockResolvedValue({
+        ok: true,
+        value: [
+          {
+            id: 'ev-1',
+            type: 'agent:started',
+            timestamp: 1710547200000,
+            data: { content: 'Starting agent' },
+          },
+        ],
+      });
+
+      const res = await request(app, 'POST', '/api/sessions/sess-1/export', {
+        format: 'csv',
+      });
+
+      const json = await res.json();
+      const lines = json.data.content.split('\n');
+      expect(lines[0]).toBe('timestamp,type,role,tool,content');
+      expect(lines[1]).toContain('agent:started');
+      expect(lines[1]).toContain('Starting agent');
+    });
+
+    it('truncates long content in CSV export', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.getById.mockResolvedValue({
+        ok: true,
+        value: { id: 'sess-1', title: 'Test', status: 'closed' },
+      });
+      sessionService.getEventsBySession.mockResolvedValue({
+        ok: true,
+        value: [
+          {
+            id: 'ev-1',
+            type: 'chunk',
+            timestamp: 1710547200000,
+            data: { content: 'A'.repeat(300) },
+          },
+        ],
+      });
+
+      const res = await request(app, 'POST', '/api/sessions/sess-1/export', {
+        format: 'csv',
+      });
+
+      const json = await res.json();
+      const lines = json.data.content.split('\n');
+      // Content should be truncated to 200 + "..."
+      expect(lines[1]).toContain('...');
+    });
+
+    it('escapes CSV fields with commas and quotes', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.getById.mockResolvedValue({
+        ok: true,
+        value: { id: 'sess-1', title: 'Test', status: 'closed' },
+      });
+      sessionService.getEventsBySession.mockResolvedValue({
+        ok: true,
+        value: [
+          {
+            id: 'ev-1',
+            type: 'chunk',
+            timestamp: 1710547200000,
+            data: { content: 'Hello, "world"' },
+          },
+        ],
+      });
+
+      const res = await request(app, 'POST', '/api/sessions/sess-1/export', {
+        format: 'csv',
+      });
+
+      const json = await res.json();
+      // The content field should be escaped: "Hello, ""world"""
+      expect(json.data.content).toContain('"Hello, ""world"""');
     });
   });
 
@@ -533,6 +930,70 @@ describe('Sessions API Routes', () => {
       const json = await res.json();
       expect(json.ok).toBe(false);
       expect(json.error.code).toBe('SERVER_ERROR');
+    });
+
+    it('passes agentId and search filters', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.listSessionsWithFilters.mockResolvedValue({
+        ok: true,
+        value: { sessions: [], total: 0 },
+      });
+
+      await request(app, 'GET', '/api/sessions?projectId=proj-abc&agentId=agent-1&search=test');
+
+      expect(sessionService.listSessionsWithFilters).toHaveBeenCalledWith(
+        'proj-abc',
+        expect.objectContaining({ agentId: 'agent-1', search: 'test' })
+      );
+    });
+
+    it('passes date range filters', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.listSessionsWithFilters.mockResolvedValue({
+        ok: true,
+        value: { sessions: [], total: 0 },
+      });
+
+      await request(
+        app,
+        'GET',
+        '/api/sessions?projectId=proj-abc&dateFrom=2026-01-01&dateTo=2026-12-31'
+      );
+
+      expect(sessionService.listSessionsWithFilters).toHaveBeenCalledWith(
+        'proj-abc',
+        expect.objectContaining({ dateFrom: '2026-01-01', dateTo: '2026-12-31' })
+      );
+    });
+
+    it('returns hasMore based on session count matching limit', async () => {
+      const { app, sessionService } = createTestApp();
+      const fiveSessions = Array.from({ length: 5 }, (_, i) => ({
+        id: `sess-${i}`,
+        status: 'active',
+      }));
+      sessionService.listSessionsWithFilters.mockResolvedValue({
+        ok: true,
+        value: { sessions: fiveSessions, total: 10 },
+      });
+
+      const res = await request(app, 'GET', '/api/sessions?projectId=proj-abc&limit=5');
+
+      const json = await res.json();
+      expect(json.pagination.hasMore).toBe(true);
+    });
+
+    it('returns hasMore = false when fewer sessions than limit', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.listSessionsWithFilters.mockResolvedValue({
+        ok: true,
+        value: { sessions: [{ id: 'sess-1' }], total: 1 },
+      });
+
+      const res = await request(app, 'GET', '/api/sessions?projectId=proj-abc&limit=10');
+
+      const json = await res.json();
+      expect(json.pagination.hasMore).toBe(false);
     });
   });
 

@@ -338,4 +338,217 @@ describe('POST /api/workflow-designer/analyze - Generate workflow', () => {
     const body = await res.json();
     expect(body.data.workflow.aiConfidence).toBe(85);
   });
+
+  // ── Additional analyze tests ──
+
+  it('auto-generates start node when AI omits it', async () => {
+    const aiResponse = JSON.stringify({
+      nodes: [
+        {
+          id: 'skill-1',
+          type: 'skill',
+          label: 'Run Skill',
+          position: { x: 0, y: 100 },
+          skillId: 'skill-a',
+          skillName: 'Test Skill',
+        },
+        { id: 'end-1', type: 'end', label: 'End', position: { x: 0, y: 200 } },
+      ],
+      edges: [{ id: 'e1', type: 'sequential', sourceNodeId: 'skill-1', targetNodeId: 'end-1' }],
+      aiGenerated: true,
+      aiConfidence: 0.7,
+    });
+    mockAgentQuery.mockResolvedValue({ text: aiResponse });
+
+    const res = await app.request('/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        skills: [{ id: 'skill-a', name: 'Test Skill', content: 'echo hello' }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    const nodeTypes = body.data.workflow.nodes.map((n: { type: string }) => n.type);
+    expect(nodeTypes).toContain('start');
+    expect(nodeTypes).toContain('end');
+  });
+
+  it('auto-generates end node when AI omits it', async () => {
+    const aiResponse = JSON.stringify({
+      nodes: [
+        { id: 'start-1', type: 'start', label: 'Start', position: { x: 0, y: 0 } },
+        {
+          id: 'skill-1',
+          type: 'skill',
+          label: 'Run Skill',
+          position: { x: 0, y: 100 },
+          skillId: 'skill-a',
+          skillName: 'Test Skill',
+        },
+      ],
+      edges: [{ id: 'e1', type: 'sequential', sourceNodeId: 'start-1', targetNodeId: 'skill-1' }],
+      aiGenerated: true,
+      aiConfidence: 0.6,
+    });
+    mockAgentQuery.mockResolvedValue({ text: aiResponse });
+
+    const res = await app.request('/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        skills: [{ id: 'skill-a', name: 'Test Skill', content: 'echo hello' }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    const nodeTypes = body.data.workflow.nodes.map((n: { type: string }) => n.type);
+    expect(nodeTypes).toContain('end');
+  });
+
+  it('extracts JSON from markdown code blocks in AI response', async () => {
+    const aiResponse = `\`\`\`json\n${makeValidAIResponse()}\n\`\`\``;
+    mockAgentQuery.mockResolvedValue({ text: aiResponse });
+
+    const res = await app.request('/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        skills: [{ id: 'skill-a', name: 'Test Skill', content: 'echo hello' }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.data.workflow.nodes).toHaveLength(3);
+  });
+
+  it('defaults aiConfidence to 50 when AI omits it', async () => {
+    const aiResponse = JSON.stringify({
+      nodes: [
+        { id: 'start-1', type: 'start', label: 'Start', position: { x: 0, y: 0 } },
+        {
+          id: 'skill-1',
+          type: 'skill',
+          label: 'Run Skill',
+          position: { x: 0, y: 100 },
+          skillId: 'skill-a',
+          skillName: 'Test Skill',
+        },
+        { id: 'end-1', type: 'end', label: 'End', position: { x: 0, y: 200 } },
+      ],
+      edges: [
+        { id: 'e1', type: 'sequential', sourceNodeId: 'start-1', targetNodeId: 'skill-1' },
+        { id: 'e2', type: 'sequential', sourceNodeId: 'skill-1', targetNodeId: 'end-1' },
+      ],
+      aiGenerated: true,
+      // No aiConfidence field
+    });
+    mockAgentQuery.mockResolvedValue({ text: aiResponse });
+
+    const res = await app.request('/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        skills: [{ id: 'skill-a', name: 'Test Skill', content: 'echo hello' }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.workflow.aiConfidence).toBe(50); // 0.5 * 100
+  });
+
+  it('returns 422 when AI response has valid JSON but missing nodes/edges', async () => {
+    mockAgentQuery.mockResolvedValue({ text: '{"foo": "bar"}' });
+
+    const res = await app.request('/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        skills: [{ id: 'skill-a', name: 'Test Skill', content: 'echo hello' }],
+      }),
+    });
+
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    expect(body.error.code).toBe('WORKFLOW_INVALID_AI_RESPONSE');
+  });
+
+  it('removes edges referencing non-existent nodes', async () => {
+    const aiResponse = JSON.stringify({
+      nodes: [
+        { id: 'start-1', type: 'start', label: 'Start', position: { x: 0, y: 0 } },
+        {
+          id: 'skill-1',
+          type: 'skill',
+          label: 'Run Skill',
+          position: { x: 0, y: 100 },
+          skillId: 'skill-a',
+          skillName: 'Test Skill',
+        },
+        { id: 'end-1', type: 'end', label: 'End', position: { x: 0, y: 200 } },
+      ],
+      edges: [
+        { id: 'e1', type: 'sequential', sourceNodeId: 'start-1', targetNodeId: 'skill-1' },
+        { id: 'e2', type: 'sequential', sourceNodeId: 'skill-1', targetNodeId: 'end-1' },
+        // This edge references a non-existent node
+        { id: 'e3', type: 'sequential', sourceNodeId: 'skill-1', targetNodeId: 'nonexistent' },
+      ],
+      aiGenerated: true,
+      aiConfidence: 0.8,
+    });
+    mockAgentQuery.mockResolvedValue({ text: aiResponse });
+
+    const res = await app.request('/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        skills: [{ id: 'skill-a', name: 'Test Skill', content: 'echo hello' }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // The invalid edge should be removed, leaving only 2 valid edges
+    expect(body.data.workflow.edges).toHaveLength(2);
+  });
+
+  it('generates workflow with custom name', async () => {
+    const res = await app.request('/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        skills: [{ id: 'skill-a', name: 'Test Skill', content: 'echo hello' }],
+        name: 'My Custom Workflow',
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.workflow.name).toBe('My Custom Workflow');
+  });
+
+  it('uses settings service for prompt resolution when provided', async () => {
+    const { resolveWorkflowAnalysisPrompt, resolveWorkflowGenerationSystemPrompt } = await import(
+      '../../src/lib/workflow-dsl/ai-prompts.js'
+    );
+
+    const res = await app.request('/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        skills: [{ id: 'skill-a', name: 'Test Skill', content: 'echo hello' }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    // Since settingsService is provided, both resolve functions should be called
+    expect(resolveWorkflowAnalysisPrompt).toHaveBeenCalled();
+    expect(resolveWorkflowGenerationSystemPrompt).toHaveBeenCalled();
+  });
 });

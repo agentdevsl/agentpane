@@ -42,6 +42,8 @@ export default defineConfig({
         'src/app/**/*.tsx',
         'src/types/**/*.ts',
         'src/lib/types/**/*.ts',
+        'src/lib/sandbox/providers/_archived/**',
+        'src/lib/vite-stubs/**',
       ],
       reporter: ['text', 'lcov', 'html'],
       thresholds: {

@@ -9,6 +9,11 @@ import {
   getFullModelId,
   getModelById,
 } from '../../../src/lib/constants/models';
+import {
+  DEFAULT_NODE_COLOR,
+  getNodeColors,
+  NODE_COLORS,
+} from '../../../src/lib/constants/node-colors';
 import { CONTAINER_WORKSPACE_PATH } from '../../../src/lib/constants/sandbox';
 import {
   ALL_TOOLS,
@@ -295,6 +300,86 @@ describe('getWorkflowTools', () => {
   it('returns an array of strings', () => {
     const tools = getWorkflowTools();
     expect(Array.isArray(tools)).toBe(true);
+  });
+});
+
+// ============================================
+// Node Color Constants
+// ============================================
+
+describe('NODE_COLORS', () => {
+  it('has entries for all 8 node types', () => {
+    const expectedTypes = [
+      'start',
+      'end',
+      'skill',
+      'context',
+      'agent',
+      'conditional',
+      'loop',
+      'parallel',
+    ];
+    for (const type of expectedTypes) {
+      expect(NODE_COLORS).toHaveProperty(type);
+    }
+  });
+
+  it('each entry has required color fields', () => {
+    const requiredFields = ['fill', 'fillMuted', 'stroke', 'text', 'bgClass', 'textClass'];
+    for (const [, colors] of Object.entries(NODE_COLORS)) {
+      for (const field of requiredFields) {
+        expect(colors).toHaveProperty(field);
+        expect(typeof (colors as Record<string, string>)[field]).toBe('string');
+      }
+    }
+  });
+
+  it('start node has green fill (#3fb950)', () => {
+    expect(NODE_COLORS.start.fill).toBe('#3fb950');
+  });
+
+  it('end node has red fill (#f85149)', () => {
+    expect(NODE_COLORS.end.fill).toBe('#f85149');
+  });
+
+  it('logic nodes (conditional, loop, parallel) share the same colors', () => {
+    expect(NODE_COLORS.conditional).toEqual(NODE_COLORS.loop);
+    expect(NODE_COLORS.loop).toEqual(NODE_COLORS.parallel);
+  });
+
+  it('logic nodes use purple fill (#a371f7)', () => {
+    expect(NODE_COLORS.conditional.fill).toBe('#a371f7');
+  });
+});
+
+describe('DEFAULT_NODE_COLOR', () => {
+  it('has all required fields', () => {
+    expect(DEFAULT_NODE_COLOR).toHaveProperty('fill');
+    expect(DEFAULT_NODE_COLOR).toHaveProperty('fillMuted');
+    expect(DEFAULT_NODE_COLOR).toHaveProperty('stroke');
+    expect(DEFAULT_NODE_COLOR).toHaveProperty('text');
+    expect(DEFAULT_NODE_COLOR).toHaveProperty('bgClass');
+    expect(DEFAULT_NODE_COLOR).toHaveProperty('textClass');
+  });
+
+  it('uses gray fill (#8b949e)', () => {
+    expect(DEFAULT_NODE_COLOR.fill).toBe('#8b949e');
+  });
+});
+
+describe('getNodeColors', () => {
+  it('returns correct colors for known node types', () => {
+    expect(getNodeColors('start')).toBe(NODE_COLORS.start);
+    expect(getNodeColors('end')).toBe(NODE_COLORS.end);
+    expect(getNodeColors('skill')).toBe(NODE_COLORS.skill);
+    expect(getNodeColors('agent')).toBe(NODE_COLORS.agent);
+    expect(getNodeColors('context')).toBe(NODE_COLORS.context);
+  });
+
+  it('returns DEFAULT_NODE_COLOR for unknown types', () => {
+    expect(getNodeColors('unknown')).toEqual(DEFAULT_NODE_COLOR);
+    expect(getNodeColors('')).toEqual(DEFAULT_NODE_COLOR);
+    expect(getNodeColors('not-a-real-type')).toEqual(DEFAULT_NODE_COLOR);
   });
 });
 
