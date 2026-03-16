@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   type ContainerAgentStarted,
   type ContainerAgentStatus,
@@ -104,22 +104,30 @@ export function useContainerAgentStatuses(
     });
   }, []);
 
-  // Manage subscriptions
+  // Stabilize sessions identity — only re-run when the actual session IDs change,
+  // not on every new array reference from useMemo upstream.
+  const sessionsKey = useMemo(
+    () =>
+      sessions
+        .map((s) => `${s.sessionId}:${s.taskId}`)
+        .sort()
+        .join(','),
+    [sessions]
+  );
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
+
+  // Manage subscriptions — sessionsKey drives re-evaluation when sessions change
   useEffect(() => {
-    const currentSessionIds = new Set(sessions.map((s) => s.sessionId));
+    // Reference sessionsKey so the linter sees it's used (it triggers this effect)
+    void sessionsKey;
+    const currentSessions = sessionsRef.current;
+    const currentSessionIds = new Set(currentSessions.map((s) => s.sessionId));
     const subscriptions = subscriptionsRef.current;
 
-    console.log('[useContainerAgentStatuses] Managing subscriptions:', {
-      sessionsCount: sessions.length,
-      sessions: sessions.map((s) => ({ sessionId: s.sessionId, taskId: s.taskId })),
-      existingSubscriptions: Array.from(subscriptions.keys()),
-    });
-
     // Subscribe to new sessions
-    for (const { sessionId, taskId } of sessions) {
+    for (const { sessionId, taskId } of currentSessions) {
       if (!subscriptions.has(sessionId)) {
-        console.log('[useContainerAgentStatuses] Subscribing to session:', sessionId);
-
         // Initialize status
         setStatuses((prev) => {
           const newMap = new Map(prev);
@@ -132,30 +140,24 @@ export function useContainerAgentStatuses(
         // Subscribe
         const callbacks: SessionCallbacks = {
           onContainerAgentStatus: (event) => {
-            console.log('[useContainerAgentStatuses] Received status event:', event.data);
             handleStatus(sessionId, event.data);
           },
           onContainerAgentStarted: (event) => {
-            console.log('[useContainerAgentStatuses] Received started event');
             handleStarted(sessionId, event.data);
           },
           onContainerAgentComplete: () => {
-            console.log('[useContainerAgentStatuses] Received complete event');
             handleComplete(sessionId);
           },
           onContainerAgentError: () => {
-            console.log('[useContainerAgentStatuses] Received error event');
             handleComplete(sessionId, true);
           },
           onContainerAgentCancelled: () => {
-            console.log('[useContainerAgentStatuses] Received cancelled event');
             handleComplete(sessionId);
           },
         };
 
         const subscription = subscribeToSession(sessionId, callbacks);
         subscriptions.set(sessionId, subscription);
-        console.log('[useContainerAgentStatuses] Subscription created for:', sessionId);
       }
     }
 
@@ -179,7 +181,7 @@ export function useContainerAgentStatuses(
       }
       subscriptions.clear();
     };
-  }, [sessions, handleStatus, handleStarted, handleComplete]);
+  }, [sessionsKey, handleStatus, handleStarted, handleComplete]);
 
   return statuses;
 }

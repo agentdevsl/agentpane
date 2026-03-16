@@ -1296,10 +1296,94 @@ export function getDurableStreamsClient(): DurableStreamsClient {
 }
 
 /**
- * Convenience function to subscribe to a session
+ * Shared subscription manager — multiplexes multiple subscribers over a single
+ * SSE connection per session to avoid exhausting the HTTP/1.1 6-connection limit.
+ */
+interface SharedEntry {
+  /** The single underlying SSE subscription */
+  subscription: Subscription;
+  /** All active callback sets for this session */
+  subscribers: Map<number, SessionCallbacks>;
+  /** Auto-incrementing subscriber ID */
+  nextId: number;
+}
+
+const sharedSubscriptions = new Map<string, SharedEntry>();
+
+/**
+ * Subscribe to a session's event stream, sharing the underlying SSE connection
+ * with other subscribers for the same sessionId.
  */
 export function subscribeToSession(sessionId: string, callbacks: SessionCallbacks): Subscription {
-  return getDurableStreamsClient().subscribeToSession(sessionId, callbacks);
+  let entry = sharedSubscriptions.get(sessionId);
+
+  if (!entry) {
+    // First subscriber for this session — create the actual SSE connection
+    const subscriberMap = new Map<number, SessionCallbacks>();
+
+    // Fan-out callbacks: route each event to all registered subscribers
+    const fanOutCallbacks: SessionCallbacks = {};
+    const callbackKeys: Array<keyof SessionCallbacks> = [
+      'onChunk',
+      'onToolCall',
+      'onPresence',
+      'onTerminal',
+      'onAgentState',
+      'onContainerAgentStatus',
+      'onContainerAgentStarted',
+      'onContainerAgentToken',
+      'onContainerAgentTurn',
+      'onContainerAgentToolStart',
+      'onContainerAgentToolResult',
+      'onContainerAgentMessage',
+      'onContainerAgentComplete',
+      'onContainerAgentError',
+      'onContainerAgentCancelled',
+      'onContainerAgentPlanReady',
+      'onContainerAgentWorktree',
+      'onContainerAgentFileChanged',
+      'onTopologyAgentSpawned',
+      'onTopologyAgentProgress',
+      'onTopologyAgentCompleted',
+      'onError',
+      'onReconnect',
+      'onDisconnect',
+    ];
+
+    for (const key of callbackKeys) {
+      // biome-ignore lint/suspicious/noExplicitAny: generic fan-out across all callback shapes
+      (fanOutCallbacks as any)[key] = (...args: any[]) => {
+        for (const sub of subscriberMap.values()) {
+          // biome-ignore lint/suspicious/noExplicitAny: generic fan-out
+          (sub as any)[key]?.(...args);
+        }
+      };
+    }
+
+    const subscription = getDurableStreamsClient().subscribeToSession(sessionId, fanOutCallbacks);
+
+    entry = { subscription, subscribers: subscriberMap, nextId: 0 };
+    sharedSubscriptions.set(sessionId, entry);
+  }
+
+  // Register this subscriber
+  const subscriberId = entry.nextId++;
+  entry.subscribers.set(subscriberId, callbacks);
+
+  const currentEntry = entry;
+
+  return {
+    unsubscribe: () => {
+      currentEntry.subscribers.delete(subscriberId);
+      // If no more subscribers, tear down the actual SSE connection
+      if (currentEntry.subscribers.size === 0) {
+        currentEntry.subscription.unsubscribe();
+        sharedSubscriptions.delete(sessionId);
+      }
+    },
+    getState: () => currentEntry.subscription.getState(),
+    getLastOffset: () => currentEntry.subscription.getLastOffset(),
+  };
 }
 
 /**

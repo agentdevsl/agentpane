@@ -192,29 +192,29 @@ export function useContainerAgent(sessionId: string | null): {
     }));
   }, []);
 
-  // Handle tool start
+  // Handle tool start (cap at 500, evict oldest completed tools)
   const handleToolStart = useCallback((data: ContainerAgentToolStart) => {
     setState((prev) => {
       // Check if tool already exists to prevent duplicates on reconnection
       const existingIndex = prev.toolExecutions.findIndex((t) => t.toolId === data.toolId);
       if (existingIndex >= 0) {
-        // Tool already exists, don't add duplicate
         return prev;
       }
-      // Add new tool
-      return {
-        ...prev,
-        toolExecutions: [
-          ...prev.toolExecutions,
-          {
-            toolId: data.toolId,
-            toolName: data.toolName,
-            input: data.input,
-            status: 'running',
-            startedAt: data.timestamp,
-          },
-        ],
+      const newTool = {
+        toolId: data.toolId,
+        toolName: data.toolName,
+        input: data.input,
+        status: 'running' as const,
+        startedAt: data.timestamp,
       };
+      let tools = [...prev.toolExecutions, newTool];
+      if (tools.length > 500) {
+        // Keep running tools + most recent completed
+        const running = tools.filter((t) => t.status === 'running');
+        const completed = tools.filter((t) => t.status !== 'running');
+        tools = [...completed.slice(-400), ...running];
+      }
+      return { ...prev, toolExecutions: tools };
     });
   }, []);
 
@@ -237,16 +237,17 @@ export function useContainerAgent(sessionId: string | null): {
     }));
   }, []);
 
-  // Handle message
+  // Handle message (cap at 500 to prevent unbounded growth)
   const handleMessage = useCallback(
     (data: { role: 'user' | 'assistant' | 'system'; content: string; timestamp: number }) => {
       setIsStreaming(false);
-      setState((prev) => ({
-        ...prev,
-        messages: [...prev.messages, data],
-        // Clear streamed text after message is complete
-        streamedText: '',
-      }));
+      setState((prev) => {
+        const messages =
+          prev.messages.length >= 500
+            ? [...prev.messages.slice(-400), data]
+            : [...prev.messages, data];
+        return { ...prev, messages, streamedText: '' };
+      });
     },
     []
   );

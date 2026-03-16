@@ -121,12 +121,33 @@ export function useTopologyStream(
   useEffect(() => {
     if (!sessionId) return;
 
+    let hasReceivedEvent = false;
+    let disconnectCount = 0;
+
     const callbacks: SessionCallbacks = {
-      onTopologyAgentSpawned: handleSpawned,
-      onTopologyAgentProgress: handleProgress,
-      onTopologyAgentCompleted: handleCompleted,
+      onTopologyAgentSpawned: (event) => {
+        hasReceivedEvent = true;
+        handleSpawned(event);
+      },
+      onTopologyAgentProgress: (event) => {
+        hasReceivedEvent = true;
+        handleProgress(event);
+      },
+      onTopologyAgentCompleted: (event) => {
+        hasReceivedEvent = true;
+        handleCompleted(event);
+      },
       onError: (error) => {
         console.error('[useTopologyStream] Stream error:', error);
+      },
+      onDisconnect: () => {
+        disconnectCount++;
+        // If we've disconnected 5 times without ever receiving an event,
+        // the session likely has no topology data — stop reconnecting
+        if (!hasReceivedEvent && disconnectCount >= 5) {
+          console.warn('[useTopologyStream] No topology events after 5 reconnects, unsubscribing');
+          subscription.unsubscribe();
+        }
       },
     };
 
