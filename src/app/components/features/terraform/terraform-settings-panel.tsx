@@ -1,6 +1,6 @@
 import { ArrowsClockwise, Eye, EyeSlash, Plus, Trash, WarningCircle } from '@phosphor-icons/react';
 import { useNavigate } from '@tanstack/react-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiClient } from '@/lib/api/client';
 import { useTerraform } from './terraform-context';
 import { formatTimeAgo } from './terraform-utils';
@@ -57,23 +57,28 @@ export function TerraformSettingsPanel(): React.JSX.Element {
   const isError = status === 'error';
   const isSyncingStatus = status === 'syncing';
 
+  const isSyncingRef = useRef(false);
   const handleSync = useCallback(async () => {
-    if (!registry || isSyncing) return;
+    if (!registry || isSyncingRef.current) return;
+    isSyncingRef.current = true;
     setIsSyncing(true);
     clearError();
     try {
       await syncRegistry(registry.id);
     } finally {
+      isSyncingRef.current = false;
       setIsSyncing(false);
     }
-  }, [registry, isSyncing, syncRegistry, clearError]);
+  }, [registry, syncRegistry, clearError]);
 
+  const isSavingRef = useRef(false);
   const handleSave = useCallback(async () => {
-    if (isSaving) return;
+    if (isSavingRef.current) return;
     if (!orgName.trim()) {
       setSaveError('Organization name is required');
       return;
     }
+    isSavingRef.current = true;
     setIsSaving(true);
     setSaveError(null);
     try {
@@ -127,9 +132,10 @@ export function TerraformSettingsPanel(): React.JSX.Element {
       setSaveError(err instanceof Error ? err.message : 'Network error saving settings');
       console.error('[Terraform] Save error:', err);
     } finally {
+      isSavingRef.current = false;
       setIsSaving(false);
     }
-  }, [registry, isSaving, orgName, token, syncInterval, refreshModules]);
+  }, [registry, orgName, token, syncInterval, refreshModules]);
 
   const handleDelete = useCallback(async () => {
     if (!registry) return;
@@ -295,7 +301,7 @@ export function TerraformSettingsPanel(): React.JSX.Element {
               />
               <button
                 type="button"
-                onClick={() => setShowToken(!showToken)}
+                onClick={() => setShowToken((prev) => !prev)}
                 className="absolute right-2 flex h-7 w-7 items-center justify-center rounded text-fg-subtle transition-colors hover:bg-surface-hover hover:text-fg"
                 title={showToken ? 'Hide token' : 'Show token'}
               >

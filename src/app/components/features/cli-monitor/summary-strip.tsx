@@ -1,6 +1,5 @@
 import { ArrowsInSimple, Coins, CurrencyDollar, Heartbeat, Users } from '@phosphor-icons/react';
-import type { ComponentType } from 'react';
-import { useMemo } from 'react';
+import { type ComponentType, useMemo } from 'react';
 import type { CliSession, HealthStatus } from './cli-monitor-types';
 import { estimateCost, formatTokenCount, getSessionTokenTotal } from './cli-monitor-utils';
 
@@ -46,17 +45,31 @@ function SummaryCard({
 export function SummaryStrip({ sessions }: { sessions: CliSession[] }) {
   const flatSessions = useMemo(() => sessions.filter((s) => !s.isSubagent), [sessions]);
 
-  const totalTokens = flatSessions.reduce((sum, s) => sum + getSessionTokenTotal(s), 0);
-  const totalCost = flatSessions.reduce((sum, s) => sum + estimateCost(s), 0);
-  const totalCompactions = flatSessions.reduce(
-    (sum, s) => sum + (s.performanceMetrics?.compactionCount ?? 0),
-    0
-  );
-  const workingCount = flatSessions.filter((s) => s.status === 'working').length;
-  const waitingCount = flatSessions.filter(
-    (s) => s.status === 'waiting_for_approval' || s.status === 'waiting_for_input'
-  ).length;
-  const idleCount = flatSessions.filter((s) => s.status === 'idle').length;
+  const { totalTokens, totalCost, totalCompactions, workingCount, waitingCount, idleCount } =
+    useMemo(() => {
+      let tokens = 0;
+      let cost = 0;
+      let compactions = 0;
+      let working = 0;
+      let waiting = 0;
+      let idle = 0;
+      for (const s of flatSessions) {
+        tokens += getSessionTokenTotal(s);
+        cost += estimateCost(s);
+        compactions += s.performanceMetrics?.compactionCount ?? 0;
+        if (s.status === 'working') working++;
+        else if (s.status === 'waiting_for_approval' || s.status === 'waiting_for_input') waiting++;
+        else if (s.status === 'idle') idle++;
+      }
+      return {
+        totalTokens: tokens,
+        totalCost: cost,
+        totalCompactions: compactions,
+        workingCount: working,
+        waitingCount: waiting,
+        idleCount: idle,
+      };
+    }, [flatSessions]);
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-5 gap-px border-b border-border bg-border">
@@ -112,28 +125,30 @@ function CompactionSummaryCard({
   sessions: CliSession[];
   totalCompactions: number;
 }) {
-  const sessionsWithCompactions = sessions.filter(
-    (s) => (s.performanceMetrics?.compactionCount ?? 0) > 0
-  ).length;
-
-  // Count full vs micro compactions across all sessions
-  let fullCount = 0;
-  let microCount = 0;
-  for (const s of sessions) {
-    const events = s.performanceMetrics?.compactionEvents;
-    if (events) {
-      for (const e of events) {
-        if (e.type === 'compact') fullCount++;
-        else microCount++;
+  const { sessionsWithCompactions, fullCount, microCount, avgPressure } = useMemo(() => {
+    let withCompactions = 0;
+    let full = 0;
+    let micro = 0;
+    let pressureSum = 0;
+    for (const s of sessions) {
+      if ((s.performanceMetrics?.compactionCount ?? 0) > 0) withCompactions++;
+      pressureSum += s.performanceMetrics?.contextPressure ?? 0;
+      const events = s.performanceMetrics?.compactionEvents;
+      if (events) {
+        for (const e of events) {
+          if (e.type === 'compact') full++;
+          else micro++;
+        }
       }
     }
-  }
+    return {
+      sessionsWithCompactions: withCompactions,
+      fullCount: full,
+      microCount: micro,
+      avgPressure: sessions.length > 0 ? pressureSum / sessions.length : 0,
+    };
+  }, [sessions]);
 
-  const avgPressure =
-    sessions.length > 0
-      ? sessions.reduce((sum, s) => sum + (s.performanceMetrics?.contextPressure ?? 0), 0) /
-        sessions.length
-      : 0;
   const pressurePct = Math.round(avgPressure * 100);
   const pressureColor =
     avgPressure > 0.9 ? 'bg-danger' : avgPressure > 0.7 ? 'bg-attention' : 'bg-success';

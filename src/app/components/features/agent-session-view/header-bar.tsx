@@ -1,6 +1,6 @@
 import { Pause, Play, Square, Timer } from '@phosphor-icons/react';
 import { cva } from 'class-variance-authority';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Button } from '@/app/components/ui/button';
 
 export type AgentStatus = 'idle' | 'starting' | 'running' | 'paused' | 'error' | 'completed';
@@ -78,18 +78,22 @@ export function HeaderBar({
   onResume,
   onStop,
 }: HeaderBarProps): React.JSX.Element {
-  const [elapsedTime, setElapsedTime] = useState<string>('0:00');
+  const elapsedRef = useRef<HTMLSpanElement>(null);
 
-  // Update elapsed time every second when running
+  // Update elapsed time every second when running (direct DOM update to avoid re-renders)
   useEffect(() => {
     if (!startTime || status !== 'running') {
       return;
     }
 
-    setElapsedTime(formatElapsedTime(startTime));
+    if (elapsedRef.current) {
+      elapsedRef.current.textContent = formatElapsedTime(startTime);
+    }
 
     const interval = window.setInterval(() => {
-      setElapsedTime(formatElapsedTime(startTime));
+      if (elapsedRef.current) {
+        elapsedRef.current.textContent = formatElapsedTime(startTime);
+      }
     }, 1000);
 
     return () => window.clearInterval(interval);
@@ -127,7 +131,9 @@ export function HeaderBar({
             data-testid="turn-counter"
           >
             <Timer className="h-4 w-4" />
-            <span className="font-mono tabular-nums">{elapsedTime}</span>
+            <span ref={elapsedRef} className="font-mono tabular-nums">
+              0:00
+            </span>
           </div>
         )}
       </div>

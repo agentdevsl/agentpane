@@ -1,12 +1,16 @@
 import { CaretLeft, Warning } from '@phosphor-icons/react';
 import { type Edge, type Node, useEdgesState, useNodesState, type Viewport } from '@xyflow/react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import '@xyflow/react/dist/style.css';
 
 import type { Workflow } from '@/db/schema';
 import { calculateUniformNodeWidth } from '@/lib/workflow-dsl/layout';
 import type { WorkflowNode } from '@/lib/workflow-dsl/types';
-import { AIGenerateDialog } from './AIGenerateDialog';
+
+const AIGenerateDialog = lazy(() =>
+  import('./AIGenerateDialog').then((m) => ({ default: m.AIGenerateDialog }))
+);
+
 import { type SavedWorkflow, SavedWorkflowsPanel } from './SavedWorkflowsPanel';
 import { WorkflowCanvas } from './WorkflowCanvas';
 import { WorkflowToolbar } from './WorkflowToolbar';
@@ -231,11 +235,11 @@ export function WorkflowDesigner({
   const [workflowDescription, setWorkflowDescription] = useState<string>(
     initialWorkflow?.description ?? ''
   );
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [workflowsLoading, setWorkflowsLoading] = useState(true);
 
-  // Track last saved state to detect changes
-  const lastSavedStateRef = useRef<string>('');
+  // Track unsaved changes via a counter approach instead of JSON.stringify
+  const changeCounterRef = useRef(0);
+  const savedCounterRef = useRef(0);
 
   // Org templates from API (used by AIGenerateDialog)
   const [templates, setTemplates] = useState<TemplateWithContent[]>([]);
@@ -287,19 +291,22 @@ export function WorkflowDesigner({
     fetchWorkflows();
   }, []);
 
-  // Track unsaved changes by comparing current state to last saved state
+  // Increment change counter whenever nodes or edges change
+  // biome-ignore lint/correctness/useExhaustiveDependencies: counter must increment on node/edge changes
   useEffect(() => {
-    const currentState = JSON.stringify({ nodes, edges });
-    if (lastSavedStateRef.current && currentState !== lastSavedStateRef.current) {
-      setHasUnsavedChanges(true);
-    }
+    changeCounterRef.current += 1;
   }, [nodes, edges]);
 
-  // Update last saved state when workflow is loaded or saved
+  // biome-ignore lint/correctness/useExhaustiveDependencies: nodes/edges trigger recomputation of counter comparison
+  const hasUnsavedChanges = useMemo(
+    () => changeCounterRef.current !== savedCounterRef.current,
+    [nodes, edges]
+  );
+
+  // Update saved counter when workflow is saved
   const markAsSaved = useCallback(() => {
-    lastSavedStateRef.current = JSON.stringify({ nodes, edges });
-    setHasUnsavedChanges(false);
-  }, [nodes, edges]);
+    savedCounterRef.current = changeCounterRef.current;
+  }, []);
 
   // Handle viewport changes
   const handleViewportChange = useCallback((newViewport: Viewport) => {
@@ -322,8 +329,7 @@ export function WorkflowDesigner({
       setWorkflowName(sourceName);
       setWorkflowDescription(description ?? '');
       setActiveWorkflowId(null); // This is a new workflow, not an update
-      // Mark as unsaved since we have new content
-      setHasUnsavedChanges(true);
+      // The change counter will increment via the useEffect watching [nodes, edges]
     },
     [setNodes, setEdges]
   );
@@ -433,8 +439,9 @@ export function WorkflowDesigner({
     setActiveWorkflowId(null);
     setWorkflowName('');
     setWorkflowDescription('');
-    setHasUnsavedChanges(false);
-    lastSavedStateRef.current = '';
+    // Sync counters so hasUnsavedChanges becomes false after next render
+    savedCounterRef.current = changeCounterRef.current + 1;
+    // The +1 accounts for the upcoming useEffect increment from setNodes/setEdges
   }, [readOnly, setNodes, setEdges]);
 
   // Select a saved workflow to load
@@ -456,13 +463,9 @@ export function WorkflowDesigner({
           setWorkflowName(result.data.name || workflow.name);
           setWorkflowDescription(result.data.description || '');
 
-          // Mark initial state as saved
+          // Mark initial state as saved — sync counters after the effect fires
           setTimeout(() => {
-            lastSavedStateRef.current = JSON.stringify({
-              nodes: loaded.nodes,
-              edges: loaded.edges,
-            });
-            setHasUnsavedChanges(false);
+            savedCounterRef.current = changeCounterRef.current;
           }, 0);
         }
       } catch (err) {
@@ -592,12 +595,14 @@ export function WorkflowDesigner({
       />
 
       {/* AI Generate Dialog */}
-      <AIGenerateDialog
-        open={aiDialogOpen}
-        onOpenChange={setAiDialogOpen}
-        templates={templates}
-        onGenerate={handleAIWorkflowGenerated}
-      />
+      <Suspense fallback={null}>
+        <AIGenerateDialog
+          open={aiDialogOpen}
+          onOpenChange={setAiDialogOpen}
+          templates={templates}
+          onGenerate={handleAIWorkflowGenerated}
+        />
+      </Suspense>
     </div>
   );
 }

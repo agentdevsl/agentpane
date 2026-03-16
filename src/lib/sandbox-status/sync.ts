@@ -4,48 +4,60 @@
  * Polls the API to fetch sandbox status and updates the TanStack DB collection.
  */
 
+import { createApiFetch } from '@/lib/api/client';
 import { type SandboxStatus, updateSandboxStatus } from './collections.js';
 
 // Active sync intervals per project
 const activeSyncs = new Map<string, NodeJS.Timeout>();
 
-// API base URL — use relative URLs in the browser so requests go through Vite proxy
-const API_BASE = '';
+// Track inflight polls to prevent overlap
+const inflightPolls = new Set<string>();
+
+// Use the project's apiFetch (relative URLs go through Vite proxy in the browser)
+const apiFetch = createApiFetch();
 
 /**
  * Fetch sandbox status from the API
  */
 async function fetchSandboxStatus(projectId: string): Promise<SandboxStatus | null> {
-  try {
-    const response = await fetch(`${API_BASE}/api/sandbox/status/${projectId}`);
-    const result = await response.json();
+  const result = await apiFetch<{
+    mode: string;
+    containerStatus: string;
+    containerId: string | null;
+    providerAvailable: boolean;
+    provider?: string;
+    k8sCrdReady: boolean;
+    k8sClusterVersion?: string | null;
+    k8sPodCount: number;
+    k8sPodsRunning: number;
+    nomadHealthy: boolean;
+    nomadVersion?: string | null;
+    nomadLeader?: string | null;
+    nomadJobCount: number;
+  }>(`/api/sandbox/status/${encodeURIComponent(projectId)}`);
 
-    if (result.ok) {
-      return {
-        projectId,
-        mode: result.data.mode,
-        containerStatus: result.data.containerStatus,
-        containerId: result.data.containerId,
-        providerAvailable: result.data.providerAvailable,
-        provider: result.data.provider ?? 'none',
-        k8sCrdReady: result.data.k8sCrdReady,
-        k8sClusterVersion: result.data.k8sClusterVersion ?? null,
-        k8sPodCount: result.data.k8sPodCount,
-        k8sPodsRunning: result.data.k8sPodsRunning,
-        nomadHealthy: result.data.nomadHealthy,
-        nomadVersion: result.data.nomadVersion ?? null,
-        nomadLeader: result.data.nomadLeader ?? null,
-        nomadJobCount: result.data.nomadJobCount,
-        updatedAt: Date.now(),
-      };
-    }
-
+  if (!result.ok) {
     console.error('[SandboxStatusSync] API error:', result.error);
     return null;
-  } catch (error) {
-    console.error('[SandboxStatusSync] Fetch error:', error);
-    return null;
   }
+
+  return {
+    projectId,
+    mode: result.data.mode as SandboxStatus['mode'],
+    containerStatus: result.data.containerStatus as SandboxStatus['containerStatus'],
+    containerId: result.data.containerId,
+    providerAvailable: result.data.providerAvailable,
+    provider: (result.data.provider ?? 'none') as SandboxStatus['provider'],
+    k8sCrdReady: result.data.k8sCrdReady,
+    k8sClusterVersion: result.data.k8sClusterVersion ?? null,
+    k8sPodCount: result.data.k8sPodCount,
+    k8sPodsRunning: result.data.k8sPodsRunning,
+    nomadHealthy: result.data.nomadHealthy,
+    nomadVersion: result.data.nomadVersion ?? null,
+    nomadLeader: result.data.nomadLeader ?? null,
+    nomadJobCount: result.data.nomadJobCount,
+    updatedAt: Date.now(),
+  };
 }
 
 /**
@@ -69,11 +81,19 @@ export function startSandboxStatusSync(projectId: string, intervalMs = 10000): v
     }
   });
 
-  // Set up polling interval
+  // Set up polling interval with overlap guard
   const interval = setInterval(async () => {
-    const status = await fetchSandboxStatus(projectId);
-    if (status) {
-      updateSandboxStatus(status);
+    if (inflightPolls.has(projectId)) {
+      return;
+    }
+    inflightPolls.add(projectId);
+    try {
+      const status = await fetchSandboxStatus(projectId);
+      if (status) {
+        updateSandboxStatus(status);
+      }
+    } finally {
+      inflightPolls.delete(projectId);
     }
   }, intervalMs);
 

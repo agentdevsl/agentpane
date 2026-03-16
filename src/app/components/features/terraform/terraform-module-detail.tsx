@@ -8,11 +8,44 @@ import {
   SignOut,
 } from '@phosphor-icons/react';
 import { Link, useNavigate } from '@tanstack/react-router';
+import type React from 'react';
 import { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { TerraformOutput, TerraformVariable } from '@/db/schema';
 import { apiClient } from '@/lib/api/client';
 import { PROVIDER_COLORS, type TerraformModuleView } from '@/lib/terraform/types';
+
+// Hoisted ReactMarkdown component overrides (stable references prevent DOM remounts)
+const markdownComponents: import('react-markdown').Components = {
+  h2: ({ children }) => (
+    <h2 className="mb-3 border-b border-border-muted pb-2 text-lg font-semibold">{children}</h2>
+  ),
+  h3: ({ children }) => <h3 className="mb-2 mt-4 text-[15px] font-semibold">{children}</h3>,
+  p: ({ children }) => <p className="mb-3 text-fg-muted">{children}</p>,
+  code: ({ className, children, ...rest }) => {
+    const isBlock = className?.includes('language-');
+    if (isBlock) {
+      return (
+        <code className="text-xs leading-relaxed text-fg" {...rest}>
+          {children}
+        </code>
+      );
+    }
+    return (
+      <code
+        className="rounded bg-surface-subtle px-1.5 py-0.5 font-mono text-xs text-accent"
+        {...rest}
+      >
+        {children}
+      </code>
+    );
+  },
+  pre: ({ children }) => (
+    <pre className="mb-3 overflow-x-auto rounded-md bg-surface-subtle p-4 font-mono">
+      {children}
+    </pre>
+  ),
+};
 
 type DetailTab = 'overview' | 'inputs' | 'outputs' | 'dependencies' | 'readme';
 
@@ -318,44 +351,7 @@ function ReadmeTab({ readme }: { readme: string | null | undefined }): React.JSX
   return (
     <div className="p-6">
       <div className="rounded-md border border-border bg-surface p-6 text-sm leading-[1.8] text-fg">
-        <ReactMarkdown
-          components={{
-            h2: ({ children }) => (
-              <h2 className="mb-3 border-b border-border-muted pb-2 text-lg font-semibold">
-                {children}
-              </h2>
-            ),
-            h3: ({ children }) => (
-              <h3 className="mb-2 mt-4 text-[15px] font-semibold">{children}</h3>
-            ),
-            p: ({ children }) => <p className="mb-3 text-fg-muted">{children}</p>,
-            code: ({ className, children, ...props }) => {
-              const isBlock = className?.includes('language-');
-              if (isBlock) {
-                return (
-                  <code className="text-xs leading-relaxed text-fg" {...props}>
-                    {children}
-                  </code>
-                );
-              }
-              return (
-                <code
-                  className="rounded bg-surface-subtle px-1.5 py-0.5 font-mono text-xs text-accent"
-                  {...props}
-                >
-                  {children}
-                </code>
-              );
-            },
-            pre: ({ children }) => (
-              <pre className="mb-3 overflow-x-auto rounded-md bg-surface-subtle p-4 font-mono">
-                {children}
-              </pre>
-            ),
-          }}
-        >
-          {readme}
-        </ReactMarkdown>
+        <ReactMarkdown components={markdownComponents}>{readme}</ReactMarkdown>
       </div>
     </div>
   );

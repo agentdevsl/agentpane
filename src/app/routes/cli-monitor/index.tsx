@@ -277,15 +277,14 @@ function ActiveState({
 
   const projectGroups = useMemo(() => {
     const groups = new Map<string, CliSession[]>();
-    for (const s of sessions) {
-      if (s.isSubagent) continue;
+    for (const s of flatSessions) {
       const key = s.projectName || 'Unknown';
       const arr = groups.get(key) || [];
       arr.push(s);
       groups.set(key, arr);
     }
     return groups;
-  }, [sessions]);
+  }, [flatSessions]);
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">

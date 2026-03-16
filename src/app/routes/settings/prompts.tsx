@@ -17,7 +17,7 @@ import {
   WarningCircle,
 } from '@phosphor-icons/react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/app/components/ui/button';
 import { apiClient } from '@/lib/api/client';
 import type { PromptCategory, PromptCategoryInfo, PromptDefinition } from '@/lib/prompts';
@@ -382,7 +382,10 @@ function SystemPromptsPage(): React.JSX.Element {
     [edits, allPrompts]
   );
 
-  const handleSave = async () => {
+  const isSavingRef = useRef(false);
+  const handleSave = useCallback(async () => {
+    if (isSavingRef.current) return;
+    isSavingRef.current = true;
     setIsSaving(true);
     setError(null);
     try {
@@ -407,9 +410,10 @@ function SystemPromptsPage(): React.JSX.Element {
     } catch {
       setError('Failed to save settings. Please try again.');
     } finally {
+      isSavingRef.current = false;
       setIsSaving(false);
     }
-  };
+  }, [allPrompts, edits, savedEdits]);
 
   return (
     <div data-testid="system-prompts-settings" className="mx-auto max-w-4xl px-6 py-8 sm:px-8">

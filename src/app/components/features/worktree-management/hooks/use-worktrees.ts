@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiClient } from '@/lib/api/client';
 import { AUTO_REFRESH_INTERVAL_MS } from '../constants';
 import type { GitDiff, WorktreeListItem } from '../types';
@@ -70,7 +70,7 @@ export function useWorktrees(projectId: string): UseWorktreesReturn {
     return () => clearInterval(interval);
   }, [fetchWorktrees]);
 
-  const { active, stale } = groupWorktrees(worktrees);
+  const { active, stale } = useMemo(() => groupWorktrees(worktrees), [worktrees]);
 
   return {
     worktrees,

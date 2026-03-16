@@ -212,6 +212,18 @@ const rawTopologyAgentCompletedSchema = z.object({
 });
 
 /**
+ * Fatal error codes that should not be retried
+ */
+const FATAL_ERROR_CODES = [
+  'NOT_FOUND',
+  'UNAUTHORIZED',
+  'FORBIDDEN',
+  'BAD_REQUEST',
+  'ALREADY_CONSUMED',
+  'ALREADY_CLOSED',
+] as const;
+
+/**
  * Reconnection configuration
  */
 export interface ReconnectConfig {
@@ -637,14 +649,7 @@ export class DurableStreamsClient {
             }
             // Fatal errors should not be retried
             const errorStr = String(error);
-            const isFatal = [
-              'NOT_FOUND',
-              'UNAUTHORIZED',
-              'FORBIDDEN',
-              'BAD_REQUEST',
-              'ALREADY_CONSUMED',
-              'ALREADY_CLOSED',
-            ].some((code) => errorStr.includes(code));
+            const isFatal = FATAL_ERROR_CODES.some((code) => errorStr.includes(code));
             if (isFatal) {
               return; // Return void to stop retrying
             }

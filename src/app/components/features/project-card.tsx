@@ -12,6 +12,7 @@ import {
 import { Link, useNavigate } from '@tanstack/react-router';
 import { Button } from '@/app/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/app/components/ui/tooltip';
+import { formatRelativeTime } from '@/lib/utils/format-time';
 
 export type ProjectStatus = 'running' | 'idle' | 'needs-approval';
 
@@ -314,24 +315,8 @@ export function ProjectCard({
   );
 }
 
-export function formatRelativeTime(date: Date | string): string {
-  const now = Date.now();
-  const dateObj = typeof date === 'string' ? new Date(date) : date;
-  const diff = now - dateObj.getTime();
-  const hours = Math.floor(diff / (1000 * 60 * 60));
-  const minutes = Math.floor(diff / (1000 * 60));
-
-  if (hours > 24) {
-    return `${Math.floor(hours / 24)}d ago`;
-  }
-  if (hours > 0) {
-    return `${hours}h ago`;
-  }
-  if (minutes > 0) {
-    return `${minutes}m ago`;
-  }
-  return 'just now';
-}
+// Re-export for backward compatibility (tests and other consumers)
+export { formatRelativeTime } from '@/lib/utils/format-time';
 
 interface AddProjectCardProps {
   onClick: () => void;

@@ -20,13 +20,17 @@ export const SETTING_KEYS = {
 // Cache for settings to avoid refetching on every render
 let settingsCache: Record<string, unknown> = {};
 let cacheTimestamp = 0;
+let cachePopulated = false;
 const CACHE_TTL_MS = 30000; // 30 seconds
+
+// Inflight request deduplication
+let inflightRequest: Promise<Record<string, unknown>> | null = null;
 
 /**
  * Check if the cache is still valid
  */
 function isCacheValid(): boolean {
-  return Date.now() - cacheTimestamp < CACHE_TTL_MS && Object.keys(settingsCache).length > 0;
+  return cachePopulated && Date.now() - cacheTimestamp < CACHE_TTL_MS;
 }
 
 /**
@@ -35,6 +39,7 @@ function isCacheValid(): boolean {
 export function invalidateSettingsCache(): void {
   settingsCache = {};
   cacheTimestamp = 0;
+  cachePopulated = false;
 }
 
 /**
@@ -60,28 +65,53 @@ export async function fetchSettings(keys?: string[]): Promise<Record<string, unk
     }
   }
 
-  // Fetch from API
-  const result = await apiClient.settings.get(keys);
-  if (!result.ok) {
-    console.error('[fetchSettings] Failed to fetch settings:', result.error);
-    return {};
-  }
-
-  // Update cache
-  if (!keys) {
-    // Full fetch - replace cache entirely
-    settingsCache = result.data.settings;
-    cacheTimestamp = Date.now();
-  } else {
-    // Partial fetch - merge into cache
-    Object.assign(settingsCache, result.data.settings);
-    // Only update timestamp if this was our first fetch
-    if (!cacheTimestamp) {
-      cacheTimestamp = Date.now();
+  // Deduplicate concurrent requests
+  if (inflightRequest) {
+    const cached = await inflightRequest;
+    if (keys) {
+      return keys.reduce(
+        (acc, key) => {
+          acc[key] = cached[key];
+          return acc;
+        },
+        {} as Record<string, unknown>
+      );
     }
+    return cached;
   }
 
-  return result.data.settings;
+  inflightRequest = (async () => {
+    try {
+      // Fetch from API
+      const result = await apiClient.settings.get(keys);
+      if (!result.ok) {
+        console.error('[fetchSettings] Failed to fetch settings:', result.error);
+        return {};
+      }
+
+      // Update cache
+      if (!keys) {
+        // Full fetch - replace cache entirely
+        settingsCache = result.data.settings;
+        cacheTimestamp = Date.now();
+        cachePopulated = true;
+      } else {
+        // Partial fetch - merge into cache
+        Object.assign(settingsCache, result.data.settings);
+        cachePopulated = true;
+        // Only update timestamp if this was our first fetch
+        if (!cacheTimestamp) {
+          cacheTimestamp = Date.now();
+        }
+      }
+
+      return result.data.settings;
+    } finally {
+      inflightRequest = null;
+    }
+  })();
+
+  return inflightRequest;
 }
 
 /**
@@ -96,6 +126,7 @@ export async function updateSettings(settings: Record<string, unknown>): Promise
 
   // Update cache with new values
   Object.assign(settingsCache, settings);
+  cachePopulated = true;
 
   return true;
 }

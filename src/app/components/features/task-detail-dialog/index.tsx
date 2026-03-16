@@ -12,39 +12,49 @@ import { TaskDetailsCollapsible } from './task-details-collapsible';
 import { TaskHeader } from './task-header';
 
 /**
- * Custom hook for drag functionality
+ * Custom hook for drag functionality.
+ * Uses refs + direct DOM manipulation to avoid 60+ re-renders/sec during drag.
  */
 function useDraggable() {
-  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const positionRef = useRef({ x: 0, y: 0 });
+  const elementRef = useRef<HTMLDivElement>(null);
+  const isDraggingRef = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0 });
 
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      // Only allow dragging from left mouse button
-      if (e.button !== 0) return;
+  const applyTransform = useCallback(() => {
+    if (elementRef.current) {
+      const { x, y } = positionRef.current;
+      elementRef.current.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`;
+    }
+  }, []);
 
-      setIsDragging(true);
-      dragStart.current = {
-        x: e.clientX - position.x,
-        y: e.clientY - position.y,
-      };
-      e.preventDefault();
-    },
-    [position]
-  );
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    // Only allow dragging from left mouse button
+    if (e.button !== 0) return;
+
+    isDraggingRef.current = true;
+    setIsDragging(true);
+    dragStart.current = {
+      x: e.clientX - positionRef.current.x,
+      y: e.clientY - positionRef.current.y,
+    };
+    e.preventDefault();
+  }, []);
 
   useEffect(() => {
     if (!isDragging) return;
 
     const handleMouseMove = (e: MouseEvent) => {
-      setPosition({
+      positionRef.current = {
         x: e.clientX - dragStart.current.x,
         y: e.clientY - dragStart.current.y,
-      });
+      };
+      applyTransform();
     };
 
     const handleMouseUp = () => {
+      isDraggingRef.current = false;
       setIsDragging(false);
     };
 
@@ -55,13 +65,14 @@ function useDraggable() {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDragging]);
+  }, [isDragging, applyTransform]);
 
   const reset = useCallback(() => {
-    setPosition({ x: 0, y: 0 });
-  }, []);
+    positionRef.current = { x: 0, y: 0 };
+    applyTransform();
+  }, [applyTransform]);
 
-  return { position, isDragging, handleMouseDown, reset };
+  return { elementRef, isDragging, handleMouseDown, reset };
 }
 
 export interface TaskViewer {
@@ -161,7 +172,7 @@ export function TaskDetailDialog({
 }: TaskDetailDialogProps): React.JSX.Element {
   const [state, dispatch] = useReducer(dialogReducer, initialState);
   const [pendingChanges, setPendingChanges] = useState<Partial<UpdateTaskInput>>({});
-  const { position, isDragging, handleMouseDown, reset: resetPosition } = useDraggable();
+  const { elementRef, isDragging, handleMouseDown, reset: resetPosition } = useDraggable();
 
   // Reset state when task changes or dialog closes
   useEffect(() => {
@@ -221,6 +232,10 @@ export function TaskDetailDialog({
   // Show container agent panel when task is in progress and has a session
   const showContainerAgentPanel = task?.column === 'in_progress' && task?.sessionId;
 
+  // Stable ref for handleSave to avoid re-registering keydown listener on every change
+  const handleSaveRef = useRef(handleSave);
+  handleSaveRef.current = handleSave;
+
   // Keyboard shortcuts
   useEffect(() => {
     if (!open) return;
@@ -236,7 +251,7 @@ export function TaskDetailDialog({
           e.preventDefault();
         } else if ((e.metaKey || e.ctrlKey) && e.key === 's') {
           e.preventDefault();
-          handleSave();
+          handleSaveRef.current();
         }
         return;
       }
@@ -262,7 +277,7 @@ export function TaskDetailDialog({
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [open, state.isEditing, handleSave, onOpenChange]);
+  }, [open, state.isEditing, onOpenChange]);
 
   if (!task || !displayTask) {
     return (
@@ -289,6 +304,7 @@ export function TaskDetailDialog({
           )}
         />
         <DialogPrimitive.Content
+          ref={elementRef}
           aria-describedby={undefined}
           className={cn(
             'fixed left-1/2 top-1/2 z-50 w-full max-w-2xl max-h-[90vh]',
@@ -301,7 +317,7 @@ export function TaskDetailDialog({
             isDragging && 'cursor-grabbing'
           )}
           style={{
-            transform: `translate(calc(-50% + ${position.x}px), calc(-50% + ${position.y}px))`,
+            transform: 'translate(calc(-50% + 0px), calc(-50% + 0px))',
           }}
         >
           <VisuallyHidden>

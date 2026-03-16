@@ -1,11 +1,12 @@
 import { MagnifyingGlass, Plus } from '@phosphor-icons/react';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EmptyState } from '@/app/components/features/empty-state';
 import { LayoutShell } from '@/app/components/features/layout-shell';
 import { NewProjectDialog } from '@/app/components/features/new-project-dialog';
 import type { ProjectStatus, TaskCounts } from '@/app/components/features/project-card';
 import { AddProjectCard, ProjectCard } from '@/app/components/features/project-card';
+import { AgentPaneLogo } from '@/app/components/ui/agentpane-logo';
 import { Button } from '@/app/components/ui/button';
 import {
   apiClient,
@@ -25,98 +26,6 @@ type ClientProjectSummary = {
   runningAgents: { id: string; name: string; currentTaskId?: string; currentTaskTitle?: string }[];
   lastActivityAt?: Date | null;
 };
-
-/**
- * Animated AgentPane logo icon for the welcome screen
- * A larger version of the sidebar logo with animated nodes
- */
-function AgentPaneLogo(): React.JSX.Element {
-  return (
-    <div className="relative flex h-28 w-28 items-center justify-center overflow-hidden rounded-2xl bg-surface-subtle shadow-[0_2px_4px_rgba(0,0,0,0.06),0_4px_16px_rgba(0,0,0,0.1),0_0_0_1px_rgba(0,0,0,0.05)] dark:shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset,0_-1px_0_0_rgba(0,0,0,0.3)_inset,0_4px_24px_-2px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.06)]">
-      <div className="absolute inset-0 animate-pulse rounded-2xl bg-gradient-radial from-done/10 to-transparent dark:from-done/15" />
-      <svg
-        className="relative z-10 h-16 w-16 drop-shadow-[0_0_12px_rgba(163,113,247,0.4)]"
-        viewBox="0 0 32 32"
-        fill="none"
-        aria-hidden="true"
-      >
-        <defs>
-          <radialGradient id="welcomeCoreGrad" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="#fff" />
-            <stop offset="50%" stopColor="#3fb950" />
-            <stop offset="100%" stopColor="#3fb950" stopOpacity="0" />
-          </radialGradient>
-        </defs>
-        {/* Connection lines */}
-        <line x1="14" y1="14" x2="6" y2="8" stroke="#58a6ff" strokeOpacity="0.4" strokeWidth="1" />
-        <line x1="14" y1="14" x2="22" y2="6" stroke="#a371f7" strokeOpacity="0.4" strokeWidth="1" />
-        <line
-          x1="14"
-          y1="14"
-          x2="26"
-          y2="16"
-          stroke="#3fb950"
-          strokeOpacity="0.4"
-          strokeWidth="1"
-        />
-        <line
-          x1="14"
-          y1="14"
-          x2="20"
-          y2="26"
-          stroke="#f778ba"
-          strokeOpacity="0.4"
-          strokeWidth="1"
-        />
-        <line x1="14" y1="14" x2="6" y2="22" stroke="#d29922" strokeOpacity="0.4" strokeWidth="1" />
-        {/* Outer nodes */}
-        <circle
-          className="animate-pulse"
-          cx="6"
-          cy="8"
-          r="2"
-          fill="#58a6ff"
-          style={{ filter: 'drop-shadow(0 0 2px #58a6ff)' }}
-        />
-        <circle
-          className="animate-pulse"
-          cx="22"
-          cy="6"
-          r="2.5"
-          fill="#a371f7"
-          style={{ filter: 'drop-shadow(0 0 3px #a371f7)', animationDelay: '0.4s' }}
-        />
-        <circle
-          className="animate-pulse"
-          cx="26"
-          cy="16"
-          r="2"
-          fill="#3fb950"
-          style={{ filter: 'drop-shadow(0 0 2px #3fb950)', animationDelay: '0.8s' }}
-        />
-        <circle
-          className="animate-pulse"
-          cx="20"
-          cy="26"
-          r="3"
-          fill="#f778ba"
-          style={{ filter: 'drop-shadow(0 0 3px #f778ba)', animationDelay: '1.2s' }}
-        />
-        <circle
-          className="animate-pulse"
-          cx="6"
-          cy="22"
-          r="2"
-          fill="#d29922"
-          style={{ filter: 'drop-shadow(0 0 2px #d29922)', animationDelay: '1.6s' }}
-        />
-        {/* Center hub */}
-        <circle cx="14" cy="14" r="5" fill="url(#welcomeCoreGrad)" />
-        <circle cx="14" cy="14" r="2" fill="#fff" />
-      </svg>
-    </div>
-  );
-}
 
 export const Route = createFileRoute('/')({
   component: Dashboard,
@@ -147,63 +56,48 @@ function Dashboard(): React.JSX.Element {
   }, [projectSummaries, searchQuery]);
 
   // Check if global settings are configured (API key is required, GitHub PAT is optional)
+  // Batch all mount API calls with Promise.all to avoid 4 separate re-renders
   useEffect(() => {
-    // Check Anthropic key via API (stored in SQLite)
-    const checkAnthropicKey = async () => {
-      try {
-        const result = await apiClient.apiKeys.get('anthropic');
-        setIsSettingsConfigured(result.ok && result.data.keyInfo !== null);
-      } catch (error) {
-        console.error('Failed to check Anthropic API key:', error);
-        setIsSettingsConfigured(false);
-      }
-    };
-    checkAnthropicKey();
+    const loadInitialData = async () => {
+      const [keyResult, githubResult, reposResult, configsResult] = await Promise.all([
+        apiClient.apiKeys.get('anthropic').catch((error) => {
+          console.error('Failed to check Anthropic API key:', error);
+          return null;
+        }),
+        apiClient.github.getTokenInfo().catch((error) => {
+          console.error('Failed to check GitHub token:', error);
+          return null;
+        }),
+        apiClient.filesystem.discoverRepos().catch((error) => {
+          console.error('Failed to discover local repos:', error);
+          return null;
+        }),
+        apiClient.sandboxConfigs.list().catch((error) => {
+          console.error('Failed to fetch sandbox configs:', error);
+          return null;
+        }),
+      ]);
 
-    // Check GitHub token via API (stored in SQLite)
-    const checkGitHub = async () => {
-      try {
-        const result = await apiClient.github.getTokenInfo();
-        setIsGitHubConfigured(result.ok && result.data.tokenInfo?.isValid === true);
-      } catch (error) {
-        console.error('Failed to check GitHub token:', error);
-        setIsGitHubConfigured(false);
-      }
-    };
-    checkGitHub();
+      setIsSettingsConfigured(keyResult?.ok === true && keyResult.data.keyInfo !== null);
+      setIsGitHubConfigured(
+        githubResult?.ok === true && githubResult.data.tokenInfo?.isValid === true
+      );
 
-    // Discover local git repos
-    const discoverLocalRepos = async () => {
-      try {
-        const result = await apiClient.filesystem.discoverRepos();
-        if (result.ok) {
-          setLocalRepos(result.data.repos.map((r) => ({ name: r.name, path: r.path })));
-        } else {
-          console.warn('Failed to discover local repos:', result.error);
+      if (reposResult?.ok) {
+        setLocalRepos(reposResult.data.repos.map((r) => ({ name: r.name, path: r.path })));
+      } else if (reposResult && !reposResult.ok) {
+        console.warn('Failed to discover local repos:', reposResult.error);
+      }
+
+      if (configsResult?.ok) {
+        setSandboxConfigs(configsResult.data.items);
+        const defaultConfig = configsResult.data.items.find((c) => c.isDefault);
+        if (defaultConfig) {
+          setDefaultSandboxType(defaultConfig.type);
         }
-      } catch (error) {
-        console.error('Failed to discover local repos:', error);
       }
     };
-    discoverLocalRepos();
-
-    // Fetch sandbox configs to determine default type
-    const fetchSandboxConfigs = async () => {
-      try {
-        const result = await apiClient.sandboxConfigs.list();
-        if (result.ok) {
-          setSandboxConfigs(result.data.items);
-          // Find the default config and set its type
-          const defaultConfig = result.data.items.find((c) => c.isDefault);
-          if (defaultConfig) {
-            setDefaultSandboxType(defaultConfig.type);
-          }
-        }
-      } catch (error) {
-        console.error('Failed to fetch sandbox configs:', error);
-      }
-    };
-    fetchSandboxConfigs();
+    loadInitialData();
   }, []);
 
   // Polling interval ref for project updates
@@ -265,161 +159,170 @@ function Dashboard(): React.JSX.Element {
     };
   }, []);
 
-  const handleCreateProject = async (data: {
-    name: string;
-    path: string;
-    description?: string;
-    sandboxType?: SandboxType;
-  }): Promise<Result<void, { code: string; message: string }>> => {
-    try {
-      // Find or create sandbox config for the selected type
-      const selectedType = data.sandboxType ?? defaultSandboxType;
-      let sandboxConfigId: string | undefined;
+  const handleCreateProject = useCallback(
+    async (data: {
+      name: string;
+      path: string;
+      description?: string;
+      sandboxType?: SandboxType;
+    }): Promise<Result<void, { code: string; message: string }>> => {
+      try {
+        // Find or create sandbox config for the selected type
+        const selectedType = data.sandboxType ?? defaultSandboxType;
+        let sandboxConfigId: string | undefined;
 
-      // Look for an existing config with the selected type
-      const existingConfig = sandboxConfigs.find((c) => c.type === selectedType);
-      if (existingConfig) {
-        sandboxConfigId = existingConfig.id;
-      } else {
-        // Create a new sandbox config with the selected type
-        const configResult = await apiClient.sandboxConfigs.create({
-          name: `${selectedType === 'docker' ? 'Docker' : 'DevContainer'} Default`,
-          type: selectedType,
-          isDefault: sandboxConfigs.length === 0, // Make default if first config
-        });
-        if (configResult.ok) {
-          sandboxConfigId = configResult.data.id;
-          // Update local state
-          setSandboxConfigs((prev) => [...prev, configResult.data]);
+        // Look for an existing config with the selected type
+        const existingConfig = sandboxConfigs.find((c) => c.type === selectedType);
+        if (existingConfig) {
+          sandboxConfigId = existingConfig.id;
+        } else {
+          // Create a new sandbox config with the selected type
+          const configResult = await apiClient.sandboxConfigs.create({
+            name: `${selectedType === 'docker' ? 'Docker' : 'DevContainer'} Default`,
+            type: selectedType,
+            isDefault: sandboxConfigs.length === 0, // Make default if first config
+          });
+          if (configResult.ok) {
+            sandboxConfigId = configResult.data.id;
+            // Update local state
+            setSandboxConfigs((prev) => [...prev, configResult.data]);
+          }
         }
-      }
 
-      const result = await apiClient.projects.create({
-        name: data.name,
-        path: data.path,
-        description: data.description,
-        sandboxConfigId,
-      });
+        const result = await apiClient.projects.create({
+          name: data.name,
+          path: data.path,
+          description: data.description,
+          sandboxConfigId,
+        });
 
-      if (!result.ok) {
-        console.error('Failed to create project:', result.error);
+        if (!result.ok) {
+          console.error('Failed to create project:', result.error);
+          return {
+            ok: false,
+            error: {
+              code: result.error.code,
+              message: result.error.message,
+            },
+          };
+        }
+
+        const listResult = await apiClient.projects.listWithSummaries({ limit: 24 });
+        if (listResult.ok) {
+          const summaries: ClientProjectSummary[] = listResult.data.items.map(
+            (item: ProjectSummaryItem) => ({
+              project: item.project,
+              status: item.status,
+              taskCounts: item.taskCounts,
+              runningAgents: item.runningAgents.map((agent) => ({
+                id: agent.id,
+                name: agent.name,
+                currentTaskId: agent.currentTaskId ?? undefined,
+                currentTaskTitle: agent.currentTaskTitle ?? undefined,
+              })),
+              lastActivityAt: item.lastActivityAt ? new Date(item.lastActivityAt) : null,
+            })
+          );
+          setProjectSummaries(summaries);
+        }
+
+        return { ok: true, value: undefined };
+      } catch (error) {
+        console.error('Unexpected error creating project:', error);
         return {
           ok: false,
           error: {
-            code: result.error.code,
-            message: result.error.message,
+            code: 'UNEXPECTED_ERROR',
+            message: error instanceof Error ? error.message : 'An unexpected error occurred',
           },
         };
       }
+    },
+    [defaultSandboxType, sandboxConfigs]
+  );
 
-      const listResult = await apiClient.projects.listWithSummaries({ limit: 24 });
-      if (listResult.ok) {
-        const summaries: ClientProjectSummary[] = listResult.data.items.map(
-          (item: ProjectSummaryItem) => ({
-            project: item.project,
-            status: item.status,
-            taskCounts: item.taskCounts,
-            runningAgents: item.runningAgents.map((agent) => ({
-              id: agent.id,
-              name: agent.name,
-              currentTaskId: agent.currentTaskId ?? undefined,
-              currentTaskTitle: agent.currentTaskTitle ?? undefined,
-            })),
-            lastActivityAt: item.lastActivityAt ? new Date(item.lastActivityAt) : null,
-          })
-        );
-        setProjectSummaries(summaries);
-      }
-
-      return { ok: true, value: undefined };
-    } catch (error) {
-      console.error('Unexpected error creating project:', error);
-      return {
-        ok: false,
-        error: {
-          code: 'UNEXPECTED_ERROR',
-          message: error instanceof Error ? error.message : 'An unexpected error occurred',
+  const handleValidatePath = useCallback(
+    async (
+      pathToValidate: string
+    ): Promise<
+      Result<
+        {
+          name: string;
+          path: string;
+          defaultBranch: string;
+          hasClaudeConfig: boolean;
+          remoteUrl?: string;
         },
+        unknown
+      >
+    > => {
+      // TODO: Add API endpoint for path validation
+      // For now, return a basic validation result
+      const pathParts = pathToValidate.split('/');
+      const name = pathParts[pathParts.length - 1] || 'unknown';
+      return {
+        ok: true,
+        value: { name, path: pathToValidate, defaultBranch: 'main', hasClaudeConfig: false },
       };
-    }
-  };
+    },
+    []
+  );
 
-  const handleValidatePath = async (
-    pathToValidate: string
-  ): Promise<
-    Result<
-      {
-        name: string;
-        path: string;
-        defaultBranch: string;
-        hasClaudeConfig: boolean;
-        remoteUrl?: string;
-      },
-      unknown
-    >
-  > => {
-    // TODO: Add API endpoint for path validation
-    // For now, return a basic validation result
-    const pathParts = pathToValidate.split('/');
-    const name = pathParts[pathParts.length - 1] || 'unknown';
-    return {
-      ok: true,
-      value: { name, path: pathToValidate, defaultBranch: 'main', hasClaudeConfig: false },
-    };
-  };
-
-  const handleClone = async (
-    url: string,
-    destination: string
-  ): Promise<Result<{ path: string }, unknown>> => {
-    try {
-      const result = await apiClient.github.clone(url, destination);
-      if (result.ok) {
-        return { ok: true, value: { path: result.data.path } };
+  const handleClone = useCallback(
+    async (url: string, destination: string): Promise<Result<{ path: string }, unknown>> => {
+      try {
+        const result = await apiClient.github.clone(url, destination);
+        if (result.ok) {
+          return { ok: true, value: { path: result.data.path } };
+        }
+        console.error('Failed to clone repository:', result.error);
+        return {
+          ok: false,
+          error: result.error,
+        };
+      } catch (error) {
+        console.error('Unexpected error cloning repository:', error);
+        return {
+          ok: false,
+          error: { code: 'UNEXPECTED_ERROR', message: String(error) },
+        };
       }
-      console.error('Failed to clone repository:', result.error);
-      return {
-        ok: false,
-        error: result.error,
-      };
-    } catch (error) {
-      console.error('Unexpected error cloning repository:', error);
-      return {
-        ok: false,
-        error: { code: 'UNEXPECTED_ERROR', message: String(error) },
-      };
-    }
-  };
+    },
+    []
+  );
 
-  const handleCreateFromTemplate = async (params: {
-    templateOwner: string;
-    templateRepo: string;
-    name: string;
-    owner?: string;
-    description?: string;
-    isPrivate?: boolean;
-    clonePath: string;
-  }): Promise<Result<{ path: string }, unknown>> => {
-    try {
-      const result = await apiClient.github.createFromTemplate(params);
-      if (result.ok) {
-        return { ok: true, value: { path: result.data.path } };
+  const handleCreateFromTemplate = useCallback(
+    async (params: {
+      templateOwner: string;
+      templateRepo: string;
+      name: string;
+      owner?: string;
+      description?: string;
+      isPrivate?: boolean;
+      clonePath: string;
+    }): Promise<Result<{ path: string }, unknown>> => {
+      try {
+        const result = await apiClient.github.createFromTemplate(params);
+        if (result.ok) {
+          return { ok: true, value: { path: result.data.path } };
+        }
+        console.error('Failed to create from template:', result.error);
+        return {
+          ok: false,
+          error: result.error,
+        };
+      } catch (error) {
+        console.error('Unexpected error creating from template:', error);
+        return {
+          ok: false,
+          error: { code: 'UNEXPECTED_ERROR', message: String(error) },
+        };
       }
-      console.error('Failed to create from template:', result.error);
-      return {
-        ok: false,
-        error: result.error,
-      };
-    } catch (error) {
-      console.error('Unexpected error creating from template:', error);
-      return {
-        ok: false,
-        error: { code: 'UNEXPECTED_ERROR', message: String(error) },
-      };
-    }
-  };
+    },
+    []
+  );
 
-  const handleFetchOrgs = async (): Promise<GitHubOrg[]> => {
+  const handleFetchOrgs = useCallback(async (): Promise<GitHubOrg[]> => {
     try {
       const result = await apiClient.github.listOrgs();
       if (result.ok) {
@@ -431,9 +334,9 @@ function Dashboard(): React.JSX.Element {
       console.error('Unexpected error fetching GitHub orgs:', error);
       return [];
     }
-  };
+  }, []);
 
-  const handleFetchReposForOwner = async (owner: string): Promise<GitHubRepo[]> => {
+  const handleFetchReposForOwner = useCallback(async (owner: string): Promise<GitHubRepo[]> => {
     try {
       const result = await apiClient.github.listReposForOwner(owner);
       if (result.ok) {
@@ -445,7 +348,7 @@ function Dashboard(): React.JSX.Element {
       console.error(`Unexpected error fetching repos for ${owner}:`, error);
       return [];
     }
-  };
+  }, []);
 
   if (isLoading) {
     return (

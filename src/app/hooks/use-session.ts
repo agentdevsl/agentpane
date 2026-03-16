@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { SessionErrors } from '@/lib/errors/session-errors';
 import {
   type ConnectionState,
@@ -118,9 +118,19 @@ export function useSession(
     }
   }, [sessionId, userId]);
 
+  // Keep refs to join/leave so the subscription effect only depends on sessionId
+  const joinRef = useRef(join);
+  const leaveRef = useRef(leave);
+  useEffect(() => {
+    joinRef.current = join;
+  }, [join]);
+  useEffect(() => {
+    leaveRef.current = leave;
+  }, [leave]);
+
   // Subscribe to session events with automatic reconnection
   useEffect(() => {
-    void join();
+    void joinRef.current();
     setConnectionState('connecting');
 
     const callbacks: SessionCallbacks = {
@@ -211,9 +221,9 @@ export function useSession(
     return () => {
       subscription.unsubscribe();
       subscriptionRef.current = null;
-      void leave();
+      void leaveRef.current();
     };
-  }, [join, leave, sessionId]);
+  }, [sessionId]);
 
   // Presence heartbeat at 10s interval (per spec)
   useEffect(() => {
@@ -234,8 +244,7 @@ export function useSession(
     return () => window.clearInterval(interval);
   }, [sessionId, userId]);
 
-  const memoizedState = useMemo(() => state, [state]);
   const lastOffset = subscriptionRef.current?.getLastOffset() ?? 0;
 
-  return { state: memoizedState, connectionState, lastOffset, join, leave };
+  return { state, connectionState, lastOffset, join, leave };
 }

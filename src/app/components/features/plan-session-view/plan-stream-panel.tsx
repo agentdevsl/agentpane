@@ -245,11 +245,12 @@ export function PlanStreamPanel({
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom on new messages
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional triggers to re-scroll when content changes
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, []);
+  }, [messages.length, streamingContent]);
 
   const hasMessages = messages.length > 0 || isStreaming;
 

@@ -127,9 +127,14 @@ function ToolItem({ tool }: { tool: ContainerAgentToolExecution }): React.JSX.El
 }
 
 export function ContainerAgentToolList({ tools }: ContainerAgentToolListProps): React.JSX.Element {
-  const runningCount = tools.filter((t) => t.status === 'running').length;
-  const completedCount = tools.filter((t) => t.status === 'complete').length;
-  const errorCount = tools.filter((t) => t.status === 'error').length;
+  let runningCount = 0;
+  let completedCount = 0;
+  let errorCount = 0;
+  for (const t of tools) {
+    if (t.status === 'running') runningCount++;
+    else if (t.status === 'complete') completedCount++;
+    else if (t.status === 'error') errorCount++;
+  }
 
   return (
     <div className="flex flex-1 min-h-0 flex-col">

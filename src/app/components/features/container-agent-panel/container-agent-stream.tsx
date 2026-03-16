@@ -145,7 +145,7 @@ export function ContainerAgentStream({
             {messages.map((msg, index) => (
               <div
                 key={`${msg.timestamp}-${index}`}
-                className={`rounded-lg p-3 ${
+                className={`[content-visibility:auto] [contain-intrinsic-size:0_80px] rounded-lg p-3 ${
                   msg.role === 'assistant'
                     ? 'bg-surface border border-border'
                     : 'bg-accent/10 border border-accent/20'

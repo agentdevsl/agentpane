@@ -4,6 +4,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -156,22 +157,30 @@ export function CliMonitorProvider({ children }: { children: ReactNode }) {
     }
   }, [sessions.length, daemonConnected]);
 
-  const aggregateStatus = deriveAggregateStatus(sessions);
+  const aggregateStatus = useMemo(() => deriveAggregateStatus(sessions), [sessions]);
 
-  return (
-    <CliMonitorContext.Provider
-      value={{
-        pageState,
-        sessions,
-        daemonConnected,
-        aggregateStatus,
-        alerts,
-        dismissAlert,
-        connectionError,
-        isOffline,
-      }}
-    >
-      {children}
-    </CliMonitorContext.Provider>
+  const contextValue = useMemo(
+    () => ({
+      pageState,
+      sessions,
+      daemonConnected,
+      aggregateStatus,
+      alerts,
+      dismissAlert,
+      connectionError,
+      isOffline,
+    }),
+    [
+      pageState,
+      sessions,
+      daemonConnected,
+      aggregateStatus,
+      alerts,
+      dismissAlert,
+      connectionError,
+      isOffline,
+    ]
   );
+
+  return <CliMonitorContext.Provider value={contextValue}>{children}</CliMonitorContext.Provider>;
 }

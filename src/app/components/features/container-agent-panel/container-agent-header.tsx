@@ -8,7 +8,7 @@ import {
   WifiSlash,
 } from '@phosphor-icons/react';
 import { cva } from 'class-variance-authority';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { ExecutionBadge } from '@/app/components/ui/execution-badge';
 import type { ConnectionState } from '@/lib/streams/client';
 
@@ -105,18 +105,22 @@ export function ContainerAgentHeader({
   connectionState,
   isStreaming,
 }: ContainerAgentHeaderProps): React.JSX.Element {
-  const [elapsedTime, setElapsedTime] = useState<string>('0:00');
+  const elapsedRef = useRef<HTMLSpanElement>(null);
 
-  // Update elapsed time every second when running
+  // Update elapsed time every second when running (direct DOM update to avoid re-renders)
   useEffect(() => {
     if (!startedAt || (status !== 'running' && status !== 'starting')) {
       return;
     }
 
-    setElapsedTime(formatElapsedTime(startedAt));
+    if (elapsedRef.current) {
+      elapsedRef.current.textContent = formatElapsedTime(startedAt);
+    }
 
     const interval = window.setInterval(() => {
-      setElapsedTime(formatElapsedTime(startedAt));
+      if (elapsedRef.current) {
+        elapsedRef.current.textContent = formatElapsedTime(startedAt);
+      }
     }, 1000);
 
     return () => window.clearInterval(interval);
@@ -178,7 +182,9 @@ export function ContainerAgentHeader({
       {startedAt && isActive && (
         <div className="flex items-center gap-1.5 text-sm text-fg-muted" data-testid="elapsed-time">
           <Timer className="h-4 w-4" />
-          <span className="font-mono tabular-nums">{elapsedTime}</span>
+          <span ref={elapsedRef} className="font-mono tabular-nums">
+            0:00
+          </span>
         </div>
       )}
 

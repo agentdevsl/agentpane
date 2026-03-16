@@ -14,7 +14,7 @@ import {
   XCircle,
 } from '@phosphor-icons/react';
 import { cva } from 'class-variance-authority';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Button } from '@/app/components/ui/button';
 import { cn } from '@/lib/utils/cn';
 
@@ -210,44 +210,48 @@ function StackTracePanel({ stackTrace, onCopy }: { stackTrace: string; onCopy?: 
   };
 
   // Basic syntax highlighting for stack traces
-  const highlightedTrace = stackTrace.split('\n').map((line, index) => {
-    const key = `${line}-${index}`;
-    // Error line (first line or lines with Error:)
-    if (index === 0 || line.includes('Error:')) {
-      return (
-        <span key={key} className="text-danger-fg">
-          {line}
-          {'\n'}
-        </span>
-      );
-    }
+  const highlightedTrace = useMemo(
+    () =>
+      stackTrace.split('\n').map((line, index) => {
+        const key = `${line}-${index}`;
+        // Error line (first line or lines with Error:)
+        if (index === 0 || line.includes('Error:')) {
+          return (
+            <span key={key} className="text-danger-fg">
+              {line}
+              {'\n'}
+            </span>
+          );
+        }
 
-    // File paths and line numbers
-    const fileMatch = line.match(/(\S+\.(ts|js|tsx|jsx|mjs|cjs))(:(\d+))?/);
-    if (fileMatch) {
-      const parts = line.split(fileMatch[0]);
-      return (
-        <span key={key}>
-          {parts[0]}
-          <span className="text-accent-fg">{fileMatch[1]}</span>
-          {fileMatch[3] && (
-            <>
-              :<span className="text-attention-fg">{fileMatch[4]}</span>
-            </>
-          )}
-          {parts[1]}
-          {'\n'}
-        </span>
-      );
-    }
+        // File paths and line numbers
+        const fileMatch = line.match(/(\S+\.(ts|js|tsx|jsx|mjs|cjs))(:(\d+))?/);
+        if (fileMatch) {
+          const parts = line.split(fileMatch[0]);
+          return (
+            <span key={key}>
+              {parts[0]}
+              <span className="text-accent-fg">{fileMatch[1]}</span>
+              {fileMatch[3] && (
+                <>
+                  :<span className="text-attention-fg">{fileMatch[4]}</span>
+                </>
+              )}
+              {parts[1]}
+              {'\n'}
+            </span>
+          );
+        }
 
-    return (
-      <span key={key}>
-        {line}
-        {'\n'}
-      </span>
-    );
-  });
+        return (
+          <span key={key}>
+            {line}
+            {'\n'}
+          </span>
+        );
+      }),
+    [stackTrace]
+  );
 
   return (
     <div className="rounded-lg border border-border bg-bg-default overflow-hidden">

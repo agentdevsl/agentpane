@@ -344,6 +344,41 @@ export function useContainerAgent(sessionId: string | null): {
     });
   }, []);
 
+  // Keep all handlers in a ref so the subscription effect only depends on sessionId
+  const callbacksRef = useRef({
+    handleStatus,
+    handleStarted,
+    handleToken,
+    handleTurn,
+    handleToolStart,
+    handleToolResult,
+    handleMessage,
+    handleComplete,
+    handleError,
+    handleCancelled,
+    handlePlanReady,
+    handleWorktree,
+    handleFileChanged,
+  });
+
+  useEffect(() => {
+    callbacksRef.current = {
+      handleStatus,
+      handleStarted,
+      handleToken,
+      handleTurn,
+      handleToolStart,
+      handleToolResult,
+      handleMessage,
+      handleComplete,
+      handleError,
+      handleCancelled,
+      handlePlanReady,
+      handleWorktree,
+      handleFileChanged,
+    };
+  });
+
   // Subscribe to session events
   useEffect(() => {
     if (!sessionId) {
@@ -355,19 +390,19 @@ export function useContainerAgent(sessionId: string | null): {
     setConnectionState('connecting');
 
     const callbacks: SessionCallbacks = {
-      onContainerAgentStatus: (event) => handleStatus(event.data),
-      onContainerAgentStarted: (event) => handleStarted(event.data),
-      onContainerAgentToken: (event) => handleToken(event.data),
-      onContainerAgentTurn: (event) => handleTurn(event.data),
-      onContainerAgentToolStart: (event) => handleToolStart(event.data),
-      onContainerAgentToolResult: (event) => handleToolResult(event.data),
-      onContainerAgentMessage: (event) => handleMessage(event.data),
-      onContainerAgentComplete: (event) => handleComplete(event.data),
-      onContainerAgentError: (event) => handleError(event.data),
-      onContainerAgentCancelled: (event) => handleCancelled(event.data),
-      onContainerAgentPlanReady: (event) => handlePlanReady(event.data),
-      onContainerAgentWorktree: (event) => handleWorktree(event.data),
-      onContainerAgentFileChanged: (event) => handleFileChanged(event.data),
+      onContainerAgentStatus: (event) => callbacksRef.current.handleStatus(event.data),
+      onContainerAgentStarted: (event) => callbacksRef.current.handleStarted(event.data),
+      onContainerAgentToken: (event) => callbacksRef.current.handleToken(event.data),
+      onContainerAgentTurn: (event) => callbacksRef.current.handleTurn(event.data),
+      onContainerAgentToolStart: (event) => callbacksRef.current.handleToolStart(event.data),
+      onContainerAgentToolResult: (event) => callbacksRef.current.handleToolResult(event.data),
+      onContainerAgentMessage: (event) => callbacksRef.current.handleMessage(event.data),
+      onContainerAgentComplete: (event) => callbacksRef.current.handleComplete(event.data),
+      onContainerAgentError: (event) => callbacksRef.current.handleError(event.data),
+      onContainerAgentCancelled: (event) => callbacksRef.current.handleCancelled(event.data),
+      onContainerAgentPlanReady: (event) => callbacksRef.current.handlePlanReady(event.data),
+      onContainerAgentWorktree: (event) => callbacksRef.current.handleWorktree(event.data),
+      onContainerAgentFileChanged: (event) => callbacksRef.current.handleFileChanged(event.data),
       onError: (error) => {
         console.error('[useContainerAgent] Stream error:', error);
         setConnectionState('disconnected');
@@ -390,22 +425,7 @@ export function useContainerAgent(sessionId: string | null): {
       subscription.unsubscribe();
       subscriptionRef.current = null;
     };
-  }, [
-    sessionId,
-    handleStatus,
-    handleStarted,
-    handleToken,
-    handleTurn,
-    handleToolStart,
-    handleToolResult,
-    handleMessage,
-    handleComplete,
-    handleError,
-    handleCancelled,
-    handlePlanReady,
-    handleWorktree,
-    handleFileChanged,
-  ]);
+  }, [sessionId]);
 
   return { state, connectionState, isStreaming };
 }

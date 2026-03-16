@@ -37,12 +37,8 @@ export function TerraformRightPanel(): React.JSX.Element {
     setActiveFileIdx(0);
   }, [generatedFiles]);
 
-  // Reset to code tab when entering stacks mode (dependencies/variables tabs hidden)
-  useEffect(() => {
-    if (isStacks && activeTab !== 'code') {
-      setActiveTab('code');
-    }
-  }, [isStacks, activeTab]);
+  // Derive effective tab: force 'code' when in stacks mode (dependencies/variables tabs hidden)
+  const effectiveTab = isStacks && activeTab !== 'code' ? 'code' : activeTab;
 
   // Auto-switch tab when code is first generated
   useEffect(() => {
@@ -54,7 +50,7 @@ export function TerraformRightPanel(): React.JSX.Element {
 
   return (
     <Tabs
-      value={activeTab}
+      value={effectiveTab}
       onValueChange={setActiveTab}
       className="flex min-h-0 flex-1 flex-col bg-surface"
     >
@@ -130,6 +126,9 @@ export function TerraformRightPanel(): React.JSX.Element {
   );
 }
 
+// Preload shiki once when this module is first imported
+const shikiPromise = import('shiki');
+
 function useHighlightedCode(code: string | null): string | null {
   const [html, setHtml] = useState<string | null>(null);
 
@@ -139,7 +138,7 @@ function useHighlightedCode(code: string | null): string | null {
       return;
     }
     let cancelled = false;
-    import('shiki')
+    shikiPromise
       .then(({ codeToHtml }) =>
         codeToHtml(code, {
           lang: 'hcl',

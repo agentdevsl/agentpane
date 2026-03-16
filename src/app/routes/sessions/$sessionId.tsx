@@ -135,6 +135,50 @@ function SessionPage(): React.JSX.Element {
     fetchSession();
   }, [sessionId]);
 
+  // Stable callbacks for agent actions (must be declared before early returns)
+  const handlePause = useCallback(async () => {
+    if (session?.agentId) {
+      // TODO: Add API endpoint for agent pause
+      try {
+        await fetch(`/api/agents/${session.agentId}/pause`, { method: 'POST' });
+      } catch {
+        showTemporaryError('Failed to pause agent');
+      }
+    }
+  }, [session?.agentId, showTemporaryError]);
+
+  const handleResume = useCallback(async () => {
+    if (session?.agentId) {
+      // TODO: Add API endpoint for agent resume
+      try {
+        await fetch(`/api/agents/${session.agentId}/resume`, { method: 'POST' });
+      } catch {
+        showTemporaryError('Failed to resume agent');
+      }
+    }
+  }, [session?.agentId, showTemporaryError]);
+
+  const handleStop = useCallback(async () => {
+    if (session?.agentId) {
+      // TODO: Add API endpoint for agent stop
+      try {
+        await fetch(`/api/agents/${session.agentId}/stop`, { method: 'POST' });
+      } catch {
+        showTemporaryError('Failed to stop agent');
+      }
+    }
+  }, [session?.agentId, showTemporaryError]);
+
+  const handleContainerStop = useCallback(async () => {
+    if (session?.taskId) {
+      try {
+        await fetch(`/api/tasks/${session.taskId}/stop-agent`, { method: 'POST' });
+      } catch {
+        showTemporaryError('Failed to stop agent');
+      }
+    }
+  }, [session?.taskId, showTemporaryError]);
+
   if (isLoading) {
     return (
       <div className="flex h-screen items-center justify-center bg-canvas">
@@ -193,15 +237,7 @@ function SessionPage(): React.JSX.Element {
           <ContainerAgentPanel
             sessionId={session.id}
             sandboxProvider={session.sandboxProvider ?? undefined}
-            onStop={async () => {
-              if (session.taskId) {
-                try {
-                  await fetch(`/api/tasks/${session.taskId}/stop-agent`, { method: 'POST' });
-                } catch {
-                  showTemporaryError('Failed to stop agent');
-                }
-              }
-            }}
+            onStop={handleContainerStop}
             onApprovePlan={() => void handleApprovePlan()}
             onRejectPlan={() => void handleRejectPlan()}
             isPlanActionPending={isPlanActionPending}
@@ -226,36 +262,9 @@ function SessionPage(): React.JSX.Element {
           sessionId={session.id}
           agentId={session.agentId ?? ''}
           userId={userId}
-          onPause={async () => {
-            if (session.agentId) {
-              // TODO: Add API endpoint for agent pause
-              try {
-                await fetch(`/api/agents/${session.agentId}/pause`, { method: 'POST' });
-              } catch {
-                showTemporaryError('Failed to pause agent');
-              }
-            }
-          }}
-          onResume={async () => {
-            if (session.agentId) {
-              // TODO: Add API endpoint for agent resume
-              try {
-                await fetch(`/api/agents/${session.agentId}/resume`, { method: 'POST' });
-              } catch {
-                showTemporaryError('Failed to resume agent');
-              }
-            }
-          }}
-          onStop={async () => {
-            if (session.agentId) {
-              // TODO: Add API endpoint for agent stop
-              try {
-                await fetch(`/api/agents/${session.agentId}/stop`, { method: 'POST' });
-              } catch {
-                showTemporaryError('Failed to stop agent');
-              }
-            }
-          }}
+          onPause={handlePause}
+          onResume={handleResume}
+          onStop={handleStop}
         />
       </div>
     </LayoutShell>
