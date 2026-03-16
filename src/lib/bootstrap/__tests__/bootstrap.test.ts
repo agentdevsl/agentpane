@@ -215,6 +215,26 @@ describe('bootstrap phases', () => {
     expect(isStreamsAvailable()).toBe(false);
   });
 
+  it('streams phase enables streams when server returns 404 with stream headers', async () => {
+    const { connectStreams } = await import('../phases/streams.js');
+    const { isStreamsAvailable } = await import('../../streams/client.js');
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      headers: new Headers({
+        'access-control-allow-headers': 'content-type, Stream-Seq, Stream-TTL',
+      }),
+    });
+
+    const result = await connectStreams();
+    globalThis.fetch = originalFetch;
+
+    expect(result.ok).toBe(true);
+    expect(isStreamsAvailable()).toBe(true);
+  });
+
   it('github phase returns ok when token missing', async () => {
     const { validateGitHub } = await import('../phases/github.js');
     const originalToken = process.env.GITHUB_TOKEN;

@@ -24,16 +24,19 @@ export const connectStreams = async (_ctx?: unknown) => {
 
   try {
     const response = await fetch(streamsUrl, { method: 'HEAD', signal: AbortSignal.timeout(3000) });
-    if (response.ok) {
-      // Caddy is actually running and streams are available
-      console.log(`[Streams] Caddy durable streams reachable at ${streamsUrl}`);
+    // A durable-streams server (Caddy or test server) returns stream-specific headers
+    // even on 404 (no streams yet). A plain Vite 404 won't have these.
+    const isDurableStreams =
+      response.ok || response.headers.get('access-control-allow-headers')?.includes('Stream-Seq');
+    if (isDurableStreams) {
+      console.log(`[Streams] Durable streams reachable at ${streamsUrl} (HTTP ${response.status})`);
       setStreamsAvailable(true);
       return ok(null);
     }
-    // 404 = Vite responding, not Caddy. Streams are NOT available.
-    console.warn(`[Streams] Caddy not available (HTTP ${response.status}). SSE streams disabled.`);
+    // No stream-specific headers = Vite or other non-streams server responding
+    console.warn(`[Streams] Streams server not available (HTTP ${response.status}). SSE disabled.`);
     setStreamsAvailable(false);
-    return ok(null); // Still succeed bootstrap (streams are optional in dev)
+    return ok(null);
   } catch (error) {
     console.warn(`[Streams] Caddy not reachable at ${streamsUrl}. SSE streams disabled.`, error);
     setStreamsAvailable(false);
