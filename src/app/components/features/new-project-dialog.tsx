@@ -625,22 +625,6 @@ export function NewProjectDialog({
   const [showManualUrl, setShowManualUrl] = useState(false);
   const [hasFetchedOrgs, setHasFetchedOrgs] = useState(false);
 
-  // Handle Escape key explicitly for reliable dialog closing
-  // Uses capture phase to run before global shortcuts handler
-  useEffect(() => {
-    if (!open) return;
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.stopImmediatePropagation();
-        onOpenChange(false);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown, true);
-    return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [open, onOpenChange]);
-
   // Reset state when dialog closes
   useEffect(() => {
     if (!open) {
