@@ -118,24 +118,40 @@ function ProjectsPage(): React.JSX.Element {
 
   // Polling interval ref for project updates
   const pollingIntervalRef = useRef<number | null>(null);
+  const currentIntervalMsRef = useRef<number | null>(null);
+  const isFetchingRef = useRef(false);
 
   // Fetch projects with summaries from API on mount and poll when agents are running
   useEffect(() => {
     const fetchProjects = async () => {
-      const result = await apiClient.projects.listWithSummaries({ limit: 24 });
-      if (result.ok) {
-        setProjectSummaries(result.data.items);
-
-        // Start/stop polling based on running agents
-        const hasRunningAgents = result.data.items.some((s) => s.runningAgents.length > 0);
-        if (hasRunningAgents && !pollingIntervalRef.current) {
-          pollingIntervalRef.current = window.setInterval(fetchProjects, 5000);
-        } else if (!hasRunningAgents && pollingIntervalRef.current) {
-          window.clearInterval(pollingIntervalRef.current);
-          pollingIntervalRef.current = null;
-        }
+      if (isFetchingRef.current) {
+        console.debug('[Projects] fetchProjects skipped — already in-flight');
+        return;
       }
-      setIsLoading(false);
+      isFetchingRef.current = true;
+      console.debug('[Projects] fetchProjects starting');
+      try {
+        const result = await apiClient.projects.listWithSummaries({ limit: 24 });
+        if (result.ok) {
+          setProjectSummaries(result.data.items);
+
+          // Poll at 10s when agents are running for near-real-time updates,
+          // 30s when idle to detect newly started agents without stopping entirely
+          const hasRunningAgents = result.data.items.some((s) => s.runningAgents.length > 0);
+          const desiredInterval = hasRunningAgents ? 10000 : 30000;
+
+          if (currentIntervalMsRef.current !== desiredInterval) {
+            if (pollingIntervalRef.current !== null) {
+              window.clearInterval(pollingIntervalRef.current);
+            }
+            pollingIntervalRef.current = window.setInterval(fetchProjects, desiredInterval);
+            currentIntervalMsRef.current = desiredInterval;
+          }
+        }
+      } finally {
+        isFetchingRef.current = false;
+        setIsLoading(false);
+      }
     };
     fetchProjects();
 
@@ -143,6 +159,7 @@ function ProjectsPage(): React.JSX.Element {
       if (pollingIntervalRef.current) {
         window.clearInterval(pollingIntervalRef.current);
         pollingIntervalRef.current = null;
+        currentIntervalMsRef.current = null;
       }
     };
   }, []);

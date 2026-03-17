@@ -90,6 +90,7 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
+    include: ['@xyflow/react', 'elkjs/lib/elk.bundled.js', '@durable-streams/client'],
     exclude: ['@anthropic-ai/claude-agent-sdk', 'better-sqlite3'],
   },
   build: {

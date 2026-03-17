@@ -103,10 +103,17 @@ function Dashboard(): React.JSX.Element {
   // Polling interval ref for project updates
   const pollingIntervalRef = useRef<number | null>(null);
   const currentIntervalMsRef = useRef<number | null>(null);
+  const isFetchingRef = useRef(false);
 
   // Fetch projects from API on mount and poll when agents are running
   useEffect(() => {
     const fetchProjects = async () => {
+      if (isFetchingRef.current) {
+        console.debug('[Home] fetchProjects skipped — already in-flight');
+        return;
+      }
+      isFetchingRef.current = true;
+      console.debug('[Home] fetchProjects starting');
       try {
         const result = await apiClient.projects.listWithSummaries({ limit: 24 });
         if (result.ok) {
@@ -128,9 +135,9 @@ function Dashboard(): React.JSX.Element {
           setProjectSummaries(summaries);
 
           // Poll at 5s when agents are running for near-real-time updates,
-          // 15s when idle to detect newly started agents without stopping entirely
+          // 30s when idle to detect newly started agents without stopping entirely
           const hasRunningAgents = summaries.some((s) => s.runningAgents.length > 0);
-          const desiredInterval = hasRunningAgents ? 5000 : 15000;
+          const desiredInterval = hasRunningAgents ? 5000 : 30000;
 
           if (currentIntervalMsRef.current !== desiredInterval) {
             if (pollingIntervalRef.current !== null) {
@@ -145,6 +152,7 @@ function Dashboard(): React.JSX.Element {
       } catch (error) {
         console.error('Failed to fetch projects:', error);
       } finally {
+        isFetchingRef.current = false;
         setIsLoading(false);
       }
     };

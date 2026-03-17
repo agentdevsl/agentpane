@@ -200,5 +200,20 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
   );
 }
 
-export const AgentNode = memo(AgentNodeComponent);
+function areAgentNodePropsEqual(prev: NodeProps, next: NodeProps): boolean {
+  if (prev.selected !== next.selected) return false;
+
+  const prevData = prev.data as AgentNodeData;
+  const nextData = next.data as AgentNodeData;
+
+  return (
+    prevData.name === nextData.name &&
+    prevData.status === nextData.status &&
+    prevData.role === nextData.role &&
+    prevData.progress === nextData.progress &&
+    prevData.decisions === nextData.decisions
+  );
+}
+
+export const AgentNode = memo(AgentNodeComponent, areAgentNodePropsEqual);
 AgentNode.displayName = 'AgentNode';

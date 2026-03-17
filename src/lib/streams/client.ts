@@ -661,15 +661,24 @@ export class DurableStreamsClient {
       if (isUnsubscribed) return;
 
       if (!streamsAvailable) {
+        console.debug('[DurableStreams] connect() skipped — streamsAvailable=false', { sessionId });
         setConnectionState('disconnected');
         callbacks.onError?.(new Error('Streams endpoint not available'));
         return;
       }
 
+      console.debug('[DurableStreams] connect() starting', {
+        sessionId,
+        hasConnected,
+        reconnectCount,
+      });
       setConnectionState(hasConnected ? 'reconnecting' : 'connecting');
 
       try {
-        const url = `${this.streamsBaseUrl}/${sessionId}`;
+        // Build absolute URL — durableStream() requires a full URL for SSE
+        const base =
+          typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+        const url = `${base}${this.streamsBaseUrl}/${sessionId}`;
         const response: StreamResponse = await durableStream({
           url,
           live: 'sse',
@@ -746,6 +755,11 @@ export class DurableStreamsClient {
             if (!response.streamClosed && reconnectCount < MAX_RECONNECT_ATTEMPTS) {
               const delay = Math.min(2000 * 2 ** reconnectCount, 30000);
               reconnectCount++;
+              console.debug('[DurableStreams] scheduling reconnect', {
+                sessionId,
+                reconnectCount,
+                delay,
+              });
               reconnectTimerId = setTimeout(() => {
                 if (!isUnsubscribed) connect();
               }, delay);
@@ -762,9 +776,10 @@ export class DurableStreamsClient {
             error instanceof Error ? error : new Error('Failed to connect to stream');
           callbacks.onError?.(normalizedError);
 
-          // Check if error is fatal (e.g. 404) before retrying
+          // Check if error is fatal before retrying — includes URL/TypeError to prevent infinite loops
           const errorStr = String(error);
-          const isFatal = FATAL_ERROR_CODES.some((code) => errorStr.includes(code));
+          const isFatal =
+            FATAL_ERROR_CODES.some((code) => errorStr.includes(code)) || error instanceof TypeError;
           setConnectionState(
             isFatal ? 'disconnected' : hasConnected ? 'reconnecting' : 'connecting'
           );
@@ -790,7 +805,9 @@ export class DurableStreamsClient {
     };
 
     // Start initial connection
+    console.debug('[DurableStreams] subscribeToSession() called', { sessionId, streamsAvailable });
     connect().catch((err) => {
+      console.debug('[DurableStreams] connect() rejected', { sessionId, error: String(err) });
       callbacks.onError?.(err instanceof Error ? err : new Error(String(err)));
     });
 
@@ -1363,6 +1380,11 @@ const sharedSubscriptions = new Map<string, SharedEntry>();
  * with other subscribers for the same sessionId.
  */
 export function subscribeToSession(sessionId: string, callbacks: SessionCallbacks): Subscription {
+  console.debug('[DurableStreams] subscribeToSession (shared)', {
+    sessionId,
+    existing: sharedSubscriptions.has(sessionId),
+    streamsAvailable,
+  });
   let entry = sharedSubscriptions.get(sessionId);
 
   if (!entry) {

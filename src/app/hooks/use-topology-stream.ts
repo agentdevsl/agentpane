@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import type { TopologyAction } from '@/app/components/features/agent-topology/topology-context';
 import type {
   SessionCallbacks,
@@ -56,6 +56,39 @@ export function useTopologyStream(
   sessionId: string | undefined,
   dispatch: React.Dispatch<TopologyAction>
 ): void {
+  // rAF-based batching for UPDATE_NODE dispatches to avoid per-event re-renders
+  const pendingUpdatesRef = useRef<Map<string, TopologyAction>>(new Map());
+  const rafIdRef = useRef<number | null>(null);
+
+  const flushUpdates = useCallback(() => {
+    const pending = pendingUpdatesRef.current;
+    for (const action of pending.values()) {
+      dispatch(action);
+    }
+    pending.clear();
+    rafIdRef.current = null;
+  }, [dispatch]);
+
+  const scheduleUpdate = useCallback(
+    (nodeId: string, action: TopologyAction) => {
+      pendingUpdatesRef.current.set(nodeId, action);
+      if (rafIdRef.current === null) {
+        rafIdRef.current = requestAnimationFrame(flushUpdates);
+      }
+    },
+    [flushUpdates]
+  );
+
+  // Clean up any pending rAF on unmount
+  useEffect(() => {
+    return () => {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+    };
+  }, []);
+
   const handleSpawned = useCallback(
     (event: { data: TopologyAgentSpawned }) => {
       const node = createNodeFromSpawned(event.data);
@@ -74,7 +107,9 @@ export function useTopologyStream(
       const estimatedProgress = Math.min(95, Math.floor(tokens / TOKENS_PER_PROGRESS_POINT));
       const estimatedCost = Number.parseFloat((tokens * AVERAGE_TOKEN_COST).toFixed(4));
 
-      dispatch({
+      // Buffer progress updates and flush once per animation frame to avoid
+      // a cascade of re-renders when multiple subagents emit events rapidly.
+      scheduleUpdate(agentId, {
         type: 'UPDATE_NODE',
         nodeId: agentId,
         updates: {
@@ -86,7 +121,7 @@ export function useTopologyStream(
         },
       });
     },
-    [dispatch]
+    [scheduleUpdate]
   );
 
   const handleCompleted = useCallback(
@@ -119,7 +154,12 @@ export function useTopologyStream(
   );
 
   useEffect(() => {
-    if (!sessionId) return;
+    if (!sessionId) {
+      console.debug('[useTopologyStream] no sessionId, skipping');
+      return;
+    }
+    console.debug('[useTopologyStream] subscribing to session', sessionId);
+    const subStart = performance.now();
 
     let hasReceivedEvent = false;
     let disconnectCount = 0;
@@ -152,8 +192,12 @@ export function useTopologyStream(
     };
 
     const subscription = subscribeToSession(sessionId, callbacks);
+    console.debug('[useTopologyStream] subscribed', {
+      ms: Math.round(performance.now() - subStart),
+    });
 
     return () => {
+      console.debug('[useTopologyStream] unsubscribing');
       subscription.unsubscribe();
     };
   }, [sessionId, handleSpawned, handleProgress, handleCompleted]);

@@ -148,86 +148,116 @@ export function createProjectsRoutes({ db }: ProjectsDeps) {
     const limit = parseInt(c.req.query('limit') ?? '24', 10);
 
     try {
+      // Query 1: Get all projects
       const projectList = await db.query.projects.findMany({
         orderBy: [desc(projects.updatedAt)],
         limit,
       });
 
-      const summaries = await Promise.all(
-        projectList.map(async (project) => {
-          // Get task counts by column
-          const projectTasks = await db.query.tasks.findMany({
-            where: eq(tasks.projectId, project.id),
-          });
+      const projectIds = projectList.map((p) => p.id);
 
-          const taskCounts = {
-            backlog: projectTasks.filter((t) => t.column === 'backlog').length,
-            queued: projectTasks.filter((t) => t.column === 'queued').length,
-            inProgress: projectTasks.filter((t) => t.column === 'in_progress').length,
-            waitingApproval: projectTasks.filter((t) => t.column === 'waiting_approval').length,
-            verified: projectTasks.filter((t) => t.column === 'verified').length,
-            total: projectTasks.length,
-          };
+      // Short-circuit: no projects means no summaries
+      if (projectIds.length === 0) {
+        return json({
+          ok: true,
+          data: { items: [], nextCursor: null, hasMore: false, totalCount: 0 },
+        });
+      }
 
-          // Get active agents for this project (starting, planning, or running)
-          const activeStatuses = ['starting', 'planning', 'running'] as const;
-          const runningAgents = await db.query.agents.findMany({
-            where: and(
-              eq(agents.projectId, project.id),
-              inArray(agents.status, [...activeStatuses])
-            ),
-          });
+      // Query 2: Get ALL tasks for ALL projects in one query
+      const allTasks = await db.query.tasks.findMany({
+        where: inArray(tasks.projectId, projectIds),
+      });
 
-          // Get task titles for running agents
-          const agentData = await Promise.all(
-            runningAgents.map(async (agent) => {
-              let taskTitle: string | undefined;
-              if (agent.currentTaskId) {
-                const task = await db.query.tasks.findFirst({
-                  where: eq(tasks.id, agent.currentTaskId),
-                });
-                taskTitle = task?.title;
-              }
-              return {
-                id: agent.id,
-                name: agent.name ?? 'Agent',
-                currentTaskId: agent.currentTaskId,
-                currentTaskTitle: taskTitle,
-              };
-            })
-          );
+      // Group tasks by projectId
+      const tasksByProject = new Map<string, typeof allTasks>();
+      for (const task of allTasks) {
+        const existing = tasksByProject.get(task.projectId);
+        if (existing) {
+          existing.push(task);
+        } else {
+          tasksByProject.set(task.projectId, [task]);
+        }
+      }
 
-          // Determine project status
-          let status: 'running' | 'idle' | 'needs-approval' = 'idle';
-          if (runningAgents.length > 0) {
-            status = 'running';
-          } else if (taskCounts.waitingApproval > 0) {
-            status = 'needs-approval';
-          }
+      // Build a lookup map of task id → title for agent task titles
+      const taskTitleMap = new Map<string, string>();
+      for (const task of allTasks) {
+        taskTitleMap.set(task.id, task.title);
+      }
 
-          // Get last activity from tasks
-          const lastTask = projectTasks.sort((a, b) => {
-            const aTime = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
-            const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
-            return bTime - aTime;
-          })[0];
+      // Query 3: Get ALL active agents for ALL projects in one query
+      const activeStatuses = ['starting', 'planning', 'running'] as const;
+      const allActiveAgents = await db.query.agents.findMany({
+        where: and(
+          inArray(agents.projectId, projectIds),
+          inArray(agents.status, [...activeStatuses])
+        ),
+      });
 
-          return {
-            project: {
-              id: project.id,
-              name: project.name,
-              path: project.path,
-              description: project.description,
-              createdAt: project.createdAt,
-              updatedAt: project.updatedAt,
-            },
-            taskCounts,
-            runningAgents: agentData,
-            status,
-            lastActivityAt: lastTask?.updatedAt ?? project.updatedAt,
-          };
-        })
-      );
+      // Group agents by projectId
+      const agentsByProject = new Map<string, typeof allActiveAgents>();
+      for (const agent of allActiveAgents) {
+        const existing = agentsByProject.get(agent.projectId);
+        if (existing) {
+          existing.push(agent);
+        } else {
+          agentsByProject.set(agent.projectId, [agent]);
+        }
+      }
+
+      const summaries = projectList.map((project) => {
+        const projectTasks = tasksByProject.get(project.id) ?? [];
+
+        const taskCounts = {
+          backlog: projectTasks.filter((t) => t.column === 'backlog').length,
+          queued: projectTasks.filter((t) => t.column === 'queued').length,
+          inProgress: projectTasks.filter((t) => t.column === 'in_progress').length,
+          waitingApproval: projectTasks.filter((t) => t.column === 'waiting_approval').length,
+          verified: projectTasks.filter((t) => t.column === 'verified').length,
+          total: projectTasks.length,
+        };
+
+        const runningAgents = agentsByProject.get(project.id) ?? [];
+
+        // Resolve task titles from the in-memory lookup map (no extra queries)
+        const agentData = runningAgents.map((agent) => ({
+          id: agent.id,
+          name: agent.name ?? 'Agent',
+          currentTaskId: agent.currentTaskId,
+          currentTaskTitle: agent.currentTaskId ? taskTitleMap.get(agent.currentTaskId) : undefined,
+        }));
+
+        // Determine project status
+        let status: 'running' | 'idle' | 'needs-approval' = 'idle';
+        if (runningAgents.length > 0) {
+          status = 'running';
+        } else if (taskCounts.waitingApproval > 0) {
+          status = 'needs-approval';
+        }
+
+        // Get last activity from tasks
+        const lastTask = projectTasks.sort((a, b) => {
+          const aTime = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+          const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+          return bTime - aTime;
+        })[0];
+
+        return {
+          project: {
+            id: project.id,
+            name: project.name,
+            path: project.path,
+            description: project.description,
+            createdAt: project.createdAt,
+            updatedAt: project.updatedAt,
+          },
+          taskCounts,
+          runningAgents: agentData,
+          status,
+          lastActivityAt: lastTask?.updatedAt ?? project.updatedAt,
+        };
+      });
 
       return json({
         ok: true,

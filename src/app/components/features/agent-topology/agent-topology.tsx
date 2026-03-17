@@ -27,12 +27,16 @@ function TopologyInner(): React.JSX.Element {
   const layoutInFlight = useRef(false);
   const lastStructureVersion = useRef(-1);
 
-  // Run ELK layout on structural changes only
+  // Keep a ref to graph data so runLayout can read the latest without being recreated
+  const graphRef = useRef(state.graph);
+  graphRef.current = state.graph;
+
+  // Stable runLayout — reads graph from ref, never recreated
   const runLayout = useCallback(async () => {
     if (layoutInFlight.current) return;
     layoutInFlight.current = true;
     try {
-      const result = await layoutTopology(state.graph);
+      const result = await layoutTopology(graphRef.current);
       setNodes(result.nodes);
       setEdges(result.edges);
     } catch (err) {
@@ -40,53 +44,90 @@ function TopologyInner(): React.JSX.Element {
     } finally {
       layoutInFlight.current = false;
     }
-  }, [state.graph]);
+  }, []);
 
+  // Structural changes — trigger full ELK relayout
   useEffect(() => {
     if (state.graph.nodes.length === 0) {
       setNodes([]);
       setEdges([]);
+      lastStructureVersion.current = state.structureVersion;
       return;
     }
     if (state.structureVersion !== lastStructureVersion.current) {
       lastStructureVersion.current = state.structureVersion;
       void runLayout();
-    } else {
-      // Data-only update — update node data in-place without relayout
-      const nodeById = new Map(state.graph.nodes.map((n) => [n.id, n]));
-      setNodes((prev) =>
-        prev.map((rfNode) => {
-          const graphNode = nodeById.get(rfNode.id);
-          if (!graphNode) return rfNode;
-          return {
-            ...rfNode,
-            data: {
-              ...rfNode.data,
-              name: graphNode.name,
-              role: graphNode.role,
-              status: graphNode.status,
-              progress: graphNode.progress,
-              decisions: graphNode.decisions,
-            },
-          };
-        })
-      );
-      setEdges((prev) =>
-        prev.map((rfEdge) => {
-          const sourceNode = nodeById.get(rfEdge.source);
-          const targetNode = nodeById.get(rfEdge.target);
-          return {
-            ...rfEdge,
-            data: {
-              ...rfEdge.data,
-              sourceStatus: sourceNode?.status ?? 'queued',
-              targetStatus: targetNode?.status ?? 'queued',
-            },
-          };
-        })
-      );
     }
-  }, [state.graph, state.structureVersion, runLayout]);
+  }, [state.structureVersion, runLayout, state.graph.nodes.length]);
+
+  // Data-only updates — patch ReactFlow node/edge data without relayout.
+  // Only creates new data objects when values actually changed, so React.memo
+  // on AgentNode can skip re-renders for untouched nodes.
+  // Uses graphRef to read the latest graph data without adding it as a dependency;
+  // dataVersion is the sole trigger for this effect.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: dataVersion is the intentional trigger; graph data is read from graphRef to avoid re-firing on every graph reference change
+  useEffect(() => {
+    const graph = graphRef.current;
+    if (graph.nodes.length === 0) return;
+
+    const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
+
+    setNodes((prev) => {
+      let changed = false;
+      const next = prev.map((rfNode) => {
+        const graphNode = nodeById.get(rfNode.id);
+        if (!graphNode) return rfNode;
+        const d = rfNode.data as Record<string, unknown>;
+        // Compare each field — only create a new object if something differs
+        if (
+          d.name === graphNode.name &&
+          d.role === graphNode.role &&
+          d.status === graphNode.status &&
+          d.progress === graphNode.progress &&
+          d.decisions === graphNode.decisions
+        ) {
+          return rfNode;
+        }
+        changed = true;
+        return {
+          ...rfNode,
+          data: {
+            ...rfNode.data,
+            name: graphNode.name,
+            role: graphNode.role,
+            status: graphNode.status,
+            progress: graphNode.progress,
+            decisions: graphNode.decisions,
+          },
+        };
+      });
+      return changed ? next : prev;
+    });
+
+    setEdges((prev) => {
+      let changed = false;
+      const next = prev.map((rfEdge) => {
+        const sourceNode = nodeById.get(rfEdge.source);
+        const targetNode = nodeById.get(rfEdge.target);
+        const sourceStatus = sourceNode?.status ?? 'queued';
+        const targetStatus = targetNode?.status ?? 'queued';
+        const d = rfEdge.data as Record<string, unknown> | undefined;
+        if (d && d.sourceStatus === sourceStatus && d.targetStatus === targetStatus) {
+          return rfEdge;
+        }
+        changed = true;
+        return {
+          ...rfEdge,
+          data: {
+            ...rfEdge.data,
+            sourceStatus,
+            targetStatus,
+          },
+        };
+      });
+      return changed ? next : prev;
+    });
+  }, [state.dataVersion]);
 
   const handleNodeClick = useCallback(
     (_: React.MouseEvent, node: ReactFlowNode) => {

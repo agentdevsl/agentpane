@@ -26,6 +26,8 @@ interface TopologyState {
   showDecisions: boolean;
   /** Incremented on structural changes (node add/remove) to trigger relayout */
   structureVersion: number;
+  /** Incremented on data-only changes (UPDATE_NODE) to track changes without expensive recomputation */
+  dataVersion: number;
 }
 
 export type TopologyAction =
@@ -86,7 +88,8 @@ function topologyReducer(state: TopologyState, action: TopologyAction): Topology
         n.id === action.nodeId ? { ...n, ...action.updates } : n
       );
       const newGraph = { ...state.graph, nodes: newNodes };
-      return { ...state, graph: newGraph, metrics: computeMetrics(newGraph) };
+      // Skip computeMetrics for progress updates — use dataVersion to track changes cheaply
+      return { ...state, graph: newGraph, dataVersion: state.dataVersion + 1 };
     }
     case 'COMPLETE_NODE': {
       const newNodes = state.graph.nodes.map(
@@ -101,14 +104,24 @@ function topologyReducer(state: TopologyState, action: TopologyAction): Topology
             : n
       );
       const newGraph = { ...state.graph, nodes: newNodes };
-      return { ...state, graph: newGraph, metrics: computeMetrics(newGraph) };
+      return {
+        ...state,
+        graph: newGraph,
+        metrics: computeMetrics(newGraph),
+        dataVersion: state.dataVersion + 1,
+      };
     }
     case 'ADD_DECISION': {
       const newNodes = state.graph.nodes.map((n) =>
         n.id === action.nodeId ? { ...n, decisions: [...n.decisions, action.decision] } : n
       );
       const newGraph = { ...state.graph, nodes: newNodes };
-      return { ...state, graph: newGraph, metrics: computeMetrics(newGraph) };
+      return {
+        ...state,
+        graph: newGraph,
+        metrics: computeMetrics(newGraph),
+        dataVersion: state.dataVersion + 1,
+      };
     }
     case 'REPLACE_GRAPH':
       return {
@@ -161,6 +174,7 @@ export function TopologyProvider({ children, sessionId, initialData }: TopologyP
     selectedNodeId: null,
     showDecisions: true,
     structureVersion: 0,
+    dataVersion: 0,
   };
 
   const [state, dispatch] = useReducer(topologyReducer, initial);
@@ -179,6 +193,7 @@ export function TopologyProvider({ children, sessionId, initialData }: TopologyP
   // Passing undefined avoids opening a duplicate SSE connection which crashes the stream client.
   // Topology events from the existing subscription are routed via the container-agent hook instead.
   // Only subscribe when used standalone (e.g., container-agent-panel which passes sessionId directly).
+  console.debug('[TopologyProvider] render', { sessionId, nodeCount: state.graph.nodes.length });
   useTopologyStream(sessionId, dispatch);
 
   const selectedNode = useMemo(
