@@ -1,5 +1,5 @@
 import { Square } from '@phosphor-icons/react';
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { AgentTopology } from '@/app/components/features/agent-topology';
 import { Button } from '@/app/components/ui/button';
 import { useContainerAgent } from '@/app/hooks/use-container-agent';
@@ -11,6 +11,14 @@ import { ContainerAgentStream } from './container-agent-stream';
 import { ContainerAgentToolList } from './container-agent-tool-list';
 
 type PanelTab = 'output' | 'changes' | 'topology';
+
+const TopologyTab = memo(function TopologyTab({
+  sessionId,
+}: {
+  sessionId?: string;
+}): React.JSX.Element {
+  return <AgentTopology sessionId={sessionId} />;
+});
 
 export interface ContainerAgentPanelProps {
   /** Session ID to subscribe to */
@@ -171,7 +179,7 @@ export function ContainerAgentPanel({
           </div>
         ) : (
           <div className="flex-1 min-h-0 min-w-0 flex flex-col">
-            <AgentTopology sessionId={sessionId ?? undefined} />
+            <TopologyTab sessionId={sessionId ?? undefined} />
           </div>
         )}
       </div>

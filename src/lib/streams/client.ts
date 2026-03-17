@@ -683,7 +683,6 @@ export class DurableStreamsClient {
           url,
           live: 'sse',
           offset: lastOffset,
-          json: true,
           onError: (error) => {
             const normalizedError = error instanceof Error ? error : new Error(String(error));
 
@@ -691,9 +690,15 @@ export class DurableStreamsClient {
               callbacks.onError?.(normalizedError);
             }
 
-            // Fatal errors should not be retried
+            // Fatal errors should not be retried — except NOT_FOUND before
+            // first connection, which means the stream hasn't been created yet
+            // (server hasn't published the first event). Allow retries so the
+            // client can pick up the stream once the agent starts producing output.
             const errorStr = String(error);
-            const isFatal = FATAL_ERROR_CODES.some((code) => errorStr.includes(code));
+            const isNotFound = errorStr.includes('NOT_FOUND') || errorStr.includes('404');
+            const isFatal =
+              FATAL_ERROR_CODES.some((code) => errorStr.includes(code)) &&
+              !(isNotFound && !hasConnected);
             if (isFatal) {
               setConnectionState('disconnected');
               return; // Return void to stop retrying
@@ -712,18 +717,31 @@ export class DurableStreamsClient {
         responseCancelFn = () => response.cancel();
         markConnected();
 
-        // Subscribe to JSON batches from the stream
-        unsubscribeFn = response.subscribeJson<StreamEventItem>((batch) => {
+        // Subscribe to text chunks and parse JSON manually.
+        // Using subscribeText instead of subscribeJson avoids the `json: true`
+        // requirement which causes parse errors with DurableStreamTestServer's
+        // catch-up response format (JSON array vs NDJSON).
+        unsubscribeFn = response.subscribeText((chunk) => {
           if (state !== 'connected') {
             markConnected();
           }
 
-          // Update offset tracking from the batch metadata
-          if (batch.offset) {
-            lastOffset = batch.offset;
+          // Update offset from chunk metadata
+          if (chunk.offset) {
+            lastOffset = chunk.offset;
           }
 
-          for (const item of batch.items) {
+          // Parse the text as a JSON array of events
+          let items: StreamEventItem[];
+          try {
+            const parsed = JSON.parse(chunk.text);
+            items = Array.isArray(parsed) ? parsed : [parsed];
+          } catch {
+            // Not valid JSON — skip silently (may be SSE keepalive)
+            return;
+          }
+
+          for (const item of items) {
             try {
               const rawEvent: RawSessionEvent = {
                 type: item.type as SessionEventType,
