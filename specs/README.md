@@ -139,6 +139,9 @@ specs/
 ├── reviews/                           # Architecture reviews
 │   └── 2026-02-architecture/          # Feb 2026 review (148 findings)
 │
+├── ideas/                             # Product roadmap (prioritized initiatives)
+│   └── README.md                      # 29 initiatives across 4 priority tiers
+│
 ├── roadmap/                           # Future plans (NOT for implementation)
 │   ├── agent-runtime-architecture.md
 │   ├── dual-database.md
