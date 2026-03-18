@@ -63,6 +63,24 @@ function computeMetrics(graph: TopologyGraph): TopologyMetrics {
 function topologyReducer(state: TopologyState, action: TopologyAction): TopologyState {
   switch (action.type) {
     case 'ADD_NODE': {
+      // Deduplicate: if node already exists (e.g. root from initialData), update it
+      const existingIdx = state.graph.nodes.findIndex((n) => n.id === action.node.id);
+      if (existingIdx >= 0) {
+        const updatedNodes = state.graph.nodes.map((n, i) =>
+          i === existingIdx ? { ...n, ...action.node } : n
+        );
+        const newGraph = {
+          ...state.graph,
+          nodes: updatedNodes,
+          edges: action.edges ? [...state.graph.edges, ...action.edges] : state.graph.edges,
+        };
+        return {
+          ...state,
+          graph: newGraph,
+          metrics: computeMetrics(newGraph),
+          dataVersion: state.dataVersion + 1,
+        };
+      }
       const parentId = action.node.parentId;
       // Update parent's childIds if the new node has a parent
       const updatedNodes = parentId

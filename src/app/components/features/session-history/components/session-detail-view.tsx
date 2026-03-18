@@ -18,6 +18,8 @@ import { AgentTopology } from '@/app/components/features/agent-topology';
 import { Button } from '@/app/components/ui/button';
 import { ExecutionBadge } from '@/app/components/ui/execution-badge';
 import { Skeleton, SkeletonText } from '@/app/components/ui/skeleton';
+import type { SessionStatus } from '@/db/schema';
+import type { TopologyGraph, TopologyNode } from '@/lib/topology/types';
 import { cn } from '@/lib/utils/cn';
 import { useSessionEvents } from '../hooks/use-session-events';
 import type { SessionDetailViewProps } from '../types';
@@ -27,6 +29,25 @@ import { ExportDropdown } from './export-dropdown';
 import { SessionSummary } from './session-summary';
 import { StreamViewer } from './stream-viewer';
 import { ToolCallsFullView } from './tool-calls-full-view';
+
+function mapSessionStatusToTopologyStatus(session: {
+  status: SessionStatus;
+  closedAt: string | null;
+}): TopologyNode['status'] {
+  switch (session.status) {
+    case 'active':
+      return session.closedAt ? 'completed' : 'running';
+    case 'closed':
+    case 'closing':
+      return 'completed';
+    case 'error':
+      return 'failed';
+    case 'paused':
+      return 'blocked';
+    default:
+      return 'queued';
+  }
+}
 
 /** Active view tab type */
 type ViewTab = 'replay' | 'tools' | 'topology';
@@ -93,6 +114,41 @@ export function SessionDetailView({
       </section>
     );
   }
+
+  const rootTopologyGraph: TopologyGraph = {
+    nodes: [
+      {
+        id: session.agentId ?? session.id,
+        name: session.agentName ?? session.title ?? 'Agent',
+        role: 'orchestrator',
+        status: mapSessionStatusToTopologyStatus({
+          status: session.status,
+          closedAt: session.closedAt ?? null,
+        }),
+        parentId: null,
+        childIds: [],
+        progress:
+          session.closedAt || session.status === 'closed'
+            ? 100
+            : session.status === 'error'
+              ? 0
+              : Math.min(95, Math.max(10, Math.round((session.turnsUsed / 50) * 100))),
+        tokens: session.tokensUsed,
+        cost: session.costUsd ?? 0,
+        turns: session.turnsUsed,
+        messages: session.turnsUsed,
+        startedAt: new Date(session.createdAt).getTime(),
+        completedAt: session.closedAt ? new Date(session.closedAt).getTime() : null,
+        verified: false,
+        verificationScore: 0,
+        decisions: [],
+      },
+    ],
+    edges: [],
+    taskId: session.taskId ?? '',
+    taskName: session.taskTitle ?? session.title ?? '',
+    taskPriority: 'normal',
+  };
 
   const statusColors = SESSION_STATUS_COLORS[session.status];
   const formattedDate = new Date(session.createdAt).toLocaleDateString('en-US', {
@@ -349,6 +405,7 @@ export function SessionDetailView({
             sessionId={
               session.status !== 'closed' && session.status !== 'error' ? session.id : undefined
             }
+            initialData={rootTopologyGraph}
           />
         </div>
       )}

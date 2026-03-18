@@ -18,6 +18,7 @@ import { layoutTopology } from './topology-layout';
 
 const nodeTypes = { agentNode: AgentNode };
 const edgeTypes = { agentEdge: AgentEdge };
+const FIT_VIEW_OPTIONS = { padding: 0.3, maxZoom: 1 };
 
 function TopologyInner(): React.JSX.Element {
   const { state, dispatch, selectedNode } = useTopology();
@@ -84,7 +85,10 @@ function TopologyInner(): React.JSX.Element {
           d.role === graphNode.role &&
           d.status === graphNode.status &&
           d.progress === graphNode.progress &&
-          d.decisions === graphNode.decisions
+          d.decisions === graphNode.decisions &&
+          d.tokens === graphNode.tokens &&
+          d.cost === graphNode.cost &&
+          d.turns === graphNode.turns
         ) {
           return rfNode;
         }
@@ -98,6 +102,9 @@ function TopologyInner(): React.JSX.Element {
             status: graphNode.status,
             progress: graphNode.progress,
             decisions: graphNode.decisions,
+            tokens: graphNode.tokens,
+            cost: graphNode.cost,
+            turns: graphNode.turns,
           },
         };
       });
@@ -172,7 +179,7 @@ function TopologyInner(): React.JSX.Element {
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
             fitView
-            fitViewOptions={{ padding: 0.3 }}
+            fitViewOptions={FIT_VIEW_OPTIONS}
             panOnDrag
             zoomOnScroll
             zoomOnPinch
@@ -209,7 +216,7 @@ function TopologyInner(): React.JSX.Element {
           </button>
           <button
             type="button"
-            onClick={() => fitView({ padding: 0.3 })}
+            onClick={() => fitView(FIT_VIEW_OPTIONS)}
             className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-surface/90 text-fg-muted backdrop-blur-sm hover:bg-surface-subtle hover:text-fg"
             title="Fit to view"
           >
@@ -217,8 +224,19 @@ function TopologyInner(): React.JSX.Element {
           </button>
         </div>
 
-        {/* Legend overlay */}
-        <TopologyLegend />
+        {/* Legend overlay — hidden for single-node view */}
+        {state.graph.nodes.length > 1 && <TopologyLegend />}
+
+        {/* Subtle radial vignette for single-node view */}
+        {state.graph.nodes.length === 1 && (
+          <div
+            className="pointer-events-none absolute inset-0"
+            style={{
+              background:
+                'radial-gradient(ellipse at center, transparent 40%, rgba(13,17,23,0.4) 100%)',
+            }}
+          />
+        )}
       </div>
 
       {/* Detail panel */}

@@ -4,7 +4,7 @@ import type { TopologyGraph } from '@/lib/topology/types';
 import { getElk } from '@/lib/workflow-dsl/layout';
 
 const NODE_WIDTH = 120;
-const NODE_HEIGHT = 100;
+const NODE_HEIGHT = 145;
 
 export async function layoutTopology(
   graph: TopologyGraph
@@ -80,6 +80,9 @@ export async function layoutTopology(
           status: entry.node.status,
           progress: entry.node.progress,
           decisions: entry.node.decisions,
+          tokens: entry.node.tokens,
+          cost: entry.node.cost,
+          turns: entry.node.turns,
           nodeIndex: entry.index,
         },
         draggable: false,
