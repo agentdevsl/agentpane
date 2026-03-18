@@ -54,8 +54,11 @@ function computeMetrics(graph: TopologyGraph): TopologyMetrics {
     activeAgents: graph.nodes.filter((n) => n.status === 'running' || n.status === 'verifying')
       .length,
     completedAgents: graph.nodes.filter((n) => n.status === 'completed').length,
-    totalTokens: graph.nodes.reduce((sum, n) => sum + n.tokens, 0),
-    totalCost: graph.nodes.reduce((sum, n) => sum + n.cost, 0),
+    totalTokens: graph.nodes.reduce(
+      (sum, n) => sum + (Number.isFinite(n.tokens) ? n.tokens : 0),
+      0
+    ),
+    totalCost: graph.nodes.reduce((sum, n) => sum + (Number.isFinite(n.cost) ? n.cost : 0), 0),
     totalDecisions: graph.nodes.reduce((sum, n) => sum + n.decisions.length, 0),
   };
 }
@@ -69,16 +72,20 @@ function topologyReducer(state: TopologyState, action: TopologyAction): Topology
         const updatedNodes = state.graph.nodes.map((n, i) =>
           i === existingIdx ? { ...n, ...action.node } : n
         );
+        const existingEdgeIds = new Set(state.graph.edges.map((e) => e.id));
+        const newEdges = action.edges ? action.edges.filter((e) => !existingEdgeIds.has(e.id)) : [];
+        const hasNewEdges = newEdges.length > 0;
         const newGraph = {
           ...state.graph,
           nodes: updatedNodes,
-          edges: action.edges ? [...state.graph.edges, ...action.edges] : state.graph.edges,
+          edges: hasNewEdges ? [...state.graph.edges, ...newEdges] : state.graph.edges,
         };
         return {
           ...state,
           graph: newGraph,
           metrics: computeMetrics(newGraph),
           dataVersion: state.dataVersion + 1,
+          ...(hasNewEdges ? { structureVersion: state.structureVersion + 1 } : {}),
         };
       }
       const parentId = action.node.parentId;

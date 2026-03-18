@@ -13,7 +13,7 @@ import {
   Trash,
   Wrench,
 } from '@phosphor-icons/react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { AgentTopology } from '@/app/components/features/agent-topology';
 import { Button } from '@/app/components/ui/button';
 import { ExecutionBadge } from '@/app/components/ui/execution-badge';
@@ -62,6 +62,60 @@ export function SessionDetailView({
 }: SessionDetailViewProps): React.JSX.Element {
   const [activeView, setActiveView] = useState<ViewTab>('replay');
   const { entries, toolCalls, toolCallStats, isLoading: eventsLoading } = useSessionEvents(session);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: granular deps intentional to avoid recompute when unrelated session fields change; session nullability handled inside
+  const rootTopologyGraph: TopologyGraph | null = useMemo(() => {
+    if (!session) return null;
+    return {
+      nodes: [
+        {
+          id: session.agentId ?? session.id,
+          name: session.agentName ?? session.title ?? 'Agent',
+          role: 'orchestrator',
+          status: mapSessionStatusToTopologyStatus({
+            status: session.status,
+            closedAt: session.closedAt ?? null,
+          }),
+          parentId: null,
+          childIds: [],
+          progress:
+            session.closedAt || session.status === 'closed'
+              ? 100
+              : session.status === 'error'
+                ? 0
+                : session.turnsUsed === 0
+                  ? 0
+                  : Math.min(95, Math.round((session.turnsUsed / 50) * 100)),
+          tokens: session.tokensUsed,
+          cost: session.costUsd ?? 0,
+          turns: session.turnsUsed,
+          messages: session.turnsUsed,
+          startedAt: new Date(session.createdAt).getTime(),
+          completedAt: session.closedAt ? new Date(session.closedAt).getTime() : null,
+          verified: false,
+          verificationScore: 0,
+          decisions: [],
+        },
+      ],
+      edges: [],
+      taskId: session.taskId ?? '',
+      taskName: session.taskTitle ?? session.title ?? '',
+      taskPriority: 'normal',
+    };
+  }, [
+    session?.id,
+    session?.agentId,
+    session?.agentName,
+    session?.title,
+    session?.status,
+    session?.closedAt,
+    session?.turnsUsed,
+    session?.tokensUsed,
+    session?.costUsd,
+    session?.createdAt,
+    session?.taskId,
+    session?.taskTitle,
+  ]);
 
   // Loading state
   if (isLoading) {
@@ -114,41 +168,6 @@ export function SessionDetailView({
       </section>
     );
   }
-
-  const rootTopologyGraph: TopologyGraph = {
-    nodes: [
-      {
-        id: session.agentId ?? session.id,
-        name: session.agentName ?? session.title ?? 'Agent',
-        role: 'orchestrator',
-        status: mapSessionStatusToTopologyStatus({
-          status: session.status,
-          closedAt: session.closedAt ?? null,
-        }),
-        parentId: null,
-        childIds: [],
-        progress:
-          session.closedAt || session.status === 'closed'
-            ? 100
-            : session.status === 'error'
-              ? 0
-              : Math.min(95, Math.max(10, Math.round((session.turnsUsed / 50) * 100))),
-        tokens: session.tokensUsed,
-        cost: session.costUsd ?? 0,
-        turns: session.turnsUsed,
-        messages: session.turnsUsed,
-        startedAt: new Date(session.createdAt).getTime(),
-        completedAt: session.closedAt ? new Date(session.closedAt).getTime() : null,
-        verified: false,
-        verificationScore: 0,
-        decisions: [],
-      },
-    ],
-    edges: [],
-    taskId: session.taskId ?? '',
-    taskName: session.taskTitle ?? session.title ?? '',
-    taskPriority: 'normal',
-  };
 
   const statusColors = SESSION_STATUS_COLORS[session.status];
   const formattedDate = new Date(session.createdAt).toLocaleDateString('en-US', {
@@ -405,7 +424,7 @@ export function SessionDetailView({
             sessionId={
               session.status !== 'closed' && session.status !== 'error' ? session.id : undefined
             }
-            initialData={rootTopologyGraph}
+            initialData={rootTopologyGraph ?? undefined}
           />
         </div>
       )}

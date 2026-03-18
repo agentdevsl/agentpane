@@ -2,6 +2,7 @@ import type { Edge as ReactFlowEdge, Node as ReactFlowNode } from '@xyflow/react
 import type { ElkNode } from 'elkjs/lib/elk.bundled.js';
 import type { TopologyGraph } from '@/lib/topology/types';
 import { getElk } from '@/lib/workflow-dsl/layout';
+import type { AgentNodeData } from './nodes/agent-node';
 
 const NODE_WIDTH = 120;
 const NODE_HEIGHT = 145;
@@ -84,7 +85,7 @@ export async function layoutTopology(
           cost: entry.node.cost,
           turns: entry.node.turns,
           nodeIndex: entry.index,
-        },
+        } satisfies AgentNodeData,
         draggable: false,
         connectable: false,
       };

@@ -12,7 +12,7 @@ import { TopologyDetailPanel } from './detail-panel/topology-detail-panel';
 import { AgentEdge } from './edges/agent-edge';
 import { AgentEdgeMarkers } from './edges/agent-edge-markers';
 import { TopologyLegend } from './legend/topology-legend';
-import { AgentNode } from './nodes/agent-node';
+import { AgentNode, type AgentNodeData } from './nodes/agent-node';
 import { useTopology } from './topology-context';
 import { layoutTopology } from './topology-layout';
 
@@ -78,7 +78,7 @@ function TopologyInner(): React.JSX.Element {
       const next = prev.map((rfNode) => {
         const graphNode = nodeById.get(rfNode.id);
         if (!graphNode) return rfNode;
-        const d = rfNode.data as Record<string, unknown>;
+        const d = rfNode.data as AgentNodeData;
         // Compare each field — only create a new object if something differs
         if (
           d.name === graphNode.name &&

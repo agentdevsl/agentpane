@@ -1,24 +1,15 @@
 import { Handle, type NodeProps, Position } from '@xyflow/react';
 import { memo } from 'react';
-import type {
-  TopologyAgentRole,
-  TopologyAgentStatus,
-  TopologyDecision,
-} from '@/lib/topology/types';
+import type { TopologyNode } from '@/lib/topology/types';
 import { AGENT_ROLE_CONFIG, DECISION_TYPE_CONFIG, STATUS_COLORS } from './agent-node-types';
 
-interface AgentNodeData {
-  name: string;
-  role: TopologyAgentRole;
-  status: TopologyAgentStatus;
-  progress: number;
-  decisions: TopologyDecision[];
-  tokens: number;
-  cost: number;
-  turns: number;
+export type AgentNodeData = Pick<
+  TopologyNode,
+  'name' | 'role' | 'status' | 'progress' | 'decisions' | 'tokens' | 'cost' | 'turns'
+> & {
   nodeIndex: number;
   [key: string]: unknown;
-}
+};
 
 const RADIUS = 28;
 const ARC_R = RADIUS + 4; // 32
@@ -28,9 +19,10 @@ const CIRCUMFERENCE = 2 * Math.PI * ARC_R;
 const ICON_SIZE = Math.max(14, RADIUS * 0.6);
 
 function formatTokens(n: number): string {
+  if (typeof n !== 'number' || !Number.isFinite(n) || n < 0) return '0';
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
-  return String(n);
+  return String(Math.round(n));
 }
 
 function AgentNodeComponent({ data, selected }: NodeProps) {
@@ -51,7 +43,10 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
       ? 'url(#agent-glow-verifying)'
       : undefined;
 
-  const metricsText = `${turns}t · ${formatTokens(tokens)} · $${cost.toFixed(2)}`;
+  const safeCost = typeof cost === 'number' && Number.isFinite(cost) ? cost : 0;
+  const safeTokens = typeof tokens === 'number' && Number.isFinite(tokens) ? tokens : 0;
+  const safeTurns = typeof turns === 'number' && Number.isFinite(turns) ? turns : 0;
+  const metricsText = `${safeTurns}t · ${formatTokens(safeTokens)} · $${safeCost.toFixed(2)}`;
 
   return (
     <div style={{ width: 120, height: 145, overflow: 'visible' }}>
