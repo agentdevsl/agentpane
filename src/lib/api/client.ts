@@ -1257,6 +1257,13 @@ export const apiClient = {
     getComposeUrl: () => `${API_BASE}/api/terraform/compose`,
   },
 
+  teams: {
+    list: () =>
+      apiServerFetch<{
+        items: Array<{ id: string; name: string; slug: string }>;
+      }>('/api/teams'),
+  },
+
   events: {
     sources: {
       list: (params?: { teamId?: string }) => {
