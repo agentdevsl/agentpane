@@ -68,6 +68,9 @@ export class AgentService {
       sessionService
     );
     this.queueService = new AgentQueueService(db);
+
+    // Wire queue service into execution service for auto-dequeue on completion
+    this.executionService.setQueueService(this.queueService);
   }
 
   // =========================================================================

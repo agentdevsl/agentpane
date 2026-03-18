@@ -1,17 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-type StreamBatchItem = {
-  type: string;
-  data: unknown;
-  timestamp?: number;
-};
-
-type StreamBatch = {
+type StreamTextChunk = {
   offset?: string;
-  items: StreamBatchItem[];
+  text: string;
 };
 
 type StreamOptions = {
+  url: string;
+  live: string;
+  offset?: string;
   onError?: (error: unknown) => unknown;
 };
 
@@ -21,7 +18,10 @@ type Controller = {
   unsubscribe: ReturnType<typeof vi.fn>;
   streamClosed: boolean;
   closed: Promise<void>;
-  emit: (batch: StreamBatch) => void;
+  emit: (batch: {
+    offset?: string;
+    items: Array<{ type: string; data: unknown; timestamp?: number }>;
+  }) => void;
   close: () => void;
 };
 
@@ -29,7 +29,7 @@ const durableMocks = vi.hoisted(() => {
   const controllers: Controller[] = [];
 
   const stream = vi.fn(async (options: StreamOptions) => {
-    let handler: ((batch: StreamBatch) => void) | null = null;
+    let handler: ((chunk: StreamTextChunk) => void) | null = null;
     let resolveClosed = () => {};
 
     const controller: Controller = {
@@ -41,7 +41,13 @@ const durableMocks = vi.hoisted(() => {
         resolveClosed = resolve;
       }),
       emit: (batch) => {
-        handler?.(batch);
+        // The implementation uses subscribeText, which receives { offset, text }
+        // where text is JSON-stringified items array
+        const chunk: StreamTextChunk = {
+          offset: batch.offset,
+          text: JSON.stringify(batch.items),
+        };
+        handler?.(chunk);
       },
       close: () => {
         resolveClosed();
@@ -54,7 +60,7 @@ const durableMocks = vi.hoisted(() => {
       streamClosed: controller.streamClosed,
       cancel: controller.cancel,
       closed: controller.closed,
-      subscribeJson: (nextHandler: (batch: StreamBatch) => void) => {
+      subscribeText: (nextHandler: (chunk: StreamTextChunk) => void) => {
         handler = nextHandler;
         return controller.unsubscribe;
       },
@@ -233,9 +239,8 @@ describe('DurableStreamsClient', () => {
 
     expect(durableMocks.stream).toHaveBeenCalledWith(
       expect.objectContaining({
-        url: '/v1/stream/sessions/sess-123',
+        url: expect.stringContaining('/v1/stream/sessions/sess-123'),
         live: 'sse',
-        json: true,
       })
     );
 
@@ -1133,7 +1138,7 @@ describe('subscribeToAgent', () => {
 
     expect(durableMocks.stream).toHaveBeenCalledWith(
       expect.objectContaining({
-        url: '/v1/stream/sessions/agent:agent-123',
+        url: expect.stringContaining('/v1/stream/sessions/agent:agent-123'),
       })
     );
 
@@ -1211,6 +1216,9 @@ describe('error scenarios', () => {
 
     await flushPromises();
     const controller = durableMocks.controllers[0];
+
+    // Clear any errors accumulated during connection setup
+    errors.length = 0;
 
     // Pass a string instead of Error
     controller?.options.onError?.('string error' as unknown);

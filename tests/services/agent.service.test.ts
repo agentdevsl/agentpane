@@ -538,15 +538,15 @@ describe('AgentService', () => {
       }
     });
 
-    it('returns queue full error when queueing task', async () => {
+    it('queues a task successfully', async () => {
       const project = await createTestProject();
       const task = await createTestTask(project.id);
 
       const result = await agentService.queueTask(project.id, task.id);
 
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.code).toBe('QUEUE_FULL');
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.taskId).toBe(task.id);
       }
     });
   });

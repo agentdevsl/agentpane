@@ -3,15 +3,25 @@ import { ProjectErrors } from '../../lib/errors/project-errors.js';
 import { TaskErrors } from '../../lib/errors/task-errors.js';
 import { TaskService } from '../task.service.js';
 
-const createDbMock = () => ({
-  query: {
-    projects: { findFirst: vi.fn() },
-    tasks: { findFirst: vi.fn(), findMany: vi.fn() },
-  },
-  insert: vi.fn(() => ({ values: vi.fn(() => ({ returning: vi.fn() })) })),
-  update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ returning: vi.fn() })) })) })),
-  delete: vi.fn(() => ({ where: vi.fn() })),
-});
+const createDbMock = () => {
+  const mock = {
+    query: {
+      projects: { findFirst: vi.fn() },
+      tasks: { findFirst: vi.fn(), findMany: vi.fn() },
+      settings: { findFirst: vi.fn() },
+    },
+    insert: vi.fn(() => ({ values: vi.fn(() => ({ returning: vi.fn() })) })),
+    update: vi.fn(() => ({
+      set: vi.fn(() => ({ where: vi.fn(() => ({ returning: vi.fn() })) })),
+    })),
+    delete: vi.fn(() => ({ where: vi.fn() })),
+    transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
+      // The transaction callback receives a tx that behaves like the db itself
+      return fn(mock);
+    }),
+  };
+  return mock;
+};
 
 const createWorktreeServiceMock = () => ({
   getDiff: vi.fn(),
@@ -52,26 +62,20 @@ describe('TaskService', () => {
     }
   });
 
-  it('allows any column transition', async () => {
+  it('rejects invalid column transitions', async () => {
     const db = createDbMock();
     const worktrees = createWorktreeServiceMock();
-    db.query.tasks.findFirst
-      .mockResolvedValueOnce({ id: 't1', column: 'backlog', projectId: 'p1' })
-      .mockResolvedValueOnce(null); // For finding last in column
-    db.update.mockReturnValue({
-      set: vi.fn().mockReturnValue({
-        where: vi.fn().mockReturnValue({
-          returning: vi.fn().mockResolvedValue([{ id: 't1', column: 'verified', position: 0 }]),
-        }),
-      }),
-    });
+    db.query.tasks.findFirst.mockResolvedValue({ id: 't1', column: 'backlog', projectId: 'p1' });
 
     const service = new TaskService(db as never, worktrees as never);
     const result = await service.moveColumn('t1', 'verified');
 
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.value.task.column).toBe('verified');
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('TASK_INVALID_TRANSITION');
+      expect(result.error.details?.from).toBe('backlog');
+      expect(result.error.details?.to).toBe('verified');
+      expect(result.error.details?.allowedTransitions).toEqual(['queued', 'in_progress']);
     }
   });
 

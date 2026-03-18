@@ -28,6 +28,12 @@ function validateEnv() {
     warnings.push('CORS_ORIGIN not set — defaulting to http://localhost:3000');
   }
 
+  if (process.env.SKIP_AUTH === 'true') {
+    warnings.push(
+      'SKIP_AUTH=true is set — authentication is bypassed. All requests will use dev-user identity. Do NOT use in production.'
+    );
+  }
+
   for (const w of warnings) {
     log.warn(w);
   }
@@ -36,6 +42,7 @@ function validateEnv() {
     data: {
       nodeEnv: process.env.NODE_ENV ?? 'development',
       corsOrigin: process.env.CORS_ORIGIN ?? 'http://localhost:3000',
+      skipAuth: process.env.SKIP_AUTH === 'true',
     },
   });
 }

@@ -1,10 +1,43 @@
+import { and, asc, count, eq, lt, sql } from 'drizzle-orm';
+import type { Task } from '../../db/schema';
+import { agentRuns, tasks } from '../../db/schema';
 import type { AgentError } from '../../lib/errors/agent-errors.js';
 import type { ConcurrencyError } from '../../lib/errors/concurrency-errors.js';
-import { ConcurrencyErrors } from '../../lib/errors/concurrency-errors.js';
 import type { Result } from '../../lib/utils/result.js';
-import { err, ok } from '../../lib/utils/result.js';
+import { ok } from '../../lib/utils/result.js';
 import type { Database } from '../../types/database.js';
 import type { QueuePosition, QueueStats } from './types.js';
+
+/** Number of recent agent runs to consider for average completion time */
+const RECENT_RUNS_WINDOW = 20;
+
+/**
+ * Build a QueuePosition from a queued task and its position/total.
+ */
+function buildQueuePosition(
+  task: Task,
+  position: number,
+  totalQueued: number,
+  averageCompletionMs: number
+): QueuePosition {
+  const estimatedWaitMs = position * averageCompletionMs;
+  const estimatedWaitMinutes = Math.ceil(estimatedWaitMs / 60_000);
+  const estimatedWaitFormatted =
+    estimatedWaitMinutes < 1
+      ? '< 1 min'
+      : estimatedWaitMinutes === 1
+        ? '1 min'
+        : `${estimatedWaitMinutes} mins`;
+
+  return {
+    taskId: task.id,
+    position,
+    totalQueued,
+    estimatedWaitMs,
+    estimatedWaitMinutes,
+    estimatedWaitFormatted,
+  };
+}
 
 /**
  * AgentQueueService handles queue management for agents.
@@ -12,62 +45,254 @@ import type { QueuePosition, QueueStats } from './types.js';
  * Responsibilities:
  * - Queue task execution when concurrency limits are reached
  * - Track queue positions and waiting times
- * - Priority handling for queued tasks
+ * - Dequeue tasks for agent pickup when agents become available
  * - Provide queue statistics
- *
- * Note: Queue functionality is not yet fully implemented.
- * These methods return placeholder values indicating empty queues.
  */
 export class AgentQueueService {
   private readonly db: Database;
 
-  /**
-   * @param db Database instance reserved for future queue implementation.
-   *           Queue functionality will use this to persist queue state.
-   */
   constructor(db: Database) {
     this.db = db;
-    // Suppress unused warning - db will be used when queue is implemented
-    void this.db;
   }
 
   /**
    * Queue a task for execution when agent availability permits.
-   * Currently returns QUEUE_FULL as queue functionality is not yet implemented.
+   * Sets the task column to 'queued' and records the current time as updatedAt
+   * (used for FIFO ordering).
+   *
+   * @returns Queue position info for the newly queued task
    */
   async queueTask(
-    _projectId: string,
-    _taskId: string
+    projectId: string,
+    taskId: string
   ): Promise<Result<QueuePosition, ConcurrencyError>> {
-    return err(ConcurrencyErrors.QUEUE_FULL(0, 0));
+    const now = new Date().toISOString();
+
+    // Update task to queued column
+    await this.db
+      .update(tasks)
+      .set({
+        column: 'queued',
+        updatedAt: now,
+      })
+      .where(eq(tasks.id, taskId));
+
+    // Count how many tasks are ahead of this one (queued earlier)
+    const task = await this.db.query.tasks.findFirst({
+      where: eq(tasks.id, taskId),
+    });
+
+    if (!task) {
+      // Task was just updated, so this shouldn't happen, but handle gracefully
+      return ok({
+        taskId,
+        position: 0,
+        totalQueued: 1,
+        estimatedWaitMs: 0,
+        estimatedWaitMinutes: 0,
+        estimatedWaitFormatted: '< 1 min',
+      });
+    }
+
+    // Get the total count and position
+    const queuedTasks = await this.db.query.tasks.findMany({
+      where: and(eq(tasks.projectId, projectId), eq(tasks.column, 'queued')),
+      orderBy: asc(tasks.updatedAt),
+    });
+
+    const totalQueued = queuedTasks.length;
+    const position = queuedTasks.findIndex((t) => t.id === taskId);
+    const avgCompletion = await this.getAverageCompletionMs(projectId);
+
+    return ok(buildQueuePosition(task, position, totalQueued, avgCompletion));
   }
 
   /**
-   * Get the queue position for an agent.
-   * Currently returns null as queue functionality is not yet implemented.
+   * Dequeue the next task from the queue (oldest first / FIFO).
+   * Returns the task if one is available, or null if the queue is empty.
+   *
+   * This is called when an agent completes a task and is ready for more work.
    */
-  async getQueuePosition(_agentId: string): Promise<Result<QueuePosition | null, AgentError>> {
-    // Queue functionality is not yet implemented - return null indicating not queued
-    return ok(null);
+  async dequeueNext(projectId: string): Promise<Result<Task | null, never>> {
+    const nextTask = await this.db.query.tasks.findFirst({
+      where: and(eq(tasks.projectId, projectId), eq(tasks.column, 'queued')),
+      orderBy: asc(tasks.updatedAt),
+    });
+
+    if (!nextTask) {
+      return ok(null);
+    }
+
+    return ok(nextTask);
   }
 
   /**
-   * Get queue statistics for a project or globally.
-   * Currently returns empty stats as queue functionality is not yet implemented.
+   * Get the queue position for a task.
+   * Returns null if the task is not in the queued column.
    */
-  async getQueueStats(_projectId?: string): Promise<Result<QueueStats, never>> {
+  async getQueuePosition(taskId: string): Promise<Result<QueuePosition | null, AgentError>> {
+    const task = await this.db.query.tasks.findFirst({
+      where: eq(tasks.id, taskId),
+    });
+
+    if (!task || task.column !== 'queued') {
+      return ok(null);
+    }
+
+    // Count tasks queued before this one (earlier updatedAt = higher priority)
+    const [result] = await this.db
+      .select({ count: count() })
+      .from(tasks)
+      .where(
+        and(
+          eq(tasks.projectId, task.projectId),
+          eq(tasks.column, 'queued'),
+          lt(tasks.updatedAt, task.updatedAt)
+        )
+      );
+
+    const position = result?.count ?? 0;
+
+    // Get total queued count
+    const [totalResult] = await this.db
+      .select({ count: count() })
+      .from(tasks)
+      .where(and(eq(tasks.projectId, task.projectId), eq(tasks.column, 'queued')));
+
+    const totalQueued = totalResult?.count ?? 0;
+    const avgCompletion = await this.getAverageCompletionMs(task.projectId);
+
+    return ok(buildQueuePosition(task, position, totalQueued, avgCompletion));
+  }
+
+  /**
+   * Get queue statistics for a project.
+   * Includes total queued count, average completion time, and recent completion count.
+   */
+  async getQueueStats(projectId?: string): Promise<Result<QueueStats, never>> {
+    // Count queued tasks
+    const queuedFilter = projectId
+      ? and(eq(tasks.column, 'queued'), eq(tasks.projectId, projectId))
+      : eq(tasks.column, 'queued');
+
+    const [queuedResult] = await this.db.select({ count: count() }).from(tasks).where(queuedFilter);
+
+    const totalQueued = queuedResult?.count ?? 0;
+
+    // Get average completion time and recent completions from agent_runs
+    const runFilter = projectId
+      ? and(eq(agentRuns.projectId, projectId), sql`${agentRuns.completedAt} IS NOT NULL`)
+      : sql`${agentRuns.completedAt} IS NOT NULL`;
+
+    const recentRuns = await this.db.query.agentRuns.findMany({
+      where: runFilter,
+      orderBy: [sql`${agentRuns.completedAt} DESC`],
+      limit: RECENT_RUNS_WINDOW,
+    });
+
+    let averageCompletionMs = 0;
+    const recentCompletions = recentRuns.length;
+
+    if (recentRuns.length > 0) {
+      let totalDurationMs = 0;
+      let validRuns = 0;
+
+      for (const run of recentRuns) {
+        if (run.startedAt && run.completedAt) {
+          const startMs = new Date(run.startedAt).getTime();
+          const endMs = new Date(run.completedAt).getTime();
+          const duration = endMs - startMs;
+          if (duration > 0) {
+            totalDurationMs += duration;
+            validRuns++;
+          }
+        }
+      }
+
+      if (validRuns > 0) {
+        averageCompletionMs = Math.round(totalDurationMs / validRuns);
+      }
+    }
+
     return ok({
-      totalQueued: 0,
-      averageCompletionMs: 0,
-      recentCompletions: 0,
+      totalQueued,
+      averageCompletionMs,
+      recentCompletions,
     });
   }
 
   /**
-   * Get all queued tasks for a project or globally.
-   * Currently returns empty array as queue functionality is not yet implemented.
+   * Get all queued tasks for a project, ordered by queue position (FIFO).
    */
-  async getQueuedTasks(_projectId?: string): Promise<Result<QueuePosition[], never>> {
-    return ok([]);
+  async getQueuedTasks(projectId?: string): Promise<Result<QueuePosition[], never>> {
+    const filter = projectId
+      ? and(eq(tasks.column, 'queued'), eq(tasks.projectId, projectId))
+      : eq(tasks.column, 'queued');
+
+    const queuedTasks = await this.db.query.tasks.findMany({
+      where: filter,
+      orderBy: asc(tasks.updatedAt),
+    });
+
+    const totalQueued = queuedTasks.length;
+    const avgCompletion = projectId
+      ? await this.getAverageCompletionMs(projectId)
+      : await this.getAverageCompletionMsGlobal();
+
+    const positions: QueuePosition[] = queuedTasks.map((task, index) =>
+      buildQueuePosition(task, index, totalQueued, avgCompletion)
+    );
+
+    return ok(positions);
+  }
+
+  /**
+   * Compute the average completion time (ms) from recent agent runs for a project.
+   */
+  private async getAverageCompletionMs(projectId: string): Promise<number> {
+    const recentRuns = await this.db.query.agentRuns.findMany({
+      where: and(eq(agentRuns.projectId, projectId), sql`${agentRuns.completedAt} IS NOT NULL`),
+      orderBy: [sql`${agentRuns.completedAt} DESC`],
+      limit: RECENT_RUNS_WINDOW,
+    });
+
+    return this.computeAverageDuration(recentRuns);
+  }
+
+  /**
+   * Compute the average completion time (ms) from recent agent runs globally.
+   */
+  private async getAverageCompletionMsGlobal(): Promise<number> {
+    const recentRuns = await this.db.query.agentRuns.findMany({
+      where: sql`${agentRuns.completedAt} IS NOT NULL`,
+      orderBy: [sql`${agentRuns.completedAt} DESC`],
+      limit: RECENT_RUNS_WINDOW,
+    });
+
+    return this.computeAverageDuration(recentRuns);
+  }
+
+  /**
+   * Compute average duration from a list of agent runs that have both startedAt and completedAt.
+   */
+  private computeAverageDuration(
+    runs: Array<{ startedAt: string; completedAt: string | null }>
+  ): number {
+    let totalDurationMs = 0;
+    let validRuns = 0;
+
+    for (const run of runs) {
+      if (run.startedAt && run.completedAt) {
+        const startMs = new Date(run.startedAt).getTime();
+        const endMs = new Date(run.completedAt).getTime();
+        const duration = endMs - startMs;
+        if (duration > 0) {
+          totalDurationMs += duration;
+          validRuns++;
+        }
+      }
+    }
+
+    return validRuns > 0 ? Math.round(totalDurationMs / validRuns) : 0;
   }
 }

@@ -637,8 +637,30 @@ describe('AgentService', () => {
     }
   });
 
-  it('queueTask returns queue full error', async () => {
+  it('queueTask queues task and returns position', async () => {
     const db = createDbMock();
+    // Add missing mock methods needed by AgentQueueService
+    (db.query.tasks as Record<string, unknown>).findMany = vi.fn().mockResolvedValue([
+      {
+        id: 't1',
+        projectId: 'p1',
+        column: 'queued',
+        updatedAt: new Date().toISOString(),
+      },
+    ]);
+    (db.query as Record<string, unknown>).agentRuns = {
+      findMany: vi.fn().mockResolvedValue([]),
+    };
+    const updateWhere = vi.fn();
+    db.update.mockReturnValue({
+      set: vi.fn(() => ({ where: updateWhere })),
+    });
+    db.query.tasks.findFirst.mockResolvedValue({
+      id: 't1',
+      projectId: 'p1',
+      column: 'queued',
+      updatedAt: new Date().toISOString(),
+    });
 
     const service = new AgentService(
       db as never,
@@ -648,20 +670,21 @@ describe('AgentService', () => {
     );
     const result = await service.queueTask('p1', 't1');
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      const expected = ConcurrencyErrors.QUEUE_FULL(0, 0);
-      expect(result.error).toMatchObject({
-        code: expected.code,
-        message: expected.message,
-        status: expected.status,
-        details: expected.details,
-      });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.taskId).toBe('t1');
+      expect(result.value.position).toBe(0);
+      expect(result.value.totalQueued).toBe(1);
     }
   });
 
-  it('getQueuedTasks returns empty array', async () => {
+  it('getQueuedTasks returns empty when no tasks queued', async () => {
     const db = createDbMock();
+    // Add missing mock methods needed by AgentQueueService
+    (db.query.tasks as Record<string, unknown>).findMany = vi.fn().mockResolvedValue([]);
+    (db.query as Record<string, unknown>).agentRuns = {
+      findMany: vi.fn().mockResolvedValue([]),
+    };
 
     const service = new AgentService(
       db as never,

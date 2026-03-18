@@ -446,14 +446,18 @@ export function createProjectsRoutes({ db }: ProjectsDeps) {
         );
       }
 
-      // Delete associated tasks first (foreign key constraint)
-      await db.delete(tasks).where(eq(tasks.projectId, id));
+      // Delete tasks, agents, and project atomically in a transaction.
+      // If any delete fails, all are rolled back — prevents orphaned records.
+      await db.transaction(async (tx) => {
+        // Delete associated tasks first (foreign key constraint)
+        await tx.delete(tasks).where(eq(tasks.projectId, id));
 
-      // Delete associated agents
-      await db.delete(agents).where(eq(agents.projectId, id));
+        // Delete associated agents
+        await tx.delete(agents).where(eq(agents.projectId, id));
 
-      // Delete the project from database
-      await db.delete(projects).where(eq(projects.id, id));
+        // Delete the project from database
+        await tx.delete(projects).where(eq(projects.id, id));
+      });
 
       // Optionally delete project files
       let filesActuallyDeleted = false;

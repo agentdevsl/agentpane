@@ -1,21 +1,5 @@
+import { getValidTransitions } from '../../services/task-transitions.js';
 import { createError } from './base.js';
-
-type TaskColumn = 'backlog' | 'in_progress' | 'waiting_approval' | 'verified';
-
-const VALID_TRANSITIONS: Record<TaskColumn, TaskColumn[]> = {
-  backlog: ['in_progress'],
-  in_progress: ['waiting_approval', 'backlog'],
-  waiting_approval: ['verified', 'in_progress'],
-  verified: [],
-};
-
-const getValidTransitions = (column: string): TaskColumn[] => {
-  if (column in VALID_TRANSITIONS) {
-    return VALID_TRANSITIONS[column as TaskColumn];
-  }
-
-  return [];
-};
 
 export const TaskErrors = {
   NOT_FOUND: createError('TASK_NOT_FOUND', 'Task not found', 404),

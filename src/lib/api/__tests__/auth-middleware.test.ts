@@ -34,7 +34,7 @@ describe('getAuthContext', () => {
   // ─── Cookie extraction ────────────────────────────────────────────
 
   describe('cookie extraction', () => {
-    it('should return auth context with method "session" when session cookie is present', async () => {
+    it('should reject session cookie when no validator is provided, even in dev mode', async () => {
       process.env.NODE_ENV = 'development';
       const request = makeRequest({
         Cookie: 'agentpane_session=abc123',
@@ -42,52 +42,52 @@ describe('getAuthContext', () => {
 
       const result = await getAuthContext(request);
 
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.authMethod).toBe('session');
-        expect(result.value.userId).toBe(
-          'session:abc12345'.substring(0, 'session:'.length + 8).length > 0
-            ? `session:${('abc123').substring(0, 8)}`
-            : ''
-        );
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('UNAUTHORIZED');
+        expect(result.error.message).toContain('Session validation not configured');
       }
     });
 
-    it('should extract session cookie when multiple cookies are present', async () => {
+    it('should reject session cookie in production when no validator is provided', async () => {
+      process.env.NODE_ENV = 'production';
+      const request = makeRequest({
+        Cookie: 'agentpane_session=abc123',
+      });
+
+      const result = await getAuthContext(request);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('UNAUTHORIZED');
+        expect(result.error.message).toContain('Session validation not configured');
+      }
+    });
+
+    it('should extract session cookie when multiple cookies are present and validator succeeds', async () => {
       process.env.NODE_ENV = 'development';
+      const options: AuthOptions = {
+        validateSessionToken: vi.fn().mockResolvedValue('user-from-session'),
+      };
       const request = makeRequest({
         Cookie: 'other=xyz; agentpane_session=mytoken99; another=123',
       });
 
-      const result = await getAuthContext(request);
+      const result = await getAuthContext(request, options);
 
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value.authMethod).toBe('session');
-        expect(result.value.userId).toBe('session:mytoken9');
+        expect(result.value.userId).toBe('user-from-session');
       }
-    });
-
-    it('should use first 8 chars of token for userId when no validator is provided', async () => {
-      process.env.NODE_ENV = 'development';
-      const request = makeRequest({
-        Cookie: 'agentpane_session=abcdefghijklmnop',
-      });
-
-      const result = await getAuthContext(request);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.userId).toBe('session:abcdefgh');
-        expect(result.value.authMethod).toBe('session');
-      }
+      expect(options.validateSessionToken).toHaveBeenCalledWith('mytoken99');
     });
   });
 
   // ─── Bearer token ─────────────────────────────────────────────────
 
   describe('bearer token', () => {
-    it('should return auth context with method "api_token" when Bearer token is present', async () => {
+    it('should reject Bearer token when no validator is provided, even in dev mode', async () => {
       process.env.NODE_ENV = 'development';
       const request = makeRequest({
         Authorization: 'Bearer token123',
@@ -95,41 +95,53 @@ describe('getAuthContext', () => {
 
       const result = await getAuthContext(request);
 
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.authMethod).toBe('api_token');
-        expect(result.value.userId).toBe('token:token123');
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('UNAUTHORIZED');
+        expect(result.error.message).toContain('API key validation not configured');
       }
     });
 
-    it('should use first 8 chars of token for userId when no validator is provided', async () => {
+    it('should accept Bearer token when validator returns a userId', async () => {
       process.env.NODE_ENV = 'development';
+      const options: AuthOptions = {
+        validateApiKey: vi.fn().mockResolvedValue('user-from-api'),
+      };
       const request = makeRequest({
-        Authorization: 'Bearer abcdefghijklmnopqrstuvwxyz',
+        Authorization: 'Bearer valid-key',
       });
 
-      const result = await getAuthContext(request);
+      const result = await getAuthContext(request, options);
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value.userId).toBe('token:abcdefgh');
         expect(result.value.authMethod).toBe('api_token');
+        expect(result.value.userId).toBe('user-from-api');
       }
+      expect(options.validateApiKey).toHaveBeenCalledWith('valid-key');
     });
 
-    it('should prefer session cookie over Bearer token when both are present', async () => {
+    it('should prefer session cookie over Bearer token when both are present and validators provided', async () => {
       process.env.NODE_ENV = 'development';
+      const options: AuthOptions = {
+        validateSessionToken: vi.fn().mockResolvedValue('session-user'),
+        validateApiKey: vi.fn().mockResolvedValue('api-user'),
+      };
       const request = makeRequest({
         Cookie: 'agentpane_session=sesstoken',
         Authorization: 'Bearer apitoken',
       });
 
-      const result = await getAuthContext(request);
+      const result = await getAuthContext(request, options);
 
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value.authMethod).toBe('session');
+        expect(result.value.userId).toBe('session-user');
       }
+      // Only session validator should have been called
+      expect(options.validateSessionToken).toHaveBeenCalledWith('sesstoken');
+      expect(options.validateApiKey).not.toHaveBeenCalled();
     });
 
     it('should not match Authorization header without Bearer prefix', async () => {
@@ -151,8 +163,24 @@ describe('getAuthContext', () => {
   // ─── Dev mode bypass ──────────────────────────────────────────────
 
   describe('dev mode bypass', () => {
-    it('should succeed with "dev" method and "local-dev" userId for unauthenticated requests in development', async () => {
+    it('should reject unauthenticated requests in dev mode without SKIP_AUTH=true', async () => {
       process.env.NODE_ENV = 'development';
+      delete process.env.SKIP_AUTH;
+
+      const request = makeRequest();
+
+      const result = await getAuthContext(request);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('UNAUTHORIZED');
+        expect(result.error.message).toContain('Authentication required');
+      }
+    });
+
+    it('should allow unauthenticated requests in dev mode with SKIP_AUTH=true', async () => {
+      process.env.NODE_ENV = 'development';
+      process.env.SKIP_AUTH = 'true';
 
       const request = makeRequest();
 
@@ -161,7 +189,7 @@ describe('getAuthContext', () => {
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value.authMethod).toBe('dev');
-        expect(result.value.userId).toBe('local-dev');
+        expect(result.value.userId).toBe('dev-user');
       }
     });
   });
@@ -321,9 +349,9 @@ describe('getAuthContext', () => {
   // ─── X-Dev-User header ───────────────────────────────────────────
 
   describe('X-Dev-User header', () => {
-    it('should use custom userId from X-Dev-User header in dev mode', async () => {
+    it('should use custom userId from X-Dev-User header when SKIP_AUTH=true in dev mode', async () => {
       process.env.NODE_ENV = 'development';
-      delete process.env.SKIP_AUTH;
+      process.env.SKIP_AUTH = 'true';
 
       const request = makeRequest({
         'X-Dev-User': 'custom-test-user',
@@ -338,20 +366,19 @@ describe('getAuthContext', () => {
       }
     });
 
-    it('should prefer SKIP_AUTH over X-Dev-User header', async () => {
+    it('should not use X-Dev-User header without SKIP_AUTH=true in dev mode', async () => {
       process.env.NODE_ENV = 'development';
-      process.env.SKIP_AUTH = 'true';
+      delete process.env.SKIP_AUTH;
 
       const request = makeRequest({
-        'X-Dev-User': 'custom-user',
+        'X-Dev-User': 'custom-test-user',
       });
 
       const result = await getAuthContext(request);
 
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        // SKIP_AUTH is checked first, so dev-user should win
-        expect(result.value.userId).toBe('dev-user');
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('UNAUTHORIZED');
       }
     });
 
@@ -383,8 +410,8 @@ describe('validateUserIdMatch', () => {
     expect(validateUserIdMatch('any-user-id', 'dev-user')).toBe(true);
   });
 
-  it('should return true for local-dev user', () => {
-    expect(validateUserIdMatch('any-user-id', 'local-dev')).toBe(true);
+  it('should not allow local-dev user (no longer a valid auth identity)', () => {
+    expect(validateUserIdMatch('any-user-id', 'local-dev')).toBe(false);
   });
 
   it('should return true when requestUserId exactly matches authUserId', () => {

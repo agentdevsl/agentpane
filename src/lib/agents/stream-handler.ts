@@ -15,6 +15,7 @@ export interface StreamHandlerOptions {
   model: string;
   cwd: string;
   hooks: AgentHooks;
+  signal?: AbortSignal;
   sessionService: {
     publish: (sessionId: string, event: SessionEvent) => Promise<unknown>;
   };
@@ -22,13 +23,12 @@ export interface StreamHandlerOptions {
 
 export interface ExitPlanModeOptions {
   allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
-  // TODO: Pending GA — swarm and remote session features
-  // pushToRemote?: boolean;
-  // remoteSessionId?: string;
-  // remoteSessionUrl?: string;
-  // remoteSessionTitle?: string;
-  // launchSwarm?: boolean;
-  // teammateCount?: number;
+  pushToRemote?: boolean;
+  remoteSessionId?: string;
+  remoteSessionUrl?: string;
+  remoteSessionTitle?: string;
+  launchSwarm?: boolean;
+  teammateCount?: number;
 }
 
 export interface AgentRunResult {
@@ -318,7 +318,7 @@ async function publishMetrics(
  * Returns after the plan is ready for user approval.
  */
 export async function runAgentPlanning(options: StreamHandlerOptions): Promise<AgentRunResult> {
-  const { agentId, sessionId, prompt, model, cwd, sessionService } = options;
+  const { agentId, sessionId, prompt, model, cwd, sessionService, signal } = options;
 
   const runId = createId();
   let accumulated = '';
@@ -382,6 +382,23 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
 
     // Stream the planning response
     for await (const msg of session.stream()) {
+      // Check if abort signal has been triggered
+      if (signal?.aborted) {
+        session.close();
+        await sessionService.publish(sessionId, {
+          id: createId(),
+          type: 'agent:stopped',
+          timestamp: Date.now(),
+          data: { agentId, runId, reason: 'aborted', phase: 'planning' },
+        });
+        return {
+          runId,
+          status: 'paused',
+          turnCount: turn,
+          result: 'Agent stopped by user during planning',
+        };
+      }
+
       // Handle stream events (token-by-token streaming)
       if (msg.type === 'stream_event') {
         const event = msg.event as {
@@ -625,7 +642,7 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
  * Run the agent in execution mode after plan approval.
  */
 export async function runAgentExecution(options: StreamHandlerOptions): Promise<AgentRunResult> {
-  const { agentId, sessionId, prompt, allowedTools, maxTurns, model, cwd, sessionService } =
+  const { agentId, sessionId, prompt, allowedTools, maxTurns, model, cwd, sessionService, signal } =
     options;
 
   const runId = createId();
@@ -694,6 +711,23 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
 
     // Stream responses from the SDK
     for await (const msg of session.stream()) {
+      // Check if abort signal has been triggered
+      if (signal?.aborted) {
+        session.close();
+        await sessionService.publish(sessionId, {
+          id: createId(),
+          type: 'agent:stopped',
+          timestamp: Date.now(),
+          data: { agentId, runId, reason: 'aborted', phase: 'execution' },
+        });
+        return {
+          runId,
+          status: 'paused',
+          turnCount: turn,
+          result: 'Agent stopped by user during execution',
+        };
+      }
+
       // Handle stream events (token-by-token streaming)
       if (msg.type === 'stream_event') {
         const event = msg.event as {

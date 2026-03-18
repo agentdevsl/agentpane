@@ -420,13 +420,12 @@ async function shouldStop(): Promise<boolean> {
  */
 interface ExitPlanModeOptions {
   allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
-  // TODO: Pending GA — swarm and remote session features
-  // launchSwarm?: boolean;
-  // teammateCount?: number;
-  // pushToRemote?: boolean;
-  // remoteSessionId?: string;
-  // remoteSessionUrl?: string;
-  // remoteSessionTitle?: string;
+  launchSwarm?: boolean;
+  teammateCount?: number;
+  pushToRemote?: boolean;
+  remoteSessionId?: string;
+  remoteSessionUrl?: string;
+  remoteSessionTitle?: string;
 }
 
 /**
@@ -532,7 +531,7 @@ async function runPlanningPhase(): Promise<void> {
     // The SDK/CLI handles directory access via cwd and environment
     session = unstable_v2_createSession({
       model: config.model,
-      env: { ...process.env }, // TODO: Pending GA — CLAUDE_CODE_AGENT_SWARMS env removed
+      env: { ...process.env }, // Teams GA: env passed through for agent swarm support
       permissionMode: 'plan', // Planning mode - read-only exploration
       canUseTool, // Use official SDK callback for tool interception
     });
@@ -892,7 +891,7 @@ async function runExecutionPhase(): Promise<void> {
       try {
         session = unstable_v2_resumeSession(config.sdkSessionId, {
           model: config.model,
-          env: { ...process.env }, // TODO: Pending GA — CLAUDE_CODE_AGENT_SWARMS env removed
+          env: { ...process.env }, // Teams GA: env passed through for agent swarm support
           permissionMode: 'bypassPermissions',
           canUseTool, // Track tools even in bypass mode
         });
@@ -916,7 +915,7 @@ async function runExecutionPhase(): Promise<void> {
       // Create new session (either no sdkSessionId provided, or resume failed)
       session = unstable_v2_createSession({
         model: config.model,
-        env: { ...process.env }, // TODO: Pending GA — CLAUDE_CODE_AGENT_SWARMS env removed
+        env: { ...process.env }, // Teams GA: env passed through for agent swarm support
         permissionMode: 'bypassPermissions',
         canUseTool, // Track tools even in bypass mode
       });
