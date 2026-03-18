@@ -830,8 +830,8 @@ describe('AddTemplateDialog', () => {
     });
   });
 
-  describe('legacy projectId prop', () => {
-    it('supports legacy projectId prop for backward compatibility', async () => {
+  describe('initialProjectIds prop', () => {
+    it('pre-selects projects from initialProjectIds', async () => {
       const user = userEvent.setup();
       const onSubmit = vi.fn().mockResolvedValue(undefined);
 
@@ -841,12 +841,12 @@ describe('AddTemplateDialog', () => {
           onOpenChange={vi.fn()}
           scope="project"
           projects={mockProjects}
-          projectId="proj-1"
+          initialProjectIds={['proj-1']}
           onSubmit={onSubmit}
         />
       );
 
-      // Should show 1 project selected from legacy prop
+      // Should show 1 project selected
       expect(screen.getByText('1 project selected')).toBeInTheDocument();
 
       const nameInput = screen.getByTestId('template-name-input');
@@ -867,20 +867,18 @@ describe('AddTemplateDialog', () => {
       });
     });
 
-    it('prefers initialProjectIds over legacy projectId', () => {
+    it('supports multiple initial project IDs', () => {
       render(
         <AddTemplateDialog
           open
           onOpenChange={vi.fn()}
           scope="project"
           projects={mockProjects}
-          projectId="proj-1"
           initialProjectIds={['proj-2', 'proj-3']}
           onSubmit={vi.fn()}
         />
       );
 
-      // Should show 2 projects selected from initialProjectIds, not 1 from projectId
       expect(screen.getByText('2 projects selected')).toBeInTheDocument();
     });
   });

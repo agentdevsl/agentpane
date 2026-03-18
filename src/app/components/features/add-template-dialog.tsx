@@ -31,8 +31,6 @@ export type CreateTemplateInput = {
   githubUrl: string;
   branch?: string;
   configPath?: string;
-  /** @deprecated Use projectIds instead */
-  projectId?: string;
   /** Project IDs to associate with this template (for project-scoped templates) */
   projectIds?: string[];
 };
@@ -46,8 +44,6 @@ interface AddTemplateDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   scope: 'org' | 'project';
-  /** @deprecated Use initialProjectIds instead */
-  projectId?: string;
   /** Initial project IDs to pre-select (for project-scoped templates) */
   initialProjectIds?: string[];
   /** Available projects for project-scoped templates. Required when scope='project'. */
@@ -288,7 +284,6 @@ export function AddTemplateDialog({
   open,
   onOpenChange,
   scope,
-  projectId: legacyProjectId,
   initialProjectIds = [],
   projects = [],
   onSubmit,
@@ -296,9 +291,7 @@ export function AddTemplateDialog({
   onFetchReposForOwner,
   isGitHubConfigured = false,
 }: AddTemplateDialogProps): React.JSX.Element {
-  // Normalize initial project IDs from both legacy and new prop
-  const normalizedInitialIds =
-    initialProjectIds.length > 0 ? initialProjectIds : legacyProjectId ? [legacyProjectId] : [];
+  const normalizedInitialIds = initialProjectIds;
 
   // Form state
   const [name, setName] = useState('');

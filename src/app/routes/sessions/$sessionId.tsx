@@ -195,7 +195,7 @@ function SessionPage(): React.JSX.Element {
           preset="error"
           title="Failed to load session"
           subtitle={error.message}
-          action={{
+          primaryAction={{
             label: 'Try again',
             onClick: () => {
               void (async () => {

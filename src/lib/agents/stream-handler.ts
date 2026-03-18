@@ -959,17 +959,6 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
   }
 }
 
-/**
- * Legacy function - delegates to runAgentPlanning.
- * @deprecated Use runAgentPlanning and runAgentExecution separately
- */
-export async function runAgentWithStreaming(
-  options: StreamHandlerOptions
-): Promise<AgentRunResult> {
-  // Start with planning phase
-  return runAgentPlanning(options);
-}
-
 // Helper to execute a single tool call with hooks
 export async function executeToolWithHooks(
   toolName: string,

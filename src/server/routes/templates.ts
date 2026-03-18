@@ -96,8 +96,7 @@ export function createTemplatesRoutes({ templateService }: TemplatesDeps) {
         githubUrl: body.githubUrl,
         branch: body.branch,
         configPath: body.configPath,
-        projectId: body.projectId,
-        projectIds: body.projectIds,
+        projectIds: body.projectIds ?? (body.projectId ? [body.projectId] : undefined),
       });
 
       if (!result.ok) {

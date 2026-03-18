@@ -904,24 +904,23 @@ describe('TemplateService', () => {
   });
 
   // =============================================================================
-  // Legacy Project ID Support
+  // Project IDs Support
   // =============================================================================
 
-  describe('Legacy Project ID Support', () => {
-    it('supports legacy projectId parameter in create', async () => {
+  describe('Project IDs Support', () => {
+    it('supports projectIds array parameter in create', async () => {
       const project = await createTestProject();
 
       const result = await templateService.create({
-        name: 'Legacy Template',
+        name: 'Template with ProjectIds',
         scope: 'project',
         githubUrl: 'owner/repo',
-        projectId: project.id, // Legacy parameter
+        projectIds: [project.id],
       });
 
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value.projectIds).toEqual([project.id]);
-        expect(result.value.projectId).toBe(project.id);
       }
     });
   });

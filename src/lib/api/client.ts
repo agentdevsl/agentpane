@@ -156,8 +156,6 @@ export type CreateTemplateInput = {
   githubUrl: string;
   branch?: string;
   configPath?: string;
-  /** @deprecated Use projectIds instead */
-  projectId?: string;
   /** Project IDs to associate with this template (for project-scoped templates) */
   projectIds?: string[];
 };

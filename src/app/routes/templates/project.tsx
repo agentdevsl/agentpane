@@ -350,7 +350,7 @@ function ProjectTemplatesPage(): React.JSX.Element {
         open={showAddDialog}
         onOpenChange={setShowAddDialog}
         scope="project"
-        projectId={selectedProjectId !== 'all' ? selectedProjectId : undefined}
+        initialProjectIds={selectedProjectId !== 'all' ? [selectedProjectId] : []}
         projects={projects.map((p) => ({ id: p.id, name: p.name }))}
         onSubmit={handleAddTemplate}
         onFetchOrgs={handleFetchOrgs}

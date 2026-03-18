@@ -23,8 +23,6 @@ export type CreateTemplateInput = {
   githubUrl: string;
   branch?: string;
   configPath?: string;
-  /** @deprecated Use projectIds instead */
-  projectId?: string;
   /** Project IDs to associate with this template (for project-scoped templates) */
   projectIds?: string[];
   /** Auto-sync interval in minutes (null = disabled, minimum 5 minutes) */
@@ -93,8 +91,7 @@ export class TemplateService {
 
     const { owner, repo } = parsed.value;
 
-    // Normalize projectIds - support both legacy projectId and new projectIds array
-    const projectIds = input.projectIds ?? (input.projectId ? [input.projectId] : []);
+    const projectIds = input.projectIds ?? [];
 
     // Validate project-scoped templates require at least one project
     if (input.scope === 'project' && projectIds.length === 0) {
