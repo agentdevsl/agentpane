@@ -49,6 +49,9 @@ function mapSessionStatusToTopologyStatus(session: {
   }
 }
 
+/** Default max turns for progress calculation (matches agent-execution default) */
+const DEFAULT_MAX_TURNS = 50;
+
 /** Active view tab type */
 type ViewTab = 'replay' | 'tools' | 'topology';
 
@@ -85,7 +88,7 @@ export function SessionDetailView({
                 ? 0
                 : session.turnsUsed === 0
                   ? 0
-                  : Math.min(95, Math.round((session.turnsUsed / 50) * 100)),
+                  : Math.min(95, Math.round((session.turnsUsed / DEFAULT_MAX_TURNS) * 100)),
           tokens: session.tokensUsed,
           cost: session.costUsd ?? 0,
           turns: session.turnsUsed,
@@ -245,7 +248,7 @@ export function SessionDetailView({
   metaItems.push({
     icon: <ChatCircle className="h-3.5 w-3.5" />,
     label: 'Turns',
-    value: `${session.turnsUsed}/50`,
+    value: `${session.turnsUsed}/${DEFAULT_MAX_TURNS}`,
   });
 
   metaItems.push({

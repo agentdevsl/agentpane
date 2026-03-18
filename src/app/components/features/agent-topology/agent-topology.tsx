@@ -118,7 +118,7 @@ function TopologyInner(): React.JSX.Element {
         const targetNode = nodeById.get(rfEdge.target);
         const sourceStatus = sourceNode?.status ?? 'queued';
         const targetStatus = targetNode?.status ?? 'queued';
-        const d = rfEdge.data as Record<string, unknown> | undefined;
+        const d = rfEdge.data as { sourceStatus?: string; targetStatus?: string } | undefined;
         if (d && d.sourceStatus === sourceStatus && d.targetStatus === targetStatus) {
           return rfEdge;
         }
