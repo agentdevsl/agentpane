@@ -20,11 +20,13 @@ The overall architecture is sound and well-organized. The primary risks are oper
 | Severity | Count |
 |----------|-------|
 | Critical | 8 |
-| High | 21 |
-| Medium | 52 |
-| Low | 42 |
-| Info | 18 |
-| **Total** | **141** |
+| High | 24 |
+| Medium | 77 |
+| Low | 60 |
+| Info | 68 |
+| **Total** | **237** |
+
+*Note: Info findings include 34 "Strength" findings from the Sandbox review (07) which document positive architectural patterns, plus positive findings from other reviews.*
 
 ## Top Priority Findings
 
@@ -66,16 +68,16 @@ These are the ~15 most impactful findings across all 10 reviews, ordered by seve
 
 | # | Document | Findings | Critical | High | Medium | Low | Info |
 |---|----------|----------|----------|------|--------|-----|------|
-| 01 | [Service Layer Deep Dive](01-service-layer-deep-dive.md) | 20 | 0 | 3 | 8 | 5 | 4 |
+| 01 | [Service Layer Deep Dive](01-service-layer-deep-dive.md) | 20 | 1 | 2 | 10 | 5 | 2 |
 | 02 | [Agent Execution Pipeline](02-agent-execution-pipeline.md) | 12 | 0 | 2 | 5 | 5 | 0 |
-| 03 | [API Routes & Middleware](03-api-routes-middleware.md) | 33 | 0 | 1 | 8 | 14 | 10 |
+| 03 | [API Routes & Middleware](03-api-routes-middleware.md) | 33 | 0 | 1 | 9 | 14 | 9 |
 | 04 | [Database Schema & Queries](04-database-schema-queries.md) | 20 | 3 | 4 | 8 | 4 | 1 |
-| 05 | [Frontend Component Architecture](05-frontend-component-architecture.md) | 15 | 0 | 4 | 8 | 3 | 0 |
-| 06 | [Real-Time Streaming & Events](06-realtime-streaming-events.md) | 19 | 0 | 1 | 7 | 8 | 3 |
-| 07 | [Sandbox & Container Architecture](07-sandbox-container-architecture.md) | 41 | 0 | 0 | 5 | 3 | 33 |
-| 08 | [Error Handling & Type Safety](08-error-handling-type-safety.md) | 26 | 0 | 1 | 7 | 5 | 13 |
+| 05 | [Frontend Component Architecture](05-frontend-component-architecture.md) | 22 | 0 | 4 | 8 | 5 | 5 |
+| 06 | [Real-Time Streaming & Events](06-realtime-streaming-events.md) | 19 | 0 | 1 | 8 | 8 | 2 |
+| 07 | [Sandbox & Container Architecture](07-sandbox-container-architecture.md) | 41 | 0 | 0 | 5 | 2 | 34 |
+| 08 | [Error Handling & Type Safety](08-error-handling-type-safety.md) | 26 | 0 | 1 | 9 | 6 | 10 |
 | 09 | [Config, Bootstrap & Lifecycle](09-config-bootstrap-lifecycle.md) | 16 | 2 | 4 | 6 | 4 | 0 |
-| 10 | [Code Quality & Technical Debt](10-code-quality-technical-debt.md) | 28 | 0 | 5 | 9 | 8 | 6 |
+| 10 | [Code Quality & Technical Debt](10-code-quality-technical-debt.md) | 28 | 2 | 5 | 9 | 7 | 5 |
 
 **Note on severity mapping for Review 07 (Sandbox)**: Findings labeled "Strength" are mapped to Info severity. Findings labeled "Concern" are mapped to Medium. "Gap" and "Minor" are mapped to Low. "Note" and "Design Decision" are mapped to Info.
 
