@@ -52,20 +52,6 @@ export function ProjectPicker({
     }
   }, [open, resetState]);
 
-  // Handle Escape key at window level for reliable dialog closing
-  useEffect(() => {
-    if (!open) return;
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onOpenChange(false);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [open, onOpenChange]);
-
   // Handle new project click
   const handleNewProjectClick = useCallback(() => {
     onOpenChange(false);

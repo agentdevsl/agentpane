@@ -1,10 +1,17 @@
-import { Component, type ErrorInfo, lazy, type ReactNode, Suspense } from 'react';
+import { Component, type ErrorInfo, lazy, type ReactNode, Suspense, useEffect } from 'react';
 import type { TopologyGraph } from '@/lib/topology/types';
 import { TopologyProvider } from './topology-context';
 
-const AgentTopologyInner = lazy(() =>
-  import('./agent-topology').then((mod) => ({ default: mod.AgentTopology }))
-);
+const AgentTopologyInner = lazy(() => {
+  console.debug('[AgentTopology] lazy import START');
+  const start = performance.now();
+  return import('./agent-topology').then((mod) => {
+    console.debug('[AgentTopology] lazy import DONE', {
+      ms: Math.round(performance.now() - start),
+    });
+    return { default: mod.AgentTopology };
+  });
+});
 
 interface AgentTopologyProps {
   /** Session ID to subscribe to for live topology events */
@@ -53,10 +60,21 @@ function TopologyLoading(): React.JSX.Element {
   );
 }
 
+function DebugMount({ label }: { label: string }): null {
+  useEffect(() => {
+    console.debug(`[AgentTopology] ${label} mounted`);
+    return () => console.debug(`[AgentTopology] ${label} unmounted`);
+  }, [label]);
+  return null;
+}
+
 export function AgentTopology({ sessionId, initialData }: AgentTopologyProps): React.JSX.Element {
+  console.debug('[AgentTopology] render', { sessionId, hasInitialData: !!initialData });
   return (
     <TopologyErrorBoundary>
+      <DebugMount label="ErrorBoundary" />
       <TopologyProvider sessionId={sessionId} initialData={initialData}>
+        <DebugMount label="Provider" />
         <Suspense fallback={<TopologyLoading />}>
           <AgentTopologyInner />
         </Suspense>

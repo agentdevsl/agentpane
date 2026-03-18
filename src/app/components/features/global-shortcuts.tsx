@@ -166,19 +166,6 @@ export function useGlobalShortcuts(props: GlobalShortcutsProps = {}): void {
       action: () => setHelpOpen(true),
     });
 
-    // Escape to close modals (this is handled in the modal components themselves)
-    // But we can add it to the help for documentation
-    result.push({
-      key: 'Escape',
-      description: 'Close modal/deselect',
-      category: 'navigation',
-      action: () => {
-        // This is typically handled by individual modals
-        // Here we just close the help modal if it's open
-        setHelpOpen(false);
-      },
-    });
-
     return result;
   }, [
     navigate,
@@ -249,12 +236,6 @@ export function GlobalShortcuts(): React.JSX.Element {
         description: 'Show keyboard shortcuts',
         category: 'navigation',
         action: () => setHelpOpen(true),
-      },
-      {
-        key: 'Escape',
-        description: 'Close modal/deselect',
-        category: 'navigation',
-        action: () => setHelpOpen(false),
       },
     ],
     [navigate, setHelpOpen]
@@ -399,31 +380,8 @@ export function GlobalShortcutsWithPicker(): React.JSX.Element {
         category: 'navigation',
         action: () => setHelpOpen(true),
       },
-      {
-        key: 'Escape',
-        description: 'Close modal/deselect',
-        category: 'navigation',
-        action: () => {
-          if (isPickerOpen) {
-            closePicker();
-          } else if (isNewProjectDialogOpen) {
-            closeNewProjectDialog();
-          } else {
-            setHelpOpen(false);
-          }
-        },
-      },
     ],
-    [
-      navigate,
-      setHelpOpen,
-      openPicker,
-      closePicker,
-      openNewProjectDialog,
-      closeNewProjectDialog,
-      isPickerOpen,
-      isNewProjectDialogOpen,
-    ]
+    [navigate, setHelpOpen, openPicker, openNewProjectDialog]
   );
 
   useKeyboardShortcuts(shortcuts, shortcutsContext);

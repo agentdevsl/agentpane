@@ -19,16 +19,16 @@ describe('EmptyState', () => {
     expect(screen.getByText('Custom subtitle text')).toBeInTheDocument();
   });
 
-  it('renders action button', () => {
+  it('renders primaryAction button', () => {
     const onClick = vi.fn();
-    render(<EmptyState preset="no-tasks" action={{ label: 'Add Task', onClick }} />);
+    render(<EmptyState preset="no-tasks" primaryAction={{ label: 'Add Task', onClick }} />);
 
     expect(screen.getByRole('button', { name: 'Add Task' })).toBeInTheDocument();
   });
 
-  it('calls onClick when action button clicked', () => {
+  it('calls onClick when primaryAction button clicked', () => {
     const onClick = vi.fn();
-    render(<EmptyState preset="no-tasks" action={{ label: 'Add Task', onClick }} />);
+    render(<EmptyState preset="no-tasks" primaryAction={{ label: 'Add Task', onClick }} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Add Task' }));
     expect(onClick).toHaveBeenCalledTimes(1);

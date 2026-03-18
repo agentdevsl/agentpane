@@ -100,10 +100,6 @@ export function useProjectPickerState({
           }
           break;
         }
-        case 'Escape':
-          event.preventDefault();
-          onOpenChange(false);
-          break;
       }
     },
     [allItems, selectedIndex, onProjectSelect, onOpenChange]

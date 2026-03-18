@@ -13,7 +13,6 @@ import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/data
 // Mock external dependencies
 vi.mock('../../src/lib/agents/stream-handler', () => ({
   runAgentPlanning: vi.fn(),
-  runAgentWithStreaming: vi.fn(),
 }));
 
 vi.mock('../../src/lib/agents/hooks/index', () => ({

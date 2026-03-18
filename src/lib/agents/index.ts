@@ -24,7 +24,7 @@ export {
 } from './recovery.js';
 export type { AgentRunResult, StreamHandlerOptions } from './stream-handler.js';
 // Stream Handler
-export { executeToolWithHooks, runAgentWithStreaming } from './stream-handler.js';
+export { executeToolWithHooks } from './stream-handler.js';
 export type {
   BashArgs,
   EditFileArgs,

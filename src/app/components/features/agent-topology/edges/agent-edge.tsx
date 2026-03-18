@@ -101,13 +101,7 @@ function AgentEdgeComponent({
             <animateMotion dur="2s" repeatCount="indefinite" path={edgePath} begin="0s" />
           </circle>
           <circle r="2" fill={targetColor} opacity="0.6">
-            <animateMotion dur="2s" repeatCount="indefinite" path={edgePath} begin="0.5s" />
-          </circle>
-          <circle r="2.5" fill={sourceColor} opacity="0.8">
             <animateMotion dur="2s" repeatCount="indefinite" path={edgePath} begin="1s" />
-          </circle>
-          <circle r="2" fill={targetColor} opacity="0.6">
-            <animateMotion dur="2s" repeatCount="indefinite" path={edgePath} begin="1.5s" />
           </circle>
         </>
       )}
@@ -115,5 +109,26 @@ function AgentEdgeComponent({
   );
 }
 
-export const AgentEdge = memo(AgentEdgeComponent);
+function areAgentEdgePropsEqual(prev: EdgeProps, next: EdgeProps): boolean {
+  if (
+    prev.sourceX !== next.sourceX ||
+    prev.sourceY !== next.sourceY ||
+    prev.targetX !== next.targetX ||
+    prev.targetY !== next.targetY ||
+    prev.sourcePosition !== next.sourcePosition ||
+    prev.targetPosition !== next.targetPosition
+  ) {
+    return false;
+  }
+
+  const prevData = prev.data as AgentEdgeData | undefined;
+  const nextData = next.data as AgentEdgeData | undefined;
+
+  return (
+    prevData?.sourceStatus === nextData?.sourceStatus &&
+    prevData?.targetStatus === nextData?.targetStatus
+  );
+}
+
+export const AgentEdge = memo(AgentEdgeComponent, areAgentEdgePropsEqual);
 AgentEdge.displayName = 'AgentEdge';

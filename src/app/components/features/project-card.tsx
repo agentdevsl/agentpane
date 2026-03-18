@@ -10,6 +10,7 @@ import {
   Warning,
 } from '@phosphor-icons/react';
 import { Link, useNavigate } from '@tanstack/react-router';
+import { memo } from 'react';
 import { Button } from '@/app/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/app/components/ui/tooltip';
 import { formatRelativeTime } from '@/lib/utils/format-time';
@@ -123,7 +124,36 @@ function MiniKanbanBar({
   );
 }
 
-export function ProjectCard({
+function arePropsEqual(prev: ProjectCardProps, next: ProjectCardProps): boolean {
+  if (prev.project.id !== next.project.id) return false;
+  if (prev.status !== next.status) return false;
+
+  const prevCounts = prev.taskCounts;
+  const nextCounts = next.taskCounts;
+  if (
+    prevCounts.backlog !== nextCounts.backlog ||
+    prevCounts.queued !== nextCounts.queued ||
+    prevCounts.inProgress !== nextCounts.inProgress ||
+    prevCounts.waitingApproval !== nextCounts.waitingApproval ||
+    prevCounts.verified !== nextCounts.verified
+  )
+    return false;
+
+  const prevAgents = prev.activeAgents;
+  const nextAgents = next.activeAgents;
+  if (prevAgents.length !== nextAgents.length) return false;
+  for (let i = 0; i < prevAgents.length; i++) {
+    const prevAgent = prevAgents[i];
+    const nextAgent = nextAgents[i];
+    if (!prevAgent || !nextAgent || prevAgent.id !== nextAgent.id) return false;
+  }
+
+  if (prev.lastRunAt?.toString() !== next.lastRunAt?.toString()) return false;
+
+  return true;
+}
+
+export const ProjectCard = memo(function ProjectCard({
   project,
   status,
   taskCounts,
@@ -313,7 +343,7 @@ export function ProjectCard({
       </div>
     </div>
   );
-}
+}, arePropsEqual);
 
 // Re-export for backward compatibility (tests and other consumers)
 export { formatRelativeTime } from '@/lib/utils/format-time';

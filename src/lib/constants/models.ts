@@ -16,9 +16,6 @@ export function getAnthropicBaseUrl(): string {
   return localStorage.getItem('anthropic_base_url') ?? DEFAULT_ANTHROPIC_BASE_URL;
 }
 
-/** @deprecated Use DEFAULT_ANTHROPIC_BASE_URL instead */
-export const DEFAULT_API_ENDPOINT = DEFAULT_ANTHROPIC_BASE_URL;
-
 /**
  * Available AI models for agent execution and AI features.
  */

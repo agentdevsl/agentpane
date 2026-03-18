@@ -13,11 +13,13 @@ import {
   Trash,
   Wrench,
 } from '@phosphor-icons/react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { AgentTopology } from '@/app/components/features/agent-topology';
 import { Button } from '@/app/components/ui/button';
 import { ExecutionBadge } from '@/app/components/ui/execution-badge';
 import { Skeleton, SkeletonText } from '@/app/components/ui/skeleton';
+import type { SessionStatus } from '@/db/schema';
+import type { TopologyGraph, TopologyNode } from '@/lib/topology/types';
 import { cn } from '@/lib/utils/cn';
 import { useSessionEvents } from '../hooks/use-session-events';
 import type { SessionDetailViewProps } from '../types';
@@ -27,6 +29,28 @@ import { ExportDropdown } from './export-dropdown';
 import { SessionSummary } from './session-summary';
 import { StreamViewer } from './stream-viewer';
 import { ToolCallsFullView } from './tool-calls-full-view';
+
+function mapSessionStatusToTopologyStatus(session: {
+  status: SessionStatus;
+  closedAt: string | null;
+}): TopologyNode['status'] {
+  switch (session.status) {
+    case 'active':
+      return session.closedAt ? 'completed' : 'running';
+    case 'closed':
+    case 'closing':
+      return 'completed';
+    case 'error':
+      return 'failed';
+    case 'paused':
+      return 'blocked';
+    default:
+      return 'queued';
+  }
+}
+
+/** Default max turns for progress calculation (matches agent-execution default) */
+const DEFAULT_MAX_TURNS = 50;
 
 /** Active view tab type */
 type ViewTab = 'replay' | 'tools' | 'topology';
@@ -41,6 +65,60 @@ export function SessionDetailView({
 }: SessionDetailViewProps): React.JSX.Element {
   const [activeView, setActiveView] = useState<ViewTab>('replay');
   const { entries, toolCalls, toolCallStats, isLoading: eventsLoading } = useSessionEvents(session);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: granular deps intentional to avoid recompute when unrelated session fields change; session nullability handled inside
+  const rootTopologyGraph: TopologyGraph | null = useMemo(() => {
+    if (!session) return null;
+    return {
+      nodes: [
+        {
+          id: session.agentId ?? session.id,
+          name: session.agentName ?? session.title ?? 'Agent',
+          role: 'orchestrator',
+          status: mapSessionStatusToTopologyStatus({
+            status: session.status,
+            closedAt: session.closedAt ?? null,
+          }),
+          parentId: null,
+          childIds: [],
+          progress:
+            session.closedAt || session.status === 'closed'
+              ? 100
+              : session.status === 'error'
+                ? 0
+                : session.turnsUsed === 0
+                  ? 0
+                  : Math.min(95, Math.round((session.turnsUsed / DEFAULT_MAX_TURNS) * 100)),
+          tokens: session.tokensUsed,
+          cost: session.costUsd ?? 0,
+          turns: session.turnsUsed,
+          messages: session.turnsUsed,
+          startedAt: new Date(session.createdAt).getTime(),
+          completedAt: session.closedAt ? new Date(session.closedAt).getTime() : null,
+          verified: false,
+          verificationScore: 0,
+          decisions: [],
+        },
+      ],
+      edges: [],
+      taskId: session.taskId ?? '',
+      taskName: session.taskTitle ?? session.title ?? '',
+      taskPriority: 'normal',
+    };
+  }, [
+    session?.id,
+    session?.agentId,
+    session?.agentName,
+    session?.title,
+    session?.status,
+    session?.closedAt,
+    session?.turnsUsed,
+    session?.tokensUsed,
+    session?.costUsd,
+    session?.createdAt,
+    session?.taskId,
+    session?.taskTitle,
+  ]);
 
   // Loading state
   if (isLoading) {
@@ -170,7 +248,7 @@ export function SessionDetailView({
   metaItems.push({
     icon: <ChatCircle className="h-3.5 w-3.5" />,
     label: 'Turns',
-    value: `${session.turnsUsed}/50`,
+    value: `${session.turnsUsed}/${DEFAULT_MAX_TURNS}`,
   });
 
   metaItems.push({
@@ -349,6 +427,7 @@ export function SessionDetailView({
             sessionId={
               session.status !== 'closed' && session.status !== 'error' ? session.id : undefined
             }
+            initialData={rootTopologyGraph ?? undefined}
           />
         </div>
       )}

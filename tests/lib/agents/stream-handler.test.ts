@@ -1054,23 +1054,3 @@ describe('executeToolWithHooks', () => {
     );
   });
 });
-
-// =============================================================================
-// runAgentWithStreaming (legacy) Tests
-// =============================================================================
-
-describe('runAgentWithStreaming', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    createMockSession();
-  });
-
-  it('delegates to runAgentPlanning', async () => {
-    const sessionService = createMockSessionService();
-    const { runAgentWithStreaming } = await import('@/lib/agents/stream-handler');
-
-    const result = await runAgentWithStreaming(createDefaultOptions(sessionService));
-
-    expect(result.status).toBe('planning');
-  });
-});

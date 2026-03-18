@@ -116,11 +116,6 @@ interface EmptyStateProps extends VariantProps<typeof emptyStateVariants> {
   subtitle?: string;
   primaryAction?: EmptyStateAction;
   secondaryAction?: EmptyStateAction;
-  /** @deprecated Use primaryAction instead */
-  action?: {
-    label: string;
-    onClick: () => void;
-  };
   /** Step indicators for onboarding flows */
   steps?: StepItem[];
   /** Custom content slot */
@@ -222,7 +217,6 @@ export function EmptyState({
   subtitle,
   primaryAction,
   secondaryAction,
-  action,
   steps,
   children,
   size = 'md',
@@ -233,19 +227,13 @@ export function EmptyState({
   const displayTitle = title ?? presetConfig?.title ?? 'Nothing here';
   const displaySubtitle = subtitle ?? presetConfig?.subtitle ?? '';
 
-  // Support legacy action prop
   const finalPrimaryAction =
     primaryAction ??
-    (action
+    (presetConfig?.primaryActionLabel
       ? {
-          label: action.label,
-          onClick: action.onClick,
+          label: presetConfig.primaryActionLabel,
         }
-      : presetConfig?.primaryActionLabel
-        ? {
-            label: presetConfig.primaryActionLabel,
-          }
-        : undefined);
+      : undefined);
 
   const finalSecondaryAction =
     secondaryAction ??

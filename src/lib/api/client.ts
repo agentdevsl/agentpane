@@ -156,8 +156,6 @@ export type CreateTemplateInput = {
   githubUrl: string;
   branch?: string;
   configPath?: string;
-  /** @deprecated Use projectIds instead */
-  projectId?: string;
   /** Project IDs to associate with this template (for project-scoped templates) */
   projectIds?: string[];
 };
@@ -1255,6 +1253,13 @@ export const apiClient = {
       }>('/api/terraform/validate', { method: 'POST', body: data }),
 
     getComposeUrl: () => `${API_BASE}/api/terraform/compose`,
+  },
+
+  teams: {
+    list: () =>
+      apiServerFetch<{
+        items: Array<{ id: string; name: string; slug: string }>;
+      }>('/api/teams'),
   },
 
   events: {

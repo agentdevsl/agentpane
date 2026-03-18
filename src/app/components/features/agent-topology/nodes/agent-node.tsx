@@ -1,21 +1,15 @@
 import { Handle, type NodeProps, Position } from '@xyflow/react';
 import { memo } from 'react';
-import type {
-  TopologyAgentRole,
-  TopologyAgentStatus,
-  TopologyDecision,
-} from '@/lib/topology/types';
+import type { TopologyNode } from '@/lib/topology/types';
 import { AGENT_ROLE_CONFIG, DECISION_TYPE_CONFIG, STATUS_COLORS } from './agent-node-types';
 
-interface AgentNodeData {
-  name: string;
-  role: TopologyAgentRole;
-  status: TopologyAgentStatus;
-  progress: number;
-  decisions: TopologyDecision[];
+export type AgentNodeData = Pick<
+  TopologyNode,
+  'name' | 'role' | 'status' | 'progress' | 'decisions' | 'tokens' | 'cost' | 'turns'
+> & {
   nodeIndex: number;
   [key: string]: unknown;
-}
+};
 
 const RADIUS = 28;
 const ARC_R = RADIUS + 4; // 32
@@ -24,8 +18,15 @@ const SELECTION_R = RADIUS + 10; // 38
 const CIRCUMFERENCE = 2 * Math.PI * ARC_R;
 const ICON_SIZE = Math.max(14, RADIUS * 0.6);
 
+function formatTokens(n: number): string {
+  if (typeof n !== 'number' || !Number.isFinite(n) || n < 0) return '0';
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
+  return String(Math.round(n));
+}
+
 function AgentNodeComponent({ data, selected }: NodeProps) {
-  const { name, role, status, progress, decisions } = data as AgentNodeData;
+  const { name, role, status, progress, decisions, tokens, cost, turns } = data as AgentNodeData;
   const roleConfig = AGENT_ROLE_CONFIG[role];
   const roleColor = roleConfig.color;
   const statusColor = STATUS_COLORS[status];
@@ -42,8 +43,13 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
       ? 'url(#agent-glow-verifying)'
       : undefined;
 
+  const safeCost = typeof cost === 'number' && Number.isFinite(cost) ? cost : 0;
+  const safeTokens = typeof tokens === 'number' && Number.isFinite(tokens) ? tokens : 0;
+  const safeTurns = typeof turns === 'number' && Number.isFinite(turns) ? turns : 0;
+  const metricsText = `${safeTurns}t · ${formatTokens(safeTokens)} · $${safeCost.toFixed(2)}`;
+
   return (
-    <div style={{ width: 120, height: 100 }}>
+    <div style={{ width: 120, height: 145, overflow: 'visible' }}>
       <Handle
         type="target"
         position={Position.Top}
@@ -52,9 +58,10 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
       />
 
       <svg
-        viewBox="-60 -50 120 100"
+        viewBox="-60 -50 120 145"
         width={120}
-        height={100}
+        height={145}
+        overflow="visible"
         role="img"
         aria-label={`${name} - ${roleConfig.label} agent`}
       >
@@ -153,13 +160,25 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
         {/* Sub-label */}
         <text
           x={0}
-          y={RADIUS + 34}
+          y={RADIUS + 42}
           textAnchor="middle"
           fontSize={10}
           fill="#8b949e"
           style={{ pointerEvents: 'none' }}
         >
           {status} &middot; {progress}%
+        </text>
+
+        {/* Metrics row */}
+        <text
+          x={0}
+          y={RADIUS + 56}
+          textAnchor="middle"
+          fontSize={9}
+          fill="#6e7681"
+          style={{ pointerEvents: 'none' }}
+        >
+          {metricsText}
         </text>
 
         {/* Decision badge */}
@@ -200,5 +219,23 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
   );
 }
 
-export const AgentNode = memo(AgentNodeComponent);
+function areAgentNodePropsEqual(prev: NodeProps, next: NodeProps): boolean {
+  if (prev.selected !== next.selected) return false;
+
+  const prevData = prev.data as AgentNodeData;
+  const nextData = next.data as AgentNodeData;
+
+  return (
+    prevData.name === nextData.name &&
+    prevData.status === nextData.status &&
+    prevData.role === nextData.role &&
+    prevData.progress === nextData.progress &&
+    prevData.decisions === nextData.decisions &&
+    prevData.tokens === nextData.tokens &&
+    prevData.cost === nextData.cost &&
+    prevData.turns === nextData.turns
+  );
+}
+
+export const AgentNode = memo(AgentNodeComponent, areAgentNodePropsEqual);
 AgentNode.displayName = 'AgentNode';

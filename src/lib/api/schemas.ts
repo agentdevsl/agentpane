@@ -204,8 +204,6 @@ export const createTemplateSchema = z.object({
   githubUrl: githubUrlSchema,
   branch: z.string().max(100).optional(),
   configPath: z.string().max(500).optional(),
-  /** @deprecated Use projectIds instead */
-  projectId: cuidSchema.optional(),
   /** Project IDs to associate with this template (for project-scoped templates) */
   projectIds: z.array(cuidSchema).optional(),
   /** Auto-sync interval in minutes (null = disabled, minimum 5 minutes) */

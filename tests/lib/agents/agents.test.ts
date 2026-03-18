@@ -230,12 +230,12 @@ describe('Stream Handler', () => {
     PostToolUse: [],
   });
 
-  describe('runAgentWithStreaming', () => {
+  describe('runAgentPlanning', () => {
     it('publishes agent planning event', async () => {
       const sessionService = createMockSessionService();
-      const { runAgentWithStreaming } = await import('@/lib/agents/stream-handler');
+      const { runAgentPlanning } = await import('@/lib/agents/stream-handler');
 
-      await runAgentWithStreaming({
+      await runAgentPlanning({
         agentId: 'agent-1',
         sessionId: 'session-1',
         prompt: 'Test prompt',
@@ -261,9 +261,9 @@ describe('Stream Handler', () => {
 
     it('publishes plan_ready event on completion', async () => {
       const sessionService = createMockSessionService();
-      const { runAgentWithStreaming } = await import('@/lib/agents/stream-handler');
+      const { runAgentPlanning } = await import('@/lib/agents/stream-handler');
 
-      await runAgentWithStreaming({
+      await runAgentPlanning({
         agentId: 'agent-1',
         sessionId: 'session-1',
         prompt: 'Test prompt',
@@ -283,9 +283,9 @@ describe('Stream Handler', () => {
 
     it('returns planning status on success', async () => {
       const sessionService = createMockSessionService();
-      const { runAgentWithStreaming } = await import('@/lib/agents/stream-handler');
+      const { runAgentPlanning } = await import('@/lib/agents/stream-handler');
 
-      const result = await runAgentWithStreaming({
+      const result = await runAgentPlanning({
         agentId: 'agent-1',
         sessionId: 'session-1',
         prompt: 'Test prompt',
@@ -303,9 +303,9 @@ describe('Stream Handler', () => {
 
     it('publishes plan_ready event with plan data', async () => {
       const sessionService = createMockSessionService();
-      const { runAgentWithStreaming } = await import('@/lib/agents/stream-handler');
+      const { runAgentPlanning } = await import('@/lib/agents/stream-handler');
 
-      await runAgentWithStreaming({
+      await runAgentPlanning({
         agentId: 'agent-1',
         sessionId: 'session-1',
         prompt: 'Test prompt',
@@ -328,9 +328,9 @@ describe('Stream Handler', () => {
       // The stream handler catches errors and returns them as error status
       // Test that the planning flow works by checking valid statuses
       const sessionService = createMockSessionService();
-      const { runAgentWithStreaming } = await import('@/lib/agents/stream-handler');
+      const { runAgentPlanning } = await import('@/lib/agents/stream-handler');
 
-      const result = await runAgentWithStreaming({
+      const result = await runAgentPlanning({
         agentId: 'agent-1',
         sessionId: 'session-1',
         prompt: 'Test prompt',
@@ -348,9 +348,9 @@ describe('Stream Handler', () => {
 
     it('tracks turn count correctly', async () => {
       const sessionService = createMockSessionService();
-      const { runAgentWithStreaming } = await import('@/lib/agents/stream-handler');
+      const { runAgentPlanning } = await import('@/lib/agents/stream-handler');
 
-      const result = await runAgentWithStreaming({
+      const result = await runAgentPlanning({
         agentId: 'agent-1',
         sessionId: 'session-1',
         prompt: 'Test prompt',
@@ -369,9 +369,9 @@ describe('Stream Handler', () => {
 
     it('includes run ID in all events', async () => {
       const sessionService = createMockSessionService();
-      const { runAgentWithStreaming } = await import('@/lib/agents/stream-handler');
+      const { runAgentPlanning } = await import('@/lib/agents/stream-handler');
 
-      const result = await runAgentWithStreaming({
+      const result = await runAgentPlanning({
         agentId: 'agent-1',
         sessionId: 'session-1',
         prompt: 'Test prompt',
@@ -388,9 +388,9 @@ describe('Stream Handler', () => {
 
     it('returns plan on completion', async () => {
       const sessionService = createMockSessionService();
-      const { runAgentWithStreaming } = await import('@/lib/agents/stream-handler');
+      const { runAgentPlanning } = await import('@/lib/agents/stream-handler');
 
-      const result = await runAgentWithStreaming({
+      const result = await runAgentPlanning({
         agentId: 'agent-1',
         sessionId: 'session-1',
         prompt: 'Test prompt',
@@ -435,8 +435,8 @@ describe('Stream Handler', () => {
           }
         })()
       );
-      const { runAgentWithStreaming } = await import('@/lib/agents/stream-handler');
-      return runAgentWithStreaming({
+      const { runAgentPlanning } = await import('@/lib/agents/stream-handler');
+      return runAgentPlanning({
         agentId: 'agent-1',
         sessionId: 'session-1',
         prompt: 'Test prompt',

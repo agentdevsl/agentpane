@@ -316,6 +316,7 @@ describe('ProjectPicker', () => {
     await user.keyboard('{Escape}');
 
     expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(onOpenChange).toHaveBeenCalledTimes(1);
   });
 
   it('selects project on Enter key', async () => {
