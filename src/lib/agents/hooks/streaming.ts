@@ -1,3 +1,4 @@
+import { createLogger } from '../../../lib/logging/logger.js';
 import type { SessionEvent } from '../../../services/session.service.js';
 import type {
   PostToolUseHook,
@@ -5,6 +6,8 @@ import type {
   PreToolUseHook,
   PreToolUseInput,
 } from '../types.js';
+
+const log = createLogger('StreamingHooks');
 
 export type AgentStepEvent =
   | {
@@ -28,8 +31,6 @@ type SessionPublisher = {
   publish: (sessionId: string, event: SessionEvent) => Promise<unknown>;
 };
 
-const LOG_PREFIX = '[streaming]';
-
 /**
  * Creates a unique key for tracking in-flight tool calls.
  * Uses tool name + stringified input to match PreToolUse with PostToolUse.
@@ -44,16 +45,10 @@ function createToolCallKey(toolName: string, toolInput: Record<string, unknown>)
     // Fallback uses timestamp which won't match any PostToolUse,
     // causing the tool result to become an orphan (no pairing)
     const fallbackKey = `${toolName}:${Date.now()}:unmatched`;
-    console.error(
-      LOG_PREFIX,
-      'Failed to serialize tool input for pairing - tool events will not be paired.',
-      'Tool:',
-      toolName,
-      'FallbackKey:',
-      fallbackKey,
-      'Error:',
-      error instanceof Error ? error.message : String(error)
-    );
+    log.error('Failed to serialize tool input for pairing - tool events will not be paired', {
+      data: { tool: toolName, fallbackKey },
+      error,
+    });
     return fallbackKey;
   }
 }
@@ -91,15 +86,10 @@ export function createStreamingHooks(
               },
             });
           } catch (error) {
-            console.error(
-              LOG_PREFIX,
-              'Failed to publish tool:start event. Tool:',
-              input.tool_name,
-              'SessionId:',
-              sessionId,
-              'Error:',
-              error instanceof Error ? error.message : String(error)
-            );
+            log.error('Failed to publish tool:start event', {
+              data: { tool: input.tool_name, sessionId },
+              error,
+            });
             // Continue execution - event publishing is non-fatal
           }
 
@@ -116,13 +106,9 @@ export function createStreamingHooks(
           const toolCallId = inFlightToolCalls.get(toolCallKey);
 
           if (!toolCallId) {
-            console.warn(
-              LOG_PREFIX,
-              'PostToolUse without matching PreToolUse. Tool:',
-              input.tool_name,
-              'SessionId:',
-              sessionId
-            );
+            log.warn('PostToolUse without matching PreToolUse', {
+              data: { tool: input.tool_name, sessionId },
+            });
           }
 
           // Clean up the in-flight tracking
@@ -155,15 +141,10 @@ export function createStreamingHooks(
               },
             });
           } catch (error) {
-            console.error(
-              LOG_PREFIX,
-              'Failed to publish tool:result event. Tool:',
-              input.tool_name,
-              'SessionId:',
-              sessionId,
-              'Error:',
-              error instanceof Error ? error.message : String(error)
-            );
+            log.error('Failed to publish tool:result event', {
+              data: { tool: input.tool_name, sessionId },
+              error,
+            });
             // Continue execution - event publishing is non-fatal
           }
 

@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { describe, expect, it, vi } from 'vitest';
+import { WorkflowService } from '../../../services/workflow.service.js';
 import { createWorkflowsRoutes } from '../workflows.js';
 
 // ── Mock Database ──
@@ -55,7 +56,8 @@ function setupDeleteMock(db: ReturnType<typeof createMockDb>) {
 
 function createTestApp() {
   const db = createMockDb();
-  const routes = createWorkflowsRoutes({ db: db as never });
+  const workflowService = new WorkflowService(db as never);
+  const routes = createWorkflowsRoutes({ workflowService });
   const app = new Hono();
   app.route('/api/workflows', routes);
   return { app, db };
@@ -135,7 +137,7 @@ describe('Workflows API Routes', () => {
       expect(res.status).toBe(500);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('DB_ERROR');
+      expect(json.error.code).toBe('WORKFLOW_DATABASE_ERROR');
     });
   });
 
@@ -225,7 +227,7 @@ describe('Workflows API Routes', () => {
       expect(res.status).toBe(500);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('DB_ERROR');
+      expect(json.error.code).toBe('WORKFLOW_DATABASE_ERROR');
     });
   });
 
@@ -264,7 +266,7 @@ describe('Workflows API Routes', () => {
       expect(res.status).toBe(404);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('NOT_FOUND');
+      expect(json.error.code).toBe('WORKFLOW_NOT_FOUND');
     });
 
     it('returns 500 on db error', async () => {
@@ -276,7 +278,7 @@ describe('Workflows API Routes', () => {
       expect(res.status).toBe(500);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('DB_ERROR');
+      expect(json.error.code).toBe('WORKFLOW_DATABASE_ERROR');
     });
   });
 
@@ -338,7 +340,7 @@ describe('Workflows API Routes', () => {
       expect(res.status).toBe(404);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('NOT_FOUND');
+      expect(json.error.code).toBe('WORKFLOW_NOT_FOUND');
     });
 
     it('returns 500 on db error', async () => {
@@ -355,7 +357,7 @@ describe('Workflows API Routes', () => {
       expect(res.status).toBe(500);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('DB_ERROR');
+      expect(json.error.code).toBe('WORKFLOW_DATABASE_ERROR');
     });
   });
 
@@ -394,7 +396,7 @@ describe('Workflows API Routes', () => {
       expect(res.status).toBe(404);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('NOT_FOUND');
+      expect(json.error.code).toBe('WORKFLOW_NOT_FOUND');
     });
 
     it('returns 500 on db error', async () => {
@@ -406,7 +408,7 @@ describe('Workflows API Routes', () => {
       expect(res.status).toBe(500);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('DB_ERROR');
+      expect(json.error.code).toBe('WORKFLOW_DATABASE_ERROR');
     });
   });
 });

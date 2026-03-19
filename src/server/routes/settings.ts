@@ -1,13 +1,13 @@
 /**
  * Settings routes
+ *
+ * Thin route handlers that delegate to SettingsService.
  */
 
-import { eq, or } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
-import * as schema from '../../db/schema/index.js';
 import { createLogger } from '../../lib/logging/logger';
-import type { Database } from '../../types/database.js';
+import type { SettingsService } from '../../services/settings.service.js';
 import { json } from '../shared.js';
 
 const log = createLogger('SettingsRoutes');
@@ -41,10 +41,10 @@ const updateSettingsSchema = z.object({
 });
 
 interface SettingsDeps {
-  db: Database;
+  settingsService: SettingsService;
 }
 
-export function createSettingsRoutes({ db }: SettingsDeps) {
+export function createSettingsRoutes({ settingsService }: SettingsDeps) {
   const app = new Hono();
 
   // GET /api/settings
@@ -64,31 +64,31 @@ export function createSettingsRoutes({ db }: SettingsDeps) {
         return json({ ok: true, data: { settings: {} } });
       }
 
-      const results =
-        keys.length > 0
-          ? await db
-              .select()
-              .from(schema.settings)
-              .where(or(...keys.map((k) => eq(schema.settings.key, k))))
-          : await db.select().from(schema.settings);
+      // Use service to get settings
+      const result =
+        keys.length > 0 ? await settingsService.getMany(keys) : await settingsService.getAll();
 
-      // Parse JSON values, falling back to raw string if invalid
-      const settingsMap: Record<string, unknown> = {};
-      for (const row of results) {
-        try {
-          const parsed = JSON.parse(row.value);
-          const sensitive = SENSITIVE_FIELDS[row.key];
-          if (sensitive && typeof parsed === 'object' && parsed?.[sensitive.secretKey]) {
-            parsed[sensitive.flagKey] = true;
-            delete parsed[sensitive.secretKey];
+      if (!result.ok) {
+        log.error('Failed to get settings', {
+          error: new Error(result.error.message),
+        });
+        return json(
+          { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to get settings' } },
+          500
+        );
+      }
+
+      const settingsMap = result.value;
+
+      // Redact sensitive fields
+      for (const [key, value] of Object.entries(settingsMap)) {
+        const sensitive = SENSITIVE_FIELDS[key];
+        if (sensitive && typeof value === 'object' && value !== null) {
+          const copy = value as Record<string, unknown>;
+          if (copy[sensitive.secretKey]) {
+            copy[sensitive.flagKey] = true;
+            delete copy[sensitive.secretKey];
           }
-          settingsMap[row.key] = parsed;
-        } catch (parseError) {
-          log.warn('Failed to parse JSON for settings key', {
-            error: parseError instanceof Error ? parseError : new Error('parse error'),
-            data: { key: row.key },
-          });
-          settingsMap[row.key] = row.value;
         }
       }
 
@@ -133,7 +133,9 @@ export function createSettingsRoutes({ db }: SettingsDeps) {
     try {
       const settingsToUpdate = parsed.data.settings;
 
-      // Upsert each setting (only allowed keys)
+      // Filter to allowed keys and handle sensitive field encryption
+      const filteredSettings: Record<string, unknown> = {};
+
       for (const [key, value] of Object.entries(settingsToUpdate)) {
         if (!ALLOWED_SETTINGS_KEYS.has(key)) {
           continue; // Silently skip unknown keys
@@ -150,14 +152,20 @@ export function createSettingsRoutes({ db }: SettingsDeps) {
           dbValue = copy;
         }
 
-        const jsonValue = JSON.stringify(dbValue);
-        await db
-          .insert(schema.settings)
-          .values({ key, value: jsonValue })
-          .onConflictDoUpdate({
-            target: schema.settings.key,
-            set: { value: jsonValue, updatedAt: new Date().toISOString() },
-          });
+        filteredSettings[key] = dbValue;
+      }
+
+      // Use service to set all filtered settings
+      const result = await settingsService.setMany(filteredSettings);
+
+      if (!result.ok) {
+        log.error('Failed to update settings', {
+          error: new Error(result.error.message),
+        });
+        return json(
+          { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to update settings' } },
+          500
+        );
       }
 
       return json({ ok: true });

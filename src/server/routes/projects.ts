@@ -1,11 +1,14 @@
 /**
  * Project routes
+ *
+ * Thin route handlers that delegate to ProjectService.
  */
 
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { agents, projects, tasks } from '../../db/schema';
+import { agents } from '../../db/schema';
+import type { ProjectService } from '../../services/project.service.js';
 import type { Database } from '../../types/database.js';
 import { isValidId, json } from '../shared.js';
 
@@ -24,10 +27,11 @@ const updateProjectSchema = z.object({
 });
 
 interface ProjectsDeps {
+  projectService: ProjectService;
   db: Database;
 }
 
-export function createProjectsRoutes({ db }: ProjectsDeps) {
+export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
   const app = new Hono();
 
   // GET /api/projects
@@ -35,15 +39,19 @@ export function createProjectsRoutes({ db }: ProjectsDeps) {
     const limit = parseInt(c.req.query('limit') ?? '24', 10);
 
     try {
-      const items = await db.query.projects.findMany({
-        orderBy: [desc(projects.updatedAt)],
-        limit,
-      });
+      const result = await projectService.list({ limit });
+
+      if (!result.ok) {
+        return json(
+          { ok: false, error: { code: result.error.code, message: result.error.message } },
+          result.error.status
+        );
+      }
 
       return json({
         ok: true,
         data: {
-          items: items.map((p) => ({
+          items: result.value.map((p) => ({
             id: p.id,
             name: p.name,
             path: p.path,
@@ -53,7 +61,7 @@ export function createProjectsRoutes({ db }: ProjectsDeps) {
           })),
           nextCursor: null,
           hasMore: false,
-          totalCount: items.length,
+          totalCount: result.value.length,
         },
       });
     } catch (error) {
@@ -92,37 +100,20 @@ export function createProjectsRoutes({ db }: ProjectsDeps) {
     }
 
     try {
-      // Check if project with this path already exists
-      const existing = await db.query.projects.findFirst({
-        where: eq(projects.path, parsed.data.path),
+      const result = await projectService.create({
+        path: parsed.data.path,
+        name: parsed.data.name,
+        description: parsed.data.description,
       });
 
-      if (existing) {
-        return json(
-          {
-            ok: false,
-            error: { code: 'DUPLICATE', message: 'A project with this path already exists' },
-          },
-          400
-        );
+      if (!result.ok) {
+        // Map service errors to API-compatible error codes
+        const statusCode = result.error.status;
+        const code = result.error.code === 'PROJECT_PATH_EXISTS' ? 'DUPLICATE' : result.error.code;
+        return json({ ok: false, error: { code, message: result.error.message } }, statusCode);
       }
 
-      const [created] = await db
-        .insert(projects)
-        .values({
-          name: parsed.data.name,
-          path: parsed.data.path,
-          description: parsed.data.description,
-        })
-        .returning();
-
-      if (!created) {
-        return json(
-          { ok: false, error: { code: 'DB_ERROR', message: 'Failed to create project' } },
-          500
-        );
-      }
-
+      const created = result.value;
       return json({
         ok: true,
         data: {
@@ -148,121 +139,41 @@ export function createProjectsRoutes({ db }: ProjectsDeps) {
     const limit = parseInt(c.req.query('limit') ?? '24', 10);
 
     try {
-      // Query 1: Get all projects
-      const projectList = await db.query.projects.findMany({
-        orderBy: [desc(projects.updatedAt)],
-        limit,
-      });
+      const result = await projectService.listWithSummaries({ limit });
 
-      const projectIds = projectList.map((p) => p.id);
-
-      // Short-circuit: no projects means no summaries
-      if (projectIds.length === 0) {
-        return json({
-          ok: true,
-          data: { items: [], nextCursor: null, hasMore: false, totalCount: 0 },
-        });
+      if (!result.ok) {
+        return json(
+          { ok: false, error: { code: result.error.code, message: result.error.message } },
+          result.error.status
+        );
       }
 
-      // Query 2: Get ALL tasks for ALL projects in one query
-      const allTasks = await db.query.tasks.findMany({
-        where: inArray(tasks.projectId, projectIds),
-      });
-
-      // Group tasks by projectId
-      const tasksByProject = new Map<string, typeof allTasks>();
-      for (const task of allTasks) {
-        const existing = tasksByProject.get(task.projectId);
-        if (existing) {
-          existing.push(task);
-        } else {
-          tasksByProject.set(task.projectId, [task]);
-        }
-      }
-
-      // Build a lookup map of task id → title for agent task titles
-      const taskTitleMap = new Map<string, string>();
-      for (const task of allTasks) {
-        taskTitleMap.set(task.id, task.title);
-      }
-
-      // Query 3: Get ALL active agents for ALL projects in one query
-      const activeStatuses = ['starting', 'planning', 'running'] as const;
-      const allActiveAgents = await db.query.agents.findMany({
-        where: and(
-          inArray(agents.projectId, projectIds),
-          inArray(agents.status, [...activeStatuses])
-        ),
-      });
-
-      // Group agents by projectId
-      const agentsByProject = new Map<string, typeof allActiveAgents>();
-      for (const agent of allActiveAgents) {
-        const existing = agentsByProject.get(agent.projectId);
-        if (existing) {
-          existing.push(agent);
-        } else {
-          agentsByProject.set(agent.projectId, [agent]);
-        }
-      }
-
-      const summaries = projectList.map((project) => {
-        const projectTasks = tasksByProject.get(project.id) ?? [];
-
-        const taskCounts = {
-          backlog: projectTasks.filter((t) => t.column === 'backlog').length,
-          queued: projectTasks.filter((t) => t.column === 'queued').length,
-          inProgress: projectTasks.filter((t) => t.column === 'in_progress').length,
-          waitingApproval: projectTasks.filter((t) => t.column === 'waiting_approval').length,
-          verified: projectTasks.filter((t) => t.column === 'verified').length,
-          total: projectTasks.length,
-        };
-
-        const runningAgents = agentsByProject.get(project.id) ?? [];
-
-        // Resolve task titles from the in-memory lookup map (no extra queries)
-        const agentData = runningAgents.map((agent) => ({
-          id: agent.id,
-          name: agent.name ?? 'Agent',
-          currentTaskId: agent.currentTaskId,
-          currentTaskTitle: agent.currentTaskId ? taskTitleMap.get(agent.currentTaskId) : undefined,
-        }));
-
-        // Determine project status
-        let status: 'running' | 'idle' | 'needs-approval' = 'idle';
-        if (runningAgents.length > 0) {
-          status = 'running';
-        } else if (taskCounts.waitingApproval > 0) {
-          status = 'needs-approval';
-        }
-
-        // Get last activity from tasks
-        const lastTask = projectTasks.sort((a, b) => {
-          const aTime = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
-          const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
-          return bTime - aTime;
-        })[0];
-
-        return {
-          project: {
-            id: project.id,
-            name: project.name,
-            path: project.path,
-            description: project.description,
-            createdAt: project.createdAt,
-            updatedAt: project.updatedAt,
-          },
-          taskCounts,
-          runningAgents: agentData,
-          status,
-          lastActivityAt: lastTask?.updatedAt ?? project.updatedAt,
-        };
-      });
+      const summaries = result.value;
 
       return json({
         ok: true,
         data: {
-          items: summaries,
+          items: summaries.map((s) => ({
+            project: {
+              id: s.project.id,
+              name: s.project.name,
+              path: s.project.path,
+              description: s.project.description,
+              createdAt: s.project.createdAt,
+              updatedAt: s.project.updatedAt,
+            },
+            taskCounts: {
+              backlog: s.taskCounts.backlog,
+              queued: 0,
+              inProgress: s.taskCounts.inProgress,
+              waitingApproval: s.taskCounts.waitingApproval,
+              verified: s.taskCounts.verified,
+              total: s.taskCounts.total,
+            },
+            runningAgents: s.runningAgents,
+            status: s.status,
+            lastActivityAt: s.lastActivityAt ?? s.project.updatedAt,
+          })),
           nextCursor: null,
           hasMore: false,
           totalCount: summaries.length,
@@ -289,14 +200,13 @@ export function createProjectsRoutes({ db }: ProjectsDeps) {
     }
 
     try {
-      const project = await db.query.projects.findFirst({
-        where: eq(projects.id, id),
-      });
+      const result = await projectService.getById(id);
 
-      if (!project) {
+      if (!result.ok) {
         return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Project not found' } }, 404);
       }
 
+      const project = result.value;
       return json({
         ok: true,
         data: {
@@ -352,41 +262,22 @@ export function createProjectsRoutes({ db }: ProjectsDeps) {
     }
 
     try {
-      // Check if project exists
-      const existing = await db.query.projects.findFirst({
-        where: eq(projects.id, id),
+      const result = await projectService.update(id, {
+        name: parsed.data.name,
+        description: parsed.data.description,
+        maxConcurrentAgents: parsed.data.maxConcurrentAgents,
+        config: parsed.data.config,
       });
 
-      if (!existing) {
-        return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Project not found' } }, 404);
-      }
-
-      // Build update object with only provided fields
-      const updateData: Record<string, unknown> = {
-        updatedAt: new Date().toISOString(),
-        ...(parsed.data.name !== undefined && { name: parsed.data.name }),
-        ...(parsed.data.description !== undefined && { description: parsed.data.description }),
-        ...(parsed.data.maxConcurrentAgents !== undefined && {
-          maxConcurrentAgents: parsed.data.maxConcurrentAgents,
-        }),
-        ...(parsed.data.config !== undefined && {
-          config: { ...(existing.config ?? {}), ...parsed.data.config },
-        }),
-      };
-
-      const [updated] = await db
-        .update(projects)
-        .set(updateData)
-        .where(eq(projects.id, id))
-        .returning();
-
-      if (!updated) {
+      if (!result.ok) {
+        const statusCode = result.error.status;
         return json(
-          { ok: false, error: { code: 'DB_ERROR', message: 'Failed to update project' } },
-          500
+          { ok: false, error: { code: result.error.code, message: result.error.message } },
+          statusCode
         );
       }
 
+      const updated = result.value;
       return json({
         ok: true,
         data: {
@@ -419,14 +310,13 @@ export function createProjectsRoutes({ db }: ProjectsDeps) {
     }
 
     try {
-      // Check if project exists
-      const existing = await db.query.projects.findFirst({
-        where: eq(projects.id, id),
-      });
-
-      if (!existing) {
+      // Get the project first (needed for file deletion path)
+      const projectResult = await projectService.getById(id);
+      if (!projectResult.ok) {
         return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Project not found' } }, 404);
       }
+
+      const existing = projectResult.value;
 
       // Check if project has running agents
       const runningAgents = await db.query.agents.findMany({
@@ -446,18 +336,17 @@ export function createProjectsRoutes({ db }: ProjectsDeps) {
         );
       }
 
-      // Delete tasks, agents, and project atomically in a transaction.
-      // If any delete fails, all are rolled back — prevents orphaned records.
-      await db.transaction(async (tx) => {
-        // Delete associated tasks first (foreign key constraint)
-        await tx.delete(tasks).where(eq(tasks.projectId, id));
-
-        // Delete associated agents
-        await tx.delete(agents).where(eq(agents.projectId, id));
-
-        // Delete the project from database
-        await tx.delete(projects).where(eq(projects.id, id));
-      });
+      // Delete via service (handles worktree pruning and cascade)
+      const deleteResult = await projectService.delete(id);
+      if (!deleteResult.ok) {
+        return json(
+          {
+            ok: false,
+            error: { code: deleteResult.error.code, message: deleteResult.error.message },
+          },
+          deleteResult.error.status
+        );
+      }
 
       // Optionally delete project files
       let filesActuallyDeleted = false;

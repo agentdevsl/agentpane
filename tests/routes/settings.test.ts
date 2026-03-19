@@ -34,31 +34,28 @@ vi.mock('../../src/lib/crypto/server-encryption.js', () => ({
   encryptToken: (token: string) => `encrypted:${token}`,
 }));
 
-// --- Mock helpers ---
+// --- Mock SettingsService ---
 
-function createMockDb() {
+function createMockSettingsService() {
   return {
-    select: vi.fn().mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue([]),
-      }),
-    }),
-    insert: vi.fn().mockReturnValue({
-      values: vi.fn().mockReturnValue({
-        returning: vi.fn().mockResolvedValue([]),
-        onConflictDoUpdate: vi.fn().mockResolvedValue(undefined),
-      }),
-    }),
-    delete: vi.fn().mockReturnValue({
-      where: vi.fn().mockResolvedValue(undefined),
-    }),
+    get: vi.fn(),
+    getMany: vi.fn(),
+    getAll: vi.fn(),
+    set: vi.fn(),
+    setMany: vi.fn(),
+    delete: vi.fn(),
+    getValue: vi.fn(),
+    getTaskCreationModel: vi.fn(),
+    setTaskCreationModel: vi.fn(),
+    getTaskCreationTools: vi.fn(),
+    setTaskCreationTools: vi.fn(),
   };
 }
 
-type MockDb = ReturnType<typeof createMockDb>;
+type MockSettingsService = ReturnType<typeof createMockSettingsService>;
 
-function createApp(mockDb: MockDb) {
-  const routes = createSettingsRoutes({ db: mockDb as never });
+function createApp(mockService: MockSettingsService) {
+  const routes = createSettingsRoutes({ settingsService: mockService as never });
   const app = new Hono();
   app.route('/api/settings', routes);
   return app;
@@ -67,23 +64,17 @@ function createApp(mockDb: MockDb) {
 // --- GET /api/settings: sandbox.nomad redaction ---
 
 describe('GET /api/settings - sandbox.nomad redaction', () => {
-  let mockDb: MockDb;
+  let mockService: MockSettingsService;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockDb = createMockDb();
+    mockService = createMockSettingsService();
   });
 
   it('returns non-object sandbox.nomad values without crashing (type guard)', async () => {
-    // When sandbox.nomad is stored as a JSON string (e.g., "foo"), the type guard
-    // should prevent accessing .token on a non-object and return the parsed value as-is.
-    mockDb.select = vi.fn().mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue([{ key: 'sandbox.nomad', value: JSON.stringify('foo') }]),
-      }),
-    });
+    mockService.getMany.mockResolvedValue({ ok: true, value: { 'sandbox.nomad': 'foo' } });
 
-    const app = createApp(mockDb);
+    const app = createApp(mockService);
     const res = await app.request('/api/settings?keys=sandbox.nomad');
 
     expect(res.status).toBe(200);
@@ -93,13 +84,9 @@ describe('GET /api/settings - sandbox.nomad redaction', () => {
   });
 
   it('returns numeric sandbox.nomad values without crashing (type guard)', async () => {
-    mockDb.select = vi.fn().mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue([{ key: 'sandbox.nomad', value: JSON.stringify(42) }]),
-      }),
-    });
+    mockService.getMany.mockResolvedValue({ ok: true, value: { 'sandbox.nomad': 42 } });
 
-    const app = createApp(mockDb);
+    const app = createApp(mockService);
     const res = await app.request('/api/settings?keys=sandbox.nomad');
 
     expect(res.status).toBe(200);
@@ -109,15 +96,9 @@ describe('GET /api/settings - sandbox.nomad redaction', () => {
   });
 
   it('returns null sandbox.nomad value without crashing (type guard for null)', async () => {
-    // JSON.parse("null") === null, and typeof null === "object",
-    // so the guard must also check parsed !== null.
-    mockDb.select = vi.fn().mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue([{ key: 'sandbox.nomad', value: 'null' }]),
-      }),
-    });
+    mockService.getMany.mockResolvedValue({ ok: true, value: { 'sandbox.nomad': null } });
 
-    const app = createApp(mockDb);
+    const app = createApp(mockService);
     const res = await app.request('/api/settings?keys=sandbox.nomad');
 
     expect(res.status).toBe(200);
@@ -132,15 +113,9 @@ describe('GET /api/settings - sandbox.nomad redaction', () => {
       token: 'secret-nomad-token-123',
       namespace: 'default',
     };
-    mockDb.select = vi.fn().mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        where: vi
-          .fn()
-          .mockResolvedValue([{ key: 'sandbox.nomad', value: JSON.stringify(nomadConfig) }]),
-      }),
-    });
+    mockService.getMany.mockResolvedValue({ ok: true, value: { 'sandbox.nomad': nomadConfig } });
 
-    const app = createApp(mockDb);
+    const app = createApp(mockService);
     const res = await app.request('/api/settings?keys=sandbox.nomad');
 
     expect(res.status).toBe(200);
@@ -159,15 +134,9 @@ describe('GET /api/settings - sandbox.nomad redaction', () => {
       address: 'https://nomad.example.com',
       namespace: 'production',
     };
-    mockDb.select = vi.fn().mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        where: vi
-          .fn()
-          .mockResolvedValue([{ key: 'sandbox.nomad', value: JSON.stringify(nomadConfig) }]),
-      }),
-    });
+    mockService.getMany.mockResolvedValue({ ok: true, value: { 'sandbox.nomad': nomadConfig } });
 
-    const app = createApp(mockDb);
+    const app = createApp(mockService);
     const res = await app.request('/api/settings?keys=sandbox.nomad');
 
     expect(res.status).toBe(200);
@@ -181,16 +150,9 @@ describe('GET /api/settings - sandbox.nomad redaction', () => {
   });
 
   it('returns sandbox.nomad array without crashing (array is typeof object but no .token)', async () => {
-    // Arrays are typeof "object" and not null, but won't have a meaningful .token
-    mockDb.select = vi.fn().mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        where: vi
-          .fn()
-          .mockResolvedValue([{ key: 'sandbox.nomad', value: JSON.stringify([1, 2, 3]) }]),
-      }),
-    });
+    mockService.getMany.mockResolvedValue({ ok: true, value: { 'sandbox.nomad': [1, 2, 3] } });
 
-    const app = createApp(mockDb);
+    const app = createApp(mockService);
     const res = await app.request('/api/settings?keys=sandbox.nomad');
 
     expect(res.status).toBe(200);
@@ -203,47 +165,17 @@ describe('GET /api/settings - sandbox.nomad redaction', () => {
 // --- GET /api/settings: structured logging ---
 
 describe('GET /api/settings - structured logging', () => {
-  let mockDb: MockDb;
+  let mockService: MockSettingsService;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockDb = createMockDb();
+    mockService = createMockSettingsService();
   });
 
-  it('uses log.warn for JSON parse failures', async () => {
-    mockDb.select = vi.fn().mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue([{ key: 'theme', value: 'not-valid-json{{{' }]),
-      }),
-    });
+  it('uses log.error when service throws', async () => {
+    mockService.getMany.mockRejectedValue(new Error('DB connection lost'));
 
-    const app = createApp(mockDb);
-    const res = await app.request('/api/settings?keys=theme');
-
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.ok).toBe(true);
-    // Falls back to raw string
-    expect(body.data.settings.theme).toBe('not-valid-json{{{');
-    // Verify structured logging was used
-    expect(mockLogWarn).toHaveBeenCalledTimes(1);
-    expect(mockLogWarn).toHaveBeenCalledWith(
-      'Failed to parse JSON for settings key',
-      expect.objectContaining({
-        error: expect.any(Error),
-        data: { key: 'theme' },
-      })
-    );
-  });
-
-  it('uses log.error when db query throws', async () => {
-    mockDb.select = vi.fn().mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        where: vi.fn().mockRejectedValue(new Error('DB connection lost')),
-      }),
-    });
-
-    const app = createApp(mockDb);
+    const app = createApp(mockService);
     const res = await app.request('/api/settings?keys=theme');
 
     expect(res.status).toBe(500);
@@ -264,37 +196,32 @@ describe('GET /api/settings - structured logging', () => {
 // --- GET /api/settings: general behavior ---
 
 describe('GET /api/settings - general', () => {
-  let mockDb: MockDb;
+  let mockService: MockSettingsService;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockDb = createMockDb();
+    mockService = createMockSettingsService();
   });
 
-  it('returns all settings when keys param is empty string (falsy)', async () => {
-    // Empty string is falsy, so keysParam check falls through to "select all"
-    mockDb.select = vi.fn().mockReturnValue({
-      from: vi.fn().mockResolvedValue([{ key: 'theme', value: JSON.stringify('dark') }]),
-    });
+  it('returns all settings when keys param is empty string (falls through to getAll)', async () => {
+    mockService.getAll.mockResolvedValue({ ok: true, value: {} });
 
-    const app = createApp(mockDb);
+    const app = createApp(mockService);
     const res = await app.request('/api/settings?keys=');
 
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
-    expect(body.data.settings.theme).toBe('dark');
+    expect(body.data.settings).toEqual({});
   });
 
   it('returns all settings when no keys param provided', async () => {
-    mockDb.select = vi.fn().mockReturnValue({
-      from: vi.fn().mockResolvedValue([
-        { key: 'theme', value: JSON.stringify('dark') },
-        { key: 'sandbox.mode', value: JSON.stringify('shared') },
-      ]),
+    mockService.getAll.mockResolvedValue({
+      ok: true,
+      value: { theme: 'dark', 'sandbox.mode': 'shared' },
     });
 
-    const app = createApp(mockDb);
+    const app = createApp(mockService);
     const res = await app.request('/api/settings');
 
     expect(res.status).toBe(200);
@@ -305,16 +232,12 @@ describe('GET /api/settings - general', () => {
   });
 
   it('returns multiple requested keys', async () => {
-    mockDb.select = vi.fn().mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue([
-          { key: 'theme', value: JSON.stringify('light') },
-          { key: 'sandbox.mode', value: JSON.stringify('per-project') },
-        ]),
-      }),
+    mockService.getMany.mockResolvedValue({
+      ok: true,
+      value: { theme: 'light', 'sandbox.mode': 'per-project' },
     });
 
-    const app = createApp(mockDb);
+    const app = createApp(mockService);
     const res = await app.request('/api/settings?keys=theme,sandbox.mode');
 
     expect(res.status).toBe(200);
@@ -328,15 +251,15 @@ describe('GET /api/settings - general', () => {
 // --- PUT /api/settings ---
 
 describe('PUT /api/settings', () => {
-  let mockDb: MockDb;
+  let mockService: MockSettingsService;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockDb = createMockDb();
+    mockService = createMockSettingsService();
   });
 
   it('returns 400 for invalid JSON body', async () => {
-    const app = createApp(mockDb);
+    const app = createApp(mockService);
     const res = await app.request('/api/settings', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -350,7 +273,7 @@ describe('PUT /api/settings', () => {
   });
 
   it('returns 400 when settings object is missing', async () => {
-    const app = createApp(mockDb);
+    const app = createApp(mockService);
     const res = await app.request('/api/settings', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -364,14 +287,9 @@ describe('PUT /api/settings', () => {
   });
 
   it('upserts allowed keys successfully', async () => {
-    const onConflictDoUpdate = vi.fn().mockResolvedValue(undefined);
-    mockDb.insert = vi.fn().mockReturnValue({
-      values: vi.fn().mockReturnValue({
-        onConflictDoUpdate,
-      }),
-    });
+    mockService.setMany.mockResolvedValue({ ok: true, value: undefined });
 
-    const app = createApp(mockDb);
+    const app = createApp(mockService);
     const res = await app.request('/api/settings', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -381,11 +299,13 @@ describe('PUT /api/settings', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
-    expect(mockDb.insert).toHaveBeenCalled();
+    expect(mockService.setMany).toHaveBeenCalledWith({ theme: 'dark' });
   });
 
   it('silently skips unknown keys', async () => {
-    const app = createApp(mockDb);
+    mockService.setMany.mockResolvedValue({ ok: true, value: undefined });
+
+    const app = createApp(mockService);
     const res = await app.request('/api/settings', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -395,18 +315,14 @@ describe('PUT /api/settings', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
-    // insert should never have been called since the key is not allowed
-    expect(mockDb.insert).not.toHaveBeenCalled();
+    // setMany should be called with empty object since unknown keys are filtered
+    expect(mockService.setMany).toHaveBeenCalledWith({});
   });
 
-  it('uses log.error on DB failure during PUT', async () => {
-    mockDb.insert = vi.fn().mockReturnValue({
-      values: vi.fn().mockReturnValue({
-        onConflictDoUpdate: vi.fn().mockRejectedValue(new Error('disk full')),
-      }),
-    });
+  it('uses log.error on service failure during PUT', async () => {
+    mockService.setMany.mockRejectedValue(new Error('disk full'));
 
-    const app = createApp(mockDb);
+    const app = createApp(mockService);
     const res = await app.request('/api/settings', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },

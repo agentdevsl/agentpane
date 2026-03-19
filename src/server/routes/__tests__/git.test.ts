@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { describe, expect, it, vi } from 'vitest';
+import { GitService } from '../../../services/git.service.js';
 import { createGitRoutes } from '../git.js';
 
 // ── Mock Database ──
@@ -27,7 +28,8 @@ function createMockCommandRunner() {
 function createTestApp() {
   const db = createMockDb();
   const commandRunner = createMockCommandRunner();
-  const routes = createGitRoutes({ db: db as never, commandRunner });
+  const gitService = new GitService(db as never, commandRunner);
+  const routes = createGitRoutes({ gitService });
   const app = new Hono();
   app.route('/api/git', routes);
   return { app, db, commandRunner };
@@ -145,7 +147,7 @@ describe('Git API Routes', () => {
       expect(res.status).toBe(404);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('NOT_FOUND');
+      expect(json.error.code).toBe('GIT_PROJECT_NOT_FOUND');
     });
 
     it('returns 500 on git command error', async () => {
@@ -162,7 +164,7 @@ describe('Git API Routes', () => {
       expect(res.status).toBe(500);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('GIT_ERROR');
+      expect(json.error.code).toBe('GIT_COMMAND_FAILED');
     });
 
     it('handles no upstream branch gracefully', async () => {
@@ -264,7 +266,7 @@ describe('Git API Routes', () => {
       expect(res.status).toBe(404);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('NOT_FOUND');
+      expect(json.error.code).toBe('GIT_PROJECT_NOT_FOUND');
     });
 
     it('returns 500 on git command error', async () => {
@@ -281,7 +283,7 @@ describe('Git API Routes', () => {
       expect(res.status).toBe(500);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('GIT_ERROR');
+      expect(json.error.code).toBe('GIT_COMMAND_FAILED');
     });
   });
 
@@ -357,7 +359,7 @@ describe('Git API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('INVALID_BRANCH');
+      expect(json.error.code).toBe('GIT_INVALID_BRANCH');
     });
 
     it('returns 404 when project not found', async () => {
@@ -369,7 +371,7 @@ describe('Git API Routes', () => {
       expect(res.status).toBe(404);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('NOT_FOUND');
+      expect(json.error.code).toBe('GIT_PROJECT_NOT_FOUND');
     });
 
     it('returns 500 on git command error', async () => {
@@ -386,7 +388,7 @@ describe('Git API Routes', () => {
       expect(res.status).toBe(500);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('GIT_ERROR');
+      expect(json.error.code).toBe('GIT_COMMAND_FAILED');
     });
 
     it('uses specified branch parameter', async () => {
@@ -482,7 +484,7 @@ describe('Git API Routes', () => {
       expect(res.status).toBe(404);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('NOT_FOUND');
+      expect(json.error.code).toBe('GIT_PROJECT_NOT_FOUND');
     });
 
     it('filters out HEAD pointer entries', async () => {
@@ -537,7 +539,7 @@ describe('Git API Routes', () => {
       expect(res.status).toBe(500);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('GIT_ERROR');
+      expect(json.error.code).toBe('GIT_COMMAND_FAILED');
     });
   });
 });

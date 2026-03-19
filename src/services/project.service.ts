@@ -15,7 +15,7 @@ const pathUtils = {
   },
 };
 
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import type { Project, ProjectConfig } from '../db/schema';
 import { agents, projects, tasks } from '../db/schema';
 import { projectConfigSchema } from '../lib/config/schemas.js';
@@ -40,10 +40,13 @@ export type CreateProjectInput = {
 };
 
 export type UpdateProjectInput = {
+  name?: string;
+  description?: string;
   maxConcurrentAgents?: number;
   configPath?: string;
   githubOwner?: string;
   githubRepo?: string;
+  config?: Record<string, unknown>;
 };
 
 export type ListProjectsOptions = {
@@ -188,13 +191,58 @@ export class ProjectService {
       return projectsResult;
     }
 
-    const summaries: ProjectSummary[] = [];
+    const projectList = projectsResult.value;
+    const projectIds = projectList.map((p) => p.id);
 
-    for (const project of projectsResult.value) {
-      // Get task counts by column
-      const projectTasks = await this.db.query.tasks.findMany({
-        where: eq(tasks.projectId, project.id),
-      });
+    // Short-circuit: no projects means no summaries
+    if (projectIds.length === 0) {
+      return ok([]);
+    }
+
+    // Query 2: Get ALL tasks for ALL projects in one batch query (fixes N+1)
+    const allTasks = await this.db.query.tasks.findMany({
+      where: inArray(tasks.projectId, projectIds),
+    });
+
+    // Group tasks by projectId
+    const tasksByProject = new Map<string, typeof allTasks>();
+    for (const task of allTasks) {
+      const existing = tasksByProject.get(task.projectId);
+      if (existing) {
+        existing.push(task);
+      } else {
+        tasksByProject.set(task.projectId, [task]);
+      }
+    }
+
+    // Build a lookup map of task id -> title for agent task titles
+    const taskTitleMap = new Map<string, string>();
+    for (const task of allTasks) {
+      taskTitleMap.set(task.id, task.title);
+    }
+
+    // Query 3: Get ALL active agents for ALL projects in one batch query (fixes N+1)
+    const activeStatuses = ['starting', 'planning', 'running'] as const;
+    const allActiveAgents = await this.db.query.agents.findMany({
+      where: and(
+        inArray(agents.projectId, projectIds),
+        inArray(agents.status, [...activeStatuses])
+      ),
+    });
+
+    // Group agents by projectId
+    const agentsByProject = new Map<string, typeof allActiveAgents>();
+    for (const agent of allActiveAgents) {
+      const existing = agentsByProject.get(agent.projectId);
+      if (existing) {
+        existing.push(agent);
+      } else {
+        agentsByProject.set(agent.projectId, [agent]);
+      }
+    }
+
+    const summaries: ProjectSummary[] = projectList.map((project) => {
+      const projectTasks = tasksByProject.get(project.id) ?? [];
 
       const taskCounts = {
         backlog: projectTasks.filter((t) => t.column === 'backlog').length,
@@ -204,28 +252,15 @@ export class ProjectService {
         total: projectTasks.length,
       };
 
-      // Get running agents for this project
-      const projectAgents = await this.db.query.agents.findMany({
-        where: and(eq(agents.projectId, project.id), eq(agents.status, 'running')),
-      });
+      const runningAgentsList = agentsByProject.get(project.id) ?? [];
 
-      const runningAgents = await Promise.all(
-        projectAgents.map(async (agent) => {
-          let taskTitle: string | undefined;
-          if (agent.currentTaskId) {
-            const task = await this.db.query.tasks.findFirst({
-              where: eq(tasks.id, agent.currentTaskId),
-            });
-            taskTitle = task?.title;
-          }
-          return {
-            id: agent.id,
-            name: agent.name ?? 'Agent',
-            currentTaskId: agent.currentTaskId,
-            currentTaskTitle: taskTitle,
-          };
-        })
-      );
+      // Resolve task titles from the in-memory lookup map (no extra queries)
+      const runningAgents = runningAgentsList.map((agent) => ({
+        id: agent.id,
+        name: agent.name ?? 'Agent',
+        currentTaskId: agent.currentTaskId,
+        currentTaskTitle: agent.currentTaskId ? taskTitleMap.get(agent.currentTaskId) : undefined,
+      }));
 
       // Determine project status
       let status: ProjectSummary['status'] = 'idle';
@@ -242,20 +277,38 @@ export class ProjectService {
         return bTime - aTime;
       })[0];
 
-      summaries.push({
+      return {
         project,
         taskCounts,
         runningAgents,
         status,
         lastActivityAt: lastTask?.updatedAt ?? null,
-      });
-    }
+      };
+    });
 
     return ok(summaries);
   }
 
   async update(id: string, input: UpdateProjectInput): Promise<Result<Project, ProjectError>> {
+    // For config merges, we need the existing project
+    let existingConfig: Record<string, unknown> | null = null;
+    if (input.config !== undefined) {
+      const existing = await this.db.query.projects.findFirst({
+        where: eq(projects.id, id),
+      });
+      if (!existing) {
+        return err(ProjectErrors.NOT_FOUND);
+      }
+      existingConfig = (existing.config as Record<string, unknown>) ?? {};
+    }
+
     const updates: Partial<Project> = {};
+    if (input.name !== undefined) {
+      updates.name = input.name;
+    }
+    if (input.description !== undefined) {
+      updates.description = input.description;
+    }
     if (input.maxConcurrentAgents !== undefined) {
       updates.maxConcurrentAgents = input.maxConcurrentAgents;
     }
@@ -267,6 +320,9 @@ export class ProjectService {
     }
     if (input.githubRepo !== undefined) {
       updates.githubRepo = input.githubRepo;
+    }
+    if (input.config !== undefined && existingConfig !== null) {
+      updates.config = { ...existingConfig, ...input.config } as Project['config'];
     }
 
     const [updated] = await this.db

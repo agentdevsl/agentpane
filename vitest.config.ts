@@ -38,6 +38,7 @@ export default defineConfig({
         'src/**/*.d.ts',
         'src/**/types.ts',
         'src/**/index.ts',
+        // TODO: P1-4 — Remove src/app/ exclusion once frontend tests added
         'src/app/**/*.ts',
         'src/app/**/*.tsx',
         'src/types/**/*.ts',
@@ -47,10 +48,10 @@ export default defineConfig({
       ],
       reporter: ['text', 'lcov', 'html'],
       thresholds: {
-        statements: 48,
-        branches: 42,
-        functions: 48,
-        lines: 48,
+        statements: 60,
+        branches: 55,
+        functions: 60,
+        lines: 60,
       },
     },
     testTimeout: 10000,

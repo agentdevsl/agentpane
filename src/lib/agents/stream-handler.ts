@@ -1,10 +1,13 @@
 import { type CanUseTool, unstable_v2_createSession } from '@anthropic-ai/claude-agent-sdk';
 import { createId } from '@paralleldrive/cuid2';
+import { createLogger } from '../../lib/logging/logger.js';
 import type { SessionEvent } from '../../services/session.service.js';
 import { deriveAgentName, mapAgentRole } from '../topology/map-agent-role.js';
 import { buildSdkEnv } from './agent-sdk-utils.js';
 import { getToolHandler } from './tools/index.js';
 import type { AgentHooks, ToolContext, ToolResponse } from './types.js';
+
+const log = createLogger('StreamHandler');
 
 export interface StreamHandlerOptions {
   agentId: string;
@@ -360,7 +363,7 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
       const planOptions = input as ExitPlanModeOptions | undefined;
       exitPlanModeOptions = planOptions;
 
-      console.log(`[StreamHandler] Agent ${agentId} ExitPlanMode captured via canUseTool`);
+      log.info('ExitPlanMode captured via canUseTool', { data: { agentId } });
     }
     return { behavior: 'allow' as const, toolUseID: toolOptions.toolUseID };
   };
@@ -449,7 +452,7 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
         // Check for SDK-level errors on assistant messages (v0.2.76+)
         const assistantError = (msg as { error?: string }).error;
         if (assistantError) {
-          console.warn(`[StreamHandler] Agent ${agentId} assistant error: ${assistantError}`);
+          log.warn('Assistant error during planning', { data: { agentId, error: assistantError } });
           sessionService
             .publish(sessionId, {
               id: createId(),
@@ -462,11 +465,10 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
                 phase: 'planning',
               },
             })
-            .catch((err) => {
-              console.warn(
-                '[StreamHandler] Failed to publish assistant error:',
-                err instanceof Error ? err.message : String(err)
-              );
+            .catch((publishErr) => {
+              log.warn('Failed to publish assistant error', {
+                error: publishErr,
+              });
             });
         }
       }
@@ -499,7 +501,7 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
           // Check if this is ExitPlanMode - this means the plan is ready
           if (tracked.toolName === 'ExitPlanMode') {
             planContent = accumulated;
-            console.log(`[StreamHandler] Agent ${agentId} ExitPlanMode completed - plan is ready`);
+            log.info('ExitPlanMode completed - plan is ready', { data: { agentId } });
           }
 
           activeTools.delete(toolUseId);
@@ -513,11 +515,8 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
           sessionId,
           agentId,
           msg as Record<string, unknown>
-        ).catch((err) => {
-          console.warn(
-            '[StreamHandler] Failed to publish tool_progress:',
-            err instanceof Error ? err.message : String(err)
-          );
+        ).catch((publishErr) => {
+          log.warn('Failed to publish tool_progress', { error: publishErr });
         });
       }
 
@@ -537,11 +536,8 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
               resetsAt: rateLimitMsg.rate_limit_info.resetsAt,
             },
           })
-          .catch((err) => {
-            console.warn(
-              '[StreamHandler] Failed to publish rate_limit:',
-              err instanceof Error ? err.message : String(err)
-            );
+          .catch((publishErr) => {
+            log.warn('Failed to publish rate_limit', { error: publishErr });
           });
       }
 
@@ -549,11 +545,8 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
       if (msg.type === 'system') {
         const sysMsg = msg as Record<string, unknown>;
         if ((sysMsg.subtype as string) === 'compact_boundary') {
-          publishCompactBoundary(sessionService, sessionId, agentId, sysMsg).catch((err) => {
-            console.warn(
-              '[StreamHandler] Failed to publish compact_boundary:',
-              err instanceof Error ? err.message : String(err)
-            );
+          publishCompactBoundary(sessionService, sessionId, agentId, sysMsg).catch((publishErr) => {
+            log.warn('Failed to publish compact_boundary', { error: publishErr });
           });
         }
       }
@@ -564,11 +557,8 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
 
         session.close(); // Always close first — before any potentially-failing publishes
 
-        publishMetrics(sessionService, sessionId, agentId, runId, result).catch((err) => {
-          console.warn(
-            '[StreamHandler] Failed to publish metrics:',
-            err instanceof Error ? err.message : String(err)
-          );
+        publishMetrics(sessionService, sessionId, agentId, runId, result).catch((publishErr) => {
+          log.warn('Failed to publish metrics', { error: publishErr });
         });
 
         // Publish plan ready event with plan options
@@ -619,7 +609,7 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`[StreamHandler] Agent ${agentId} planning error:`, error);
+    log.error('Agent planning error', { error, data: { agentId } });
 
     await sessionService.publish(sessionId, {
       id: createId(),
@@ -788,7 +778,9 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
         // Check for SDK-level errors on assistant messages (v0.2.76+)
         const assistantError = (msg as { error?: string }).error;
         if (assistantError) {
-          console.warn(`[StreamHandler] Agent ${agentId} assistant error: ${assistantError}`);
+          log.warn('Assistant error during execution', {
+            data: { agentId, error: assistantError },
+          });
           sessionService
             .publish(sessionId, {
               id: createId(),
@@ -796,11 +788,8 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
               timestamp: Date.now(),
               data: { agentId, runId, error: `Assistant error: ${assistantError}` },
             })
-            .catch((err) => {
-              console.warn(
-                '[StreamHandler] Failed to publish assistant error:',
-                err instanceof Error ? err.message : String(err)
-              );
+            .catch((publishErr) => {
+              log.warn('Failed to publish assistant error', { error: publishErr });
             });
         }
 
@@ -857,11 +846,8 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
           sessionId,
           agentId,
           msg as Record<string, unknown>
-        ).catch((err) => {
-          console.warn(
-            '[StreamHandler] Failed to publish tool_progress:',
-            err instanceof Error ? err.message : String(err)
-          );
+        ).catch((publishErr) => {
+          log.warn('Failed to publish tool_progress', { error: publishErr });
         });
       }
 
@@ -881,11 +867,8 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
               resetsAt: rateLimitMsg.rate_limit_info.resetsAt,
             },
           })
-          .catch((err) => {
-            console.warn(
-              '[StreamHandler] Failed to publish rate_limit:',
-              err instanceof Error ? err.message : String(err)
-            );
+          .catch((publishErr) => {
+            log.warn('Failed to publish rate_limit', { error: publishErr });
           });
       }
 
@@ -895,11 +878,8 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
         const sysSubtype = sysMsg.subtype as string | undefined;
 
         if (sysSubtype === 'compact_boundary') {
-          publishCompactBoundary(sessionService, sessionId, agentId, sysMsg).catch((err) => {
-            console.warn(
-              '[StreamHandler] Failed to publish compact_boundary:',
-              err instanceof Error ? err.message : String(err)
-            );
+          publishCompactBoundary(sessionService, sessionId, agentId, sysMsg).catch((publishErr) => {
+            log.warn('Failed to publish compact_boundary', { error: publishErr });
           });
         }
 
@@ -920,11 +900,8 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
 
         session.close(); // Always close first — before any potentially-failing publishes
 
-        publishMetrics(sessionService, sessionId, agentId, runId, result).catch((err) => {
-          console.warn(
-            '[StreamHandler] Failed to publish metrics:',
-            err instanceof Error ? err.message : String(err)
-          );
+        publishMetrics(sessionService, sessionId, agentId, runId, result).catch((publishErr) => {
+          log.warn('Failed to publish metrics', { error: publishErr });
         });
 
         const usage =
@@ -974,7 +951,7 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`[StreamHandler] Agent ${agentId} execution error:`, error);
+    log.error('Agent execution error', { error, data: { agentId } });
 
     await sessionService.publish(sessionId, {
       id: createId(),

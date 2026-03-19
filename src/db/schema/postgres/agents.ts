@@ -20,6 +20,7 @@ export const agents = pgTable('agents', {
   currentTaskId: text('current_task_id'),
   currentSessionId: text('current_session_id'),
   currentTurn: integer('current_turn').default(0),
+  parentAgentId: text('parent_agent_id'),
   createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { mode: 'string' }).defaultNow().notNull(),
 });
