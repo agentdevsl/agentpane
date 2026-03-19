@@ -1,10 +1,11 @@
 import { and, asc, count, eq, lt, sql } from 'drizzle-orm';
-import type { Task } from '../../db/schema';
+import type { Task, TaskColumn } from '../../db/schema';
 import { agentRuns, tasks } from '../../db/schema';
 import type { AgentError } from '../../lib/errors/agent-errors.js';
 import type { ConcurrencyError } from '../../lib/errors/concurrency-errors.js';
 import type { Result } from '../../lib/utils/result.js';
-import { ok } from '../../lib/utils/result.js';
+import { err, ok } from '../../lib/utils/result.js';
+import { canTransition } from '../../services/task-transitions.js';
 import type { Database } from '../../types/database.js';
 import type { QueuePosition, QueueStats } from './types.js';
 
@@ -66,6 +67,27 @@ export class AgentQueueService {
     projectId: string,
     taskId: string
   ): Promise<Result<QueuePosition, ConcurrencyError>> {
+    // Validate task exists and transition is allowed
+    const existingTask = await this.db.query.tasks.findFirst({
+      where: eq(tasks.id, taskId),
+    });
+
+    if (!existingTask) {
+      return err({
+        code: 'QUEUE_ERROR',
+        message: 'Task not found',
+        status: 404,
+      } as ConcurrencyError);
+    }
+
+    if (!canTransition(existingTask.column as TaskColumn, 'queued')) {
+      return err({
+        code: 'QUEUE_ERROR',
+        message: `Cannot queue task: invalid transition from '${existingTask.column}' to 'queued'`,
+        status: 400,
+      } as ConcurrencyError);
+    }
+
     const now = new Date().toISOString();
 
     // Update task to queued column
@@ -83,15 +105,13 @@ export class AgentQueueService {
     });
 
     if (!task) {
-      // Task was just updated, so this shouldn't happen, but handle gracefully
-      return ok({
-        taskId,
-        position: 0,
-        totalQueued: 1,
-        estimatedWaitMs: 0,
-        estimatedWaitMinutes: 0,
-        estimatedWaitFormatted: '< 1 min',
-      });
+      // Task disappeared after update — possible data integrity issue
+      console.error(`[AgentQueueService] Task ${taskId} not found after update to 'queued'`);
+      return err({
+        code: 'QUEUE_ERROR',
+        message: 'Task not found after queue update — possible data integrity issue',
+        status: 500,
+      } as ConcurrencyError);
     }
 
     // Get the total count and position
@@ -114,6 +134,7 @@ export class AgentQueueService {
    * This is called when an agent completes a task and is ready for more work.
    */
   async dequeueNext(projectId: string): Promise<Result<Task | null, never>> {
+    // Find the oldest queued task
     const nextTask = await this.db.query.tasks.findFirst({
       where: and(eq(tasks.projectId, projectId), eq(tasks.column, 'queued')),
       orderBy: asc(tasks.updatedAt),
@@ -123,7 +144,20 @@ export class AgentQueueService {
       return ok(null);
     }
 
-    return ok(nextTask);
+    // Atomically claim it by moving to backlog (start() accepts backlog tasks).
+    // Use a WHERE clause that also checks column='queued' to prevent double-claim.
+    const [claimed] = await this.db
+      .update(tasks)
+      .set({ column: 'backlog', updatedAt: new Date().toISOString() })
+      .where(and(eq(tasks.id, nextTask.id), eq(tasks.column, 'queued')))
+      .returning();
+
+    if (!claimed) {
+      // Another agent already claimed this task — return null (caller can retry)
+      return ok(null);
+    }
+
+    return ok(claimed);
   }
 
   /**

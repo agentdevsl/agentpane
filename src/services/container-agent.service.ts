@@ -1892,10 +1892,13 @@ export class ContainerAgentService {
     // Auto-dequeue: when an agent completes, notify the queue to start the next task
     if (status === 'completed' && this.onAgentCompleteCallback) {
       this.onAgentCompleteCallback(agent.projectId, taskId).catch((dequeueErr) => {
-        infoLog('handleAgentComplete', 'Failed to auto-dequeue next task', {
-          taskId,
-          error: dequeueErr instanceof Error ? dequeueErr.message : String(dequeueErr),
-        });
+        console.warn(
+          '[ContainerAgentService] handleAgentComplete: Failed to auto-dequeue next task',
+          {
+            taskId,
+            error: dequeueErr instanceof Error ? dequeueErr.message : String(dequeueErr),
+          }
+        );
       });
     }
   }
@@ -3021,10 +3024,13 @@ export class ContainerAgentService {
     // Auto-dequeue: when an AgentCore agent completes, notify the queue to start the next task
     if (status === 'completed' && this.onAgentCompleteCallback) {
       this.onAgentCompleteCallback(agent.projectId, taskId).catch((dequeueErr) => {
-        infoLog('handleAgentCoreComplete', 'Failed to auto-dequeue next task', {
-          taskId,
-          error: dequeueErr instanceof Error ? dequeueErr.message : String(dequeueErr),
-        });
+        console.warn(
+          '[ContainerAgentService] handleAgentCoreComplete: Failed to auto-dequeue next task',
+          {
+            taskId,
+            error: dequeueErr instanceof Error ? dequeueErr.message : String(dequeueErr),
+          }
+        );
       });
     }
   }

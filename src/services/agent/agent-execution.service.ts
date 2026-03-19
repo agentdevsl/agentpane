@@ -1,5 +1,5 @@
 import { createId } from '@paralleldrive/cuid2';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import { agentRuns, agents, projects, sessions, tasks, worktrees } from '../../db/schema';
 import { createAgentHooks } from '../../lib/agents/hooks/index.js';
 import { handleAgentError } from '../../lib/agents/recovery.js';
@@ -94,7 +94,7 @@ export class AgentExecutionService {
           eq(tasks.projectId, agent.projectId),
           inArray(tasks.column, ['queued', 'backlog'])
         ),
-        orderBy: desc(tasks.createdAt),
+        orderBy: asc(tasks.updatedAt),
       });
     }
 
@@ -142,47 +142,57 @@ export class AgentExecutionService {
 
     // Wrap all DB state mutations in a transaction for atomicity
     // Task column change happens AFTER worktree + session creation succeeds
-    const agentRun = await this.db.transaction(async (tx) => {
-      await tx
-        .update(tasks)
-        .set({
-          column: 'in_progress',
-          agentId,
-          sessionId: session.value.id,
-          worktreeId: worktree.value.id,
-          branch: worktree.value.branch,
-          startedAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(tasks.id, task.id));
+    let agentRun: typeof import('../../db/schema').agentRuns.$inferSelect | undefined;
+    try {
+      agentRun = await this.db.transaction(async (tx) => {
+        await tx
+          .update(tasks)
+          .set({
+            column: 'in_progress',
+            agentId,
+            sessionId: session.value.id,
+            worktreeId: worktree.value.id,
+            branch: worktree.value.branch,
+            startedAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(tasks.id, task.id));
 
-      await tx
-        .update(agents)
-        .set({
-          status: 'starting',
-          currentTaskId: task.id,
-          currentSessionId: session.value.id,
-          currentTurn: 0,
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(agents.id, agentId));
+        await tx
+          .update(agents)
+          .set({
+            status: 'starting',
+            currentTaskId: task.id,
+            currentSessionId: session.value.id,
+            currentTurn: 0,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(agents.id, agentId));
 
-      const [run] = await tx
-        .insert(agentRuns)
-        .values({
-          agentId,
-          taskId: task.id,
-          projectId: agent.projectId,
-          sessionId: session.value.id,
-          status: 'running',
-        })
-        .returning();
+        const [run] = await tx
+          .insert(agentRuns)
+          .values({
+            agentId,
+            taskId: task.id,
+            projectId: agent.projectId,
+            sessionId: session.value.id,
+            status: 'running',
+          })
+          .returning();
 
-      // Set planning status within the same transaction
-      await tx.update(agents).set({ status: 'planning' }).where(eq(agents.id, agentId));
+        // Set planning status within the same transaction
+        await tx.update(agents).set({ status: 'planning' }).where(eq(agents.id, agentId));
 
-      return run;
-    });
+        return run;
+      });
+    } catch {
+      // Clean up externally created resources on transaction failure
+      await this.db
+        .delete(worktrees)
+        .where(eq(worktrees.id, worktree.value.id))
+        .catch(() => {});
+      return err(AgentErrors.EXECUTION_ERROR('Failed to start agent: transaction error'));
+    }
 
     await this.sessionService.publish(session.value.id, {
       id: createId(),
@@ -294,28 +304,7 @@ export class AgentExecutionService {
     runId: string,
     taskId: string
   ): Promise<void> {
-    // Set up abort event listener to publish agent:stopped when signal is aborted
-    if (options.signal) {
-      options.signal.addEventListener(
-        'abort',
-        () => {
-          this.sessionService
-            .publish(sessionId, {
-              id: createId(),
-              type: 'agent:stopped',
-              timestamp: Date.now(),
-              data: { agentId, reason: 'aborted' },
-            })
-            .catch((publishErr) => {
-              console.warn(
-                '[AgentExecutionService] Failed to publish agent:stopped event:',
-                publishErr instanceof Error ? publishErr.message : String(publishErr)
-              );
-            });
-        },
-        { once: true }
-      );
-    }
+    // Abort signal handling is managed by stream-handler.ts which publishes agent:stopped
 
     try {
       const result = await runAgentPlanning({
@@ -591,7 +580,17 @@ export class AgentExecutionService {
         executionPrompt,
         task,
         controller.signal
-      );
+      ).catch((execErr) => {
+        console.error(
+          `[AgentExecutionService] Unhandled error in execution for agent ${agentId}:`,
+          execErr
+        );
+        this.db
+          .update(agents)
+          .set({ status: 'error', updatedAt: new Date().toISOString() })
+          .where(eq(agents.id, agentId));
+        runningAgents.delete(agentId);
+      });
 
       return ok({
         runId: createId(),
@@ -601,6 +600,10 @@ export class AgentExecutionService {
     }
 
     // Case 2: Paused agent (turn limit) - resume with existing behavior
+    if (agent.status !== 'paused') {
+      return err(AgentErrors.NOT_RUNNING);
+    }
+
     await this.db
       .update(agents)
       .set({ status: 'running', updatedAt: new Date().toISOString() })
@@ -633,26 +636,9 @@ export class AgentExecutionService {
     task: { id: string; worktreeId: string | null },
     signal: AbortSignal
   ): Promise<void> {
-    // Set up abort event listener
-    signal.addEventListener(
-      'abort',
-      () => {
-        this.sessionService
-          .publish(sessionId, {
-            id: createId(),
-            type: 'agent:stopped',
-            timestamp: Date.now(),
-            data: { agentId, reason: 'aborted', phase: 'execution' },
-          })
-          .catch((publishErr) => {
-            console.warn(
-              '[AgentExecutionService] Failed to publish agent:stopped event:',
-              publishErr instanceof Error ? publishErr.message : String(publishErr)
-            );
-          });
-      },
-      { once: true }
-    );
+    // Abort signal handling is managed by stream-handler.ts which publishes agent:stopped
+
+    let runId = createId();
 
     try {
       // Get agent config for model/tools/maxTurns
@@ -662,6 +648,17 @@ export class AgentExecutionService {
 
       if (!agent) {
         console.error(`[AgentExecutionService] Agent ${agentId} not found for execution`);
+        await this.db
+          .update(agents)
+          .set({ status: 'error', updatedAt: new Date().toISOString() })
+          .where(eq(agents.id, agentId));
+        await this.sessionService.publish(sessionId, {
+          id: createId(),
+          type: 'agent:error',
+          timestamp: Date.now(),
+          data: { agentId, error: 'Agent not found during execution phase' },
+        });
+        runningAgents.delete(agentId);
         return;
       }
 
@@ -705,7 +702,7 @@ export class AgentExecutionService {
         })
         .returning();
 
-      const runId = agentRun?.id ?? createId();
+      runId = agentRun?.id ?? runId;
 
       // Create agent hooks
       const hooks = createAgentHooks({
@@ -814,15 +811,42 @@ export class AgentExecutionService {
       }
 
       runningAgents.delete(agentId);
+
+      // Auto-dequeue: when agent completes execution, check for queued tasks
+      if (result.status === 'completed' && this.queueService) {
+        this.tryDequeueAndStart(agentId).catch((dequeueErr) => {
+          console.error(
+            `[AgentExecutionService] Failed to dequeue next task for agent ${agentId}:`,
+            dequeueErr
+          );
+        });
+      }
     } catch (error) {
       console.error(`[AgentExecutionService] Agent ${agentId} execution failed:`, error);
 
       const errorMessage = error instanceof Error ? error.message : String(error);
 
+      // Update agent run with error
+      await this.db
+        .update(agentRuns)
+        .set({
+          status: 'error',
+          completedAt: new Date().toISOString(),
+          errorMessage,
+        })
+        .where(eq(agentRuns.id, runId));
+
+      const recovery = handleAgentError(error instanceof Error ? error : new Error(errorMessage), {
+        agentId,
+        taskId: task.id,
+        maxTurns: 50,
+        currentTurn: 0,
+      });
+
       await this.db
         .update(agents)
         .set({
-          status: 'error',
+          status: recovery.action === 'pause' ? 'paused' : 'error',
           updatedAt: new Date().toISOString(),
         })
         .where(eq(agents.id, agentId));
@@ -831,7 +855,7 @@ export class AgentExecutionService {
         id: createId(),
         type: 'agent:error',
         timestamp: Date.now(),
-        data: { agentId, error: errorMessage },
+        data: { agentId, error: errorMessage, recovery: recovery.action },
       });
 
       runningAgents.delete(agentId);
