@@ -93,10 +93,31 @@ function createMockRegistryService(overrides: Record<string, unknown> = {}) {
 }
 
 function createMockDurableStreamsService(overrides: Record<string, unknown> = {}) {
+  let _resolvePipelineDone: (() => void) | null = null;
+  const pipelineDone = new Promise<void>((resolve) => {
+    _resolvePipelineDone = resolve;
+  });
+
+  const publishFn = vi.fn().mockImplementation((_streamId: string, eventType: string) => {
+    if (eventType === 'terraform:done' || eventType === 'terraform:error') {
+      _resolvePipelineDone?.();
+    }
+    return Promise.resolve(undefined);
+  });
+
   return {
     createStream: vi.fn().mockResolvedValue(undefined),
     deleteStream: vi.fn().mockResolvedValue(undefined),
-    publish: vi.fn().mockResolvedValue(undefined),
+    publish: publishFn,
+    /** Resolves when the pipeline publishes a terminal event (done or error). */
+    pipelineDone,
+    /** Reset the pipelineDone promise for reuse within a test. */
+    resetPipelineDone() {
+      const p = new Promise<void>((resolve) => {
+        _resolvePipelineDone = resolve;
+      });
+      (this as any).pipelineDone = p;
+    },
     ...overrides,
   } as any;
 }
@@ -155,11 +176,6 @@ function makeAssistantMessage(text: string): Record<string, unknown> {
 
 function makeToolUseSummary(): Record<string, unknown> {
   return { type: 'tool_use_summary' };
-}
-
-// Small delay to let the fire-and-forget pipeline execute
-function waitForPipeline(ms = 50): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // ==========================================================================
@@ -776,7 +792,7 @@ describe('TerraformComposeService class', () => {
 
       await service.startCompose('pipe-1', [{ role: 'user', content: 'Create an S3 bucket' }]);
 
-      await waitForPipeline(100);
+      await mockDurableStreams.pipelineDone;
 
       const publishCalls = mockDurableStreams.publish.mock.calls;
       const eventTypes = publishCalls.map((call: unknown[]) => call[1]);
@@ -821,7 +837,7 @@ describe('TerraformComposeService class', () => {
 
       await service.startCompose('pipe-modules', [{ role: 'user', content: 'Create a VPC' }]);
 
-      await waitForPipeline(100);
+      await mockDurableStreams.pipelineDone;
 
       const publishCalls = mockDurableStreams.publish.mock.calls;
       const moduleEvent = publishCalls.find((call: unknown[]) => call[1] === 'terraform:modules');
@@ -838,7 +854,7 @@ describe('TerraformComposeService class', () => {
 
       await service.startCompose('pipe-session', [{ role: 'user', content: 'Create a VPC' }]);
 
-      await waitForPipeline(100);
+      await mockDurableStreams.pipelineDone;
 
       const session = service.getSession('pipe-session');
       expect(session).toBeDefined();
@@ -857,7 +873,7 @@ describe('TerraformComposeService class', () => {
 
       await service.startCompose('pipe-usage', [{ role: 'user', content: 'Test' }]);
 
-      await waitForPipeline(100);
+      await mockDurableStreams.pipelineDone;
 
       const publishCalls = mockDurableStreams.publish.mock.calls;
       const doneEvent = publishCalls.find((call: unknown[]) => call[1] === 'terraform:done');
@@ -873,7 +889,9 @@ describe('TerraformComposeService class', () => {
 
       await service.startCompose('pipe-close', [{ role: 'user', content: 'Test' }]);
 
-      await waitForPipeline(100);
+      await mockDurableStreams.pipelineDone;
+      // Flush microtask queue so the finally block (which calls session.close()) executes
+      await new Promise((r) => setTimeout(r, 0));
 
       expect(mockSessionClose).toHaveBeenCalled();
     });
@@ -889,7 +907,7 @@ describe('TerraformComposeService class', () => {
 
       await service.startCompose('pipe-fallback', [{ role: 'user', content: 'Create an EC2' }]);
 
-      await waitForPipeline(100);
+      await mockDurableStreams.pipelineDone;
 
       const session = service.getSession('pipe-fallback');
       expect(session).toBeDefined();
@@ -910,7 +928,7 @@ describe('TerraformComposeService class', () => {
 
       await service.startCompose('pipe-no-overwrite', [{ role: 'user', content: 'Create a VPC' }]);
 
-      await waitForPipeline(100);
+      await mockDurableStreams.pipelineDone;
 
       const session = service.getSession('pipe-no-overwrite');
       expect(session).toBeDefined();
@@ -935,7 +953,7 @@ describe('TerraformComposeService class', () => {
         { role: 'user', content: 'Create infrastructure' },
       ]);
 
-      await waitForPipeline(100);
+      await mockDurableStreams.pipelineDone;
 
       const publishCalls = mockDurableStreams.publish.mock.calls;
       const questionEvent = publishCalls.find(
@@ -957,7 +975,7 @@ describe('TerraformComposeService class', () => {
 
       await service.startCompose('pipe-no-qs', [{ role: 'user', content: 'Create a VPC' }]);
 
-      await waitForPipeline(100);
+      await mockDurableStreams.pipelineDone;
 
       const publishCalls = mockDurableStreams.publish.mock.calls;
       const questionEvents = publishCalls.filter(
@@ -1014,7 +1032,7 @@ describe('TerraformComposeService class', () => {
         { role: 'user', content: 'Create infrastructure' },
       ]);
 
-      await waitForPipeline(100);
+      await mockDurableStreams.pipelineDone;
 
       const publishCalls = mockDurableStreams.publish.mock.calls;
       const questionEvent = publishCalls.find(
@@ -1040,7 +1058,7 @@ describe('TerraformComposeService class', () => {
 
       await service.startCompose('pipe-err-registry', [{ role: 'user', content: 'Create a VPC' }]);
 
-      await waitForPipeline(100);
+      await mockDurableStreams.pipelineDone;
 
       const publishCalls = mockDurableStreams.publish.mock.calls;
       const errorEvent = publishCalls.find((call: unknown[]) => call[1] === 'terraform:error');
@@ -1061,7 +1079,7 @@ describe('TerraformComposeService class', () => {
 
       await service.startCompose('pipe-warn-modules', [{ role: 'user', content: 'Create a VPC' }]);
 
-      await waitForPipeline(100);
+      await mockDurableStreams.pipelineDone;
 
       const publishCalls = mockDurableStreams.publish.mock.calls;
       const textEvents = publishCalls.filter((call: unknown[]) => call[1] === 'terraform:text');
@@ -1082,7 +1100,7 @@ describe('TerraformComposeService class', () => {
 
       await service.startCompose('pipe-auth-err', [{ role: 'user', content: 'Create a VPC' }]);
 
-      await waitForPipeline(100);
+      await mockDurableStreams.pipelineDone;
 
       const publishCalls = mockDurableStreams.publish.mock.calls;
       const errorEvent = publishCalls.find((call: unknown[]) => call[1] === 'terraform:error');
@@ -1098,7 +1116,7 @@ describe('TerraformComposeService class', () => {
 
       await service.startCompose('pipe-rate-limit', [{ role: 'user', content: 'Create a VPC' }]);
 
-      await waitForPipeline(100);
+      await mockDurableStreams.pipelineDone;
 
       const publishCalls = mockDurableStreams.publish.mock.calls;
       const errorEvent = publishCalls.find((call: unknown[]) => call[1] === 'terraform:error');
@@ -1114,7 +1132,7 @@ describe('TerraformComposeService class', () => {
 
       await service.startCompose('pipe-model-err', [{ role: 'user', content: 'Create a VPC' }]);
 
-      await waitForPipeline(100);
+      await mockDurableStreams.pipelineDone;
 
       const publishCalls = mockDurableStreams.publish.mock.calls;
       const errorEvent = publishCalls.find((call: unknown[]) => call[1] === 'terraform:error');
@@ -1130,7 +1148,7 @@ describe('TerraformComposeService class', () => {
 
       await service.startCompose('pipe-ctx-err', [{ role: 'user', content: 'Create a VPC' }]);
 
-      await waitForPipeline(100);
+      await mockDurableStreams.pipelineDone;
 
       const publishCalls = mockDurableStreams.publish.mock.calls;
       const errorEvent = publishCalls.find((call: unknown[]) => call[1] === 'terraform:error');
@@ -1146,7 +1164,7 @@ describe('TerraformComposeService class', () => {
 
       await service.startCompose('pipe-generic-err', [{ role: 'user', content: 'Create a VPC' }]);
 
-      await waitForPipeline(100);
+      await mockDurableStreams.pipelineDone;
 
       const publishCalls = mockDurableStreams.publish.mock.calls;
       const errorEvent = publishCalls.find((call: unknown[]) => call[1] === 'terraform:error');
@@ -1159,7 +1177,7 @@ describe('TerraformComposeService class', () => {
 
       await service.startCompose('pipe-unhandled', [{ role: 'user', content: 'Create a VPC' }]);
 
-      await waitForPipeline(100);
+      await mockDurableStreams.pipelineDone;
 
       const publishCalls = mockDurableStreams.publish.mock.calls;
       const errorEvent = publishCalls.find((call: unknown[]) => call[1] === 'terraform:error');
@@ -1197,7 +1215,7 @@ describe('TerraformComposeService class', () => {
         'stacks'
       );
 
-      await waitForPipeline(100);
+      await mockDurableStreams.pipelineDone;
 
       const publishCalls = mockDurableStreams.publish.mock.calls;
       const codeEvent = publishCalls.find((call: unknown[]) => call[1] === 'terraform:code');
@@ -1224,7 +1242,7 @@ describe('TerraformComposeService class', () => {
         'stacks'
       );
 
-      await waitForPipeline(100);
+      await mockDurableStreams.pipelineDone;
 
       const publishCalls = mockDurableStreams.publish.mock.calls;
       const statusEvents = publishCalls.filter((call: unknown[]) => call[1] === 'terraform:status');
@@ -1251,7 +1269,7 @@ describe('TerraformComposeService class', () => {
 
       await service.startCompose('pipe-history', messages);
 
-      await waitForPipeline(100);
+      await mockDurableStreams.pipelineDone;
 
       expect(mockSessionSend).toHaveBeenCalled();
       const sentPrompt = mockSessionSend.mock.calls[0]?.[0] as string;
@@ -1265,7 +1283,7 @@ describe('TerraformComposeService class', () => {
 
       await service.startCompose('pipe-append', [{ role: 'user', content: 'Create a VPC' }]);
 
-      await waitForPipeline(100);
+      await mockDurableStreams.pipelineDone;
 
       const session = service.getSession('pipe-append');
       expect(session!.messages).toHaveLength(2);
@@ -1320,7 +1338,7 @@ describe('TerraformComposeService class', () => {
 
       await service.startCompose('fresh-session', [{ role: 'user', content: 'Test' }]);
 
-      await waitForPipeline(100);
+      await mockDurableStreams.pipelineDone;
 
       expect(service.getSession('old-session')).toBeUndefined();
     });
@@ -1342,7 +1360,7 @@ describe('TerraformComposeService class', () => {
 
       await service.startCompose('trigger-eviction', [{ role: 'user', content: 'Test' }]);
 
-      await waitForPipeline(50);
+      await mockDurableStreams.pipelineDone;
 
       expect(service.getSession('session-0')).toBeUndefined();
     });

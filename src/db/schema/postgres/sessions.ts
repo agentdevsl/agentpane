@@ -18,6 +18,8 @@ export const sessions = pgTable('sessions', {
   status: text('status').$type<SessionStatus>().default('idle').notNull(),
   title: text('title'),
   url: text('url').notNull(),
+  sandboxProvider: text('sandbox_provider'),
+  sandboxContainerId: text('sandbox_container_id'),
   createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { mode: 'string' }).defaultNow().notNull(),
   closedAt: timestamp('closed_at', { mode: 'string' }),

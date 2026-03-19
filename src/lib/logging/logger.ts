@@ -5,6 +5,8 @@
  * Outputs JSON in production, human-readable in development.
  */
 
+import { getRequestId } from '../context/request-context.js';
+
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 const LOG_LEVELS: Record<LogLevel, number> = {
@@ -81,12 +83,14 @@ function log(
 ) {
   if (!shouldLog(level)) return;
 
+  const requestId = opts?.requestId ?? getRequestId();
+
   const entry: LogEntry = {
     level,
     message,
     timestamp: new Date().toISOString(),
     context: opts?.context,
-    requestId: opts?.requestId,
+    requestId,
     data: opts?.data,
     error: serializeError(opts?.error),
   };

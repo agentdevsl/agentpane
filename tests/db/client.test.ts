@@ -59,16 +59,36 @@ vi.mock('drizzle-orm/better-sqlite3', () => ({
   drizzle: mockDrizzle,
 }));
 
-// Mock the schema module
-vi.mock('@/db/schema', () => ({
+// Mock the schema modules (client.ts imports these individually)
+vi.mock('@/db/schema/sqlite', () => ({
   projects: { id: 'id' },
   tasks: { id: 'id' },
   agents: { id: 'id' },
 }));
 
-// Mock the migration SQL
-vi.mock('@/lib/bootstrap/phases/schema', () => ({
-  MIGRATION_SQL: 'CREATE TABLE IF NOT EXISTS test_table (id TEXT);',
+vi.mock('@/db/schema/postgres', () => ({
+  projects: { id: 'id' },
+  tasks: { id: 'id' },
+  agents: { id: 'id' },
+}));
+
+// Mock the migration runner (client.ts imports runMigrations + MIGRATIONS)
+const mockRunMigrations = vi.fn();
+vi.mock('@/lib/bootstrap/migrations/runner', () => ({
+  runMigrations: mockRunMigrations,
+}));
+
+vi.mock('@/lib/bootstrap/migrations/index', () => ({
+  MIGRATIONS: [],
+}));
+
+// Mock postgres (imported by client.ts for postgres mode)
+vi.mock('postgres', () => ({
+  default: vi.fn(),
+}));
+
+vi.mock('drizzle-orm/postgres-js', () => ({
+  drizzle: vi.fn(),
 }));
 
 // Mock fs module
@@ -78,11 +98,12 @@ vi.mock('node:fs', () => ({
 }));
 
 describe('Database Client', () => {
-  const { MockDatabaseFn, mockExec, mockPragma, resetMocks } = betterSqlite3Mocks;
+  const { MockDatabaseFn, mockPragma, resetMocks } = betterSqlite3Mocks;
 
   beforeEach(() => {
     vi.resetModules();
     resetMocks();
+    mockRunMigrations.mockReset();
     mockDrizzle.mockReset();
     mockDrizzle.mockReturnValue({ query: {} });
     vi.mocked(fs.existsSync).mockReset();
@@ -163,50 +184,41 @@ describe('Database Client', () => {
   });
 
   describe('Migration Handling', () => {
-    it('executes migration SQL on database creation', async () => {
+    it('calls runMigrations on database creation', async () => {
       vi.stubEnv('NODE_ENV', 'test');
 
       await import('@/db/client');
 
-      expect(mockExec).toHaveBeenCalledWith('CREATE TABLE IF NOT EXISTS test_table (id TEXT);');
+      expect(mockRunMigrations).toHaveBeenCalledWith(expect.any(Object), expect.any(Array));
     });
 
     it('throws error when migration fails', async () => {
       vi.stubEnv('NODE_ENV', 'test');
       const migrationError = new Error('Migration syntax error');
-      mockExec.mockImplementation(() => {
+      mockRunMigrations.mockImplementation(() => {
         throw migrationError;
       });
 
       await expect(import('@/db/client')).rejects.toThrow('Migration syntax error');
     });
 
-    it('logs migration success message', async () => {
+    it('runs migrations for in-memory test databases', async () => {
       vi.stubEnv('NODE_ENV', 'test');
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
       await import('@/db/client');
 
-      expect(consoleSpy).toHaveBeenCalledWith('[DB] Schema migration completed successfully');
-      consoleSpy.mockRestore();
+      expect(MockDatabaseFn).toHaveBeenCalledWith(':memory:');
+      expect(mockRunMigrations).toHaveBeenCalled();
     });
 
-    it('logs migration failure with error details', async () => {
-      vi.stubEnv('NODE_ENV', 'test');
-      const migrationError = new Error('SQL syntax error');
-      mockExec.mockImplementation(() => {
-        throw migrationError;
-      });
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    it('runs migrations for file-based databases', async () => {
+      vi.stubEnv('NODE_ENV', 'production');
+      vi.stubEnv('VITE_E2E_SEED', 'false');
 
-      try {
-        await import('@/db/client');
-      } catch {
-        // Expected to throw
-      }
+      await import('@/db/client');
 
-      expect(consoleSpy).toHaveBeenCalledWith('[DB] Schema migration failed:', migrationError);
-      consoleSpy.mockRestore();
+      expect(MockDatabaseFn).toHaveBeenCalledWith('./data/agentpane.db');
+      expect(mockRunMigrations).toHaveBeenCalled();
     });
   });
 

@@ -1,74 +1,37 @@
 /**
  * Workflow routes
+ *
+ * Thin route handlers that delegate to WorkflowService.
  */
 
-import { and, count, desc, eq, like, or } from 'drizzle-orm';
 import { Hono } from 'hono';
-import { workflows } from '../../db/schema';
-import type { Database } from '../../types/database.js';
+import type { WorkflowService } from '../../services/workflow.service.js';
 import { isValidId, json } from '../shared.js';
 
 interface WorkflowsDeps {
-  db: Database;
+  workflowService: WorkflowService;
 }
 
-export function createWorkflowsRoutes({ db }: WorkflowsDeps) {
+export function createWorkflowsRoutes({ workflowService }: WorkflowsDeps) {
   const app = new Hono();
 
   // GET /api/workflows
   app.get('/', async (c) => {
     const limit = parseInt(c.req.query('limit') ?? '50', 10);
     const offset = parseInt(c.req.query('offset') ?? '0', 10);
-    const status = c.req.query('status');
+    const status = c.req.query('status') as 'draft' | 'published' | 'archived' | undefined;
     const search = c.req.query('search');
 
-    try {
-      // Build where conditions
-      const conditions = [];
+    const result = await workflowService.list({ limit, offset, status, search });
 
-      if (status && ['draft', 'published', 'archived'].includes(status)) {
-        conditions.push(eq(workflows.status, status as 'draft' | 'published' | 'archived'));
-      }
-
-      if (search) {
-        const searchPattern = `%${search}%`;
-        conditions.push(
-          or(like(workflows.name, searchPattern), like(workflows.description, searchPattern))
-        );
-      }
-
-      const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-
-      // Get total count
-      const [countResult] = await db.select({ total: count() }).from(workflows).where(whereClause);
-
-      const totalCount = countResult?.total ?? 0;
-
-      // Get paginated items
-      const items = await db.query.workflows.findMany({
-        where: whereClause,
-        orderBy: [desc(workflows.updatedAt)],
-        limit,
-        offset,
-      });
-
-      return json({
-        ok: true,
-        data: {
-          items,
-          totalCount,
-          limit,
-          offset,
-          hasMore: offset + items.length < totalCount,
-        },
-      });
-    } catch (error) {
-      console.error('[Workflows] List error:', error);
+    if (!result.ok) {
       return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to list workflows' } },
-        500
+        { ok: false, error: { code: result.error.code, message: result.error.message } },
+        result.error.status
       );
     }
+
+    return json({ ok: true, data: result.value });
   });
 
   // POST /api/workflows
@@ -104,45 +67,30 @@ export function createWorkflowsRoutes({ db }: WorkflowsDeps) {
       );
     }
 
-    try {
-      const now = new Date().toISOString();
+    const result = await workflowService.create({
+      name: body.name,
+      description: body.description,
+      nodes: body.nodes,
+      edges: body.edges,
+      viewport: body.viewport,
+      status: body.status as 'draft' | 'published' | 'archived' | undefined,
+      tags: body.tags,
+      sourceTemplateId: body.sourceTemplateId,
+      sourceTemplateName: body.sourceTemplateName,
+      thumbnail: body.thumbnail,
+      aiGenerated: body.aiGenerated,
+      aiModel: body.aiModel,
+      aiConfidence: body.aiConfidence,
+    });
 
-      const [created] = await db
-        .insert(workflows)
-        .values({
-          name: body.name,
-          description: body.description,
-          nodes: body.nodes as typeof workflows.$inferInsert.nodes,
-          edges: body.edges as typeof workflows.$inferInsert.edges,
-          viewport: body.viewport,
-          status: (body.status as 'draft' | 'published' | 'archived') ?? 'draft',
-          tags: body.tags,
-          sourceTemplateId: body.sourceTemplateId,
-          sourceTemplateName: body.sourceTemplateName,
-          thumbnail: body.thumbnail,
-          aiGenerated: body.aiGenerated,
-          aiModel: body.aiModel,
-          aiConfidence: body.aiConfidence,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .returning();
-
-      if (!created) {
-        return json(
-          { ok: false, error: { code: 'CREATE_FAILED', message: 'Failed to create workflow' } },
-          500
-        );
-      }
-
-      return json({ ok: true, data: created }, 201);
-    } catch (error) {
-      console.error('[Workflows] Create error:', error);
+    if (!result.ok) {
       return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to create workflow' } },
-        500
+        { ok: false, error: { code: result.error.code, message: result.error.message } },
+        result.error.status
       );
     }
+
+    return json({ ok: true, data: result.value }, 201);
   });
 
   // GET /api/workflows/:id
@@ -156,29 +104,16 @@ export function createWorkflowsRoutes({ db }: WorkflowsDeps) {
       );
     }
 
-    try {
-      const workflow = await db.query.workflows.findFirst({
-        where: eq(workflows.id, id),
-      });
+    const result = await workflowService.getById(id);
 
-      if (!workflow) {
-        return json(
-          {
-            ok: false,
-            error: { code: 'NOT_FOUND', message: `Workflow with id '${id}' not found` },
-          },
-          404
-        );
-      }
-
-      return json({ ok: true, data: workflow });
-    } catch (error) {
-      console.error('[Workflows] Get error:', error);
+    if (!result.ok) {
       return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to get workflow' } },
-        500
+        { ok: false, error: { code: result.error.code, message: result.error.message } },
+        result.error.status
       );
     }
+
+    return json({ ok: true, data: result.value });
   });
 
   // PATCH /api/workflows/:id
@@ -216,65 +151,30 @@ export function createWorkflowsRoutes({ db }: WorkflowsDeps) {
       );
     }
 
-    try {
-      // Check if workflow exists
-      const existing = await db.query.workflows.findFirst({
-        where: eq(workflows.id, id),
-      });
+    const result = await workflowService.update(id, {
+      name: body.name,
+      description: body.description,
+      nodes: body.nodes,
+      edges: body.edges,
+      viewport: body.viewport,
+      status: body.status as 'draft' | 'published' | 'archived' | undefined,
+      tags: body.tags,
+      sourceTemplateId: body.sourceTemplateId,
+      sourceTemplateName: body.sourceTemplateName,
+      thumbnail: body.thumbnail,
+      aiGenerated: body.aiGenerated,
+      aiModel: body.aiModel,
+      aiConfidence: body.aiConfidence,
+    });
 
-      if (!existing) {
-        return json(
-          {
-            ok: false,
-            error: { code: 'NOT_FOUND', message: `Workflow with id '${id}' not found` },
-          },
-          404
-        );
-      }
-
-      // Build update object with only provided fields
-      const updates: Record<string, unknown> = {
-        updatedAt: new Date().toISOString(),
-        ...(body.name !== undefined && { name: body.name }),
-        ...(body.description !== undefined && { description: body.description }),
-        ...(body.nodes !== undefined && { nodes: body.nodes }),
-        ...(body.edges !== undefined && { edges: body.edges }),
-        ...(body.viewport !== undefined && { viewport: body.viewport }),
-        ...(body.status !== undefined && {
-          status: body.status as 'draft' | 'published' | 'archived',
-        }),
-        ...(body.tags !== undefined && { tags: body.tags }),
-        ...(body.sourceTemplateId !== undefined && { sourceTemplateId: body.sourceTemplateId }),
-        ...(body.sourceTemplateName !== undefined && {
-          sourceTemplateName: body.sourceTemplateName,
-        }),
-        ...(body.thumbnail !== undefined && { thumbnail: body.thumbnail }),
-        ...(body.aiGenerated !== undefined && { aiGenerated: body.aiGenerated }),
-        ...(body.aiModel !== undefined && { aiModel: body.aiModel }),
-        ...(body.aiConfidence !== undefined && { aiConfidence: body.aiConfidence }),
-      };
-
-      const [updated] = await db
-        .update(workflows)
-        .set(updates)
-        .where(eq(workflows.id, id))
-        .returning();
-
-      if (!updated) {
-        return json(
-          { ok: false, error: { code: 'UPDATE_FAILED', message: 'Failed to update workflow' } },
-          500
-        );
-      }
-
-      return json({ ok: true, data: updated });
-    } catch (error) {
-      console.error('[Workflows] Update error:', error);
+    if (!result.ok) {
       return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to update workflow' } },
-        500
+        { ok: false, error: { code: result.error.code, message: result.error.message } },
+        result.error.status
       );
     }
+
+    return json({ ok: true, data: result.value });
   });
 
   // DELETE /api/workflows/:id
@@ -288,32 +188,16 @@ export function createWorkflowsRoutes({ db }: WorkflowsDeps) {
       );
     }
 
-    try {
-      // Check if workflow exists
-      const existing = await db.query.workflows.findFirst({
-        where: eq(workflows.id, id),
-      });
+    const result = await workflowService.delete(id);
 
-      if (!existing) {
-        return json(
-          {
-            ok: false,
-            error: { code: 'NOT_FOUND', message: `Workflow with id '${id}' not found` },
-          },
-          404
-        );
-      }
-
-      await db.delete(workflows).where(eq(workflows.id, id));
-
-      return json({ ok: true, data: null });
-    } catch (error) {
-      console.error('[Workflows] Delete error:', error);
+    if (!result.ok) {
       return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to delete workflow' } },
-        500
+        { ok: false, error: { code: result.error.code, message: result.error.message } },
+        result.error.status
       );
     }
+
+    return json({ ok: true, data: null });
   });
 
   return app;

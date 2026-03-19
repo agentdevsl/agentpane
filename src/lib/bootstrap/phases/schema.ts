@@ -1,7 +1,10 @@
 import { createId } from '@paralleldrive/cuid2';
 import { createError } from '../../errors/base.js';
+import { createLogger } from '../../logging/logger.js';
 import { err, ok } from '../../utils/result.js';
 import type { BootstrapContext } from '../types.js';
+
+const log = createLogger('SchemaPhase');
 
 // SQLite migration SQL - creates tables if they don't exist
 // Exported for test setup reuse
@@ -685,7 +688,7 @@ export const RBAC_GITHUB_TOKEN_MIGRATION_SQL = `ALTER TABLE github_tokens ADD CO
  * Interface for raw SQLite database objects that support prepare/exec.
  * Compatible with both better-sqlite3 (bootstrap) and bun:sqlite (api.ts).
  */
-interface RawSQLiteDatabase {
+export interface RawSQLiteDatabase {
   prepare(sql: string): {
     get(...params: unknown[]): unknown;
     all(...params: unknown[]): unknown[];
@@ -731,9 +734,13 @@ export function seedDefaultTeamForExistingTokens(db: RawSQLiteDatabase): void {
       insertTeamProject.run(defaultTeamId, project.id);
     }
 
-    console.log(
-      `[RBAC Migration] Created default team '${defaultTeamId}' and associated ${orphanedTokens.count} GitHub token(s) and ${existingProjects.length} project(s)`
-    );
+    log.info('Created default team and associated tokens/projects', {
+      data: {
+        teamId: defaultTeamId,
+        tokenCount: orphanedTokens.count,
+        projectCount: existingProjects.length,
+      },
+    });
   }
 }
 
@@ -743,41 +750,10 @@ export const validateSchema = async (ctx: BootstrapContext) => {
   }
 
   try {
-    // Run migrations by executing SQL directly against SQLite
-    ctx.db.exec(MIGRATION_SQL);
-
-    // Run RBAC migration (idempotent)
-    ctx.db.exec(RBAC_MIGRATION_SQL);
-
-    // Run individual schema additions (may already exist on re-runs)
-    for (const sql of RBAC_SCHEMA_ADDITIONS) {
-      try {
-        ctx.db.exec(sql);
-      } catch (e) {
-        // "duplicate column name" is expected for re-runs — only log unexpected errors
-        const msg = e instanceof Error ? e.message : String(e);
-        if (!msg.includes('duplicate column')) {
-          console.warn(`[Schema] ALTER TABLE migration note: ${msg}`);
-        }
-      }
-    }
-
-    // Add team_id column to github_tokens for team-scoped tokens
-    try {
-      ctx.db.exec(RBAC_GITHUB_TOKEN_MIGRATION_SQL);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      if (!msg.includes('duplicate column')) {
-        console.warn(`[Schema] github_tokens migration note: ${msg}`);
-      }
-    }
-
-    // Create index on github_tokens(team_id) AFTER the column is added
-    try {
-      ctx.db.exec('CREATE INDEX IF NOT EXISTS idx_github_tokens_team ON github_tokens(team_id)');
-    } catch {
-      // Ignore if index already exists
-    }
+    // Run all migrations via the consolidated runner
+    const { MIGRATIONS } = await import('../migrations/index.js');
+    const { runMigrations } = await import('../migrations/runner.js');
+    runMigrations(ctx.db, MIGRATIONS);
 
     // Seed default team for pre-RBAC installations with orphaned tokens
     seedDefaultTeamForExistingTokens(ctx.db);
@@ -833,7 +809,7 @@ export const validateSchema = async (ctx: BootstrapContext) => {
 
     return ok(undefined);
   } catch (error) {
-    console.error('[Schema] Migration failed:', error instanceof Error ? error.message : error);
+    log.error('Migration failed', { error });
     return err(
       createError('BOOTSTRAP_SCHEMA_VALIDATION_FAILED', 'Schema migration failed', 500, {
         error: String(error),

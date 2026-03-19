@@ -8,6 +8,7 @@ import type { AgentError } from '../../lib/errors/agent-errors.js';
 import { AgentErrors } from '../../lib/errors/agent-errors.js';
 import type { ConcurrencyError } from '../../lib/errors/concurrency-errors.js';
 import { ConcurrencyErrors } from '../../lib/errors/concurrency-errors.js';
+import { createLogger } from '../../lib/logging/logger.js';
 import { resolveModel } from '../../lib/utils/resolve-model.js';
 import type { Result } from '../../lib/utils/result.js';
 import { err, ok } from '../../lib/utils/result.js';
@@ -23,6 +24,8 @@ import type {
   TaskService,
   WorktreeService,
 } from './types.js';
+
+const log = createLogger('AgentExecutionService');
 
 /**
  * Shared map of running agents with their AbortControllers.
@@ -342,9 +345,9 @@ export class AgentExecutionService {
           // Exhaustive check - TypeScript will error if a new status is added
           const _exhaustiveCheck: never = result.status;
           void _exhaustiveCheck;
-          console.error(
-            `[AgentExecutionService] Unknown agent status: ${result.status}, defaulting to error`
-          );
+          log.error('Unknown agent status, defaulting to error', {
+            data: { status: result.status },
+          });
           dbStatus = 'error';
         }
       }
@@ -381,9 +384,7 @@ export class AgentExecutionService {
           })
           .where(eq(tasks.id, taskId));
 
-        console.log(
-          `[AgentExecutionService] Agent ${agentId} planning complete, awaiting approval`
-        );
+        log.info('Agent planning complete, awaiting approval', { data: { agentId } });
       } else if (result.status === 'completed') {
         await this.db
           .update(agents)
@@ -440,14 +441,14 @@ export class AgentExecutionService {
       // Auto-dequeue: when an agent completes, check if there's a queued task to pick up
       if (result.status === 'completed' && this.queueService) {
         this.tryDequeueAndStart(agentId).catch((dequeueErr) => {
-          console.error(
-            `[AgentExecutionService] Failed to dequeue next task for agent ${agentId}:`,
-            dequeueErr
-          );
+          log.error('Failed to dequeue next task for agent', {
+            error: dequeueErr,
+            data: { agentId },
+          });
         });
       }
     } catch (error) {
-      console.error(`[AgentExecutionService] Agent ${agentId} execution failed:`, error);
+      log.error('Agent execution failed', { error, data: { agentId } });
 
       const errorMessage = error instanceof Error ? error.message : String(error);
       const recovery = handleAgentError(error instanceof Error ? error : new Error(errorMessage), {
@@ -581,10 +582,10 @@ export class AgentExecutionService {
         task,
         controller.signal
       ).catch(async (execErr) => {
-        console.error(
-          `[AgentExecutionService] Unhandled error in execution for agent ${agentId}:`,
-          execErr
-        );
+        log.error('Unhandled error in execution for agent', {
+          error: execErr,
+          data: { agentId },
+        });
         await this.db
           .update(agents)
           .set({ status: 'error', updatedAt: new Date().toISOString() })
@@ -647,7 +648,7 @@ export class AgentExecutionService {
       });
 
       if (!agent) {
-        console.error(`[AgentExecutionService] Agent ${agentId} not found for execution`);
+        log.error('Agent not found for execution', { data: { agentId } });
         await this.db
           .update(agents)
           .set({ status: 'error', updatedAt: new Date().toISOString() })
@@ -815,14 +816,14 @@ export class AgentExecutionService {
       // Auto-dequeue: when agent completes execution, check for queued tasks
       if (result.status === 'completed' && this.queueService) {
         this.tryDequeueAndStart(agentId).catch((dequeueErr) => {
-          console.error(
-            `[AgentExecutionService] Failed to dequeue next task for agent ${agentId}:`,
-            dequeueErr
-          );
+          log.error('Failed to dequeue next task for agent', {
+            error: dequeueErr,
+            data: { agentId },
+          });
         });
       }
     } catch (error) {
-      console.error(`[AgentExecutionService] Agent ${agentId} execution failed:`, error);
+      log.error('Agent execution failed', { error, data: { agentId } });
 
       const errorMessage = error instanceof Error ? error.message : String(error);
 
@@ -935,17 +936,16 @@ export class AgentExecutionService {
     if (!dequeueResult.ok || !dequeueResult.value) return;
 
     const nextTask = dequeueResult.value;
-    console.log(
-      `[AgentExecutionService] Auto-starting agent ${agentId} on queued task ${nextTask.id}`
-    );
+    log.info('Auto-starting agent on queued task', {
+      data: { agentId, taskId: nextTask.id },
+    });
 
     // Start the agent on the dequeued task (this will move it to in_progress)
     const startResult = await this.start(agentId, nextTask.id);
     if (!startResult.ok) {
-      console.warn(
-        `[AgentExecutionService] Failed to auto-start agent ${agentId} on task ${nextTask.id}:`,
-        startResult.error
-      );
+      log.warn('Failed to auto-start agent on task', {
+        data: { agentId, taskId: nextTask.id, error: startResult.error },
+      });
     }
   }
 }

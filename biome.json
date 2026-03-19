@@ -32,7 +32,8 @@
       "linter": {
         "rules": {
           "suspicious": {
-            "noExplicitAny": "off"
+            "noExplicitAny": "off",
+            "noConsole": "off"
           },
           "style": {
             "noNonNullAssertion": "off"
@@ -52,7 +53,28 @@
       "linter": {
         "rules": {
           "suspicious": {
-            "noExplicitAny": "off"
+            "noExplicitAny": "off",
+            "noConsole": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/app/**"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/lib/logging/logger.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "off"
           }
         }
       }
@@ -88,6 +110,7 @@
       },
       "suspicious": {
         "noExplicitAny": "warn",
+        "noConsole": "warn",
         "noControlCharactersInRegex": "off",
         "noArrayIndexKey": "off"
       },

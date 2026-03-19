@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-where possible use concurrent OPUS subagents
+where possible use concurrent OPUS subagents with max effort
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 

@@ -1,28 +1,14 @@
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
-import {
-  CLI_SESSIONS_MIGRATION_SQL,
-  CLI_SESSIONS_PERF_METRICS_MIGRATION_SQL,
-  EVENT_SYSTEM_MIGRATION_SQL,
-  MIGRATION_SQL,
-  PERFORMANCE_INDEXES_MIGRATION_SQL,
-  RBAC_GITHUB_TOKEN_MIGRATION_SQL,
-  RBAC_MIGRATION_SQL,
-  RBAC_SCHEMA_ADDITIONS,
-  SANDBOX_CONTAINER_ID_MIGRATION_SQL,
-  SANDBOX_MIGRATION_SQL,
-  SCHEDULE_EXECUTIONS_MIGRATION_SQL,
-  seedDefaultTeamForExistingTokens,
-  TEMPLATE_SYNC_INTERVAL_MIGRATION_SQL,
-  TERRAFORM_MIGRATION_SQL,
-} from '../phases/schema.js';
+import { MIGRATIONS } from '../migrations/index.js';
+import { runMigrations } from '../migrations/runner.js';
+import { MIGRATION_SQL, seedDefaultTeamForExistingTokens } from '../phases/schema.js';
 
 /**
  * Regression test for migration ordering.
  *
- * This test replays the exact migration sequence from src/server/api.ts
- * against a fresh in-memory SQLite database. If any migration references
- * a column or table that hasn't been created yet, the test will fail.
+ * Uses the consolidated migration runner to apply the exact same migration
+ * sequence used in production (api.ts and bootstrap schema phase).
  *
  * Bug context: RBAC_MIGRATION_SQL previously included
  *   CREATE INDEX idx_github_tokens_team ON github_tokens(team_id)
@@ -34,74 +20,9 @@ describe('Migration ordering', () => {
     const db = new Database(':memory:');
     db.pragma('foreign_keys = ON');
 
-    // 1. Base schema
-    db.exec(MIGRATION_SQL);
-
-    // 2. Sandbox migration (ALTER TABLE — may fail on re-run)
-    try {
-      db.exec(SANDBOX_MIGRATION_SQL);
-    } catch {
-      // duplicate column expected on re-run
-    }
-
-    // 3. Sandbox container ID
-    try {
-      db.exec(SANDBOX_CONTAINER_ID_MIGRATION_SQL);
-    } catch {
-      // duplicate column expected on re-run
-    }
-
-    // 4. Template sync interval
-    try {
-      db.exec(TEMPLATE_SYNC_INTERVAL_MIGRATION_SQL);
-    } catch {
-      // duplicate column expected on re-run
-    }
-
-    // 5. Performance indexes
-    db.exec(PERFORMANCE_INDEXES_MIGRATION_SQL);
-
-    // 6. CLI sessions
-    db.exec(CLI_SESSIONS_MIGRATION_SQL);
-    try {
-      db.exec(CLI_SESSIONS_PERF_METRICS_MIGRATION_SQL);
-    } catch {
-      // duplicate column expected on re-run
-    }
-
-    // 7. Terraform
-    db.exec(TERRAFORM_MIGRATION_SQL);
-
-    // 8. RBAC tables (must NOT reference github_tokens.team_id)
-    db.exec(RBAC_MIGRATION_SQL);
-
-    // 9. RBAC schema additions
-    for (const sql of RBAC_SCHEMA_ADDITIONS) {
-      try {
-        db.exec(sql);
-      } catch {
-        // duplicate column expected on re-run
-      }
-    }
-
-    // 10. github_tokens team_id column (must come BEFORE any index on it)
-    try {
-      db.exec(RBAC_GITHUB_TOKEN_MIGRATION_SQL);
-    } catch {
-      // duplicate column expected on re-run
-    }
-
-    // 11. Index on github_tokens(team_id) — must come AFTER step 10
-    db.exec('CREATE INDEX IF NOT EXISTS idx_github_tokens_team ON github_tokens(team_id)');
-
-    // 12. Seed default team (queries github_tokens.team_id — must come after step 10)
+    // Run all migrations via the consolidated runner
+    runMigrations(db, MIGRATIONS);
     seedDefaultTeamForExistingTokens(db);
-
-    // 13. Event system (references teams table from RBAC)
-    db.exec(EVENT_SYSTEM_MIGRATION_SQL);
-
-    // 14. Schedule executions (references event_sources from step 13)
-    db.exec(SCHEDULE_EXECUTIONS_MIGRATION_SQL);
 
     // Verify all critical columns exist
     const githubTokensCols = db.prepare("PRAGMA table_info('github_tokens')").all() as {
@@ -123,6 +44,16 @@ describe('Migration ordering', () => {
     }[];
     expect(eventSourcesCols.map((c) => c.name)).toContain('team_id');
 
+    // Verify schema_migrations tracking table was created and populated
+    const appliedMigrations = db
+      .prepare('SELECT version, name FROM schema_migrations ORDER BY version')
+      .all() as { version: number; name: string }[];
+    expect(appliedMigrations.length).toBe(MIGRATIONS.length);
+    expect(appliedMigrations[0]!.version).toBe(1);
+    expect(appliedMigrations[appliedMigrations.length - 1]!.version).toBe(
+      MIGRATIONS[MIGRATIONS.length - 1]!.version
+    );
+
     db.close();
   });
 
@@ -132,58 +63,8 @@ describe('Migration ordering', () => {
 
     // Run the full migration sequence twice to verify idempotency
     for (let run = 0; run < 2; run++) {
-      db.exec(MIGRATION_SQL);
-
-      try {
-        db.exec(SANDBOX_MIGRATION_SQL);
-      } catch {
-        /* dup col */
-      }
-      try {
-        db.exec(SANDBOX_CONTAINER_ID_MIGRATION_SQL);
-      } catch {
-        /* dup col */
-      }
-      try {
-        db.exec(TEMPLATE_SYNC_INTERVAL_MIGRATION_SQL);
-      } catch {
-        /* dup col */
-      }
-
-      db.exec(PERFORMANCE_INDEXES_MIGRATION_SQL);
-      db.exec(CLI_SESSIONS_MIGRATION_SQL);
-      try {
-        db.exec(CLI_SESSIONS_PERF_METRICS_MIGRATION_SQL);
-      } catch {
-        /* dup col */
-      }
-
-      db.exec(TERRAFORM_MIGRATION_SQL);
-      db.exec(RBAC_MIGRATION_SQL);
-
-      for (const sql of RBAC_SCHEMA_ADDITIONS) {
-        try {
-          db.exec(sql);
-        } catch {
-          /* dup col */
-        }
-      }
-
-      try {
-        db.exec(RBAC_GITHUB_TOKEN_MIGRATION_SQL);
-      } catch {
-        /* dup col */
-      }
-      try {
-        db.exec('CREATE INDEX IF NOT EXISTS idx_github_tokens_team ON github_tokens(team_id)');
-      } catch {
-        /* already exists */
-      }
-
+      runMigrations(db, MIGRATIONS);
       seedDefaultTeamForExistingTokens(db);
-
-      db.exec(EVENT_SYSTEM_MIGRATION_SQL);
-      db.exec(SCHEDULE_EXECUTIONS_MIGRATION_SQL);
     }
 
     // Should still work after two runs
@@ -193,6 +74,12 @@ describe('Migration ordering', () => {
     expect(tables.map((t) => t.name)).toContain('event_sources');
     expect(tables.map((t) => t.name)).toContain('github_tokens');
     expect(tables.map((t) => t.name)).toContain('teams');
+
+    // Verify migrations were only applied once (not duplicated)
+    const appliedMigrations = db
+      .prepare('SELECT version FROM schema_migrations ORDER BY version')
+      .all() as { version: number }[];
+    expect(appliedMigrations.length).toBe(MIGRATIONS.length);
 
     db.close();
   });
@@ -208,6 +95,29 @@ describe('Migration ordering', () => {
     expect(() => {
       db.exec('CREATE INDEX idx_github_tokens_team ON github_tokens(team_id)');
     }).toThrow(/no such column/);
+
+    db.close();
+  });
+
+  it('only applies pending migrations on existing database', () => {
+    const db = new Database(':memory:');
+    db.pragma('foreign_keys = ON');
+
+    // Apply only the first 5 migrations
+    runMigrations(db, MIGRATIONS.slice(0, 5));
+
+    const afterFirst = db
+      .prepare('SELECT MAX(version) as max_version FROM schema_migrations')
+      .get() as { max_version: number };
+    expect(afterFirst.max_version).toBe(5);
+
+    // Apply the full set — should only apply 6+
+    runMigrations(db, MIGRATIONS);
+
+    const afterAll = db.prepare('SELECT version FROM schema_migrations ORDER BY version').all() as {
+      version: number;
+    }[];
+    expect(afterAll.length).toBe(MIGRATIONS.length);
 
     db.close();
   });

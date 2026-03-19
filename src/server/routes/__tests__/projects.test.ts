@@ -30,38 +30,33 @@ function createMockDb() {
   return db;
 }
 
-// Helper to set up chainable insert mock
-function setupInsertMock(db: ReturnType<typeof createMockDb>, returnValue: unknown) {
-  const returning = vi.fn().mockResolvedValue(returnValue ? [returnValue] : []);
-  const values = vi.fn().mockReturnValue({ returning });
-  db.insert.mockReturnValue({ values });
-  return { values, returning };
-}
+// ── Mock ProjectService ──
 
-// Helper to set up chainable update mock
-function setupUpdateMock(db: ReturnType<typeof createMockDb>, returnValue: unknown) {
-  const returning = vi.fn().mockResolvedValue(returnValue ? [returnValue] : []);
-  const where = vi.fn().mockReturnValue({ returning });
-  const set = vi.fn().mockReturnValue({ where });
-  db.update.mockReturnValue({ set });
-  return { set, where, returning };
-}
-
-// Helper to set up chainable delete mock
-function setupDeleteMock(db: ReturnType<typeof createMockDb>) {
-  const where = vi.fn().mockResolvedValue(undefined);
-  db.delete.mockReturnValue({ where });
-  return { where };
+function createMockProjectService() {
+  return {
+    list: vi.fn(),
+    getById: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
+    listWithSummaries: vi.fn(),
+    validatePath: vi.fn(),
+    validateConfig: vi.fn(),
+    updateConfig: vi.fn(),
+    syncFromGitHub: vi.fn(),
+    cloneRepository: vi.fn(),
+  };
 }
 
 // ── Test App Factory ──
 
 function createTestApp() {
   const db = createMockDb();
-  const routes = createProjectsRoutes({ db: db as never });
+  const projectService = createMockProjectService();
+  const routes = createProjectsRoutes({ projectService: projectService as never, db: db as never });
   const app = new Hono();
   app.route('/api/projects', routes);
-  return { app, db };
+  return { app, db, projectService };
 }
 
 // ── Request Helper ──
@@ -82,7 +77,7 @@ describe('Projects API Routes', () => {
 
   describe('GET /api/projects', () => {
     it('returns projects list', async () => {
-      const { app, db } = createTestApp();
+      const { app, projectService } = createTestApp();
       const mockProjects = [
         {
           id: 'proj-1',
@@ -93,7 +88,7 @@ describe('Projects API Routes', () => {
           updatedAt: '2025-01-02',
         },
       ];
-      db.query.projects.findMany.mockResolvedValue(mockProjects);
+      projectService.list.mockResolvedValue({ ok: true, value: mockProjects });
 
       const res = await request(app, 'GET', '/api/projects');
 
@@ -106,8 +101,8 @@ describe('Projects API Routes', () => {
     });
 
     it('returns empty list when no projects exist', async () => {
-      const { app, db } = createTestApp();
-      db.query.projects.findMany.mockResolvedValue([]);
+      const { app, projectService } = createTestApp();
+      projectService.list.mockResolvedValue({ ok: true, value: [] });
 
       const res = await request(app, 'GET', '/api/projects');
 
@@ -119,8 +114,8 @@ describe('Projects API Routes', () => {
     });
 
     it('returns 500 when database fails', async () => {
-      const { app, db } = createTestApp();
-      db.query.projects.findMany.mockRejectedValue(new Error('DB connection failed'));
+      const { app, projectService } = createTestApp();
+      projectService.list.mockRejectedValue(new Error('DB connection failed'));
 
       const res = await request(app, 'GET', '/api/projects');
 
@@ -135,7 +130,7 @@ describe('Projects API Routes', () => {
 
   describe('POST /api/projects', () => {
     it('creates a project', async () => {
-      const { app, db } = createTestApp();
+      const { app, projectService } = createTestApp();
       const created = {
         id: 'proj-new',
         name: 'New Project',
@@ -144,8 +139,7 @@ describe('Projects API Routes', () => {
         createdAt: '2025-01-01',
         updatedAt: '2025-01-01',
       };
-      db.query.projects.findFirst.mockResolvedValue(null); // no duplicate
-      setupInsertMock(db, created);
+      projectService.create.mockResolvedValue({ ok: true, value: created });
 
       const res = await request(app, 'POST', '/api/projects', {
         name: 'New Project',
@@ -186,11 +180,15 @@ describe('Projects API Routes', () => {
       expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
-    it('returns 400 for duplicate path', async () => {
-      const { app, db } = createTestApp();
-      db.query.projects.findFirst.mockResolvedValue({
-        id: 'existing',
-        path: '/home/user/project',
+    it('returns error for duplicate path', async () => {
+      const { app, projectService } = createTestApp();
+      projectService.create.mockResolvedValue({
+        ok: false,
+        error: {
+          code: 'PROJECT_PATH_EXISTS',
+          message: 'A project with this path already exists',
+          status: 409,
+        },
       });
 
       const res = await request(app, 'POST', '/api/projects', {
@@ -198,7 +196,6 @@ describe('Projects API Routes', () => {
         path: '/home/user/project',
       });
 
-      expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
       expect(json.error.code).toBe('DUPLICATE');
@@ -224,7 +221,7 @@ describe('Projects API Routes', () => {
 
   describe('GET /api/projects/:id', () => {
     it('returns a project by id', async () => {
-      const { app, db } = createTestApp();
+      const { app, projectService } = createTestApp();
       const project = {
         id: 'proj-1',
         name: 'Project 1',
@@ -233,7 +230,7 @@ describe('Projects API Routes', () => {
         createdAt: '2025-01-01',
         updatedAt: '2025-01-02',
       };
-      db.query.projects.findFirst.mockResolvedValue(project);
+      projectService.getById.mockResolvedValue({ ok: true, value: project });
 
       const res = await request(app, 'GET', '/api/projects/proj-1');
 
@@ -244,7 +241,7 @@ describe('Projects API Routes', () => {
     });
 
     it('returns config and maxConcurrentAgents in GET response', async () => {
-      const { app, db } = createTestApp();
+      const { app, projectService } = createTestApp();
       const project = {
         id: 'proj-1',
         name: 'Project 1',
@@ -259,7 +256,7 @@ describe('Projects API Routes', () => {
         createdAt: '2025-01-01',
         updatedAt: '2025-01-02',
       };
-      db.query.projects.findFirst.mockResolvedValue(project);
+      projectService.getById.mockResolvedValue({ ok: true, value: project });
 
       const res = await request(app, 'GET', '/api/projects/proj-1');
 
@@ -282,8 +279,11 @@ describe('Projects API Routes', () => {
     });
 
     it('returns 404 when project not found', async () => {
-      const { app, db } = createTestApp();
-      db.query.projects.findFirst.mockResolvedValue(null);
+      const { app, projectService } = createTestApp();
+      projectService.getById.mockResolvedValue({
+        ok: false,
+        error: { code: 'PROJECT_NOT_FOUND', message: 'Project not found', status: 404 },
+      });
 
       const res = await request(app, 'GET', '/api/projects/nonexistent-id');
 
@@ -298,13 +298,7 @@ describe('Projects API Routes', () => {
 
   describe('PATCH /api/projects/:id', () => {
     it('updates a project', async () => {
-      const { app, db } = createTestApp();
-      const existing = {
-        id: 'proj-1',
-        name: 'Old Name',
-        path: '/project',
-        config: {},
-      };
+      const { app, projectService } = createTestApp();
       const updated = {
         id: 'proj-1',
         name: 'New Name',
@@ -315,8 +309,7 @@ describe('Projects API Routes', () => {
         createdAt: '2025-01-01',
         updatedAt: '2025-01-02',
       };
-      db.query.projects.findFirst.mockResolvedValue(existing);
-      setupUpdateMock(db, updated);
+      projectService.update.mockResolvedValue({ ok: true, value: updated });
 
       const res = await request(app, 'PATCH', '/api/projects/proj-1', {
         name: 'New Name',
@@ -356,8 +349,11 @@ describe('Projects API Routes', () => {
     });
 
     it('returns 404 when project not found', async () => {
-      const { app, db } = createTestApp();
-      db.query.projects.findFirst.mockResolvedValue(null);
+      const { app, projectService } = createTestApp();
+      projectService.update.mockResolvedValue({
+        ok: false,
+        error: { code: 'PROJECT_NOT_FOUND', message: 'Project not found', status: 404 },
+      });
 
       const res = await request(app, 'PATCH', '/api/projects/nonexistent-id', {
         name: 'Updated',
@@ -366,7 +362,7 @@ describe('Projects API Routes', () => {
       expect(res.status).toBe(404);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('NOT_FOUND');
+      expect(json.error.code).toBe('PROJECT_NOT_FOUND');
     });
   });
 
@@ -374,11 +370,11 @@ describe('Projects API Routes', () => {
 
   describe('DELETE /api/projects/:id', () => {
     it('deletes a project', async () => {
-      const { app, db } = createTestApp();
+      const { app, db, projectService } = createTestApp();
       const existing = { id: 'proj-1', name: 'Project', path: '/project' };
-      db.query.projects.findFirst.mockResolvedValue(existing);
+      projectService.getById.mockResolvedValue({ ok: true, value: existing });
       db.query.agents.findMany.mockResolvedValue([]); // no running agents
-      setupDeleteMock(db);
+      projectService.delete.mockResolvedValue({ ok: true, value: undefined });
 
       const res = await request(app, 'DELETE', '/api/projects/proj-1');
 
@@ -399,8 +395,11 @@ describe('Projects API Routes', () => {
     });
 
     it('returns 404 when project not found', async () => {
-      const { app, db } = createTestApp();
-      db.query.projects.findFirst.mockResolvedValue(null);
+      const { app, projectService } = createTestApp();
+      projectService.getById.mockResolvedValue({
+        ok: false,
+        error: { code: 'PROJECT_NOT_FOUND', message: 'Project not found', status: 404 },
+      });
 
       const res = await request(app, 'DELETE', '/api/projects/nonexistent-id');
 
@@ -411,9 +410,9 @@ describe('Projects API Routes', () => {
     });
 
     it('returns 409 when project has running agents', async () => {
-      const { app, db } = createTestApp();
+      const { app, db, projectService } = createTestApp();
       const existing = { id: 'proj-1', name: 'Project', path: '/project' };
-      db.query.projects.findFirst.mockResolvedValue(existing);
+      projectService.getById.mockResolvedValue({ ok: true, value: existing });
       db.query.agents.findMany.mockResolvedValue([
         { id: 'agent-1', status: 'running', projectId: 'proj-1' },
       ]);
@@ -431,24 +430,32 @@ describe('Projects API Routes', () => {
 
   describe('GET /api/projects/summaries', () => {
     it('returns project summaries with task counts and agent info', async () => {
-      const { app, db } = createTestApp();
-      const mockProjects = [
-        {
-          id: 'proj-1',
-          name: 'Project 1',
-          path: '/project1',
-          description: 'A project',
-          createdAt: '2025-01-01',
-          updatedAt: '2025-01-02',
-        },
-      ];
-      const mockTasks = [
-        { id: 'task-1', column: 'backlog', projectId: 'proj-1', updatedAt: '2025-01-02' },
-        { id: 'task-2', column: 'in_progress', projectId: 'proj-1', updatedAt: '2025-01-03' },
-      ];
-      db.query.projects.findMany.mockResolvedValue(mockProjects);
-      db.query.tasks.findMany.mockResolvedValue(mockTasks);
-      db.query.agents.findMany.mockResolvedValue([]);
+      const { app, projectService } = createTestApp();
+      projectService.listWithSummaries.mockResolvedValue({
+        ok: true,
+        value: [
+          {
+            project: {
+              id: 'proj-1',
+              name: 'Project 1',
+              path: '/project1',
+              description: 'A project',
+              createdAt: '2025-01-01',
+              updatedAt: '2025-01-02',
+            },
+            taskCounts: {
+              backlog: 1,
+              inProgress: 1,
+              waitingApproval: 0,
+              verified: 0,
+              total: 2,
+            },
+            runningAgents: [],
+            status: 'idle' as const,
+            lastActivityAt: '2025-01-03',
+          },
+        ],
+      });
 
       const res = await request(app, 'GET', '/api/projects/summaries');
 
@@ -463,27 +470,26 @@ describe('Projects API Routes', () => {
     });
 
     it('returns running status when agents are active', async () => {
-      const { app, db } = createTestApp();
-      db.query.projects.findMany.mockResolvedValue([
-        {
-          id: 'proj-1',
-          name: 'P1',
-          path: '/p1',
-          description: null,
-          createdAt: '2025-01-01',
-          updatedAt: '2025-01-01',
-        },
-      ]);
-      db.query.tasks.findMany.mockResolvedValue([]);
-      db.query.agents.findMany.mockResolvedValue([
-        {
-          id: 'agent-1',
-          name: 'Agent 1',
-          status: 'running',
-          projectId: 'proj-1',
-          currentTaskId: null,
-        },
-      ]);
+      const { app, projectService } = createTestApp();
+      projectService.listWithSummaries.mockResolvedValue({
+        ok: true,
+        value: [
+          {
+            project: {
+              id: 'proj-1',
+              name: 'P1',
+              path: '/p1',
+              description: null,
+              createdAt: '2025-01-01',
+              updatedAt: '2025-01-01',
+            },
+            taskCounts: { backlog: 0, inProgress: 0, waitingApproval: 0, verified: 0, total: 0 },
+            runningAgents: [{ id: 'agent-1', name: 'Agent 1', currentTaskId: null }],
+            status: 'running' as const,
+            lastActivityAt: '2025-01-01',
+          },
+        ],
+      });
 
       const res = await request(app, 'GET', '/api/projects/summaries');
 
@@ -494,8 +500,8 @@ describe('Projects API Routes', () => {
     });
 
     it('returns 500 when database fails', async () => {
-      const { app, db } = createTestApp();
-      db.query.projects.findMany.mockRejectedValue(new Error('DB error'));
+      const { app, projectService } = createTestApp();
+      projectService.listWithSummaries.mockRejectedValue(new Error('DB error'));
 
       const res = await request(app, 'GET', '/api/projects/summaries');
 

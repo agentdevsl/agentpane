@@ -1,19 +1,33 @@
 import { relations } from 'drizzle-orm';
 import { agentRuns } from './agent-runs';
 import { agents } from './agents';
+import { apiTokens } from './api-tokens';
 import { auditLogs } from './audit-logs';
+import { eventLog } from './event-log';
+import { eventSources } from './event-sources';
+import { eventSubscriptions } from './event-subscriptions';
 import { githubInstallations, repositoryConfigs } from './github';
 import { planSessions } from './plan-sessions';
+import { projectMembers } from './project-members';
+import { projectTags } from './project-tags';
 import { projects } from './projects';
 import { sandboxConfigs } from './sandbox-configs';
 import { sandboxInstances, sandboxTmuxSessions } from './sandboxes';
 import { sessionEvents } from './session-events';
 import { sessionSummaries } from './session-summaries';
 import { sessions } from './sessions';
+import { tags } from './tags';
+import { taskTags } from './task-tags';
 import { tasks } from './tasks';
+import { teamInvitations } from './team-invitations';
+import { teamMembers } from './team-members';
+import { teamProjects } from './team-projects';
+import { teams } from './teams';
 import { templateProjects } from './template-projects';
 import { templates } from './templates';
 import { terraformModules, terraformRegistries } from './terraform';
+import { userSessions } from './user-sessions';
+import { users } from './users';
 import { worktrees } from './worktrees';
 
 export const projectsRelations = relations(projects, ({ one, many }) => ({
@@ -25,6 +39,10 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   templates: many(templates),
   templateProjects: many(templateProjects),
   planSessions: many(planSessions),
+  teamProjects: many(teamProjects),
+  projectMembers: many(projectMembers),
+  projectTags: many(projectTags),
+  eventSubscriptions: many(eventSubscriptions),
   sandboxInstance: one(sandboxInstances, {
     fields: [projects.id],
     references: [sandboxInstances.projectId],
@@ -60,6 +78,7 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
   auditLogs: many(auditLogs),
   planSessions: many(planSessions),
   tmuxSessions: many(sandboxTmuxSessions),
+  taskTags: many(taskTags),
 }));
 
 export const agentsRelations = relations(agents, ({ one, many }) => ({
@@ -135,10 +154,12 @@ export const repositoryConfigsRelations = relations(repositoryConfigs, ({ one })
 }));
 
 export const templatesRelations = relations(templates, ({ one, many }) => ({
+  // Legacy single project reference (for backward compatibility)
   project: one(projects, {
     fields: [templates.projectId],
     references: [projects.id],
   }),
+  // Many-to-many relationship through junction table
   templateProjects: many(templateProjects),
 }));
 
@@ -153,6 +174,7 @@ export const templateProjectsRelations = relations(templateProjects, ({ one }) =
   }),
 }));
 
+// Plan sessions relations
 export const planSessionsRelations = relations(planSessions, ({ one }) => ({
   task: one(tasks, {
     fields: [planSessions.taskId],
@@ -164,6 +186,7 @@ export const planSessionsRelations = relations(planSessions, ({ one }) => ({
   }),
 }));
 
+// Sandbox instances relations
 export const sandboxInstancesRelations = relations(sandboxInstances, ({ one, many }) => ({
   project: one(projects, {
     fields: [sandboxInstances.projectId],
@@ -172,6 +195,7 @@ export const sandboxInstancesRelations = relations(sandboxInstances, ({ one, man
   tmuxSessions: many(sandboxTmuxSessions),
 }));
 
+// Sandbox tmux sessions relations
 export const sandboxTmuxSessionsRelations = relations(sandboxTmuxSessions, ({ one }) => ({
   sandbox: one(sandboxInstances, {
     fields: [sandboxTmuxSessions.sandboxId],
@@ -183,6 +207,7 @@ export const sandboxTmuxSessionsRelations = relations(sandboxTmuxSessions, ({ on
   }),
 }));
 
+// Session events relations
 export const sessionEventsRelations = relations(sessionEvents, ({ one }) => ({
   session: one(sessions, {
     fields: [sessionEvents.sessionId],
@@ -190,6 +215,7 @@ export const sessionEventsRelations = relations(sessionEvents, ({ one }) => ({
   }),
 }));
 
+// Session summaries relations
 export const sessionSummariesRelations = relations(sessionSummaries, ({ one }) => ({
   session: one(sessions, {
     fields: [sessionSummaries.sessionId],
@@ -197,13 +223,164 @@ export const sessionSummariesRelations = relations(sessionSummaries, ({ one }) =
   }),
 }));
 
+// Terraform registries relations
 export const terraformRegistriesRelations = relations(terraformRegistries, ({ many }) => ({
   modules: many(terraformModules),
 }));
 
+// Terraform modules relations
 export const terraformModulesRelations = relations(terraformModules, ({ one }) => ({
   registry: one(terraformRegistries, {
     fields: [terraformModules.registryId],
     references: [terraformRegistries.id],
+  }),
+}));
+
+// RBAC relations
+
+export const usersRelations = relations(users, ({ many }) => ({
+  sessions: many(userSessions),
+  teamMemberships: many(teamMembers),
+  projectMemberships: many(projectMembers),
+  apiTokens: many(apiTokens),
+  invitationsSent: many(teamInvitations),
+}));
+
+export const userSessionsRelations = relations(userSessions, ({ one }) => ({
+  user: one(users, {
+    fields: [userSessions.userId],
+    references: [users.id],
+  }),
+}));
+
+export const teamsRelations = relations(teams, ({ many }) => ({
+  members: many(teamMembers),
+  projects: many(teamProjects),
+  tags: many(tags),
+  apiTokens: many(apiTokens),
+  invitations: many(teamInvitations),
+  eventSources: many(eventSources),
+}));
+
+export const teamMembersRelations = relations(teamMembers, ({ one }) => ({
+  team: one(teams, {
+    fields: [teamMembers.teamId],
+    references: [teams.id],
+  }),
+  user: one(users, {
+    fields: [teamMembers.userId],
+    references: [users.id],
+  }),
+}));
+
+export const teamProjectsRelations = relations(teamProjects, ({ one }) => ({
+  team: one(teams, {
+    fields: [teamProjects.teamId],
+    references: [teams.id],
+  }),
+  project: one(projects, {
+    fields: [teamProjects.projectId],
+    references: [projects.id],
+  }),
+}));
+
+export const projectMembersRelations = relations(projectMembers, ({ one }) => ({
+  project: one(projects, {
+    fields: [projectMembers.projectId],
+    references: [projects.id],
+  }),
+  user: one(users, {
+    fields: [projectMembers.userId],
+    references: [users.id],
+  }),
+  grantedByTeam: one(teams, {
+    fields: [projectMembers.grantedByTeamId],
+    references: [teams.id],
+  }),
+}));
+
+export const tagsRelations = relations(tags, ({ one, many }) => ({
+  team: one(teams, {
+    fields: [tags.teamId],
+    references: [teams.id],
+  }),
+  projectTags: many(projectTags),
+  taskTags: many(taskTags),
+}));
+
+export const projectTagsRelations = relations(projectTags, ({ one }) => ({
+  project: one(projects, {
+    fields: [projectTags.projectId],
+    references: [projects.id],
+  }),
+  tag: one(tags, {
+    fields: [projectTags.tagId],
+    references: [tags.id],
+  }),
+}));
+
+export const taskTagsRelations = relations(taskTags, ({ one }) => ({
+  task: one(tasks, {
+    fields: [taskTags.taskId],
+    references: [tasks.id],
+  }),
+  tag: one(tags, {
+    fields: [taskTags.tagId],
+    references: [tags.id],
+  }),
+}));
+
+export const apiTokensRelations = relations(apiTokens, ({ one }) => ({
+  user: one(users, {
+    fields: [apiTokens.userId],
+    references: [users.id],
+  }),
+  team: one(teams, {
+    fields: [apiTokens.teamId],
+    references: [teams.id],
+  }),
+  scopeProject: one(projects, {
+    fields: [apiTokens.scopeProjectId],
+    references: [projects.id],
+  }),
+}));
+
+export const teamInvitationsRelations = relations(teamInvitations, ({ one }) => ({
+  team: one(teams, {
+    fields: [teamInvitations.teamId],
+    references: [teams.id],
+  }),
+  invitedByUser: one(users, {
+    fields: [teamInvitations.invitedBy],
+    references: [users.id],
+  }),
+}));
+
+// Event system relations
+
+export const eventSourcesRelations = relations(eventSources, ({ one, many }) => ({
+  team: one(teams, {
+    fields: [eventSources.teamId],
+    references: [teams.id],
+  }),
+  subscriptions: many(eventSubscriptions),
+  eventLogs: many(eventLog),
+}));
+
+export const eventSubscriptionsRelations = relations(eventSubscriptions, ({ one }) => ({
+  eventSource: one(eventSources, {
+    fields: [eventSubscriptions.eventSourceId],
+    references: [eventSources.id],
+  }),
+  targetProject: one(projects, {
+    fields: [eventSubscriptions.targetProjectId],
+    references: [projects.id],
+  }),
+}));
+
+export const eventLogRelations = relations(eventLog, ({ one }) => ({
+  eventSource: one(eventSources, {
+    fields: [eventLog.eventSourceId],
+    references: [eventSources.id],
   }),
 }));

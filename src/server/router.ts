@@ -15,6 +15,7 @@ import { userSessions } from '../db/schema/sqlite/user-sessions.js';
 import { getAuthContext } from '../lib/api/auth-middleware.js';
 import { rateLimiter } from '../lib/api/rate-limiter.js';
 import { enrichAuthContext, requireRole, requireTagAccess } from '../lib/api/rbac-middleware.js';
+import { requestContextStorage } from '../lib/context/request-context.js';
 import { publishEventToStream } from '../lib/events/event-bus.js';
 import { createLogger } from '../lib/logging/logger.js';
 import type { EventEmittingSandboxProvider } from '../lib/sandbox/index.js';
@@ -24,8 +25,10 @@ import type { CliMonitorService } from '../services/cli-monitor/index.js';
 import type { EventProcessingService } from '../services/event-processing.service.js';
 import type { EventSourceService } from '../services/event-source.service.js';
 import type { EventSubscriptionService } from '../services/event-subscription.service.js';
+import type { GitService } from '../services/git.service.js';
 import type { GitHubTokenService } from '../services/github-token.service.js';
 import type { MarketplaceService } from '../services/marketplace.service.js';
+import type { ProjectService } from '../services/project.service.js';
 import { RbacService } from '../services/rbac.service.js';
 import type { SandboxConfigService } from '../services/sandbox-config.service.js';
 import type { SchedulerService } from '../services/scheduler.service.js';
@@ -36,6 +39,7 @@ import type { TaskCreationService } from '../services/task-creation.service.js';
 import type { TemplateService } from '../services/template.service.js';
 import type { TerraformComposeService } from '../services/terraform-compose.service.js';
 import type { TerraformRegistryService } from '../services/terraform-registry.service.js';
+import type { WorkflowService } from '../services/workflow.service.js';
 import type { CommandRunner, WorktreeService } from '../services/worktree.service.js';
 import type { Database } from '../types/database.js';
 import { createAgentsRoutes } from './routes/agents.js';
@@ -83,7 +87,7 @@ async function requestIdMiddleware(c: Context, next: Next) {
     `req-${Date.now().toString(36)}-${(++requestCounter).toString(36)}`;
   c.set('requestId', id);
   c.header('X-Request-Id', id);
-  return next();
+  return requestContextStorage.run({ requestId: id }, () => next());
 }
 
 async function securityHeaders(c: Context, next: Next) {
@@ -171,13 +175,16 @@ export interface RouterDependencies {
   marketplaceService: MarketplaceService;
   agentService: AgentService;
   commandRunner: CommandRunner;
+  workflowService: WorkflowService;
+  gitService: GitService;
+  projectService: ProjectService;
   getSandboxProvider?: () => EventEmittingSandboxProvider | null;
   getK8sProvider?: () => SandboxProviderHealth | null;
   getNomadProvider?: () => SandboxProviderHealth | null;
   cliMonitorService?: CliMonitorService | null;
   terraformRegistryService?: TerraformRegistryService;
   terraformComposeService?: TerraformComposeService;
-  settingsService?: SettingsService;
+  settingsService: SettingsService;
   rbacService?: RbacService;
   eventSourceService?: EventSourceService;
   eventSubscriptionService?: EventSubscriptionService;
@@ -364,15 +371,18 @@ export function createRouter(deps: RouterDependencies) {
   // Auth routes (public — exempted from authMiddleware above)
   app.route('/api/auth', createAuthRoutes({ db: deps.db }));
 
-  app.route('/api/settings', createSettingsRoutes({ db: deps.db }));
-  app.route('/api/projects', createProjectsRoutes({ db: deps.db }));
+  app.route('/api/settings', createSettingsRoutes({ settingsService: deps.settingsService }));
+  app.route(
+    '/api/projects',
+    createProjectsRoutes({ projectService: deps.projectService, db: deps.db })
+  );
   app.route('/api/agents', createAgentsRoutes({ agentService: deps.agentService }));
   app.route(
     '/api/tasks/create-with-ai',
     createTaskCreationRoutes({ taskCreationService: deps.taskCreationService })
   );
   app.route('/api/tasks', createTasksRoutes({ taskService: deps.taskService }));
-  app.route('/api/workflows', createWorkflowsRoutes({ db: deps.db }));
+  app.route('/api/workflows', createWorkflowsRoutes({ workflowService: deps.workflowService }));
   app.route('/api/templates', createTemplatesRoutes({ templateService: deps.templateService }));
   app.route(
     '/api/marketplaces',
@@ -386,7 +396,7 @@ export function createRouter(deps: RouterDependencies) {
   );
   app.route('/api/worktrees', createWorktreesRoutes({ worktreeService: deps.worktreeService }));
   app.route('/api/github', createGitHubRoutes({ githubService: deps.githubService }));
-  app.route('/api/git', createGitRoutes({ db: deps.db, commandRunner: deps.commandRunner }));
+  app.route('/api/git', createGitRoutes({ gitService: deps.gitService }));
   app.route(
     '/api/sandbox-configs',
     createSandboxRoutes({ sandboxConfigService: deps.sandboxConfigService })

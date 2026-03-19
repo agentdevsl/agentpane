@@ -3,7 +3,8 @@ import Database, { type Database as SQLiteDatabase } from 'better-sqlite3';
 import { drizzle as drizzleSqlite } from 'drizzle-orm/better-sqlite3';
 import { drizzle as drizzlePg } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
-import { MIGRATION_SQL } from '../lib/bootstrap/phases/schema';
+import { MIGRATIONS } from '../lib/bootstrap/migrations/index';
+import { runMigrations } from '../lib/bootstrap/migrations/runner';
 import * as pgSchema from './schema/postgres';
 import * as sqliteSchema from './schema/sqlite';
 
@@ -43,15 +44,9 @@ const getDbMode = (): 'sqlite' | 'postgres' => {
   return 'sqlite';
 };
 
-// Run schema migration on a database
+// Run schema migrations on a database using the consolidated runner
 const runMigration = (sqlite: SQLiteDatabase): void => {
-  try {
-    sqlite.exec(MIGRATION_SQL);
-    console.log('[DB] Schema migration completed successfully');
-  } catch (error) {
-    console.error('[DB] Schema migration failed:', error);
-    throw error;
-  }
+  runMigrations(sqlite, MIGRATIONS);
 };
 
 // Create SQLite database connection (server-side only)

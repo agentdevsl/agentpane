@@ -59,22 +59,9 @@ import { migrate as migratePg } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
 import * as pgSchema from '../db/schema/postgres/index.js';
 import * as sqliteSchema from '../db/schema/sqlite/index.js';
-import {
-  CLI_SESSIONS_MIGRATION_SQL,
-  CLI_SESSIONS_PERF_METRICS_MIGRATION_SQL,
-  EVENT_SYSTEM_MIGRATION_SQL,
-  MIGRATION_SQL,
-  PERFORMANCE_INDEXES_MIGRATION_SQL,
-  RBAC_GITHUB_TOKEN_MIGRATION_SQL,
-  RBAC_MIGRATION_SQL,
-  RBAC_SCHEMA_ADDITIONS,
-  SANDBOX_CONTAINER_ID_MIGRATION_SQL,
-  SANDBOX_MIGRATION_SQL,
-  SCHEDULE_EXECUTIONS_MIGRATION_SQL,
-  seedDefaultTeamForExistingTokens,
-  TEMPLATE_SYNC_INTERVAL_MIGRATION_SQL,
-  TERRAFORM_MIGRATION_SQL,
-} from '../lib/bootstrap/phases/schema.js';
+import { MIGRATIONS } from '../lib/bootstrap/migrations/index.js';
+import { runMigrations } from '../lib/bootstrap/migrations/runner.js';
+import { seedDefaultTeamForExistingTokens } from '../lib/bootstrap/phases/schema.js';
 import { decryptToken } from '../lib/crypto/server-encryption.js';
 import { PluginRegistry } from '../lib/events/plugin-registry.js';
 import { CronEventSourcePlugin } from '../lib/events/plugins/cron-plugin.js';
@@ -93,8 +80,10 @@ import { DurableStreamsService } from '../services/durable-streams.service.js';
 import { EventProcessingService } from '../services/event-processing.service.js';
 import { EventSourceService } from '../services/event-source.service.js';
 import { EventSubscriptionService } from '../services/event-subscription.service.js';
+import { GitService } from '../services/git.service.js';
 import { GitHubTokenService } from '../services/github-token.service.js';
 import { MarketplaceService } from '../services/marketplace.service.js';
+import { ProjectService } from '../services/project.service.js';
 import { SandboxConfigService } from '../services/sandbox-config.service.js';
 import { SchedulerService } from '../services/scheduler.service.js';
 import { SessionService } from '../services/session.service.js';
@@ -109,6 +98,7 @@ import { startSyncScheduler } from '../services/template-sync-scheduler.js';
 import { TerraformComposeService } from '../services/terraform-compose.service.js';
 import { TerraformRegistryService } from '../services/terraform-registry.service.js';
 import { startTerraformSyncScheduler } from '../services/terraform-sync-scheduler.js';
+import { WorkflowService } from '../services/workflow.service.js';
 import { type CommandRunner, WorktreeService } from '../services/worktree.service.js';
 import type { Database } from '../types/database.js';
 import { createRouter } from './router.js';
@@ -178,179 +168,11 @@ if (DB_MODE === 'postgres') {
   sqlite.exec('PRAGMA foreign_keys=ON');
   log.info('SQLite WAL mode enabled', { data: { dbPath: DB_PATH } });
 
-  // Run migrations to ensure schema is up to date
-  sqlite.exec(MIGRATION_SQL);
-  log.info('Schema migrations applied');
-
-  // Run sandbox migration (may fail if column already exists)
-  try {
-    sqlite.exec(SANDBOX_MIGRATION_SQL);
-    log.info('[API Server] Sandbox migration applied');
-  } catch (error) {
-    // Only warn for unexpected errors - duplicate column errors are expected on subsequent runs
-    if (!(error instanceof Error && error.message.includes('duplicate column name'))) {
-      console.warn(
-        '[API Server] Sandbox migration error (unexpected):',
-        error instanceof Error ? error.message : String(error)
-      );
-    }
-    // Silently ignore duplicate column errors (expected when migration already applied)
-  }
-
-  // Run sandbox container ID migration (may fail if column already exists)
-  try {
-    sqlite.exec(SANDBOX_CONTAINER_ID_MIGRATION_SQL);
-    log.info('[API Server] Sandbox container ID migration applied');
-  } catch (error) {
-    if (!(error instanceof Error && error.message.includes('duplicate column name'))) {
-      console.warn(
-        '[API Server] Sandbox container ID migration error (unexpected):',
-        error instanceof Error ? error.message : String(error)
-      );
-    }
-  }
-
-  // Run template sync interval migration (may fail if columns already exist)
-  try {
-    sqlite.exec(TEMPLATE_SYNC_INTERVAL_MIGRATION_SQL);
-    log.info('[API Server] Template sync interval migration applied');
-  } catch (error) {
-    // Only warn for unexpected errors - duplicate column errors are expected on subsequent runs
-    if (!(error instanceof Error && error.message.includes('duplicate column name'))) {
-      console.warn(
-        '[API Server] Template sync interval migration error (unexpected):',
-        error instanceof Error ? error.message : String(error)
-      );
-    }
-    // Silently ignore duplicate column errors (expected when migration already applied)
-  }
-
-  // Apply performance indexes (idempotent — uses IF NOT EXISTS)
-  sqlite.exec(PERFORMANCE_INDEXES_MIGRATION_SQL);
-  log.info('Performance indexes applied');
-
-  // Apply CLI sessions migration (idempotent — uses IF NOT EXISTS)
-  sqlite.exec(CLI_SESSIONS_MIGRATION_SQL);
-  log.info('CLI sessions migration applied');
-
-  // Add performance_metrics column to cli_sessions (may fail if column already exists)
-  try {
-    sqlite.exec(CLI_SESSIONS_PERF_METRICS_MIGRATION_SQL);
-    log.info('CLI sessions performance_metrics migration applied');
-  } catch (error) {
-    if (!(error instanceof Error && error.message.includes('duplicate column name'))) {
-      log.warn('CLI sessions performance_metrics migration error (unexpected)', {
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-    }
-  }
-
-  // Apply Terraform tables migration (idempotent — uses IF NOT EXISTS)
-  sqlite.exec(TERRAFORM_MIGRATION_SQL);
-  log.info('Terraform migration applied');
-
-  // Apply RBAC tables migration (idempotent — uses IF NOT EXISTS)
-  sqlite.exec(RBAC_MIGRATION_SQL);
-  log.info('RBAC migration applied');
-
-  // Apply RBAC schema additions for existing databases (tags.updated_at,
-  // project_tags.assigned_at, task_tags.assigned_at). Each runs individually
-  // so a duplicate-column error on one doesn't block the others.
-  for (const alterSql of RBAC_SCHEMA_ADDITIONS) {
-    try {
-      sqlite.exec(alterSql);
-    } catch (error) {
-      if (!(error instanceof Error && error.message.includes('duplicate column name'))) {
-        log.warn('RBAC schema addition migration error (unexpected)', {
-          error: error instanceof Error ? error : new Error(String(error)),
-        });
-      }
-    }
-  }
-
-  // Apply github_tokens team_id column migration
-  try {
-    sqlite.exec(RBAC_GITHUB_TOKEN_MIGRATION_SQL);
-    log.info('GitHub tokens team_id migration applied');
-  } catch (error) {
-    if (!(error instanceof Error && error.message.includes('duplicate column name'))) {
-      log.warn('GitHub tokens team_id migration error (unexpected)', {
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-    }
-  }
-
-  // Create index on github_tokens(team_id) AFTER the column is added above
-  try {
-    sqlite.exec('CREATE INDEX IF NOT EXISTS idx_github_tokens_team ON github_tokens(team_id)');
-  } catch {
-    // Ignore — index already exists or column not yet added
-  }
+  // Run all migrations via the consolidated runner
+  runMigrations(sqlite, MIGRATIONS);
 
   // Seed default team for existing installations with orphaned github_tokens
   seedDefaultTeamForExistingTokens(sqlite);
-
-  // Nomad sandbox columns — run individually for partial-failure safety
-  const nomadColumns = [
-    `ALTER TABLE sandbox_configs ADD COLUMN nomad_address TEXT`,
-    `ALTER TABLE sandbox_configs ADD COLUMN nomad_token TEXT`,
-    `ALTER TABLE sandbox_configs ADD COLUMN nomad_namespace TEXT DEFAULT 'default'`,
-    `ALTER TABLE sandbox_configs ADD COLUMN nomad_datacenter TEXT`,
-    `ALTER TABLE sandbox_configs ADD COLUMN nomad_region TEXT`,
-  ];
-  for (const sql of nomadColumns) {
-    try {
-      sqlite.exec(sql);
-    } catch (error) {
-      if (!(error instanceof Error && error.message.includes('duplicate column name'))) {
-        log.warn('Nomad migration error', {
-          error: error instanceof Error ? error : new Error(String(error)),
-        });
-      }
-    }
-  }
-
-  // AgentCore sandbox columns — run individually for partial-failure safety
-  const agentcoreColumns = [
-    `ALTER TABLE sandbox_configs ADD COLUMN aws_access_key_id TEXT`,
-    `ALTER TABLE sandbox_configs ADD COLUMN aws_secret_access_key TEXT`,
-    `ALTER TABLE sandbox_configs ADD COLUMN aws_region TEXT`,
-    `ALTER TABLE sandbox_configs ADD COLUMN agentcore_runtime_arn TEXT`,
-    `ALTER TABLE sandbox_configs ADD COLUMN ecr_repository_uri TEXT`,
-  ];
-  for (const sql of agentcoreColumns) {
-    try {
-      sqlite.exec(sql);
-    } catch (error) {
-      if (!(error instanceof Error && error.message.includes('duplicate column name'))) {
-        log.warn('AgentCore migration error', {
-          error: error instanceof Error ? error : new Error(String(error)),
-        });
-      }
-    }
-  }
-
-  // Apply agents parent_agent_id migration (may fail if column already exists)
-  try {
-    sqlite.exec(
-      `ALTER TABLE agents ADD COLUMN parent_agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL;`
-    );
-    log.info('[API Server] Agents parent_agent_id migration applied');
-  } catch (error) {
-    if (!(error instanceof Error && error.message.includes('duplicate column name'))) {
-      log.warn('Agents parent_agent_id migration error (unexpected)', {
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-    }
-  }
-
-  // Apply event system migration (idempotent — uses IF NOT EXISTS)
-  sqlite.exec(EVENT_SYSTEM_MIGRATION_SQL);
-  log.info('Event system migration applied');
-
-  // Apply schedule executions migration (idempotent — uses IF NOT EXISTS)
-  sqlite.exec(SCHEDULE_EXECUTIONS_MIGRATION_SQL);
-  log.info('Schedule executions migration applied');
 
   db = drizzle(sqlite, { schema: sqliteSchema }) as unknown as Database;
 }
@@ -398,13 +220,12 @@ try {
     );
   const changes = getChangedCount(result);
   if (changes > 0) {
-    console.log(`[API Server] Recovered ${changes} orphaned task(s) back to backlog`);
+    log.info(`Recovered ${changes} orphaned task(s) back to backlog`);
   }
 } catch (error) {
-  console.error(
-    '[API Server] Failed to recover orphaned tasks:',
-    error instanceof Error ? error.message : String(error)
-  );
+  log.error('Failed to recover orphaned tasks', {
+    error: error instanceof Error ? error : new Error(String(error)),
+  });
 }
 
 // Clean up orphaned worktrees from tasks where agents are no longer running (Gap 2)
@@ -421,7 +242,7 @@ try {
   );
 
   if (tasksToClean.length > 0) {
-    console.log(`[API Server] Found ${tasksToClean.length} task(s) with orphaned worktrees`);
+    log.info(`Found ${tasksToClean.length} task(s) with orphaned worktrees`);
     for (const t of tasksToClean) {
       try {
         await db
@@ -433,20 +254,19 @@ try {
           })
           .where(eq(schemaTables.tasks.id, t.id));
       } catch (cleanErr) {
-        console.error(
-          `[API Server] Failed to clear worktree refs for task ${t.id}:`,
-          cleanErr instanceof Error ? cleanErr.message : String(cleanErr)
-        );
+        log.error('Failed to clear worktree refs for task', {
+          error: cleanErr,
+          data: { taskId: t.id },
+        });
       }
     }
-    console.log(`[API Server] Cleared worktree references from ${tasksToClean.length} task(s)`);
+    log.info(`Cleared worktree references from ${tasksToClean.length} task(s)`);
     // Note: actual worktree removal happens via WorktreeService after it's initialized below
   }
 } catch (error) {
-  console.error(
-    '[API Server] Failed to clean orphaned worktrees:',
-    error instanceof Error ? error.message : String(error)
-  );
+  log.error('Failed to clean orphaned worktrees', {
+    error: error instanceof Error ? error : new Error(String(error)),
+  });
 }
 
 // Initialize services
@@ -729,10 +549,9 @@ async function loadSandboxDefaultsFromDb(): Promise<{
       };
     }
   } catch (settingsErr) {
-    console.warn(
-      '[API Server] Failed to load sandbox settings (using defaults):',
-      settingsErr instanceof Error ? settingsErr.message : String(settingsErr)
-    );
+    log.warn('Failed to load sandbox settings (using defaults)', {
+      error: settingsErr instanceof Error ? settingsErr : new Error(String(settingsErr)),
+    });
   }
   return null;
 }
@@ -833,10 +652,9 @@ async function initSandboxProvider() {
       }
     }
   } catch (settingsErr) {
-    console.warn(
-      '[API Server] Failed to load sandbox provider setting (using Docker default):',
-      settingsErr instanceof Error ? settingsErr.message : String(settingsErr)
-    );
+    log.warn('Failed to load sandbox provider setting (using Docker default)', {
+      error: settingsErr instanceof Error ? settingsErr : new Error(String(settingsErr)),
+    });
   }
 
   // Step 2: Initialize the selected provider
@@ -919,10 +737,9 @@ async function initSandboxProvider() {
             await k8sProvider.initWarmPool();
             log.info('[API Server] Warm pool initialized');
           } catch (warmPoolErr) {
-            console.warn(
-              '[API Server] Warm pool initialization failed (continuing without):',
-              warmPoolErr instanceof Error ? warmPoolErr.message : String(warmPoolErr)
-            );
+            log.warn('Warm pool initialization failed (continuing without)', {
+              error: warmPoolErr instanceof Error ? warmPoolErr : new Error(String(warmPoolErr)),
+            });
           }
         }
       } else {
@@ -974,10 +791,10 @@ async function initSandboxProvider() {
                   await k8sProvider.initWarmPool();
                   log.info('[API Server] Warm pool initialized');
                 } catch (warmPoolErr) {
-                  console.warn(
-                    '[API Server] Warm pool initialization failed (continuing without):',
-                    warmPoolErr instanceof Error ? warmPoolErr.message : String(warmPoolErr)
-                  );
+                  log.warn('Warm pool initialization failed (continuing without)', {
+                    error:
+                      warmPoolErr instanceof Error ? warmPoolErr : new Error(String(warmPoolErr)),
+                  });
                 }
               }
             }
@@ -1012,19 +829,16 @@ async function initSandboxProvider() {
                   await execAsync(`kubectl apply -f "${filePath}"`, { timeout: 30_000 });
                   log.info(`[API Server] Applied ${manifest}`);
                 } catch (err) {
-                  console.warn(
-                    `[API Server] Failed to apply ${manifest}:`,
-                    err instanceof Error ? err.message : String(err)
-                  );
+                  log.warn(`Failed to apply ${manifest}`, {
+                    error: err instanceof Error ? err : new Error(String(err)),
+                  });
                 }
               }
 
               // Wait for CRD registration before applying custom resources
               const crdReady = await waitForCrdRegistration(10_000);
               if (!crdReady) {
-                console.warn(
-                  '[API Server] CRD registration timed out after 10s — custom resources may fail'
-                );
+                log.warn('CRD registration timed out after 10s — custom resources may fail');
               }
 
               // Try to install the external CRD controller
@@ -1051,10 +865,9 @@ async function initSandboxProvider() {
                   await execAsync(`kubectl apply -f "${filePath}"`, { timeout: 30_000 });
                   log.info(`[API Server] Applied ${manifest}`);
                 } catch (err) {
-                  console.warn(
-                    `[API Server] Failed to apply ${manifest}:`,
-                    err instanceof Error ? err.message : String(err)
-                  );
+                  log.warn(`Failed to apply ${manifest}`, {
+                    error: err instanceof Error ? err : new Error(String(err)),
+                  });
                 }
               }
 
@@ -1085,10 +898,10 @@ async function initSandboxProvider() {
                     await k8sProvider.initWarmPool();
                     log.info('[API Server] Warm pool initialized');
                   } catch (warmPoolErr) {
-                    console.warn(
-                      '[API Server] Warm pool initialization failed (continuing without):',
-                      warmPoolErr instanceof Error ? warmPoolErr.message : String(warmPoolErr)
-                    );
+                    log.warn('Warm pool initialization failed (continuing without)', {
+                      error:
+                        warmPoolErr instanceof Error ? warmPoolErr : new Error(String(warmPoolErr)),
+                    });
                   }
                 }
               }
@@ -1130,7 +943,7 @@ async function initSandboxProvider() {
                   },
                 });
             } catch (persistErr) {
-              console.warn('[API Server] Failed to persist K8s error:', persistErr);
+              log.warn('Failed to persist K8s error', { error: persistErr });
             }
           }
         }
@@ -1160,7 +973,7 @@ async function initSandboxProvider() {
               },
             });
         } catch (persistErr) {
-          console.warn('[API Server] Failed to persist K8s error:', persistErr);
+          log.warn('Failed to persist K8s error', { error: persistErr });
         }
       }
     }
@@ -1285,9 +1098,7 @@ async function initSandboxProvider() {
       // Recover existing containers from previous runs
       const { recovered, removed } = await dockerProvider.recover();
       if (recovered > 0 || removed > 0) {
-        console.log(
-          `[API Server] Container recovery: ${recovered} recovered, ` + `${removed} stale removed`
-        );
+        log.info(`Container recovery: ${recovered} recovered, ${removed} stale removed`);
       }
 
       sandboxProvider = dockerProvider;
@@ -1299,10 +1110,10 @@ async function initSandboxProvider() {
           const defaults = await loadSandboxDefaultsFromDb();
 
           const defaultImage = defaults?.image ?? SANDBOX_DEFAULTS.image;
-          console.log(`[API Server] Checking for default sandbox image: ${defaultImage}`);
+          log.info('Checking for default sandbox image', { data: { image: defaultImage } });
 
           const imageAvailable = await dockerProvider.isImageAvailable(defaultImage);
-          console.log(`[API Server] Image available: ${imageAvailable}`);
+          log.info('Image availability check', { data: { imageAvailable } });
           if (imageAvailable) {
             try {
               const defaultWorkspacePath = path.join(
@@ -1329,19 +1140,17 @@ async function initSandboxProvider() {
               });
             }
           } else {
-            console.log(
-              `[API Server] Default sandbox image '${defaultImage}' not available, ` +
-                'skipping default sandbox creation'
-            );
+            log.info('Default sandbox image not available, skipping default sandbox creation', {
+              data: { image: defaultImage },
+            });
           }
         } else {
           log.info('[API Server] Default global sandbox already exists');
         }
       } catch (sandboxErr) {
-        console.warn(
-          '[API Server] Failed to setup default sandbox (container agent still available):',
-          sandboxErr instanceof Error ? sandboxErr.message : String(sandboxErr)
-        );
+        log.warn('Failed to setup default sandbox (container agent still available)', {
+          error: sandboxErr instanceof Error ? sandboxErr : new Error(String(sandboxErr)),
+        });
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1379,10 +1188,9 @@ async function initSandboxProvider() {
       ]);
       return result === 0;
     } catch (err) {
-      console.warn(
-        '[API Server] Failed to start minikube:',
-        err instanceof Error ? err.message : String(err)
-      );
+      log.warn('Failed to start minikube', {
+        error: err instanceof Error ? err : new Error(String(err)),
+      });
       return false;
     }
   }
@@ -1423,10 +1231,9 @@ async function initSandboxProvider() {
           `(provider: ${sandboxProvider.name})`
       );
     } catch (serviceErr) {
-      console.error(
-        '[API Server] Failed to create ContainerAgentService:',
-        serviceErr instanceof Error ? serviceErr.message : String(serviceErr)
-      );
+      log.error('Failed to create ContainerAgentService', {
+        error: serviceErr instanceof Error ? serviceErr : new Error(String(serviceErr)),
+      });
     }
   } else {
     log.warn('[API Server] initSandboxProvider completed but no sandbox provider was initialized');
@@ -1448,6 +1255,15 @@ const terraformComposeService = new TerraformComposeService(
 
 // AgentService for agent lifecycle management
 const agentService = new AgentService(db, worktreeService, taskService, sessionService);
+
+// WorkflowService for workflow CRUD
+const workflowService = new WorkflowService(db);
+
+// GitService for git operations (shell commands with proper escaping)
+const gitService = new GitService(db, bunCommandRunner);
+
+// ProjectService for project CRUD and summaries (with N+1 fix)
+const projectService = new ProjectService(db, worktreeService, bunCommandRunner);
 
 // Event plugin system
 const pluginRegistry = new PluginRegistry();
@@ -1486,6 +1302,9 @@ const app = createRouter({
   marketplaceService,
   agentService,
   commandRunner: bunCommandRunner,
+  workflowService,
+  gitService,
+  projectService,
   getSandboxProvider: () => {
     // In dev mode, trigger a lazy re-init if provider is null and no retry is pending
     if (!sandboxProvider && isDev && !sandboxRetryTimer) {
@@ -1514,7 +1333,7 @@ Bun.serve({
   idleTimeout: 0, // Disable idle timeout to prevent Bun from killing long-lived SSE connections
 });
 
-console.log(`[API Server] Running on http://localhost:${PORT}`);
+log.info(`Server running on http://localhost:${PORT}`);
 
 // Periodic K8s CRD health check + auto-heal (60s interval)
 let k8sCrdHealInProgress = false;
@@ -1612,13 +1431,12 @@ function startK8sHealInterval() {
       if (recheck.healthy) {
         log.info('[K8s Heal] Auto-heal succeeded — CRDs restored');
       } else {
-        console.warn('[K8s Heal] Auto-heal ran but cluster is still unhealthy');
+        log.warn('[K8s Heal] Auto-heal ran but cluster is still unhealthy');
       }
     } catch (err) {
-      console.warn(
-        '[K8s Heal] Health check failed:',
-        err instanceof Error ? err.message : String(err)
-      );
+      log.warn('[K8s Heal] Health check failed', {
+        error: err instanceof Error ? err : new Error(String(err)),
+      });
     } finally {
       k8sCrdHealInProgress = false;
     }
@@ -1667,10 +1485,9 @@ function startNomadHealInterval() {
         data: { message: health.message },
       });
     } catch (err) {
-      console.warn(
-        '[Nomad Heal] Health check failed:',
-        err instanceof Error ? err.message : String(err)
-      );
+      log.warn('[Nomad Heal] Health check failed', {
+        error: err instanceof Error ? err : new Error(String(err)),
+      });
     } finally {
       nomadHealInProgress = false;
     }

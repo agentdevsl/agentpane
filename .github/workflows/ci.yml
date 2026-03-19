@@ -35,6 +35,9 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Schema drift check
+        run: bun run scripts/check-schema-drift.ts
+
       - name: Type check
         run: bun run typecheck
 
