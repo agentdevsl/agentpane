@@ -21,7 +21,17 @@ describe('DELETE /api/projects/:id - File Deletion Security', () => {
   // Import the Hono route factory
   let createProjectsRoutes: typeof import('@/server/routes/projects').createProjectsRoutes;
 
-  // Mock database
+  // Mock project service
+  const mockProjectService: Record<string, any> = {
+    getById: vi.fn(),
+    delete: vi.fn(),
+    list: vi.fn(),
+    listWithSummaries: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+  };
+
+  // Mock database (still needed for running agents check)
   const mockDb: Record<string, any> = {
     query: {
       projects: {
@@ -64,6 +74,10 @@ describe('DELETE /api/projects/:id - File Deletion Security', () => {
     const module = await import('@/server/routes/projects');
     createProjectsRoutes = module.createProjectsRoutes;
 
+    // Reset mock project service
+    mockProjectService.getById.mockReset();
+    mockProjectService.delete.mockReset();
+
     // Reset mock database
     mockDb.query.projects.findFirst.mockReset();
     mockDb.query.agents.findMany.mockReset();
@@ -77,10 +91,14 @@ describe('DELETE /api/projects/:id - File Deletion Security', () => {
 
   it('returns filesDeleted: false with reason when path is too shallow', async () => {
     const project = createTestProject({ path: '/home/user' }); // Only 2 components
-    mockDb.query.projects.findFirst.mockResolvedValue(project);
+    mockProjectService.getById.mockResolvedValue({ ok: true, value: project });
+    mockProjectService.delete.mockResolvedValue({ ok: true, value: undefined });
     mockDb.query.agents.findMany.mockResolvedValue([]);
 
-    const app = createProjectsRoutes({ db: mockDb as never });
+    const app = createProjectsRoutes({
+      projectService: mockProjectService as never,
+      db: mockDb as never,
+    });
     const response = await app.request('/proj-test-1?deleteFiles=true', {
       method: 'DELETE',
     });
@@ -95,10 +113,14 @@ describe('DELETE /api/projects/:id - File Deletion Security', () => {
 
   it('returns filesDeleted: false with reason when path matches system directory', async () => {
     const project = createTestProject({ path: '/Users' }); // Exact match to dangerous prefix
-    mockDb.query.projects.findFirst.mockResolvedValue(project);
+    mockProjectService.getById.mockResolvedValue({ ok: true, value: project });
+    mockProjectService.delete.mockResolvedValue({ ok: true, value: undefined });
     mockDb.query.agents.findMany.mockResolvedValue([]);
 
-    const app = createProjectsRoutes({ db: mockDb as never });
+    const app = createProjectsRoutes({
+      projectService: mockProjectService as never,
+      db: mockDb as never,
+    });
     const response = await app.request('/proj-test-1?deleteFiles=true', {
       method: 'DELETE',
     });
@@ -113,10 +135,14 @@ describe('DELETE /api/projects/:id - File Deletion Security', () => {
 
   it('returns filesDeleted: false with reason when path has insufficient depth under system prefix', async () => {
     const project = createTestProject({ path: '/Users/testuser/projects' }); // 3 components, but under dangerous prefix needs 4
-    mockDb.query.projects.findFirst.mockResolvedValue(project);
+    mockProjectService.getById.mockResolvedValue({ ok: true, value: project });
+    mockProjectService.delete.mockResolvedValue({ ok: true, value: undefined });
     mockDb.query.agents.findMany.mockResolvedValue([]);
 
-    const app = createProjectsRoutes({ db: mockDb as never });
+    const app = createProjectsRoutes({
+      projectService: mockProjectService as never,
+      db: mockDb as never,
+    });
     const response = await app.request('/proj-test-1?deleteFiles=true', {
       method: 'DELETE',
     });
@@ -132,7 +158,8 @@ describe('DELETE /api/projects/:id - File Deletion Security', () => {
 
   it('returns filesDeleted: true when path is safe and deletion succeeds', async () => {
     const project = createTestProject({ path: '/Users/testuser/projects/myproject' }); // 4 components - safe
-    mockDb.query.projects.findFirst.mockResolvedValue(project);
+    mockProjectService.getById.mockResolvedValue({ ok: true, value: project });
+    mockProjectService.delete.mockResolvedValue({ ok: true, value: undefined });
     mockDb.query.agents.findMany.mockResolvedValue([]);
 
     // Mock fs.stat to return directory
@@ -140,7 +167,10 @@ describe('DELETE /api/projects/:id - File Deletion Security', () => {
     // Mock fs.rm to succeed
     fsMocks.rm.mockResolvedValue(undefined);
 
-    const app = createProjectsRoutes({ db: mockDb as never });
+    const app = createProjectsRoutes({
+      projectService: mockProjectService as never,
+      db: mockDb as never,
+    });
     const response = await app.request('/proj-test-1?deleteFiles=true', {
       method: 'DELETE',
     });
@@ -155,7 +185,8 @@ describe('DELETE /api/projects/:id - File Deletion Security', () => {
 
   it('returns filesDeleted: false with error when fs.rm fails', async () => {
     const project = createTestProject({ path: '/Users/testuser/projects/myproject' });
-    mockDb.query.projects.findFirst.mockResolvedValue(project);
+    mockProjectService.getById.mockResolvedValue({ ok: true, value: project });
+    mockProjectService.delete.mockResolvedValue({ ok: true, value: undefined });
     mockDb.query.agents.findMany.mockResolvedValue([]);
 
     // Mock fs.stat to return directory
@@ -163,7 +194,10 @@ describe('DELETE /api/projects/:id - File Deletion Security', () => {
     // Mock fs.rm to fail
     fsMocks.rm.mockRejectedValue(new Error('Permission denied'));
 
-    const app = createProjectsRoutes({ db: mockDb as never });
+    const app = createProjectsRoutes({
+      projectService: mockProjectService as never,
+      db: mockDb as never,
+    });
     const response = await app.request('/proj-test-1?deleteFiles=true', {
       method: 'DELETE',
     });
@@ -179,13 +213,17 @@ describe('DELETE /api/projects/:id - File Deletion Security', () => {
 
   it('returns filesDeleted: false when path is not a directory', async () => {
     const project = createTestProject({ path: '/Users/testuser/projects/myproject' });
-    mockDb.query.projects.findFirst.mockResolvedValue(project);
+    mockProjectService.getById.mockResolvedValue({ ok: true, value: project });
+    mockProjectService.delete.mockResolvedValue({ ok: true, value: undefined });
     mockDb.query.agents.findMany.mockResolvedValue([]);
 
     // Mock fs.stat to return a file (not a directory)
     fsMocks.stat.mockResolvedValue({ isDirectory: () => false });
 
-    const app = createProjectsRoutes({ db: mockDb as never });
+    const app = createProjectsRoutes({
+      projectService: mockProjectService as never,
+      db: mockDb as never,
+    });
     const response = await app.request('/proj-test-1?deleteFiles=true', {
       method: 'DELETE',
     });
