@@ -580,12 +580,12 @@ export class AgentExecutionService {
         executionPrompt,
         task,
         controller.signal
-      ).catch((execErr) => {
+      ).catch(async (execErr) => {
         console.error(
           `[AgentExecutionService] Unhandled error in execution for agent ${agentId}:`,
           execErr
         );
-        this.db
+        await this.db
           .update(agents)
           .set({ status: 'error', updatedAt: new Date().toISOString() })
           .where(eq(agents.id, agentId));
