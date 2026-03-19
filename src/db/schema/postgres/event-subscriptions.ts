@@ -1,13 +1,12 @@
 import { createId } from '@paralleldrive/cuid2';
 import { boolean, index, integer, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import type { SubscriptionFilter } from '../../../lib/events/plugin-interface.js';
 import type { TaskColumn, TaskPriority } from '../shared/enums';
 import { eventSources } from './event-sources';
 import { projects } from './projects';
 
-export type { SubscriptionFilter } from '../../../lib/events/plugin-interface.js';
+export type { SubscriptionFilter };
 export type { TaskColumn, TaskPriority } from '../shared/enums';
-
-import type { SubscriptionFilter } from '../../../lib/events/plugin-interface.js';
 
 export const eventSubscriptions = pgTable(
   'event_subscriptions',
