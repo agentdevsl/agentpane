@@ -160,9 +160,8 @@ export interface PlanData {
   createdAt: Date;
   /** Sandbox ID at the time planning completed — used to detect container changes before execution */
   sandboxId?: string;
-  // TODO: Pending GA — swarm features
-  // launchSwarm?: boolean;
-  // teammateCount?: number;
+  launchSwarm?: boolean;
+  teammateCount?: number;
 }
 
 /** TTL for pending plans in milliseconds (1 hour) */
@@ -194,6 +193,9 @@ export class ContainerAgentService {
   /** AgentCore sandbox provider (lazily initialized when AgentCore config is set) */
   private agentCoreProvider?: AgentCoreSandboxProvider;
 
+  /** Optional callback invoked when an agent completes a task, for queue auto-dequeue */
+  private onAgentCompleteCallback?: (projectId: string, taskId: string) => Promise<void>;
+
   /** Expose provider name so callers (e.g. TaskService) can tag sessions at creation */
   get providerName(): string {
     if (this.agentCoreProvider) return 'agentcore';
@@ -215,6 +217,14 @@ export class ContainerAgentService {
     this.planCleanupInterval = setInterval(() => {
       this.cleanupExpiredPlans();
     }, PLAN_CLEANUP_INTERVAL_MS);
+  }
+
+  /**
+   * Set a callback to be invoked when an agent completes a task.
+   * Used by the agent queue to auto-dequeue and start the next queued task.
+   */
+  setOnAgentComplete(callback: (projectId: string, taskId: string) => Promise<void>): void {
+    this.onAgentCompleteCallback = callback;
   }
 
   /**
@@ -1878,6 +1888,19 @@ export class ContainerAgentService {
       taskId,
       remainingAgents: this.runningAgents.size,
     });
+
+    // Auto-dequeue: when an agent completes, notify the queue to start the next task
+    if (status === 'completed' && this.onAgentCompleteCallback) {
+      this.onAgentCompleteCallback(agent.projectId, taskId).catch((dequeueErr) => {
+        console.warn(
+          '[ContainerAgentService] handleAgentComplete: Failed to auto-dequeue next task',
+          {
+            taskId,
+            error: dequeueErr instanceof Error ? dequeueErr.message : String(dequeueErr),
+          }
+        );
+      });
+    }
   }
 
   /**
@@ -2997,6 +3020,19 @@ export class ContainerAgentService {
     }
 
     await this.cleanupAgentCoreRunState(taskId, agent, 'completed', 'handleAgentCoreComplete');
+
+    // Auto-dequeue: when an AgentCore agent completes, notify the queue to start the next task
+    if (status === 'completed' && this.onAgentCompleteCallback) {
+      this.onAgentCompleteCallback(agent.projectId, taskId).catch((dequeueErr) => {
+        console.warn(
+          '[ContainerAgentService] handleAgentCoreComplete: Failed to auto-dequeue next task',
+          {
+            taskId,
+            error: dequeueErr instanceof Error ? dequeueErr.message : String(dequeueErr),
+          }
+        );
+      });
+    }
   }
 
   /**

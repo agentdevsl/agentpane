@@ -98,18 +98,17 @@ describe('SettingsService', () => {
     }
   });
 
-  it('setMany returns a database error with the sync SQLite driver', async () => {
-    // better-sqlite3 transactions are synchronous and reject async callbacks,
-    // so setMany (which wraps async inserts in a transaction) returns a
-    // database error in this environment. This verifies graceful error handling.
+  it('setMany stores multiple keys atomically', async () => {
     const result = await service.setMany({
       'app.name': 'AgentPane',
       'app.version': '1.0.0',
       'app.debug': true,
     });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.code).toBe('SETTINGS_DATABASE_ERROR');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const name = await service.get('app.name');
+      expect(name.ok).toBe(true);
+      if (name.ok) expect(name.value!.value).toBe(JSON.stringify('AgentPane'));
     }
   });
 

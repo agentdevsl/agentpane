@@ -22,7 +22,7 @@ describe('DELETE /api/projects/:id - File Deletion Security', () => {
   let createProjectsRoutes: typeof import('@/server/routes/projects').createProjectsRoutes;
 
   // Mock database
-  const mockDb = {
+  const mockDb: Record<string, any> = {
     query: {
       projects: {
         findFirst: vi.fn(),
@@ -35,7 +35,12 @@ describe('DELETE /api/projects/:id - File Deletion Security', () => {
     delete: vi.fn().mockReturnValue({
       where: vi.fn().mockResolvedValue(undefined),
     }),
+    transaction: vi.fn(),
   };
+  // transaction mock: calls the callback with the mock db itself
+  mockDb.transaction.mockImplementation(async (callback: (tx: any) => any) => {
+    return callback(mockDb);
+  });
 
   const createTestProject = (overrides: Partial<Project> = {}): Project => ({
     id: 'proj-test-1',
@@ -64,6 +69,9 @@ describe('DELETE /api/projects/:id - File Deletion Security', () => {
     mockDb.query.agents.findMany.mockReset();
     mockDb.delete.mockReturnValue({
       where: vi.fn().mockResolvedValue(undefined),
+    });
+    mockDb.transaction.mockImplementation(async (callback: (tx: any) => any) => {
+      return callback(mockDb);
     });
   });
 

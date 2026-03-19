@@ -593,6 +593,142 @@ describe('runAgentPlanning', () => {
     const call = findPublishedEvent(sessionService, 'agent:tool_progress');
     expect(call).toBeDefined();
   });
+
+  // ===========================================================================
+  // Abort signal tests
+  // ===========================================================================
+
+  it('returns paused status when signal is aborted before first message', async () => {
+    // Stream yields a message so the for-await body executes, but signal is already aborted
+    const controller = new AbortController();
+    controller.abort();
+
+    mockSession.stream.mockReturnValue(
+      yieldMessages([
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            delta: { type: 'text_delta', text: 'should not matter' },
+          },
+        },
+      ])
+    );
+    const sessionService = createMockSessionService();
+    const { runAgentPlanning } = await import('@/lib/agents/stream-handler');
+
+    const result = await runAgentPlanning(
+      createDefaultOptions(sessionService, { signal: controller.signal })
+    );
+
+    expect(result.status).toBe('paused');
+    expect(result.result).toBe('Agent stopped by user during planning');
+  });
+
+  it('publishes agent:stopped event when signal is aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    mockSession.stream.mockReturnValue(
+      yieldMessages([
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            delta: { type: 'text_delta', text: 'chunk' },
+          },
+        },
+      ])
+    );
+    const sessionService = createMockSessionService();
+    const { runAgentPlanning } = await import('@/lib/agents/stream-handler');
+
+    await runAgentPlanning(createDefaultOptions(sessionService, { signal: controller.signal }));
+
+    const call = findPublishedEvent(sessionService, 'agent:stopped');
+    expect(call).toBeDefined();
+    const event = call![1] as { data: Record<string, unknown> };
+    expect(event.data.agentId).toBe('agent-1');
+    expect(event.data.reason).toBe('aborted');
+    expect(event.data.phase).toBe('planning');
+  });
+
+  it('closes the session when signal is aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    mockSession.stream.mockReturnValue(
+      yieldMessages([
+        {
+          type: 'stream_event',
+          event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'x' } },
+        },
+      ])
+    );
+    const sessionService = createMockSessionService();
+    const { runAgentPlanning } = await import('@/lib/agents/stream-handler');
+
+    await runAgentPlanning(createDefaultOptions(sessionService, { signal: controller.signal }));
+
+    expect(mockSession.close).toHaveBeenCalled();
+  });
+
+  it('returns paused status when signal is aborted mid-stream', async () => {
+    const controller = new AbortController();
+
+    // Yield one message, abort, then yield another — the second iteration should detect the abort
+    mockSession.stream.mockReturnValue(
+      (async function* () {
+        yield {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            delta: { type: 'text_delta', text: 'first chunk' },
+          },
+        };
+        // Abort between messages
+        controller.abort();
+        yield {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            delta: { type: 'text_delta', text: 'second chunk' },
+          },
+        };
+      })()
+    );
+    const sessionService = createMockSessionService();
+    const { runAgentPlanning } = await import('@/lib/agents/stream-handler');
+
+    const result = await runAgentPlanning(
+      createDefaultOptions(sessionService, { signal: controller.signal })
+    );
+
+    expect(result.status).toBe('paused');
+    expect(result.result).toBe('Agent stopped by user during planning');
+    // First chunk should have been published before abort
+    const chunks = findAllPublishedEvents(sessionService, 'chunk');
+    expect(chunks.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('works normally when no signal is provided', async () => {
+    mockSession.stream.mockReturnValue(
+      yieldMessages([
+        {
+          type: 'assistant',
+          message: { content: [{ type: 'text', text: 'Plan complete' }] },
+        },
+      ])
+    );
+    const sessionService = createMockSessionService();
+    const { runAgentPlanning } = await import('@/lib/agents/stream-handler');
+
+    // No signal option
+    const result = await runAgentPlanning(createDefaultOptions(sessionService));
+
+    expect(result.status).toBe('planning');
+    expect(result.turnCount).toBe(1);
+  });
 });
 
 // =============================================================================
@@ -1005,6 +1141,172 @@ describe('runAgentExecution', () => {
     expect(call).toBeDefined();
     const event = call![1] as { data: Record<string, unknown> };
     expect(event.data.tool).toBe('Edit');
+  });
+
+  // ===========================================================================
+  // Abort signal tests
+  // ===========================================================================
+
+  it('returns paused status when signal is aborted before first message', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    mockSession.stream.mockReturnValue(
+      yieldMessages([
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            delta: { type: 'text_delta', text: 'should be ignored' },
+          },
+        },
+      ])
+    );
+    const sessionService = createMockSessionService();
+    const { runAgentExecution } = await import('@/lib/agents/stream-handler');
+
+    const result = await runAgentExecution(
+      createDefaultOptions(sessionService, { signal: controller.signal })
+    );
+
+    expect(result.status).toBe('paused');
+    expect(result.result).toBe('Agent stopped by user during execution');
+  });
+
+  it('publishes agent:stopped event when signal is aborted during execution', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    mockSession.stream.mockReturnValue(
+      yieldMessages([
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            delta: { type: 'text_delta', text: 'data' },
+          },
+        },
+      ])
+    );
+    const sessionService = createMockSessionService();
+    const { runAgentExecution } = await import('@/lib/agents/stream-handler');
+
+    await runAgentExecution(createDefaultOptions(sessionService, { signal: controller.signal }));
+
+    const call = findPublishedEvent(sessionService, 'agent:stopped');
+    expect(call).toBeDefined();
+    const event = call![1] as { data: Record<string, unknown> };
+    expect(event.data.agentId).toBe('agent-1');
+    expect(event.data.reason).toBe('aborted');
+    expect(event.data.phase).toBe('execution');
+  });
+
+  it('closes the session when signal is aborted during execution', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    mockSession.stream.mockReturnValue(
+      yieldMessages([
+        {
+          type: 'stream_event',
+          event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'x' } },
+        },
+      ])
+    );
+    const sessionService = createMockSessionService();
+    const { runAgentExecution } = await import('@/lib/agents/stream-handler');
+
+    await runAgentExecution(createDefaultOptions(sessionService, { signal: controller.signal }));
+
+    expect(mockSession.close).toHaveBeenCalled();
+  });
+
+  it('returns paused status when signal is aborted mid-stream during execution', async () => {
+    const controller = new AbortController();
+
+    mockSession.stream.mockReturnValue(
+      (async function* () {
+        yield {
+          type: 'assistant',
+          message: { content: [{ type: 'text', text: 'Turn 1 work' }] },
+        };
+        // Abort after the first assistant message
+        controller.abort();
+        yield {
+          type: 'assistant',
+          message: { content: [{ type: 'text', text: 'Turn 2 work' }] },
+        };
+      })()
+    );
+    const sessionService = createMockSessionService();
+    const { runAgentExecution } = await import('@/lib/agents/stream-handler');
+
+    const result = await runAgentExecution(
+      createDefaultOptions(sessionService, { signal: controller.signal })
+    );
+
+    expect(result.status).toBe('paused');
+    expect(result.result).toBe('Agent stopped by user during execution');
+    // Should have completed one turn before abort was detected
+    expect(result.turnCount).toBe(1);
+  });
+
+  it('preserves turn count at point of abort', async () => {
+    const controller = new AbortController();
+
+    mockSession.stream.mockReturnValue(
+      (async function* () {
+        yield {
+          type: 'assistant',
+          message: { content: [{ type: 'text', text: 'Turn 1' }] },
+        };
+        yield {
+          type: 'assistant',
+          message: { content: [{ type: 'text', text: 'Turn 2' }] },
+        };
+        controller.abort();
+        yield {
+          type: 'assistant',
+          message: { content: [{ type: 'text', text: 'Turn 3 - should not count' }] },
+        };
+      })()
+    );
+    const sessionService = createMockSessionService();
+    const { runAgentExecution } = await import('@/lib/agents/stream-handler');
+
+    const result = await runAgentExecution(
+      createDefaultOptions(sessionService, { signal: controller.signal, maxTurns: 10 })
+    );
+
+    expect(result.status).toBe('paused');
+    expect(result.turnCount).toBe(2);
+  });
+
+  it('works normally during execution when no signal is provided', async () => {
+    mockSession.stream.mockReturnValue(
+      yieldMessages([
+        {
+          type: 'assistant',
+          message: { content: [{ type: 'text', text: 'Implementation done' }] },
+        },
+        {
+          type: 'result',
+          total_cost_usd: 0.01,
+          duration_ms: 3000,
+          num_turns: 1,
+          stop_reason: 'end_turn',
+        },
+      ])
+    );
+    const sessionService = createMockSessionService();
+    const { runAgentExecution } = await import('@/lib/agents/stream-handler');
+
+    // No signal option
+    const result = await runAgentExecution(createDefaultOptions(sessionService));
+
+    expect(result.status).toBe('completed');
+    expect(result.turnCount).toBe(1);
+    expect(result.result).toBe('Implementation done');
   });
 });
 

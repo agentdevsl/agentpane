@@ -538,15 +538,15 @@ describe('AgentService', () => {
       }
     });
 
-    it('returns queue full error when queueing task', async () => {
+    it('queues a task successfully', async () => {
       const project = await createTestProject();
       const task = await createTestTask(project.id);
 
       const result = await agentService.queueTask(project.id, task.id);
 
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.code).toBe('QUEUE_FULL');
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.taskId).toBe(task.id);
       }
     });
   });
@@ -986,6 +986,202 @@ describe('AgentService', () => {
         expect.any(String),
         expect.objectContaining({ type: 'approval:rejected' })
       );
+    });
+  });
+
+  // =============================================================================
+  // Auto-Dequeue (tryDequeueAndStart) Tests (3 tests)
+  // =============================================================================
+
+  describe('Auto-Dequeue (tryDequeueAndStart)', () => {
+    it('auto-starts queued task after agent completes', async () => {
+      const project = await createTestProject();
+      const agent = await createTestAgent(project.id);
+
+      // First task: agent will work on this and complete
+      const firstTask = await createTestTask(project.id, {
+        column: 'backlog',
+        title: 'First Task',
+      });
+      const worktree = await createTestWorktree(project.id, { taskId: firstTask.id });
+      const session = await createTestSession(project.id, {
+        taskId: firstTask.id,
+        agentId: agent.id,
+      });
+
+      // Second task: queued, should be auto-dequeued after first completes
+      const queuedTask = await createTestTask(project.id, {
+        column: 'queued',
+        title: 'Queued Task',
+      });
+      const worktree2 = await createTestWorktree(project.id, { taskId: queuedTask.id });
+      const session2 = await createTestSession(project.id, {
+        taskId: queuedTask.id,
+        agentId: agent.id,
+      });
+
+      // First call: completes the first task, agent goes idle, triggers auto-dequeue
+      // Second call: auto-dequeue starts the agent on the queued task
+      let callCount = 0;
+      mockRunAgentPlanning.mockImplementation(async () => {
+        callCount++;
+        return {
+          runId: `run-${callCount}`,
+          status: 'completed',
+          turnCount: 5,
+        };
+      });
+
+      mockWorktreeService.create
+        .mockResolvedValueOnce({ ok: true, value: worktree })
+        .mockResolvedValueOnce({ ok: true, value: worktree2 });
+      mockSessionService.create
+        .mockResolvedValueOnce({ ok: true, value: session })
+        .mockResolvedValueOnce({ ok: true, value: session2 });
+
+      const result = await agentService.start(agent.id, firstTask.id);
+      expect(result.ok).toBe(true);
+
+      // Wait for async completion + auto-dequeue to trigger
+      await vi.waitFor(
+        async () => {
+          expect(mockRunAgentPlanning).toHaveBeenCalledTimes(2);
+        },
+        { timeout: 5000 }
+      );
+    });
+
+    it('does nothing when no tasks are queued', async () => {
+      const project = await createTestProject();
+      const agent = await createTestAgent(project.id);
+      const task = await createTestTask(project.id, { column: 'backlog', title: 'Only Task' });
+      const worktree = await createTestWorktree(project.id, { taskId: task.id });
+      const session = await createTestSession(project.id, { taskId: task.id, agentId: agent.id });
+
+      mockWorktreeService.create.mockResolvedValue({ ok: true, value: worktree });
+      mockSessionService.create.mockResolvedValue({ ok: true, value: session });
+      mockRunAgentPlanning.mockResolvedValue({
+        runId: 'run-1',
+        status: 'completed',
+        turnCount: 5,
+      });
+
+      await agentService.start(agent.id, task.id);
+
+      // Wait for async completion
+      await vi.waitFor(async () => {
+        const db = getTestDb();
+        const updatedAgent = await db.query.agents.findFirst({
+          where: eq(agents.id, agent.id),
+        });
+        expect(updatedAgent?.status).toBe('idle');
+      });
+
+      // runAgentPlanning should only be called once (no auto-dequeue)
+      expect(mockRunAgentPlanning).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not auto-dequeue when agent is not idle (e.g. error status)', async () => {
+      const project = await createTestProject();
+      const agent = await createTestAgent(project.id);
+      const task = await createTestTask(project.id, { column: 'backlog' });
+      const worktree = await createTestWorktree(project.id, { taskId: task.id });
+      const session = await createTestSession(project.id, { taskId: task.id, agentId: agent.id });
+
+      // Create a queued task that should NOT be picked up
+      await createTestTask(project.id, { column: 'queued', title: 'Should Not Start' });
+
+      mockWorktreeService.create.mockResolvedValue({ ok: true, value: worktree });
+      mockSessionService.create.mockResolvedValue({ ok: true, value: session });
+      // Agent execution returns error status - agent will be set to 'error', not 'idle'
+      mockRunAgentPlanning.mockResolvedValue({
+        runId: 'run-1',
+        status: 'error',
+        turnCount: 3,
+        error: 'Something failed',
+      });
+
+      await agentService.start(agent.id, task.id);
+
+      // Wait for async error handling
+      await vi.waitFor(async () => {
+        const db = getTestDb();
+        const updatedAgent = await db.query.agents.findFirst({
+          where: eq(agents.id, agent.id),
+        });
+        expect(updatedAgent?.status).toBe('error');
+      });
+
+      // runAgentPlanning should only be called once (no auto-dequeue because status is error, not completed)
+      expect(mockRunAgentPlanning).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // =============================================================================
+  // Concurrency Count Fix Tests (4 tests)
+  // =============================================================================
+
+  describe('Concurrency Count Fix (starting/planning included)', () => {
+    it('counts agents with status starting', async () => {
+      const project = await createTestProject();
+      await createTestAgent(project.id, { status: 'starting' });
+      await createTestAgent(project.id, { status: 'idle' });
+
+      const result = await agentService.getRunningCount(project.id);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe(1);
+      }
+    });
+
+    it('counts agents with status planning', async () => {
+      const project = await createTestProject();
+      await createTestAgent(project.id, { status: 'planning' });
+      await createTestAgent(project.id, { status: 'idle' });
+
+      const result = await agentService.getRunningCount(project.id);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe(1);
+      }
+    });
+
+    it('counts all three active statuses together', async () => {
+      const project = await createTestProject();
+      const task1 = await createTestTask(project.id);
+      const session1 = await createTestSession(project.id, { taskId: task1.id });
+
+      await createTestAgent(project.id, { status: 'starting' });
+      await createTestAgent(project.id, { status: 'planning' });
+      await createRunningAgent(project.id, task1.id, session1.id);
+
+      const result = await agentService.getRunningCount(project.id);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe(3);
+      }
+    });
+
+    it('does NOT count idle, paused, or error agents', async () => {
+      const project = await createTestProject();
+      const task = await createTestTask(project.id);
+      const session = await createTestSession(project.id, { taskId: task.id });
+
+      await createTestAgent(project.id, { status: 'idle' });
+      await createTestAgent(project.id, { status: 'paused' });
+      await createTestAgent(project.id, { status: 'error' });
+      // One running agent to verify counting is selective
+      await createRunningAgent(project.id, task.id, session.id);
+
+      const result = await agentService.getRunningCount(project.id);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe(1);
+      }
     });
   });
 });

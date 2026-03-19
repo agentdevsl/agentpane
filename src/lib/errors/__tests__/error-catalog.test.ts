@@ -144,7 +144,7 @@ describe('error catalog', () => {
     expect(error.details).toMatchObject({
       from: 'backlog',
       to: 'verified',
-      allowedTransitions: ['in_progress'],
+      allowedTransitions: ['queued', 'in_progress'],
     });
   });
 

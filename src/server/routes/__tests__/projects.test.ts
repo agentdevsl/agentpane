@@ -5,7 +5,7 @@ import { createProjectsRoutes } from '../projects.js';
 // ── Mock Database ──
 
 function createMockDb() {
-  return {
+  const db: Record<string, any> = {
     query: {
       projects: {
         findMany: vi.fn(),
@@ -21,7 +21,13 @@ function createMockDb() {
     insert: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
+    transaction: vi.fn(),
   };
+  // transaction mock: calls the callback with the mock db itself
+  db.transaction.mockImplementation(async (callback: (tx: any) => any) => {
+    return callback(db);
+  });
+  return db;
 }
 
 // Helper to set up chainable insert mock

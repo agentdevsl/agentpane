@@ -1,25 +1,21 @@
 import type { TaskColumn } from '../db/schema';
 
-// All columns that tasks can transition to
-const ALL_COLUMNS: TaskColumn[] = [
-  'backlog',
-  'queued',
-  'in_progress',
-  'waiting_approval',
-  'verified',
-];
-
-// Allow movement between any columns for flexibility in task management
+// Strict workflow-enforced transitions between task columns.
+// backlog → queued (queue for execution) or in_progress (immediate start)
+// queued → in_progress (agent picks up) or backlog (dequeue)
+// in_progress → waiting_approval (agent completes) or backlog (cancel)
+// waiting_approval → verified (approve) or in_progress (reject) or backlog (abandon)
+// verified → backlog (reopen)
 export const VALID_TRANSITIONS: Record<TaskColumn, TaskColumn[]> = {
-  backlog: ALL_COLUMNS.filter((c) => c !== 'backlog'),
-  queued: ALL_COLUMNS.filter((c) => c !== 'queued'),
-  in_progress: ALL_COLUMNS.filter((c) => c !== 'in_progress'),
-  waiting_approval: ALL_COLUMNS.filter((c) => c !== 'waiting_approval'),
-  verified: ALL_COLUMNS.filter((c) => c !== 'verified'),
+  backlog: ['queued', 'in_progress'],
+  queued: ['in_progress', 'backlog'],
+  in_progress: ['waiting_approval', 'backlog'],
+  waiting_approval: ['verified', 'in_progress', 'backlog'],
+  verified: ['backlog'],
 };
 
 export const canTransition = (from: TaskColumn, to: TaskColumn): boolean =>
   VALID_TRANSITIONS[from]?.includes(to) ?? false;
 
-export const getValidTransitions = (from: TaskColumn): TaskColumn[] =>
-  VALID_TRANSITIONS[from] ?? [];
+export const getValidTransitions = (from: string): TaskColumn[] =>
+  VALID_TRANSITIONS[from as TaskColumn] ?? [];

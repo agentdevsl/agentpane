@@ -129,9 +129,8 @@ export interface AgentPlanReadyData {
   sdkSessionId: string;
   /** Allowed bash prompts from ExitPlanMode */
   allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
-  // TODO: Pending GA — swarm features
-  // launchSwarm?: boolean;
-  // teammateCount?: number;
+  launchSwarm?: boolean;
+  teammateCount?: number;
 }
 
 // File descriptor for stdout (used for synchronous writes)

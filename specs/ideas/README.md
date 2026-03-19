@@ -15,18 +15,18 @@ This roadmap organizes ~25 initiatives across 4 priority tiers following the pri
 
 | Dimension | Score | Assessment |
 |-----------|-------|------------|
-| Agent Execution Engine | 7/10 | Strong lifecycle with enforced state machines, but abort signal disconnected, resume broken, race conditions |
-| Database & Data Layer | 6/10 | Well-normalized 43-table schema, but missing transactions, dual-schema drift, no migrations strategy |
+| Agent Execution Engine | 9/10 | Abort signal wired, resume triggers execution, race condition fixed, concurrency count accurate, queue functional |
+| Database & Data Layer | 7/10 | Well-normalized 43-table schema, transactions added to critical paths, but dual-schema drift, no migrations strategy |
 | Frontend & UX | 6/10 | Solid Kanban/streaming UI, 191 components, but accessibility concentrated in few components, hardcoded URLs |
-| Security & Auth | 6/10 | GitHub OAuth + 4-role RBAC in place, but auth middleware bypassed in dev, tokens unvalidated |
+| Security & Auth | 8/10 | GitHub OAuth + 4-role RBAC, auth tokens validated against DB, dev bypass requires explicit SKIP_AUTH=true |
 | Container Sandbox | 8/10 | 4 providers (Docker/K8s/Nomad/AgentCore) all working, but OAuth token exposed in env, no network policy |
 | Observability | 3/10 | Structured logger exists, health checks exist, CLI monitor has cost/token dashboard. No infrastructure metrics, no tracing, 720 raw console.* calls |
-| Testing | 4/10 | Vitest setup with 74% coverage threshold, but no tests for critical paths (stream-handler, agent-execution), frontend excluded |
+| Testing | 5/10 | Vitest setup with 74% coverage threshold, tests exist for stream-handler and agent-execution, frontend excluded |
 | API Quality | 6/10 | 187 Hono endpoints across 33 route modules, but N+1 queries, route handlers bypass service layer |
 | Real-Time Streaming | 8/10 | Durable Streams + SSE well-integrated, client handles reconnection and replay |
 | Terraform Composer | 9/10 | Fully functional compose pipeline with code extraction, multi-turn chat, registry integration |
 
-**Overall: ~6.5/10** — Strong foundations, significant gaps before production readiness.
+**Overall: ~7.5/10** — Core agent execution engine hardened, auth secured, transactions added, queue functional, strict task transitions enforced.
 
 ---
 
@@ -49,7 +49,7 @@ These initiatives address bugs and gaps that can cause data loss, security vulne
 
 ---
 
-### P0-1: Wire AbortController Signal to Agent SDK
+### P0-1: Wire AbortController Signal to Agent SDK — COMPLETED (2026-03-18)
 
 **Problem:** `stop()` calls `controller.abort()` but the signal is never passed to the Claude Agent SDK session. Agents continue running after being "stopped", consuming API credits and potentially making unwanted changes.
 
@@ -57,13 +57,15 @@ These initiatives address bugs and gaps that can cause data loss, security vulne
 
 **Solution:** Pass `AbortController.signal` to both planning and execution stream functions. Wire into the SDK session creation or use to break the stream processing loop. Add abort acknowledgment event to session stream.
 
+**Resolution:** Signal added to `StreamHandlerOptions`, passed through `executeAgentAsync()`, checked before each turn iteration in both `runAgentPlanning()` and `runAgentExecution()`. Abort listener publishes `agent:stopped` session event.
+
 **Effort:** Small (1-2 days)
 **Impact:** Critical — prevents runaway agent execution and credit burn
 **Dependencies:** None
 
 ---
 
-### P0-2: Fix Agent Resume / Plan Approval Execution Gap
+### P0-2: Fix Agent Resume / Plan Approval Execution Gap — COMPLETED (2026-03-18)
 
 **Problem:** `resume()` sets agent status to `running` but does not actually restart SDK session execution. After planning completes and user approves the plan, there is no code path that starts the execution phase for host-mode agents. The agent appears to be running but is doing nothing.
 
@@ -77,7 +79,7 @@ These initiatives address bugs and gaps that can cause data loss, security vulne
 
 ---
 
-### P0-3: Eliminate Race Condition in Agent Start
+### P0-3: Eliminate Race Condition in Agent Start — COMPLETED (2026-03-18)
 
 **Problem:** Task is moved to `in_progress` before worktree and session are created. Concurrent `start()` calls can both pass the concurrency check (TOCTOU race). If worktree creation fails after task move, the task is orphaned in `in_progress` with no agent.
 
@@ -91,7 +93,7 @@ These initiatives address bugs and gaps that can cause data loss, security vulne
 
 ---
 
-### P0-4: Validate Authentication Tokens Against Database
+### P0-4: Validate Authentication Tokens Against Database — COMPLETED (2026-03-18)
 
 **Problem:** Auth middleware in dev mode always succeeds with `local-dev` user. Even with tokens, no database validation is performed — any string is accepted as a valid Bearer token or session cookie. The `X-Dev-User` header allows arbitrary impersonation.
 
@@ -105,7 +107,7 @@ These initiatives address bugs and gaps that can cause data loss, security vulne
 
 ---
 
-### P0-5: Add Transaction Boundaries to Multi-Step Operations
+### P0-5: Add Transaction Boundaries to Multi-Step Operations — COMPLETED (2026-03-18)
 
 **Problem:** Multi-step database operations run without transactions. `moveColumn()` creates a session then updates the task without a transaction. Project deletion can leave orphaned data on partial failure. Only `SettingsService.setMany()` uses transactions.
 
@@ -119,7 +121,7 @@ These initiatives address bugs and gaps that can cause data loss, security vulne
 
 ---
 
-### P0-6: Fix Concurrency Count to Include Starting/Planning Agents
+### P0-6: Fix Concurrency Count to Include Starting/Planning Agents — COMPLETED (2026-03-18)
 
 **Problem:** `getRunningCount()` only queries agents with status `running`, missing `starting` and `planning` agents. This means the concurrency limit can be exceeded — if 3 agents are in `planning` state, a 4th can start because none are technically `running`.
 
@@ -133,13 +135,15 @@ These initiatives address bugs and gaps that can cause data loss, security vulne
 
 ---
 
-### P0-7: Secure Container OAuth Token Exposure
+### P0-7: Secure Container OAuth Token Exposure — ACCEPTED RISK (2026-03-18)
 
 **Problem:** OAuth tokens are passed via environment variables to Docker containers, making them visible via `docker inspect` or Kubernetes pod specs. The agent-runner also logs token presence to stderr.
 
 **Evidence:** `src/services/container-agent.service.ts:1239` — token in env var. `agent-runner/src/index.ts:79,203-204` — token read from env, logged. (Findings CS-001 Medium, CS-013 Low)
 
 **Solution:** Use Docker secrets (or K8s Secrets mounted as file volumes) instead of environment variables. Mount credentials file to a tmpfs volume. Remove token logging from agent-runner. Add file permissions check on credentials file.
+
+**Status:** Mitigated by design — token passed via env var is an SDK requirement, written to credentials file inside container, not logged to output. Accepted as current risk; Docker secrets migration deferred to P3.
 
 **Effort:** Medium (2-3 days)
 **Impact:** High — prevents credential exposure in multi-tenant environments
@@ -153,7 +157,7 @@ These initiatives complete partially-built systems and fill gaps that block real
 
 ---
 
-### P1-1: Implement Agent Queue Service
+### P1-1: Implement Agent Queue Service — COMPLETED (2026-03-18)
 
 **Problem:** The agent queue service is a complete stub — `queueTask()` always returns `QUEUE_FULL`, `getQueuePosition()` returns `null`, `getQueueStats()` returns empty stats. When concurrency limits are hit, tasks cannot be queued for later execution.
 
@@ -167,7 +171,7 @@ These initiatives complete partially-built systems and fill gaps that block real
 
 ---
 
-### P1-2: Fix Permissive Task Column Transitions
+### P1-2: Fix Permissive Task Column Transitions — COMPLETED (2026-03-18)
 
 **Problem:** The formal state machines (agent lifecycle, session lifecycle, worktree lifecycle) ARE properly enforced with guard validation in `src/lib/state-machines/*/machine.ts`. However, **task column transitions** are completely permissive — `task-transitions.ts` allows movement from any column to any other column (except self). This means tasks can jump from `verified` back to `backlog` or from `backlog` directly to `verified`, bypassing the intended workflow. Additionally, the error catalog defines a conflicting stricter transition map.
 
@@ -197,9 +201,11 @@ Phase B (Weeks 3-4): Add OpenTelemetry for request tracing. Instrument agent exe
 
 ---
 
-### P1-4: Test Critical Agent Execution Paths
+### P1-4: Test Critical Agent Execution Paths — PARTIALLY RESOLVED (2026-03-18)
 
 **Problem:** The two most complex and critical files in the codebase — `stream-handler.ts` (Claude SDK integration) and `agent-execution.service.ts` (agent lifecycle management) — have zero dedicated test coverage. Frontend code is entirely excluded from coverage. Integration tests test local helpers, not the actual Hono server.
+
+**Status Update:** Tests DO exist: `stream-handler.test.ts` (1056 LOC), `agent-execution.service.test.ts` (246 LOC). Original finding was incorrect regarding zero test coverage for these files. Frontend exclusion confirmed as remaining gap.
 
 **Evidence:** `vitest.config.ts:40-41` — `src/app/` excluded from coverage. No test files for stream-handler or agent-execution-service. `tests/server/api-integration.test.ts` — 1500 lines testing helpers, not server. Coverage thresholds at 74/64/80/74, below spec target of 80/80/80/80. (Findings TI-002 High, TI-005 High, TI-004 Medium, TI-001 Medium)
 

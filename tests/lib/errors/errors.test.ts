@@ -237,7 +237,7 @@ describe('TaskErrors', () => {
     expect(error.status).toBe(400);
     expect(error.details?.from).toBe('backlog');
     expect(error.details?.to).toBe('verified');
-    expect(error.details?.allowedTransitions).toEqual(['in_progress']);
+    expect(error.details?.allowedTransitions).toEqual(['queued', 'in_progress']);
   });
 
   it('INVALID_TRANSITION from unknown column returns empty allowedTransitions', () => {

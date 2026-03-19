@@ -51,6 +51,41 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
 
   testDb = drizzle(testSqlite, { schema });
 
+  // Monkey-patch `transaction()` to support async callbacks.
+  // better-sqlite3 transactions are synchronous, but the source code uses
+  // `async (tx) => { await tx.update(...) }`. Since all Drizzle operations
+  // on better-sqlite3 resolve synchronously, we wrap the async callback
+  // inside a native synchronous transaction that captures the result.
+  const originalTransaction = testDb.transaction.bind(testDb);
+  (testDb as any).transaction = (callback: (tx: any) => any) => {
+    let result: any;
+    const syncWrapper = (tx: any) => {
+      result = callback(tx);
+      // If it's a promise, better-sqlite3 will throw. Instead, we handle it.
+      return result;
+    };
+    try {
+      return originalTransaction(syncWrapper as any);
+    } catch (e: any) {
+      // If the error is about returning a promise, the callback returned a
+      // thenable. Since better-sqlite3 ops resolve sync, the result is
+      // already available. Re-run inside a manual BEGIN/COMMIT.
+      if (e?.message?.includes('promise') || e?.message?.includes('Promise')) {
+        testSqlite!.exec('BEGIN');
+        try {
+          // Re-invoke callback with a proxy tx that delegates to testDb
+          const txResult = callback(testDb as any);
+          testSqlite!.exec('COMMIT');
+          return txResult;
+        } catch (innerErr) {
+          testSqlite!.exec('ROLLBACK');
+          throw innerErr;
+        }
+      }
+      throw e;
+    }
+  };
+
   // Run base migrations
   testSqlite.exec(MIGRATION_SQL);
 

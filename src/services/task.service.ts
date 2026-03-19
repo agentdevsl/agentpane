@@ -355,12 +355,17 @@ export class TaskService {
     let sessionId: string | null = null;
     if (column === 'in_progress' && this.containerAgentService) {
       sessionId = task.sessionId ?? createId();
+    }
 
+    // Wrap session-create + task-update in a transaction for atomicity.
+    // If either fails, both are rolled back — prevents orphaned sessions
+    // or tasks pointing to non-existent sessions.
+    const updated = await this.db.transaction(async (tx) => {
       // IMPORTANT: Create session record BEFORE updating task with sessionId
       // SQLite foreign keys are enforced, so the session must exist first
-      if (sessionId && sessionId !== task.sessionId) {
+      if (sessionId && sessionId !== task.sessionId && this.containerAgentService) {
         try {
-          await this.db.insert(sessions).values({
+          await tx.insert(sessions).values({
             id: sessionId,
             projectId: task.projectId,
             taskId: task.id,
@@ -379,21 +384,23 @@ export class TaskService {
           }
         }
       }
-    }
 
-    const [updated] = await this.db
-      .update(tasks)
-      .set({
-        column,
-        position: newPosition,
-        updatedAt: new Date().toISOString(),
-        ...(column === 'in_progress' ? { startedAt: new Date().toISOString() } : {}),
-        ...(column === 'verified' ? { completedAt: new Date().toISOString() } : {}),
-        // Include sessionId in the update so it's returned to frontend
-        ...(sessionId ? { sessionId } : {}),
-      })
-      .where(eq(tasks.id, id))
-      .returning();
+      const [result] = await tx
+        .update(tasks)
+        .set({
+          column,
+          position: newPosition,
+          updatedAt: new Date().toISOString(),
+          ...(column === 'in_progress' ? { startedAt: new Date().toISOString() } : {}),
+          ...(column === 'verified' ? { completedAt: new Date().toISOString() } : {}),
+          // Include sessionId in the update so it's returned to frontend
+          ...(sessionId ? { sessionId } : {}),
+        })
+        .where(eq(tasks.id, id))
+        .returning();
+
+      return result;
+    });
 
     if (!updated) {
       return err(TaskErrors.NOT_FOUND);

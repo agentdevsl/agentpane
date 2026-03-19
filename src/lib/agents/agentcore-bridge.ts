@@ -41,9 +41,8 @@ export interface AgentCorePlanReadyData {
   turnCount: number;
   sdkSessionId: string;
   allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
-  // TODO: Pending GA -- swarm features
-  // launchSwarm?: boolean;
-  // teammateCount?: number;
+  launchSwarm?: boolean;
+  teammateCount?: number;
 }
 
 /**

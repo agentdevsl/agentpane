@@ -2,8 +2,9 @@
  * Authentication Middleware for API Routes
  *
  * Provides authentication context extraction and validation.
- * Supports session cookie, Bearer token, and dev mode bypass.
- * When validators are provided, tokens are validated against the database.
+ * Supports session cookie, Bearer token, and dev mode bypass (SKIP_AUTH=true only).
+ * Tokens are always validated against the database via provided validators.
+ * Without validators, tokens are rejected regardless of environment.
  *
  * @module lib/api/auth-middleware
  */
@@ -66,12 +67,14 @@ export interface AuthOptions {
  * Extract user context from request
  *
  * Authentication methods (checked in order):
- * 1. Session cookie (agentpane_session)
- * 2. Authorization header (Bearer token)
- * 3. Development mode bypass (when SKIP_AUTH=true)
+ * 0. SKIP_AUTH=true bypass in development mode (returns dev-user, or X-Dev-User header value)
+ * 1. Session cookie (agentpane_session) — validated via options.validateSessionToken
+ * 2. Authorization header (Bearer token) — validated via options.validateApiKey
+ *
+ * Without SKIP_AUTH=true, all requests require valid credentials with DB-backed validators.
  *
  * @param request - The incoming request
- * @param options - Optional validators for real token checking
+ * @param options - Validators for token checking against the database
  * @returns Authentication context or error
  */
 export async function getAuthContext(
@@ -80,7 +83,9 @@ export async function getAuthContext(
 ): Promise<Result<AuthContext, AuthError>> {
   // 0. SKIP_AUTH bypass — takes priority over all other auth methods
   if (process.env.SKIP_AUTH === 'true' && process.env.NODE_ENV === 'development') {
-    return ok({ userId: 'dev-user', authMethod: 'dev' });
+    // Check for X-Dev-User header to allow testing as specific users
+    const devUser = request.headers.get('X-Dev-User');
+    return ok({ userId: devUser ?? 'dev-user', authMethod: 'dev' });
   }
 
   // 1. Check session cookie
@@ -102,16 +107,7 @@ export async function getAuthContext(
       return ok({ userId, authMethod: 'session' });
     }
 
-    // No validator provided
-    const isDev = process.env.NODE_ENV === 'development';
-    if (isDev) {
-      // Dev mode: accept without validation
-      return ok({
-        userId: `session:${sessionToken.substring(0, 8)}`,
-        authMethod: 'session',
-      });
-    }
-    // Production: reject - validator must be configured
+    // No validator provided — reject regardless of environment
     return err({
       code: 'UNAUTHORIZED',
       message: 'Session validation not configured.',
@@ -136,14 +132,7 @@ export async function getAuthContext(
       return ok({ userId, authMethod: 'api_token' });
     }
 
-    // No validator provided
-    const isDev = process.env.NODE_ENV === 'development';
-    if (isDev) {
-      return ok({
-        userId: `token:${token.substring(0, 8)}`,
-        authMethod: 'api_token',
-      });
-    }
+    // No validator provided — reject regardless of environment
     return err({
       code: 'UNAUTHORIZED',
       message: 'API key validation not configured.',
@@ -151,34 +140,8 @@ export async function getAuthContext(
     });
   }
 
-  // 3. Development mode: Allow unauthenticated requests
-  // Require explicit NODE_ENV=development - unset NODE_ENV means auth is required
-  const isDev = process.env.NODE_ENV === 'development';
-  if (isDev) {
-    // Check for explicit skip or default dev user
-    const skipAuth = process.env.SKIP_AUTH === 'true';
-    if (skipAuth) {
-      return ok({
-        userId: 'dev-user',
-        authMethod: 'dev',
-      });
-    }
-
-    // In development without SKIP_AUTH, check for X-Dev-User header
-    const devUser = request.headers.get('X-Dev-User');
-    if (devUser) {
-      return ok({
-        userId: devUser,
-        authMethod: 'dev',
-      });
-    }
-
-    // Default: allow with dev user for local development
-    return ok({
-      userId: 'local-dev',
-      authMethod: 'dev',
-    });
-  }
+  // 3. No further dev-mode fallbacks — SKIP_AUTH=true bypass is handled at the top (step 0).
+  //    Without SKIP_AUTH=true, unauthenticated requests are rejected below.
 
   // No authentication found
   return err({
@@ -253,8 +216,8 @@ export function validateUserIdMatch(
     return true;
   }
 
-  // In dev mode, allow any userId for testing
-  if (authUserId.startsWith('dev-') || authUserId === 'local-dev') {
+  // In dev mode (SKIP_AUTH), allow any userId for testing
+  if (authUserId.startsWith('dev-')) {
     return true;
   }
 

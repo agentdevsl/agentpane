@@ -27,6 +27,7 @@ export type SessionEventType =
   | 'agent:tool_progress'
   | 'agent:compacted'
   | 'agent:rate_limit'
+  | 'agent:stopped'
   // Container agent event types
   | 'container-agent:started'
   | 'container-agent:token'

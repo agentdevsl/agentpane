@@ -17,22 +17,49 @@ describe('task-transitions', () => {
       expect(canTransition('backlog', 'backlog')).toBe(false);
     });
 
-    it('returns true for all valid (non-self) column pairs', () => {
-      for (const from of ALL_COLUMNS) {
-        for (const to of ALL_COLUMNS) {
-          if (from !== to) {
-            expect(canTransition(from, to)).toBe(true);
-          }
-        }
+    it('returns true for all defined valid transitions', () => {
+      const expectedValid: Array<[string, string]> = [
+        ['backlog', 'queued'],
+        ['backlog', 'in_progress'],
+        ['queued', 'in_progress'],
+        ['queued', 'backlog'],
+        ['in_progress', 'waiting_approval'],
+        ['in_progress', 'backlog'],
+        ['waiting_approval', 'verified'],
+        ['waiting_approval', 'in_progress'],
+        ['waiting_approval', 'backlog'],
+        ['verified', 'backlog'],
+      ];
+
+      for (const [from, to] of expectedValid) {
+        expect(canTransition(from as never, to as never)).toBe(true);
+      }
+    });
+
+    it('returns false for invalid transitions', () => {
+      const expectedInvalid: Array<[string, string]> = [
+        ['backlog', 'waiting_approval'],
+        ['backlog', 'verified'],
+        ['queued', 'waiting_approval'],
+        ['queued', 'verified'],
+        ['in_progress', 'queued'],
+        ['in_progress', 'verified'],
+        ['verified', 'queued'],
+        ['verified', 'in_progress'],
+        ['verified', 'waiting_approval'],
+      ];
+
+      for (const [from, to] of expectedInvalid) {
+        expect(canTransition(from as never, to as never)).toBe(false);
       }
     });
   });
 
   describe('getValidTransitions', () => {
-    it('returns 4 columns for backlog (excludes self)', () => {
+    it('returns 2 columns for backlog (queued and in_progress)', () => {
       const transitions = getValidTransitions('backlog');
-      expect(transitions).toHaveLength(4);
-      expect(transitions).not.toContain('backlog');
+      expect(transitions).toHaveLength(2);
+      expect(transitions).toEqual(['queued', 'in_progress']);
     });
 
     it('returns empty array for an unknown column', () => {

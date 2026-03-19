@@ -637,8 +637,39 @@ describe('AgentService', () => {
     }
   });
 
-  it('queueTask returns queue full error', async () => {
+  it('queueTask queues task and returns position', async () => {
     const db = createDbMock();
+    // Add missing mock methods needed by AgentQueueService
+    (db.query.tasks as Record<string, unknown>).findMany = vi.fn().mockResolvedValue([
+      {
+        id: 't1',
+        projectId: 'p1',
+        column: 'queued',
+        updatedAt: new Date().toISOString(),
+      },
+    ]);
+    (db.query as Record<string, unknown>).agentRuns = {
+      findMany: vi.fn().mockResolvedValue([]),
+    };
+    const updateWhere = vi.fn();
+    db.update.mockReturnValue({
+      set: vi.fn(() => ({ where: updateWhere })),
+    });
+    // First call: validation check (task in backlog, valid transition to queued)
+    // Second call: re-fetch after update (now in queued column)
+    db.query.tasks.findFirst
+      .mockResolvedValueOnce({
+        id: 't1',
+        projectId: 'p1',
+        column: 'backlog',
+        updatedAt: new Date().toISOString(),
+      })
+      .mockResolvedValue({
+        id: 't1',
+        projectId: 'p1',
+        column: 'queued',
+        updatedAt: new Date().toISOString(),
+      });
 
     const service = new AgentService(
       db as never,
@@ -648,20 +679,21 @@ describe('AgentService', () => {
     );
     const result = await service.queueTask('p1', 't1');
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      const expected = ConcurrencyErrors.QUEUE_FULL(0, 0);
-      expect(result.error).toMatchObject({
-        code: expected.code,
-        message: expected.message,
-        status: expected.status,
-        details: expected.details,
-      });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.taskId).toBe('t1');
+      expect(result.value.position).toBe(0);
+      expect(result.value.totalQueued).toBe(1);
     }
   });
 
-  it('getQueuedTasks returns empty array', async () => {
+  it('getQueuedTasks returns empty when no tasks queued', async () => {
     const db = createDbMock();
+    // Add missing mock methods needed by AgentQueueService
+    (db.query.tasks as Record<string, unknown>).findMany = vi.fn().mockResolvedValue([]);
+    (db.query as Record<string, unknown>).agentRuns = {
+      findMany: vi.fn().mockResolvedValue([]),
+    };
 
     const service = new AgentService(
       db as never,
@@ -802,6 +834,341 @@ describe('AgentService', () => {
     if (!result.ok) {
       expect(result.error.code).toBe('AGENT_EXECUTION_ERROR');
     }
+  });
+
+  describe('resume', () => {
+    it('returns ok when resuming a planning agent with currentTaskId and currentSessionId', async () => {
+      const db = createDbMock();
+      const sessionService = createSessionServiceMock();
+      db.query.agents.findFirst.mockResolvedValue({
+        id: 'a1',
+        status: 'planning',
+        projectId: 'p1',
+        currentTaskId: 't1',
+        currentSessionId: 's1',
+        currentTurn: 3,
+        config: { allowedTools: ['Read'], maxTurns: 50 },
+      });
+      db.query.tasks.findFirst.mockResolvedValue({
+        id: 't1',
+        title: 'Test Task',
+        description: 'Test description',
+        plan: 'Step 1: do X\nStep 2: do Y',
+        planOptions: null,
+        worktreeId: 'w1',
+        projectId: 'p1',
+      });
+
+      const updateWhere = vi.fn();
+      db.update.mockReturnValue({
+        set: vi.fn(() => ({ where: updateWhere })),
+      });
+
+      const service = new AgentService(
+        db as never,
+        createWorktreeServiceMock() as never,
+        createTaskServiceMock() as never,
+        sessionService as never
+      );
+      const result = await service.resume('a1');
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.status).toBe('planning');
+        expect(result.value.turnCount).toBe(3);
+      }
+    });
+
+    it('sets agent status to running in DB when resuming a planning agent', async () => {
+      const db = createDbMock();
+      const sessionService = createSessionServiceMock();
+      db.query.agents.findFirst.mockResolvedValue({
+        id: 'a1',
+        status: 'planning',
+        projectId: 'p1',
+        currentTaskId: 't1',
+        currentSessionId: 's1',
+        currentTurn: 3,
+        config: { allowedTools: ['Read'], maxTurns: 50 },
+      });
+      db.query.tasks.findFirst.mockResolvedValue({
+        id: 't1',
+        title: 'Test Task',
+        description: 'Test description',
+        plan: 'Execute the plan',
+        planOptions: null,
+        worktreeId: 'w1',
+        projectId: 'p1',
+      });
+
+      const setMock = vi.fn();
+      const whereMock = vi.fn();
+      setMock.mockReturnValue({ where: whereMock });
+      db.update.mockReturnValue({ set: setMock });
+
+      const service = new AgentService(
+        db as never,
+        createWorktreeServiceMock() as never,
+        createTaskServiceMock() as never,
+        sessionService as never
+      );
+      await service.resume('a1');
+
+      // The first db.update call should set status to 'running'
+      expect(db.update).toHaveBeenCalled();
+      expect(setMock).toHaveBeenCalledWith(expect.objectContaining({ status: 'running' }));
+    });
+
+    it('returns error when task not found for plan execution', async () => {
+      const db = createDbMock();
+      const sessionService = createSessionServiceMock();
+      db.query.agents.findFirst.mockResolvedValue({
+        id: 'a1',
+        status: 'planning',
+        projectId: 'p1',
+        currentTaskId: 't1',
+        currentSessionId: 's1',
+        currentTurn: 3,
+        config: { allowedTools: ['Read'], maxTurns: 50 },
+      });
+      // Task not found
+      db.query.tasks.findFirst.mockResolvedValue(null);
+
+      const updateWhere = vi.fn();
+      db.update.mockReturnValue({
+        set: vi.fn(() => ({ where: updateWhere })),
+      });
+
+      const service = new AgentService(
+        db as never,
+        createWorktreeServiceMock() as never,
+        createTaskServiceMock() as never,
+        sessionService as never
+      );
+      const result = await service.resume('a1');
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('AGENT_EXECUTION_ERROR');
+      }
+    });
+
+    it('resumes a paused agent with feedback and publishes event', async () => {
+      const db = createDbMock();
+      const sessionService = createSessionServiceMock();
+      db.query.agents.findFirst.mockResolvedValue({
+        id: 'a1',
+        status: 'paused',
+        currentTurn: 10,
+        currentSessionId: 's1',
+      });
+
+      const updateWhere = vi.fn();
+      db.update.mockReturnValue({
+        set: vi.fn(() => ({ where: updateWhere })),
+      });
+
+      sessionService.publish.mockResolvedValue({ ok: true });
+
+      const service = new AgentService(
+        db as never,
+        createWorktreeServiceMock() as never,
+        createTaskServiceMock() as never,
+        sessionService as never
+      );
+      const result = await service.resume('a1', 'please continue with step 2');
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.status).toBe('paused');
+        expect(result.value.turnCount).toBe(10);
+      }
+      // Should publish feedback event for paused agent resume
+      expect(sessionService.publish).toHaveBeenCalledWith(
+        's1',
+        expect.objectContaining({
+          type: 'approval:rejected',
+          data: expect.objectContaining({ feedback: 'please continue with step 2' }),
+        })
+      );
+    });
+
+    it('returns NOT_RUNNING error when agent is idle', async () => {
+      const db = createDbMock();
+      const sessionService = createSessionServiceMock();
+      db.query.agents.findFirst.mockResolvedValue({
+        id: 'a1',
+        status: 'idle',
+        currentTurn: 0,
+        currentSessionId: null,
+      });
+
+      const service = new AgentService(
+        db as never,
+        createWorktreeServiceMock() as never,
+        createTaskServiceMock() as never,
+        sessionService as never
+      );
+      const result = await service.resume('a1');
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toMatchObject(AgentErrors.NOT_RUNNING);
+      }
+      expect(sessionService.publish).not.toHaveBeenCalled();
+    });
+
+    it('returns NOT_RUNNING error when agent is in error state', async () => {
+      const db = createDbMock();
+      const sessionService = createSessionServiceMock();
+      db.query.agents.findFirst.mockResolvedValue({
+        id: 'a1',
+        status: 'error',
+        currentTurn: 3,
+        currentSessionId: 's1',
+      });
+
+      const service = new AgentService(
+        db as never,
+        createWorktreeServiceMock() as never,
+        createTaskServiceMock() as never,
+        sessionService as never
+      );
+      const result = await service.resume('a1');
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toMatchObject(AgentErrors.NOT_RUNNING);
+      }
+    });
+
+    it('returns NOT_RUNNING error when agent is in starting state', async () => {
+      const db = createDbMock();
+      const sessionService = createSessionServiceMock();
+      db.query.agents.findFirst.mockResolvedValue({
+        id: 'a1',
+        status: 'starting',
+        currentTurn: 0,
+        currentSessionId: 's1',
+        currentTaskId: 't1',
+      });
+
+      const service = new AgentService(
+        db as never,
+        createWorktreeServiceMock() as never,
+        createTaskServiceMock() as never,
+        sessionService as never
+      );
+      const result = await service.resume('a1');
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toMatchObject(AgentErrors.NOT_RUNNING);
+      }
+    });
+
+    it('returns NOT_FOUND when agent does not exist', async () => {
+      const db = createDbMock();
+      db.query.agents.findFirst.mockResolvedValue(null);
+
+      const service = new AgentService(
+        db as never,
+        createWorktreeServiceMock() as never,
+        createTaskServiceMock() as never,
+        createSessionServiceMock() as never
+      );
+      const result = await service.resume('nonexistent');
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toMatchObject(AgentErrors.NOT_FOUND);
+      }
+    });
+
+    it('builds execution prompt from task plan when plan exists', async () => {
+      const db = createDbMock();
+      const sessionService = createSessionServiceMock();
+      db.query.agents.findFirst.mockResolvedValue({
+        id: 'a1',
+        status: 'planning',
+        projectId: 'p1',
+        currentTaskId: 't1',
+        currentSessionId: 's1',
+        currentTurn: 5,
+        config: { allowedTools: ['Read', 'Write'], maxTurns: 50 },
+      });
+      db.query.tasks.findFirst.mockResolvedValue({
+        id: 't1',
+        title: 'Implement feature X',
+        description: 'Add the new feature',
+        plan: '1. Create file A\n2. Update file B',
+        planOptions: { allowedPrompts: [] },
+        worktreeId: 'w1',
+        projectId: 'p1',
+      });
+
+      const updateWhere = vi.fn();
+      db.update.mockReturnValue({
+        set: vi.fn(() => ({ where: updateWhere })),
+      });
+
+      const service = new AgentService(
+        db as never,
+        createWorktreeServiceMock() as never,
+        createTaskServiceMock() as never,
+        sessionService as never
+      );
+      const result = await service.resume('a1');
+
+      // Should return ok with planning status and turn count
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.status).toBe('planning');
+        expect(result.value.turnCount).toBe(5);
+        // runId should be a string (generated cuid)
+        expect(typeof result.value.runId).toBe('string');
+      }
+    });
+
+    it('does not publish session event for planning agent resume', async () => {
+      const db = createDbMock();
+      const sessionService = createSessionServiceMock();
+      db.query.agents.findFirst.mockResolvedValue({
+        id: 'a1',
+        status: 'planning',
+        projectId: 'p1',
+        currentTaskId: 't1',
+        currentSessionId: 's1',
+        currentTurn: 3,
+        config: { allowedTools: ['Read'], maxTurns: 50 },
+      });
+      db.query.tasks.findFirst.mockResolvedValue({
+        id: 't1',
+        title: 'Test Task',
+        description: 'Test description',
+        plan: 'The plan',
+        planOptions: null,
+        worktreeId: 'w1',
+        projectId: 'p1',
+      });
+
+      const updateWhere = vi.fn();
+      db.update.mockReturnValue({
+        set: vi.fn(() => ({ where: updateWhere })),
+      });
+
+      const service = new AgentService(
+        db as never,
+        createWorktreeServiceMock() as never,
+        createTaskServiceMock() as never,
+        sessionService as never
+      );
+      await service.resume('a1');
+
+      // Planning resume fires executeAgentExecution async, but does NOT
+      // publish an approval:rejected event like the paused case
+      expect(sessionService.publish).not.toHaveBeenCalled();
+    });
   });
 
   it('create uses project config defaults when agent config not provided', async () => {
