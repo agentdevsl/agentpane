@@ -59,24 +59,20 @@ export class TerraformRegistryService {
     return `terraform.registry.${registryId}.apiToken`;
   }
 
-  private async saveEncryptedToken(
-    key: string,
-    apiToken: string,
-    updatedAt: string
-  ): Promise<void> {
+  private async saveEncryptedToken(key: string, apiToken: string): Promise<void> {
     const encryptedToken = encryptToken(apiToken);
+    const now = this.updateTimestamp();
     await this.db
       .insert(settings)
       .values({
         key,
         value: encryptedToken,
-        updatedAt,
+        updatedAt: now,
       })
       .onConflictDoUpdate({
         target: settings.key,
         set: {
           value: encryptedToken,
-          updatedAt,
         },
       });
   }
@@ -101,7 +97,7 @@ export class TerraformRegistryService {
     const now = this.updateTimestamp();
     const registryId = createId();
     const tokenSettingKey = this.getTokenSettingKey(registryId);
-    await this.saveEncryptedToken(tokenSettingKey, input.apiToken, now);
+    await this.saveEncryptedToken(tokenSettingKey, input.apiToken);
 
     const [created] = await this.db
       .insert(terraformRegistries)
@@ -163,7 +159,6 @@ export class TerraformRegistryService {
     id: string,
     input: UpdateRegistryInput
   ): Promise<Result<TerraformRegistry, TerraformError>> {
-    const now = this.updateTimestamp();
     const existing = await this.db.query.terraformRegistries.findFirst({
       where: eq(terraformRegistries.id, id),
     });
@@ -177,9 +172,10 @@ export class TerraformRegistryService {
     });
 
     if (input.apiToken !== undefined) {
-      await this.saveEncryptedToken(existing.tokenSettingKey, input.apiToken, now);
+      await this.saveEncryptedToken(existing.tokenSettingKey, input.apiToken);
     }
 
+    const now = this.updateTimestamp();
     const updates: Partial<TerraformRegistry> = {
       updatedAt: now,
     };
@@ -275,7 +271,6 @@ export class TerraformRegistryService {
         .set({
           status: 'error',
           syncError: 'API token not configured. Set the token in Settings.',
-          updatedAt: this.updateTimestamp(),
         })
         .where(eq(terraformRegistries.id, id));
       return err(TerraformErrors.INVALID_TOKEN);
@@ -284,7 +279,7 @@ export class TerraformRegistryService {
     // Mark as syncing
     await this.db
       .update(terraformRegistries)
-      .set({ status: 'syncing', updatedAt: this.updateTimestamp() })
+      .set({ status: 'syncing' })
       .where(eq(terraformRegistries.id, id));
 
     try {
@@ -307,7 +302,6 @@ export class TerraformRegistryService {
           .set({
             status: 'error',
             syncError: 'API token is empty or invalid. Update the token in Settings.',
-            updatedAt: this.updateTimestamp(),
           })
           .where(eq(terraformRegistries.id, id));
         return err(TerraformErrors.INVALID_TOKEN);
@@ -330,7 +324,6 @@ export class TerraformRegistryService {
             lastSyncedAt: now,
             syncError: 'No modules with published versions found',
             moduleCount: 0,
-            updatedAt: now,
           })
           .where(eq(terraformRegistries.id, id));
         return err(TerraformErrors.NO_MODULES_SYNCED);
@@ -358,7 +351,6 @@ export class TerraformRegistryService {
           lastSyncedAt: now,
           syncError: null,
           moduleCount: modules.length,
-          updatedAt: now,
         })
         .where(eq(terraformRegistries.id, id));
 
@@ -388,7 +380,6 @@ export class TerraformRegistryService {
         .set({
           status: 'error',
           syncError: safeMessage,
-          updatedAt: this.updateTimestamp(),
         })
         .where(eq(terraformRegistries.id, id));
 

@@ -175,7 +175,6 @@ export class AgentExecutionService {
             worktreeId: worktree.value.id,
             branch: worktree.value.branch,
             startedAt: new Date().toISOString(),
-
           })
           .where(eq(tasks.id, task.id));
 
@@ -186,7 +185,6 @@ export class AgentExecutionService {
             currentTaskId: task.id,
             currentSessionId: session.value.id,
             currentTurn: 0,
-
           })
           .where(eq(agents.id, agentId));
 
@@ -379,7 +377,6 @@ export class AgentExecutionService {
           .set({
             status: 'planning',
             currentTurn: result.turnCount,
-
           })
           .where(eq(agents.id, agentId));
 
@@ -389,7 +386,6 @@ export class AgentExecutionService {
           .set({
             plan: result.plan,
             planOptions: result.planOptions,
-
           })
           .where(eq(tasks.id, taskId));
 
@@ -402,7 +398,6 @@ export class AgentExecutionService {
             currentTaskId: null,
             currentSessionId: null,
             currentTurn: result.turnCount,
-
           })
           .where(eq(agents.id, agentId));
 
@@ -412,7 +407,6 @@ export class AgentExecutionService {
           .set({
             column: 'waiting_approval',
             completedAt: new Date().toISOString(),
-
           })
           .where(eq(tasks.id, taskId));
       } else if (result.status === 'turn_limit' || result.status === 'paused') {
@@ -421,7 +415,6 @@ export class AgentExecutionService {
           .set({
             status: 'paused',
             currentTurn: result.turnCount,
-
           })
           .where(eq(agents.id, agentId));
 
@@ -430,7 +423,6 @@ export class AgentExecutionService {
           .update(tasks)
           .set({
             column: 'waiting_approval',
-
           })
           .where(eq(tasks.id, taskId));
       } else if (result.status === 'error') {
@@ -439,7 +431,6 @@ export class AgentExecutionService {
           .set({
             status: 'error',
             currentTurn: result.turnCount,
-
           })
           .where(eq(agents.id, agentId));
       }
@@ -786,7 +777,6 @@ export class AgentExecutionService {
             currentTaskId: null,
             currentSessionId: null,
             currentTurn: result.turnCount,
-
           })
           .where(eq(agents.id, agentId));
 
@@ -796,7 +786,6 @@ export class AgentExecutionService {
           .set({
             column: 'waiting_approval',
             completedAt: new Date().toISOString(),
-
           })
           .where(eq(tasks.id, task.id));
       } else if (result.status === 'turn_limit' || result.status === 'paused') {
@@ -805,7 +794,6 @@ export class AgentExecutionService {
           .set({
             status: 'paused',
             currentTurn: result.turnCount,
-
           })
           .where(eq(agents.id, agentId));
 
@@ -813,7 +801,6 @@ export class AgentExecutionService {
           .update(tasks)
           .set({
             column: 'waiting_approval',
-
           })
           .where(eq(tasks.id, task.id));
       } else if (result.status === 'error') {
@@ -822,7 +809,6 @@ export class AgentExecutionService {
           .set({
             status: 'error',
             currentTurn: result.turnCount,
-
           })
           .where(eq(agents.id, agentId));
       }

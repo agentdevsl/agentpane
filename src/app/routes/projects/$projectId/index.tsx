@@ -39,6 +39,12 @@ type ClientTask = Pick<
   diffSummary?: DiffSummary | null;
 };
 
+// Loader return type (Route.useLoaderData() returns void in this route tree)
+type ProjectKanbanLoaderData = {
+  project: ProjectListItem | null;
+  tasks: ClientTask[];
+};
+
 export const Route = createFileRoute('/projects/$projectId/')({
   loader: async ({ params }: { params: { projectId: string } }) => {
     // Prefetch project and tasks in parallel (FC-022)
@@ -56,7 +62,7 @@ export const Route = createFileRoute('/projects/$projectId/')({
 
 function ProjectKanban(): React.JSX.Element {
   const { projectId } = Route.useParams();
-  const loaderData = Route.useLoaderData();
+  const loaderData = Route.useLoaderData() as ProjectKanbanLoaderData;
   const { error: showError, warning: showWarning } = useToast();
   const navigate = useNavigate();
   const [project, setProject] = useState<ProjectListItem | null>(

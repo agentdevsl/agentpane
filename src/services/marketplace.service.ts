@@ -213,9 +213,7 @@ export class MarketplaceService {
       }
     }
 
-    const updates: Partial<Marketplace> = {
-      updatedAt: this.updateTimestamp(),
-    };
+    const updates: Partial<Marketplace> = {};
 
     if (input.name !== undefined) updates.name = input.name;
     if (input.branch !== undefined) updates.branch = input.branch;
@@ -274,10 +272,7 @@ export class MarketplaceService {
     log.info(`Syncing ${marketplace.githubOwner}/${marketplace.githubRepo}`);
 
     // Mark as syncing
-    await this.db
-      .update(marketplaces)
-      .set({ status: 'syncing', updatedAt: this.updateTimestamp() })
-      .where(eq(marketplaces.id, id));
+    await this.db.update(marketplaces).set({ status: 'syncing' }).where(eq(marketplaces.id, id));
 
     try {
       // Get Octokit client - try GitHub App first, then PAT
@@ -300,7 +295,6 @@ export class MarketplaceService {
             .set({
               status: 'error',
               syncError: 'No GitHub authentication found',
-              updatedAt: this.updateTimestamp(),
             })
             .where(eq(marketplaces.id, id));
           return err(MarketplaceErrors.SYNC_FAILED('No GitHub authentication found'));
@@ -325,7 +319,6 @@ export class MarketplaceService {
               status: 'error',
               syncError:
                 'GitHub token could not be decrypted. The encryption key may have changed. Please re-add your GitHub token in Settings.',
-              updatedAt: this.updateTimestamp(),
             })
             .where(eq(marketplaces.id, id));
           return err(
@@ -358,7 +351,6 @@ export class MarketplaceService {
           .set({
             status: 'error',
             syncError: syncResult.error.message,
-            updatedAt: this.updateTimestamp(),
           })
           .where(eq(marketplaces.id, id));
         return err(MarketplaceErrors.SYNC_FAILED(syncResult.error.message));
@@ -373,7 +365,6 @@ export class MarketplaceService {
           lastSyncSha: syncResult.value.sha,
           lastSyncedAt: now,
           syncError: null,
-          updatedAt: now,
         })
         .where(eq(marketplaces.id, id));
 
@@ -402,7 +393,6 @@ export class MarketplaceService {
         .set({
           status: 'error',
           syncError: ghError.message,
-          updatedAt: this.updateTimestamp(),
         })
         .where(eq(marketplaces.id, id));
       return err(MarketplaceErrors.SYNC_FAILED(ghError.message));

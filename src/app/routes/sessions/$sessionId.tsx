@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AgentSessionView } from '@/app/components/features/agent-session-view';
 import { ContainerAgentPanel } from '@/app/components/features/container-agent-panel';
 import { EmptyState } from '@/app/components/features/empty-state';
@@ -14,6 +14,13 @@ type ClientSession = {
   title?: string | null;
   status: string;
   sandboxProvider?: string | null;
+};
+
+// Loader return type (Route.useLoaderData() returns void in this route tree)
+type SessionLoaderData = {
+  session: ClientSession | null;
+  sessionError: string | null;
+  sandboxDefaults: { provider?: string } | null | undefined;
 };
 
 /**
@@ -48,32 +55,30 @@ export const Route = createFileRoute('/sessions/$sessionId')({
 
 function SessionPage(): React.JSX.Element {
   const { sessionId } = Route.useParams();
-  const loaderData = Route.useLoaderData() as
-    | {
-        session: ClientSession | null;
-        sessionError: string | null;
-        sandboxDefaults: { provider?: string } | null;
-      }
-    | undefined;
+  const loaderData = Route.useLoaderData() as SessionLoaderData;
   const navigate = useNavigate();
 
-  // Initialize from loader data and backfill sandboxProvider if needed
-  const initialSession = (() => {
-    if (!loaderData?.session) return null;
-    const data = loaderData.session as ClientSession;
+  // Initialize from loader data and backfill sandboxProvider if needed.
+  // useMemo prevents creating a new reference on every render and avoids mutating loaderData.
+  const initialSession = useMemo(() => {
+    if (!loaderData.session) return null;
+    const data = loaderData.session;
     if (!data.sandboxProvider && data.agentId === null && data.taskId !== null) {
       if (loaderData.sandboxDefaults?.provider) {
-        data.sandboxProvider =
-          loaderData.sandboxDefaults.provider === 'kubernetes' ? 'kubernetes' : 'docker';
+        return {
+          ...data,
+          sandboxProvider:
+            loaderData.sandboxDefaults.provider === 'kubernetes' ? 'kubernetes' : 'docker',
+        } as ClientSession;
       }
     }
     return data;
-  })();
+  }, [loaderData.session, loaderData.sandboxDefaults]);
 
   const [session, setSession] = useState<ClientSession | null>(initialSession);
-  const [isLoading, setIsLoading] = useState(!loaderData?.session && !loaderData?.sessionError);
+  const [isLoading, setIsLoading] = useState(!loaderData.session && !loaderData.sessionError);
   const [error, setError] = useState<{ message: string } | null>(
-    loaderData?.sessionError ? { message: loaderData.sessionError } : null
+    loaderData.sessionError ? { message: loaderData.sessionError } : null
   );
   const [actionError, setActionError] = useState<string | null>(null);
   const [isPlanActionPending, setIsPlanActionPending] = useState(false);
@@ -142,7 +147,7 @@ function SessionPage(): React.JSX.Element {
   // Fetch session from API on mount if not already loaded by route loader
   useEffect(() => {
     // Skip if loader already provided data
-    if (initialSession || loaderData?.sessionError) return;
+    if (initialSession || loaderData.sessionError) return;
 
     const fetchSession = async () => {
       setIsLoading(true);
@@ -174,7 +179,7 @@ function SessionPage(): React.JSX.Element {
       setIsLoading(false);
     };
     fetchSession();
-  }, [sessionId, initialSession, loaderData?.sessionError]);
+  }, [sessionId, initialSession, loaderData.sessionError]);
 
   // Stable callbacks for agent actions (must be declared before early returns)
   const handlePause = useCallback(async () => {

@@ -79,7 +79,6 @@ export class WorktreeInitService {
             .set({
               githubOwner: derived.owner,
               githubRepo: derived.repo,
-              updatedAt: new Date().toISOString(),
             })
             .where(eq(projects.id, project.id));
           log.info('Backfilled GitHub config to project', {
@@ -188,7 +187,6 @@ export class WorktreeInitService {
         .update(tasks)
         .set({
           branch: result.branch,
-          updatedAt: new Date().toISOString(),
         })
         .where(eq(tasks.id, taskId));
     } catch (dbErr) {
@@ -321,7 +319,6 @@ export class WorktreeInitService {
               .set({
                 worktreeId,
                 branch: worktreeResult.value.branch,
-                updatedAt: new Date().toISOString(),
               })
               .where(eq(tasks.id, taskId));
           } catch (dbErr) {

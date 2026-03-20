@@ -97,12 +97,11 @@ export class PlanApprovalService {
           },
           lastAgentStatus: 'planning',
           column: 'waiting_approval',
-          updatedAt: new Date().toISOString(),
         })
         .where(eq(tasks.id, taskId));
     } catch (dbErr) {
       const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
-      log.info('CRITICAL: Failed to persist plan to database', {
+      log.error('Failed to persist plan to database', {
         data: { taskId, error: errorMessage },
       });
       this.state.deletePendingPlan(taskId);
@@ -114,7 +113,7 @@ export class PlanApprovalService {
           turnCount: planData.turnCount,
         })
         .catch((publishErr) => {
-          log.info('Failed to publish plan DB error event', {
+          log.error('Failed to publish plan DB error event', {
             data: {
               taskId,
               error: publishErr instanceof Error ? publishErr.message : String(publishErr),
@@ -205,13 +204,10 @@ export class PlanApprovalService {
       });
 
       try {
-        await db
-          .update(tasks)
-          .set({ column: 'in_progress', updatedAt: new Date().toISOString() })
-          .where(eq(tasks.id, taskId));
+        await db.update(tasks).set({ column: 'in_progress' }).where(eq(tasks.id, taskId));
       } catch (dbErr) {
         const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
-        log.info('Failed to move task to in_progress for execution (AgentCore)', {
+        log.error('Failed to move task to in_progress for execution (AgentCore)', {
           data: { taskId, error: errorMessage },
         });
         return err(SandboxErrors.AGENT_START_FAILED(`DB update failed: ${errorMessage}`));
@@ -252,7 +248,11 @@ export class PlanApprovalService {
               content:
                 'Sandbox container changed since planning. Agent will start a fresh session with the full plan text.',
             })
-            .catch(() => {});
+            .catch((publishErr) =>
+              log.warn('Failed to publish sandbox change message', {
+                error: publishErr instanceof Error ? publishErr.message : String(publishErr),
+              })
+            );
         }
       } catch (lookupErr) {
         log.warn('Sandbox lookup failed -- cannot verify sandbox continuity, using fresh session', {
@@ -268,13 +268,10 @@ export class PlanApprovalService {
     });
 
     try {
-      await db
-        .update(tasks)
-        .set({ column: 'in_progress', updatedAt: new Date().toISOString() })
-        .where(eq(tasks.id, taskId));
+      await db.update(tasks).set({ column: 'in_progress' }).where(eq(tasks.id, taskId));
     } catch (dbErr) {
       const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
-      log.info('Failed to move task to in_progress for execution', {
+      log.error('Failed to move task to in_progress for execution', {
         data: { taskId, error: errorMessage },
       });
       return err(SandboxErrors.AGENT_START_FAILED(`DB update failed: ${errorMessage}`));
@@ -329,13 +326,12 @@ export class PlanApprovalService {
           rejectionReason: reason ?? null,
           worktreeId: null,
           branch: null,
-          updatedAt: new Date().toISOString(),
         })
         .where(eq(tasks.id, taskId));
       log.info('Task moved to backlog and plan cleared', { data: { taskId, reason } });
     } catch (dbErr) {
       const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
-      log.info('Failed to update task on plan rejection', {
+      log.error('Failed to update task on plan rejection', {
         data: { taskId, error: errorMessage },
       });
       return err(SandboxErrors.PLAN_REJECTION_FAILED(taskId, errorMessage));

@@ -57,15 +57,16 @@ export class SessionService {
   private presenceService: SessionPresenceService;
   private streamService: SessionStreamService;
 
-  constructor(
-    db: Database,
-    streams: DurableStreamsServer,
-    config: { baseUrl: string },
-    presenceStore: Map<string, Map<string, ActiveUser>> = new Map()
-  ) {
+  constructor(db: Database, streams: DurableStreamsServer, config: { baseUrl: string }) {
     this.streamService = new SessionStreamService(db, streams);
-    this.crudService = new SessionCrudService(db, streams, config, presenceStore);
-    this.presenceService = new SessionPresenceService(db, presenceStore, () => this.streamService);
+    this.presenceService = new SessionPresenceService(db, () => this.streamService);
+    // Share the presence store between crud and presence services
+    this.crudService = new SessionCrudService(
+      db,
+      streams,
+      config,
+      this.presenceService.getMutablePresenceStore()
+    );
 
     // Start the stale-presence cleanup timer (RS-007)
     this.presenceService.startCleanupTimer();

@@ -26,6 +26,9 @@ import type { GitHubOrg, GitHubRepo } from '@/services/github-token.service';
 // Use the API response type for project summaries
 type ClientProjectSummary = ProjectSummaryItem;
 
+// Loader return type (Route.useLoaderData() returns void in this route tree)
+type ProjectsLoaderData = { projects: ClientProjectSummary[] };
+
 export const Route = createFileRoute('/projects/')({
   loader: async () => {
     // Prefetch project summaries (FC-022)
@@ -38,8 +41,8 @@ export const Route = createFileRoute('/projects/')({
 type SortOption = 'recent' | 'name' | 'created';
 
 function ProjectsPage(): React.JSX.Element {
-  const loaderData = Route.useLoaderData();
-  const loaderProjects = loaderData.projects as ClientProjectSummary[];
+  const loaderData = Route.useLoaderData() as ProjectsLoaderData;
+  const loaderProjects = loaderData.projects;
   const [projectSummaries, setProjectSummaries] = useState<ClientProjectSummary[]>(loaderProjects);
   const [isLoading, setIsLoading] = useState(loaderProjects.length === 0);
   const [showNewProject, setShowNewProject] = useState(false);

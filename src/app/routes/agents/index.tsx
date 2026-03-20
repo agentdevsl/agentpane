@@ -14,6 +14,12 @@ type ClientAgent = {
   status: string;
 };
 
+// Loader return type (Route.useLoaderData() returns void in this route tree)
+type AgentsLoaderData = {
+  agents: ClientAgent[];
+  projects: ProjectListItem[];
+};
+
 export const Route = createFileRoute('/agents/')({
   loader: async () => {
     // Prefetch agents and projects in parallel (FC-022)
@@ -31,7 +37,7 @@ export const Route = createFileRoute('/agents/')({
 
 function AgentsPage(): React.JSX.Element {
   const navigate = useNavigate();
-  const loaderData = Route.useLoaderData();
+  const loaderData = Route.useLoaderData() as AgentsLoaderData;
   const loaderAgents = loaderData.agents as ClientAgent[];
   const loaderProjects = loaderData.projects as ProjectListItem[];
   const [agents, setAgents] = useState<ClientAgent[]>(loaderAgents);

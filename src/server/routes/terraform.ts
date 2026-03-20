@@ -23,12 +23,15 @@ interface TerraformDeps {
   terraformComposeService: TerraformComposeService;
 }
 
-/** Strip the internal tokenSettingKey before returning registry data to the client. */
+/**
+ * Strip the internal tokenSettingKey before returning registry data to the client.
+ * `hasToken` indicates whether a token settings key is configured for this registry.
+ */
 function omitTokenKey<T extends { tokenSettingKey: string }>(
   registry: T
 ): Omit<T, 'tokenSettingKey'> & { hasToken: boolean } {
-  const { tokenSettingKey: _, ...rest } = registry;
-  return { ...rest, hasToken: true };
+  const { tokenSettingKey, ...rest } = registry;
+  return { ...rest, hasToken: !!tokenSettingKey };
 }
 
 function requireTerraformAdmin(c: {

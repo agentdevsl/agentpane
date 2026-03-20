@@ -24,6 +24,12 @@ import { err, ok } from '../../lib/utils/result.js';
 import { getGlobalDefaultModel } from '../settings.service.js';
 import type { ContainerExecService } from './container-exec.service.js';
 import type { SandboxStateManager } from './sandbox-state.js';
+import {
+  resolveOAuthToken,
+  updateAgentStatus,
+  updateTaskOnAgentComplete,
+  updateTaskOnAgentError,
+} from './shared-helpers.js';
 import type {
   AgentConfig,
   ContainerAgentDeps,
@@ -125,12 +131,11 @@ export class AgentCoreBridgeService {
             status: 'starting',
             currentTaskId: taskId,
             currentSessionId: sessionId,
-            updatedAt: new Date().toISOString(),
           },
         });
     } catch (dbErr) {
       const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
-      log.info('Failed to create agent record', { data: { agentId, error: errorMessage } });
+      log.error('Failed to create agent record', { data: { agentId, error: errorMessage } });
       return err(SandboxErrors.AGENT_RECORD_FAILED(errorMessage));
     }
 
@@ -161,16 +166,13 @@ export class AgentCoreBridgeService {
         });
     } catch (dbErr) {
       const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
-      log.info('Failed to create session record', { data: { sessionId, error: errorMessage } });
+      log.error('Failed to create session record', { data: { sessionId, error: errorMessage } });
       return err(SandboxErrors.SESSION_CREATE_FAILED(errorMessage));
     }
 
     // Link agent and session to task
     try {
-      await db
-        .update(tasks)
-        .set({ agentId, sessionId, updatedAt: new Date().toISOString() })
-        .where(eq(tasks.id, taskId));
+      await db.update(tasks).set({ agentId, sessionId }).where(eq(tasks.id, taskId));
     } catch (dbErr) {
       const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
       log.info('Failed to link task (non-critical)', { data: { taskId, error: errorMessage } });
@@ -182,7 +184,7 @@ export class AgentCoreBridgeService {
     } catch (streamErr) {
       const errorMessage = streamErr instanceof Error ? streamErr.message : String(streamErr);
       if (!errorMessage.includes('already exists') && !errorMessage.includes('duplicate')) {
-        log.info('Failed to create durable stream', { data: { sessionId, error: errorMessage } });
+        log.error('Failed to create durable stream', { data: { sessionId, error: errorMessage } });
         return err(SandboxErrors.STREAM_CREATE_FAILED(errorMessage));
       }
     }
@@ -197,7 +199,7 @@ export class AgentCoreBridgeService {
       });
     } catch (publishErr) {
       const errorMessage = publishErr instanceof Error ? publishErr.message : String(publishErr);
-      log.info('Failed to publish initial status', { data: { sessionId, error: errorMessage } });
+      log.error('Failed to publish initial status', { data: { sessionId, error: errorMessage } });
       return err(SandboxErrors.STREAM_PUBLISH_FAILED(errorMessage));
     }
 
@@ -219,18 +221,8 @@ export class AgentCoreBridgeService {
       message: 'Configuration validated',
     });
 
-    // Get OAuth token
-    let oauthToken: string | null = null;
-    try {
-      oauthToken = await apiKeyService.getDecryptedKey('anthropic');
-    } catch (keyErr) {
-      log.info('Failed to get OAuth token from database', {
-        data: { error: keyErr instanceof Error ? keyErr.message : String(keyErr) },
-      });
-    }
-    if (!oauthToken) {
-      oauthToken = process.env.ANTHROPIC_AUTH_TOKEN ?? process.env.ANTHROPIC_API_KEY ?? null;
-    }
+    // Get OAuth token (using shared helper)
+    const oauthToken = await resolveOAuthToken(apiKeyService);
     if (!oauthToken) {
       log.info('No OAuth token available');
       await streams.publish(sessionId, 'container-agent:message', {
@@ -319,7 +311,6 @@ export class AgentCoreBridgeService {
           .update(agents)
           .set({
             status: phase === 'plan' ? 'planning' : 'running',
-            updatedAt: new Date().toISOString(),
           })
           .where(eq(agents.id, agentId));
       } catch (dbErr) {
@@ -372,7 +363,7 @@ export class AgentCoreBridgeService {
       return ok(undefined);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      log.info('Failed to start agent', { data: { taskId, error: message } });
+      log.error('Failed to start agent', { data: { taskId, error: message } });
       provider.removeSession(taskId);
       return err(SandboxErrors.AGENT_START_FAILED(message));
     }
@@ -471,7 +462,7 @@ export class AgentCoreBridgeService {
       return ok(undefined);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      log.info('Failed to stop agent', { data: { taskId, error: message } });
+      log.error('Failed to stop agent', { data: { taskId, error: message } });
       return err(SandboxErrors.AGENT_STOP_FAILED(message));
     } finally {
       // Explicit cleanup in case stream handler doesn't fire
@@ -489,23 +480,7 @@ export class AgentCoreBridgeService {
     agentDbStatus: 'completed' | 'error',
     context: string
   ): Promise<void> {
-    const agentId = `agent-${taskId}`;
-    try {
-      await this.deps.db
-        .update(agents)
-        .set({
-          status: agentDbStatus,
-          currentTaskId: null,
-          currentSessionId: null,
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(agents.id, agentId));
-    } catch (dbErr) {
-      const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
-      log.warn(`[${context}] Failed to update agent status`, {
-        data: { agentId, error: errorMessage },
-      });
-    }
+    await updateAgentStatus(this.deps.db, taskId, agentDbStatus);
 
     const provider = this.getAgentCoreProvider();
     if (provider) {
@@ -537,59 +512,8 @@ export class AgentCoreBridgeService {
 
     const { db, streams } = this.deps;
 
-    // Update task status (same logic as container path)
-    try {
-      if (status === 'completed') {
-        await db
-          .update(tasks)
-          .set({
-            column: 'waiting_approval',
-            agentId: null,
-            sessionId: null,
-            lastAgentStatus: 'completed',
-            completedAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          })
-          .where(eq(tasks.id, taskId));
-      } else if (status === 'turn_limit') {
-        await db
-          .update(tasks)
-          .set({
-            column: 'waiting_approval',
-            agentId: null,
-            sessionId: null,
-            lastAgentStatus: 'turn_limit',
-            updatedAt: new Date().toISOString(),
-          })
-          .where(eq(tasks.id, taskId));
-      } else {
-        await db
-          .update(tasks)
-          .set({
-            agentId: null,
-            sessionId: null,
-            lastAgentStatus: 'cancelled',
-            updatedAt: new Date().toISOString(),
-          })
-          .where(eq(tasks.id, taskId));
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      log.info('Failed to update task status', { data: { taskId, error: errorMessage } });
-      try {
-        await streams.publish(agent.sessionId, 'container-agent:task-update-failed', {
-          taskId,
-          sessionId: agent.sessionId,
-          error: errorMessage,
-          attemptedStatus: status,
-        });
-      } catch (publishErr) {
-        log.warn('Failed to publish task-update-failed event (best-effort)', {
-          data: { taskId },
-          error: publishErr,
-        });
-      }
-    }
+    // Update task status (using shared helper)
+    await updateTaskOnAgentComplete(db, taskId, status, streams, agent.sessionId);
 
     await this.cleanupAgentCoreRunState(taskId, agent, 'completed', 'handleAgentCoreComplete');
 
@@ -618,34 +542,8 @@ export class AgentCoreBridgeService {
 
     const { db, streams } = this.deps;
 
-    // Update task -- clear agent refs on error
-    try {
-      await db
-        .update(tasks)
-        .set({
-          agentId: null,
-          sessionId: null,
-          lastAgentStatus: 'error',
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(tasks.id, taskId));
-    } catch (dbErr) {
-      const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
-      log.info('Failed to update task status', { data: { taskId, error: errorMessage } });
-      try {
-        await streams.publish(agent.sessionId, 'container-agent:task-update-failed', {
-          taskId,
-          sessionId: agent.sessionId,
-          error: errorMessage,
-          attemptedStatus: 'error',
-        });
-      } catch (publishErr) {
-        log.warn('Failed to publish task-update-failed event (best-effort)', {
-          data: { taskId },
-          error: publishErr,
-        });
-      }
-    }
+    // Update task -- clear agent refs on error (using shared helper)
+    await updateTaskOnAgentError(db, taskId, streams, agent.sessionId);
 
     await this.cleanupAgentCoreRunState(taskId, agent, 'error', 'handleAgentCoreError');
   }

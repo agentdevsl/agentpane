@@ -34,6 +34,9 @@ type ClientProjectSummary = {
   lastActivityAt?: Date | null;
 };
 
+// Loader return type (Route.useLoaderData() returns void in this route tree)
+type DashboardLoaderData = { projects: ProjectSummaryItem[] };
+
 export const Route = createFileRoute('/')({
   loader: async () => {
     // Prefetch project summaries (FC-022)
@@ -45,7 +48,7 @@ export const Route = createFileRoute('/')({
 
 function Dashboard(): React.JSX.Element {
   const navigate = useNavigate();
-  const loaderData = Route.useLoaderData();
+  const loaderData = Route.useLoaderData() as DashboardLoaderData;
   const loaderProjects = loaderData.projects;
   const [projectSummaries, setProjectSummaries] = useState<ClientProjectSummary[]>(
     () =>

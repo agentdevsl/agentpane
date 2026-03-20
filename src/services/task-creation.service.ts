@@ -230,7 +230,9 @@ export class TaskCreationService {
           try {
             session.v2Session.close();
           } catch (closeErr) {
-            log.warn('Failed to close abandoned V2 session', { error: closeErr instanceof Error ? (closeErr as Error).message : String(closeErr) });
+            log.warn('Failed to close abandoned V2 session', {
+              error: closeErr instanceof Error ? (closeErr as Error).message : String(closeErr),
+            });
           }
         }
         this.sessions.delete(sessionId);
@@ -239,7 +241,11 @@ export class TaskCreationService {
           .update(sessions)
           .set({ status: 'closed', closedAt: new Date().toISOString() })
           .where(eq(sessions.id, sessionId))
-          .catch((err) => log.warn('Failed to mark idle session as closed in DB', { error: err instanceof Error ? err.message : String(err) }));
+          .catch((err) =>
+            log.warn('Failed to mark idle session as closed in DB', {
+              error: err instanceof Error ? err.message : String(err),
+            })
+          );
         cleanedCount++;
       }
     }
@@ -1998,7 +2004,11 @@ export class TaskCreationService {
         .update(sessions)
         .set({ status: 'closed', closedAt: new Date().toISOString() })
         .where(eq(sessions.id, sessionId))
-        .catch((err) => log.warn('Failed to mark completed session as closed in DB', { error: err instanceof Error ? err.message : String(err) }));
+        .catch((err) =>
+          log.warn('Failed to mark completed session as closed in DB', {
+            error: err instanceof Error ? err.message : String(err),
+          })
+        );
 
       // Schedule delayed in-memory cleanup to allow late API calls
       setTimeout(() => {
@@ -2540,7 +2550,11 @@ export class TaskCreationService {
       .update(sessions)
       .set({ status: 'closed', closedAt: new Date().toISOString() })
       .where(eq(sessions.id, sessionId))
-      .catch((err) => log.warn('Failed to mark cancelled session as closed in DB', { error: err instanceof Error ? err.message : String(err) }));
+      .catch((err) =>
+        log.warn('Failed to mark cancelled session as closed in DB', {
+          error: err instanceof Error ? err.message : String(err),
+        })
+      );
 
     // Schedule delayed in-memory cleanup to allow late API calls
     setTimeout(() => {

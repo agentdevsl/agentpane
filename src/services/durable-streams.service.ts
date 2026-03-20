@@ -768,10 +768,16 @@ export class DurableStreamsService {
    * Publish a session event (uses SessionEvent's own type/data structure).
    * Persists to database if available, then publishes to Caddy streams.
    */
-  async publishSessionEvent(streamId: string, event: SessionEvent): Promise<void> {
+  async publishSessionEvent(
+    streamId: string,
+    event: SessionEvent
+  ): Promise<Result<void, AppError>> {
     if (!streamId || typeof streamId !== 'string' || streamId.trim() === '') {
-      throw new Error(
-        '[DurableStreamsService] publishSessionEvent: streamId is required and must be a non-empty string'
+      return err(
+        createError(
+          'STREAMS_VALIDATION',
+          'publishSessionEvent: streamId is required and must be a non-empty string'
+        )
       );
     }
 
@@ -802,14 +808,14 @@ export class DurableStreamsService {
           }
         );
       }
+
+      return ok(undefined);
     } catch (error) {
-      console.error('[DurableStreamsService] publishSessionEvent failed:', {
-        streamId,
-        type: event.type,
-        error,
-      });
-      throw new Error(
-        `[DurableStreamsService] Failed to publish session event '${event.type}' to stream '${streamId}': ${error instanceof Error ? error.message : String(error)}`
+      return err(
+        createError(
+          'STREAMS_PUBLISH',
+          `Failed to publish session event '${event.type}' to stream '${streamId}': ${error instanceof Error ? error.message : String(error)}`
+        )
       );
     }
   }

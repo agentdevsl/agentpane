@@ -148,12 +148,12 @@ describe('CliMonitorService', () => {
       service.registerDaemon(makeDaemonPayload({ daemonId: 'daemon-1' }));
 
       const result = service.handleHeartbeat('daemon-unknown', 0);
-      expect(result).toBe('stale');
+      expect(result).toEqual({ ok: true, value: 'stale' });
     });
 
     it('returns unknown when no daemon is registered', () => {
       const result = service.handleHeartbeat('daemon-1', 0);
-      expect(result).toBe('unknown');
+      expect(result).toEqual({ ok: true, value: 'unknown' });
     });
   });
 

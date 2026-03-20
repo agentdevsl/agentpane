@@ -309,7 +309,6 @@ export class ContainerExecService {
             status: 'starting',
             currentTaskId: taskId,
             currentSessionId: sessionId,
-            updatedAt: new Date().toISOString(),
           },
         });
       log.debug('Agent record created/updated', { data: { agentId } });
@@ -358,10 +357,7 @@ export class ContainerExecService {
     // Link agent and session to task
     log.debug('Linking agent and session to task', { data: { taskId, agentId, sessionId } });
     try {
-      await db
-        .update(tasks)
-        .set({ agentId, sessionId, updatedAt: new Date().toISOString() })
-        .where(eq(tasks.id, taskId));
+      await db.update(tasks).set({ agentId, sessionId }).where(eq(tasks.id, taskId));
       log.debug('Task linked to agent and session', { data: { taskId } });
     } catch (dbErr) {
       const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
@@ -473,24 +469,7 @@ export class ContainerExecService {
     });
     log.info('Retrieving OAuth credentials', { data: { taskId } });
 
-    let oauthToken: string | null = null;
-    try {
-      oauthToken = await apiKeyService.getDecryptedKey('anthropic');
-      log.info('Retrieved OAuth token from database', {
-        data: { hasToken: !!oauthToken, isOAuth: oauthToken?.startsWith('sk-ant-oat') ?? false },
-      });
-    } catch (keyErr) {
-      log.info('Failed to get OAuth token from database', {
-        data: { error: keyErr instanceof Error ? keyErr.message : String(keyErr) },
-      });
-    }
-
-    if (!oauthToken) {
-      oauthToken = process.env.ANTHROPIC_AUTH_TOKEN ?? process.env.ANTHROPIC_API_KEY ?? null;
-      if (oauthToken) {
-        log.info('Using OAuth token from environment variable');
-      }
-    }
+    const oauthToken = await resolveOAuthToken(apiKeyService);
 
     if (!oauthToken) {
       log.info('No OAuth token available');
@@ -663,7 +642,6 @@ export class ContainerExecService {
           .update(agents)
           .set({
             status: phase === 'plan' ? 'planning' : 'running',
-            updatedAt: new Date().toISOString(),
           })
           .where(eq(agents.id, agentId));
         log.debug('Agent status updated to running', { data: { agentId, phase } });
@@ -921,7 +899,11 @@ export class ContainerExecService {
               role: 'system',
               content: `Failed to commit worktree changes: ${String(commitResult.error)}. Agent work may not be persisted.`,
             })
-            .catch(() => {});
+            .catch((publishErr) =>
+              log.warn('Failed to notify commit failure', {
+                error: publishErr instanceof Error ? publishErr.message : String(publishErr),
+              })
+            );
         }
       } catch (commitErr) {
         const errorMessage = commitErr instanceof Error ? commitErr.message : String(commitErr);
@@ -935,92 +917,24 @@ export class ContainerExecService {
             role: 'system',
             content: `Failed to commit worktree changes: ${errorMessage}. Agent work may not be persisted.`,
           })
-          .catch(() => {});
+          .catch((publishErr) =>
+            log.warn('Failed to notify commit failure', {
+              error: publishErr instanceof Error ? publishErr.message : String(publishErr),
+            })
+          );
       }
     }
 
-    // Update task status based on completion
-    try {
-      if (status === 'completed') {
-        log.debug('Updating task to waiting_approval (completed)', { data: { taskId } });
-        await db
-          .update(tasks)
-          .set({
-            column: 'waiting_approval',
-            agentId: null,
-            sessionId: null,
-            lastAgentStatus: 'completed',
-            completedAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          })
-          .where(eq(tasks.id, taskId));
-        log.info('Task moved to waiting_approval', { data: { taskId, status } });
-      } else if (status === 'turn_limit') {
-        log.debug('Updating task to waiting_approval (turn_limit)', { data: { taskId } });
-        await db
-          .update(tasks)
-          .set({
-            column: 'waiting_approval',
-            agentId: null,
-            sessionId: null,
-            lastAgentStatus: 'turn_limit',
-            updatedAt: new Date().toISOString(),
-          })
-          .where(eq(tasks.id, taskId));
-        log.info('Task moved to waiting_approval (turn limit)', { data: { taskId, status } });
-      } else {
-        log.debug('Task cancelled, clearing agent refs', { data: { taskId } });
-        await db
-          .update(tasks)
-          .set({
-            agentId: null,
-            sessionId: null,
-            lastAgentStatus: 'cancelled',
-            updatedAt: new Date().toISOString(),
-          })
-          .where(eq(tasks.id, taskId));
+    // Update task status based on completion (using shared helper)
+    await updateTaskOnAgentComplete(db, taskId, status, streams, agent.sessionId);
 
-        if (agent.worktreeId) {
-          await this.worktreeInit.cleanupWorktree(taskId, agent.worktreeId);
-        }
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      log.info('Failed to update task status', { data: { taskId, status, error: errorMessage } });
-      try {
-        await streams.publish(agent.sessionId, 'container-agent:task-update-failed', {
-          taskId,
-          sessionId: agent.sessionId,
-          error: errorMessage,
-          attemptedStatus: status,
-        });
-      } catch (publishErr) {
-        log.info('Failed to publish task update error event', {
-          data: {
-            taskId,
-            error: publishErr instanceof Error ? publishErr.message : String(publishErr),
-          },
-        });
-      }
+    // Handle worktree cleanup on cancellation
+    if (status === 'cancelled' && agent.worktreeId) {
+      await this.worktreeInit.cleanupWorktree(taskId, agent.worktreeId);
     }
 
-    // Update agent status to completed/idle
-    const agentId = `agent-${taskId}`;
-    try {
-      await db
-        .update(agents)
-        .set({
-          status: 'completed',
-          currentTaskId: null,
-          currentSessionId: null,
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(agents.id, agentId));
-      log.debug('Agent status updated to completed', { data: { agentId } });
-    } catch (dbErr) {
-      const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
-      log.info('Failed to update agent status', { data: { agentId, error: errorMessage } });
-    }
+    // Update agent status to completed/idle (using shared helper)
+    await updateAgentStatus(db, taskId, 'completed');
 
     // Clean up sentinel file
     try {
@@ -1110,32 +1024,10 @@ export class ContainerExecService {
         });
       }
 
-      const agentId = `agent-${taskId}`;
-      try {
-        await db
-          .update(agents)
-          .set({
-            status: 'error',
-            currentTaskId: null,
-            currentSessionId: null,
-            updatedAt: new Date().toISOString(),
-          })
-          .where(eq(agents.id, agentId));
-        await db
-          .update(tasks)
-          .set({
-            agentId: null,
-            sessionId: null,
-            lastAgentStatus: 'error',
-            updatedAt: new Date().toISOString(),
-          })
-          .where(eq(tasks.id, taskId));
-        log.info('DB updated for orphaned agent', { data: { agentId, taskId } });
-      } catch (dbErr) {
-        log.info('Failed to update orphaned agent status', {
-          data: { agentId, taskId, error: dbErr instanceof Error ? dbErr.message : String(dbErr) },
-        });
-      }
+      // Update orphaned agent and task status (using shared helpers)
+      await updateAgentStatus(db, taskId, 'error');
+      await updateTaskOnAgentError(db, taskId);
+      log.info('DB updated for orphaned agent', { data: { taskId } });
       return;
     }
 
@@ -1148,63 +1040,16 @@ export class ContainerExecService {
       },
     });
 
-    // Update task - clear agent refs on error
-    try {
-      log.debug('Clearing agent refs and setting error status', { data: { taskId } });
-      await db
-        .update(tasks)
-        .set({
-          agentId: null,
-          sessionId: null,
-          lastAgentStatus: 'error',
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(tasks.id, taskId));
-      log.debug('Task agent refs cleared, status set to error', { data: { taskId } });
-    } catch (dbUpdateErr) {
-      const errorMessage = dbUpdateErr instanceof Error ? dbUpdateErr.message : String(dbUpdateErr);
-      log.info('Failed to update task status', {
-        data: { taskId, status: 'error', error: errorMessage },
-      });
-      try {
-        await streams.publish(agent.sessionId, 'container-agent:task-update-failed', {
-          taskId,
-          sessionId: agent.sessionId,
-          error: errorMessage,
-          attemptedStatus: 'error',
-        });
-      } catch (publishErr) {
-        log.info('Failed to publish task update error event', {
-          data: {
-            taskId,
-            error: publishErr instanceof Error ? publishErr.message : String(publishErr),
-          },
-        });
-      }
-    }
+    // Update task - clear agent refs on error (using shared helper)
+    await updateTaskOnAgentError(db, taskId, streams, agent.sessionId);
 
     // Clean up worktree on error
     if (agent.worktreeId) {
       await this.worktreeInit.cleanupWorktree(taskId, agent.worktreeId);
     }
 
-    // Update agent status to error
-    const agentId = `agent-${taskId}`;
-    try {
-      await db
-        .update(agents)
-        .set({
-          status: 'error',
-          currentTaskId: null,
-          currentSessionId: null,
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(agents.id, agentId));
-      log.debug('Agent status updated to error', { data: { agentId } });
-    } catch (dbErr) {
-      const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
-      log.info('Failed to update agent status', { data: { agentId, error: errorMessage } });
-    }
+    // Update agent status to error (using shared helper)
+    await updateAgentStatus(db, taskId, 'error');
 
     // Clear runtime timeout and remove from running agents
     clearTimeout(agent.timeoutHandle);

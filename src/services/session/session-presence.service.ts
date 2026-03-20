@@ -45,6 +45,14 @@ export class SessionPresenceService {
     return this.presenceStore;
   }
 
+  /**
+   * Get a mutable reference to the underlying presence store.
+   * Used by SessionService to share the store with SessionCrudService.
+   */
+  getMutablePresenceStore(): Map<string, Map<string, ActiveUser>> {
+    return this.presenceStore;
+  }
+
   async join(
     sessionId: string,
     userId: string

@@ -7,8 +7,8 @@ import { ProjectErrors } from '../lib/errors/project-errors.js';
 import type { SandboxError } from '../lib/errors/sandbox-errors.js';
 import type { TaskError } from '../lib/errors/task-errors.js';
 import { TaskErrors } from '../lib/errors/task-errors.js';
-import { createLogger } from '../lib/logging/logger.js';
 import { ValidationErrors } from '../lib/errors/validation-errors.js';
+import { createLogger } from '../lib/logging/logger.js';
 import type { ProjectSandboxConfig } from '../lib/sandbox/types.js';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
@@ -473,7 +473,9 @@ export class TaskService {
         return JSON.parse(setting.value) as ProjectSandboxConfig;
       }
     } catch (error) {
-      log.warn('Failed to load global sandbox defaults', { error: error instanceof Error ? error.message : String(error) });
+      log.warn('Failed to load global sandbox defaults', {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
     return null;
   }

@@ -131,8 +131,39 @@ describe('ContainerAgentService', () => {
   let streams: ReturnType<typeof createMockStreams>;
   let apiKeyService: ReturnType<typeof createMockApiKeyService>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+
+    // vi.clearAllMocks does NOT reset mockReturnValue/mockResolvedValue,
+    // so we must re-apply all prototype mock defaults to prevent leak between tests.
+    const { SandboxStateManager: SM } = await import('../container-agent/sandbox-state.js');
+    (SM as any).prototype.hasAnyRunningAgent.mockReturnValue(false);
+    (SM as any).prototype.isStarting.mockReturnValue(false);
+    (SM as any).prototype.getRunningAgentCoreAgent.mockReturnValue(undefined);
+    (SM as any).prototype.getRunningAgent.mockReturnValue(undefined);
+    (SM as any).prototype.getAnyRunningAgent.mockReturnValue(null);
+    (SM as any).prototype.getAllRunningAgents.mockReturnValue([]);
+    (SM as any).prototype.getAllRunningAgentCoreAgents.mockReturnValue([]);
+    (SM as any).prototype.getPendingPlan.mockReturnValue(undefined);
+
+    const { ContainerExecService: CES } = await import(
+      '../container-agent/container-exec.service.js'
+    );
+    (CES as any).prototype.startAgent.mockResolvedValue({ ok: true, value: undefined });
+    (CES as any).prototype.stopAgent.mockResolvedValue({ ok: true, value: undefined });
+
+    const { AgentCoreBridgeService: ACBS } = await import(
+      '../container-agent/agentcore-bridge.service.js'
+    );
+    (ACBS as any).prototype.startAgentCoreAgent.mockResolvedValue({ ok: true, value: undefined });
+    (ACBS as any).prototype.stopAgentCoreAgent.mockResolvedValue({ ok: true, value: undefined });
+
+    const { PlanApprovalService: PAS } = await import(
+      '../container-agent/plan-approval.service.js'
+    );
+    (PAS as any).prototype.approvePlan.mockResolvedValue({ ok: true, value: undefined });
+    (PAS as any).prototype.rejectPlan.mockResolvedValue({ ok: true, value: undefined });
+    (PAS as any).prototype.getPendingPlan.mockResolvedValue(undefined);
 
     db = createMockDb();
     provider = createMockProvider();
