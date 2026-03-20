@@ -82,8 +82,16 @@ export interface ContainerAgentTrigger {
   rejectPlan: (taskId: string, reason?: string) => Promise<Result<void, unknown>>;
 }
 
+/**
+ * Optional host-mode agent execution service for plan approval fallback.
+ */
+export interface AgentExecutionTrigger {
+  resume: (agentId: string, feedback?: string) => Promise<Result<unknown, unknown>>;
+}
+
 export class TaskService {
   private containerAgentService?: ContainerAgentTrigger;
+  private agentExecutionService?: AgentExecutionTrigger;
 
   constructor(
     private db: Database,
@@ -100,6 +108,14 @@ export class TaskService {
    */
   setContainerAgentService(service: ContainerAgentTrigger): void {
     this.containerAgentService = service;
+  }
+
+  /**
+   * Set the agent execution service for host-mode plan approval fallback.
+   * When containerAgentService is not available, plan approvals use this service instead.
+   */
+  setAgentExecutionService(service: AgentExecutionTrigger): void {
+    this.agentExecutionService = service;
   }
 
   /**
@@ -142,30 +158,52 @@ export class TaskService {
 
   /**
    * Approve a pending plan for a task and start execution.
+   * Supports both container mode (via containerAgentService) and
+   * host mode (via agentExecutionService.resume fallback).
    */
   async approvePlan(taskId: string): Promise<Result<void, TaskError>> {
-    if (!this.containerAgentService) {
-      return err({
-        code: 'CONTAINER_AGENT_SERVICE_UNAVAILABLE',
-        message: 'Container agent service is not configured',
-        status: 503,
-      });
+    // Container mode: delegate to container agent service
+    if (this.containerAgentService) {
+      const result = await this.containerAgentService.approvePlan(taskId);
+      if (!result.ok) {
+        // Propagate the actual error from containerAgentService
+        const errorObj = result.error as
+          | { code?: string; message?: string; status?: number }
+          | undefined;
+        return err({
+          code: errorObj?.code ?? 'PLAN_APPROVAL_FAILED',
+          message: errorObj?.message ?? `Failed to approve plan for task ${taskId}`,
+          status: errorObj?.status ?? 500,
+        });
+      }
+      return ok(undefined);
     }
 
-    const result = await this.containerAgentService.approvePlan(taskId);
-    if (!result.ok) {
-      // Propagate the actual error from containerAgentService
-      const errorObj = result.error as
-        | { code?: string; message?: string; status?: number }
-        | undefined;
-      return err({
-        code: errorObj?.code ?? 'PLAN_APPROVAL_FAILED',
-        message: errorObj?.message ?? `Failed to approve plan for task ${taskId}`,
-        status: errorObj?.status ?? 500,
-      });
+    // Host-mode fallback: resume the agent directly
+    const task = await this.db.query.tasks.findFirst({
+      where: eq(tasks.id, taskId),
+    });
+
+    if (task?.agentId && this.agentExecutionService) {
+      const result = await this.agentExecutionService.resume(task.agentId);
+      if (!result.ok) {
+        const errorObj = result.error as
+          | { code?: string; message?: string; status?: number }
+          | undefined;
+        return err({
+          code: errorObj?.code ?? 'PLAN_APPROVAL_FAILED',
+          message: errorObj?.message ?? `Failed to approve plan for task ${taskId}`,
+          status: errorObj?.status ?? 500,
+        });
+      }
+      return ok(undefined);
     }
 
-    return ok(undefined);
+    return err({
+      code: 'NO_EXECUTION_SERVICE',
+      message: 'No execution service available for plan approval',
+      status: 503,
+    });
   }
 
   /**

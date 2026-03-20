@@ -28,12 +28,6 @@ import type {
 const log = createLogger('AgentExecutionService');
 
 /**
- * Shared map of running agents with their AbortControllers.
- * This is module-level to allow proper cleanup across service instances.
- */
-const runningAgents = new Map<string, AbortController>();
-
-/**
  * AgentExecutionService handles agent lifecycle and execution.
  *
  * Responsibilities:
@@ -45,6 +39,7 @@ const runningAgents = new Map<string, AbortController>();
  * - Check project availability for new agents
  */
 export class AgentExecutionService {
+  private runningAgents = new Map<string, AbortController>();
   private preToolHooks = new Map<string, PreToolUseHook[]>();
   private postToolHooks = new Map<string, PostToolUseHook[]>();
   private queueService: AgentQueueService | null = null;
@@ -205,7 +200,7 @@ export class AgentExecutionService {
     });
 
     const controller = new AbortController();
-    runningAgents.set(agentId, controller);
+    this.runningAgents.set(agentId, controller);
 
     // Get project for model configuration
     const project = await this.db.query.projects.findFirst({
@@ -436,7 +431,7 @@ export class AgentExecutionService {
       }
 
       // Remove from running agents
-      runningAgents.delete(agentId);
+      this.runningAgents.delete(agentId);
 
       // Auto-dequeue: when an agent completes, check if there's a queued task to pick up
       if (result.status === 'completed' && this.queueService) {
@@ -485,7 +480,7 @@ export class AgentExecutionService {
         data: { agentId, error: errorMessage, recovery: recovery.action },
       });
 
-      runningAgents.delete(agentId);
+      this.runningAgents.delete(agentId);
     }
   }
 
@@ -493,13 +488,13 @@ export class AgentExecutionService {
    * Stop a running agent by aborting its execution.
    */
   async stop(agentId: string): Promise<Result<void, AgentError>> {
-    const controller = runningAgents.get(agentId);
+    const controller = this.runningAgents.get(agentId);
     if (!controller) {
       return err(AgentErrors.NOT_RUNNING);
     }
 
     controller.abort();
-    runningAgents.delete(agentId);
+    this.runningAgents.delete(agentId);
 
     await this.db
       .update(agents)
@@ -567,7 +562,7 @@ export class AgentExecutionService {
 
       // Create new AbortController for execution phase
       const controller = new AbortController();
-      runningAgents.set(agentId, controller);
+      this.runningAgents.set(agentId, controller);
 
       // Build execution prompt from the approved plan
       const executionPrompt = task.plan
@@ -590,7 +585,7 @@ export class AgentExecutionService {
           .update(agents)
           .set({ status: 'error', updatedAt: new Date().toISOString() })
           .where(eq(agents.id, agentId));
-        runningAgents.delete(agentId);
+        this.runningAgents.delete(agentId);
       });
 
       return ok({
@@ -659,7 +654,7 @@ export class AgentExecutionService {
           timestamp: Date.now(),
           data: { agentId, error: 'Agent not found during execution phase' },
         });
-        runningAgents.delete(agentId);
+        this.runningAgents.delete(agentId);
         return;
       }
 
@@ -811,7 +806,7 @@ export class AgentExecutionService {
           .where(eq(agents.id, agentId));
       }
 
-      runningAgents.delete(agentId);
+      this.runningAgents.delete(agentId);
 
       // Auto-dequeue: when agent completes execution, check for queued tasks
       if (result.status === 'completed' && this.queueService) {
@@ -859,7 +854,7 @@ export class AgentExecutionService {
         data: { agentId, error: errorMessage, recovery: recovery.action },
       });
 
-      runningAgents.delete(agentId);
+      this.runningAgents.delete(agentId);
     }
   }
 
@@ -918,7 +913,7 @@ export class AgentExecutionService {
    * Check if an agent is currently running.
    */
   isRunning(agentId: string): boolean {
-    return runningAgents.has(agentId);
+    return this.runningAgents.has(agentId);
   }
 
   /**
