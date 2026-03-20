@@ -337,18 +337,6 @@ ALTER TABLE templates ADD COLUMN sync_interval_minutes INTEGER;
 ALTER TABLE templates ADD COLUMN next_sync_at TEXT;
 `;
 
-// Migration for sandbox_configs K8s columns (for existing databases)
-export const SANDBOX_K8S_MIGRATION_SQL = `
--- Add Kubernetes configuration columns to sandbox_configs
-ALTER TABLE sandbox_configs ADD COLUMN type TEXT NOT NULL DEFAULT 'docker';
-ALTER TABLE sandbox_configs ADD COLUMN volume_mount_path TEXT;
-ALTER TABLE sandbox_configs ADD COLUMN kube_config_path TEXT;
-ALTER TABLE sandbox_configs ADD COLUMN kube_context TEXT;
-ALTER TABLE sandbox_configs ADD COLUMN kube_namespace TEXT DEFAULT 'agentpane-sandboxes';
-ALTER TABLE sandbox_configs ADD COLUMN network_policy_enabled INTEGER DEFAULT 1;
-ALTER TABLE sandbox_configs ADD COLUMN allowed_egress_hosts TEXT;
-`;
-
 // CLI Sessions migration (for CLI Monitor DB persistence)
 export const CLI_SESSIONS_MIGRATION_SQL = `
 CREATE TABLE IF NOT EXISTS "cli_sessions" (
@@ -427,15 +415,6 @@ CREATE INDEX IF NOT EXISTS idx_tf_modules_name ON terraform_modules(name);
 `;
 
 export const SANDBOX_CONTAINER_ID_MIGRATION_SQL = `ALTER TABLE sessions ADD COLUMN sandbox_container_id TEXT;`;
-
-// Migration for Nomad columns on sandbox_configs (for existing databases)
-export const SANDBOX_NOMAD_MIGRATION_SQL = `
-ALTER TABLE sandbox_configs ADD COLUMN nomad_address TEXT;
-ALTER TABLE sandbox_configs ADD COLUMN nomad_token TEXT;
-ALTER TABLE sandbox_configs ADD COLUMN nomad_namespace TEXT DEFAULT 'default';
-ALTER TABLE sandbox_configs ADD COLUMN nomad_datacenter TEXT;
-ALTER TABLE sandbox_configs ADD COLUMN nomad_region TEXT;
-`;
 
 // Event system migration (event sources, subscriptions, event log)
 export const EVENT_SYSTEM_MIGRATION_SQL = `
