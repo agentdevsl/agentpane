@@ -112,7 +112,9 @@ describe('Schema validation phase', () => {
         .all() as { name: string }[];
       const indexNames = indexes.map((i) => i.name);
       expect(indexNames).toContain('session_events_session_idx');
-      expect(indexNames).toContain('session_events_offset_idx');
+      // DB-008: session_events_offset_idx was removed (redundant with session_events_unique_offset)
+      expect(indexNames).toContain('session_events_unique_offset');
+      expect(indexNames).not.toContain('session_events_offset_idx');
       db.close();
     });
   });

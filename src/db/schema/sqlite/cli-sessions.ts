@@ -24,6 +24,11 @@ export const cliSessions = sqliteTable(
     tokenUsage: text('token_usage'), // JSON
     performanceMetrics: text('performance_metrics'), // JSON
     model: text('model'),
+    // DB-014: Intentionally stored as INTEGER (epoch milliseconds).
+    // The CLI daemon (@agentpane/cli-monitor) sends timestamps as epoch ms from Date.now().
+    // This differs from other tables that use ISO-8601 text, but is intentional:
+    // the CLI monitor protocol uses numeric timestamps for efficiency, and converting
+    // would add overhead with no benefit since these are only compared/sorted numerically.
     startedAt: integer('started_at').notNull(),
     lastActivityAt: integer('last_activity_at').notNull(),
     isSubagent: integer('is_subagent', { mode: 'boolean' }).notNull().default(false),

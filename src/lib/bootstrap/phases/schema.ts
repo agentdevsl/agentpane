@@ -243,7 +243,7 @@ CREATE TABLE IF NOT EXISTS "session_events" (
 );
 
 CREATE INDEX IF NOT EXISTS "session_events_session_idx" ON "session_events"("session_id");
-CREATE INDEX IF NOT EXISTS "session_events_offset_idx" ON "session_events"("session_id", "offset");
+-- DB-008: Removed redundant session_events_offset_idx (covered by unique_offset below)
 CREATE UNIQUE INDEX IF NOT EXISTS "session_events_unique_offset" ON "session_events"("session_id", "offset");
 
 CREATE TABLE IF NOT EXISTS "session_summaries" (
@@ -536,6 +536,27 @@ CREATE INDEX IF NOT EXISTS idx_worktrees_project_id ON worktrees(project_id);
 
 -- Index for agents by project
 CREATE INDEX IF NOT EXISTS idx_agents_project_id ON agents(project_id);
+`;
+
+// DB-008 + DB-009: Remove redundant index and add missing indexes
+// for sessions, agent_runs, and audit_logs lookup columns.
+export const DB_REVIEW_INDEXES_MIGRATION_SQL = `
+-- DB-008: Remove redundant session_events_offset_idx (covered by session_events_unique_offset)
+DROP INDEX IF EXISTS session_events_offset_idx;
+
+-- DB-009: Add index on sessions(project_id) for project-scoped session lookups
+CREATE INDEX IF NOT EXISTS idx_sessions_project_id ON sessions(project_id);
+
+-- DB-009: Add indexes on agent_runs for lookup by agent, project, and task
+CREATE INDEX IF NOT EXISTS idx_agent_runs_agent_id ON agent_runs(agent_id);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_project_id ON agent_runs(project_id);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_task_id ON agent_runs(task_id);
+
+-- DB-009: Add indexes on audit_logs for lookup by agent, project, task, and time
+CREATE INDEX IF NOT EXISTS idx_audit_logs_agent_id ON audit_logs(agent_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_project_id ON audit_logs(project_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_task_id ON audit_logs(task_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
 `;
 
 // RBAC tables migration (idempotent — uses IF NOT EXISTS)

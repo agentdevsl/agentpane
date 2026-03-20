@@ -67,14 +67,14 @@ Sorted by severity (Critical > High > Medium > Low > Info), then by review area 
 | CQ-022 | Medium | 10-Code Quality | 12 route modules without tests | Multiple route files | Add test coverage for untested routes |
 | CQ-024 | Medium | 10-Code Quality | No build step, no E2E, no security audit in CI | `.github/workflows/ci.yml` | Add build verification, Playwright E2E, and dependency audit |
 | CQ-027 | Medium | 10-Code Quality | 72 raw `throw new Error` bypassing structured error catalog | Multiple files | Replace with typed error catalog entries |
-| DB-009 | Medium | 04-Database | No indexes on core lookup columns (sessions, agent_runs, audit_logs) | Multiple schema files | Add indexes for sessions(projectId), agent_runs(agentId), etc. |
+| DB-009 | Medium | 04-Database | No indexes on core lookup columns (sessions, agent_runs, audit_logs) | Multiple schema files | Add indexes for sessions(projectId), agent_runs(agentId), etc. | DONE 2026-03-20 |
 | DB-010 | Medium | 04-Database | Hand-rolled SQLite migration system with 12+ SQL constants | `src/lib/bootstrap/phases/schema.ts` | Consolidate to single migration strategy with version tracking |
-| DB-011 | Medium | 04-Database | Missing transaction in task move + session create | `src/services/task.service.ts:321-410` | Wrap session insert + task update in transaction |
+| DB-011 | Medium | 04-Database | Missing transaction in task move + session create | `src/services/task.service.ts:321-410` | Wrap session insert + task update in transaction | DONE 2026-03-20 |
 | DB-012 | Medium | 04-Database | No soft delete pattern; cascade deletes data permanently | Multiple tables | Consider adding `deletedAt` columns for audit trail |
-| DB-013 | Medium | 04-Database | agents.currentTaskId and currentSessionId lack FK constraints | `src/db/schema/sqlite/agents.ts:21-22` | Add `.references()` with `onDelete: 'set null'` |
-| DB-014 | Medium | 04-Database | cli_sessions uses mixed integer/text timestamp types | `src/db/schema/sqlite/cli-sessions.ts:27-28,37-38` | Standardize to ISO text strings |
-| DB-015 | Medium | 04-Database | JSON columns store large blobs without separate tables | `templates`, `marketplaces`, `plan_sessions`, `tasks`, `event_log` | Normalize large blobs; use explicit column selection in queries |
-| DB-018 | Medium | 04-Database | persistEvent offset calculation race condition | `src/services/session/session-stream.service.ts:127-170` | Use atomic approach (UPDATE RETURNING or INSERT SELECT) |
+| DB-013 | Medium | 04-Database | agents.currentTaskId and currentSessionId lack FK constraints | `src/db/schema/sqlite/agents.ts:21-22` | Add `.references()` with `onDelete: 'set null'` | DONE 2026-03-20 |
+| DB-014 | Medium | 04-Database | cli_sessions uses mixed integer/text timestamp types | `src/db/schema/sqlite/cli-sessions.ts:27-28,37-38` | Standardize to ISO text strings | DOCUMENTED 2026-03-20 |
+| DB-015 | Medium | 04-Database | JSON columns store large blobs without separate tables | `templates`, `marketplaces`, `plan_sessions`, `tasks`, `event_log` | Normalize large blobs; use explicit column selection in queries | DOCUMENTED 2026-03-20 |
+| DB-018 | Medium | 04-Database | persistEvent offset calculation race condition | `src/services/session/session-stream.service.ts:127-170` | Use atomic approach (UPDATE RETURNING or INSERT SELECT) | DONE 2026-03-20 |
 | EH-001 | Medium | 08-Error Handling | Spec ErrorCode type outdated (44 codes vs 140+ implementation) | `specs/application/errors/error-catalog.md` | Update spec to cover all 18 error modules |
 | EH-005 | Medium | 08-Error Handling | ContainerAgentTrigger uses `unknown` error type | `src/services/task.service.ts:78-79` | Tighten to `Result<void, SandboxError>` |
 | EH-007 | Medium | 08-Error Handling | Dual validation system creates confusion | `src/server/validation.ts`, `src/lib/api/validation.ts` | Consolidate to one validation system |
@@ -145,10 +145,10 @@ Sorted by severity (Critical > High > Medium > Low > Info), then by review area 
 | CQ-016 | Low | 10-Code Quality | 33 biome-ignore suppressions (all documented) | Multiple files | Acceptable; all justified |
 | CQ-023 | Low | 10-Code Quality | Frontend code excluded from coverage metrics | `vitest.config.ts` | Consider adding UI unit test coverage tracking |
 | CQ-026 | Low | 10-Code Quality | 38 `as unknown` casts for DB driver compatibility | Multiple files | Acceptable for DB driver typing |
-| DB-008 | Low | 04-Database | Redundant index on session_events (offset_idx redundant with unique_offset) | `src/db/schema/sqlite/session-events.ts:23-28` | Remove `session_events_offset_idx` |
-| DB-016 | Low | 04-Database | projects.githubInstallationId FK missing CASCADE | `src/db/schema/sqlite/projects.ts:21` | Add `{ onDelete: 'set null' }` |
-| DB-017 | Low | 04-Database | Session existence checks before every event persist | `src/services/session/session-stream.service.ts:118-127` | Cache session existence in memory or rely on FK constraint |
-| DB-020 | Low | 04-Database | Redundant manual cascade deletion in project delete route | `src/server/routes/projects.ts:450-456` | Remove manual deletes; let CASCADE handle cleanup |
+| DB-008 | Low | 04-Database | Redundant index on session_events (offset_idx redundant with unique_offset) | `src/db/schema/sqlite/session-events.ts:23-28` | Remove `session_events_offset_idx` | DONE 2026-03-20 |
+| DB-016 | Low | 04-Database | projects.githubInstallationId FK missing CASCADE | `src/db/schema/sqlite/projects.ts:21` | Add `{ onDelete: 'set null' }` | DONE 2026-03-20 |
+| DB-017 | Low | 04-Database | Session existence checks before every event persist | `src/services/session/session-stream.service.ts:118-127` | Cache session existence in memory or rely on FK constraint | DONE 2026-03-20 |
+| DB-020 | Low | 04-Database | Redundant manual cascade deletion in project delete route | `src/server/routes/projects.ts:450-456` | Remove manual deletes; let CASCADE handle cleanup | DONE 2026-03-20 |
 | EH-002 | Low | 08-Error Handling | Spec references non-existent workflow-status.ts module | `specs/application/errors/error-catalog.md` | Update spec to remove reference |
 | EH-003 | Low | 08-Error Handling | Error index does not export all 18 error modules | `src/lib/errors/index.ts` | Add missing 4 module exports |
 | EH-006 | Low | 08-Error Handling | Result type not used in bootstrap phases | `src/lib/bootstrap/phases/` | Acceptable for startup code |

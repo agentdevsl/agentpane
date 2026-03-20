@@ -14,7 +14,7 @@
  */
 
 import { createId } from '@paralleldrive/cuid2';
-import { desc, eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import type { NewSessionSummary, SessionSummary } from '../../db/schema';
 import { sessionEvents, sessionSummaries, sessions } from '../../db/schema';
 import type { SessionError } from '../../lib/errors/session-errors.js';
@@ -35,10 +35,37 @@ import type {
  * SessionStreamService handles event streaming and persistence
  */
 export class SessionStreamService {
+  // DB-017: Cache known session IDs in memory to avoid querying the database
+  // on every event persist. Sessions are only added, never deleted during
+  // normal operation, so a Set is safe. The FK constraint on session_events
+  // still provides correctness if a session is deleted between cache and insert.
+  private knownSessionIds = new Set<string>();
+
   constructor(
     private db: Database,
     private streams: DurableStreamsServer
   ) {}
+
+  /**
+   * Check if a session exists, using the in-memory cache first.
+   * Returns true if the session exists, false otherwise.
+   */
+  private async sessionExists(sessionId: string): Promise<boolean> {
+    if (this.knownSessionIds.has(sessionId)) {
+      return true;
+    }
+
+    const session = await this.db.query.sessions.findFirst({
+      where: eq(sessions.id, sessionId),
+    });
+
+    if (session) {
+      this.knownSessionIds.add(sessionId);
+      return true;
+    }
+
+    return false;
+  }
 
   async publish(
     sessionId: string,
@@ -104,72 +131,51 @@ export class SessionStreamService {
 
   /**
    * Persist an event to the database and track offset.
-   * Uses retry logic to handle race conditions with concurrent inserts.
+   * Uses atomic INSERT...SELECT to calculate offset without race conditions.
    */
   async persistEvent(
     sessionId: string,
-    event: SessionEvent,
-    retryCount = 0
+    event: SessionEvent
   ): Promise<Result<{ id: string; offset: number }, SessionError>> {
-    const MAX_RETRIES = 3;
-
     try {
-      // Verify session exists
-      const session = await this.db.query.sessions.findFirst({
-        where: eq(sessions.id, sessionId),
-      });
-
-      if (!session) {
+      // DB-017: Use cached session existence check
+      if (!(await this.sessionExists(sessionId))) {
         return err(SessionErrors.NOT_FOUND);
       }
-
-      // Get the next offset for this session
-      const lastEvent = await this.db.query.sessionEvents.findFirst({
-        where: eq(sessionEvents.sessionId, sessionId),
-        orderBy: [desc(sessionEvents.offset)],
-      });
-
-      const nextOffset = (lastEvent?.offset ?? -1) + 1;
 
       // Determine channel from event type
       const channel = this.getChannelFromEventType(event.type);
 
-      // Insert the event
-      const [inserted] = await this.db
-        .insert(sessionEvents)
-        .values({
-          id: event.id || createId(),
-          sessionId,
-          offset: nextOffset,
-          type: event.type,
-          channel,
-          data: event.data,
-          timestamp: event.timestamp,
-        })
-        .returning();
+      const eventId = event.id || createId();
+
+      // DB-018: Use atomic INSERT...SELECT for offset calculation instead of
+      // read-then-write, eliminating the race condition between concurrent inserts.
+      // The COALESCE(MAX(offset), -1) + 1 is computed atomically within the INSERT.
+      await this.db.run(
+        sql`INSERT INTO session_events (id, session_id, "offset", type, channel, data, timestamp, created_at)
+            SELECT ${eventId}, ${sessionId},
+                   COALESCE(MAX("offset"), -1) + 1,
+                   ${event.type}, ${channel}, ${JSON.stringify(event.data)},
+                   ${event.timestamp}, datetime('now')
+            FROM session_events
+            WHERE session_id = ${sessionId}`
+      );
+
+      // Retrieve the inserted offset
+      const inserted = await this.db.query.sessionEvents.findFirst({
+        where: eq(sessionEvents.id, eventId),
+      });
 
       if (!inserted) {
         return err(SessionErrors.SYNC_FAILED('Failed to persist event'));
       }
 
       // Update session summary with new offset
-      await this.updateSessionSummaryOffset(sessionId, nextOffset);
+      await this.updateSessionSummaryOffset(sessionId, inserted.offset);
 
-      return ok({ id: inserted.id, offset: nextOffset });
+      return ok({ id: inserted.id, offset: inserted.offset });
     } catch (error) {
-      // Handle unique constraint violation (race condition)
-      const errorMessage = String(error);
-      const isConstraintViolation =
-        errorMessage.includes('UNIQUE constraint failed') ||
-        errorMessage.includes('unique constraint') ||
-        errorMessage.includes('duplicate key');
-
-      if (isConstraintViolation && retryCount < MAX_RETRIES) {
-        // Retry with recalculated offset
-        return this.persistEvent(sessionId, event, retryCount + 1);
-      }
-
-      return err(SessionErrors.SYNC_FAILED(errorMessage));
+      return err(SessionErrors.SYNC_FAILED(String(error)));
     }
   }
 
@@ -181,12 +187,8 @@ export class SessionStreamService {
     options?: GetEventsBySessionOptions
   ): Promise<Result<SessionEvent[], SessionError>> {
     try {
-      // Verify session exists
-      const session = await this.db.query.sessions.findFirst({
-        where: eq(sessions.id, sessionId),
-      });
-
-      if (!session) {
+      // DB-017: Use cached session existence check
+      if (!(await this.sessionExists(sessionId))) {
         return err(SessionErrors.NOT_FOUND);
       }
 
@@ -219,12 +221,8 @@ export class SessionStreamService {
    */
   async getSessionSummary(sessionId: string): Promise<Result<SessionSummary | null, SessionError>> {
     try {
-      // Verify session exists
-      const session = await this.db.query.sessions.findFirst({
-        where: eq(sessions.id, sessionId),
-      });
-
-      if (!session) {
+      // DB-017: Use cached session existence check
+      if (!(await this.sessionExists(sessionId))) {
         return err(SessionErrors.NOT_FOUND);
       }
 
@@ -246,12 +244,8 @@ export class SessionStreamService {
     updates: Partial<NewSessionSummary>
   ): Promise<Result<SessionSummary, SessionError>> {
     try {
-      // Verify session exists
-      const session = await this.db.query.sessions.findFirst({
-        where: eq(sessions.id, sessionId),
-      });
-
-      if (!session) {
+      // DB-017: Use cached session existence check
+      if (!(await this.sessionExists(sessionId))) {
         return err(SessionErrors.NOT_FOUND);
       }
 
