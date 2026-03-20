@@ -48,6 +48,8 @@ export class AgentCoreBridgeService {
         turnCount: number;
         sdkSessionId: string;
         allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
+        launchSwarm?: boolean;
+        teammateCount?: number;
       }
     ) => Promise<void>,
     private onAgentCompleteCallback?: () =>
@@ -451,8 +453,8 @@ export class AgentCoreBridgeService {
     });
 
     try {
-      agent.bridge.stop();
       agent.stopRequested = true;
+      agent.bridge.stop();
       await agent.instance.stop();
 
       const provider = this.getAgentCoreProvider();
@@ -471,6 +473,10 @@ export class AgentCoreBridgeService {
       const message = error instanceof Error ? error.message : String(error);
       log.info('Failed to stop agent', { data: { taskId, error: message } });
       return err(SandboxErrors.AGENT_STOP_FAILED(message));
+    } finally {
+      // Explicit cleanup in case stream handler doesn't fire
+      if (agent.timeoutHandle) clearTimeout(agent.timeoutHandle);
+      this.state.deleteRunningAgentCoreAgent(taskId);
     }
   }
 

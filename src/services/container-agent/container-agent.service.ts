@@ -90,6 +90,8 @@ export class ContainerAgentService {
         turnCount: number;
         sdkSessionId: string;
         allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
+        launchSwarm?: boolean;
+        teammateCount?: number;
       }
     ) => this.planApproval.handlePlanReady(taskId, sessionId, projectId, planData);
 
@@ -195,6 +197,11 @@ export class ContainerAgentService {
    */
   async stopAgent(taskId: string): Promise<Result<void, SandboxError>> {
     log.info('Stopping agent', { data: { taskId } });
+
+    // Clear any pending plan
+    this.state.deletePendingPlan(taskId);
+    // Clear starting guard
+    this.state.clearStarting(taskId);
 
     // AgentCore branch
     const acAgent = this.state.getRunningAgentCoreAgent(taskId);

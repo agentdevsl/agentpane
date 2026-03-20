@@ -44,6 +44,8 @@ export class PlanApprovalService {
       turnCount: number;
       sdkSessionId: string;
       allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
+      launchSwarm?: boolean;
+      teammateCount?: number;
     }
   ): Promise<void> {
     log.info('Storing plan data for approval', {
@@ -76,6 +78,8 @@ export class PlanApprovalService {
       turnCount: planData.turnCount,
       sdkSessionId: planData.sdkSessionId,
       allowedPrompts: planData.allowedPrompts,
+      launchSwarm: planData.launchSwarm,
+      teammateCount: planData.teammateCount,
       sandboxId: planningSandboxId,
       createdAt: new Date(),
     });

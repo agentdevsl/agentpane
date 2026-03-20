@@ -51,6 +51,8 @@ export class ContainerExecService {
         turnCount: number;
         sdkSessionId: string;
         allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
+        launchSwarm?: boolean;
+        teammateCount?: number;
       }
     ) => Promise<void>,
     private onAgentCompleteCallback?: () =>
@@ -753,6 +755,8 @@ export class ContainerExecService {
         });
       }
 
+      agent.stopRequested = true;
+
       log.debug('Killing exec process', { data: { taskId } });
       try {
         await agent.execResult.kill();
@@ -760,8 +764,6 @@ export class ContainerExecService {
         const killMessage = killError instanceof Error ? killError.message : String(killError);
         log.debug('Exec kill completed with warning', { data: { taskId, warning: killMessage } });
       }
-
-      agent.stopRequested = true;
 
       if (agent.worktreeId) {
         await this.worktreeInit.cleanupWorktree(taskId, agent.worktreeId);
