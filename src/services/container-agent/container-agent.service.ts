@@ -92,7 +92,7 @@ export class ContainerAgentService {
         allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
         launchSwarm?: boolean;
         teammateCount?: number;
-      }
+      },
     ) => this.planApproval.handlePlanReady(taskId, sessionId, projectId, planData);
 
     const getOnAgentCompleteCallback = () => this.onAgentCompleteCallback;

@@ -1,13 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SandboxErrors } from '../../lib/errors/sandbox-errors.js';
-import { err } from '../../lib/utils/result.js';
+import type { Result } from '../../lib/utils/result.js';
+import { err, ok } from '../../lib/utils/result.js';
 
-import type { AgentCoreBridgeService } from '../container-agent/agentcore-bridge.service.js';
 import { ContainerAgentService } from '../container-agent/container-agent.service.js';
-import type { ContainerExecService } from '../container-agent/container-exec.service.js';
-import type { PlanApprovalService } from '../container-agent/plan-approval.service.js';
-import type { SandboxStateManager } from '../container-agent/sandbox-state.js';
+import { AgentCoreBridgeService } from '../container-agent/agentcore-bridge.service.js';
+import { ContainerExecService } from '../container-agent/container-exec.service.js';
+import { PlanApprovalService } from '../container-agent/plan-approval.service.js';
+import { SandboxStateManager } from '../container-agent/sandbox-state.js';
+import { WorktreeInitService } from '../container-agent/worktree-init.service.js';
 
 /**
  * ContainerAgentService tests
@@ -17,7 +19,7 @@ import type { SandboxStateManager } from '../container-agent/sandbox-state.js';
  */
 
 // ---------------------------------------------------------------------------
-// Mock sub-service modules so the facade constructor receives controllable
+// Mock sub-service modules so the facade's constructor receives controllable
 // instances. We mock the modules at import level, then override per-test.
 // ---------------------------------------------------------------------------
 
@@ -46,34 +48,22 @@ vi.mock('../container-agent/worktree-init.service.js', () => {
 
 vi.mock('../container-agent/container-exec.service.js', () => {
   const ContainerExecService = vi.fn();
-  ContainerExecService.prototype.startAgent = vi
-    .fn()
-    .mockResolvedValue({ ok: true, value: undefined });
-  ContainerExecService.prototype.stopAgent = vi
-    .fn()
-    .mockResolvedValue({ ok: true, value: undefined });
+  ContainerExecService.prototype.startAgent = vi.fn().mockResolvedValue({ ok: true, value: undefined });
+  ContainerExecService.prototype.stopAgent = vi.fn().mockResolvedValue({ ok: true, value: undefined });
   return { ContainerExecService };
 });
 
 vi.mock('../container-agent/agentcore-bridge.service.js', () => {
   const AgentCoreBridgeService = vi.fn();
-  AgentCoreBridgeService.prototype.startAgentCoreAgent = vi
-    .fn()
-    .mockResolvedValue({ ok: true, value: undefined });
-  AgentCoreBridgeService.prototype.stopAgentCoreAgent = vi
-    .fn()
-    .mockResolvedValue({ ok: true, value: undefined });
+  AgentCoreBridgeService.prototype.startAgentCoreAgent = vi.fn().mockResolvedValue({ ok: true, value: undefined });
+  AgentCoreBridgeService.prototype.stopAgentCoreAgent = vi.fn().mockResolvedValue({ ok: true, value: undefined });
   return { AgentCoreBridgeService };
 });
 
 vi.mock('../container-agent/plan-approval.service.js', () => {
   const PlanApprovalService = vi.fn();
-  PlanApprovalService.prototype.approvePlan = vi
-    .fn()
-    .mockResolvedValue({ ok: true, value: undefined });
-  PlanApprovalService.prototype.rejectPlan = vi
-    .fn()
-    .mockResolvedValue({ ok: true, value: undefined });
+  PlanApprovalService.prototype.approvePlan = vi.fn().mockResolvedValue({ ok: true, value: undefined });
+  PlanApprovalService.prototype.rejectPlan = vi.fn().mockResolvedValue({ ok: true, value: undefined });
   PlanApprovalService.prototype.getPendingPlan = vi.fn().mockResolvedValue(undefined);
   PlanApprovalService.prototype.handlePlanReady = vi.fn().mockResolvedValue(undefined);
   return { PlanApprovalService };
@@ -141,36 +131,6 @@ describe('ContainerAgentService', () => {
     apiKeyService = createMockApiKeyService();
 
     service = new ContainerAgentService(db, provider, streams, apiKeyService);
-
-    // After clearAllMocks, re-establish default mock return values on the new
-    // instance's state manager so the startAgent guard checks pass by default.
-    const state = (service as any).state as SandboxStateManager;
-    vi.mocked(state.hasAnyRunningAgent).mockReturnValue(false);
-    vi.mocked(state.isStarting).mockReturnValue(false);
-    vi.mocked(state.getRunningAgentCoreAgent).mockReturnValue(undefined);
-    vi.mocked(state.getAnyRunningAgent).mockReturnValue(null);
-    vi.mocked(state.getAllRunningAgents).mockReturnValue([]);
-    vi.mocked(state.getAllRunningAgentCoreAgents).mockReturnValue([]);
-
-    // Re-establish default mock return values on sub-service methods
-    const containerExec = (service as any).containerExec as ContainerExecService;
-    vi.mocked(containerExec.startAgent).mockResolvedValue({ ok: true, value: undefined } as any);
-    vi.mocked(containerExec.stopAgent).mockResolvedValue({ ok: true, value: undefined } as any);
-
-    const agentCoreBridge = (service as any).agentCoreBridge as AgentCoreBridgeService;
-    vi.mocked(agentCoreBridge.startAgentCoreAgent).mockResolvedValue({
-      ok: true,
-      value: undefined,
-    } as any);
-    vi.mocked(agentCoreBridge.stopAgentCoreAgent).mockResolvedValue({
-      ok: true,
-      value: undefined,
-    } as any);
-
-    const planApproval = (service as any).planApproval as PlanApprovalService;
-    vi.mocked(planApproval.approvePlan).mockResolvedValue({ ok: true, value: undefined } as any);
-    vi.mocked(planApproval.rejectPlan).mockResolvedValue({ ok: true, value: undefined } as any);
-    vi.mocked(planApproval.getPendingPlan).mockResolvedValue(undefined);
   });
 
   // =========================================================================
@@ -196,6 +156,7 @@ describe('ContainerAgentService', () => {
     });
 
     it('delegates to AgentCoreBridgeService when AgentCore provider is set', async () => {
+      // Set up AgentCore provider
       service.setAgentCoreProvider({
         region: 'us-east-1',
         accessKeyId: 'AKIA',
@@ -207,6 +168,7 @@ describe('ContainerAgentService', () => {
 
       expect(result.ok).toBe(true);
 
+      // AgentCoreBridgeService.startAgentCoreAgent should have been called
       const agentCoreBridge = (service as any).agentCoreBridge as AgentCoreBridgeService;
       expect(agentCoreBridge.startAgentCoreAgent).toHaveBeenCalledWith(
         baseInput,
@@ -216,7 +178,7 @@ describe('ContainerAgentService', () => {
 
     it('returns AGENT_ALREADY_RUNNING when agent is already running for task', async () => {
       const stateManager = (service as any).state as SandboxStateManager;
-      vi.mocked(stateManager.hasAnyRunningAgent).mockReturnValue(true);
+      (stateManager.hasAnyRunningAgent as ReturnType<typeof vi.fn>).mockReturnValue(true);
 
       const result = await service.startAgent(baseInput);
 
@@ -228,7 +190,7 @@ describe('ContainerAgentService', () => {
 
     it('returns AGENT_ALREADY_RUNNING when task is in the starting set', async () => {
       const stateManager = (service as any).state as SandboxStateManager;
-      vi.mocked(stateManager.isStarting).mockReturnValue(true);
+      (stateManager.isStarting as ReturnType<typeof vi.fn>).mockReturnValue(true);
 
       const result = await service.startAgent(baseInput);
 
@@ -247,11 +209,12 @@ describe('ContainerAgentService', () => {
       expect(stateManager.clearStarting).toHaveBeenCalledWith('task-1');
     });
 
-    it('clears starting guard even when sub-service rejects', async () => {
+    it('clears starting guard even when sub-service throws', async () => {
       const containerExec = (service as any).containerExec as ContainerExecService;
-      vi.mocked(containerExec.startAgent).mockRejectedValueOnce(new Error('Container blew up'));
+      (containerExec.startAgent as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('Container blew up')
+      );
 
-      // The facade doesn't catch -- the rejection propagates through the finally block
       await expect(service.startAgent(baseInput)).rejects.toThrow('Container blew up');
 
       const stateManager = (service as any).state as SandboxStateManager;
@@ -259,11 +222,6 @@ describe('ContainerAgentService', () => {
     });
 
     it('returns PROJECT_NOT_FOUND for AgentCore path when project missing', async () => {
-      // Ensure state checks pass (not already running)
-      const stateManager = (service as any).state as SandboxStateManager;
-      vi.mocked(stateManager.hasAnyRunningAgent).mockReturnValue(false);
-      vi.mocked(stateManager.isStarting).mockReturnValue(false);
-
       service.setAgentCoreProvider({
         region: 'us-east-1',
         accessKeyId: 'AKIA',
@@ -279,6 +237,15 @@ describe('ContainerAgentService', () => {
       if (!result.ok) {
         expect(result.error.code).toBe('SANDBOX_PROJECT_NOT_FOUND');
       }
+    });
+
+    it('defaults phase to plan when not specified', async () => {
+      await service.startAgent(baseInput);
+
+      const containerExec = (service as any).containerExec as ContainerExecService;
+      const calledInput = (containerExec.startAgent as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(calledInput.phase).toBeUndefined();
+      // The facade passes input as-is; phase defaulting (= 'plan') is in the input destructuring
     });
   });
 
@@ -305,7 +272,9 @@ describe('ContainerAgentService', () => {
         startedAt: new Date(),
       };
       const stateManager = (service as any).state as SandboxStateManager;
-      vi.mocked(stateManager.getRunningAgentCoreAgent).mockReturnValue(agentCoreAgent as any);
+      (stateManager.getRunningAgentCoreAgent as ReturnType<typeof vi.fn>).mockReturnValue(
+        agentCoreAgent
+      );
 
       const result = await service.stopAgent('task-1');
 
@@ -316,12 +285,8 @@ describe('ContainerAgentService', () => {
     });
 
     it('propagates error from ContainerExecService.stopAgent', async () => {
-      // Ensure state check returns no AgentCore agent
-      const stateManager = (service as any).state as SandboxStateManager;
-      vi.mocked(stateManager.getRunningAgentCoreAgent).mockReturnValue(undefined);
-
       const containerExec = (service as any).containerExec as ContainerExecService;
-      vi.mocked(containerExec.stopAgent).mockResolvedValueOnce(
+      (containerExec.stopAgent as ReturnType<typeof vi.fn>).mockResolvedValue(
         err(SandboxErrors.AGENT_NOT_RUNNING('task-1'))
       );
 
@@ -350,7 +315,7 @@ describe('ContainerAgentService', () => {
 
     it('propagates error from PlanApprovalService', async () => {
       const planApproval = (service as any).planApproval as PlanApprovalService;
-      vi.mocked(planApproval.approvePlan).mockResolvedValue(
+      (planApproval.approvePlan as ReturnType<typeof vi.fn>).mockResolvedValue(
         err(SandboxErrors.PLAN_NOT_FOUND('task-1'))
       );
 
@@ -379,7 +344,7 @@ describe('ContainerAgentService', () => {
 
     it('propagates error from PlanApprovalService', async () => {
       const planApproval = (service as any).planApproval as PlanApprovalService;
-      vi.mocked(planApproval.rejectPlan).mockResolvedValue(
+      (planApproval.rejectPlan as ReturnType<typeof vi.fn>).mockResolvedValue(
         err(SandboxErrors.PLAN_NOT_FOUND('task-1'))
       );
 
@@ -399,11 +364,11 @@ describe('ContainerAgentService', () => {
   describe('getPendingPlan() delegation', () => {
     it('delegates to PlanApprovalService', async () => {
       const planApproval = (service as any).planApproval as PlanApprovalService;
-      vi.mocked(planApproval.getPendingPlan).mockResolvedValue({
+      (planApproval.getPendingPlan as ReturnType<typeof vi.fn>).mockResolvedValue({
         taskId: 'task-1',
         plan: 'Step 1',
         sdkSessionId: 'sdk-1',
-      } as any);
+      });
 
       const plan = await service.getPendingPlan('task-1');
 
@@ -420,7 +385,7 @@ describe('ContainerAgentService', () => {
   describe('agent status queries', () => {
     it('isAgentRunning delegates to state.hasAnyRunningAgent', () => {
       const stateManager = (service as any).state as SandboxStateManager;
-      vi.mocked(stateManager.hasAnyRunningAgent).mockReturnValue(true);
+      (stateManager.hasAnyRunningAgent as ReturnType<typeof vi.fn>).mockReturnValue(true);
 
       expect(service.isAgentRunning('task-1')).toBe(true);
       expect(stateManager.hasAnyRunningAgent).toHaveBeenCalledWith('task-1');
@@ -429,7 +394,7 @@ describe('ContainerAgentService', () => {
     it('getRunningAgent delegates to state.getAnyRunningAgent', () => {
       const info = { projectId: 'proj-1', sessionId: 'sess-1', startedAt: new Date() };
       const stateManager = (service as any).state as SandboxStateManager;
-      vi.mocked(stateManager.getAnyRunningAgent).mockReturnValue(info);
+      (stateManager.getAnyRunningAgent as ReturnType<typeof vi.fn>).mockReturnValue(info);
 
       const result = service.getRunningAgent('task-1');
 
@@ -451,13 +416,18 @@ describe('ContainerAgentService', () => {
         sessionId: 'sess-2',
         startedAt: new Date(),
       };
-      vi.mocked(stateManager.getAllRunningAgents).mockReturnValue([containerAgent] as any);
-      vi.mocked(stateManager.getAllRunningAgentCoreAgents).mockReturnValue([agentCoreAgent] as any);
+      (stateManager.getAllRunningAgents as ReturnType<typeof vi.fn>).mockReturnValue([
+        containerAgent,
+      ]);
+      (stateManager.getAllRunningAgentCoreAgents as ReturnType<typeof vi.fn>).mockReturnValue([
+        agentCoreAgent,
+      ]);
+
       const running = service.getRunningAgents();
 
       expect(running).toHaveLength(2);
-      expect(running[0]!.taskId).toBe('task-1');
-      expect(running[1]!.taskId).toBe('task-2');
+      expect(running[0].taskId).toBe('task-1');
+      expect(running[1].taskId).toBe('task-2');
     });
   });
 

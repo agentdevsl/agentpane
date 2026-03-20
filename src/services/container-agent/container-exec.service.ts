@@ -53,7 +53,7 @@ export class ContainerExecService {
         allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
         launchSwarm?: boolean;
         teammateCount?: number;
-      }
+      },
     ) => Promise<void>,
     private onAgentCompleteCallback?: () =>
       | ((projectId: string, taskId: string) => Promise<void>)

@@ -187,7 +187,7 @@ function ProjectsPage(): React.JSX.Element {
         currentIntervalMsRef.current = null;
       }
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCreateProject = useCallback(
     async (data: {

@@ -135,7 +135,7 @@ function ProjectKanban(): React.JSX.Element {
     }
   }, [projectId]);
 
-  // Fetch on mount and when projectId changes
+  // Fetch on mount and when projectId changes (skip if loader already provided data)
   useEffect(() => {
     if (loaderData?.project) return;
     fetchData();
