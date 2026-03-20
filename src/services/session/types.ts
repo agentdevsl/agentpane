@@ -9,6 +9,7 @@ export type SessionEventType =
   | 'presence:joined'
   | 'presence:left'
   | 'presence:cursor'
+  | 'presence:timeout'
   | 'terminal:input'
   | 'terminal:output'
   | 'approval:requested'
