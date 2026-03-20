@@ -101,7 +101,7 @@
     "@tanstack/router-plugin": "^1.157.17",
     "@vitejs/plugin-react": "^6.0.1",
     "@xyflow/react": "12.10.1",
-    "better-sqlite3": "^12.6.2",
+    "better-sqlite3": "^12.8.0",
     "class-variance-authority": "^0.7.1",
     "cron-parser": "^5.5.0",
     "dockerode": "^4.0.9",
