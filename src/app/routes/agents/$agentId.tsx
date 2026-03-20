@@ -90,7 +90,7 @@ function AgentDetailPage(): React.JSX.Element {
             open={showConfig}
             onOpenChange={setShowConfig}
             onSave={async (config) => {
-              // TODO: Add API endpoint for updating agent config
+              // TODO: [CQ-018] Add API endpoint for updating agent config
               setAgent((prev) =>
                 prev ? { ...prev, config: { ...prev.config, ...config } } : null
               );

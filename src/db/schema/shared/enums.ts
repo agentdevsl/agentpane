@@ -51,6 +51,9 @@ export const SESSION_STATUS = [
 ] as const;
 export type SessionStatus = (typeof SESSION_STATUS)[number];
 
+// SC-002: 'devcontainer' is a planned future feature for VS Code Dev Container
+// integration. It is included in the enum to reserve the value in the database
+// schema, preventing migration churn when the feature is implemented.
 export const SANDBOX_TYPES = [
   'docker',
   'devcontainer',

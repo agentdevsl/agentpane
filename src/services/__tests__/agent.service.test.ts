@@ -728,47 +728,8 @@ describe('AgentService', () => {
     }
   });
 
-  it('registerPreToolUseHook adds hook to agent', () => {
-    const db = createDbMock();
-
-    const service = new AgentService(
-      db as never,
-      createWorktreeServiceMock() as never,
-      createTaskServiceMock() as never,
-      createSessionServiceMock() as never
-    );
-
-    const hook = vi.fn().mockResolvedValue({});
-    service.registerPreToolUseHook('a1', hook);
-
-    // Register another hook
-    const hook2 = vi.fn().mockResolvedValue({});
-    service.registerPreToolUseHook('a1', hook2);
-
-    // No error thrown means success
-    expect(true).toBe(true);
-  });
-
-  it('registerPostToolUseHook adds hook to agent', () => {
-    const db = createDbMock();
-
-    const service = new AgentService(
-      db as never,
-      createWorktreeServiceMock() as never,
-      createTaskServiceMock() as never,
-      createSessionServiceMock() as never
-    );
-
-    const hook = vi.fn().mockResolvedValue(undefined);
-    service.registerPostToolUseHook('a1', hook);
-
-    // Register another hook
-    const hook2 = vi.fn().mockResolvedValue(undefined);
-    service.registerPostToolUseHook('a1', hook2);
-
-    // No error thrown means success
-    expect(true).toBe(true);
-  });
+  // registerPreToolUseHook and registerPostToolUseHook tests removed (AE-007)
+  // Hook infrastructure was dead code - SDK's canUseTool is the actual mechanism
 
   it('start returns error when worktree creation fails', async () => {
     const db = createDbMock();
@@ -1016,7 +977,7 @@ describe('AgentService', () => {
       expect(sessionService.publish).toHaveBeenCalledWith(
         's1',
         expect.objectContaining({
-          type: 'approval:rejected',
+          type: 'agent:resumed',
           data: expect.objectContaining({ feedback: 'please continue with step 2' }),
         })
       );
@@ -1195,7 +1156,7 @@ describe('AgentService', () => {
       await service.resume('a1');
 
       // Planning resume fires executeAgentExecution async, but does NOT
-      // publish an approval:rejected event like the paused case
+      // publish an agent:resumed event like the paused case
       expect(sessionService.publish).not.toHaveBeenCalled();
     });
   });

@@ -251,6 +251,8 @@ export async function initSandboxProvider(
     log.error('Sandbox provider initialization failed:', {
       error: err instanceof Error ? err.message : String(err),
     });
-    scheduleSandboxRetry(db, services, sandboxState);
+    if (!sandboxState.provider) {
+      scheduleSandboxRetry(db, services, sandboxState);
+    }
   }
 }

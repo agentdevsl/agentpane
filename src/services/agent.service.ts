@@ -24,8 +24,6 @@ import type {
   Agent,
   AgentRunResult,
   AgentStartResult,
-  PostToolUseHook,
-  PreToolUseHook,
   QueuePosition,
   QueueStats,
   SessionServiceInterface,
@@ -37,8 +35,6 @@ import type {
 export type {
   AgentExecutionContext,
   AgentRunResult,
-  PostToolUseHook,
-  PreToolUseHook,
   QueuePosition,
   QueueStats,
 } from './agent/types.js';
@@ -178,20 +174,6 @@ export class AgentService {
    */
   async getRunningCount(projectId: string): Promise<Result<number, never>> {
     return this.executionService.getRunningCount(projectId);
-  }
-
-  /**
-   * Register a pre-tool use hook for an agent.
-   */
-  registerPreToolUseHook(agentId: string, hook: PreToolUseHook): void {
-    this.executionService.registerPreToolUseHook(agentId, hook);
-  }
-
-  /**
-   * Register a post-tool use hook for an agent.
-   */
-  registerPostToolUseHook(agentId: string, hook: PostToolUseHook): void {
-    this.executionService.registerPostToolUseHook(agentId, hook);
   }
 
   // =========================================================================

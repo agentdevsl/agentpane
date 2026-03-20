@@ -1,3 +1,11 @@
+/**
+ * Client-side / service-layer parsing utilities that return Result types.
+ *
+ * These complement the canonical Zod schemas defined in `src/server/validation.ts`.
+ * Use these utilities when you need Result-based validation outside of Hono route
+ * handlers (e.g., in services or client-side code). For Hono handlers, prefer
+ * `parseBody` / `parseJsonBody` from `src/server/validation.ts`.
+ */
 import type { z } from 'zod';
 import { ValidationErrors } from '../errors/validation-errors.js';
 import type { Result } from '../utils/result.js';

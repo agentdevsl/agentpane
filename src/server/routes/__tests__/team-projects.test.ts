@@ -83,7 +83,7 @@ describe('Team Projects API Routes', () => {
     it('assigns a project to a team', async () => {
       const { app, db } = createTestApp();
 
-      db.transaction.mockImplementation(async (fn: Function) => {
+      db.transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
         const tx = {
           query: {
             projects: {
@@ -140,7 +140,7 @@ describe('Team Projects API Routes', () => {
     it('returns 404 when project does not exist', async () => {
       const { app, db } = createTestApp();
 
-      db.transaction.mockImplementation(async (fn: Function) => {
+      db.transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
         const tx = {
           query: {
             projects: {
@@ -164,7 +164,7 @@ describe('Team Projects API Routes', () => {
     it('returns 409 when project already assigned', async () => {
       const { app, db } = createTestApp();
 
-      db.transaction.mockImplementation(async (fn: Function) => {
+      db.transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
         const tx = {
           query: {
             projects: {

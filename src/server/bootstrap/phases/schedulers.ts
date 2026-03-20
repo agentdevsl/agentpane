@@ -33,9 +33,11 @@ export async function startSchedulers(
   log.info('Terraform sync scheduler started');
 
   // Task scheduler
-  await services.schedulerService.start().catch((err) => {
+  try {
+    await services.schedulerService.start();
+    shutdown.register('taskScheduler', () => services.schedulerService.stop());
+    log.info('Task scheduler started');
+  } catch (err) {
     log.error('Failed to start scheduler', { error: err });
-  });
-  shutdown.register('taskScheduler', () => services.schedulerService.stop());
-  log.info('Task scheduler started');
+  }
 }

@@ -1,3 +1,17 @@
+/**
+ * EventBus -- In-process event pub/sub for SSE event stream.
+ *
+ * RS-009: This is one of three intentionally separate event delivery systems:
+ *   1. DurableStreamsService -- typed events persisted to DB + published to Caddy SSE.
+ *   2. EventBus (this file) -- in-process pub/sub for general UI updates via SSE.
+ *   3. CliMonitorService -- dedicated SSE stream for CLI monitor daemon data.
+ * See durable-streams.service.ts for full documentation on this separation.
+ *
+ * RS-002: This module tracks activeSSEConnections for the main event stream (/api/events).
+ * The CLI monitor SSE endpoint (cli-monitor.ts) maintains its own separate counter.
+ * TODO: Consolidate both counters here with per-route tracking (e.g., a Map<string, number>)
+ * so total connection counts can be queried from a single location.
+ */
 import { createLogger } from '../logging/logger.js';
 
 const log = createLogger('EventBus');

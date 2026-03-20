@@ -104,8 +104,21 @@ async function killExistingProcesses() {
       let killed = 0;
       for (const pid of pids) {
         try {
-          process.kill(parseInt(pid, 10), 'SIGKILL');
+          const numPid = parseInt(pid, 10);
+          // CB-012: Send SIGTERM first to allow graceful shutdown, then
+          // escalate to SIGKILL after 2s if the process is still alive.
+          process.kill(numPid, 'SIGTERM');
           killed++;
+
+          // Wait 2s, then escalate to SIGKILL if still alive
+          setTimeout(() => {
+            try {
+              process.kill(numPid, 0); // Check if process is still alive
+              process.kill(numPid, 'SIGKILL');
+            } catch {
+              // Process already gone — expected after SIGTERM
+            }
+          }, 2000);
         } catch {
           // Process may already be gone
         }

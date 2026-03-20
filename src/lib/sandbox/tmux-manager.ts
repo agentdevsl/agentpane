@@ -1,6 +1,7 @@
 import { createId } from '@paralleldrive/cuid2';
 import type { SandboxError } from '../errors/sandbox-errors.js';
 import { SandboxErrors } from '../errors/sandbox-errors.js';
+import { errorMessage } from '../utils/error-message';
 import type { Result } from '../utils/result.js';
 import { err, ok } from '../utils/result.js';
 import type { Sandbox, SandboxProvider } from './providers/sandbox-provider.js';
@@ -83,7 +84,7 @@ export class TmuxManager {
       if (error && typeof error === 'object' && 'code' in error) {
         return err(error as SandboxError);
       }
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       return err(SandboxErrors.TMUX_CREATION_FAILED(sessionName, message));
     }
   }
@@ -110,7 +111,7 @@ export class TmuxManager {
       return ok(session ?? null);
     } catch (error) {
       // Return the actual error for diagnosis instead of silently returning null
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       return err(SandboxErrors.EXEC_FAILED('tmux list-sessions', message));
     }
   }
@@ -128,7 +129,7 @@ export class TmuxManager {
       const sessions = await sandbox.listTmuxSessions();
       return ok(sessions);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       return err(SandboxErrors.EXEC_FAILED('tmux list-sessions', message));
     }
   }
@@ -155,7 +156,7 @@ export class TmuxManager {
       if (error && typeof error === 'object' && 'code' in error) {
         return err(error as SandboxError);
       }
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       return err(SandboxErrors.EXEC_FAILED(`tmux send-keys -t ${sessionName}`, message));
     }
   }
@@ -182,7 +183,7 @@ export class TmuxManager {
       if (error && typeof error === 'object' && 'code' in error) {
         return err(error as SandboxError);
       }
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       return err(SandboxErrors.EXEC_FAILED(`tmux capture-pane -t ${sessionName}`, message));
     }
   }
@@ -209,7 +210,7 @@ export class TmuxManager {
       return ok(undefined);
     } catch (error) {
       // Only ignore "session not found" - that's an expected condition
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       if (message.includes('session not found') || message.includes("can't find session")) {
         this.sessions.delete(sessionName);
         return ok(undefined);
@@ -242,7 +243,7 @@ export class TmuxManager {
           killed++;
         } catch (error) {
           // Log individual session kill errors but continue with others
-          const message = error instanceof Error ? error.message : String(error);
+          const message = errorMessage(error);
           console.warn(`[TmuxManager] Failed to kill session ${session.name}:`, message);
         }
       }
@@ -250,7 +251,7 @@ export class TmuxManager {
       return ok(killed);
     } catch (error) {
       // Failed to list sessions - return the error instead of silently returning 0
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       return err(SandboxErrors.EXEC_FAILED('tmux list-sessions', message));
     }
   }

@@ -266,16 +266,8 @@ describe('AgentExecutionService', () => {
   });
 
   // ===========================================================================
-  // 10. registerPreToolUseHook and registerPostToolUseHook do not throw
+  // 10. Hook registration removed (AE-007 - dead hook infrastructure removed)
   // ===========================================================================
-
-  it('registerPreToolUseHook and registerPostToolUseHook do not throw', () => {
-    const preHook = vi.fn().mockResolvedValue({ deny: false });
-    const postHook = vi.fn().mockResolvedValue(undefined);
-
-    expect(() => service.registerPreToolUseHook('agent-1', preHook)).not.toThrow();
-    expect(() => service.registerPostToolUseHook('agent-1', postHook)).not.toThrow();
-  });
 
   // ===========================================================================
   // Group A: Full lifecycle flow
@@ -496,7 +488,7 @@ describe('AgentExecutionService', () => {
       }
     });
 
-    it('resume with feedback publishes approval:rejected', async () => {
+    it('resume with feedback publishes agent:resumed', async () => {
       const project = await createTestProject();
       const task = await createTestTask(project.id);
       const session = await createTestSession(project.id, { taskId: task.id });
@@ -509,11 +501,11 @@ describe('AgentExecutionService', () => {
 
       await service.resume(agent.id, 'Please try a different approach');
 
-      // Verify approval:rejected event was published with feedback
+      // Verify agent:resumed event was published with feedback (AE-012)
       expect(mockSessionService.publish).toHaveBeenCalledWith(
         session.id,
         expect.objectContaining({
-          type: 'approval:rejected',
+          type: 'agent:resumed',
           data: { feedback: 'Please try a different approach' },
         })
       );

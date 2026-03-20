@@ -76,6 +76,11 @@ export function parseServerConfig(): ServerConfig {
     log.warn('CORS_ORIGIN not set - defaulting to http://localhost:3000');
   }
 
+  if (config.skipAuth && config.nodeEnv === 'production') {
+    log.error('SKIP_AUTH=true cannot be used in production');
+    process.exit(1);
+  }
+
   if (config.skipAuth) {
     log.warn(
       'SKIP_AUTH=true is set - authentication is bypassed. All requests will use dev-user identity. Do NOT use in production.'

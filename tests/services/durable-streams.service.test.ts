@@ -78,17 +78,26 @@ describe('DurableStreamsService', () => {
 
   describe('createStream', () => {
     it('delegates to server.createStream', async () => {
-      await service.createStream('stream-1', { version: 1 });
+      const result = await service.createStream('stream-1', { version: 1 });
 
+      expect(result.ok).toBe(true);
       expect(mockServer.createStream).toHaveBeenCalledWith('stream-1', { version: 1 });
     });
 
-    it('throws when streamId is empty', async () => {
-      await expect(service.createStream('', {})).rejects.toThrow('streamId is required');
+    it('returns error when streamId is empty', async () => {
+      const result = await service.createStream('', {});
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('streamId is required');
+      }
     });
 
-    it('throws when streamId is whitespace only', async () => {
-      await expect(service.createStream('   ', {})).rejects.toThrow('streamId is required');
+    it('returns error when streamId is whitespace only', async () => {
+      const result = await service.createStream('   ', {});
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('streamId is required');
+      }
     });
 
     it('wraps server errors with context', async () => {
@@ -97,9 +106,11 @@ describe('DurableStreamsService', () => {
       });
       const failService = new DurableStreamsService(failServer, getTestDb() as any);
 
-      await expect(failService.createStream('stream-1', {})).rejects.toThrow(
-        "Failed to create stream 'stream-1'"
-      );
+      const result = await failService.createStream('stream-1', {});
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain("Failed to create stream 'stream-1'");
+      }
     });
   });
 
@@ -136,7 +147,8 @@ describe('DurableStreamsService', () => {
         projectId,
       };
 
-      const offset = await service.publish(sessionId, 'plan:started', data);
+      const result = await service.publish(sessionId, 'plan:started', data);
+      expect(result.ok).toBe(true);
 
       // Server should be called
       expect(mockServer.publish).toHaveBeenCalledWith(sessionId, 'plan:started', data);
@@ -150,7 +162,7 @@ describe('DurableStreamsService', () => {
       expect(events[0].type).toBe('plan:started');
       expect(events[0].channel).toBe('plan');
       expect(events[0].offset).toBe(0);
-      expect(offset).toBe(0);
+      if (result.ok) expect(result.value).toBe(0);
     });
 
     it('increments offsets for successive events', async () => {
@@ -160,10 +172,13 @@ describe('DurableStreamsService', () => {
         projectId,
       });
 
-      await service.publish(sessionId, 'plan:token', {
+      // RS-008: Use plan:turn instead of plan:token since token events are
+      // now batched with a 50ms delay and won't be in the DB immediately.
+      await service.publish(sessionId, 'plan:turn', {
         sessionId,
-        delta: 'Hello',
-        accumulated: 'Hello',
+        turnId: 'turn-1',
+        role: 'assistant',
+        content: 'Hello',
       });
 
       const db = getTestDb();
@@ -175,14 +190,16 @@ describe('DurableStreamsService', () => {
       expect(events[1].offset).toBe(1);
     });
 
-    it('throws when streamId is empty', async () => {
-      await expect(
-        service.publish('', 'plan:started', {
-          sessionId: 's1',
-          taskId: 't1',
-          projectId: 'p1',
-        })
-      ).rejects.toThrow('streamId is required');
+    it('returns error when streamId is empty', async () => {
+      const result = await service.publish('', 'plan:started', {
+        sessionId: 's1',
+        taskId: 't1',
+        projectId: 'p1',
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('streamId is required');
+      }
     });
 
     it('still persists to DB when server publish fails', async () => {
@@ -191,14 +208,15 @@ describe('DurableStreamsService', () => {
       });
       const svc = new DurableStreamsService(failServer, getTestDb() as any);
 
-      // publish should NOT throw (caddy failure is best-effort)
-      const offset = await svc.publish(sessionId, 'sandbox:creating', {
+      // publish should succeed (caddy failure is best-effort)
+      const result = await svc.publish(sessionId, 'sandbox:creating', {
         sandboxId: 'sb-1',
         projectId,
         image: 'node:20',
       });
 
-      expect(offset).toBe(0);
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.value).toBe(0);
 
       const db = getTestDb();
       const events = await db.query.sessionEvents.findMany({
@@ -214,13 +232,14 @@ describe('DurableStreamsService', () => {
       });
       const svc = new DurableStreamsService(serverOnly); // no DB
 
-      const offset = await svc.publish(sessionId, 'plan:started', {
+      const result = await svc.publish(sessionId, 'plan:started', {
         sessionId,
         taskId: 't1',
         projectId: 'p1',
       });
 
-      expect(offset).toBe(42);
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.value).toBe(42);
     });
   });
 
@@ -250,15 +269,17 @@ describe('DurableStreamsService', () => {
       expect(events[0].channel).toBe('session');
     });
 
-    it('throws when streamId is empty', async () => {
-      await expect(
-        service.publishSessionEvent('', {
-          id: 'evt-1',
-          type: 'chunk',
-          timestamp: Date.now(),
-          data: {},
-        })
-      ).rejects.toThrow('streamId is required');
+    it('returns error when streamId is empty', async () => {
+      const result = await service.publishSessionEvent('', {
+        id: 'evt-1',
+        type: 'chunk',
+        timestamp: Date.now(),
+        data: {},
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('streamId is required');
+      }
     });
 
     it('survives caddy failure for session events', async () => {
@@ -267,15 +288,14 @@ describe('DurableStreamsService', () => {
       });
       const svc = new DurableStreamsService(failServer, getTestDb() as any);
 
-      // Should not throw
-      await expect(
-        svc.publishSessionEvent(sessionId, {
-          id: 'evt-2',
-          type: 'tool:start',
-          timestamp: Date.now(),
-          data: { toolName: 'Read' },
-        })
-      ).resolves.toBeUndefined();
+      // Should succeed (caddy failure is best-effort)
+      const result = await svc.publishSessionEvent(sessionId, {
+        id: 'evt-2',
+        type: 'tool:start',
+        timestamp: Date.now(),
+        data: { toolName: 'Read' },
+      });
+      expect(result.ok).toBe(true);
 
       // But event should be in DB
       const db = getTestDb();
@@ -289,14 +309,13 @@ describe('DurableStreamsService', () => {
       const serverOnly = createMockServer();
       const svc = new DurableStreamsService(serverOnly); // no DB
 
-      await expect(
-        svc.publishSessionEvent(sessionId, {
-          id: 'evt-3',
-          type: 'agent:started',
-          timestamp: Date.now(),
-          data: { agentId: 'a1' },
-        })
-      ).resolves.toBeUndefined();
+      const result = await svc.publishSessionEvent(sessionId, {
+        id: 'evt-3',
+        type: 'agent:started',
+        timestamp: Date.now(),
+        data: { agentId: 'a1' },
+      });
+      expect(result.ok).toBe(true);
 
       expect(serverOnly.publish).toHaveBeenCalledWith(sessionId, 'agent:started', {
         agentId: 'a1',

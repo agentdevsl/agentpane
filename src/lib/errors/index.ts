@@ -1,16 +1,25 @@
 export * from './agent-errors.js';
+export * from './agentcore-errors.js';
 export * from './base.js';
 export * from './concurrency-errors.js';
 export * from './event-errors.js';
 export * from './git-errors.js';
 export * from './github-errors.js';
 export * from './k8s-errors.js';
+export * from './marketplace-errors.js';
 export * from './nomad-errors.js';
+export * from './plan-mode-errors.js';
 export * from './project-errors.js';
 export * from './sandbox-config-errors.js';
+<<<<<<< ours
+export * from './sandbox-errors.js';
+=======
+export * from './service-errors.js';
+>>>>>>> theirs
 export * from './session-errors.js';
 export * from './task-errors.js';
 export * from './template-errors.js';
+export * from './terraform-errors.js';
 export * from './validation-errors.js';
 export * from './workflow-errors.js';
 export * from './worktree-errors.js';

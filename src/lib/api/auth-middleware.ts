@@ -9,7 +9,10 @@
  * @module lib/api/auth-middleware
  */
 
+import { createLogger } from '../logging/logger.js';
 import { err, ok, type Result } from '../utils/result.js';
+
+const authLog = createLogger('AuthMiddleware');
 
 export const SESSION_COOKIE_NAME = 'agentpane_session';
 
@@ -82,7 +85,13 @@ export async function getAuthContext(
   options?: AuthOptions
 ): Promise<Result<AuthContext, AuthError>> {
   // 0. SKIP_AUTH bypass — takes priority over all other auth methods
+  // SECURITY: This bypass is gated on BOTH SKIP_AUTH=true AND NODE_ENV=development.
+  // It MUST NEVER be enabled in production. The double-gate ensures a single misconfigured
+  // env var cannot open auth bypass. If you see the warning below in logs, investigate immediately.
   if (process.env.SKIP_AUTH === 'true' && process.env.NODE_ENV === 'development') {
+    authLog.warn(
+      'Auth bypass is active (SKIP_AUTH=true). This must only be used in local development.'
+    );
     // Check for X-Dev-User header to allow testing as specific users
     const devUser = request.headers.get('X-Dev-User');
     return ok({ userId: devUser ?? 'dev-user', authMethod: 'dev' });

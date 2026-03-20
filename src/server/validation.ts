@@ -2,6 +2,13 @@
  * Shared Zod validation schemas for API routes.
  *
  * Centralizes validation logic used by multiple route handlers.
+ *
+ * This is the CANONICAL location for server-side validation schemas.
+ * - Route handlers import schemas and helpers (parseBody, parseJsonBody) from here.
+ * - Client-side parsing utilities live in `src/lib/api/validation.ts` (parseBody, parseQuery
+ *   returning Result types for use outside Hono handlers).
+ * - `src/lib/api/schemas.ts` re-exports and extends schemas for client/shared use.
+ *   Where schemas overlap, schemas.ts should import from here rather than redefine.
  */
 
 import { z } from 'zod';

@@ -27,7 +27,9 @@ export async function getGlobalDefaultModel(db: Database): Promise<string | unde
       return getFullModelId(raw);
     }
   } catch {
-    // Fall through to undefined — callers apply their own default
+    // EH-021: Bare catch blocks are acceptable for optional operations like settings
+    // lookups. The caller applies its own default when the setting is unavailable.
+    // This pattern is used consistently across ~30 catch blocks in the codebase.
   }
   return undefined;
 }
@@ -43,6 +45,18 @@ export const SettingsErrors = {
 
 export class SettingsService {
   constructor(private db: Database) {}
+
+  /**
+   * Read the global default model from the database settings table.
+   * Returns the full API model ID (e.g. 'claude-opus-4-5-20251101'),
+   * or undefined if the setting is not found or cannot be parsed,
+   * allowing callers to fall through to a hardcoded default.
+   *
+   * SL-020: Instance method version of the standalone getGlobalDefaultModel function.
+   */
+  async getGlobalDefaultModel(): Promise<string | undefined> {
+    return getGlobalDefaultModel(this.db);
+  }
 
   /**
    * Get a single setting by key

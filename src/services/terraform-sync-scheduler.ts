@@ -1,6 +1,8 @@
 /**
  * Terraform Sync Scheduler Service
  *
+ * SL-012: Converted from module-level singleton to class-based service with instance state.
+ *
  * Background service that periodically syncs Terraform modules from registries
  * based on their configured sync intervals. Runs as a background interval that
  * checks for registries due for sync and triggers the sync process.
@@ -23,22 +25,8 @@ export const MIN_SYNC_INTERVAL_MINUTES = 5;
  * Extract error message from unknown error type
  */
 function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return errorMessage(error);
 }
-
-type SchedulerState = {
-  intervalId: ReturnType<typeof setInterval> | null;
-  isRunning: boolean;
-  lastCheckAt: string | null;
-  syncInProgress: Set<string>;
-};
-
-const state: SchedulerState = {
-  intervalId: null,
-  isRunning: false,
-  lastCheckAt: null,
-  syncInProgress: new Set(),
-};
 
 /**
  * Calculate the next sync time based on an interval in minutes
@@ -50,166 +38,189 @@ export function calculateNextSyncAt(intervalMinutes: number): string {
 }
 
 /**
- * Check for registries due for sync and trigger sync process
+ * Class-based Terraform sync scheduler with instance state.
  */
-async function checkAndSyncRegistries(
-  db: Database,
-  registryService: TerraformRegistryService
-): Promise<{ synced: number; errors: number }> {
-  const now = new Date().toISOString();
-  let synced = 0;
-  let errors = 0;
+export class TerraformSyncScheduler {
+  private intervalId: ReturnType<typeof setInterval> | null = null;
+  private isRunning = false;
+  private lastCheckAt: string | null = null;
+  private syncInProgress = new Set<string>();
 
-  try {
-    // Find registries where:
-    // - syncIntervalMinutes is set (auto-sync enabled)
-    // - nextSyncAt is in the past or now
-    // Note: status='syncing' check happens in the loop below
-    const dueRegistries = await db.query.terraformRegistries.findMany({
-      where: and(
-        isNotNull(terraformRegistries.syncIntervalMinutes),
-        isNotNull(terraformRegistries.nextSyncAt),
-        lte(terraformRegistries.nextSyncAt, now)
-      ),
-    });
+  constructor(
+    private db: Database,
+    private registryService: TerraformRegistryService
+  ) {}
 
-    for (const registry of dueRegistries) {
-      // Skip if already syncing this registry
-      if (state.syncInProgress.has(registry.id)) {
-        log.info(`Skipping ${registry.name} - sync already in progress`);
-        continue;
-      }
+  /**
+   * Check for registries due for sync and trigger sync process
+   */
+  private async checkAndSyncRegistries(): Promise<{ synced: number; errors: number }> {
+    const now = new Date().toISOString();
+    let synced = 0;
+    let errors = 0;
 
-      // Skip if registry is currently in syncing state
-      if (registry.status === 'syncing') {
-        log.info(`Skipping ${registry.name} - status is syncing`);
-        continue;
-      }
+    try {
+      const dueRegistries = await this.db.query.terraformRegistries.findMany({
+        where: and(
+          isNotNull(terraformRegistries.syncIntervalMinutes),
+          isNotNull(terraformRegistries.nextSyncAt),
+          lte(terraformRegistries.nextSyncAt, now)
+        ),
+      });
 
-      try {
-        state.syncInProgress.add(registry.id);
-        log.info(`Starting scheduled sync for: ${registry.name}`);
-
-        const result = await registryService.sync(registry.id);
-
-        if (result.ok) {
-          synced++;
-          log.info(`Successfully synced ${registry.name}: ${result.value.moduleCount} modules`);
-        } else {
-          errors++;
-          log.error(`Failed to sync ${registry.name}: ${result.error.message}`);
+      for (const registry of dueRegistries) {
+        if (this.syncInProgress.has(registry.id)) {
+          log.info(`Skipping ${registry.name} - sync already in progress`);
+          continue;
         }
 
-        // Update nextSyncAt for next scheduled sync regardless of sync result
-        // This is the single source of truth for scheduling — the registry service does not set nextSyncAt
-        if (registry.syncIntervalMinutes) {
-          try {
-            const nextSyncAt = calculateNextSyncAt(registry.syncIntervalMinutes);
-            await db
-              .update(terraformRegistries)
-              .set({ nextSyncAt })
-              .where(eq(terraformRegistries.id, registry.id));
-          } catch (updateError) {
-            log.error(
-              `Failed to update nextSyncAt for ${registry.name}: ${getErrorMessage(updateError)}`
-            );
+        if (registry.status === 'syncing') {
+          log.info(`Skipping ${registry.name} - status is syncing`);
+          continue;
+        }
+
+        try {
+          this.syncInProgress.add(registry.id);
+          log.info(`Starting scheduled sync for: ${registry.name}`);
+
+          const result = await this.registryService.sync(registry.id);
+
+          if (result.ok) {
+            synced++;
+            log.info(`Successfully synced ${registry.name}: ${result.value.moduleCount} modules`);
+          } else {
+            errors++;
+            log.error(`Failed to sync ${registry.name}: ${result.error.message}`);
           }
+
+          if (registry.syncIntervalMinutes) {
+            try {
+              const nextSyncAt = calculateNextSyncAt(registry.syncIntervalMinutes);
+              await this.db
+                .update(terraformRegistries)
+                .set({ nextSyncAt })
+                .where(eq(terraformRegistries.id, registry.id));
+            } catch (updateError) {
+              log.error(
+                `Failed to update nextSyncAt for ${registry.name}: ${getErrorMessage(updateError)}`
+              );
+            }
+          }
+        } catch (error) {
+          errors++;
+          log.error(`Error syncing ${registry.name}: ${getErrorMessage(error)}`);
+        } finally {
+          this.syncInProgress.delete(registry.id);
         }
-      } catch (error) {
-        errors++;
-        log.error(`Error syncing ${registry.name}: ${getErrorMessage(error)}`);
-      } finally {
-        state.syncInProgress.delete(registry.id);
       }
+    } catch (error) {
+      log.error(`Error checking registries: ${getErrorMessage(error)}`);
     }
-  } catch (error) {
-    log.error(`Error checking registries: ${getErrorMessage(error)}`);
+
+    this.lastCheckAt = now;
+    return { synced, errors };
   }
 
-  state.lastCheckAt = now;
-  return { synced, errors };
+  /**
+   * Start the scheduler
+   */
+  start(): () => void {
+    if (this.isRunning) {
+      log.warn('Scheduler already running');
+      return () => this.stop();
+    }
+
+    log.info('Starting scheduler');
+    this.isRunning = true;
+
+    // Run immediately on start
+    this.checkAndSyncRegistries()
+      .then(({ synced, errors }) => {
+        if (synced > 0 || errors > 0) {
+          log.info(`Initial check: ${synced} synced, ${errors} errors`);
+        }
+      })
+      .catch((error) => {
+        log.error(`Critical error during startup sync: ${getErrorMessage(error)}`);
+      });
+
+    // Set up periodic checking
+    this.intervalId = setInterval(async () => {
+      try {
+        const { synced, errors } = await this.checkAndSyncRegistries();
+        if (synced > 0 || errors > 0) {
+          log.info(`Periodic check: ${synced} synced, ${errors} errors`);
+        }
+      } catch (error) {
+        log.error(`Error during periodic check: ${getErrorMessage(error)}`);
+      }
+    }, SCHEDULER_INTERVAL_MS);
+
+    return () => this.stop();
+  }
+
+  /**
+   * Stop the scheduler
+   */
+  stop(): void {
+    if (!this.isRunning) {
+      return;
+    }
+
+    log.info('Stopping scheduler');
+
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+      this.intervalId = null;
+    }
+
+    this.isRunning = false;
+    this.syncInProgress.clear();
+  }
+
+  /**
+   * Get the current scheduler state (for debugging/monitoring)
+   */
+  getState(): Readonly<{
+    isRunning: boolean;
+    lastCheckAt: string | null;
+    syncInProgressCount: number;
+  }> {
+    return {
+      isRunning: this.isRunning,
+      lastCheckAt: this.lastCheckAt,
+      syncInProgressCount: this.syncInProgress.size,
+    };
+  }
 }
 
-/**
- * Start the Terraform sync scheduler
- *
- * Initializes a background interval that periodically checks for registries
- * due for sync and triggers the sync process.
- *
- * @param db - Database instance
- * @param registryService - Terraform registry service instance for syncing
- * @returns Cleanup function to stop the scheduler
- */
+// Backward-compatible module-level API that delegates to a lazily-created instance
+
+let _instance: TerraformSyncScheduler | null = null;
+
 export function startTerraformSyncScheduler(
   db: Database,
   registryService: TerraformRegistryService
 ): () => void {
-  if (state.isRunning) {
-    log.warn('Scheduler already running');
-    return () => stopTerraformSyncScheduler();
+  if (_instance) {
+    return _instance.start();
   }
-
-  log.info('Starting scheduler');
-  state.isRunning = true;
-
-  // Run immediately on start
-  checkAndSyncRegistries(db, registryService)
-    .then(({ synced, errors }) => {
-      if (synced > 0 || errors > 0) {
-        log.info(`Initial check: ${synced} synced, ${errors} errors`);
-      }
-    })
-    .catch((error) => {
-      log.error(`Critical error during startup sync: ${getErrorMessage(error)}`);
-    });
-
-  // Set up periodic checking
-  state.intervalId = setInterval(async () => {
-    try {
-      const { synced, errors } = await checkAndSyncRegistries(db, registryService);
-      if (synced > 0 || errors > 0) {
-        log.info(`Periodic check: ${synced} synced, ${errors} errors`);
-      }
-    } catch (error) {
-      log.error(`Error during periodic check: ${getErrorMessage(error)}`);
-    }
-  }, SCHEDULER_INTERVAL_MS);
-
-  return () => stopTerraformSyncScheduler();
+  _instance = new TerraformSyncScheduler(db, registryService);
+  return _instance.start();
 }
 
-/**
- * Stop the Terraform sync scheduler
- *
- * Cleans up the background interval and resets state.
- */
 export function stopTerraformSyncScheduler(): void {
-  if (!state.isRunning) {
-    return;
-  }
-
-  log.info('Stopping scheduler');
-
-  if (state.intervalId) {
-    clearInterval(state.intervalId);
-    state.intervalId = null;
-  }
-
-  state.isRunning = false;
-  state.syncInProgress.clear();
+  _instance?.stop();
+  _instance = null;
 }
 
-/**
- * Get the current scheduler state (for debugging/monitoring)
- */
 export function getTerraformSchedulerState(): Readonly<{
   isRunning: boolean;
   lastCheckAt: string | null;
   syncInProgressCount: number;
 }> {
-  return {
-    isRunning: state.isRunning,
-    lastCheckAt: state.lastCheckAt,
-    syncInProgressCount: state.syncInProgress.size,
-  };
+  if (!_instance) {
+    return { isRunning: false, lastCheckAt: null, syncInProgressCount: 0 };
+  }
+  return _instance.getState();
 }

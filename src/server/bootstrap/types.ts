@@ -99,6 +99,7 @@ export interface SandboxState {
   nomadHealInterval: ReturnType<typeof setInterval> | null;
   retryTimer: ReturnType<typeof setTimeout> | null;
   retryCount: number;
+  initializing: boolean;
 }
 
 /** Bootstrap context passed through phases. */

@@ -4,63 +4,6 @@
 
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { createLogger } from '../../lib/logging/logger.js';
-import type { GitHubTokenService } from '../../services/github-token.service.js';
-import { isValidGitHubUrl, json } from '../shared.js';
-import { parseJsonBody } from '../validation.js';
-
-const log = createLogger('github-routes');
-
-// ─── Zod Schemas for GitHub Routes ──────────────────
-const cloneSchema = z.object({
-  url: z.string().min(1, 'URL is required'),
-  destination: z.string().min(1, 'Destination is required'),
-});
-
-const createFromTemplateSchema = z.object({
-  templateOwner: z.string().min(1, 'templateOwner is required'),
-  templateRepo: z.string().min(1, 'templateRepo is required'),
-  name: z.string().min(1, 'name is required'),
-  owner: z.string().optional(),
-  description: z.string().optional(),
-  isPrivate: z.boolean().optional(),
-  clonePath: z.string().min(1, 'clonePath is required'),
-});
-
-const setTokenSchema = z.object({
-  token: z.string().min(1, 'Token is required'),
-});
-
-declare const Bun: {
-  spawn: (
-    cmd: string[],
-    options: { cwd: string; stdout: 'pipe'; stderr: 'pipe' }
-  ) => {
-    exited: Promise<number>;
-    stdout: ReadableStream<Uint8Array>;
-    stderr: ReadableStream<Uint8Array>;
-  };
-};
-
-interface GitHubDeps {
-  githubService: GitHubTokenService;
-}
-
-// Helper to wait for repo to be ready (has commits)
-async function waitForRepoReady(
-  githubService: GitHubTokenService,
-  repoFullName: string,
-  maxAttempts = 15
-): Promise<boolean> {
-  const octokit = await githubService.getOctokit();
-  if (!octokit) return false;
-
-  const parts = repoFullName.split('/');
-  const owner = parts[0];
-  const repo = parts[1];
-
-  if (!owner || !repo) {
-    log.error('Invalid repo full name', { data: { repoFullName } });
     return false;
   }
 
@@ -368,8 +311,10 @@ export function createGitHubRoutes({ githubService }: GitHubDeps) {
   app.get('/token', async (_c) => {
     const result = await githubService.getTokenInfo();
     if (!result.ok) {
+      // AR-019: Map error codes to proper HTTP status codes
+      const status = result.error.code === 'NOT_FOUND' ? 404 : 500;
       log.error('Get token info error', { error: result.error });
-      return json({ ok: false, error: result.error }, 500);
+      return json({ ok: false, error: result.error }, status);
     }
     return json({ ok: true, data: { tokenInfo: result.value } });
   });
@@ -391,6 +336,7 @@ export function createGitHubRoutes({ githubService }: GitHubDeps) {
   app.delete('/token', async (_c) => {
     const result = await githubService.deleteToken();
     if (!result.ok) {
+      // AR-019: STORAGE_ERROR is the only failure mode for delete, which is a true 500
       log.error('Delete token error', { error: result.error });
       return json({ ok: false, error: result.error }, 500);
     }
@@ -401,8 +347,15 @@ export function createGitHubRoutes({ githubService }: GitHubDeps) {
   app.post('/revalidate', async (_c) => {
     const result = await githubService.revalidateToken();
     if (!result.ok) {
+      // AR-019: Map error codes to proper HTTP status codes
+      const status =
+        result.error.code === 'NOT_FOUND'
+          ? 404
+          : result.error.code === 'VALIDATION_FAILED'
+            ? 400
+            : 500;
       log.error('Revalidate token error', { error: result.error });
-      return json({ ok: false, error: result.error }, 500);
+      return json({ ok: false, error: result.error }, status);
     }
     return json({ ok: true, data: { isValid: result.value } });
   });

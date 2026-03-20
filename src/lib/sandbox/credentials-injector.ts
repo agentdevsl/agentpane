@@ -1,5 +1,6 @@
 import type { SandboxError } from '../errors/sandbox-errors.js';
 import { SandboxErrors } from '../errors/sandbox-errors.js';
+import { errorMessage } from '../utils/error-message';
 import { readCredentialsFile } from '../utils/resolve-anthropic-key.js';
 import type { Result } from '../utils/result.js';
 import { err, ok } from '../utils/result.js';
@@ -106,7 +107,7 @@ export class CredentialsInjector {
 
       return ok(undefined);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       return err(SandboxErrors.CREDENTIALS_INJECTION_FAILED(message));
     }
   }
@@ -123,7 +124,7 @@ export class CredentialsInjector {
 
       return ok(undefined);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       return err(SandboxErrors.CREDENTIALS_INJECTION_FAILED(message));
     }
   }
@@ -142,7 +143,7 @@ export class CredentialsInjector {
     } catch (error) {
       // Log unexpected errors for debugging but return false
       // This is intentional - errors mean we can't confirm credentials exist
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       console.debug('[CredentialsInjector] Error checking credentials existence:', message);
       return false;
     }

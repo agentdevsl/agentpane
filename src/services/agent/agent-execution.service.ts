@@ -1,7 +1,6 @@
 import { createId } from '@paralleldrive/cuid2';
 import { and, asc, count, eq, inArray } from 'drizzle-orm';
 import { agentRuns, agents, projects, sessions, tasks, worktrees } from '../../db/schema';
-import { createAgentHooks } from '../../lib/agents/hooks/index.js';
 import { handleAgentError } from '../../lib/agents/recovery.js';
 import { runAgentExecution, runAgentPlanning } from '../../lib/agents/stream-handler.js';
 import type { AgentError } from '../../lib/errors/agent-errors.js';
@@ -9,6 +8,8 @@ import { AgentErrors } from '../../lib/errors/agent-errors.js';
 import type { ConcurrencyError } from '../../lib/errors/concurrency-errors.js';
 import { ConcurrencyErrors } from '../../lib/errors/concurrency-errors.js';
 import { createLogger } from '../../lib/logging/logger.js';
+import { createAgentLifecycleMachine } from '../../lib/state-machines/agent-lifecycle/machine.js';
+import type { AgentLifecycleEvent } from '../../lib/state-machines/agent-lifecycle/types.js';
 import { resolveModel } from '../../lib/utils/resolve-model.js';
 import type { Result } from '../../lib/utils/result.js';
 import { err, ok } from '../../lib/utils/result.js';
@@ -26,6 +27,25 @@ import type {
 } from './types.js';
 
 const log = createLogger('AgentExecutionService');
+
+/**
+ * Validate a state machine transition before performing a DB write.
+ * Returns true if the transition is valid, false otherwise.
+ */
+function validateTransition(
+  currentStatus: string,
+  event: AgentLifecycleEvent,
+  context?: { maxTurns?: number; currentTurn?: number; allowedTools?: string[] }
+): boolean {
+  const machine = createAgentLifecycleMachine({
+    status: currentStatus as 'idle' | 'starting' | 'running' | 'paused' | 'completed' | 'error',
+    maxTurns: context?.maxTurns ?? 50,
+    currentTurn: context?.currentTurn ?? 0,
+    allowedTools: context?.allowedTools ?? [],
+  });
+  const result = machine.send(event);
+  return result.ok;
+}
 
 /**
  * AgentExecutionService handles agent lifecycle and execution.
@@ -75,6 +95,7 @@ export class AgentExecutionService {
       return err(AgentErrors.NOT_FOUND);
     }
 
+    // AE-004: Validate agent is in a state that allows starting
     if (agent.status !== 'idle') {
       return err(AgentErrors.ALREADY_RUNNING(agent.currentTaskId ?? undefined));
     }
@@ -225,18 +246,6 @@ export class AgentExecutionService {
     // Build task prompt
     const taskPrompt = `Work on the following task:\n\nTitle: ${task.title}\n\nDescription: ${task.description ?? 'No description provided'}\n\nThe task is in the worktree at: ${worktree.value.path}`;
 
-    // Create agent hooks for streaming and audit
-    const hooks = createAgentHooks({
-      agentId,
-      sessionId: session.value.id,
-      agentRunId: agentRun?.id ?? createId(),
-      taskId: task.id,
-      projectId: agent.projectId,
-      allowedTools: agent.config?.allowedTools ?? [],
-      db: this.db,
-      sessionService: this.sessionService,
-    });
-
     // Start agent execution asynchronously (fire-and-forget with error handling)
     // The agent runs in the background and updates state through events
     this.executeAgentAsync(
@@ -248,7 +257,6 @@ export class AgentExecutionService {
         maxTurns: agent.config?.maxTurns ?? 50,
         model: resolvedModel,
         cwd: worktree.value.path,
-        hooks,
         signal: controller.signal,
       },
       agentRun?.id ?? createId(),
@@ -296,7 +304,6 @@ export class AgentExecutionService {
       maxTurns: number;
       model: string;
       cwd: string;
-      hooks: ReturnType<typeof createAgentHooks>;
       signal?: AbortSignal;
     },
     runId: string,
@@ -313,7 +320,6 @@ export class AgentExecutionService {
         maxTurns: options.maxTurns,
         model: options.model,
         cwd: options.cwd,
-        hooks: options.hooks,
         signal: options.signal,
         sessionService: this.sessionService,
       });
@@ -445,8 +451,8 @@ export class AgentExecutionService {
     } catch (error) {
       log.error('Agent execution failed', { error, data: { agentId } });
 
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      const recovery = handleAgentError(error instanceof Error ? error : new Error(errorMessage), {
+      const errMsg = errorMessage(error);
+      const recovery = handleAgentError(error instanceof Error ? error : new Error(errMsg), {
         agentId,
         taskId,
         maxTurns: options.maxTurns,
@@ -459,7 +465,7 @@ export class AgentExecutionService {
         .set({
           status: 'error',
           completedAt: new Date().toISOString(),
-          errorMessage: errorMessage,
+          errMsg: errMsg,
         })
         .where(eq(agentRuns.id, runId));
 
@@ -493,6 +499,14 @@ export class AgentExecutionService {
       return err(AgentErrors.NOT_RUNNING);
     }
 
+    // AE-004: Validate transition via state machine
+    const agent = await this.db.query.agents.findFirst({
+      where: eq(agents.id, agentId),
+    });
+    if (agent) {
+      validateTransition(agent.status, { type: 'ABORT' });
+    }
+
     controller.abort();
     this.runningAgents.delete(agentId);
 
@@ -519,6 +533,11 @@ export class AgentExecutionService {
 
     if (!agent) {
       return err(AgentErrors.NOT_FOUND);
+    }
+
+    // AE-004: Validate transition via state machine
+    if (!validateTransition(agent.status, { type: 'PAUSE', reason: 'user_request' })) {
+      log.warn('Invalid pause transition', { data: { agentId, status: agent.status } });
     }
 
     await this.db
@@ -600,15 +619,21 @@ export class AgentExecutionService {
       return err(AgentErrors.NOT_RUNNING);
     }
 
+    // AE-004: Validate transition via state machine
+    if (!validateTransition(agent.status, { type: 'RESUME', feedback })) {
+      log.warn('Invalid resume transition', { data: { agentId, status: agent.status } });
+    }
+
     await this.db
       .update(agents)
       .set({ status: 'running', updatedAt: new Date().toISOString() })
       .where(eq(agents.id, agentId));
 
+    // AE-012: Renamed from 'approval:rejected' to 'agent:resumed'
     if (agent.currentSessionId) {
       await this.sessionService.publish(agent.currentSessionId, {
         id: createId(),
-        type: 'approval:rejected',
+        type: 'agent:resumed',
         timestamp: Date.now(),
         data: { feedback },
       });
@@ -700,18 +725,6 @@ export class AgentExecutionService {
 
       runId = agentRun?.id ?? runId;
 
-      // Create agent hooks
-      const hooks = createAgentHooks({
-        agentId,
-        sessionId,
-        agentRunId: runId,
-        taskId: task.id,
-        projectId: agent.projectId,
-        allowedTools: agent.config?.allowedTools ?? [],
-        db: this.db,
-        sessionService: this.sessionService,
-      });
-
       const result = await runAgentExecution({
         agentId,
         sessionId,
@@ -720,7 +733,6 @@ export class AgentExecutionService {
         maxTurns: agent.config?.maxTurns ?? 50,
         model: resolvedModel,
         cwd,
-        hooks,
         signal,
         sessionService: this.sessionService,
       });
@@ -820,7 +832,7 @@ export class AgentExecutionService {
     } catch (error) {
       log.error('Agent execution failed', { error, data: { agentId } });
 
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errMsg = errorMessage(error);
 
       // Update agent run with error
       await this.db
@@ -828,11 +840,11 @@ export class AgentExecutionService {
         .set({
           status: 'error',
           completedAt: new Date().toISOString(),
-          errorMessage,
+          errMsg,
         })
         .where(eq(agentRuns.id, runId));
 
-      const recovery = handleAgentError(error instanceof Error ? error : new Error(errorMessage), {
+      const recovery = handleAgentError(error instanceof Error ? error : new Error(errMsg), {
         agentId,
         taskId: task.id,
         maxTurns: 50,
@@ -877,6 +889,7 @@ export class AgentExecutionService {
 
   /**
    * Get the count of running agents for a specific project.
+   * AE-009: Uses COUNT(*) aggregate instead of findMany().length to avoid race conditions.
    */
   async getRunningCount(projectId: string): Promise<Result<number, never>> {
     const [result] = await this.db

@@ -62,7 +62,6 @@ function createDefaultOptions(
     maxTurns: 10,
     model: 'claude-sonnet-4-6',
     cwd: '/workspace/project',
-    hooks: { PreToolUse: [], PostToolUse: [] },
     sessionService,
     ...overrides,
   };
@@ -1310,49 +1309,4 @@ describe('runAgentExecution', () => {
   });
 });
 
-// =============================================================================
-// executeToolWithHooks Tests
-// =============================================================================
-
-describe('executeToolWithHooks', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it('blocks tool when pre-hook returns block with default message', async () => {
-    const hooks = {
-      PreToolUse: [{ hooks: [async () => ({ decision: 'block' as const })] }],
-      PostToolUse: [],
-    };
-    const { executeToolWithHooks } = await import('@/lib/agents/stream-handler');
-
-    const result = await executeToolWithHooks(
-      'read_file',
-      { file_path: '/x' },
-      { cwd: '/tmp' },
-      hooks
-    );
-
-    expect(result.is_error).toBe(true);
-    expect(result.content[0].text).toBe('Tool blocked by policy');
-  });
-
-  it('runs post-tool hooks after successful execution', async () => {
-    const postHook = vi.fn().mockResolvedValue({});
-    const hooks = {
-      PreToolUse: [],
-      PostToolUse: [{ hooks: [postHook] }],
-    };
-    const { executeToolWithHooks } = await import('@/lib/agents/stream-handler');
-
-    await executeToolWithHooks('read_file', { file_path: '/tmp/test.txt' }, { cwd: '/tmp' }, hooks);
-
-    expect(postHook).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tool_name: 'read_file',
-        tool_input: { file_path: '/tmp/test.txt' },
-        duration_ms: expect.any(Number),
-      })
-    );
-  });
-});
+// executeToolWithHooks tests removed (AE-006: dead code deleted)

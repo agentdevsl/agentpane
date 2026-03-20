@@ -198,9 +198,12 @@ export function createAuthRoutes({ db }: AuthDeps) {
       });
 
       // Set session cookie and redirect to app
+      // AR-005: Only set Secure flag in production. In development over HTTP, the Secure
+      // flag causes the browser to reject the cookie, breaking local auth flow.
+      const secureSuffix = process.env.NODE_ENV === 'production' ? '; Secure' : '';
       c.header(
         'Set-Cookie',
-        `${SESSION_COOKIE_NAME}=${sessionToken}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_MAX_AGE_SECONDS}; Secure`
+        `${SESSION_COOKIE_NAME}=${sessionToken}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_MAX_AGE_SECONDS}${secureSuffix}`
       );
 
       // Clear OAuth state cookie

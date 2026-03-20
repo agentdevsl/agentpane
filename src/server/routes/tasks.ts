@@ -3,9 +3,18 @@
  */
 
 import { Hono } from 'hono';
+import { createLogger } from '../../lib/logging/logger.js';
 import type { TaskService } from '../../services/task.service.js';
 import { isValidId, json } from '../shared.js';
-import { createTaskSchema, moveTaskSchema, parseBody, updateTaskSchema } from '../validation.js';
+import {
+  createTaskSchema,
+  moveTaskSchema,
+  parseBody,
+  taskColumnSchema,
+  updateTaskSchema,
+} from '../validation.js';
+
+const logger = createLogger('routes:tasks');
 
 interface TasksDeps {
   taskService: TaskService;
@@ -17,13 +26,25 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
   // GET /api/tasks
   app.get('/', async (c) => {
     const projectId = c.req.query('projectId');
-    const column = c.req.query('column') as
-      | 'backlog'
-      | 'queued'
-      | 'in_progress'
-      | 'waiting_approval'
-      | 'verified'
-      | undefined;
+    const rawColumn = c.req.query('column');
+    // EH-014: Validate column query param against taskColumnSchema instead of bare cast
+    let column: 'backlog' | 'queued' | 'in_progress' | 'waiting_approval' | 'verified' | undefined;
+    if (rawColumn !== undefined) {
+      const parsed = taskColumnSchema.safeParse(rawColumn);
+      if (!parsed.success) {
+        return json(
+          {
+            ok: false,
+            error: {
+              code: 'INVALID_PARAMS',
+              message: `Invalid column value: "${rawColumn}". Must be one of: backlog, queued, in_progress, waiting_approval, verified`,
+            },
+          },
+          400
+        );
+      }
+      column = parsed.data;
+    }
     const limit = parseInt(c.req.query('limit') ?? '50', 10);
     const offset = parseInt(c.req.query('offset') ?? '0', 10);
 
@@ -58,7 +79,7 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
         },
       });
     } catch (error) {
-      console.error('[Tasks] List error:', error);
+      logger.error('List error', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to list tasks' } }, 500);
     }
   });
@@ -85,7 +106,7 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
 
       return json({ ok: true, data: result.value }, 201);
     } catch (error) {
-      console.error('[Tasks] Create error:', error);
+      logger.error('Create error', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to create task' } },
         500
@@ -110,7 +131,7 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
 
       return json({ ok: true, data: result.value });
     } catch (error) {
-      console.error('[Tasks] Get error:', error);
+      logger.error('Get error', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to get task' } }, 500);
     }
   });
@@ -142,7 +163,7 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
 
       return json({ ok: true, data: result.value });
     } catch (error) {
-      console.error('[Tasks] Update error:', error);
+      logger.error('Update error', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to update task' } },
         500
@@ -167,7 +188,7 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
 
       return json({ ok: true, data: null });
     } catch (error) {
-      console.error('[Tasks] Delete error:', error);
+      logger.error('Delete error', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to delete task' } },
         500
@@ -192,7 +213,7 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
 
       return json({ ok: true, data: result.value });
     } catch (error) {
-      console.error('[Tasks] GetDiff error:', error);
+      logger.error('GetDiff error', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to get task diff' } },
         500
@@ -241,7 +262,7 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
 
       // Return success for the move, but include agent error info if present
       if (agentError) {
-        console.error(`[Tasks] Failed to start agent for task ${id}:`, agentError);
+        logger.error(`Failed to start agent for task ${id}`, { data: { agentError } });
         return json({
           ok: true,
           data: { task: updatedTask, agentError },
@@ -250,7 +271,7 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
 
       return json({ ok: true, data: { task: updatedTask } });
     } catch (error) {
-      console.error('[Tasks] Move error:', error);
+      logger.error('Move error', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to move task' } }, 500);
     }
   });
@@ -272,7 +293,7 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
 
       return json({ ok: true, data: { approved: true } });
     } catch (error) {
-      console.error('[Tasks] ApprovePlan error:', error);
+      logger.error('ApprovePlan error', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to approve plan' } },
         500
@@ -306,7 +327,7 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
 
       return json({ ok: true, data: { rejected: true } });
     } catch (error) {
-      console.error('[Tasks] RejectPlan error:', error);
+      logger.error('RejectPlan error', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to reject plan' } },
         500
@@ -331,7 +352,7 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
 
       return json({ ok: true, data: { stopped: true } });
     } catch (error) {
-      console.error('[Tasks] StopAgent error:', error);
+      logger.error('StopAgent error', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to stop agent' } }, 500);
     }
   });

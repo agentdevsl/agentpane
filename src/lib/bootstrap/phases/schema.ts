@@ -8,6 +8,21 @@ const log = createLogger('SchemaPhase');
 
 // SQLite migration SQL - creates tables if they don't exist
 // Exported for test setup reuse
+//
+// INTENTIONAL: Raw SQL strings are used here instead of Drizzle ORM schema definitions
+// because bootstrap runs BEFORE Drizzle is initialized. The Drizzle ORM requires tables
+// to already exist (or be created via drizzle-kit) before it can operate. This bootstrap
+// phase uses raw SQL via better-sqlite3's `prepare().run()` to create/migrate tables
+// first, after which Drizzle connects to the already-migrated database.
+//
+// Cross-reference: The authoritative Drizzle schema definitions live in:
+//   - src/db/schema/sqlite/  (SQLite column definitions)
+//   - src/db/schema/postgres/ (PostgreSQL column definitions)
+//   - src/db/schema/shared/   (shared enums and types)
+// Any column additions here MUST be mirrored in the Drizzle schema files, and vice versa.
+// See also: scripts/check-schema-drift.ts (CI drift checker)
+//
+// @see CQ-010 in specs/reviews/2026-03-architecture/FINDINGS-MATRIX.md
 export const MIGRATION_SQL = `
 -- Create tables if they don't exist
 CREATE TABLE IF NOT EXISTS "projects" (
@@ -243,7 +258,7 @@ CREATE TABLE IF NOT EXISTS "session_events" (
 );
 
 CREATE INDEX IF NOT EXISTS "session_events_session_idx" ON "session_events"("session_id");
-CREATE INDEX IF NOT EXISTS "session_events_offset_idx" ON "session_events"("session_id", "offset");
+-- DB-008: Removed redundant session_events_offset_idx (covered by unique_offset below)
 CREATE UNIQUE INDEX IF NOT EXISTS "session_events_unique_offset" ON "session_events"("session_id", "offset");
 
 CREATE TABLE IF NOT EXISTS "session_summaries" (
@@ -515,6 +530,27 @@ CREATE INDEX IF NOT EXISTS idx_worktrees_project_id ON worktrees(project_id);
 
 -- Index for agents by project
 CREATE INDEX IF NOT EXISTS idx_agents_project_id ON agents(project_id);
+`;
+
+// DB-008 + DB-009: Remove redundant index and add missing indexes
+// for sessions, agent_runs, and audit_logs lookup columns.
+export const DB_REVIEW_INDEXES_MIGRATION_SQL = `
+-- DB-008: Remove redundant session_events_offset_idx (covered by session_events_unique_offset)
+DROP INDEX IF EXISTS session_events_offset_idx;
+
+-- DB-009: Add index on sessions(project_id) for project-scoped session lookups
+CREATE INDEX IF NOT EXISTS idx_sessions_project_id ON sessions(project_id);
+
+-- DB-009: Add indexes on agent_runs for lookup by agent, project, and task
+CREATE INDEX IF NOT EXISTS idx_agent_runs_agent_id ON agent_runs(agent_id);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_project_id ON agent_runs(project_id);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_task_id ON agent_runs(task_id);
+
+-- DB-009: Add indexes on audit_logs for lookup by agent, project, task, and time
+CREATE INDEX IF NOT EXISTS idx_audit_logs_agent_id ON audit_logs(agent_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_project_id ON audit_logs(project_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_task_id ON audit_logs(task_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
 `;
 
 // RBAC tables migration (idempotent — uses IF NOT EXISTS)

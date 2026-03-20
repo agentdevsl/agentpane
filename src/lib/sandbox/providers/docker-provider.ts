@@ -2,6 +2,7 @@ import { PassThrough, type Readable } from 'node:stream';
 import { createId } from '@paralleldrive/cuid2';
 import Docker from 'dockerode';
 import { SandboxErrors } from '../../errors/sandbox-errors.js';
+import { errorMessage } from '../../utils/error-message';
 import type {
   ExecResult,
   SandboxConfig,
@@ -110,6 +111,9 @@ class DockerSandbox implements Sandbox {
     });
   }
 
+  // SC-037: Tmux session operations are duplicated across DockerSandbox,
+  // AgentSandboxInstance, and NomadSandboxInstance. Extracting into a shared
+  // mixin/utility is deferred — tracked as SC-037 in the architecture review.
   async createTmuxSession(sessionName: string, taskId?: string): Promise<TmuxSession> {
     this.touch();
 
@@ -562,7 +566,8 @@ export class DockerProvider implements EventEmittingSandboxProvider {
           Binds: binds,
           Memory: config.memoryMb * 1024 * 1024,
           NanoCpus: config.cpuCores * 1e9,
-          NetworkMode: 'bridge',
+          // SC-006: Use configured networkMode, default to 'bridge'
+          NetworkMode: config.networkMode ?? 'bridge',
           AutoRemove: false,
         },
         Tty: true,
@@ -594,7 +599,7 @@ export class DockerProvider implements EventEmittingSandboxProvider {
 
       return sandbox;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       this.emit({
         type: 'sandbox:error',
         sandboxId,
@@ -742,7 +747,7 @@ export class DockerProvider implements EventEmittingSandboxProvider {
         },
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       return {
         healthy: false,
         message: `Docker health check failed: ${message}`,
@@ -768,7 +773,7 @@ export class DockerProvider implements EventEmittingSandboxProvider {
           cleaned++;
         } catch (error) {
           // Log cleanup errors for debugging - don't fail the entire cleanup operation
-          const message = error instanceof Error ? error.message : String(error);
+          const message = errorMessage(error);
           console.error(`[DockerProvider] Failed to cleanup sandbox ${sandboxId}:`, message);
         }
       }
@@ -817,7 +822,7 @@ export class DockerProvider implements EventEmittingSandboxProvider {
       console.log(`[DockerProvider] Container restarted successfully for project ${projectId}`);
       return sandbox;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       console.error(`[DockerProvider] Failed to restart container:`, message);
       this.emit({
         type: 'sandbox:error',

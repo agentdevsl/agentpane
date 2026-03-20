@@ -2,6 +2,7 @@ import type { Octokit } from 'octokit';
 import type { PlanModeError } from '../errors/plan-mode-errors.js';
 import { PlanModeErrors } from '../errors/plan-mode-errors.js';
 import type { PlanSession } from '../plan-mode/types.js';
+import { errorMessage } from '../utils/error-message';
 import type { Result } from '../utils/result.js';
 import { err, ok } from '../utils/result.js';
 import { createOctokitFromToken } from './client.js';
@@ -242,7 +243,7 @@ export class GitHubIssueCreator {
         'message' in error && typeof error.message === 'string' ? error.message : 'Unknown error';
       return `HTTP ${octokitError.status}: ${message}`;
     }
-    return error instanceof Error ? error.message : String(error);
+    return errorMessage(error);
   }
 }
 

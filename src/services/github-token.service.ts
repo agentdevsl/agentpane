@@ -7,6 +7,7 @@ import {
   isValidPATFormat,
   maskToken,
 } from '../lib/crypto/server-encryption.js';
+import { ServiceErrors } from '../lib/errors/service-errors.js';
 import { createLogger } from '../lib/logging/logger';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
@@ -95,7 +96,7 @@ export class GitHubTokenService {
     } catch (error) {
       return err({
         code: 'STORAGE_ERROR',
-        message: `Failed to save token: ${error instanceof Error ? error.message : String(error)}`,
+        message: `Failed to save token: ${errorMessage(error)}`,
       });
     }
   }
@@ -125,7 +126,7 @@ export class GitHubTokenService {
     } catch (error) {
       return err({
         code: 'STORAGE_ERROR',
-        message: `Failed to get token: ${error instanceof Error ? error.message : String(error)}`,
+        message: `Failed to get token: ${errorMessage(error)}`,
       });
     }
   }
@@ -148,9 +149,7 @@ export class GitHubTokenService {
         error,
         data: { tokenId: token.id },
       });
-      throw new Error(
-        'Failed to decrypt GitHub token. The encryption key may have changed or data is corrupted.'
-      );
+      throw ServiceErrors.DECRYPT_FAILED('github-token');
     }
   }
 
@@ -200,7 +199,7 @@ export class GitHubTokenService {
     } catch (error) {
       return err({
         code: 'STORAGE_ERROR',
-        message: `Failed to delete token: ${error instanceof Error ? error.message : String(error)}`,
+        message: `Failed to delete token: ${errorMessage(error)}`,
       });
     }
   }
@@ -288,7 +287,7 @@ export class GitHubTokenService {
       }
       return err({
         code: 'VALIDATION_FAILED',
-        message: `Failed to validate token: ${error instanceof Error ? error.message : String(error)}`,
+        message: `Failed to validate token: ${errorMessage(error)}`,
       });
     }
   }
@@ -570,7 +569,7 @@ export class GitHubTokenService {
     }
     return err({
       code: 'VALIDATION_FAILED',
-      message: `GitHub API request failed: ${error instanceof Error ? error.message : String(error)}`,
+      message: `GitHub API request failed: ${errorMessage(error)}`,
     });
   }
 }

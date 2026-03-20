@@ -1,4 +1,19 @@
 /**
+<<<<<<< ours
+ * Sandbox routes -- re-export barrel
+ *
+ * AR-023: This file was split into three modules (March 2026 architecture review):
+ *   - sandbox-configs.ts  -- Sandbox configuration CRUD
+ *   - sandbox-k8s.ts      -- Kubernetes cluster management
+ *   - sandbox-nomad.ts    -- Nomad cluster management
+ *
+ * This barrel re-exports the route factories so that existing imports continue to work.
+ */
+
+export { createSandboxConfigRoutes as createSandboxRoutes } from './sandbox-configs.js';
+export { createK8sRoutes } from './sandbox-k8s.js';
+export { createNomadRoutes, validateNomadAddress } from './sandbox-nomad.js';
+=======
  * Sandbox routes (K8s, Nomad, and shared config CRUD)
  */
 
@@ -15,6 +30,7 @@ import { SANDBOX_TYPES } from '../../db/schema/shared/enums.js';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { SandboxConfigService } from '../../services/sandbox-config.service.js';
 import type { Database } from '../../types/database.js';
+import { errorMessage } from '../lib/utils/error-message';
 import { isValidId, json } from '../shared.js';
 
 const sandboxConfigBodySchema = z.object({
@@ -753,7 +769,7 @@ export function createK8sRoutes(deps?: { db?: Database }) {
         },
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       log.error('K8s Controller error', { error: new Error(message) });
       return json(
         {
@@ -798,7 +814,7 @@ export function createK8sRoutes(deps?: { db?: Database }) {
         },
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       log.error('K8s Minikube start error', { error: new Error(message) });
       return json(
         {
@@ -941,7 +957,7 @@ export function createK8sRoutes(deps?: { db?: Database }) {
         },
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       log.error('K8s Install error', { error: new Error(message) });
       return json(
         {
@@ -1395,3 +1411,4 @@ export function createNomadRoutes(deps?: NomadRouteDeps) {
 
   return app;
 }
+>>>>>>> theirs

@@ -144,6 +144,17 @@ function mapEventToActivity(event: RawEvent): ActivityEntry | null {
       };
     }
 
+    case 'agent:resumed': {
+      const feedback = typeof eventData.feedback === 'string' ? `: ${eventData.feedback}` : '';
+      return {
+        id,
+        type: 'status_change',
+        timestamp,
+        message: `Agent resumed${feedback}`,
+        data: eventData,
+      };
+    }
+
     case 'container-agent:cancelled':
       return { id, type: 'status_change', timestamp, message: 'Agent cancelled', data: eventData };
 

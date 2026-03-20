@@ -86,8 +86,8 @@ async function writeOAuthCredentials(token: string): Promise<void> {
       data: { source: 'database', credPath },
     });
   } catch (writeErr) {
-    log.warn('Failed to write OAuth credentials file', {
-      error: writeErr instanceof Error ? writeErr.message : String(writeErr),
-    });
+    throw new Error(
+      `Failed to write OAuth credentials: ${writeErr instanceof Error ? writeErr.message : String(writeErr)}`
+    );
   }
 }

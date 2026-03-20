@@ -10,6 +10,24 @@
   }
 
   # Durable streams (LMDB persistence, SSE + long-poll)
+  #
+  # RS-019: SSE Authentication
+  # These stream endpoints currently have no authentication at the Caddy level.
+  # Security is enforced via network-level access control:
+  #   - In production: Caddy is only reachable from the internal Docker network.
+  #     The reverse proxy (handle /api/*) is the sole external entry point,
+  #     which routes through the authenticated Bun API server.
+  #   - Clients connect to /v1/stream/* only from the browser after authenticating
+  #     via the /api/auth/* flow. The session cookie is validated on API endpoints
+  #     but not on Caddy stream endpoints directly.
+  #
+  # To add Caddy-level auth, uncomment and configure forward_auth:
+  #   forward_auth localhost:3001 {
+  #     uri /api/auth/verify
+  #     copy_headers Authorization
+  #   }
+  #
+  # Alternatively, use Caddy's `basicauth` or a JWT plugin for direct validation.
   @streams path /v1/stream /v1/stream/*
   handle @streams {
     durable_streams {

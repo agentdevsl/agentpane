@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { apiKeys } from '../db/schema';
 import { decryptToken, encryptToken, maskToken } from '../lib/crypto/server-encryption.js';
+import { ServiceErrors } from '../lib/errors/service-errors.js';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
 import type { Database } from '../types/database.js';
@@ -80,7 +81,7 @@ export class ApiKeyService {
     } catch (error) {
       return err({
         code: 'STORAGE_ERROR',
-        message: `Failed to save API key: ${error instanceof Error ? error.message : String(error)}`,
+        message: `Failed to save API key: ${errorMessage(error)}`,
       });
     }
   }
@@ -109,7 +110,7 @@ export class ApiKeyService {
     } catch (error) {
       return err({
         code: 'STORAGE_ERROR',
-        message: `Failed to get API key: ${error instanceof Error ? error.message : String(error)}`,
+        message: `Failed to get API key: ${errorMessage(error)}`,
       });
     }
   }
@@ -131,9 +132,7 @@ export class ApiKeyService {
       return decryptToken(key.encryptedKey);
     } catch (error) {
       console.error(`[ApiKeyService] Failed to decrypt key for ${service}:`, error);
-      throw new Error(
-        `Failed to decrypt API key for ${service}. The encryption key may have changed or data is corrupted.`
-      );
+      throw ServiceErrors.DECRYPT_FAILED(service);
     }
   }
 
@@ -147,7 +146,7 @@ export class ApiKeyService {
     } catch (error) {
       return err({
         code: 'STORAGE_ERROR',
-        message: `Failed to delete API key: ${error instanceof Error ? error.message : String(error)}`,
+        message: `Failed to delete API key: ${errorMessage(error)}`,
       });
     }
   }

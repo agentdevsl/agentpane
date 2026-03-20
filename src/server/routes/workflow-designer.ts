@@ -12,6 +12,7 @@ const log = createLogger('workflow-designer-routes');
 import type { CachedAgent, CachedCommand, CachedSkill } from '../../db/schema';
 import { agentQuery } from '../../lib/agents/agent-sdk-utils.js';
 import { DEFAULT_WORKFLOW_MODEL, getFullModelId } from '../../lib/constants/models.js';
+import { createLogger } from '../../lib/logging/logger.js';
 import {
   createWorkflowAnalysisPrompt,
   resolveWorkflowAnalysisPrompt,
@@ -23,7 +24,10 @@ import type { Workflow, WorkflowEdge, WorkflowNode } from '../../lib/workflow-ds
 import { workflowEdgeSchema, workflowNodeSchema } from '../../lib/workflow-dsl/types.js';
 import type { SettingsService } from '../../services/settings.service.js';
 import type { TemplateService } from '../../services/template.service.js';
+import { errorMessage } from '../lib/utils/error-message';
 import { json } from '../shared.js';
+
+const logger = createLogger('routes:workflow-designer');
 
 interface WorkflowDesignerDeps {
   templateService: TemplateService;
@@ -510,8 +514,13 @@ export function createWorkflowDesignerRoutes({
         );
       }
     } catch (error) {
+<<<<<<< ours
       const message = error instanceof Error ? error.message : String(error);
       log.error('Agent SDK error', { data: { message } });
+=======
+      const message = errorMessage(error);
+      console.error('[workflow-analyze] Agent SDK error:', message);
+>>>>>>> theirs
 
       // Check for authentication errors
       if (
@@ -547,8 +556,13 @@ export function createWorkflowDesignerRoutes({
       edges = result.edges;
       aiConfidence = result.aiConfidence;
     } catch (error) {
+<<<<<<< ours
       const message = error instanceof Error ? error.message : String(error);
       log.error('AI response parsing error', { data: { message } });
+=======
+      const message = errorMessage(error);
+      console.error('[workflow-analyze] AI response parsing error:', message);
+>>>>>>> theirs
       return json({ ok: false, error: { code: 'WORKFLOW_INVALID_AI_RESPONSE', message } }, 422);
     }
 
@@ -563,8 +577,13 @@ export function createWorkflowDesignerRoutes({
         layerSpacing: 80,
       });
     } catch (error) {
+<<<<<<< ours
       const message = error instanceof Error ? error.message : String(error);
       log.error('Layout error', { data: { message } });
+=======
+      const message = errorMessage(error);
+      console.error('[workflow-analyze] Layout error:', message);
+>>>>>>> theirs
       return json({ ok: false, error: { code: 'WORKFLOW_LAYOUT_FAILED', message } }, 500);
     }
 

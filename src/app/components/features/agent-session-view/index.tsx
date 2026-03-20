@@ -394,10 +394,18 @@ export function AgentSessionView({
 
         {/* Main content - left column with tabs */}
         <div className="flex flex-col min-h-0">
-          {/* Tab bar */}
-          <div className="flex border-b border-border bg-surface-subtle px-2">
+          {/* FC-015: Tab bar with ARIA tablist/tab roles */}
+          <div
+            className="flex border-b border-border bg-surface-subtle px-2"
+            role="tablist"
+            aria-label="Session views"
+          >
             <button
               type="button"
+              role="tab"
+              id="tab-stream"
+              aria-selected={activeTab === 'stream'}
+              aria-controls="tabpanel-stream"
               className={cn(
                 'px-4 py-2 text-sm font-medium transition-colors',
                 activeTab === 'stream'
@@ -410,6 +418,10 @@ export function AgentSessionView({
             </button>
             <button
               type="button"
+              role="tab"
+              id="tab-topology"
+              aria-selected={activeTab === 'topology'}
+              aria-controls="tabpanel-topology"
               className={cn(
                 'px-4 py-2 text-sm font-medium transition-colors',
                 activeTab === 'topology'
@@ -423,14 +435,27 @@ export function AgentSessionView({
           </div>
 
           {/* Tab content */}
+          {/* FC-015: aria-live="polite" on streaming container for screen readers */}
           {activeTab === 'stream' ? (
-            <StreamPanel
-              lines={streamLines}
-              isStreaming={isStreaming}
-              viewerColors={viewerColors}
-            />
+            <div
+              role="tabpanel"
+              id="tabpanel-stream"
+              aria-labelledby="tab-stream"
+              aria-live="polite"
+            >
+              <StreamPanel
+                lines={streamLines}
+                isStreaming={isStreaming}
+                viewerColors={viewerColors}
+              />
+            </div>
           ) : (
-            <div className="flex-1 min-h-0">
+            <div
+              className="flex-1 min-h-0"
+              role="tabpanel"
+              id="tabpanel-topology"
+              aria-labelledby="tab-topology"
+            >
               <Suspense
                 fallback={
                   <div className="flex-1 flex items-center justify-center text-sm text-fg-muted">

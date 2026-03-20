@@ -93,12 +93,16 @@ export async function recoverOrphanedTasks(db: Database): Promise<void> {
 export async function cleanOrphanedWorktrees(db: Database): Promise<void> {
   try {
     const orphanedTasks = await db
-      .select({ id: schemaTables.tasks.id, worktreeId: schemaTables.tasks.worktreeId })
+      .select({
+        id: schemaTables.tasks.id,
+        worktreeId: schemaTables.tasks.worktreeId,
+        lastAgentStatus: schemaTables.tasks.lastAgentStatus,
+      })
       .from(schemaTables.tasks)
       .where(isNotNull(schemaTables.tasks.worktreeId));
 
     const tasksToClean = orphanedTasks.filter(
-      (t) => t.worktreeId && (t as { lastAgentStatus?: string }).lastAgentStatus !== 'planning'
+      (t) => t.worktreeId && t.lastAgentStatus !== 'planning'
     );
 
     if (tasksToClean.length > 0) {
@@ -132,9 +136,30 @@ export async function cleanOrphanedWorktrees(db: Database): Promise<void> {
 /**
  * Run all recovery operations in sequence.
  * Safe to call on every server startup.
+ * Returns any errors encountered so the bootstrap pipeline can decide how to handle them.
  */
-export async function runRecovery(db: Database): Promise<void> {
-  await resetStaleAgents(db);
-  await recoverOrphanedTasks(db);
-  await cleanOrphanedWorktrees(db);
+export async function runRecovery(db: Database): Promise<{ errors: Error[] }> {
+  const errors: Error[] = [];
+  try {
+    await resetStaleAgents(db);
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e));
+    errors.push(err);
+    log.error('Failed to reset stale agents', { error: err });
+  }
+  try {
+    await recoverOrphanedTasks(db);
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e));
+    errors.push(err);
+    log.error('Failed to recover orphaned tasks', { error: err });
+  }
+  try {
+    await cleanOrphanedWorktrees(db);
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e));
+    errors.push(err);
+    log.error('Failed to clean orphaned worktrees', { error: err });
+  }
+  return { errors };
 }

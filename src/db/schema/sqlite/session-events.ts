@@ -22,7 +22,7 @@ export const sessionEvents = sqliteTable(
   },
   (table) => [
     index('session_events_session_idx').on(table.sessionId),
-    index('session_events_offset_idx').on(table.sessionId, table.offset),
+    // DB-008: Removed redundant session_events_offset_idx — covered by unique_offset below
     // Enforce unique offset per session to prevent race conditions
     uniqueIndex('session_events_unique_offset').on(table.sessionId, table.offset),
   ]

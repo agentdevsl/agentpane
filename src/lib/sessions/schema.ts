@@ -77,6 +77,7 @@ export const workflowSchema = z.object({
     'approval:requested',
     'approval:approved',
     'approval:rejected',
+    'agent:resumed',
     'worktree:created',
     'worktree:merged',
     'worktree:removed',

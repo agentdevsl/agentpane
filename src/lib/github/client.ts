@@ -1,4 +1,5 @@
 import { Octokit } from 'octokit';
+import { errorMessage } from '../utils/error-message';
 
 export interface GitHubClientOptions {
   token?: string;
@@ -86,7 +87,7 @@ export function formatGitHubError(error: unknown): { message: string; status?: n
       if (status) {
         return { message: `GitHub API error (${status}): ${apiMessage}`, status };
       }
-      return { message: error instanceof Error ? error.message : String(error) };
+      return { message: errorMessage(error) };
   }
 }
 

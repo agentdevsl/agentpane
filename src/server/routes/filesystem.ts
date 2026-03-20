@@ -1,11 +1,19 @@
 /**
  * Filesystem routes
+ *
+ * AR-017: No path traversal risk. This route is protected by admin-only RBAC
+ * (see router.ts RBAC guard for /api/filesystem/*) and only searches a hardcoded
+ * list of directories under the user's home directory. User input does not
+ * influence the directory paths that are read.
  */
 
 import { access, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Hono } from 'hono';
+import { createLogger } from '../../lib/logging/logger.js';
 import { json } from '../shared.js';
+
+const log = createLogger('FilesystemRoutes');
 
 export function createFilesystemRoutes() {
   const app = new Hono();
@@ -14,7 +22,8 @@ export function createFilesystemRoutes() {
   app.get('/discover-repos', async (_c) => {
     const homeDir = process.env.HOME || process.env.USERPROFILE || '';
 
-    // Common directories to search for git repos
+    // AR-017: These directories are hardcoded -- no user input controls which
+    // directories are scanned, eliminating any path traversal risk.
     const searchDirs = [
       `${homeDir}/git`,
       `${homeDir}/projects`,
@@ -73,14 +82,14 @@ export function createFilesystemRoutes() {
           } catch (error) {
             // Track skipped entries so user knows why repos might be missing
             const errorMsg = error instanceof Error ? error.message : 'access denied';
-            console.warn(`[Discover] Skipping ${fullPath}: ${errorMsg}`);
+            log.warn('Discover skipping entry', { data: { path: fullPath, reason: errorMsg } });
             warnings.push({ path: fullPath, error: errorMsg });
           }
         }
       } catch (error) {
         // Track unreadable directories so user knows why repos might be missing
         const errorMsg = error instanceof Error ? error.message : 'access denied';
-        console.warn(`[Discover] Cannot read ${searchDir}: ${errorMsg}`);
+        log.warn('Discover cannot read directory', { data: { path: searchDir, reason: errorMsg } });
         warnings.push({ path: searchDir, error: errorMsg });
       }
     }

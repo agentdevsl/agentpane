@@ -12,6 +12,7 @@ import {
 import { createId } from '@paralleldrive/cuid2';
 import { NomadErrors } from '../../errors/nomad-errors.js';
 import { createLogger } from '../../logging/logger.js';
+import { errorMessage } from '../../utils/error-message';
 import type { SandboxConfig, SandboxHealthCheck, SandboxInfo, SandboxStatus } from '../types.js';
 import { SANDBOX_DEFAULTS } from '../types.js';
 import { NomadSandboxInstance } from './nomad-sandbox-instance.js';
@@ -246,7 +247,7 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
       if (error instanceof NomadApiError && error.statusCode === 403) {
         throw NomadErrors.AUTH_FAILED(error.message);
       }
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       throw NomadErrors.JOB_CREATION_FAILED(jobName, message);
     } finally {
       this.creatingProjects.delete(config.projectId);
@@ -370,7 +371,7 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
       if (error instanceof NotFoundError) {
         return null;
       }
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       log.error(`Failed to get sandbox for project ${projectId}: ${message}`, {
         error: error instanceof Error ? error : new Error(message),
       });
@@ -419,7 +420,7 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
           cpuCores: 0,
         }));
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       log.error(`Failed to list Nomad sandboxes: ${message}`, {
         error: error instanceof Error ? error : new Error(message),
       });

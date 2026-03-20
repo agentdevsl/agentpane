@@ -2,7 +2,15 @@
  * Simple in-memory rate limiter middleware for Hono.
  *
  * Uses a fixed window counter per IP address (default) or per API token.
- * For production with multiple instances, replace with Redis-backed limiter.
+ *
+ * IMPORTANT (AR-031): This rate limiter stores counters in process memory.
+ * In a multi-instance deployment (e.g., behind a load balancer), each instance
+ * maintains its own counters independently, so the effective rate limit is
+ * multiplied by the number of instances. For production multi-instance
+ * deployments, replace with a Redis-backed rate limiter (e.g., @upstash/ratelimit
+ * or a custom Redis INCR/EXPIRE pattern) to get globally consistent limits.
+ *
+ * TODO: Implement Redis-backed rate limiter for multi-instance production deployments.
  */
 
 import type { Context, Next } from 'hono';

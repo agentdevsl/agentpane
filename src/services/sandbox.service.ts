@@ -203,7 +203,7 @@ export class SandboxService {
 
       return ok(info);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
 
       // Publish error event
       await this.streams.publish(sandboxId, 'sandbox:error', {
@@ -307,7 +307,7 @@ export class SandboxService {
 
       return ok(undefined);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
 
       // Update database with error
       await this.db
@@ -391,7 +391,7 @@ export class SandboxService {
       const metrics = await sandbox.getMetrics();
       return ok(metrics);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       return err(SandboxErrors.INTERNAL_ERROR(message));
     }
   }
@@ -417,7 +417,7 @@ export class SandboxService {
       const result = await sandbox.exec(command, args);
       return ok(result);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       return err(SandboxErrors.EXEC_FAILED(command, message));
     }
   }
@@ -452,6 +452,9 @@ export class SandboxService {
   /**
    * Check for idle sandboxes and stop them
    */
+  /**
+   * SL-015: Per-sandbox error boundaries -- one sandbox failure does not prevent checking others.
+   */
   private async checkIdleSandboxes(): Promise<void> {
     const runningSandboxes = await this.db.query.sandboxInstances.findMany({
       where: eq(sandboxInstances.status, 'running'),
@@ -460,21 +463,29 @@ export class SandboxService {
     const now = Date.now();
 
     for (const dbSandbox of runningSandboxes) {
-      const lastActivity = new Date(dbSandbox.lastActivityAt).getTime();
-      const idleMs = now - lastActivity;
-      const timeoutMs = dbSandbox.idleTimeoutMinutes * 60 * 1000;
+      try {
+        const lastActivity = new Date(dbSandbox.lastActivityAt).getTime();
+        const idleMs = now - lastActivity;
+        const timeoutMs = dbSandbox.idleTimeoutMinutes * 60 * 1000;
 
-      if (idleMs >= timeoutMs) {
-        // Publish idle event
-        await this.streams.publish(dbSandbox.id, 'sandbox:idle', {
-          sandboxId: dbSandbox.id,
-          projectId: dbSandbox.projectId,
-          idleSince: lastActivity,
-          timeoutMinutes: dbSandbox.idleTimeoutMinutes,
-        });
+        if (idleMs >= timeoutMs) {
+          // Publish idle event
+          await this.streams.publish(dbSandbox.id, 'sandbox:idle', {
+            sandboxId: dbSandbox.id,
+            projectId: dbSandbox.projectId,
+            idleSince: lastActivity,
+            timeoutMinutes: dbSandbox.idleTimeoutMinutes,
+          });
 
-        // Stop the sandbox
-        await this.stop(dbSandbox.id, 'idle_timeout');
+          // Stop the sandbox
+          await this.stop(dbSandbox.id, 'idle_timeout');
+        }
+      } catch (sandboxErr) {
+        console.error(
+          `[SandboxService] Error checking idle sandbox ${dbSandbox.id}:`,
+          sandboxErr instanceof Error ? sandboxErr.message : String(sandboxErr)
+        );
+        // Continue checking remaining sandboxes
       }
     }
   }

@@ -1,6 +1,7 @@
 import {
   CLI_SESSIONS_MIGRATION_SQL,
   CLI_SESSIONS_PERF_METRICS_MIGRATION_SQL,
+  DB_REVIEW_INDEXES_MIGRATION_SQL,
   EVENT_SYSTEM_MIGRATION_SQL,
   MIGRATION_SQL,
   PERFORMANCE_INDEXES_MIGRATION_SQL,
@@ -115,4 +116,7 @@ export const MIGRATIONS: Migration[] = [
 
   // 17. Schedule executions table (idempotent — IF NOT EXISTS)
   { version: 17, name: 'schedule-executions', sql: SCHEDULE_EXECUTIONS_MIGRATION_SQL },
+
+  // 18. DB review indexes — remove redundant index, add missing indexes (DB-008, DB-009)
+  { version: 18, name: 'db-review-indexes', sql: DB_REVIEW_INDEXES_MIGRATION_SQL },
 ];

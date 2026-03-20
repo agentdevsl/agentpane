@@ -12,7 +12,11 @@ import { and, count, eq, inArray, ne } from 'drizzle-orm';
 import type { ApiTokenStatus, RbacRole } from '../db/schema/shared/enums';
 import { apiTokens } from '../db/schema/sqlite/api-tokens';
 import { tags } from '../db/schema/sqlite/tags';
+import type { AppError } from '../lib/errors/base';
+import { createError } from '../lib/errors/base';
 import { createLogger } from '../lib/logging/logger';
+import type { Result } from '../lib/utils/result';
+import { err, ok } from '../lib/utils/result';
 import type { Database } from '../types/database';
 
 const log = createLogger('RbacTokenService');
@@ -97,13 +101,9 @@ export class RbacTokenService {
 
   /**
    * Create a new API token (within a transaction).
-   * Returns the created token with raw value, or error code.
+   * SL-007: Returns standard Result<CreateTokenResult, AppError> for consistency.
    */
-  async create(
-    params: CreateTokenParams
-  ): Promise<
-    { ok: true; data: CreateTokenResult } | { ok: false; error: string; message: string }
-  > {
+  async create(params: CreateTokenParams): Promise<Result<CreateTokenResult, AppError>> {
     try {
       const result = await this.db.transaction(async (tx) => {
         // Check name uniqueness
@@ -182,13 +182,13 @@ export class RbacTokenService {
       });
 
       if ('error' in result) {
-        return { ok: false, error: result.error as string, message: result.message as string };
+        return err(createError(result.error as string, result.message as string, 409));
       }
 
-      return { ok: true, data: result.created };
+      return ok(result.created);
     } catch (error) {
       log.error('Failed to create token', { error });
-      return { ok: false, error: 'DB_ERROR', message: 'Failed to create token' };
+      return err(createError('DB_ERROR', 'Failed to create token', 500));
     }
   }
 

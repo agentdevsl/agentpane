@@ -4,8 +4,20 @@
 
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { createLogger } from '../../lib/logging/logger.js';
 import type { ApiKeyService } from '../../services/api-key.service.js';
 import { json } from '../shared.js';
+
+const log = createLogger('ApiKeysRoutes');
+
+// AR-029: Validate the service parameter against a known set of supported services.
+// This prevents storing keys for unknown/unsupported services.
+const KNOWN_API_KEY_SERVICES = ['anthropic', 'github'] as const;
+type KnownService = (typeof KNOWN_API_KEY_SERVICES)[number];
+
+function isKnownService(service: string): service is KnownService {
+  return (KNOWN_API_KEY_SERVICES as readonly string[]).includes(service);
+}
 
 // Validation schemas
 const saveKeySchema = z.object({
@@ -23,10 +35,27 @@ export function createApiKeysRoutes({ apiKeyService }: ApiKeysDeps) {
   app.get('/:service', async (c) => {
     const service = c.req.param('service');
 
+    // AR-029: Validate service against known set
+    if (!isKnownService(service)) {
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: `Unknown service "${service}". Must be one of: ${KNOWN_API_KEY_SERVICES.join(', ')}`,
+          },
+        },
+        400
+      );
+    }
+
     const result = await apiKeyService.getKeyInfo(service);
 
     if (!result.ok) {
-      console.error('[API Keys] Get key info error:', result.error);
+      log.error('Get key info error', {
+        error: result.error instanceof Error ? result.error : new Error(String(result.error)),
+        data: { service },
+      });
       return json({ ok: false, error: result.error }, 500);
     }
 
@@ -36,6 +65,20 @@ export function createApiKeysRoutes({ apiKeyService }: ApiKeysDeps) {
   // POST /api/keys/:service
   app.post('/:service', async (c) => {
     const service = c.req.param('service');
+
+    // AR-029: Validate service against known set
+    if (!isKnownService(service)) {
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: `Unknown service "${service}". Must be one of: ${KNOWN_API_KEY_SERVICES.join(', ')}`,
+          },
+        },
+        400
+      );
+    }
 
     let body: unknown;
     try {
@@ -64,7 +107,10 @@ export function createApiKeysRoutes({ apiKeyService }: ApiKeysDeps) {
     const result = await apiKeyService.saveKey(service, parsed.data.key);
 
     if (!result.ok) {
-      console.error('[API Keys] Save key error:', result.error);
+      log.error('Save key error', {
+        error: result.error instanceof Error ? result.error : new Error(String(result.error)),
+        data: { service },
+      });
       return json({ ok: false, error: result.error }, 400);
     }
 
@@ -75,10 +121,27 @@ export function createApiKeysRoutes({ apiKeyService }: ApiKeysDeps) {
   app.delete('/:service', async (c) => {
     const service = c.req.param('service');
 
+    // AR-029: Validate service against known set
+    if (!isKnownService(service)) {
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: `Unknown service "${service}". Must be one of: ${KNOWN_API_KEY_SERVICES.join(', ')}`,
+          },
+        },
+        400
+      );
+    }
+
     const result = await apiKeyService.deleteKey(service);
 
     if (!result.ok) {
-      console.error('[API Keys] Delete key error:', result.error);
+      log.error('Delete key error', {
+        error: result.error instanceof Error ? result.error : new Error(String(result.error)),
+        data: { service },
+      });
       return json({ ok: false, error: result.error }, 500);
     }
 

@@ -3,9 +3,8 @@ import { createId } from '@paralleldrive/cuid2';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { SessionEvent } from '../../services/session.service.js';
 import { deriveAgentName, mapAgentRole } from '../topology/map-agent-role.js';
+import { errorMessage } from '../utils/error-message';
 import { buildSdkEnv } from './agent-sdk-utils.js';
-import { getToolHandler } from './tools/index.js';
-import type { AgentHooks, ToolContext, ToolResponse } from './types.js';
 
 const log = createLogger('StreamHandler');
 
@@ -17,7 +16,6 @@ export interface StreamHandlerOptions {
   maxTurns: number;
   model: string;
   cwd: string;
-  hooks: AgentHooks;
   signal?: AbortSignal;
   sessionService: {
     publish: (sessionId: string, event: SessionEvent) => Promise<unknown>;
@@ -49,41 +47,6 @@ export interface AgentRunResult {
     numTurns?: number;
     stopReason?: string | null;
   };
-}
-
-async function runPreToolHooks(
-  hooks: AgentHooks,
-  toolName: string,
-  toolInput: Record<string, unknown>
-): Promise<{ allowed: boolean; message?: string }> {
-  for (const hookGroup of hooks.PreToolUse) {
-    for (const hook of hookGroup.hooks) {
-      const result = await hook({ tool_name: toolName, tool_input: toolInput });
-      if (result.decision === 'block') {
-        return { allowed: false, message: result.message };
-      }
-    }
-  }
-  return { allowed: true };
-}
-
-async function runPostToolHooks(
-  hooks: AgentHooks,
-  toolName: string,
-  toolInput: Record<string, unknown>,
-  toolResponse: ToolResponse,
-  durationMs: number
-): Promise<void> {
-  for (const hookGroup of hooks.PostToolUse) {
-    for (const hook of hookGroup.hooks) {
-      await hook({
-        tool_name: toolName,
-        tool_input: toolInput,
-        tool_response: toolResponse,
-        duration_ms: durationMs,
-      });
-    }
-  }
 }
 
 async function publishToolProgress(
@@ -315,13 +278,68 @@ async function publishMetrics(
   });
 }
 
+// =============================================================================
+// Shared session runner (AE-010)
+// =============================================================================
+
+/** Phase-specific configuration for `runAgentSession` */
+interface AgentSessionPhaseConfig {
+  /** SDK permission mode */
+  permissionMode: 'plan' | 'acceptEdits';
+  /** Phase label for events */
+  phase: 'planning' | 'execution';
+  /** Initial event type to publish */
+  startEventType: 'agent:planning' | 'agent:started';
+  /** Whether to enable topology tracking for subagents */
+  enableTopology: boolean;
+  /** When true, enforce maxTurns as a hard stop within the stream loop */
+  enforceTurnLimit: boolean;
+  /** Callback invoked when ExitPlanMode tool is used (planning only) */
+  onExitPlanMode?: (options: ExitPlanModeOptions | undefined) => void;
+  /** Callback invoked when the plan content is captured via tool_use_summary */
+  onPlanCaptured?: (content: string) => void;
+  /** Build the final result when the session completes normally */
+  buildResult: (opts: {
+    runId: string;
+    turn: number;
+    accumulated: string;
+    metrics?: AgentRunResult['metrics'];
+    planContent?: string;
+    exitPlanModeOptions?: ExitPlanModeOptions;
+  }) => AgentRunResult;
+  /** Build the result for end-of-stream without a result message */
+  buildFallbackResult: (opts: {
+    runId: string;
+    turn: number;
+    accumulated: string;
+    planContent?: string;
+    exitPlanModeOptions?: ExitPlanModeOptions;
+  }) => AgentRunResult;
+  /** Optional callback on result to publish phase-specific events (e.g. plan_ready, topology completed) */
+  onResult?: (opts: {
+    runId: string;
+    turn: number;
+    accumulated: string;
+    result: Record<string, unknown>;
+    sessionService: StreamHandlerOptions['sessionService'];
+    sessionId: string;
+    agentId: string;
+    topology?: TopologyTracker;
+    planContent?: string;
+    exitPlanModeOptions?: ExitPlanModeOptions;
+  }) => Promise<void>;
+}
+
 /**
- * Run the agent in planning mode first.
- * The agent will explore the codebase and use ExitPlanMode when the plan is ready.
- * Returns after the plan is ready for user approval.
+ * Shared agent session runner extracted from runAgentPlanning/runAgentExecution.
+ * Parameterized by phase config to support both planning and execution phases.
  */
-export async function runAgentPlanning(options: StreamHandlerOptions): Promise<AgentRunResult> {
-  const { agentId, sessionId, prompt, model, cwd, sessionService, signal } = options;
+async function runAgentSession(
+  options: StreamHandlerOptions,
+  config: AgentSessionPhaseConfig
+): Promise<AgentRunResult> {
+  const { agentId, sessionId, prompt, allowedTools, maxTurns, model, cwd, sessionService, signal } =
+    options;
 
   const runId = createId();
   let accumulated = '';
@@ -329,276 +347,33 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
   let planContent = '';
   let exitPlanModeOptions: ExitPlanModeOptions | undefined;
 
-  // Publish planning started event
+  // Topology tracker (only used in execution phase)
+  const topology = config.enableTopology ? createTopologyTracker() : undefined;
+
+  // Publish start event
   await sessionService.publish(sessionId, {
     id: createId(),
-    type: 'agent:planning',
+    type: config.startEventType,
     timestamp: Date.now(),
-    data: { agentId, runId, model },
+    data: { agentId, runId, maxTurns, model, phase: config.phase },
   });
 
-  // Track active tools by toolUseID for correlating with tool_use_summary
-  const activeTools = new Map<string, { toolName: string; startTime: number }>();
-
-  // Create canUseTool callback to capture ExitPlanMode options and emit tool:start events.
-  // The SDK's tool_use_summary in v0.2.76+ no longer includes tool_name/tool_input,
-  // so we intercept via canUseTool which always receives the full input.
-  const canUseTool: CanUseTool = async (toolName, input, toolOptions) => {
-    activeTools.set(toolOptions.toolUseID, { toolName, startTime: Date.now() });
-
+  // Emit root topology node in execution phase
+  if (config.enableTopology && topology) {
+    topology.rootEmitted = true;
     await sessionService.publish(sessionId, {
       id: createId(),
-      type: 'tool:start',
+      type: 'topology:agent_spawned',
       timestamp: Date.now(),
       data: {
         agentId,
-        toolId: toolOptions.toolUseID,
-        tool: toolName,
-        input: input as Record<string, unknown>,
-        phase: 'planning',
+        name: 'Agent',
+        role: 'orchestrator',
+        parentId: null,
       },
     });
-
-    if (toolName === 'ExitPlanMode') {
-      const planOptions = input as ExitPlanModeOptions | undefined;
-      exitPlanModeOptions = planOptions;
-
-      log.info('ExitPlanMode captured via canUseTool', { data: { agentId } });
-    }
-    return { behavior: 'allow' as const, toolUseID: toolOptions.toolUseID };
-  };
-
-  // Create Claude Agent SDK session in PLAN mode
-  // In plan mode, the agent can read/explore but not execute changes
-  // The agent will use ExitPlanMode tool when the plan is ready
-  const session = unstable_v2_createSession({
-    model,
-    env: buildSdkEnv(),
-    permissionMode: 'plan', // Planning mode - agent will use ExitPlanMode when done
-    executableArgs: ['--add-dir', cwd],
-    canUseTool,
-  });
-
-  try {
-    // Send the task prompt - the agent will automatically enter plan mode
-    await session.send(prompt);
-
-    // Stream the planning response
-    for await (const msg of session.stream()) {
-      // Check if abort signal has been triggered
-      if (signal?.aborted) {
-        session.close();
-        await sessionService.publish(sessionId, {
-          id: createId(),
-          type: 'agent:stopped',
-          timestamp: Date.now(),
-          data: { agentId, runId, reason: 'aborted', phase: 'planning' },
-        });
-        return {
-          runId,
-          status: 'paused',
-          turnCount: turn,
-          result: 'Agent stopped by user during planning',
-        };
-      }
-
-      // Handle stream events (token-by-token streaming)
-      if (msg.type === 'stream_event') {
-        const event = msg.event as {
-          type: string;
-          delta?: { type: string; text?: string };
-        };
-
-        if (
-          event.type === 'content_block_delta' &&
-          event.delta?.type === 'text_delta' &&
-          event.delta.text
-        ) {
-          accumulated += event.delta.text;
-
-          await sessionService.publish(sessionId, {
-            id: createId(),
-            type: 'chunk',
-            timestamp: Date.now(),
-            data: { agentId, delta: event.delta.text, accumulated, phase: 'planning' },
-          });
-        }
-      }
-
-      // Handle complete assistant message
-      if (msg.type === 'assistant') {
-        turn++;
-        const message = msg.message as {
-          content?: Array<{ type: string; text?: string }>;
-        };
-
-        const textContent = message?.content
-          ?.filter((b): b is { type: 'text'; text: string } => b.type === 'text')
-          .map((b) => b.text)
-          .join('');
-
-        if (textContent) {
-          accumulated = textContent;
-        }
-
-        // Publish turn event for planning phase
-        await sessionService.publish(sessionId, {
-          id: createId(),
-          type: 'agent:turn',
-          timestamp: Date.now(),
-          data: { agentId, turn, phase: 'planning' },
-        });
-
-        // Check for SDK-level errors on assistant messages (v0.2.76+)
-        const assistantError = (msg as { error?: string }).error;
-        if (assistantError) {
-          log.warn('Assistant error during planning', { data: { agentId, error: assistantError } });
-          sessionService
-            .publish(sessionId, {
-              id: createId(),
-              type: 'agent:error',
-              timestamp: Date.now(),
-              data: {
-                agentId,
-                runId,
-                error: `Assistant error: ${assistantError}`,
-                phase: 'planning',
-              },
-            })
-            .catch((publishErr) => {
-              log.warn('Failed to publish assistant error', {
-                error: publishErr,
-              });
-            });
-        }
-      }
-
-      // Handle tool_use_summary (SDK v0.2.76+: summary + preceding_tool_use_ids)
-      if (msg.type === 'tool_use_summary') {
-        const toolSummary = msg as {
-          summary: string;
-          preceding_tool_use_ids: string[];
-        };
-
-        for (const toolUseId of toolSummary.preceding_tool_use_ids) {
-          const tracked = activeTools.get(toolUseId);
-          if (!tracked) continue;
-
-          await sessionService.publish(sessionId, {
-            id: createId(),
-            type: 'tool:result',
-            timestamp: Date.now(),
-            data: {
-              agentId,
-              toolId: toolUseId,
-              tool: tracked.toolName,
-              output: toolSummary.summary?.slice(0, 1000),
-              isError: false,
-              phase: 'planning',
-            },
-          });
-
-          // Check if this is ExitPlanMode - this means the plan is ready
-          if (tracked.toolName === 'ExitPlanMode') {
-            planContent = accumulated;
-            log.info('ExitPlanMode completed - plan is ready', { data: { agentId } });
-          }
-
-          activeTools.delete(toolUseId);
-        }
-      }
-
-      // Handle tool_progress events
-      if (msg.type === 'tool_progress') {
-        publishToolProgress(
-          sessionService,
-          sessionId,
-          agentId,
-          msg as Record<string, unknown>
-        ).catch((publishErr) => {
-          log.warn('Failed to publish tool_progress', { error: publishErr });
-        });
-      }
-
-      // Handle rate_limit_event (SDK v0.2.76+)
-      if (msg.type === 'rate_limit_event') {
-        const rateLimitMsg = msg as {
-          rate_limit_info: { status: string; resetsAt?: number };
-        };
-        sessionService
-          .publish(sessionId, {
-            id: createId(),
-            type: 'agent:rate_limit',
-            timestamp: Date.now(),
-            data: {
-              agentId,
-              status: rateLimitMsg.rate_limit_info.status,
-              resetsAt: rateLimitMsg.rate_limit_info.resetsAt,
-            },
-          })
-          .catch((publishErr) => {
-            log.warn('Failed to publish rate_limit', { error: publishErr });
-          });
-      }
-
-      // Handle system messages (compact_boundary) during planning
-      if (msg.type === 'system') {
-        const sysMsg = msg as Record<string, unknown>;
-        if ((sysMsg.subtype as string) === 'compact_boundary') {
-          publishCompactBoundary(sessionService, sessionId, agentId, sysMsg).catch((publishErr) => {
-            log.warn('Failed to publish compact_boundary', { error: publishErr });
-          });
-        }
-      }
-
-      // Handle result (planning session finished)
-      if (msg.type === 'result') {
-        const result = msg as Record<string, unknown>;
-
-        session.close(); // Always close first — before any potentially-failing publishes
-
-        publishMetrics(sessionService, sessionId, agentId, runId, result).catch((publishErr) => {
-          log.warn('Failed to publish metrics', { error: publishErr });
-        });
-
-        // Publish plan ready event with plan options
-        await sessionService.publish(sessionId, {
-          id: createId(),
-          type: 'agent:plan_ready',
-          timestamp: Date.now(),
-          data: {
-            agentId,
-            runId,
-            plan: planContent || accumulated,
-            allowedPrompts: exitPlanModeOptions?.allowedPrompts,
-          },
-        });
-
-        return {
-          runId,
-          status: 'planning',
-          turnCount: turn,
-          plan: planContent || accumulated,
-          planOptions: exitPlanModeOptions,
-          metrics: extractResultMetrics(result),
-        };
-      }
-    }
-
-    // If we exit the loop, planning completed
-    session.close();
-
-    await sessionService.publish(sessionId, {
-      id: createId(),
-      type: 'agent:plan_ready',
-      timestamp: Date.now(),
-      data: {
-        agentId,
-        runId,
-        plan: planContent || accumulated,
-        allowedPrompts: exitPlanModeOptions?.allowedPrompts,
-      },
-    });
+<<<<<<< ours
+=======
 
     return {
       runId,
@@ -608,14 +383,14 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
       planOptions: exitPlanModeOptions,
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errMsg = errorMessage(error);
     log.error('Agent planning error', { error, data: { agentId } });
 
     await sessionService.publish(sessionId, {
       id: createId(),
       type: 'agent:error',
       timestamp: Date.now(),
-      data: { agentId, runId, error: errorMessage, phase: 'planning' },
+      data: { agentId, runId, error: errMsg, phase: 'planning' },
     });
 
     session.close();
@@ -623,46 +398,10 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
       runId,
       status: 'error',
       turnCount: 0,
-      error: errorMessage,
+      error: errMsg,
     };
+>>>>>>> theirs
   }
-}
-
-/**
- * Run the agent in execution mode after plan approval.
- */
-export async function runAgentExecution(options: StreamHandlerOptions): Promise<AgentRunResult> {
-  const { agentId, sessionId, prompt, allowedTools, maxTurns, model, cwd, sessionService, signal } =
-    options;
-
-  const runId = createId();
-  let turn = 0;
-  let accumulated = '';
-
-  // Topology tracker for subagent lifecycle events
-  const topology = createTopologyTracker();
-
-  // Publish agent started event
-  await sessionService.publish(sessionId, {
-    id: createId(),
-    type: 'agent:started',
-    timestamp: Date.now(),
-    data: { agentId, runId, maxTurns, model, phase: 'execution' },
-  });
-
-  // Always emit root agent node in topology
-  topology.rootEmitted = true;
-  await sessionService.publish(sessionId, {
-    id: createId(),
-    type: 'topology:agent_spawned',
-    timestamp: Date.now(),
-    data: {
-      agentId,
-      name: 'Agent',
-      role: 'orchestrator',
-      parentId: null,
-    },
-  });
 
   // Track active tools by toolUseID for correlating with tool_use_summary
   const activeTools = new Map<string, { toolName: string; startTime: number }>();
@@ -679,42 +418,48 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
         toolId: toolOptions.toolUseID,
         tool: toolName,
         input: input as Record<string, unknown>,
+        ...(config.phase === 'planning' ? { phase: 'planning' } : {}),
       },
     });
+
+    if (toolName === 'ExitPlanMode' && config.onExitPlanMode) {
+      const planOptions = input as ExitPlanModeOptions | undefined;
+      exitPlanModeOptions = planOptions;
+      config.onExitPlanMode(planOptions);
+      log.info('ExitPlanMode captured via canUseTool', { data: { agentId } });
+    }
 
     return { behavior: 'allow' as const, toolUseID: toolOptions.toolUseID };
   };
 
-  // Create Claude Agent SDK session for execution
+  // Create Claude Agent SDK session
   const session = unstable_v2_createSession({
     model,
     env: buildSdkEnv(),
-    allowedTools,
-    permissionMode: 'acceptEdits', // Auto-accept edits for execution
+    ...(config.permissionMode === 'acceptEdits' ? { allowedTools } : {}),
+    permissionMode: config.permissionMode,
     executableArgs: ['--add-dir', cwd],
     canUseTool,
   });
 
   try {
-    // Send the execution prompt
     await session.send(prompt);
 
-    // Stream responses from the SDK
     for await (const msg of session.stream()) {
-      // Check if abort signal has been triggered
+      // Check abort signal
       if (signal?.aborted) {
         session.close();
         await sessionService.publish(sessionId, {
           id: createId(),
           type: 'agent:stopped',
           timestamp: Date.now(),
-          data: { agentId, runId, reason: 'aborted', phase: 'execution' },
+          data: { agentId, runId, reason: 'aborted', phase: config.phase },
         });
         return {
           runId,
           status: 'paused',
           turnCount: turn,
-          result: 'Agent stopped by user during execution',
+          result: `Agent stopped by user during ${config.phase}`,
         };
       }
 
@@ -738,15 +483,14 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
             id: createId(),
             type: 'chunk',
             timestamp: Date.now(),
-            data: { agentId, delta: event.delta.text, accumulated, phase: 'execution' },
+            data: { agentId, delta: event.delta.text, accumulated, phase: config.phase },
           });
         }
       }
 
-      // Handle complete assistant messages (turn completed)
+      // Handle complete assistant messages
       if (msg.type === 'assistant') {
         turn++;
-
         const message = msg.message as {
           content?: Array<{ type: string; text?: string }>;
           model?: string;
@@ -769,16 +513,16 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
           data: {
             agentId,
             turn,
-            maxTurns,
-            remaining: maxTurns - turn,
-            usage: message?.usage,
+            ...(config.enforceTurnLimit ? { maxTurns, remaining: maxTurns - turn } : {}),
+            ...(message?.usage ? { usage: message.usage } : {}),
+            phase: config.phase,
           },
         });
 
         // Check for SDK-level errors on assistant messages (v0.2.76+)
         const assistantError = (msg as { error?: string }).error;
         if (assistantError) {
-          log.warn('Assistant error during execution', {
+          log.warn(`Assistant error during ${config.phase}`, {
             data: { agentId, error: assistantError },
           });
           sessionService
@@ -786,14 +530,20 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
               id: createId(),
               type: 'agent:error',
               timestamp: Date.now(),
-              data: { agentId, runId, error: `Assistant error: ${assistantError}` },
+              data: {
+                agentId,
+                runId,
+                error: `Assistant error: ${assistantError}`,
+                phase: config.phase,
+              },
             })
             .catch((publishErr) => {
               log.warn('Failed to publish assistant error', { error: publishErr });
             });
         }
 
-        if (turn >= maxTurns) {
+        // Enforce turn limit (execution phase)
+        if (config.enforceTurnLimit && turn >= maxTurns) {
           await sessionService.publish(sessionId, {
             id: createId(),
             type: 'agent:turn_limit',
@@ -811,7 +561,7 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
         }
       }
 
-      // Handle tool_use_summary events (SDK v0.2.76+: summary + preceding_tool_use_ids)
+      // Handle tool_use_summary (SDK v0.2.76+)
       if (msg.type === 'tool_use_summary') {
         const toolSummary = msg as {
           summary: string;
@@ -832,8 +582,16 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
               tool: tracked.toolName,
               output: toolSummary.summary?.slice(0, 1000),
               isError: false,
+              ...(config.phase === 'planning' ? { phase: 'planning' } : {}),
             },
           });
+
+          // Check if this is ExitPlanMode - plan is ready
+          if (tracked.toolName === 'ExitPlanMode' && config.onPlanCaptured) {
+            planContent = accumulated;
+            config.onPlanCaptured(accumulated);
+            log.info('ExitPlanMode completed - plan is ready', { data: { agentId } });
+          }
 
           activeTools.delete(toolUseId);
         }
@@ -883,125 +641,234 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
           });
         }
 
-        // Handle subagent lifecycle events (task_started, task_progress, task_notification)
-        // Awaited (not fire-and-forget) to preserve event ordering — spawned must precede progress/completed
+        // Handle subagent lifecycle events (execution phase only)
         if (
-          sysSubtype === 'task_started' ||
-          sysSubtype === 'task_progress' ||
-          sysSubtype === 'task_notification'
+          topology &&
+          (sysSubtype === 'task_started' ||
+            sysSubtype === 'task_progress' ||
+            sysSubtype === 'task_notification')
         ) {
           await handleTopologySystemMessage(sysMsg, topology, sessionService, sessionId, agentId);
         }
       }
 
-      // Handle result (agent finished)
+      // Handle result (session finished)
       if (msg.type === 'result') {
         const result = msg as Record<string, unknown>;
 
-        session.close(); // Always close first — before any potentially-failing publishes
+        session.close();
 
         publishMetrics(sessionService, sessionId, agentId, runId, result).catch((publishErr) => {
           log.warn('Failed to publish metrics', { error: publishErr });
         });
 
-        const usage =
-          result.usage != null && typeof result.usage === 'object'
-            ? (result.usage as { input_tokens?: number; output_tokens?: number })
-            : undefined;
+        // Invoke phase-specific result handler
+        if (config.onResult) {
+          await config.onResult({
+            runId,
+            turn,
+            accumulated,
+            result,
+            sessionService,
+            sessionId,
+            agentId,
+            topology,
+            planContent,
+            exitPlanModeOptions,
+          });
+        }
 
-        // Complete root topology node
-        await sessionService.publish(sessionId, {
-          id: createId(),
-          type: 'topology:agent_completed',
-          timestamp: Date.now(),
-          data: { agentId, status: 'completed' },
-        });
-
-        await sessionService.publish(sessionId, {
-          id: createId(),
-          type: 'agent:completed',
-          timestamp: Date.now(),
-          data: { agentId, runId, turnCount: turn, usage },
-        });
-
-        return {
+        return config.buildResult({
           runId,
-          status: 'completed',
-          turnCount: turn,
-          result: accumulated || 'Task completed successfully',
+          turn,
+          accumulated,
           metrics: extractResultMetrics(result),
-        };
+          planContent,
+          exitPlanModeOptions,
+        });
       }
     }
 
+    // End of stream without result message
     session.close();
 
-    await sessionService.publish(sessionId, {
-      id: createId(),
-      type: 'agent:completed',
-      timestamp: Date.now(),
-      data: { agentId, runId, turnCount: turn },
-    });
+    // Invoke phase-specific result handler for fallback
+    if (config.onResult) {
+      await config.onResult({
+        runId,
+        turn,
+        accumulated,
+        result: {},
+        sessionService,
+        sessionId,
+        agentId,
+        topology,
+        planContent,
+        exitPlanModeOptions,
+      });
+    }
 
-    return {
+    return config.buildFallbackResult({
       runId,
-      status: 'completed',
-      turnCount: turn,
-      result: accumulated || 'Task completed successfully',
-    };
+      turn,
+      accumulated,
+      planContent,
+      exitPlanModeOptions,
+    });
   } catch (error) {
+<<<<<<< ours
     const errorMessage = error instanceof Error ? error.message : String(error);
+    log.error(`Agent ${config.phase} error`, { error, data: { agentId } });
+=======
+    const errMsg = errorMessage(error);
     log.error('Agent execution error', { error, data: { agentId } });
+>>>>>>> theirs
 
     await sessionService.publish(sessionId, {
       id: createId(),
       type: 'agent:error',
       timestamp: Date.now(),
-      data: { agentId, runId, error: errorMessage },
+<<<<<<< ours
+      data: { agentId, runId, error: errorMessage, phase: config.phase },
+=======
+      data: { agentId, runId, error: errMsg },
+>>>>>>> theirs
     });
+
+    // AE-008: Emit topology:agent_completed with status 'failed' for orphaned subagent nodes
+    if (topology) {
+      for (const [sdkTaskId, nodeId] of topology.taskToNodeId) {
+        await sessionService.publish(sessionId, {
+          id: createId(),
+          type: 'topology:agent_completed',
+          timestamp: Date.now(),
+          data: {
+            agentId: nodeId,
+            sdkTaskId,
+            status: 'failed',
+            summary: `Parent agent failed: ${errorMessage}`,
+          },
+        });
+      }
+      topology.taskToNodeId.clear();
+    }
 
     session.close();
     return {
       runId,
       status: 'error',
       turnCount: turn,
-      error: errorMessage,
+      error: errMsg,
     };
   }
 }
 
-// Helper to execute a single tool call with hooks
-export async function executeToolWithHooks(
-  toolName: string,
-  toolInput: Record<string, unknown>,
-  context: ToolContext,
-  hooks: AgentHooks
-): Promise<ToolResponse> {
-  // Run pre-tool hooks
-  const preResult = await runPreToolHooks(hooks, toolName, toolInput);
-  if (!preResult.allowed) {
-    return {
-      content: [{ type: 'text', text: preResult.message ?? 'Tool blocked by policy' }],
-      is_error: true,
-    };
-  }
+// =============================================================================
+// Public API
+// =============================================================================
 
-  // Get tool handler
-  const handler = getToolHandler(toolName);
-  if (!handler) {
-    return {
-      content: [{ type: 'text', text: `Unknown tool: ${toolName}` }],
-      is_error: true,
-    };
-  }
+/**
+ * Run the agent in planning mode first.
+ * The agent will explore the codebase and use ExitPlanMode when the plan is ready.
+ * Returns after the plan is ready for user approval.
+ */
+export async function runAgentPlanning(options: StreamHandlerOptions): Promise<AgentRunResult> {
+  return runAgentSession(options, {
+    permissionMode: 'plan',
+    phase: 'planning',
+    startEventType: 'agent:planning',
+    enableTopology: false,
+    enforceTurnLimit: false,
+    onExitPlanMode: (_opts) => {
+      /* captured via closure in runAgentSession */
+    },
+    onPlanCaptured: (_content) => {
+      /* captured via closure in runAgentSession */
+    },
+    buildResult: ({ runId, turn, accumulated, metrics, planContent, exitPlanModeOptions }) => ({
+      runId,
+      status: 'planning',
+      turnCount: turn,
+      plan: planContent || accumulated,
+      planOptions: exitPlanModeOptions,
+      metrics,
+    }),
+    buildFallbackResult: ({ runId, turn, accumulated, planContent, exitPlanModeOptions }) => ({
+      runId,
+      status: 'planning',
+      turnCount: turn,
+      plan: planContent || accumulated || 'No plan generated',
+      planOptions: exitPlanModeOptions,
+    }),
+    onResult: async ({
+      runId,
+      accumulated,
+      sessionService,
+      sessionId,
+      agentId,
+      planContent,
+      exitPlanModeOptions,
+    }) => {
+      await sessionService.publish(sessionId, {
+        id: createId(),
+        type: 'agent:plan_ready',
+        timestamp: Date.now(),
+        data: {
+          agentId,
+          runId,
+          plan: planContent || accumulated,
+          allowedPrompts: exitPlanModeOptions?.allowedPrompts,
+        },
+      });
+    },
+  });
+}
 
-  // Execute tool
-  const startTime = Date.now();
-  const response = await handler(toolInput as never, context);
-  const duration = Date.now() - startTime;
+/**
+ * Run the agent in execution mode after plan approval.
+ */
+export async function runAgentExecution(options: StreamHandlerOptions): Promise<AgentRunResult> {
+  return runAgentSession(options, {
+    permissionMode: 'acceptEdits',
+    phase: 'execution',
+    startEventType: 'agent:started',
+    enableTopology: true,
+    enforceTurnLimit: true,
+    buildResult: ({ runId, turn, accumulated, metrics }) => ({
+      runId,
+      status: 'completed',
+      turnCount: turn,
+      result: accumulated || 'Task completed successfully',
+      metrics,
+    }),
+    buildFallbackResult: ({ runId, turn, accumulated }) => ({
+      runId,
+      status: 'completed',
+      turnCount: turn,
+      result: accumulated || 'Task completed successfully',
+    }),
+    onResult: async ({ runId, turn, result, sessionService, sessionId, agentId, topology }) => {
+      const usage =
+        result.usage != null && typeof result.usage === 'object'
+          ? (result.usage as { input_tokens?: number; output_tokens?: number })
+          : undefined;
 
-  // Run post-tool hooks
-  await runPostToolHooks(hooks, toolName, toolInput, response, duration);
+      // Complete root topology node
+      if (topology) {
+        await sessionService.publish(sessionId, {
+          id: createId(),
+          type: 'topology:agent_completed',
+          timestamp: Date.now(),
+          data: { agentId, status: 'completed' },
+        });
+      }
 
-  return response;
+      await sessionService.publish(sessionId, {
+        id: createId(),
+        type: 'agent:completed',
+        timestamp: Date.now(),
+        data: { agentId, runId, turnCount: turn, usage },
+      });
+    },
+  });
 }

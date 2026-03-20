@@ -3,8 +3,11 @@
  */
 
 import { Hono } from 'hono';
+import { createLogger } from '../../lib/logging/logger.js';
 import type { TemplateService } from '../../services/template.service.js';
 import { isValidId, json } from '../shared.js';
+
+const logger = createLogger('routes:templates');
 
 interface TemplatesDeps {
   templateService: TemplateService;
@@ -36,7 +39,7 @@ export function createTemplatesRoutes({ templateService }: TemplatesDeps) {
         },
       });
     } catch (error) {
-      console.error('[Templates] List error:', error);
+      logger.error('List error', { error: error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to list templates' } },
         500
@@ -105,7 +108,7 @@ export function createTemplatesRoutes({ templateService }: TemplatesDeps) {
 
       return json({ ok: true, data: result.value }, 201);
     } catch (error) {
-      console.error('[Templates] Create error:', error);
+      logger.error('Create error', { error: error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to create template' } },
         500
@@ -133,7 +136,7 @@ export function createTemplatesRoutes({ templateService }: TemplatesDeps) {
 
       return json({ ok: true, data: result.value });
     } catch (error) {
-      console.error('[Templates] Sync error:', error);
+      logger.error('Sync error', { error: error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to sync template' } },
         500
@@ -161,7 +164,7 @@ export function createTemplatesRoutes({ templateService }: TemplatesDeps) {
 
       return json({ ok: true, data: result.value });
     } catch (error) {
-      console.error('[Templates] Get error:', error);
+      logger.error('Get error', { error: error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to get template' } },
         500
@@ -211,7 +214,7 @@ export function createTemplatesRoutes({ templateService }: TemplatesDeps) {
 
       return json({ ok: true, data: result.value });
     } catch (error) {
-      console.error('[Templates] Update error:', error);
+      logger.error('Update error', { error: error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to update template' } },
         500
@@ -239,7 +242,7 @@ export function createTemplatesRoutes({ templateService }: TemplatesDeps) {
 
       return json({ ok: true, data: null });
     } catch (error) {
-      console.error('[Templates] Delete error:', error);
+      logger.error('Delete error', { error: error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to delete template' } },
         500

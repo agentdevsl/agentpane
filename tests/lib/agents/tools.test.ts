@@ -234,15 +234,13 @@ describe('File Tools', () => {
       expect(result.content[0].text).toContain('ENOENT');
     });
 
-    it('handles permission denied error', async () => {
-      mockReadFile.mockRejectedValue(new Error('EACCES: permission denied'));
-
+    it('blocks access to system directory /root (AE-011)', async () => {
       const { readFile } = await import('@/lib/agents/tools/file-tools');
       const result = await readFile({ file_path: '/root/secret.txt' }, defaultContext);
 
       expect(result.is_error).toBe(true);
-      expect(result.content[0].text).toContain('Failed to read file');
-      expect(result.content[0].text).toContain('EACCES');
+      expect(result.content[0].text).toContain('Access denied');
+      expect(result.content[0].text).toContain('/root');
     });
 
     it('handles non-Error thrown values', async () => {
@@ -372,9 +370,7 @@ describe('File Tools', () => {
       expect(mockWriteFile).toHaveBeenCalledWith('/test/new-file.txt', 'new file content', 'utf-8');
     });
 
-    it('handles permission denied on write', async () => {
-      mockWriteFile.mockRejectedValue(new Error('EACCES: permission denied'));
-
+    it('blocks write to system directory /root (AE-011)', async () => {
       const { writeFile } = await import('@/lib/agents/tools/file-tools');
       const result = await writeFile(
         {
@@ -385,8 +381,8 @@ describe('File Tools', () => {
       );
 
       expect(result.is_error).toBe(true);
-      expect(result.content[0].text).toContain('Failed to write file');
-      expect(result.content[0].text).toContain('EACCES');
+      expect(result.content[0].text).toContain('Access denied');
+      expect(result.content[0].text).toContain('/root');
     });
 
     it('handles directory not found error', async () => {

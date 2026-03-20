@@ -2,6 +2,7 @@ import { exec } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { errorMessage } from '../../utils/error-message';
 import type { ToolContext, ToolResponse } from '../types.js';
 
 const execAsync = promisify(exec);
@@ -45,7 +46,7 @@ export async function globTool(args: GlobArgs, context: ToolContext): Promise<To
       content: [
         {
           type: 'text',
-          text: `Glob failed: ${error instanceof Error ? error.message : String(error)}`,
+          text: `Glob failed: ${errorMessage(error)}`,
         },
       ],
       is_error: true,
@@ -96,7 +97,7 @@ export async function grepTool(args: GrepArgs, context: ToolContext): Promise<To
       content: [
         {
           type: 'text',
-          text: `Grep failed: ${error instanceof Error ? error.message : String(error)}`,
+          text: `Grep failed: ${errorMessage(error)}`,
         },
       ],
       is_error: true,

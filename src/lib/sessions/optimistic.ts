@@ -8,6 +8,7 @@
  */
 
 import { createId } from '@paralleldrive/cuid2';
+import { errorMessage } from '../utils/error-message';
 import { presenceCollection, terminalCollection } from './collections.js';
 import type { PresenceEvent, TerminalEvent } from './schema.js';
 
@@ -203,7 +204,7 @@ export async function sendPresenceJoin(
     console.error('[Presence] Failed to join session:', {
       sessionId,
       userId,
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage(error),
     });
     return false;
   }
@@ -232,7 +233,7 @@ export async function sendPresenceLeave(sessionId: string, userId: string): Prom
     console.error('[Presence] Failed to leave session:', {
       sessionId,
       userId,
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage(error),
     });
     return false;
   }

@@ -181,7 +181,11 @@ export const ProjectCard = memo(function ProjectCard({
       tabIndex={0}
       onDoubleClick={handleDoubleClick}
       onKeyDown={(e) => {
-        if (e.key === 'Enter') handleDoubleClick();
+        // FC-016: Enter and Space both open the project
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          handleDoubleClick();
+        }
       }}
     >
       {/* Header */}

@@ -18,7 +18,10 @@ export const projects = sqliteTable('projects', {
   maxConcurrentAgents: integer('max_concurrent_agents').default(3),
   githubOwner: text('github_owner'),
   githubRepo: text('github_repo'),
-  githubInstallationId: text('github_installation_id').references(() => githubInstallations.id),
+  // DB-016: Add onDelete: 'set null' so deleting a GitHub installation doesn't break projects
+  githubInstallationId: text('github_installation_id').references(() => githubInstallations.id, {
+    onDelete: 'set null',
+  }),
   configPath: text('config_path').default('.claude'),
   sandboxConfigId: text('sandbox_config_id').references(() => sandboxConfigs.id),
   createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),

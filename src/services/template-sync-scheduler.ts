@@ -1,6 +1,8 @@
 /**
  * Template Sync Scheduler Service
  *
+ * SL-012: Converted from module-level singleton to class-based service with instance state.
+ *
  * Background service that periodically syncs templates from GitHub based on their
  * configured sync intervals. Runs as a background interval that checks for templates
  * due for sync and triggers the sync process.
@@ -20,22 +22,8 @@ export const MIN_SYNC_INTERVAL_MINUTES = 5;
  * Extract error message from unknown error type
  */
 function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return errorMessage(error);
 }
-
-type SchedulerState = {
-  intervalId: ReturnType<typeof setInterval> | null;
-  isRunning: boolean;
-  lastCheckAt: string | null;
-  syncInProgress: Set<string>;
-};
-
-const state: SchedulerState = {
-  intervalId: null,
-  isRunning: false,
-  lastCheckAt: null,
-  syncInProgress: new Set(),
-};
 
 /**
  * Calculate the next sync time based on an interval in minutes
@@ -58,171 +46,200 @@ export function validateSyncInterval(interval: number | null | undefined): boole
 }
 
 /**
- * Check for templates due for sync and trigger sync process
+ * Class-based template sync scheduler with instance state.
  */
-async function checkAndSyncTemplates(
-  db: Database,
-  templateService: TemplateService
-): Promise<{ synced: number; errors: number }> {
-  const now = new Date().toISOString();
-  let synced = 0;
-  let errors = 0;
+export class TemplateSyncScheduler {
+  private intervalId: ReturnType<typeof setInterval> | null = null;
+  private isRunning = false;
+  private lastCheckAt: string | null = null;
+  private syncInProgress = new Set<string>();
 
-  try {
-    // Find templates where:
-    // - syncIntervalMinutes is set (auto-sync enabled)
-    // - nextSyncAt is in the past or now
-    // - status is not 'syncing' (prevent overlapping syncs)
-    const dueTemplates = await db.query.templates.findMany({
-      where: and(
-        isNotNull(templates.syncIntervalMinutes),
-        isNotNull(templates.nextSyncAt),
-        lte(templates.nextSyncAt, now)
-      ),
-    });
+  constructor(
+    private db: Database,
+    private templateService: TemplateService
+  ) {}
 
-    for (const template of dueTemplates) {
-      // Skip if already syncing this template
-      if (state.syncInProgress.has(template.id)) {
-        console.log(`[TemplateSyncScheduler] Skipping ${template.name} - sync already in progress`);
-        continue;
-      }
+  /**
+   * Check for templates due for sync and trigger sync process
+   */
+  private async checkAndSyncTemplates(): Promise<{ synced: number; errors: number }> {
+    const now = new Date().toISOString();
+    let synced = 0;
+    let errors = 0;
 
-      // Skip if template is currently in syncing state
-      if (template.status === 'syncing') {
-        console.log(`[TemplateSyncScheduler] Skipping ${template.name} - status is syncing`);
-        continue;
-      }
+    try {
+      const dueTemplates = await this.db.query.templates.findMany({
+        where: and(
+          isNotNull(templates.syncIntervalMinutes),
+          isNotNull(templates.nextSyncAt),
+          lte(templates.nextSyncAt, now)
+        ),
+      });
 
-      try {
-        state.syncInProgress.add(template.id);
-        console.log(`[TemplateSyncScheduler] Starting scheduled sync for: ${template.name}`);
-
-        const result = await templateService.sync(template.id);
-
-        if (result.ok) {
-          synced++;
+      for (const template of dueTemplates) {
+        if (this.syncInProgress.has(template.id)) {
           console.log(
-            `[TemplateSyncScheduler] Successfully synced ${template.name}: ` +
-              `${result.value.skillCount} skills, ${result.value.commandCount} commands, ${result.value.agentCount} agents`
+            `[TemplateSyncScheduler] Skipping ${template.name} - sync already in progress`
           );
-        } else {
-          errors++;
-          console.error(
-            `[TemplateSyncScheduler] Failed to sync ${template.name}: ${result.error.message}`
-          );
+          continue;
         }
 
-        // Update nextSyncAt for next scheduled sync (only if interval is still set)
-        // Wrapped separately so sync success isn't affected by schedule update failure
-        if (template.syncIntervalMinutes) {
-          try {
-            const nextSyncAt = calculateNextSyncAt(template.syncIntervalMinutes);
-            await db.update(templates).set({ nextSyncAt }).where(eq(templates.id, template.id));
-          } catch (updateError) {
+        if (template.status === 'syncing') {
+          console.log(`[TemplateSyncScheduler] Skipping ${template.name} - status is syncing`);
+          continue;
+        }
+
+        try {
+          this.syncInProgress.add(template.id);
+          console.log(`[TemplateSyncScheduler] Starting scheduled sync for: ${template.name}`);
+
+          const result = await this.templateService.sync(template.id);
+
+          if (result.ok) {
+            synced++;
+            console.log(
+              `[TemplateSyncScheduler] Successfully synced ${template.name}: ` +
+                `${result.value.skillCount} skills, ${result.value.commandCount} commands, ${result.value.agentCount} agents`
+            );
+          } else {
+            errors++;
             console.error(
-              `[TemplateSyncScheduler] Failed to update nextSyncAt for ${template.name}: ${getErrorMessage(updateError)}`
+              `[TemplateSyncScheduler] Failed to sync ${template.name}: ${result.error.message}`
             );
           }
+
+          if (template.syncIntervalMinutes) {
+            try {
+              const nextSyncAt = calculateNextSyncAt(template.syncIntervalMinutes);
+              await this.db
+                .update(templates)
+                .set({ nextSyncAt })
+                .where(eq(templates.id, template.id));
+            } catch (updateError) {
+              console.error(
+                `[TemplateSyncScheduler] Failed to update nextSyncAt for ${template.name}: ${getErrorMessage(updateError)}`
+              );
+            }
+          }
+        } catch (error) {
+          errors++;
+          console.error(
+            `[TemplateSyncScheduler] Error syncing ${template.name}: ${getErrorMessage(error)}`
+          );
+        } finally {
+          this.syncInProgress.delete(template.id);
         }
-      } catch (error) {
-        errors++;
-        console.error(
-          `[TemplateSyncScheduler] Error syncing ${template.name}: ${getErrorMessage(error)}`
-        );
-      } finally {
-        state.syncInProgress.delete(template.id);
-      }
-    }
-  } catch (error) {
-    console.error(`[TemplateSyncScheduler] Error checking templates: ${getErrorMessage(error)}`);
-  }
-
-  state.lastCheckAt = now;
-  return { synced, errors };
-}
-
-/**
- * Start the template sync scheduler
- *
- * Initializes a background interval that periodically checks for templates
- * due for sync and triggers the sync process.
- *
- * @param db - Database instance
- * @param templateService - Template service instance for syncing
- * @returns Cleanup function to stop the scheduler
- */
-export function startSyncScheduler(db: Database, templateService: TemplateService): () => void {
-  if (state.isRunning) {
-    console.warn('[TemplateSyncScheduler] Scheduler already running');
-    return () => stopSyncScheduler();
-  }
-
-  console.log('[TemplateSyncScheduler] Starting scheduler');
-  state.isRunning = true;
-
-  // Run immediately on start
-  checkAndSyncTemplates(db, templateService)
-    .then(({ synced, errors }) => {
-      if (synced > 0 || errors > 0) {
-        console.log(`[TemplateSyncScheduler] Initial check: ${synced} synced, ${errors} errors`);
-      }
-    })
-    .catch((error) => {
-      console.error(
-        `[TemplateSyncScheduler] Critical error during startup sync: ${getErrorMessage(error)}`
-      );
-    });
-
-  // Set up periodic checking
-  state.intervalId = setInterval(async () => {
-    try {
-      const { synced, errors } = await checkAndSyncTemplates(db, templateService);
-      if (synced > 0 || errors > 0) {
-        console.log(`[TemplateSyncScheduler] Periodic check: ${synced} synced, ${errors} errors`);
       }
     } catch (error) {
-      console.error(
-        `[TemplateSyncScheduler] Error during periodic check: ${getErrorMessage(error)}`
-      );
+      console.error(`[TemplateSyncScheduler] Error checking templates: ${getErrorMessage(error)}`);
     }
-  }, SCHEDULER_INTERVAL_MS);
 
-  return () => stopSyncScheduler();
+    this.lastCheckAt = now;
+    return { synced, errors };
+  }
+
+  /**
+   * Start the scheduler
+   */
+  start(): () => void {
+    if (this.isRunning) {
+      console.warn('[TemplateSyncScheduler] Scheduler already running');
+      return () => this.stop();
+    }
+
+    console.log('[TemplateSyncScheduler] Starting scheduler');
+    this.isRunning = true;
+
+    // Run immediately on start
+    this.checkAndSyncTemplates()
+      .then(({ synced, errors }) => {
+        if (synced > 0 || errors > 0) {
+          console.log(`[TemplateSyncScheduler] Initial check: ${synced} synced, ${errors} errors`);
+        }
+      })
+      .catch((error) => {
+        console.error(
+          `[TemplateSyncScheduler] Critical error during startup sync: ${getErrorMessage(error)}`
+        );
+      });
+
+    // Set up periodic checking
+    this.intervalId = setInterval(async () => {
+      try {
+        const { synced, errors } = await this.checkAndSyncTemplates();
+        if (synced > 0 || errors > 0) {
+          console.log(`[TemplateSyncScheduler] Periodic check: ${synced} synced, ${errors} errors`);
+        }
+      } catch (error) {
+        console.error(
+          `[TemplateSyncScheduler] Error during periodic check: ${getErrorMessage(error)}`
+        );
+      }
+    }, SCHEDULER_INTERVAL_MS);
+
+    return () => this.stop();
+  }
+
+  /**
+   * Stop the scheduler
+   */
+  stop(): void {
+    if (!this.isRunning) {
+      return;
+    }
+
+    console.log('[TemplateSyncScheduler] Stopping scheduler');
+
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+      this.intervalId = null;
+    }
+
+    this.isRunning = false;
+    this.syncInProgress.clear();
+  }
+
+  /**
+   * Get the current scheduler state (for debugging/monitoring)
+   */
+  getState(): Readonly<{
+    isRunning: boolean;
+    lastCheckAt: string | null;
+    syncInProgressCount: number;
+  }> {
+    return {
+      isRunning: this.isRunning,
+      lastCheckAt: this.lastCheckAt,
+      syncInProgressCount: this.syncInProgress.size,
+    };
+  }
 }
 
-/**
- * Stop the template sync scheduler
- *
- * Cleans up the background interval and resets state.
- */
+// Backward-compatible module-level API that delegates to a lazily-created instance
+
+let _instance: TemplateSyncScheduler | null = null;
+
+export function startSyncScheduler(db: Database, templateService: TemplateService): () => void {
+  if (_instance) {
+    // Delegate to existing instance's start(), which handles the "already running" warning
+    return _instance.start();
+  }
+  _instance = new TemplateSyncScheduler(db, templateService);
+  return _instance.start();
+}
+
 export function stopSyncScheduler(): void {
-  if (!state.isRunning) {
-    return;
-  }
-
-  console.log('[TemplateSyncScheduler] Stopping scheduler');
-
-  if (state.intervalId) {
-    clearInterval(state.intervalId);
-    state.intervalId = null;
-  }
-
-  state.isRunning = false;
-  state.syncInProgress.clear();
+  _instance?.stop();
+  _instance = null;
 }
 
-/**
- * Get the current scheduler state (for debugging/monitoring)
- */
 export function getSchedulerState(): Readonly<{
   isRunning: boolean;
   lastCheckAt: string | null;
   syncInProgressCount: number;
 }> {
-  return {
-    isRunning: state.isRunning,
-    lastCheckAt: state.lastCheckAt,
-    syncInProgressCount: state.syncInProgress.size,
-  };
+  if (!_instance) {
+    return { isRunning: false, lastCheckAt: null, syncInProgressCount: 0 };
+  }
+  return _instance.getState();
 }

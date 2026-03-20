@@ -6,6 +6,7 @@ import type { OAuthCredentials } from '../../types/credentials.js';
 import { DEFAULT_TASK_CREATION_MODEL, getFullModelId } from '../constants/models.js';
 import { PlanModeErrors } from '../errors/plan-mode-errors.js';
 import { getPromptDefaultText, resolvePromptServer } from '../prompts/index.js';
+import { errorMessage } from '../utils/error-message';
 import { readCredentialsFile } from '../utils/resolve-anthropic-key.js';
 import type { Result } from '../utils/result.js';
 import { err, ok } from '../utils/result.js';
@@ -190,7 +191,7 @@ export class ClaudeClient {
         return await this.sendNonStreaming(messages);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       return err(PlanModeErrors.API_ERROR(message));
     }
   }

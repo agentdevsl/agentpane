@@ -101,7 +101,11 @@ export function startCliMonitorSync(
 
   source.onerror = () => {
     reconnectCount++;
+    // RS-012: Close EventSource when max retries (5) exceeded to prevent
+    // the browser from continuing to retry indefinitely and exhausting
+    // the HTTP/1.1 connection limit.
     if (reconnectCount >= 5) {
+      source.close();
       callbacks.onConnectionError?.();
     }
   };

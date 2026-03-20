@@ -5,12 +5,14 @@
  * this bridge receives pre-parsed SSEEvent objects from the AgentCoreSandboxInstance
  * and publishes them to the same DurableStreams channels.
  */
+
 import type {
   DurableStreamsService,
   StreamEventMap,
   TypedEventType,
 } from '../../services/durable-streams.service.js';
 import type { SSEEvent } from '../sandbox/providers/agentcore-sandbox-instance.js';
+import { errorMessage } from '../utils/error-message';
 import { type AgentRunnerEventType, EVENT_TYPE_MAP } from './event-type-map.js';
 
 // Re-export for consumers that previously imported from this module
@@ -119,12 +121,12 @@ export function createAgentCoreBridge(options: AgentCoreBridgeOptions): AgentCor
         `Failed to publish event (${consecutivePublishFailures}/${MAX_CONSECUTIVE_PUBLISH_FAILURES})`,
         {
           type: streamType,
-          error: error instanceof Error ? error.message : String(error),
+          error: errorMessage(error),
         }
       );
       if (consecutivePublishFailures >= MAX_CONSECUTIVE_PUBLISH_FAILURES) {
         throw new Error(
-          `Stream publishing failed ${consecutivePublishFailures} consecutive times: ${error instanceof Error ? error.message : String(error)}`
+          `Stream publishing failed ${consecutivePublishFailures} consecutive times: ${errorMessage(error)}`
         );
       }
     }
@@ -301,16 +303,16 @@ export function createAgentCoreBridge(options: AgentCoreBridgeOptions): AgentCor
         }
       } catch (error) {
         // Stream error -- publish error event and notify
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        warnLog('processStream', 'Stream error', { taskId, error: errorMessage });
+        const errMsg = errorMessage(error);
+        warnLog('processStream', 'Stream error', { taskId, error: errMsg });
 
         await publishEvent('container-agent:error', {
-          error: errorMessage,
+          error: errMsg,
           turnCount: 0,
         });
 
         if (onError) {
-          onError(errorMessage, 0);
+          onError(errMsg, 0);
         }
       }
 

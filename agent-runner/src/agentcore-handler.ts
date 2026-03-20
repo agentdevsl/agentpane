@@ -16,9 +16,6 @@
  * both Docker-based and AgentCore-based agents uniformly.
  */
 
-import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import {
   type CanUseTool,
   type SDKSession,
@@ -30,7 +27,6 @@ import type {
   AgentCompleteData,
   AgentErrorData,
   AgentEventType,
-  AgentFileChangedData,
   AgentMessageData,
   AgentPlanReadyData,
   AgentStartedData,
@@ -39,6 +35,15 @@ import type {
   AgentToolStartData,
   AgentTurnData,
 } from './event-emitter.js';
+// SC-023: Use shared logic extracted from index.ts and agentcore-handler.ts
+import {
+  type ExitPlanModeInput,
+  type ExitPlanModeOptions,
+  extractFileChange,
+  getAssistantText,
+  shouldStop,
+  writeCredentialsFile,
+} from './shared-session.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -79,92 +84,8 @@ interface SSEEvent {
   data: Record<string, unknown>;
 }
 
-// ---------------------------------------------------------------------------
-// File-change detection (mirrors index.ts logic)
-// ---------------------------------------------------------------------------
-
-const FILE_MODIFY_TOOLS: Record<
-  string,
-  { pathKey: string; action: () => AgentFileChangedData['action'] }
-> = {
-  Write: { pathKey: 'file_path', action: () => 'create' },
-  Edit: { pathKey: 'file_path', action: () => 'modify' },
-  NotebookEdit: { pathKey: 'notebook_path', action: () => 'modify' },
-};
-
-function extractFileChange(
-  toolName: string,
-  input: Record<string, unknown>
-): AgentFileChangedData | null {
-  const spec = FILE_MODIFY_TOOLS[toolName];
-  if (!spec) return null;
-  const filePath = input[spec.pathKey];
-  if (typeof filePath !== 'string' || !filePath) return null;
-  return { path: filePath, action: spec.action(), toolName };
-}
-
-// ---------------------------------------------------------------------------
-// Credentials helper (same as index.ts)
-// ---------------------------------------------------------------------------
-
-async function writeCredentialsFile(oauthToken: string): Promise<void> {
-  const home = homedir();
-  const claudeDir = join(home, '.claude');
-  const credentialsFile = join(claudeDir, '.credentials.json');
-
-  const credentials = {
-    claudeAiOauth: {
-      accessToken: oauthToken,
-      refreshToken: null,
-      expiresAt: Date.now() + 86_400_000, // 24 h
-      scopes: ['user:inference', 'user:profile', 'user:sessions:claude_code'],
-      subscriptionType: 'max',
-    },
-  };
-
-  await mkdir(claudeDir, { recursive: true, mode: 0o700 });
-  await writeFile(credentialsFile, JSON.stringify(credentials), { mode: 0o600 });
-
-  // Verify
-  const written = await readFile(credentialsFile, 'utf-8');
-  const parsed = JSON.parse(written) as { claudeAiOauth?: { accessToken?: string } };
-  if (!parsed.claudeAiOauth?.accessToken) {
-    throw new Error('Credentials file written but accessToken missing');
-  }
-  console.error('[agentcore-handler] Credentials file written and verified');
-}
-
-// ---------------------------------------------------------------------------
-// Stop-file check
-// ---------------------------------------------------------------------------
-
-async function shouldStop(stopFile: string | undefined): Promise<boolean> {
-  if (!stopFile) return false;
-  try {
-    await access(stopFile);
-    return true;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      return false;
-    }
-    // Permission errors or other filesystem failures mean we can't reliably
-    // check for cancellation — stop the agent to avoid uncontrolled execution.
-    console.error(`[agentcore-handler] Error checking stop file: ${(err as Error).message}`);
-    return true;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// ExitPlanMode types (mirrors index.ts)
-// ---------------------------------------------------------------------------
-
-interface ExitPlanModeOptions {
-  allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
-}
-
-interface ExitPlanModeInput extends ExitPlanModeOptions {
-  plan?: string;
-}
+// SC-023: File-change detection, credentials, stop-file, and ExitPlanMode
+// types are now imported from shared-session.ts (see imports above).
 
 // ---------------------------------------------------------------------------
 // Helper: build an SSE event object
@@ -179,21 +100,7 @@ function makeEvent(
   return { type, timestamp: Date.now(), taskId, sessionId, data };
 }
 
-// ---------------------------------------------------------------------------
-// Helper: extract assistant text (mirrors index.ts)
-// ---------------------------------------------------------------------------
-
-function getAssistantText(msg: unknown): string | null {
-  const message = (msg as { message?: unknown }).message as {
-    content?: Array<{ type: string; text?: string }>;
-  };
-  if (!message?.content) return null;
-  const textBlocks = message.content.filter(
-    (block): block is { type: 'text'; text: string } =>
-      block.type === 'text' && typeof block.text === 'string'
-  );
-  return textBlocks.map((b) => b.text).join('') || null;
-}
+// SC-023: getAssistantText is now imported from shared-session.ts
 
 /** Drain all events from a queue, returning them as an array. */
 function drainQueue(queue: SSEEvent[]): SSEEvent[] {

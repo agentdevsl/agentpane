@@ -10,8 +10,10 @@
  * (sandbox-provider.ts) because AgentCore has no exec/shell/tmux capabilities.
  * Instead, it provides a focused API for invoke-and-stream workflows.
  */
+
 import { AgentCoreErrors, isAgentCoreError } from '../../errors/agentcore-errors.js';
 import { createLogger } from '../../logging/logger.js';
+import { errorMessage } from '../../utils/error-message';
 import type { SandboxHealthCheck, SandboxStatus } from '../types.js';
 import {
   type AgentCoreInstanceOptions,
@@ -289,7 +291,7 @@ export class AgentCoreSandboxProvider {
         throw error;
       }
 
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
 
       // Check for specific AWS error types
       const errorName = (error as { name?: string })?.name;
@@ -359,7 +361,7 @@ export class AgentCoreSandboxProvider {
     } catch (error) {
       // Re-wrap with context if it's not already an AgentCore error
       if (isAgentCoreError(error)) throw error;
-      throw AgentCoreErrors.STREAMING_ERROR(error instanceof Error ? error.message : String(error));
+      throw AgentCoreErrors.STREAMING_ERROR(errorMessage(error));
     }
   }
 }

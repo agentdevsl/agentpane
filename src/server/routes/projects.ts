@@ -4,13 +4,17 @@
  * Thin route handlers that delegate to ProjectService.
  */
 
+import path from 'node:path';
 import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { agents } from '../../db/schema';
+import { createLogger } from '../../lib/logging/logger.js';
 import type { ProjectService } from '../../services/project.service.js';
 import type { Database } from '../../types/database.js';
 import { isValidId, json } from '../shared.js';
+
+const logger = createLogger('routes:projects');
 
 // Validation schemas
 const createProjectSchema = z.object({
@@ -65,7 +69,7 @@ export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
         },
       });
     } catch (error) {
-      console.error('[Projects] List error:', error);
+      logger.error('List error', { error: error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to list projects' } },
         500
@@ -99,6 +103,28 @@ export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
       );
     }
 
+    // AR-033: Validate path at creation time, not just deletion time.
+    // Ensures the path resolves to a safe location, preventing registration of system
+    // directories that could later be deleted via the project delete endpoint.
+    // We resolve the path to prevent traversal attacks (e.g., /home/user/../../../etc).
+    const resolvedPath = path.resolve(parsed.data.path);
+    const normalizedPath = path.normalize(resolvedPath);
+    const pathComponents = normalizedPath.split(path.sep).filter(Boolean);
+    // Block root-level and system directories (must have at least 3 path components)
+    if (pathComponents.length < 3) {
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message:
+              'Project path is too shallow. Must be at least 3 levels deep (e.g., /home/user/project).',
+          },
+        },
+        400
+      );
+    }
+
     try {
       const result = await projectService.create({
         path: parsed.data.path,
@@ -126,7 +152,7 @@ export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
         },
       });
     } catch (error) {
-      console.error('[Projects] Create error:', error);
+      logger.error('Create error', { error: error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to create project' } },
         500
@@ -180,7 +206,7 @@ export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
         },
       });
     } catch (error) {
-      console.error('[Projects] List with summaries error:', error);
+      logger.error('List with summaries error', { error: error });
       return json(
         {
           ok: false,
@@ -221,7 +247,7 @@ export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
         },
       });
     } catch (error) {
-      console.error('[Projects] Get error:', error);
+      logger.error('Get error', { error: error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to get project' } },
         500
@@ -292,7 +318,7 @@ export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
         },
       });
     } catch (error) {
-      console.error('[Projects] Update error:', error);
+      logger.error('Update error', { error: error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to update project' } },
         500
@@ -386,7 +412,7 @@ export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
             // Track the error and return filesDeleted: false
             const errorMessage = fsError instanceof Error ? fsError.message : String(fsError);
             fileDeletionError = errorMessage;
-            console.error(`[Projects] Failed to delete project files: ${errorMessage}`);
+            logger.error(`Failed to delete project files: `);
           }
         }
       }
@@ -401,7 +427,7 @@ export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
         },
       });
     } catch (error) {
-      console.error('[Projects] Delete error:', error);
+      logger.error('Delete error', { error: error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to delete project' } },
         500

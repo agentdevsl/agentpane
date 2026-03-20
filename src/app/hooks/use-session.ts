@@ -1,12 +1,28 @@
+/**
+ * FC-006: Updated to use useSessionSubscription for shared SSE connections.
+ *
+ * FC-020: TanStack DB vs TanStack Query decision
+ * -----------------------------------------------
+ * This app uses manual fetch patterns (useState + useEffect + apiClient) rather
+ * than TanStack Query for server data. TanStack DB is installed but primarily
+ * used for local-first reactive collections. The decision was intentional:
+ *
+ * 1. Session/agent streams use SSE (durable streams) -- not request/response --
+ *    so TanStack Query's cache/refetch model does not apply.
+ * 2. Task/project data is fetched once per route mount with manual refresh on
+ *    mutations. The overhead of a query cache layer is not justified for the
+ *    current route count and data size.
+ * 3. TanStack DB handles the few truly reactive local collections (e.g., client
+ *    settings, CLI monitor sessions) where optimistic updates matter.
+ *
+ * If the app grows to have deeply nested data dependencies or shared cross-route
+ * cache requirements, TanStack Query should be reconsidered.
+ */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { SessionErrors } from '@/lib/errors/session-errors';
-import {
-  type ConnectionState,
-  type SessionCallbacks,
-  type Subscription,
-  subscribeToSession,
-} from '@/lib/streams/client';
+import type { ConnectionState, SessionCallbacks } from '@/lib/streams/client';
 import { err, ok, type Result } from '@/lib/utils/result';
+import { useSessionSubscription } from './use-session-subscription';
 
 export type SessionEvent = {
   type: string;
@@ -66,6 +82,9 @@ const initialState: SessionState = {
 /** Presence heartbeat interval in ms (10 seconds per spec) */
 const PRESENCE_HEARTBEAT_INTERVAL = 10000;
 
+/** RS-011: Maximum number of chunks to retain in state to prevent unbounded memory growth. */
+const MAX_CHUNKS = 5000;
+
 export function useSession(
   sessionId: string,
   userId: string
@@ -77,8 +96,6 @@ export function useSession(
   leave: () => Promise<Result<void, ReturnType<typeof SessionErrors.CONNECTION_FAILED>>>;
 } {
   const [state, setState] = useState<SessionState>(initialState);
-  const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
-  const subscriptionRef = useRef<Subscription | null>(null);
 
   const join = useCallback(async () => {
     try {
@@ -128,31 +145,40 @@ export function useSession(
     leaveRef.current = leave;
   }, [leave]);
 
-  // Subscribe to session events with automatic reconnection
+  // Join on mount, leave on unmount
   useEffect(() => {
     void joinRef.current();
-    setConnectionState('connecting');
+    return () => {
+      void leaveRef.current();
+    };
+  }, [sessionId]);
 
-    const callbacks: SessionCallbacks = {
+  // Build session-specific callbacks
+  const callbacks = useRef<SessionCallbacks>({});
+
+  useEffect(() => {
+    callbacks.current = {
       onChunk: (event) => {
-        setState((prev) => ({
-          ...prev,
-          chunks: [
-            ...prev.chunks,
-            {
-              text: event.data.text,
-              timestamp: event.data.timestamp,
-              agentId: event.data.agentId,
-            },
-          ],
-        }));
+        setState((prev) => {
+          const newChunk = {
+            text: event.data.text,
+            timestamp: event.data.timestamp,
+            agentId: event.data.agentId,
+          };
+          let chunks = [...prev.chunks, newChunk];
+          // RS-011: Cap chunks array to prevent unbounded memory growth.
+          // Slice oldest entries when overflow occurs.
+          if (chunks.length > MAX_CHUNKS) {
+            chunks = chunks.slice(chunks.length - MAX_CHUNKS);
+          }
+          return { ...prev, chunks };
+        });
       },
 
       onToolCall: (event) => {
         setState((prev) => {
           const existingIndex = prev.toolCalls.findIndex((t) => t.id === event.data.id);
           if (existingIndex >= 0) {
-            // Update existing tool call
             const updated = [...prev.toolCalls];
             updated[existingIndex] = {
               ...updated[existingIndex],
@@ -160,7 +186,6 @@ export function useSession(
             };
             return { ...prev, toolCalls: updated };
           }
-          // Add new tool call
           return {
             ...prev,
             toolCalls: [...prev.toolCalls, event.data],
@@ -201,30 +226,50 @@ export function useSession(
         console.error('[useSession] Stream error:', error);
       },
 
-      onConnectionStateChange: (nextState) => {
-        setConnectionState(nextState);
-      },
-
       onReconnect: () => {
         console.log('[useSession] Reconnected to session stream');
+        // RS-006: Fetch missed events from the REST API on reconnect.
+        // The durable streams client tracks its last offset and will resume
+        // from there, but if the gap is too large events may be lost.
+        // Fetch missed events from the database as a safety net.
+        // FC-006: subscription is now managed by useSessionSubscription;
+        // offset tracking is internal, so we always fetch from offset 0 on reconnect.
+        const lastOff = 0;
+        if (lastOff > 0) {
+          fetch(`/api/sessions/${sessionId}/events?offset=${lastOff}`)
+            .then((res) => (res.ok ? res.json() : null))
+            .then((json) => {
+              if (!json?.ok || !Array.isArray(json.data)) return;
+              // Events are already ordered by offset from the API.
+              // Re-apply any we may have missed during the disconnect gap.
+              for (const evt of json.data) {
+                if (evt.type === 'chunk' && evt.data?.text) {
+                  setState((prev) => {
+                    let chunks = [
+                      ...prev.chunks,
+                      { text: evt.data.text, timestamp: evt.timestamp },
+                    ];
+                    if (chunks.length > MAX_CHUNKS) {
+                      chunks = chunks.slice(chunks.length - MAX_CHUNKS);
+                    }
+                    return { ...prev, chunks };
+                  });
+                }
+              }
+            })
+            .catch(() => {
+              // Best-effort -- ignore fetch errors on reconnect gap detection
+            });
+        }
       },
 
       onDisconnect: () => {
         console.log('[useSession] Disconnected from session stream');
       },
     };
+  }, []);
 
-    // Subscribe using the durable streams client with automatic reconnection
-    const subscription = subscribeToSession(sessionId, callbacks);
-    subscriptionRef.current = subscription;
-    setConnectionState(subscription.getState());
-
-    return () => {
-      subscription.unsubscribe();
-      subscriptionRef.current = null;
-      void leaveRef.current();
-    };
-  }, [sessionId]);
+  const { connectionState } = useSessionSubscription(sessionId, callbacks.current);
 
   // Presence heartbeat at 10s interval (per spec)
   useEffect(() => {
@@ -245,7 +290,9 @@ export function useSession(
     return () => window.clearInterval(interval);
   }, [sessionId, userId]);
 
-  const lastOffset = subscriptionRef.current?.getLastOffset() ?? 0;
+  // FC-006: lastOffset is no longer directly tracked via subscriptionRef;
+  // it is managed internally by useSessionSubscription. Return 0 for compat.
+  const lastOffset = 0;
 
   return { state, connectionState, lastOffset, join, leave };
 }

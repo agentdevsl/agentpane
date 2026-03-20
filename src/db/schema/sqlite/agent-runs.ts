@@ -1,33 +1,42 @@
 import { createId } from '@paralleldrive/cuid2';
 import { sql } from 'drizzle-orm';
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import type { AgentStatus } from '../shared/enums';
 import { agents } from './agents';
 import { projects } from './projects';
 import { sessions } from './sessions';
 import { tasks } from './tasks';
 
-export const agentRuns = sqliteTable('agent_runs', {
-  id: text('id')
-    .primaryKey()
-    .$defaultFn(() => createId()),
-  agentId: text('agent_id')
-    .notNull()
-    .references(() => agents.id, { onDelete: 'cascade' }),
-  taskId: text('task_id')
-    .notNull()
-    .references(() => tasks.id, { onDelete: 'cascade' }),
-  projectId: text('project_id')
-    .notNull()
-    .references(() => projects.id, { onDelete: 'cascade' }),
-  sessionId: text('session_id').references(() => sessions.id, { onDelete: 'set null' }),
-  status: text('status').$type<AgentStatus>().notNull(),
-  startedAt: text('started_at').default(sql`(datetime('now'))`).notNull(),
-  completedAt: text('completed_at'),
-  turnsUsed: integer('turns_used').default(0),
-  tokensUsed: integer('tokens_used').default(0),
-  errorMessage: text('error_message'),
-});
+export const agentRuns = sqliteTable(
+  'agent_runs',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => createId()),
+    agentId: text('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+    taskId: text('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    sessionId: text('session_id').references(() => sessions.id, { onDelete: 'set null' }),
+    status: text('status').$type<AgentStatus>().notNull(),
+    startedAt: text('started_at').default(sql`(datetime('now'))`).notNull(),
+    completedAt: text('completed_at'),
+    turnsUsed: integer('turns_used').default(0),
+    tokensUsed: integer('tokens_used').default(0),
+    errorMessage: text('error_message'),
+  },
+  // DB-009: Add indexes for agent_runs lookup by agentId, projectId, taskId
+  (table) => [
+    index('idx_agent_runs_agent_id').on(table.agentId),
+    index('idx_agent_runs_project_id').on(table.projectId),
+    index('idx_agent_runs_task_id').on(table.taskId),
+  ]
+);
 
 export type AgentRun = typeof agentRuns.$inferSelect;
 export type NewAgentRun = typeof agentRuns.$inferInsert;

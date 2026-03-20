@@ -55,6 +55,13 @@ export class PlanModeService {
   private interactionHandler: InteractionHandler;
   private maxTurns: number;
 
+  /**
+   * Counter for stream/publish events that were dropped due to errors in catch blocks.
+   * Incremented each time a non-critical publish (stream events, tokens) fails silently.
+   * Use getMetrics() to inspect at runtime.
+   */
+  private droppedEventCount = 0;
+
   constructor(
     private db: Database,
     private streams: DurableStreamsService,
@@ -95,6 +102,13 @@ export class PlanModeService {
     this.claudeClientPromise = null;
 
     return result;
+  }
+
+  /**
+   * Return runtime metrics for observability.
+   */
+  getMetrics(): { droppedEventCount: number } {
+    return { droppedEventCount: this.droppedEventCount };
   }
 
   /**
@@ -152,7 +166,7 @@ export class PlanModeService {
       }
       dbSession = inserted;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       return err(PlanModeErrors.DATABASE_ERROR('insert', message));
     }
 
@@ -166,6 +180,7 @@ export class PlanModeService {
         projectId: input.projectId,
       });
     } catch (streamError) {
+      this.droppedEventCount++;
       console.error('[PlanModeService] Failed to create stream:', streamError);
     }
 
@@ -177,6 +192,7 @@ export class PlanModeService {
         projectId: session.projectId,
       });
     } catch (streamError) {
+      this.droppedEventCount++;
       console.error('[PlanModeService] Failed to publish start event:', streamError);
     }
 
@@ -233,6 +249,7 @@ export class PlanModeService {
         content: responseTurn.content,
       });
     } catch (streamError) {
+      this.droppedEventCount++;
       console.error('[PlanModeService] Failed to publish turn event:', streamError);
     }
 
@@ -247,7 +264,7 @@ export class PlanModeService {
         })
         .where(eq(planSessions.id, updatedSession.id));
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       return err(PlanModeErrors.DATABASE_ERROR('update', message));
     }
 
@@ -287,7 +304,7 @@ export class PlanModeService {
 
       return ok(this.dbSessionToSession(updated));
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       return err(PlanModeErrors.DATABASE_ERROR('update', message));
     }
   }
@@ -356,6 +373,7 @@ export class PlanModeService {
               accumulated: acc,
             })
             .catch((streamError: unknown) => {
+              this.droppedEventCount++;
               console.error('[PlanModeService] Token publish failed:', streamError);
             });
         }
@@ -372,6 +390,7 @@ export class PlanModeService {
           code: response.error.code,
         });
       } catch (streamError) {
+        this.droppedEventCount++;
         console.error('[PlanModeService] Failed to publish error event:', streamError);
       }
       return response;
@@ -408,7 +427,7 @@ export class PlanModeService {
         })
         .where(eq(planSessions.id, session.id));
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       return err(PlanModeErrors.DATABASE_ERROR('update', message));
     }
 
@@ -421,6 +440,7 @@ export class PlanModeService {
         content: assistantTurn.content,
       });
     } catch (streamError) {
+      this.droppedEventCount++;
       console.error('[PlanModeService] Failed to publish turn event:', streamError);
     }
 
@@ -487,7 +507,7 @@ export class PlanModeService {
         })
         .where(eq(planSessions.id, session.id));
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       return err(PlanModeErrors.DATABASE_ERROR('update', message));
     }
 
@@ -499,6 +519,7 @@ export class PlanModeService {
         questions: interaction.questions,
       });
     } catch (streamError) {
+      this.droppedEventCount++;
       console.error('[PlanModeService] Failed to publish interaction event:', streamError);
     }
 
@@ -511,6 +532,7 @@ export class PlanModeService {
         content: assistantTurn.content,
       });
     } catch (streamError) {
+      this.droppedEventCount++;
       console.error('[PlanModeService] Failed to publish turn event:', streamError);
     }
 
@@ -535,6 +557,7 @@ export class PlanModeService {
           code: 'GITHUB_CONFIG_MISSING',
         });
       } catch (streamError) {
+        this.droppedEventCount++;
         console.error('[PlanModeService] Failed to publish error event:', streamError);
       }
       return this.completeSession(session, streamedContent);
@@ -564,6 +587,7 @@ export class PlanModeService {
           code: 'GITHUB_ISSUE_CREATION_FAILED',
         });
       } catch (streamError) {
+        this.droppedEventCount++;
         console.error('[PlanModeService] Failed to publish error event:', streamError);
       }
       console.error('[PlanModeService] Failed to create GitHub issue:', issueResult.error);
@@ -618,7 +642,7 @@ export class PlanModeService {
         })
         .where(eq(planSessions.id, session.id));
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       return err(PlanModeErrors.DATABASE_ERROR('update', message));
     }
 
@@ -631,6 +655,7 @@ export class PlanModeService {
         content: assistantTurn.content,
       });
     } catch (streamError) {
+      this.droppedEventCount++;
       console.error('[PlanModeService] Failed to publish turn event:', streamError);
     }
 
@@ -642,6 +667,7 @@ export class PlanModeService {
         issueNumber: issueInfo?.issueNumber,
       });
     } catch (streamError) {
+      this.droppedEventCount++;
       console.error('[PlanModeService] Failed to publish completion event:', streamError);
     }
 

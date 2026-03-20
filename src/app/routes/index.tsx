@@ -313,7 +313,7 @@ function Dashboard(): React.JSX.Element {
         unknown
       >
     > => {
-      // TODO: Add API endpoint for path validation
+      // TODO: [CQ-018] Add API endpoint for path validation
       // For now, return a basic validation result
       const pathParts = pathToValidate.split('/');
       const name = pathParts[pathParts.length - 1] || 'unknown';

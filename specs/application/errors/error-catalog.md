@@ -562,39 +562,134 @@ export type ValidationError =
 
 ---
 
-## Workflow Status Codes (Non-Errors)
+## Additional Error Modules
 
-These are returned with HTTP 200 but signal workflow state changes:
+The following error modules exist in `src/lib/errors/` and are fully integrated:
 
-| Code | Message | Meaning |
-|------|---------|---------|
-| `APPROVAL_REQUIRED` | Task requires approval | Agent completed, needs review |
-| `AGENT_PAUSED` | Agent paused for user input | Interactive input needed |
-| `TASK_QUEUED` | Task added to queue | Concurrency limit reached |
+### AgentCore Errors (`agentcore-errors.ts`)
 
-```typescript
-// lib/errors/workflow-status.ts
-export const WorkflowStatus = {
-  APPROVAL_REQUIRED: (taskId: string, diff: string) => ({
-    code: 'APPROVAL_REQUIRED',
-    message: 'Task requires approval',
-    status: 200,
-    details: { taskId, diffPreview: diff.slice(0, 500) }
-  }),
-  AGENT_PAUSED: (agentId: string, reason: string) => ({
-    code: 'AGENT_PAUSED',
-    message: 'Agent paused for user input',
-    status: 200,
-    details: { agentId, reason }
-  }),
-  TASK_QUEUED: (taskId: string, position: number) => ({
-    code: 'TASK_QUEUED',
-    message: `Task added to queue at position ${position}`,
-    status: 200,
-    details: { taskId, queuePosition: position }
-  }),
-} as const;
-```
+AWS/AgentCore streaming and API errors with Sentry-compatible IDs (AGENTCORE-001 through AGENTCORE-701).
+
+| Code | HTTP Status | When |
+|------|-------------|------|
+| `AGENTCORE-001` | 401 | AWS credentials invalid |
+| `AGENTCORE-002` | 401 | AWS credentials expired |
+| `AGENTCORE-003` | 400 | Invalid AWS region |
+| `AGENTCORE-004` | 503 | AWS STS error |
+| `AGENTCORE-600` | 502 | Streaming error |
+| `AGENTCORE-601` | 502 | Session creation failed |
+| `AGENTCORE-602` | 502 | Invocation failed |
+| `AGENTCORE-700` | varies | API error |
+| `AGENTCORE-701` | 500 | Internal error |
+
+### Marketplace Errors (`marketplace-errors.ts`)
+
+| Code | HTTP Status | When |
+|------|-------------|------|
+| `MARKETPLACE_NOT_FOUND` | 404 | Marketplace not found |
+| `MARKETPLACE_ALREADY_EXISTS` | 409 | Duplicate repository |
+| `MARKETPLACE_INVALID_URL` | 400 | Invalid GitHub URL |
+| `MARKETPLACE_MISSING_REPO_INFO` | 400 | Missing owner/repo |
+| `MARKETPLACE_CANNOT_DELETE_DEFAULT` | 403 | Delete default marketplace |
+| `MARKETPLACE_CANNOT_DISABLE_DEFAULT` | 403 | Disable default marketplace |
+| `MARKETPLACE_SYNC_FAILED` | 500 | Sync failure |
+
+### Plan Mode Errors (`plan-mode-errors.ts`)
+
+| Code | HTTP Status | When |
+|------|-------------|------|
+| `PLAN_SESSION_NOT_FOUND` | 404 | Plan session not found |
+| `PLAN_SESSION_ALREADY_ACTIVE` | 409 | Session already active |
+| `PLAN_SESSION_COMPLETED` | 400 | Session already completed |
+| `PLAN_SESSION_CANCELLED` | 400 | Session cancelled |
+| `PLAN_INTERACTION_NOT_FOUND` | 404 | Interaction not found |
+| `PLAN_INTERACTION_ALREADY_ANSWERED` | 400 | Already answered |
+| `PLAN_NOT_WAITING_FOR_USER` | 400 | Not waiting for input |
+| `PLAN_CREDENTIALS_NOT_FOUND` | 401 | OAuth credentials missing |
+| `PLAN_CREDENTIALS_EXPIRED` | 401 | OAuth credentials expired |
+| `PLAN_API_ERROR` | 500 | Claude API error |
+| `PLAN_STREAM_ERROR` | 500 | Stream error |
+| `PLAN_GITHUB_ERROR` | 500 | GitHub operation failed |
+| `PLAN_TASK_NOT_FOUND` | 404 | Task not found |
+| `PLAN_PROJECT_NOT_FOUND` | 404 | Project not found |
+| `PLAN_INVALID_TURN_ROLE` | 400 | Invalid turn role |
+| `PLAN_MAX_TURNS_EXCEEDED` | 400 | Max turns exceeded |
+| `PLAN_PARSING_ERROR` | 500 | Response parsing failed |
+| `PLAN_DATABASE_ERROR` | 500 | Database operation failed |
+| `PLAN_TOOL_INPUT_PARSE_ERROR` | 500 | Tool input parsing failed |
+
+### Sandbox Errors (`sandbox-errors.ts`)
+
+Container lifecycle, execution, credentials, provider, and state management errors (30+ codes). See `src/lib/errors/sandbox-errors.ts` for the complete catalog.
+
+### Terraform Errors (`terraform-errors.ts`)
+
+| Code | HTTP Status | When |
+|------|-------------|------|
+| `TERRAFORM_REGISTRY_NOT_FOUND` | 404 | Registry not found |
+| `TERRAFORM_MODULE_NOT_FOUND` | 404 | Module not found |
+| `TERRAFORM_REGISTRY_ALREADY_EXISTS` | 409 | Duplicate registry |
+| `TERRAFORM_INVALID_TOKEN` | 401 | Invalid API token |
+| `TERRAFORM_NO_MODULES_SYNCED` | 404 | No modules in registry |
+| `TERRAFORM_SYNC_FAILED` | 500 | Registry sync failed |
+| `TERRAFORM_REGISTRY_CREATE_FAILED` | 500 | Registry creation failed |
+| `TERRAFORM_COMPOSE_FAILED` | 500 | Compose generation failed |
+
+### Sandbox Config Errors (`sandbox-config-errors.ts`)
+
+| Code | HTTP Status | When |
+|------|-------------|------|
+| `SANDBOX_CONFIG_NOT_FOUND` | 404 | Config not found |
+| `SANDBOX_CONFIG_ALREADY_EXISTS` | 409 | Duplicate name |
+| `SANDBOX_CONFIG_IN_USE` | 409 | Config in use by projects |
+| `SANDBOX_CONFIG_INVALID_MEMORY` | 400 | Invalid memory value |
+| `SANDBOX_CONFIG_INVALID_CPU` | 400 | Invalid CPU value |
+| `SANDBOX_CONFIG_INVALID_PROCESSES` | 400 | Invalid max processes |
+| `SANDBOX_CONFIG_INVALID_TIMEOUT` | 400 | Invalid timeout |
+| `SANDBOX_CONFIG_DEFAULT_EXISTS` | 409 | Default config exists |
+
+### Git Errors (`git-errors.ts`)
+
+| Code | HTTP Status | When |
+|------|-------------|------|
+| `GIT_PROJECT_NOT_FOUND` | 404 | Project not found |
+| `GIT_INVALID_BRANCH` | 400 | Invalid branch name |
+| `GIT_COMMAND_FAILED` | 500 | Git command failed |
+| `GIT_DATABASE_ERROR` | 500 | Database error |
+
+### Event/Schedule Errors (`event-errors.ts`)
+
+Event source, subscription, webhook, and schedule errors (19 codes). See `src/lib/errors/event-errors.ts`.
+
+### Kubernetes Errors (`k8s-errors.ts`)
+
+K8s cluster, pod, exec, image, tmux, network policy, RBAC, and warm pool errors (30+ codes with Sentry IDs K8S-001 through K8S-1105). See `src/lib/errors/k8s-errors.ts`.
+
+### Nomad Errors (`nomad-errors.ts`)
+
+Nomad cluster, job, exec, tmux, and API errors (18 codes with Sentry IDs NOMAD-001 through NOMAD-701). See `src/lib/errors/nomad-errors.ts`.
+
+### Workflow Errors (`workflow-errors.ts`)
+
+| Code | HTTP Status | When |
+|------|-------------|------|
+| `WORKFLOW_NOT_FOUND` | 404 | Workflow not found |
+| `WORKFLOW_CREATE_FAILED` | 500 | Creation failed |
+| `WORKFLOW_UPDATE_FAILED` | 500 | Update failed |
+| `WORKFLOW_DATABASE_ERROR` | 500 | Database error |
+
+### Template Errors (`template-errors.ts`)
+
+| Code | HTTP Status | When |
+|------|-------------|------|
+| `TEMPLATE_NOT_FOUND` | 404 | Template not found |
+| `TEMPLATE_ALREADY_EXISTS` | 409 | Duplicate repository |
+| `TEMPLATE_INVALID_REPO_URL` | 400 | Invalid GitHub URL |
+| `TEMPLATE_SYNC_FAILED` | 500 | Sync failed |
+| `TEMPLATE_FETCH_FAILED` | 500 | Fetch failed |
+| `TEMPLATE_PARSE_FAILED` | 400 | Parse failed |
+| `TEMPLATE_PROJECT_REQUIRED` | 400 | Project ID required |
+| `TEMPLATE_INVALID_SCOPE` | 400 | Invalid scope |
 
 ---
 
@@ -655,6 +750,28 @@ Map error codes to wireframe components:
   }
 }
 ```
+
+### Route Catch Block Pattern (Structured Error Exposure)
+
+Route catch blocks use `createLogger` for structured logging that preserves service error codes.
+The pattern is:
+
+```typescript
+// Each route file creates a logger at module scope:
+const logger = createLogger('routes:tasks');
+
+// In catch blocks, use logger.error which serializes the error as structured JSON:
+} catch (error) {
+  logger.error('Create error', { error });
+  return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to create task' } }, 500);
+}
+```
+
+This ensures:
+- Service error codes (e.g., `TASK_NOT_FOUND`) are preserved in structured logs
+- Error stacks are captured for debugging
+- Request IDs are automatically attached via `getRequestId()`
+- Production logs are JSON for log aggregation tools
 
 ### API Error Handler
 
@@ -774,83 +891,14 @@ function isAppError(err: unknown): err is AppError {
 Quick reference for all error codes:
 
 ```typescript
-// lib/errors/index.ts
-export * from './base';
-export * from './project-errors';
-export * from './task-errors';
-export * from './agent-errors';
-export * from './concurrency-errors';
-export * from './worktree-errors';
-export * from './session-errors';
-export * from './github-errors';
-export * from './validation-errors';
-export * from './workflow-status';
-
-// All error codes for type checking
-export type ErrorCode =
-  // Project
-  | 'PROJECT_NOT_FOUND'
-  | 'PROJECT_PATH_EXISTS'
-  | 'PROJECT_PATH_INVALID'
-  | 'PROJECT_HAS_RUNNING_AGENTS'
-  | 'PROJECT_CONFIG_INVALID'
-  // Task
-  | 'TASK_NOT_FOUND'
-  | 'TASK_NOT_IN_COLUMN'
-  | 'TASK_ALREADY_ASSIGNED'
-  | 'TASK_NO_DIFF'
-  | 'TASK_ALREADY_APPROVED'
-  | 'TASK_NOT_WAITING_APPROVAL'
-  | 'TASK_INVALID_TRANSITION'
-  | 'TASK_POSITION_CONFLICT'
-  // Agent
-  | 'AGENT_NOT_FOUND'
-  | 'AGENT_ALREADY_RUNNING'
-  | 'AGENT_NOT_RUNNING'
-  | 'AGENT_TURN_LIMIT_EXCEEDED'
-  | 'AGENT_NO_AVAILABLE_TASK'
-  | 'AGENT_TOOL_NOT_ALLOWED'
-  | 'AGENT_EXECUTION_ERROR'
-  // Concurrency
-  | 'CONCURRENCY_LIMIT_EXCEEDED'
-  | 'QUEUE_FULL'
-  | 'RESOURCE_LOCKED'
-  // Worktree
-  | 'WORKTREE_CREATION_FAILED'
-  | 'WORKTREE_NOT_FOUND'
-  | 'WORKTREE_BRANCH_EXISTS'
-  | 'WORKTREE_MERGE_CONFLICT'
-  | 'WORKTREE_DIRTY'
-  | 'WORKTREE_REMOVAL_FAILED'
-  | 'WORKTREE_ENV_COPY_FAILED'
-  | 'WORKTREE_INIT_SCRIPT_FAILED'
-  // Session
-  | 'SESSION_NOT_FOUND'
-  | 'SESSION_CLOSED'
-  | 'SESSION_CONNECTION_FAILED'
-  | 'SESSION_SYNC_FAILED'
-  // GitHub
-  | 'GITHUB_AUTH_FAILED'
-  | 'GITHUB_INSTALLATION_NOT_FOUND'
-  | 'GITHUB_REPO_NOT_FOUND'
-  | 'GITHUB_CONFIG_NOT_FOUND'
-  | 'GITHUB_CONFIG_INVALID'
-  | 'GITHUB_WEBHOOK_INVALID'
-  | 'GITHUB_RATE_LIMITED'
-  | 'GITHUB_PR_CREATION_FAILED'
-  // Sandbox Worktree
-  | 'SANDBOX_WORKTREE_CREATION_FAILED'
-  | 'SANDBOX_WORKTREE_COMMIT_FAILED'
-  // Validation
-  | 'VALIDATION_ERROR'
-  | 'INVALID_ID'
-  | 'MISSING_REQUIRED_FIELD'
-  | 'INVALID_ENUM_VALUE'
-  // Workflow (non-errors)
-  | 'APPROVAL_REQUIRED'
-  | 'AGENT_PAUSED'
-  | 'TASK_QUEUED';
+// lib/errors/index.ts -- exports all 21 error modules
+// See the actual file for the complete list of exports.
+// Total error codes: 140+ across all modules.
 ```
+
+> **Note**: The `workflow-status.ts` file referenced in earlier versions of this spec does not exist.
+> Workflow status codes (`APPROVAL_REQUIRED`, `AGENT_PAUSED`, `TASK_QUEUED`) are handled
+> inline in route handlers, not as a separate error module.
 
 ---
 

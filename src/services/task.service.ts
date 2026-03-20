@@ -4,6 +4,7 @@ import type { Task, TaskColumn } from '../db/schema';
 import { projects, sessions, settings, tasks } from '../db/schema';
 import { getFullModelId } from '../lib/constants/models.js';
 import { ProjectErrors } from '../lib/errors/project-errors.js';
+import type { SandboxError } from '../lib/errors/sandbox-errors.js';
 import type { TaskError } from '../lib/errors/task-errors.js';
 import { TaskErrors } from '../lib/errors/task-errors.js';
 import { ValidationErrors } from '../lib/errors/validation-errors.js';
@@ -12,6 +13,8 @@ import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
 import type { Database } from '../types/database.js';
 import type { StartAgentInput } from './container-agent.service.js';
+// SL-014: SessionService import retained for future transaction-aware session creation
+// import type { SessionService } from './session.service.js';
 import { getGlobalDefaultModel } from './settings.service.js';
 import { canTransition } from './task-transitions.js';
 import type { GitDiff } from './worktree.service.js';
@@ -75,11 +78,11 @@ export type MoveTaskResult = {
 export interface ContainerAgentTrigger {
   /** Sandbox provider name (e.g., 'docker', 'kubernetes') */
   readonly providerName: string;
-  startAgent: (input: StartAgentInput) => Promise<Result<void, unknown>>;
-  stopAgent: (taskId: string) => Promise<Result<void, unknown>>;
+  startAgent: (input: StartAgentInput) => Promise<Result<void, SandboxError>>;
+  stopAgent: (taskId: string) => Promise<Result<void, SandboxError>>;
   isAgentRunning: (taskId: string) => boolean;
-  approvePlan: (taskId: string) => Promise<Result<void, unknown>>;
-  rejectPlan: (taskId: string, reason?: string) => Promise<Result<void, unknown>>;
+  approvePlan: (taskId: string) => Promise<Result<void, SandboxError>>;
+  rejectPlan: (taskId: string, reason?: string) => Promise<Result<void, SandboxError>>;
 }
 
 /**
@@ -92,6 +95,9 @@ export interface AgentExecutionTrigger {
 export class TaskService {
   private containerAgentService?: ContainerAgentTrigger;
   private agentExecutionService?: AgentExecutionTrigger;
+  // SL-014: SessionService injection deferred -- raw tx.insert() is used inside the
+  // transaction for atomicity. SessionService.create() is not transaction-aware yet.
+  // When it becomes transaction-aware, inject it here and use it in moveColumn.
 
   constructor(
     private db: Database,
@@ -221,9 +227,7 @@ export class TaskService {
     const result = await this.containerAgentService.rejectPlan(taskId, reason);
     if (!result.ok) {
       // Propagate the actual error — distinguish PLAN_NOT_FOUND from PLAN_REJECTION_FAILED
-      const errorObj = result.error as
-        | { code?: string; message?: string; status?: number }
-        | undefined;
+      const errorObj = result.error;
       return err({
         code: errorObj?.code ?? 'PLAN_REJECTION_FAILED',
         message: errorObj?.message ?? `Failed to reject plan for task ${taskId}`,

@@ -80,11 +80,11 @@ function TaskDetailRoute(): React.JSX.Element {
           }
         }}
         onSave={async (data) => {
-          // TODO: Add API endpoint for updating tasks
+          // TODO: [CQ-018] Add API endpoint for updating tasks
           setTask((prev) => (prev ? { ...prev, ...data } : null));
         }}
         onDelete={async (_id) => {
-          // TODO: Add API endpoint for deleting tasks
+          // TODO: [CQ-018] Add API endpoint for deleting tasks
         }}
         onViewSession={(sessionId) => {
           window.location.href = `/projects/${projectId}/sessions/${sessionId}`;

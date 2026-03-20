@@ -23,7 +23,7 @@ function QueuePage(): React.JSX.Element {
   // Fetch queue from API on mount
   useEffect(() => {
     const fetchQueue = async () => {
-      // TODO: Add API endpoint for queue status
+      // TODO: [CQ-018] Add API endpoint for queue status
       // For now, just show empty state
       setQueued([]);
       setIsLoading(false);

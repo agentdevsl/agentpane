@@ -179,7 +179,7 @@ function SessionPage(): React.JSX.Element {
   // Stable callbacks for agent actions (must be declared before early returns)
   const handlePause = useCallback(async () => {
     if (session?.agentId) {
-      // TODO: Add API endpoint for agent pause
+      // TODO: [CQ-018] Add API endpoint for agent pause
       try {
         await fetch(`/api/agents/${session.agentId}/pause`, { method: 'POST' });
       } catch {
@@ -190,7 +190,7 @@ function SessionPage(): React.JSX.Element {
 
   const handleResume = useCallback(async () => {
     if (session?.agentId) {
-      // TODO: Add API endpoint for agent resume
+      // TODO: [CQ-018] Add API endpoint for agent resume
       try {
         await fetch(`/api/agents/${session.agentId}/resume`, { method: 'POST' });
       } catch {
@@ -201,7 +201,7 @@ function SessionPage(): React.JSX.Element {
 
   const handleStop = useCallback(async () => {
     if (session?.agentId) {
-      // TODO: Add API endpoint for agent stop
+      // TODO: [CQ-018] Add API endpoint for agent stop
       try {
         await fetch(`/api/agents/${session.agentId}/stop`, { method: 'POST' });
       } catch {

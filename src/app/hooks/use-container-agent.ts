@@ -1,21 +1,24 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  type ConnectionState,
-  type ContainerAgentComplete,
-  type ContainerAgentError,
-  type ContainerAgentFileChanged,
-  type ContainerAgentPlanReady,
-  type ContainerAgentStarted,
-  type ContainerAgentStatus,
-  type ContainerAgentToken,
-  type ContainerAgentToolResult,
-  type ContainerAgentToolStart,
-  type ContainerAgentTurn,
-  type ContainerAgentWorktree,
-  type SessionCallbacks,
-  type Subscription,
-  subscribeToSession,
+/**
+ * FC-005: Refactored from useState to useReducer with discriminated union actions.
+ * FC-006: Uses useSessionSubscription for shared SSE connection.
+ */
+import { useCallback, useEffect, useReducer, useRef } from 'react';
+import type {
+  ConnectionState,
+  ContainerAgentComplete,
+  ContainerAgentError,
+  ContainerAgentFileChanged,
+  ContainerAgentPlanReady,
+  ContainerAgentStarted,
+  ContainerAgentStatus,
+  ContainerAgentToken,
+  ContainerAgentToolResult,
+  ContainerAgentToolStart,
+  ContainerAgentTurn,
+  ContainerAgentWorktree,
+  SessionCallbacks,
 } from '@/lib/streams/client';
+import { useSessionSubscription } from './use-session-subscription';
 
 /**
  * Container agent startup stage
@@ -110,6 +113,8 @@ export interface ContainerAgentState {
   startedAt?: number;
   /** Completed timestamp */
   completedAt?: number;
+  /** Whether tokens are currently streaming */
+  isStreaming: boolean;
 }
 
 const initialState: ContainerAgentState = {
@@ -122,10 +127,221 @@ const initialState: ContainerAgentState = {
   toolExecutions: [],
   fileChanges: [],
   messages: [],
+  isStreaming: false,
 };
 
+// =============================================================================
+// FC-005: Discriminated union action types
+// =============================================================================
+
+type ContainerAgentAction =
+  | { type: 'RESET' }
+  | { type: 'STATUS'; data: ContainerAgentStatus }
+  | { type: 'STARTED'; data: ContainerAgentStarted }
+  | { type: 'TOKEN'; data: ContainerAgentToken }
+  | { type: 'TURN'; data: ContainerAgentTurn }
+  | { type: 'TOOL_START'; data: ContainerAgentToolStart }
+  | { type: 'TOOL_RESULT'; data: ContainerAgentToolResult }
+  | {
+      type: 'MESSAGE';
+      data: { role: 'user' | 'assistant' | 'system'; content: string; timestamp: number };
+    }
+  | { type: 'COMPLETE'; data: ContainerAgentComplete }
+  | { type: 'ERROR'; data: ContainerAgentError }
+  | { type: 'CANCELLED'; data: { turnCount: number; timestamp: number } }
+  | { type: 'PLAN_READY'; data: ContainerAgentPlanReady }
+  | { type: 'WORKTREE'; data: ContainerAgentWorktree }
+  | { type: 'FILE_CHANGED'; data: ContainerAgentFileChanged };
+
+function containerAgentReducer(
+  state: ContainerAgentState,
+  action: ContainerAgentAction
+): ContainerAgentState {
+  switch (action.type) {
+    case 'RESET':
+      return initialState;
+
+    case 'STATUS':
+      return {
+        ...state,
+        status: 'starting',
+        currentStage: action.data.stage,
+        statusMessage: action.data.message,
+        statusHistory: [
+          ...state.statusHistory,
+          {
+            stage: action.data.stage,
+            message: action.data.message,
+            timestamp: action.data.timestamp,
+          },
+        ],
+      };
+
+    case 'STARTED':
+      return {
+        ...state,
+        status: 'starting',
+        model: action.data.model,
+        maxTurns: action.data.maxTurns,
+        remainingTurns: action.data.maxTurns,
+        sandboxProvider: action.data.sandboxProvider,
+        sandboxContainerId: action.data.sandboxContainerId,
+        startedAt: action.data.timestamp,
+      };
+
+    case 'TOKEN':
+      return {
+        ...state,
+        status: 'running',
+        streamedText: action.data.accumulated,
+        isStreaming: true,
+      };
+
+    case 'TURN':
+      return {
+        ...state,
+        status: 'running',
+        currentTurn: action.data.turn,
+        remainingTurns: action.data.remaining,
+      };
+
+    case 'TOOL_START': {
+      // Check if tool already exists to prevent duplicates on reconnection
+      const existingIndex = state.toolExecutions.findIndex((t) => t.toolId === action.data.toolId);
+      if (existingIndex >= 0) {
+        return state;
+      }
+      const newTool: ContainerAgentToolExecution = {
+        toolId: action.data.toolId,
+        toolName: action.data.toolName,
+        input: action.data.input,
+        status: 'running',
+        startedAt: action.data.timestamp,
+      };
+      let tools = [...state.toolExecutions, newTool];
+      if (tools.length > 500) {
+        // Keep running tools + most recent completed
+        const running = tools.filter((t) => t.status === 'running');
+        const completed = tools.filter((t) => t.status !== 'running');
+        tools = [...completed.slice(-400), ...running];
+      }
+      return { ...state, toolExecutions: tools };
+    }
+
+    case 'TOOL_RESULT':
+      return {
+        ...state,
+        toolExecutions: state.toolExecutions.map((tool) =>
+          tool.toolId === action.data.toolId
+            ? {
+                ...tool,
+                result: action.data.result,
+                isError: action.data.isError,
+                durationMs: action.data.durationMs,
+                status: action.data.isError ? 'error' : 'complete',
+                completedAt: action.data.timestamp,
+              }
+            : tool
+        ),
+      };
+
+    case 'MESSAGE': {
+      const messages =
+        state.messages.length >= 500
+          ? [...state.messages.slice(-400), action.data]
+          : [...state.messages, action.data];
+      return { ...state, messages, streamedText: '', isStreaming: false };
+    }
+
+    case 'COMPLETE':
+      return {
+        ...state,
+        status:
+          action.data.status === 'completed'
+            ? 'completed'
+            : action.data.status === 'cancelled'
+              ? 'cancelled'
+              : 'error',
+        result: action.data.result,
+        completedAt: action.data.timestamp,
+        isStreaming: false,
+      };
+
+    case 'ERROR':
+      return {
+        ...state,
+        status: 'error',
+        error: action.data.error,
+        errorCode: action.data.code,
+        completedAt: action.data.timestamp,
+        isStreaming: false,
+      };
+
+    case 'CANCELLED':
+      return {
+        ...state,
+        status: 'cancelled',
+        completedAt: action.data.timestamp,
+        isStreaming: false,
+      };
+
+    case 'PLAN_READY':
+      return {
+        ...state,
+        status: 'plan_ready',
+        plan: action.data.plan,
+        result: 'Plan ready for review',
+        completedAt: action.data.timestamp,
+        isStreaming: false,
+      };
+
+    case 'WORKTREE':
+      return {
+        ...state,
+        branch: action.data.branch,
+      };
+
+    case 'FILE_CHANGED': {
+      // Deduplicate by path -- update existing entry for the same file
+      const existingFileIdx = state.fileChanges.findIndex((f) => f.path === action.data.path);
+      if (existingFileIdx >= 0) {
+        const updated = [...state.fileChanges];
+        updated[existingFileIdx] = {
+          path: action.data.path,
+          action: action.data.action,
+          toolName: action.data.toolName,
+          additions: action.data.additions,
+          deletions: action.data.deletions,
+          timestamp: action.data.timestamp,
+        };
+        return { ...state, fileChanges: updated };
+      }
+      return {
+        ...state,
+        fileChanges: [
+          ...state.fileChanges,
+          {
+            path: action.data.path,
+            action: action.data.action,
+            toolName: action.data.toolName,
+            additions: action.data.additions,
+            deletions: action.data.deletions,
+            timestamp: action.data.timestamp,
+          },
+        ],
+      };
+    }
+
+    default:
+      return state;
+  }
+}
+
 /**
- * Hook for subscribing to container agent events
+ * Hook for subscribing to container agent events.
+ *
+ * FC-005: Uses useReducer with discriminated union actions instead of useState.
+ * FC-006: Uses useSessionSubscription for shared SSE connections.
  *
  * @param sessionId - The session ID to subscribe to
  * @returns Container agent state and connection state
@@ -135,279 +351,28 @@ export function useContainerAgent(sessionId: string | null): {
   connectionState: ConnectionState;
   isStreaming: boolean;
 } {
-  const [state, setState] = useState<ContainerAgentState>(initialState);
-  const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
-  const [isStreaming, setIsStreaming] = useState(false);
-  const subscriptionRef = useRef<Subscription | null>(null);
+  const [state, dispatch] = useReducer(containerAgentReducer, initialState);
 
-  // Handle status update (breadcrumb progress)
-  const handleStatus = useCallback((data: ContainerAgentStatus) => {
-    setState((prev) => ({
-      ...prev,
-      status: 'starting',
-      currentStage: data.stage,
-      statusMessage: data.message,
-      statusHistory: [
-        ...prev.statusHistory,
-        {
-          stage: data.stage,
-          message: data.message,
-          timestamp: data.timestamp,
-        },
-      ],
-    }));
-  }, []);
+  // Build callbacks that dispatch actions
+  const callbacks = useRef<SessionCallbacks>({});
 
-  // Handle agent started event
-  const handleStarted = useCallback((data: ContainerAgentStarted) => {
-    setState((prev) => ({
-      ...prev,
-      status: 'starting',
-      model: data.model,
-      maxTurns: data.maxTurns,
-      remainingTurns: data.maxTurns,
-      sandboxProvider: data.sandboxProvider,
-      sandboxContainerId: data.sandboxContainerId,
-      startedAt: data.timestamp,
-    }));
-  }, []);
-
-  // Handle token streaming
-  const handleToken = useCallback((data: ContainerAgentToken) => {
-    setIsStreaming(true);
-    setState((prev) => ({
-      ...prev,
-      status: 'running',
-      streamedText: data.accumulated,
-    }));
-  }, []);
-
-  // Handle turn update
-  const handleTurn = useCallback((data: ContainerAgentTurn) => {
-    setState((prev) => ({
-      ...prev,
-      status: 'running',
-      currentTurn: data.turn,
-      remainingTurns: data.remaining,
-    }));
-  }, []);
-
-  // Handle tool start (cap at 500, evict oldest completed tools)
-  const handleToolStart = useCallback((data: ContainerAgentToolStart) => {
-    setState((prev) => {
-      // Check if tool already exists to prevent duplicates on reconnection
-      const existingIndex = prev.toolExecutions.findIndex((t) => t.toolId === data.toolId);
-      if (existingIndex >= 0) {
-        return prev;
-      }
-      const newTool = {
-        toolId: data.toolId,
-        toolName: data.toolName,
-        input: data.input,
-        status: 'running' as const,
-        startedAt: data.timestamp,
-      };
-      let tools = [...prev.toolExecutions, newTool];
-      if (tools.length > 500) {
-        // Keep running tools + most recent completed
-        const running = tools.filter((t) => t.status === 'running');
-        const completed = tools.filter((t) => t.status !== 'running');
-        tools = [...completed.slice(-400), ...running];
-      }
-      return { ...prev, toolExecutions: tools };
-    });
-  }, []);
-
-  // Handle tool result
-  const handleToolResult = useCallback((data: ContainerAgentToolResult) => {
-    setState((prev) => ({
-      ...prev,
-      toolExecutions: prev.toolExecutions.map((tool) =>
-        tool.toolId === data.toolId
-          ? {
-              ...tool,
-              result: data.result,
-              isError: data.isError,
-              durationMs: data.durationMs,
-              status: data.isError ? 'error' : 'complete',
-              completedAt: data.timestamp,
-            }
-          : tool
-      ),
-    }));
-  }, []);
-
-  // Handle message (cap at 500 to prevent unbounded growth)
-  const handleMessage = useCallback(
-    (data: { role: 'user' | 'assistant' | 'system'; content: string; timestamp: number }) => {
-      setIsStreaming(false);
-      setState((prev) => {
-        const messages =
-          prev.messages.length >= 500
-            ? [...prev.messages.slice(-400), data]
-            : [...prev.messages, data];
-        return { ...prev, messages, streamedText: '' };
-      });
-    },
-    []
-  );
-
-  // Handle completion
-  const handleComplete = useCallback((data: ContainerAgentComplete) => {
-    setIsStreaming(false);
-    setState((prev) => ({
-      ...prev,
-      status:
-        data.status === 'completed'
-          ? 'completed'
-          : data.status === 'cancelled'
-            ? 'cancelled'
-            : 'error',
-      result: data.result,
-      completedAt: data.timestamp,
-    }));
-  }, []);
-
-  // Handle error
-  const handleError = useCallback((data: ContainerAgentError) => {
-    setIsStreaming(false);
-    setState((prev) => ({
-      ...prev,
-      status: 'error',
-      error: data.error,
-      errorCode: data.code,
-      completedAt: data.timestamp,
-    }));
-  }, []);
-
-  // Handle cancelled
-  const handleCancelled = useCallback((data: { turnCount: number; timestamp: number }) => {
-    setIsStreaming(false);
-    setState((prev) => ({
-      ...prev,
-      status: 'cancelled',
-      completedAt: data.timestamp,
-    }));
-  }, []);
-
-  // Handle plan ready
-  const handlePlanReady = useCallback((data: ContainerAgentPlanReady) => {
-    setIsStreaming(false);
-    setState((prev) => ({
-      ...prev,
-      status: 'plan_ready',
-      plan: data.plan,
-      result: 'Plan ready for review',
-      completedAt: data.timestamp,
-    }));
-  }, []);
-
-  // Handle worktree info
-  const handleWorktree = useCallback((data: ContainerAgentWorktree) => {
-    setState((prev) => ({
-      ...prev,
-      branch: data.branch,
-    }));
-  }, []);
-
-  // Handle file changed
-  const handleFileChanged = useCallback((data: ContainerAgentFileChanged) => {
-    setState((prev) => {
-      // Deduplicate by path — update existing entry for the same file
-      const existingIndex = prev.fileChanges.findIndex((f) => f.path === data.path);
-      if (existingIndex >= 0) {
-        const updated = [...prev.fileChanges];
-        updated[existingIndex] = {
-          path: data.path,
-          action: data.action,
-          toolName: data.toolName,
-          additions: data.additions,
-          deletions: data.deletions,
-          timestamp: data.timestamp,
-        };
-        return { ...prev, fileChanges: updated };
-      }
-      return {
-        ...prev,
-        fileChanges: [
-          ...prev.fileChanges,
-          {
-            path: data.path,
-            action: data.action,
-            toolName: data.toolName,
-            additions: data.additions,
-            deletions: data.deletions,
-            timestamp: data.timestamp,
-          },
-        ],
-      };
-    });
-  }, []);
-
-  // Keep all handlers in a ref so the subscription effect only depends on sessionId
-  const callbacksRef = useRef({
-    handleStatus,
-    handleStarted,
-    handleToken,
-    handleTurn,
-    handleToolStart,
-    handleToolResult,
-    handleMessage,
-    handleComplete,
-    handleError,
-    handleCancelled,
-    handlePlanReady,
-    handleWorktree,
-    handleFileChanged,
-  });
-
-  useEffect(() => {
-    callbacksRef.current = {
-      handleStatus,
-      handleStarted,
-      handleToken,
-      handleTurn,
-      handleToolStart,
-      handleToolResult,
-      handleMessage,
-      handleComplete,
-      handleError,
-      handleCancelled,
-      handlePlanReady,
-      handleWorktree,
-      handleFileChanged,
-    };
-  });
-
-  // Subscribe to session events
-  useEffect(() => {
-    if (!sessionId) {
-      setState(initialState);
-      setConnectionState('disconnected');
-      return;
-    }
-
-    setConnectionState('connecting');
-
-    const callbacks: SessionCallbacks = {
-      onContainerAgentStatus: (event) => callbacksRef.current.handleStatus(event.data),
-      onContainerAgentStarted: (event) => callbacksRef.current.handleStarted(event.data),
-      onContainerAgentToken: (event) => callbacksRef.current.handleToken(event.data),
-      onContainerAgentTurn: (event) => callbacksRef.current.handleTurn(event.data),
-      onContainerAgentToolStart: (event) => callbacksRef.current.handleToolStart(event.data),
-      onContainerAgentToolResult: (event) => callbacksRef.current.handleToolResult(event.data),
-      onContainerAgentMessage: (event) => callbacksRef.current.handleMessage(event.data),
-      onContainerAgentComplete: (event) => callbacksRef.current.handleComplete(event.data),
-      onContainerAgentError: (event) => callbacksRef.current.handleError(event.data),
-      onContainerAgentCancelled: (event) => callbacksRef.current.handleCancelled(event.data),
-      onContainerAgentPlanReady: (event) => callbacksRef.current.handlePlanReady(event.data),
-      onContainerAgentWorktree: (event) => callbacksRef.current.handleWorktree(event.data),
-      onContainerAgentFileChanged: (event) => callbacksRef.current.handleFileChanged(event.data),
+  const buildCallbacks = useCallback((): SessionCallbacks => {
+    return {
+      onContainerAgentStatus: (event) => dispatch({ type: 'STATUS', data: event.data }),
+      onContainerAgentStarted: (event) => dispatch({ type: 'STARTED', data: event.data }),
+      onContainerAgentToken: (event) => dispatch({ type: 'TOKEN', data: event.data }),
+      onContainerAgentTurn: (event) => dispatch({ type: 'TURN', data: event.data }),
+      onContainerAgentToolStart: (event) => dispatch({ type: 'TOOL_START', data: event.data }),
+      onContainerAgentToolResult: (event) => dispatch({ type: 'TOOL_RESULT', data: event.data }),
+      onContainerAgentMessage: (event) => dispatch({ type: 'MESSAGE', data: event.data }),
+      onContainerAgentComplete: (event) => dispatch({ type: 'COMPLETE', data: event.data }),
+      onContainerAgentError: (event) => dispatch({ type: 'ERROR', data: event.data }),
+      onContainerAgentCancelled: (event) => dispatch({ type: 'CANCELLED', data: event.data }),
+      onContainerAgentPlanReady: (event) => dispatch({ type: 'PLAN_READY', data: event.data }),
+      onContainerAgentWorktree: (event) => dispatch({ type: 'WORKTREE', data: event.data }),
+      onContainerAgentFileChanged: (event) => dispatch({ type: 'FILE_CHANGED', data: event.data }),
       onError: (error) => {
         console.error('[useContainerAgent] Stream error:', error);
-      },
-      onConnectionStateChange: (nextState) => {
-        setConnectionState(nextState);
       },
       onReconnect: () => {
         console.log('[useContainerAgent] Reconnected to session stream');
@@ -416,16 +381,21 @@ export function useContainerAgent(sessionId: string | null): {
         console.log('[useContainerAgent] Disconnected from session stream');
       },
     };
+  }, []);
 
-    const subscription = subscribeToSession(sessionId, callbacks);
-    subscriptionRef.current = subscription;
-    setConnectionState(subscription.getState());
+  // Keep callbacks ref in sync
+  useEffect(() => {
+    callbacks.current = buildCallbacks();
+  }, [buildCallbacks]);
 
-    return () => {
-      subscription.unsubscribe();
-      subscriptionRef.current = null;
-    };
+  // Reset state when sessionId changes to null
+  useEffect(() => {
+    if (!sessionId) {
+      dispatch({ type: 'RESET' });
+    }
   }, [sessionId]);
 
-  return { state, connectionState, isStreaming };
+  const { connectionState } = useSessionSubscription(sessionId, callbacks.current);
+
+  return { state, connectionState, isStreaming: state.isStreaming };
 }

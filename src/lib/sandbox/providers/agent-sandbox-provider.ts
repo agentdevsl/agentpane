@@ -7,6 +7,7 @@ import {
 import { createId } from '@paralleldrive/cuid2';
 import { K8sErrors } from '../../errors/k8s-errors.js';
 import { createLogger } from '../../logging/logger.js';
+import { errorMessage } from '../../utils/error-message';
 import type { SandboxConfig, SandboxHealthCheck, SandboxInfo, SandboxStatus } from '../types.js';
 import { SANDBOX_DEFAULTS } from '../types.js';
 import { AgentSandboxInstance } from './agent-sandbox-instance.js';
@@ -206,7 +207,7 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
 
       return instance;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       this.emit({
         type: 'sandbox:error',
         sandboxId,
@@ -293,7 +294,7 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
       return instance;
     } catch (error) {
       // Only swallow "not found" type errors; propagate real failures
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       log.error(`Failed to query sandbox for project ${projectId}: ${message}`, {
         error: error instanceof Error ? error : new Error(message),
       });
@@ -412,7 +413,7 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
         },
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       return {
         healthy: false,
         message: `Kubernetes health check failed: ${message}`,
@@ -449,7 +450,7 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
         }
         cleaned++;
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = errorMessage(error);
         log.error(`Failed to stop sandbox ${sandboxId} during cleanup — removing from cache`, {
           error: error instanceof Error ? error : new Error(message),
         });

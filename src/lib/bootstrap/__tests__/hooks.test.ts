@@ -71,6 +71,7 @@ describe('useBootstrap', () => {
       phase: 'sqlite',
       progress: 0,
       isComplete: false,
+      phaseTimings: {},
     };
     currentContext = null;
     capturedEffectCallback = null;
@@ -327,6 +328,7 @@ describe('useBootstrap integration scenarios', () => {
       phase: 'sqlite',
       progress: 0,
       isComplete: false,
+      phaseTimings: {},
     };
     currentContext = null;
     capturedEffectCallback = null;
@@ -409,6 +411,7 @@ describe('useBootstrap integration scenarios', () => {
             phase,
             progress: ((index + 1) / phases.length) * 100,
             isComplete: index === phases.length - 1,
+            phaseTimings: {},
           };
           setState(state);
         }
@@ -455,6 +458,7 @@ describe('useBootstrap integration scenarios', () => {
         phase: 'sqlite',
         progress: 0,
         isComplete: false,
+        phaseTimings: {},
         error,
       });
     }
@@ -531,6 +535,7 @@ describe('useBootstrap return value structure', () => {
       phase: 'sqlite',
       progress: 0,
       isComplete: false,
+      phaseTimings: {},
     };
     currentContext = null;
     capturedEffectCallback = null;

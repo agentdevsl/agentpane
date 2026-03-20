@@ -238,10 +238,11 @@ export class TerraformRegistryService {
       return err(TerraformErrors.REGISTRY_NOT_FOUND);
     }
 
-    this.db.transaction((tx) => {
-      tx.delete(terraformModules).where(eq(terraformModules.registryId, id)).run();
-      tx.delete(terraformRegistries).where(eq(terraformRegistries.id, id)).run();
-      tx.delete(settings).where(eq(settings.key, registry.tokenSettingKey)).run();
+    // SL-019: Use async transaction for PostgreSQL compatibility
+    await this.db.transaction(async (tx) => {
+      await tx.delete(terraformModules).where(eq(terraformModules.registryId, id));
+      await tx.delete(terraformRegistries).where(eq(terraformRegistries.id, id));
+      await tx.delete(settings).where(eq(settings.key, registry.tokenSettingKey));
     });
 
     log.info('Deleted registry', { data: { id } });
@@ -370,10 +371,15 @@ export class TerraformRegistryService {
         syncedAt: now,
       });
     } catch (error) {
+<<<<<<< ours
       const errorMessage = error instanceof Error ? error.message : String(error);
       log.error(`Sync error for ${id}`, { data: { errorMessage } });
+=======
+      const errMsg = errorMessage(error);
+      console.error(`[TerraformRegistryService] Sync error for ${id}:`, errMsg);
+>>>>>>> theirs
 
-      const lowerMessage = errorMessage.toLowerCase();
+      const lowerMessage = errMsg.toLowerCase();
       const containsCredentials =
         lowerMessage.includes('bearer') ||
         lowerMessage.includes('token') ||
@@ -381,7 +387,7 @@ export class TerraformRegistryService {
         lowerMessage.includes('sk-');
       const safeMessage = containsCredentials
         ? 'Sync failed due to an API error. Check your token and try again.'
-        : errorMessage;
+        : errMsg;
 
       await this.db
         .update(terraformRegistries)

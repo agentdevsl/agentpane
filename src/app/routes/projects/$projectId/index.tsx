@@ -273,7 +273,7 @@ function ProjectKanban(): React.JSX.Element {
         }
       );
     } else {
-      // TODO: Implement code review approval/rejection API calls for non-plan tasks
+      // TODO: [CQ-018] Implement code review approval/rejection API calls for non-plan tasks
       setApprovalTask(null);
       await fetchData();
     }
@@ -288,7 +288,7 @@ function ProjectKanban(): React.JSX.Element {
         'Failed to reject plan'
       );
     } else {
-      // TODO: Implement code review approval/rejection API calls for non-plan tasks
+      // TODO: [CQ-018] Implement code review approval/rejection API calls for non-plan tasks
       setApprovalTask(null);
       await fetchData();
     }

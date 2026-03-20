@@ -16,6 +16,8 @@ import {
   parseBody,
 } from '../validation.js';
 
+const logger = createLogger('routes:worktrees');
+
 interface WorktreesDeps {
   worktreeService: WorktreeService;
 }

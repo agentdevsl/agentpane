@@ -449,7 +449,7 @@ export function WorkflowDesigner({
     async (workflow: SavedWorkflow) => {
       if (readOnly) return;
 
-      // TODO: Fetch full workflow data from API
+      // TODO: [CQ-018] Fetch full workflow data from API
       // For now, simulate loading
       try {
         const response = await fetch(`/api/workflows/${workflow.id}`);

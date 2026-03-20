@@ -7,8 +7,11 @@
 
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { createLogger } from '../../lib/logging/logger.js';
 import type { CliMonitorService } from '../../services/cli-monitor/cli-monitor.service.js';
 import type { CliSession } from '../../services/cli-monitor/types.js';
+
+const logger = createLogger('routes:cli-monitor');
 
 // ── Zod Schemas ──
 
@@ -171,6 +174,13 @@ const deregisterSchema = z.object({
 const MAX_SSE_CONNECTIONS = 50;
 const MAX_BODY_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
 
+/**
+ * RS-002: CLI monitor SSE connections use a local counter for now.
+ * TODO: Centralize to use event-bus.ts getActiveSSEConnections() counter
+ * once the event-bus is refactored to support per-route connection tracking.
+ * The event-bus counter tracks main event stream connections while this
+ * counter tracks CLI monitor stream connections independently.
+ */
 let activeSSEConnections = 0;
 
 // ── Helpers ──
@@ -248,7 +258,7 @@ export function createCliMonitorRoutes({ cliMonitorService }: CliMonitorDeps) {
   app.post('/register', async (c) => {
     const data = await parseBody(c, registerSchema);
     if (data instanceof Response) return data;
-    cliMonitorService.registerDaemon({
+    const registerResult = cliMonitorService.registerDaemon({
       daemonId: data.daemonId,
       pid: data.pid,
       version: data.version,
@@ -256,6 +266,15 @@ export function createCliMonitorRoutes({ cliMonitorService }: CliMonitorDeps) {
       capabilities: data.capabilities,
       startedAt: data.startedAt || Date.now(),
     });
+    if (!registerResult.ok) {
+      return c.json(
+        {
+          ok: false,
+          error: { code: registerResult.error.code, message: registerResult.error.message },
+        },
+        500
+      );
+    }
     return c.json({ ok: true });
   });
 
@@ -263,8 +282,17 @@ export function createCliMonitorRoutes({ cliMonitorService }: CliMonitorDeps) {
   app.post('/heartbeat', async (c) => {
     const data = await parseBody(c, heartbeatSchema);
     if (data instanceof Response) return data;
-    const result = cliMonitorService.handleHeartbeat(data.daemonId, data.sessionCount);
-    if (result === 'ok') {
+    const heartbeatResult = cliMonitorService.handleHeartbeat(data.daemonId, data.sessionCount);
+    if (!heartbeatResult.ok) {
+      return c.json(
+        {
+          ok: false,
+          error: { code: heartbeatResult.error.code, message: heartbeatResult.error.message },
+        },
+        500
+      );
+    }
+    if (heartbeatResult.value === 'ok') {
       return c.json({ ok: true });
     }
     // Tell daemon to re-register so it can recover
@@ -358,10 +386,7 @@ export function createCliMonitorRoutes({ cliMonitorService }: CliMonitorDeps) {
         data: { sessions, total: sessions.length },
       });
     } catch (err) {
-      console.error(
-        '[CliMonitor] /history query failed:',
-        err instanceof Error ? err.message : String(err)
-      );
+      logger.error('/history query failed', { error: err });
       return c.json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to query historical sessions' } },
         500
@@ -385,19 +410,28 @@ export function createCliMonitorRoutes({ cliMonitorService }: CliMonitorDeps) {
     let unsubscribe: (() => void) | null = null;
     let pingInterval: ReturnType<typeof setInterval> | null = null;
 
-    let streamClosed = false;
+    // RS-003: Guard flag to prevent double cleanup (same pattern as events.ts).
+    // Both the ping handler catch block and the cancel() callback can trigger
+    // cleanup -- this flag ensures resources are released exactly once.
+    let cleaned = false;
+
+    function cleanup() {
+      if (cleaned) return;
+      cleaned = true;
+      activeSSEConnections = Math.max(0, activeSSEConnections - 1);
+      if (pingInterval) clearInterval(pingInterval);
+      if (unsubscribe) unsubscribe();
+    }
+
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         const encoder = new TextEncoder();
         const send = (data: unknown) => {
-          if (streamClosed) return;
+          if (cleaned) return;
           try {
             controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
           } catch (err) {
-            console.error(
-              '[CliMonitor] SSE send error:',
-              err instanceof Error ? err.message : String(err)
-            );
+            logger.error('SSE send error', { error: err });
           }
         };
 
@@ -410,10 +444,7 @@ export function createCliMonitorRoutes({ cliMonitorService }: CliMonitorDeps) {
           try {
             snapshotSessions = cliMonitorService.getHistoricalSessions({ limit: 100 });
           } catch (err) {
-            console.error(
-              '[CliMonitor] SSE snapshot: historical query failed:',
-              err instanceof Error ? err.message : String(err)
-            );
+            logger.error('SSE snapshot: historical query failed', { error: err });
             snapshotSessions = [];
           }
         }
@@ -436,13 +467,15 @@ export function createCliMonitorRoutes({ cliMonitorService }: CliMonitorDeps) {
 
         // 3. Keep-alive ping every 15s
         pingInterval = setInterval(() => {
+          if (cleaned) {
+            if (pingInterval) clearInterval(pingInterval);
+            return;
+          }
           try {
             controller.enqueue(encoder.encode(`: ping\n\n`));
           } catch {
-            // Stream closed — clean up
-            if (pingInterval) clearInterval(pingInterval);
-            if (unsubscribe) unsubscribe();
-            activeSSEConnections = Math.max(0, activeSSEConnections - 1);
+            // Stream closed — clean up using guard (RS-003)
+            cleanup();
             try {
               controller.close();
             } catch {
@@ -452,10 +485,7 @@ export function createCliMonitorRoutes({ cliMonitorService }: CliMonitorDeps) {
         }, 15_000);
       },
       cancel() {
-        streamClosed = true;
-        activeSSEConnections = Math.max(0, activeSSEConnections - 1);
-        if (pingInterval) clearInterval(pingInterval);
-        if (unsubscribe) unsubscribe();
+        cleanup();
       },
     });
 

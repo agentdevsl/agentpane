@@ -394,7 +394,7 @@ describe('SessionService', () => {
       expect(mockStreams.publish).toHaveBeenCalledWith(sessionId, 'chunk', event.data);
     });
 
-    it('handles stream publish error', async () => {
+    it('succeeds even when stream publish fails (RS-013: DB-first, stream is best-effort)', async () => {
       const project = await createTestProject();
       const createResult = await sessionService.create({ projectId: project.id });
       expect(createResult.ok).toBe(true);
@@ -412,10 +412,9 @@ describe('SessionService', () => {
 
       const result = await sessionService.publish(sessionId, event);
 
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.code).toBe('SESSION_SYNC_FAILED');
-      }
+      // RS-013: With DB-first persistence, stream publish failure is best-effort.
+      // The publish should still succeed as the event is persisted to DB.
+      expect(result.ok).toBe(true);
     });
 
     it('publishes tool:start event', async () => {

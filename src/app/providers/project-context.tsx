@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import {
@@ -18,11 +19,32 @@ import { apiClient, type ProjectSummaryItem } from '@/lib/api/client';
 // Types
 // =============================================================================
 
-interface ProjectContextValue {
+/**
+ * FC-010: Data-only context -- project list, loading state, current project.
+ */
+interface ProjectDataContextValue {
   /** Currently selected project (with summary data) */
   currentProject: ProjectSummaryItem | null;
   /** Currently selected project ID from URL */
   currentProjectId: string | undefined;
+  /** All projects for the picker */
+  allProjects: ProjectPickerItem[];
+  /** Recent projects for the picker */
+  recentProjects: ProjectPickerItem[];
+  /** Whether projects are loading */
+  isLoading: boolean;
+  /** Error if project fetch failed */
+  error: Error | undefined;
+  /** Refresh projects data */
+  refreshProjects: () => Promise<void>;
+  /** Select a project (navigates and updates recent) */
+  selectProject: (project: ProjectPickerItem) => void;
+}
+
+/**
+ * FC-010: Picker/modal UI state -- separated from data concerns.
+ */
+interface ProjectPickerContextValue {
   /** Whether the project picker modal is open */
   isPickerOpen: boolean;
   /** Open the project picker modal */
@@ -35,24 +57,24 @@ interface ProjectContextValue {
   openNewProjectDialog: () => void;
   /** Close the new project dialog */
   closeNewProjectDialog: () => void;
-  /** Select a project (navigates and updates recent) */
-  selectProject: (project: ProjectPickerItem) => void;
-  /** All projects for the picker */
-  allProjects: ProjectPickerItem[];
-  /** Recent projects for the picker */
-  recentProjects: ProjectPickerItem[];
-  /** Whether projects are loading */
-  isLoading: boolean;
-  /** Error if project fetch failed */
-  error: Error | undefined;
-  /** Refresh projects data */
-  refreshProjects: () => Promise<void>;
 }
 
+/**
+ * Combined context for backward compatibility.
+ * Existing consumers of `useProjectContext()` continue to work unchanged.
+ */
+interface ProjectContextValue extends ProjectDataContextValue, ProjectPickerContextValue {}
+
 // =============================================================================
-// Context
+// Contexts (FC-010: split into data vs. picker)
 // =============================================================================
 
+const ProjectDataContext = createContext<ProjectDataContextValue | null>(null);
+const ProjectPickerContext = createContext<ProjectPickerContextValue | null>(null);
+
+/**
+ * Legacy combined context -- kept for backward compat with `useProjectContext()`.
+ */
 const ProjectContext = createContext<ProjectContextValue | null>(null);
 
 // =============================================================================
@@ -70,14 +92,18 @@ export function ProjectContextProvider({
   const params = useParams({ strict: false });
   const projectId = (params as { projectId?: string }).projectId;
 
-  // Modal states
+  // Modal states (FC-010: these belong to PickerContext)
   const [isPickerOpen, setIsPickerOpen] = useState(false);
   const [isNewProjectDialogOpen, setIsNewProjectDialogOpen] = useState(false);
 
   // Project data states
   const [projectSummaries, setProjectSummaries] = useState<ProjectSummaryItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | undefined>(undefined);
+
+  // FC-001: Track whether projects have been fetched to avoid redundant requests.
+  // Only fetch when a projectId is in the URL or the picker opens.
+  const hasFetched = useRef(false);
 
   // Recent projects from localStorage
   const { recentProjectIds, addRecentProject } = useRecentProjects();
@@ -97,13 +123,16 @@ export function ProjectContextProvider({
       setError(err instanceof Error ? err : new Error('Failed to fetch projects'));
     } finally {
       setIsLoading(false);
+      hasFetched.current = true;
     }
   }, []);
 
-  // Fetch projects on mount
+  // FC-001: Deferred fetch -- only runs when projectId is present or picker opens
   useEffect(() => {
-    void fetchProjects();
-  }, [fetchProjects]);
+    if (!hasFetched.current && projectId) {
+      void fetchProjects();
+    }
+  }, [projectId, fetchProjects]);
 
   // Current project from summaries
   const currentProject = useMemo(() => {
@@ -149,7 +178,13 @@ export function ProjectContextProvider({
   }, [recentProjectIds, allProjects]);
 
   // Modal controls
-  const openPicker = useCallback(() => setIsPickerOpen(true), []);
+  const openPicker = useCallback(() => {
+    // FC-001: Fetch on first picker open if not already loaded
+    if (!hasFetched.current) {
+      void fetchProjects();
+    }
+    setIsPickerOpen(true);
+  }, [fetchProjects]);
   const closePicker = useCallback(() => setIsPickerOpen(false), []);
   const openNewProjectDialog = useCallback(() => {
     setIsPickerOpen(false);
@@ -167,57 +202,98 @@ export function ProjectContextProvider({
     [addRecentProject, navigate]
   );
 
-  // Context value
-  const value = useMemo<ProjectContextValue>(
+  // FC-010: Build separate context values
+  const dataValue = useMemo<ProjectDataContextValue>(
     () => ({
       currentProject,
       currentProjectId: projectId,
-      isPickerOpen,
-      openPicker,
-      closePicker,
-      isNewProjectDialogOpen,
-      openNewProjectDialog,
-      closeNewProjectDialog,
-      selectProject,
       allProjects,
       recentProjects,
       isLoading,
       error,
       refreshProjects: fetchProjects,
+      selectProject,
     }),
     [
       currentProject,
       projectId,
+      allProjects,
+      recentProjects,
+      isLoading,
+      error,
+      fetchProjects,
+      selectProject,
+    ]
+  );
+
+  const pickerValue = useMemo<ProjectPickerContextValue>(
+    () => ({
       isPickerOpen,
       openPicker,
       closePicker,
       isNewProjectDialogOpen,
       openNewProjectDialog,
       closeNewProjectDialog,
-      selectProject,
-      allProjects,
-      recentProjects,
-      isLoading,
-      error,
-      fetchProjects,
+    }),
+    [
+      isPickerOpen,
+      openPicker,
+      closePicker,
+      isNewProjectDialogOpen,
+      openNewProjectDialog,
+      closeNewProjectDialog,
     ]
   );
 
-  return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;
+  // Combined value for backward compatibility
+  const combinedValue = useMemo<ProjectContextValue>(
+    () => ({ ...dataValue, ...pickerValue }),
+    [dataValue, pickerValue]
+  );
+
+  return (
+    <ProjectDataContext.Provider value={dataValue}>
+      <ProjectPickerContext.Provider value={pickerValue}>
+        <ProjectContext.Provider value={combinedValue}>{children}</ProjectContext.Provider>
+      </ProjectPickerContext.Provider>
+    </ProjectDataContext.Provider>
+  );
 }
 
 // =============================================================================
-// Hook
+// Hooks
 // =============================================================================
 
 /**
- * Access the project context for managing current project, picker, and navigation.
+ * Access the full project context (backward-compatible combined hook).
  * Must be used within a ProjectContextProvider.
  */
 export function useProjectContext(): ProjectContextValue {
   const context = useContext(ProjectContext);
   if (!context) {
     throw new Error('useProjectContext must be used within a ProjectContextProvider');
+  }
+  return context;
+}
+
+/**
+ * FC-010: Access only data-related project context (avoids re-renders from modal state).
+ */
+export function useProjectData(): ProjectDataContextValue {
+  const context = useContext(ProjectDataContext);
+  if (!context) {
+    throw new Error('useProjectData must be used within a ProjectContextProvider');
+  }
+  return context;
+}
+
+/**
+ * FC-010: Access only picker/modal UI state (avoids re-renders from data changes).
+ */
+export function useProjectPicker(): ProjectPickerContextValue {
+  const context = useContext(ProjectPickerContext);
+  if (!context) {
+    throw new Error('useProjectPicker must be used within a ProjectContextProvider');
   }
   return context;
 }

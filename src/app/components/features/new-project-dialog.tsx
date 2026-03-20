@@ -571,7 +571,7 @@ const defaultSkills: SkillConfig[] = [
 ];
 
 // Recent repos - passed in from parent component when available
-// TODO: Implement recent repos discovery via API
+// TODO: [CQ-018] Implement recent repos discovery via API
 
 export function NewProjectDialog({
   open,

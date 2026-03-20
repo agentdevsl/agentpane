@@ -35,6 +35,8 @@ interface HealthDeps {
   githubService: GitHubTokenService;
   getSandboxProvider?: () => SandboxProvider | null;
   getK8sProvider?: () => K8sProviderHealth | null;
+  /** CB-011: URL of the durable streams server for reachability checks. */
+  streamsUrl?: string;
 }
 
 export function createHealthRoutes({
@@ -42,6 +44,7 @@ export function createHealthRoutes({
   githubService,
   getSandboxProvider,
   getK8sProvider,
+  streamsUrl,
 }: HealthDeps) {
   const app = new Hono();
 
@@ -70,10 +73,17 @@ export function createHealthRoutes({
         clusterVersion?: string | null;
         error?: string;
       };
+      // CB-011: Extended health checks
+      streams: { status: 'ok' | 'error' | 'not_configured'; error?: string };
+      apiKey: { status: 'ok' | 'not_configured' };
+      sandboxInit: { status: 'ok' | 'pending' | 'not_configured' };
     } = {
       database: { status: 'error' },
       github: { status: 'not_configured' },
       sandbox: { status: 'not_configured' },
+      streams: { status: 'not_configured' },
+      apiKey: { status: 'not_configured' },
+      sandboxInit: { status: 'not_configured' },
     };
 
     // Check database connectivity
@@ -209,6 +219,35 @@ export function createHealthRoutes({
         };
       }
     }
+
+    // CB-011: Extended health checks — streams reachability
+    if (streamsUrl) {
+      try {
+        const resp = await fetch(streamsUrl, {
+          method: 'HEAD',
+          signal: AbortSignal.timeout(3000),
+        });
+        // Any response (even 404) means the server is reachable
+        checks.streams = { status: resp.ok || resp.status === 404 ? 'ok' : 'error' };
+      } catch (streamErr) {
+        checks.streams = {
+          status: 'error',
+          error: streamErr instanceof Error ? streamErr.message : 'Streams server unreachable',
+        };
+      }
+    }
+
+    // CB-011: Extended health check — API key presence
+    checks.apiKey = {
+      status:
+        process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_OAUTH_TOKEN ? 'ok' : 'not_configured',
+    };
+
+    // CB-011: Extended health check — sandbox provider initialization status
+    const currentSandboxProvider = getSandboxProvider?.();
+    checks.sandboxInit = {
+      status: currentSandboxProvider ? 'ok' : 'pending',
+    };
 
     const allOk = checks.database.status === 'ok';
 

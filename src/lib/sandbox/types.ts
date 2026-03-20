@@ -18,6 +18,8 @@ export interface SandboxConfig {
   idleTimeoutMinutes: number;
   volumeMounts: VolumeMountConfig[];
   env?: Record<string, string>;
+  /** SC-006: Docker network mode. Default 'bridge'. Use 'none' for full network isolation. */
+  networkMode?: 'bridge' | 'none';
 }
 
 export interface SandboxInfo {
@@ -101,11 +103,12 @@ export const sandboxConfigSchema = z.object({
   projectId: z.string(),
   projectPath: z.string(),
   image: z.string().default(SANDBOX_DEFAULTS.image),
-  memoryMb: z.number().positive().default(SANDBOX_DEFAULTS.memoryMb),
-  cpuCores: z.number().positive().default(SANDBOX_DEFAULTS.cpuCores),
+  memoryMb: z.number().positive().max(32768).default(SANDBOX_DEFAULTS.memoryMb),
+  cpuCores: z.number().positive().max(16).default(SANDBOX_DEFAULTS.cpuCores),
   idleTimeoutMinutes: z.number().positive().default(SANDBOX_DEFAULTS.idleTimeoutMinutes),
   volumeMounts: z.array(volumeMountConfigSchema).default([]),
   env: z.record(z.string(), z.string()).optional(),
+  networkMode: z.enum(['bridge', 'none']).default('bridge'),
 });
 
 export const sandboxProviderSchema = z.enum(SANDBOX_TYPES);
@@ -116,8 +119,8 @@ export const projectSandboxConfigSchema = z.object({
   idleTimeoutMinutes: z.number().positive().default(SANDBOX_DEFAULTS.idleTimeoutMinutes),
   image: z.string().optional(),
   additionalVolumes: z.array(volumeMountConfigSchema).optional(),
-  memoryMb: z.number().positive().optional(),
-  cpuCores: z.number().positive().optional(),
+  memoryMb: z.number().positive().max(32768).optional(),
+  cpuCores: z.number().positive().max(16).optional(),
   namespace: z.string().optional(),
   serviceAccount: z.string().optional(),
   nomadNamespace: z.string().optional(),

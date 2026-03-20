@@ -3,6 +3,12 @@
  *
  * Provides CRUD for event sources, subscriptions, event log queries,
  * and an SSE stream for real-time event notifications.
+ *
+ * AR-024: This is the largest route module (~1,200 lines). A future split into
+ * events-sources.ts, events-subscriptions.ts, events-log.ts, and events-stream.ts
+ * is deferred because the endpoints are tightly coupled through shared auth helpers
+ * (getUserTeamIds) and the SSE stream depends on source-level access checks.
+ * Splitting would require significant refactoring of the shared helpers.
  */
 
 import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
@@ -23,7 +29,6 @@ import type { CronEventSourceConfig } from '../../db/schema/shared/cron-config.j
 import type { EventSourceStatus } from '../../db/schema/shared/enums.js';
 import { EVENT_SOURCE_STATUS, SCHEDULE_EXECUTION_STATUS } from '../../db/schema/shared/enums.js';
 import type { AuthContext } from '../../lib/api/auth-middleware.js';
-import { failure } from '../../lib/api/response.js';
 import type { AppError } from '../../lib/errors/base.js';
 import {
   addStreamListener,
@@ -39,7 +44,7 @@ import type { EventSubscriptionService } from '../../services/event-subscription
 import type { RbacService } from '../../services/rbac.service.js';
 import type { SchedulerService } from '../../services/scheduler.service.js';
 import type { Database } from '../../types/database.js';
-import { isValidId, json, parsePagination, requireTeamRole } from '../shared.js';
+import { failure, isValidId, json, parsePagination, requireTeamRole } from '../shared.js';
 import { idSchema, parseJsonBody, taskColumnSchema, taskPrioritySchema } from '../validation.js';
 
 const log = createLogger('EventsRoutes');

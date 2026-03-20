@@ -1,16 +1,12 @@
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import type { NewTemplate, Template, TemplateScope } from '../db/schema';
-import { githubInstallations, githubTokens, templateProjects, templates } from '../db/schema';
+import { githubTokens, templateProjects, templates } from '../db/schema';
 import type { LocalConfig, MergedTemplateConfig } from '../lib/config/template-merge.js';
 import { mergeTemplates } from '../lib/config/template-merge.js';
-// Note: decryptToken is imported dynamically in sync() to avoid bundling node:path for browser
 import type { TemplateError } from '../lib/errors/template-errors.js';
 import { TemplateErrors } from '../lib/errors/template-errors.js';
-import {
-  createOctokitFromToken,
-  formatGitHubError,
-  getInstallationOctokit,
-} from '../lib/github/client.js';
+import { formatGitHubError } from '../lib/github/client.js';
+import { resolveOctokit } from '../lib/github/resolve-octokit.js';
 import { parseGitHubUrl, syncTemplateFromGitHub } from '../lib/github/template-sync.js';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
@@ -338,70 +334,20 @@ export class TemplateService {
       .where(eq(templates.id, id));
 
     try {
-      // Try to get an Octokit client - first from GitHub App installation, then fall back to PAT
-      let octokit: Awaited<ReturnType<typeof getInstallationOctokit>>;
-
-      // Try GitHub App installation first
-      const installation = await this.db.query.githubInstallations.findFirst({
-        where: eq(githubInstallations.status, 'active'),
-      });
-
-      if (installation) {
-        octokit = await getInstallationOctokit(Number(installation.installationId));
-      } else {
-        // Fall back to PAT
-        const tokenRecord = await this.db.query.githubTokens.findFirst({
-          where: eq(githubTokens.isValid, true),
-        });
-
-        if (!tokenRecord) {
-          await this.db
-            .update(templates)
-            .set({
-              status: 'error',
-              syncError: 'No GitHub authentication found (need App installation or PAT)',
-              updatedAt: this.updateTimestamp(),
-            })
-            .where(eq(templates.id, id));
-          return err(
-            TemplateErrors.SYNC_FAILED(
-              'No GitHub authentication found (need App installation or PAT)'
-            )
-          );
-        }
-
-        // Dynamic import to avoid bundling node:path for browser
-        const { decryptToken } = await import('../lib/crypto/server-encryption.js');
-        let token: string;
-        try {
-          token = await decryptToken(tokenRecord.encryptedToken);
-        } catch (decryptError) {
-          // Token can't be decrypted - keyfile may have changed since token was stored
-          console.error(
-            '[TemplateService] Failed to decrypt GitHub token, marking as invalid:',
-            decryptError
-          );
-          await this.db
-            .update(githubTokens)
-            .set({ isValid: false })
-            .where(eq(githubTokens.id, tokenRecord.id));
-          await this.db
-            .update(templates)
-            .set({
-              status: 'error',
-              syncError:
-                'GitHub token could not be decrypted. The encryption key may have changed. Please re-add your GitHub token in Settings.',
-              updatedAt: this.updateTimestamp(),
-            })
-            .where(eq(templates.id, id));
-          return err(
-            TemplateErrors.SYNC_FAILED(
-              'GitHub token could not be decrypted. The encryption key may have changed. Please re-add your GitHub token in Settings.'
-            )
-          );
-        }
-        octokit = createOctokitFromToken(token);
+      // SL-013: Use shared resolveOctokit utility instead of inline auth resolution
+      const octokitResult = await resolveOctokit(this.db);
+      if (!octokitResult.ok) {
+        await this.db
+          .update(templates)
+          .set({
+            status: 'error',
+            syncError: octokitResult.error.message,
+            updatedAt: this.updateTimestamp(),
+          })
+          .where(eq(templates.id, id));
+        return err(TemplateErrors.SYNC_FAILED(octokitResult.error.message));
       }
+      const octokit = octokitResult.value;
 
       const syncResult = await syncTemplateFromGitHub({
         octokit,
