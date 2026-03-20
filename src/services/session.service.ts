@@ -47,6 +47,9 @@ export type {
   SubscribeOptions,
 };
 
+// Shared presence store across all instances
+const presenceStore = new Map<string, Map<string, ActiveUser>>();
+
 /**
  * SessionService - Unified facade for session management
  *
@@ -59,14 +62,8 @@ export class SessionService {
 
   constructor(db: Database, streams: DurableStreamsServer, config: { baseUrl: string }) {
     this.streamService = new SessionStreamService(db, streams);
-    this.presenceService = new SessionPresenceService(db, () => this.streamService);
-    // Share the presence store between crud and presence services
-    this.crudService = new SessionCrudService(
-      db,
-      streams,
-      config,
-      this.presenceService.getMutablePresenceStore()
-    );
+    this.crudService = new SessionCrudService(db, streams, config, presenceStore);
+    this.presenceService = new SessionPresenceService(db, presenceStore, () => this.streamService);
 
     // Start the stale-presence cleanup timer (RS-007)
     this.presenceService.startCleanupTimer();
@@ -166,10 +163,10 @@ export class SessionService {
 
   async persistEvent(
     sessionId: string,
-    event: SessionEvent
+    event: SessionEvent,
+    retryCount = 0
   ): Promise<Result<{ id: string; offset: number }, SessionError>> {
-    // DB-018: retryCount no longer needed -- atomic INSERT...SELECT eliminates race
-    return this.streamService.persistEvent(sessionId, event);
+    return this.streamService.persistEvent(sessionId, event, retryCount);
   }
 
   async getEventsBySession(

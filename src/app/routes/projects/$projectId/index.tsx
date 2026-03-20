@@ -39,12 +39,6 @@ type ClientTask = Pick<
   diffSummary?: DiffSummary | null;
 };
 
-// Loader return type (Route.useLoaderData() returns void in this route tree)
-type ProjectKanbanLoaderData = {
-  project: ProjectListItem | null;
-  tasks: ClientTask[];
-};
-
 export const Route = createFileRoute('/projects/$projectId/')({
   loader: async ({ params }: { params: { projectId: string } }) => {
     // Prefetch project and tasks in parallel (FC-022)
@@ -62,14 +56,16 @@ export const Route = createFileRoute('/projects/$projectId/')({
 
 function ProjectKanban(): React.JSX.Element {
   const { projectId } = Route.useParams();
-  const loaderData = Route.useLoaderData() as ProjectKanbanLoaderData;
+  const loaderData = Route.useLoaderData() as
+    | { project: ProjectListItem | null; tasks: ClientTask[] }
+    | undefined;
   const { error: showError, warning: showWarning } = useToast();
   const navigate = useNavigate();
   const [project, setProject] = useState<ProjectListItem | null>(
-    loaderData.project as ProjectListItem | null
+    (loaderData?.project as ProjectListItem | null) ?? null
   );
-  const [tasks, setTasks] = useState<ClientTask[]>(loaderData.tasks as ClientTask[]);
-  const [isLoading, setIsLoading] = useState(!loaderData.project);
+  const [tasks, setTasks] = useState<ClientTask[]>((loaderData?.tasks as ClientTask[]) ?? []);
+  const [isLoading, setIsLoading] = useState(!loaderData?.project);
   const [error, setError] = useState<string | null>(null);
   const [selectedTask, setSelectedTask] = useState<ClientTask | null>(null);
   const [showNewTask, setShowNewTask] = useState(false);
@@ -141,7 +137,7 @@ function ProjectKanban(): React.JSX.Element {
 
   // Fetch on mount and when projectId changes (skip if loader already provided data)
   useEffect(() => {
-    if (loaderData.project) return;
+    if (loaderData?.project) return;
     fetchData();
   }, [fetchData, loaderData]);
 
@@ -277,7 +273,7 @@ function ProjectKanban(): React.JSX.Element {
         }
       );
     } else {
-      // TODO: [CQ-018] Implement code review approval/rejection API calls for non-plan tasks
+      // TODO: Implement code review approval/rejection API calls for non-plan tasks
       setApprovalTask(null);
       await fetchData();
     }
@@ -292,7 +288,7 @@ function ProjectKanban(): React.JSX.Element {
         'Failed to reject plan'
       );
     } else {
-      // TODO: [CQ-018] Implement code review approval/rejection API calls for non-plan tasks
+      // TODO: Implement code review approval/rejection API calls for non-plan tasks
       setApprovalTask(null);
       await fetchData();
     }
@@ -371,10 +367,6 @@ function ProjectKanban(): React.JSX.Element {
         </div>
       }
     >
-      {/* FC-002: KanbanBoard receives callbacks via props (3 levels: Route -> Board -> Card).
-          This is acceptable prop drilling depth -- callbacks are properly memoized and the
-          intermediate KanbanBoard component needs them for column-level orchestration.
-          Extracting into context would add complexity without meaningful benefit here. */}
       <KanbanBoard
         tasks={tasks as Parameters<typeof KanbanBoard>[0]['tasks']}
         onTaskMove={handleTaskMove as Parameters<typeof KanbanBoard>[0]['onTaskMove']}

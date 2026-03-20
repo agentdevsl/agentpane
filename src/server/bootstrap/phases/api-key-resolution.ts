@@ -50,11 +50,7 @@ export async function resolveApiKey(apiKeyService: ApiKeyService): Promise<void>
 
   const isOAuthToken = resolvedKey.startsWith('sk-ant-oat');
   if (isOAuthToken) {
-    try {
-      await writeOAuthCredentials(resolvedKey);
-    } catch {
-      // Error already logged inside writeOAuthCredentials; continue boot
-    }
+    await writeOAuthCredentials(resolvedKey);
   } else {
     process.env.ANTHROPIC_API_KEY = resolvedKey;
     log.info('Anthropic API key resolved', { data: { source: 'database' } });
@@ -90,9 +86,8 @@ async function writeOAuthCredentials(token: string): Promise<void> {
       data: { source: 'database', credPath },
     });
   } catch (writeErr) {
-    log.error('Failed to write OAuth credentials -- agent execution will fail', {
-      error: writeErr instanceof Error ? writeErr : new Error(String(writeErr)),
-    });
-    throw writeErr;
+    throw new Error(
+      `Failed to write OAuth credentials: ${writeErr instanceof Error ? writeErr.message : String(writeErr)}`
+    );
   }
 }

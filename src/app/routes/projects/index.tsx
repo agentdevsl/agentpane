@@ -26,9 +26,6 @@ import type { GitHubOrg, GitHubRepo } from '@/services/github-token.service';
 // Use the API response type for project summaries
 type ClientProjectSummary = ProjectSummaryItem;
 
-// Loader return type (Route.useLoaderData() returns void in this route tree)
-type ProjectsLoaderData = { projects: ClientProjectSummary[] };
-
 export const Route = createFileRoute('/projects/')({
   loader: async () => {
     // Prefetch project summaries (FC-022)
@@ -41,8 +38,8 @@ export const Route = createFileRoute('/projects/')({
 type SortOption = 'recent' | 'name' | 'created';
 
 function ProjectsPage(): React.JSX.Element {
-  const loaderData = Route.useLoaderData() as ProjectsLoaderData;
-  const loaderProjects = loaderData.projects;
+  const loaderData = Route.useLoaderData() as { projects: ProjectSummaryItem[] } | undefined;
+  const loaderProjects = (loaderData?.projects ?? []) as ClientProjectSummary[];
   const [projectSummaries, setProjectSummaries] = useState<ClientProjectSummary[]>(loaderProjects);
   const [isLoading, setIsLoading] = useState(loaderProjects.length === 0);
   const [showNewProject, setShowNewProject] = useState(false);
@@ -171,7 +168,7 @@ function ProjectsPage(): React.JSX.Element {
       }
     };
     if (loaderProjects.length > 0) {
-      // Loader already has data - skip immediate fetch, but start polling
+      // Loader already has data — skip immediate fetch, but start polling
       const hasRunningAgents = loaderProjects.some(
         (s: ClientProjectSummary) => s.runningAgents.length > 0
       );
@@ -190,8 +187,7 @@ function ProjectsPage(): React.JSX.Element {
         currentIntervalMsRef.current = null;
       }
     };
-    // biome-ignore lint/correctness/useExhaustiveDependencies: loaderProjects is stable from route loader, intentionally run once on mount
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCreateProject = useCallback(
     async (data: {
@@ -265,7 +261,7 @@ function ProjectsPage(): React.JSX.Element {
         unknown
       >
     > => {
-      // TODO: [CQ-018] Add API endpoint for path validation
+      // TODO: Add API endpoint for path validation
       // For now, return a basic validation result
       const pathParts = pathToValidate.split('/');
       const name = pathParts[pathParts.length - 1] || 'unknown';

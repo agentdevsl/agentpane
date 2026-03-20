@@ -34,9 +34,6 @@ type ClientProjectSummary = {
   lastActivityAt?: Date | null;
 };
 
-// Loader return type (Route.useLoaderData() returns void in this route tree)
-type DashboardLoaderData = { projects: ProjectSummaryItem[] };
-
 export const Route = createFileRoute('/')({
   loader: async () => {
     // Prefetch project summaries (FC-022)
@@ -48,8 +45,8 @@ export const Route = createFileRoute('/')({
 
 function Dashboard(): React.JSX.Element {
   const navigate = useNavigate();
-  const loaderData = Route.useLoaderData() as DashboardLoaderData;
-  const loaderProjects = loaderData.projects;
+  const loaderData = Route.useLoaderData() as { projects: ProjectSummaryItem[] } | undefined;
+  const loaderProjects = loaderData?.projects ?? [];
   const [projectSummaries, setProjectSummaries] = useState<ClientProjectSummary[]>(
     () =>
       loaderProjects.map((item: ProjectSummaryItem) => ({
@@ -136,17 +133,8 @@ function Dashboard(): React.JSX.Element {
   const currentIntervalMsRef = useRef<number | null>(null);
   const isFetchingRef = useRef(false);
 
-  // FC-021: Polling-vs-SSE decision for the dashboard
-  // -------------------------------------------------
-  // The dashboard uses polling (5s active / 30s idle) rather than SSE because:
-  // 1. The dashboard aggregates data across ALL projects -- there is no single
-  //    session ID to subscribe to via durable streams.
-  // 2. The listWithSummaries endpoint returns pre-aggregated counts that would
-  //    require fan-out across multiple SSE channels to replicate.
-  // 3. The adaptive polling interval (5s when agents run, 30s when idle)
-  //    provides acceptable freshness without a persistent connection.
-  // If a global event bus (e.g., project:updated) is added, SSE could replace
-  // polling here by subscribing to a single organization-level stream.
+  // Fetch projects from API on mount and poll when agents are running
+  // Skip initial fetch if loader already provided data
   useEffect(() => {
     const fetchProjects = async () => {
       if (isFetchingRef.current) {
@@ -198,7 +186,7 @@ function Dashboard(): React.JSX.Element {
       }
     };
     if (loaderProjects.length > 0) {
-      // Loader already has data - skip immediate fetch, but start polling
+      // Loader already has data — skip immediate fetch, but start polling
       const hasRunningAgents = loaderProjects.some(
         (s: ProjectSummaryItem) => s.runningAgents.length > 0
       );
@@ -217,8 +205,7 @@ function Dashboard(): React.JSX.Element {
         currentIntervalMsRef.current = null;
       }
     };
-    // biome-ignore lint/correctness/useExhaustiveDependencies: loaderProjects is stable from route loader, intentionally run once on mount
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCreateProject = useCallback(
     async (data: {
@@ -317,7 +304,7 @@ function Dashboard(): React.JSX.Element {
         unknown
       >
     > => {
-      // TODO: [CQ-018] Add API endpoint for path validation
+      // TODO: Add API endpoint for path validation
       // For now, return a basic validation result
       const pathParts = pathToValidate.split('/');
       const name = pathParts[pathParts.length - 1] || 'unknown';
