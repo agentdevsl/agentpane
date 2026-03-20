@@ -76,7 +76,7 @@ export const workflowSchema = z.object({
   type: z.enum([
     'approval:requested',
     'approval:approved',
-    'approval:rejected',
+    'approval:rejected', // AE-012: Deprecated, kept for backward compat with persisted events. Use 'agent:resumed' instead.
     'agent:resumed',
     'worktree:created',
     'worktree:merged',

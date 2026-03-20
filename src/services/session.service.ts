@@ -47,9 +47,6 @@ export type {
   SubscribeOptions,
 };
 
-// Shared presence store across all instances
-const presenceStore = new Map<string, Map<string, ActiveUser>>();
-
 /**
  * SessionService - Unified facade for session management
  *
@@ -60,10 +57,14 @@ export class SessionService {
   private presenceService: SessionPresenceService;
   private streamService: SessionStreamService;
 
-  constructor(db: Database, streams: DurableStreamsServer, config: { baseUrl: string }) {
+  constructor(
+    db: Database,
+    streams: DurableStreamsServer,
+    config: { baseUrl: string },
+  ) {
     this.streamService = new SessionStreamService(db, streams);
-    this.crudService = new SessionCrudService(db, streams, config, presenceStore);
-    this.presenceService = new SessionPresenceService(db, presenceStore, () => this.streamService);
+    this.presenceService = new SessionPresenceService(db, () => this.streamService);
+    this.crudService = new SessionCrudService(db, streams, config, this.presenceService.getMutablePresenceStore());
 
     // Start the stale-presence cleanup timer (RS-007)
     this.presenceService.startCleanupTimer();

@@ -15,13 +15,6 @@ vi.mock('../../src/lib/agents/stream-handler', () => ({
   runAgentPlanning: vi.fn(),
 }));
 
-vi.mock('../../src/lib/agents/hooks/index', () => ({
-  createAgentHooks: vi.fn().mockReturnValue({
-    PreToolUse: [],
-    PostToolUse: [],
-  }),
-}));
-
 import { runAgentPlanning } from '../../src/lib/agents/stream-handler';
 
 const mockRunAgentPlanning = vi.mocked(runAgentPlanning);
@@ -961,7 +954,7 @@ describe('AgentService', () => {
       // Session publish should not be called when no session
       expect(mockSessionService.publish).not.toHaveBeenCalledWith(
         expect.any(String),
-        expect.objectContaining({ type: 'approval:rejected' })
+        expect.objectContaining({ type: 'agent:resumed' })
       );
     });
   });

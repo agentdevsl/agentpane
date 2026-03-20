@@ -30,10 +30,6 @@ vi.mock('../../src/lib/agents/stream-handler.js', () => ({
   runAgentExecution: (...args: unknown[]) => mockRunAgentExecution(...args),
 }));
 
-vi.mock('../../src/lib/agents/hooks/index.js', () => ({
-  createAgentHooks: vi.fn().mockReturnValue({}),
-}));
-
 vi.mock('../../src/lib/agents/recovery.js', () => ({
   handleAgentError: (...args: unknown[]) => mockHandleAgentError(...args),
 }));

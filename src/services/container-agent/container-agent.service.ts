@@ -15,7 +15,7 @@
 
 import { eq } from 'drizzle-orm';
 
-import { projects } from '../../db/schema';
+import { projects, tasks } from '../../db/schema';
 import type { SandboxError } from '../../lib/errors/sandbox-errors.js';
 import { SandboxErrors } from '../../lib/errors/sandbox-errors.js';
 import { createLogger } from '../../lib/logging/logger.js';
@@ -153,6 +153,35 @@ export class ContainerAgentService {
   clearAgentCoreProvider(): void {
     this.agentCoreProvider = undefined;
     log.info('AgentCore provider cleared, using container exec path');
+  }
+
+  /**
+   * SL-017: Reconcile orphaned in_progress tasks on startup.
+   *
+   * After a server restart no agents are running in memory, so any task
+   * still marked `in_progress` is orphaned. Move them back to `backlog`
+   * so they can be re-queued.
+   */
+  async reconcile(): Promise<void> {
+    const orphaned = await this.deps.db.query.tasks.findMany({
+      where: eq(tasks.column, 'in_progress'),
+    });
+
+    if (orphaned.length === 0) return;
+
+    log.info(`Reconciling ${orphaned.length} orphaned in_progress task(s)`);
+
+    for (const task of orphaned) {
+      // Only move tasks that have no live agent in memory
+      if (this.state.hasAnyRunningAgent(task.id)) continue;
+
+      await this.deps.db
+        .update(tasks)
+        .set({ column: 'backlog', lastAgentStatus: null })
+        .where(eq(tasks.id, task.id));
+
+      log.info('Moved orphaned task to backlog', { data: { taskId: task.id } });
+    }
   }
 
   /**

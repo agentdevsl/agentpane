@@ -18,14 +18,6 @@ vi.mock('../../../lib/agents/stream-handler.js', () => ({
   }),
 }));
 
-// Mock agent hooks creation
-vi.mock('../../../lib/agents/hooks/index.js', () => ({
-  createAgentHooks: vi.fn().mockReturnValue({
-    onPreToolUse: vi.fn(),
-    onPostToolUse: vi.fn(),
-  }),
-}));
-
 // Mock agent error recovery
 vi.mock('../../../lib/agents/recovery.js', () => ({
   handleAgentError: vi.fn().mockReturnValue({ action: 'fail' }),

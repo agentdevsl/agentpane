@@ -403,6 +403,12 @@ export interface TopologyAgentCompletedEvent {
  * Maps event type strings to their corresponding data types.
  * This single source of truth enables type-safe publishing without
  * requiring individual helper methods for each event type.
+ *
+ * RS-005: Event naming convention -- colon-delimited hierarchical format:
+ *   `category:action`  (e.g. 'plan:started', 'sandbox:ready')
+ * Sub-categories add another colon level:
+ *   `category:subcategory:action`  (e.g. 'container-agent:tool:start')
+ * The category prefix maps to a storage channel in getChannelForType().
  */
 export interface StreamEventMap {
   // Plan events
@@ -572,7 +578,7 @@ export class DurableStreamsService {
   ): Promise<number> {
     if (!this.db) return 0;
 
-    const MAX_OFFSET_RETRIES = 3;
+    const MAX_OFFSET_RETRIES = 5;
     let offset = 0;
     for (let attempt = 0; attempt < MAX_OFFSET_RETRIES; attempt++) {
       const lastEvent = await this.db.query.sessionEvents.findFirst({

@@ -234,10 +234,10 @@ export class TerraformRegistryService {
       return err(TerraformErrors.REGISTRY_NOT_FOUND);
     }
 
-    this.db.transaction((tx) => {
-      tx.delete(terraformModules).where(eq(terraformModules.registryId, id)).run();
-      tx.delete(terraformRegistries).where(eq(terraformRegistries.id, id)).run();
-      tx.delete(settings).where(eq(settings.key, registry.tokenSettingKey)).run();
+    await this.db.transaction(async (tx) => {
+      await tx.delete(terraformModules).where(eq(terraformModules.registryId, id));
+      await tx.delete(terraformRegistries).where(eq(terraformRegistries.id, id));
+      await tx.delete(settings).where(eq(settings.key, registry.tokenSettingKey));
     });
 
     log.info('Deleted registry', { data: { id } });

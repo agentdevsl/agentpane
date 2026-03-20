@@ -133,7 +133,7 @@ function Dashboard(): React.JSX.Element {
   const currentIntervalMsRef = useRef<number | null>(null);
   const isFetchingRef = useRef(false);
 
-  // Fetch projects from API on mount and poll when agents are running
+  // FC-021: Polling (5s active, 30s idle) chosen over SSE because dashboard has no single session to subscribe to
   // Skip initial fetch if loader already provided data
   useEffect(() => {
     const fetchProjects = async () => {

@@ -1038,10 +1038,10 @@ describe('SessionService', () => {
       });
 
       await sessionService.persistEvent(sessionId, {
-        id: 'evt-approval-rejected',
-        type: 'approval:rejected',
+        id: 'evt-agent-resumed',
+        type: 'agent:resumed',
         timestamp: Date.now(),
-        data: { rejectedBy: 'user-2' },
+        data: { feedback: 'Continue with changes' },
       });
 
       const events = await sessionService.getEventsBySession(sessionId);

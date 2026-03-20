@@ -3,7 +3,6 @@
 export type { CreateAgentHooksInput } from './hooks/index.js';
 // Hooks
 export {
-  createAgentHooks,
   createAuditHook,
   createStreamingHooks,
   createToolWhitelistHook,

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
-import type { AgentHooks, ToolContext, ToolResponse } from '@/lib/agents/types';
+import type { ToolContext, ToolResponse } from '@/lib/agents/types';
 
 // =============================================================================
 // Mock Setup for SDK
@@ -225,11 +225,6 @@ describe('Stream Handler', () => {
     publish: vi.fn().mockResolvedValue({ ok: true, value: { offset: 1 } }),
   });
 
-  const createMockHooks = (): AgentHooks => ({
-    PreToolUse: [],
-    PostToolUse: [],
-  });
-
   describe('runAgentPlanning', () => {
     it('publishes agent planning event', async () => {
       const sessionService = createMockSessionService();
@@ -243,7 +238,6 @@ describe('Stream Handler', () => {
         maxTurns: 10,
         model: 'claude-sonnet-4-6',
         cwd: '/tmp',
-        hooks: createMockHooks(),
         sessionService,
       });
 
@@ -271,7 +265,6 @@ describe('Stream Handler', () => {
         maxTurns: 10,
         model: 'claude-sonnet-4-6',
         cwd: '/tmp',
-        hooks: createMockHooks(),
         sessionService,
       });
 
@@ -293,7 +286,6 @@ describe('Stream Handler', () => {
         maxTurns: 10,
         model: 'claude-sonnet-4-6',
         cwd: '/tmp',
-        hooks: createMockHooks(),
         sessionService,
       });
 
@@ -313,7 +305,6 @@ describe('Stream Handler', () => {
         maxTurns: 10,
         model: 'claude-sonnet-4-6',
         cwd: '/tmp',
-        hooks: createMockHooks(),
         sessionService,
       });
 
@@ -338,7 +329,6 @@ describe('Stream Handler', () => {
         maxTurns: 10,
         model: 'claude-sonnet-4-6',
         cwd: '/tmp',
-        hooks: createMockHooks(),
         sessionService,
       });
 
@@ -358,7 +348,6 @@ describe('Stream Handler', () => {
         maxTurns: 10,
         model: 'claude-sonnet-4-6',
         cwd: '/tmp',
-        hooks: createMockHooks(),
         sessionService,
       });
 
@@ -379,7 +368,6 @@ describe('Stream Handler', () => {
         maxTurns: 10,
         model: 'claude-sonnet-4-6',
         cwd: '/tmp',
-        hooks: createMockHooks(),
         sessionService,
       });
 
@@ -398,7 +386,6 @@ describe('Stream Handler', () => {
         maxTurns: 10,
         model: 'claude-sonnet-4-6',
         cwd: '/tmp',
-        hooks: createMockHooks(),
         sessionService,
       });
 
@@ -444,7 +431,6 @@ describe('Stream Handler', () => {
         maxTurns: 10,
         model: 'claude-sonnet-4-6',
         cwd: '/tmp',
-        hooks: createMockHooks(),
         sessionService,
       });
     };

@@ -367,6 +367,7 @@ function ProjectKanban(): React.JSX.Element {
         </div>
       }
     >
+      {/* FC-002: 3-level prop drilling is acceptable here -- callbacks are memoized via useCallback */}
       <KanbanBoard
         tasks={tasks as Parameters<typeof KanbanBoard>[0]['tasks']}
         onTaskMove={handleTaskMove as Parameters<typeof KanbanBoard>[0]['onTaskMove']}

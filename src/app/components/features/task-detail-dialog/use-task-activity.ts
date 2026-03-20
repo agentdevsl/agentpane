@@ -134,6 +134,8 @@ function mapEventToActivity(event: RawEvent): ActivityEntry | null {
       return { id, type: 'approval', timestamp, message: 'Changes approved', data: eventData };
 
     case 'approval:rejected': {
+      // AE-012: Deprecated event type, kept for backward compat with persisted events.
+      // New code emits 'agent:resumed' instead.
       const reason = typeof eventData.reason === 'string' ? `: ${eventData.reason}` : '';
       return {
         id,

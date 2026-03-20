@@ -1,21 +1,18 @@
 import { and, desc, eq } from 'drizzle-orm';
 import type { CachedPlugin, Marketplace, NewMarketplace } from '../db/schema';
-import { githubInstallations, githubTokens, marketplaces } from '../db/schema';
+import { githubTokens, marketplaces } from '../db/schema';
 import { createLogger } from '../lib/logging/logger.js';
 
 const log = createLogger('MarketplaceService');
 
 import type { MarketplaceError } from '../lib/errors/marketplace-errors.js';
 import { MarketplaceErrors } from '../lib/errors/marketplace-errors.js';
-import {
-  createOctokitFromToken,
-  formatGitHubError,
-  getInstallationOctokit,
-} from '../lib/github/client.js';
+import { formatGitHubError } from '../lib/github/client.js';
 import {
   parseGitHubMarketplaceUrl,
   syncMarketplaceFromGitHub,
 } from '../lib/github/marketplace-sync.js';
+import { resolveOctokit } from '../lib/github/resolve-octokit.js';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
 import type { Database } from '../types/database.js';
@@ -275,60 +272,19 @@ export class MarketplaceService {
     await this.db.update(marketplaces).set({ status: 'syncing' }).where(eq(marketplaces.id, id));
 
     try {
-      // Get Octokit client - try GitHub App first, then PAT
-      let octokit: Awaited<ReturnType<typeof getInstallationOctokit>>;
-
-      const installation = await this.db.query.githubInstallations.findFirst({
-        where: eq(githubInstallations.status, 'active'),
-      });
-
-      if (installation) {
-        octokit = await getInstallationOctokit(Number(installation.installationId));
-      } else {
-        const tokenRecord = await this.db.query.githubTokens.findFirst({
-          where: eq(githubTokens.isValid, true),
-        });
-
-        if (!tokenRecord) {
-          await this.db
-            .update(marketplaces)
-            .set({
-              status: 'error',
-              syncError: 'No GitHub authentication found',
-            })
-            .where(eq(marketplaces.id, id));
-          return err(MarketplaceErrors.SYNC_FAILED('No GitHub authentication found'));
-        }
-
-        const { decryptToken } = await import('../lib/crypto/server-encryption.js');
-        let token: string;
-        try {
-          token = await decryptToken(tokenRecord.encryptedToken);
-        } catch (decryptError) {
-          // Token can't be decrypted - keyfile may have changed since token was stored
-          log.error('Failed to decrypt GitHub token, marking as invalid', {
-            error: decryptError,
-          });
-          await this.db
-            .update(githubTokens)
-            .set({ isValid: false })
-            .where(eq(githubTokens.id, tokenRecord.id));
-          await this.db
-            .update(marketplaces)
-            .set({
-              status: 'error',
-              syncError:
-                'GitHub token could not be decrypted. The encryption key may have changed. Please re-add your GitHub token in Settings.',
-            })
-            .where(eq(marketplaces.id, id));
-          return err(
-            MarketplaceErrors.SYNC_FAILED(
-              'GitHub token could not be decrypted. The encryption key may have changed. Please re-add your GitHub token in Settings.'
-            )
-          );
-        }
-        octokit = createOctokitFromToken(token);
+      // SL-013: Use shared resolveOctokit helper (GitHub App first, then PAT)
+      const octokitResult = await resolveOctokit(this.db);
+      if (!octokitResult.ok) {
+        await this.db
+          .update(marketplaces)
+          .set({
+            status: 'error',
+            syncError: octokitResult.error.message,
+          })
+          .where(eq(marketplaces.id, id));
+        return err(MarketplaceErrors.SYNC_FAILED(octokitResult.error.message));
       }
+      const octokit = octokitResult.value;
 
       // For the official Anthropic marketplace, also fetch external plugins
       const additionalPaths = marketplace.isDefault
