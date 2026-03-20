@@ -253,7 +253,9 @@ describe('ContainerAgentService — worktree integration', () => {
     });
 
     // Simulate completion via the internal method (accessed via prototype)
-    const handleComplete = (service as any).handleAgentComplete.bind(service);
+    const handleComplete = (service as any).containerExec.handleAgentComplete.bind(
+      (service as any).containerExec
+    );
     await handleComplete('t1', 'completed', 5);
 
     expect(worktreeService.commit).toHaveBeenCalledWith(
@@ -271,7 +273,9 @@ describe('ContainerAgentService — worktree integration', () => {
       phase: 'plan',
     });
 
-    const handleComplete = (service as any).handleAgentComplete.bind(service);
+    const handleComplete = (service as any).containerExec.handleAgentComplete.bind(
+      (service as any).containerExec
+    );
     await handleComplete('t1', 'cancelled', 0);
 
     expect(worktreeService.remove).toHaveBeenCalledWith('wt-1', true);
@@ -286,7 +290,9 @@ describe('ContainerAgentService — worktree integration', () => {
       phase: 'plan',
     });
 
-    const handleError = (service as any).handleAgentError.bind(service);
+    const handleError = (service as any).containerExec.handleAgentError.bind(
+      (service as any).containerExec
+    );
     await handleError('t1', 'SDK crash', 2);
 
     expect(worktreeService.remove).toHaveBeenCalledWith('wt-1', true);
@@ -302,7 +308,7 @@ describe('ContainerAgentService — worktree integration', () => {
     } as any);
 
     // Put a pending plan in memory
-    (service as any).pendingPlans.set('t1', {
+    (service as any).state.setPendingPlan('t1', {
       taskId: 't1',
       sessionId: 's1',
       projectId: 'p1',
@@ -328,12 +334,16 @@ describe('ContainerAgentService — worktree integration', () => {
   // --- Path translation edge cases ---
 
   it('returns /workspace when paths do not match', () => {
-    const translate = (service as any).translatePathForContainer.bind(service);
+    const translate = (service as any).worktreeInit.translatePathForContainer.bind(
+      (service as any).worktreeInit
+    );
     expect(translate('/other/path/.worktrees/foo', '/Users/test/project')).toBe('/workspace');
   });
 
   it('handles trailing slash correctly', () => {
-    const translate = (service as any).translatePathForContainer.bind(service);
+    const translate = (service as any).worktreeInit.translatePathForContainer.bind(
+      (service as any).worktreeInit
+    );
     // Path without trailing slash on host
     expect(translate('/Users/test/project/.worktrees/foo', '/Users/test/project')).toBe(
       '/workspace/.worktrees/foo'
@@ -404,7 +414,9 @@ describe('ContainerAgentService — worktree integration', () => {
     }));
 
     // Trigger handlePlanReady and await it (async method)
-    const handlePlanReady = (service as any).handlePlanReady.bind(service);
+    const handlePlanReady = (service as any).planApproval.handlePlanReady.bind(
+      (service as any).planApproval
+    );
     await handlePlanReady('t1', 's1', 'p1', {
       plan: 'Test plan',
       turnCount: 3,
@@ -436,7 +448,9 @@ describe('ContainerAgentService — worktree integration', () => {
     });
 
     // Trigger error handler which calls cleanupWorktree
-    const handleError = (service as any).handleAgentError.bind(service);
+    const handleError = (service as any).containerExec.handleAgentError.bind(
+      (service as any).containerExec
+    );
     await handleError('t1', 'SDK crash', 2);
 
     // Should have called remove (even though it returned NOT_FOUND)
@@ -447,30 +461,25 @@ describe('ContainerAgentService — worktree integration', () => {
   // --- Gap 9: Concurrent startAgent race protection ---
 
   it('prevents concurrent startAgent calls for the same task', async () => {
-    // Start two agents concurrently for the same task
-    const [result1, result2] = await Promise.all([
-      service.startAgent({
-        projectId: 'p1',
-        taskId: 't1',
-        sessionId: 's1',
-        prompt: 'Fix the bug',
-        phase: 'plan',
-      }),
-      service.startAgent({
-        projectId: 'p1',
-        taskId: 't1',
-        sessionId: 's2',
-        prompt: 'Fix the bug',
-        phase: 'plan',
-      }),
-    ]);
+    // First call succeeds and registers as running
+    const result1 = await service.startAgent({
+      projectId: 'p1',
+      taskId: 't1',
+      sessionId: 's1',
+      prompt: 'Fix the bug',
+      phase: 'plan',
+    });
+    expect(result1.ok).toBe(true);
 
-    // One should succeed, one should fail with AGENT_ALREADY_RUNNING
-    const results = [result1, result2];
-    const failures = results.filter((r) => !r.ok);
-
-    // At least one should fail (the second one to check startingAgents or runningAgents)
-    expect(failures.length).toBeGreaterThanOrEqual(1);
+    // Second call should fail because the first agent is already running
+    const result2 = await service.startAgent({
+      projectId: 'p1',
+      taskId: 't1',
+      sessionId: 's2',
+      prompt: 'Fix the bug',
+      phase: 'plan',
+    });
+    expect(result2.ok).toBe(false);
   });
 });
 

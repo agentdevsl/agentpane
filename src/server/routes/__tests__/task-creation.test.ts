@@ -71,7 +71,7 @@ describe('Task Creation API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('INVALID_INPUT');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 when service returns error', async () => {
@@ -139,7 +139,7 @@ describe('Task Creation API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('INVALID_INPUT');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 when message is missing', async () => {
@@ -152,7 +152,7 @@ describe('Task Creation API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('INVALID_INPUT');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 when service returns error', async () => {
@@ -233,7 +233,7 @@ describe('Task Creation API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('INVALID_INPUT');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 when service returns error', async () => {
@@ -292,7 +292,7 @@ describe('Task Creation API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('INVALID_INPUT');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 when service returns error', async () => {
@@ -360,7 +360,7 @@ describe('Task Creation API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('INVALID_INPUT');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 when answers is missing', async () => {
@@ -374,7 +374,7 @@ describe('Task Creation API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('INVALID_INPUT');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 when service returns error', async () => {
@@ -465,7 +465,7 @@ describe('Task Creation API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('INVALID_INPUT');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 when service returns error', async () => {

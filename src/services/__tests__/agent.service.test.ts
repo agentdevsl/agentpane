@@ -13,6 +13,11 @@ const createDbMock = () => ({
   insert: vi.fn(() => ({ values: vi.fn(() => ({ returning: vi.fn() })) })),
   update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn() })) })),
   delete: vi.fn(() => ({ where: vi.fn() })),
+  select: vi.fn(() => ({
+    from: vi.fn(() => ({
+      where: vi.fn().mockResolvedValue([{ count: 0 }]),
+    })),
+  })),
 });
 
 const createWorktreeServiceMock = () => ({
@@ -111,7 +116,12 @@ describe('AgentService', () => {
     db.query.agents.findFirst.mockResolvedValue({ id: 'a1', status: 'idle', projectId: 'p1' });
     db.query.tasks.findFirst.mockResolvedValue({ id: 't1', column: 'backlog' });
     db.query.projects.findFirst.mockResolvedValue({ id: 'p1', maxConcurrentAgents: 1 });
-    db.query.agents.findMany.mockResolvedValue([{ id: 'a2', status: 'running' }]);
+    // checkAvailability and getRunningCount now use db.select({ count }).from().where()
+    db.select.mockReturnValue({
+      from: vi.fn(() => ({
+        where: vi.fn().mockResolvedValue([{ count: 1 }]),
+      })),
+    });
 
     const service = new AgentService(
       db as never,
@@ -575,7 +585,12 @@ describe('AgentService', () => {
       id: 'p1',
       maxConcurrentAgents: 3,
     });
-    db.query.agents.findMany.mockResolvedValue([{ id: 'a1', status: 'running' }]);
+    // checkAvailability now uses db.select({ count }).from().where()
+    db.select.mockReturnValue({
+      from: vi.fn(() => ({
+        where: vi.fn().mockResolvedValue([{ count: 1 }]),
+      })),
+    });
 
     const service = new AgentService(
       db as never,
@@ -597,10 +612,12 @@ describe('AgentService', () => {
       id: 'p1',
       maxConcurrentAgents: 2,
     });
-    db.query.agents.findMany.mockResolvedValue([
-      { id: 'a1', status: 'running' },
-      { id: 'a2', status: 'running' },
-    ]);
+    // checkAvailability now uses db.select({ count }).from().where()
+    db.select.mockReturnValue({
+      from: vi.fn(() => ({
+        where: vi.fn().mockResolvedValue([{ count: 2 }]),
+      })),
+    });
 
     const service = new AgentService(
       db as never,
@@ -618,10 +635,12 @@ describe('AgentService', () => {
 
   it('getRunningCount returns count of running agents', async () => {
     const db = createDbMock();
-    db.query.agents.findMany.mockResolvedValue([
-      { id: 'a1', status: 'running' },
-      { id: 'a2', status: 'running' },
-    ]);
+    // getRunningCount now uses db.select({ count: count() }).from().where()
+    db.select.mockReturnValue({
+      from: vi.fn(() => ({
+        where: vi.fn().mockResolvedValue([{ count: 2 }]),
+      })),
+    });
 
     const service = new AgentService(
       db as never,
@@ -771,7 +790,12 @@ describe('AgentService', () => {
       id: 'p1',
       maxConcurrentAgents: 3,
     });
-    db.query.agents.findMany.mockResolvedValue([]);
+    // checkAvailability uses db.select({ count }).from().where()
+    db.select.mockReturnValue({
+      from: vi.fn(() => ({
+        where: vi.fn().mockResolvedValue([{ count: 0 }]),
+      })),
+    });
 
     taskService.moveColumn.mockResolvedValue({ ok: true });
     worktreeService.create.mockResolvedValue({
@@ -810,7 +834,12 @@ describe('AgentService', () => {
       id: 'p1',
       maxConcurrentAgents: 3,
     });
-    db.query.agents.findMany.mockResolvedValue([]);
+    // checkAvailability uses db.select({ count }).from().where()
+    db.select.mockReturnValue({
+      from: vi.fn(() => ({
+        where: vi.fn().mockResolvedValue([{ count: 0 }]),
+      })),
+    });
 
     taskService.moveColumn.mockResolvedValue({ ok: true });
     worktreeService.create.mockResolvedValue({

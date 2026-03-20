@@ -118,7 +118,7 @@ describe('Agents API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('MISSING_PARAMS');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 for invalid agent type', async () => {
@@ -133,7 +133,7 @@ describe('Agents API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('INVALID_PARAMS');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 for invalid JSON body', async () => {
@@ -149,7 +149,7 @@ describe('Agents API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('INVALID_JSON');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 for invalid projectId format', async () => {
@@ -164,7 +164,7 @@ describe('Agents API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('INVALID_ID');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
   });
 

@@ -220,7 +220,7 @@ describe('GitHub API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('MISSING_TOKEN');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 when service rejects token', async () => {
@@ -312,7 +312,7 @@ describe('GitHub API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('MISSING_PARAMS');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 when destination is missing', async () => {
@@ -325,7 +325,7 @@ describe('GitHub API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('MISSING_PARAMS');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 for invalid GitHub URL', async () => {
@@ -356,7 +356,7 @@ describe('GitHub API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('MISSING_PARAMS');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 when template creation fails', async () => {
@@ -410,7 +410,7 @@ describe('GitHub API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('MISSING_PARAMS');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 when name is missing', async () => {
@@ -425,7 +425,7 @@ describe('GitHub API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('MISSING_PARAMS');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 when clonePath is missing', async () => {
@@ -440,7 +440,7 @@ describe('GitHub API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('MISSING_PARAMS');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('passes all fields to createRepoFromTemplate', async () => {
@@ -542,7 +542,7 @@ describe('GitHub API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('MISSING_PARAMS');
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('rejects non-HTTPS URLs', async () => {
