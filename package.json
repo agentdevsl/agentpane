@@ -54,7 +54,7 @@
     "@types/react-dom": "^19.1.6",
     "@vitest/coverage-v8": "4.0.16",
     "agent-browser": "0.7.6",
-    "drizzle-kit": "^0.31.8",
+    "drizzle-kit": "^0.31.10",
     "jsdom": "^28.1.0",
     "playwright": "^1.58.2",
     "typescript": "^5.7.2",
