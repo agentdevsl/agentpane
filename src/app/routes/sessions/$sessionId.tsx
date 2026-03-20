@@ -29,15 +29,52 @@ function isContainerAgentSession(session: ClientSession): boolean {
 }
 
 export const Route = createFileRoute('/sessions/$sessionId')({
+  loader: async ({ params }: { params: { sessionId: string } }) => {
+    // Prefetch session data in parallel with sandbox defaults (FC-022)
+    const [result, settingsResult] = await Promise.all([
+      apiClient.sessions.get(params.sessionId),
+      apiClient.settings.get(['sandbox.defaults']).catch(() => null),
+    ]);
+    return {
+      session: result.ok ? result.data : null,
+      sessionError: result.ok ? null : result.error.message,
+      sandboxDefaults: settingsResult?.ok
+        ? (settingsResult.data.settings['sandbox.defaults'] as { provider?: string } | undefined)
+        : null,
+    };
+  },
   component: SessionPage,
 });
 
 function SessionPage(): React.JSX.Element {
   const { sessionId } = Route.useParams();
+  const loaderData = Route.useLoaderData() as
+    | {
+        session: ClientSession | null;
+        sessionError: string | null;
+        sandboxDefaults: { provider?: string } | null;
+      }
+    | undefined;
   const navigate = useNavigate();
-  const [session, setSession] = useState<ClientSession | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<{ message: string } | null>(null);
+
+  // Initialize from loader data and backfill sandboxProvider if needed
+  const initialSession = (() => {
+    if (!loaderData?.session) return null;
+    const data = loaderData.session as ClientSession;
+    if (!data.sandboxProvider && data.agentId === null && data.taskId !== null) {
+      if (loaderData.sandboxDefaults?.provider) {
+        data.sandboxProvider =
+          loaderData.sandboxDefaults.provider === 'kubernetes' ? 'kubernetes' : 'docker';
+      }
+    }
+    return data;
+  })();
+
+  const [session, setSession] = useState<ClientSession | null>(initialSession);
+  const [isLoading, setIsLoading] = useState(!loaderData?.session && !loaderData?.sessionError);
+  const [error, setError] = useState<{ message: string } | null>(
+    loaderData?.sessionError ? { message: loaderData.sessionError } : null
+  );
   const [actionError, setActionError] = useState<string | null>(null);
   const [isPlanActionPending, setIsPlanActionPending] = useState(false);
   const errorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -102,8 +139,11 @@ function SessionPage(): React.JSX.Element {
     }
   }, [session?.taskId, navigate, showTemporaryError]);
 
-  // Fetch session from API on mount, resolving sandboxProvider from settings if missing
+  // Fetch session from API on mount if not already loaded by route loader
   useEffect(() => {
+    // Skip if loader already provided data
+    if (initialSession || loaderData?.sessionError) return;
+
     const fetchSession = async () => {
       setIsLoading(true);
       setError(null);
@@ -134,7 +174,7 @@ function SessionPage(): React.JSX.Element {
       setIsLoading(false);
     };
     fetchSession();
-  }, [sessionId]);
+  }, [sessionId, initialSession, loaderData?.sessionError]);
 
   // Stable callbacks for agent actions (must be declared before early returns)
   const handlePause = useCallback(async () => {

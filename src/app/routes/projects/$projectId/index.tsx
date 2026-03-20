@@ -1,11 +1,15 @@
 import { GearSix } from '@phosphor-icons/react';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { useCallback, useEffect, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useState } from 'react';
 import { ApprovalDialog } from '@/app/components/features/approval-dialog';
 import { KanbanBoard } from '@/app/components/features/kanban-board';
 import { LayoutShell } from '@/app/components/features/layout-shell';
-// Use separate dialogs: new-task-dialog for creation, task-detail-dialog for editing with mode toggle
-import { NewTaskDialog } from '@/app/components/features/new-task-dialog';
+
+// Lazy-load heavy dialog components (FC-012)
+const NewTaskDialog = React.lazy(() =>
+  import('@/app/components/features/new-task-dialog').then((m) => ({ default: m.NewTaskDialog }))
+);
+
 import { SandboxIndicator } from '@/app/components/features/sandbox-indicator';
 import { TaskDetailDialog } from '@/app/components/features/task-detail-dialog/index';
 import { AIActionButton } from '@/app/components/ui/ai-action-button';
@@ -36,16 +40,32 @@ type ClientTask = Pick<
 };
 
 export const Route = createFileRoute('/projects/$projectId/')({
+  loader: async ({ params }: { params: { projectId: string } }) => {
+    // Prefetch project and tasks in parallel (FC-022)
+    const [projectResult, tasksResult] = await Promise.all([
+      apiClient.projects.get(params.projectId),
+      apiClient.tasks.list(params.projectId),
+    ]);
+    return {
+      project: projectResult.ok ? projectResult.data : null,
+      tasks: tasksResult.ok ? tasksResult.data.items : [],
+    };
+  },
   component: ProjectKanban,
 });
 
 function ProjectKanban(): React.JSX.Element {
   const { projectId } = Route.useParams();
+  const loaderData = Route.useLoaderData() as
+    | { project: ProjectListItem | null; tasks: ClientTask[] }
+    | undefined;
   const { error: showError, warning: showWarning } = useToast();
   const navigate = useNavigate();
-  const [project, setProject] = useState<ProjectListItem | null>(null);
-  const [tasks, setTasks] = useState<ClientTask[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [project, setProject] = useState<ProjectListItem | null>(
+    (loaderData?.project as ProjectListItem | null) ?? null
+  );
+  const [tasks, setTasks] = useState<ClientTask[]>((loaderData?.tasks as ClientTask[]) ?? []);
+  const [isLoading, setIsLoading] = useState(!loaderData?.project);
   const [error, setError] = useState<string | null>(null);
   const [selectedTask, setSelectedTask] = useState<ClientTask | null>(null);
   const [showNewTask, setShowNewTask] = useState(false);
@@ -354,21 +374,23 @@ function ProjectKanban(): React.JSX.Element {
         onStopAgent={handleStopAgent}
       />
 
-      {/* New Task Dialog - AI-powered task creation with streaming */}
-      <NewTaskDialog
-        projectId={projectId}
-        open={showNewTask}
-        onOpenChange={(open) => {
-          if (!open) setShowNewTask(false);
-        }}
-        onTaskCreated={async (_taskId) => {
-          // Refresh tasks list after AI creates a new task
-          const tasksResult = await apiClient.tasks.list(projectId);
-          if (tasksResult.ok) {
-            setTasks(tasksResult.data.items as ClientTask[]);
-          }
-        }}
-      />
+      {/* New Task Dialog - AI-powered task creation with streaming (lazy-loaded) */}
+      <Suspense fallback={null}>
+        <NewTaskDialog
+          projectId={projectId}
+          open={showNewTask}
+          onOpenChange={(open) => {
+            if (!open) setShowNewTask(false);
+          }}
+          onTaskCreated={async (_taskId) => {
+            // Refresh tasks list after AI creates a new task
+            const tasksResult = await apiClient.tasks.list(projectId);
+            if (tasksResult.ok) {
+              setTasks(tasksResult.data.items as ClientTask[]);
+            }
+          }}
+        />
+      </Suspense>
 
       {/* Edit Task Dialog - uses new dialog with mode toggle */}
       <TaskDetailDialog

@@ -1,6 +1,7 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { CheckCircle, Lightning, Warning, WarningCircle, XCircle } from '@phosphor-icons/react';
+import React, { useCallback } from 'react';
 import { ExecutionBadge } from '@/app/components/ui/execution-badge';
 import type { AgentStatusInfo } from '@/app/hooks/use-container-agent-statuses';
 import type { Task } from '@/db/schema';
@@ -93,7 +94,7 @@ const stageLabels: Record<string, string> = {
   running: 'Running',
 };
 
-export function KanbanCard({
+export const KanbanCard = React.memo(function KanbanCard({
   task,
   isSelected,
   isDragging,
@@ -116,6 +117,44 @@ export function KanbanCard({
     transition,
   };
 
+  // All hooks must be called before any early return
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      onSelect(e.metaKey || e.ctrlKey);
+    },
+    [onSelect]
+  );
+
+  const handleDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      onOpen();
+    },
+    [onOpen]
+  );
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        onOpen();
+      } else if (e.key === ' ') {
+        e.preventDefault();
+        onSelect(e.metaKey || e.ctrlKey);
+      }
+    },
+    [onOpen, onSelect]
+  );
+
+  const handleRunNow = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      onRunNow?.();
+    },
+    [onRunNow]
+  );
+
   // Render ghost placeholder when this card is being dragged
   if (sortableIsDragging) {
     return (
@@ -130,26 +169,6 @@ export function KanbanCard({
   const cardState =
     isDragging || sortableIsDragging ? 'dragging' : isSelected ? 'selected' : 'default';
 
-  const handleClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onSelect(e.metaKey || e.ctrlKey);
-  };
-
-  const handleDoubleClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onOpen();
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      onOpen();
-    } else if (e.key === ' ') {
-      e.preventDefault();
-      onSelect(e.metaKey || e.ctrlKey);
-    }
-  };
-
   const priority = getPriority(task);
   const labels = task.labels ?? [];
   // Agent is running if task has an agentId OR a sessionId (container agents only have sessionId)
@@ -157,11 +176,6 @@ export function KanbanCard({
     task.column === 'in_progress' && (Boolean(task.agentId) || Boolean(task.sessionId));
   const canRunNow = task.column === 'backlog' && onRunNow;
   const lastRunStatus = getLastRunStatusInfo(task.lastAgentStatus);
-
-  const handleRunNow = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onRunNow?.();
-  };
 
   return (
     <article
@@ -262,4 +276,4 @@ export function KanbanCard({
       )}
     </article>
   );
-}
+});

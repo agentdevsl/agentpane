@@ -1,11 +1,17 @@
 import { useNavigate } from '@tanstack/react-router';
-import { useCallback, useMemo } from 'react';
+import React, { Suspense, useCallback, useMemo } from 'react';
 import { type Shortcut, useKeyboardShortcuts } from '@/app/hooks/use-keyboard-shortcuts';
 import { useProjectContext } from '@/app/providers/project-context';
 import { useShortcutsContext } from '@/app/providers/shortcuts-provider';
 import { apiClient } from '@/lib/api/client';
 import type { Result } from '@/lib/utils/result';
-import { NewProjectDialog, type SandboxType } from './new-project-dialog';
+import type { SandboxType } from './new-project-dialog';
+
+// Lazy-load heavy dialog component (FC-012)
+const NewProjectDialog = React.lazy(() =>
+  import('./new-project-dialog').then((m) => ({ default: m.NewProjectDialog }))
+);
+
 import { ProjectPicker } from './project-picker';
 import { ShortcutsHelp } from './shortcuts-help';
 
@@ -400,12 +406,14 @@ export function GlobalShortcutsWithPicker(): React.JSX.Element {
         isLoading={isLoading}
         error={error}
       />
-      <NewProjectDialog
-        open={isNewProjectDialogOpen}
-        onOpenChange={(open) => (open ? openNewProjectDialog() : closeNewProjectDialog())}
-        onSubmit={handleNewProjectSubmit}
-        onValidatePath={handleValidatePath}
-      />
+      <Suspense fallback={null}>
+        <NewProjectDialog
+          open={isNewProjectDialogOpen}
+          onOpenChange={(open) => (open ? openNewProjectDialog() : closeNewProjectDialog())}
+          onSubmit={handleNewProjectSubmit}
+          onValidatePath={handleValidatePath}
+        />
+      </Suspense>
     </>
   );
 }
