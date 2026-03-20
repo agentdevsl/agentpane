@@ -138,5 +138,8 @@ jobs:
           restore-keys: |
             bun-packages-${{ runner.os }}-
 
+      - name: Install agent-runner dependencies
+        run: cd agent-runner && bun install --frozen-lockfile
+
       - name: Build verification
         run: bun run build
