@@ -111,19 +111,7 @@ jobs:
         continue-on-error: true
 
       - name: Test (shard ${{ matrix.shard }})
-        if: matrix.shard != '1/3'
         run: bun vitest run --shard=${{ matrix.shard }}
-
-      - name: Test with coverage (shard ${{ matrix.shard }})
-        if: matrix.shard == '1/3'
-        run: bun vitest run --coverage --shard=${{ matrix.shard }}
-
-      - name: Upload coverage
-        uses: actions/upload-artifact@v7
-        if: matrix.shard == '1/3' && always()
-        with:
-          name: coverage-report
-          path: coverage/
 
   build:
     runs-on: ubuntu-latest
