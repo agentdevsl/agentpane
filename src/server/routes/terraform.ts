@@ -9,7 +9,6 @@ import { createLogger } from '../../lib/logging/logger.js';
 const log = createLogger('terraform-routes');
 
 import type { AuthContext } from '../../lib/api/auth-middleware.js';
-import { createLogger } from '../../lib/logging/logger.js';
 import {
   composeRequestSchema,
   createRegistrySchema,
@@ -18,8 +17,6 @@ import {
 import type { TerraformComposeService } from '../../services/terraform-compose.service.js';
 import type { TerraformRegistryService } from '../../services/terraform-registry.service.js';
 import { isValidId, json } from '../shared.js';
-
-const logger = createLogger('routes:terraform');
 
 interface TerraformDeps {
   terraformRegistryService: TerraformRegistryService;

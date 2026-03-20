@@ -15,6 +15,7 @@ import type {
   PlanTurn,
   RespondToInteractionInput,
 } from '../lib/plan-mode/types.js';
+import { errorMessage } from '../lib/utils/error-message.js';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
 import type { Database } from '../types/database.js';

@@ -15,16 +15,12 @@ import { buildSdkEnv } from '@/lib/agents/agent-sdk-utils';
 import { DEFAULT_TASK_CREATION_MODEL, getFullModelId } from '@/lib/constants/models';
 import { DEFAULT_TASK_CREATION_TOOLS } from '@/lib/constants/tools';
 import { getPromptDefaultText, resolvePromptServer } from '@/lib/prompts';
-import { errorMessage } from '@/lib/utils/error-message';
 import type { Result } from '@/lib/utils/result';
 import { err, ok } from '@/lib/utils/result';
 import type { Database } from '@/types/database';
-import { createLogger } from '../lib/logging/logger';
 import type { DurableStreamsService } from './durable-streams.service';
 import type { SessionService } from './session.service';
 import type { SettingsService } from './settings.service';
-
-const log = createLogger('TaskCreationService');
 
 // ============================================================================
 // Types
@@ -249,11 +245,7 @@ export class TaskCreationService {
     }
 
     if (cleanedCount > 0) {
-<<<<<<< ours
       log.info(`Cleaned up ${cleanedCount} idle sessions`);
-=======
-      log.info(`[TaskCreationService] Cleaned up ${cleanedCount} idle sessions`);
->>>>>>> theirs
     }
   }
 
@@ -289,15 +281,9 @@ export class TaskCreationService {
       await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
     }
     if (session.pendingPermissionResolver) {
-<<<<<<< ours
       log.info('Permission resolver now available');
     } else {
       log.error(
-=======
-      log.info('[TaskCreationService] Permission resolver now available');
-    } else {
-      log.warn(
->>>>>>> theirs
         '[TaskCreationService] Permission resolver not available after waiting, falling back'
       );
     }
@@ -340,11 +326,7 @@ export class TaskCreationService {
           accumulated: getAccumulated(),
         });
       } catch (error: unknown) {
-<<<<<<< ours
         log.error('Failed to publish token batch:', { error });
-=======
-        log.error('[TaskCreationService] Failed to publish token batch:', error);
->>>>>>> theirs
       }
     }
   }
@@ -467,7 +449,6 @@ export class TaskCreationService {
     text: string,
     session: TaskCreationSession
   ): PendingQuestions | null {
-<<<<<<< ours
     log.info(`Attempting to parse clarifying questions from text length: ${text.length}`);
     const parsed = TaskCreationService.extractJsonBlock(text);
     if (!parsed || typeof parsed !== 'object') {
@@ -485,26 +466,6 @@ export class TaskCreationService {
           questionsCount: Array.isArray(obj.questions) ? obj.questions.length : undefined,
           keys: Object.keys(obj),
         },
-=======
-    log.info(
-      '[TaskCreationService] Attempting to parse clarifying questions from text length:',
-      text.length
-    );
-    const parsed = TaskCreationService.extractJsonBlock(text);
-    if (!parsed || typeof parsed !== 'object') {
-      log.info('[TaskCreationService] No valid JSON block found in response');
-      return null;
-    }
-    log.info('[TaskCreationService] Found and parsed JSON block');
-
-    try {
-      const obj = parsed as Record<string, unknown>;
-      log.info('[TaskCreationService] Parsed JSON block:', {
-        type: obj.type,
-        hasQuestions: !!obj.questions,
-        questionsCount: Array.isArray(obj.questions) ? obj.questions.length : undefined,
-        keys: Object.keys(obj),
->>>>>>> theirs
       });
 
       if (obj.type !== 'clarifying_questions') {
@@ -521,18 +482,19 @@ export class TaskCreationService {
 
       // Validate each question
       const questions: ClarifyingQuestion[] = [];
-      for (const q of obj.questions as Array<Record<string, unknown>>) {
+      // biome-ignore lint/suspicious/noExplicitAny: parsed from untyped JSON
+      for (const q of obj.questions as Array<any>) {
         if (!q.header || !q.question || !Array.isArray(q.options) || q.options.length === 0) {
           continue;
         }
         questions.push({
-          header: String(q.header),
-          question: String(q.question),
-          options: (q.options as Array<Record<string, unknown>>).map((opt) => ({
-            label: String(opt.label || ''),
-            description: opt.description != null ? String(opt.description) : undefined,
+          header: q.header,
+          question: q.question,
+          options: q.options.map((opt: { label?: string; description?: string }) => ({
+            label: opt.label || '',
+            description: opt.description,
           })),
-          multiSelect: Boolean(q.multiSelect ?? false),
+          multiSelect: q.multiSelect ?? false,
         });
       }
 
@@ -546,11 +508,7 @@ export class TaskCreationService {
         maxQuestions: TaskCreationService.MAX_QUESTIONS,
       };
     } catch (error: unknown) {
-<<<<<<< ours
       log.error('Failed to parse clarifying questions JSON:', { error });
-=======
-      log.error('[TaskCreationService] Failed to parse clarifying questions JSON:', error);
->>>>>>> theirs
       return null;
     }
   }
@@ -573,11 +531,7 @@ export class TaskCreationService {
   ): PendingQuestions | null {
     const { questions: rawQuestions } = input;
     if (!rawQuestions || rawQuestions.length === 0) {
-<<<<<<< ours
       log.info('AskUserQuestion input has no questions');
-=======
-      log.info('[TaskCreationService] AskUserQuestion input has no questions');
->>>>>>> theirs
       return null;
     }
 
@@ -585,12 +539,7 @@ export class TaskCreationService {
     const remainingQuestions = TaskCreationService.MAX_QUESTIONS - session.totalQuestionsAsked;
     if (remainingQuestions <= 0) {
       log.info(
-<<<<<<< ours
         `Max questions reached (${TaskCreationService.MAX_QUESTIONS}), skipping additional questions`
-=======
-        '[TaskCreationService] Max questions reached (%d), skipping additional questions',
-        TaskCreationService.MAX_QUESTIONS
->>>>>>> theirs
       );
       return null;
     }
@@ -598,17 +547,7 @@ export class TaskCreationService {
     // Limit questions to remaining capacity
     const questionsToProcess = rawQuestions.slice(0, remainingQuestions);
     log.info(
-<<<<<<< ours
       `Parsing AskUserQuestion tool input: ${questionsToProcess.length} of ${rawQuestions.length} questions (limit: ${remainingQuestions} remaining)`
-=======
-      '[TaskCreationService] Parsing AskUserQuestion tool input:',
-      questionsToProcess.length,
-      'of',
-      rawQuestions.length,
-      'questions (limit:',
-      remainingQuestions,
-      'remaining)'
->>>>>>> theirs
     );
 
     const questions: ClarifyingQuestion[] = questionsToProcess.map((q) => ({
@@ -623,11 +562,7 @@ export class TaskCreationService {
 
     // Store the tool_use_id for responding with tool result
     session.pendingToolUseId = input.toolUseId;
-<<<<<<< ours
     log.info('Stored pending tool_use_id');
-=======
-    log.info('[TaskCreationService] Stored pending tool_use_id:', input.toolUseId);
->>>>>>> theirs
 
     return {
       id: createId(),
@@ -671,7 +606,6 @@ export class TaskCreationService {
     // Create our session ID first so canUseTool callback can reference it
     const sessionId = createId();
 
-<<<<<<< ours
     log.info('Creating V2 session:', {
       data: {
         sessionId,
@@ -679,24 +613,13 @@ export class TaskCreationService {
         allowedTools,
         hasAskUserQuestion: allowedTools.includes('AskUserQuestion'),
       },
-=======
-    log.info('[TaskCreationService] Creating V2 session:', {
-      sessionId,
-      model: taskCreationModel,
-      allowedTools,
-      hasAskUserQuestion: allowedTools.includes('AskUserQuestion'),
->>>>>>> theirs
     });
 
     // Create canUseTool callback to handle AskUserQuestion
     // This callback pauses execution when AskUserQuestion is called,
     // allowing us to wait for user answers via our API
     const canUseTool: CanUseTool = async (toolName, input, options) => {
-<<<<<<< ours
       log.info('canUseTool called:', { data: { toolName, sessionId } });
-=======
-      log.info('[TaskCreationService] canUseTool called:', { toolName, sessionId });
->>>>>>> theirs
 
       // For non-AskUserQuestion tools, allow automatically
       if (toolName !== 'AskUserQuestion') {
@@ -710,11 +633,7 @@ export class TaskCreationService {
 
       const session = this.sessions.get(sessionId);
       if (!session) {
-<<<<<<< ours
         log.error('Session not found in canUseTool callback');
-=======
-        log.error('[TaskCreationService] Session not found in canUseTool callback');
->>>>>>> theirs
         return {
           behavior: 'deny' as const,
           message: 'Session not found',
@@ -739,11 +658,7 @@ export class TaskCreationService {
       };
       const questions = this.parseAskUserQuestionToolInput(inputWithToolId, session);
       if (!questions) {
-<<<<<<< ours
         log.error(
-=======
-        log.warn(
->>>>>>> theirs
           '[TaskCreationService] No valid AskUserQuestion payload, allowing tool to proceed'
         );
         session.pendingQuestions = null;
@@ -759,17 +674,11 @@ export class TaskCreationService {
         return { behavior: 'allow' as const, toolUseID: options.toolUseID };
       }
 
-<<<<<<< ours
       log.info('Parsed questions for UI:', {
         data: {
           questionsId: questions.id,
           questionCount: questions.questions.length,
         },
-=======
-      log.info('[TaskCreationService] Parsed questions for UI:', {
-        questionsId: questions.id,
-        questionCount: questions.questions.length,
->>>>>>> theirs
       });
       session.pendingQuestions = questions;
       session.questionRound = questions.round;
@@ -790,11 +699,7 @@ export class TaskCreationService {
           questions,
         });
       } catch (error: unknown) {
-<<<<<<< ours
         log.error('Failed to publish questions:', { error });
-=======
-        log.error('[TaskCreationService] Failed to publish questions:', error);
->>>>>>> theirs
       }
 
       // Persist to database if available
@@ -811,21 +716,13 @@ export class TaskCreationService {
             },
           });
         } catch (error: unknown) {
-<<<<<<< ours
           log.error('Failed to persist tool:start:', { error });
-=======
-          log.error('[TaskCreationService] Failed to persist tool:start:', error);
->>>>>>> theirs
         }
       }
 
       // Create a Promise that will be resolved when user provides answers
       return new Promise<PermissionResult>((resolve) => {
-<<<<<<< ours
         log.info('🔒 Storing permission resolver, waiting for answers...');
-=======
-        log.info('[TaskCreationService] 🔒 Storing permission resolver, waiting for answers...');
->>>>>>> theirs
         session.pendingPermissionResolver = resolve;
       });
     };
@@ -840,7 +737,6 @@ export class TaskCreationService {
         });
         if (dbSessionResult.ok) {
           dbSessionId = dbSessionResult.value.id;
-<<<<<<< ours
           log.info('Created database session');
         } else {
           log.error('[TaskCreationService] Failed to create database session', {
@@ -849,17 +745,6 @@ export class TaskCreationService {
         }
       } catch (error: unknown) {
         log.error('Error creating database session:', { error });
-=======
-          log.info('[TaskCreationService] Created database session:', dbSessionId);
-        } else {
-          log.warn(
-            '[TaskCreationService] Failed to create database session:',
-            dbSessionResult.error
-          );
-        }
-      } catch (error: unknown) {
-        log.error('[TaskCreationService] Error creating database session:', error);
->>>>>>> theirs
       }
     }
 
@@ -923,11 +808,7 @@ export class TaskCreationService {
     } catch (insertErr) {
       const errorMsg = insertErr instanceof Error ? insertErr.message : String(insertErr);
       if (!errorMsg.includes('UNIQUE constraint')) {
-<<<<<<< ours
         log.warn('Failed to create session record');
-=======
-        log.warn('[TaskCreationService] Failed to create session record:', errorMsg);
->>>>>>> theirs
       }
     }
 
@@ -935,17 +816,10 @@ export class TaskCreationService {
     await Promise.all([
       this.streams
         .createStream(sessionId, { type: 'task-creation', projectId })
-<<<<<<< ours
         .catch((error) => log.error('Failed to create stream:', { error })),
       this.streams
         .publishTaskCreationStarted(sessionId, { sessionId, projectId })
         .catch((error) => log.error('Failed to publish start event:', { error })),
-=======
-        .catch((error) => log.error('[TaskCreationService] Failed to create stream:', error)),
-      this.streams
-        .publishTaskCreationStarted(sessionId, { sessionId, projectId })
-        .catch((error) => log.error('[TaskCreationService] Failed to publish start event:', error)),
->>>>>>> theirs
     ]);
 
     return ok(session);
@@ -1008,11 +882,7 @@ export class TaskCreationService {
         content,
       });
     } catch (error: unknown) {
-<<<<<<< ours
       log.error('Failed to publish user message:', { error });
-=======
-      log.error('[TaskCreationService] Failed to publish user message:', error);
->>>>>>> theirs
     }
 
     // Persist user message to database for session history
@@ -1025,11 +895,7 @@ export class TaskCreationService {
           data: { role: 'user', content },
         });
       } catch (error: unknown) {
-<<<<<<< ours
         log.error('Failed to persist user message:', { error });
-=======
-        log.error('[TaskCreationService] Failed to persist user message:', error);
->>>>>>> theirs
       }
     }
 
@@ -1078,11 +944,7 @@ export class TaskCreationService {
       outerLoop: while (true) {
         // Check if we should exit BEFORE calling next() - important to avoid blocking
         if (shouldReturnEarly) {
-<<<<<<< ours
           log.info('🚪 Exiting loop - shouldReturnEarly is true');
-=======
-          log.info('[TaskCreationService] 🚪 Exiting loop - shouldReturnEarly is true');
->>>>>>> theirs
           break;
         }
 
@@ -1098,17 +960,11 @@ export class TaskCreationService {
         // a background processor continue consuming the iterator after permission resolves.
 
         // Log ALL message types to debug event format
-<<<<<<< ours
         log.info(`📨 Stream msg type: ${msg.type}`, {
           data: {
             hasSessionId: !!msg.session_id,
             msgKeys: Object.keys(msg).filter((k) => k !== 'session_id'),
           },
-=======
-        log.info(`[TaskCreationService] 📨 Stream msg type: ${msg.type}`, {
-          hasSessionId: !!msg.session_id,
-          msgKeys: Object.keys(msg).filter((k) => k !== 'session_id'),
->>>>>>> theirs
         });
 
         // Capture session ID for resume capability
@@ -1138,17 +994,11 @@ export class TaskCreationService {
           // Log tool_use_result (handled by canUseTool for AskUserQuestion)
           if (userMsg.tool_use_result) {
             const toolResult = userMsg.tool_use_result;
-<<<<<<< ours
             log.info('🛠️ SDK V2 tool_use_result found:', {
               data: {
                 toolName: toolResult.tool_name,
                 hasInput: !!toolResult.input,
               },
-=======
-            log.info('[TaskCreationService] 🛠️ SDK V2 tool_use_result found:', {
-              toolName: toolResult.tool_name,
-              hasInput: !!toolResult.input,
->>>>>>> theirs
             });
             // Note: AskUserQuestion is handled by canUseTool callback, no need to capture here
           }
@@ -1216,11 +1066,7 @@ export class TaskCreationService {
                 // Spawn a background task to continue processing the stream
                 // This task will resume when the canUseTool Promise resolves (after user answers)
                 // We pass the same streamIterator, accumulated state, and other context
-<<<<<<< ours
                 log.info('🔄 Spawning background stream processor...');
-=======
-                log.info('[TaskCreationService] 🔄 Spawning background stream processor...');
->>>>>>> theirs
                 session.streamProcessingPromise = this.processStreamInBackground(
                   session,
                   streamIterator,
@@ -1237,15 +1083,9 @@ export class TaskCreationService {
                         setTimeout(() => reject(new Error('Questions timeout')), 5000)
                       ),
                     ]);
-<<<<<<< ours
                     log.info('✅ Questions ready via Promise signaling');
                   } catch {
                     log.info('⚠️ Questions not ready after timeout');
-=======
-                    log.info('[TaskCreationService] ✅ Questions ready via Promise signaling');
-                  } catch {
-                    log.info('[TaskCreationService] ⚠️ Questions not ready after timeout');
->>>>>>> theirs
                   }
                 }
 
@@ -1298,11 +1138,7 @@ export class TaskCreationService {
               `[TaskCreationService] 🔧 TOOL DETECTED: ${toolName} (id: ${toolId}, index: ${event.index})`
             );
             if (toolName === 'AskUserQuestion') {
-<<<<<<< ours
               log.info('✅ AskUserQuestion tool is being called!');
-=======
-              log.info('[TaskCreationService] ✅ AskUserQuestion tool is being called!');
->>>>>>> theirs
             }
 
             inFlightTools.set(event.index, {
@@ -1335,17 +1171,10 @@ export class TaskCreationService {
                   );
                 }
               } catch (error: unknown) {
-<<<<<<< ours
                 log.error('Failed to publish tool:start:', { error });
               }
             } else {
               log.error(
-=======
-                log.error('[TaskCreationService] Failed to publish tool:start:', error);
-              }
-            } else {
-              log.warn(
->>>>>>> theirs
                 `[TaskCreationService] Cannot publish tool:start - dbSessionId: ${session.dbSessionId}, hasSessionService: ${!!this.sessionService}`
               );
             }
@@ -1377,7 +1206,6 @@ export class TaskCreationService {
                   parsedInput = JSON.parse(toolInfo.input);
                 }
               } catch (parseError) {
-<<<<<<< ours
                 log.warn('Failed to parse tool input JSON', {
                   data: {
                     toolId: toolInfo.id,
@@ -1386,34 +1214,13 @@ export class TaskCreationService {
                   },
                   error: parseError,
                 });
-=======
-                log.warn(
-                  '[TaskCreationService] Failed to parse tool input JSON.',
-                  'ToolId:',
-                  toolInfo.id,
-                  'ToolName:',
-                  toolInfo.name,
-                  'InputLength:',
-                  toolInfo.input.length,
-                  'Error:',
-                  parseError instanceof Error ? parseError.message : String(parseError)
-                );
->>>>>>> theirs
               }
 
               // Log AskUserQuestion tool call (handled by canUseTool callback)
               if (toolInfo.name === 'AskUserQuestion' && parsedInput.questions) {
-<<<<<<< ours
                 log.info('[TaskCreationService] AskUserQuestion tool call completed', {
                   data: { questionCount: (parsedInput.questions as unknown[]).length },
                 });
-=======
-                log.info(
-                  '[TaskCreationService] 📝 AskUserQuestion tool call completed with',
-                  (parsedInput.questions as unknown[]).length,
-                  'questions (canUseTool handles pause/resume)'
-                );
->>>>>>> theirs
               }
 
               // Publish tool:result event with the accumulated input and duration
@@ -1434,11 +1241,7 @@ export class TaskCreationService {
                     },
                   });
                 } catch (error: unknown) {
-<<<<<<< ours
                   log.error('Failed to publish tool:result:', { error });
-=======
-                  log.error('[TaskCreationService] Failed to publish tool:result:', error);
->>>>>>> theirs
                 }
               }
 
@@ -1526,13 +1329,8 @@ export class TaskCreationService {
                     });
                   } catch (error: unknown) {
                     log.error(
-<<<<<<< ours
                       '[TaskCreationService] Failed to publish tool events from assistant',
                       { error }
-=======
-                      '[TaskCreationService] Failed to publish tool events from assistant:',
-                      error
->>>>>>> theirs
                     );
                   }
                 }
@@ -1583,11 +1381,7 @@ export class TaskCreationService {
                 },
               });
             } catch (error: unknown) {
-<<<<<<< ours
               log.error('Failed to publish tool:start from progress', { error });
-=======
-              log.error('[TaskCreationService] Failed to publish tool:start from progress:', error);
->>>>>>> theirs
             }
           }
         }
@@ -1608,7 +1402,6 @@ export class TaskCreationService {
       const accumulated = getAccumulated();
 
       // Log what we have after streaming
-<<<<<<< ours
       log.info('📊 Stream completed:', {
         data: {
           accumulatedTextLength: accumulated.length,
@@ -1616,18 +1409,10 @@ export class TaskCreationService {
           hasPendingPermissionResolver: !!session.pendingPermissionResolver,
           inFlightToolsCount: inFlightTools.size,
         },
-=======
-      log.info('[TaskCreationService] 📊 Stream completed:', {
-        accumulatedTextLength: accumulated.length,
-        hasPendingQuestions: !!session.pendingQuestions,
-        hasPendingPermissionResolver: !!session.pendingPermissionResolver,
-        inFlightToolsCount: inFlightTools.size,
->>>>>>> theirs
       });
 
       // Helper to apply pending questions to session state
       const applyPendingQuestions = async (questions: PendingQuestions): Promise<void> => {
-<<<<<<< ours
         log.info('Applying pending questions:', {
           data: {
             sessionId,
@@ -1635,13 +1420,6 @@ export class TaskCreationService {
             questionCount: questions.questions.length,
             round: questions.round,
           },
-=======
-        log.info('[TaskCreationService] Applying pending questions:', {
-          sessionId,
-          questionsId: questions.id,
-          questionCount: questions.questions.length,
-          round: questions.round,
->>>>>>> theirs
         });
         session.pendingQuestions = questions;
         session.questionRound = questions.round;
@@ -1654,11 +1432,7 @@ export class TaskCreationService {
             questions,
           });
         } catch (error: unknown) {
-<<<<<<< ours
           log.error('Failed to publish questions:', { error });
-=======
-          log.error('[TaskCreationService] Failed to publish questions:', error);
->>>>>>> theirs
         }
       };
 
@@ -1688,13 +1462,7 @@ export class TaskCreationService {
         const questions = this.parseClarifyingQuestions(accumulated, session);
         if (questions) {
           log.info(
-<<<<<<< ours
             `Parsed clarifying questions from JSON block: ${questions.questions.length} questions`
-=======
-            '[TaskCreationService] Parsed clarifying questions from JSON block:',
-            questions.questions.length,
-            'questions'
->>>>>>> theirs
           );
           await applyPendingQuestions(questions);
         } else {
@@ -1702,19 +1470,12 @@ export class TaskCreationService {
           log.info('[TaskCreationService] No questions found, trying to parse task suggestion...');
           const suggestion = this.parseSuggestion(accumulated);
           if (suggestion) {
-<<<<<<< ours
             log.info('Found task suggestion:', {
               data: {
                 title: suggestion.title.substring(0, 50),
                 priority: suggestion.priority,
                 labelsCount: suggestion.labels.length,
               },
-=======
-            log.info('[TaskCreationService] Found task suggestion:', {
-              title: suggestion.title.substring(0, 50),
-              priority: suggestion.priority,
-              labelsCount: suggestion.labels.length,
->>>>>>> theirs
             });
             session.suggestion = suggestion;
             // Only clear pendingQuestions if we're NOT waiting for user input
@@ -1729,11 +1490,7 @@ export class TaskCreationService {
                 suggestion,
               });
             } catch (error: unknown) {
-<<<<<<< ours
               log.error('Failed to publish suggestion:', { error });
-=======
-              log.error('[TaskCreationService] Failed to publish suggestion:', error);
->>>>>>> theirs
             }
           }
         }
@@ -1748,7 +1505,6 @@ export class TaskCreationService {
 
       return ok(session);
     } catch (error: unknown) {
-<<<<<<< ours
       const message = error instanceof Error ? error.message : String(error);
       log.error('Error in sendMessage:', {
         data: {
@@ -1756,13 +1512,6 @@ export class TaskCreationService {
           sessionId,
           sessionStatus: session?.status,
         },
-=======
-      const message = errorMessage(error);
-      log.error('[TaskCreationService] Error in sendMessage:', {
-        error: message,
-        sessionId,
-        sessionStatus: session?.status,
->>>>>>> theirs
       });
 
       // Clean up token buffer without publishing
@@ -1776,11 +1525,7 @@ export class TaskCreationService {
         // Fire-and-forget iterator cleanup
         if (session.activeStreamIterator) {
           session.activeStreamIterator.return?.(undefined).catch((iteratorError) => {
-<<<<<<< ours
             log.error('Failed to clean up stream iterator', { error: iteratorError });
-=======
-            log.error('[TaskCreationService] Failed to clean up stream iterator:', iteratorError);
->>>>>>> theirs
           });
           session.activeStreamIterator = null;
         }
@@ -1790,11 +1535,7 @@ export class TaskCreationService {
           try {
             session.v2Session.close();
           } catch (closeError) {
-<<<<<<< ours
             log.error('Failed to close V2 session on error:', { error: closeError });
-=======
-            log.error('[TaskCreationService] Failed to close V2 session on error:', closeError);
->>>>>>> theirs
           }
           session.v2Session = null;
         }
@@ -1807,11 +1548,7 @@ export class TaskCreationService {
           error: message,
         })
         .catch((streamError) => {
-<<<<<<< ours
           log.error('Failed to publish error:', { error: streamError });
-=======
-          log.error('[TaskCreationService] Failed to publish error:', streamError);
->>>>>>> theirs
         });
 
       return err(TaskCreationErrors.API_ERROR(message));
@@ -1836,11 +1573,7 @@ export class TaskCreationService {
   ): Promise<void> {
     // Note: _inFlightTools is passed for potential future use in tracking tool state,
     // but not currently used in background processing since we focus on post-permission messages
-<<<<<<< ours
     log.info('🔄 Background stream processor started');
-=======
-    log.info('[TaskCreationService] 🔄 Background stream processor started');
->>>>>>> theirs
 
     const accumulatedChunks: string[] = [];
     const getAccumulated = () => accumulatedChunks.join('');
@@ -1854,19 +1587,11 @@ export class TaskCreationService {
       for await (const msg of streamIterator) {
         // Check if session was cancelled
         if (session.status === 'cancelled' || session.status === 'completed') {
-<<<<<<< ours
           log.info('[BG] Session ended, stopping background processor');
           break;
         }
 
         log.info(`[BG] 📨 Stream msg type: ${msg.type}`);
-=======
-          log.info('[TaskCreationService] [BG] Session ended, stopping background processor');
-          break;
-        }
-
-        log.info(`[TaskCreationService] [BG] 📨 Stream msg type: ${msg.type}`);
->>>>>>> theirs
 
         // Handle assistant messages
         if (msg.type === 'assistant') {
@@ -1968,11 +1693,7 @@ export class TaskCreationService {
 
         // Handle result message (end of stream)
         if (msg.type === 'result') {
-<<<<<<< ours
           log.info('[BG] 🎯 Result message received - stream complete');
-=======
-          log.info('[TaskCreationService] [BG] 🎯 Result message received - stream complete');
->>>>>>> theirs
           const result = msg as {
             usage?: { input_tokens?: number; output_tokens?: number };
           };
@@ -2002,7 +1723,6 @@ export class TaskCreationService {
         // The background processor may receive pre-tool content that looks like a suggestion
         // but we shouldn't act on it until the user has answered questions
         if (session.status !== 'waiting_user') {
-<<<<<<< ours
           log.info('[BG] Parsing response for task suggestion...');
           const suggestion = this.parseSuggestion(accumulated);
           if (suggestion) {
@@ -2011,14 +1731,6 @@ export class TaskCreationService {
                 title: suggestion.title.substring(0, 50),
                 priority: suggestion.priority,
               },
-=======
-          log.info('[TaskCreationService] [BG] Parsing response for task suggestion...');
-          const suggestion = this.parseSuggestion(accumulated);
-          if (suggestion) {
-            log.info('[TaskCreationService] [BG] Found task suggestion:', {
-              title: suggestion.title.substring(0, 50),
-              priority: suggestion.priority,
->>>>>>> theirs
             });
             session.suggestion = suggestion;
             // Safe to clear pendingQuestions since we're in the outer block
@@ -2039,11 +1751,7 @@ export class TaskCreationService {
                 suggestion,
               });
             } catch (error: unknown) {
-<<<<<<< ours
               log.error('[BG] Failed to publish suggestion:', { error });
-=======
-              log.error('[TaskCreationService] [BG] Failed to publish suggestion:', error);
->>>>>>> theirs
             }
           }
         } else {
@@ -2053,7 +1761,6 @@ export class TaskCreationService {
         }
       }
 
-<<<<<<< ours
       log.info('[BG] 🏁 Background stream processor completed');
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Background processing error';
@@ -2063,15 +1770,6 @@ export class TaskCreationService {
           sessionId: session.id,
           sessionStatus: session.status,
         },
-=======
-      log.info('[TaskCreationService] [BG] 🏁 Background stream processor completed');
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Background processing error';
-      log.error('[TaskCreationService] [BG] Error in background stream processor:', {
-        error: errorMessage,
-        sessionId: session.id,
-        sessionStatus: session.status,
->>>>>>> theirs
       });
 
       // Clean up token buffer without publishing
@@ -2090,11 +1788,7 @@ export class TaskCreationService {
           error: errorMessage,
         })
         .catch((streamError) => {
-<<<<<<< ours
           log.error('[BG] Failed to publish error:', { error: streamError });
-=======
-          log.error('[TaskCreationService] [BG] Failed to publish error:', streamError);
->>>>>>> theirs
         });
     } finally {
       // Clean up
@@ -2139,11 +1833,7 @@ export class TaskCreationService {
         content,
       });
     } catch (error: unknown) {
-<<<<<<< ours
       log.error('Failed to publish assistant message:', { error });
-=======
-      log.error('[TaskCreationService] Failed to publish assistant message:', error);
->>>>>>> theirs
     }
 
     // Also send via direct SSE callback (for background processor flow where
@@ -2152,11 +1842,7 @@ export class TaskCreationService {
       try {
         session.onMessageCallback(message.id, 'assistant', content);
       } catch (error: unknown) {
-<<<<<<< ours
         log.error('Failed to call onMessageCallback:', { error });
-=======
-        log.error('[TaskCreationService] Failed to call onMessageCallback:', error);
->>>>>>> theirs
       }
     }
 
@@ -2183,11 +1869,7 @@ export class TaskCreationService {
           },
         });
       } catch (error: unknown) {
-<<<<<<< ours
         log.error('Failed to persist assistant message:', { error });
-=======
-        log.error('[TaskCreationService] Failed to persist assistant message:', error);
->>>>>>> theirs
       }
     }
 
@@ -2212,7 +1894,6 @@ export class TaskCreationService {
     // Check if we have a complete suggestion from either session or overrides
     const hasCompleteOverrides = overrides?.title && overrides?.description;
     if (!session.suggestion && !hasCompleteOverrides) {
-<<<<<<< ours
       log.error('No suggestion available:', {
         data: {
           sessionId,
@@ -2220,13 +1901,6 @@ export class TaskCreationService {
           hasCompleteOverrides,
           overrides,
         },
-=======
-      log.error('[TaskCreationService] No suggestion available:', {
-        sessionId,
-        hasSessionSuggestion: !!session.suggestion,
-        hasCompleteOverrides,
-        overrides,
->>>>>>> theirs
       });
       return err(TaskCreationErrors.NO_SUGGESTION);
     }
@@ -2279,11 +1953,7 @@ export class TaskCreationService {
         try {
           await session.streamProcessingPromise;
         } catch (error: unknown) {
-<<<<<<< ours
           log.error('Error waiting for stream processor:', { error });
-=======
-          log.error('[TaskCreationService] Error waiting for stream processor:', error);
->>>>>>> theirs
         }
       }
 
@@ -2292,11 +1962,7 @@ export class TaskCreationService {
         try {
           session.v2Session.close();
         } catch (error: unknown) {
-<<<<<<< ours
           log.error('Failed to close V2 session:', { error });
-=======
-          log.error('[TaskCreationService] Failed to close V2 session:', error);
->>>>>>> theirs
         }
         session.v2Session = null;
       }
@@ -2305,15 +1971,9 @@ export class TaskCreationService {
       if (session.dbSessionId && this.sessionService) {
         try {
           await this.sessionService.close(session.dbSessionId);
-<<<<<<< ours
           log.info('Closed database session');
         } catch (error: unknown) {
           log.error('Failed to close database session:', { error });
-=======
-          log.info('[TaskCreationService] Closed database session:', session.dbSessionId);
-        } catch (error: unknown) {
-          log.error('[TaskCreationService] Failed to close database session:', error);
->>>>>>> theirs
         }
       }
 
@@ -2330,11 +1990,7 @@ export class TaskCreationService {
           suggestion: finalSuggestion,
         });
       } catch (error: unknown) {
-<<<<<<< ours
         log.error('Failed to publish completion event:', { error });
-=======
-        log.error('[TaskCreationService] Failed to publish completion event:', error);
->>>>>>> theirs
       }
 
       // Mark DB session as closed
@@ -2347,16 +2003,12 @@ export class TaskCreationService {
       // Schedule delayed in-memory cleanup to allow late API calls
       setTimeout(() => {
         this.sessions.delete(sessionId);
-<<<<<<< ours
         log.info('Cleaned up completed session');
-=======
-        log.info('[TaskCreationService] Cleaned up completed session:', sessionId);
->>>>>>> theirs
       }, 60000);
 
       return ok({ session, taskId });
     } catch (error: unknown) {
-      const message = errorMessage(error);
+      const message = error instanceof Error ? error.message : String(error);
       return err(TaskCreationErrors.DATABASE_ERROR('insert', message));
     }
   }
@@ -2381,11 +2033,7 @@ export class TaskCreationService {
     // Idempotency: if this questionsId was already processed, return success without
     // re-processing. The route handler checks `alreadyProcessed` to skip the SSE update.
     if (session.lastProcessedQuestionsId === questionsId) {
-<<<<<<< ours
       log.info(`Duplicate answer submission for questionsId: ${questionsId}`);
-=======
-      log.info('[TaskCreationService] Duplicate answer submission for questionsId:', questionsId);
->>>>>>> theirs
       const duplicate = { ...session, alreadyProcessed: true } as TaskCreationSession & {
         alreadyProcessed: boolean;
       };
@@ -2393,7 +2041,6 @@ export class TaskCreationService {
     }
 
     if (!session.pendingQuestions || session.pendingQuestions.id !== questionsId) {
-<<<<<<< ours
       log.error('Questions ID mismatch:', {
         data: {
           sessionId,
@@ -2402,14 +2049,6 @@ export class TaskCreationService {
           serverQuestionsId: session.pendingQuestions?.id ?? null,
           sessionStatus: session.status,
         },
-=======
-      log.error('[TaskCreationService] Questions ID mismatch:', {
-        sessionId,
-        providedQuestionsId: questionsId,
-        hasPendingQuestions: !!session.pendingQuestions,
-        serverQuestionsId: session.pendingQuestions?.id ?? null,
-        sessionStatus: session.status,
->>>>>>> theirs
       });
       return err({
         code: 'INVALID_QUESTIONS_ID',
@@ -2451,11 +2090,7 @@ export class TaskCreationService {
         message: 'Processing your answers...',
       });
     } catch (error: unknown) {
-<<<<<<< ours
       log.error('Failed to publish processing event:', { error });
-=======
-      log.error('[TaskCreationService] Failed to publish processing event:', error);
->>>>>>> theirs
     }
 
     // Wait for the permission resolver if the background processor is active but
@@ -2478,19 +2113,12 @@ export class TaskCreationService {
     // If we have a permission resolver, resolve it with the answers
     // This continues the SDK's permission flow with the user's answers
     if (resolver && originalInput) {
-<<<<<<< ours
       log.info('Resolving permission with answers:', {
         data: {
           sessionId,
           questionCount: questions.length,
           answerCount: Object.keys(answers).length,
         },
-=======
-      log.info('[TaskCreationService] Resolving permission with answers:', {
-        sessionId,
-        questionCount: questions.length,
-        answerCount: Object.keys(answers).length,
->>>>>>> theirs
       });
 
       // Format answers as a simple key-value object for the SDK
@@ -2517,15 +2145,9 @@ export class TaskCreationService {
               isError: false,
             },
           });
-<<<<<<< ours
           log.info('Published tool:result for AskUserQuestion');
         } catch (error: unknown) {
           log.error('Failed to publish tool:result:', { error });
-=======
-          log.info('[TaskCreationService] Published tool:result for AskUserQuestion');
-        } catch (error: unknown) {
-          log.error('[TaskCreationService] Failed to publish tool:result:', error);
->>>>>>> theirs
         }
       }
 
@@ -2544,11 +2166,7 @@ export class TaskCreationService {
       // canUseTool Promise. Now that we've resolved it, the processor will resume
       // automatically and continue consuming messages from the SAME stream iterator.
       // We don't need to call continueStreamProcessing - it's handled in the background.
-<<<<<<< ours
       log.info('Permission resolved - background processor will continue');
-=======
-      log.info('[TaskCreationService] Permission resolved - background processor will continue');
->>>>>>> theirs
 
       return ok(session);
     }
@@ -2556,16 +2174,9 @@ export class TaskCreationService {
     // Fallback: if the permission resolver wasn't available (e.g., canUseTool poll timed out),
     // send answers via the tool result approach instead.
     if (pendingToolUseId && session.v2Session && session.sdkSessionId) {
-<<<<<<< ours
       log.warn('No permission resolver found, falling back to tool result approach', {
         data: { pendingToolUseId },
       });
-=======
-      log.warn(
-        '[TaskCreationService] No permission resolver found, falling back to tool result approach:',
-        pendingToolUseId
-      );
->>>>>>> theirs
 
       // Format the tool result content - include full question context so Claude knows what was asked
       const toolResultContent = {
@@ -2608,11 +2219,7 @@ export class TaskCreationService {
     }
 
     // Fallback: Send as regular message if no tool context (unexpected -- indicates session state issue)
-<<<<<<< ours
     log.warn('No pending tool_use_id, sending as regular message');
-=======
-    log.warn('[TaskCreationService] No pending tool_use_id, sending as regular message');
->>>>>>> theirs
     return this.sendMessage(sessionId, answerMessage);
   }
 
@@ -2637,11 +2244,7 @@ export class TaskCreationService {
     }
 
     try {
-<<<<<<< ours
       log.info('Sending tool result message...');
-=======
-      log.info('[TaskCreationService] Sending tool result message...');
->>>>>>> theirs
       await session.v2Session.send(toolResultMessage);
 
       // Stream and process response - simplified version focusing on key events
@@ -2658,7 +2261,6 @@ export class TaskCreationService {
 
       // Helper to apply pending questions
       const applyPendingQuestions = async (questions: PendingQuestions): Promise<void> => {
-<<<<<<< ours
         log.info('Applying pending questions (tool result path):', {
           data: {
             sessionId: session.id,
@@ -2666,13 +2268,6 @@ export class TaskCreationService {
             questionCount: questions.questions.length,
             round: questions.round,
           },
-=======
-        log.info('[TaskCreationService] Applying pending questions (tool result path):', {
-          sessionId: session.id,
-          questionsId: questions.id,
-          questionCount: questions.questions.length,
-          round: questions.round,
->>>>>>> theirs
         });
         session.pendingQuestions = questions;
         session.questionRound = questions.round;
@@ -2685,40 +2280,25 @@ export class TaskCreationService {
             questions,
           });
         } catch (error: unknown) {
-<<<<<<< ours
           log.error('Failed to publish questions:', { error });
-=======
-          log.error('[TaskCreationService] Failed to publish questions:', error);
->>>>>>> theirs
         }
       };
 
       for await (const msg of session.v2Session.stream()) {
-<<<<<<< ours
         log.info(`📨 Stream msg type: ${msg.type}`, {
           data: {
             hasSessionId: !!msg.session_id,
           },
-=======
-        log.info(`[TaskCreationService] 📨 Stream msg type: ${msg.type}`, {
-          hasSessionId: !!msg.session_id,
->>>>>>> theirs
         });
 
         // DEBUG: Log user messages to see what the SDK recorded as our tool result
         if (msg.type === 'user') {
           const userMsg = msg as { message?: { content?: unknown } };
-<<<<<<< ours
           log.info('📥 User message in stream:', {
             data: {
               hasMessage: !!userMsg.message,
               contentPreview: JSON.stringify(userMsg.message?.content)?.slice(0, 500),
             },
-=======
-          log.info('[TaskCreationService] 📥 User message in stream:', {
-            hasMessage: !!userMsg.message,
-            contentPreview: JSON.stringify(userMsg.message?.content)?.slice(0, 500),
->>>>>>> theirs
           });
         }
 
@@ -2754,16 +2334,9 @@ export class TaskCreationService {
                   '[TaskCreationService] 🛑 AskUserQuestion detected in tool result response!'
                 );
                 // DEBUG: Log the full questions being asked in round 2+
-<<<<<<< ours
                 log.info('[TaskCreationService] Round 2+ Questions', {
                   data: { input: block.input as Record<string, unknown> },
                 });
-=======
-                log.info(
-                  '[TaskCreationService] 📋 Round 2+ Questions:',
-                  JSON.stringify(block.input, null, 2)
-                );
->>>>>>> theirs
                 const input = block.input as {
                   questions: Array<{
                     question: string;
@@ -2794,11 +2367,7 @@ export class TaskCreationService {
                       '[TaskCreationService] Published tool:start for AskUserQuestion (round 2+)'
                     );
                   } catch (error: unknown) {
-<<<<<<< ours
                     log.error('Failed to publish tool:start:', { error });
-=======
-                    log.error('[TaskCreationService] Failed to publish tool:start:', error);
->>>>>>> theirs
                   }
                 }
                 break;
@@ -2817,19 +2386,12 @@ export class TaskCreationService {
         }
       }
 
-<<<<<<< ours
       log.info('📊 Tool result stream completed:', {
         data: {
           accumulatedTextLength: accumulated.length,
           hasAskUserQuestionToolInput: !!askUserQuestionInput,
           currentQuestionRound: session.questionRound,
         },
-=======
-      log.info('[TaskCreationService] 📊 Tool result stream completed:', {
-        accumulatedTextLength: accumulated.length,
-        hasAskUserQuestionToolInput: !!askUserQuestionInput,
-        currentQuestionRound: session.questionRound,
->>>>>>> theirs
       });
 
       // ENFORCE ONE ROUND ONLY: If Claude tries to ask more questions after round 1,
@@ -2846,11 +2408,7 @@ export class TaskCreationService {
       if (askUserQuestionInput) {
         const questions = this.parseAskUserQuestionToolInput(askUserQuestionInput, session);
         if (questions) {
-<<<<<<< ours
           log.info('Parsed AskUserQuestion from tool result response');
-=======
-          log.info('[TaskCreationService] Parsed AskUserQuestion from tool result response');
->>>>>>> theirs
           if (accumulated) {
             await this.addAssistantMessage(session, accumulated, undefined);
           }
@@ -2866,11 +2424,7 @@ export class TaskCreationService {
         // Try to parse task suggestion from response
         const suggestion = this.parseSuggestion(accumulated);
         if (suggestion) {
-<<<<<<< ours
           log.info('Parsed task suggestion from tool result response');
-=======
-          log.info('[TaskCreationService] Parsed task suggestion from tool result response');
->>>>>>> theirs
           session.suggestion = suggestion;
 
           try {
@@ -2879,22 +2433,14 @@ export class TaskCreationService {
               suggestion,
             });
           } catch (error: unknown) {
-<<<<<<< ours
             log.error('Failed to publish suggestion:', { error });
-=======
-            log.error('[TaskCreationService] Failed to publish suggestion:', error);
->>>>>>> theirs
           }
         }
       }
 
       return ok(session);
     } catch (error: unknown) {
-<<<<<<< ours
       log.error('Error sending tool result:', { error });
-=======
-      log.error('[TaskCreationService] Error sending tool result:', error);
->>>>>>> theirs
       return err(TaskCreationErrors.API_ERROR('Failed to send tool result'));
     }
   }
@@ -2957,11 +2503,7 @@ export class TaskCreationService {
       try {
         await session.streamProcessingPromise;
       } catch (error: unknown) {
-<<<<<<< ours
         log.error('Error waiting for stream processor:', { error });
-=======
-        log.error('[TaskCreationService] Error waiting for stream processor:', error);
->>>>>>> theirs
       }
     }
 
@@ -2970,11 +2512,7 @@ export class TaskCreationService {
       try {
         session.v2Session.close();
       } catch (error: unknown) {
-<<<<<<< ours
         log.error('Failed to close V2 session:', { error });
-=======
-        log.error('[TaskCreationService] Failed to close V2 session:', error);
->>>>>>> theirs
       }
       session.v2Session = null;
     }
@@ -2983,15 +2521,9 @@ export class TaskCreationService {
     if (session.dbSessionId && this.sessionService) {
       try {
         await this.sessionService.close(session.dbSessionId);
-<<<<<<< ours
         log.info('Closed database session');
       } catch (error: unknown) {
         log.error('Failed to close database session:', { error });
-=======
-        log.info('[TaskCreationService] Closed database session:', session.dbSessionId);
-      } catch (error: unknown) {
-        log.error('[TaskCreationService] Failed to close database session:', error);
->>>>>>> theirs
       }
     }
 
@@ -3000,11 +2532,7 @@ export class TaskCreationService {
         sessionId,
       });
     } catch (error: unknown) {
-<<<<<<< ours
       log.error('Failed to publish cancel event:', { error });
-=======
-      log.error('[TaskCreationService] Failed to publish cancel event:', error);
->>>>>>> theirs
     }
 
     // Mark DB session as closed
@@ -3017,11 +2545,7 @@ export class TaskCreationService {
     // Schedule delayed in-memory cleanup to allow late API calls
     setTimeout(() => {
       this.sessions.delete(sessionId);
-<<<<<<< ours
       log.info('Cleaned up cancelled session');
-=======
-      log.info('[TaskCreationService] Cleaned up cancelled session:', sessionId);
->>>>>>> theirs
     }, 60000);
 
     return ok(session);

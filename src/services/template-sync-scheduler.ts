@@ -22,7 +22,7 @@ export const MIN_SYNC_INTERVAL_MINUTES = 5;
  * Extract error message from unknown error type
  */
 function getErrorMessage(error: unknown): string {
-  return errorMessage(error);
+  return error instanceof Error ? error.message : String(error);
 }
 
 /**

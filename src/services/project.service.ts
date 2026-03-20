@@ -26,6 +26,7 @@ import { ProjectErrors } from '../lib/errors/project-errors.js';
 import { getInstallationOctokit } from '../lib/github/client.js';
 import { syncConfigFromGitHub } from '../lib/github/config-sync.js';
 import { deepMerge } from '../lib/utils/deep-merge.js';
+import { errorMessage } from '../lib/utils/error-message.js';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
 import type { Database } from '../types/database.js';

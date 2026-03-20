@@ -4,18 +4,12 @@
 
 import { Hono } from 'hono';
 import type { AgentConfig } from '../../db/schema';
-import { AGENT_TYPES, type AgentType } from '../../db/schema';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { AgentService } from '../../services/agent.service.js';
-<<<<<<< ours
 import { isValidId, json } from '../shared.js';
 import { createAgentSchema, parseJsonBody } from '../validation.js';
 
 const log = createLogger('agent-routes');
-
-=======
-import { isValidId, json, validateIdParam } from '../shared.js';
->>>>>>> theirs
 
 interface AgentsDeps {
   agentService: AgentService;
@@ -92,8 +86,11 @@ export function createAgentsRoutes({ agentService }: AgentsDeps) {
 
   // GET /api/agents/:id
   app.get('/:id', async (c) => {
-    const { id, error } = validateIdParam(c, 'id');
-    if (error) return error;
+    const id = c.req.param('id');
+
+    if (!isValidId(id)) {
+      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID format' } }, 400);
+    }
 
     try {
       const result = await agentService.getById(id);

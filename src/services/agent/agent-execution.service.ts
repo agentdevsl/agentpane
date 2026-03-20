@@ -3,6 +3,7 @@ import { and, asc, count, eq, inArray } from 'drizzle-orm';
 import { agentRuns, agents, projects, sessions, tasks, worktrees } from '../../db/schema';
 import { handleAgentError } from '../../lib/agents/recovery.js';
 import { runAgentExecution, runAgentPlanning } from '../../lib/agents/stream-handler.js';
+
 import type { AgentError } from '../../lib/errors/agent-errors.js';
 import { AgentErrors } from '../../lib/errors/agent-errors.js';
 import type { ConcurrencyError } from '../../lib/errors/concurrency-errors.js';
@@ -10,6 +11,7 @@ import { ConcurrencyErrors } from '../../lib/errors/concurrency-errors.js';
 import { createLogger } from '../../lib/logging/logger.js';
 import { createAgentLifecycleMachine } from '../../lib/state-machines/agent-lifecycle/machine.js';
 import type { AgentLifecycleEvent } from '../../lib/state-machines/agent-lifecycle/types.js';
+import { errorMessage } from '../../lib/utils/error-message.js';
 import { resolveModel } from '../../lib/utils/resolve-model.js';
 import type { Result } from '../../lib/utils/result.js';
 import { err, ok } from '../../lib/utils/result.js';
@@ -321,6 +323,7 @@ export class AgentExecutionService {
         model: options.model,
         cwd: options.cwd,
         signal: options.signal,
+        // hooks are wired separately via stream-handler's canUseTool callback
         sessionService: this.sessionService,
       });
 
@@ -465,7 +468,7 @@ export class AgentExecutionService {
         .set({
           status: 'error',
           completedAt: new Date().toISOString(),
-          errMsg: errMsg,
+          errorMessage: errMsg,
         })
         .where(eq(agentRuns.id, runId));
 
@@ -734,6 +737,7 @@ export class AgentExecutionService {
         model: resolvedModel,
         cwd,
         signal,
+        // hooks are wired separately via stream-handler's canUseTool callback
         sessionService: this.sessionService,
       });
 
@@ -840,7 +844,7 @@ export class AgentExecutionService {
         .set({
           status: 'error',
           completedAt: new Date().toISOString(),
-          errMsg,
+          errorMessage: errMsg,
         })
         .where(eq(agentRuns.id, runId));
 

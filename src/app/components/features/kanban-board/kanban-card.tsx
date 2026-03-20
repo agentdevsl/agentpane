@@ -169,36 +169,6 @@ export const KanbanCard = React.memo(function KanbanCard({
   const cardState =
     isDragging || sortableIsDragging ? 'dragging' : isSelected ? 'selected' : 'default';
 
-  const handleClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onSelect(e.metaKey || e.ctrlKey);
-  };
-
-  const handleDoubleClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onOpen();
-  };
-
-  // FC-016: Keyboard navigation -- Enter opens detail, Space selects,
-  // ArrowUp/ArrowDown move focus between sibling cards in the column.
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      onOpen();
-    } else if (e.key === ' ') {
-      e.preventDefault();
-      onSelect(e.metaKey || e.ctrlKey);
-    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      e.preventDefault();
-      const card = e.currentTarget as HTMLElement;
-      const sibling =
-        e.key === 'ArrowDown'
-          ? (card.nextElementSibling as HTMLElement | null)
-          : (card.previousElementSibling as HTMLElement | null);
-      sibling?.focus();
-    }
-  };
-
   const priority = getPriority(task);
   const labels = task.labels ?? [];
   // Agent is running if task has an agentId OR a sessionId (container agents only have sessionId)
@@ -217,7 +187,6 @@ export const KanbanCard = React.memo(function KanbanCard({
       onKeyDown={handleKeyDown}
       aria-grabbed={isDragging || sortableIsDragging}
       {...attributes}
-      tabIndex={0}
       {...listeners}
     >
       {/* Labels */}

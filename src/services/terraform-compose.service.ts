@@ -16,6 +16,7 @@ import type {
   GeneratedFile,
   ModuleMatch,
 } from '../lib/terraform/types.js';
+import { errorMessage } from '../lib/utils/error-message.js';
 import type { Result } from '../lib/utils/result.js';
 import { ok } from '../lib/utils/result.js';
 import type { Database } from '../types/database.js';

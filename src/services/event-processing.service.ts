@@ -8,6 +8,7 @@ import type { NormalizedEvent } from '../lib/events/plugin-interface.js';
 import type { PluginRegistry } from '../lib/events/plugin-registry.js';
 import { buildTemplateContext, interpolateTemplate } from '../lib/events/template-engine.js';
 import { createLogger } from '../lib/logging/logger.js';
+import { errorMessage } from '../lib/utils/error-message.js';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
 import type { Database } from '../types/database.js';

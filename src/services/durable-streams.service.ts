@@ -1,20 +1,12 @@
 import { createId } from '@paralleldrive/cuid2';
 import { desc, eq } from 'drizzle-orm';
 import { sessionEvents } from '../db/schema';
-<<<<<<< ours
-import type { AppError } from '../lib/errors/base.js';
-import { createError } from '../lib/errors/base.js';
-=======
-import { ServiceErrors } from '../lib/errors/service-errors';
->>>>>>> theirs
 import type {
   ClarifyingQuestion,
   ComposeStage,
   GeneratedFile,
   ModuleMatch,
 } from '../lib/terraform/types.js';
-import type { Result } from '../lib/utils/result.js';
-import { err, ok } from '../lib/utils/result.js';
 import type { AgentFileChangedData } from '../types/agent-events.js';
 import type { Database } from '../types/database.js';
 import type { SessionEvent, SessionEventType } from './session.service.js';
@@ -498,102 +490,13 @@ export interface StreamEvent<T = unknown> {
  *
  * Events are persisted to the database and published to the CaddyDurableStreamsServer
  * (which forwards to Caddy/DurableStreamTestServer). Clients subscribe directly to
- * Caddy streams via SSE -- no in-process subscriber mechanism is needed.
- *
- * RS-004: This file is the source of truth for all event types (StreamEventMap) and the
- * DurableStreamsServer interface. The narrower schema in
- * `src/lib/integrations/durable-streams/schema.ts` is only used by the DurableStreamTestServer
- * for in-memory state tracking of session-level channels.
- *
- * RS-005: Event naming convention -- all event types use colon-delimited hierarchical names:
- *   category:action (e.g., "plan:started", "container-agent:token", "terraform:code")
- * Categories: plan, sandbox, task-creation, container-agent, topology, terraform
- * Session-level events use short names: chunk, tool:start, tool:result, state:update
- *
- * RS-009: Three intentionally separate event delivery systems exist:
- *   1. DurableStreamsService (this file) -- typed events persisted to DB + published to Caddy.
- *      Used for agent sessions, plans, terraform compose, container agents, topology.
- *   2. EventBus (src/lib/events/event-bus.ts) -- in-process pub/sub for SSE event stream.
- *      Used for general UI updates (project changes, task updates, settings changes).
- *   3. CliMonitorService -- dedicated SSE stream for CLI monitor daemon data.
- *      Handles daemon registration, session ingestion, and live updates.
- *   This separation is intentional: each system serves a different audience and persistence
- *   model. DurableStreams needs DB persistence + Caddy SSE; EventBus is fire-and-forget
- *   in-process; CliMonitor has its own daemon protocol.
+ * Caddy streams via SSE — no in-process subscriber mechanism is needed.
  */
-/**
- * RS-008: Token event batching configuration.
- * High-frequency token events (plan:token, container-agent:token, task-creation:token)
- * are buffered for TOKEN_BATCH_MS before being persisted to the database, reducing
- * write pressure during streaming. Real-time delivery via Caddy is not batched.
- */
-const TOKEN_BATCH_MS = 50;
-const TOKEN_EVENT_TYPES = new Set<string>([
-  'plan:token',
-  'container-agent:token',
-  'task-creation:token',
-]);
-
-interface BatchedTokenEvent {
-  streamId: string;
-  eventId: string;
-  type: string;
-  channel: string;
-  data: unknown;
-  timestamp: number;
-}
-
 export class DurableStreamsService {
-  /** RS-008: Pending token events awaiting batch persistence. */
-  private tokenBatchBuffer: BatchedTokenEvent[] = [];
-  private tokenBatchTimer: ReturnType<typeof setTimeout> | null = null;
-
   constructor(
     private server: DurableStreamsServer,
     private db?: Database
   ) {}
-
-  /**
-   * RS-008: Enqueue a token event for batched DB persistence.
-   */
-  private enqueueTokenBatch(event: BatchedTokenEvent): void {
-    this.tokenBatchBuffer.push(event);
-    if (!this.tokenBatchTimer) {
-      this.tokenBatchTimer = setTimeout(() => {
-        this.flushTokenBatch().catch((err) => {
-          console.error('[DurableStreamsService] Token batch flush failed:', err);
-        });
-      }, TOKEN_BATCH_MS);
-    }
-  }
-
-  /**
-   * RS-008: Flush all buffered token events to the database in one pass.
-   */
-  private async flushTokenBatch(): Promise<void> {
-    this.tokenBatchTimer = null;
-    if (this.tokenBatchBuffer.length === 0) return;
-
-    const batch = this.tokenBatchBuffer.splice(0);
-    for (const event of batch) {
-      try {
-        await this.persistToDb(
-          event.streamId,
-          event.eventId,
-          event.type,
-          event.channel,
-          event.data,
-          event.timestamp
-        );
-      } catch (err) {
-        console.warn('[DurableStreamsService] Failed to persist batched token event:', {
-          streamId: event.streamId,
-          type: event.type,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
-  }
 
   /**
    * Map event type to channel for database storage.
@@ -611,41 +514,24 @@ export class DurableStreamsService {
   }
 
   /**
-   * Create a new stream for a session or plan.
-   * Returns Result instead of throwing for consistent error handling.
+   * Create a new stream for a session or plan
    */
-  async createStream(id: string, schema: unknown): Promise<Result<void, AppError>> {
+  async createStream(id: string, schema: unknown): Promise<void> {
     if (!id || typeof id !== 'string' || id.trim() === '') {
-      console.error('[DurableStreamsService] createStream validation error:', { id });
-<<<<<<< ours
-      return err(
-        createError(
-          'STREAM_CREATE_FAILED',
-          'createStream: streamId is required and must be a non-empty string',
-          400
-        )
+      const error = new Error(
+        '[DurableStreamsService] createStream: streamId is required and must be a non-empty string'
       );
-=======
-      throw ServiceErrors.STREAM_ID_REQUIRED;
->>>>>>> theirs
+      console.error('[DurableStreamsService] createStream validation error:', { id });
+      throw error;
     }
 
     try {
       await this.server.createStream(id, schema);
-      return ok(undefined);
     } catch (error) {
       console.error('[DurableStreamsService] createStream failed:', { streamId: id, error });
-<<<<<<< ours
-      return err(
-        createError(
-          'STREAM_CREATE_FAILED',
-          `Failed to create stream '${id}': ${error instanceof Error ? error.message : String(error)}`,
-          500
-        )
+      throw new Error(
+        `[DurableStreamsService] Failed to create stream '${id}': ${error instanceof Error ? error.message : String(error)}`
       );
-=======
-      throw ServiceErrors.STREAM_CREATE_FAILED(id, errorMessage(error));
->>>>>>> theirs
     }
   }
 
@@ -676,10 +562,7 @@ export class DurableStreamsService {
   ): Promise<number> {
     if (!this.db) return 0;
 
-    // RS-014: Increased from 3 to 5 retries to better handle concurrent inserts.
-    // Under high concurrency, multiple events may race to compute the next offset,
-    // leading to UNIQUE constraint violations that require retry with recalculated offset.
-    const MAX_OFFSET_RETRIES = 5;
+    const MAX_OFFSET_RETRIES = 3;
     let offset = 0;
     for (let attempt = 0; attempt < MAX_OFFSET_RETRIES; attempt++) {
       const lastEvent = await this.db.query.sessionEvents.findFirst({
@@ -729,55 +612,25 @@ export class DurableStreamsService {
     streamId: string,
     type: T,
     data: StreamEventMap[T]
-  ): Promise<Result<number, AppError>> {
+  ): Promise<number> {
     if (!streamId || typeof streamId !== 'string' || streamId.trim() === '') {
-      console.error('[DurableStreamsService] publish validation error:', { streamId, type });
-      return err(
-        createError(
-          'STREAM_PUBLISH_FAILED',
-          'publish: streamId is required and must be a non-empty string',
-          400
-        )
+      const error = new Error(
+        '[DurableStreamsService] publish: streamId is required and must be a non-empty string'
       );
+      console.error('[DurableStreamsService] publish validation error:', { streamId, type });
+      throw error;
     }
 
     try {
       const timestamp = Date.now();
       const eventId = createId();
-      const channel = this.getChannelForType(type);
 
-      // RS-008: For high-frequency token events, batch DB persistence
-      // but still publish to Caddy immediately for real-time delivery.
-      if (TOKEN_EVENT_TYPES.has(type) && this.db) {
-        this.enqueueTokenBatch({
-          streamId,
-          eventId,
-          type,
-          channel,
-          data: data as unknown,
-          timestamp,
-        });
-
-        // Publish to Caddy immediately (non-batched) for real-time delivery
-        let memoryOffset = 0;
-        try {
-          memoryOffset = await this.server.publish(streamId, type, data);
-        } catch (caddyErr) {
-          console.warn('[DurableStreamsService] Caddy publish failed for token event:', {
-            streamId,
-            type,
-            error: caddyErr instanceof Error ? caddyErr.message : String(caddyErr),
-          });
-        }
-        return memoryOffset;
-      }
-
-      // Non-token events: persist to database FIRST (ensures durability), then publish to Caddy
+      // Persist to database FIRST (ensures durability), then publish to Caddy
       const offset = await this.persistToDb(
         streamId,
         eventId,
         type,
-        channel,
+        this.getChannelForType(type),
         data as unknown,
         timestamp
       );
@@ -796,20 +649,12 @@ export class DurableStreamsService {
         });
       }
 
-      return ok(this.db ? offset : memoryOffset);
+      return this.db ? offset : memoryOffset;
     } catch (error) {
       console.error('[DurableStreamsService] publish failed:', { streamId, type, error });
-<<<<<<< ours
-      return err(
-        createError(
-          'STREAM_PUBLISH_FAILED',
-          `Failed to publish event '${type}' to stream '${streamId}': ${error instanceof Error ? error.message : String(error)}`,
-          500
-        )
+      throw new Error(
+        `[DurableStreamsService] Failed to publish event '${type}' to stream '${streamId}': ${error instanceof Error ? error.message : String(error)}`
       );
-=======
-      throw ServiceErrors.STREAM_PUBLISH_FAILED(streamId, type, errorMessage(error));
->>>>>>> theirs
     }
   }
 
@@ -906,22 +751,11 @@ export class DurableStreamsService {
    * Publish a session event (uses SessionEvent's own type/data structure).
    * Persists to database if available, then publishes to Caddy streams.
    */
-  async publishSessionEvent(
-    streamId: string,
-    event: SessionEvent
-  ): Promise<Result<void, AppError>> {
+  async publishSessionEvent(streamId: string, event: SessionEvent): Promise<void> {
     if (!streamId || typeof streamId !== 'string' || streamId.trim() === '') {
-<<<<<<< ours
-      return err(
-        createError(
-          'STREAM_PUBLISH_FAILED',
-          'publishSessionEvent: streamId is required and must be a non-empty string',
-          400
-        )
+      throw new Error(
+        '[DurableStreamsService] publishSessionEvent: streamId is required and must be a non-empty string'
       );
-=======
-      throw ServiceErrors.STREAM_ID_REQUIRED;
->>>>>>> theirs
     }
 
     try {
@@ -951,25 +785,15 @@ export class DurableStreamsService {
           }
         );
       }
-
-      return ok(undefined);
     } catch (error) {
       console.error('[DurableStreamsService] publishSessionEvent failed:', {
         streamId,
         type: event.type,
         error,
       });
-<<<<<<< ours
-      return err(
-        createError(
-          'STREAM_PUBLISH_FAILED',
-          `Failed to publish session event '${event.type}' to stream '${streamId}': ${error instanceof Error ? error.message : String(error)}`,
-          500
-        )
+      throw new Error(
+        `[DurableStreamsService] Failed to publish session event '${event.type}' to stream '${streamId}': ${error instanceof Error ? error.message : String(error)}`
       );
-=======
-      throw ServiceErrors.STREAM_PUBLISH_FAILED(streamId, event.type, errorMessage(error));
->>>>>>> theirs
     }
   }
 }
