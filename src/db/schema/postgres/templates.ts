@@ -59,7 +59,10 @@ export const templates = pgTable('templates', {
   cachedCommands: jsonb('cached_commands').$type<CachedCommand[]>(),
   cachedAgents: jsonb('cached_agents').$type<CachedAgent[]>(),
   createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { mode: 'string' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'string' })
+    .defaultNow()
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export type Template = typeof templates.$inferSelect;

@@ -1,5 +1,5 @@
 import { createId } from '@paralleldrive/cuid2';
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, count, eq, inArray } from 'drizzle-orm';
 import { agentRuns, agents, projects, sessions, tasks, worktrees } from '../../db/schema';
 import { createAgentHooks } from '../../lib/agents/hooks/index.js';
 import { handleAgentError } from '../../lib/agents/recovery.js';
@@ -884,14 +884,16 @@ export class AgentExecutionService {
    * Get the count of running agents for a specific project.
    */
   async getRunningCount(projectId: string): Promise<Result<number, never>> {
-    const running = await this.db.query.agents.findMany({
-      where: and(
-        eq(agents.projectId, projectId),
-        inArray(agents.status, ['starting', 'planning', 'running'])
-      ),
-    });
-
-    return ok(running.length);
+    const [result] = await this.db
+      .select({ count: count() })
+      .from(agents)
+      .where(
+        and(
+          eq(agents.projectId, projectId),
+          inArray(agents.status, ['starting', 'planning', 'running'])
+        )
+      );
+    return ok(result?.count ?? 0);
   }
 
   /**

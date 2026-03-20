@@ -39,7 +39,10 @@ export const marketplaces = sqliteTable('marketplaces', {
   syncError: text('sync_error'),
   cachedPlugins: text('cached_plugins', { mode: 'json' }).$type<CachedPlugin[]>(),
   createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
-  updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
+  updatedAt: text('updated_at')
+    .default(sql`(datetime('now'))`)
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export type Marketplace = typeof marketplaces.$inferSelect;

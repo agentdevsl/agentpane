@@ -33,7 +33,10 @@ export const eventSources = pgTable(
     lastEventAt: timestamp('last_event_at', { mode: 'string' }),
     status: text('status').$type<EventSourceStatus>().default('active').notNull(),
     createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { mode: 'string' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'string' })
+      .defaultNow()
+      .notNull()
+      .$onUpdate(() => new Date().toISOString()),
   },
   (table) => [
     index('event_sources_team_idx').on(table.teamId),

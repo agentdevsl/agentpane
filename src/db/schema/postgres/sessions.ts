@@ -21,7 +21,10 @@ export const sessions = pgTable('sessions', {
   sandboxProvider: text('sandbox_provider'),
   sandboxContainerId: text('sandbox_container_id'),
   createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { mode: 'string' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'string' })
+    .defaultNow()
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
   closedAt: timestamp('closed_at', { mode: 'string' }),
 });
 

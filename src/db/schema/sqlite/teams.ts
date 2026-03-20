@@ -10,7 +10,10 @@ export const teams = sqliteTable('teams', {
   slug: text('slug').notNull().unique(),
   description: text('description'),
   createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
-  updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
+  updatedAt: text('updated_at')
+    .default(sql`(datetime('now'))`)
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export type Team = typeof teams.$inferSelect;

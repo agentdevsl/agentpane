@@ -28,7 +28,10 @@ export const cliSessions = pgTable(
     isSubagent: boolean('is_subagent').notNull().default(false),
     parentSessionId: text('parent_session_id'),
     createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { mode: 'string' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'string' })
+      .defaultNow()
+      .notNull()
+      .$onUpdate(() => new Date().toISOString()),
   },
   (table) => [
     index('idx_cli_sessions_project').on(table.projectHash, table.lastActivityAt),

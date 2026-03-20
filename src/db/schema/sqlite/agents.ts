@@ -25,7 +25,10 @@ export const agents = sqliteTable(
     currentTurn: integer('current_turn').default(0),
     parentAgentId: text('parent_agent_id'),
     createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
-    updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
+    updatedAt: text('updated_at')
+      .default(sql`(datetime('now'))`)
+      .notNull()
+      .$onUpdate(() => new Date().toISOString()),
   },
   (table) => [index('idx_agents_project_id').on(table.projectId)]
 );

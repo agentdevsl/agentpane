@@ -40,7 +40,10 @@ export const planSessions = pgTable('plan_sessions', {
   githubIssueNumber: integer('github_issue_number'),
   createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
   completedAt: timestamp('completed_at', { mode: 'string' }),
-  updatedAt: timestamp('updated_at', { mode: 'string' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'string' })
+    .defaultNow()
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export type PlanSession = typeof planSessions.$inferSelect;

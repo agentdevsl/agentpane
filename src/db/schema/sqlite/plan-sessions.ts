@@ -59,7 +59,10 @@ export const planSessions = sqliteTable('plan_sessions', {
 
   completedAt: text('completed_at'),
 
-  updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
+  updatedAt: text('updated_at')
+    .default(sql`(datetime('now'))`)
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export type PlanSession = typeof planSessions.$inferSelect;

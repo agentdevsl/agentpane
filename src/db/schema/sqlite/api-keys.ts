@@ -21,7 +21,10 @@ export const apiKeys = sqliteTable('api_keys', {
   lastValidatedAt: text('last_validated_at'),
   // Timestamps
   createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
-  updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
+  updatedAt: text('updated_at')
+    .default(sql`(datetime('now'))`)
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export type ApiKey = typeof apiKeys.$inferSelect;

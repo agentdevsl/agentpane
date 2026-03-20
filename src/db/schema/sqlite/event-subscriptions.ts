@@ -34,7 +34,10 @@ export const eventSubscriptions = sqliteTable(
     matchedCount: integer('matched_count').default(0).notNull(),
     lastMatchedAt: text('last_matched_at'),
     createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
-    updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
+    updatedAt: text('updated_at')
+      .default(sql`(datetime('now'))`)
+      .notNull()
+      .$onUpdate(() => new Date().toISOString()),
   },
   (table) => [
     index('event_subscriptions_source_idx').on(table.eventSourceId),

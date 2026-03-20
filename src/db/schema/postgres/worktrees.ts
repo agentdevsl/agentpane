@@ -23,7 +23,10 @@ export const worktrees = pgTable('worktrees', {
   baseBranch: text('base_branch').default('main').notNull(),
   status: text('status').$type<WorktreeStatus>().default('creating').notNull(),
   createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { mode: 'string' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'string' })
+    .defaultNow()
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
   mergedAt: timestamp('merged_at', { mode: 'string' }),
   removedAt: timestamp('removed_at', { mode: 'string' }),
 });

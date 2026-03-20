@@ -28,7 +28,10 @@ export const worktrees = sqliteTable(
     baseBranch: text('base_branch').default('main').notNull(),
     status: text('status').$type<WorktreeStatus>().default('creating').notNull(),
     createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
-    updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
+    updatedAt: text('updated_at')
+      .default(sql`(datetime('now'))`)
+      .notNull()
+      .$onUpdate(() => new Date().toISOString()),
     mergedAt: text('merged_at'),
     removedAt: text('removed_at'),
   },

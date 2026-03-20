@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, count, desc, eq } from 'drizzle-orm';
 import type { Agent, AgentConfig, NewAgent } from '../../db/schema';
 import { agents, projects } from '../../db/schema';
 import type { AgentError } from '../../lib/errors/agent-errors.js';
@@ -96,22 +96,22 @@ export class AgentCrudService {
    * Get the count of all running agents across all projects.
    */
   async getRunningCountAll(): Promise<Result<number, never>> {
-    const running = await this.db.query.agents.findMany({
-      where: eq(agents.status, 'running'),
-    });
-
-    return ok(running.length);
+    const [result] = await this.db
+      .select({ count: count() })
+      .from(agents)
+      .where(eq(agents.status, 'running'));
+    return ok(result?.count ?? 0);
   }
 
   /**
    * Get the count of running agents for a specific project.
    */
   async getRunningCount(projectId: string): Promise<Result<number, never>> {
-    const running = await this.db.query.agents.findMany({
-      where: and(eq(agents.projectId, projectId), eq(agents.status, 'running')),
-    });
-
-    return ok(running.length);
+    const [result] = await this.db
+      .select({ count: count() })
+      .from(agents)
+      .where(and(eq(agents.projectId, projectId), eq(agents.status, 'running')));
+    return ok(result?.count ?? 0);
   }
 
   /**

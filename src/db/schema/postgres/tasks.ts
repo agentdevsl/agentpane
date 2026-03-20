@@ -48,7 +48,10 @@ export const tasks = pgTable('tasks', {
   planOptions: jsonb('plan_options').$type<StoredPlanOptions>(),
   plan: text('plan'),
   createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { mode: 'string' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'string' })
+    .defaultNow()
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
   startedAt: timestamp('started_at', { mode: 'string' }),
   completedAt: timestamp('completed_at', { mode: 'string' }),
   lastAgentStatus: text('last_agent_status').$type<

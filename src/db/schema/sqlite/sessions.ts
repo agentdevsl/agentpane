@@ -22,7 +22,10 @@ export const sessions = sqliteTable('sessions', {
   sandboxProvider: text('sandbox_provider'),
   sandboxContainerId: text('sandbox_container_id'),
   createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
-  updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
+  updatedAt: text('updated_at')
+    .default(sql`(datetime('now'))`)
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
   closedAt: text('closed_at'),
 });
 

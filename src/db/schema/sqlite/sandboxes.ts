@@ -44,7 +44,10 @@ export const sandboxInstances = sqliteTable('sandbox_instances', {
 
   stoppedAt: text('stopped_at'),
 
-  updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
+  updatedAt: text('updated_at')
+    .default(sql`(datetime('now'))`)
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 /**

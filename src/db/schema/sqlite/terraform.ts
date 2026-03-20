@@ -33,14 +33,19 @@ export const terraformRegistries = sqliteTable('terraform_registries', {
   syncIntervalMinutes: integer('sync_interval_minutes'),
   nextSyncAt: text('next_sync_at'),
   createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
-  updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
+  updatedAt: text('updated_at')
+    .default(sql`(datetime('now'))`)
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export const terraformModules = sqliteTable('terraform_modules', {
   id: text('id')
     .primaryKey()
     .$defaultFn(() => createId()),
-  registryId: text('registry_id').notNull(),
+  registryId: text('registry_id')
+    .notNull()
+    .references(() => terraformRegistries.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   namespace: text('namespace').notNull(),
   provider: text('provider').notNull(),
@@ -53,7 +58,10 @@ export const terraformModules = sqliteTable('terraform_modules', {
   dependencies: text('dependencies', { mode: 'json' }).$type<string[]>(),
   publishedAt: text('published_at'),
   createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
-  updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
+  updatedAt: text('updated_at')
+    .default(sql`(datetime('now'))`)
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export type TerraformRegistry = typeof terraformRegistries.$inferSelect;

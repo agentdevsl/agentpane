@@ -22,7 +22,10 @@ export const sessionSummaries = pgTable('session_summaries', {
   cacheReadTokens: integer('cache_read_tokens'),
   cacheCreationTokens: integer('cache_creation_tokens'),
   stopReason: text('stop_reason'),
-  updatedAt: timestamp('updated_at', { mode: 'string' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'string' })
+    .defaultNow()
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export type SessionSummary = typeof sessionSummaries.$inferSelect;

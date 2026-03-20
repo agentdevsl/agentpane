@@ -25,7 +25,10 @@ export const eventSources = sqliteTable(
     lastEventAt: text('last_event_at'),
     status: text('status').$type<EventSourceStatus>().default('active').notNull(),
     createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
-    updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
+    updatedAt: text('updated_at')
+      .default(sql`(datetime('now'))`)
+      .notNull()
+      .$onUpdate(() => new Date().toISOString()),
   },
   (table) => [
     index('event_sources_team_idx').on(table.teamId),

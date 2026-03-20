@@ -22,7 +22,10 @@ export const projects = sqliteTable('projects', {
   configPath: text('config_path').default('.claude'),
   sandboxConfigId: text('sandbox_config_id').references(() => sandboxConfigs.id),
   createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
-  updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
+  updatedAt: text('updated_at')
+    .default(sql`(datetime('now'))`)
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export type Project = typeof projects.$inferSelect;
