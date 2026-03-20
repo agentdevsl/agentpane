@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentErrors } from '../../../lib/errors/agent-errors.js';
-import { ConcurrencyErrors } from '../../../lib/errors/concurrency-errors.js';
+
 import { AgentExecutionService } from '../agent-execution.service.js';
 
 // ─── Mocks ──────────────────────────────────────────

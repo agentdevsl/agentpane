@@ -54,7 +54,7 @@ export const moveTaskSchema = z.object({
 
 // ─── Agent Schemas ───────────────────────────────────
 
-export const agentTypeSchema = z.enum(['task', 'timer', 'workflow']);
+export const agentTypeSchema = z.enum(['task', 'conversational', 'background']);
 
 export const createAgentSchema = z.object({
   projectId: idSchema,

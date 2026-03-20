@@ -739,10 +739,9 @@ export class TaskCreationService {
           dbSessionId = dbSessionResult.value.id;
           log.info('Created database session');
         } else {
-          log.error(
-            '[TaskCreationService] Failed to create database session:',
-            dbSessionResult.error
-          );
+          log.error('[TaskCreationService] Failed to create database session', {
+            error: dbSessionResult.error,
+          });
         }
       } catch (error: unknown) {
         log.error('Error creating database session:', { error });
@@ -1219,11 +1218,9 @@ export class TaskCreationService {
 
               // Log AskUserQuestion tool call (handled by canUseTool callback)
               if (toolInfo.name === 'AskUserQuestion' && parsedInput.questions) {
-                log.info(
-                  '[TaskCreationService] 📝 AskUserQuestion tool call completed with',
-                  (parsedInput.questions as unknown[]).length,
-                  'questions (canUseTool handles pause/resume)'
-                );
+                log.info('[TaskCreationService] AskUserQuestion tool call completed', {
+                  data: { questionCount: (parsedInput.questions as unknown[]).length },
+                });
               }
 
               // Publish tool:result event with the accumulated input and duration
@@ -1332,8 +1329,8 @@ export class TaskCreationService {
                     });
                   } catch (error: unknown) {
                     log.error(
-                      '[TaskCreationService] Failed to publish tool events from assistant:',
-                      error
+                      '[TaskCreationService] Failed to publish tool events from assistant',
+                      { error }
                     );
                   }
                 }
@@ -2337,10 +2334,9 @@ export class TaskCreationService {
                   '[TaskCreationService] 🛑 AskUserQuestion detected in tool result response!'
                 );
                 // DEBUG: Log the full questions being asked in round 2+
-                log.info(
-                  '[TaskCreationService] 📋 Round 2+ Questions:',
-                  JSON.stringify(block.input, null, 2)
-                );
+                log.info('[TaskCreationService] Round 2+ Questions', {
+                  data: { input: block.input as Record<string, unknown> },
+                });
                 const input = block.input as {
                   questions: Array<{
                     question: string;

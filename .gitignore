@@ -129,6 +129,7 @@ submodule/*
 
 # Worktrees (managed outside repo)
 .worktrees/
+.claude/worktrees/
 
 # Bun build artifacts
 *.bun-build

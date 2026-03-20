@@ -424,7 +424,7 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
           } catch (error) {
             // Connection likely closed - clean up interval
             log.debug('Ping failed, closing connection', {
-              error: error instanceof Error ? error : undefined,
+              data: { error: error instanceof Error ? error.message : String(error) },
             });
             if (pingInterval) {
               clearInterval(pingInterval);

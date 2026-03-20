@@ -4,7 +4,6 @@
 
 import { Hono } from 'hono';
 import type { AgentConfig } from '../../db/schema';
-import { AGENT_TYPES, type AgentType } from '../../db/schema';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { AgentService } from '../../services/agent.service.js';
 import { isValidId, json } from '../shared.js';
@@ -68,7 +67,7 @@ export function createAgentsRoutes({ agentService }: AgentsDeps) {
         projectId: body.projectId,
         name: body.name,
         type: body.type,
-        config: body.config,
+        config: (body.config as AgentConfig) ?? null,
       });
 
       if (!result.ok) {

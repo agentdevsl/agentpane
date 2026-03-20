@@ -371,7 +371,7 @@ export class TerraformRegistryService {
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      log.error(`Sync error for ${id}:`, errorMessage);
+      log.error(`Sync error for ${id}`, { data: { errorMessage } });
 
       const lowerMessage = errorMessage.toLowerCase();
       const containsCredentials =

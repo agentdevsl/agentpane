@@ -46,7 +46,7 @@ describe('ContainerAgentService', () => {
         sessionId: 'sess-1',
         prompt: 'Test',
       };
-      const phase = input.phase ?? 'plan';
+      const phase = (input as { phase?: string }).phase ?? 'plan';
       expect(phase).toBe('plan');
     });
 

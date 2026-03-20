@@ -167,7 +167,7 @@ function parseAIResponse(responseText: string): {
     if (nodeResult.success) {
       nodes.push(nodeResult.data);
     } else {
-      log.warn('Skipping invalid node:', nodeResult.error.message, nodeData);
+      log.warn('Skipping invalid node', { data: { error: nodeResult.error.message, nodeData } });
     }
   }
 
@@ -178,7 +178,7 @@ function parseAIResponse(responseText: string): {
     if (edgeResult.success) {
       edges.push(edgeResult.data);
     } else {
-      log.warn('Skipping invalid edge:', edgeResult.error.message, edgeData);
+      log.warn('Skipping invalid edge', { data: { error: edgeResult.error.message, edgeData } });
     }
   }
 
@@ -511,7 +511,7 @@ export function createWorkflowDesignerRoutes({
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      log.error('Agent SDK error:', message);
+      log.error('Agent SDK error', { data: { message } });
 
       // Check for authentication errors
       if (
@@ -548,7 +548,7 @@ export function createWorkflowDesignerRoutes({
       aiConfidence = result.aiConfidence;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      log.error('AI response parsing error:', message);
+      log.error('AI response parsing error', { data: { message } });
       return json({ ok: false, error: { code: 'WORKFLOW_INVALID_AI_RESPONSE', message } }, 422);
     }
 
@@ -564,7 +564,7 @@ export function createWorkflowDesignerRoutes({
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      log.error('Layout error:', message);
+      log.error('Layout error', { data: { message } });
       return json({ ok: false, error: { code: 'WORKFLOW_LAYOUT_FAILED', message } }, 500);
     }
 
