@@ -5,8 +5,12 @@
 import { Hono } from 'hono';
 import type { AgentConfig } from '../../db/schema';
 import { AGENT_TYPES, type AgentType } from '../../db/schema';
+import { createLogger } from '../../lib/logging/logger.js';
 import type { AgentService } from '../../services/agent.service.js';
 import { isValidId, json } from '../shared.js';
+import { createAgentSchema, parseJsonBody } from '../validation.js';
+
+const log = createLogger('agent-routes');
 
 interface AgentsDeps {
   agentService: AgentService;
@@ -45,7 +49,7 @@ export function createAgentsRoutes({ agentService }: AgentsDeps) {
 
       return json({ ok: true, data: result.value });
     } catch (error) {
-      console.error('[Agents] List error:', error);
+      log.error('List error', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to list agents' } },
         500
@@ -55,47 +59,9 @@ export function createAgentsRoutes({ agentService }: AgentsDeps) {
 
   // POST /api/agents
   app.post('/', async (c) => {
-    let body: {
-      projectId?: string;
-      name?: string;
-      type?: AgentType;
-      config?: AgentConfig;
-    };
-    try {
-      body = await c.req.json();
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON in request body' } },
-        400
-      );
-    }
-
-    if (!body.projectId || !body.name || !body.type) {
-      return json(
-        {
-          ok: false,
-          error: {
-            code: 'MISSING_PARAMS',
-            message: 'projectId, name, and type are required',
-          },
-        },
-        400
-      );
-    }
-
-    if (!isValidId(body.projectId)) {
-      return json(
-        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid projectId format' } },
-        400
-      );
-    }
-
-    if (!AGENT_TYPES.includes(body.type)) {
-      return json(
-        { ok: false, error: { code: 'INVALID_PARAMS', message: 'Invalid agent type' } },
-        400
-      );
-    }
+    const parsed = await parseJsonBody(c, createAgentSchema);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
 
     try {
       const result = await agentService.create({
@@ -111,7 +77,7 @@ export function createAgentsRoutes({ agentService }: AgentsDeps) {
 
       return json({ ok: true, data: result.value }, 201);
     } catch (error) {
-      console.error('[Agents] Create error:', error);
+      log.error('Create error', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to create agent' } },
         500
@@ -136,7 +102,7 @@ export function createAgentsRoutes({ agentService }: AgentsDeps) {
 
       return json({ ok: true, data: result.value });
     } catch (error) {
-      console.error('[Agents] Get error:', error);
+      log.error('Get error', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to get agent' } }, 500);
     }
   });
@@ -176,7 +142,7 @@ export function createAgentsRoutes({ agentService }: AgentsDeps) {
 
       return json({ ok: true, data: result.value });
     } catch (error) {
-      console.error('[Agents] Update error:', error);
+      log.error('Update error', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to update agent' } },
         500
@@ -201,7 +167,7 @@ export function createAgentsRoutes({ agentService }: AgentsDeps) {
 
       return json({ ok: true, data: { deleted: true } });
     } catch (error) {
-      console.error('[Agents] Delete error:', error);
+      log.error('Delete error', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to delete agent' } },
         500
@@ -245,7 +211,7 @@ export function createAgentsRoutes({ agentService }: AgentsDeps) {
 
       return json({ ok: true, data: result.value });
     } catch (error) {
-      console.error('[Agents] Start error:', error);
+      log.error('Start error', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to start agent' } },
         500
@@ -270,7 +236,7 @@ export function createAgentsRoutes({ agentService }: AgentsDeps) {
 
       return json({ ok: true, data: { status: result.value.status } });
     } catch (error) {
-      console.error('[Agents] Status error:', error);
+      log.error('Status error', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to get agent status' } },
         500
@@ -295,7 +261,7 @@ export function createAgentsRoutes({ agentService }: AgentsDeps) {
 
       return json({ ok: true, data: { stopped: true } });
     } catch (error) {
-      console.error('[Agents] Stop error:', error);
+      log.error('Stop error', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to stop agent' } }, 500);
     }
   });
@@ -317,7 +283,7 @@ export function createAgentsRoutes({ agentService }: AgentsDeps) {
 
       return json({ ok: true, data: { paused: true } });
     } catch (error) {
-      console.error('[Agents] Pause error:', error);
+      log.error('Pause error', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to pause agent' } },
         500
@@ -354,7 +320,7 @@ export function createAgentsRoutes({ agentService }: AgentsDeps) {
 
       return json({ ok: true, data: result.value });
     } catch (error) {
-      console.error('[Agents] Resume error:', error);
+      log.error('Resume error', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to resume agent' } },
         500

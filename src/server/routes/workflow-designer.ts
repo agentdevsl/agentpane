@@ -5,6 +5,10 @@
 import { createId } from '@paralleldrive/cuid2';
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { createLogger } from '../../lib/logging/logger.js';
+
+const log = createLogger('workflow-designer-routes');
+
 import type { CachedAgent, CachedCommand, CachedSkill } from '../../db/schema';
 import { agentQuery } from '../../lib/agents/agent-sdk-utils.js';
 import { DEFAULT_WORKFLOW_MODEL, getFullModelId } from '../../lib/constants/models.js';
@@ -163,7 +167,7 @@ function parseAIResponse(responseText: string): {
     if (nodeResult.success) {
       nodes.push(nodeResult.data);
     } else {
-      console.warn('[workflow-analyze] Skipping invalid node:', nodeResult.error.message, nodeData);
+      log.warn('Skipping invalid node:', nodeResult.error.message, nodeData);
     }
   }
 
@@ -174,7 +178,7 @@ function parseAIResponse(responseText: string): {
     if (edgeResult.success) {
       edges.push(edgeResult.data);
     } else {
-      console.warn('[workflow-analyze] Skipping invalid edge:', edgeResult.error.message, edgeData);
+      log.warn('Skipping invalid edge:', edgeResult.error.message, edgeData);
     }
   }
 
@@ -184,9 +188,7 @@ function parseAIResponse(responseText: string): {
   for (let i = edges.length - 1; i >= 0; i--) {
     const e = edges[i];
     if (e && (!validNodeIds.has(e.sourceNodeId) || !validNodeIds.has(e.targetNodeId))) {
-      console.warn(
-        `[workflow-analyze] Removing edge to non-existent node: ${e.sourceNodeId} → ${e.targetNodeId}`
-      );
+      log.warn(`Removing edge to non-existent node: ${e.sourceNodeId} -> ${e.targetNodeId}`);
       edges.splice(i, 1);
     }
   }
@@ -201,7 +203,7 @@ function parseAIResponse(responseText: string): {
 
   // Auto-generate start/end nodes if missing
   if (!hasStart) {
-    console.warn('[workflow-analyze] AI did not generate start node, adding one');
+    log.warn('AI did not generate start node, adding one');
     nodes.unshift({
       id: `start-${createId().slice(0, 8)}`,
       type: 'start',
@@ -212,7 +214,7 @@ function parseAIResponse(responseText: string): {
   }
 
   if (!hasEnd) {
-    console.warn('[workflow-analyze] AI did not generate end node, adding one');
+    log.warn('AI did not generate end node, adding one');
     nodes.push({
       id: `end-${createId().slice(0, 8)}`,
       type: 'end' as const,
@@ -242,7 +244,7 @@ function parseAIResponse(responseText: string): {
       if (!hasCorrectStartEdge) {
         const startEdgeCount = edges.filter((e) => e.sourceNodeId === startNode.id).length;
         if (startEdgeCount > 0) {
-          console.warn('[workflow-analyze] Replacing incorrect start edges');
+          log.warn('Replacing incorrect start edges');
           for (let i = edges.length - 1; i >= 0; i--) {
             if (edges[i]?.sourceNodeId === startNode.id) {
               edges.splice(i, 1);
@@ -265,7 +267,7 @@ function parseAIResponse(responseText: string): {
       if (!hasCorrectEndEdge) {
         const endEdgeCount = edges.filter((e) => e.targetNodeId === endNode.id).length;
         if (endEdgeCount > 0) {
-          console.warn('[workflow-analyze] Replacing incorrect end edges');
+          log.warn('Replacing incorrect end edges');
           for (let i = edges.length - 1; i >= 0; i--) {
             if (edges[i]?.targetNodeId === endNode.id) {
               edges.splice(i, 1);
@@ -323,9 +325,7 @@ function parseAIResponse(responseText: string): {
         (e) => e.sourceNodeId === predecessor.id && e.targetNodeId === node.id
       );
       if (!exists) {
-        console.warn(
-          `[workflow-analyze] Node "${node.label}" unreachable, connecting from "${predecessor.label}"`
-        );
+        log.warn(`Node "${node.label}" unreachable, connecting from "${predecessor.label}"`);
         edges.push({
           id: `edge-connect-${createId().slice(0, 8)}`,
           type: 'sequential',
@@ -366,7 +366,7 @@ function parseAIResponse(responseText: string): {
             edges.splice(i, 1);
           }
         }
-        console.warn(`[workflow-analyze] Re-pointing End edge from "${trueTail.label}"`);
+        log.warn(`Re-pointing End edge from "${trueTail.label}"`);
         edges.push({
           id: `edge-end-final-${createId().slice(0, 8)}`,
           type: 'sequential',
@@ -511,7 +511,7 @@ export function createWorkflowDesignerRoutes({
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error('[workflow-analyze] Agent SDK error:', message);
+      log.error('Agent SDK error:', message);
 
       // Check for authentication errors
       if (
@@ -548,7 +548,7 @@ export function createWorkflowDesignerRoutes({
       aiConfidence = result.aiConfidence;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error('[workflow-analyze] AI response parsing error:', message);
+      log.error('AI response parsing error:', message);
       return json({ ok: false, error: { code: 'WORKFLOW_INVALID_AI_RESPONSE', message } }, 422);
     }
 
@@ -564,7 +564,7 @@ export function createWorkflowDesignerRoutes({
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error('[workflow-analyze] Layout error:', message);
+      log.error('Layout error:', message);
       return json({ ok: false, error: { code: 'WORKFLOW_LAYOUT_FAILED', message } }, 500);
     }
 

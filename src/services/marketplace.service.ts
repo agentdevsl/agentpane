@@ -1,6 +1,10 @@
 import { and, desc, eq } from 'drizzle-orm';
 import type { CachedPlugin, Marketplace, NewMarketplace } from '../db/schema';
 import { githubInstallations, githubTokens, marketplaces } from '../db/schema';
+import { createLogger } from '../lib/logging/logger.js';
+
+const log = createLogger('MarketplaceService');
+
 import type { MarketplaceError } from '../lib/errors/marketplace-errors.js';
 import { MarketplaceErrors } from '../lib/errors/marketplace-errors.js';
 import {
@@ -68,7 +72,7 @@ export class MarketplaceService {
    */
   async seedDefaultMarketplace(): Promise<Result<Marketplace | null, MarketplaceError>> {
     const DEFAULT_MARKETPLACE_ID = 'anthropic-official-marketplace';
-    console.log('[MarketplaceService] Checking for default marketplace');
+    log.info('Checking for default marketplace');
 
     // Check if default marketplace already exists (by fixed ID or isDefault flag)
     const existing = await this.db.query.marketplaces.findFirst({
@@ -76,7 +80,7 @@ export class MarketplaceService {
     });
 
     if (existing) {
-      console.log('[MarketplaceService] Default marketplace already exists');
+      log.info('Default marketplace already exists');
       return ok(null);
     }
 
@@ -111,7 +115,7 @@ export class MarketplaceService {
   }
 
   async create(input: CreateMarketplaceInput): Promise<Result<Marketplace, MarketplaceError>> {
-    console.log('[MarketplaceService] Creating marketplace:', input.name);
+    log.info('Creating marketplace', { data: { name: input.name } });
     let owner: string;
     let repo: string;
 
@@ -156,11 +160,11 @@ export class MarketplaceService {
       .returning();
 
     if (!created) {
-      console.error('[MarketplaceService] Failed to create marketplace');
+      log.error('Failed to create marketplace');
       return err(MarketplaceErrors.NOT_FOUND);
     }
 
-    console.log('[MarketplaceService] Created marketplace:', created.id);
+    log.info('Created marketplace', { data: { id: created.id } });
     return ok(created);
   }
 
@@ -232,23 +236,23 @@ export class MarketplaceService {
   }
 
   async delete(id: string): Promise<Result<void, MarketplaceError>> {
-    console.log('[MarketplaceService] Deleting marketplace:', id);
+    log.info('Deleting marketplace', { data: { id } });
     const marketplace = await this.db.query.marketplaces.findFirst({
       where: eq(marketplaces.id, id),
     });
 
     if (!marketplace) {
-      console.error('[MarketplaceService] Marketplace not found for deletion:', id);
+      log.error('Marketplace not found for deletion', { data: { id } });
       return err(MarketplaceErrors.NOT_FOUND);
     }
 
     if (marketplace.isDefault) {
-      console.error('[MarketplaceService] Cannot delete default marketplace');
+      log.error('Cannot delete default marketplace');
       return err(MarketplaceErrors.CANNOT_DELETE_DEFAULT);
     }
 
     await this.db.delete(marketplaces).where(eq(marketplaces.id, id));
-    console.log('[MarketplaceService] Deleted marketplace:', id);
+    log.info('Deleted marketplace', { data: { id } });
 
     return ok(undefined);
   }
@@ -257,19 +261,17 @@ export class MarketplaceService {
    * Sync plugins from a marketplace's GitHub repository
    */
   async sync(id: string): Promise<Result<SyncResult, MarketplaceError>> {
-    console.log('[MarketplaceService] Starting sync for marketplace:', id);
+    log.info('Starting sync for marketplace', { data: { id } });
     const marketplace = await this.db.query.marketplaces.findFirst({
       where: eq(marketplaces.id, id),
     });
 
     if (!marketplace) {
-      console.error('[MarketplaceService] Marketplace not found for sync:', id);
+      log.error('Marketplace not found for sync', { data: { id } });
       return err(MarketplaceErrors.NOT_FOUND);
     }
 
-    console.log(
-      `[MarketplaceService] Syncing ${marketplace.githubOwner}/${marketplace.githubRepo}`
-    );
+    log.info(`Syncing ${marketplace.githubOwner}/${marketplace.githubRepo}`);
 
     // Mark as syncing
     await this.db
@@ -310,10 +312,9 @@ export class MarketplaceService {
           token = await decryptToken(tokenRecord.encryptedToken);
         } catch (decryptError) {
           // Token can't be decrypted - keyfile may have changed since token was stored
-          console.error(
-            '[MarketplaceService] Failed to decrypt GitHub token, marking as invalid:',
-            decryptError
-          );
+          log.error('Failed to decrypt GitHub token, marking as invalid', {
+            error: decryptError,
+          });
           await this.db
             .update(githubTokens)
             .set({ isValid: false })
@@ -351,7 +352,7 @@ export class MarketplaceService {
       });
 
       if (!syncResult.ok) {
-        console.error(`[MarketplaceService] Sync failed for ${id}:`, syncResult.error.message);
+        log.error(`Sync failed for ${id}`, { data: { message: syncResult.error.message } });
         await this.db
           .update(marketplaces)
           .set({
@@ -376,9 +377,7 @@ export class MarketplaceService {
         })
         .where(eq(marketplaces.id, id));
 
-      console.log(
-        `[MarketplaceService] Sync complete for ${id}: ${syncResult.value.plugins.length} plugins`
-      );
+      log.info(`Sync complete for ${id}: ${syncResult.value.plugins.length} plugins`);
       return ok({
         marketplaceId: id,
         pluginCount: syncResult.value.plugins.length,
@@ -387,7 +386,7 @@ export class MarketplaceService {
       });
     } catch (error) {
       const ghError = formatGitHubError(error);
-      console.error(`[MarketplaceService] Sync error for ${id}:`, ghError.message);
+      log.error(`Sync error for ${id}`, { data: { message: ghError.message } });
 
       // Invalidate the token if GitHub returned 401 (expired/revoked)
       if (ghError.status === 401) {
@@ -395,7 +394,7 @@ export class MarketplaceService {
           .update(githubTokens)
           .set({ isValid: false })
           .where(eq(githubTokens.isValid, true));
-        console.warn('[MarketplaceService] Marked GitHub token as invalid due to 401 response');
+        log.warn('Marked GitHub token as invalid due to 401 response');
       }
 
       await this.db
