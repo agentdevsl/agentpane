@@ -456,7 +456,7 @@ describe('SessionService', () => {
     }
   });
 
-  it('publish returns error when streams fail', async () => {
+  it('publish succeeds even when streams fail (RS-013: DB-first, stream is best-effort)', async () => {
     const db = createDbMock();
     const streams = createStreamsMock();
     streams.publish.mockRejectedValue(new Error('stream error'));
@@ -472,10 +472,9 @@ describe('SessionService', () => {
       data: { text: 'hi' },
     });
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.code).toBe('SESSION_SYNC_FAILED');
-    }
+    // RS-013: With DB-first persistence, stream publish failure is best-effort.
+    // The publish should still succeed as the event can be recovered from DB.
+    expect(result.ok).toBe(true);
   });
 
   it('getHistory returns empty array when no startTime', async () => {

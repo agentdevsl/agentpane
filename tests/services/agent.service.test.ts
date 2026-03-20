@@ -15,13 +15,6 @@ vi.mock('../../src/lib/agents/stream-handler', () => ({
   runAgentPlanning: vi.fn(),
 }));
 
-vi.mock('../../src/lib/agents/hooks/index', () => ({
-  createAgentHooks: vi.fn().mockReturnValue({
-    PreToolUse: [],
-    PostToolUse: [],
-  }),
-}));
-
 import { runAgentPlanning } from '../../src/lib/agents/stream-handler';
 
 const mockRunAgentPlanning = vi.mocked(runAgentPlanning);
@@ -462,7 +455,7 @@ describe('AgentService', () => {
       expect(mockSessionService.publish).toHaveBeenCalledWith(
         session.id,
         expect.objectContaining({
-          type: 'approval:rejected',
+          type: 'agent:resumed',
           data: { feedback: 'Continue please' },
         })
       );
@@ -594,32 +587,9 @@ describe('AgentService', () => {
   });
 
   // =============================================================================
-  // Hook Registration (2 tests)
+  // Hook Registration - REMOVED (AE-007: dead hook infrastructure removed)
+  // SDK's canUseTool callback is the actual interception mechanism
   // =============================================================================
-
-  describe('Hook Registration', () => {
-    it('registers pre-tool use hook', async () => {
-      const project = await createTestProject();
-      const agent = await createTestAgent(project.id);
-
-      const hook = vi.fn().mockResolvedValue({ deny: false });
-      agentService.registerPreToolUseHook(agent.id, hook);
-
-      // Hook registration should not throw
-      expect(true).toBe(true);
-    });
-
-    it('registers post-tool use hook', async () => {
-      const project = await createTestProject();
-      const agent = await createTestAgent(project.id);
-
-      const hook = vi.fn().mockResolvedValue(undefined);
-      agentService.registerPostToolUseHook(agent.id, hook);
-
-      // Hook registration should not throw
-      expect(true).toBe(true);
-    });
-  });
 
   // =============================================================================
   // Session Creation Failure (1 test)
@@ -984,7 +954,7 @@ describe('AgentService', () => {
       // Session publish should not be called when no session
       expect(mockSessionService.publish).not.toHaveBeenCalledWith(
         expect.any(String),
-        expect.objectContaining({ type: 'approval:rejected' })
+        expect.objectContaining({ type: 'agent:resumed' })
       );
     });
   });

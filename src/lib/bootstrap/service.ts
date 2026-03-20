@@ -25,11 +25,20 @@ const initializeClient = async (): Promise<ReturnType<typeof ok>> => {
   return ok(null);
 };
 
+/**
+ * Client-side bootstrap service.
+ *
+ * EH-006: The Result type is intentionally not used in bootstrap phases.
+ * Bootstrap runs at startup before services are available, and phases use
+ * simple try/catch with recoverable flags instead of Result types. This is
+ * acceptable for initialization code that needs to degrade gracefully.
+ */
 export class BootstrapService {
   private state: BootstrapState = {
     phase: 'client',
     progress: 0,
     isComplete: false,
+    phaseTimings: {},
   };
 
   private context: BootstrapContext = {};
@@ -53,7 +62,9 @@ export class BootstrapService {
         progress: (index / phases.length) * 100,
       });
 
+      const phaseStart = Date.now();
       const result = await this.executeWithTimeout(() => phase.fn(this.context), phase.timeout);
+      this.state.phaseTimings[phase.name] = Date.now() - phaseStart;
 
       if (result.ok) {
         this.applyPhaseResult({ name: phase.name, value: result.value });
@@ -76,7 +87,7 @@ export class BootstrapService {
     // Client-side bootstrap - database is on server, accessed via API
     return [
       { name: 'client', fn: initializeClient, timeout: 5000, recoverable: true },
-      { name: 'collections', fn: initializeCollections, timeout: 30000, recoverable: true },
+      { name: 'collections', fn: initializeCollections, timeout: 30000, recoverable: false },
       { name: 'streams', fn: connectStreams, timeout: 30000, recoverable: true },
       { name: 'github', fn: validateGitHub, timeout: 10000, recoverable: true },
     ];
@@ -102,22 +113,29 @@ export class BootstrapService {
     fn: () => Promise<ReturnType<typeof ok<T>> | ReturnType<typeof err>>,
     timeout: number
   ) {
-    return Promise.race([
-      fn(),
-      new Promise<ReturnType<typeof err>>((resolve) => {
-        setTimeout(
-          () =>
-            resolve(
-              err({
-                code: 'BOOTSTRAP_TIMEOUT',
-                message: 'Timeout',
-                status: 500,
-              })
-            ),
-          timeout
-        );
-      }),
-    ]);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        fn(),
+        new Promise<ReturnType<typeof err>>((resolve) => {
+          timer = setTimeout(
+            () =>
+              resolve(
+                err({
+                  code: 'BOOTSTRAP_TIMEOUT',
+                  message: 'Timeout',
+                  status: 500,
+                })
+              ),
+            timeout
+          );
+        }),
+      ]);
+    } finally {
+      if (timer !== undefined) {
+        clearTimeout(timer);
+      }
+    }
   }
 
   private updateState(partial: Partial<BootstrapState>) {

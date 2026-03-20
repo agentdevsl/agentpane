@@ -1,9 +1,16 @@
 import { MagnifyingGlass, Plus, SortAscending } from '@phosphor-icons/react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EmptyState } from '@/app/components/features/empty-state';
 import { LayoutShell } from '@/app/components/features/layout-shell';
-import { NewProjectDialog } from '@/app/components/features/new-project-dialog';
+
+// Lazy-load heavy dialog component (FC-012)
+const NewProjectDialog = React.lazy(() =>
+  import('@/app/components/features/new-project-dialog').then((m) => ({
+    default: m.NewProjectDialog,
+  }))
+);
+
 import { AddProjectCard, ProjectCard } from '@/app/components/features/project-card';
 import { AgentPaneLogo } from '@/app/components/ui/agentpane-logo';
 import { Button } from '@/app/components/ui/button';
@@ -20,14 +27,21 @@ import type { GitHubOrg, GitHubRepo } from '@/services/github-token.service';
 type ClientProjectSummary = ProjectSummaryItem;
 
 export const Route = createFileRoute('/projects/')({
+  loader: async () => {
+    // Prefetch project summaries (FC-022)
+    const result = await apiClient.projects.listWithSummaries({ limit: 24 });
+    return { projects: result.ok ? result.data.items : [] };
+  },
   component: ProjectsPage,
 });
 
 type SortOption = 'recent' | 'name' | 'created';
 
 function ProjectsPage(): React.JSX.Element {
-  const [projectSummaries, setProjectSummaries] = useState<ClientProjectSummary[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const loaderData = Route.useLoaderData() as { projects: ProjectSummaryItem[] } | undefined;
+  const loaderProjects = (loaderData?.projects ?? []) as ClientProjectSummary[];
+  const [projectSummaries, setProjectSummaries] = useState<ClientProjectSummary[]>(loaderProjects);
+  const [isLoading, setIsLoading] = useState(loaderProjects.length === 0);
   const [showNewProject, setShowNewProject] = useState(false);
   const [isSettingsConfigured, setIsSettingsConfigured] = useState(false);
   const [isGitHubConfigured, setIsGitHubConfigured] = useState(false);
@@ -122,6 +136,7 @@ function ProjectsPage(): React.JSX.Element {
   const isFetchingRef = useRef(false);
 
   // Fetch projects with summaries from API on mount and poll when agents are running
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only effect — initial data is stable from the route loader
   useEffect(() => {
     const fetchProjects = async () => {
       if (isFetchingRef.current) {
@@ -153,7 +168,18 @@ function ProjectsPage(): React.JSX.Element {
         setIsLoading(false);
       }
     };
-    fetchProjects();
+    if (loaderProjects.length > 0) {
+      // Loader already has data — skip immediate fetch, but start polling
+      const hasRunningAgents = loaderProjects.some(
+        (s: ClientProjectSummary) => s.runningAgents.length > 0
+      );
+      const desiredInterval = hasRunningAgents ? 10000 : 30000;
+      pollingIntervalRef.current = window.setInterval(fetchProjects, desiredInterval);
+      currentIntervalMsRef.current = desiredInterval;
+      setIsLoading(false);
+    } else {
+      fetchProjects();
+    }
 
     return () => {
       if (pollingIntervalRef.current) {
@@ -162,7 +188,7 @@ function ProjectsPage(): React.JSX.Element {
         currentIntervalMsRef.current = null;
       }
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCreateProject = useCallback(
     async (data: {
@@ -430,19 +456,21 @@ function ProjectsPage(): React.JSX.Element {
         )}
       </div>
 
-      <NewProjectDialog
-        open={showNewProject}
-        onOpenChange={setShowNewProject}
-        onSubmit={handleCreateProject}
-        onValidatePath={handleValidatePath}
-        onClone={handleClone}
-        onCreateFromTemplate={handleCreateFromTemplate}
-        onFetchOrgs={handleFetchOrgs}
-        onFetchReposForOwner={handleFetchReposForOwner}
-        isGitHubConfigured={isGitHubConfigured}
-        recentRepos={localRepos}
-        defaultSandboxType={defaultSandboxType}
-      />
+      <Suspense fallback={null}>
+        <NewProjectDialog
+          open={showNewProject}
+          onOpenChange={setShowNewProject}
+          onSubmit={handleCreateProject}
+          onValidatePath={handleValidatePath}
+          onClone={handleClone}
+          onCreateFromTemplate={handleCreateFromTemplate}
+          onFetchOrgs={handleFetchOrgs}
+          onFetchReposForOwner={handleFetchReposForOwner}
+          isGitHubConfigured={isGitHubConfigured}
+          recentRepos={localRepos}
+          defaultSandboxType={defaultSandboxType}
+        />
+      </Suspense>
     </LayoutShell>
   );
 }

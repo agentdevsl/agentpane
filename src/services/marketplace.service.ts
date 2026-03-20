@@ -1,17 +1,18 @@
 import { and, desc, eq } from 'drizzle-orm';
 import type { CachedPlugin, Marketplace, NewMarketplace } from '../db/schema';
-import { githubInstallations, githubTokens, marketplaces } from '../db/schema';
+import { githubTokens, marketplaces } from '../db/schema';
+import { createLogger } from '../lib/logging/logger.js';
+
+const log = createLogger('MarketplaceService');
+
 import type { MarketplaceError } from '../lib/errors/marketplace-errors.js';
 import { MarketplaceErrors } from '../lib/errors/marketplace-errors.js';
-import {
-  createOctokitFromToken,
-  formatGitHubError,
-  getInstallationOctokit,
-} from '../lib/github/client.js';
+import { formatGitHubError } from '../lib/github/client.js';
 import {
   parseGitHubMarketplaceUrl,
   syncMarketplaceFromGitHub,
 } from '../lib/github/marketplace-sync.js';
+import { resolveOctokit } from '../lib/github/resolve-octokit.js';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
 import type { Database } from '../types/database.js';
@@ -68,7 +69,7 @@ export class MarketplaceService {
    */
   async seedDefaultMarketplace(): Promise<Result<Marketplace | null, MarketplaceError>> {
     const DEFAULT_MARKETPLACE_ID = 'anthropic-official-marketplace';
-    console.log('[MarketplaceService] Checking for default marketplace');
+    log.info('Checking for default marketplace');
 
     // Check if default marketplace already exists (by fixed ID or isDefault flag)
     const existing = await this.db.query.marketplaces.findFirst({
@@ -76,7 +77,7 @@ export class MarketplaceService {
     });
 
     if (existing) {
-      console.log('[MarketplaceService] Default marketplace already exists');
+      log.info('Default marketplace already exists');
       return ok(null);
     }
 
@@ -111,7 +112,7 @@ export class MarketplaceService {
   }
 
   async create(input: CreateMarketplaceInput): Promise<Result<Marketplace, MarketplaceError>> {
-    console.log('[MarketplaceService] Creating marketplace:', input.name);
+    log.info('Creating marketplace', { data: { name: input.name } });
     let owner: string;
     let repo: string;
 
@@ -156,11 +157,11 @@ export class MarketplaceService {
       .returning();
 
     if (!created) {
-      console.error('[MarketplaceService] Failed to create marketplace');
+      log.error('Failed to create marketplace');
       return err(MarketplaceErrors.NOT_FOUND);
     }
 
-    console.log('[MarketplaceService] Created marketplace:', created.id);
+    log.info('Created marketplace', { data: { id: created.id } });
     return ok(created);
   }
 
@@ -209,9 +210,7 @@ export class MarketplaceService {
       }
     }
 
-    const updates: Partial<Marketplace> = {
-      updatedAt: this.updateTimestamp(),
-    };
+    const updates: Partial<Marketplace> = {};
 
     if (input.name !== undefined) updates.name = input.name;
     if (input.branch !== undefined) updates.branch = input.branch;
@@ -232,23 +231,23 @@ export class MarketplaceService {
   }
 
   async delete(id: string): Promise<Result<void, MarketplaceError>> {
-    console.log('[MarketplaceService] Deleting marketplace:', id);
+    log.info('Deleting marketplace', { data: { id } });
     const marketplace = await this.db.query.marketplaces.findFirst({
       where: eq(marketplaces.id, id),
     });
 
     if (!marketplace) {
-      console.error('[MarketplaceService] Marketplace not found for deletion:', id);
+      log.error('Marketplace not found for deletion', { data: { id } });
       return err(MarketplaceErrors.NOT_FOUND);
     }
 
     if (marketplace.isDefault) {
-      console.error('[MarketplaceService] Cannot delete default marketplace');
+      log.error('Cannot delete default marketplace');
       return err(MarketplaceErrors.CANNOT_DELETE_DEFAULT);
     }
 
     await this.db.delete(marketplaces).where(eq(marketplaces.id, id));
-    console.log('[MarketplaceService] Deleted marketplace:', id);
+    log.info('Deleted marketplace', { data: { id } });
 
     return ok(undefined);
   }
@@ -257,84 +256,35 @@ export class MarketplaceService {
    * Sync plugins from a marketplace's GitHub repository
    */
   async sync(id: string): Promise<Result<SyncResult, MarketplaceError>> {
-    console.log('[MarketplaceService] Starting sync for marketplace:', id);
+    log.info('Starting sync for marketplace', { data: { id } });
     const marketplace = await this.db.query.marketplaces.findFirst({
       where: eq(marketplaces.id, id),
     });
 
     if (!marketplace) {
-      console.error('[MarketplaceService] Marketplace not found for sync:', id);
+      log.error('Marketplace not found for sync', { data: { id } });
       return err(MarketplaceErrors.NOT_FOUND);
     }
 
-    console.log(
-      `[MarketplaceService] Syncing ${marketplace.githubOwner}/${marketplace.githubRepo}`
-    );
+    log.info(`Syncing ${marketplace.githubOwner}/${marketplace.githubRepo}`);
 
     // Mark as syncing
-    await this.db
-      .update(marketplaces)
-      .set({ status: 'syncing', updatedAt: this.updateTimestamp() })
-      .where(eq(marketplaces.id, id));
+    await this.db.update(marketplaces).set({ status: 'syncing' }).where(eq(marketplaces.id, id));
 
     try {
-      // Get Octokit client - try GitHub App first, then PAT
-      let octokit: Awaited<ReturnType<typeof getInstallationOctokit>>;
-
-      const installation = await this.db.query.githubInstallations.findFirst({
-        where: eq(githubInstallations.status, 'active'),
-      });
-
-      if (installation) {
-        octokit = await getInstallationOctokit(Number(installation.installationId));
-      } else {
-        const tokenRecord = await this.db.query.githubTokens.findFirst({
-          where: eq(githubTokens.isValid, true),
-        });
-
-        if (!tokenRecord) {
-          await this.db
-            .update(marketplaces)
-            .set({
-              status: 'error',
-              syncError: 'No GitHub authentication found',
-              updatedAt: this.updateTimestamp(),
-            })
-            .where(eq(marketplaces.id, id));
-          return err(MarketplaceErrors.SYNC_FAILED('No GitHub authentication found'));
-        }
-
-        const { decryptToken } = await import('../lib/crypto/server-encryption.js');
-        let token: string;
-        try {
-          token = await decryptToken(tokenRecord.encryptedToken);
-        } catch (decryptError) {
-          // Token can't be decrypted - keyfile may have changed since token was stored
-          console.error(
-            '[MarketplaceService] Failed to decrypt GitHub token, marking as invalid:',
-            decryptError
-          );
-          await this.db
-            .update(githubTokens)
-            .set({ isValid: false })
-            .where(eq(githubTokens.id, tokenRecord.id));
-          await this.db
-            .update(marketplaces)
-            .set({
-              status: 'error',
-              syncError:
-                'GitHub token could not be decrypted. The encryption key may have changed. Please re-add your GitHub token in Settings.',
-              updatedAt: this.updateTimestamp(),
-            })
-            .where(eq(marketplaces.id, id));
-          return err(
-            MarketplaceErrors.SYNC_FAILED(
-              'GitHub token could not be decrypted. The encryption key may have changed. Please re-add your GitHub token in Settings.'
-            )
-          );
-        }
-        octokit = createOctokitFromToken(token);
+      // SL-013: Use shared resolveOctokit helper (GitHub App first, then PAT)
+      const octokitResult = await resolveOctokit(this.db);
+      if (!octokitResult.ok) {
+        await this.db
+          .update(marketplaces)
+          .set({
+            status: 'error',
+            syncError: octokitResult.error.message,
+          })
+          .where(eq(marketplaces.id, id));
+        return err(MarketplaceErrors.SYNC_FAILED(octokitResult.error.message));
       }
+      const octokit = octokitResult.value;
 
       // For the official Anthropic marketplace, also fetch external plugins
       const additionalPaths = marketplace.isDefault
@@ -351,13 +301,12 @@ export class MarketplaceService {
       });
 
       if (!syncResult.ok) {
-        console.error(`[MarketplaceService] Sync failed for ${id}:`, syncResult.error.message);
+        log.error(`Sync failed for ${id}`, { data: { message: syncResult.error.message } });
         await this.db
           .update(marketplaces)
           .set({
             status: 'error',
             syncError: syncResult.error.message,
-            updatedAt: this.updateTimestamp(),
           })
           .where(eq(marketplaces.id, id));
         return err(MarketplaceErrors.SYNC_FAILED(syncResult.error.message));
@@ -372,13 +321,10 @@ export class MarketplaceService {
           lastSyncSha: syncResult.value.sha,
           lastSyncedAt: now,
           syncError: null,
-          updatedAt: now,
         })
         .where(eq(marketplaces.id, id));
 
-      console.log(
-        `[MarketplaceService] Sync complete for ${id}: ${syncResult.value.plugins.length} plugins`
-      );
+      log.info(`Sync complete for ${id}: ${syncResult.value.plugins.length} plugins`);
       return ok({
         marketplaceId: id,
         pluginCount: syncResult.value.plugins.length,
@@ -387,7 +333,7 @@ export class MarketplaceService {
       });
     } catch (error) {
       const ghError = formatGitHubError(error);
-      console.error(`[MarketplaceService] Sync error for ${id}:`, ghError.message);
+      log.error(`Sync error for ${id}`, { data: { message: ghError.message } });
 
       // Invalidate the token if GitHub returned 401 (expired/revoked)
       if (ghError.status === 401) {
@@ -395,7 +341,7 @@ export class MarketplaceService {
           .update(githubTokens)
           .set({ isValid: false })
           .where(eq(githubTokens.isValid, true));
-        console.warn('[MarketplaceService] Marked GitHub token as invalid due to 401 response');
+        log.warn('Marked GitHub token as invalid due to 401 response');
       }
 
       await this.db
@@ -403,7 +349,6 @@ export class MarketplaceService {
         .set({
           status: 'error',
           syncError: ghError.message,
-          updatedAt: this.updateTimestamp(),
         })
         .where(eq(marketplaces.id, id));
       return err(MarketplaceErrors.SYNC_FAILED(ghError.message));

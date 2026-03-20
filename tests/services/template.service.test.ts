@@ -4,6 +4,7 @@ import type { CachedAgent, CachedCommand, CachedSkill } from '../../src/db/schem
 import { templateProjects, templates } from '../../src/db/schema';
 import { TemplateService } from '../../src/services/template.service';
 import { createTestProject } from '../factories/project.factory';
+import { flushPromises } from '../helpers/async';
 import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/database';
 
 // Mock GitHub modules
@@ -231,8 +232,8 @@ describe('TemplateService', () => {
       expect(createResult.ok).toBe(true);
 
       if (createResult.ok) {
-        // Wait a small amount to ensure different timestamps
-        await new Promise((resolve) => setTimeout(resolve, 10));
+        // Flush microtasks before next operation
+        await flushPromises();
 
         const updateResult = await templateService.update(createResult.value.id, {
           name: 'Updated Name',

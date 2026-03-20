@@ -11,7 +11,10 @@ export const settings = sqliteTable('settings', {
   // JSON-encoded value
   value: text('value').notNull(),
   // Timestamps
-  updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
+  updatedAt: text('updated_at')
+    .default(sql`(datetime('now'))`)
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export type Setting = typeof settings.$inferSelect;

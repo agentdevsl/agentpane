@@ -3,8 +3,42 @@
  */
 
 import { Hono } from 'hono';
+import { z } from 'zod';
+import { createLogger } from '../../lib/logging/logger.js';
 import type { TaskCreationService } from '../../services/task-creation.service.js';
 import { corsHeaders, json } from '../shared.js';
+import { parseJsonBody } from '../validation.js';
+
+const log = createLogger('task-creation-routes');
+
+// ─── Zod Schemas for Task Creation Routes ───────────
+const startSchema = z.object({
+  projectId: z.string().min(1, 'projectId is required'),
+});
+
+const messageSchema = z.object({
+  sessionId: z.string().min(1, 'sessionId is required'),
+  message: z.string().min(1, 'message is required'),
+});
+
+const acceptSchema = z.object({
+  sessionId: z.string().min(1, 'sessionId is required'),
+  overrides: z.record(z.string(), z.unknown()).optional(),
+});
+
+const cancelSchema = z.object({
+  sessionId: z.string().min(1, 'sessionId is required'),
+});
+
+const answerSchema = z.object({
+  sessionId: z.string().min(1, 'sessionId is required'),
+  questionsId: z.string().min(1, 'questionsId is required'),
+  answers: z.record(z.string(), z.union([z.string(), z.array(z.string())])),
+});
+
+const skipSchema = z.object({
+  sessionId: z.string().min(1, 'sessionId is required'),
+});
 
 interface TaskCreationDeps {
   taskCreationService: TaskCreationService;
@@ -25,11 +59,13 @@ function sendTaskCreationSSEUpdate(
     suggestion?: unknown;
   }
 ): void {
-  console.log('[TaskCreation SSE] sendTaskCreationSSEUpdate called:', {
-    sessionId,
-    messageCount: session.messages.length,
-    hasPendingQuestions: !!session.pendingQuestions,
-    hasSuggestion: !!session.suggestion,
+  log.debug('sendTaskCreationSSEUpdate called', {
+    data: {
+      sessionId,
+      messageCount: session.messages.length,
+      hasPendingQuestions: !!session.pendingQuestions,
+      hasSuggestion: !!session.suggestion,
+    },
   });
 
   // Send assistant message event
@@ -49,7 +85,7 @@ function sendTaskCreationSSEUpdate(
 
   // Send questions event if pending
   if (session.pendingQuestions) {
-    console.log('[TaskCreation SSE] 📤 Sending questions event');
+    log.debug('Sending questions event');
     const questionsData = JSON.stringify({
       type: 'task-creation:questions',
       data: {
@@ -58,9 +94,9 @@ function sendTaskCreationSSEUpdate(
       },
     });
     controller.enqueue(new TextEncoder().encode(`data: ${questionsData}\n\n`));
-    console.log('[TaskCreation SSE] ✅ Questions event enqueued');
+    log.debug('Questions event enqueued');
   } else {
-    console.log('[TaskCreation SSE] ⚠️ No pendingQuestions to send');
+    log.debug('No pendingQuestions to send');
   }
 
   // Send suggestion event if available (only when no pending questions)
@@ -82,15 +118,9 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
   // POST /api/tasks/create-with-ai/start
   app.post('/start', async (c) => {
     try {
-      const body = await c.req.json();
-      const { projectId } = body as { projectId: string };
-
-      if (!projectId) {
-        return json(
-          { ok: false, error: { code: 'INVALID_INPUT', message: 'projectId is required' } },
-          400
-        );
-      }
+      const parsed = await parseJsonBody(c, startSchema);
+      if (!parsed.ok) return parsed.response;
+      const { projectId } = parsed.data;
 
       const result = await taskCreationService.startConversation(projectId);
 
@@ -100,7 +130,7 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
 
       return json({ ok: true, data: { sessionId: result.value.id } });
     } catch (error) {
-      console.error('[TaskCreation] Start error:', error);
+      log.error('Start error', { error });
       return json(
         { ok: false, error: { code: 'SERVER_ERROR', message: 'Failed to start conversation' } },
         500
@@ -111,18 +141,9 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
   // POST /api/tasks/create-with-ai/message
   app.post('/message', async (c) => {
     try {
-      const body = await c.req.json();
-      const { sessionId, message } = body as { sessionId: string; message: string };
-
-      if (!sessionId || !message) {
-        return json(
-          {
-            ok: false,
-            error: { code: 'INVALID_INPUT', message: 'sessionId and message are required' },
-          },
-          400
-        );
-      }
+      const parsed = await parseJsonBody(c, messageSchema);
+      if (!parsed.ok) return parsed.response;
+      const { sessionId, message } = parsed.data;
 
       // Send message with token streaming to SSE
       const controller = sseConnections.get(sessionId);
@@ -139,7 +160,7 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
       // Callback for when background processor publishes an assistant message (sends SSE event)
       const onMessage = controller
         ? (messageId: string, role: 'user' | 'assistant', content: string) => {
-            console.log('[TaskCreation Route] 📤 onMessage callback - sending SSE event');
+            log.debug('onMessage callback - sending SSE event');
             const messageData = JSON.stringify({
               type: 'task-creation:message',
               data: { sessionId, messageId, role, content },
@@ -156,7 +177,7 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
             labels: string[];
             priority: string;
           }) => {
-            console.log('[TaskCreation Route] 📤 onSuggestion callback - sending SSE event');
+            log.debug('onSuggestion callback - sending SSE event');
             const suggestionData = JSON.stringify({
               type: 'task-creation:suggestion',
               data: { sessionId, suggestion },
@@ -186,22 +207,23 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
       }
 
       // Send events to SSE based on session state
-      console.log('[TaskCreation Route] About to send SSE update:', {
-        sessionId,
-        hasController: !!controller,
-        sseConnectionsSize: sseConnections.size,
-        registeredSessionIds: Array.from(sseConnections.keys()),
-        hasPendingQuestions: !!result.value?.pendingQuestions,
+      log.debug('About to send SSE update', {
+        data: {
+          sessionId,
+          hasController: !!controller,
+          sseConnectionsSize: sseConnections.size,
+          hasPendingQuestions: !!result.value?.pendingQuestions,
+        },
       });
       if (controller) {
         sendTaskCreationSSEUpdate(controller, sessionId, result.value);
       } else {
-        console.log('[TaskCreation Route] ⚠️ No SSE controller found for session:', sessionId);
+        log.debug('No SSE controller found for session', { data: { sessionId } });
       }
 
       return json({ ok: true, data: { messageId: 'msg-sent' } });
     } catch (error) {
-      console.error('[TaskCreation] Message error:', error);
+      log.error('Message error', { error });
       return json(
         { ok: false, error: { code: 'SERVER_ERROR', message: 'Failed to send message' } },
         500
@@ -212,18 +234,9 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
   // POST /api/tasks/create-with-ai/accept
   app.post('/accept', async (c) => {
     try {
-      const body = await c.req.json();
-      const { sessionId, overrides } = body as {
-        sessionId: string;
-        overrides?: Record<string, unknown>;
-      };
-
-      if (!sessionId) {
-        return json(
-          { ok: false, error: { code: 'INVALID_INPUT', message: 'sessionId is required' } },
-          400
-        );
-      }
+      const parsed = await parseJsonBody(c, acceptSchema);
+      if (!parsed.ok) return parsed.response;
+      const { sessionId, overrides } = parsed.data;
 
       const result = await taskCreationService.acceptSuggestion(sessionId, overrides);
 
@@ -246,7 +259,7 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
         data: { taskId: result.value.taskId, sessionId, status: 'completed' },
       });
     } catch (error) {
-      console.error('[TaskCreation] Accept error:', error);
+      log.error('Accept error', { error });
       return json(
         { ok: false, error: { code: 'SERVER_ERROR', message: 'Failed to accept suggestion' } },
         500
@@ -257,15 +270,9 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
   // POST /api/tasks/create-with-ai/cancel
   app.post('/cancel', async (c) => {
     try {
-      const body = await c.req.json();
-      const { sessionId } = body as { sessionId: string };
-
-      if (!sessionId) {
-        return json(
-          { ok: false, error: { code: 'INVALID_INPUT', message: 'sessionId is required' } },
-          400
-        );
-      }
+      const parsed = await parseJsonBody(c, cancelSchema);
+      if (!parsed.ok) return parsed.response;
+      const { sessionId } = parsed.data;
 
       const result = await taskCreationService.cancel(sessionId);
 
@@ -284,7 +291,7 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
 
       return json({ ok: true, data: { sessionId, status: 'cancelled' } });
     } catch (error) {
-      console.error('[TaskCreation] Cancel error:', error);
+      log.error('Cancel error', { error });
       return json(
         { ok: false, error: { code: 'SERVER_ERROR', message: 'Failed to cancel session' } },
         500
@@ -295,25 +302,9 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
   // POST /api/tasks/create-with-ai/answer
   app.post('/answer', async (c) => {
     try {
-      const body = await c.req.json();
-      const { sessionId, questionsId, answers } = body as {
-        sessionId: string;
-        questionsId: string;
-        answers: Record<string, string | string[]>;
-      };
-
-      if (!sessionId || !questionsId || !answers) {
-        return json(
-          {
-            ok: false,
-            error: {
-              code: 'INVALID_INPUT',
-              message: 'sessionId, questionsId and answers are required',
-            },
-          },
-          400
-        );
-      }
+      const parsed = await parseJsonBody(c, answerSchema);
+      if (!parsed.ok) return parsed.response;
+      const { sessionId, questionsId, answers } = parsed.data;
 
       const controller = sseConnections.get(sessionId);
 
@@ -343,7 +334,7 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
         data: { sessionId, status: result.value.status, duplicate: !!alreadyProcessed },
       });
     } catch (error) {
-      console.error('[TaskCreation] Answer error:', error);
+      log.error('Answer error', { error });
       return json(
         { ok: false, error: { code: 'SERVER_ERROR', message: 'Failed to answer questions' } },
         500
@@ -354,15 +345,9 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
   // POST /api/tasks/create-with-ai/skip
   app.post('/skip', async (c) => {
     try {
-      const body = await c.req.json();
-      const { sessionId } = body as { sessionId: string };
-
-      if (!sessionId) {
-        return json(
-          { ok: false, error: { code: 'INVALID_INPUT', message: 'sessionId is required' } },
-          400
-        );
-      }
+      const parsed = await parseJsonBody(c, skipSchema);
+      if (!parsed.ok) return parsed.response;
+      const { sessionId } = parsed.data;
 
       const controller = sseConnections.get(sessionId);
       const result = await taskCreationService.skipQuestions(sessionId);
@@ -385,7 +370,7 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
 
       return json({ ok: true, data: { sessionId, status: result.value.status } });
     } catch (error) {
-      console.error('[TaskCreation] Skip error:', error);
+      log.error('Skip error', { error });
       return json(
         { ok: false, error: { code: 'SERVER_ERROR', message: 'Failed to skip questions' } },
         500
@@ -396,10 +381,10 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
   // GET /api/tasks/create-with-ai/stream
   app.get('/stream', async (c) => {
     const sessionId = c.req.query('sessionId');
-    console.log('[TaskCreation Stream] Request for sessionId:', sessionId);
+    log.debug('Stream request', { data: { sessionId } });
 
     if (!sessionId) {
-      console.log('[TaskCreation Stream] No sessionId provided');
+      log.debug('No sessionId provided');
       return json(
         { ok: false, error: { code: 'INVALID_INPUT', message: 'sessionId is required' } },
         400
@@ -408,9 +393,9 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
 
     // Verify session exists
     const session = taskCreationService.getSession(sessionId);
-    console.log('[TaskCreation Stream] Session lookup result:', session ? 'found' : 'not found');
+    log.debug('Session lookup result', { data: { found: !!session } });
     if (!session) {
-      console.log('[TaskCreation Stream] Session not found, returning 404');
+      log.debug('Session not found, returning 404');
       return json(
         { ok: false, error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } },
         404
@@ -438,10 +423,9 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
             controller.enqueue(new TextEncoder().encode(`: ping\n\n`));
           } catch (error) {
             // Connection likely closed - clean up interval
-            console.debug(
-              '[TaskCreation Stream] Ping failed, closing connection:',
-              error instanceof Error ? error.message : 'unknown error'
-            );
+            log.debug('Ping failed, closing connection', {
+              data: { error: error instanceof Error ? error.message : String(error) },
+            });
             if (pingInterval) {
               clearInterval(pingInterval);
               pingInterval = null;

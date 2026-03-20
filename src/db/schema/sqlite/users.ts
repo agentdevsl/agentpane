@@ -14,7 +14,10 @@ export const users = sqliteTable('users', {
   githubEmail: text('github_email'),
   avatarUrl: text('avatar_url'),
   createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
-  updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
+  updatedAt: text('updated_at')
+    .default(sql`(datetime('now'))`)
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export type User = typeof users.$inferSelect;

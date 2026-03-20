@@ -1,27 +1,10 @@
-import type { AppError } from '../errors/base.js';
+/**
+ * @deprecated AR-018: This module is deprecated. Import from '../../server/shared.js' instead.
+ * These types and helpers have been consolidated into src/server/shared.ts as the
+ * canonical location for API response utilities.
+ *
+ * This file re-exports from shared.ts for backward compatibility.
+ */
 
-export type ApiSuccess<T> = {
-  ok: true;
-  data: T;
-};
-
-export type ApiFailure = {
-  ok: false;
-  error: Omit<AppError, 'status'>;
-};
-
-export type ApiResponse<T> = ApiSuccess<T> | ApiFailure;
-
-export const success = <T>(data: T): ApiSuccess<T> => ({
-  ok: true,
-  data,
-});
-
-export const failure = (error: AppError): ApiFailure => ({
-  ok: false,
-  error: {
-    code: error.code,
-    message: error.message,
-    details: error.details,
-  },
-});
+export type { ApiFailure, ApiResponse, ApiSuccess } from '../../server/shared.js';
+export { failure, success } from '../../server/shared.js';

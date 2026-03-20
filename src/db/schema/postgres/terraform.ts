@@ -32,7 +32,10 @@ export const terraformRegistries = pgTable('terraform_registries', {
   syncIntervalMinutes: integer('sync_interval_minutes'),
   nextSyncAt: timestamp('next_sync_at', { mode: 'string' }),
   createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { mode: 'string' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'string' })
+    .defaultNow()
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export const terraformModules = pgTable(
@@ -41,7 +44,9 @@ export const terraformModules = pgTable(
     id: text('id')
       .primaryKey()
       .$defaultFn(() => createId()),
-    registryId: text('registry_id').notNull(),
+    registryId: text('registry_id')
+      .notNull()
+      .references(() => terraformRegistries.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
     namespace: text('namespace').notNull(),
     provider: text('provider').notNull(),
@@ -54,7 +59,10 @@ export const terraformModules = pgTable(
     dependencies: jsonb('dependencies').$type<string[]>(),
     publishedAt: timestamp('published_at', { mode: 'string' }),
     createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { mode: 'string' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'string' })
+      .defaultNow()
+      .notNull()
+      .$onUpdate(() => new Date().toISOString()),
   },
   (table) => [
     index('idx_tf_modules_registry').on(table.registryId),

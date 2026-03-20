@@ -1,6 +1,9 @@
 import { createId } from '@paralleldrive/cuid2';
 import { and, desc, eq, gt, lt } from 'drizzle-orm';
 import { cliSessions, settings } from '../../db/schema';
+import type { AppError } from '../../lib/errors/base.js';
+import type { Result } from '../../lib/utils/result.js';
+import { ok } from '../../lib/utils/result.js';
 import type { Database } from '../../types/database.js';
 import type { AgentTopologyNode, CliSession, DaemonInfo, DaemonRegisterPayload } from './types.js';
 import { DAEMON_TIMEOUT_MS } from './types.js';
@@ -37,8 +40,9 @@ export class CliMonitorService {
   }
 
   // ── Daemon Registration ──
+  // SL-006: Public methods wrapped with Result types for consistency.
 
-  registerDaemon(payload: DaemonRegisterPayload): void {
+  registerDaemon(payload: DaemonRegisterPayload): Result<void, AppError> {
     // If a different daemon was connected, clear it
     if (this.daemon && this.daemon.daemonId !== payload.daemonId) {
       console.log(`[CliMonitor] Replacing daemon ${this.daemon.daemonId} with ${payload.daemonId}`);
@@ -60,17 +64,18 @@ export class CliMonitorService {
     console.log(
       `[CliMonitor] Daemon registered: ${payload.daemonId} (PID ${payload.pid}, v${payload.version})`
     );
+    return ok(undefined);
   }
 
-  handleHeartbeat(daemonId: string, _sessionCount: number): 'ok' | 'unknown' | 'stale' {
+  handleHeartbeat(daemonId: string, _sessionCount: number): Result<string, AppError> {
     if (!this.daemon) {
-      return 'unknown';
+      return ok('unknown');
     }
     if (this.daemon.daemonId !== daemonId) {
-      return 'stale';
+      return ok('stale');
     }
     this.daemon.lastHeartbeatAt = Date.now();
-    return 'ok';
+    return ok('ok');
   }
 
   deregisterDaemon(daemonId: string): boolean {

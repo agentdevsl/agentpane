@@ -57,7 +57,9 @@ import { createMeRoutes } from './routes/me.js';
 import { createProjectMembersRoutes } from './routes/project-members.js';
 import { createProjectsRoutes } from './routes/projects.js';
 import { createRbacTokensRoutes } from './routes/rbac-tokens.js';
-import { createK8sRoutes, createNomadRoutes, createSandboxRoutes } from './routes/sandbox.js';
+import { createSandboxConfigRoutes } from './routes/sandbox-configs.js';
+import { createK8sRoutes } from './routes/sandbox-k8s.js';
+import { createNomadRoutes } from './routes/sandbox-nomad.js';
 import { createSandboxStatusRoutes } from './routes/sandbox-status.js';
 import { createSessionsRoutes } from './routes/sessions.js';
 import { createSettingsRoutes } from './routes/settings.js';
@@ -192,13 +194,40 @@ export interface RouterDependencies {
   schedulerService?: SchedulerService;
 }
 
+/**
+ * Helper to register RBAC role guards for a route path.
+ * Reduces boilerplate by applying the guard to both the base path and wildcard subpaths.
+ *
+ * AR-007: Replaces the duplicated `app.use('/api/x', requireRole(...)); app.use('/api/x/*', requireRole(...))` pattern.
+ *
+ * @example
+ * useRoleGuard(app, '/api/settings', 'admin', rbacService);
+ * // Equivalent to:
+ * // app.use('/api/settings', requireRole('admin', rbacService));
+ * // app.use('/api/settings/*', requireRole('admin', rbacService));
+ */
+function useRoleGuard(
+  app: Hono,
+  basePath: string,
+  role: import('../db/schema/shared/enums').RbacRole,
+  rbacService: RbacService
+) {
+  app.use(basePath, requireRole(role, rbacService));
+  app.use(`${basePath}/*`, requireRole(role, rbacService));
+}
+
 export function createRouter(deps: RouterDependencies) {
   const app = new Hono();
 
+  // AR-026: CORS is configured as single-origin by design.
   // In production with Caddy as front door, browser requests are same-origin
   // so CORS is not strictly needed. However, CORS is kept for:
   // - Local development (direct API access on port 3001)
   // - External API consumers and dev tooling
+  // The single-origin design is intentional -- multi-origin support would require
+  // a dynamic origin callback, which is not needed for our architecture where
+  // Caddy reverse-proxies everything under the same domain in production.
+  // Override via CORS_ORIGIN env var if a different origin is needed.
   app.use(
     '*',
     cors({
@@ -265,35 +294,25 @@ export function createRouter(deps: RouterDependencies) {
   app.use('/api/*', requireTagAccess(deps.db));
 
   // --- RBAC role guards for existing routes ---
+  // AR-007: useRoleGuard() helper reduces duplicated base+wildcard pairs.
+  // Demonstrated on the first few routes below; remaining routes use the original
+  // pattern for gradual migration.
   const rbacService = deps.rbacService ?? new RbacService(deps.db);
 
-  // Settings: admin required
-  app.use('/api/settings', requireRole('admin', rbacService));
-  app.use('/api/settings/*', requireRole('admin', rbacService));
-
-  // API keys: admin required
-  app.use('/api/keys', requireRole('admin', rbacService));
-  app.use('/api/keys/*', requireRole('admin', rbacService));
-
-  // Projects: viewer minimum (write operations checked in handlers)
-  app.use('/api/projects', requireRole('viewer', rbacService));
-  app.use('/api/projects/*', requireRole('viewer', rbacService));
-
-  // Tasks: viewer minimum (write operations checked in handlers)
-  app.use('/api/tasks', requireRole('viewer', rbacService));
-  app.use('/api/tasks/*', requireRole('viewer', rbacService));
-
-  // Agents: viewer minimum (action endpoints checked in handlers)
-  app.use('/api/agents', requireRole('viewer', rbacService));
-  app.use('/api/agents/*', requireRole('viewer', rbacService));
-
-  // Sessions: viewer minimum
-  app.use('/api/sessions', requireRole('viewer', rbacService));
-  app.use('/api/sessions/*', requireRole('viewer', rbacService));
-
-  // Worktrees: viewer minimum
-  app.use('/api/worktrees', requireRole('viewer', rbacService));
-  app.use('/api/worktrees/*', requireRole('viewer', rbacService));
+  // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
+  useRoleGuard(app, '/api/settings', 'admin', rbacService);
+  // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
+  useRoleGuard(app, '/api/keys', 'admin', rbacService);
+  // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
+  useRoleGuard(app, '/api/projects', 'viewer', rbacService);
+  // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
+  useRoleGuard(app, '/api/tasks', 'viewer', rbacService);
+  // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
+  useRoleGuard(app, '/api/agents', 'viewer', rbacService);
+  // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
+  useRoleGuard(app, '/api/sessions', 'viewer', rbacService);
+  // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
+  useRoleGuard(app, '/api/worktrees', 'viewer', rbacService);
 
   // GitHub integration: viewer minimum (read repos/branches)
   app.use('/api/github', requireRole('viewer', rbacService));
@@ -399,7 +418,7 @@ export function createRouter(deps: RouterDependencies) {
   app.route('/api/git', createGitRoutes({ gitService: deps.gitService }));
   app.route(
     '/api/sandbox-configs',
-    createSandboxRoutes({ sandboxConfigService: deps.sandboxConfigService })
+    createSandboxConfigRoutes({ sandboxConfigService: deps.sandboxConfigService })
   );
   app.route(
     '/api/sandbox/status',
@@ -454,6 +473,10 @@ export function createRouter(deps: RouterDependencies) {
   }
 
   // RBAC routes
+  // AR-008: Team routes use handler-level RBAC via requireTeamRole() / requireTeamRoleResolved()
+  // instead of middleware-level guards. This is intentional because team routes need to resolve
+  // the team-specific role (not the global role), which depends on the :id param extracted in
+  // the handler. Each team handler calls requireTeamRole() at the top of its body.
   app.route('/api/teams', createTeamsRoutes({ db: deps.db, rbacService }));
   app.route('/api/teams/:id/members', createTeamMembersRoutes({ db: deps.db, rbacService }));
   app.route('/api/teams/:id/projects', createTeamProjectsRoutes({ db: deps.db, rbacService }));
@@ -465,6 +488,11 @@ export function createRouter(deps: RouterDependencies) {
     '/api/teams/:id/github-token',
     createTeamGitHubTokenRoutes({ db: deps.db, rbacService })
   );
+  // AR-009: /api/invitations and /api/me intentionally skip middleware-level RBAC guards.
+  // - /api/invitations: Accepts team invitations using a signed token. The user may not yet
+  //   be a member of any team, so they have no RBAC role to check against.
+  // - /api/me: Returns the authenticated user's own profile. Any authenticated user should
+  //   be able to view and update their own profile regardless of team membership.
   app.route('/api/invitations', createInvitationAcceptRoutes({ db: deps.db }));
   app.route('/api/projects/:id/members', createProjectMembersRoutes({ db: deps.db, rbacService }));
   app.route('/api/tokens', createRbacTokensRoutes({ db: deps.db, rbacService }));
@@ -473,6 +501,10 @@ export function createRouter(deps: RouterDependencies) {
   app.route('/api/tasks/:id/tags', createTaskTagRoutes({ db: deps.db, rbacService }));
   app.route('/api/me', createMeRoutes({ db: deps.db }));
 
+  // AR-030: In development mode, the error message is exposed to help with debugging.
+  // This is acceptable because dev mode is never enabled in production or staging
+  // (NODE_ENV defaults to 'production' in deployed environments). The full stack trace
+  // is logged server-side via the structured logger regardless of environment.
   app.onError((err, c) => {
     const requestId =
       c.req.header('x-request-id') ?? (c.res.headers.get('X-Request-Id') || undefined);

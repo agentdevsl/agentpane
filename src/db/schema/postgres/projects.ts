@@ -21,7 +21,10 @@ export const projects = pgTable('projects', {
   configPath: text('config_path').default('.claude'),
   sandboxConfigId: text('sandbox_config_id').references(() => sandboxConfigs.id),
   createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { mode: 'string' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'string' })
+    .defaultNow()
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export type Project = typeof projects.$inferSelect;

@@ -1,5 +1,9 @@
 import { createId } from '@paralleldrive/cuid2';
 import { and, desc, eq, like, or } from 'drizzle-orm';
+import { createLogger } from '../lib/logging/logger.js';
+
+const log = createLogger('TerraformRegistryService');
+
 import type {
   NewTerraformRegistry,
   TerraformModule,
@@ -55,24 +59,20 @@ export class TerraformRegistryService {
     return `terraform.registry.${registryId}.apiToken`;
   }
 
-  private async saveEncryptedToken(
-    key: string,
-    apiToken: string,
-    updatedAt: string
-  ): Promise<void> {
+  private async saveEncryptedToken(key: string, apiToken: string): Promise<void> {
     const encryptedToken = encryptToken(apiToken);
+    const now = this.updateTimestamp();
     await this.db
       .insert(settings)
       .values({
         key,
         value: encryptedToken,
-        updatedAt,
+        updatedAt: now,
       })
       .onConflictDoUpdate({
         target: settings.key,
         set: {
           value: encryptedToken,
-          updatedAt,
         },
       });
   }
@@ -83,7 +83,7 @@ export class TerraformRegistryService {
   async createRegistry(
     input: CreateRegistryInput
   ): Promise<Result<TerraformRegistry, TerraformError>> {
-    console.log('[TerraformRegistryService] Creating registry:', input.name);
+    log.info('Creating registry', { data: { name: input.name } });
 
     // Check for duplicate by orgName
     const existing = await this.db.query.terraformRegistries.findFirst({
@@ -97,7 +97,7 @@ export class TerraformRegistryService {
     const now = this.updateTimestamp();
     const registryId = createId();
     const tokenSettingKey = this.getTokenSettingKey(registryId);
-    await this.saveEncryptedToken(tokenSettingKey, input.apiToken, now);
+    await this.saveEncryptedToken(tokenSettingKey, input.apiToken);
 
     const [created] = await this.db
       .insert(terraformRegistries)
@@ -118,11 +118,11 @@ export class TerraformRegistryService {
 
     if (!created) {
       await this.db.delete(settings).where(eq(settings.key, tokenSettingKey));
-      console.error('[TerraformRegistryService] Failed to create registry');
+      log.error('Failed to create registry');
       return err(TerraformErrors.REGISTRY_CREATE_FAILED);
     }
 
-    console.log('[TerraformRegistryService] Created registry:', created.id);
+    log.info('Created registry', { data: { id: created.id } });
     return ok(created);
   }
 
@@ -159,7 +159,6 @@ export class TerraformRegistryService {
     id: string,
     input: UpdateRegistryInput
   ): Promise<Result<TerraformRegistry, TerraformError>> {
-    const now = this.updateTimestamp();
     const existing = await this.db.query.terraformRegistries.findFirst({
       where: eq(terraformRegistries.id, id),
     });
@@ -173,9 +172,10 @@ export class TerraformRegistryService {
     });
 
     if (input.apiToken !== undefined) {
-      await this.saveEncryptedToken(existing.tokenSettingKey, input.apiToken, now);
+      await this.saveEncryptedToken(existing.tokenSettingKey, input.apiToken);
     }
 
+    const now = this.updateTimestamp();
     const updates: Partial<TerraformRegistry> = {
       updatedAt: now,
     };
@@ -223,24 +223,24 @@ export class TerraformRegistryService {
    * Delete a registry and all its modules
    */
   async deleteRegistry(id: string): Promise<Result<void, TerraformError>> {
-    console.log('[TerraformRegistryService] Deleting registry:', id);
+    log.info('Deleting registry', { data: { id } });
 
     const registry = await this.db.query.terraformRegistries.findFirst({
       where: eq(terraformRegistries.id, id),
     });
 
     if (!registry) {
-      console.error('[TerraformRegistryService] Registry not found for deletion:', id);
+      log.error('Registry not found for deletion', { data: { id } });
       return err(TerraformErrors.REGISTRY_NOT_FOUND);
     }
 
-    this.db.transaction((tx) => {
-      tx.delete(terraformModules).where(eq(terraformModules.registryId, id)).run();
-      tx.delete(terraformRegistries).where(eq(terraformRegistries.id, id)).run();
-      tx.delete(settings).where(eq(settings.key, registry.tokenSettingKey)).run();
+    await this.db.transaction(async (tx) => {
+      await tx.delete(terraformModules).where(eq(terraformModules.registryId, id));
+      await tx.delete(terraformRegistries).where(eq(terraformRegistries.id, id));
+      await tx.delete(settings).where(eq(settings.key, registry.tokenSettingKey));
     });
 
-    console.log('[TerraformRegistryService] Deleted registry:', id);
+    log.info('Deleted registry', { data: { id } });
     return ok(undefined);
   }
 
@@ -248,14 +248,14 @@ export class TerraformRegistryService {
    * Sync modules from the Terraform registry API
    */
   async sync(id: string): Promise<Result<SyncResult, TerraformError>> {
-    console.log('[TerraformRegistryService] Starting sync for registry:', id);
+    log.info('Starting sync for registry', { data: { id } });
 
     const registry = await this.db.query.terraformRegistries.findFirst({
       where: eq(terraformRegistries.id, id),
     });
 
     if (!registry) {
-      console.error('[TerraformRegistryService] Registry not found for sync:', id);
+      log.error('Registry not found for sync', { data: { id } });
       return err(TerraformErrors.REGISTRY_NOT_FOUND);
     }
 
@@ -265,16 +265,12 @@ export class TerraformRegistryService {
     });
 
     if (!tokenSetting) {
-      console.error(
-        '[TerraformRegistryService] Token setting not found:',
-        registry.tokenSettingKey
-      );
+      log.error('Token setting not found', { data: { tokenSettingKey: registry.tokenSettingKey } });
       await this.db
         .update(terraformRegistries)
         .set({
           status: 'error',
           syncError: 'API token not configured. Set the token in Settings.',
-          updatedAt: this.updateTimestamp(),
         })
         .where(eq(terraformRegistries.id, id));
       return err(TerraformErrors.INVALID_TOKEN);
@@ -283,7 +279,7 @@ export class TerraformRegistryService {
     // Mark as syncing
     await this.db
       .update(terraformRegistries)
-      .set({ status: 'syncing', updatedAt: this.updateTimestamp() })
+      .set({ status: 'syncing' })
       .where(eq(terraformRegistries.id, id));
 
     try {
@@ -291,16 +287,11 @@ export class TerraformRegistryService {
       try {
         token = decryptToken(tokenSetting.value);
       } catch (decryptError) {
-        console.warn(
-          '[TerraformRegistryService] Token decryption failed, trying JSON parse fallback:',
-          decryptError
-        );
+        log.warn('Token decryption failed, trying JSON parse fallback', { error: decryptError });
         try {
           token = JSON.parse(tokenSetting.value) as string;
         } catch (_parseError) {
-          console.warn(
-            '[TerraformRegistryService] Token value is not JSON-encoded, using raw value'
-          );
+          log.warn('Token value is not JSON-encoded, using raw value');
           token = tokenSetting.value;
         }
       }
@@ -311,7 +302,6 @@ export class TerraformRegistryService {
           .set({
             status: 'error',
             syncError: 'API token is empty or invalid. Update the token in Settings.',
-            updatedAt: this.updateTimestamp(),
           })
           .where(eq(terraformRegistries.id, id));
         return err(TerraformErrors.INVALID_TOKEN);
@@ -334,7 +324,6 @@ export class TerraformRegistryService {
             lastSyncedAt: now,
             syncError: 'No modules with published versions found',
             moduleCount: 0,
-            updatedAt: now,
           })
           .where(eq(terraformRegistries.id, id));
         return err(TerraformErrors.NO_MODULES_SYNCED);
@@ -362,11 +351,10 @@ export class TerraformRegistryService {
           lastSyncedAt: now,
           syncError: null,
           moduleCount: modules.length,
-          updatedAt: now,
         })
         .where(eq(terraformRegistries.id, id));
 
-      console.log(`[TerraformRegistryService] Sync complete for ${id}: ${modules.length} modules`);
+      log.info(`Sync complete for ${id}: ${modules.length} modules`);
 
       return ok({
         registryId: id,
@@ -375,7 +363,7 @@ export class TerraformRegistryService {
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`[TerraformRegistryService] Sync error for ${id}:`, errorMessage);
+      log.error(`Sync error for ${id}`, { data: { errorMessage } });
 
       const lowerMessage = errorMessage.toLowerCase();
       const containsCredentials =
@@ -392,7 +380,6 @@ export class TerraformRegistryService {
         .set({
           status: 'error',
           syncError: safeMessage,
-          updatedAt: this.updateTimestamp(),
         })
         .where(eq(terraformRegistries.id, id));
 

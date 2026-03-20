@@ -108,7 +108,9 @@ describe('ContainerAgentService.handleAgentError suppression', () => {
       lastAgentStatus: 'planning',
     });
 
-    const handleError = (service as any).handleAgentError.bind(service);
+    const handleError = (service as any).containerExec.handleAgentError.bind(
+      (service as any).containerExec
+    );
     await handleError(task.id, 'Operation aborted', 3);
 
     // Task should NOT be updated to error state — suppressed
@@ -126,7 +128,9 @@ describe('ContainerAgentService.handleAgentError suppression', () => {
       lastAgentStatus: 'planning',
     });
 
-    const handleError = (service as any).handleAgentError.bind(service);
+    const handleError = (service as any).containerExec.handleAgentError.bind(
+      (service as any).containerExec
+    );
     await handleError(task.id, 'write EPIPE', 2);
 
     const updatedTask = await db.query.tasks.findFirst({
@@ -143,7 +147,9 @@ describe('ContainerAgentService.handleAgentError suppression', () => {
       lastAgentStatus: 'planning',
     });
 
-    const handleError = (service as any).handleAgentError.bind(service);
+    const handleError = (service as any).containerExec.handleAgentError.bind(
+      (service as any).containerExec
+    );
     await handleError(task.id, 'Out of memory', 5);
 
     // Task should be updated to error status for unexpected errors
@@ -160,7 +166,9 @@ describe('ContainerAgentService.handleAgentError suppression', () => {
       lastAgentStatus: null,
     });
 
-    const handleError = (service as any).handleAgentError.bind(service);
+    const handleError = (service as any).containerExec.handleAgentError.bind(
+      (service as any).containerExec
+    );
     await handleError(task.id, 'Some random error', 1);
 
     const updatedTask = await db.query.tasks.findFirst({

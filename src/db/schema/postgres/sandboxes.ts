@@ -26,7 +26,10 @@ export const sandboxInstances = pgTable('sandbox_instances', {
   createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
   lastActivityAt: timestamp('last_activity_at', { mode: 'string' }).defaultNow().notNull(),
   stoppedAt: timestamp('stopped_at', { mode: 'string' }),
-  updatedAt: timestamp('updated_at', { mode: 'string' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'string' })
+    .defaultNow()
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export const sandboxTmuxSessions = pgTable(

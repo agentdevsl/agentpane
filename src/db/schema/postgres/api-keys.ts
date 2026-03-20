@@ -11,7 +11,10 @@ export const apiKeys = pgTable('api_keys', {
   isValid: boolean('is_valid').default(true),
   lastValidatedAt: timestamp('last_validated_at', { mode: 'string' }),
   createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { mode: 'string' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'string' })
+    .defaultNow()
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export type ApiKey = typeof apiKeys.$inferSelect;

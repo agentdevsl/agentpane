@@ -54,7 +54,10 @@ export const sandboxConfigs = pgTable('sandbox_configs', {
   nomadRegion: text('nomad_region'),
 
   createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { mode: 'string' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'string' })
+    .defaultNow()
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export type SandboxConfig = typeof sandboxConfigs.$inferSelect;

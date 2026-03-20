@@ -8,6 +8,21 @@ const log = createLogger('SchemaPhase');
 
 // SQLite migration SQL - creates tables if they don't exist
 // Exported for test setup reuse
+//
+// INTENTIONAL: Raw SQL strings are used here instead of Drizzle ORM schema definitions
+// because bootstrap runs BEFORE Drizzle is initialized. The Drizzle ORM requires tables
+// to already exist (or be created via drizzle-kit) before it can operate. This bootstrap
+// phase uses raw SQL via better-sqlite3's `prepare().run()` to create/migrate tables
+// first, after which Drizzle connects to the already-migrated database.
+//
+// Cross-reference: The authoritative Drizzle schema definitions live in:
+//   - src/db/schema/sqlite/  (SQLite column definitions)
+//   - src/db/schema/postgres/ (PostgreSQL column definitions)
+//   - src/db/schema/shared/   (shared enums and types)
+// Any column additions here MUST be mirrored in the Drizzle schema files, and vice versa.
+// See also: scripts/check-schema-drift.ts (CI drift checker)
+//
+// @see CQ-010 in specs/reviews/2026-03-architecture/FINDINGS-MATRIX.md
 export const MIGRATION_SQL = `
 -- Create tables if they don't exist
 CREATE TABLE IF NOT EXISTS "projects" (
@@ -337,18 +352,6 @@ ALTER TABLE templates ADD COLUMN sync_interval_minutes INTEGER;
 ALTER TABLE templates ADD COLUMN next_sync_at TEXT;
 `;
 
-// Migration for sandbox_configs K8s columns (for existing databases)
-export const SANDBOX_K8S_MIGRATION_SQL = `
--- Add Kubernetes configuration columns to sandbox_configs
-ALTER TABLE sandbox_configs ADD COLUMN type TEXT NOT NULL DEFAULT 'docker';
-ALTER TABLE sandbox_configs ADD COLUMN volume_mount_path TEXT;
-ALTER TABLE sandbox_configs ADD COLUMN kube_config_path TEXT;
-ALTER TABLE sandbox_configs ADD COLUMN kube_context TEXT;
-ALTER TABLE sandbox_configs ADD COLUMN kube_namespace TEXT DEFAULT 'agentpane-sandboxes';
-ALTER TABLE sandbox_configs ADD COLUMN network_policy_enabled INTEGER DEFAULT 1;
-ALTER TABLE sandbox_configs ADD COLUMN allowed_egress_hosts TEXT;
-`;
-
 // CLI Sessions migration (for CLI Monitor DB persistence)
 export const CLI_SESSIONS_MIGRATION_SQL = `
 CREATE TABLE IF NOT EXISTS "cli_sessions" (
@@ -427,15 +430,6 @@ CREATE INDEX IF NOT EXISTS idx_tf_modules_name ON terraform_modules(name);
 `;
 
 export const SANDBOX_CONTAINER_ID_MIGRATION_SQL = `ALTER TABLE sessions ADD COLUMN sandbox_container_id TEXT;`;
-
-// Migration for Nomad columns on sandbox_configs (for existing databases)
-export const SANDBOX_NOMAD_MIGRATION_SQL = `
-ALTER TABLE sandbox_configs ADD COLUMN nomad_address TEXT;
-ALTER TABLE sandbox_configs ADD COLUMN nomad_token TEXT;
-ALTER TABLE sandbox_configs ADD COLUMN nomad_namespace TEXT DEFAULT 'default';
-ALTER TABLE sandbox_configs ADD COLUMN nomad_datacenter TEXT;
-ALTER TABLE sandbox_configs ADD COLUMN nomad_region TEXT;
-`;
 
 // Event system migration (event sources, subscriptions, event log)
 export const EVENT_SYSTEM_MIGRATION_SQL = `

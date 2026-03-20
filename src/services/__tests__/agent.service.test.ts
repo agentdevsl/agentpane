@@ -13,6 +13,11 @@ const createDbMock = () => ({
   insert: vi.fn(() => ({ values: vi.fn(() => ({ returning: vi.fn() })) })),
   update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn() })) })),
   delete: vi.fn(() => ({ where: vi.fn() })),
+  select: vi.fn(() => ({
+    from: vi.fn(() => ({
+      where: vi.fn().mockResolvedValue([{ count: 0 }]),
+    })),
+  })),
 });
 
 const createWorktreeServiceMock = () => ({
@@ -111,7 +116,12 @@ describe('AgentService', () => {
     db.query.agents.findFirst.mockResolvedValue({ id: 'a1', status: 'idle', projectId: 'p1' });
     db.query.tasks.findFirst.mockResolvedValue({ id: 't1', column: 'backlog' });
     db.query.projects.findFirst.mockResolvedValue({ id: 'p1', maxConcurrentAgents: 1 });
-    db.query.agents.findMany.mockResolvedValue([{ id: 'a2', status: 'running' }]);
+    // checkAvailability and getRunningCount now use db.select({ count }).from().where()
+    db.select.mockReturnValue({
+      from: vi.fn(() => ({
+        where: vi.fn().mockResolvedValue([{ count: 1 }]),
+      })),
+    });
 
     const service = new AgentService(
       db as never,
@@ -575,7 +585,12 @@ describe('AgentService', () => {
       id: 'p1',
       maxConcurrentAgents: 3,
     });
-    db.query.agents.findMany.mockResolvedValue([{ id: 'a1', status: 'running' }]);
+    // checkAvailability now uses db.select({ count }).from().where()
+    db.select.mockReturnValue({
+      from: vi.fn(() => ({
+        where: vi.fn().mockResolvedValue([{ count: 1 }]),
+      })),
+    });
 
     const service = new AgentService(
       db as never,
@@ -597,10 +612,12 @@ describe('AgentService', () => {
       id: 'p1',
       maxConcurrentAgents: 2,
     });
-    db.query.agents.findMany.mockResolvedValue([
-      { id: 'a1', status: 'running' },
-      { id: 'a2', status: 'running' },
-    ]);
+    // checkAvailability now uses db.select({ count }).from().where()
+    db.select.mockReturnValue({
+      from: vi.fn(() => ({
+        where: vi.fn().mockResolvedValue([{ count: 2 }]),
+      })),
+    });
 
     const service = new AgentService(
       db as never,
@@ -618,10 +635,12 @@ describe('AgentService', () => {
 
   it('getRunningCount returns count of running agents', async () => {
     const db = createDbMock();
-    db.query.agents.findMany.mockResolvedValue([
-      { id: 'a1', status: 'running' },
-      { id: 'a2', status: 'running' },
-    ]);
+    // getRunningCount now uses db.select({ count: count() }).from().where()
+    db.select.mockReturnValue({
+      from: vi.fn(() => ({
+        where: vi.fn().mockResolvedValue([{ count: 2 }]),
+      })),
+    });
 
     const service = new AgentService(
       db as never,
@@ -709,47 +728,8 @@ describe('AgentService', () => {
     }
   });
 
-  it('registerPreToolUseHook adds hook to agent', () => {
-    const db = createDbMock();
-
-    const service = new AgentService(
-      db as never,
-      createWorktreeServiceMock() as never,
-      createTaskServiceMock() as never,
-      createSessionServiceMock() as never
-    );
-
-    const hook = vi.fn().mockResolvedValue({});
-    service.registerPreToolUseHook('a1', hook);
-
-    // Register another hook
-    const hook2 = vi.fn().mockResolvedValue({});
-    service.registerPreToolUseHook('a1', hook2);
-
-    // No error thrown means success
-    expect(true).toBe(true);
-  });
-
-  it('registerPostToolUseHook adds hook to agent', () => {
-    const db = createDbMock();
-
-    const service = new AgentService(
-      db as never,
-      createWorktreeServiceMock() as never,
-      createTaskServiceMock() as never,
-      createSessionServiceMock() as never
-    );
-
-    const hook = vi.fn().mockResolvedValue(undefined);
-    service.registerPostToolUseHook('a1', hook);
-
-    // Register another hook
-    const hook2 = vi.fn().mockResolvedValue(undefined);
-    service.registerPostToolUseHook('a1', hook2);
-
-    // No error thrown means success
-    expect(true).toBe(true);
-  });
+  // registerPreToolUseHook and registerPostToolUseHook tests removed (AE-007)
+  // Hook infrastructure was dead code - SDK's canUseTool is the actual mechanism
 
   it('start returns error when worktree creation fails', async () => {
     const db = createDbMock();
@@ -771,7 +751,12 @@ describe('AgentService', () => {
       id: 'p1',
       maxConcurrentAgents: 3,
     });
-    db.query.agents.findMany.mockResolvedValue([]);
+    // checkAvailability uses db.select({ count }).from().where()
+    db.select.mockReturnValue({
+      from: vi.fn(() => ({
+        where: vi.fn().mockResolvedValue([{ count: 0 }]),
+      })),
+    });
 
     taskService.moveColumn.mockResolvedValue({ ok: true });
     worktreeService.create.mockResolvedValue({
@@ -810,7 +795,12 @@ describe('AgentService', () => {
       id: 'p1',
       maxConcurrentAgents: 3,
     });
-    db.query.agents.findMany.mockResolvedValue([]);
+    // checkAvailability uses db.select({ count }).from().where()
+    db.select.mockReturnValue({
+      from: vi.fn(() => ({
+        where: vi.fn().mockResolvedValue([{ count: 0 }]),
+      })),
+    });
 
     taskService.moveColumn.mockResolvedValue({ ok: true });
     worktreeService.create.mockResolvedValue({
@@ -987,7 +977,7 @@ describe('AgentService', () => {
       expect(sessionService.publish).toHaveBeenCalledWith(
         's1',
         expect.objectContaining({
-          type: 'approval:rejected',
+          type: 'agent:resumed',
           data: expect.objectContaining({ feedback: 'please continue with step 2' }),
         })
       );
@@ -1166,7 +1156,7 @@ describe('AgentService', () => {
       await service.resume('a1');
 
       // Planning resume fires executeAgentExecution async, but does NOT
-      // publish an approval:rejected event like the paused case
+      // publish an agent:resumed event like the paused case
       expect(sessionService.publish).not.toHaveBeenCalled();
     });
   });

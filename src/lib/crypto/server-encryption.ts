@@ -4,9 +4,11 @@
  * Tokens are encrypted with AES-256-GCM before storage.
  * The encryption key is stored in the data directory (configurable via SQLITE_DATA_DIR env var).
  */
+
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { errorMessage } from '../utils/error-message';
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
@@ -37,8 +39,7 @@ function getOrCreateKey(): Buffer {
     }
   } catch (error) {
     throw new Error(
-      `Cannot create data directory "${dataDir}". Please check permissions. ` +
-        (error instanceof Error ? error.message : String(error))
+      `Cannot create data directory "${dataDir}". Please check permissions. ` + errorMessage(error)
     );
   }
 
@@ -59,7 +60,7 @@ function getOrCreateKey(): Buffer {
       }
       throw new Error(
         `Cannot read encryption key from "${keyPath}". Please check file permissions. ` +
-          (error instanceof Error ? error.message : String(error))
+          errorMessage(error)
       );
     }
   }
@@ -73,7 +74,7 @@ function getOrCreateKey(): Buffer {
   } catch (error) {
     throw new Error(
       `Cannot write encryption key to "${keyPath}". Please check disk space and permissions. ` +
-        (error instanceof Error ? error.message : String(error))
+        errorMessage(error)
     );
   }
 }
@@ -129,7 +130,7 @@ export function decryptToken(encryptedToken: string): string {
     // Authentication tag mismatch or other crypto errors
     throw new Error(
       'Decryption failed. The encryption key may have changed or the data is corrupted. ' +
-        (error instanceof Error ? error.message : String(error))
+        errorMessage(error)
     );
   }
 }

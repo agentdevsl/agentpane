@@ -9,6 +9,7 @@ import {
 } from '@agentpane/nomad-sandbox-sdk';
 import { NomadErrors } from '../../errors/nomad-errors.js';
 import { createLogger } from '../../logging/logger.js';
+import { errorMessage } from '../../utils/error-message';
 import type { ExecResult, SandboxMetrics, SandboxStatus, TmuxSession } from '../types.js';
 import { SANDBOX_DEFAULTS } from '../types.js';
 import { mapNomadJobStatus } from './nomad-sandbox-provider.js';
@@ -102,7 +103,7 @@ export class NomadSandboxInstance implements Sandbox {
           `exit code ${error.exitCode}: ${error.stderr ?? error.message}`
         );
       }
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       throw NomadErrors.EXEC_FAILED(cmd, message);
     }
   }
@@ -122,7 +123,7 @@ export class NomadSandboxInstance implements Sandbox {
       await this.client.stopJob(this.jobName, true);
       this._status = 'stopped';
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       this._status = 'error';
       throw NomadErrors.JOB_STOP_FAILED(this.jobName, message);
     }
@@ -417,7 +418,7 @@ export class NomadSandboxInstance implements Sandbox {
         uptime,
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       log.error(`Failed to get metrics for ${this.jobName}`, {
         error: error instanceof Error ? error : new Error(message),
       });

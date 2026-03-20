@@ -13,7 +13,10 @@ export const users = pgTable('users', {
   githubEmail: text('github_email'),
   avatarUrl: text('avatar_url'),
   createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { mode: 'string' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'string' })
+    .defaultNow()
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export type User = typeof users.$inferSelect;

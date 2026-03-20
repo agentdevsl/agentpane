@@ -130,22 +130,22 @@ export class GitService {
       const hasChanges = statusLines.length > 0;
 
       // Get ahead/behind info
+      // AR-015: Replaced shell redirection (`2>/dev/null || echo "0\t0"`) with
+      // proper try/catch in the service layer. Shell redirection is fragile and
+      // can mask real errors; try/catch gives us explicit control over error handling.
       let ahead = 0;
       let behind = 0;
       try {
         const { stdout: aheadBehind } = await this.commandRunner.exec(
-          'git rev-list --left-right --count HEAD...@{upstream} 2>/dev/null || echo "0\t0"',
+          'git rev-list --left-right --count HEAD...@{upstream}',
           projectPath
         );
         const [aheadStr, behindStr] = aheadBehind.trim().split(/\s+/);
-        ahead = parseInt(aheadStr || '0', 10) || 0;
-        behind = parseInt(behindStr || '0', 10) || 0;
-      } catch (error) {
-        // No upstream tracking branch - this is expected for local-only branches
-        console.debug(
-          '[GitService] No upstream for branch:',
-          error instanceof Error ? error.message : 'unknown'
-        );
+        ahead = Number.parseInt(aheadStr || '0', 10) || 0;
+        behind = Number.parseInt(behindStr || '0', 10) || 0;
+      } catch {
+        // No upstream tracking branch — this is expected for local-only branches.
+        // Default ahead/behind to 0 when no upstream exists.
       }
 
       return ok({

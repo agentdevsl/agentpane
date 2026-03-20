@@ -4,6 +4,7 @@ import { settings, terraformModules, terraformRegistries } from '../../src/db/sc
 import { TERRAFORM_MIGRATION_SQL } from '../../src/lib/bootstrap/phases/schema';
 import { decryptToken } from '../../src/lib/crypto/server-encryption';
 import { TerraformRegistryService } from '../../src/services/terraform-registry.service';
+import { flushPromises } from '../helpers/async';
 import { clearTestDatabase, execRawSql, getTestDb, setupTestDatabase } from '../helpers/database';
 
 // Mock the registry client to prevent real HTTP calls
@@ -238,8 +239,8 @@ describe('TerraformRegistryService', () => {
 
     it('orders registries by most recently updated', async () => {
       await service.createRegistry({ name: 'First', orgName: 'org-1', apiToken: 'sk-1' });
-      // Small delay to ensure different timestamps
-      await new Promise((r) => setTimeout(r, 10));
+      // Flush microtasks before creating next registry
+      await flushPromises();
       await service.createRegistry({ name: 'Second', orgName: 'org-2', apiToken: 'sk-2' });
 
       const result = await service.listRegistries();

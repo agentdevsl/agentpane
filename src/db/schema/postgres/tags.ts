@@ -14,7 +14,10 @@ export const tags = pgTable(
     name: text('name').notNull(),
     color: text('color').notNull().default('#6B7280'),
     createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { mode: 'string' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'string' })
+      .defaultNow()
+      .notNull()
+      .$onUpdate(() => new Date().toISOString()),
   },
   (table) => [uniqueIndex('tags_team_name_unique').on(table.teamId, table.name)]
 );

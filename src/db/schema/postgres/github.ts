@@ -13,7 +13,10 @@ export const githubTokens = pgTable('github_tokens', {
   isValid: boolean('is_valid').default(true),
   lastValidatedAt: timestamp('last_validated_at', { mode: 'string' }),
   createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { mode: 'string' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'string' })
+    .defaultNow()
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export const githubInstallations = pgTable('github_installations', {
@@ -25,7 +28,10 @@ export const githubInstallations = pgTable('github_installations', {
   accountType: text('account_type').notNull(),
   status: text('status').default('active').notNull(),
   createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { mode: 'string' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'string' })
+    .defaultNow()
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export const repositoryConfigs = pgTable('repository_configs', {
@@ -40,7 +46,10 @@ export const repositoryConfigs = pgTable('repository_configs', {
   config: jsonb('config').$type<Record<string, unknown>>(),
   syncedAt: timestamp('synced_at', { mode: 'string' }),
   createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { mode: 'string' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'string' })
+    .defaultNow()
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export type GitHubToken = typeof githubTokens.$inferSelect;

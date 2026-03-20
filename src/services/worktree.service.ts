@@ -3,6 +3,7 @@ import path from 'node:path';
 import { and, eq, inArray, lt } from 'drizzle-orm';
 import type { Worktree, WorktreeStatus } from '../db/schema';
 import { agents, projects, worktrees } from '../db/schema';
+import { ServiceErrors } from '../lib/errors/service-errors.js';
 import type { WorktreeError } from '../lib/errors/worktree-errors.js';
 import { WorktreeErrors } from '../lib/errors/worktree-errors.js';
 import type { Result } from '../lib/utils/result.js';
@@ -126,9 +127,7 @@ export type CommandRunner = {
 function validateShellCommand(command: string): void {
   const DANGEROUS_PATTERN = /[;|`]|\$\(|&&|\|\||[\n\r]/;
   if (DANGEROUS_PATTERN.test(command)) {
-    throw new Error(
-      `Command rejected: contains shell metacharacters that could enable injection. Command: ${command.slice(0, 80)}`
-    );
+    throw ServiceErrors.SHELL_INJECTION_DETECTED(command);
   }
 }
 
@@ -150,9 +149,7 @@ export function createSandboxCommandRunner(sandbox: {
       const escapedCwd = cwd.replace(/'/g, "'\\''");
       const result = await sandbox.exec('sh', ['-c', `cd '${escapedCwd}' && ${command}`]);
       if (result.exitCode !== 0) {
-        throw new Error(
-          `Command failed with exit code ${result.exitCode}: ${result.stderr || result.stdout}`
-        );
+        throw ServiceErrors.COMMAND_FAILED(result.exitCode, result.stderr || result.stdout);
       }
       return { stdout: result.stdout, stderr: result.stderr };
     },
@@ -160,6 +157,9 @@ export function createSandboxCommandRunner(sandbox: {
 }
 
 export class WorktreeService {
+  /** Track stale worktree IDs currently being cleaned up to prevent re-deletion attempts */
+  private cleaningUpStaleIds = new Set<string>();
+
   constructor(
     private db: Database,
     private runner: CommandRunner
@@ -655,13 +655,18 @@ export class WorktreeService {
     for (const wt of list) {
       if (existsSync(wt.path)) {
         validWorktrees.push(wt);
-      } else {
+      } else if (!this.cleaningUpStaleIds.has(wt.id)) {
+        // SL-011: Only add if not already being cleaned up to prevent re-deletion attempts
         staleIds.push(wt.id);
       }
     }
 
     // Clean up stale records in background (don't block the response)
     if (staleIds.length > 0) {
+      // Track IDs being cleaned up
+      for (const id of staleIds) {
+        this.cleaningUpStaleIds.add(id);
+      }
       console.log(`[WorktreeService] Cleaning up ${staleIds.length} stale worktree records`);
       this.db
         .delete(worktrees)
@@ -669,8 +674,14 @@ export class WorktreeService {
         .then(() => {
           console.log(`[WorktreeService] Removed ${staleIds.length} stale worktree records`);
         })
-        .catch((err) => {
-          console.error('[WorktreeService] Failed to clean up stale worktree records:', err);
+        .catch((deleteErr) => {
+          console.error('[WorktreeService] Failed to clean up stale worktree records:', deleteErr);
+        })
+        .finally(() => {
+          // Remove from tracking set regardless of success/failure
+          for (const id of staleIds) {
+            this.cleaningUpStaleIds.delete(id);
+          }
         });
     }
 

@@ -30,8 +30,15 @@ import {
   unstable_v2_createSession,
   unstable_v2_resumeSession,
 } from '@anthropic-ai/claude-agent-sdk';
-import type { AgentFileChangedData } from './event-emitter.js';
 import { createEventEmitter } from './event-emitter.js';
+// SC-023: Shared session utilities. index.ts still uses its own writeCredentialsFile
+// and shouldStop variants (with additional debug logging), but types and file-change
+// detection are imported from the shared module to reduce duplication.
+import type { ExitPlanModeInput, ExitPlanModeOptions } from './shared-session.js';
+import {
+  extractFileChange as sharedExtractFileChange,
+  getAssistantText as sharedGetAssistantText,
+} from './shared-session.js';
 
 const VALID_TOPOLOGY_STATUSES = new Set(['completed', 'failed', 'stopped']);
 
@@ -166,31 +173,7 @@ function handleTopologySystemMsg(
   }
 }
 
-/** File-modifying tool names and how to extract the path from their input */
-const FILE_MODIFY_TOOLS: Record<
-  string,
-  { pathKey: string; action: (input: Record<string, unknown>) => AgentFileChangedData['action'] }
-> = {
-  Write: { pathKey: 'file_path', action: () => 'create' },
-  Edit: { pathKey: 'file_path', action: () => 'modify' },
-  NotebookEdit: { pathKey: 'notebook_path', action: () => 'modify' },
-};
-
-/** Extract file change info from a tool call, if applicable */
-function extractFileChange(
-  toolName: string,
-  input: Record<string, unknown>
-): AgentFileChangedData | null {
-  const spec = FILE_MODIFY_TOOLS[toolName];
-  if (!spec) return null;
-  const filePath = input[spec.pathKey];
-  if (typeof filePath !== 'string' || !filePath) return null;
-  return {
-    path: filePath,
-    action: spec.action(input),
-    toolName,
-  };
-}
+// SC-023: FILE_MODIFY_TOOLS and extractFileChange are now in shared-session.ts
 
 /** Detect file-modifying tools and emit file_changed event */
 function emitFileChangeIfApplicable(
@@ -198,7 +181,7 @@ function emitFileChangeIfApplicable(
   input: unknown,
   events: ReturnType<typeof createEventEmitter>
 ): void {
-  const fileChange = extractFileChange(toolName, (input as Record<string, unknown>) ?? {});
+  const fileChange = sharedExtractFileChange(toolName, (input as Record<string, unknown>) ?? {});
   if (fileChange) {
     events.fileChanged(fileChange);
   }
@@ -415,25 +398,7 @@ async function shouldStop(): Promise<boolean> {
   }
 }
 
-/**
- * ExitPlanMode options captured from the tool call.
- */
-interface ExitPlanModeOptions {
-  allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
-  launchSwarm?: boolean;
-  teammateCount?: number;
-  pushToRemote?: boolean;
-  remoteSessionId?: string;
-  remoteSessionUrl?: string;
-  remoteSessionTitle?: string;
-}
-
-/**
- * Typed input from ExitPlanMode tool call, extending options with plan content.
- */
-interface ExitPlanModeInput extends ExitPlanModeOptions {
-  plan?: string;
-}
+// SC-023: ExitPlanModeOptions and ExitPlanModeInput are now imported from shared-session.ts
 
 /**
  * Run the agent in planning mode.
@@ -1177,23 +1142,8 @@ async function runAgent(): Promise<void> {
   }
 }
 
-/**
- * Extract text content from an assistant message.
- */
-function getAssistantText(msg: unknown): string | null {
-  const message = (msg as { message?: unknown }).message as {
-    content?: Array<{ type: string; text?: string }>;
-  };
-
-  if (!message?.content) return null;
-
-  const textBlocks = message.content.filter(
-    (block): block is { type: 'text'; text: string } =>
-      block.type === 'text' && typeof block.text === 'string'
-  );
-
-  return textBlocks.map((b) => b.text).join('') || null;
-}
+// SC-023: getAssistantText is now imported from shared-session.ts as sharedGetAssistantText
+const getAssistantText = sharedGetAssistantText;
 
 // Run the agent
 runAgent()

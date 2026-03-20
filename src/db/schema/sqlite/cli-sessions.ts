@@ -40,7 +40,10 @@ export const cliSessions = sqliteTable(
     queueOperations: text('queue_operations'), // JSON
     toolInvocations: text('tool_invocations'), // JSON
     createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
-    updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
+    updatedAt: text('updated_at')
+      .default(sql`(datetime('now'))`)
+      .notNull()
+      .$onUpdate(() => new Date().toISOString()),
   },
   (table) => [
     index('idx_cli_sessions_project').on(table.projectHash, table.lastActivityAt),

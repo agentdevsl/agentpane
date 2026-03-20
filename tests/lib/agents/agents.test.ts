@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
-import type { AgentHooks, ToolContext, ToolResponse } from '@/lib/agents/types';
+import type { ToolContext, ToolResponse } from '@/lib/agents/types';
 
 // =============================================================================
 // Mock Setup for SDK
@@ -225,11 +225,6 @@ describe('Stream Handler', () => {
     publish: vi.fn().mockResolvedValue({ ok: true, value: { offset: 1 } }),
   });
 
-  const createMockHooks = (): AgentHooks => ({
-    PreToolUse: [],
-    PostToolUse: [],
-  });
-
   describe('runAgentPlanning', () => {
     it('publishes agent planning event', async () => {
       const sessionService = createMockSessionService();
@@ -243,7 +238,6 @@ describe('Stream Handler', () => {
         maxTurns: 10,
         model: 'claude-sonnet-4-6',
         cwd: '/tmp',
-        hooks: createMockHooks(),
         sessionService,
       });
 
@@ -271,7 +265,6 @@ describe('Stream Handler', () => {
         maxTurns: 10,
         model: 'claude-sonnet-4-6',
         cwd: '/tmp',
-        hooks: createMockHooks(),
         sessionService,
       });
 
@@ -293,7 +286,6 @@ describe('Stream Handler', () => {
         maxTurns: 10,
         model: 'claude-sonnet-4-6',
         cwd: '/tmp',
-        hooks: createMockHooks(),
         sessionService,
       });
 
@@ -313,7 +305,6 @@ describe('Stream Handler', () => {
         maxTurns: 10,
         model: 'claude-sonnet-4-6',
         cwd: '/tmp',
-        hooks: createMockHooks(),
         sessionService,
       });
 
@@ -338,7 +329,6 @@ describe('Stream Handler', () => {
         maxTurns: 10,
         model: 'claude-sonnet-4-6',
         cwd: '/tmp',
-        hooks: createMockHooks(),
         sessionService,
       });
 
@@ -358,7 +348,6 @@ describe('Stream Handler', () => {
         maxTurns: 10,
         model: 'claude-sonnet-4-6',
         cwd: '/tmp',
-        hooks: createMockHooks(),
         sessionService,
       });
 
@@ -379,7 +368,6 @@ describe('Stream Handler', () => {
         maxTurns: 10,
         model: 'claude-sonnet-4-6',
         cwd: '/tmp',
-        hooks: createMockHooks(),
         sessionService,
       });
 
@@ -398,7 +386,6 @@ describe('Stream Handler', () => {
         maxTurns: 10,
         model: 'claude-sonnet-4-6',
         cwd: '/tmp',
-        hooks: createMockHooks(),
         sessionService,
       });
 
@@ -444,7 +431,6 @@ describe('Stream Handler', () => {
         maxTurns: 10,
         model: 'claude-sonnet-4-6',
         cwd: '/tmp',
-        hooks: createMockHooks(),
         sessionService,
       });
     };
@@ -579,369 +565,19 @@ describe('Stream Handler', () => {
     });
   });
 
-  describe('executeToolWithHooks', () => {
-    it('runs pre-tool hooks before execution', async () => {
-      const preHookFn = vi.fn().mockResolvedValue({});
-      const hooks: AgentHooks = {
-        PreToolUse: [{ hooks: [preHookFn] }],
-        PostToolUse: [],
-      };
-
-      const { executeToolWithHooks } = await import('@/lib/agents/stream-handler');
-
-      await executeToolWithHooks('read_file', { file_path: '/test' }, { cwd: '/tmp' }, hooks);
-
-      expect(preHookFn).toHaveBeenCalledWith({
-        tool_name: 'read_file',
-        tool_input: { file_path: '/test' },
-      });
-    });
-
-    it('blocks tool execution when pre-hook returns block decision', async () => {
-      const hooks: AgentHooks = {
-        PreToolUse: [
-          { hooks: [async () => ({ decision: 'block' as const, message: 'Tool blocked' })] },
-        ],
-        PostToolUse: [],
-      };
-
-      const { executeToolWithHooks } = await import('@/lib/agents/stream-handler');
-
-      const result = await executeToolWithHooks('dangerous_tool', {}, { cwd: '/tmp' }, hooks);
-
-      expect(result.is_error).toBe(true);
-      expect(result.content[0]).toEqual({ type: 'text', text: 'Tool blocked' });
-    });
-
-    it('returns error for unknown tools', async () => {
-      const hooks: AgentHooks = { PreToolUse: [], PostToolUse: [] };
-      const { executeToolWithHooks } = await import('@/lib/agents/stream-handler');
-
-      const result = await executeToolWithHooks('unknown_tool', {}, { cwd: '/tmp' }, hooks);
-
-      expect(result.is_error).toBe(true);
-      expect(result.content[0]).toMatchObject({
-        type: 'text',
-        text: expect.stringContaining('Unknown tool'),
-      });
-    });
-  });
-});
-
-// =============================================================================
-// Turn Limiter Tests
-// =============================================================================
-
-describe('Turn Limiter', () => {
-  describe('TurnLimiter class', () => {
-    it('starts with turn count of 0', async () => {
-      const { TurnLimiter } = await import('@/lib/agents/turn-limiter');
-
-      const limiter = new TurnLimiter('agent-1', {
-        maxTurns: 10,
-        warningThreshold: 0.8,
-        onWarning: vi.fn(),
-        onLimitReached: vi.fn(),
-      });
-
-      expect(limiter.getCurrentTurn()).toBe(0);
-    });
-
-    it('increments turn count correctly', async () => {
-      const { TurnLimiter } = await import('@/lib/agents/turn-limiter');
-
-      const limiter = new TurnLimiter('agent-1', {
-        maxTurns: 10,
-        warningThreshold: 0.8,
-        onWarning: vi.fn(),
-        onLimitReached: vi.fn(),
-      });
-
-      limiter.incrementTurn();
-      limiter.incrementTurn();
-      limiter.incrementTurn();
-
-      expect(limiter.getCurrentTurn()).toBe(3);
-    });
-
-    it('calculates remaining turns correctly', async () => {
-      const { TurnLimiter } = await import('@/lib/agents/turn-limiter');
-
-      const limiter = new TurnLimiter('agent-1', {
-        maxTurns: 10,
-        warningThreshold: 0.8,
-        onWarning: vi.fn(),
-        onLimitReached: vi.fn(),
-      });
-
-      limiter.incrementTurn();
-      limiter.incrementTurn();
-
-      expect(limiter.getRemainingTurns()).toBe(8);
-    });
-
-    it('calls onWarning at warning threshold', async () => {
-      const { TurnLimiter } = await import('@/lib/agents/turn-limiter');
-
-      const onWarning = vi.fn();
-      const limiter = new TurnLimiter('agent-1', {
-        maxTurns: 10,
-        warningThreshold: 0.8,
-        onWarning,
-        onLimitReached: vi.fn(),
-      });
-
-      // Advance to turn 8 (80% of 10)
-      for (let i = 0; i < 8; i++) {
-        limiter.incrementTurn();
-      }
-
-      expect(onWarning).toHaveBeenCalledWith(8, 10);
-    });
-
-    it('calls onLimitReached when max turns hit', async () => {
-      const { TurnLimiter } = await import('@/lib/agents/turn-limiter');
-
-      const onLimitReached = vi.fn();
-      const limiter = new TurnLimiter('agent-1', {
-        maxTurns: 5,
-        warningThreshold: 0.8,
-        onWarning: vi.fn(),
-        onLimitReached,
-      });
-
-      for (let i = 0; i < 5; i++) {
-        limiter.incrementTurn();
-      }
-
-      expect(onLimitReached).toHaveBeenCalledWith(5);
-    });
-
-    it('returns canContinue false when limit reached', async () => {
-      const { TurnLimiter } = await import('@/lib/agents/turn-limiter');
-
-      const limiter = new TurnLimiter('agent-1', {
-        maxTurns: 3,
-        warningThreshold: 0.8,
-        onWarning: vi.fn(),
-        onLimitReached: vi.fn(),
-      });
-
-      limiter.incrementTurn();
-      limiter.incrementTurn();
-      const result = limiter.incrementTurn();
-
-      expect(result.canContinue).toBe(false);
-    });
-
-    it('returns warning flag when at warning threshold', async () => {
-      const { TurnLimiter } = await import('@/lib/agents/turn-limiter');
-
-      const limiter = new TurnLimiter('agent-1', {
-        maxTurns: 10,
-        warningThreshold: 0.5,
-        onWarning: vi.fn(),
-        onLimitReached: vi.fn(),
-      });
-
-      // Advance to turn 5 (50% warning threshold)
-      for (let i = 0; i < 4; i++) {
-        limiter.incrementTurn();
-      }
-
-      const result = limiter.incrementTurn();
-      expect(result.warning).toBe(true);
-    });
-  });
-
-  describe('createTurnLimiter', () => {
-    it('creates limiter with session service integration', async () => {
-      const { createTurnLimiter } = await import('@/lib/agents/turn-limiter');
-      const sessionService = {
-        publish: vi.fn().mockResolvedValue({ ok: true, value: { offset: 1 } }),
-      };
-
-      const limiter = createTurnLimiter('agent-1', 'session-1', 10, sessionService);
-
-      expect(limiter.getCurrentTurn()).toBe(0);
-      expect(limiter.getRemainingTurns()).toBe(10);
-    });
-
-    it('publishes warning event at threshold', async () => {
-      const { createTurnLimiter } = await import('@/lib/agents/turn-limiter');
-      const sessionService = {
-        publish: vi.fn().mockResolvedValue({ ok: true, value: { offset: 1 } }),
-      };
-
-      const limiter = createTurnLimiter('agent-1', 'session-1', 10, sessionService);
-
-      // Advance to turn 8 (80% threshold)
-      for (let i = 0; i < 8; i++) {
-        limiter.incrementTurn();
-      }
-
-      expect(sessionService.publish).toHaveBeenCalledWith(
-        'session-1',
-        expect.objectContaining({
-          type: 'agent:warning',
-          data: expect.objectContaining({
-            agentId: 'agent-1',
-            turn: 8,
-          }),
-        })
-      );
-    });
-
-    it('publishes turn_limit event when limit reached', async () => {
-      const { createTurnLimiter } = await import('@/lib/agents/turn-limiter');
-      const sessionService = {
-        publish: vi.fn().mockResolvedValue({ ok: true, value: { offset: 1 } }),
-      };
-
-      const limiter = createTurnLimiter('agent-1', 'session-1', 5, sessionService);
-
-      for (let i = 0; i < 5; i++) {
-        limiter.incrementTurn();
-      }
-
-      expect(sessionService.publish).toHaveBeenCalledWith(
-        'session-1',
-        expect.objectContaining({
-          type: 'agent:turn_limit',
-          data: expect.objectContaining({
-            agentId: 'agent-1',
-            status: 'paused',
-            turn: 5,
-          }),
-        })
-      );
-    });
-  });
+  // executeToolWithHooks and TurnLimiter tests removed (AE-005, AE-006, AE-007)
+  // - executeToolWithHooks was dead code never called from production
+  // - TurnLimiter was dead code never integrated with stream handler
+  // - Hook infrastructure removed; SDK's canUseTool is the actual interception mechanism
 });
 
 // =============================================================================
 // Recovery Tests
 // =============================================================================
 
+// AE-003: Removed unused retry infrastructure (withRetry, isRetryableError, sleep)
+// Only handleAgentError remains, simplified to return only 'pause' or 'fail'
 describe('Recovery', () => {
-  describe('isRetryableError', () => {
-    it('identifies rate limit errors as retryable', async () => {
-      const { isRetryableError } = await import('@/lib/agents/recovery');
-
-      expect(isRetryableError(new Error('Rate limit exceeded'))).toBe(true);
-      expect(isRetryableError(new Error('rate limit'))).toBe(true);
-    });
-
-    it('identifies timeout errors as retryable', async () => {
-      const { isRetryableError } = await import('@/lib/agents/recovery');
-
-      expect(isRetryableError(new Error('Request timeout'))).toBe(true);
-      expect(isRetryableError(new Error('ETIMEDOUT'))).toBe(true);
-    });
-
-    it('identifies connection errors as retryable', async () => {
-      const { isRetryableError } = await import('@/lib/agents/recovery');
-
-      expect(isRetryableError(new Error('Connection reset'))).toBe(true);
-      expect(isRetryableError(new Error('ECONNREFUSED'))).toBe(true);
-    });
-
-    it('identifies 503/529 errors as retryable', async () => {
-      const { isRetryableError } = await import('@/lib/agents/recovery');
-
-      expect(isRetryableError(new Error('Service unavailable (503)'))).toBe(true);
-      expect(isRetryableError(new Error('Error 529: Overloaded'))).toBe(true);
-    });
-
-    it('identifies overloaded errors as retryable', async () => {
-      const { isRetryableError } = await import('@/lib/agents/recovery');
-
-      expect(isRetryableError(new Error('Server is overloaded'))).toBe(true);
-    });
-
-    it('does not retry non-retryable errors', async () => {
-      const { isRetryableError } = await import('@/lib/agents/recovery');
-
-      expect(isRetryableError(new Error('Invalid API key'))).toBe(false);
-      expect(isRetryableError(new Error('Syntax error'))).toBe(false);
-      expect(isRetryableError(new Error('Not found'))).toBe(false);
-    });
-  });
-
-  describe('withRetry', () => {
-    it('returns success on first try', async () => {
-      const { withRetry } = await import('@/lib/agents/recovery');
-
-      const fn = vi.fn().mockResolvedValue('success');
-      const result = await withRetry(fn);
-
-      expect(result).toEqual({ ok: true, value: 'success' });
-      expect(fn).toHaveBeenCalledTimes(1);
-    });
-
-    it('retries on retryable error and eventually succeeds', async () => {
-      const { withRetry } = await import('@/lib/agents/recovery');
-
-      const fn = vi
-        .fn()
-        .mockRejectedValueOnce(new Error('Rate limit'))
-        .mockRejectedValueOnce(new Error('Rate limit'))
-        .mockResolvedValue('success');
-
-      const result = await withRetry(fn, { initialDelay: 10, maxDelay: 50 });
-
-      expect(result).toEqual({ ok: true, value: 'success' });
-      expect(fn).toHaveBeenCalledTimes(3);
-    });
-
-    it('fails immediately on non-retryable error', async () => {
-      const { withRetry } = await import('@/lib/agents/recovery');
-
-      const fn = vi.fn().mockRejectedValue(new Error('Invalid API key'));
-      const result = await withRetry(fn);
-
-      expect(result).toEqual({ ok: false, error: expect.any(Error) });
-      expect(fn).toHaveBeenCalledTimes(1);
-    });
-
-    it('fails after max retries', async () => {
-      const { withRetry } = await import('@/lib/agents/recovery');
-
-      const fn = vi.fn().mockRejectedValue(new Error('Rate limit'));
-      const result = await withRetry(fn, { maxRetries: 2, initialDelay: 10 });
-
-      expect(result).toEqual({ ok: false, error: expect.any(Error) });
-      expect(fn).toHaveBeenCalledTimes(3); // 1 initial + 2 retries
-    });
-
-    it('applies exponential backoff', async () => {
-      vi.useFakeTimers();
-      const { withRetry } = await import('@/lib/agents/recovery');
-
-      const fn = vi
-        .fn()
-        .mockRejectedValueOnce(new Error('Rate limit'))
-        .mockRejectedValueOnce(new Error('Rate limit'))
-        .mockResolvedValue('success');
-
-      const promise = withRetry(fn, {
-        initialDelay: 100,
-        backoffFactor: 2,
-        maxRetries: 3,
-      });
-
-      // First delay: 100ms
-      await vi.advanceTimersByTimeAsync(100);
-      // Second delay: 200ms (100 * 2)
-      await vi.advanceTimersByTimeAsync(200);
-
-      const result = await promise;
-      expect(result.ok).toBe(true);
-
-      vi.useRealTimers();
-    });
-  });
-
   describe('handleAgentError', () => {
     const context = {
       agentId: 'agent-1',
@@ -970,23 +606,22 @@ describe('Recovery', () => {
       expect(result.message).toContain('Turn limit reached');
     });
 
-    it('returns retry action for context length errors', async () => {
+    it('returns fail action for context length errors (no longer retries)', async () => {
       const { handleAgentError } = await import('@/lib/agents/recovery');
 
       const result = handleAgentError(new Error('Context length exceeded'), context);
 
-      expect(result.action).toBe('retry');
-      expect(result.shouldRetry).toBe(true);
-      expect(result.message).toContain('summarized');
+      expect(result.action).toBe('fail');
+      expect(result.shouldRetry).toBe(false);
     });
 
-    it('returns retry action for network errors', async () => {
+    it('returns fail action for network errors (SDK handles retries internally)', async () => {
       const { handleAgentError } = await import('@/lib/agents/recovery');
 
       const result = handleAgentError(new Error('Network timeout'), context);
 
-      expect(result.action).toBe('retry');
-      expect(result.shouldRetry).toBe(true);
+      expect(result.action).toBe('fail');
+      expect(result.shouldRetry).toBe(false);
     });
 
     it('returns fail action for unknown errors', async () => {
@@ -996,20 +631,6 @@ describe('Recovery', () => {
 
       expect(result.action).toBe('fail');
       expect(result.shouldRetry).toBe(false);
-    });
-  });
-
-  describe('sleep', () => {
-    it('delays for specified milliseconds', async () => {
-      vi.useFakeTimers();
-      const { sleep } = await import('@/lib/agents/recovery');
-
-      const promise = sleep(1000);
-
-      await vi.advanceTimersByTimeAsync(1000);
-      await promise;
-
-      vi.useRealTimers();
     });
   });
 });

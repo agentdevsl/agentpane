@@ -9,8 +9,10 @@
  * This class does NOT implement the Sandbox interface (sandbox-provider.ts)
  * because AgentCore has no shell, exec, or tmux capabilities.
  */
+
 import { AgentCoreErrors, isAgentCoreError } from '../../errors/agentcore-errors.js';
 import { createLogger } from '../../logging/logger.js';
+import { errorMessage } from '../../utils/error-message';
 import type { SandboxStatus } from '../types.js';
 
 const log = createLogger('AgentCoreSandboxInstance');
@@ -44,11 +46,13 @@ export interface AgentCoreInstanceOptions {
 // ---------------------------------------------------------------------------
 
 /**
- * Minimal AWS Signature Version 4 signer for AgentCore invoke requests.
+ * SC-038: Minimal hand-rolled AWS Signature Version 4 signer for AgentCore invoke requests.
  *
- * TODO: Replace with `@aws-sdk/client-bedrock-agentcore` InvokeAgentRuntimeCommand
- * once the package is added to dependencies. The SDK provides automatic signing,
- * retries, and proper error parsing. This manual approach is a stopgap.
+ * DEFERRED: Replace with `@aws-sdk/signature-v4` or `@aws-sdk/client-bedrock-agentcore`
+ * InvokeAgentRuntimeCommand once the package is added to dependencies. The SDK provides
+ * automatic signing, retries, and proper error parsing. This manual approach is a stopgap
+ * and should be replaced in a future iteration to reduce maintenance burden and improve
+ * compliance with AWS signing edge cases (e.g. double-encoded URIs, session tokens).
  */
 async function hmacSha256(key: ArrayBuffer | Uint8Array, data: string): Promise<ArrayBuffer> {
   const rawKey = key instanceof ArrayBuffer ? new Uint8Array(key) : key;
@@ -256,9 +260,7 @@ export class AgentCoreSandboxInstance {
       yield* this.parseSSEStream(response.body);
     } catch (error) {
       if (isAgentCoreError(error)) throw error;
-      throw AgentCoreErrors.SESSION_INVOKE_FAILED(
-        error instanceof Error ? error.message : String(error)
-      );
+      throw AgentCoreErrors.SESSION_INVOKE_FAILED(errorMessage(error));
     }
   }
 

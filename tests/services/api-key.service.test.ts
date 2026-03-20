@@ -133,7 +133,7 @@ describe('ApiKeyService', () => {
 
       await service.saveKey('anthropic', 'sk-ant-test-key-throws');
       await expect(service.getDecryptedKey('anthropic')).rejects.toThrow(
-        'Failed to decrypt API key for anthropic'
+        'Failed to decrypt key for anthropic'
       );
     });
   });

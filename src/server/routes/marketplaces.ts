@@ -3,8 +3,11 @@
  */
 
 import { Hono } from 'hono';
+import { createLogger } from '../../lib/logging/logger.js';
 import type { MarketplaceService } from '../../services/marketplace.service.js';
 import { isValidId, json } from '../shared.js';
+
+const logger = createLogger('routes:marketplaces');
 
 interface MarketplacesDeps {
   marketplaceService: MarketplaceService;
@@ -47,7 +50,7 @@ export function createMarketplacesRoutes({ marketplaceService }: MarketplacesDep
         },
       });
     } catch (error) {
-      console.error('[Marketplaces] List error:', error);
+      logger.error('List error', { error: error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to list marketplaces' } },
         500
@@ -99,7 +102,7 @@ export function createMarketplacesRoutes({ marketplaceService }: MarketplacesDep
 
       return json({ ok: true, data: result.value }, 201);
     } catch (error) {
-      console.error('[Marketplaces] Create error:', error);
+      logger.error('Create error', { error: error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to create marketplace' } },
         500
@@ -117,7 +120,7 @@ export function createMarketplacesRoutes({ marketplaceService }: MarketplacesDep
 
       return json({ ok: true, data: { seeded: result.value !== null } });
     } catch (error) {
-      console.error('[Marketplaces] Seed error:', error);
+      logger.error('Seed error', { error: error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to seed marketplace' } },
         500
@@ -145,7 +148,7 @@ export function createMarketplacesRoutes({ marketplaceService }: MarketplacesDep
         },
       });
     } catch (error) {
-      console.error('[Marketplaces] List plugins error:', error);
+      logger.error('List plugins error', { error: error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to list plugins' } },
         500
@@ -166,7 +169,7 @@ export function createMarketplacesRoutes({ marketplaceService }: MarketplacesDep
         data: { categories: result.value },
       });
     } catch (error) {
-      console.error('[Marketplaces] Get categories error:', error);
+      logger.error('Get categories error', { error: error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to get categories' } },
         500
@@ -189,14 +192,14 @@ export function createMarketplacesRoutes({ marketplaceService }: MarketplacesDep
       console.log(`[Marketplaces] Syncing marketplace ${id}`);
       const result = await marketplaceService.sync(id);
       if (!result.ok) {
-        console.error(`[Marketplaces] Sync failed for ${id}:`, result.error);
+        logger.error(`Sync failed for `, { data: { detail: result.error } });
         return json({ ok: false, error: result.error }, result.error.status);
       }
 
       console.log(`[Marketplaces] Synced ${result.value.pluginCount} plugins for ${id}`);
       return json({ ok: true, data: result.value });
     } catch (error) {
-      console.error('[Marketplaces] Sync error:', error);
+      logger.error('Sync error', { error: error });
       return json(
         { ok: false, error: { code: 'SYNC_ERROR', message: 'Failed to sync marketplace' } },
         500
@@ -242,7 +245,7 @@ export function createMarketplacesRoutes({ marketplaceService }: MarketplacesDep
         },
       });
     } catch (error) {
-      console.error('[Marketplaces] Get error:', error);
+      logger.error('Get error', { error: error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to get marketplace' } },
         500
@@ -269,7 +272,7 @@ export function createMarketplacesRoutes({ marketplaceService }: MarketplacesDep
 
       return json({ ok: true, data: { deleted: true } });
     } catch (error) {
-      console.error('[Marketplaces] Delete error:', error);
+      logger.error('Delete error', { error: error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to delete marketplace' } },
         500

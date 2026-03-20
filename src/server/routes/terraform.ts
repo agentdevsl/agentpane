@@ -4,6 +4,10 @@
 
 import { Hono } from 'hono';
 import { RBAC_ROLE_LEVEL } from '../../db/schema/shared/enums.js';
+import { createLogger } from '../../lib/logging/logger.js';
+
+const log = createLogger('terraform-routes');
+
 import type { AuthContext } from '../../lib/api/auth-middleware.js';
 import {
   composeRequestSchema,
@@ -19,12 +23,15 @@ interface TerraformDeps {
   terraformComposeService: TerraformComposeService;
 }
 
-/** Strip the internal tokenSettingKey before returning registry data to the client. */
+/**
+ * Strip the internal tokenSettingKey before returning registry data to the client.
+ * `hasToken` indicates whether a token settings key is configured for this registry.
+ */
 function omitTokenKey<T extends { tokenSettingKey: string }>(
   registry: T
 ): Omit<T, 'tokenSettingKey'> & { hasToken: boolean } {
-  const { tokenSettingKey: _, ...rest } = registry;
-  return { ...rest, hasToken: true };
+  const { tokenSettingKey, ...rest } = registry;
+  return { ...rest, hasToken: !!tokenSettingKey };
 }
 
 function requireTerraformAdmin(c: {
@@ -79,7 +86,7 @@ export function createTerraformRoutes({
         },
       });
     } catch (error) {
-      console.error('[Terraform] List registries error:', error);
+      log.error('List registries error', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to list registries' } },
         500
@@ -131,7 +138,7 @@ export function createTerraformRoutes({
 
       return json({ ok: true, data: omitTokenKey(result.value) }, 201);
     } catch (error) {
-      console.error('[Terraform] Create registry error:', error);
+      log.error('Create registry error', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to create registry' } },
         500
@@ -158,7 +165,7 @@ export function createTerraformRoutes({
 
       return json({ ok: true, data: omitTokenKey(result.value) });
     } catch (error) {
-      console.error('[Terraform] Get registry error:', error);
+      log.error('Get registry error', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to get registry' } },
         500
@@ -190,7 +197,7 @@ export function createTerraformRoutes({
 
       return json({ ok: true, data: { deleted: true } });
     } catch (error) {
-      console.error('[Terraform] Delete registry error:', error);
+      log.error('Delete registry error', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to delete registry' } },
         500
@@ -251,7 +258,7 @@ export function createTerraformRoutes({
 
       return json({ ok: true, data: omitTokenKey(result.value) });
     } catch (error) {
-      console.error('[Terraform] Update registry error:', error);
+      log.error('Update registry error', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to update registry' } },
         500
@@ -276,17 +283,17 @@ export function createTerraformRoutes({
         return denied;
       }
 
-      console.log(`[Terraform] Syncing registry ${id}`);
+      log.info(`Syncing registry ${id}`);
       const result = await terraformRegistryService.sync(id);
       if (!result.ok) {
-        console.error(`[Terraform] Sync failed for ${id}:`, result.error);
+        log.error(`Sync failed for ${id}`, { error: result.error });
         return json({ ok: false, error: result.error }, result.error.status);
       }
 
-      console.log(`[Terraform] Synced ${result.value.moduleCount} modules for ${id}`);
+      log.info(`Synced ${result.value.moduleCount} modules for ${id}`);
       return json({ ok: true, data: result.value });
     } catch (error) {
-      console.error('[Terraform] Sync error:', error);
+      log.error('Sync error', { error });
       return json(
         { ok: false, error: { code: 'SYNC_ERROR', message: 'Failed to sync registry' } },
         500
@@ -321,7 +328,7 @@ export function createTerraformRoutes({
         },
       });
     } catch (error) {
-      console.error('[Terraform] List modules error:', error);
+      log.error('List modules error', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to list modules' } },
         500
@@ -348,7 +355,7 @@ export function createTerraformRoutes({
 
       return json({ ok: true, data: result.value });
     } catch (error) {
-      console.error('[Terraform] Get module error:', error);
+      log.error('Get module error', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to get module' } }, 500);
     }
   });
@@ -376,7 +383,7 @@ export function createTerraformRoutes({
       const result = await terraformComposeService.validateCode(body.code, body.tfvars);
       return json({ ok: true, data: result });
     } catch (error) {
-      console.error('[Terraform] Validate error:', error);
+      log.error('Validate error', { error });
       return json(
         {
           ok: false,
@@ -431,7 +438,7 @@ export function createTerraformRoutes({
 
       return json({ ok: true, data: result.value }, 202);
     } catch (error) {
-      console.error('[Terraform] Compose error:', error);
+      log.error('Compose error', { error });
       return json(
         { ok: false, error: { code: 'COMPOSE_ERROR', message: 'Failed to compose Terraform' } },
         500

@@ -142,9 +142,41 @@ export async function clearTestDatabase(): Promise<void> {
     return;
   }
 
-  // Delete in order respecting foreign key constraints
+  // Fast batch cleanup for SQLite — single FFI call instead of 27 ORM round-trips
+  if (testSqlite) {
+    testSqlite.exec(`
+      PRAGMA defer_foreign_keys = ON;
+      DELETE FROM audit_logs;
+      DELETE FROM event_log;
+      DELETE FROM event_subscriptions;
+      DELETE FROM event_sources;
+      DELETE FROM agent_runs;
+      DELETE FROM sessions;
+      DELETE FROM worktrees;
+      DELETE FROM tasks;
+      DELETE FROM agents;
+      DELETE FROM repository_configs;
+      DELETE FROM github_installations;
+      DELETE FROM github_tokens;
+      DELETE FROM task_tags;
+      DELETE FROM project_tags;
+      DELETE FROM api_tokens;
+      DELETE FROM team_invitations;
+      DELETE FROM project_members;
+      DELETE FROM team_projects;
+      DELETE FROM team_members;
+      DELETE FROM tags;
+      DELETE FROM teams;
+      DELETE FROM projects;
+      DELETE FROM sandbox_configs;
+      DELETE FROM marketplaces;
+      PRAGMA defer_foreign_keys = OFF;
+    `);
+    return;
+  }
+
+  // Fallback: Drizzle ORM cleanup (for edge cases where testSqlite is null)
   await testDb.delete(schema.auditLogs);
-  // Event tables (FK-safe order: log has SET NULL on source, subscriptions CASCADE from source)
   await testDb.delete(schema.eventLog);
   await testDb.delete(schema.eventSubscriptions);
   await testDb.delete(schema.eventSources);
@@ -156,7 +188,6 @@ export async function clearTestDatabase(): Promise<void> {
   await testDb.delete(schema.repositoryConfigs);
   await testDb.delete(schema.githubInstallations);
   await testDb.delete(schema.githubTokens);
-  // RBAC tables (FK-safe order)
   await testDb.delete(schema.taskTags);
   await testDb.delete(schema.projectTags);
   await testDb.delete(schema.apiTokens);

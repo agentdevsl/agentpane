@@ -75,7 +75,10 @@ export const templates = sqliteTable('templates', {
   cachedAgents: text('cached_agents', { mode: 'json' }).$type<CachedAgent[]>(),
 
   createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
-  updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
+  updatedAt: text('updated_at')
+    .default(sql`(datetime('now'))`)
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export type Template = typeof templates.$inferSelect;

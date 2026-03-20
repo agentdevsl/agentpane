@@ -23,7 +23,10 @@ export const sessionSummaries = sqliteTable('session_summaries', {
   cacheReadTokens: integer('cache_read_tokens'),
   cacheCreationTokens: integer('cache_creation_tokens'),
   stopReason: text('stop_reason'),
-  updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
+  updatedAt: text('updated_at')
+    .default(sql`(datetime('now'))`)
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export type SessionSummary = typeof sessionSummaries.$inferSelect;

@@ -32,7 +32,10 @@ export const eventSubscriptions = pgTable(
     matchedCount: integer('matched_count').default(0).notNull(),
     lastMatchedAt: timestamp('last_matched_at', { mode: 'string' }),
     createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { mode: 'string' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'string' })
+      .defaultNow()
+      .notNull()
+      .$onUpdate(() => new Date().toISOString()),
   },
   (table) => [
     index('event_subscriptions_source_idx').on(table.eventSourceId),

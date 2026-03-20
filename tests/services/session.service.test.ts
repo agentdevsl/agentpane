@@ -9,6 +9,7 @@ import { createTestAgent } from '../factories/agent.factory';
 import { createTestProject } from '../factories/project.factory';
 import { createTestSession } from '../factories/session.factory';
 import { createTestTask } from '../factories/task.factory';
+import { flushPromises } from '../helpers/async';
 import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/database';
 
 describe('SessionService', () => {
@@ -394,7 +395,7 @@ describe('SessionService', () => {
       expect(mockStreams.publish).toHaveBeenCalledWith(sessionId, 'chunk', event.data);
     });
 
-    it('handles stream publish error', async () => {
+    it('succeeds even when stream publish fails (RS-013: DB-first, stream is best-effort)', async () => {
       const project = await createTestProject();
       const createResult = await sessionService.create({ projectId: project.id });
       expect(createResult.ok).toBe(true);
@@ -412,10 +413,9 @@ describe('SessionService', () => {
 
       const result = await sessionService.publish(sessionId, event);
 
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.code).toBe('SESSION_SYNC_FAILED');
-      }
+      // RS-013: With DB-first persistence, stream publish failure is best-effort.
+      // The publish should still succeed as the event is persisted to DB.
+      expect(result.ok).toBe(true);
     });
 
     it('publishes tool:start event', async () => {
@@ -490,7 +490,7 @@ describe('SessionService', () => {
       };
       await sessionService.publish(session.id, event);
       // publish() persists asynchronously — wait for the fire-and-forget persist
-      await new Promise((r) => setTimeout(r, 50));
+      await flushPromises();
 
       const result = await sessionService.getHistory(session.id, { startTime });
 
@@ -514,7 +514,7 @@ describe('SessionService', () => {
       };
       await sessionService.publish(session.id, event);
       // publish() persists asynchronously — wait for the fire-and-forget persist
-      await new Promise((r) => setTimeout(r, 50));
+      await flushPromises();
 
       const events: SessionEvent[] = [];
 
@@ -1039,10 +1039,10 @@ describe('SessionService', () => {
       });
 
       await sessionService.persistEvent(sessionId, {
-        id: 'evt-approval-rejected',
-        type: 'approval:rejected',
+        id: 'evt-agent-resumed',
+        type: 'agent:resumed',
         timestamp: Date.now(),
-        data: { rejectedBy: 'user-2' },
+        data: { feedback: 'Continue with changes' },
       });
 
       const events = await sessionService.getEventsBySession(sessionId);

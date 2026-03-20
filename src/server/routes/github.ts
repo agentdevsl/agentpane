@@ -3,8 +3,33 @@
  */
 
 import { Hono } from 'hono';
+import { z } from 'zod';
+import { createLogger } from '../../lib/logging/logger.js';
 import type { GitHubTokenService } from '../../services/github-token.service.js';
 import { isValidGitHubUrl, json } from '../shared.js';
+import { parseJsonBody } from '../validation.js';
+
+const log = createLogger('github-routes');
+
+// ─── Zod Schemas for GitHub Routes ──────────────────
+const cloneSchema = z.object({
+  url: z.string().min(1, 'URL is required'),
+  destination: z.string().min(1, 'Destination is required'),
+});
+
+const createFromTemplateSchema = z.object({
+  templateOwner: z.string().min(1, 'templateOwner is required'),
+  templateRepo: z.string().min(1, 'templateRepo is required'),
+  name: z.string().min(1, 'name is required'),
+  owner: z.string().optional(),
+  description: z.string().optional(),
+  isPrivate: z.boolean().optional(),
+  clonePath: z.string().min(1, 'clonePath is required'),
+});
+
+const setTokenSchema = z.object({
+  token: z.string().min(1, 'Token is required'),
+});
 
 declare const Bun: {
   spawn: (
@@ -35,7 +60,7 @@ async function waitForRepoReady(
   const repo = parts[1];
 
   if (!owner || !repo) {
-    console.error('[Template] Invalid repo full name:', repoFullName);
+    log.error('Invalid repo full name', { data: { repoFullName } });
     return false;
   }
 
@@ -48,13 +73,13 @@ async function waitForRepoReady(
       });
 
       if (commits.length > 0) {
-        console.log(`[Template] Repo ${repoFullName} ready after ${attempt + 1} attempts`);
+        log.info(`Repo ${repoFullName} ready after ${attempt + 1} attempts`);
         return true;
       }
     } catch (error) {
       const status = (error as { status?: number }).status;
       if (status !== 409) {
-        console.log(`[Template] Waiting for repo... attempt ${attempt + 1}, status: ${status}`);
+        log.info(`Waiting for repo... attempt ${attempt + 1}`, { data: { status } });
       }
     }
 
@@ -71,7 +96,7 @@ export function createGitHubRoutes({ githubService }: GitHubDeps) {
   app.get('/orgs', async (_c) => {
     const result = await githubService.listUserOrgs();
     if (!result.ok) {
-      console.error('[GitHub] List orgs error:', result.error);
+      log.error('List orgs error', { error: result.error });
       return json({ ok: false, error: result.error }, 401);
     }
     return json({ ok: true, data: { orgs: result.value } });
@@ -79,17 +104,9 @@ export function createGitHubRoutes({ githubService }: GitHubDeps) {
 
   // POST /api/github/clone
   app.post('/clone', async (c) => {
-    const body = (await c.req.json()) as { url: string; destination: string };
-
-    if (!body.url || !body.destination) {
-      return json(
-        {
-          ok: false,
-          error: { code: 'MISSING_PARAMS', message: 'URL and destination are required' },
-        },
-        400
-      );
-    }
+    const parsed = await parseJsonBody(c, cloneSchema);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
 
     // Validate URL is a proper GitHub HTTPS URL (prevents injection)
     if (!isValidGitHubUrl(body.url)) {
@@ -156,7 +173,7 @@ export function createGitHubRoutes({ githubService }: GitHubDeps) {
         if (token) {
           stderr = stderr.replace(new RegExp(token, 'g'), '*****');
         }
-        console.error('[Clone] Failed:', stderr);
+        log.error('Clone failed', { data: { stderr } });
         return json(
           {
             ok: false,
@@ -168,7 +185,7 @@ export function createGitHubRoutes({ githubService }: GitHubDeps) {
 
       return json({ ok: true, data: { path: fullPath } });
     } catch (error) {
-      console.error('[Clone] Error:', error);
+      log.error('Clone error', { error });
       return json(
         {
           ok: false,
@@ -184,28 +201,9 @@ export function createGitHubRoutes({ githubService }: GitHubDeps) {
 
   // POST /api/github/create-from-template
   app.post('/create-from-template', async (c) => {
-    const body = (await c.req.json()) as {
-      templateOwner: string;
-      templateRepo: string;
-      name: string;
-      owner?: string;
-      description?: string;
-      isPrivate?: boolean;
-      clonePath: string;
-    };
-
-    if (!body.templateOwner || !body.templateRepo || !body.name || !body.clonePath) {
-      return json(
-        {
-          ok: false,
-          error: {
-            code: 'MISSING_PARAMS',
-            message: 'templateOwner, templateRepo, name, and clonePath are required',
-          },
-        },
-        400
-      );
-    }
+    const parsed = await parseJsonBody(c, createFromTemplateSchema);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
 
     // Step 1: Create the repo from template
     const createResult = await githubService.createRepoFromTemplate({
@@ -236,11 +234,11 @@ export function createGitHubRoutes({ githubService }: GitHubDeps) {
       );
     }
 
-    console.log(`[Template] Waiting for repo ${fullName} to be ready...`);
+    log.info(`Waiting for repo ${fullName} to be ready...`);
     const isReady = await waitForRepoReady(githubService, fullName);
 
     if (!isReady) {
-      console.error('[Template] Repo not ready after max attempts');
+      log.error('Repo not ready after max attempts');
       return json(
         {
           ok: false,
@@ -312,7 +310,7 @@ export function createGitHubRoutes({ githubService }: GitHubDeps) {
         if (token) {
           stderr = stderr.replace(new RegExp(token, 'g'), '*****');
         }
-        console.error('[Clone from template] Failed:', stderr);
+        log.error('Clone from template failed', { data: { stderr } });
         return json(
           {
             ok: false,
@@ -331,7 +329,7 @@ export function createGitHubRoutes({ githubService }: GitHubDeps) {
         },
       });
     } catch (error) {
-      console.error('[Clone from template] Error:', error);
+      log.error('Clone from template error', { error });
       return json(
         {
           ok: false,
@@ -350,7 +348,7 @@ export function createGitHubRoutes({ githubService }: GitHubDeps) {
     const owner = c.req.param('owner');
     const result = await githubService.listReposForOwner(owner);
     if (!result.ok) {
-      console.error('[GitHub] List repos for owner error:', result.error);
+      log.error('List repos for owner error', { error: result.error });
       return json({ ok: false, error: result.error }, 401);
     }
     return json({ ok: true, data: { repos: result.value } });
@@ -360,7 +358,7 @@ export function createGitHubRoutes({ githubService }: GitHubDeps) {
   app.get('/repos', async (_c) => {
     const result = await githubService.listUserRepos();
     if (!result.ok) {
-      console.error('[GitHub] List user repos error:', result.error);
+      log.error('List user repos error', { error: result.error });
       return json({ ok: false, error: result.error }, 401);
     }
     return json({ ok: true, data: { repos: result.value } });
@@ -370,7 +368,7 @@ export function createGitHubRoutes({ githubService }: GitHubDeps) {
   app.get('/token', async (_c) => {
     const result = await githubService.getTokenInfo();
     if (!result.ok) {
-      console.error('[GitHub] Get token info error:', result.error);
+      log.error('Get token info error', { error: result.error });
       return json({ ok: false, error: result.error }, 500);
     }
     return json({ ok: true, data: { tokenInfo: result.value } });
@@ -378,13 +376,9 @@ export function createGitHubRoutes({ githubService }: GitHubDeps) {
 
   // POST /api/github/token
   app.post('/token', async (c) => {
-    const body = (await c.req.json()) as { token: string };
-    if (!body.token) {
-      return json(
-        { ok: false, error: { code: 'MISSING_TOKEN', message: 'Token is required' } },
-        400
-      );
-    }
+    const parsed = await parseJsonBody(c, setTokenSchema);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
 
     const result = await githubService.saveToken(body.token);
     if (!result.ok) {
@@ -397,7 +391,7 @@ export function createGitHubRoutes({ githubService }: GitHubDeps) {
   app.delete('/token', async (_c) => {
     const result = await githubService.deleteToken();
     if (!result.ok) {
-      console.error('[GitHub] Delete token error:', result.error);
+      log.error('Delete token error', { error: result.error });
       return json({ ok: false, error: result.error }, 500);
     }
     return json({ ok: true, data: null });
@@ -407,7 +401,7 @@ export function createGitHubRoutes({ githubService }: GitHubDeps) {
   app.post('/revalidate', async (_c) => {
     const result = await githubService.revalidateToken();
     if (!result.ok) {
-      console.error('[GitHub] Revalidate token error:', result.error);
+      log.error('Revalidate token error', { error: result.error });
       return json({ ok: false, error: result.error }, 500);
     }
     return json({ ok: true, data: { isValid: result.value } });

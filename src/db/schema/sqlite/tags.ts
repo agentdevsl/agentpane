@@ -15,7 +15,10 @@ export const tags = sqliteTable(
     name: text('name').notNull(),
     color: text('color').notNull().default('#6B7280'),
     createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
-    updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
+    updatedAt: text('updated_at')
+      .default(sql`(datetime('now'))`)
+      .notNull()
+      .$onUpdate(() => new Date().toISOString()),
   },
   (table) => [uniqueIndex('tags_team_name_unique').on(table.teamId, table.name)]
 );

@@ -44,7 +44,10 @@ export const sandboxConfigs = sqliteTable('sandbox_configs', {
   nomadRegion: text('nomad_region'),
 
   createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
-  updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
+  updatedAt: text('updated_at')
+    .default(sql`(datetime('now'))`)
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export type SandboxConfig = typeof sandboxConfigs.$inferSelect;

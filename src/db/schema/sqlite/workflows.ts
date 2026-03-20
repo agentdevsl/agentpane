@@ -49,7 +49,10 @@ export const workflows = sqliteTable('workflows', {
   aiConfidence: integer('ai_confidence'),
 
   createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
-  updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
+  updatedAt: text('updated_at')
+    .default(sql`(datetime('now'))`)
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export type Workflow = typeof workflows.$inferSelect;

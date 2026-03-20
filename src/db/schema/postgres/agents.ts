@@ -22,7 +22,10 @@ export const agents = pgTable('agents', {
   currentTurn: integer('current_turn').default(0),
   parentAgentId: text('parent_agent_id'),
   createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { mode: 'string' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'string' })
+    .defaultNow()
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export type Agent = typeof agents.$inferSelect;

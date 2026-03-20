@@ -47,11 +47,11 @@ describe('TaskService plan approval/rejection', () => {
   });
 
   describe('approvePlan', () => {
-    it('returns 503 when no container agent service is configured', async () => {
+    it('returns 503 when no execution service is configured', async () => {
       const result = await taskService.approvePlan('any-task-id');
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.code).toBe('CONTAINER_AGENT_SERVICE_UNAVAILABLE');
+        expect(result.error.code).toBe('NO_EXECUTION_SERVICE');
         expect(result.error.status).toBe(503);
       }
     });

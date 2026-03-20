@@ -144,6 +144,50 @@ use these skills
 
 ---
 
+## Code Conventions
+
+### Import Style (CQ-011)
+
+The codebase uses two import styles by convention:
+
+- **Path alias `@/`** -- Used in `src/services/`, `src/server/routes/`, and deep `src/lib/` modules
+  for cross-cutting imports (e.g., `import { ok } from '@/lib/utils/result'`). Configured in
+  `tsconfig.json` paths. Preferred for imports that cross module boundaries.
+- **Relative paths** -- Used within the same directory or immediate siblings (e.g.,
+  `import { createError } from './base.js'`). Preferred for tightly coupled files in the same
+  package/module.
+
+Both styles are acceptable. Do not mix them within a single file.
+
+### Barrel File Re-exports (CQ-012)
+
+Barrel files (e.g., `src/db/schema/sqlite/index.ts`, `src/lib/errors/index.ts`) use wildcard
+`export *` re-exports. This is acceptable and intentional -- it simplifies imports for consumers
+while keeping module internals organized. Monitor for bundle-size impact if the barrel grows
+significantly (currently 38 re-exports in the schema barrel).
+
+### Biome Lint Suppressions (CQ-016)
+
+The codebase has 33 `biome-ignore` suppressions, all with inline justification comments. These
+are reviewed and acceptable -- common cases include `noExplicitAny` for untyped SDK/JSON data,
+`noSuspiciousAssignInExpressions` in stream processing loops, and similar edge cases where the
+lint rule is overly strict for the specific context.
+
+### Frontend Coverage Exclusion (CQ-023)
+
+Frontend code (`src/app/`) is excluded from Vitest coverage metrics in `vitest.config.ts`. This
+is a deliberate decision: React components are better tested via Agent Browser (visual/E2E) than
+unit tests. Backend services and utilities have coverage thresholds applied.
+
+### Database Driver Casts (CQ-026)
+
+The codebase has 38 `as unknown` type casts in database-related code. These are acceptable and
+necessary because the Drizzle ORM's TypeScript types don't always align perfectly with the
+runtime database driver types (better-sqlite3). The casts bridge the gap between Drizzle's
+generated types and the actual query results.
+
+---
+
 ## Architecture: Server-Side SQLite with Real-Time Streaming
 
 This project uses server-side SQLite with real-time event streaming to clients:

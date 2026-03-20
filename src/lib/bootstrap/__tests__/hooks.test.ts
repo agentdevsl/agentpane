@@ -71,6 +71,7 @@ describe('useBootstrap', () => {
       phase: 'sqlite',
       progress: 0,
       isComplete: false,
+      phaseTimings: {},
     };
     currentContext = null;
     capturedEffectCallback = null;
@@ -89,6 +90,7 @@ describe('useBootstrap', () => {
       phase: 'sqlite',
       progress: 0,
       isComplete: false,
+      phaseTimings: {},
     });
     expect(result.context).toBeNull();
     expect(typeof result.retry).toBe('function');
@@ -283,6 +285,7 @@ describe('useBootstrap', () => {
         phase: 'sqlite',
         progress: 0,
         isComplete: false,
+        phaseTimings: {},
       });
     });
 
@@ -327,6 +330,7 @@ describe('useBootstrap integration scenarios', () => {
       phase: 'sqlite',
       progress: 0,
       isComplete: false,
+      phaseTimings: {},
     };
     currentContext = null;
     capturedEffectCallback = null;
@@ -409,6 +413,7 @@ describe('useBootstrap integration scenarios', () => {
             phase,
             progress: ((index + 1) / phases.length) * 100,
             isComplete: index === phases.length - 1,
+            phaseTimings: {},
           };
           setState(state);
         }
@@ -420,6 +425,7 @@ describe('useBootstrap integration scenarios', () => {
         phase: 'seeding',
         progress: 100,
         isComplete: true,
+        phaseTimings: {},
       });
     }
   });
@@ -455,6 +461,7 @@ describe('useBootstrap integration scenarios', () => {
         phase: 'sqlite',
         progress: 0,
         isComplete: false,
+        phaseTimings: {},
         error,
       });
     }
@@ -463,6 +470,7 @@ describe('useBootstrap integration scenarios', () => {
       phase: 'sqlite',
       progress: 0,
       isComplete: false,
+      phaseTimings: {},
       error,
     });
   });
@@ -531,6 +539,7 @@ describe('useBootstrap return value structure', () => {
       phase: 'sqlite',
       progress: 0,
       isComplete: false,
+      phaseTimings: {},
     };
     currentContext = null;
     capturedEffectCallback = null;

@@ -67,33 +67,40 @@ export class SessionStreamService {
     return false;
   }
 
+  /**
+   * RS-013: DB-first persistence strategy.
+   * Events are persisted to the database FIRST (awaited), then published to the
+   * real-time stream. This ensures events are durable before being sent to live
+   * subscribers, matching the pattern used in DurableStreamsService.publish().
+   */
   async publish(
     sessionId: string,
     event: SessionEvent
   ): Promise<Result<{ offset: number }, SessionError>> {
     try {
-      // Publish to real-time stream (for live subscribers)
-      const offset = await this.streams.publish(sessionId, event.type, event.data);
+      // RS-013: Persist to database FIRST to ensure durability
+      const persistResult = await this.persistEvent(sessionId, event);
+      if (!persistResult.ok) {
+        console.error(
+          `[SessionStreamService] Failed to persist event for session ${sessionId}:`,
+          persistResult.error.code,
+          persistResult.error.message
+        );
+        // Still attempt real-time delivery even if DB persistence fails
+      }
 
-      // Persist to database for historical replay (non-blocking)
-      // We don't await this to avoid slowing down real-time delivery
-      this.persistEvent(sessionId, event).then(
-        (result) => {
-          if (!result.ok) {
-            console.error(
-              `[SessionStreamService] Failed to persist event for session ${sessionId}:`,
-              result.error.code,
-              result.error.message
-            );
-          }
-        },
-        (persistError: unknown) => {
-          console.error(
-            `[SessionStreamService] Unexpected error persisting event for session ${sessionId}:`,
-            persistError instanceof Error ? persistError.message : String(persistError)
-          );
-        }
-      );
+      // THEN publish to real-time stream (for live subscribers)
+      // This is best-effort: if DB persistence succeeded, the event is durable
+      // and clients can hydrate from the database on refresh.
+      let offset = persistResult.ok ? persistResult.value.offset : 0;
+      try {
+        offset = await this.streams.publish(sessionId, event.type, event.data);
+      } catch (streamErr) {
+        console.warn(
+          `[SessionStreamService] Stream publish failed (event persisted in DB):`,
+          streamErr instanceof Error ? streamErr.message : String(streamErr)
+        );
+      }
 
       return ok({ offset });
     } catch (error) {

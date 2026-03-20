@@ -5,9 +5,12 @@
 import { Hono } from 'hono';
 import type { SessionStatus } from '../../db/schema/shared/enums.js';
 import { SESSION_STATUS } from '../../db/schema/shared/enums.js';
+import { createLogger } from '../../lib/logging/logger.js';
 import type { SessionService } from '../../services/session.service.js';
-import { isValidId, json } from '../shared.js';
+import { isValidId, json, validateIdParam } from '../shared.js';
 import { createSessionSchema, exportSessionSchema, parseBody } from '../validation.js';
+
+const logger = createLogger('routes:sessions');
 
 // Helper to format session as markdown
 function formatSessionAsMarkdown(
@@ -37,19 +40,26 @@ function formatSessionAsMarkdown(
 
   for (const event of events) {
     const time = new Date(event.timestamp).toLocaleTimeString();
-    const data = event.data as Record<string, unknown>;
+    // Runtime type guard: event.data may not be an object (could be null, string, etc.)
+    const data: Record<string, unknown> =
+      event.data != null && typeof event.data === 'object' && !Array.isArray(event.data)
+        ? (event.data as Record<string, unknown>)
+        : {};
 
     lines.push(`### ${time} - ${event.type}`);
     lines.push('');
 
     // Format content based on event type
     if (event.type === 'container-agent:message') {
-      const role = (data.role as string) || 'unknown';
-      const content = (data.content as string) || '';
+      const role = typeof data.role === 'string' ? data.role : 'unknown';
+      const content = typeof data.content === 'string' ? data.content : '';
       lines.push(`**${role}:** ${content}`);
     } else if (event.type.includes('tool')) {
       const toolName =
-        (data.toolName as string) || (data.tool as string) || (data.name as string) || 'unknown';
+        (typeof data.toolName === 'string' ? data.toolName : undefined) ||
+        (typeof data.tool === 'string' ? data.tool : undefined) ||
+        (typeof data.name === 'string' ? data.name : undefined) ||
+        'unknown';
       lines.push(`**Tool:** ${toolName}`);
       if (data.input) {
         lines.push('```json');
@@ -84,11 +94,19 @@ function formatEventsAsCsv(
 
   for (const event of events) {
     const time = new Date(event.timestamp).toISOString();
-    const data = event.data as Record<string, unknown>;
+    // Runtime type guard: event.data may not be an object
+    const data: Record<string, unknown> =
+      event.data != null && typeof event.data === 'object' && !Array.isArray(event.data)
+        ? (event.data as Record<string, unknown>)
+        : {};
 
-    const role = (data.role as string) || '';
-    const tool = (data.toolName as string) || (data.tool as string) || (data.name as string) || '';
-    let content = (data.content as string) || '';
+    const role = typeof data.role === 'string' ? data.role : '';
+    const tool =
+      (typeof data.toolName === 'string' ? data.toolName : undefined) ||
+      (typeof data.tool === 'string' ? data.tool : undefined) ||
+      (typeof data.name === 'string' ? data.name : undefined) ||
+      '';
+    let content = typeof data.content === 'string' ? data.content : '';
 
     // Escape CSV fields
     const escapeCSV = (str: string) => {
@@ -189,7 +207,7 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
         },
       });
     } catch (error) {
-      console.error('[Sessions] List error:', error);
+      logger.error('List error', { error });
       return json(
         { ok: false, error: { code: 'SERVER_ERROR', message: 'Failed to list sessions' } },
         500
@@ -212,7 +230,7 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
 
       return json({ ok: true, data: result.value }, 201);
     } catch (error) {
-      console.error('[Sessions] Create error:', error);
+      logger.error('Create error', { error });
       return json(
         { ok: false, error: { code: 'SERVER_ERROR', message: 'Failed to create session' } },
         500
@@ -222,14 +240,8 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
 
   // GET /api/sessions/:id/events
   app.get('/:id/events', async (c) => {
-    const id = c.req.param('id');
-
-    if (!isValidId(id)) {
-      return json(
-        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid session ID format' } },
-        400
-      );
-    }
+    const { id, error: idError } = validateIdParam(c, 'id');
+    if (idError) return idError;
 
     const limit = parseInt(c.req.query('limit') ?? '100', 10);
     const offset = parseInt(c.req.query('offset') ?? '0', 10);
@@ -246,7 +258,7 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
         pagination: { total: result.value.length, limit, offset },
       });
     } catch (error) {
-      console.error('[Sessions] Get events error:', error);
+      logger.error('Get events error', { error });
       return json(
         { ok: false, error: { code: 'SERVER_ERROR', message: 'Failed to get session events' } },
         500
@@ -285,7 +297,7 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
 
       return json({ ok: true, data: summary });
     } catch (error) {
-      console.error('[Sessions] Get summary error:', error);
+      logger.error('Get summary error', { error });
       return json(
         { ok: false, error: { code: 'SERVER_ERROR', message: 'Failed to get session summary' } },
         500
@@ -352,7 +364,7 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
 
       return json({ ok: true, data: { content, contentType, filename } });
     } catch (error) {
-      console.error('[Sessions] Export error:', error);
+      logger.error('Export error', { error });
       return json(
         { ok: false, error: { code: 'SERVER_ERROR', message: 'Failed to export session' } },
         500
@@ -382,7 +394,7 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
 
       return json({ ok: true, data: result.value });
     } catch (error) {
-      console.error('[Sessions] Get error:', error);
+      logger.error('Get error', { error });
       return json(
         { ok: false, error: { code: 'SERVER_ERROR', message: 'Failed to get session' } },
         500
@@ -409,7 +421,7 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
 
       return json({ ok: true, data: result.value });
     } catch (error) {
-      console.error('[Sessions] Delete error:', error);
+      logger.error('Delete error', { error });
       return json(
         { ok: false, error: { code: 'SERVER_ERROR', message: 'Failed to delete session' } },
         500

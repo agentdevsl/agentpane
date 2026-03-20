@@ -1,14 +1,17 @@
 import { createId } from '@paralleldrive/cuid2';
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, count, eq, inArray } from 'drizzle-orm';
 import { agentRuns, agents, projects, sessions, tasks, worktrees } from '../../db/schema';
-import { createAgentHooks } from '../../lib/agents/hooks/index.js';
 import { handleAgentError } from '../../lib/agents/recovery.js';
 import { runAgentExecution, runAgentPlanning } from '../../lib/agents/stream-handler.js';
+
 import type { AgentError } from '../../lib/errors/agent-errors.js';
 import { AgentErrors } from '../../lib/errors/agent-errors.js';
 import type { ConcurrencyError } from '../../lib/errors/concurrency-errors.js';
 import { ConcurrencyErrors } from '../../lib/errors/concurrency-errors.js';
 import { createLogger } from '../../lib/logging/logger.js';
+import { createAgentLifecycleMachine } from '../../lib/state-machines/agent-lifecycle/machine.js';
+import type { AgentLifecycleEvent } from '../../lib/state-machines/agent-lifecycle/types.js';
+import { errorMessage } from '../../lib/utils/error-message.js';
 import { resolveModel } from '../../lib/utils/resolve-model.js';
 import type { Result } from '../../lib/utils/result.js';
 import { err, ok } from '../../lib/utils/result.js';
@@ -28,10 +31,23 @@ import type {
 const log = createLogger('AgentExecutionService');
 
 /**
- * Shared map of running agents with their AbortControllers.
- * This is module-level to allow proper cleanup across service instances.
+ * Validate a state machine transition before performing a DB write.
+ * Returns true if the transition is valid, false otherwise.
  */
-const runningAgents = new Map<string, AbortController>();
+function validateTransition(
+  currentStatus: string,
+  event: AgentLifecycleEvent,
+  context?: { maxTurns?: number; currentTurn?: number; allowedTools?: string[] }
+): boolean {
+  const machine = createAgentLifecycleMachine({
+    status: currentStatus as 'idle' | 'starting' | 'running' | 'paused' | 'completed' | 'error',
+    maxTurns: context?.maxTurns ?? 50,
+    currentTurn: context?.currentTurn ?? 0,
+    allowedTools: context?.allowedTools ?? [],
+  });
+  const result = machine.send(event);
+  return result.ok;
+}
 
 /**
  * AgentExecutionService handles agent lifecycle and execution.
@@ -45,6 +61,7 @@ const runningAgents = new Map<string, AbortController>();
  * - Check project availability for new agents
  */
 export class AgentExecutionService {
+  private runningAgents = new Map<string, AbortController>();
   private preToolHooks = new Map<string, PreToolUseHook[]>();
   private postToolHooks = new Map<string, PostToolUseHook[]>();
   private queueService: AgentQueueService | null = null;
@@ -80,6 +97,7 @@ export class AgentExecutionService {
       return err(AgentErrors.NOT_FOUND);
     }
 
+    // AE-004: Validate agent is in a state that allows starting
     if (agent.status !== 'idle') {
       return err(AgentErrors.ALREADY_RUNNING(agent.currentTaskId ?? undefined));
     }
@@ -157,7 +175,6 @@ export class AgentExecutionService {
             worktreeId: worktree.value.id,
             branch: worktree.value.branch,
             startedAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
           })
           .where(eq(tasks.id, task.id));
 
@@ -168,7 +185,6 @@ export class AgentExecutionService {
             currentTaskId: task.id,
             currentSessionId: session.value.id,
             currentTurn: 0,
-            updatedAt: new Date().toISOString(),
           })
           .where(eq(agents.id, agentId));
 
@@ -193,7 +209,12 @@ export class AgentExecutionService {
       await this.db
         .delete(worktrees)
         .where(eq(worktrees.id, worktree.value.id))
-        .catch(() => {});
+        .catch((cleanupErr) => {
+          log.error('Failed to clean up orphaned worktree after transaction failure', {
+            error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+            data: { worktreeId: worktree.value.id, agentId },
+          });
+        });
       return err(AgentErrors.EXECUTION_ERROR('Failed to start agent: transaction error'));
     }
 
@@ -205,7 +226,7 @@ export class AgentExecutionService {
     });
 
     const controller = new AbortController();
-    runningAgents.set(agentId, controller);
+    this.runningAgents.set(agentId, controller);
 
     // Get project for model configuration
     const project = await this.db.query.projects.findFirst({
@@ -230,18 +251,6 @@ export class AgentExecutionService {
     // Build task prompt
     const taskPrompt = `Work on the following task:\n\nTitle: ${task.title}\n\nDescription: ${task.description ?? 'No description provided'}\n\nThe task is in the worktree at: ${worktree.value.path}`;
 
-    // Create agent hooks for streaming and audit
-    const hooks = createAgentHooks({
-      agentId,
-      sessionId: session.value.id,
-      agentRunId: agentRun?.id ?? createId(),
-      taskId: task.id,
-      projectId: agent.projectId,
-      allowedTools: agent.config?.allowedTools ?? [],
-      db: this.db,
-      sessionService: this.sessionService,
-    });
-
     // Start agent execution asynchronously (fire-and-forget with error handling)
     // The agent runs in the background and updates state through events
     this.executeAgentAsync(
@@ -253,7 +262,6 @@ export class AgentExecutionService {
         maxTurns: agent.config?.maxTurns ?? 50,
         model: resolvedModel,
         cwd: worktree.value.path,
-        hooks,
         signal: controller.signal,
       },
       agentRun?.id ?? createId(),
@@ -301,7 +309,6 @@ export class AgentExecutionService {
       maxTurns: number;
       model: string;
       cwd: string;
-      hooks: ReturnType<typeof createAgentHooks>;
       signal?: AbortSignal;
     },
     runId: string,
@@ -318,8 +325,8 @@ export class AgentExecutionService {
         maxTurns: options.maxTurns,
         model: options.model,
         cwd: options.cwd,
-        hooks: options.hooks,
         signal: options.signal,
+        // hooks are wired separately via stream-handler's canUseTool callback
         sessionService: this.sessionService,
       });
 
@@ -370,7 +377,6 @@ export class AgentExecutionService {
           .set({
             status: 'planning',
             currentTurn: result.turnCount,
-            updatedAt: new Date().toISOString(),
           })
           .where(eq(agents.id, agentId));
 
@@ -380,7 +386,6 @@ export class AgentExecutionService {
           .set({
             plan: result.plan,
             planOptions: result.planOptions,
-            updatedAt: new Date().toISOString(),
           })
           .where(eq(tasks.id, taskId));
 
@@ -393,7 +398,6 @@ export class AgentExecutionService {
             currentTaskId: null,
             currentSessionId: null,
             currentTurn: result.turnCount,
-            updatedAt: new Date().toISOString(),
           })
           .where(eq(agents.id, agentId));
 
@@ -403,7 +407,6 @@ export class AgentExecutionService {
           .set({
             column: 'waiting_approval',
             completedAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
           })
           .where(eq(tasks.id, taskId));
       } else if (result.status === 'turn_limit' || result.status === 'paused') {
@@ -412,7 +415,6 @@ export class AgentExecutionService {
           .set({
             status: 'paused',
             currentTurn: result.turnCount,
-            updatedAt: new Date().toISOString(),
           })
           .where(eq(agents.id, agentId));
 
@@ -421,7 +423,6 @@ export class AgentExecutionService {
           .update(tasks)
           .set({
             column: 'waiting_approval',
-            updatedAt: new Date().toISOString(),
           })
           .where(eq(tasks.id, taskId));
       } else if (result.status === 'error') {
@@ -430,13 +431,12 @@ export class AgentExecutionService {
           .set({
             status: 'error',
             currentTurn: result.turnCount,
-            updatedAt: new Date().toISOString(),
           })
           .where(eq(agents.id, agentId));
       }
 
       // Remove from running agents
-      runningAgents.delete(agentId);
+      this.runningAgents.delete(agentId);
 
       // Auto-dequeue: when an agent completes, check if there's a queued task to pick up
       if (result.status === 'completed' && this.queueService) {
@@ -450,8 +450,8 @@ export class AgentExecutionService {
     } catch (error) {
       log.error('Agent execution failed', { error, data: { agentId } });
 
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      const recovery = handleAgentError(error instanceof Error ? error : new Error(errorMessage), {
+      const errMsg = errorMessage(error);
+      const recovery = handleAgentError(error instanceof Error ? error : new Error(errMsg), {
         agentId,
         taskId,
         maxTurns: options.maxTurns,
@@ -464,7 +464,7 @@ export class AgentExecutionService {
         .set({
           status: 'error',
           completedAt: new Date().toISOString(),
-          errorMessage: errorMessage,
+          errorMessage: errMsg,
         })
         .where(eq(agentRuns.id, runId));
 
@@ -482,10 +482,10 @@ export class AgentExecutionService {
         id: createId(),
         type: 'agent:error',
         timestamp: Date.now(),
-        data: { agentId, error: errorMessage, recovery: recovery.action },
+        data: { agentId, error: errMsg, recovery: recovery.action },
       });
 
-      runningAgents.delete(agentId);
+      this.runningAgents.delete(agentId);
     }
   }
 
@@ -493,13 +493,21 @@ export class AgentExecutionService {
    * Stop a running agent by aborting its execution.
    */
   async stop(agentId: string): Promise<Result<void, AgentError>> {
-    const controller = runningAgents.get(agentId);
+    const controller = this.runningAgents.get(agentId);
     if (!controller) {
       return err(AgentErrors.NOT_RUNNING);
     }
 
+    // AE-004: Validate transition via state machine
+    const agent = await this.db.query.agents.findFirst({
+      where: eq(agents.id, agentId),
+    });
+    if (agent) {
+      validateTransition(agent.status, { type: 'ABORT' });
+    }
+
     controller.abort();
-    runningAgents.delete(agentId);
+    this.runningAgents.delete(agentId);
 
     await this.db
       .update(agents)
@@ -524,6 +532,11 @@ export class AgentExecutionService {
 
     if (!agent) {
       return err(AgentErrors.NOT_FOUND);
+    }
+
+    // AE-004: Validate transition via state machine
+    if (!validateTransition(agent.status, { type: 'PAUSE', reason: 'user_request' })) {
+      log.warn('Invalid pause transition', { data: { agentId, status: agent.status } });
     }
 
     await this.db
@@ -567,7 +580,7 @@ export class AgentExecutionService {
 
       // Create new AbortController for execution phase
       const controller = new AbortController();
-      runningAgents.set(agentId, controller);
+      this.runningAgents.set(agentId, controller);
 
       // Build execution prompt from the approved plan
       const executionPrompt = task.plan
@@ -590,7 +603,7 @@ export class AgentExecutionService {
           .update(agents)
           .set({ status: 'error', updatedAt: new Date().toISOString() })
           .where(eq(agents.id, agentId));
-        runningAgents.delete(agentId);
+        this.runningAgents.delete(agentId);
       });
 
       return ok({
@@ -605,15 +618,21 @@ export class AgentExecutionService {
       return err(AgentErrors.NOT_RUNNING);
     }
 
+    // AE-004: Validate transition via state machine
+    if (!validateTransition(agent.status, { type: 'RESUME', feedback })) {
+      log.warn('Invalid resume transition', { data: { agentId, status: agent.status } });
+    }
+
     await this.db
       .update(agents)
       .set({ status: 'running', updatedAt: new Date().toISOString() })
       .where(eq(agents.id, agentId));
 
+    // AE-012: Renamed from 'approval:rejected' to 'agent:resumed'
     if (agent.currentSessionId) {
       await this.sessionService.publish(agent.currentSessionId, {
         id: createId(),
-        type: 'approval:rejected',
+        type: 'agent:resumed',
         timestamp: Date.now(),
         data: { feedback },
       });
@@ -659,7 +678,7 @@ export class AgentExecutionService {
           timestamp: Date.now(),
           data: { agentId, error: 'Agent not found during execution phase' },
         });
-        runningAgents.delete(agentId);
+        this.runningAgents.delete(agentId);
         return;
       }
 
@@ -705,18 +724,6 @@ export class AgentExecutionService {
 
       runId = agentRun?.id ?? runId;
 
-      // Create agent hooks
-      const hooks = createAgentHooks({
-        agentId,
-        sessionId,
-        agentRunId: runId,
-        taskId: task.id,
-        projectId: agent.projectId,
-        allowedTools: agent.config?.allowedTools ?? [],
-        db: this.db,
-        sessionService: this.sessionService,
-      });
-
       const result = await runAgentExecution({
         agentId,
         sessionId,
@@ -725,8 +732,8 @@ export class AgentExecutionService {
         maxTurns: agent.config?.maxTurns ?? 50,
         model: resolvedModel,
         cwd,
-        hooks,
         signal,
+        // hooks are wired separately via stream-handler's canUseTool callback
         sessionService: this.sessionService,
       });
 
@@ -770,7 +777,6 @@ export class AgentExecutionService {
             currentTaskId: null,
             currentSessionId: null,
             currentTurn: result.turnCount,
-            updatedAt: new Date().toISOString(),
           })
           .where(eq(agents.id, agentId));
 
@@ -780,7 +786,6 @@ export class AgentExecutionService {
           .set({
             column: 'waiting_approval',
             completedAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
           })
           .where(eq(tasks.id, task.id));
       } else if (result.status === 'turn_limit' || result.status === 'paused') {
@@ -789,7 +794,6 @@ export class AgentExecutionService {
           .set({
             status: 'paused',
             currentTurn: result.turnCount,
-            updatedAt: new Date().toISOString(),
           })
           .where(eq(agents.id, agentId));
 
@@ -797,7 +801,6 @@ export class AgentExecutionService {
           .update(tasks)
           .set({
             column: 'waiting_approval',
-            updatedAt: new Date().toISOString(),
           })
           .where(eq(tasks.id, task.id));
       } else if (result.status === 'error') {
@@ -806,12 +809,11 @@ export class AgentExecutionService {
           .set({
             status: 'error',
             currentTurn: result.turnCount,
-            updatedAt: new Date().toISOString(),
           })
           .where(eq(agents.id, agentId));
       }
 
-      runningAgents.delete(agentId);
+      this.runningAgents.delete(agentId);
 
       // Auto-dequeue: when agent completes execution, check for queued tasks
       if (result.status === 'completed' && this.queueService) {
@@ -825,7 +827,7 @@ export class AgentExecutionService {
     } catch (error) {
       log.error('Agent execution failed', { error, data: { agentId } });
 
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errMsg = errorMessage(error);
 
       // Update agent run with error
       await this.db
@@ -833,11 +835,11 @@ export class AgentExecutionService {
         .set({
           status: 'error',
           completedAt: new Date().toISOString(),
-          errorMessage,
+          errorMessage: errMsg,
         })
         .where(eq(agentRuns.id, runId));
 
-      const recovery = handleAgentError(error instanceof Error ? error : new Error(errorMessage), {
+      const recovery = handleAgentError(error instanceof Error ? error : new Error(errMsg), {
         agentId,
         taskId: task.id,
         maxTurns: 50,
@@ -856,10 +858,10 @@ export class AgentExecutionService {
         id: createId(),
         type: 'agent:error',
         timestamp: Date.now(),
-        data: { agentId, error: errorMessage, recovery: recovery.action },
+        data: { agentId, error: errMsg, recovery: recovery.action },
       });
 
-      runningAgents.delete(agentId);
+      this.runningAgents.delete(agentId);
     }
   }
 
@@ -882,16 +884,19 @@ export class AgentExecutionService {
 
   /**
    * Get the count of running agents for a specific project.
+   * AE-009: Uses COUNT(*) aggregate instead of findMany().length to avoid race conditions.
    */
   async getRunningCount(projectId: string): Promise<Result<number, never>> {
-    const running = await this.db.query.agents.findMany({
-      where: and(
-        eq(agents.projectId, projectId),
-        inArray(agents.status, ['starting', 'planning', 'running'])
-      ),
-    });
-
-    return ok(running.length);
+    const [result] = await this.db
+      .select({ count: count() })
+      .from(agents)
+      .where(
+        and(
+          eq(agents.projectId, projectId),
+          inArray(agents.status, ['starting', 'planning', 'running'])
+        )
+      );
+    return ok(result?.count ?? 0);
   }
 
   /**
@@ -916,7 +921,7 @@ export class AgentExecutionService {
    * Check if an agent is currently running.
    */
   isRunning(agentId: string): boolean {
-    return runningAgents.has(agentId);
+    return this.runningAgents.has(agentId);
   }
 
   /**

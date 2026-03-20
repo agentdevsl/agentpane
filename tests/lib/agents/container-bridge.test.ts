@@ -7,6 +7,7 @@ import {
   createContainerBridge,
   parseContainerEvent,
 } from '../../../src/lib/agents/container-bridge';
+import { flushPromises } from '../../helpers/async';
 
 // =============================================================================
 // Helpers
@@ -520,7 +521,7 @@ describe('createContainerBridge', () => {
       bridge.processStderr(stream);
 
       // Wait for async line processing
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await flushPromises();
 
       expect(onError).toHaveBeenCalledWith('Fatal crash', 2);
     });
@@ -545,7 +546,7 @@ describe('createContainerBridge', () => {
 
       bridge.processStderr(stream);
 
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await flushPromises();
 
       expect(onError).not.toHaveBeenCalled();
     });
@@ -577,7 +578,7 @@ describe('createContainerBridge', () => {
 
       bridge.processStderr(stream);
 
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await flushPromises();
 
       expect(onError).not.toHaveBeenCalled();
     });
@@ -604,7 +605,7 @@ describe('createContainerBridge', () => {
 
       bridge.processStderr(stream);
 
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await flushPromises();
 
       expect(onError).not.toHaveBeenCalled();
     });

@@ -1,3 +1,20 @@
+/**
+ * RS-004: Durable Streams State Schema
+ *
+ * This file defines the @durable-streams/state schema used by the DurableStreamTestServer
+ * (in-memory dev server). It is NOT the source of truth for event types -- that role belongs
+ * to `src/services/durable-streams.service.ts` which defines the `StreamEventMap` type map
+ * and `DurableStreamsServer` interface used across the entire application.
+ *
+ * This schema is intentionally narrower and only covers the session-level channels needed
+ * by the state machine (chunks, toolCalls, presence, terminal, workflow, agentState).
+ * Higher-level event types (plan:*, terraform:*, container-agent:*, topology:*) are defined
+ * exclusively in `durable-streams.service.ts:StreamEventMap`.
+ *
+ * If you need to add a new event type, add it to `StreamEventMap` in durable-streams.service.ts.
+ * Only modify this file if you need to add a new session-level state channel for the
+ * DurableStreamTestServer's in-memory state tracking.
+ */
 import { createStateSchema } from '@durable-streams/state';
 import { z } from 'zod';
 
@@ -54,7 +71,8 @@ const workflowSchema = z.object({
   type: z.enum([
     'approval:requested',
     'approval:approved',
-    'approval:rejected',
+    'approval:rejected', // AE-012: Deprecated, kept for backward compat with persisted events. Use 'agent:resumed' instead.
+    'agent:resumed',
     'worktree:created',
     'worktree:merged',
     'worktree:removed',

@@ -1,4 +1,5 @@
 import type { NewTerraformModule, TerraformOutput, TerraformVariable } from '../../db/schema';
+import { errorMessage } from '../utils/error-message';
 
 export interface RegistryConfig {
   baseUrl: string;
@@ -248,7 +249,7 @@ export async function syncAllModules(config: RegistryConfig): Promise<NewTerrafo
           // fall back to basic module info from the list response.
           console.warn(
             `[RegistryClient] Detail fetch failed for ${namespace}/${name}/${provider}@${latestVersion} (using basic info):`,
-            error instanceof Error ? error.message : String(error)
+            errorMessage(error)
           );
         }
 

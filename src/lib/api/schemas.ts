@@ -1,3 +1,16 @@
+/**
+ * Schemas for client-side and shared API validation.
+ *
+ * Where schemas overlap with `src/server/validation.ts` (the canonical server-side
+ * schemas), prefer importing from there. This file extends the canonical schemas
+ * with client-specific schemas (e.g., project creation, sandbox configs, workflows)
+ * that are not used in server route handlers.
+ *
+ * Canonical server schemas: taskColumnSchema, createTaskSchema, moveTaskSchema, etc.
+ * are defined in `src/server/validation.ts`. The schemas here use a CUID-based ID
+ * validator and may have different constraints (e.g., max lengths) -- the server
+ * schemas are authoritative for request validation.
+ */
 import { isCuid } from '@paralleldrive/cuid2';
 import { z } from 'zod';
 import { workflowEdgeSchema, workflowNodeSchema } from '@/lib/workflow-dsl/types.js';

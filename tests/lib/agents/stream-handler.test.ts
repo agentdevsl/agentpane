@@ -62,7 +62,6 @@ function createDefaultOptions(
     maxTurns: 10,
     model: 'claude-sonnet-4-6',
     cwd: '/workspace/project',
-    hooks: { PreToolUse: [], PostToolUse: [] },
     sessionService,
     ...overrides,
   };
@@ -282,9 +281,9 @@ describe('runAgentPlanning', () => {
 
   it('captures ExitPlanMode options via canUseTool', async () => {
     // The canUseTool is passed to the SDK, so we capture it from the mock and invoke it
-    let capturedCanUseTool: Function | null = null;
+    let capturedCanUseTool: ((...args: unknown[]) => unknown) | null = null;
     mockSessionCreate.mockImplementation((opts: Record<string, unknown>) => {
-      capturedCanUseTool = opts.canUseTool as Function;
+      capturedCanUseTool = opts.canUseTool as (...args: unknown[]) => unknown;
       return mockSession;
     });
     mockSession.stream.mockReturnValue(
@@ -312,9 +311,9 @@ describe('runAgentPlanning', () => {
   });
 
   it('publishes tool:start via canUseTool callback', async () => {
-    let capturedCanUseTool: Function | null = null;
+    let capturedCanUseTool: ((...args: unknown[]) => unknown) | null = null;
     mockSessionCreate.mockImplementation((opts: Record<string, unknown>) => {
-      capturedCanUseTool = opts.canUseTool as Function;
+      capturedCanUseTool = opts.canUseTool as (...args: unknown[]) => unknown;
       return mockSession;
     });
     mockSession.stream.mockReturnValue(yieldMessages([]));
@@ -338,9 +337,9 @@ describe('runAgentPlanning', () => {
   });
 
   it('handles tool_use_summary and publishes tool:result events', async () => {
-    let capturedCanUseTool: Function | null = null;
+    let capturedCanUseTool: ((...args: unknown[]) => unknown) | null = null;
     mockSessionCreate.mockImplementation((opts: Record<string, unknown>) => {
-      capturedCanUseTool = opts.canUseTool as Function;
+      capturedCanUseTool = opts.canUseTool as (...args: unknown[]) => unknown;
       return mockSession;
     });
 
@@ -1096,9 +1095,9 @@ describe('runAgentExecution', () => {
     // In execution mode, canUseTool is called by the SDK before tool execution.
     // We need to pre-register the tool in activeTools by calling canUseTool
     // before the tool_use_summary message arrives.
-    let capturedCanUseTool: Function | null = null;
+    let capturedCanUseTool: ((...args: unknown[]) => unknown) | null = null;
     mockSessionCreate.mockImplementation((opts: Record<string, unknown>) => {
-      capturedCanUseTool = opts.canUseTool as Function;
+      capturedCanUseTool = opts.canUseTool as (...args: unknown[]) => unknown;
       return mockSession;
     });
 
@@ -1310,49 +1309,4 @@ describe('runAgentExecution', () => {
   });
 });
 
-// =============================================================================
-// executeToolWithHooks Tests
-// =============================================================================
-
-describe('executeToolWithHooks', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it('blocks tool when pre-hook returns block with default message', async () => {
-    const hooks = {
-      PreToolUse: [{ hooks: [async () => ({ decision: 'block' as const })] }],
-      PostToolUse: [],
-    };
-    const { executeToolWithHooks } = await import('@/lib/agents/stream-handler');
-
-    const result = await executeToolWithHooks(
-      'read_file',
-      { file_path: '/x' },
-      { cwd: '/tmp' },
-      hooks
-    );
-
-    expect(result.is_error).toBe(true);
-    expect(result.content[0].text).toBe('Tool blocked by policy');
-  });
-
-  it('runs post-tool hooks after successful execution', async () => {
-    const postHook = vi.fn().mockResolvedValue({});
-    const hooks = {
-      PreToolUse: [],
-      PostToolUse: [{ hooks: [postHook] }],
-    };
-    const { executeToolWithHooks } = await import('@/lib/agents/stream-handler');
-
-    await executeToolWithHooks('read_file', { file_path: '/tmp/test.txt' }, { cwd: '/tmp' }, hooks);
-
-    expect(postHook).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tool_name: 'read_file',
-        tool_input: { file_path: '/tmp/test.txt' },
-        duration_ms: expect.any(Number),
-      })
-    );
-  });
-});
+// executeToolWithHooks tests removed (AE-006: dead code deleted)

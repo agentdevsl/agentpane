@@ -25,7 +25,10 @@ export const githubTokens = sqliteTable('github_tokens', {
   lastValidatedAt: text('last_validated_at'),
   // Timestamps
   createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
-  updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
+  updatedAt: text('updated_at')
+    .default(sql`(datetime('now'))`)
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export const githubInstallations = sqliteTable('github_installations', {
@@ -37,7 +40,10 @@ export const githubInstallations = sqliteTable('github_installations', {
   accountType: text('account_type').notNull(),
   status: text('status').default('active').notNull(),
   createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
-  updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
+  updatedAt: text('updated_at')
+    .default(sql`(datetime('now'))`)
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export const repositoryConfigs = sqliteTable('repository_configs', {
@@ -52,7 +58,10 @@ export const repositoryConfigs = sqliteTable('repository_configs', {
   config: text('config', { mode: 'json' }).$type<Record<string, unknown>>(),
   syncedAt: text('synced_at'),
   createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
-  updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
+  updatedAt: text('updated_at')
+    .default(sql`(datetime('now'))`)
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export type GitHubToken = typeof githubTokens.$inferSelect;

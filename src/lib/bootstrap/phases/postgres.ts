@@ -3,6 +3,7 @@ import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
 import * as pgSchema from '../../../db/schema/postgres/index.js';
 import { createError } from '../../errors/base.js';
+import { errorMessage } from '../../utils/error-message';
 import { err, ok } from '../../utils/result.js';
 import type { BootstrapContext } from '../types.js';
 
@@ -21,7 +22,7 @@ export const initializePostgres = async (_ctx: BootstrapContext) => {
   } catch (error) {
     return err(
       createError('BOOTSTRAP_PG_INIT_FAILED', 'Failed to create PostgreSQL client', 500, {
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage(error),
       })
     );
   }
@@ -32,7 +33,7 @@ export const initializePostgres = async (_ctx: BootstrapContext) => {
     await client.end().catch(() => {});
     return err(
       createError('BOOTSTRAP_PG_INIT_FAILED', 'PostgreSQL connection test failed', 500, {
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage(error),
       })
     );
   }
@@ -45,7 +46,7 @@ export const initializePostgres = async (_ctx: BootstrapContext) => {
     await client.end().catch(() => {});
     return err(
       createError('BOOTSTRAP_PG_INIT_FAILED', 'PostgreSQL migration failed', 500, {
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage(error),
       })
     );
   }

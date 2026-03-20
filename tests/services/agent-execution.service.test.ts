@@ -22,16 +22,12 @@ const mockRunAgentExecution = vi.fn().mockResolvedValue({
   turnCount: 10,
 });
 
-const mockHandleAgentError = vi.fn().mockReturnValue({ action: 'stop', reason: 'test' });
+const mockHandleAgentError = vi.fn().mockReturnValue({ action: 'fail', reason: 'test' });
 
 // Mock external dependencies
 vi.mock('../../src/lib/agents/stream-handler.js', () => ({
   runAgentPlanning: (...args: unknown[]) => mockRunAgentPlanning(...args),
   runAgentExecution: (...args: unknown[]) => mockRunAgentExecution(...args),
-}));
-
-vi.mock('../../src/lib/agents/hooks/index.js', () => ({
-  createAgentHooks: vi.fn().mockReturnValue({}),
 }));
 
 vi.mock('../../src/lib/agents/recovery.js', () => ({
@@ -101,7 +97,7 @@ describe('AgentExecutionService', () => {
       status: 'completed',
       turnCount: 10,
     });
-    mockHandleAgentError.mockReturnValue({ action: 'stop', reason: 'test' });
+    mockHandleAgentError.mockReturnValue({ action: 'fail', reason: 'test' });
   });
 
   afterEach(async () => {
@@ -266,16 +262,8 @@ describe('AgentExecutionService', () => {
   });
 
   // ===========================================================================
-  // 10. registerPreToolUseHook and registerPostToolUseHook do not throw
+  // 10. Hook registration removed (AE-007 - dead hook infrastructure removed)
   // ===========================================================================
-
-  it('registerPreToolUseHook and registerPostToolUseHook do not throw', () => {
-    const preHook = vi.fn().mockResolvedValue({ deny: false });
-    const postHook = vi.fn().mockResolvedValue(undefined);
-
-    expect(() => service.registerPreToolUseHook('agent-1', preHook)).not.toThrow();
-    expect(() => service.registerPostToolUseHook('agent-1', postHook)).not.toThrow();
-  });
 
   // ===========================================================================
   // Group A: Full lifecycle flow
@@ -496,7 +484,7 @@ describe('AgentExecutionService', () => {
       }
     });
 
-    it('resume with feedback publishes approval:rejected', async () => {
+    it('resume with feedback publishes agent:resumed', async () => {
       const project = await createTestProject();
       const task = await createTestTask(project.id);
       const session = await createTestSession(project.id, { taskId: task.id });
@@ -509,11 +497,11 @@ describe('AgentExecutionService', () => {
 
       await service.resume(agent.id, 'Please try a different approach');
 
-      // Verify approval:rejected event was published with feedback
+      // Verify agent:resumed event was published with feedback (AE-012)
       expect(mockSessionService.publish).toHaveBeenCalledWith(
         session.id,
         expect.objectContaining({
-          type: 'approval:rejected',
+          type: 'agent:resumed',
           data: { feedback: 'Please try a different approach' },
         })
       );
@@ -607,7 +595,7 @@ describe('AgentExecutionService', () => {
   describe('Error recovery', () => {
     it('execution error sets agent to error status', async () => {
       mockRunAgentPlanning.mockRejectedValue(new Error('SDK connection failed'));
-      mockHandleAgentError.mockReturnValue({ action: 'stop', reason: 'unrecoverable' });
+      mockHandleAgentError.mockReturnValue({ action: 'fail', reason: 'unrecoverable' });
 
       const { agent, task } = await setupStartPrerequisites();
 
@@ -686,7 +674,7 @@ describe('AgentExecutionService', () => {
 
     it('unhandled error publishes agent:error event', async () => {
       mockRunAgentPlanning.mockRejectedValue(new Error('Unexpected crash'));
-      mockHandleAgentError.mockReturnValue({ action: 'stop', reason: 'unknown' });
+      mockHandleAgentError.mockReturnValue({ action: 'fail', reason: 'unknown' });
 
       const { agent, task } = await setupStartPrerequisites();
 
@@ -754,7 +742,7 @@ describe('AgentExecutionService', () => {
 
     it('failed agent does NOT dequeue', async () => {
       mockRunAgentPlanning.mockRejectedValue(new Error('Agent crashed'));
-      mockHandleAgentError.mockReturnValue({ action: 'stop', reason: 'crash' });
+      mockHandleAgentError.mockReturnValue({ action: 'fail', reason: 'crash' });
 
       const { agent, task } = await setupStartPrerequisites();
 

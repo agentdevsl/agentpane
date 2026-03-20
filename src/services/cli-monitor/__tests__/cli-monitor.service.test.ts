@@ -140,7 +140,7 @@ describe('CliMonitorService', () => {
       vi.spyOn(Date, 'now').mockReturnValue(later);
 
       const result = service.handleHeartbeat('daemon-1', 3);
-      expect(result).toBe('ok');
+      expect(result).toEqual({ ok: true, value: 'ok' });
       expect(service.getDaemon()!.lastHeartbeatAt).toBe(later);
     });
 
@@ -148,12 +148,12 @@ describe('CliMonitorService', () => {
       service.registerDaemon(makeDaemonPayload({ daemonId: 'daemon-1' }));
 
       const result = service.handleHeartbeat('daemon-unknown', 0);
-      expect(result).toBe('stale');
+      expect(result).toEqual({ ok: true, value: 'stale' });
     });
 
     it('returns unknown when no daemon is registered', () => {
       const result = service.handleHeartbeat('daemon-1', 0);
-      expect(result).toBe('unknown');
+      expect(result).toEqual({ ok: true, value: 'unknown' });
     });
   });
 

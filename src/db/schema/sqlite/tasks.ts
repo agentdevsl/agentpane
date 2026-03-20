@@ -55,7 +55,10 @@ export const tasks = sqliteTable(
     /** The generated plan content */
     plan: text('plan'),
     createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
-    updatedAt: text('updated_at').default(sql`(datetime('now'))`).notNull(),
+    updatedAt: text('updated_at')
+      .default(sql`(datetime('now'))`)
+      .notNull()
+      .$onUpdate(() => new Date().toISOString()),
     startedAt: text('started_at'),
     completedAt: text('completed_at'),
     /** Status of the last agent run: completed, cancelled, error, turn_limit, planning */

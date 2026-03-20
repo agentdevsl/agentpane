@@ -28,6 +28,21 @@ export function createWebhooksRoutes({ templateService }: WebhooksDeps) {
     }
 
     const secret = process.env.GITHUB_WEBHOOK_SECRET ?? '';
+    // AR-027: In production, webhook signature verification is mandatory.
+    // Reject unsigned webhooks to prevent spoofed payloads from triggering template syncs.
+    if (!secret && process.env.NODE_ENV === 'production') {
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'CONFIG_ERROR',
+            message:
+              'GITHUB_WEBHOOK_SECRET is not configured. Webhook signature verification is required in production.',
+          },
+        },
+        401
+      );
+    }
     if (secret) {
       const signature = c.req.header('x-hub-signature-256') ?? null;
       const verifyResult = await verifyWebhookSignature({

@@ -1,10 +1,16 @@
 /**
  * Shared utilities and types for API routes
+ *
+ * AR-018: This is the canonical location for API response types and helpers.
+ * The types ApiSuccess, ApiFailure, ApiResponse, success(), and failure() were
+ * consolidated here from src/lib/api/response.ts. That file is now deprecated
+ * and re-exports from this module for backward compatibility.
  */
 
 import { createHash } from 'node:crypto';
 import type { Context } from 'hono';
 import type { RbacRole } from '../db/schema/shared/enums';
+import type { AppError } from '../lib/errors/base.js';
 import { createLogger } from '../lib/logging/logger';
 
 const log = createLogger('SharedHelpers');
@@ -41,6 +47,26 @@ export function parsePagination(c: Context): PaginationParams {
     }
   }
   return { cursor, limit };
+}
+
+/**
+ * Parse a `limit` query parameter with bounds checking.
+ *
+ * AR-013: Standardizes limit parsing across all route files that currently do
+ * `parseInt(c.req.query('limit') ?? '50', 10)` without bounds checking.
+ * Use this instead of inline parseInt for consistent, safe limit handling.
+ *
+ * @param c - Hono context
+ * @param defaultLimit - Default value when param is missing (default: 50)
+ * @param maxLimit - Maximum allowed value (default: 100)
+ * @returns Parsed limit clamped between 1 and maxLimit
+ */
+export function parseLimit(c: Context, defaultLimit = 50, maxLimit = 100): number {
+  const raw = c.req.query('limit');
+  if (!raw) return defaultLimit;
+  const parsed = Number.parseInt(raw, 10);
+  if (Number.isNaN(parsed)) return defaultLimit;
+  return Math.max(1, Math.min(maxLimit, parsed));
 }
 
 // CORS headers for SSE endpoints that bypass Hono middleware
@@ -182,6 +208,52 @@ export async function requireTeamRoleResolved(
  * Require that the authenticated user has at least the given project role.
  * Dev-mode users always pass. Returns null if authorized, or a 403 Response if the user lacks the required role (or has no project access).
  */
+/**
+ * Validate a route ID parameter and return an error response if invalid.
+ *
+ * Eliminates the repeated `isValidId` + `json(400)` boilerplate found in 85+
+ * route handlers. Returns `null` when the ID is valid, or a 400 JSON Response
+ * when it is not.
+ *
+ * @example
+ *   const bad = validateIdParam(c, 'projectId');
+ *   if (bad) return bad;
+ *
+ * @see CQ-003 in specs/reviews/2026-03-architecture/FINDINGS-MATRIX.md
+ */
+export function validateIdParam(
+  c: Context,
+  paramName: string
+): { id: string; error: null } | { id: null; error: Response } {
+  const id = c.req.param(paramName) ?? c.req.query(paramName) ?? '';
+  if (!isValidId(id)) {
+    return {
+      id: null,
+      error: json(
+        { ok: false, error: { code: 'INVALID_ID', message: `Invalid ${paramName} format` } },
+        400
+      ),
+    };
+  }
+  return { id, error: null };
+}
+
+/**
+ * Convert a service `Result` error into a standard JSON error response.
+ *
+ * Most route catch blocks do:
+ *   `if (!result.ok) return json({ ok: false, error: result.error }, result.error.status);`
+ *
+ * This helper centralizes that pattern.
+ *
+ * @see CQ-003 in specs/reviews/2026-03-architecture/FINDINGS-MATRIX.md
+ */
+export function errorResponse(result: {
+  error: { code: string; message: string; status: number };
+}): Response {
+  return json({ ok: false, error: result.error }, result.error.status);
+}
+
 export function requireProjectRole(
   auth: { authMethod: 'session' | 'api_token' | 'dev'; userId: string },
   rbacService: {
@@ -212,3 +284,33 @@ export function requireProjectRole(
       );
     });
 }
+
+// ---------------------------------------------------------------------------
+// AR-018: API response types consolidated from src/lib/api/response.ts
+// ---------------------------------------------------------------------------
+
+export type ApiSuccess<T> = {
+  ok: true;
+  data: T;
+};
+
+export type ApiFailure = {
+  ok: false;
+  error: Omit<AppError, 'status'>;
+};
+
+export type ApiResponse<T> = ApiSuccess<T> | ApiFailure;
+
+export const success = <T>(data: T): ApiSuccess<T> => ({
+  ok: true,
+  data,
+});
+
+export const failure = (error: AppError): ApiFailure => ({
+  ok: false,
+  error: {
+    code: error.code,
+    message: error.message,
+    details: error.details,
+  },
+});

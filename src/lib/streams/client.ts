@@ -1394,6 +1394,34 @@ interface SharedEntry {
 const sharedSubscriptions = new Map<string, SharedEntry>();
 
 /**
+ * RS-010: Periodic audit interval for subscription map cleanup.
+ * Runs every 60 seconds to detect and remove orphaned entries where
+ * all subscribers have been removed but the entry persists in the map.
+ */
+const SUBSCRIPTION_AUDIT_INTERVAL_MS = 60_000;
+let subscriptionAuditTimer: ReturnType<typeof setInterval> | null = null;
+
+function ensureSubscriptionAudit(): void {
+  if (subscriptionAuditTimer) return;
+  subscriptionAuditTimer = setInterval(() => {
+    for (const [sessionId, entry] of sharedSubscriptions) {
+      if (entry.subscribers.size === 0) {
+        console.warn(
+          `[DurableStreams] RS-010: Orphaned subscription detected for ${sessionId}, cleaning up`
+        );
+        entry.subscription.unsubscribe();
+        sharedSubscriptions.delete(sessionId);
+      }
+    }
+    // Stop auditing if no subscriptions remain
+    if (sharedSubscriptions.size === 0 && subscriptionAuditTimer) {
+      clearInterval(subscriptionAuditTimer);
+      subscriptionAuditTimer = null;
+    }
+  }, SUBSCRIPTION_AUDIT_INTERVAL_MS);
+}
+
+/**
  * Subscribe to a session's event stream, sharing the underlying SSE connection
  * with other subscribers for the same sessionId.
  */
@@ -1439,11 +1467,18 @@ export function subscribeToSession(sessionId: string, callbacks: SessionCallback
     ];
 
     for (const key of callbackKeys) {
-      // biome-ignore lint/suspicious/noExplicitAny: generic fan-out across all callback shapes
-      (fanOutCallbacks as any)[key] = (...args: any[]) => {
+      // Type-safe fan-out: route each event to all registered subscribers.
+      // We use a type assertion here because the callback keys are dynamically
+      // iterated and TypeScript cannot narrow the union per-iteration.
+      const fanOutKey = key as keyof SessionCallbacks;
+      (fanOutCallbacks as Record<string, (...args: unknown[]) => void>)[fanOutKey] = (
+        ...args: unknown[]
+      ) => {
         for (const sub of subscriberMap.values()) {
-          // biome-ignore lint/suspicious/noExplicitAny: generic fan-out
-          (sub as any)[key]?.(...args);
+          const handler = sub[fanOutKey];
+          if (typeof handler === 'function') {
+            (handler as (...a: unknown[]) => void)(...args);
+          }
         }
       };
     }
@@ -1452,6 +1487,8 @@ export function subscribeToSession(sessionId: string, callbacks: SessionCallback
 
     entry = { subscription, subscribers: subscriberMap, nextId: 0 };
     sharedSubscriptions.set(sessionId, entry);
+    // RS-010: Start periodic audit to catch orphaned subscriptions
+    ensureSubscriptionAudit();
   }
 
   // Register this subscriber

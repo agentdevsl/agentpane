@@ -7,6 +7,7 @@ import type { CronEventSourceConfig } from '../db/schema/shared/cron-config.js';
 import { scheduleExecutions } from '../db/schema/sqlite/schedule-executions.js';
 import type { AppError } from '../lib/errors/base.js';
 import { ScheduleErrors } from '../lib/errors/event-errors.js';
+import { ServiceErrors } from '../lib/errors/service-errors.js';
 import { publishEventToStream } from '../lib/events/event-bus.js';
 import type { PluginRegistry } from '../lib/events/plugin-registry.js';
 import type { CronTickContext } from '../lib/events/plugins/cron-plugin.js';
@@ -559,15 +560,13 @@ export class SchedulerService {
         }
         return next.toISOString();
       } catch (cronError) {
-        throw new Error(
-          `Invalid cron expression "${config.cronExpression}" (timezone: ${config.timezone}): ${cronError instanceof Error ? cronError.message : String(cronError)}`
+        throw ScheduleErrors.INVALID_CRON(
+          `${config.cronExpression} (timezone: ${config.timezone}): ${cronError instanceof Error ? cronError.message : String(cronError)}`
         );
       }
     }
 
-    throw new Error(
-      `Unknown scheduleType "${config.scheduleType}". Expected "interval" or "cron". This indicates corrupted configuration data.`
-    );
+    throw ServiceErrors.INVALID_SCHEDULE_TYPE(config.scheduleType);
   }
 
   // -------------------------------------------------------------------------

@@ -175,8 +175,6 @@ export type MockAgentService = {
   queueTask: ReturnType<typeof vi.fn>;
   getRunningCount: ReturnType<typeof vi.fn>;
   getQueuedTasks: ReturnType<typeof vi.fn>;
-  registerPreToolUseHook: ReturnType<typeof vi.fn>;
-  registerPostToolUseHook: ReturnType<typeof vi.fn>;
 };
 
 export function createMockAgentService(
@@ -230,8 +228,6 @@ export function createMockAgentService(
       .mockResolvedValue(ok({ taskId: createId(), position: 1, estimatedWaitMinutes: 5 })),
     getRunningCount: vi.fn().mockResolvedValue(ok(0)),
     getQueuedTasks: vi.fn().mockResolvedValue(ok([])),
-    registerPreToolUseHook: vi.fn(),
-    registerPostToolUseHook: vi.fn(),
     ...overrides,
   };
 }

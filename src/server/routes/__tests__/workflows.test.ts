@@ -169,7 +169,8 @@ describe('Workflows API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('MISSING_PARAMS');
+      // Now uses Zod validation which returns VALIDATION_ERROR
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 for invalid JSON body', async () => {
@@ -185,17 +186,16 @@ describe('Workflows API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('INVALID_JSON');
+      // parseJsonBody returns VALIDATION_ERROR for invalid JSON
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
-    it('accepts optional fields like nodes, edges, tags', async () => {
+    it('accepts optional fields like tags', async () => {
       const { app, db } = createTestApp();
       const created = {
         id: 'wf-full',
         name: 'Full Workflow',
         status: 'published',
-        nodes: [{ id: 'n1' }],
-        edges: [{ id: 'e1' }],
         tags: ['tag1'],
       };
       setupInsertMock(db, created);
@@ -203,8 +203,6 @@ describe('Workflows API Routes', () => {
       const res = await request(app, 'POST', '/api/workflows', {
         name: 'Full Workflow',
         status: 'published',
-        nodes: [{ id: 'n1' }],
-        edges: [{ id: 'e1' }],
         tags: ['tag1'],
       });
 

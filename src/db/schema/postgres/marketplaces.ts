@@ -35,7 +35,10 @@ export const marketplaces = pgTable('marketplaces', {
   syncError: text('sync_error'),
   cachedPlugins: jsonb('cached_plugins').$type<CachedPlugin[]>(),
   createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { mode: 'string' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'string' })
+    .defaultNow()
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export type Marketplace = typeof marketplaces.$inferSelect;

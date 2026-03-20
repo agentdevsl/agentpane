@@ -1,0 +1,51 @@
+/**
+ * Router Construction Phase
+ *
+ * Creates the Hono router with all service dependencies.
+ */
+
+import type { EventEmittingSandboxProvider } from '../../../lib/sandbox/providers/sandbox-provider.js';
+import type { Database } from '../../../types/database.js';
+import type { SandboxProviderHealth } from '../../router.js';
+import { createRouter as createHonoRouter } from '../../router.js';
+import type { ServiceContainer } from '../types.js';
+
+/**
+ * Create the Hono API router with all dependencies injected.
+ */
+export function createAppRouter(
+  db: Database,
+  services: ServiceContainer,
+  getSandboxProvider: () => EventEmittingSandboxProvider | null,
+  getK8sProvider: () => SandboxProviderHealth | null,
+  getNomadProvider: () => SandboxProviderHealth | null
+) {
+  return createHonoRouter({
+    db,
+    githubService: services.githubService,
+    apiKeyService: services.apiKeyService,
+    templateService: services.templateService,
+    sandboxConfigService: services.sandboxConfigService,
+    taskService: services.taskService,
+    sessionService: services.sessionService,
+    taskCreationService: services.taskCreationService,
+    worktreeService: services.worktreeService,
+    marketplaceService: services.marketplaceService,
+    agentService: services.agentService,
+    commandRunner: services.commandRunner,
+    workflowService: services.workflowService,
+    gitService: services.gitService,
+    projectService: services.projectService,
+    getSandboxProvider,
+    getK8sProvider,
+    getNomadProvider,
+    cliMonitorService: services.cliMonitorService,
+    terraformRegistryService: services.terraformRegistryService,
+    terraformComposeService: services.terraformComposeService,
+    settingsService: services.settingsService,
+    eventSourceService: services.eventSourceService,
+    eventSubscriptionService: services.eventSubscriptionService,
+    eventProcessingService: services.eventProcessingService,
+    schedulerService: services.schedulerService,
+  });
+}

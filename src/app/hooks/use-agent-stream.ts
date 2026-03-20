@@ -1,10 +1,9 @@
+/**
+ * FC-006: Updated to use useSessionSubscription for shared SSE connections.
+ */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  type ConnectionState,
-  type SessionAgentState,
-  type Subscription,
-  subscribeToSession,
-} from '@/lib/streams/client';
+import type { ConnectionState, SessionAgentState, SessionCallbacks } from '@/lib/streams/client';
+import { useSessionSubscription } from './use-session-subscription';
 
 export type AgentStreamChunk = {
   text: string;
@@ -34,13 +33,12 @@ export function useAgentStream(sessionId: string): {
   const [tools, setTools] = useState<ToolExecution[]>([]);
   const [agentState, setAgentState] = useState<SessionAgentState>(null);
   const [isStreaming, setIsStreaming] = useState(false);
-  const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
-  const subscriptionRef = useRef<Subscription | null>(null);
+
+  // Build callbacks for the shared subscription
+  const callbacks = useRef<SessionCallbacks>({});
 
   useEffect(() => {
-    setConnectionState('connecting');
-
-    const subscription = subscribeToSession(sessionId, {
+    callbacks.current = {
       onChunk: (event) => {
         setChunks((prev) => [
           ...prev,
@@ -86,10 +84,6 @@ export function useAgentStream(sessionId: string): {
         setIsStreaming(false);
       },
 
-      onConnectionStateChange: (nextState) => {
-        setConnectionState(nextState);
-      },
-
       onReconnect: () => {
         console.log('[useAgentStream] Reconnected to stream');
       },
@@ -97,17 +91,10 @@ export function useAgentStream(sessionId: string): {
       onDisconnect: () => {
         console.log('[useAgentStream] Disconnected from stream');
       },
-    });
-
-    subscriptionRef.current = subscription;
-    setConnectionState(subscription.getState());
-
-    return () => {
-      subscription.unsubscribe();
-      subscriptionRef.current = null;
-      setIsStreaming(false);
     };
-  }, [sessionId]);
+  }, []);
+
+  const { connectionState } = useSessionSubscription(sessionId, callbacks.current);
 
   const fullText = useMemo(() => chunks.map((chunk) => chunk.text).join(''), [chunks]);
 

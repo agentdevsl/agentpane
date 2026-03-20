@@ -17,7 +17,7 @@ const pathUtils = {
 
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import type { Project, ProjectConfig } from '../db/schema';
-import { agents, projects, tasks } from '../db/schema';
+import { agents, githubInstallations, projects, tasks } from '../db/schema';
 import { projectConfigSchema } from '../lib/config/schemas.js';
 import { DEFAULT_PROJECT_CONFIG } from '../lib/config/types.js';
 import { containsSecrets } from '../lib/config/validate-secrets.js';
@@ -26,6 +26,7 @@ import { ProjectErrors } from '../lib/errors/project-errors.js';
 import { getInstallationOctokit } from '../lib/github/client.js';
 import { syncConfigFromGitHub } from '../lib/github/config-sync.js';
 import { deepMerge } from '../lib/utils/deep-merge.js';
+import { errorMessage } from '../lib/utils/error-message.js';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
 import type { Database } from '../types/database.js';
@@ -244,13 +245,30 @@ export class ProjectService {
     const summaries: ProjectSummary[] = projectList.map((project) => {
       const projectTasks = tasksByProject.get(project.id) ?? [];
 
+      // SL-010: Single-loop counting instead of 4x .filter().length
       const taskCounts = {
-        backlog: projectTasks.filter((t) => t.column === 'backlog').length,
-        inProgress: projectTasks.filter((t) => t.column === 'in_progress').length,
-        waitingApproval: projectTasks.filter((t) => t.column === 'waiting_approval').length,
-        verified: projectTasks.filter((t) => t.column === 'verified').length,
+        backlog: 0,
+        inProgress: 0,
+        waitingApproval: 0,
+        verified: 0,
         total: projectTasks.length,
       };
+      for (const t of projectTasks) {
+        switch (t.column) {
+          case 'backlog':
+            taskCounts.backlog++;
+            break;
+          case 'in_progress':
+            taskCounts.inProgress++;
+            break;
+          case 'waiting_approval':
+            taskCounts.waitingApproval++;
+            break;
+          case 'verified':
+            taskCounts.verified++;
+            break;
+        }
+      }
 
       const runningAgentsList = agentsByProject.get(project.id) ?? [];
 
@@ -403,7 +421,6 @@ export class ProjectService {
 
     try {
       // Get installation-scoped Octokit client
-      const { githubInstallations } = await import('../db/schema/index.js');
       const installation = await this.db.query.githubInstallations.findFirst({
         where: eq(githubInstallations.id, project.githubInstallationId),
       });
@@ -453,11 +470,7 @@ export class ProjectService {
       return ok(updated);
     } catch (error) {
       console.error(`[ProjectService] GitHub sync failed for project ${id}:`, error);
-      return err(
-        ProjectErrors.CONFIG_INVALID([
-          `GitHub sync failed: ${error instanceof Error ? error.message : String(error)}`,
-        ])
-      );
+      return err(ProjectErrors.CONFIG_INVALID([`GitHub sync failed: ${errorMessage(error)}`]));
     }
   }
 
@@ -508,9 +521,7 @@ export class ProjectService {
       });
     } catch (error) {
       return err(
-        ProjectErrors.CONFIG_INVALID([
-          `Failed to clone repository: ${error instanceof Error ? error.message : String(error)}`,
-        ])
+        ProjectErrors.CONFIG_INVALID([`Failed to clone repository: ${errorMessage(error)}`])
       );
     }
   }

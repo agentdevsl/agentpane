@@ -1,0 +1,198 @@
+/**
+ * Service Container Factory (CB-004)
+ *
+ * Constructs all services in correct dependency order.
+ * Eliminates the TaskService stub-then-patch pattern by creating
+ * WorktreeService first, then passing it directly to TaskService.
+ */
+
+import { PluginRegistry } from '../../lib/events/plugin-registry.js';
+import { CronEventSourcePlugin } from '../../lib/events/plugins/cron-plugin.js';
+import { GitHubEventSourcePlugin } from '../../lib/events/plugins/github.js';
+import { createLogger } from '../../lib/logging/logger.js';
+import { CaddyDurableStreamsServer } from '../../lib/streams/caddy-producer.js';
+import { AgentService } from '../../services/agent.service.js';
+import { ApiKeyService } from '../../services/api-key.service.js';
+import { CliMonitorService } from '../../services/cli-monitor/index.js';
+import { DurableStreamsService } from '../../services/durable-streams.service.js';
+import { EventProcessingService } from '../../services/event-processing.service.js';
+import { EventSourceService } from '../../services/event-source.service.js';
+import { EventSubscriptionService } from '../../services/event-subscription.service.js';
+import { GitService } from '../../services/git.service.js';
+import { GitHubTokenService } from '../../services/github-token.service.js';
+import { MarketplaceService } from '../../services/marketplace.service.js';
+import { ProjectService } from '../../services/project.service.js';
+import { SandboxConfigService } from '../../services/sandbox-config.service.js';
+import { SchedulerService } from '../../services/scheduler.service.js';
+import { SessionService } from '../../services/session.service.js';
+import { SettingsService } from '../../services/settings.service.js';
+import { TaskService } from '../../services/task.service.js';
+import { createTaskCreationService } from '../../services/task-creation.service.js';
+import { TemplateService } from '../../services/template.service.js';
+import { TerraformComposeService } from '../../services/terraform-compose.service.js';
+import { TerraformRegistryService } from '../../services/terraform-registry.service.js';
+import { WorkflowService } from '../../services/workflow.service.js';
+import { type CommandRunner, WorktreeService } from '../../services/worktree.service.js';
+import type { Database } from '../../types/database.js';
+import type { ServerConfig, ServiceContainer } from './types.js';
+
+declare const Bun: {
+  spawn: (
+    cmd: string[],
+    options: { cwd: string; stdout: 'pipe'; stderr: 'pipe' }
+  ) => {
+    exited: Promise<number>;
+    stdout: ReadableStream<Uint8Array>;
+    stderr: ReadableStream<Uint8Array>;
+  };
+};
+
+const log = createLogger('ServiceContainer');
+
+/** Create the Bun-based CommandRunner for shell operations. */
+function createBunCommandRunner(): CommandRunner {
+  return {
+    exec: async (command: string, cwd: string) => {
+      const proc = Bun.spawn(['sh', '-c', command], {
+        cwd,
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+
+      const exitCode = await proc.exited;
+      const stdout = await new Response(proc.stdout).text();
+      const stderr = await new Response(proc.stderr).text();
+
+      if (exitCode !== 0) {
+        throw new Error(`Command failed with exit code ${exitCode}: ${stderr || stdout}`);
+      }
+
+      return { stdout, stderr };
+    },
+  };
+}
+
+/**
+ * Create all services in correct dependency order.
+ *
+ * Dependency graph (simplified):
+ * 1. Standalone: GitHubTokenService, ApiKeyService, TemplateService, SandboxConfigService
+ * 2. Streams: CaddyDurableStreamsServer -> CliMonitorService, DurableStreamsService
+ * 3. Sessions: SessionService (needs CaddyDurableStreamsServer)
+ * 4. Tasks: WorktreeService -> TaskService (gets real worktree from start)
+ * 5. Task Creation: TaskCreationService (needs DurableStreamsService, SessionService)
+ * 6. Agents: AgentService (needs WorktreeService, TaskService, SessionService)
+ * 7. Events: PluginRegistry -> EventSourceService -> EventProcessingService -> SchedulerService
+ * 8. Terraform: TerraformRegistryService, TerraformComposeService
+ */
+export function createServiceContainer(db: Database, config: ServerConfig): ServiceContainer {
+  const commandRunner = createBunCommandRunner();
+
+  // 1. Standalone services
+  const githubService = new GitHubTokenService(db);
+  const apiKeyService = new ApiKeyService(db);
+  const templateService = new TemplateService(db);
+  const sandboxConfigService = new SandboxConfigService(db);
+  const settingsService = new SettingsService(db);
+  const marketplaceService = new MarketplaceService(db);
+
+  // 2. Streams infrastructure
+  const caddyStreamsServer = new CaddyDurableStreamsServer(config.caddyStreamsUrl);
+  log.info('Using CaddyDurableStreamsServer', { data: { url: config.caddyStreamsUrl } });
+
+  const cliMonitorService = new CliMonitorService(caddyStreamsServer, db);
+  log.info('CLI Monitor receiver ready (waiting for daemon)');
+
+  const durableStreamsService = new DurableStreamsService(caddyStreamsServer, db);
+
+  // 3. Session service
+  const sessionService = new SessionService(db, caddyStreamsServer, {
+    baseUrl: `http://localhost:${config.port}`,
+  });
+
+  // 4. Worktree and Task services (CB-004: proper dependency ordering)
+  const worktreeService = new WorktreeService(db, commandRunner);
+
+  // Create TaskService with real worktree methods from the start
+  const taskService = new TaskService(db, {
+    getDiff: (worktreeId: string) => worktreeService.getDiff(worktreeId),
+    merge: (worktreeId: string, targetBranch?: string) =>
+      worktreeService.merge(worktreeId, targetBranch),
+    remove: (worktreeId: string) => worktreeService.remove(worktreeId),
+  });
+
+  // 5. Task creation service
+  const taskCreationService = createTaskCreationService(db, durableStreamsService, sessionService);
+
+  // 6. Agent service
+  const agentService = new AgentService(db, worktreeService, taskService, sessionService);
+
+  // Wire agent execution service into task service for host-mode plan approval (AE-002)
+  taskService.setAgentExecutionService(agentService);
+
+  // 7. Workflow service
+  const workflowService = new WorkflowService(db);
+
+  // 8. Git and Project services
+  const gitService = new GitService(db, commandRunner);
+  const projectService = new ProjectService(db, worktreeService, commandRunner);
+
+  // 9. Event system
+  const pluginRegistry = new PluginRegistry();
+  pluginRegistry.register('github', new GitHubEventSourcePlugin());
+  pluginRegistry.register('cron', new CronEventSourcePlugin());
+
+  const eventSourceService = new EventSourceService(db);
+  const eventSubscriptionService = new EventSubscriptionService(db);
+  const eventProcessingService = new EventProcessingService(
+    db,
+    pluginRegistry,
+    eventSourceService,
+    eventSubscriptionService,
+    taskService
+  );
+
+  // 10. Scheduler service
+  const schedulerService = new SchedulerService(
+    db,
+    pluginRegistry,
+    eventProcessingService,
+    eventSourceService
+  );
+
+  // 11. Terraform services
+  const terraformRegistryService = new TerraformRegistryService(db);
+  const terraformComposeService = new TerraformComposeService(
+    terraformRegistryService,
+    db,
+    settingsService,
+    durableStreamsService
+  );
+
+  return {
+    githubService,
+    apiKeyService,
+    templateService,
+    sandboxConfigService,
+    taskService,
+    sessionService,
+    taskCreationService,
+    worktreeService,
+    marketplaceService,
+    agentService,
+    workflowService,
+    gitService,
+    projectService,
+    cliMonitorService,
+    durableStreamsService,
+    terraformRegistryService,
+    terraformComposeService,
+    settingsService,
+    eventSourceService,
+    eventSubscriptionService,
+    eventProcessingService,
+    schedulerService,
+    commandRunner,
+    containerAgentService: null,
+  };
+}

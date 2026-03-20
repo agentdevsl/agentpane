@@ -261,7 +261,7 @@ describe('Configuration Module', () => {
       }
     });
 
-    it('returns error when required ANTHROPIC_API_KEY is missing', async () => {
+    it('succeeds without ANTHROPIC_API_KEY (CB-013: deferred to execution time)', async () => {
       // Ensure API key is not set
       delete process.env.ANTHROPIC_API_KEY;
 
@@ -270,11 +270,7 @@ describe('Configuration Module', () => {
       const { loadProjectConfig } = await import('@/lib/config/config-service');
       const result = await loadProjectConfig({ projectPath: '/test/project' });
 
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.code).toBe('CONFIG_MISSING_API_KEY');
-        expect(result.error.details?.env).toBe('ANTHROPIC_API_KEY');
-      }
+      expect(result.ok).toBe(true);
     });
 
     it('detects and rejects secrets in configuration keys', async () => {

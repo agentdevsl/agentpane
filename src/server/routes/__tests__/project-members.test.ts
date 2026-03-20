@@ -85,7 +85,7 @@ describe('Project Members API Routes', () => {
     it('adds a member to a project', async () => {
       const { app, db } = createTestApp();
 
-      db.transaction.mockImplementation(async (fn: Function) => {
+      db.transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
         const tx = {
           select: vi.fn().mockReturnValue({
             from: vi.fn().mockReturnValue({
@@ -172,7 +172,7 @@ describe('Project Members API Routes', () => {
     it('returns 409 when member already exists', async () => {
       const { app, db } = createTestApp();
 
-      db.transaction.mockImplementation(async (fn: Function) => {
+      db.transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
         const tx = {
           select: vi.fn().mockReturnValue({
             from: vi.fn().mockReturnValue({
@@ -199,7 +199,7 @@ describe('Project Members API Routes', () => {
     it('returns 404 when user does not exist', async () => {
       const { app, db } = createTestApp();
 
-      db.transaction.mockImplementation(async (fn: Function) => {
+      db.transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
         let selectCallCount = 0;
         const tx = {
           select: vi.fn().mockImplementation(() => {

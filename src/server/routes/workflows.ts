@@ -5,8 +5,10 @@
  */
 
 import { Hono } from 'hono';
+import { createWorkflowSchema } from '../../lib/api/schemas.js';
 import type { WorkflowService } from '../../services/workflow.service.js';
 import { isValidId, json } from '../shared.js';
+import { parseJsonBody } from '../validation.js';
 
 interface WorkflowsDeps {
   workflowService: WorkflowService;
@@ -35,37 +37,14 @@ export function createWorkflowsRoutes({ workflowService }: WorkflowsDeps) {
   });
 
   // POST /api/workflows
+  // AR-012: Uses Zod validation via createWorkflowSchema from schemas.ts
   app.post('/', async (c) => {
-    let body: {
-      name: string;
-      description?: string;
-      nodes?: unknown[];
-      edges?: unknown[];
-      viewport?: { x: number; y: number; zoom: number };
-      status?: string;
-      tags?: string[];
-      sourceTemplateId?: string;
-      sourceTemplateName?: string;
-      thumbnail?: string;
-      aiGenerated?: boolean;
-      aiModel?: string;
-      aiConfidence?: number;
-    };
-    try {
-      body = await c.req.json();
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON in request body' } },
-        400
-      );
+    const parsed = await parseJsonBody(c, createWorkflowSchema);
+    if (!parsed.ok) {
+      return parsed.response;
     }
 
-    if (!body.name) {
-      return json(
-        { ok: false, error: { code: 'MISSING_PARAMS', message: 'Name is required' } },
-        400
-      );
-    }
+    const body = parsed.data;
 
     const result = await workflowService.create({
       name: body.name,
@@ -73,7 +52,7 @@ export function createWorkflowsRoutes({ workflowService }: WorkflowsDeps) {
       nodes: body.nodes,
       edges: body.edges,
       viewport: body.viewport,
-      status: body.status as 'draft' | 'published' | 'archived' | undefined,
+      status: body.status,
       tags: body.tags,
       sourceTemplateId: body.sourceTemplateId,
       sourceTemplateName: body.sourceTemplateName,

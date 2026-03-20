@@ -56,13 +56,9 @@ export const loadProjectConfig = async ({
 }: {
   projectPath: string;
 }): Promise<Result<LoadedConfig, ReturnType<typeof createError>>> => {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return err(
-      createError('CONFIG_MISSING_API_KEY', 'Missing ANTHROPIC_API_KEY', 400, {
-        env: 'ANTHROPIC_API_KEY',
-      })
-    );
-  }
+  // CB-013: ANTHROPIC_API_KEY is no longer checked at config loading time.
+  // Non-agent operations (project listing, settings, etc.) do not require an API key.
+  // The key is validated at agent execution time instead (see api.ts key resolution).
 
   const baseConfigResult = await loadProjectConfigFrom({ projectPath });
   if (!baseConfigResult.ok) {

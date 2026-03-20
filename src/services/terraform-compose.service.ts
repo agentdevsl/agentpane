@@ -5,6 +5,7 @@ import { createId } from '@paralleldrive/cuid2';
 import type { TerraformModule } from '../db/schema';
 import { buildSdkEnv } from '../lib/agents/agent-sdk-utils.js';
 import { DEFAULT_AGENT_MODEL, getFullModelId } from '../lib/constants/models.js';
+import { ServiceErrors } from '../lib/errors/service-errors.js';
 import type { TerraformError } from '../lib/errors/terraform-errors.js';
 import { createLogger } from '../lib/logging/logger.js';
 import { buildCompositionSystemPrompt } from '../lib/terraform/compose-prompt.js';
@@ -15,6 +16,7 @@ import type {
   GeneratedFile,
   ModuleMatch,
 } from '../lib/terraform/types.js';
+import { errorMessage } from '../lib/utils/error-message.js';
 import type { Result } from '../lib/utils/result.js';
 import { ok } from '../lib/utils/result.js';
 import type { Database } from '../types/database.js';
@@ -118,11 +120,16 @@ export class TerraformComposeService {
     // Fail fast if DurableStreamsService is not configured
     if (!this.durableStreamsService) {
       log.error('No DurableStreamsService configured — cannot start compose');
-      throw new Error('[TerraformCompose] DurableStreamsService is required for event delivery');
+      throw ServiceErrors.STREAMS_REQUIRED;
     }
 
-    // Create the durable stream BEFORE returning sessionId so the client can subscribe immediately.
-    // Delete any existing stream first to prevent stale event replay on multi-turn conversations.
+    // RS-016: Create the durable stream BEFORE returning sessionId so the client
+    // can subscribe immediately. The stream is intentionally deleted and recreated
+    // on each compose request to prevent stale event replay on multi-turn conversations.
+    // This is by design: each compose turn produces a fresh stream of events
+    // (status, text deltas, code, done) that should not include events from previous turns.
+    // The delete is best-effort (may fail if stream doesn't exist yet) while the
+    // create is required (will fail the request if it cannot be created).
     const streamId = `terraform:${sid}`;
     try {
       await this.durableStreamsService.deleteStream(streamId).catch(() => {});
@@ -132,9 +139,7 @@ export class TerraformComposeService {
         data: { streamId },
         error: err,
       });
-      throw new Error(
-        `[TerraformCompose] Failed to create stream: ${err instanceof Error ? err.message : String(err)}`
-      );
+      throw ServiceErrors.STREAM_CREATE_FAILED(streamId, errorMessage(err));
     }
 
     // Run pipeline without awaiting — the caller returns the session ID immediately.
@@ -173,7 +178,7 @@ export class TerraformComposeService {
       log.error('No DurableStreamsService configured — events will be lost', {
         data: { type, jobId },
       });
-      throw new Error('[TerraformCompose] DurableStreamsService is required for event delivery');
+      throw ServiceErrors.STREAMS_REQUIRED;
     }
     const streamId = `terraform:${jobId}`;
     try {
@@ -459,7 +464,7 @@ export class TerraformComposeService {
         },
       });
     } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
+      const reason = errorMessage(error);
 
       const isAuthError =
         reason.includes('authentication_error') ||
@@ -471,29 +476,29 @@ export class TerraformComposeService {
       const isContextLength =
         reason.includes('context_length') || reason.includes('too many tokens');
 
-      let errorMessage: string;
+      let userFacingError: string;
       if (isAuthError) {
         log.error('Authentication error', { data: { reason } });
-        errorMessage =
+        userFacingError =
           'Claude authentication failed. Please run "claude login" or check your credentials file.';
       } else if (isRateLimit) {
         log.error('Rate limit error', { data: { reason } });
-        errorMessage = 'Claude API rate limit reached. Please wait a moment and try again.';
+        userFacingError = 'Claude API rate limit reached. Please wait a moment and try again.';
       } else if (isModelError) {
         log.error('Model error', { data: { reason } });
-        errorMessage = 'Model configuration error. Check the TERRAFORM_COMPOSE_MODEL setting.';
+        userFacingError = 'Model configuration error. Check the TERRAFORM_COMPOSE_MODEL setting.';
       } else if (isContextLength) {
         log.error('Context length error', { data: { reason } });
-        errorMessage = 'The conversation is too long. Please start a new conversation.';
+        userFacingError = 'The conversation is too long. Please start a new conversation.';
       } else {
         log.error('Pipeline error', { data: { reason } });
-        errorMessage = 'An error occurred during Terraform composition. Please try again.';
+        userFacingError = 'An error occurred during Terraform composition. Please try again.';
       }
 
       try {
         await this.publishEvent(sid, 'terraform:error', {
           jobId: sid,
-          error: errorMessage,
+          error: userFacingError,
         });
       } catch (publishErr) {
         log.error('Failed to publish error event to stream', { error: publishErr });
@@ -556,7 +561,7 @@ export class TerraformComposeService {
       diagnostics.push({
         severity: 'error',
         summary: 'Invalid HCL in main.tf',
-        detail: error instanceof Error ? error.message : String(error),
+        detail: errorMessage(error),
       });
     }
 
@@ -568,7 +573,7 @@ export class TerraformComposeService {
         diagnostics.push({
           severity: 'error',
           summary: 'Invalid HCL in terraform.tfvars',
-          detail: error instanceof Error ? error.message : String(error),
+          detail: errorMessage(error),
         });
       }
     }

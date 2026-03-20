@@ -24,13 +24,25 @@ interface ProducerEntry {
   stream: DurableStream;
   producer: IdempotentProducer;
   offset: number;
+  /** Timestamp of last publish or access, used for LRU eviction (RS-001). */
+  lastUsedAt: number;
 }
+
+/**
+ * RS-001: LRU eviction configuration for the producer pool.
+ * Prevents unbounded memory growth when many streams are created over time.
+ */
+const MAX_PRODUCERS = 200;
+const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const CLEANUP_INTERVAL_MS = 60 * 1000; // 60 seconds
 
 export class CaddyDurableStreamsServer implements DurableStreamsServer {
   private baseUrl: string;
   private producers = new Map<string, ProducerEntry>();
   private pendingProducers = new Map<string, Promise<ProducerEntry>>();
   private producerId: string;
+  /** RS-001: Periodic cleanup timer for idle producers. */
+  private cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(baseUrl?: string) {
     this.baseUrl = baseUrl ?? process.env.CADDY_STREAMS_URL ?? 'http://localhost:3000/v1/stream';
@@ -40,11 +52,25 @@ export class CaddyDurableStreamsServer implements DurableStreamsServer {
       this.baseUrl = this.baseUrl.slice(0, -'/v1/stream'.length);
     }
     this.producerId = `api-server-${process.pid}`;
+
+    // RS-001: Start periodic cleanup of idle producers
+    this.cleanupTimer = setInterval(() => this.evictIdleProducers(), CLEANUP_INTERVAL_MS);
+    // Allow the process to exit even if this timer is still running
+    if (
+      this.cleanupTimer &&
+      typeof this.cleanupTimer === 'object' &&
+      'unref' in this.cleanupTimer
+    ) {
+      this.cleanupTimer.unref();
+    }
   }
 
   private getOrCreateProducer(id: string): Promise<ProducerEntry> {
     const entry = this.producers.get(id);
-    if (entry) return Promise.resolve(entry);
+    if (entry) {
+      entry.lastUsedAt = Date.now();
+      return Promise.resolve(entry);
+    }
 
     // Deduplicate concurrent initialization for the same stream ID
     const pending = this.pendingProducers.get(id);
@@ -102,9 +128,46 @@ export class CaddyDurableStreamsServer implements DurableStreamsServer {
       },
     });
 
-    const entry: ProducerEntry = { stream, producer, offset: 0 };
+    const entry: ProducerEntry = { stream, producer, offset: 0, lastUsedAt: Date.now() };
     this.producers.set(id, entry);
+
+    // RS-001: Evict LRU producers when pool exceeds MAX_PRODUCERS
+    if (this.producers.size > MAX_PRODUCERS) {
+      this.evictLRUProducers();
+    }
+
     return entry;
+  }
+
+  /**
+   * RS-001: Evict producers that have been idle longer than IDLE_TIMEOUT_MS.
+   * Called periodically via cleanup timer.
+   */
+  private evictIdleProducers(): void {
+    const now = Date.now();
+    for (const [id, entry] of this.producers) {
+      if (now - entry.lastUsedAt > IDLE_TIMEOUT_MS) {
+        this.producers.delete(id);
+        entry.producer.detach().catch((err) => {
+          console.error(`[CaddyStreams] Failed to detach idle producer for ${id}:`, err);
+        });
+      }
+    }
+  }
+
+  /**
+   * RS-001: Evict least-recently-used producers when pool exceeds MAX_PRODUCERS.
+   * Removes the oldest entries until the pool is back at MAX_PRODUCERS.
+   */
+  private evictLRUProducers(): void {
+    const entries = [...this.producers.entries()].sort((a, b) => a[1].lastUsedAt - b[1].lastUsedAt);
+    const toRemove = entries.slice(0, this.producers.size - MAX_PRODUCERS);
+    for (const [id, entry] of toRemove) {
+      this.producers.delete(id);
+      entry.producer.detach().catch((err) => {
+        console.error(`[CaddyStreams] Failed to detach LRU producer for ${id}:`, err);
+      });
+    }
   }
 
   async createStream(id: string, _schema: unknown): Promise<void> {
@@ -139,12 +202,16 @@ export class CaddyDurableStreamsServer implements DurableStreamsServer {
     return offset;
   }
 
+  /**
+   * RS-015: Server-side subscription is intentionally not implemented.
+   * Clients subscribe directly to Caddy via SSE at /v1/stream/sessions/{sessionId}.
+   * Returns an empty async iterable to satisfy the DurableStreamsServer interface
+   * without crashing callers. This is by design -- see RS-009 documentation below.
+   */
   subscribe(
     _id: string,
     _options?: { fromOffset?: number }
   ): AsyncIterable<{ type: string; data: unknown; offset: number }> {
-    // Server-side subscription is not used — clients subscribe directly to Caddy via SSE.
-    // Returns empty async iterable to satisfy the interface without crashing callers.
     return {
       [Symbol.asyncIterator]() {
         return {
@@ -172,5 +239,15 @@ export class CaddyDurableStreamsServer implements DurableStreamsServer {
 
     this.producers.delete(id);
     return success;
+  }
+
+  /**
+   * RS-001: Stop the periodic cleanup timer. Call during graceful shutdown.
+   */
+  stopCleanup(): void {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = null;
+    }
   }
 }

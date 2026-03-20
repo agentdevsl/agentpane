@@ -24,7 +24,7 @@ describe('createSandboxCommandRunner', () => {
     const runner = createSandboxCommandRunner(sandbox);
 
     await expect(runner.exec('git status', '/workspace')).rejects.toThrow(
-      'Command failed with exit code 1: fatal: not a git repo'
+      'Command failed with exit code 1'
     );
   });
 

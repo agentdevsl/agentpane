@@ -54,13 +54,13 @@ describe('config system', () => {
     }
   });
 
-  it('loadProjectConfig returns error without API key', async () => {
+  it('loadProjectConfig succeeds without API key (CB-013: deferred to execution time)', async () => {
     const previousKey = process.env.ANTHROPIC_API_KEY;
     delete process.env.ANTHROPIC_API_KEY;
 
     const result = await loadProjectConfig({ projectPath: '/tmp/missing' });
 
-    expect(result.ok).toBe(false);
+    expect(result.ok).toBe(true);
 
     if (previousKey) {
       process.env.ANTHROPIC_API_KEY = previousKey;

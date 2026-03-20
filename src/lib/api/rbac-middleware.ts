@@ -290,7 +290,11 @@ export function requireRole(minimumRole: RbacRole, rbacService: RbacService) {
       projectId = c.req.param('id');
     }
 
-    // Fallback: try to extract projectId from the request body (only for methods that have a body)
+    // Fallback: try to extract projectId from the request body (only for methods that have a body).
+    // NOTE (AR-010): This clones and parses the request body, adding overhead for every
+    // POST/PUT/PATCH passing through requireRole. For routes where projectId is always in the
+    // URL or query string, this parse is wasted work. Consider passing projectId explicitly
+    // in query params to avoid the body clone overhead in hot paths.
     if (!projectId && ['POST', 'PUT', 'PATCH'].includes(c.req.method)) {
       try {
         const body = await c.req.raw.clone().json();
@@ -298,6 +302,8 @@ export function requireRole(minimumRole: RbacRole, rbacService: RbacService) {
           projectId = body.projectId;
         }
       } catch (parseError) {
+        // SyntaxError means the body is not JSON (e.g. form-data, empty body, binary).
+        // This is expected for non-JSON endpoints and is silently ignored.
         if (!(parseError instanceof SyntaxError)) {
           log.error('Unexpected error parsing request body for projectId', {
             error: parseError,

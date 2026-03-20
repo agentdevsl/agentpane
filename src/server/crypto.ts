@@ -3,6 +3,14 @@
  *
  * Tokens are encrypted with AES-GCM before storage in SQLite.
  * The encryption key is stored in a separate file (not in the database).
+ *
+ * SECURITY NOTE (AR-032): By default, the key file is stored alongside the database
+ * in `./data/.keyfile`. This means anyone with filesystem access to the data directory
+ * can decrypt all stored tokens. For production deployments, set the `ENCRYPTION_KEY_PATH`
+ * environment variable to store the key material in a separate, more secure location
+ * (e.g., a mounted secrets volume, HSM-backed path, or OS keychain directory).
+ *
+ * Future improvement: integrate with OS-level key management (e.g., AWS KMS, HashiCorp Vault).
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -11,11 +19,15 @@ const ALGORITHM = 'AES-GCM';
 const KEY_LENGTH = 256;
 const IV_LENGTH = 12;
 const SALT_LENGTH = 16;
-const KEY_FILE_PATH = './data/.keyfile';
+/** Default key file path. Override with ENCRYPTION_KEY_PATH env var for production. */
+const KEY_FILE_PATH = process.env.ENCRYPTION_KEY_PATH || './data/.keyfile';
 
 /**
  * Get or create the encryption key material
- * Stored in a file, separate from the encrypted data in SQLite
+ * Stored in a file, separate from the encrypted data in SQLite.
+ *
+ * The file path can be configured via `ENCRYPTION_KEY_PATH` environment variable
+ * to store the key in a separate, more secure location than the default `./data/.keyfile`.
  */
 function getOrCreateKeyMaterial(): Uint8Array {
   if (existsSync(KEY_FILE_PATH)) {

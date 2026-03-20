@@ -34,7 +34,10 @@ export const workflows = pgTable('workflows', {
   aiModel: text('ai_model'),
   aiConfidence: integer('ai_confidence'),
   createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { mode: 'string' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'string' })
+    .defaultNow()
+    .notNull()
+    .$onUpdate(() => new Date().toISOString()),
 });
 
 export type Workflow = typeof workflows.$inferSelect;

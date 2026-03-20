@@ -78,6 +78,16 @@
           }
         }
       }
+    },
+    {
+      "includes": ["agent-runner/**/*.ts", ".claude/skills/**/*.ts", "packages/**/*.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "off"
+          }
+        }
+      }
     }
   ],
   "formatter": {
@@ -115,7 +125,7 @@
         "noArrayIndexKey": "off"
       },
       "nursery": {
-        "noLeakedRender": "info"
+        "noLeakedRender": "off"
       }
     }
   },

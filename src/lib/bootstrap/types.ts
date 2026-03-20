@@ -17,6 +17,8 @@ export type BootstrapState = {
   progress: number;
   error?: AppError;
   isComplete: boolean;
+  /** Timing in milliseconds for each completed bootstrap phase. */
+  phaseTimings: Record<string, number>;
 };
 
 export type BootstrapContext = {

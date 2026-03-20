@@ -4,12 +4,14 @@
  * The agent-runner inside Docker containers emits JSON-line events to stdout.
  * This bridge reads those lines, parses them, and publishes to the appropriate DurableStreams stream.
  */
+
 import { createInterface, type Interface } from 'node:readline';
 import type { Readable } from 'node:stream';
 import type {
   DurableStreamsService,
   StreamEventMap,
 } from '../../services/durable-streams.service.js';
+import { errorMessage } from '../utils/error-message';
 import { type AgentRunnerEventType, EVENT_TYPE_MAP } from './event-type-map.js';
 
 // Re-export AgentRunnerEventType as ContainerAgentEventType for backwards compatibility
@@ -186,7 +188,7 @@ export function createContainerBridge(options: ContainerBridgeOptions): Containe
     } catch (error) {
       infoLog('publishEvent', 'Failed to publish event', {
         type: streamType,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage(error),
       });
     }
   }

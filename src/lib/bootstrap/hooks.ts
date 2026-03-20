@@ -11,6 +11,7 @@ export const useBootstrap = (): {
     phase: 'sqlite',
     progress: 0,
     isComplete: false,
+    phaseTimings: {},
   });
   const [context, setContext] = useState<BootstrapContext | null>(null);
   const serviceRef = useRef<BootstrapService | null>(null);

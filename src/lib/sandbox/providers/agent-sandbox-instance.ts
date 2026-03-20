@@ -2,6 +2,7 @@ import { PassThrough, type Readable } from 'node:stream';
 import { type AgentSandboxClient, NotFoundError } from '@agentpane/agent-sandbox-sdk';
 import { K8sErrors } from '../../errors/k8s-errors.js';
 import { createLogger } from '../../logging/logger.js';
+import { errorMessage } from '../../utils/error-message';
 import type { ExecResult, SandboxMetrics, SandboxStatus, TmuxSession } from '../types.js';
 import { SANDBOX_DEFAULTS } from '../types.js';
 import type { ExecStreamOptions, ExecStreamResult, Sandbox } from './sandbox-provider.js';
@@ -63,7 +64,7 @@ export class AgentSandboxInstance implements Sandbox {
         stderr: result.stderr.trim(),
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       throw K8sErrors.EXEC_FAILED(cmd, message);
     }
   }
@@ -85,7 +86,7 @@ export class AgentSandboxInstance implements Sandbox {
       await this.client.deleteSandbox(this.sandboxName);
       this._status = 'stopped';
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       this._status = 'error';
       throw K8sErrors.POD_DELETION_FAILED(this.sandboxName, message);
     }

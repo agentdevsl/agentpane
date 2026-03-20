@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AgentSessionView } from '@/app/components/features/agent-session-view';
 import { ContainerAgentPanel } from '@/app/components/features/container-agent-panel';
 import { EmptyState } from '@/app/components/features/empty-state';
@@ -16,6 +16,13 @@ type ClientSession = {
   sandboxProvider?: string | null;
 };
 
+// Loader return type (Route.useLoaderData() returns void in this route tree)
+type SessionLoaderData = {
+  session: ClientSession | null;
+  sessionError: string | null;
+  sandboxDefaults: { provider?: string } | null | undefined;
+};
+
 /**
  * Detect if this is a container-agent session.
  * Container-agent sessions use a sandbox provider (docker or kubernetes),
@@ -29,15 +36,50 @@ function isContainerAgentSession(session: ClientSession): boolean {
 }
 
 export const Route = createFileRoute('/sessions/$sessionId')({
+  loader: async ({ params }: { params: { sessionId: string } }) => {
+    // Prefetch session data in parallel with sandbox defaults (FC-022)
+    const [result, settingsResult] = await Promise.all([
+      apiClient.sessions.get(params.sessionId),
+      apiClient.settings.get(['sandbox.defaults']).catch(() => null),
+    ]);
+    return {
+      session: result.ok ? result.data : null,
+      sessionError: result.ok ? null : result.error.message,
+      sandboxDefaults: settingsResult?.ok
+        ? (settingsResult.data.settings['sandbox.defaults'] as { provider?: string } | undefined)
+        : null,
+    };
+  },
   component: SessionPage,
 });
 
 function SessionPage(): React.JSX.Element {
   const { sessionId } = Route.useParams();
+  const loaderData = Route.useLoaderData() as SessionLoaderData;
   const navigate = useNavigate();
-  const [session, setSession] = useState<ClientSession | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<{ message: string } | null>(null);
+
+  // Initialize from loader data and backfill sandboxProvider if needed.
+  // useMemo prevents creating a new reference on every render and avoids mutating loaderData.
+  const initialSession = useMemo(() => {
+    if (!loaderData.session) return null;
+    const data = loaderData.session;
+    if (!data.sandboxProvider && data.agentId === null && data.taskId !== null) {
+      if (loaderData.sandboxDefaults?.provider) {
+        return {
+          ...data,
+          sandboxProvider:
+            loaderData.sandboxDefaults.provider === 'kubernetes' ? 'kubernetes' : 'docker',
+        } as ClientSession;
+      }
+    }
+    return data;
+  }, [loaderData.session, loaderData.sandboxDefaults]);
+
+  const [session, setSession] = useState<ClientSession | null>(initialSession);
+  const [isLoading, setIsLoading] = useState(!loaderData.session && !loaderData.sessionError);
+  const [error, setError] = useState<{ message: string } | null>(
+    loaderData.sessionError ? { message: loaderData.sessionError } : null
+  );
   const [actionError, setActionError] = useState<string | null>(null);
   const [isPlanActionPending, setIsPlanActionPending] = useState(false);
   const errorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -102,8 +144,11 @@ function SessionPage(): React.JSX.Element {
     }
   }, [session?.taskId, navigate, showTemporaryError]);
 
-  // Fetch session from API on mount, resolving sandboxProvider from settings if missing
+  // Fetch session from API on mount if not already loaded by route loader
   useEffect(() => {
+    // Skip if loader already provided data
+    if (initialSession || loaderData.sessionError) return;
+
     const fetchSession = async () => {
       setIsLoading(true);
       setError(null);
@@ -134,12 +179,12 @@ function SessionPage(): React.JSX.Element {
       setIsLoading(false);
     };
     fetchSession();
-  }, [sessionId]);
+  }, [sessionId, initialSession, loaderData.sessionError]);
 
   // Stable callbacks for agent actions (must be declared before early returns)
   const handlePause = useCallback(async () => {
     if (session?.agentId) {
-      // TODO: Add API endpoint for agent pause
+      // TODO: [CQ-018] Add API endpoint for agent pause
       try {
         await fetch(`/api/agents/${session.agentId}/pause`, { method: 'POST' });
       } catch {
@@ -150,7 +195,7 @@ function SessionPage(): React.JSX.Element {
 
   const handleResume = useCallback(async () => {
     if (session?.agentId) {
-      // TODO: Add API endpoint for agent resume
+      // TODO: [CQ-018] Add API endpoint for agent resume
       try {
         await fetch(`/api/agents/${session.agentId}/resume`, { method: 'POST' });
       } catch {
@@ -161,7 +206,7 @@ function SessionPage(): React.JSX.Element {
 
   const handleStop = useCallback(async () => {
     if (session?.agentId) {
-      // TODO: Add API endpoint for agent stop
+      // TODO: [CQ-018] Add API endpoint for agent stop
       try {
         await fetch(`/api/agents/${session.agentId}/stop`, { method: 'POST' });
       } catch {

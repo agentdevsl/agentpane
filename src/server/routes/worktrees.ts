@@ -3,8 +3,12 @@
  */
 
 import { Hono } from 'hono';
+import { createLogger } from '../../lib/logging/logger.js';
 import type { WorktreeService } from '../../services/worktree.service.js';
 import { isValidId, json } from '../shared.js';
+
+const log = createLogger('worktree-routes');
+
 import {
   commitWorktreeSchema,
   createWorktreeSchema,
@@ -42,7 +46,7 @@ export function createWorktreesRoutes({ worktreeService }: WorktreesDeps) {
 
       return json({ ok: true, data: { items: result.value } });
     } catch (error) {
-      console.error('[Worktrees] List error:', error);
+      log.error('List error', { error: error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to list worktrees' } },
         500
@@ -76,7 +80,7 @@ export function createWorktreesRoutes({ worktreeService }: WorktreesDeps) {
       });
 
       if (!result.ok) {
-        console.error('[Worktrees] Create failed:', result.error);
+        log.error('Create failed', { error: result.error });
         return json(
           { ok: false, error: { code: result.error.code, message: result.error.message } },
           400
@@ -85,7 +89,7 @@ export function createWorktreesRoutes({ worktreeService }: WorktreesDeps) {
 
       return json({ ok: true, data: result.value });
     } catch (error) {
-      console.error('[Worktrees] Create error:', error);
+      log.error('Create error', { error: error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to create worktree' } },
         500
@@ -117,7 +121,7 @@ export function createWorktreesRoutes({ worktreeService }: WorktreesDeps) {
       const result = await worktreeService.prune(projectId);
 
       if (!result.ok) {
-        console.error('[Worktrees] Prune failed:', result.error);
+        log.error('Prune failed', { error: result.error });
         return json(
           { ok: false, error: { code: 'DB_ERROR', message: 'Failed to prune worktrees' } },
           500
@@ -126,7 +130,7 @@ export function createWorktreesRoutes({ worktreeService }: WorktreesDeps) {
 
       return json({ ok: true, data: result.value });
     } catch (error) {
-      console.error('[Worktrees] Prune error:', error);
+      log.error('Prune error', { error: error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to prune worktrees' } },
         500
@@ -163,7 +167,7 @@ export function createWorktreesRoutes({ worktreeService }: WorktreesDeps) {
       const result = await worktreeService.commit(id, body.message);
 
       if (!result.ok) {
-        console.error('[Worktrees] Commit failed:', result.error);
+        log.error('Commit failed', { error: result.error });
         return json(
           { ok: false, error: { code: result.error.code, message: result.error.message } },
           result.error.code === 'NOT_FOUND' ? 404 : 400
@@ -172,7 +176,7 @@ export function createWorktreesRoutes({ worktreeService }: WorktreesDeps) {
 
       return json({ ok: true, data: { sha: result.value } });
     } catch (error) {
-      console.error('[Worktrees] Commit error:', error);
+      log.error('Commit error', { error: error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to commit changes' } },
         500
@@ -206,7 +210,7 @@ export function createWorktreesRoutes({ worktreeService }: WorktreesDeps) {
       const result = await worktreeService.merge(id, body.targetBranch);
 
       if (!result.ok) {
-        console.error('[Worktrees] Merge failed:', result.error);
+        log.error('Merge failed', { error: result.error });
         // Check for merge conflict
         if (result.error.code === 'MERGE_CONFLICT') {
           return json(
@@ -228,7 +232,7 @@ export function createWorktreesRoutes({ worktreeService }: WorktreesDeps) {
       if (body.deleteAfterMerge) {
         const removeResult = await worktreeService.remove(id, true);
         if (!removeResult.ok) {
-          console.error('[Worktrees] Post-merge cleanup failed:', removeResult.error);
+          log.error('Post-merge cleanup failed', { error: removeResult.error });
           // Return success for merge but indicate cleanup failed
           return json({
             ok: true,
@@ -239,7 +243,7 @@ export function createWorktreesRoutes({ worktreeService }: WorktreesDeps) {
 
       return json({ ok: true, data: { merged: true } });
     } catch (error) {
-      console.error('[Worktrees] Merge error:', error);
+      log.error('Merge error', { error: error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to merge worktree' } },
         500
@@ -262,7 +266,7 @@ export function createWorktreesRoutes({ worktreeService }: WorktreesDeps) {
       const result = await worktreeService.getDiff(id);
 
       if (!result.ok) {
-        console.error('[Worktrees] Diff failed:', result.error);
+        log.error('Diff failed', { error: result.error });
         return json(
           { ok: false, error: { code: result.error.code, message: result.error.message } },
           result.error.code === 'NOT_FOUND' ? 404 : 400
@@ -271,7 +275,7 @@ export function createWorktreesRoutes({ worktreeService }: WorktreesDeps) {
 
       return json({ ok: true, data: result.value });
     } catch (error) {
-      console.error('[Worktrees] Diff error:', error);
+      log.error('Diff error', { error: error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to get diff' } }, 500);
     }
   });
@@ -299,7 +303,7 @@ export function createWorktreesRoutes({ worktreeService }: WorktreesDeps) {
 
       return json({ ok: true, data: result.value });
     } catch (error) {
-      console.error('[Worktrees] Get error:', error);
+      log.error('Get error', { error: error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to get worktree' } },
         500
@@ -324,7 +328,7 @@ export function createWorktreesRoutes({ worktreeService }: WorktreesDeps) {
       const result = await worktreeService.remove(id, force);
 
       if (!result.ok) {
-        console.error('[Worktrees] Remove failed:', result.error);
+        log.error('Remove failed', { error: result.error });
         return json(
           { ok: false, error: { code: result.error.code, message: result.error.message } },
           result.error.code === 'NOT_FOUND' ? 404 : 400
@@ -333,7 +337,7 @@ export function createWorktreesRoutes({ worktreeService }: WorktreesDeps) {
 
       return json({ ok: true, data: null });
     } catch (error) {
-      console.error('[Worktrees] Remove error:', error);
+      log.error('Remove error', { error: error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to remove worktree' } },
         500

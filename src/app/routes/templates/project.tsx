@@ -202,7 +202,7 @@ function ProjectTemplatesPage(): React.JSX.Element {
 
   // Handle edit template (placeholder - would open edit dialog)
   const handleEdit = (_templateId: string): void => {
-    // TODO: Implement edit dialog
+    // TODO: [CQ-018] Implement edit dialog
     console.log('Edit template:', _templateId);
   };
 
