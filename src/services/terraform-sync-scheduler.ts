@@ -7,8 +7,11 @@
  */
 import { and, eq, isNotNull, lte } from 'drizzle-orm';
 import { terraformRegistries } from '../db/schema';
+import { createLogger } from '../lib/logging/logger.js';
 import type { Database } from '../types/database.js';
 import type { TerraformRegistryService } from './terraform-registry.service.js';
+
+const log = createLogger('TerraformSyncScheduler');
 
 /** Scheduler check interval: how often to check for registries needing sync (1 minute) */
 const SCHEDULER_INTERVAL_MS = 60 * 1000;
@@ -73,34 +76,28 @@ async function checkAndSyncRegistries(
     for (const registry of dueRegistries) {
       // Skip if already syncing this registry
       if (state.syncInProgress.has(registry.id)) {
-        console.log(
-          `[TerraformSyncScheduler] Skipping ${registry.name} - sync already in progress`
-        );
+        log.info(`Skipping ${registry.name} - sync already in progress`);
         continue;
       }
 
       // Skip if registry is currently in syncing state
       if (registry.status === 'syncing') {
-        console.log(`[TerraformSyncScheduler] Skipping ${registry.name} - status is syncing`);
+        log.info(`Skipping ${registry.name} - status is syncing`);
         continue;
       }
 
       try {
         state.syncInProgress.add(registry.id);
-        console.log(`[TerraformSyncScheduler] Starting scheduled sync for: ${registry.name}`);
+        log.info(`Starting scheduled sync for: ${registry.name}`);
 
         const result = await registryService.sync(registry.id);
 
         if (result.ok) {
           synced++;
-          console.log(
-            `[TerraformSyncScheduler] Successfully synced ${registry.name}: ${result.value.moduleCount} modules`
-          );
+          log.info(`Successfully synced ${registry.name}: ${result.value.moduleCount} modules`);
         } else {
           errors++;
-          console.error(
-            `[TerraformSyncScheduler] Failed to sync ${registry.name}: ${result.error.message}`
-          );
+          log.error(`Failed to sync ${registry.name}: ${result.error.message}`);
         }
 
         // Update nextSyncAt for next scheduled sync regardless of sync result
@@ -113,22 +110,20 @@ async function checkAndSyncRegistries(
               .set({ nextSyncAt })
               .where(eq(terraformRegistries.id, registry.id));
           } catch (updateError) {
-            console.error(
-              `[TerraformSyncScheduler] Failed to update nextSyncAt for ${registry.name}: ${getErrorMessage(updateError)}`
+            log.error(
+              `Failed to update nextSyncAt for ${registry.name}: ${getErrorMessage(updateError)}`
             );
           }
         }
       } catch (error) {
         errors++;
-        console.error(
-          `[TerraformSyncScheduler] Error syncing ${registry.name}: ${getErrorMessage(error)}`
-        );
+        log.error(`Error syncing ${registry.name}: ${getErrorMessage(error)}`);
       } finally {
         state.syncInProgress.delete(registry.id);
       }
     }
   } catch (error) {
-    console.error(`[TerraformSyncScheduler] Error checking registries: ${getErrorMessage(error)}`);
+    log.error(`Error checking registries: ${getErrorMessage(error)}`);
   }
 
   state.lastCheckAt = now;
@@ -150,24 +145,22 @@ export function startTerraformSyncScheduler(
   registryService: TerraformRegistryService
 ): () => void {
   if (state.isRunning) {
-    console.warn('[TerraformSyncScheduler] Scheduler already running');
+    log.warn('Scheduler already running');
     return () => stopTerraformSyncScheduler();
   }
 
-  console.log('[TerraformSyncScheduler] Starting scheduler');
+  log.info('Starting scheduler');
   state.isRunning = true;
 
   // Run immediately on start
   checkAndSyncRegistries(db, registryService)
     .then(({ synced, errors }) => {
       if (synced > 0 || errors > 0) {
-        console.log(`[TerraformSyncScheduler] Initial check: ${synced} synced, ${errors} errors`);
+        log.info(`Initial check: ${synced} synced, ${errors} errors`);
       }
     })
     .catch((error) => {
-      console.error(
-        `[TerraformSyncScheduler] Critical error during startup sync: ${getErrorMessage(error)}`
-      );
+      log.error(`Critical error during startup sync: ${getErrorMessage(error)}`);
     });
 
   // Set up periodic checking
@@ -175,12 +168,10 @@ export function startTerraformSyncScheduler(
     try {
       const { synced, errors } = await checkAndSyncRegistries(db, registryService);
       if (synced > 0 || errors > 0) {
-        console.log(`[TerraformSyncScheduler] Periodic check: ${synced} synced, ${errors} errors`);
+        log.info(`Periodic check: ${synced} synced, ${errors} errors`);
       }
     } catch (error) {
-      console.error(
-        `[TerraformSyncScheduler] Error during periodic check: ${getErrorMessage(error)}`
-      );
+      log.error(`Error during periodic check: ${getErrorMessage(error)}`);
     }
   }, SCHEDULER_INTERVAL_MS);
 
@@ -197,7 +188,7 @@ export function stopTerraformSyncScheduler(): void {
     return;
   }
 
-  console.log('[TerraformSyncScheduler] Stopping scheduler');
+  log.info('Stopping scheduler');
 
   if (state.intervalId) {
     clearInterval(state.intervalId);
