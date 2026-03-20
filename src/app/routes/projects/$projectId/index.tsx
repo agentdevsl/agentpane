@@ -56,16 +56,14 @@ export const Route = createFileRoute('/projects/$projectId/')({
 
 function ProjectKanban(): React.JSX.Element {
   const { projectId } = Route.useParams();
-  const loaderData = Route.useLoaderData() as
-    | { project: ProjectListItem | null; tasks: ClientTask[] }
-    | undefined;
+  const loaderData = Route.useLoaderData();
   const { error: showError, warning: showWarning } = useToast();
   const navigate = useNavigate();
   const [project, setProject] = useState<ProjectListItem | null>(
-    (loaderData?.project as ProjectListItem | null) ?? null
+    loaderData.project as ProjectListItem | null
   );
-  const [tasks, setTasks] = useState<ClientTask[]>((loaderData?.tasks as ClientTask[]) ?? []);
-  const [isLoading, setIsLoading] = useState(!loaderData?.project);
+  const [tasks, setTasks] = useState<ClientTask[]>(loaderData.tasks as ClientTask[]);
+  const [isLoading, setIsLoading] = useState(!loaderData.project);
   const [error, setError] = useState<string | null>(null);
   const [selectedTask, setSelectedTask] = useState<ClientTask | null>(null);
   const [showNewTask, setShowNewTask] = useState(false);
@@ -137,7 +135,7 @@ function ProjectKanban(): React.JSX.Element {
 
   // Fetch on mount and when projectId changes (skip if loader already provided data)
   useEffect(() => {
-    if (loaderData?.project) return;
+    if (loaderData.project) return;
     fetchData();
   }, [fetchData, loaderData]);
 

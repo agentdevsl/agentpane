@@ -7,4 +7,10 @@
  */
 
 export { ContainerAgentService, createContainerAgentService } from './container-agent.service.js';
+export {
+  resolveOAuthToken,
+  updateAgentStatus,
+  updateTaskOnAgentComplete,
+  updateTaskOnAgentError,
+} from './shared-helpers.js';
 export type { AgentConfig, AgentPhase, PlanData, StartAgentInput } from './types.js';

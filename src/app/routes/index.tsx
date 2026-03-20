@@ -45,8 +45,8 @@ export const Route = createFileRoute('/')({
 
 function Dashboard(): React.JSX.Element {
   const navigate = useNavigate();
-  const loaderData = Route.useLoaderData() as { projects: ProjectSummaryItem[] } | undefined;
-  const loaderProjects = loaderData?.projects ?? [];
+  const loaderData = Route.useLoaderData();
+  const loaderProjects = loaderData.projects;
   const [projectSummaries, setProjectSummaries] = useState<ClientProjectSummary[]>(
     () =>
       loaderProjects.map((item: ProjectSummaryItem) => ({
@@ -214,7 +214,8 @@ function Dashboard(): React.JSX.Element {
         currentIntervalMsRef.current = null;
       }
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    // biome-ignore lint/correctness/useExhaustiveDependencies: loaderProjects is stable from route loader, intentionally run once on mount
+  }, []);
 
   const handleCreateProject = useCallback(
     async (data: {

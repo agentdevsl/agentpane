@@ -33,12 +33,17 @@ const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
  */
 export class SessionPresenceService {
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly presenceStore = new Map<string, Map<string, ActiveUser>>();
 
   constructor(
     private db: Database,
-    private presenceStore: Map<string, Map<string, ActiveUser>>,
     private getStreamService: () => SessionStreamService
   ) {}
+
+  /** Read-only snapshot of the presence store (for testing/debugging). */
+  getPresenceStore(): ReadonlyMap<string, ReadonlyMap<string, ActiveUser>> {
+    return this.presenceStore;
+  }
 
   async join(
     sessionId: string,

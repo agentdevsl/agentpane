@@ -140,7 +140,7 @@ describe('CliMonitorService', () => {
       vi.spyOn(Date, 'now').mockReturnValue(later);
 
       const result = service.handleHeartbeat('daemon-1', 3);
-      expect(result).toBe('ok');
+      expect(result).toEqual({ ok: true, value: 'ok' });
       expect(service.getDaemon()!.lastHeartbeatAt).toBe(later);
     });
 

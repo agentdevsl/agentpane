@@ -45,6 +45,9 @@ export class SandboxStateManager {
   }
 
   setRunningAgent(taskId: string, agent: RunningAgent): void {
+    if (this.runningAgents.has(taskId)) {
+      log.warn('Overwriting existing running agent entry', { data: { taskId } });
+    }
     this.runningAgents.set(taskId, agent);
   }
 
@@ -77,6 +80,9 @@ export class SandboxStateManager {
   }
 
   setRunningAgentCoreAgent(taskId: string, agent: RunningAgentCoreAgent): void {
+    if (this.runningAgentCoreAgents.has(taskId)) {
+      log.warn('Overwriting existing running AgentCore agent entry', { data: { taskId } });
+    }
     this.runningAgentCoreAgents.set(taskId, agent);
   }
 

@@ -163,19 +163,22 @@ describe('CliMonitorService', () => {
       service.registerDaemon(makeDaemonPayload());
       const result = service.handleHeartbeat('daemon-001', 5);
 
-      expect(result).toBe('ok');
+      expect(result.ok).toBe(true);
+      expect(result.ok && result.value).toBe('ok');
     });
 
     it('returns unknown when no daemon registered', () => {
       const result = service.handleHeartbeat('daemon-001', 0);
-      expect(result).toBe('unknown');
+      expect(result.ok).toBe(true);
+      expect(result.ok && result.value).toBe('unknown');
     });
 
     it('returns stale for mismatched daemon ID', () => {
       service.registerDaemon(makeDaemonPayload());
       const result = service.handleHeartbeat('different-daemon', 0);
 
-      expect(result).toBe('stale');
+      expect(result.ok).toBe(true);
+      expect(result.ok && result.value).toBe('stale');
     });
   });
 

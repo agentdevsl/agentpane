@@ -38,8 +38,8 @@ export const Route = createFileRoute('/projects/')({
 type SortOption = 'recent' | 'name' | 'created';
 
 function ProjectsPage(): React.JSX.Element {
-  const loaderData = Route.useLoaderData() as { projects: ProjectSummaryItem[] } | undefined;
-  const loaderProjects = (loaderData?.projects ?? []) as ClientProjectSummary[];
+  const loaderData = Route.useLoaderData();
+  const loaderProjects = loaderData.projects as ClientProjectSummary[];
   const [projectSummaries, setProjectSummaries] = useState<ClientProjectSummary[]>(loaderProjects);
   const [isLoading, setIsLoading] = useState(loaderProjects.length === 0);
   const [showNewProject, setShowNewProject] = useState(false);
@@ -187,7 +187,8 @@ function ProjectsPage(): React.JSX.Element {
         currentIntervalMsRef.current = null;
       }
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    // biome-ignore lint/correctness/useExhaustiveDependencies: loaderProjects is stable from route loader, intentionally run once on mount
+  }, []);
 
   const handleCreateProject = useCallback(
     async (data: {

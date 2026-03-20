@@ -1,12 +1,14 @@
 import { createId } from '@paralleldrive/cuid2';
 import { desc, eq } from 'drizzle-orm';
 import { sessionEvents } from '../db/schema';
+import { type AppError, createError } from '../lib/errors/base.js';
 import type {
   ClarifyingQuestion,
   ComposeStage,
   GeneratedFile,
   ModuleMatch,
 } from '../lib/terraform/types.js';
+import { err, ok, type Result } from '../lib/utils/result.js';
 import type { AgentFileChangedData } from '../types/agent-events.js';
 import type { Database } from '../types/database.js';
 import type { SessionEvent, SessionEventType } from './session.service.js';
@@ -516,21 +518,29 @@ export class DurableStreamsService {
   /**
    * Create a new stream for a session or plan
    */
-  async createStream(id: string, schema: unknown): Promise<void> {
+  async createStream(id: string, schema: unknown): Promise<Result<void, AppError>> {
     if (!id || typeof id !== 'string' || id.trim() === '') {
-      const error = new Error(
-        '[DurableStreamsService] createStream: streamId is required and must be a non-empty string'
-      );
       console.error('[DurableStreamsService] createStream validation error:', { id });
-      throw error;
+      return err(
+        createError(
+          'STREAM_VALIDATION',
+          '[DurableStreamsService] createStream: streamId is required and must be a non-empty string',
+          400
+        )
+      );
     }
 
     try {
       await this.server.createStream(id, schema);
+      return ok(undefined);
     } catch (error) {
       console.error('[DurableStreamsService] createStream failed:', { streamId: id, error });
-      throw new Error(
-        `[DurableStreamsService] Failed to create stream '${id}': ${error instanceof Error ? error.message : String(error)}`
+      return err(
+        createError(
+          'STREAM_CREATE_FAILED',
+          `[DurableStreamsService] Failed to create stream '${id}': ${error instanceof Error ? error.message : String(error)}`,
+          500
+        )
       );
     }
   }
@@ -612,13 +622,16 @@ export class DurableStreamsService {
     streamId: string,
     type: T,
     data: StreamEventMap[T]
-  ): Promise<number> {
+  ): Promise<Result<number, AppError>> {
     if (!streamId || typeof streamId !== 'string' || streamId.trim() === '') {
-      const error = new Error(
-        '[DurableStreamsService] publish: streamId is required and must be a non-empty string'
-      );
       console.error('[DurableStreamsService] publish validation error:', { streamId, type });
-      throw error;
+      return err(
+        createError(
+          'STREAM_VALIDATION',
+          '[DurableStreamsService] publish: streamId is required and must be a non-empty string',
+          400
+        )
+      );
     }
 
     try {
@@ -649,11 +662,15 @@ export class DurableStreamsService {
         });
       }
 
-      return this.db ? offset : memoryOffset;
+      return ok(this.db ? offset : memoryOffset);
     } catch (error) {
       console.error('[DurableStreamsService] publish failed:', { streamId, type, error });
-      throw new Error(
-        `[DurableStreamsService] Failed to publish event '${type}' to stream '${streamId}': ${error instanceof Error ? error.message : String(error)}`
+      return err(
+        createError(
+          'STREAM_PUBLISH_FAILED',
+          `[DurableStreamsService] Failed to publish event '${type}' to stream '${streamId}': ${error instanceof Error ? error.message : String(error)}`,
+          500
+        )
       );
     }
   }

@@ -1,6 +1,5 @@
 /**
  * Shared types, interfaces, and constants for the container-agent sub-services.
- * Extracted from the original monolithic container-agent.service.ts.
  */
 
 import type { StoredPlanOptions } from '../../db/schema';

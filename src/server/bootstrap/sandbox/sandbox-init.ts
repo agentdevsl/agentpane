@@ -233,21 +233,24 @@ export async function initSandboxProvider(
 ): Promise<void> {
   const initPromise = initSandboxProviderCore(db, services, sandboxState);
 
+  let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
   const timeoutPromise = new Promise<void>((_, reject) => {
-    const timer = setTimeout(() => {
+    timeoutTimer = setTimeout(() => {
       reject(new Error(`Sandbox initialization timed out after ${timeoutMs}ms`));
     }, timeoutMs);
-    timer.unref();
+    timeoutTimer.unref();
   });
 
   try {
     await Promise.race([initPromise, timeoutPromise]);
+    if (timeoutTimer) clearTimeout(timeoutTimer);
     if (sandboxState.provider) {
       onSandboxProviderReady(db, sandboxState);
     } else {
       scheduleSandboxRetry(db, services, sandboxState);
     }
   } catch (err) {
+    if (timeoutTimer) clearTimeout(timeoutTimer);
     log.error('Sandbox provider initialization failed:', {
       error: err instanceof Error ? err.message : String(err),
     });

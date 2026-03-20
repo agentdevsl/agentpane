@@ -31,11 +31,9 @@ export const Route = createFileRoute('/agents/')({
 
 function AgentsPage(): React.JSX.Element {
   const navigate = useNavigate();
-  const loaderData = Route.useLoaderData() as
-    | { agents: ClientAgent[]; projects: ProjectListItem[] }
-    | undefined;
-  const loaderAgents = (loaderData?.agents ?? []) as ClientAgent[];
-  const loaderProjects = (loaderData?.projects ?? []) as ProjectListItem[];
+  const loaderData = Route.useLoaderData();
+  const loaderAgents = loaderData.agents as ClientAgent[];
+  const loaderProjects = loaderData.projects as ProjectListItem[];
   const [agents, setAgents] = useState<ClientAgent[]>(loaderAgents);
   const [projects, setProjects] = useState<ProjectListItem[]>(loaderProjects);
   const [isLoading, setIsLoading] = useState(false);

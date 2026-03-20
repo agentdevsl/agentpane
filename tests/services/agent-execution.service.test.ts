@@ -22,7 +22,7 @@ const mockRunAgentExecution = vi.fn().mockResolvedValue({
   turnCount: 10,
 });
 
-const mockHandleAgentError = vi.fn().mockReturnValue({ action: 'stop', reason: 'test' });
+const mockHandleAgentError = vi.fn().mockReturnValue({ action: 'fail', reason: 'test' });
 
 // Mock external dependencies
 vi.mock('../../src/lib/agents/stream-handler.js', () => ({
@@ -101,7 +101,7 @@ describe('AgentExecutionService', () => {
       status: 'completed',
       turnCount: 10,
     });
-    mockHandleAgentError.mockReturnValue({ action: 'stop', reason: 'test' });
+    mockHandleAgentError.mockReturnValue({ action: 'fail', reason: 'test' });
   });
 
   afterEach(async () => {
@@ -599,7 +599,7 @@ describe('AgentExecutionService', () => {
   describe('Error recovery', () => {
     it('execution error sets agent to error status', async () => {
       mockRunAgentPlanning.mockRejectedValue(new Error('SDK connection failed'));
-      mockHandleAgentError.mockReturnValue({ action: 'stop', reason: 'unrecoverable' });
+      mockHandleAgentError.mockReturnValue({ action: 'fail', reason: 'unrecoverable' });
 
       const { agent, task } = await setupStartPrerequisites();
 
@@ -678,7 +678,7 @@ describe('AgentExecutionService', () => {
 
     it('unhandled error publishes agent:error event', async () => {
       mockRunAgentPlanning.mockRejectedValue(new Error('Unexpected crash'));
-      mockHandleAgentError.mockReturnValue({ action: 'stop', reason: 'unknown' });
+      mockHandleAgentError.mockReturnValue({ action: 'fail', reason: 'unknown' });
 
       const { agent, task } = await setupStartPrerequisites();
 
@@ -746,7 +746,7 @@ describe('AgentExecutionService', () => {
 
     it('failed agent does NOT dequeue', async () => {
       mockRunAgentPlanning.mockRejectedValue(new Error('Agent crashed'));
-      mockHandleAgentError.mockReturnValue({ action: 'stop', reason: 'crash' });
+      mockHandleAgentError.mockReturnValue({ action: 'fail', reason: 'crash' });
 
       const { agent, task } = await setupStartPrerequisites();
 

@@ -143,7 +143,7 @@ export class AgentCrudService {
 
     const [updated] = await this.db
       .update(agents)
-      .set({ config: mergedConfig, updatedAt: new Date().toISOString() })
+      .set({ config: mergedConfig })
       .where(eq(agents.id, id))
       .returning();
 

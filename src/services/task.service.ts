@@ -7,6 +7,7 @@ import { ProjectErrors } from '../lib/errors/project-errors.js';
 import type { SandboxError } from '../lib/errors/sandbox-errors.js';
 import type { TaskError } from '../lib/errors/task-errors.js';
 import { TaskErrors } from '../lib/errors/task-errors.js';
+import { createLogger } from '../lib/logging/logger.js';
 import { ValidationErrors } from '../lib/errors/validation-errors.js';
 import type { ProjectSandboxConfig } from '../lib/sandbox/types.js';
 import type { Result } from '../lib/utils/result.js';
@@ -18,6 +19,8 @@ import type { StartAgentInput } from './container-agent.service.js';
 import { getGlobalDefaultModel } from './settings.service.js';
 import { canTransition } from './task-transitions.js';
 import type { GitDiff } from './worktree.service.js';
+
+const log = createLogger('TaskService');
 
 export type CreateTaskInput = {
   projectId: string;
@@ -422,7 +425,7 @@ export class TaskService {
           // Ignore if session already exists (race condition or retry)
           const errorMsg = insertErr instanceof Error ? insertErr.message : String(insertErr);
           if (!errorMsg.includes('UNIQUE constraint')) {
-            console.warn('[TaskService] Failed to create session record:', errorMsg);
+            log.warn('Failed to create session record', { error: errorMsg });
           }
         }
       }
@@ -470,7 +473,7 @@ export class TaskService {
         return JSON.parse(setting.value) as ProjectSandboxConfig;
       }
     } catch (error) {
-      console.warn('[TaskService] Failed to load global sandbox defaults:', error);
+      log.warn('Failed to load global sandbox defaults', { error: error instanceof Error ? error.message : String(error) });
     }
     return null;
   }
@@ -489,7 +492,7 @@ export class TaskService {
 
     // Check if agent is already running for this task
     if (this.containerAgentService.isAgentRunning(task.id)) {
-      console.log(`[TaskService] Agent already running for task ${task.id}, skipping trigger`);
+      log.info('Agent already running for task, skipping trigger', { data: { taskId: task.id } });
       return undefined;
     }
 

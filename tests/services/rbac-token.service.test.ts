@@ -197,12 +197,12 @@ describe('RbacTokenService', () => {
       expect(result.ok).toBe(true);
       if (!result.ok) return;
 
-      expect(result.data.token).toMatch(/^ap_/);
-      expect(result.data.name).toBe('My Token');
-      expect(result.data.role).toBe('admin');
-      expect(result.data.teamId).toBe(TEAM_ID);
-      expect(result.data.id).toBeDefined();
-      expect(result.data.tokenPrefix).toBe(result.data.token.substring(0, 12));
+      expect(result.value.token).toMatch(/^ap_/);
+      expect(result.value.name).toBe('My Token');
+      expect(result.value.role).toBe('admin');
+      expect(result.value.teamId).toBe(TEAM_ID);
+      expect(result.value.id).toBeDefined();
+      expect(result.value.tokenPrefix).toBe(result.value.token.substring(0, 12));
     });
 
     it('rejects duplicate token name with TOKEN_NAME_EXISTS error', async () => {
@@ -225,7 +225,7 @@ describe('RbacTokenService', () => {
 
       expect(second.ok).toBe(false);
       if (second.ok) return;
-      expect(second.error).toBe('TOKEN_NAME_EXISTS');
+      expect(second.error.code).toBe('TOKEN_NAME_EXISTS');
     });
 
     it('enforces 25-token limit with LIMIT_EXCEEDED error', async () => {
@@ -250,7 +250,7 @@ describe('RbacTokenService', () => {
 
       expect(overLimit.ok).toBe(false);
       if (overLimit.ok) return;
-      expect(overLimit.error).toBe('LIMIT_EXCEEDED');
+      expect(overLimit.error.code).toBe('LIMIT_EXCEEDED');
     });
   });
 

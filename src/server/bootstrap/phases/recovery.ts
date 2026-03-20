@@ -42,7 +42,6 @@ export async function resetStaleAgents(db: Database): Promise<void> {
         status: 'idle',
         currentTaskId: null,
         currentSessionId: null,
-        updatedAt: new Date().toISOString(),
       })
       .where(inArray(schemaTables.agents.status, [...staleStatuses]));
     const changes = getChangedCount(result);
@@ -70,7 +69,6 @@ export async function recoverOrphanedTasks(db: Database): Promise<void> {
         agentId: null,
         sessionId: null,
         lastAgentStatus: null,
-        updatedAt: new Date().toISOString(),
       })
       .where(
         and(eq(schemaTables.tasks.column, 'in_progress'), isNotNull(schemaTables.tasks.agentId))
@@ -114,7 +112,6 @@ export async function cleanOrphanedWorktrees(db: Database): Promise<void> {
             .set({
               worktreeId: null,
               branch: null,
-              updatedAt: new Date().toISOString(),
             })
             .where(eq(schemaTables.tasks.id, t.id));
         } catch (cleanErr) {

@@ -2,7 +2,7 @@
  * Schedulers Bootstrap Phase
  *
  * Starts template sync, Terraform sync, and task schedulers.
- * Returns cleanup functions for graceful shutdown.
+ * Registers cleanup functions directly with the shutdown handler.
  */
 
 import { createLogger } from '../../../lib/logging/logger.js';

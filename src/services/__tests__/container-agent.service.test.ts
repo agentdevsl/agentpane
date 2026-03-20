@@ -1,15 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SandboxErrors } from '../../lib/errors/sandbox-errors.js';
-import type { Result } from '../../lib/utils/result.js';
-import { err, ok } from '../../lib/utils/result.js';
-
+import { err } from '../../lib/utils/result.js';
+import type { AgentCoreBridgeService } from '../container-agent/agentcore-bridge.service.js';
 import { ContainerAgentService } from '../container-agent/container-agent.service.js';
-import { AgentCoreBridgeService } from '../container-agent/agentcore-bridge.service.js';
-import { ContainerExecService } from '../container-agent/container-exec.service.js';
-import { PlanApprovalService } from '../container-agent/plan-approval.service.js';
-import { SandboxStateManager } from '../container-agent/sandbox-state.js';
-import { WorktreeInitService } from '../container-agent/worktree-init.service.js';
+import type { ContainerExecService } from '../container-agent/container-exec.service.js';
+import type { PlanApprovalService } from '../container-agent/plan-approval.service.js';
+import type { SandboxStateManager } from '../container-agent/sandbox-state.js';
 
 /**
  * ContainerAgentService tests
@@ -48,22 +45,34 @@ vi.mock('../container-agent/worktree-init.service.js', () => {
 
 vi.mock('../container-agent/container-exec.service.js', () => {
   const ContainerExecService = vi.fn();
-  ContainerExecService.prototype.startAgent = vi.fn().mockResolvedValue({ ok: true, value: undefined });
-  ContainerExecService.prototype.stopAgent = vi.fn().mockResolvedValue({ ok: true, value: undefined });
+  ContainerExecService.prototype.startAgent = vi
+    .fn()
+    .mockResolvedValue({ ok: true, value: undefined });
+  ContainerExecService.prototype.stopAgent = vi
+    .fn()
+    .mockResolvedValue({ ok: true, value: undefined });
   return { ContainerExecService };
 });
 
 vi.mock('../container-agent/agentcore-bridge.service.js', () => {
   const AgentCoreBridgeService = vi.fn();
-  AgentCoreBridgeService.prototype.startAgentCoreAgent = vi.fn().mockResolvedValue({ ok: true, value: undefined });
-  AgentCoreBridgeService.prototype.stopAgentCoreAgent = vi.fn().mockResolvedValue({ ok: true, value: undefined });
+  AgentCoreBridgeService.prototype.startAgentCoreAgent = vi
+    .fn()
+    .mockResolvedValue({ ok: true, value: undefined });
+  AgentCoreBridgeService.prototype.stopAgentCoreAgent = vi
+    .fn()
+    .mockResolvedValue({ ok: true, value: undefined });
   return { AgentCoreBridgeService };
 });
 
 vi.mock('../container-agent/plan-approval.service.js', () => {
   const PlanApprovalService = vi.fn();
-  PlanApprovalService.prototype.approvePlan = vi.fn().mockResolvedValue({ ok: true, value: undefined });
-  PlanApprovalService.prototype.rejectPlan = vi.fn().mockResolvedValue({ ok: true, value: undefined });
+  PlanApprovalService.prototype.approvePlan = vi
+    .fn()
+    .mockResolvedValue({ ok: true, value: undefined });
+  PlanApprovalService.prototype.rejectPlan = vi
+    .fn()
+    .mockResolvedValue({ ok: true, value: undefined });
   PlanApprovalService.prototype.getPendingPlan = vi.fn().mockResolvedValue(undefined);
   PlanApprovalService.prototype.handlePlanReady = vi.fn().mockResolvedValue(undefined);
   return { PlanApprovalService };
@@ -243,7 +252,7 @@ describe('ContainerAgentService', () => {
       await service.startAgent(baseInput);
 
       const containerExec = (service as any).containerExec as ContainerExecService;
-      const calledInput = (containerExec.startAgent as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      const calledInput = (containerExec.startAgent as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
       expect(calledInput.phase).toBeUndefined();
       // The facade passes input as-is; phase defaulting (= 'plan') is in the input destructuring
     });
@@ -426,8 +435,8 @@ describe('ContainerAgentService', () => {
       const running = service.getRunningAgents();
 
       expect(running).toHaveLength(2);
-      expect(running[0].taskId).toBe('task-1');
-      expect(running[1].taskId).toBe('task-2');
+      expect(running[0]?.taskId).toBe('task-1');
+      expect(running[1]?.taskId).toBe('task-2');
     });
   });
 

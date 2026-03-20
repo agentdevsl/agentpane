@@ -39,7 +39,8 @@ export class WorktreeInitService {
   }
 
   /**
-   * Initialize workspace inside a K8s pod by cloning the repo and creating a worktree.
+   * Initialize workspace inside a remote sandbox (K8s pod or Nomad allocation)
+   * by cloning the repo and creating a worktree.
    * Falls back to empty /workspace on any failure (non-fatal).
    */
   async initializeRemoteWorkspace(params: {

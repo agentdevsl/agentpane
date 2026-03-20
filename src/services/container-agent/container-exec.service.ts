@@ -25,6 +25,12 @@ import type { Result } from '../../lib/utils/result.js';
 import { err, ok } from '../../lib/utils/result.js';
 import { getGlobalDefaultModel } from '../settings.service.js';
 import type { SandboxStateManager } from './sandbox-state.js';
+import {
+  resolveOAuthToken,
+  updateAgentStatus,
+  updateTaskOnAgentComplete,
+  updateTaskOnAgentError,
+} from './shared-helpers.js';
 import type {
   AgentConfig,
   AgentPhase,
@@ -53,7 +59,7 @@ export class ContainerExecService {
         allowedPrompts?: Array<{ tool: 'Bash'; prompt: string }>;
         launchSwarm?: boolean;
         teammateCount?: number;
-      },
+      }
     ) => Promise<void>,
     private onAgentCompleteCallback?: () =>
       | ((projectId: string, taskId: string) => Promise<void>)
@@ -309,7 +315,7 @@ export class ContainerExecService {
       log.debug('Agent record created/updated', { data: { agentId } });
     } catch (dbErr) {
       const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
-      log.info('Failed to create agent record', { data: { agentId, error: errorMessage } });
+      log.error('Failed to create agent record', { data: { agentId, error: errorMessage } });
       return err(SandboxErrors.AGENT_RECORD_FAILED(errorMessage));
     }
 
@@ -343,7 +349,7 @@ export class ContainerExecService {
       });
     } catch (dbErr) {
       const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
-      log.info('Failed to create session record', {
+      log.error('Failed to create session record', {
         data: { sessionId, taskId, error: errorMessage },
       });
       return err(SandboxErrors.SESSION_CREATE_FAILED(errorMessage));
@@ -359,7 +365,7 @@ export class ContainerExecService {
       log.debug('Task linked to agent and session', { data: { taskId } });
     } catch (dbErr) {
       const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
-      log.info('Failed to link task to agent/session', { data: { taskId, error: errorMessage } });
+      log.error('Failed to link task to agent/session', { data: { taskId, error: errorMessage } });
       // Continue anyway - linking is non-critical
     }
 
@@ -371,7 +377,7 @@ export class ContainerExecService {
     } catch (streamErr) {
       const errorMessage = streamErr instanceof Error ? streamErr.message : String(streamErr);
       if (!errorMessage.includes('already exists') && !errorMessage.includes('duplicate')) {
-        log.info('Failed to create durable stream', { data: { sessionId, error: errorMessage } });
+        log.error('Failed to create durable stream', { data: { sessionId, error: errorMessage } });
         return err(SandboxErrors.STREAM_CREATE_FAILED(errorMessage));
       }
       log.debug('Stream already exists, continuing', { data: { sessionId } });
@@ -388,7 +394,7 @@ export class ContainerExecService {
       log.debug('Initial status event published', { data: { sessionId } });
     } catch (publishErr) {
       const errorMessage = publishErr instanceof Error ? publishErr.message : String(publishErr);
-      log.info('Failed to publish initial status event - aborting agent start', {
+      log.error('Failed to publish initial status event - aborting agent start', {
         data: { sessionId, error: errorMessage },
       });
       return err(SandboxErrors.STREAM_PUBLISH_FAILED(errorMessage));
@@ -712,7 +718,7 @@ export class ContainerExecService {
       return ok(undefined);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      log.info('Failed to start agent', { data: { taskId, error: message } });
+      log.error('Failed to start agent', { data: { taskId, error: message } });
       if (worktreeId) {
         await this.worktreeInit.cleanupWorktree(taskId, worktreeId);
       }
@@ -778,7 +784,7 @@ export class ContainerExecService {
       return ok(undefined);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      log.info('Failed to stop agent', { data: { taskId, error: message } });
+      log.error('Failed to stop agent', { data: { taskId, error: message } });
       return err(SandboxErrors.AGENT_STOP_FAILED(message));
     }
   }
