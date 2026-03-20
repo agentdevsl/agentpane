@@ -15,18 +15,37 @@ type ClientAgent = {
 };
 
 export const Route = createFileRoute('/agents/')({
+  loader: async () => {
+    // Prefetch agents and projects in parallel (FC-022)
+    const [agentsResult, projectsResult] = await Promise.all([
+      apiClient.agents.list(),
+      apiClient.projects.list({ limit: 10 }),
+    ]);
+    return {
+      agents: agentsResult.ok ? agentsResult.data.items : [],
+      projects: projectsResult.ok ? projectsResult.data.items : [],
+    };
+  },
   component: AgentsPage,
 });
 
 function AgentsPage(): React.JSX.Element {
   const navigate = useNavigate();
-  const [agents, setAgents] = useState<ClientAgent[]>([]);
-  const [projects, setProjects] = useState<ProjectListItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const loaderData = Route.useLoaderData() as
+    | { agents: ClientAgent[]; projects: ProjectListItem[] }
+    | undefined;
+  const loaderAgents = (loaderData?.agents ?? []) as ClientAgent[];
+  const loaderProjects = (loaderData?.projects ?? []) as ProjectListItem[];
+  const [agents, setAgents] = useState<ClientAgent[]>(loaderAgents);
+  const [projects, setProjects] = useState<ProjectListItem[]>(loaderProjects);
+  const [isLoading, setIsLoading] = useState(false);
 
-  // Fetch agents and projects from API on mount
+  // Fetch agents and projects from API on mount (fallback if loader data is empty)
   useEffect(() => {
+    if (loaderAgents.length > 0 || loaderProjects.length > 0) return;
+
     const fetchData = async () => {
+      setIsLoading(true);
       const [agentsResult, projectsResult] = await Promise.all([
         apiClient.agents.list(),
         apiClient.projects.list({ limit: 10 }),
@@ -41,7 +60,7 @@ function AgentsPage(): React.JSX.Element {
       setIsLoading(false);
     };
     fetchData();
-  }, []);
+  }, [loaderAgents.length, loaderProjects.length]);
 
   const handleNewAgent = () => {
     const firstProject = projects[0];

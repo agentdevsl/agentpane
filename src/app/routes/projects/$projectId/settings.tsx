@@ -1,8 +1,15 @@
 import { ArrowLeft } from '@phosphor-icons/react';
 import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router';
-import { useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import { LayoutShell } from '@/app/components/features/layout-shell';
-import { ProjectSettings } from '@/app/components/features/project-settings';
+
+// Lazy-load heavy settings component (FC-012)
+const ProjectSettings = React.lazy(() =>
+  import('@/app/components/features/project-settings').then((m) => ({
+    default: m.ProjectSettings,
+  }))
+);
+
 import type { Project, ProjectConfig } from '@/db/schema';
 import { apiClient } from '@/lib/api/client';
 
@@ -131,12 +138,20 @@ function ProjectSettingsPage(): React.JSX.Element {
             </p>
           </div>
 
-          <ProjectSettings
-            project={project}
-            onSave={handleSave}
-            onDelete={handleDelete}
-            saveStatus={saveStatus}
-          />
+          <Suspense
+            fallback={
+              <div className="flex items-center justify-center py-12 text-fg-muted">
+                Loading settings...
+              </div>
+            }
+          >
+            <ProjectSettings
+              project={project}
+              onSave={handleSave}
+              onDelete={handleDelete}
+              saveStatus={saveStatus}
+            />
+          </Suspense>
         </div>
       </div>
     </LayoutShell>
