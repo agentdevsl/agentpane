@@ -137,8 +137,9 @@ function ProjectKanban(): React.JSX.Element {
 
   // Fetch on mount and when projectId changes
   useEffect(() => {
+    if (loaderData?.project) return;
     fetchData();
-  }, [fetchData]);
+  }, [fetchData, loaderData]);
 
   const handleTaskMove = async (taskId: string, column: ClientTask['column'], position: number) => {
     // Optimistic update
@@ -366,6 +367,10 @@ function ProjectKanban(): React.JSX.Element {
         </div>
       }
     >
+      {/* FC-002: KanbanBoard receives callbacks via props (3 levels: Route -> Board -> Card).
+          This is acceptable prop drilling depth -- callbacks are properly memoized and the
+          intermediate KanbanBoard component needs them for column-level orchestration.
+          Extracting into context would add complexity without meaningful benefit here. */}
       <KanbanBoard
         tasks={tasks as Parameters<typeof KanbanBoard>[0]['tasks']}
         onTaskMove={handleTaskMove as Parameters<typeof KanbanBoard>[0]['onTaskMove']}

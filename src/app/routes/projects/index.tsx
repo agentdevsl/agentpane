@@ -167,7 +167,18 @@ function ProjectsPage(): React.JSX.Element {
         setIsLoading(false);
       }
     };
-    fetchProjects();
+    if (loaderProjects.length > 0) {
+      // Loader already has data - skip immediate fetch, but start polling
+      const hasRunningAgents = loaderProjects.some(
+        (s: ClientProjectSummary) => s.runningAgents.length > 0
+      );
+      const desiredInterval = hasRunningAgents ? 10000 : 30000;
+      pollingIntervalRef.current = window.setInterval(fetchProjects, desiredInterval);
+      currentIntervalMsRef.current = desiredInterval;
+      setIsLoading(false);
+    } else {
+      fetchProjects();
+    }
 
     return () => {
       if (pollingIntervalRef.current) {

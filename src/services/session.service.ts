@@ -64,6 +64,16 @@ export class SessionService {
     this.streamService = new SessionStreamService(db, streams);
     this.crudService = new SessionCrudService(db, streams, config, presenceStore);
     this.presenceService = new SessionPresenceService(db, presenceStore, () => this.streamService);
+
+    // Start the stale-presence cleanup timer (RS-007)
+    this.presenceService.startCleanupTimer();
+  }
+
+  /**
+   * Tear down timers and resources. Call during graceful shutdown.
+   */
+  destroy(): void {
+    this.presenceService.stopCleanupTimer();
   }
 
   // ===== CRUD Operations (SessionCrudService) =====
@@ -153,10 +163,10 @@ export class SessionService {
 
   async persistEvent(
     sessionId: string,
-    event: SessionEvent,
-    retryCount = 0
+    event: SessionEvent
   ): Promise<Result<{ id: string; offset: number }, SessionError>> {
-    return this.streamService.persistEvent(sessionId, event, retryCount);
+    // DB-018: retryCount no longer needed -- atomic INSERT...SELECT eliminates race
+    return this.streamService.persistEvent(sessionId, event);
   }
 
   async getEventsBySession(

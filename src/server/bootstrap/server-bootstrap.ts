@@ -50,7 +50,12 @@ export async function run(): Promise<void> {
   const database = await initializeDatabase(config);
 
   // Phase 3: Recovery
-  await runRecovery(database.db);
+  const recovery = await runRecovery(database.db);
+  if (recovery.errors.length > 0) {
+    log.warn(`Recovery completed with ${recovery.errors.length} error(s)`, {
+      data: { errors: recovery.errors.map((e) => e.message) },
+    });
+  }
 
   // Phase 4: Services
   const services = createServiceContainer(database.db, config);
@@ -69,21 +74,25 @@ export async function run(): Promise<void> {
     nomadHealInterval: null,
     retryTimer: null,
     retryCount: 0,
+    initializing: false,
   };
 
   const isDev = process.env.NODE_ENV === 'development';
 
   const getSandboxProvider = () => {
-    // In dev mode, trigger lazy re-init if provider is null and no retry is pending
-    if (!sandboxState.provider && isDev && !sandboxState.retryTimer) {
+    // In dev mode, trigger lazy re-init if provider is null and no retry/init is pending
+    if (!sandboxState.provider && isDev && !sandboxState.retryTimer && !sandboxState.initializing) {
+      sandboxState.initializing = true;
       // Trigger async retry - will be picked up on next call
-      initSandboxProvider(database.db, services, sandboxState, config.sandboxInitTimeoutMs).catch(
-        (err) => {
+      initSandboxProvider(database.db, services, sandboxState, config.sandboxInitTimeoutMs)
+        .finally(() => {
+          sandboxState.initializing = false;
+        })
+        .catch((err) => {
           log.warn('Lazy sandbox re-init failed', {
             error: err instanceof Error ? err.message : String(err),
           });
-        }
-      );
+        });
     }
     return sandboxState.provider;
   };
@@ -131,6 +140,10 @@ export async function run(): Promise<void> {
     }
   });
 
+  shutdown.register('sessionService', () => {
+    services.sessionService.destroy();
+  });
+
   shutdown.register('cliMonitorService', () => {
     services.cliMonitorService.destroy();
   });
@@ -160,16 +173,17 @@ export async function run(): Promise<void> {
     }
   });
 
-  shutdown.register('containerAgentService', () => {
+  shutdown.register('containerAgentService', async () => {
     if (sandboxState.containerAgentService) {
       const running = sandboxState.containerAgentService.getRunningAgents();
-      for (const agent of running) {
-        sandboxState.containerAgentService.stopAgent(agent.taskId).catch((stopErr) => {
+      const stopPromises = running.map((agent) =>
+        sandboxState.containerAgentService!.stopAgent(agent.taskId).catch((stopErr) => {
           log.warn('Failed to stop agent during shutdown', {
             data: { taskId: agent.taskId, error: String(stopErr) },
           });
-        });
-      }
+        })
+      );
+      await Promise.allSettled(stopPromises);
       sandboxState.containerAgentService.dispose();
     }
   });

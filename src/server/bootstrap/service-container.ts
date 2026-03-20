@@ -127,6 +127,9 @@ export function createServiceContainer(db: Database, config: ServerConfig): Serv
   // 6. Agent service
   const agentService = new AgentService(db, worktreeService, taskService, sessionService);
 
+  // Wire agent execution service into task service for host-mode plan approval (AE-002)
+  taskService.setAgentExecutionService(agentService);
+
   // 7. Workflow service
   const workflowService = new WorkflowService(db);
 

@@ -133,7 +133,17 @@ function Dashboard(): React.JSX.Element {
   const currentIntervalMsRef = useRef<number | null>(null);
   const isFetchingRef = useRef(false);
 
-  // Fetch projects from API on mount and poll when agents are running
+  // FC-021: Polling-vs-SSE decision for the dashboard
+  // -------------------------------------------------
+  // The dashboard uses polling (5s active / 30s idle) rather than SSE because:
+  // 1. The dashboard aggregates data across ALL projects -- there is no single
+  //    session ID to subscribe to via durable streams.
+  // 2. The listWithSummaries endpoint returns pre-aggregated counts that would
+  //    require fan-out across multiple SSE channels to replicate.
+  // 3. The adaptive polling interval (5s when agents run, 30s when idle)
+  //    provides acceptable freshness without a persistent connection.
+  // If a global event bus (e.g., project:updated) is added, SSE could replace
+  // polling here by subscribing to a single organization-level stream.
   useEffect(() => {
     const fetchProjects = async () => {
       if (isFetchingRef.current) {
@@ -184,7 +194,18 @@ function Dashboard(): React.JSX.Element {
         setIsLoading(false);
       }
     };
-    fetchProjects();
+    if (loaderProjects.length > 0) {
+      // Loader already has data - skip immediate fetch, but start polling
+      const hasRunningAgents = loaderProjects.some(
+        (s: ProjectSummaryItem) => s.runningAgents.length > 0
+      );
+      const desiredInterval = hasRunningAgents ? 5000 : 30000;
+      pollingIntervalRef.current = window.setInterval(fetchProjects, desiredInterval);
+      currentIntervalMsRef.current = desiredInterval;
+      setIsLoading(false);
+    } else {
+      fetchProjects();
+    }
 
     return () => {
       if (pollingIntervalRef.current) {
