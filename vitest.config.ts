@@ -62,12 +62,6 @@ export default defineConfig({
           ],
           alias: sharedAlias,
           pool: 'threads',
-          poolOptions: {
-            threads: {
-              minThreads: 2,
-              maxThreads: 8,
-            },
-          },
           testTimeout: 10000,
           hookTimeout: 10000,
         },
@@ -93,18 +87,12 @@ export default defineConfig({
           exclude: sharedExclude,
           alias: sharedAlias,
           pool: 'threads',
-          poolOptions: {
-            threads: {
-              minThreads: 1,
-              maxThreads: 4,
-            },
-          },
           testTimeout: 10000,
           hookTimeout: 10000,
         },
         resolve: sharedResolve,
       },
-      // Project 3: DB tests — service/integration tests needing SQLite
+      // Project 3: DB tests — service/integration tests needing SQLite (forks for process isolation)
       {
         test: {
           name: 'db',
@@ -127,12 +115,6 @@ export default defineConfig({
           exclude: sharedExclude,
           alias: sharedAlias,
           pool: 'forks',
-          poolOptions: {
-            forks: {
-              minForks: 1,
-              maxForks: 4,
-            },
-          },
           testTimeout: 10000,
           hookTimeout: 10000,
         },

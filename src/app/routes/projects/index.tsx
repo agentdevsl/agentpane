@@ -136,6 +136,7 @@ function ProjectsPage(): React.JSX.Element {
   const isFetchingRef = useRef(false);
 
   // Fetch projects with summaries from API on mount and poll when agents are running
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only effect — initial data is stable from the route loader
   useEffect(() => {
     const fetchProjects = async () => {
       if (isFetchingRef.current) {

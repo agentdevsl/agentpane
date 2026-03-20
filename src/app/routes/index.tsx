@@ -135,6 +135,7 @@ function Dashboard(): React.JSX.Element {
 
   // FC-021: Polling (5s active, 30s idle) chosen over SSE because dashboard has no single session to subscribe to
   // Skip initial fetch if loader already provided data
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only effect — loaderProjects is stable from the route loader
   useEffect(() => {
     const fetchProjects = async () => {
       if (isFetchingRef.current) {

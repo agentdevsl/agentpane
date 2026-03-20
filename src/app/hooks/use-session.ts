@@ -146,6 +146,7 @@ export function useSession(
   }, [leave]);
 
   // Join on mount, leave on unmount
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId triggers re-join when session changes
   useEffect(() => {
     void joinRef.current();
     return () => {
@@ -267,7 +268,7 @@ export function useSession(
         console.log('[useSession] Disconnected from session stream');
       },
     };
-  }, []);
+  }, [sessionId]);
 
   const { connectionState } = useSessionSubscription(sessionId, callbacks.current);
 

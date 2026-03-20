@@ -1471,14 +1471,12 @@ export function subscribeToSession(sessionId: string, callbacks: SessionCallback
       // We use a type assertion here because the callback keys are dynamically
       // iterated and TypeScript cannot narrow the union per-iteration.
       const fanOutKey = key as keyof SessionCallbacks;
-      // biome-ignore lint/suspicious/noExplicitAny: generic fan-out across heterogeneous callback signatures
       (fanOutCallbacks as Record<string, (...args: unknown[]) => void>)[fanOutKey] = (
         ...args: unknown[]
       ) => {
         for (const sub of subscriberMap.values()) {
           const handler = sub[fanOutKey];
           if (typeof handler === 'function') {
-            // biome-ignore lint/suspicious/noExplicitAny: callbacks have varying arity
             (handler as (...a: unknown[]) => void)(...args);
           }
         }

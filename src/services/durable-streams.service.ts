@@ -782,7 +782,8 @@ export class DurableStreamsService {
       return err(
         createError(
           'STREAMS_VALIDATION',
-          'publishSessionEvent: streamId is required and must be a non-empty string'
+          'publishSessionEvent: streamId is required and must be a non-empty string',
+          400
         )
       );
     }
@@ -820,7 +821,8 @@ export class DurableStreamsService {
       return err(
         createError(
           'STREAMS_PUBLISH',
-          `Failed to publish session event '${event.type}' to stream '${streamId}': ${error instanceof Error ? error.message : String(error)}`
+          `Failed to publish session event '${event.type}' to stream '${streamId}': ${error instanceof Error ? error.message : String(error)}`,
+          500
         )
       );
     }

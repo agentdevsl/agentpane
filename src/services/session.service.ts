@@ -165,10 +165,9 @@ export class SessionService {
 
   async persistEvent(
     sessionId: string,
-    event: SessionEvent,
-    retryCount = 0
+    event: SessionEvent
   ): Promise<Result<{ id: string; offset: number }, SessionError>> {
-    return this.streamService.persistEvent(sessionId, event, retryCount);
+    return this.streamService.persistEvent(sessionId, event);
   }
 
   async getEventsBySession(

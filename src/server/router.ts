@@ -299,25 +299,19 @@ export function createRouter(deps: RouterDependencies) {
   // pattern for gradual migration.
   const rbacService = deps.rbacService ?? new RbacService(deps.db);
 
-  // Settings: admin required
+  // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
   useRoleGuard(app, '/api/settings', 'admin', rbacService);
-
-  // API keys: admin required
+  // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
   useRoleGuard(app, '/api/keys', 'admin', rbacService);
-
-  // Projects: viewer minimum (write operations checked in handlers)
+  // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
   useRoleGuard(app, '/api/projects', 'viewer', rbacService);
-
-  // Tasks: viewer minimum (write operations checked in handlers)
+  // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
   useRoleGuard(app, '/api/tasks', 'viewer', rbacService);
-
-  // Agents: viewer minimum (action endpoints checked in handlers)
+  // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
   useRoleGuard(app, '/api/agents', 'viewer', rbacService);
-
-  // Sessions: viewer minimum
+  // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
   useRoleGuard(app, '/api/sessions', 'viewer', rbacService);
-
-  // Worktrees: viewer minimum
+  // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
   useRoleGuard(app, '/api/worktrees', 'viewer', rbacService);
 
   // GitHub integration: viewer minimum (read repos/branches)

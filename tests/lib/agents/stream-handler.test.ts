@@ -281,9 +281,9 @@ describe('runAgentPlanning', () => {
 
   it('captures ExitPlanMode options via canUseTool', async () => {
     // The canUseTool is passed to the SDK, so we capture it from the mock and invoke it
-    let capturedCanUseTool: Function | null = null;
+    let capturedCanUseTool: ((...args: unknown[]) => unknown) | null = null;
     mockSessionCreate.mockImplementation((opts: Record<string, unknown>) => {
-      capturedCanUseTool = opts.canUseTool as Function;
+      capturedCanUseTool = opts.canUseTool as (...args: unknown[]) => unknown;
       return mockSession;
     });
     mockSession.stream.mockReturnValue(
@@ -311,9 +311,9 @@ describe('runAgentPlanning', () => {
   });
 
   it('publishes tool:start via canUseTool callback', async () => {
-    let capturedCanUseTool: Function | null = null;
+    let capturedCanUseTool: ((...args: unknown[]) => unknown) | null = null;
     mockSessionCreate.mockImplementation((opts: Record<string, unknown>) => {
-      capturedCanUseTool = opts.canUseTool as Function;
+      capturedCanUseTool = opts.canUseTool as (...args: unknown[]) => unknown;
       return mockSession;
     });
     mockSession.stream.mockReturnValue(yieldMessages([]));
@@ -337,9 +337,9 @@ describe('runAgentPlanning', () => {
   });
 
   it('handles tool_use_summary and publishes tool:result events', async () => {
-    let capturedCanUseTool: Function | null = null;
+    let capturedCanUseTool: ((...args: unknown[]) => unknown) | null = null;
     mockSessionCreate.mockImplementation((opts: Record<string, unknown>) => {
-      capturedCanUseTool = opts.canUseTool as Function;
+      capturedCanUseTool = opts.canUseTool as (...args: unknown[]) => unknown;
       return mockSession;
     });
 
@@ -1095,9 +1095,9 @@ describe('runAgentExecution', () => {
     // In execution mode, canUseTool is called by the SDK before tool execution.
     // We need to pre-register the tool in activeTools by calling canUseTool
     // before the tool_use_summary message arrives.
-    let capturedCanUseTool: Function | null = null;
+    let capturedCanUseTool: ((...args: unknown[]) => unknown) | null = null;
     mockSessionCreate.mockImplementation((opts: Record<string, unknown>) => {
-      capturedCanUseTool = opts.canUseTool as Function;
+      capturedCanUseTool = opts.canUseTool as (...args: unknown[]) => unknown;
       return mockSession;
     });
 
