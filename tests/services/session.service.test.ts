@@ -9,6 +9,7 @@ import { createTestAgent } from '../factories/agent.factory';
 import { createTestProject } from '../factories/project.factory';
 import { createTestSession } from '../factories/session.factory';
 import { createTestTask } from '../factories/task.factory';
+import { flushPromises } from '../helpers/async';
 import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/database';
 
 describe('SessionService', () => {
@@ -489,7 +490,7 @@ describe('SessionService', () => {
       };
       await sessionService.publish(session.id, event);
       // publish() persists asynchronously — wait for the fire-and-forget persist
-      await new Promise((r) => setTimeout(r, 50));
+      await flushPromises();
 
       const result = await sessionService.getHistory(session.id, { startTime });
 
@@ -513,7 +514,7 @@ describe('SessionService', () => {
       };
       await sessionService.publish(session.id, event);
       // publish() persists asynchronously — wait for the fire-and-forget persist
-      await new Promise((r) => setTimeout(r, 50));
+      await flushPromises();
 
       const events: SessionEvent[] = [];
 

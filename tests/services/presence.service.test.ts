@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SessionErrors } from '../../src/lib/errors/session-errors';
 import { SessionService } from '../../src/services/session.service';
+import { flushPromises } from '../helpers/async';
 
 // =============================================================================
 // Presence Service Tests
@@ -287,8 +288,8 @@ describe('Presence Service', () => {
       const initialUsers = await service.getActiveUsers('hb-s1');
       const initialLastSeen = initialUsers.ok ? initialUsers.value[0]?.lastSeen : 0;
 
-      // Wait a small amount and update presence
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      // Flush microtasks to allow time to advance slightly
+      await flushPromises();
       await service.updatePresence('hb-s1', 'user1', { cursor: { x: 10, y: 20 } });
 
       const updatedUsers = await service.getActiveUsers('hb-s1');

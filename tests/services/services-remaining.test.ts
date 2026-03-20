@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { err, ok } from '../../src/lib/utils/result';
 import { createTestProject } from '../factories/project.factory';
 import { createTestTask } from '../factories/task.factory';
+import { flushPromises } from '../helpers/async';
 import { clearTestDatabase, execRawSql, getTestDb, setupTestDatabase } from '../helpers/database';
 
 // Additional migration SQL for sandbox tables (not in main MIGRATION_SQL)
@@ -1653,8 +1654,8 @@ describe('TemplateSyncScheduler', () => {
 
       startSyncScheduler(db, mockTemplateService as any);
 
-      // Wait a bit for initial sync
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      // Flush microtasks so the initial sync fires
+      await flushPromises();
 
       stopSyncScheduler();
       consoleSpy.mockRestore();
@@ -1685,7 +1686,7 @@ describe('TemplateSyncScheduler', () => {
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
       startSyncScheduler(db, mockTemplateService as any);
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await flushPromises();
       stopSyncScheduler();
       consoleSpy.mockRestore();
 
@@ -1716,7 +1717,7 @@ describe('TemplateSyncScheduler', () => {
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
       startSyncScheduler(db, mockTemplateService as any);
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await flushPromises();
       stopSyncScheduler();
       consoleSpy.mockRestore();
 
@@ -1746,7 +1747,7 @@ describe('TemplateSyncScheduler', () => {
       const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
       startSyncScheduler(db, mockTemplateService as any);
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await flushPromises();
       stopSyncScheduler();
 
       consoleErrorSpy.mockRestore();

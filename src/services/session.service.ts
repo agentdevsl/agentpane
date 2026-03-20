@@ -57,14 +57,15 @@ export class SessionService {
   private presenceService: SessionPresenceService;
   private streamService: SessionStreamService;
 
-  constructor(
-    db: Database,
-    streams: DurableStreamsServer,
-    config: { baseUrl: string },
-  ) {
+  constructor(db: Database, streams: DurableStreamsServer, config: { baseUrl: string }) {
     this.streamService = new SessionStreamService(db, streams);
     this.presenceService = new SessionPresenceService(db, () => this.streamService);
-    this.crudService = new SessionCrudService(db, streams, config, this.presenceService.getMutablePresenceStore());
+    this.crudService = new SessionCrudService(
+      db,
+      streams,
+      config,
+      this.presenceService.getMutablePresenceStore()
+    );
 
     // Start the stale-presence cleanup timer (RS-007)
     this.presenceService.startCleanupTimer();

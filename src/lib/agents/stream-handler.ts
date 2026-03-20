@@ -4,6 +4,7 @@ import { createLogger } from '../../lib/logging/logger.js';
 import type { SessionEvent } from '../../services/session.service.js';
 import { deriveAgentName, mapAgentRole } from '../topology/map-agent-role.js';
 import { buildSdkEnv } from './agent-sdk-utils.js';
+
 const log = createLogger('StreamHandler');
 
 export interface StreamHandlerOptions {
@@ -966,4 +967,3 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
     };
   }
 }
-
