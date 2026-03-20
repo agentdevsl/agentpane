@@ -95,6 +95,7 @@ The startup script includes health checks to ensure both servers are ready befor
 - **API offline**: If API requests fail, check that port 3001 is running. Restart with `npm run dev`.
 - **Frontend not loading**: Ensure port 3000 is available and Vite started successfully.
 - **linting errors**: Fix errors do not workaround
+- **biome `--max-diagnostics`**: By default `biome check` truncates output at ~20 diagnostics. Use `--max-diagnostics=500` to see all errors/warnings. Without this, you may think you've fixed all issues when truncated errors remain. Always use `--diagnostic-level=error` to filter noise from warnings.
 
 ### Publishing `@agentpane/cli-monitor` to npm
 
