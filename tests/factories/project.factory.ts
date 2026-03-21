@@ -1,7 +1,21 @@
 import { createId } from '@paralleldrive/cuid2';
 import type { Codespace, CodespaceConfig, NewCodespace } from '../../src/db/schema';
-import { codespaces } from '../../src/db/schema';
+import { codespaces, projectFolders } from '../../src/db/schema';
 import { getTestDb } from '../helpers/database';
+
+/** Ensure the default project folder exists (idempotent) */
+async function ensureDefaultFolder(db: ReturnType<typeof getTestDb>) {
+  try {
+    await db.insert(projectFolders).values({
+      id: 'default-folder',
+      name: 'Default',
+      slug: 'default',
+      description: 'Default project folder for tests',
+    });
+  } catch {
+    // Already exists — safe to ignore
+  }
+}
 
 export type ProjectFactoryOptions = Partial<NewCodespace> & {
   config?: Partial<CodespaceConfig>;
@@ -18,7 +32,7 @@ export function buildProject(options: ProjectFactoryOptions = {}): NewCodespace 
   const id = options.id ?? createId();
   return {
     id,
-    projectFolderId: options.projectFolderId ?? createId(),
+    projectFolderId: options.projectFolderId ?? 'default-folder',
     name: options.name ?? `Test Project ${id.slice(0, 6)}`,
     path: options.path ?? `/tmp/test-project-${id}`,
     description: options.description ?? null,
@@ -37,6 +51,7 @@ export function buildProject(options: ProjectFactoryOptions = {}): NewCodespace 
 
 export async function createTestProject(options: ProjectFactoryOptions = {}): Promise<Codespace> {
   const db = getTestDb();
+  await ensureDefaultFolder(db);
   const data = buildProject(options);
 
   const [project] = await db.insert(codespaces).values(data).returning();
