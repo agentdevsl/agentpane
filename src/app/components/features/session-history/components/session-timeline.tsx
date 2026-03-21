@@ -106,7 +106,7 @@ function ProjectSearch({
           }}
           onFocus={() => setIsSearchOpen(true)}
           onKeyDown={handleKeyDown}
-          placeholder="All projects"
+          placeholder="All codespaces"
           className={cn(
             'w-40 appearance-none rounded-md border bg-surface-subtle py-1.5 pl-8 pr-7 text-xs transition-colors',
             'placeholder:text-fg-muted focus:outline-none focus:ring-1',
@@ -151,7 +151,7 @@ function ProjectSearch({
                   : 'text-fg-muted hover:bg-surface-subtle'
               )}
             >
-              All projects
+              All codespaces
             </button>
           </li>
           {filteredProjects.map((project, index) => (

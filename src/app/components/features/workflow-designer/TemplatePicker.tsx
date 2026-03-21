@@ -158,7 +158,7 @@ export function TemplatePicker({
     const project: Template[] = [];
     for (const t of templates) {
       if (t.scope === 'org') org.push(t);
-      else if (t.scope === 'project') project.push(t);
+      else if (t.scope === 'codespace') project.push(t);
     }
     return { orgTemplates: org, projectTemplates: project };
   }, [templates]);

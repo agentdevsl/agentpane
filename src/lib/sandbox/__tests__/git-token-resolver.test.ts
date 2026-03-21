@@ -109,9 +109,6 @@ describe('resolveGitToken', () => {
       owner: 'owner',
       repo: 'repo',
     });
-    expect(console.warn).toHaveBeenCalledWith(
-      expect.stringContaining('Installation record not found')
-    );
     expect(tokenService.getDecryptedToken).toHaveBeenCalled();
   });
 
@@ -147,9 +144,6 @@ describe('resolveGitToken', () => {
       owner: 'org',
       repo: 'repo',
     });
-    expect(console.warn).toHaveBeenCalledWith(
-      '[GitTokenResolver] GitHub App not configured, falling back to PAT'
-    );
   });
 
   // ────────────────────────────────────────────────────────────────────
@@ -186,11 +180,6 @@ describe('resolveGitToken', () => {
       owner: 'org',
       repo: 'repo',
     });
-    expect(console.warn).toHaveBeenCalledWith(
-      expect.stringContaining(
-        'GitHub App token API call failed (falling back to PAT): API rate limit exceeded'
-      )
-    );
   });
 
   // ────────────────────────────────────────────────────────────────────
@@ -221,9 +210,6 @@ describe('resolveGitToken', () => {
       owner: 'org',
       repo: 'repo',
     });
-    expect(console.warn).toHaveBeenCalledWith(
-      expect.stringContaining('Installation has non-numeric installationId: not-a-number')
-    );
     // getAppOctokit should NOT have been called since we bailed on NaN
     expect(getAppOctokit).not.toHaveBeenCalled();
   });
@@ -249,7 +235,6 @@ describe('resolveGitToken', () => {
       owner: 'user',
       repo: 'project',
     });
-    expect(console.log).toHaveBeenCalledWith('[GitTokenResolver] Resolved token via PAT');
     // DB query for installations should NOT be called
     expect(db.query.githubInstallations.findFirst).not.toHaveBeenCalled();
   });
@@ -271,7 +256,6 @@ describe('resolveGitToken', () => {
     );
 
     expect(result).toBeNull();
-    expect(console.log).toHaveBeenCalledWith('[GitTokenResolver] No git token could be resolved');
   });
 
   // ────────────────────────────────────────────────────────────────────
@@ -293,9 +277,6 @@ describe('resolveGitToken', () => {
     );
 
     expect(result).toBeNull();
-    expect(console.warn).toHaveBeenCalledWith(
-      expect.stringContaining('PAT resolution failed: Decryption failed')
-    );
   });
 
   // ────────────────────────────────────────────────────────────────────
@@ -315,9 +296,6 @@ describe('resolveGitToken', () => {
     );
 
     expect(result).toBeNull();
-    expect(console.log).toHaveBeenCalledWith(
-      '[GitTokenResolver] Project has no GitHub owner/repo configured'
-    );
     expect(tokenService.getDecryptedToken).not.toHaveBeenCalled();
   });
 
@@ -335,9 +313,6 @@ describe('resolveGitToken', () => {
     );
 
     expect(result).toBeNull();
-    expect(console.log).toHaveBeenCalledWith(
-      '[GitTokenResolver] Project has no GitHub owner/repo configured'
-    );
     expect(tokenService.getDecryptedToken).not.toHaveBeenCalled();
   });
 
@@ -391,16 +366,6 @@ describe('resolveGitToken', () => {
     );
 
     expect(result).toBeNull();
-    // Both warnings should have been logged
-    expect(console.warn).toHaveBeenCalledWith(
-      expect.stringContaining(
-        'GitHub App token API call failed (falling back to PAT): Server error'
-      )
-    );
-    expect(console.warn).toHaveBeenCalledWith(
-      expect.stringContaining('PAT resolution failed: Token storage corrupted')
-    );
-    expect(console.log).toHaveBeenCalledWith('[GitTokenResolver] No git token could be resolved');
   });
 
   it('returns null when installation not found AND no githubTokenService provided', async () => {
@@ -416,6 +381,5 @@ describe('resolveGitToken', () => {
     );
 
     expect(result).toBeNull();
-    expect(console.log).toHaveBeenCalledWith('[GitTokenResolver] No git token could be resolved');
   });
 });

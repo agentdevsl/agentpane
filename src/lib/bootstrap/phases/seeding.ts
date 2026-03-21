@@ -53,20 +53,20 @@ export const seedDefaults = async (ctx: BootstrapContext) => {
     seedK8sSandboxConfig(ctx, now);
 
     // Use better-sqlite3 API (synchronous)
-    const existingProjects = ctx.db.prepare('SELECT id FROM projects LIMIT 1').all();
-    if (existingProjects.length > 0) {
+    const existingCodespaces = ctx.db.prepare('SELECT id FROM codespaces LIMIT 1').all();
+    if (existingCodespaces.length > 0) {
       return ok(undefined);
     }
 
-    const projectId = createId();
+    const codespaceId = createId();
 
     ctx.db
       .prepare(`
-      INSERT INTO projects (id, name, path, description, created_at, updated_at)
+      INSERT INTO codespaces (id, name, path, description, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?)
     `)
       .run(
-        projectId,
+        codespaceId,
         'Default Project',
         process.cwd(),
         'Default project created on first run',
@@ -82,10 +82,10 @@ export const seedDefaults = async (ctx: BootstrapContext) => {
 
     ctx.db
       .prepare(`
-      INSERT INTO agents (id, project_id, name, type, status, config, created_at, updated_at)
+      INSERT INTO agents (id, codespace_id, name, type, status, config, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `)
-      .run(agentId, projectId, 'Default Agent', 'task', 'idle', agentConfig, now, now);
+      .run(agentId, codespaceId, 'Default Agent', 'task', 'idle', agentConfig, now, now);
 
     return ok(undefined);
   } catch (error) {

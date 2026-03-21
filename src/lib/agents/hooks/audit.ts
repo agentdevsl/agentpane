@@ -6,7 +6,7 @@ export function createAuditHook(
   agentId: string,
   agentRunId: string,
   taskId: string | null,
-  projectId: string
+  codespaceId: string
 ): PostToolUseHook {
   let turnNumber = 0;
 
@@ -23,7 +23,7 @@ export function createAuditHook(
             agentId,
             agentRunId,
             taskId,
-            projectId,
+            codespaceId,
             tool: input.tool_name,
             status: input.tool_response.is_error ? 'error' : 'complete',
             input: input.tool_input as Record<string, unknown>,
@@ -34,9 +34,7 @@ export function createAuditHook(
             durationMs: input.duration_ms,
             turnNumber,
           });
-        } catch (error) {
-          console.error('[AuditHook] Failed to write audit log:', error);
-        }
+        } catch (_error) {}
 
         return {};
       },

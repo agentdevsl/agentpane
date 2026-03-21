@@ -2,8 +2,8 @@ import { createId } from '@paralleldrive/cuid2';
 import { sql } from 'drizzle-orm';
 import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import type { TaskColumn, TaskPriority } from '../shared/enums';
+import { codespaces } from './codespaces';
 import { eventSources } from './event-sources';
-import { projects } from './projects';
 
 export type { SubscriptionFilter } from '../../../lib/events/plugin-interface.js';
 export type { TaskColumn, TaskPriority } from '../shared/enums';
@@ -20,9 +20,9 @@ export const eventSubscriptions = sqliteTable(
     eventSourceId: text('event_source_id')
       .notNull()
       .references(() => eventSources.id, { onDelete: 'cascade' }),
-    targetProjectId: text('target_project_id')
+    targetCodespaceId: text('target_codespace_id')
       .notNull()
-      .references(() => projects.id, { onDelete: 'cascade' }),
+      .references(() => codespaces.id, { onDelete: 'cascade' }),
     isEnabled: integer('is_enabled', { mode: 'boolean' }).default(true).notNull(),
     eventTypes: text('event_types', { mode: 'json' }).$type<string[]>().default([]),
     filters: text('filters', { mode: 'json' }).$type<SubscriptionFilter[]>().default([]),
@@ -41,7 +41,7 @@ export const eventSubscriptions = sqliteTable(
   },
   (table) => [
     index('event_subscriptions_source_idx').on(table.eventSourceId),
-    index('event_subscriptions_project_idx').on(table.targetProjectId),
+    index('event_subscriptions_codespace_idx').on(table.targetCodespaceId),
     index('event_subscriptions_source_enabled_idx').on(table.eventSourceId, table.isEnabled),
   ]
 );

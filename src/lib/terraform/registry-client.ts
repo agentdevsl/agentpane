@@ -1,5 +1,4 @@
 import type { NewTerraformModule, TerraformOutput, TerraformVariable } from '../../db/schema';
-import { errorMessage } from '../utils/error-message';
 
 export interface RegistryConfig {
   baseUrl: string;
@@ -103,9 +102,6 @@ async function apiRequest<T>(
       }
       const retryAfter = response.headers.get('retry-after');
       const waitMs = retryAfter ? Number(retryAfter) * 1000 : 1000 * 2 ** attempt;
-      console.warn(
-        `[RegistryClient] Rate limited, retrying in ${waitMs}ms (attempt ${attempt + 1}/${MAX_RETRIES})`
-      );
       await sleep(waitMs);
       continue;
     }
@@ -226,9 +222,6 @@ export async function syncAllModules(config: RegistryConfig): Promise<NewTerrafo
           versionStatuses.find((v) => v.status === 'ok')?.version ?? versionStatuses[0]?.version;
 
         if (!latestVersion) {
-          console.warn(
-            `[RegistryClient] No version found for module ${namespace}/${name}/${provider}, skipping`
-          );
           return null;
         }
 
@@ -244,14 +237,7 @@ export async function syncAllModules(config: RegistryConfig): Promise<NewTerrafo
 
         try {
           detail = await getModuleDetail(config, namespace, name, provider, latestVersion);
-        } catch (error) {
-          // Version-specific endpoint may not be accessible with team tokens;
-          // fall back to basic module info from the list response.
-          console.warn(
-            `[RegistryClient] Detail fetch failed for ${namespace}/${name}/${provider}@${latestVersion} (using basic info):`,
-            errorMessage(error)
-          );
-        }
+        } catch (_error) {}
 
         // Private registry module source format: app.terraform.io/<org>/<name>/<provider>
         const registrySource = `app.terraform.io/${config.orgName}/${name}/${provider}`;

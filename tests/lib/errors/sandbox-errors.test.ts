@@ -15,12 +15,12 @@ describe('SandboxErrors - Container', () => {
     expect(SandboxErrors.CONTAINER_NOT_FOUND.status).toBe(404);
   });
 
-  it('CONTAINER_ALREADY_EXISTS includes projectId', () => {
+  it('CONTAINER_ALREADY_EXISTS includes codespaceId', () => {
     const error = SandboxErrors.CONTAINER_ALREADY_EXISTS('proj-1');
 
     expect(error.code).toBe('SANDBOX_CONTAINER_ALREADY_EXISTS');
     expect(error.status).toBe(409);
-    expect(error.details).toEqual({ projectId: 'proj-1' });
+    expect(error.details).toEqual({ codespaceId: 'proj-1' });
   });
 
   it('CONTAINER_CREATION_FAILED includes message in text', () => {
@@ -266,12 +266,12 @@ describe('SandboxErrors - Miscellaneous', () => {
     expect(SandboxErrors.PROJECT_NOT_FOUND.status).toBe(404);
   });
 
-  it('SANDBOX_NOT_ENABLED includes projectId', () => {
+  it('SANDBOX_NOT_ENABLED includes codespaceId', () => {
     const error = SandboxErrors.SANDBOX_NOT_ENABLED('p-1');
 
     expect(error.code).toBe('SANDBOX_NOT_ENABLED');
     expect(error.status).toBe(400);
-    expect(error.details).toEqual({ projectId: 'p-1' });
+    expect(error.details).toEqual({ codespaceId: 'p-1' });
   });
 
   it('INTERNAL_ERROR wraps message', () => {

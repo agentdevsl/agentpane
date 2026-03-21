@@ -1,4 +1,4 @@
-import type { Project } from '@/db/schema';
+import type { Codespace } from '@/db/schema';
 
 /**
  * Project icon configuration
@@ -72,7 +72,7 @@ export interface ProjectPickerState {
  * Maps a Project and its summary data to a ProjectPickerItem
  */
 export function mapProjectToPickerItem(
-  project: Project,
+  project: Codespace,
   options: {
     isActive?: boolean;
     activeAgents?: number;

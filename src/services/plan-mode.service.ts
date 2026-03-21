@@ -1,7 +1,7 @@
 import { createId } from '@paralleldrive/cuid2';
 import { eq } from 'drizzle-orm';
 import type { PlanSession as DbPlanSession, NewPlanSession } from '../db/schema';
-import { planSessions, projects, tasks } from '../db/schema';
+import { codespaces, planSessions, tasks } from '../db/schema';
 import type { PlanModeError } from '../lib/errors/plan-mode-errors.js';
 import { PlanModeErrors } from '../lib/errors/plan-mode-errors.js';
 import type { GitHubIssueCreator } from '../lib/github/issue-creator.js';
@@ -119,12 +119,12 @@ export class PlanModeService {
     input: CreatePlanSessionInput,
     onToken?: PlanTokenCallback
   ): Promise<Result<PlanSession, PlanModeError>> {
-    // Verify project exists
-    const project = await this.db.query.projects.findFirst({
-      where: eq(projects.id, input.projectId),
+    // Verify codespace exists
+    const codespace = await this.db.query.codespaces.findFirst({
+      where: eq(codespaces.id, input.codespaceId),
     });
 
-    if (!project) {
+    if (!codespace) {
       return err(PlanModeErrors.PROJECT_NOT_FOUND);
     }
 
@@ -154,7 +154,7 @@ export class PlanModeService {
     // Create session in database
     const sessionData: NewPlanSession = {
       taskId: input.taskId,
-      projectId: input.projectId,
+      codespaceId: input.codespaceId,
       status: 'active',
       turns: [initialTurn],
     };
@@ -178,11 +178,10 @@ export class PlanModeService {
       await this.streams.createStream(session.id, {
         type: 'plan-session',
         taskId: input.taskId,
-        projectId: input.projectId,
+        codespaceId: input.codespaceId,
       });
-    } catch (streamError) {
+    } catch (_streamError) {
       this.droppedEventCount++;
-      console.error('[PlanModeService] Failed to create stream:', streamError);
     }
 
     // Publish start event
@@ -190,11 +189,10 @@ export class PlanModeService {
       await this.streams.publishPlanStarted(session.id, {
         sessionId: session.id,
         taskId: session.taskId,
-        projectId: session.projectId,
+        codespaceId: session.codespaceId,
       });
-    } catch (streamError) {
+    } catch (_streamError) {
       this.droppedEventCount++;
-      console.error('[PlanModeService] Failed to publish start event:', streamError);
     }
 
     // Get initial response from Claude
@@ -249,9 +247,8 @@ export class PlanModeService {
         role: responseTurn.role,
         content: responseTurn.content,
       });
-    } catch (streamError) {
+    } catch (_streamError) {
       this.droppedEventCount++;
-      console.error('[PlanModeService] Failed to publish turn event:', streamError);
     }
 
     // Update database
@@ -373,9 +370,8 @@ export class PlanModeService {
               delta,
               accumulated: acc,
             })
-            .catch((streamError: unknown) => {
+            .catch((_streamError: unknown) => {
               this.droppedEventCount++;
-              console.error('[PlanModeService] Token publish failed:', streamError);
             });
         }
       : undefined;
@@ -390,9 +386,8 @@ export class PlanModeService {
           error: response.error.message,
           code: response.error.code,
         });
-      } catch (streamError) {
+      } catch (_streamError) {
         this.droppedEventCount++;
-        console.error('[PlanModeService] Failed to publish error event:', streamError);
       }
       return response;
     }
@@ -440,9 +435,8 @@ export class PlanModeService {
         role: assistantTurn.role,
         content: assistantTurn.content,
       });
-    } catch (streamError) {
+    } catch (_streamError) {
       this.droppedEventCount++;
-      console.error('[PlanModeService] Failed to publish turn event:', streamError);
     }
 
     return ok(updatedSession);
@@ -519,9 +513,8 @@ export class PlanModeService {
         interactionId: interaction.id,
         questions: interaction.questions,
       });
-    } catch (streamError) {
+    } catch (_streamError) {
       this.droppedEventCount++;
-      console.error('[PlanModeService] Failed to publish interaction event:', streamError);
     }
 
     // Publish turn event
@@ -532,9 +525,8 @@ export class PlanModeService {
         role: assistantTurn.role,
         content: assistantTurn.content,
       });
-    } catch (streamError) {
+    } catch (_streamError) {
       this.droppedEventCount++;
-      console.error('[PlanModeService] Failed to publish turn event:', streamError);
     }
 
     return ok(updatedSession);
@@ -557,9 +549,8 @@ export class PlanModeService {
             'Plan completed but GitHub issue was not created: GitHub configuration (owner/repo) is not set. Configure GitHub settings to enable automatic issue creation.',
           code: 'GITHUB_CONFIG_MISSING',
         });
-      } catch (streamError) {
+      } catch (_streamError) {
         this.droppedEventCount++;
-        console.error('[PlanModeService] Failed to publish error event:', streamError);
       }
       return this.completeSession(session, streamedContent);
     }
@@ -587,11 +578,9 @@ export class PlanModeService {
           error: `Plan completed but GitHub issue creation failed: ${issueResult.error.message}`,
           code: 'GITHUB_ISSUE_CREATION_FAILED',
         });
-      } catch (streamError) {
+      } catch (_streamError) {
         this.droppedEventCount++;
-        console.error('[PlanModeService] Failed to publish error event:', streamError);
       }
-      console.error('[PlanModeService] Failed to create GitHub issue:', issueResult.error);
       // Complete session but include indication that issue creation failed
       return this.completeSession(session, streamedContent);
     }
@@ -655,9 +644,8 @@ export class PlanModeService {
         role: assistantTurn.role,
         content: assistantTurn.content,
       });
-    } catch (streamError) {
+    } catch (_streamError) {
       this.droppedEventCount++;
-      console.error('[PlanModeService] Failed to publish turn event:', streamError);
     }
 
     // Publish completion event
@@ -667,9 +655,8 @@ export class PlanModeService {
         issueUrl: issueInfo?.issueUrl,
         issueNumber: issueInfo?.issueNumber,
       });
-    } catch (streamError) {
+    } catch (_streamError) {
       this.droppedEventCount++;
-      console.error('[PlanModeService] Failed to publish completion event:', streamError);
     }
 
     return ok(completedSession);
@@ -682,7 +669,7 @@ export class PlanModeService {
     return {
       id: dbSession.id,
       taskId: dbSession.taskId,
-      projectId: dbSession.projectId,
+      codespaceId: dbSession.codespaceId,
       status: dbSession.status,
       turns: (dbSession.turns ?? []) as PlanTurn[],
       githubIssueUrl: dbSession.githubIssueUrl ?? undefined,

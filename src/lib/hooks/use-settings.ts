@@ -86,7 +86,6 @@ export async function fetchSettings(keys?: string[]): Promise<Record<string, unk
       // Fetch from API
       const result = await apiClient.settings.get(keys);
       if (!result.ok) {
-        console.error('[fetchSettings] Failed to fetch settings:', result.error);
         return {};
       }
 
@@ -121,7 +120,6 @@ export async function fetchSettings(keys?: string[]): Promise<Record<string, unk
 export async function updateSettings(settings: Record<string, unknown>): Promise<boolean> {
   const result = await apiClient.settings.update(settings);
   if (!result.ok) {
-    console.error('[updateSettings] Failed to update settings:', result.error);
     return false;
   }
 

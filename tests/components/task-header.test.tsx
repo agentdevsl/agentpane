@@ -29,7 +29,7 @@ function renderWithDialog(ui: React.ReactElement) {
 const createTask = (overrides: Partial<Task> = {}): Task =>
   ({
     id: overrides.id ?? 'task-abc123',
-    projectId: overrides.projectId ?? 'project-1',
+    codespaceId: overrides.codespaceId ?? 'project-1',
     title: overrides.title ?? 'Test task',
     description: overrides.description ?? null,
     mode: overrides.mode ?? 'implement',

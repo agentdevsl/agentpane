@@ -3,7 +3,7 @@ import { integer, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 import type { ToolStatus } from '../shared/enums';
 import { agentRuns } from './agent-runs';
 import { agents } from './agents';
-import { projects } from './projects';
+import { codespaces } from './codespaces';
 import { tasks } from './tasks';
 
 export const auditLogs = pgTable('audit_logs', {
@@ -13,7 +13,7 @@ export const auditLogs = pgTable('audit_logs', {
   agentId: text('agent_id').references(() => agents.id, { onDelete: 'set null' }),
   agentRunId: text('agent_run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
   taskId: text('task_id').references(() => tasks.id, { onDelete: 'set null' }),
-  projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+  codespaceId: text('codespace_id').references(() => codespaces.id, { onDelete: 'cascade' }),
   tool: text('tool').notNull(),
   status: text('status').$type<ToolStatus>().notNull(),
   input: jsonb('input'),

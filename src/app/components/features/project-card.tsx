@@ -169,7 +169,7 @@ export const ProjectCard = memo(function ProjectCard({
   const isNeedsApproval = status === 'needs-approval';
 
   const handleDoubleClick = () => {
-    navigate({ to: '/projects/$projectId', params: { projectId: project.id } });
+    navigate({ to: '/codespaces/$codespaceId', params: { codespaceId: project.id } });
   };
 
   return (
@@ -330,8 +330,8 @@ export const ProjectCard = memo(function ProjectCard({
         </div>
         <div className="flex items-center gap-2">
           <Link
-            to="/projects/$projectId/settings"
-            params={{ projectId: project.id }}
+            to="/codespaces/$codespaceId/settings"
+            params={{ codespaceId: project.id }}
             className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-surface text-fg-muted transition-colors hover:bg-surface-subtle hover:text-fg"
             data-testid="project-card-settings"
           >
@@ -339,7 +339,7 @@ export const ProjectCard = memo(function ProjectCard({
             <span className="sr-only">Project settings</span>
           </Link>
           <Button variant="outline" size="sm" asChild>
-            <Link to="/projects/$projectId" params={{ projectId: project.id }}>
+            <Link to="/codespaces/$codespaceId" params={{ codespaceId: project.id }}>
               {isNeedsApproval ? 'Review' : 'Open'}
             </Link>
           </Button>

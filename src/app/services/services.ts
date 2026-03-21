@@ -1,10 +1,10 @@
 import type { AppError, createError } from '@/lib/errors/base';
 import { ok, type Result } from '@/lib/utils/result';
 import { AgentService } from '@/services/agent.service';
+import { CodespaceService } from '@/services/codespace.service';
 import { DurableStreamsService } from '@/services/durable-streams.service';
 import { GitHubTokenService } from '@/services/github-token.service';
 import { createPlanModeService, type PlanModeService } from '@/services/plan-mode.service';
-import { ProjectService } from '@/services/project.service';
 import { SandboxConfigService } from '@/services/sandbox-config.service';
 import type { DurableStreamsServer } from '@/services/session.service';
 import { SessionService } from '@/services/session.service';
@@ -27,7 +27,7 @@ export type Services = {
   durableStreamsService: DurableStreamsService;
   githubTokenService: GitHubTokenService;
   planModeService: PlanModeService;
-  projectService: ProjectService;
+  codespaceService: CodespaceService;
   sandboxConfigService: SandboxConfigService;
   settingsService: SettingsService;
   taskCreationService: TaskCreationService;
@@ -68,9 +68,9 @@ export function createServices(context: {
       baseUrl: 'http://localhost:3000',
     });
 
-    const projectService = new ProjectService(
+    const codespaceService = new CodespaceService(
       context.db,
-      { prune: (projectId: string) => worktreeService.prune(projectId) },
+      { prune: (codespaceId: string) => worktreeService.prune(codespaceId) },
       runner
     );
 
@@ -113,7 +113,7 @@ export function createServices(context: {
       durableStreamsService,
       githubTokenService,
       planModeService,
-      projectService,
+      codespaceService,
       sandboxConfigService,
       settingsService,
       taskCreationService,

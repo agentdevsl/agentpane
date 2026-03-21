@@ -3,7 +3,6 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { ApiKeyService } from '../../services/api-key.service.js';
 import type { OAuthCredentials } from '../../types/credentials.js';
-import { errorMessage } from './error-message';
 
 /**
  * Path to the Claude credentials file (~/.claude/.credentials.json)
@@ -51,7 +50,6 @@ export async function readCredentialsFile(): Promise<OAuthCredentials | null> {
     ) {
       return null;
     }
-    console.warn('[resolveAnthropicKey] Failed to read credentials file:', errorMessage(error));
     return null;
   }
 }
@@ -71,9 +69,8 @@ export async function resolveAnthropicApiKey(
     try {
       const dbKey = await apiKeyService.getDecryptedKey('anthropic');
       if (dbKey) return dbKey;
-    } catch (dbError) {
-      const msg = dbError instanceof Error ? dbError.message : String(dbError);
-      console.warn('[resolveAnthropicKey] Failed to read DB key:', msg);
+    } catch (_dbError) {
+      // Database key lookup failed, will fall back to credentials file
     }
   }
 

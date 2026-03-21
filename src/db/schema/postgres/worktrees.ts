@@ -6,16 +6,16 @@ import type { WorktreeStatus } from '../shared/enums';
 export type { WorktreeStatus } from '../shared/enums';
 
 import { agents } from './agents';
-import { projects } from './projects';
+import { codespaces } from './codespaces';
 import { tasks } from './tasks';
 
 export const worktrees = pgTable('worktrees', {
   id: text('id')
     .primaryKey()
     .$defaultFn(() => createId()),
-  projectId: text('project_id')
+  codespaceId: text('codespace_id')
     .notNull()
-    .references(() => projects.id, { onDelete: 'cascade' }),
+    .references(() => codespaces.id, { onDelete: 'cascade' }),
   agentId: text('agent_id').references((): AnyPgColumn => agents.id, { onDelete: 'set null' }),
   taskId: text('task_id').references((): AnyPgColumn => tasks.id, { onDelete: 'set null' }),
   branch: text('branch').notNull(),

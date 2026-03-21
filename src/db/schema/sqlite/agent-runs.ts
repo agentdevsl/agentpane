@@ -3,7 +3,7 @@ import { sql } from 'drizzle-orm';
 import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import type { AgentStatus } from '../shared/enums';
 import { agents } from './agents';
-import { projects } from './projects';
+import { codespaces } from './codespaces';
 import { sessions } from './sessions';
 import { tasks } from './tasks';
 
@@ -19,9 +19,9 @@ export const agentRuns = sqliteTable(
     taskId: text('task_id')
       .notNull()
       .references(() => tasks.id, { onDelete: 'cascade' }),
-    projectId: text('project_id')
+    codespaceId: text('codespace_id')
       .notNull()
-      .references(() => projects.id, { onDelete: 'cascade' }),
+      .references(() => codespaces.id, { onDelete: 'cascade' }),
     sessionId: text('session_id').references(() => sessions.id, { onDelete: 'set null' }),
     status: text('status').$type<AgentStatus>().notNull(),
     startedAt: text('started_at').default(sql`(datetime('now'))`).notNull(),
@@ -30,10 +30,10 @@ export const agentRuns = sqliteTable(
     tokensUsed: integer('tokens_used').default(0),
     errorMessage: text('error_message'),
   },
-  // DB-009: Add indexes for agent_runs lookup by agentId, projectId, taskId
+  // DB-009: Add indexes for agent_runs lookup by agentId, codespaceId, taskId
   (table) => [
     index('idx_agent_runs_agent_id').on(table.agentId),
-    index('idx_agent_runs_project_id').on(table.projectId),
+    index('idx_agent_runs_codespace_id').on(table.codespaceId),
     index('idx_agent_runs_task_id').on(table.taskId),
   ]
 );

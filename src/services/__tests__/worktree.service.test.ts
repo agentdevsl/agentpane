@@ -2,11 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { WorktreeErrors } from '../../lib/errors/worktree-errors.js';
 import { WorktreeService } from '../worktree.service.js';
 
-const mockAgent = { id: 'a1', name: 'Agent 1', projectId: 'p1' };
+const mockAgent = { id: 'a1', name: 'Agent 1', codespaceId: 'p1' };
 
 const createDbMock = () => ({
   query: {
-    projects: {
+    codespaces: {
       findFirst: vi.fn(),
     },
     agents: {
@@ -28,7 +28,7 @@ const createDbMock = () => ({
 
 // Standard test input for worktree creation
 const createInput = {
-  projectId: 'p1',
+  codespaceId: 'p1',
   agentId: 'a1',
   taskId: 't1',
   taskTitle: 'Fix login bug',
@@ -37,7 +37,7 @@ const createInput = {
 describe('WorktreeService', () => {
   it('returns error when project missing', async () => {
     const db = createDbMock();
-    db.query.projects.findFirst.mockResolvedValue(null);
+    db.query.codespaces.findFirst.mockResolvedValue(null);
 
     const service = new WorktreeService(db as never, { exec: vi.fn() });
     const result = await service.create(createInput);
@@ -50,7 +50,7 @@ describe('WorktreeService', () => {
 
   it('returns error when branch exists', async () => {
     const db = createDbMock();
-    db.query.projects.findFirst.mockResolvedValue({
+    db.query.codespaces.findFirst.mockResolvedValue({
       id: 'p1',
       path: '/tmp/project',
       config: { worktreeRoot: '.worktrees' },
@@ -69,7 +69,7 @@ describe('WorktreeService', () => {
 
   it('creates worktree record on success', async () => {
     const db = createDbMock();
-    db.query.projects.findFirst.mockResolvedValue({
+    db.query.codespaces.findFirst.mockResolvedValue({
       id: 'p1',
       path: '/tmp/project',
       config: { worktreeRoot: '.worktrees', initScript: undefined },
@@ -79,7 +79,7 @@ describe('WorktreeService', () => {
     const insertReturning = vi.fn().mockResolvedValue([
       {
         id: 'w1',
-        projectId: 'p1',
+        codespaceId: 'p1',
         branch: 'agent/x/t1',
         path: '/tmp/worktree',
         status: 'creating',
@@ -91,7 +91,7 @@ describe('WorktreeService', () => {
     const updateReturning = vi.fn().mockResolvedValue([
       {
         id: 'w1',
-        projectId: 'p1',
+        codespaceId: 'p1',
         branch: 'agent/x/t1',
         path: '/tmp/worktree',
         status: 'active',
@@ -219,7 +219,7 @@ describe('WorktreeService', () => {
     db.query.worktrees.findFirst.mockResolvedValue({
       id: 'w1',
       branch: 'agent/123/t1',
-      projectId: 'p1',
+      codespaceId: 'p1',
     });
 
     const service = new WorktreeService(db as never, { exec: vi.fn() });
@@ -262,7 +262,7 @@ describe('WorktreeService', () => {
     db.query.worktrees.findFirst.mockResolvedValue({
       id: 'w1',
       path: '/tmp/worktree',
-      project: {
+      codespace: {
         path: '/tmp/project',
         config: { envFile: '.env.local' },
       },
@@ -281,7 +281,7 @@ describe('WorktreeService', () => {
     db.query.worktrees.findFirst.mockResolvedValue({
       id: 'w1',
       path: '/tmp/worktree',
-      project: {
+      codespace: {
         path: '/tmp/project',
         config: {},
       },
@@ -360,7 +360,7 @@ describe('WorktreeService', () => {
     db.query.worktrees.findFirst.mockResolvedValue({
       id: 'w1',
       path: '/tmp/worktree',
-      project: { config: {} },
+      codespace: { config: {} },
     });
 
     const service = new WorktreeService(db as never, { exec: vi.fn() });
@@ -374,7 +374,7 @@ describe('WorktreeService', () => {
     db.query.worktrees.findFirst.mockResolvedValue({
       id: 'w1',
       path: '/tmp/worktree',
-      project: { config: { initScript: 'npm run setup' } },
+      codespace: { config: { initScript: 'npm run setup' } },
     });
 
     const exec = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
@@ -390,7 +390,7 @@ describe('WorktreeService', () => {
     db.query.worktrees.findFirst.mockResolvedValue({
       id: 'w1',
       path: '/tmp/worktree',
-      project: { config: { initScript: 'npm\0 run\x08 setup' } },
+      codespace: { config: { initScript: 'npm\0 run\x08 setup' } },
     });
 
     const exec = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
@@ -406,7 +406,7 @@ describe('WorktreeService', () => {
     db.query.worktrees.findFirst.mockResolvedValue({
       id: 'w1',
       path: '/tmp/worktree',
-      project: { config: { initScript: '   ' } },
+      codespace: { config: { initScript: '   ' } },
     });
 
     const exec = vi.fn();
@@ -422,7 +422,7 @@ describe('WorktreeService', () => {
     db.query.worktrees.findFirst.mockResolvedValue({
       id: 'w1',
       path: '/tmp/worktree',
-      project: { config: { initScript: 'npm run setup' } },
+      codespace: { config: { initScript: 'npm run setup' } },
     });
 
     const exec = vi.fn().mockRejectedValue(new Error('script failed'));
@@ -524,7 +524,7 @@ describe('WorktreeService', () => {
       id: 'w1',
       branch: 'agent/123/t1',
       path: '/tmp/worktree',
-      project: { path: '/tmp/project' },
+      codespace: { path: '/tmp/project' },
     });
 
     const updateWhere = vi.fn();
@@ -550,7 +550,7 @@ describe('WorktreeService', () => {
       id: 'w1',
       branch: 'agent/123/t1',
       path: '/tmp/worktree',
-      project: { path: '/tmp/project' },
+      codespace: { path: '/tmp/project' },
     });
 
     const updateWhere = vi.fn();
@@ -572,7 +572,7 @@ describe('WorktreeService', () => {
       id: 'w1',
       branch: 'agent/123/t1',
       path: '/tmp/worktree',
-      project: { path: '/tmp/project' },
+      codespace: { path: '/tmp/project' },
     });
 
     const updateWhere = vi.fn();
@@ -606,7 +606,7 @@ describe('WorktreeService', () => {
       id: 'w1',
       branch: 'agent/123/t1',
       path: '/tmp/worktree',
-      project: { path: '/tmp/project' },
+      codespace: { path: '/tmp/project' },
     });
 
     const updateWhere = vi.fn();
@@ -670,7 +670,7 @@ describe('WorktreeService', () => {
       branch: 'agent/123/t1',
       baseBranch: 'main',
       path: '/tmp/worktree',
-      project: { path: '/tmp/project' },
+      codespace: { path: '/tmp/project' },
     });
 
     const updateWhere = vi.fn(() => ({ returning: vi.fn().mockResolvedValue([]) }));
@@ -701,7 +701,7 @@ describe('WorktreeService', () => {
       branch: 'agent/123/t1',
       baseBranch: 'main',
       path: '/tmp/worktree',
-      project: { path: '/tmp/project' },
+      codespace: { path: '/tmp/project' },
     });
 
     const updateWhere = vi.fn(() => ({ returning: vi.fn().mockResolvedValue([]) }));
@@ -734,7 +734,7 @@ describe('WorktreeService', () => {
       branch: 'agent/123/t1',
       baseBranch: 'main',
       path: '/tmp/worktree',
-      project: { path: '/tmp/project' },
+      codespace: { path: '/tmp/project' },
     });
 
     const updateWhere = vi.fn(() => ({ returning: vi.fn().mockResolvedValue([]) }));
@@ -844,7 +844,7 @@ describe('WorktreeService', () => {
 
   it('create returns error when git worktree add fails', async () => {
     const db = createDbMock();
-    db.query.projects.findFirst.mockResolvedValue({
+    db.query.codespaces.findFirst.mockResolvedValue({
       id: 'p1',
       path: '/tmp/project',
       config: { worktreeRoot: '.worktrees' },
@@ -866,7 +866,7 @@ describe('WorktreeService', () => {
 
   it('create returns error when insert fails', async () => {
     const db = createDbMock();
-    db.query.projects.findFirst.mockResolvedValue({
+    db.query.codespaces.findFirst.mockResolvedValue({
       id: 'p1',
       path: '/tmp/project',
       config: { worktreeRoot: '.worktrees' },
@@ -888,7 +888,7 @@ describe('WorktreeService', () => {
 
   it('create sets error status when env copy fails', async () => {
     const db = createDbMock();
-    db.query.projects.findFirst.mockResolvedValue({
+    db.query.codespaces.findFirst.mockResolvedValue({
       id: 'p1',
       path: '/tmp/project',
       config: { worktreeRoot: '.worktrees' },
@@ -897,7 +897,7 @@ describe('WorktreeService', () => {
     const insertReturning = vi.fn().mockResolvedValue([
       {
         id: 'w1',
-        projectId: 'p1',
+        codespaceId: 'p1',
         branch: 'agent/x/t1',
         path: '/tmp/worktree',
         status: 'creating',
@@ -909,7 +909,7 @@ describe('WorktreeService', () => {
     db.query.worktrees.findFirst.mockResolvedValue({
       id: 'w1',
       path: '/tmp/worktree',
-      project: { path: '/tmp/project', config: {} },
+      codespace: { path: '/tmp/project', config: {} },
     });
 
     const updateWhere = vi.fn(() => ({ returning: vi.fn().mockResolvedValue([]) }));
@@ -934,7 +934,7 @@ describe('WorktreeService', () => {
 
   it('create sets error status when deps install fails', async () => {
     const db = createDbMock();
-    db.query.projects.findFirst.mockResolvedValue({
+    db.query.codespaces.findFirst.mockResolvedValue({
       id: 'p1',
       path: '/tmp/project',
       config: { worktreeRoot: '.worktrees' },
@@ -943,7 +943,7 @@ describe('WorktreeService', () => {
     const insertReturning = vi.fn().mockResolvedValue([
       {
         id: 'w1',
-        projectId: 'p1',
+        codespaceId: 'p1',
         branch: 'agent/x/t1',
         path: '/tmp/worktree',
         status: 'creating',
@@ -955,7 +955,7 @@ describe('WorktreeService', () => {
     db.query.worktrees.findFirst.mockImplementation(() => ({
       id: 'w1',
       path: '/tmp/worktree',
-      project: { path: '/tmp/project', config: {} },
+      codespace: { path: '/tmp/project', config: {} },
     }));
 
     const updateWhere = vi.fn(() => ({ returning: vi.fn().mockResolvedValue([]) }));
@@ -980,7 +980,7 @@ describe('WorktreeService', () => {
 
   it('create sets error status when init script fails', async () => {
     const db = createDbMock();
-    db.query.projects.findFirst.mockResolvedValue({
+    db.query.codespaces.findFirst.mockResolvedValue({
       id: 'p1',
       path: '/tmp/project',
       config: { worktreeRoot: '.worktrees', initScript: 'npm run setup' },
@@ -989,7 +989,7 @@ describe('WorktreeService', () => {
     const insertReturning = vi.fn().mockResolvedValue([
       {
         id: 'w1',
-        projectId: 'p1',
+        codespaceId: 'p1',
         branch: 'agent/x/t1',
         path: '/tmp/worktree',
         status: 'creating',
@@ -1001,7 +1001,7 @@ describe('WorktreeService', () => {
     db.query.worktrees.findFirst.mockImplementation(() => ({
       id: 'w1',
       path: '/tmp/worktree',
-      project: { path: '/tmp/project', config: { initScript: 'npm run setup' } },
+      codespace: { path: '/tmp/project', config: { initScript: 'npm run setup' } },
     }));
 
     const updateWhere = vi.fn(() => ({ returning: vi.fn().mockResolvedValue([]) }));
@@ -1026,7 +1026,7 @@ describe('WorktreeService', () => {
 
   it('create returns error when final update fails', async () => {
     const db = createDbMock();
-    db.query.projects.findFirst.mockResolvedValue({
+    db.query.codespaces.findFirst.mockResolvedValue({
       id: 'p1',
       path: '/tmp/project',
       config: { worktreeRoot: '.worktrees' },
@@ -1035,7 +1035,7 @@ describe('WorktreeService', () => {
     const insertReturning = vi.fn().mockResolvedValue([
       {
         id: 'w1',
-        projectId: 'p1',
+        codespaceId: 'p1',
         branch: 'agent/x/t1',
         path: '/tmp/worktree',
         status: 'creating',

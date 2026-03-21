@@ -14,6 +14,7 @@ interface TopologyDetailPanelProps {
   allNodes: TopologyNode[];
   taskName: string;
   taskPriority: string;
+  sessionId?: string;
   onClose: () => void;
 }
 
@@ -22,6 +23,7 @@ export function TopologyDetailPanel({
   allNodes,
   taskName,
   taskPriority,
+  sessionId,
   onClose,
 }: TopologyDetailPanelProps) {
   const [activeTab, setActiveTab] = useState<DetailTab>('details');
@@ -91,7 +93,7 @@ export function TopologyDetailPanel({
           />
         )}
         {activeTab === 'decisions' && <DecisionsTab decisions={node.decisions} />}
-        {activeTab === 'activity' && <ActivityTab node={node} />}
+        {activeTab === 'activity' && <ActivityTab node={node} sessionId={sessionId} />}
       </div>
     </div>
   );

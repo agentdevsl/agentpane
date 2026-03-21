@@ -14,8 +14,8 @@
 import { createId } from '@paralleldrive/cuid2';
 import { and, desc, eq, gte, inArray, like, lte, sql } from 'drizzle-orm';
 import type { Session } from '../../db/schema';
-import { projects, sessions } from '../../db/schema';
-import { ProjectErrors } from '../../lib/errors/project-errors.js';
+import { codespaces, sessions } from '../../db/schema';
+import { CodespaceErrors } from '../../lib/errors/codespace-errors.js';
 import type { SessionError } from '../../lib/errors/session-errors.js';
 import { SessionErrors } from '../../lib/errors/session-errors.js';
 import { ValidationErrors } from '../../lib/errors/validation-errors.js';
@@ -45,12 +45,12 @@ export class SessionCrudService {
   ) {}
 
   async create(input: CreateSessionInput): Promise<Result<SessionWithPresence, SessionError>> {
-    const project = await this.db.query.projects.findFirst({
-      where: eq(projects.id, input.projectId),
+    const codespace = await this.db.query.codespaces.findFirst({
+      where: eq(codespaces.id, input.codespaceId),
     });
 
-    if (!project) {
-      return err(ProjectErrors.NOT_FOUND);
+    if (!codespace) {
+      return err(CodespaceErrors.NOT_FOUND);
     }
 
     const sessionId = createId();
@@ -60,7 +60,7 @@ export class SessionCrudService {
       .insert(sessions)
       .values({
         id: sessionId,
-        projectId: input.projectId,
+        codespaceId: input.codespaceId,
         taskId: input.taskId,
         agentId: input.agentId,
         title: input.title,
@@ -136,12 +136,12 @@ export class SessionCrudService {
    * Enhanced list with status/date/search filters
    */
   async listSessionsWithFilters(
-    projectId: string,
+    codespaceId: string,
     options?: ListSessionsWithFiltersOptions
   ): Promise<Result<{ sessions: SessionWithPresence[]; total: number }, SessionError>> {
     try {
       // Build filter conditions
-      const conditions = [eq(sessions.projectId, projectId)];
+      const conditions = [eq(sessions.codespaceId, codespaceId)];
 
       if (options?.status && options.status.length > 0) {
         conditions.push(inArray(sessions.status, options.status));

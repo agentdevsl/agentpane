@@ -254,19 +254,19 @@ export function errorResponse(result: {
   return json({ ok: false, error: result.error }, result.error.status);
 }
 
-export function requireProjectRole(
+export function requireCodespaceRole(
   auth: { authMethod: 'session' | 'api_token' | 'dev'; userId: string },
   rbacService: {
-    resolveUserRole(userId: string, projectId: string): Promise<RbacRole | null>;
+    resolveUserRole(userId: string, codespaceId: string): Promise<RbacRole | null>;
     hasMinimumRole(userRole: RbacRole, minimumRole: RbacRole): boolean;
   },
-  projectId: string,
+  codespaceId: string,
   minimumRole: RbacRole,
   message = `Requires ${minimumRole} role`
 ): Promise<Response | null> {
   if (auth.authMethod === 'dev') return Promise.resolve(null);
   return rbacService
-    .resolveUserRole(auth.userId, projectId)
+    .resolveUserRole(auth.userId, codespaceId)
     .then((role) => {
       if (!role || !rbacService.hasMinimumRole(role, minimumRole)) {
         return json({ ok: false, error: { code: 'INSUFFICIENT_ROLE', message } }, 403);
@@ -274,9 +274,9 @@ export function requireProjectRole(
       return null;
     })
     .catch((error) => {
-      log.error('Failed to resolve project role', {
+      log.error('Failed to resolve codespace role', {
         error,
-        data: { userId: auth.userId, projectId },
+        data: { userId: auth.userId, codespaceId },
       });
       return json(
         { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to verify permissions' } },
@@ -284,6 +284,9 @@ export function requireProjectRole(
       );
     });
 }
+
+/** @deprecated Use requireCodespaceRole instead */
+export const requireProjectRole = requireCodespaceRole;
 
 // ---------------------------------------------------------------------------
 // AR-018: API response types consolidated from src/lib/api/response.ts

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Task } from '../../src/db/schema';
-import { ProjectErrors } from '../../src/lib/errors/project-errors.js';
+import { CodespaceErrors } from '../../src/lib/errors/codespace-errors.js';
 import { TaskErrors } from '../../src/lib/errors/task-errors.js';
 import { err, ok } from '../../src/lib/utils/result.js';
 
@@ -36,7 +36,7 @@ import { createTasksRoutes } from '../../src/server/routes/tasks.js';
 
 const sampleTask: Task = {
   id: 'task-1',
-  projectId: 'proj-1',
+  codespaceId: 'proj-1',
   agentId: null,
   sessionId: null,
   worktreeId: null,
@@ -87,7 +87,7 @@ describe('Task API', () => {
     taskServiceMocks.list.mockResolvedValue(ok([sampleTask]));
 
     const response = await tasksRoute.request(
-      'http://localhost/?projectId=az2h33gpcldsq0a0wdimza6m'
+      'http://localhost/?codespaceId=az2h33gpcldsq0a0wdimza6m'
     );
 
     expect(response?.status).toBe(200);
@@ -103,7 +103,7 @@ describe('Task API', () => {
 
   it('validates list query', async () => {
     // Use an ID with special characters that isValidId rejects
-    const response = await tasksRoute.request('http://localhost/?projectId=invalid$id');
+    const response = await tasksRoute.request('http://localhost/?codespaceId=invalid$id');
 
     expect(response?.status).toBe(400);
     const data = await parseJson<{ ok: false; error: { code: string } }>(response as Response);
@@ -116,7 +116,7 @@ describe('Task API', () => {
     const response = await tasksRoute.request(
       '/',
       jsonRequest({
-        projectId: 'az2h33gpcldsq0a0wdimza6m',
+        codespaceId: 'az2h33gpcldsq0a0wdimza6m',
         title: 'Test Task',
       })
     );
@@ -127,19 +127,19 @@ describe('Task API', () => {
   });
 
   it('returns not found when project missing', async () => {
-    taskServiceMocks.create.mockResolvedValue(err(ProjectErrors.NOT_FOUND));
+    taskServiceMocks.create.mockResolvedValue(err(CodespaceErrors.NOT_FOUND));
 
     const response = await tasksRoute.request(
       '/',
       jsonRequest({
-        projectId: 'az2h33gpcldsq0a0wdimza6m',
+        codespaceId: 'az2h33gpcldsq0a0wdimza6m',
         title: 'Test Task',
       })
     );
 
     expect(response?.status).toBe(404);
     const data = await parseJson<{ ok: false; error: { code: string } }>(response as Response);
-    expect(data.error.code).toBe('PROJECT_NOT_FOUND');
+    expect(data.error.code).toBe('CODESPACE_NOT_FOUND');
   });
 
   it('gets a task by id', async () => {

@@ -4,7 +4,7 @@ import { SessionService } from '../session.service.js';
 
 const createDbMock = () => ({
   query: {
-    projects: { findFirst: vi.fn() },
+    codespaces: { findFirst: vi.fn() },
     sessions: { findFirst: vi.fn(), findMany: vi.fn() },
     sessionEvents: { findFirst: vi.fn(), findMany: vi.fn() },
     sessionSummaries: { findFirst: vi.fn() },
@@ -25,7 +25,7 @@ describe('SessionService', () => {
   it('creates session and returns active status', async () => {
     const db = createDbMock();
     const streams = createStreamsMock();
-    db.query.projects.findFirst.mockResolvedValue({ id: 'p1' });
+    db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1' });
     db.insert.mockReturnValue({
       values: vi.fn(() => ({
         returning: vi.fn().mockResolvedValue([{ id: 's1', status: 'initializing' }]),
@@ -36,7 +36,7 @@ describe('SessionService', () => {
       baseUrl: 'http://localhost:3000',
     });
 
-    const result = await service.create({ projectId: 'p1' });
+    const result = await service.create({ codespaceId: 'p1' });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -103,24 +103,24 @@ describe('SessionService', () => {
   it('returns error when project not found on create', async () => {
     const db = createDbMock();
     const streams = createStreamsMock();
-    db.query.projects.findFirst.mockResolvedValue(null);
+    db.query.codespaces.findFirst.mockResolvedValue(null);
 
     const service = new SessionService(db as never, streams as never, {
       baseUrl: 'http://localhost:3000',
     });
 
-    const result = await service.create({ projectId: 'missing' });
+    const result = await service.create({ codespaceId: 'missing' });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error.code).toBe('PROJECT_NOT_FOUND');
+      expect(result.error.code).toBe('CODESPACE_NOT_FOUND');
     }
   });
 
   it('returns error when insert returns nothing', async () => {
     const db = createDbMock();
     const streams = createStreamsMock();
-    db.query.projects.findFirst.mockResolvedValue({ id: 'p1' });
+    db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1' });
     db.insert.mockReturnValue({
       values: vi.fn(() => ({
         returning: vi.fn().mockResolvedValue([]),
@@ -131,7 +131,7 @@ describe('SessionService', () => {
       baseUrl: 'http://localhost:3000',
     });
 
-    const result = await service.create({ projectId: 'p1' });
+    const result = await service.create({ codespaceId: 'p1' });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -144,7 +144,7 @@ describe('SessionService', () => {
     const streams = createStreamsMock();
     db.query.sessions.findFirst.mockResolvedValue({
       id: 's1',
-      projectId: 'p1',
+      codespaceId: 'p1',
       status: 'active',
       url: 'http://localhost:3000/sessions/s1',
     });
@@ -166,8 +166,8 @@ describe('SessionService', () => {
     const db = createDbMock();
     const streams = createStreamsMock();
     db.query.sessions.findMany.mockResolvedValue([
-      { id: 's1', projectId: 'p1', status: 'active' },
-      { id: 's2', projectId: 'p1', status: 'closed' },
+      { id: 's1', codespaceId: 'p1', status: 'active' },
+      { id: 's2', codespaceId: 'p1', status: 'closed' },
     ]);
 
     const service = new SessionService(db as never, streams as never, {
@@ -252,7 +252,7 @@ describe('SessionService', () => {
     const streams = createStreamsMock();
     db.query.sessions.findFirst.mockResolvedValue({
       id: 's1',
-      projectId: 'p1',
+      codespaceId: 'p1',
       status: 'active',
     });
 
@@ -312,7 +312,7 @@ describe('SessionService', () => {
     const streams = createStreamsMock();
     db.query.sessions.findFirst.mockResolvedValue({
       id: 's1',
-      projectId: 'p1',
+      codespaceId: 'p1',
       status: 'active',
     });
 
@@ -355,7 +355,7 @@ describe('SessionService', () => {
     const streams = createStreamsMock();
     db.query.sessions.findFirst.mockResolvedValue({
       id: 's1',
-      projectId: 'p1',
+      codespaceId: 'p1',
       status: 'active',
     });
 
@@ -398,7 +398,7 @@ describe('SessionService', () => {
     const streams = createStreamsMock();
     db.query.sessions.findFirst.mockResolvedValue({
       id: 's1',
-      projectId: 'p1',
+      codespaceId: 'p1',
       status: 'active',
     });
 
@@ -419,7 +419,7 @@ describe('SessionService', () => {
     const streams = createStreamsMock();
     db.query.sessions.findFirst.mockResolvedValue({
       id: 's1',
-      projectId: 'p1',
+      codespaceId: 'p1',
       status: 'active',
     });
 

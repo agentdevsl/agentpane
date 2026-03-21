@@ -2,8 +2,8 @@ import { createId } from '@paralleldrive/cuid2';
 import { boolean, index, integer, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 import type { SubscriptionFilter } from '../../../lib/events/plugin-interface.js';
 import type { TaskColumn, TaskPriority } from '../shared/enums';
+import { codespaces } from './codespaces';
 import { eventSources } from './event-sources';
-import { projects } from './projects';
 
 export type { SubscriptionFilter };
 export type { TaskColumn, TaskPriority } from '../shared/enums';
@@ -18,9 +18,9 @@ export const eventSubscriptions = pgTable(
     eventSourceId: text('event_source_id')
       .notNull()
       .references(() => eventSources.id, { onDelete: 'cascade' }),
-    targetProjectId: text('target_project_id')
+    targetCodespaceId: text('target_codespace_id')
       .notNull()
-      .references(() => projects.id, { onDelete: 'cascade' }),
+      .references(() => codespaces.id, { onDelete: 'cascade' }),
     isEnabled: boolean('is_enabled').default(true).notNull(),
     eventTypes: jsonb('event_types').$type<string[]>().default([]),
     filters: jsonb('filters').$type<SubscriptionFilter[]>().default([]),
@@ -39,7 +39,7 @@ export const eventSubscriptions = pgTable(
   },
   (table) => [
     index('event_subscriptions_source_idx').on(table.eventSourceId),
-    index('event_subscriptions_project_idx').on(table.targetProjectId),
+    index('event_subscriptions_codespace_idx').on(table.targetCodespaceId),
     index('event_subscriptions_source_enabled_idx').on(table.eventSourceId, table.isEnabled),
   ]
 );

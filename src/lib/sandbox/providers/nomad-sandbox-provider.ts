@@ -102,9 +102,9 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
   private readonly readyTimeoutSeconds: number;
 
   private sandboxes = new Map<string, NomadSandboxInstance>();
-  private projectToSandbox = new Map<string, string>();
+  private codespaceToSandbox = new Map<string, string>();
   private listeners = new Set<SandboxProviderEventListener>();
-  private creatingProjects = new Set<string>();
+  private creatingCodespaces = new Set<string>();
 
   constructor(options: NomadSandboxProviderOptions = {}) {
     this.namespace = options.namespace ?? PROVIDER_DEFAULTS.namespace;
@@ -127,36 +127,36 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
 
   async create(config: SandboxConfig): Promise<Sandbox> {
     // Guard against concurrent create() calls for the same project
-    if (this.creatingProjects.has(config.projectId)) {
-      throw NomadErrors.JOB_ALREADY_EXISTS(config.projectId);
+    if (this.creatingCodespaces.has(config.codespaceId)) {
+      throw NomadErrors.JOB_ALREADY_EXISTS(config.codespaceId);
     }
 
     // Check for existing sandbox for this project
-    const existing = this.projectToSandbox.get(config.projectId);
+    const existing = this.codespaceToSandbox.get(config.codespaceId);
     if (existing) {
       const sandbox = this.sandboxes.get(existing);
       if (sandbox && sandbox.status !== 'stopped') {
-        throw NomadErrors.JOB_ALREADY_EXISTS(config.projectId);
+        throw NomadErrors.JOB_ALREADY_EXISTS(config.codespaceId);
       }
     }
 
-    this.creatingProjects.add(config.projectId);
+    this.creatingCodespaces.add(config.codespaceId);
     const sandboxId = createId();
     // Job names must be DNS-compatible: lowercase alphanumeric and hyphens
-    const jobName = `agentpane-${config.projectId.slice(0, 20)}-${sandboxId.slice(0, 8)}`
+    const jobName = `agentpane-${config.codespaceId.slice(0, 20)}-${sandboxId.slice(0, 8)}`
       .toLowerCase()
       .replace(/[^a-z0-9-]/g, '-');
 
     this.emit({
       type: 'sandbox:creating',
       sandboxId,
-      projectId: config.projectId,
+      codespaceId: config.codespaceId,
     });
 
     try {
       // Build volume mount strings: project path → /workspace, plus any additional mounts.
       const volumeStrings = [
-        `${config.projectPath}:/workspace:rw`,
+        `${config.codespacePath}:/workspace:rw`,
         ...config.volumeMounts.map(
           (v) => `${v.hostPath}:${v.containerPath}:${v.readonly ? 'ro' : 'rw'}`
         ),
@@ -172,7 +172,7 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
         .resources(config.cpuCores * 1000, config.memoryMb)
         .volumes(volumeStrings)
         .meta(NOMAD_META.SANDBOX_ID, sandboxId)
-        .meta(NOMAD_META.PROJECT_ID, config.projectId)
+        .meta(NOMAD_META.PROJECT_ID, config.codespaceId)
         .build();
 
       // Register the job with Nomad
@@ -199,7 +199,7 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
         sandboxId,
         jobName,
         allocId,
-        config.projectId,
+        config.codespaceId,
         this.namespace,
         this.client
       );
@@ -207,12 +207,12 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
       await instance.refreshStatus();
 
       this.sandboxes.set(sandboxId, instance);
-      this.projectToSandbox.set(config.projectId, sandboxId);
+      this.codespaceToSandbox.set(config.codespaceId, sandboxId);
 
       this.emit({
         type: 'sandbox:created',
         sandboxId,
-        projectId: config.projectId,
+        codespaceId: config.codespaceId,
         containerId: jobName,
       });
 
@@ -250,7 +250,7 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
       const message = errorMessage(error);
       throw NomadErrors.JOB_CREATION_FAILED(jobName, message);
     } finally {
-      this.creatingProjects.delete(config.projectId);
+      this.creatingCodespaces.delete(config.codespaceId);
     }
   }
 
@@ -275,17 +275,17 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
       const instance = this.sandboxes.get(sandboxId);
       if (instance) {
         log.info('Evicting stale sandbox from cache', {
-          data: { sandboxId, projectId: instance.projectId, status: instance.status },
+          data: { sandboxId, codespaceId: instance.codespaceId, status: instance.status },
         });
         this.sandboxes.delete(sandboxId);
-        this.projectToSandbox.delete(instance.projectId);
+        this.codespaceToSandbox.delete(instance.codespaceId);
       }
     }
   }
 
-  async get(projectId: string): Promise<Sandbox | null> {
+  async get(codespaceId: string): Promise<Sandbox | null> {
     // Check in-memory cache first
-    const sandboxId = this.projectToSandbox.get(projectId);
+    const sandboxId = this.codespaceToSandbox.get(codespaceId);
     if (sandboxId) {
       const cached = this.sandboxes.get(sandboxId);
       if (cached) {
@@ -295,19 +295,19 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
         } catch (error) {
           log.error(`refreshStatus failed for sandbox ${sandboxId} in get()`, {
             error: error instanceof Error ? error : new Error(String(error)),
-            data: { projectId },
+            data: { codespaceId },
           });
           this.sandboxes.delete(sandboxId);
-          this.projectToSandbox.delete(projectId);
+          this.codespaceToSandbox.delete(codespaceId);
           // Fall through to cluster query below
         }
         if (this.sandboxes.has(sandboxId)) {
           if (cached.status === 'error' || cached.status === 'stopped') {
             log.info('Evicting stale sandbox from get() cache', {
-              data: { sandboxId, projectId, status: cached.status },
+              data: { sandboxId, codespaceId, status: cached.status },
             });
             this.sandboxes.delete(sandboxId);
-            this.projectToSandbox.delete(projectId);
+            this.codespaceToSandbox.delete(codespaceId);
             // Fall through to cluster query below
           } else {
             return cached;
@@ -322,12 +322,12 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
 
       // Find a job with matching project-id meta
       const matchingJob = jobs.find(
-        (job) => job.Meta?.[NOMAD_META.PROJECT_ID] === projectId && job.Status === 'running'
+        (job) => job.Meta?.[NOMAD_META.PROJECT_ID] === codespaceId && job.Status === 'running'
       );
 
       if (!matchingJob) {
-        if (projectId !== 'default') {
-          log.warn(`No Nomad job found for project ${projectId}`);
+        if (codespaceId !== 'default') {
+          log.warn(`No Nomad job found for codespace ${codespaceId}`);
         }
         return null;
       }
@@ -342,7 +342,7 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
         log.warn('Found matching Nomad job but no running allocation', {
           data: {
             jobName: name,
-            projectId,
+            codespaceId,
             allocStatuses: allocations
               .map((a) => `${a.ID?.slice(0, 8)}:${a.ClientStatus}`)
               .join(', '),
@@ -356,7 +356,7 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
         id,
         name,
         allocId,
-        projectId,
+        codespaceId,
         this.namespace,
         this.client
       );
@@ -364,7 +364,7 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
 
       // Cache it
       this.sandboxes.set(id, instance);
-      this.projectToSandbox.set(projectId, id);
+      this.codespaceToSandbox.set(codespaceId, id);
 
       return instance;
     } catch (error) {
@@ -372,7 +372,7 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
         return null;
       }
       const message = errorMessage(error);
-      log.error(`Failed to get sandbox for project ${projectId}: ${message}`, {
+      log.error(`Failed to get sandbox for codespace ${codespaceId}: ${message}`, {
         error: error instanceof Error ? error : new Error(message),
       });
       throw error;
@@ -389,12 +389,12 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
           error: error instanceof Error ? error : new Error(String(error)),
         });
         this.sandboxes.delete(sandboxId);
-        this.projectToSandbox.delete(cached.projectId);
+        this.codespaceToSandbox.delete(cached.codespaceId);
         return null;
       }
       if (cached.status === 'error' || cached.status === 'stopped') {
         this.sandboxes.delete(sandboxId);
-        this.projectToSandbox.delete(cached.projectId);
+        this.codespaceToSandbox.delete(cached.codespaceId);
         return null;
       }
     }
@@ -410,7 +410,7 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
         .filter((job) => job.Meta?.[NOMAD_META.SANDBOX_ID])
         .map((job) => ({
           id: job.Meta?.[NOMAD_META.SANDBOX_ID] ?? '',
-          projectId: job.Meta?.[NOMAD_META.PROJECT_ID] ?? '',
+          codespaceId: job.Meta?.[NOMAD_META.PROJECT_ID] ?? '',
           containerId: job.ID,
           status: mapNomadJobStatus(job.Status),
           image: this.image,
@@ -524,7 +524,7 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
       }
       // Always evict from cache regardless of stop success/failure
       this.sandboxes.delete(sandboxId);
-      this.projectToSandbox.delete(instance.projectId);
+      this.codespaceToSandbox.delete(instance.codespaceId);
     }
 
     return cleaned;

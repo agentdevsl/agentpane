@@ -74,7 +74,7 @@ export class AgentService {
   // =========================================================================
 
   /**
-   * Create a new agent with configuration defaults from the project.
+   * Create a new agent with configuration defaults from the codespace.
    */
   async create(input: NewAgent): Promise<Result<Agent, ValidationError>> {
     return this.crudService.create(input);
@@ -88,10 +88,10 @@ export class AgentService {
   }
 
   /**
-   * List agents for a specific project, ordered by most recently updated.
+   * List agents for a specific codespace, ordered by most recently updated.
    */
-  async list(projectId: string): Promise<Result<Agent[], never>> {
-    return this.crudService.list(projectId);
+  async list(codespaceId: string): Promise<Result<Agent[], never>> {
+    return this.crudService.list(codespaceId);
   }
 
   /**
@@ -163,17 +163,17 @@ export class AgentService {
   }
 
   /**
-   * Check if a project has availability for a new running agent.
+   * Check if a codespace has availability for a new running agent.
    */
-  async checkAvailability(projectId: string): Promise<Result<boolean, never>> {
-    return this.executionService.checkAvailability(projectId);
+  async checkAvailability(codespaceId: string): Promise<Result<boolean, never>> {
+    return this.executionService.checkAvailability(codespaceId);
   }
 
   /**
-   * Get the count of running agents for a specific project.
+   * Get the count of running agents for a specific codespace.
    */
-  async getRunningCount(projectId: string): Promise<Result<number, never>> {
-    return this.executionService.getRunningCount(projectId);
+  async getRunningCount(codespaceId: string): Promise<Result<number, never>> {
+    return this.executionService.getRunningCount(codespaceId);
   }
 
   // =========================================================================
@@ -184,10 +184,10 @@ export class AgentService {
    * Queue a task for execution when agent availability permits.
    */
   async queueTask(
-    projectId: string,
+    codespaceId: string,
     taskId: string
   ): Promise<Result<QueuePosition, ConcurrencyError>> {
-    return this.queueService.queueTask(projectId, taskId);
+    return this.queueService.queueTask(codespaceId, taskId);
   }
 
   /**
@@ -198,16 +198,16 @@ export class AgentService {
   }
 
   /**
-   * Get queue statistics for a project or globally.
+   * Get queue statistics for a codespace or globally.
    */
-  async getQueueStats(projectId?: string): Promise<Result<QueueStats, never>> {
-    return this.queueService.getQueueStats(projectId);
+  async getQueueStats(codespaceId?: string): Promise<Result<QueueStats, never>> {
+    return this.queueService.getQueueStats(codespaceId);
   }
 
   /**
-   * Get all queued tasks for a project or globally.
+   * Get all queued tasks for a codespace or globally.
    */
-  async getQueuedTasks(projectId?: string): Promise<Result<QueuePosition[], never>> {
-    return this.queueService.getQueuedTasks(projectId);
+  async getQueuedTasks(codespaceId?: string): Promise<Result<QueuePosition[], never>> {
+    return this.queueService.getQueuedTasks(codespaceId);
   }
 }

@@ -131,11 +131,11 @@ describe('Sessions API Routes', () => {
   describe('POST /api/sessions', () => {
     it('creates a session and returns 201', async () => {
       const { app, sessionService } = createTestApp();
-      const created = { id: 'sess-new', projectId: 'proj-1', status: 'active' };
+      const created = { id: 'sess-new', codespaceId: 'proj-1', status: 'active' };
       sessionService.create.mockResolvedValue({ ok: true, value: created });
 
       const res = await request(app, 'POST', '/api/sessions', {
-        projectId: 'proj-1',
+        codespaceId: 'proj-1',
         title: 'My Session',
       });
 
@@ -145,7 +145,7 @@ describe('Sessions API Routes', () => {
       expect(json.data.id).toBe('sess-new');
     });
 
-    it('returns 400 when projectId is missing', async () => {
+    it('returns 400 when codespaceId is missing', async () => {
       const { app } = createTestApp();
 
       const res = await request(app, 'POST', '/api/sessions', {
@@ -162,7 +162,7 @@ describe('Sessions API Routes', () => {
       const { app, sessionService } = createTestApp();
       const created = {
         id: 'sess-new',
-        projectId: 'proj-1',
+        codespaceId: 'proj-1',
         taskId: 'task-1',
         agentId: 'agent-1',
         status: 'active',
@@ -170,7 +170,7 @@ describe('Sessions API Routes', () => {
       sessionService.create.mockResolvedValue({ ok: true, value: created });
 
       const res = await request(app, 'POST', '/api/sessions', {
-        projectId: 'proj-1',
+        codespaceId: 'proj-1',
         taskId: 'task-1',
         agentId: 'agent-1',
       });
@@ -186,7 +186,7 @@ describe('Sessions API Routes', () => {
       sessionService.create.mockRejectedValue(new Error('DB crashed'));
 
       const res = await request(app, 'POST', '/api/sessions', {
-        projectId: 'proj-1',
+        codespaceId: 'proj-1',
       });
 
       expect(res.status).toBe(500);
@@ -202,7 +202,7 @@ describe('Sessions API Routes', () => {
       });
 
       const res = await request(app, 'POST', '/api/sessions', {
-        projectId: 'proj-nonexistent',
+        codespaceId: 'proj-nonexistent',
       });
 
       expect(res.status).toBe(404);
@@ -214,11 +214,11 @@ describe('Sessions API Routes', () => {
       const { app, sessionService } = createTestApp();
       sessionService.create.mockResolvedValue({
         ok: true,
-        value: { id: 'sess-1', projectId: 'proj-1', title: 'My Title' },
+        value: { id: 'sess-1', codespaceId: 'proj-1', title: 'My Title' },
       });
 
       await request(app, 'POST', '/api/sessions', {
-        projectId: 'proj-1',
+        codespaceId: 'proj-1',
         title: 'My Title',
       });
 
@@ -812,20 +812,20 @@ describe('Sessions API Routes', () => {
     });
   });
 
-  // ── GET /api/sessions with projectId filter ──
+  // ── GET /api/sessions with codespaceId filter ──
 
-  describe('GET /api/sessions (projectId filtering)', () => {
-    it('returns sessions when valid projectId is provided', async () => {
+  describe('GET /api/sessions (codespaceId filtering)', () => {
+    it('returns sessions when valid codespaceId is provided', async () => {
       const { app, sessionService } = createTestApp();
       const mockSessions = [
-        { id: 'sess-1', status: 'active', title: 'Session 1', projectId: 'proj-abc' },
+        { id: 'sess-1', status: 'active', title: 'Session 1', codespaceId: 'proj-abc' },
       ];
       sessionService.listSessionsWithFilters.mockResolvedValue({
         ok: true,
         value: { sessions: mockSessions, total: 1 },
       });
 
-      const res = await request(app, 'GET', '/api/sessions?projectId=proj-abc');
+      const res = await request(app, 'GET', '/api/sessions?codespaceId=proj-abc');
 
       expect(res.status).toBe(200);
       const json = await res.json();
@@ -882,7 +882,7 @@ describe('Sessions API Routes', () => {
       await request(
         app,
         'GET',
-        '/api/sessions?projectId=proj-abc&status=active,invalid_status,closed'
+        '/api/sessions?codespaceId=proj-abc&status=active,invalid_status,closed'
       );
 
       expect(sessionService.listSessionsWithFilters).toHaveBeenCalledWith(
@@ -898,7 +898,7 @@ describe('Sessions API Routes', () => {
         value: { sessions: [], total: 0 },
       });
 
-      await request(app, 'GET', '/api/sessions?projectId=proj-abc&status=bad_status,another_bad');
+      await request(app, 'GET', '/api/sessions?codespaceId=proj-abc&status=bad_status,another_bad');
 
       const callArgs = sessionService.listSessionsWithFilters.mock.calls[0]?.[1];
       // After filtering all invalid statuses, status array should be empty (not undefined)
@@ -912,7 +912,7 @@ describe('Sessions API Routes', () => {
         error: { code: 'DB_ERROR', status: 500, message: 'Database error' },
       });
 
-      const res = await request(app, 'GET', '/api/sessions?projectId=proj-abc');
+      const res = await request(app, 'GET', '/api/sessions?codespaceId=proj-abc');
 
       expect(res.status).toBe(500);
       const json = await res.json();
@@ -924,7 +924,7 @@ describe('Sessions API Routes', () => {
       const { app, sessionService } = createTestApp();
       sessionService.listSessionsWithFilters.mockRejectedValue(new Error('Unexpected DB crash'));
 
-      const res = await request(app, 'GET', '/api/sessions?projectId=proj-abc');
+      const res = await request(app, 'GET', '/api/sessions?codespaceId=proj-abc');
 
       expect(res.status).toBe(500);
       const json = await res.json();
@@ -939,7 +939,7 @@ describe('Sessions API Routes', () => {
         value: { sessions: [], total: 0 },
       });
 
-      await request(app, 'GET', '/api/sessions?projectId=proj-abc&agentId=agent-1&search=test');
+      await request(app, 'GET', '/api/sessions?codespaceId=proj-abc&agentId=agent-1&search=test');
 
       expect(sessionService.listSessionsWithFilters).toHaveBeenCalledWith(
         'proj-abc',
@@ -957,7 +957,7 @@ describe('Sessions API Routes', () => {
       await request(
         app,
         'GET',
-        '/api/sessions?projectId=proj-abc&dateFrom=2026-01-01&dateTo=2026-12-31'
+        '/api/sessions?codespaceId=proj-abc&dateFrom=2026-01-01&dateTo=2026-12-31'
       );
 
       expect(sessionService.listSessionsWithFilters).toHaveBeenCalledWith(
@@ -977,7 +977,7 @@ describe('Sessions API Routes', () => {
         value: { sessions: fiveSessions, total: 10 },
       });
 
-      const res = await request(app, 'GET', '/api/sessions?projectId=proj-abc&limit=5');
+      const res = await request(app, 'GET', '/api/sessions?codespaceId=proj-abc&limit=5');
 
       const json = await res.json();
       expect(json.pagination.hasMore).toBe(true);
@@ -990,7 +990,7 @@ describe('Sessions API Routes', () => {
         value: { sessions: [{ id: 'sess-1' }], total: 1 },
       });
 
-      const res = await request(app, 'GET', '/api/sessions?projectId=proj-abc&limit=10');
+      const res = await request(app, 'GET', '/api/sessions?codespaceId=proj-abc&limit=10');
 
       const json = await res.json();
       expect(json.pagination.hasMore).toBe(false);

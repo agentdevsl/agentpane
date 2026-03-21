@@ -8,7 +8,6 @@
  */
 
 import { createId } from '@paralleldrive/cuid2';
-import { errorMessage } from '../utils/error-message';
 import { presenceCollection, terminalCollection } from './collections.js';
 import type { PresenceEvent, TerminalEvent } from './schema.js';
 
@@ -75,10 +74,6 @@ export async function sendTerminalInput(
     options.onConfirm(optimisticEvent, result.offset ?? 0);
   } catch (error) {
     const wrappedError = error instanceof Error ? error : new Error(String(error));
-    console.error('[Terminal] Failed to send input:', {
-      sessionId,
-      error: wrappedError.message,
-    });
     // Rollback: remove from collection
     terminalCollection.delete(optimisticEvent.id);
     options.onRollback(optimisticEvent, wrappedError);
@@ -162,9 +157,7 @@ export function sendPresenceUpdate(
           channel: 'presence',
           data: presence,
         }),
-      }).catch((error) => {
-        console.warn('[Presence] Failed to send update:', error);
-      });
+      }).catch((_error) => {});
     }
   }, CURSOR_THROTTLE_MS);
 }
@@ -200,12 +193,7 @@ export async function sendPresenceJoin(
     });
 
     return response.ok;
-  } catch (error) {
-    console.error('[Presence] Failed to join session:', {
-      sessionId,
-      userId,
-      error: errorMessage(error),
-    });
+  } catch (_error) {
     return false;
   }
 }
@@ -229,12 +217,7 @@ export async function sendPresenceLeave(sessionId: string, userId: string): Prom
     });
 
     return response.ok;
-  } catch (error) {
-    console.error('[Presence] Failed to leave session:', {
-      sessionId,
-      userId,
-      error: errorMessage(error),
-    });
+  } catch (_error) {
     return false;
   }
 }

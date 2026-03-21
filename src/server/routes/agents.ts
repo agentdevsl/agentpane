@@ -20,24 +20,24 @@ export function createAgentsRoutes({ agentService }: AgentsDeps) {
 
   // GET /api/agents
   app.get('/', async (c) => {
-    const projectId = c.req.query('projectId');
+    const codespaceId = c.req.query('codespaceId');
 
-    if (!projectId) {
+    if (!codespaceId) {
       return json(
-        { ok: false, error: { code: 'MISSING_PARAMS', message: 'projectId is required' } },
+        { ok: false, error: { code: 'MISSING_PARAMS', message: 'codespaceId is required' } },
         400
       );
     }
 
-    if (!isValidId(projectId)) {
+    if (!isValidId(codespaceId)) {
       return json(
-        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid projectId format' } },
+        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid codespaceId format' } },
         400
       );
     }
 
     try {
-      const result = await agentService.list(projectId);
+      const result = await agentService.list(codespaceId);
 
       if (!result.ok) {
         return json(
@@ -64,7 +64,7 @@ export function createAgentsRoutes({ agentService }: AgentsDeps) {
 
     try {
       const result = await agentService.create({
-        projectId: body.projectId,
+        codespaceId: body.codespaceId,
         name: body.name,
         type: body.type,
         config: (body.config as AgentConfig) ?? null,

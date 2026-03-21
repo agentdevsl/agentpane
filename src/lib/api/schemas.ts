@@ -3,7 +3,7 @@
  *
  * Where schemas overlap with `src/server/validation.ts` (the canonical server-side
  * schemas), prefer importing from there. This file extends the canonical schemas
- * with client-specific schemas (e.g., project creation, sandbox configs, workflows)
+ * with client-specific schemas (e.g., codespace creation, sandbox configs, workflows)
  * that are not used in server route handlers.
  *
  * Canonical server schemas: taskColumnSchema, createTaskSchema, moveTaskSchema, etc.
@@ -14,7 +14,7 @@
 import { isCuid } from '@paralleldrive/cuid2';
 import { z } from 'zod';
 import { workflowEdgeSchema, workflowNodeSchema } from '@/lib/workflow-dsl/types.js';
-import { projectConfigSchema } from '../config/schemas.js';
+import { codespaceConfigSchema } from '../config/schemas.js';
 
 const cuidSchema = z.string().refine(isCuid, { message: 'Invalid ID format' });
 const taskColumnSchema = z.enum(['backlog', 'in_progress', 'waiting_approval', 'verified']);
@@ -31,7 +31,7 @@ export const createProjectSchema = z.object({
   name: z.string().min(1).max(100),
   path: z.string().min(1),
   description: z.string().max(500).optional(),
-  config: projectConfigSchema.optional(),
+  config: codespaceConfigSchema.optional(),
   maxConcurrentAgents: z.number().min(1).max(10).optional(),
   githubOwner: z.string().optional(),
   githubRepo: z.string().optional(),
@@ -41,12 +41,12 @@ export const createProjectSchema = z.object({
 export const updateProjectSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   description: z.string().max(500).optional(),
-  config: projectConfigSchema.partial().optional(),
+  config: codespaceConfigSchema.partial().optional(),
   maxConcurrentAgents: z.number().min(1).max(10).optional(),
 });
 
 export const listTasksSchema = z.object({
-  projectId: cuidSchema,
+  codespaceId: cuidSchema,
   column: taskColumnSchema.optional(),
   agentId: cuidSchema.optional(),
   cursor: z.string().optional(),
@@ -54,7 +54,7 @@ export const listTasksSchema = z.object({
 });
 
 export const createTaskSchema = z.object({
-  projectId: cuidSchema,
+  codespaceId: cuidSchema,
   title: z.string().min(1).max(200),
   description: z.string().max(5000).optional(),
   labels: z.array(z.string()).max(10).optional(),
@@ -83,7 +83,7 @@ export const rejectTaskSchema = z.object({
 });
 
 export const listAgentsSchema = z.object({
-  projectId: cuidSchema,
+  codespaceId: cuidSchema,
   status: agentStatusSchema.optional(),
   type: agentTypeSchema.optional(),
 });
@@ -97,7 +97,7 @@ const agentConfigSchema = z.object({
 });
 
 export const createAgentSchema = z.object({
-  projectId: cuidSchema,
+  codespaceId: cuidSchema,
   name: z.string().min(1).max(100),
   type: agentTypeSchema.default('task'),
   config: agentConfigSchema.optional(),
@@ -113,7 +113,7 @@ export const startAgentSchema = z.object({
 });
 
 export const createSessionSchema = z.object({
-  projectId: cuidSchema,
+  codespaceId: cuidSchema,
   taskId: cuidSchema.optional(),
   agentId: cuidSchema.optional(),
   title: z.string().max(200).optional(),
@@ -132,11 +132,11 @@ export const updatePresenceSchema = z.object({
 
 // Worktree schemas
 export const listWorktreesSchema = z.object({
-  projectId: cuidSchema,
+  codespaceId: cuidSchema,
 });
 
 export const createWorktreeSchema = z.object({
-  projectId: cuidSchema,
+  codespaceId: cuidSchema,
   taskId: cuidSchema,
   baseBranch: z.string().optional(),
 });
@@ -150,7 +150,7 @@ export const mergeWorktreeSchema = z.object({
 });
 
 export const pruneWorktreesSchema = z.object({
-  projectId: cuidSchema,
+  codespaceId: cuidSchema,
 });
 
 // Agent lifecycle schemas
@@ -181,11 +181,11 @@ export const githubWebhookSchema = z.object({
 });
 
 // Template schemas
-const templateScopeSchema = z.enum(['org', 'project']);
+const templateScopeSchema = z.enum(['org', 'codespace']);
 
 export const listTemplatesSchema = z.object({
   scope: templateScopeSchema.optional(),
-  projectId: cuidSchema.optional(),
+  codespaceId: cuidSchema.optional(),
   cursor: z.string().optional(),
   limit: z.coerce.number().min(1).max(100).default(50),
 });
@@ -217,8 +217,8 @@ export const createTemplateSchema = z.object({
   githubUrl: githubUrlSchema,
   branch: z.string().max(100).optional(),
   configPath: z.string().max(500).optional(),
-  /** Project IDs to associate with this template (for project-scoped templates) */
-  projectIds: z.array(cuidSchema).optional(),
+  /** Codespace IDs to associate with this template (for codespace-scoped templates) */
+  codespaceIds: z.array(cuidSchema).optional(),
   /** Auto-sync interval in minutes (null = disabled, minimum 5 minutes) */
   syncIntervalMinutes: syncIntervalSchema,
 });
@@ -228,8 +228,8 @@ export const updateTemplateSchema = z.object({
   description: z.string().max(500).optional(),
   branch: z.string().max(100).optional(),
   configPath: z.string().max(500).optional(),
-  /** Update the project associations (replaces existing) */
-  projectIds: z.array(cuidSchema).optional(),
+  /** Update the codespace associations (replaces existing) */
+  codespaceIds: z.array(cuidSchema).optional(),
   /** Auto-sync interval in minutes (null = disabled, minimum 5 minutes) */
   syncIntervalMinutes: syncIntervalSchema,
 });

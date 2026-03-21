@@ -6,8 +6,8 @@ import { getTestDb } from '../helpers/database';
 type AgentStatus = 'idle' | 'starting' | 'planning' | 'running' | 'paused' | 'error' | 'completed';
 type AgentType = 'task' | 'conversational' | 'background';
 
-export type AgentFactoryOptions = Partial<Omit<NewAgent, 'projectId'>> & {
-  projectId?: string;
+export type AgentFactoryOptions = Partial<Omit<NewAgent, 'codespaceId'>> & {
+  codespaceId?: string;
   status?: AgentStatus;
   type?: AgentType;
   config?: Partial<AgentConfig>;
@@ -20,12 +20,12 @@ const DEFAULT_AGENT_CONFIG: AgentConfig = {
   maxTurns: 50,
 };
 
-export function buildAgent(projectId: string, options: AgentFactoryOptions = {}): NewAgent {
+export function buildAgent(codespaceId: string, options: AgentFactoryOptions = {}): NewAgent {
   const id = options.id ?? createId();
 
   return {
     id,
-    projectId,
+    codespaceId,
     name: options.name ?? `Test Agent ${id.slice(0, 6)}`,
     type: options.type ?? 'task',
     status: options.status ?? 'idle',
@@ -40,11 +40,11 @@ export function buildAgent(projectId: string, options: AgentFactoryOptions = {})
 }
 
 export async function createTestAgent(
-  projectId: string,
+  codespaceId: string,
   options: AgentFactoryOptions = {}
 ): Promise<Agent> {
   const db = getTestDb();
-  const data = buildAgent(projectId, options);
+  const data = buildAgent(codespaceId, options);
 
   const [agent] = await db.insert(agents).values(data).returning();
 
@@ -56,14 +56,14 @@ export async function createTestAgent(
 }
 
 export async function createTestAgents(
-  projectId: string,
+  codespaceId: string,
   count: number,
   options: AgentFactoryOptions = {}
 ): Promise<Agent[]> {
   const createdAgents: Agent[] = [];
 
   for (let i = 0; i < count; i++) {
-    const agent = await createTestAgent(projectId, {
+    const agent = await createTestAgent(codespaceId, {
       ...options,
       name: options.name ?? `Test Agent ${i + 1}`,
     });
@@ -74,12 +74,12 @@ export async function createTestAgents(
 }
 
 export async function createRunningAgent(
-  projectId: string,
+  codespaceId: string,
   taskId: string,
   sessionId: string,
   options: AgentFactoryOptions = {}
 ): Promise<Agent> {
-  return createTestAgent(projectId, {
+  return createTestAgent(codespaceId, {
     ...options,
     status: 'running',
     currentTaskId: taskId,

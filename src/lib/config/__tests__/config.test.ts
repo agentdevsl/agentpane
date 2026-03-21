@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { deepMerge } from '../../utils/deep-merge.js';
-import { loadProjectConfig, loadProjectConfigFrom } from '../config-service.js';
-import { DEFAULT_PROJECT_CONFIG } from '../types.js';
+import { loadCodespaceConfig, loadCodespaceConfigFrom } from '../config-service.js';
+import { DEFAULT_CODESPACE_CONFIG } from '../types.js';
 import { containsSecrets } from '../validate-secrets.js';
 
 const sampleConfig = {
@@ -13,18 +13,18 @@ const sampleConfig = {
 
 describe('config system', () => {
   it('defaults are defined', () => {
-    expect(DEFAULT_PROJECT_CONFIG.maxTurns).toBe(50);
+    expect(DEFAULT_CODESPACE_CONFIG.maxTurns).toBe(50);
   });
 
   it('deep merges config layers', () => {
-    const merged = deepMerge(DEFAULT_PROJECT_CONFIG, sampleConfig);
+    const merged = deepMerge(DEFAULT_CODESPACE_CONFIG, sampleConfig);
 
     expect(merged.maxTurns).toBe(25);
     expect(merged.allowedTools).toEqual(['Read']);
   });
 
   it('loads project config from defaults when missing', async () => {
-    const result = await loadProjectConfigFrom({ projectPath: '/tmp/missing' });
+    const result = await loadCodespaceConfigFrom({ projectPath: '/tmp/missing' });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -37,11 +37,11 @@ describe('config system', () => {
     process.env.ANTHROPIC_API_KEY = 'test-key';
     process.env.AGENTPANE_MAX_TURNS = '12';
 
-    const result = await loadProjectConfig({ projectPath: '/tmp/missing' });
+    const result = await loadCodespaceConfig({ projectPath: '/tmp/missing' });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.value.project.maxTurns).toBe(12);
+      expect(result.value.codespace.maxTurns).toBe(12);
     }
 
     delete process.env.ANTHROPIC_API_KEY;
@@ -58,7 +58,7 @@ describe('config system', () => {
     const previousKey = process.env.ANTHROPIC_API_KEY;
     delete process.env.ANTHROPIC_API_KEY;
 
-    const result = await loadProjectConfig({ projectPath: '/tmp/missing' });
+    const result = await loadCodespaceConfig({ projectPath: '/tmp/missing' });
 
     expect(result.ok).toBe(true);
 

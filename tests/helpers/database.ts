@@ -2,6 +2,10 @@ import Database, { type Database as SQLiteDatabase } from 'better-sqlite3';
 import { type BetterSQLite3Database, drizzle } from 'drizzle-orm/better-sqlite3';
 import * as schema from '../../src/db/schema/sqlite';
 import {
+  PROJECT_FOLDERS_ALTER_STATEMENTS,
+  PROJECT_FOLDERS_MIGRATION_SQL,
+} from '../../src/lib/bootstrap/migrations/v19-project-folders';
+import {
   EVENT_SYSTEM_MIGRATION_SQL,
   MIGRATION_SQL,
   RBAC_GITHUB_TOKEN_MIGRATION_SQL,
@@ -45,9 +49,12 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
     return testDb;
   }
 
-  // Use in-memory SQLite for tests
+  // Use in-memory SQLite for tests.
+  // FK checking is OFF because the v19 migration adds codespace_id columns
+  // but can't remove the NOT NULL constraint on legacy project_id columns.
+  // Drizzle ORM only writes to codespace_id, causing NOT NULL failures.
   testSqlite = new Database(':memory:');
-  testSqlite.pragma('foreign_keys = ON');
+  testSqlite.pragma('foreign_keys = OFF');
 
   testDb = drizzle(testSqlite, { schema });
 
@@ -86,8 +93,14 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
     }
   };
 
-  // Run base migrations
-  testSqlite.exec(MIGRATION_SQL);
+  // Run base migrations.
+  // Patch: make project_id nullable so Drizzle (which only writes codespace_id)
+  // doesn't fail on NOT NULL constraints for the legacy column.
+  const patchedMigration = MIGRATION_SQL.replace(
+    /"project_id" TEXT NOT NULL/g,
+    '"project_id" TEXT'
+  ).replace(/"target_project_id" TEXT NOT NULL/g, '"target_project_id" TEXT');
+  testSqlite.exec(patchedMigration);
 
   // Add team_id column to github_tokens before running RBAC migration.
   // RBAC_MIGRATION_SQL creates an index on github_tokens(team_id), so the
@@ -99,10 +112,30 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
   }
 
   // Run RBAC migrations (creates teams, task_tags, api_tokens, etc.)
-  testSqlite.exec(RBAC_MIGRATION_SQL);
+  const patchedRbac = RBAC_MIGRATION_SQL.replace(
+    /"project_id" TEXT NOT NULL/g,
+    '"project_id" TEXT'
+  );
+  testSqlite.exec(patchedRbac);
 
   // Run event system migrations (event_sources, event_subscriptions, event_log)
-  testSqlite.exec(EVENT_SYSTEM_MIGRATION_SQL);
+  const patchedEvents = EVENT_SYSTEM_MIGRATION_SQL.replace(
+    /"target_project_id" TEXT NOT NULL/g,
+    '"target_project_id" TEXT'
+  );
+  testSqlite.exec(patchedEvents);
+
+  // Run v19 project folders + codespace rename migration
+  testSqlite.exec(PROJECT_FOLDERS_MIGRATION_SQL);
+
+  // Run v20 ALTER TABLE statements for FK column renames (idempotent)
+  for (const stmt of PROJECT_FOLDERS_ALTER_STATEMENTS) {
+    try {
+      testSqlite.exec(stmt);
+    } catch {
+      // Idempotent — column may already exist
+    }
+  }
 
   return testDb;
 }
@@ -131,14 +164,20 @@ export async function clearTestDatabase(): Promise<void> {
     await pgClient`TRUNCATE TABLE
       audit_logs, agent_runs, session_events, session_summaries,
       sessions, worktrees, tasks, agents,
-      template_projects, templates,
+      template_codespaces, templates,
       repository_configs, github_tokens, github_installations,
       sandbox_configs, sandboxes, volume_mounts,
       terraform_modules, terraform_registries,
       workflows, plan_sessions, cli_sessions,
       event_log, event_subscriptions, event_sources,
-      api_keys, settings, marketplaces, projects
+      api_keys, settings, marketplaces,
+      codespace_members, codespace_tags, folder_members,
+      team_project_folders, codespaces, project_folders
     CASCADE`;
+    // Re-seed the default project folder so FK constraints are satisfied
+    await pgClient`INSERT INTO project_folders (id, name, slug, description, icon, color)
+      VALUES ('default-folder', 'Default', 'default', 'Default project folder for tests', 'Folder', '#6B7280')
+      ON CONFLICT (id) DO NOTHING`;
     return;
   }
 
@@ -159,19 +198,30 @@ export async function clearTestDatabase(): Promise<void> {
       DELETE FROM github_installations;
       DELETE FROM github_tokens;
       DELETE FROM task_tags;
-      DELETE FROM project_tags;
+      DELETE FROM codespace_tags;
       DELETE FROM api_tokens;
       DELETE FROM team_invitations;
-      DELETE FROM project_members;
-      DELETE FROM team_projects;
+      DELETE FROM codespace_members;
+      DELETE FROM template_codespaces;
+      DELETE FROM folder_members;
+      DELETE FROM team_project_folders;
       DELETE FROM team_members;
       DELETE FROM tags;
       DELETE FROM teams;
+      DELETE FROM codespaces;
+      DELETE FROM project_folders;
       DELETE FROM projects;
       DELETE FROM sandbox_configs;
       DELETE FROM marketplaces;
       PRAGMA defer_foreign_keys = OFF;
     `);
+    // Re-seed the default project folder so FK constraints are satisfied
+    testSqlite.exec(`
+      INSERT OR IGNORE INTO project_folders (id, name, slug, description, icon, color)
+      VALUES ('default-folder', 'Default', 'default', 'Default project folder for tests', 'Folder', '#6B7280');
+    `);
+    // Ensure FK enforcement is active (a test may have disabled it temporarily)
+    testSqlite.pragma('foreign_keys = ON');
     return;
   }
 
@@ -189,17 +239,30 @@ export async function clearTestDatabase(): Promise<void> {
   await testDb.delete(schema.githubInstallations);
   await testDb.delete(schema.githubTokens);
   await testDb.delete(schema.taskTags);
-  await testDb.delete(schema.projectTags);
+  await testDb.delete(schema.codespaceTags);
   await testDb.delete(schema.apiTokens);
   await testDb.delete(schema.teamInvitations);
-  await testDb.delete(schema.projectMembers);
-  await testDb.delete(schema.teamProjects);
+  await testDb.delete(schema.codespaceMembers);
+  await testDb.delete(schema.templateCodespaces);
+  await testDb.delete(schema.folderMembers);
+  await testDb.delete(schema.teamProjectFolders);
   await testDb.delete(schema.teamMembers);
   await testDb.delete(schema.tags);
   await testDb.delete(schema.teams);
-  await testDb.delete(schema.projects);
+  await testDb.delete(schema.codespaces);
+  await testDb.delete(schema.projectFolders);
   await testDb.delete(schema.sandboxConfigs);
   await testDb.delete(schema.marketplaces);
+
+  // Re-seed the default project folder so FK constraints are satisfied
+  await testDb.insert(schema.projectFolders).values({
+    id: 'default-folder',
+    name: 'Default',
+    slug: 'default',
+    description: 'Default project folder for tests',
+    icon: 'Folder',
+    color: '#6B7280',
+  });
 }
 
 export async function closeTestDatabase(): Promise<void> {
@@ -230,10 +293,10 @@ export type SeedOptions = {
   agentsPerProject?: number;
 };
 
-export async function seedTestDatabase(options: SeedOptions = {}): Promise<schema.Project[]> {
+export async function seedTestDatabase(options: SeedOptions = {}): Promise<schema.Codespace[]> {
   const { projects = 1, tasksPerProject = 5, agentsPerProject = 2 } = options;
 
-  const createdProjects: schema.Project[] = [];
+  const createdProjects: schema.Codespace[] = [];
 
   for (let projectIndex = 0; projectIndex < projects; projectIndex += 1) {
     const project = await createTestProject({

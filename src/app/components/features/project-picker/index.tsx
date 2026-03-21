@@ -90,13 +90,13 @@ export function ProjectPicker({
         >
           {/* Hidden description for accessibility */}
           <DialogPrimitive.Description className="sr-only">
-            Search and select a project to open. Use arrow keys to navigate, Enter to select.
+            Search and select a codespace to open. Use arrow keys to navigate, Enter to select.
           </DialogPrimitive.Description>
 
           {/* Header */}
           <div className="flex items-center justify-between px-5 py-4 border-b border-border">
             <DialogPrimitive.Title className="text-base font-semibold text-fg">
-              Open Project
+              Open Codespace
             </DialogPrimitive.Title>
             <DialogPrimitive.Close asChild>
               <button
@@ -167,7 +167,7 @@ export function ProjectPicker({
               data-testid="new-project-option"
             >
               <Plus className="w-3.5 h-3.5" />
-              New Project
+              New Codespace
             </button>
           </div>
         </DialogPrimitive.Content>

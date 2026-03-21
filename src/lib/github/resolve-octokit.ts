@@ -57,11 +57,7 @@ export async function resolveOctokit(
   let token: string;
   try {
     token = await decryptToken(tokenRecord.encryptedToken);
-  } catch (decryptError) {
-    console.error(
-      '[resolveOctokit] Failed to decrypt GitHub token, marking as invalid:',
-      decryptError
-    );
+  } catch (_decryptError) {
     await db
       .update(githubTokens)
       .set({ isValid: false })

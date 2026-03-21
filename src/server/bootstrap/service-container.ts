@@ -14,6 +14,7 @@ import { CaddyDurableStreamsServer } from '../../lib/streams/caddy-producer.js';
 import { AgentService } from '../../services/agent.service.js';
 import { ApiKeyService } from '../../services/api-key.service.js';
 import { CliMonitorService } from '../../services/cli-monitor/index.js';
+import { CodespaceService } from '../../services/codespace.service.js';
 import { DurableStreamsService } from '../../services/durable-streams.service.js';
 import { EventProcessingService } from '../../services/event-processing.service.js';
 import { EventSourceService } from '../../services/event-source.service.js';
@@ -21,7 +22,7 @@ import { EventSubscriptionService } from '../../services/event-subscription.serv
 import { GitService } from '../../services/git.service.js';
 import { GitHubTokenService } from '../../services/github-token.service.js';
 import { MarketplaceService } from '../../services/marketplace.service.js';
-import { ProjectService } from '../../services/project.service.js';
+import { ProjectFolderService } from '../../services/project-folder.service.js';
 import { SandboxConfigService } from '../../services/sandbox-config.service.js';
 import { SchedulerService } from '../../services/scheduler.service.js';
 import { SessionService } from '../../services/session.service.js';
@@ -133,9 +134,10 @@ export function createServiceContainer(db: Database, config: ServerConfig): Serv
   // 7. Workflow service
   const workflowService = new WorkflowService(db);
 
-  // 8. Git and Project services
+  // 8. Git, Codespace, and ProjectFolder services
   const gitService = new GitService(db, commandRunner);
-  const projectService = new ProjectService(db, worktreeService, commandRunner);
+  const codespaceService = new CodespaceService(db, worktreeService, commandRunner);
+  const projectFolderService = new ProjectFolderService(db);
 
   // 9. Event system
   const pluginRegistry = new PluginRegistry();
@@ -182,7 +184,8 @@ export function createServiceContainer(db: Database, config: ServerConfig): Serv
     agentService,
     workflowService,
     gitService,
-    projectService,
+    codespaceService,
+    projectFolderService,
     cliMonitorService,
     durableStreamsService,
     terraformRegistryService,

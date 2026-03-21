@@ -204,18 +204,12 @@ describe('CaddyDurableStreamsServer', () => {
       expect(result2).toBe(false);
     });
 
-    it('logs warning on cleanup error', async () => {
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    it('returns false on cleanup error', async () => {
       await server.createStream('test-session', null);
       mocks.detach.mockRejectedValueOnce(new Error('detach failed'));
 
-      await server.deleteStream('test-session');
-
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('deleteStream(test-session) cleanup error'),
-        expect.any(Error)
-      );
-      warnSpy.mockRestore();
+      const result = await server.deleteStream('test-session');
+      expect(result).toBe(false);
     });
   });
 

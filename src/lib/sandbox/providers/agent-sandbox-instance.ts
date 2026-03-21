@@ -25,8 +25,8 @@ export class AgentSandboxInstance implements Sandbox {
     public readonly id: string,
     /** CRD sandbox resource name (also serves as containerId) */
     private readonly sandboxName: string,
-    /** Project this sandbox belongs to */
-    public readonly projectId: string,
+    /** Codespace this sandbox belongs to */
+    public readonly codespaceId: string,
     /** Kubernetes namespace */
     _namespace: string,
     /** Agent Sandbox SDK client */

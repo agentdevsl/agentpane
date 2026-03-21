@@ -101,10 +101,10 @@ export class SessionService {
   }
 
   async listSessionsWithFilters(
-    projectId: string,
+    codespaceId: string,
     options?: ListSessionsWithFiltersOptions
   ): Promise<Result<{ sessions: SessionWithPresence[]; total: number }, SessionError>> {
-    return this.crudService.listSessionsWithFilters(projectId, options);
+    return this.crudService.listSessionsWithFilters(codespaceId, options);
   }
 
   generateUrl(sessionId: string): string {

@@ -1,6 +1,6 @@
-import type { ProjectSandboxConfig } from '../../../lib/sandbox/types';
+import type { CodespaceSandboxConfig } from '../../../lib/sandbox/types';
 
-export type ProjectConfig = {
+export type CodespaceConfig = {
   worktreeRoot: string;
   initScript?: string;
   envFile?: string;
@@ -11,7 +11,7 @@ export type ProjectConfig = {
   systemPrompt?: string;
   temperature?: number;
   envVars?: Record<string, string>;
-  sandbox?: ProjectSandboxConfig | null;
+  sandbox?: CodespaceSandboxConfig | null;
 };
 
 export type AgentConfig = {

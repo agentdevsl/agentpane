@@ -9,12 +9,12 @@ import {
   isAgentCoreError,
 } from '@/lib/errors/agentcore-errors';
 import { AppErrorClass, createError } from '@/lib/errors/base';
+import { CodespaceErrors } from '@/lib/errors/codespace-errors';
 import { ConcurrencyErrors } from '@/lib/errors/concurrency-errors';
 import { EventErrors, ScheduleErrors } from '@/lib/errors/event-errors';
 import { GitHubErrors } from '@/lib/errors/github-errors';
 import { MarketplaceErrors } from '@/lib/errors/marketplace-errors';
 import { PlanModeErrors } from '@/lib/errors/plan-mode-errors';
-import { ProjectErrors } from '@/lib/errors/project-errors';
 import { SandboxConfigErrors } from '@/lib/errors/sandbox-config-errors';
 import { SessionErrors } from '@/lib/errors/session-errors';
 import { TaskErrors } from '@/lib/errors/task-errors';
@@ -458,45 +458,45 @@ describe('GitHubErrors', () => {
 // Project Errors Tests
 // =============================================================================
 
-describe('ProjectErrors', () => {
+describe('CodespaceErrors', () => {
   it('NOT_FOUND has status 404', () => {
-    expect(ProjectErrors.NOT_FOUND.code).toBe('PROJECT_NOT_FOUND');
-    expect(ProjectErrors.NOT_FOUND.status).toBe(404);
+    expect(CodespaceErrors.NOT_FOUND.code).toBe('CODESPACE_NOT_FOUND');
+    expect(CodespaceErrors.NOT_FOUND.status).toBe(404);
   });
 
   it('PATH_EXISTS has status 409', () => {
-    expect(ProjectErrors.PATH_EXISTS.code).toBe('PROJECT_PATH_EXISTS');
-    expect(ProjectErrors.PATH_EXISTS.status).toBe(409);
+    expect(CodespaceErrors.PATH_EXISTS.code).toBe('CODESPACE_PATH_EXISTS');
+    expect(CodespaceErrors.PATH_EXISTS.status).toBe(409);
   });
 
   it('PATH_INVALID includes the path', () => {
-    const error = ProjectErrors.PATH_INVALID('/bad/path');
+    const error = CodespaceErrors.PATH_INVALID('/bad/path');
 
-    expect(error.code).toBe('PROJECT_PATH_INVALID');
+    expect(error.code).toBe('CODESPACE_PATH_INVALID');
     expect(error.status).toBe(400);
     expect(error.message).toContain('/bad/path');
   });
 
   it('NOT_A_GIT_REPO includes the path', () => {
-    const error = ProjectErrors.NOT_A_GIT_REPO('/tmp/plain');
+    const error = CodespaceErrors.NOT_A_GIT_REPO('/tmp/plain');
 
-    expect(error.code).toBe('PROJECT_NOT_A_GIT_REPO');
+    expect(error.code).toBe('CODESPACE_NOT_A_GIT_REPO');
     expect(error.status).toBe(400);
     expect(error.details).toEqual({ path: '/tmp/plain' });
   });
 
   it('HAS_RUNNING_AGENTS includes count', () => {
-    const error = ProjectErrors.HAS_RUNNING_AGENTS(3);
+    const error = CodespaceErrors.HAS_RUNNING_AGENTS(3);
 
-    expect(error.code).toBe('PROJECT_HAS_RUNNING_AGENTS');
+    expect(error.code).toBe('CODESPACE_HAS_RUNNING_AGENTS');
     expect(error.status).toBe(409);
     expect(error.details).toEqual({ runningAgentCount: 3 });
   });
 
   it('CONFIG_INVALID includes validation errors', () => {
-    const error = ProjectErrors.CONFIG_INVALID(['bad field']);
+    const error = CodespaceErrors.CONFIG_INVALID(['bad field']);
 
-    expect(error.code).toBe('PROJECT_CONFIG_INVALID');
+    expect(error.code).toBe('CODESPACE_CONFIG_INVALID');
     expect(error.status).toBe(400);
     expect(error.details).toEqual({ validationErrors: ['bad field'] });
   });
@@ -523,11 +523,11 @@ describe('ValidationErrors', () => {
   });
 
   it('INVALID_ID includes field detail', () => {
-    const error = ValidationErrors.INVALID_ID('projectId');
+    const error = ValidationErrors.INVALID_ID('codespaceId');
 
     expect(error.code).toBe('INVALID_ID');
     expect(error.status).toBe(400);
-    expect(error.details).toEqual({ field: 'projectId' });
+    expect(error.details).toEqual({ field: 'codespaceId' });
   });
 
   it('MISSING_REQUIRED_FIELD includes field detail', () => {

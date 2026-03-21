@@ -25,17 +25,17 @@ export function createWorktreesRoutes({ worktreeService }: WorktreesDeps) {
 
   // GET /api/worktrees
   app.get('/', async (c) => {
-    const projectId = c.req.query('projectId');
+    const codespaceId = c.req.query('codespaceId');
 
-    if (!projectId) {
+    if (!codespaceId) {
       return json(
-        { ok: false, error: { code: 'MISSING_PARAMS', message: 'projectId is required' } },
+        { ok: false, error: { code: 'MISSING_PARAMS', message: 'codespaceId is required' } },
         400
       );
     }
 
     try {
-      const result = await worktreeService.list(projectId);
+      const result = await worktreeService.list(codespaceId);
 
       if (!result.ok) {
         return json(
@@ -72,7 +72,7 @@ export function createWorktreesRoutes({ worktreeService }: WorktreesDeps) {
 
     try {
       const result = await worktreeService.create({
-        projectId: body.projectId,
+        codespaceId: body.codespaceId,
         agentId: body.agentId,
         taskId: body.taskId,
         taskTitle: body.taskTitle,
@@ -99,7 +99,7 @@ export function createWorktreesRoutes({ worktreeService }: WorktreesDeps) {
 
   // POST /api/worktrees/prune
   app.post('/prune', async (c) => {
-    let body: { projectId?: string };
+    let body: { codespaceId?: string };
     try {
       body = await c.req.json();
     } catch {
@@ -108,17 +108,17 @@ export function createWorktreesRoutes({ worktreeService }: WorktreesDeps) {
         400
       );
     }
-    const projectId = body.projectId;
+    const codespaceId = body.codespaceId;
 
-    if (!projectId) {
+    if (!codespaceId) {
       return json(
-        { ok: false, error: { code: 'MISSING_PARAMS', message: 'projectId is required' } },
+        { ok: false, error: { code: 'MISSING_PARAMS', message: 'codespaceId is required' } },
         400
       );
     }
 
     try {
-      const result = await worktreeService.prune(projectId);
+      const result = await worktreeService.prune(codespaceId);
 
       if (!result.ok) {
         log.error('Prune failed', { error: result.error });

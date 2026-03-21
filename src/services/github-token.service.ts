@@ -1,6 +1,6 @@
 import { eq, inArray, isNull } from 'drizzle-orm';
 import { Octokit } from 'octokit';
-import { githubTokens, teamProjects } from '../db/schema';
+import { codespaces, githubTokens, teamProjectFolders } from '../db/schema';
 import {
   decryptToken,
   encryptToken,
@@ -155,17 +155,22 @@ export class GitHubTokenService {
   }
 
   /**
-   * Resolve a GitHub token for a project via its team associations.
+   * Resolve a GitHub token for a codespace via its team associations.
    * Resolution chain: team_projects → github_tokens by teamId → global fallback (team_id IS NULL)
    */
-  async resolveGitHubTokenForProject(projectId: string): Promise<string | null> {
-    // Step 1: Find all teams associated with this project
-    const projectTeams = await this.db
-      .select({ teamId: teamProjects.teamId })
-      .from(teamProjects)
-      .where(eq(teamProjects.projectId, projectId));
+  async resolveGitHubTokenForCodespace(codespaceId: string): Promise<string | null> {
+    // Step 1: Find all teams associated with this codespace (via project folder)
+    const codespace = await this.db.query.codespaces.findFirst({
+      where: eq(codespaces.id, codespaceId),
+    });
+    const projectTeams = codespace?.projectFolderId
+      ? await this.db
+          .select({ teamId: teamProjectFolders.teamId })
+          .from(teamProjectFolders)
+          .where(eq(teamProjectFolders.projectFolderId, codespace.projectFolderId))
+      : [];
 
-    // Step 2: If the project has teams, look for a team-specific token (single query)
+    // Step 2: If the codespace has teams, look for a team-specific token (single query)
     if (projectTeams.length > 0) {
       const teamIds = projectTeams.map((t) => t.teamId);
       const teamToken = await this.db.query.githubTokens.findFirst({

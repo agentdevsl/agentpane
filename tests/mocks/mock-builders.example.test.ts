@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { Project, Task } from '../../src/db/schema';
+import type { Codespace as Project, Task } from '../../src/db/schema';
 import type { Database } from '../../src/types/database.js';
 import { createMockDatabase, createTableQuery, type MockDatabase } from './mock-builders.js';
 
@@ -16,8 +16,8 @@ describe('Mock Builders Examples', () => {
       const mockDb = createMockDatabase();
 
       // All tables should have findFirst and findMany
-      expect(mockDb.query.projects.findFirst).toBeDefined();
-      expect(mockDb.query.projects.findMany).toBeDefined();
+      expect(mockDb.query.codespaces.findFirst).toBeDefined();
+      expect(mockDb.query.codespaces.findMany).toBeDefined();
       expect(mockDb.query.tasks.findFirst).toBeDefined();
       expect(mockDb.query.tasks.findMany).toBeDefined();
 
@@ -53,21 +53,21 @@ describe('Mock Builders Examples', () => {
 
       const mockDb = createMockDatabase({
         query: {
-          projects: createTableQuery([mockProject]),
+          codespaces: createTableQuery([mockProject]),
         },
       });
 
-      const result = await mockDb.query.projects.findFirst();
+      const result = await mockDb.query.codespaces.findFirst();
       expect(result).toEqual(mockProject);
 
-      const results = await mockDb.query.projects.findMany();
+      const results = await mockDb.query.codespaces.findMany();
       expect(results).toEqual([mockProject]);
     });
 
     it('supports insert chains', async () => {
       const mockTask: Task = {
         id: 'task-1',
-        projectId: 'proj-1',
+        codespaceId: 'proj-1',
         agentId: null,
         sessionId: null,
         worktreeId: null,
@@ -115,7 +115,7 @@ describe('Mock Builders Examples', () => {
 
       // This should compile without errors - the cast demonstrates
       // that MockDatabase is structurally compatible with Database
-      expect(mockDb.query.projects).toBeDefined();
+      expect(mockDb.query.codespaces).toBeDefined();
     });
   });
 
@@ -163,7 +163,7 @@ describe('Mock Builders Examples', () => {
 
       // This function expects Database type
       function acceptsDatabase(db: Database) {
-        return db.query.projects;
+        return db.query.codespaces;
       }
 
       // Should work with type assertion

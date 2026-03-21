@@ -18,7 +18,7 @@ let app: ReturnType<typeof createAgentsRoutes>;
 
 const sampleAgent: Agent = {
   id: 'agent-1',
-  projectId: 'proj-1',
+  codespaceId: 'proj-1',
   name: 'Test Agent',
   type: 'task',
   status: 'idle',
@@ -48,7 +48,7 @@ describe('Agent API', () => {
   it('lists agents for a project', async () => {
     agentServiceMocks.list.mockResolvedValue(ok([sampleAgent]));
 
-    const response = await app.request('/?projectId=az2h33gpcldsq0a0wdimza6m');
+    const response = await app.request('/?codespaceId=az2h33gpcldsq0a0wdimza6m');
 
     expect(response.status).toBe(200);
     const data = (await response.json()) as { ok: true; data: Agent[] };
@@ -69,7 +69,7 @@ describe('Agent API', () => {
     const response = await app.request(
       '/',
       jsonRequest({
-        projectId: 'az2h33gpcldsq0a0wdimza6m',
+        codespaceId: 'az2h33gpcldsq0a0wdimza6m',
         name: 'Test Agent',
         type: 'task',
       })

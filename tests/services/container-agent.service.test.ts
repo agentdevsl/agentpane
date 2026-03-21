@@ -113,7 +113,7 @@ function createMockStreams(overrides: Partial<DurableStreamsService> = {}): Dura
 function createMockSandbox(overrides: Record<string, unknown> = {}) {
   return {
     id: 'sandbox-1',
-    projectId: 'project-1',
+    codespaceId: 'project-1',
     containerId: 'container-abc123',
     status: 'running' as const,
     exec: vi.fn().mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' }),
@@ -294,7 +294,7 @@ describe('ContainerAgentService', () => {
   describe('startAgent precondition checks', () => {
     it('returns error when project not found', async () => {
       const result = await service.startAgent({
-        projectId: 'nonexistent-project',
+        codespaceId: 'nonexistent-project',
         taskId: 'task-1',
         sessionId: 'session-1',
         prompt: 'Do something',
@@ -312,7 +312,7 @@ describe('ContainerAgentService', () => {
 
       // Start first agent
       const result1 = await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-1',
         prompt: 'Do something',
@@ -321,7 +321,7 @@ describe('ContainerAgentService', () => {
 
       // Try to start another agent for the same task
       const result2 = await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-2',
         prompt: 'Do something else',
@@ -340,7 +340,7 @@ describe('ContainerAgentService', () => {
       await createTestTask(project.id, { title: 'Test task' });
 
       const result = await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: 'task-no-stream',
         sessionId: 'session-1',
         prompt: 'Do something',
@@ -356,7 +356,7 @@ describe('ContainerAgentService', () => {
       // Don't create a task — it won't be found
 
       const result = await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: 'nonexistent-task-id',
         sessionId: 'session-1',
         prompt: 'Do something',
@@ -381,7 +381,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Test task' });
 
       const result = await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-1',
         prompt: 'Do something',
@@ -399,7 +399,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Test task' });
 
       const result = await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-1',
         prompt: 'Do something',
@@ -417,7 +417,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Test task' });
 
       const result = await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-1',
         prompt: 'Do something',
@@ -433,7 +433,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Test task' });
 
       const result = await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-1',
         prompt: 'Do something',
@@ -469,7 +469,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Test task' });
 
       const result = await svc.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-no-key',
         prompt: 'Do something',
@@ -501,7 +501,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Test task' });
 
       const result = await svc.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-env-key',
         prompt: 'Do something',
@@ -537,7 +537,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Test task' });
 
       const result = await svc.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-auth-key',
         prompt: 'Do something',
@@ -563,7 +563,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Build feature' });
 
       const result = await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-ok',
         prompt: 'Build a feature',
@@ -573,7 +573,7 @@ describe('ContainerAgentService', () => {
 
       const running = service.getRunningAgent(task.id);
       expect(running).not.toBeNull();
-      expect(running?.projectId).toBe(project.id);
+      expect(running?.codespaceId).toBe(project.id);
       expect(running?.sessionId).toBe('session-ok');
     });
 
@@ -582,7 +582,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Execute feature' });
 
       const result = await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-exec',
         prompt: 'Execute the plan',
@@ -596,7 +596,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Test task' });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-stages',
         prompt: 'Do something',
@@ -620,7 +620,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Test task' });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-started',
         prompt: 'Do something',
@@ -640,7 +640,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'DB records test' });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-db',
         prompt: 'Do something',
@@ -651,7 +651,7 @@ describe('ContainerAgentService', () => {
         where: eq(agents.id, `agent-${task.id}`),
       });
       expect(agent).toBeDefined();
-      expect(agent?.projectId).toBe(project.id);
+      expect(agent?.codespaceId).toBe(project.id);
 
       // Note: The task may already be cleaned up by processAgentOutput's async handler
       // because the mocked stream resolves immediately. Instead, verify the agent
@@ -663,7 +663,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Test task' });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-stream',
         prompt: 'Do something',
@@ -671,7 +671,7 @@ describe('ContainerAgentService', () => {
 
       expect(streams.createStream).toHaveBeenCalledWith('session-stream', {
         type: 'container-agent',
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
       });
     });
@@ -681,7 +681,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Test task' });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-stop-file',
         prompt: 'Do something',
@@ -698,7 +698,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Test task' });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-exec',
         prompt: 'Do something',
@@ -722,7 +722,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Test task' });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-sdk',
         prompt: 'Execute plan',
@@ -744,7 +744,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Test task' });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-custom',
         prompt: 'Do something',
@@ -786,14 +786,14 @@ describe('ContainerAgentService', () => {
       const task2 = await createTestTask(project.id, { title: 'Task 2' });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task1.id,
         sessionId: 'session-1',
         prompt: 'Do something',
       });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task2.id,
         sessionId: 'session-2',
         prompt: 'Do something else',
@@ -827,7 +827,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Test task' });
 
       const result = await svc.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-stream-fail',
         prompt: 'Do something',
@@ -854,7 +854,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Test task' });
 
       const result = await svc.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-dupe-stream',
         prompt: 'Do something',
@@ -885,7 +885,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Test task' });
 
       const result = await svc.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-publish-fail',
         prompt: 'Do something',
@@ -924,7 +924,7 @@ describe('ContainerAgentService', () => {
       });
 
       const result = await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-db-fail',
         prompt: 'Do something',
@@ -974,7 +974,7 @@ describe('ContainerAgentService', () => {
 
       // First agent starts successfully
       const r1 = await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-race-1',
         prompt: 'Do something',
@@ -983,7 +983,7 @@ describe('ContainerAgentService', () => {
 
       // Second call for the same task should fail because first is already running
       const r2 = await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-race-2',
         prompt: 'Do something',
@@ -1000,7 +1000,7 @@ describe('ContainerAgentService', () => {
 
       // First call — succeeds but we then stop the agent
       const r1 = await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-lock-1',
         prompt: 'Do something',
@@ -1014,7 +1014,7 @@ describe('ContainerAgentService', () => {
       // Create a new task to avoid the running agent check
       const task2 = await createTestTask(project.id, { title: 'Test task 2' });
       const r2 = await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task2.id,
         sessionId: 'session-lock-2',
         prompt: 'Do something',
@@ -1041,7 +1041,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Test task' });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-stop',
         prompt: 'Do something',
@@ -1061,7 +1061,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Test task' });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-cancel',
         prompt: 'Do something',
@@ -1082,7 +1082,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Test task' });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-stop-no-sandbox',
         prompt: 'Do something',
@@ -1111,7 +1111,7 @@ describe('ContainerAgentService', () => {
       });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-complete',
         prompt: 'Do something',
@@ -1139,7 +1139,7 @@ describe('ContainerAgentService', () => {
       });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-turnlimit',
         prompt: 'Do something',
@@ -1164,7 +1164,7 @@ describe('ContainerAgentService', () => {
       });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-cancelled',
         prompt: 'Do something',
@@ -1186,7 +1186,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Cleanup test' });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-cleanup',
         prompt: 'Do something',
@@ -1203,7 +1203,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Sentinel cleanup' });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-sentinel',
         prompt: 'Do something',
@@ -1225,7 +1225,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Agent status test' });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-agent-status',
         prompt: 'Do something',
@@ -1253,7 +1253,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Error test', column: 'in_progress' });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-error',
         prompt: 'Do something',
@@ -1275,7 +1275,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Error cleanup' });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-error-cleanup',
         prompt: 'Do something',
@@ -1292,7 +1292,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Agent error' });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-agent-error',
         prompt: 'Do something',
@@ -1319,7 +1319,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Plan test', column: 'in_progress' });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-plan',
         prompt: 'Plan something',
@@ -1345,7 +1345,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Plan cache test' });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-plan-cache',
         prompt: 'Plan something',
@@ -1369,7 +1369,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Plan cleanup' });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-plan-cleanup',
         prompt: 'Plan something',
@@ -1421,7 +1421,7 @@ describe('ContainerAgentService', () => {
       expect(plan).toBeDefined();
       expect(plan?.plan).toBe('Recovered plan');
       expect(plan?.sdkSessionId).toBe('sdk-recovered');
-      expect(plan?.projectId).toBe(project.id);
+      expect(plan?.codespaceId).toBe(project.id);
     });
 
     it('returns undefined when task has plan but status is not planning', async () => {
@@ -1468,7 +1468,7 @@ describe('ContainerAgentService', () => {
 
       // Start agent and trigger plan ready
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-approve',
         prompt: 'Plan something',
@@ -1502,7 +1502,7 @@ describe('ContainerAgentService', () => {
       });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-plan-remove',
         prompt: 'Plan something',
@@ -1534,7 +1534,7 @@ describe('ContainerAgentService', () => {
       });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-sandbox-change',
         prompt: 'Plan something',
@@ -1588,7 +1588,7 @@ describe('ContainerAgentService', () => {
       });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-reject',
         prompt: 'Plan something',
@@ -1621,7 +1621,7 @@ describe('ContainerAgentService', () => {
       });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-reject-cleanup',
         prompt: 'Plan something',
@@ -1689,7 +1689,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Worktree test' });
 
       const result = await svc.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-wt',
         prompt: 'Do something',
@@ -1697,7 +1697,7 @@ describe('ContainerAgentService', () => {
       expect(result.ok).toBe(true);
       expect(wts.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          projectId: project.id,
+          codespaceId: project.id,
           taskId: task.id,
         }),
         expect.objectContaining({
@@ -1725,7 +1725,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Worktree fail test' });
 
       const result = await svc.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-wt-fail',
         prompt: 'Do something',
@@ -1754,7 +1754,7 @@ describe('ContainerAgentService', () => {
       // Create a real worktree record to satisfy FK constraint
       await db.insert(worktrees).values({
         id: 'wt-recover-1',
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         branch: 'task-branch',
         path: '/tmp/test-project/worktrees/task-branch',
@@ -1777,7 +1777,7 @@ describe('ContainerAgentService', () => {
       });
 
       const result = await svc.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-wt-recover',
         prompt: 'Execute plan',
@@ -1802,7 +1802,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Cleanup test' });
 
       await svc.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-wt-cleanup',
         prompt: 'Do something',
@@ -1831,7 +1831,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Commit test' });
 
       await svc.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-wt-commit',
         prompt: 'Do something',
@@ -1874,7 +1874,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Path test' });
 
       await svc.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-path',
         prompt: 'Do something',
@@ -1903,7 +1903,7 @@ describe('ContainerAgentService', () => {
       });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-expired',
         prompt: 'Plan something',
@@ -1943,7 +1943,7 @@ describe('ContainerAgentService', () => {
       });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-fresh',
         prompt: 'Plan something',
@@ -2004,7 +2004,7 @@ describe('ContainerAgentService', () => {
 
       // Sandbox starts in 'running' state — should work directly
       const result = await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-ready',
         prompt: 'Do something',
@@ -2039,7 +2039,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Env test' });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-env',
         prompt: 'Build a feature',
@@ -2063,7 +2063,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Env exec test' });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-env-exec',
         prompt: 'Execute the plan',
@@ -2084,7 +2084,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Token test' });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-token',
         prompt: 'Do something',
@@ -2104,7 +2104,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Stop file test' });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-stop-env',
         prompt: 'Do something',
@@ -2130,7 +2130,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Model test' });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-model',
         prompt: 'Do something',
@@ -2153,7 +2153,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Project model test' });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-proj-model',
         prompt: 'Do something',
@@ -2173,7 +2173,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Default model test' });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-default-model',
         prompt: 'Do something',
@@ -2212,7 +2212,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'K8s test' });
 
       const result = await svc.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-k8s',
         prompt: 'Do something',
@@ -2236,7 +2236,7 @@ describe('ContainerAgentService', () => {
       });
 
       await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-plan-fail',
         prompt: 'Plan something',
@@ -2301,7 +2301,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'TOCTOU test' });
 
       const result = await service.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-toctou',
         prompt: 'Do something',
@@ -2332,7 +2332,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Stop cleanup test' });
 
       await svc.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-stop-wt',
         prompt: 'Do something',
@@ -2379,7 +2379,7 @@ describe('ContainerAgentService', () => {
       const task = await createTestTask(project.id, { title: 'Kill error test' });
 
       await svc.startAgent({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         sessionId: 'session-kill-error',
         prompt: 'Do something',

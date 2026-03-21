@@ -1,7 +1,7 @@
 import { createId } from '@paralleldrive/cuid2';
 import { sql } from 'drizzle-orm';
 import { sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import { teams } from './teams';
+import { projectFolders } from './project-folders';
 
 export const tags = sqliteTable(
   'tags',
@@ -9,9 +9,9 @@ export const tags = sqliteTable(
     id: text('id')
       .primaryKey()
       .$defaultFn(() => createId()),
-    teamId: text('team_id')
+    projectFolderId: text('project_folder_id')
       .notNull()
-      .references(() => teams.id, { onDelete: 'cascade' }),
+      .references(() => projectFolders.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
     color: text('color').notNull().default('#6B7280'),
     createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
@@ -20,7 +20,7 @@ export const tags = sqliteTable(
       .notNull()
       .$onUpdate(() => new Date().toISOString()),
   },
-  (table) => [uniqueIndex('tags_team_name_unique').on(table.teamId, table.name)]
+  (table) => [uniqueIndex('tags_folder_name_unique').on(table.projectFolderId, table.name)]
 );
 
 export type Tag = typeof tags.$inferSelect;

@@ -67,7 +67,7 @@ describe('AgentService', () => {
       });
 
       const result = await agentService.create({
-        projectId: project.id,
+        codespaceId: project.id,
         name: 'Test Agent',
         type: 'task',
       });
@@ -93,7 +93,7 @@ describe('AgentService', () => {
       });
 
       const result = await agentService.create({
-        projectId: project.id,
+        codespaceId: project.id,
         name: 'Custom Agent',
         type: 'task',
         config: {
@@ -113,7 +113,7 @@ describe('AgentService', () => {
 
     it('returns error when creating agent for non-existent project', async () => {
       const result = await agentService.create({
-        projectId: 'non-existent-id',
+        codespaceId: 'non-existent-id',
         name: 'Test Agent',
         type: 'task',
       });

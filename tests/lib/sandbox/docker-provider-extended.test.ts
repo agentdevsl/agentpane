@@ -59,8 +59,8 @@ vi.mock('dockerode', () => {
 // ============================================================================
 
 const createSandboxConfig = (overrides: Partial<SandboxConfig> = {}): SandboxConfig => ({
-  projectId: 'project-123',
-  projectPath: '/path/to/project',
+  codespaceId: 'project-123',
+  codespacePath: '/path/to/project',
   image: 'docker/sandbox-templates:claude-code',
   memoryMb: 4096,
   cpuCores: 2,
@@ -462,7 +462,7 @@ describe('DockerProvider — Extended Coverage', () => {
 
       const infos = await provider.list();
       expect(infos).toHaveLength(1);
-      expect(infos[0].projectId).toBe('project-123');
+      expect(infos[0].codespaceId).toBe('project-123');
     });
 
     it('ignores non-404 errors during validation', async () => {
@@ -489,14 +489,14 @@ describe('DockerProvider — Extended Coverage', () => {
       mockDockerCreateContainer.mockResolvedValue(mockContainer);
 
       const provider = new DockerProvider();
-      await provider.create(createSandboxConfig({ projectId: 'default' }));
+      await provider.create(createSandboxConfig({ codespaceId: 'default' }));
 
       // Request project that doesn't have its own sandbox
       const sandbox = await provider.get('some-unknown-project');
 
       // Should fall back to 'default' sandbox
       expect(sandbox).not.toBeNull();
-      expect(sandbox?.projectId).toBe('default');
+      expect(sandbox?.codespaceId).toBe('default');
     });
 
     it('returns null when no project sandbox and no default sandbox', async () => {
@@ -612,7 +612,7 @@ describe('DockerProvider — Extended Coverage', () => {
       mockDockerCreateContainer.mockResolvedValue(mockContainer);
 
       const provider = new DockerProvider();
-      await provider.create(createSandboxConfig({ projectId: 'my-project' }));
+      await provider.create(createSandboxConfig({ codespaceId: 'my-project' }));
 
       const call = mockDockerCreateContainer.mock.calls[0][0];
       expect(call.name).toMatch(/^agentpane-my-project-[a-z0-9]+$/);

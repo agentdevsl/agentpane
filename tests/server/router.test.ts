@@ -17,7 +17,7 @@ import { createRouter, type RouterDependencies } from '@/server/router';
 function stubDb(): RouterDependencies['db'] {
   return {
     query: {
-      projects: { findFirst: vi.fn().mockResolvedValue({ id: 'p1' }) },
+      codespaces: { findFirst: vi.fn().mockResolvedValue({ id: 'p1' }) },
       userSessions: { findFirst: vi.fn().mockResolvedValue(null) },
       apiTokens: { findFirst: vi.fn().mockResolvedValue(null) },
       users: { findFirst: vi.fn().mockResolvedValue(null) },
@@ -113,7 +113,9 @@ describe('createRouter', () => {
 
     it('GET /api/readyz returns 503 when DB query throws', async () => {
       const brokenDb = stubDb();
-      (brokenDb.query as any).projects.findFirst = vi.fn().mockRejectedValue(new Error('DB down'));
+      (brokenDb.query as any).codespaces.findFirst = vi
+        .fn()
+        .mockRejectedValue(new Error('DB down'));
       const brokenApp = createRouter(createMinimalDeps({ db: brokenDb }));
 
       const res = await appFetch(brokenApp, '/api/readyz');
@@ -129,7 +131,7 @@ describe('createRouter', () => {
 
   describe('CORS', () => {
     it('responds to OPTIONS preflight with CORS headers', async () => {
-      const res = await appFetch(app, '/api/projects', {
+      const res = await appFetch(app, '/api/codespaces', {
         method: 'OPTIONS',
         headers: {
           Origin: 'http://localhost:3000',
@@ -142,7 +144,7 @@ describe('createRouter', () => {
     });
 
     it('includes allowed methods in CORS response', async () => {
-      const res = await appFetch(app, '/api/projects', {
+      const res = await appFetch(app, '/api/codespaces', {
         method: 'OPTIONS',
         headers: {
           Origin: 'http://localhost:3000',
@@ -241,7 +243,7 @@ describe('createRouter', () => {
     });
 
     it('protected routes without auth return 401', async () => {
-      const res = await appFetch(app, '/api/projects');
+      const res = await appFetch(app, '/api/codespaces');
       expect(res.status).toBe(401);
       const body = await res.json();
       expect(body.ok).toBe(false);
@@ -277,7 +279,7 @@ describe('createRouter', () => {
     // A 401 means the route exists but auth rejected it.
 
     const protectedRoutes = [
-      '/api/projects',
+      '/api/codespaces',
       '/api/tasks',
       '/api/agents',
       '/api/sessions',

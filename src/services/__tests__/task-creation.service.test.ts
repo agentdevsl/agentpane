@@ -15,7 +15,7 @@ import { unstable_v2_createSession } from '@anthropic-ai/claude-agent-sdk';
 
 const createDbMock = () => ({
   query: {
-    projects: { findFirst: vi.fn() },
+    codespaces: { findFirst: vi.fn() },
     tasks: { findFirst: vi.fn(), findMany: vi.fn() },
   },
   insert: vi.fn(() => ({ values: vi.fn(() => ({ returning: vi.fn() })) })),
@@ -60,7 +60,7 @@ describe('TaskCreationService', () => {
       const streams = createStreamsMock();
       const v2Session = createV2SessionMock();
 
-      db.query.projects.findFirst.mockResolvedValue({ id: 'p1', name: 'Test Project' });
+      db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1', name: 'Test Project' });
       vi.mocked(unstable_v2_createSession).mockReturnValue(v2Session as never);
 
       const service = new TaskCreationService(db as never, streams as never);
@@ -69,7 +69,7 @@ describe('TaskCreationService', () => {
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value.id).toBeDefined();
-        expect(result.value.projectId).toBe('p1');
+        expect(result.value.codespaceId).toBe('p1');
         expect(result.value.status).toBe('active');
         expect(result.value.messages).toHaveLength(0);
         expect(result.value.suggestion).toBeNull();
@@ -88,7 +88,7 @@ describe('TaskCreationService', () => {
       expect(streams.createStream).toHaveBeenCalled();
       expect(streams.publishTaskCreationStarted).toHaveBeenCalledWith(
         expect.any(String),
-        expect.objectContaining({ projectId: 'p1' })
+        expect.objectContaining({ codespaceId: 'p1' })
       );
     });
 
@@ -96,7 +96,7 @@ describe('TaskCreationService', () => {
       const db = createDbMock();
       const streams = createStreamsMock();
 
-      db.query.projects.findFirst.mockResolvedValue(null);
+      db.query.codespaces.findFirst.mockResolvedValue(null);
 
       const service = new TaskCreationService(db as never, streams as never);
       const result = await service.startConversation('missing');
@@ -112,7 +112,7 @@ describe('TaskCreationService', () => {
       const streams = createStreamsMock();
       const v2Session = createV2SessionMock();
 
-      db.query.projects.findFirst.mockResolvedValue({ id: 'p1', name: 'Test Project' });
+      db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1', name: 'Test Project' });
       vi.mocked(unstable_v2_createSession).mockReturnValue(v2Session as never);
 
       const service = new TaskCreationService(db as never, streams as never);
@@ -134,7 +134,7 @@ describe('TaskCreationService', () => {
       const streams = createStreamsMock();
       const v2Session = createV2SessionMock();
 
-      db.query.projects.findFirst.mockResolvedValue({ id: 'p1', name: 'Test Project' });
+      db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1', name: 'Test Project' });
       vi.mocked(unstable_v2_createSession).mockReturnValue(v2Session as never);
 
       const service = new TaskCreationService(db as never, streams as never);
@@ -171,7 +171,7 @@ describe('TaskCreationService', () => {
       const streams = createStreamsMock();
       const v2Session = createV2SessionMock();
 
-      db.query.projects.findFirst.mockResolvedValue({ id: 'p1' });
+      db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1' });
       vi.mocked(unstable_v2_createSession).mockReturnValue(v2Session as never);
 
       const service = new TaskCreationService(db as never, streams as never);
@@ -196,7 +196,7 @@ describe('TaskCreationService', () => {
       const streams = createStreamsMock();
       const v2Session = createV2SessionMock();
 
-      db.query.projects.findFirst.mockResolvedValue({ id: 'p1' });
+      db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1' });
       vi.mocked(unstable_v2_createSession).mockReturnValue(v2Session as never);
 
       // Mock streaming response
@@ -255,7 +255,7 @@ describe('TaskCreationService', () => {
       const streams = createStreamsMock();
       const v2Session = createV2SessionMock();
 
-      db.query.projects.findFirst.mockResolvedValue({ id: 'p1' });
+      db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1' });
       vi.mocked(unstable_v2_createSession).mockReturnValue(v2Session as never);
 
       const suggestionJson = JSON.stringify({
@@ -310,7 +310,7 @@ describe('TaskCreationService', () => {
       const streams = createStreamsMock();
       const v2Session = createV2SessionMock();
 
-      db.query.projects.findFirst.mockResolvedValue({ id: 'p1' });
+      db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1' });
       vi.mocked(unstable_v2_createSession).mockReturnValue(v2Session as never);
 
       v2Session.send.mockRejectedValue(new Error('API rate limit exceeded'));
@@ -355,7 +355,7 @@ describe('TaskCreationService', () => {
       const streams = createStreamsMock();
       const v2Session = createV2SessionMock();
 
-      db.query.projects.findFirst.mockResolvedValue({ id: 'p1' });
+      db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1' });
       vi.mocked(unstable_v2_createSession).mockReturnValue(v2Session as never);
 
       const service = new TaskCreationService(db as never, streams as never);
@@ -377,7 +377,7 @@ describe('TaskCreationService', () => {
       const streams = createStreamsMock();
       const v2Session = createV2SessionMock();
 
-      db.query.projects.findFirst.mockResolvedValue({ id: 'p1' });
+      db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1' });
       vi.mocked(unstable_v2_createSession).mockReturnValue(v2Session as never);
 
       const suggestion: TaskSuggestion = {
@@ -438,7 +438,7 @@ describe('TaskCreationService', () => {
       const streams = createStreamsMock();
       const v2Session = createV2SessionMock();
 
-      db.query.projects.findFirst.mockResolvedValue({ id: 'p1' });
+      db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1' });
       vi.mocked(unstable_v2_createSession).mockReturnValue(v2Session as never);
 
       const suggestion: TaskSuggestion = {
@@ -513,7 +513,7 @@ describe('TaskCreationService', () => {
       const streams = createStreamsMock();
       const v2Session = createV2SessionMock();
 
-      db.query.projects.findFirst.mockResolvedValue({ id: 'p1' });
+      db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1' });
       vi.mocked(unstable_v2_createSession).mockReturnValue(v2Session as never);
 
       const service = new TaskCreationService(db as never, streams as never);
@@ -555,7 +555,7 @@ describe('TaskCreationService', () => {
       const streams = createStreamsMock();
       const v2Session = createV2SessionMock();
 
-      db.query.projects.findFirst.mockResolvedValue({ id: 'p1' });
+      db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1' });
       vi.mocked(unstable_v2_createSession).mockReturnValue(v2Session as never);
 
       const service = new TaskCreationService(db as never, streams as never);
@@ -590,7 +590,7 @@ describe('TaskCreationService', () => {
       const streams = createStreamsMock();
       const v2Session = createV2SessionMock();
 
-      db.query.projects.findFirst.mockResolvedValue({ id: 'p1' });
+      db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1' });
       vi.mocked(unstable_v2_createSession).mockReturnValue(v2Session as never);
 
       const service = new TaskCreationService(db as never, streams as never);
@@ -615,7 +615,7 @@ describe('TaskCreationService', () => {
       const streams = createStreamsMock();
       const v2Session = createV2SessionMock();
 
-      db.query.projects.findFirst.mockResolvedValue({ id: 'p1' });
+      db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1' });
       vi.mocked(unstable_v2_createSession).mockReturnValue(v2Session as never);
 
       // Mock streaming response for initial message
@@ -691,7 +691,7 @@ describe('TaskCreationService', () => {
       const streams = createStreamsMock();
       const v2Session = createV2SessionMock();
 
-      db.query.projects.findFirst.mockResolvedValue({ id: 'p1' });
+      db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1' });
       vi.mocked(unstable_v2_createSession).mockReturnValue(v2Session as never);
 
       // Mock streaming response
@@ -745,7 +745,7 @@ describe('TaskCreationService', () => {
       const streams = createStreamsMock();
       const v2Session = createV2SessionMock();
 
-      db.query.projects.findFirst.mockResolvedValue({ id: 'p1' });
+      db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1' });
       vi.mocked(unstable_v2_createSession).mockReturnValue(v2Session as never);
 
       const questionsJson = JSON.stringify({
@@ -795,7 +795,7 @@ describe('TaskCreationService', () => {
       const streams = createStreamsMock();
       const v2Session = createV2SessionMock();
 
-      db.query.projects.findFirst.mockResolvedValue({ id: 'p1' });
+      db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1' });
       vi.mocked(unstable_v2_createSession).mockReturnValue(v2Session as never);
 
       async function* mockStream() {
@@ -830,7 +830,7 @@ describe('TaskCreationService', () => {
       const streams = createStreamsMock();
       const v2Session = createV2SessionMock();
 
-      db.query.projects.findFirst.mockResolvedValue({ id: 'p1' });
+      db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1' });
       vi.mocked(unstable_v2_createSession).mockReturnValue(v2Session as never);
 
       const questionsJson = JSON.stringify({
@@ -868,7 +868,7 @@ describe('TaskCreationService', () => {
       const streams = createStreamsMock();
       const v2Session = createV2SessionMock();
 
-      db.query.projects.findFirst.mockResolvedValue({ id: 'p1' });
+      db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1' });
       vi.mocked(unstable_v2_createSession).mockReturnValue(v2Session as never);
 
       const questionsJson = JSON.stringify({
@@ -913,7 +913,7 @@ describe('TaskCreationService', () => {
       const streams = createStreamsMock();
       const v2Session = createV2SessionMock();
 
-      db.query.projects.findFirst.mockResolvedValue({ id: 'p1' });
+      db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1' });
       vi.mocked(unstable_v2_createSession).mockReturnValue(v2Session as never);
 
       const questionsJson = JSON.stringify({
@@ -959,7 +959,7 @@ describe('TaskCreationService', () => {
       const streams = createStreamsMock();
       const v2Session = createV2SessionMock();
 
-      db.query.projects.findFirst.mockResolvedValue({ id: 'p1' });
+      db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1' });
       vi.mocked(unstable_v2_createSession).mockReturnValue(v2Session as never);
 
       async function* mockStream() {
@@ -992,7 +992,7 @@ describe('TaskCreationService', () => {
       const streams = createStreamsMock();
       const v2Session = createV2SessionMock();
 
-      db.query.projects.findFirst.mockResolvedValue({ id: 'p1' });
+      db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1' });
       vi.mocked(unstable_v2_createSession).mockReturnValue(v2Session as never);
 
       async function* mockStream() {
@@ -1030,7 +1030,7 @@ describe('TaskCreationService', () => {
       const streams = createStreamsMock();
       const v2Session = createV2SessionMock();
 
-      db.query.projects.findFirst.mockResolvedValue({ id: 'p1' });
+      db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1' });
       vi.mocked(unstable_v2_createSession).mockReturnValue(v2Session as never);
 
       async function* mockStream() {
@@ -1068,7 +1068,7 @@ describe('TaskCreationService', () => {
       const streams = createStreamsMock();
       const v2Session = createV2SessionMock();
 
-      db.query.projects.findFirst.mockResolvedValue({ id: 'p1' });
+      db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1' });
       vi.mocked(unstable_v2_createSession).mockReturnValue(v2Session as never);
 
       async function* mockStream() {
@@ -1111,7 +1111,7 @@ describe('TaskCreationService', () => {
       const sessionService = createSessionServiceMock();
       const v2Session = createV2SessionMock();
 
-      db.query.projects.findFirst.mockResolvedValue({ id: 'p1' });
+      db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1' });
       vi.mocked(unstable_v2_createSession).mockReturnValue(v2Session as never);
 
       async function* mockStream() {
@@ -1167,7 +1167,7 @@ describe('TaskCreationService', () => {
       const sessionService = createSessionServiceMock();
       const v2Session = createV2SessionMock();
 
-      db.query.projects.findFirst.mockResolvedValue({ id: 'p1' });
+      db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1' });
       vi.mocked(unstable_v2_createSession).mockReturnValue(v2Session as never);
 
       async function* mockStream() {
@@ -1235,7 +1235,7 @@ describe('TaskCreationService', () => {
       const sessionService = createSessionServiceMock();
       const v2Session = createV2SessionMock();
 
-      db.query.projects.findFirst.mockResolvedValue({ id: 'p1' });
+      db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1' });
       vi.mocked(unstable_v2_createSession).mockReturnValue(v2Session as never);
 
       async function* mockStream() {

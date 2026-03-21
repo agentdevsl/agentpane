@@ -196,7 +196,7 @@ describe('enrichAuthContext', () => {
     const cachedToken = {
       id: 'token-abc',
       role: 'admin',
-      scopeProjectId: 'proj-1',
+      scopeCodespaceId: 'proj-1',
       scopeTags: ['tag-a', 'tag-b'],
       expiresAt: null,
     };
@@ -226,7 +226,7 @@ describe('enrichAuthContext', () => {
     expect(capturedAuth?.tokenScope).toEqual({
       tokenId: 'token-abc',
       role: 'admin',
-      projectId: 'proj-1',
+      codespaceId: 'proj-1',
       tags: ['tag-a', 'tag-b'],
     });
   });
@@ -236,7 +236,7 @@ describe('enrichAuthContext', () => {
     const cachedToken = {
       id: 'token-abc',
       role: 'viewer', // token caps at viewer
-      scopeProjectId: null,
+      scopeCodespaceId: null,
       scopeTags: null,
       expiresAt: null,
     };
@@ -273,7 +273,7 @@ describe('enrichAuthContext', () => {
     const expiredToken = {
       id: 'token-expired',
       role: 'admin',
-      scopeProjectId: null,
+      scopeCodespaceId: null,
       scopeTags: null,
       expiresAt: new Date(Date.now() - 60_000).toISOString(), // expired 1 minute ago
     };
@@ -307,7 +307,7 @@ describe('enrichAuthContext', () => {
     const validToken = {
       id: 'token-valid',
       role: 'admin',
-      scopeProjectId: null,
+      scopeCodespaceId: null,
       scopeTags: null,
       expiresAt: new Date(Date.now() + 3_600_000).toISOString(), // expires in 1 hour
     };
@@ -364,7 +364,7 @@ describe('enrichAuthContext', () => {
     const cachedToken = {
       id: 'token-track',
       role: 'viewer',
-      scopeProjectId: null,
+      scopeCodespaceId: null,
       scopeTags: null,
       expiresAt: null,
     };
@@ -508,11 +508,11 @@ describe('requireRole', () => {
     // Mount middleware at route level so c.req.param('id') is resolved
     const mw = requireRole('viewer', mockRbacService as never) as never;
     const app = new Hono();
-    app.get('/api/projects/:id', createAuthMiddleware(auth) as never, mw, (c) =>
+    app.get('/api/codespaces/:id', createAuthMiddleware(auth) as never, mw, (c) =>
       c.json({ ok: true })
     );
 
-    const res = await app.request('/api/projects/proj-1');
+    const res = await app.request('/api/codespaces/proj-1');
     expect(res.status).toBe(200);
     expect(mockRbacService.resolveUserRole).toHaveBeenCalledWith('user-123', 'proj-1');
   });
@@ -529,11 +529,11 @@ describe('requireRole', () => {
 
     const mw = requireRole('viewer', mockRbacService as never) as never;
     const app = new Hono();
-    app.get('/api/projects/:id', createAuthMiddleware(auth) as never, mw, (c) =>
+    app.get('/api/codespaces/:id', createAuthMiddleware(auth) as never, mw, (c) =>
       c.json({ ok: true })
     );
 
-    const res = await app.request('/api/projects/proj-1');
+    const res = await app.request('/api/codespaces/proj-1');
     expect(res.status).toBe(403);
   });
 });
@@ -557,18 +557,18 @@ describe('requireTagAccess', () => {
       tokenScope: {
         tokenId: 'tk-1',
         role: 'admin',
-        projectId: null,
+        codespaceId: null,
         tags: ['restricted-tag'],
       },
     };
 
     const mw = requireTagAccess(mockDb as never) as never;
     const app = new Hono();
-    app.get('/api/projects/:id', createAuthMiddleware(auth) as never, mw, (c) =>
+    app.get('/api/codespaces/:id', createAuthMiddleware(auth) as never, mw, (c) =>
       c.json({ ok: true })
     );
 
-    const res = await app.request('/api/projects/proj-1');
+    const res = await app.request('/api/codespaces/proj-1');
     expect(res.status).toBe(200);
     expect(mockDb.select).not.toHaveBeenCalled();
   });
@@ -581,11 +581,11 @@ describe('requireTagAccess', () => {
 
     const mw = requireTagAccess(mockDb as never) as never;
     const app = new Hono();
-    app.get('/api/projects/:id', createAuthMiddleware(auth) as never, mw, (c) =>
+    app.get('/api/codespaces/:id', createAuthMiddleware(auth) as never, mw, (c) =>
       c.json({ ok: true })
     );
 
-    const res = await app.request('/api/projects/proj-1');
+    const res = await app.request('/api/codespaces/proj-1');
     expect(res.status).toBe(200);
     expect(mockDb.select).not.toHaveBeenCalled();
   });
@@ -597,18 +597,18 @@ describe('requireTagAccess', () => {
       tokenScope: {
         tokenId: 'tk-1',
         role: 'admin',
-        projectId: null,
+        codespaceId: null,
         tags: null, // no tag restriction
       },
     };
 
     const mw = requireTagAccess(mockDb as never) as never;
     const app = new Hono();
-    app.get('/api/projects/:id', createAuthMiddleware(auth) as never, mw, (c) =>
+    app.get('/api/codespaces/:id', createAuthMiddleware(auth) as never, mw, (c) =>
       c.json({ ok: true })
     );
 
-    const res = await app.request('/api/projects/proj-1');
+    const res = await app.request('/api/codespaces/proj-1');
     expect(res.status).toBe(200);
     expect(mockDb.select).not.toHaveBeenCalled();
   });
@@ -620,18 +620,18 @@ describe('requireTagAccess', () => {
       tokenScope: {
         tokenId: 'tk-1',
         role: 'admin',
-        projectId: null,
+        codespaceId: null,
         tags: [], // empty = no restriction
       },
     };
 
     const mw = requireTagAccess(mockDb as never) as never;
     const app = new Hono();
-    app.get('/api/projects/:id', createAuthMiddleware(auth) as never, mw, (c) =>
+    app.get('/api/codespaces/:id', createAuthMiddleware(auth) as never, mw, (c) =>
       c.json({ ok: true })
     );
 
-    const res = await app.request('/api/projects/proj-1');
+    const res = await app.request('/api/codespaces/proj-1');
     expect(res.status).toBe(200);
     expect(mockDb.select).not.toHaveBeenCalled();
   });
@@ -643,7 +643,7 @@ describe('requireTagAccess', () => {
       tokenScope: {
         tokenId: 'tk-1',
         role: 'admin',
-        projectId: null,
+        codespaceId: null,
         tags: ['production'],
       },
     };
@@ -654,11 +654,11 @@ describe('requireTagAccess', () => {
 
     const mw = requireTagAccess(mockDb as never) as never;
     const app = new Hono();
-    app.get('/api/projects/:id', createAuthMiddleware(auth) as never, mw, (c) =>
+    app.get('/api/codespaces/:id', createAuthMiddleware(auth) as never, mw, (c) =>
       c.json({ ok: true })
     );
 
-    const res = await app.request('/api/projects/proj-1');
+    const res = await app.request('/api/codespaces/proj-1');
     expect(res.status).toBe(200);
   });
 
@@ -669,7 +669,7 @@ describe('requireTagAccess', () => {
       tokenScope: {
         tokenId: 'tk-1',
         role: 'admin',
-        projectId: null,
+        codespaceId: null,
         tags: ['production'],
       },
     };
@@ -680,11 +680,11 @@ describe('requireTagAccess', () => {
 
     const mw = requireTagAccess(mockDb as never) as never;
     const app = new Hono();
-    app.get('/api/projects/:id', createAuthMiddleware(auth) as never, mw, (c) =>
+    app.get('/api/codespaces/:id', createAuthMiddleware(auth) as never, mw, (c) =>
       c.json({ ok: true })
     );
 
-    const res = await app.request('/api/projects/proj-1');
+    const res = await app.request('/api/codespaces/proj-1');
     expect(res.status).toBe(403);
     const body = await res.json();
     expect(body.ok).toBe(false);
@@ -698,7 +698,7 @@ describe('requireTagAccess', () => {
       tokenScope: {
         tokenId: 'tk-1',
         role: 'admin',
-        projectId: null,
+        codespaceId: null,
         tags: ['production'],
       },
     };
@@ -709,11 +709,11 @@ describe('requireTagAccess', () => {
 
     const mw = requireTagAccess(mockDb as never) as never;
     const app = new Hono();
-    app.get('/api/projects/:id', createAuthMiddleware(auth) as never, mw, (c) =>
+    app.get('/api/codespaces/:id', createAuthMiddleware(auth) as never, mw, (c) =>
       c.json({ ok: true })
     );
 
-    const res = await app.request('/api/projects/proj-1');
+    const res = await app.request('/api/codespaces/proj-1');
     expect(res.status).toBe(403);
     const body = await res.json();
     expect(body.error.message).toContain('tag-restricted token');
@@ -726,7 +726,7 @@ describe('requireTagAccess', () => {
       tokenScope: {
         tokenId: 'tk-1',
         role: 'admin',
-        projectId: null,
+        codespaceId: null,
         tags: ['production'],
       },
     };
@@ -750,7 +750,7 @@ describe('requireTagAccess', () => {
       tokenScope: {
         tokenId: 'tk-1',
         role: 'admin',
-        projectId: null,
+        codespaceId: null,
         tags: ['production'],
       },
     };
@@ -763,8 +763,8 @@ describe('requireTagAccess', () => {
         // taskTags query returns empty (no task-level tags)
         chain.where.mockResolvedValue([]);
       } else if (callCount === 2) {
-        // tasks query to get projectId
-        chain.where.mockResolvedValue([{ projectId: 'proj-fallback' }]);
+        // tasks query to get codespaceId
+        chain.where.mockResolvedValue([{ codespaceId: 'proj-fallback' }]);
       } else {
         // projectTags for the parent project → matching tag
         chain.where.mockResolvedValue([{ tagId: 'production' }]);
@@ -778,7 +778,7 @@ describe('requireTagAccess', () => {
 
     const res = await app.request('/api/tasks/task-1');
     expect(res.status).toBe(200);
-    // select was called 3 times: taskTags, tasks (for projectId), projectTags
+    // select was called 3 times: taskTags, tasks (for codespaceId), projectTags
     expect(callCount).toBe(3);
   });
 
@@ -789,7 +789,7 @@ describe('requireTagAccess', () => {
       tokenScope: {
         tokenId: 'tk-1',
         role: 'admin',
-        projectId: null,
+        codespaceId: null,
         tags: ['team-alpha'],
       },
     };
@@ -799,8 +799,8 @@ describe('requireTagAccess', () => {
       callCount++;
       const chain = buildSelectChain(undefined);
       if (callCount === 1) {
-        // sessions query returns session with projectId (no taskId)
-        chain.where.mockResolvedValue([{ taskId: null, projectId: 'proj-1' }]);
+        // sessions query returns session with codespaceId (no taskId)
+        chain.where.mockResolvedValue([{ taskId: null, codespaceId: 'proj-1' }]);
       } else {
         // projectTags for the project → matching tag
         chain.where.mockResolvedValue([{ tagId: 'team-alpha' }]);
@@ -825,7 +825,7 @@ describe('requireTagAccess', () => {
       tokenScope: {
         tokenId: 'tk-1',
         role: 'admin',
-        projectId: null,
+        codespaceId: null,
         tags: ['infra'],
       },
     };
@@ -835,8 +835,8 @@ describe('requireTagAccess', () => {
       callCount++;
       const chain = buildSelectChain(undefined);
       if (callCount === 1) {
-        // agents query returns agent with projectId
-        chain.where.mockResolvedValue([{ projectId: 'proj-infra' }]);
+        // agents query returns agent with codespaceId
+        chain.where.mockResolvedValue([{ codespaceId: 'proj-infra' }]);
       } else {
         // projectTags for the project → matching tag
         chain.where.mockResolvedValue([{ tagId: 'infra' }]);
@@ -857,9 +857,9 @@ describe('requireTagAccess', () => {
   it('passes through when no auth context is present (unauthenticated path)', async () => {
     const mw = requireTagAccess(mockDb as never) as never;
     const app = new Hono();
-    app.get('/api/projects/:id', mw, (c) => c.json({ ok: true }));
+    app.get('/api/codespaces/:id', mw, (c) => c.json({ ok: true }));
 
-    const res = await app.request('/api/projects/proj-1');
+    const res = await app.request('/api/codespaces/proj-1');
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
@@ -872,7 +872,7 @@ describe('requireTagAccess', () => {
       tokenScope: {
         tokenId: 'tk-1',
         role: 'admin',
-        projectId: null,
+        codespaceId: null,
         tags: ['restricted'],
       },
     };

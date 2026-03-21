@@ -11,13 +11,7 @@
   },
   "overrides": [
     {
-      "includes": [
-        "**/routeTree.gen.ts",
-        ".claude/settings.local.json",
-        "specs/archive/**",
-        "charts/**",
-        "src/types/bun.d.ts"
-      ],
+      "includes": [".claude/settings.local.json", "specs/archive/**", "charts/**"],
       "linter": { "enabled": false },
       "formatter": { "enabled": false },
       "assist": { "enabled": false }
@@ -106,6 +100,12 @@
           }
         }
       }
+    },
+    {
+      "includes": ["**/routeTree.gen.ts", "src/types/bun.d.ts"],
+      "linter": { "enabled": false },
+      "formatter": { "enabled": false },
+      "assist": { "enabled": false }
     }
   ],
   "formatter": {

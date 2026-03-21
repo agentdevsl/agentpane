@@ -207,8 +207,7 @@ async function elkLayout(
 
     // Post-process: normalize positions to start at x=0
     normalizePositions(positions);
-  } catch (error) {
-    console.error('[layoutWorkflow] ELK layout failed:', error);
+  } catch (_error) {
     // Fall back to simple positioning
     nodes.forEach((node, index) => {
       positions.set(node.id, {
@@ -412,7 +411,6 @@ export async function layoutWorkflow(
   return nodes.map((node) => {
     const newPosition = positions.get(node.id);
     if (!newPosition) {
-      console.warn(`Node "${node.id}" was not found in layout output. Using original position.`);
     }
     return {
       ...node,
@@ -444,20 +442,9 @@ function mapToCompactNodeType(type: WorkflowNode['type']): string {
     case 'conditional':
     case 'loop':
     case 'parallel':
-      // Control flow nodes use their standard (non-compact) type
-      // because they have special rendering requirements
-      console.warn(
-        `[layoutWorkflow] No compact variant for "${type}". Falling back to standard type.`
-      );
       return type;
-    default: {
-      // TypeScript exhaustiveness check - if this is reached, we have an unhandled type
-      const exhaustiveCheck: never = type;
-      console.warn(
-        `[layoutWorkflow] Unhandled node type "${exhaustiveCheck}". Node may not render correctly.`
-      );
+    default:
       return type as string;
-    }
   }
 }
 

@@ -28,7 +28,7 @@ interface SessionDetailResponse {
 /**
  * Hook for fetching sessions list
  */
-export function useSessions(projectId: string, filters?: SessionFilters, sort?: SessionSort) {
+export function useSessions(codespaceId: string, filters?: SessionFilters, sort?: SessionSort) {
   const [data, setData] = useState<SessionListResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<{ message: string } | null>(null);
@@ -39,7 +39,7 @@ export function useSessions(projectId: string, filters?: SessionFilters, sort?: 
 
     try {
       const result = await apiClient.sessions.list({
-        projectId,
+        codespaceId,
         limit: 50,
       });
 
@@ -130,7 +130,7 @@ export function useSessions(projectId: string, filters?: SessionFilters, sort?: 
     } finally {
       setIsLoading(false);
     }
-  }, [projectId, filters, sort]);
+  }, [codespaceId, filters, sort]);
 
   useWatchEffect(() => {
     void fetchSessions();
@@ -194,8 +194,8 @@ export function useSessionDetail(sessionId: string | null): UseSessionDetailRetu
 
       // Get events from the events endpoint
       let events: SessionDetail['events'] = [];
-      if (eventsResult.ok && eventsResult.data?.data) {
-        events = eventsResult.data.data.map((e) => ({
+      if (eventsResult.ok && eventsResult.data) {
+        events = eventsResult.data.map((e) => ({
           id: e.id,
           type: e.type as SessionDetail['events'][0]['type'],
           timestamp: e.timestamp,

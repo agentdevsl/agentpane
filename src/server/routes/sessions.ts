@@ -136,7 +136,7 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
 
   // GET /api/sessions
   app.get('/', async (c) => {
-    const projectId = c.req.query('projectId');
+    const codespaceId = c.req.query('codespaceId');
     const limit = parseInt(c.req.query('limit') ?? '50', 10);
     const offset = parseInt(c.req.query('offset') ?? '0', 10);
 
@@ -154,8 +154,8 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
     }
 
     try {
-      if (projectId) {
-        // Use filtered query when projectId is provided
+      if (codespaceId) {
+        // Use filtered query when codespaceId is provided
         const rawStatuses = c.req.query('status')?.split(',');
         const status = rawStatuses?.filter((s): s is SessionStatus =>
           (SESSION_STATUS as readonly string[]).includes(s)
@@ -165,7 +165,7 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
         const dateFrom = c.req.query('dateFrom');
         const dateTo = c.req.query('dateTo');
 
-        const result = await sessionService.listSessionsWithFilters(projectId, {
+        const result = await sessionService.listSessionsWithFilters(codespaceId, {
           status,
           agentId,
           search,
@@ -191,7 +191,7 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
         });
       }
 
-      // Fallback: no projectId filter (existing behavior)
+      // Fallback: no codespaceId filter (existing behavior)
       const result = await sessionService.list({ limit, offset });
       if (!result.ok) {
         return json({ ok: false, error: result.error }, result.error.status ?? 400);
@@ -221,9 +221,9 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
       const rawBody = await c.req.json();
       const parsed = parseBody(createSessionSchema, rawBody);
       if (!parsed.ok) return parsed.response;
-      const { projectId, taskId, agentId, title } = parsed.data;
+      const { codespaceId, taskId, agentId, title } = parsed.data;
 
-      const result = await sessionService.create({ projectId, taskId, agentId, title });
+      const result = await sessionService.create({ codespaceId, taskId, agentId, title });
       if (!result.ok) {
         return json({ ok: false, error: result.error }, result.error.status ?? 400);
       }

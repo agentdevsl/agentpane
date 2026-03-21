@@ -8,6 +8,7 @@ import type {
 } from '@/lib/streams/client';
 import { subscribeToSession } from '@/lib/streams/client';
 import type { TopologyNode } from '@/lib/topology/types';
+import { deriveContainerAgentNodeId } from '@/lib/topology/utils';
 import { useMountEffect } from './use-mount-effect';
 import { useWatchEffect } from './use-watch-effect';
 
@@ -166,6 +167,8 @@ export function useTopologyStream(
     let hasReceivedEvent = false;
     let disconnectCount = 0;
 
+    let rootNodeCreated = false;
+
     const callbacks: SessionCallbacks = {
       onTopologyAgentSpawned: (event) => {
         hasReceivedEvent = true;
@@ -178,6 +181,59 @@ export function useTopologyStream(
       onTopologyAgentCompleted: (event) => {
         hasReceivedEvent = true;
         handleCompleted(event);
+      },
+      // Handle container-agent sessions: create a root node when the agent starts
+      onContainerAgentStarted: (event) => {
+        if (rootNodeCreated) return;
+        rootNodeCreated = true;
+        hasReceivedEvent = true;
+        const data = event.data as { taskId?: string; sessionId?: string; model?: string };
+        const nodeId = deriveContainerAgentNodeId({ taskId: data.taskId, sessionId });
+        const node: TopologyNode = {
+          id: nodeId,
+          name: data.model ?? 'Agent',
+          role: 'coder',
+          status: 'running',
+          parentId: null,
+          childIds: [],
+          progress: 0,
+          tokens: 0,
+          cost: 0,
+          turns: 0,
+          messages: 0,
+          startedAt: Date.now(),
+          completedAt: null,
+          verified: false,
+          verificationScore: 0,
+          decisions: [],
+        };
+        dispatch({ type: 'ADD_NODE', node });
+      },
+      // Track progress from container-agent tool calls
+      onContainerAgentToolStart: () => {
+        hasReceivedEvent = true;
+      },
+      onContainerAgentComplete: (event) => {
+        hasReceivedEvent = true;
+        const data = event.data as { taskId?: string };
+        const agentId = deriveContainerAgentNodeId({ taskId: data.taskId, sessionId });
+        dispatch({
+          type: 'COMPLETE_NODE',
+          nodeId: agentId,
+          status: 'completed',
+          completedAt: Date.now(),
+        });
+      },
+      onContainerAgentError: (event) => {
+        hasReceivedEvent = true;
+        const data = event.data as { taskId?: string };
+        const agentId = deriveContainerAgentNodeId({ taskId: data.taskId, sessionId });
+        dispatch({
+          type: 'COMPLETE_NODE',
+          nodeId: agentId,
+          status: 'failed',
+          completedAt: Date.now(),
+        });
       },
       onError: (error) => {
         console.error('[useTopologyStream] Stream error:', error);

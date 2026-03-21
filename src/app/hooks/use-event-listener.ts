@@ -1,4 +1,3 @@
-// biome-ignore lint/style/noRestrictedImports: factory hook — only file allowed to import useEffect
 import { useEffect, useRef } from 'react';
 
 type ListenerTarget = Window | Document | Element | null;
@@ -16,7 +15,6 @@ export function useEventListener<K extends keyof WindowEventMap>(
   const savedHandler = useRef(handler);
   savedHandler.current = handler;
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: target, event, and options are the reactive deps
   useEffect(() => {
     if (!target) return;
 

@@ -8,7 +8,7 @@ const createDbMock = () => ({
       findFirst: vi.fn(),
       findMany: vi.fn(),
     },
-    projects: {
+    codespaces: {
       findMany: vi.fn(),
     },
   },
@@ -328,7 +328,7 @@ describe('SandboxConfigService', () => {
     it('deletes config when not in use', async () => {
       const db = createDbMock();
       db.query.sandboxConfigs.findFirst.mockResolvedValue(sampleConfig);
-      db.query.projects.findMany.mockResolvedValue([]);
+      db.query.codespaces.findMany.mockResolvedValue([]);
 
       const service = new SandboxConfigService(db as never);
       const result = await service.delete('cfg-1');
@@ -350,10 +350,10 @@ describe('SandboxConfigService', () => {
       }
     });
 
-    it('returns IN_USE when projects are using config', async () => {
+    it('returns IN_USE when codespaces are using config', async () => {
       const db = createDbMock();
       db.query.sandboxConfigs.findFirst.mockResolvedValue(sampleConfig);
-      db.query.projects.findMany.mockResolvedValue([
+      db.query.codespaces.findMany.mockResolvedValue([
         { id: 'proj-1', sandboxConfigId: 'cfg-1' },
         { id: 'proj-2', sandboxConfigId: 'cfg-1' },
       ]);

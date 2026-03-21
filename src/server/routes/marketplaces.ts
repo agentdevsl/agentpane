@@ -189,14 +189,11 @@ export function createMarketplacesRoutes({ marketplaceService }: MarketplacesDep
     }
 
     try {
-      console.log(`[Marketplaces] Syncing marketplace ${id}`);
       const result = await marketplaceService.sync(id);
       if (!result.ok) {
         logger.error(`Sync failed for `, { data: { detail: result.error } });
         return json({ ok: false, error: result.error }, result.error.status);
       }
-
-      console.log(`[Marketplaces] Synced ${result.value.pluginCount} plugins for ${id}`);
       return json({ ok: true, data: result.value });
     } catch (error) {
       logger.error('Sync error', { error: error });

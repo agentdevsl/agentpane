@@ -6,7 +6,7 @@ import {
   ProjectPicker,
   type ProjectPickerItem,
 } from '@/app/components/features/project-picker';
-import type { Project } from '@/db/schema';
+import type { Codespace as Project } from '@/db/schema';
 
 const createProject = (overrides: Partial<Project>): Project => ({
   id: overrides.id ?? 'project-1',
@@ -19,6 +19,8 @@ const createProject = (overrides: Partial<Project>): Project => ({
   githubRepo: overrides.githubRepo ?? null,
   githubInstallationId: overrides.githubInstallationId ?? null,
   configPath: overrides.configPath ?? '.claude',
+  projectFolderId: overrides.projectFolderId ?? 'folder-1',
+  sandboxConfigId: overrides.sandboxConfigId ?? null,
   createdAt: overrides.createdAt ?? new Date(),
   updatedAt: overrides.updatedAt ?? new Date(),
 });
@@ -46,8 +48,8 @@ describe('ProjectPicker', () => {
       />
     );
 
-    expect(screen.getByText('Open Project')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('Search projects...')).toBeInTheDocument();
+    expect(screen.getByText('Open Codespace')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Search codespaces...')).toBeInTheDocument();
   });
 
   it('does not render modal when closed', () => {
@@ -62,7 +64,7 @@ describe('ProjectPicker', () => {
       />
     );
 
-    expect(screen.queryByText('Open Project')).not.toBeInTheDocument();
+    expect(screen.queryByText('Open Codespace')).not.toBeInTheDocument();
   });
 
   it('shows recent projects section', () => {
@@ -82,7 +84,7 @@ describe('ProjectPicker', () => {
       />
     );
 
-    expect(screen.getByText('Recent Projects')).toBeInTheDocument();
+    expect(screen.getByText('Recent Codespaces')).toBeInTheDocument();
     expect(screen.getByText('Project Alpha')).toBeInTheDocument();
     expect(screen.getByText('Project Beta')).toBeInTheDocument();
   });
@@ -104,7 +106,7 @@ describe('ProjectPicker', () => {
       />
     );
 
-    expect(screen.getByText('All Projects')).toBeInTheDocument();
+    expect(screen.getByText('All Codespaces')).toBeInTheDocument();
     expect(screen.getByText('Project Gamma')).toBeInTheDocument();
     expect(screen.getByText('Project Delta')).toBeInTheDocument();
   });
@@ -249,8 +251,8 @@ describe('ProjectPicker', () => {
     const searchInput = screen.getByTestId('project-search');
     await user.type(searchInput, 'xyz123');
 
-    expect(screen.getByText('No projects found')).toBeInTheDocument();
-    expect(screen.getByText(/No projects match "xyz123"/)).toBeInTheDocument();
+    expect(screen.getByText('No codespaces found')).toBeInTheDocument();
+    expect(screen.getByText(/No codespaces match "xyz123"/)).toBeInTheDocument();
   });
 
   it('shows empty state when no projects exist', () => {
@@ -265,8 +267,8 @@ describe('ProjectPicker', () => {
       />
     );
 
-    expect(screen.getByText('No projects yet')).toBeInTheDocument();
-    expect(screen.getByText('Create your first project to get started')).toBeInTheDocument();
+    expect(screen.getByText('No codespaces yet')).toBeInTheDocument();
+    expect(screen.getByText('Create your first codespace to get started')).toBeInTheDocument();
   });
 
   it('navigates with arrow keys', async () => {
@@ -372,7 +374,7 @@ describe('ProjectPicker', () => {
       />
     );
 
-    expect(screen.getByText('Failed to load projects')).toBeInTheDocument();
+    expect(screen.getByText('Failed to load codespaces')).toBeInTheDocument();
     expect(screen.getByText('Failed to load')).toBeInTheDocument();
   });
 

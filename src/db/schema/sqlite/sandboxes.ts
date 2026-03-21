@@ -2,7 +2,7 @@ import { createId } from '@paralleldrive/cuid2';
 import { sql } from 'drizzle-orm';
 import { integer, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core';
 import type { SandboxStatus, VolumeMountRecord } from '../shared/types';
-import { projects } from './projects';
+import { codespaces } from './codespaces';
 import { tasks } from './tasks';
 
 export type { SandboxStatus, VolumeMountRecord };
@@ -15,10 +15,10 @@ export const sandboxInstances = sqliteTable('sandbox_instances', {
     .primaryKey()
     .$defaultFn(() => createId()),
 
-  projectId: text('project_id')
+  codespaceId: text('codespace_id')
     .notNull()
     .unique()
-    .references(() => projects.id, { onDelete: 'cascade' }),
+    .references(() => codespaces.id, { onDelete: 'cascade' }),
 
   containerId: text('container_id').notNull(),
 

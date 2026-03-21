@@ -12,7 +12,7 @@ const DB_MODE = process.env.DB_MODE ?? 'sqlite';
 
 interface SandboxInfo {
   id: string;
-  projectId: string;
+  codespaceId: string;
   containerId: string;
   status: string;
 }
@@ -89,7 +89,7 @@ export function createHealthRoutes({
     // Check database connectivity
     try {
       const dbStart = Date.now();
-      const result = await db.query.projects.findFirst();
+      const result = await db.query.codespaces.findFirst();
       void result;
 
       // Query database version
@@ -112,12 +112,7 @@ export function createHealthRoutes({
             version = `SQLite ${raw}`;
           }
         }
-      } catch (versionErr) {
-        console.debug(
-          '[Health] Version query failed:',
-          versionErr instanceof Error ? versionErr.message : String(versionErr)
-        );
-      }
+      } catch (_versionErr) {}
 
       checks.database = {
         status: 'ok',
@@ -143,14 +138,9 @@ export function createHealthRoutes({
         };
       } else if (!tokenResult.ok) {
         checks.github = { status: 'error' };
-        console.debug('[Health] GitHub token error:', tokenResult.error.message);
       }
-    } catch (error) {
+    } catch (_error) {
       checks.github = { status: 'error' };
-      console.debug(
-        '[Health] GitHub token check failed:',
-        error instanceof Error ? error.message : 'Unknown error'
-      );
     }
 
     // Check sandbox availability (uses getter for deferred initialization)
@@ -272,7 +262,7 @@ export function createHealthRoutes({
   app.get('/readiness', async (_c) => {
     try {
       const dbStart = Date.now();
-      await db.query.projects.findFirst();
+      await db.query.codespaces.findFirst();
       return json({
         ok: true,
         status: 'ready',

@@ -396,8 +396,6 @@ describe('GitHub Webhooks', () => {
     });
 
     it('returns success when no secret is configured (dev mode)', async () => {
-      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
       const result = await verifyWebhookSignature({
         payload: '{"test": "data"}',
         signature: 'sha256=anything',
@@ -405,11 +403,6 @@ describe('GitHub Webhooks', () => {
       });
 
       expect(result.ok).toBe(true);
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('No webhook secret configured')
-      );
-
-      consoleSpy.mockRestore();
     });
 
     it('returns error for non-sha256 algorithm', async () => {

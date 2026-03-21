@@ -140,11 +140,9 @@ export class CredentialsInjector {
       const containerPath = getContainerCredentialsPath();
       const result = await sandbox.exec('test', ['-f', containerPath]);
       return result.exitCode === 0;
-    } catch (error) {
+    } catch (_error) {
       // Log unexpected errors for debugging but return false
       // This is intentional - errors mean we can't confirm credentials exist
-      const message = errorMessage(error);
-      console.debug('[CredentialsInjector] Error checking credentials existence:', message);
       return false;
     }
   }

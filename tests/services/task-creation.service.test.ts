@@ -143,7 +143,7 @@ describe('TaskCreationService', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value.projectId).toBe(project.id);
+        expect(result.value.codespaceId).toBe(project.id);
         expect(result.value.status).toBe('active');
         expect(result.value.messages).toHaveLength(0);
         expect(result.value.suggestion).toBeNull();
@@ -180,7 +180,7 @@ describe('TaskCreationService', () => {
         expect(result.value.dbSessionId).toBe('mock-db-session-id');
       }
       expect(mockSessionService.create).toHaveBeenCalledWith({
-        projectId: project.id,
+        codespaceId: project.id,
         title: 'Task Creation',
       });
     });
@@ -208,7 +208,7 @@ describe('TaskCreationService', () => {
       const session = service.getSession(startResult.value.id);
       expect(session).not.toBeNull();
       expect(session?.id).toBe(startResult.value.id);
-      expect(session?.projectId).toBe(project.id);
+      expect(session?.codespaceId).toBe(project.id);
     });
 
     it('returns null for non-existent session via getSession', () => {

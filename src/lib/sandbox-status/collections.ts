@@ -14,14 +14,14 @@ export type { SandboxStatus };
 /**
  * Sandbox status collection
  *
- * Primary key: projectId
- * Tracks sandbox mode and container status for each project
+ * Primary key: codespaceId
+ * Tracks sandbox mode and container status for each codespace
  */
 export const sandboxStatusCollection = createCollection(
   localOnlyCollectionOptions({
     id: 'sandbox-status',
     schema: sandboxStatusSchema,
-    getKey: (status) => status.projectId,
+    getKey: (status) => status.codespaceId,
   })
 );
 
@@ -29,8 +29,8 @@ export const sandboxStatusCollection = createCollection(
  * Update sandbox status for a project (upsert pattern)
  */
 export function updateSandboxStatus(status: SandboxStatus): void {
-  if (sandboxStatusCollection.has(status.projectId)) {
-    sandboxStatusCollection.update(status.projectId, (draft) => {
+  if (sandboxStatusCollection.has(status.codespaceId)) {
+    sandboxStatusCollection.update(status.codespaceId, (draft) => {
       draft.mode = status.mode;
       draft.containerStatus = status.containerStatus;
       draft.containerId = status.containerId;
@@ -54,15 +54,15 @@ export function updateSandboxStatus(status: SandboxStatus): void {
 /**
  * Get sandbox status for a project
  */
-export function getSandboxStatus(projectId: string): SandboxStatus | undefined {
-  return sandboxStatusCollection.get(projectId);
+export function getSandboxStatus(codespaceId: string): SandboxStatus | undefined {
+  return sandboxStatusCollection.get(codespaceId);
 }
 
 /**
- * Clear sandbox status for a project
+ * Clear sandbox status for a codespace
  */
-export function clearSandboxStatus(projectId: string): void {
-  sandboxStatusCollection.delete(projectId);
+export function clearSandboxStatus(codespaceId: string): void {
+  sandboxStatusCollection.delete(codespaceId);
 }
 
 /**

@@ -53,7 +53,7 @@ describe('Task Creation API Routes', () => {
       });
 
       const res = await request(app, 'POST', '/api/tasks/create-with-ai/start', {
-        projectId: 'proj-1',
+        codespaceId: 'proj-1',
       });
 
       expect(res.status).toBe(200);
@@ -63,7 +63,7 @@ describe('Task Creation API Routes', () => {
       expect(taskCreationService.startConversation).toHaveBeenCalledWith('proj-1');
     });
 
-    it('returns 400 when projectId is missing', async () => {
+    it('returns 400 when codespaceId is missing', async () => {
       const { app } = createTestApp();
 
       const res = await request(app, 'POST', '/api/tasks/create-with-ai/start', {});
@@ -82,7 +82,7 @@ describe('Task Creation API Routes', () => {
       });
 
       const res = await request(app, 'POST', '/api/tasks/create-with-ai/start', {
-        projectId: 'proj-1',
+        codespaceId: 'proj-1',
       });
 
       expect(res.status).toBe(400);
@@ -95,7 +95,7 @@ describe('Task Creation API Routes', () => {
       taskCreationService.startConversation.mockRejectedValue(new Error('unexpected'));
 
       const res = await request(app, 'POST', '/api/tasks/create-with-ai/start', {
-        projectId: 'proj-1',
+        codespaceId: 'proj-1',
       });
 
       expect(res.status).toBe(500);

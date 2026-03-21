@@ -15,7 +15,7 @@
 
 import { eq } from 'drizzle-orm';
 
-import { projects, tasks } from '../../db/schema';
+import { codespaces, tasks } from '../../db/schema';
 import type { SandboxError } from '../../lib/errors/sandbox-errors.js';
 import { SandboxErrors } from '../../lib/errors/sandbox-errors.js';
 import { createLogger } from '../../lib/logging/logger.js';
@@ -54,7 +54,7 @@ export class ContainerAgentService {
   private agentCoreProvider?: AgentCoreSandboxProvider;
 
   /** Optional callback invoked when an agent completes a task, for queue auto-dequeue */
-  private onAgentCompleteCallback?: (projectId: string, taskId: string) => Promise<void>;
+  private onAgentCompleteCallback?: (codespaceId: string, taskId: string) => Promise<void>;
 
   /** Expose provider name so callers (e.g. TaskService) can tag sessions at creation */
   get providerName(): string {
@@ -84,7 +84,7 @@ export class ContainerAgentService {
     const handlePlanReady = (
       taskId: string,
       sessionId: string,
-      projectId: string,
+      codespaceId: string,
       planData: {
         plan: string;
         turnCount: number;
@@ -93,7 +93,7 @@ export class ContainerAgentService {
         launchSwarm?: boolean;
         teammateCount?: number;
       }
-    ) => this.planApproval.handlePlanReady(taskId, sessionId, projectId, planData);
+    ) => this.planApproval.handlePlanReady(taskId, sessionId, codespaceId, planData);
 
     const getOnAgentCompleteCallback = () => this.onAgentCompleteCallback;
 
@@ -126,7 +126,7 @@ export class ContainerAgentService {
   /**
    * Set a callback to be invoked when an agent completes a task.
    */
-  setOnAgentComplete(callback: (projectId: string, taskId: string) => Promise<void>): void {
+  setOnAgentComplete(callback: (codespaceId: string, taskId: string) => Promise<void>): void {
     this.onAgentCompleteCallback = callback;
   }
 
@@ -209,11 +209,11 @@ export class ContainerAgentService {
 
     try {
       if (this.isAgentCoreProvider()) {
-        const project = await this.deps.db.query.projects.findFirst({
-          where: eq(projects.id, input.projectId),
+        const codespace = await this.deps.db.query.codespaces.findFirst({
+          where: eq(codespaces.id, input.codespaceId),
         });
-        if (!project) return err(SandboxErrors.PROJECT_NOT_FOUND);
-        return this.agentCoreBridge.startAgentCoreAgent(input, project);
+        if (!codespace) return err(SandboxErrors.PROJECT_NOT_FOUND);
+        return this.agentCoreBridge.startAgentCoreAgent(input, codespace);
       }
       return this.containerExec.startAgent(input);
     } finally {
@@ -254,7 +254,7 @@ export class ContainerAgentService {
    */
   getRunningAgent(
     taskId: string
-  ): { projectId: string; sessionId: string; startedAt: Date } | null {
+  ): { codespaceId: string; sessionId: string; startedAt: Date } | null {
     return this.state.getAnyRunningAgent(taskId);
   }
 
@@ -263,19 +263,19 @@ export class ContainerAgentService {
    */
   getRunningAgents(): Array<{
     taskId: string;
-    projectId: string;
+    codespaceId: string;
     sessionId: string;
     startedAt: Date;
   }> {
     const containerAgents = this.state.getAllRunningAgents().map((agent) => ({
       taskId: agent.taskId,
-      projectId: agent.projectId,
+      codespaceId: agent.codespaceId,
       sessionId: agent.sessionId,
       startedAt: agent.startedAt,
     }));
     const agentCoreAgents = this.state.getAllRunningAgentCoreAgents().map((agent) => ({
       taskId: agent.taskId,
-      projectId: agent.projectId,
+      codespaceId: agent.codespaceId,
       sessionId: agent.sessionId,
       startedAt: agent.startedAt,
     }));

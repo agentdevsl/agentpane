@@ -161,7 +161,7 @@ describe('NomadErrors', () => {
 
       expect(error.code).toBe('NOMAD-205');
       expect(error.status).toBe(409);
-      expect(error.details).toMatchObject({ projectId: 'proj-123' });
+      expect(error.details).toMatchObject({ codespaceId: 'proj-123' });
     });
   });
 

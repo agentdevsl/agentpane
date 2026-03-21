@@ -1,6 +1,6 @@
 import { createId } from '@paralleldrive/cuid2';
 import { and, asc, count, eq, inArray } from 'drizzle-orm';
-import { agentRuns, agents, projects, sessions, tasks, worktrees } from '../../db/schema';
+import { agentRuns, agents, codespaces, sessions, tasks, worktrees } from '../../db/schema';
 import { handleAgentError } from '../../lib/agents/recovery.js';
 import { runAgentExecution, runAgentPlanning } from '../../lib/agents/stream-handler.js';
 
@@ -58,7 +58,7 @@ function validateTransition(
  * - Pause and resume agents
  * - Manage AbortController lifecycle
  * - Handle execution results and errors
- * - Check project availability for new agents
+ * - Check codespace availability for new agents
  */
 export class AgentExecutionService {
   private runningAgents = new Map<string, AbortController>();
@@ -112,7 +112,7 @@ export class AgentExecutionService {
       // Look for queued tasks first (FIFO), then backlog
       task = await this.db.query.tasks.findFirst({
         where: and(
-          eq(tasks.projectId, agent.projectId),
+          eq(tasks.codespaceId, agent.codespaceId),
           inArray(tasks.column, ['queued', 'backlog'])
         ),
         orderBy: asc(tasks.updatedAt),
@@ -128,20 +128,22 @@ export class AgentExecutionService {
     }
 
     // Check concurrency BEFORE modifying task state to avoid race condition
-    const availability = await this.checkAvailability(agent.projectId);
+    const availability = await this.checkAvailability(agent.codespaceId);
     if (!availability.ok || !availability.value) {
-      const runningResult = await this.getRunningCount(agent.projectId);
+      const runningResult = await this.getRunningCount(agent.codespaceId);
       const runningCount = runningResult.ok ? runningResult.value : 0;
-      const project = await this.db.query.projects.findFirst({
-        where: eq(projects.id, agent.projectId),
+      const codespace = await this.db.query.codespaces.findFirst({
+        where: eq(codespaces.id, agent.codespaceId),
       });
-      return err(ConcurrencyErrors.LIMIT_EXCEEDED(runningCount, project?.maxConcurrentAgents ?? 1));
+      return err(
+        ConcurrencyErrors.LIMIT_EXCEEDED(runningCount, codespace?.maxConcurrentAgents ?? 1)
+      );
     }
 
     // Create worktree and session BEFORE the transaction
     // These are external service calls that must succeed before we modify DB state
     const worktree = await this.worktreeService.create({
-      projectId: agent.projectId,
+      codespaceId: agent.codespaceId,
       agentId: agent.id,
       taskId: task.id,
       taskTitle: task.title,
@@ -151,7 +153,7 @@ export class AgentExecutionService {
     }
 
     const session = await this.sessionService.create({
-      projectId: agent.projectId,
+      codespaceId: agent.codespaceId,
       taskId: task.id,
       agentId: agent.id,
       title: task.title,
@@ -193,7 +195,7 @@ export class AgentExecutionService {
           .values({
             agentId,
             taskId: task.id,
-            projectId: agent.projectId,
+            codespaceId: agent.codespaceId,
             sessionId: session.value.id,
             status: 'running',
           })
@@ -228,23 +230,23 @@ export class AgentExecutionService {
     const controller = new AbortController();
     this.runningAgents.set(agentId, controller);
 
-    // Get project for model configuration
-    const project = await this.db.query.projects.findFirst({
-      where: eq(projects.id, agent.projectId),
+    // Get codespace for model configuration
+    const codespace = await this.db.query.codespaces.findFirst({
+      where: eq(codespaces.id, agent.codespaceId),
     });
 
     // Resolve model using cascade priority:
     // Task.modelOverride → Agent.config.model → Project.config.model → Global setting → Default
     const taskModelOverride = (task as typeof task & { modelOverride?: string | null })
       .modelOverride;
-    const projectConfig = project?.config as { model?: string } | null;
+    const codespaceConfig = codespace?.config as { model?: string } | null;
 
     const globalDefault = await getGlobalDefaultModel(this.db);
 
     const resolvedModel = resolveModel({
       taskModelOverride: taskModelOverride,
       agentModel: agent.config?.model,
-      projectModel: projectConfig?.model,
+      projectModel: codespaceConfig?.model,
       globalDefault,
     });
 
@@ -693,20 +695,20 @@ export class AgentExecutionService {
         }
       }
 
-      // Get project for model configuration
-      const project = await this.db.query.projects.findFirst({
-        where: eq(projects.id, agent.projectId),
+      // Get codespace for model configuration
+      const codespace = await this.db.query.codespaces.findFirst({
+        where: eq(codespaces.id, agent.codespaceId),
       });
 
       const taskModelOverride = (task as typeof task & { modelOverride?: string | null })
         .modelOverride;
-      const projectConfig = project?.config as { model?: string } | null;
+      const codespaceConfig = codespace?.config as { model?: string } | null;
       const globalDefault = await getGlobalDefaultModel(this.db);
 
       const resolvedModel = resolveModel({
         taskModelOverride: taskModelOverride,
         agentModel: agent.config?.model,
-        projectModel: projectConfig?.model,
+        projectModel: codespaceConfig?.model,
         globalDefault,
       });
 
@@ -716,7 +718,7 @@ export class AgentExecutionService {
         .values({
           agentId,
           taskId: task.id,
-          projectId: agent.projectId,
+          codespaceId: agent.codespaceId,
           sessionId,
           status: 'running',
         })
@@ -866,33 +868,33 @@ export class AgentExecutionService {
   }
 
   /**
-   * Check if a project has availability for a new running agent.
+   * Check if a codespace has availability for a new running agent.
    */
-  async checkAvailability(projectId: string): Promise<Result<boolean, never>> {
-    const project = await this.db.query.projects.findFirst({
-      where: eq(projects.id, projectId),
+  async checkAvailability(codespaceId: string): Promise<Result<boolean, never>> {
+    const codespace = await this.db.query.codespaces.findFirst({
+      where: eq(codespaces.id, codespaceId),
     });
 
-    if (!project) {
+    if (!codespace) {
       return ok(false);
     }
 
-    const runningResult = await this.getRunningCount(projectId);
+    const runningResult = await this.getRunningCount(codespaceId);
     const runningCount = runningResult.ok ? runningResult.value : 0;
-    return ok(runningCount < (project.maxConcurrentAgents ?? 3));
+    return ok(runningCount < (codespace.maxConcurrentAgents ?? 3));
   }
 
   /**
-   * Get the count of running agents for a specific project.
+   * Get the count of running agents for a specific codespace.
    * AE-009: Uses COUNT(*) aggregate instead of findMany().length to avoid race conditions.
    */
-  async getRunningCount(projectId: string): Promise<Result<number, never>> {
+  async getRunningCount(codespaceId: string): Promise<Result<number, never>> {
     const [result] = await this.db
       .select({ count: count() })
       .from(agents)
       .where(
         and(
-          eq(agents.projectId, projectId),
+          eq(agents.codespaceId, codespaceId),
           inArray(agents.status, ['starting', 'planning', 'running'])
         )
       );
@@ -937,7 +939,7 @@ export class AgentExecutionService {
 
     if (!agent || agent.status !== 'idle') return;
 
-    const dequeueResult = await this.queueService.dequeueNext(agent.projectId);
+    const dequeueResult = await this.queueService.dequeueNext(agent.codespaceId);
     if (!dequeueResult.ok || !dequeueResult.value) return;
 
     const nextTask = dequeueResult.value;

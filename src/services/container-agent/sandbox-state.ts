@@ -114,11 +114,11 @@ export class SandboxStateManager {
   /** Get running agent info from either map */
   getAnyRunningAgent(
     taskId: string
-  ): { projectId: string; sessionId: string; startedAt: Date } | null {
+  ): { codespaceId: string; sessionId: string; startedAt: Date } | null {
     const agent = this.runningAgents.get(taskId) ?? this.runningAgentCoreAgents.get(taskId);
     if (!agent) return null;
     return {
-      projectId: agent.projectId,
+      codespaceId: agent.codespaceId,
       sessionId: agent.sessionId,
       startedAt: agent.startedAt,
     };

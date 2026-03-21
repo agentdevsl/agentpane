@@ -194,12 +194,12 @@ describe('K8sErrors - Pod lifecycle', () => {
     expect(error.details).toEqual({ podName: 'stuck-pod', currentPhase: 'Pending' });
   });
 
-  it('POD_ALREADY_EXISTS has status 409 with projectId detail', () => {
+  it('POD_ALREADY_EXISTS has status 409 with codespaceId detail', () => {
     const error = K8sErrors.POD_ALREADY_EXISTS('proj-123');
 
     expect(error.code).toBe('K8S_POD_ALREADY_EXISTS');
     expect(error.status).toBe(409);
-    expect(error.details).toEqual({ projectId: 'proj-123' });
+    expect(error.details).toEqual({ codespaceId: 'proj-123' });
   });
 });
 

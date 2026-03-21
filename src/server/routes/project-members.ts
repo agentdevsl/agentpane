@@ -4,13 +4,13 @@
 
 import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
-import { projectMembers } from '../../db/schema/sqlite/project-members';
+import { codespaceMembers } from '../../db/schema/sqlite/codespace-members';
 import { users } from '../../db/schema/sqlite/users';
 import type { AuthContext } from '../../lib/api/auth-middleware';
 import { createLogger } from '../../lib/logging/logger';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
-import { isValidId, json, requireProjectRole } from '../shared';
+import { isValidId, json, requireCodespaceRole } from '../shared';
 import { addProjectMemberSchema, parseJsonBody, updateProjectMemberSchema } from '../validation';
 
 const log = createLogger('ProjectMembersRoutes');
@@ -23,16 +23,19 @@ interface ProjectMembersDeps {
 export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDeps) {
   const app = new Hono<{ Variables: { auth: AuthContext } }>();
 
-  // POST / - Add project member override
+  // POST / - Add codespace member override
   app.post('/', async (c) => {
-    const projectId = c.req.param('id');
+    const codespaceId = c.req.param('id');
     const auth = c.get('auth');
 
-    if (!projectId || !isValidId(projectId)) {
-      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid project ID' } }, 400);
+    if (!codespaceId || !isValidId(codespaceId)) {
+      return json(
+        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid codespace ID' } },
+        400
+      );
     }
 
-    const denied = await requireProjectRole(auth, rbacService, projectId, 'admin');
+    const denied = await requireCodespaceRole(auth, rbacService, codespaceId, 'admin');
     if (denied) return denied;
 
     const parsed = await parseJsonBody(c, addProjectMemberSchema);
@@ -42,11 +45,11 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
       const result = await db.transaction(async (tx) => {
         const existing = await tx
           .select()
-          .from(projectMembers)
+          .from(codespaceMembers)
           .where(
             and(
-              eq(projectMembers.projectId, projectId),
-              eq(projectMembers.userId, parsed.data.userId)
+              eq(codespaceMembers.codespaceId, codespaceId),
+              eq(codespaceMembers.userId, parsed.data.userId)
             )
           );
         if (existing.length > 0) return 'DUPLICATE' as const;
@@ -57,8 +60,8 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
           .where(eq(users.id, parsed.data.userId));
         if (userExists.length === 0) return 'USER_NOT_FOUND' as const;
 
-        await tx.insert(projectMembers).values({
-          projectId,
+        await tx.insert(codespaceMembers).values({
+          codespaceId,
           userId: parsed.data.userId,
           role: parsed.data.role,
           grantedByTeamId: parsed.data.teamId ?? null,
@@ -82,7 +85,7 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
         {
           ok: true,
           data: {
-            projectId,
+            codespaceId,
             userId: parsed.data.userId,
             role: parsed.data.role,
             effectiveRole: parsed.data.role,
@@ -97,44 +100,47 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
     }
   });
 
-  // GET / - List project members
+  // GET / - List codespace members
   app.get('/', async (c) => {
-    const projectId = c.req.param('id');
+    const codespaceId = c.req.param('id');
 
-    if (!projectId || !isValidId(projectId)) {
-      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid project ID' } }, 400);
+    if (!codespaceId || !isValidId(codespaceId)) {
+      return json(
+        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid codespace ID' } },
+        400
+      );
     }
 
     const auth = c.get('auth');
-    const denied = await requireProjectRole(
+    const denied = await requireCodespaceRole(
       auth,
       rbacService,
-      projectId,
+      codespaceId,
       'viewer',
-      'Not a project member'
+      'Not a codespace member'
     );
     if (denied) return denied;
 
     try {
       const members = await db
         .select({
-          userId: projectMembers.userId,
-          role: projectMembers.role,
-          grantedByTeamId: projectMembers.grantedByTeamId,
-          createdAt: projectMembers.createdAt,
+          userId: codespaceMembers.userId,
+          role: codespaceMembers.role,
+          grantedByTeamId: codespaceMembers.grantedByTeamId,
+          createdAt: codespaceMembers.createdAt,
           name: users.name,
           email: users.email,
           avatarUrl: users.avatarUrl,
         })
-        .from(projectMembers)
-        .leftJoin(users, eq(projectMembers.userId, users.id))
-        .where(eq(projectMembers.projectId, projectId));
+        .from(codespaceMembers)
+        .leftJoin(users, eq(codespaceMembers.userId, users.id))
+        .where(eq(codespaceMembers.codespaceId, codespaceId));
 
       // H4: Enrich with effectiveRole and source
       const enrichedMembers = await Promise.all(
         members.map(async (m) => {
           const effectiveRole = m.userId
-            ? await rbacService.resolveUserRole(m.userId, projectId)
+            ? await rbacService.resolveUserRole(m.userId, codespaceId)
             : null;
           return {
             ...m,
@@ -155,13 +161,13 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
     }
   });
 
-  // PATCH /:uid - Update project member role
+  // PATCH /:uid - Update codespace member role
   app.patch('/:uid', async (c) => {
-    const projectId = c.req.param('id');
+    const codespaceId = c.req.param('id');
     const uid = c.req.param('uid');
     const auth = c.get('auth');
 
-    if (!projectId || !uid || !isValidId(projectId) || !isValidId(uid)) {
+    if (!codespaceId || !uid || !isValidId(codespaceId) || !isValidId(uid)) {
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID' } }, 400);
     }
 
@@ -175,7 +181,7 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
       );
     }
 
-    const adminDenied = await requireProjectRole(auth, rbacService, projectId, 'admin');
+    const adminDenied = await requireCodespaceRole(auth, rbacService, codespaceId, 'admin');
     if (adminDenied) return adminDenied;
 
     const parsed = await parseJsonBody(c, updateProjectMemberSchema);
@@ -183,9 +189,9 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
 
     try {
       const result = await db
-        .update(projectMembers)
+        .update(codespaceMembers)
         .set({ role: parsed.data.role })
-        .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, uid)))
+        .where(and(eq(codespaceMembers.codespaceId, codespaceId), eq(codespaceMembers.userId, uid)))
         .returning();
 
       if (result.length === 0) {
@@ -205,23 +211,23 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
     }
   });
 
-  // DELETE /:uid - Remove project member override
+  // DELETE /:uid - Remove codespace member override
   app.delete('/:uid', async (c) => {
-    const projectId = c.req.param('id');
+    const codespaceId = c.req.param('id');
     const uid = c.req.param('uid');
     const auth = c.get('auth');
 
-    if (!projectId || !uid || !isValidId(projectId) || !isValidId(uid)) {
+    if (!codespaceId || !uid || !isValidId(codespaceId) || !isValidId(uid)) {
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID' } }, 400);
     }
 
-    const denied = await requireProjectRole(auth, rbacService, projectId, 'admin');
+    const denied = await requireCodespaceRole(auth, rbacService, codespaceId, 'admin');
     if (denied) return denied;
 
     try {
       const result = await db
-        .delete(projectMembers)
-        .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, uid)))
+        .delete(codespaceMembers)
+        .where(and(eq(codespaceMembers.codespaceId, codespaceId), eq(codespaceMembers.userId, uid)))
         .returning();
       if (result.length === 0) {
         return json(
@@ -231,7 +237,7 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
       }
 
       // After removing the direct override, resolve the user's inherited team role
-      const revertedToTeamRole = await rbacService.resolveUserRole(uid, projectId);
+      const revertedToTeamRole = await rbacService.resolveUserRole(uid, codespaceId);
 
       return json({ ok: true, data: { removed: true, revertedToTeamRole } });
     } catch (error) {

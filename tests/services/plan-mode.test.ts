@@ -1,6 +1,6 @@
 import { createId } from '@paralleldrive/cuid2';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PlanSession as DbPlanSession, Project, Task } from '../../src/db/schema';
+import type { PlanSession as DbPlanSession, Codespace as Project, Task } from '../../src/db/schema';
 import { PlanModeErrors } from '../../src/lib/errors/plan-mode-errors';
 import type { GitHubIssueCreator, GitHubIssueResult } from '../../src/lib/github/issue-creator';
 import type {
@@ -29,6 +29,7 @@ import { createClaudeClient } from '../../src/lib/plan-mode/claude-client';
 function createMockProject(overrides: Partial<Project> = {}): Project {
   return {
     id: createId(),
+    projectFolderId: 'default-folder',
     name: 'Test Project',
     path: '/tmp/test-project',
     description: null,
@@ -43,16 +44,17 @@ function createMockProject(overrides: Partial<Project> = {}): Project {
     githubRepo: null,
     githubInstallationId: null,
     configPath: '.claude',
-    createdAt: new Date(),
-    updatedAt: new Date(),
+    sandboxConfigId: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
     ...overrides,
   };
 }
 
-function createMockTask(projectId: string, overrides: Partial<Task> = {}): Task {
+function createMockTask(codespaceId: string, overrides: Partial<Task> = {}): Task {
   return {
     id: createId(),
-    projectId,
+    codespaceId,
     agentId: null,
     sessionId: null,
     worktreeId: null,
@@ -81,7 +83,7 @@ function createMockPlanSession(overrides: Partial<DbPlanSession> = {}): DbPlanSe
   return {
     id,
     taskId: overrides.taskId ?? createId(),
-    projectId: overrides.projectId ?? createId(),
+    codespaceId: overrides.codespaceId ?? createId(),
     status: overrides.status ?? 'active',
     turns: overrides.turns ?? [],
     githubIssueUrl: overrides.githubIssueUrl ?? null,
@@ -133,7 +135,7 @@ function createMockInteraction(overrides: Partial<UserInteraction> = {}): UserIn
 function createMockDatabase() {
   return {
     query: {
-      projects: {
+      codespaces: {
         findFirst: vi.fn(),
       },
       tasks: {
@@ -250,13 +252,13 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
         .mockResolvedValue([
-          createMockPlanSession({ id: sessionId, projectId: project.id, taskId: task.id }),
+          createMockPlanSession({ id: sessionId, codespaceId: project.id, taskId: task.id }),
         ]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
@@ -265,7 +267,7 @@ describe('PlanModeService', () => {
       const updateReturning = vi.fn().mockResolvedValue([
         createMockPlanSession({
           id: sessionId,
-          projectId: project.id,
+          codespaceId: project.id,
           taskId: task.id,
           turns: [createMockTurn('user', 'Create a login system')],
         }),
@@ -281,14 +283,14 @@ describe('PlanModeService', () => {
       );
 
       const result = await service.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Create a login system',
       });
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value.projectId).toBe(project.id);
+        expect(result.value.codespaceId).toBe(project.id);
         expect(result.value.taskId).toBe(task.id);
         expect(result.value.status).toBe('active');
       }
@@ -304,13 +306,13 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
         .mockResolvedValue([
-          createMockPlanSession({ id: sessionId, projectId: project.id, taskId: task.id }),
+          createMockPlanSession({ id: sessionId, codespaceId: project.id, taskId: task.id }),
         ]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
@@ -332,7 +334,7 @@ describe('PlanModeService', () => {
       );
 
       const result = await service.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Create authentication system',
       });
@@ -345,12 +347,12 @@ describe('PlanModeService', () => {
       const project = createMockProject();
       const task = createMockTask(project.id);
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
-        .mockResolvedValue([createMockPlanSession({ projectId: project.id, taskId: task.id })]);
+        .mockResolvedValue([createMockPlanSession({ codespaceId: project.id, taskId: task.id })]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
       });
@@ -366,7 +368,7 @@ describe('PlanModeService', () => {
       );
 
       const result = await service.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Test prompt',
       });
@@ -375,7 +377,7 @@ describe('PlanModeService', () => {
       if (result.ok) {
         expect(result.value).toHaveProperty('id');
         expect(result.value).toHaveProperty('taskId');
-        expect(result.value).toHaveProperty('projectId');
+        expect(result.value).toHaveProperty('codespaceId');
         expect(result.value).toHaveProperty('status');
         expect(result.value).toHaveProperty('turns');
       }
@@ -385,12 +387,12 @@ describe('PlanModeService', () => {
       const project = createMockProject();
       const task = createMockTask(project.id);
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
-        .mockResolvedValue([createMockPlanSession({ projectId: project.id, taskId: task.id })]);
+        .mockResolvedValue([createMockPlanSession({ codespaceId: project.id, taskId: task.id })]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
       });
@@ -412,7 +414,7 @@ describe('PlanModeService', () => {
       );
 
       const result = await service.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Generate a plan',
       });
@@ -427,12 +429,12 @@ describe('PlanModeService', () => {
       const project = createMockProject();
       const task = createMockTask(project.id);
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
-        .mockResolvedValue([createMockPlanSession({ projectId: project.id, taskId: task.id })]);
+        .mockResolvedValue([createMockPlanSession({ codespaceId: project.id, taskId: task.id })]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
       });
@@ -448,7 +450,7 @@ describe('PlanModeService', () => {
       );
 
       const result = await service.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Generate a plan',
       });
@@ -458,10 +460,10 @@ describe('PlanModeService', () => {
     });
 
     it('should return error when project not found', async () => {
-      db.query.projects.findFirst.mockResolvedValue(null);
+      db.query.codespaces.findFirst.mockResolvedValue(null);
 
       const result = await service.start({
-        projectId: 'nonexistent',
+        codespaceId: 'nonexistent',
         taskId: 'task-1',
         initialPrompt: 'Test',
       });
@@ -474,11 +476,11 @@ describe('PlanModeService', () => {
 
     it('should return error when task not found', async () => {
       const project = createMockProject();
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(null);
 
       const result = await service.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: 'nonexistent',
         initialPrompt: 'Test',
       });
@@ -493,13 +495,13 @@ describe('PlanModeService', () => {
       const project = createMockProject();
       const task = createMockTask(project.id);
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       vi.mocked(createClaudeClient).mockResolvedValue(err(PlanModeErrors.CREDENTIALS_NOT_FOUND));
 
       const result = await service.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Test',
       });
@@ -522,13 +524,13 @@ describe('PlanModeService', () => {
       const sessionId = createId();
       const interactionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
         .mockResolvedValue([
-          createMockPlanSession({ id: sessionId, projectId: project.id, taskId: task.id }),
+          createMockPlanSession({ id: sessionId, codespaceId: project.id, taskId: task.id }),
         ]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
@@ -578,7 +580,7 @@ describe('PlanModeService', () => {
       });
 
       const result = await service.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Help me choose a database',
       });
@@ -636,12 +638,12 @@ describe('PlanModeService', () => {
       const project = createMockProject();
       const task = createMockTask(project.id);
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
-        .mockResolvedValue([createMockPlanSession({ projectId: project.id, taskId: task.id })]);
+        .mockResolvedValue([createMockPlanSession({ codespaceId: project.id, taskId: task.id })]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
       });
@@ -651,7 +653,7 @@ describe('PlanModeService', () => {
       );
 
       const result = await service.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Test',
       });
@@ -693,13 +695,13 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
         .mockResolvedValue([
-          createMockPlanSession({ id: sessionId, projectId: project.id, taskId: task.id }),
+          createMockPlanSession({ id: sessionId, codespaceId: project.id, taskId: task.id }),
         ]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
@@ -717,7 +719,7 @@ describe('PlanModeService', () => {
       );
 
       const result = await service.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Create multi-step plan',
       });
@@ -730,13 +732,13 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
         .mockResolvedValue([
-          createMockPlanSession({ id: sessionId, projectId: project.id, taskId: task.id }),
+          createMockPlanSession({ id: sessionId, codespaceId: project.id, taskId: task.id }),
         ]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
@@ -773,7 +775,7 @@ describe('PlanModeService', () => {
       );
 
       const result = await service.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Create a plan and issue',
       });
@@ -795,13 +797,13 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
         .mockResolvedValue([
-          createMockPlanSession({ id: sessionId, projectId: project.id, taskId: task.id }),
+          createMockPlanSession({ id: sessionId, codespaceId: project.id, taskId: task.id }),
         ]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
@@ -832,7 +834,7 @@ describe('PlanModeService', () => {
       );
 
       const result = await service.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Create a plan',
       });
@@ -864,13 +866,13 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
         .mockResolvedValue([
-          createMockPlanSession({ id: sessionId, projectId: project.id, taskId: task.id }),
+          createMockPlanSession({ id: sessionId, codespaceId: project.id, taskId: task.id }),
         ]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
@@ -892,7 +894,7 @@ describe('PlanModeService', () => {
       );
 
       const result = await serviceWithoutGitHub.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Create a plan',
       });
@@ -912,7 +914,7 @@ describe('PlanModeService', () => {
       const project = createMockProject();
       const task = createMockTask(project.id);
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi.fn().mockRejectedValue(new Error('Database connection lost'));
@@ -921,7 +923,7 @@ describe('PlanModeService', () => {
       });
 
       const result = await service.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Test',
       });
@@ -937,13 +939,13 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
         .mockResolvedValue([
-          createMockPlanSession({ id: sessionId, projectId: project.id, taskId: task.id }),
+          createMockPlanSession({ id: sessionId, codespaceId: project.id, taskId: task.id }),
         ]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
@@ -962,7 +964,7 @@ describe('PlanModeService', () => {
       const tokenCallback = vi.fn();
       const result = await service.start(
         {
-          projectId: project.id,
+          codespaceId: project.id,
           taskId: task.id,
           initialPrompt: 'Test streaming',
         },
@@ -988,13 +990,13 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi.fn().mockResolvedValue([
         createMockPlanSession({
           id: sessionId,
-          projectId: project.id,
+          codespaceId: project.id,
           taskId: task.id,
           status: 'active',
           turns: [],
@@ -1015,7 +1017,7 @@ describe('PlanModeService', () => {
       );
 
       const result = await service.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Start planning',
       });
@@ -1032,13 +1034,13 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
         .mockResolvedValue([
-          createMockPlanSession({ id: sessionId, projectId: project.id, taskId: task.id }),
+          createMockPlanSession({ id: sessionId, codespaceId: project.id, taskId: task.id }),
         ]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
@@ -1071,7 +1073,7 @@ describe('PlanModeService', () => {
       vi.mocked(mockClaudeClient.parseAskUserQuestion).mockReturnValue(createMockInteraction());
 
       const result = await service.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Need input',
       });
@@ -1212,20 +1214,20 @@ describe('PlanModeService', () => {
         turns.push(createMockTurn(i % 2 === 0 ? 'user' : 'assistant', `Turn ${i}`));
       }
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
         .mockResolvedValue([
-          createMockPlanSession({ id: sessionId, projectId: project.id, taskId: task.id, turns }),
+          createMockPlanSession({ id: sessionId, codespaceId: project.id, taskId: task.id, turns }),
         ]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
       });
 
       const result = await service.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Test',
       });
@@ -1283,13 +1285,13 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
         .mockResolvedValue([
-          createMockPlanSession({ id: sessionId, projectId: project.id, taskId: task.id }),
+          createMockPlanSession({ id: sessionId, codespaceId: project.id, taskId: task.id }),
         ]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
@@ -1333,7 +1335,7 @@ describe('PlanModeService', () => {
       });
 
       const result = await service.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Create a plan',
       });
@@ -1350,13 +1352,13 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
         .mockResolvedValue([
-          createMockPlanSession({ id: sessionId, projectId: project.id, taskId: task.id }),
+          createMockPlanSession({ id: sessionId, codespaceId: project.id, taskId: task.id }),
         ]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
@@ -1400,7 +1402,7 @@ describe('PlanModeService', () => {
       });
 
       const result = await service.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Create a plan',
       });
@@ -1417,13 +1419,13 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
         .mockResolvedValue([
-          createMockPlanSession({ id: sessionId, projectId: project.id, taskId: task.id }),
+          createMockPlanSession({ id: sessionId, codespaceId: project.id, taskId: task.id }),
         ]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
@@ -1458,7 +1460,7 @@ describe('PlanModeService', () => {
       );
 
       const result = await service.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Create a plan',
       });
@@ -1474,13 +1476,13 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
         .mockResolvedValue([
-          createMockPlanSession({ id: sessionId, projectId: project.id, taskId: task.id }),
+          createMockPlanSession({ id: sessionId, codespaceId: project.id, taskId: task.id }),
         ]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
@@ -1517,7 +1519,7 @@ describe('PlanModeService', () => {
       );
 
       const result = await service.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Create a plan',
       });
@@ -1538,13 +1540,13 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
         .mockResolvedValue([
-          createMockPlanSession({ id: sessionId, projectId: project.id, taskId: task.id }),
+          createMockPlanSession({ id: sessionId, codespaceId: project.id, taskId: task.id }),
         ]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
@@ -1576,7 +1578,7 @@ describe('PlanModeService', () => {
       vi.mocked(mockClaudeClient.parseAskUserQuestion).mockReturnValue(createMockInteraction());
 
       const result = await service.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Need input',
       });
@@ -1592,13 +1594,13 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
         .mockResolvedValue([
-          createMockPlanSession({ id: sessionId, projectId: project.id, taskId: task.id }),
+          createMockPlanSession({ id: sessionId, codespaceId: project.id, taskId: task.id }),
         ]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
@@ -1639,7 +1641,7 @@ describe('PlanModeService', () => {
       });
 
       const result = await service.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Need input',
       });
@@ -1656,13 +1658,13 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
         .mockResolvedValue([
-          createMockPlanSession({ id: sessionId, projectId: project.id, taskId: task.id }),
+          createMockPlanSession({ id: sessionId, codespaceId: project.id, taskId: task.id }),
         ]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
@@ -1703,7 +1705,7 @@ describe('PlanModeService', () => {
       });
 
       const result = await service.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Need input',
       });
@@ -1720,13 +1722,13 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
         .mockResolvedValue([
-          createMockPlanSession({ id: sessionId, projectId: project.id, taskId: task.id }),
+          createMockPlanSession({ id: sessionId, codespaceId: project.id, taskId: task.id }),
         ]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
@@ -1762,7 +1764,7 @@ describe('PlanModeService', () => {
       const tokenCallback = vi.fn();
       const result = await service.start(
         {
-          projectId: project.id,
+          codespaceId: project.id,
           taskId: task.id,
           initialPrompt: 'Need input',
         },
@@ -1782,13 +1784,13 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
         .mockResolvedValue([
-          createMockPlanSession({ id: sessionId, projectId: project.id, taskId: task.id }),
+          createMockPlanSession({ id: sessionId, codespaceId: project.id, taskId: task.id }),
         ]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
@@ -1825,7 +1827,7 @@ describe('PlanModeService', () => {
       );
 
       const result = await service.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Create a plan',
       });
@@ -1852,13 +1854,13 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
         .mockResolvedValue([
-          createMockPlanSession({ id: sessionId, projectId: project.id, taskId: task.id }),
+          createMockPlanSession({ id: sessionId, codespaceId: project.id, taskId: task.id }),
         ]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
@@ -1888,7 +1890,7 @@ describe('PlanModeService', () => {
       });
 
       const result = await serviceWithoutGitHub.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Create a plan',
       });
@@ -1905,13 +1907,13 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
         .mockResolvedValue([
-          createMockPlanSession({ id: sessionId, projectId: project.id, taskId: task.id }),
+          createMockPlanSession({ id: sessionId, codespaceId: project.id, taskId: task.id }),
         ]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
@@ -1950,7 +1952,7 @@ describe('PlanModeService', () => {
       });
 
       const result = await service.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Create a plan',
       });
@@ -2068,13 +2070,13 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
         .mockResolvedValue([
-          createMockPlanSession({ id: sessionId, projectId: project.id, taskId: task.id }),
+          createMockPlanSession({ id: sessionId, codespaceId: project.id, taskId: task.id }),
         ]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
@@ -2099,7 +2101,7 @@ describe('PlanModeService', () => {
       });
 
       const result = await service.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Test prompt',
       });
@@ -2113,13 +2115,13 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
         .mockResolvedValue([
-          createMockPlanSession({ id: sessionId, projectId: project.id, taskId: task.id }),
+          createMockPlanSession({ id: sessionId, codespaceId: project.id, taskId: task.id }),
         ]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
@@ -2135,7 +2137,7 @@ describe('PlanModeService', () => {
       );
 
       const result = await service.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Test prompt',
       });
@@ -2151,13 +2153,13 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
         .mockResolvedValue([
-          createMockPlanSession({ id: sessionId, projectId: project.id, taskId: task.id }),
+          createMockPlanSession({ id: sessionId, codespaceId: project.id, taskId: task.id }),
         ]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
@@ -2181,7 +2183,7 @@ describe('PlanModeService', () => {
       const tokenCallback = vi.fn();
       const result = await service.start(
         {
-          projectId: project.id,
+          codespaceId: project.id,
           taskId: task.id,
           initialPrompt: 'Test prompt',
         },
@@ -2203,13 +2205,13 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
         .mockResolvedValue([
-          createMockPlanSession({ id: sessionId, projectId: project.id, taskId: task.id }),
+          createMockPlanSession({ id: sessionId, codespaceId: project.id, taskId: task.id }),
         ]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
@@ -2240,7 +2242,7 @@ describe('PlanModeService', () => {
       const tokenCallback = vi.fn();
       const result = await service.start(
         {
-          projectId: project.id,
+          codespaceId: project.id,
           taskId: task.id,
           initialPrompt: 'Test prompt',
         },
@@ -2331,7 +2333,7 @@ describe('PlanModeService', () => {
       const project = createMockProject();
       const task = createMockTask(project.id);
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       // Return empty array from insert
@@ -2341,7 +2343,7 @@ describe('PlanModeService', () => {
       });
 
       const result = await service.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Test',
       });
@@ -2357,13 +2359,13 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
         .mockResolvedValue([
-          createMockPlanSession({ id: sessionId, projectId: project.id, taskId: task.id }),
+          createMockPlanSession({ id: sessionId, codespaceId: project.id, taskId: task.id }),
         ]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
@@ -2383,7 +2385,7 @@ describe('PlanModeService', () => {
       );
 
       const result = await service.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Test',
       });
@@ -2397,13 +2399,13 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
         .fn()
         .mockResolvedValue([
-          createMockPlanSession({ id: sessionId, projectId: project.id, taskId: task.id }),
+          createMockPlanSession({ id: sessionId, codespaceId: project.id, taskId: task.id }),
         ]);
       db.insert.mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: insertReturning }),
@@ -2428,7 +2430,7 @@ describe('PlanModeService', () => {
       );
 
       const result = await service.start({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         initialPrompt: 'Test',
       });

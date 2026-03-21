@@ -7,9 +7,9 @@ import { and, count, eq, gt, inArray, ne } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { RBAC_ROLE_LEVEL, type RbacRole } from '../../db/schema/shared/enums';
 import { apiTokens } from '../../db/schema/sqlite/api-tokens';
-import { projects } from '../../db/schema/sqlite/projects';
+import { codespaces } from '../../db/schema/sqlite/codespaces';
 import { tags } from '../../db/schema/sqlite/tags';
-import { teamProjects } from '../../db/schema/sqlite/team-projects';
+import { teamProjectFolders } from '../../db/schema/sqlite/team-project-folders';
 import { teams } from '../../db/schema/sqlite/teams';
 import type { AuthContext } from '../../lib/api/auth-middleware';
 import { createLogger } from '../../lib/logging/logger';
@@ -41,7 +41,7 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
     tokenPrefix: apiTokens.tokenPrefix,
     role: apiTokens.role,
     scopeTags: apiTokens.scopeTags,
-    scopeProjectId: apiTokens.scopeProjectId,
+    scopeCodespaceId: apiTokens.scopeCodespaceId,
     status: apiTokens.status,
     expiresAt: apiTokens.expiresAt,
     lastUsedAt: apiTokens.lastUsedAt,
@@ -78,33 +78,49 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
       }
     }
 
-    // Validate scopeProjectId belongs to the team
-    if (parsed.data.scopeProjectId) {
-      const teamProject = await db
-        .select({ teamId: teamProjects.teamId })
-        .from(teamProjects)
-        .where(
-          and(
-            eq(teamProjects.teamId, parsed.data.teamId),
-            eq(teamProjects.projectId, parsed.data.scopeProjectId)
-          )
-        );
+    // Validate scopeCodespaceId belongs to the team (via project folder)
+    if (parsed.data.scopeCodespaceId) {
+      // Look up the codespace's project folder, then check if the folder belongs to the team
+      const codespace = await db
+        .select({ projectFolderId: codespaces.projectFolderId })
+        .from(codespaces)
+        .where(eq(codespaces.id, parsed.data.scopeCodespaceId));
 
-      if (teamProject.length === 0) {
+      if (codespace.length === 0 || !codespace[0]?.projectFolderId) {
         return json(
           {
             ok: false,
-            error: { code: 'VALIDATION_ERROR', message: 'Project not found in this team' },
+            error: { code: 'VALIDATION_ERROR', message: 'Codespace not found' },
+          },
+          400
+        );
+      }
+
+      const teamFolder = await db
+        .select({ teamId: teamProjectFolders.teamId })
+        .from(teamProjectFolders)
+        .where(
+          and(
+            eq(teamProjectFolders.teamId, parsed.data.teamId),
+            eq(teamProjectFolders.projectFolderId, codespace[0].projectFolderId)
+          )
+        );
+
+      if (teamFolder.length === 0) {
+        return json(
+          {
+            ok: false,
+            error: { code: 'VALIDATION_ERROR', message: 'Codespace not found in this team' },
           },
           400
         );
       }
     }
 
-    // E3: Validate scopeTags exist and belong to the specified team
+    // E3: Validate scopeTags exist and belong to the specified team (via project folders)
     if (parsed.data.scopeTags && parsed.data.scopeTags.length > 0) {
       const foundTags = await db
-        .select({ id: tags.id, teamId: tags.teamId })
+        .select({ id: tags.id, projectFolderId: tags.projectFolderId })
         .from(tags)
         .where(inArray(tags.id, parsed.data.scopeTags));
 
@@ -124,7 +140,13 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
         );
       }
 
-      const wrongTeamTags = foundTags.filter((t) => t.teamId !== parsed.data.teamId);
+      // Verify tags belong to folders owned by the specified team
+      const teamFolders = await db
+        .select({ projectFolderId: teamProjectFolders.projectFolderId })
+        .from(teamProjectFolders)
+        .where(eq(teamProjectFolders.teamId, parsed.data.teamId));
+      const teamFolderIds = new Set(teamFolders.map((f) => f.projectFolderId));
+      const wrongTeamTags = foundTags.filter((t) => !teamFolderIds.has(t.projectFolderId));
       if (wrongTeamTags.length > 0) {
         return json(
           {
@@ -186,7 +208,7 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
             tokenPrefix,
             role: parsed.data.role,
             scopeTags: parsed.data.scopeTags ?? null,
-            scopeProjectId: parsed.data.scopeProjectId ?? null,
+            scopeCodespaceId: parsed.data.scopeCodespaceId ?? null,
             expiresAt,
           })
           .returning();
@@ -231,7 +253,7 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
 
       const { created, rawToken, tokenPrefix } = result;
 
-      // E2: Include teamId, scopeTags, scopeProjectId in creation response
+      // E2: Include teamId, scopeTags, scopeCodespaceId in creation response
       // M2: Return 201 for resource creation
       return json(
         {
@@ -243,7 +265,7 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
             role: created.role,
             teamId: created.teamId,
             scopeTags: created.scopeTags,
-            scopeProjectId: created.scopeProjectId,
+            scopeCodespaceId: created.scopeCodespaceId,
             // Return raw token ONCE - never retrievable again
             token: rawToken,
             expiresAt: created.expiresAt,
@@ -399,7 +421,7 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
 
     try {
       // E5: Include teamName via left join
-      // F5: Include scopeProjectName via left join with projects
+      // F5: Include scopeCodespaceName via left join with codespaces
       const token = await db
         .select({
           id: apiTokens.id,
@@ -407,17 +429,17 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
           tokenPrefix: apiTokens.tokenPrefix,
           role: apiTokens.role,
           scopeTags: apiTokens.scopeTags,
-          scopeProjectId: apiTokens.scopeProjectId,
+          scopeCodespaceId: apiTokens.scopeCodespaceId,
           status: apiTokens.status,
           expiresAt: apiTokens.expiresAt,
           lastUsedAt: apiTokens.lastUsedAt,
           createdAt: apiTokens.createdAt,
           teamName: teams.name,
-          scopeProjectName: projects.name,
+          scopeCodespaceName: codespaces.name,
         })
         .from(apiTokens)
         .leftJoin(teams, eq(apiTokens.teamId, teams.id))
-        .leftJoin(projects, eq(apiTokens.scopeProjectId, projects.id))
+        .leftJoin(codespaces, eq(apiTokens.scopeCodespaceId, codespaces.id))
         .where(and(eq(apiTokens.id, id), eq(apiTokens.userId, auth.userId)));
 
       const tokenData = token[0];

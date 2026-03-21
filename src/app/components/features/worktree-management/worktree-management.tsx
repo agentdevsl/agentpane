@@ -291,12 +291,12 @@ function ContextMenu({
 // ============================================
 
 export function WorktreeManagement({
-  projectId,
+  codespaceId,
   onWorktreeSelect,
   panelMode = false,
 }: WorktreeManagementProps): React.JSX.Element {
   const { worktrees, activeWorktrees, staleWorktrees, isLoading, error, refetch } =
-    useWorktrees(projectId);
+    useWorktrees(codespaceId);
 
   const {
     isLoading: isActionLoading,
@@ -499,7 +499,7 @@ export function WorktreeManagement({
       <div className="flex items-center justify-between border-b border-border bg-surface px-4 py-2">
         <div className="flex items-center gap-2">
           <span className="rounded border border-border bg-surface-subtle px-3 py-1.5 text-sm font-mono text-fg-muted">
-            {projectId.slice(0, 12)}...
+            {codespaceId.slice(0, 12)}...
           </span>
         </div>
         <div className="flex items-center gap-2">

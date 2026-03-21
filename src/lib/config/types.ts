@@ -1,6 +1,6 @@
-import type { ProjectSandboxConfig } from '../sandbox/types.js';
+import type { CodespaceSandboxConfig } from '../sandbox/types.js';
 
-export type ProjectConfig = {
+export type CodespaceConfig = {
   worktreeRoot: string;
   initScript?: string;
   envFile?: string;
@@ -13,7 +13,7 @@ export type ProjectConfig = {
   /** Environment variables to pass to sandbox containers securely */
   envVars?: Record<string, string>;
   /** Sandbox configuration for Docker-based execution */
-  sandbox?: ProjectSandboxConfig;
+  sandbox?: CodespaceSandboxConfig;
 };
 
 export type GlobalConfig = {
@@ -23,7 +23,7 @@ export type GlobalConfig = {
   appUrl?: string;
 };
 
-export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
+export const DEFAULT_CODESPACE_CONFIG: CodespaceConfig = {
   worktreeRoot: '.worktrees',
   defaultBranch: 'main',
   allowedTools: ['Read', 'Edit', 'Bash', 'Glob', 'Grep'],

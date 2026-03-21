@@ -5,19 +5,19 @@ import { getTestDb } from '../helpers/database';
 
 type SessionStatus = 'idle' | 'initializing' | 'active' | 'paused' | 'closing' | 'closed' | 'error';
 
-export type SessionFactoryOptions = Partial<Omit<NewSession, 'projectId'>> & {
-  projectId?: string;
+export type SessionFactoryOptions = Partial<Omit<NewSession, 'codespaceId'>> & {
+  codespaceId?: string;
   status?: SessionStatus;
   taskId?: string | null;
   agentId?: string | null;
 };
 
-export function buildSession(projectId: string, options: SessionFactoryOptions = {}): NewSession {
+export function buildSession(codespaceId: string, options: SessionFactoryOptions = {}): NewSession {
   const id = options.id ?? createId();
 
   return {
     id,
-    projectId,
+    codespaceId,
     taskId: options.taskId ?? null,
     agentId: options.agentId ?? null,
     status: options.status ?? 'active',
@@ -28,11 +28,11 @@ export function buildSession(projectId: string, options: SessionFactoryOptions =
 }
 
 export async function createTestSession(
-  projectId: string,
+  codespaceId: string,
   options: SessionFactoryOptions = {}
 ): Promise<Session> {
   const db = getTestDb();
-  const data = buildSession(projectId, options);
+  const data = buildSession(codespaceId, options);
 
   const [session] = await db.insert(sessions).values(data).returning();
 
@@ -44,14 +44,14 @@ export async function createTestSession(
 }
 
 export async function createTestSessions(
-  projectId: string,
+  codespaceId: string,
   count: number,
   options: SessionFactoryOptions = {}
 ): Promise<Session[]> {
   const createdSessions: Session[] = [];
 
   for (let i = 0; i < count; i++) {
-    const session = await createTestSession(projectId, {
+    const session = await createTestSession(codespaceId, {
       ...options,
       title: options.title ?? `Test Session ${i + 1}`,
     });
@@ -62,12 +62,12 @@ export async function createTestSessions(
 }
 
 export async function createActiveSession(
-  projectId: string,
+  codespaceId: string,
   taskId: string,
   agentId: string,
   options: SessionFactoryOptions = {}
 ): Promise<Session> {
-  return createTestSession(projectId, {
+  return createTestSession(codespaceId, {
     ...options,
     taskId,
     agentId,
@@ -76,10 +76,10 @@ export async function createActiveSession(
 }
 
 export async function createClosedSession(
-  projectId: string,
+  codespaceId: string,
   options: SessionFactoryOptions = {}
 ): Promise<Session> {
-  return createTestSession(projectId, {
+  return createTestSession(codespaceId, {
     ...options,
     status: 'closed',
     closedAt: options.closedAt ?? new Date(),

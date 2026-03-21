@@ -11,13 +11,13 @@ export const SandboxErrors = {
     404
   ),
 
-  CONTAINER_ALREADY_EXISTS: (projectId: string) =>
+  CONTAINER_ALREADY_EXISTS: (codespaceId: string) =>
     createError(
       'SANDBOX_CONTAINER_ALREADY_EXISTS',
-      'Sandbox container already exists for project',
+      'Sandbox container already exists for codespace',
       409,
       {
-        projectId,
+        codespaceId,
       }
     ),
 
@@ -113,9 +113,9 @@ export const SandboxErrors = {
   // Project errors
   PROJECT_NOT_FOUND: createError('SANDBOX_PROJECT_NOT_FOUND', 'Project not found', 404),
 
-  SANDBOX_NOT_ENABLED: (projectId: string) =>
-    createError('SANDBOX_NOT_ENABLED', 'Sandbox is not enabled for this project', 400, {
-      projectId,
+  SANDBOX_NOT_ENABLED: (codespaceId: string) =>
+    createError('SANDBOX_NOT_ENABLED', 'Sandbox is not enabled for this codespace', 400, {
+      codespaceId,
     }),
 
   // State errors

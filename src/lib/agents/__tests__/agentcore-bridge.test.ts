@@ -78,7 +78,7 @@ describe('AgentCoreBridge', () => {
   let mockStreams: MockStreams;
   const taskId = 'task-001';
   const sessionId = 'session-001';
-  const projectId = 'proj-001';
+  const codespaceId = 'proj-001';
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -95,7 +95,7 @@ describe('AgentCoreBridge', () => {
     return createAgentCoreBridge({
       taskId,
       sessionId,
-      projectId,
+      codespaceId,
       streams: mockStreams as unknown as AgentCoreBridgeOptions['streams'],
       ...overrides,
     });
@@ -123,7 +123,7 @@ describe('AgentCoreBridge', () => {
       expect.objectContaining({
         taskId,
         sessionId,
-        projectId,
+        codespaceId,
         message: 'Agent starting',
       })
     );
@@ -135,7 +135,7 @@ describe('AgentCoreBridge', () => {
       expect.objectContaining({
         taskId,
         sessionId,
-        projectId,
+        codespaceId,
         turnCount: 1,
         content: 'hello',
       })
@@ -170,7 +170,7 @@ describe('AgentCoreBridge', () => {
       expect(mockStreams.publish).toHaveBeenCalledWith(
         sessionId,
         expectedStreamType,
-        expect.objectContaining({ taskId, sessionId, projectId })
+        expect.objectContaining({ taskId, sessionId, codespaceId })
       );
     }
   });
@@ -194,7 +194,7 @@ describe('AgentCoreBridge', () => {
     expect(mockStreams.publish).toHaveBeenCalledWith(
       sessionId,
       'container-agent:token',
-      expect.objectContaining({ delta: 'Hello', taskId, sessionId, projectId })
+      expect.objectContaining({ delta: 'Hello', taskId, sessionId, codespaceId })
     );
     expect(mockStreams.publish).toHaveBeenCalledWith(
       sessionId,
@@ -418,7 +418,7 @@ describe('AgentCoreBridge', () => {
         turnCount: 0,
         taskId,
         sessionId,
-        projectId,
+        codespaceId,
       })
     );
 
@@ -509,7 +509,7 @@ describe('AgentCoreBridge', () => {
   // 11. Event enrichment
   // -------------------------------------------------------------------------
 
-  it('should enrich events with taskId, sessionId, and projectId', async () => {
+  it('should enrich events with taskId, sessionId, and codespaceId', async () => {
     const events: SSEEvent[] = [{ type: 'agent:token', data: { delta: 'test' } }];
 
     const bridge = createBridge();
@@ -521,14 +521,14 @@ describe('AgentCoreBridge', () => {
       expect.objectContaining({
         taskId: 'task-001',
         sessionId: 'session-001',
-        projectId: 'proj-001',
+        codespaceId: 'proj-001',
         delta: 'test',
       })
     );
   });
 
   it('should not allow event data to overwrite bridge context keys', async () => {
-    // Context keys (taskId, sessionId, projectId) are placed after the spread
+    // Context keys (taskId, sessionId, codespaceId) are placed after the spread
     // so they always win over event data — prevents event data from misrouting
     const events: SSEEvent[] = [
       { type: 'agent:started', data: { taskId: 'malicious-task', extra: 'data' } },
@@ -544,7 +544,7 @@ describe('AgentCoreBridge', () => {
       expect.objectContaining({
         taskId: 'task-001', // bridge context wins
         sessionId: 'session-001',
-        projectId: 'proj-001',
+        codespaceId: 'proj-001',
         extra: 'data',
       })
     );

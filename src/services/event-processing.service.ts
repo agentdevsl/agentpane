@@ -232,7 +232,7 @@ export class EventProcessingService {
       const taskTitle = buildTaskTitle(event, subscription.name);
 
       const taskResult = await this.taskService.create({
-        projectId: subscription.targetProjectId,
+        codespaceId: subscription.targetCodespaceId,
         title: taskTitle,
         description: renderedPrompt,
         labels: subscription.taskLabels ?? [],
@@ -269,7 +269,10 @@ export class EventProcessingService {
         }
       } else {
         log.error('Failed to create task from event', {
-          data: { subscriptionId: subscription.id, targetProjectId: subscription.targetProjectId },
+          data: {
+            subscriptionId: subscription.id,
+            targetCodespaceId: subscription.targetCodespaceId,
+          },
           error: taskResult.error.message,
         });
         matchedSubRecords.push({ subscriptionId: subscription.id });

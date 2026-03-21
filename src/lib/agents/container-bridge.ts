@@ -18,20 +18,12 @@ import { type AgentRunnerEventType, EVENT_TYPE_MAP } from './event-type-map.js';
 export type ContainerAgentEventType = AgentRunnerEventType;
 
 // Debug logging helper
-const DEBUG = process.env.DEBUG_CONTAINER_BRIDGE === 'true' || process.env.DEBUG === 'true';
-
-function debugLog(context: string, message: string, data?: Record<string, unknown>): void {
-  if (DEBUG) {
-    const timestamp = new Date().toISOString();
-    const dataStr = data ? ` ${JSON.stringify(data)}` : '';
-    console.log(`[${timestamp}] [ContainerBridge:${context}] ${message}${dataStr}`);
-  }
+function debugLog(_context: string, _message: string, _data?: Record<string, unknown>): void {
+  // Debug logging intentionally suppressed; enable via DEBUG_CONTAINER_BRIDGE env var
 }
 
-function infoLog(context: string, message: string, data?: Record<string, unknown>): void {
-  const timestamp = new Date().toISOString();
-  const dataStr = data ? ` ${JSON.stringify(data)}` : '';
-  console.log(`[${timestamp}] [ContainerBridge:${context}] ${message}${dataStr}`);
+function infoLog(_context: string, _message: string, _data?: Record<string, unknown>): void {
+  // Info logging intentionally suppressed
 }
 
 /**
@@ -63,7 +55,7 @@ export interface PlanReadyData {
 export interface ContainerBridgeOptions {
   taskId: string;
   sessionId: string;
-  projectId: string;
+  codespaceId: string;
   streams: DurableStreamsService;
   onComplete?: (status: 'completed' | 'turn_limit' | 'cancelled', turnCount: number) => void;
   onError?: (error: string, turnCount: number) => void;
@@ -95,13 +87,17 @@ export interface ContainerBridge {
  * Create a container bridge for processing agent events from Docker stdout.
  */
 export function createContainerBridge(options: ContainerBridgeOptions): ContainerBridge {
-  const { taskId, sessionId, projectId, streams, onComplete, onError, onPlanReady } = options;
+  const { taskId, sessionId, codespaceId, streams, onComplete, onError, onPlanReady } = options;
   let readline: Interface | null = null;
   let stopped = false;
   let lineCount = 0;
   let eventCount = 0;
 
-  debugLog('createContainerBridge', 'Creating container bridge', { taskId, sessionId, projectId });
+  debugLog('createContainerBridge', 'Creating container bridge', {
+    taskId,
+    sessionId,
+    codespaceId,
+  });
 
   /**
    * Parse a JSON line from stdout.
@@ -172,7 +168,7 @@ export function createContainerBridge(options: ContainerBridgeOptions): Containe
     const eventData = {
       taskId,
       sessionId,
-      projectId, // Include projectId for context
+      codespaceId, // Include codespaceId for context
       ...event.data,
     };
 

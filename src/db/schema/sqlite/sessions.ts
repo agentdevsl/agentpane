@@ -4,7 +4,7 @@ import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 import { index, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import type { SessionStatus } from '../shared/enums';
 import { agents } from './agents';
-import { projects } from './projects';
+import { codespaces } from './codespaces';
 import { tasks } from './tasks';
 
 export const sessions = sqliteTable(
@@ -13,9 +13,9 @@ export const sessions = sqliteTable(
     id: text('id')
       .primaryKey()
       .$defaultFn(() => createId()),
-    projectId: text('project_id')
+    codespaceId: text('codespace_id')
       .notNull()
-      .references(() => projects.id, { onDelete: 'cascade' }),
+      .references(() => codespaces.id, { onDelete: 'cascade' }),
     taskId: text('task_id').references((): AnySQLiteColumn => tasks.id, { onDelete: 'set null' }),
     agentId: text('agent_id').references(() => agents.id, { onDelete: 'set null' }),
     status: text('status').$type<SessionStatus>().default('idle').notNull(),
@@ -30,8 +30,8 @@ export const sessions = sqliteTable(
       .$onUpdate(() => new Date().toISOString()),
     closedAt: text('closed_at'),
   },
-  // DB-009: Add index on projectId for project-scoped session lookups
-  (table) => [index('idx_sessions_project_id').on(table.projectId)]
+  // DB-009: Add index on codespaceId for codespace-scoped session lookups
+  (table) => [index('idx_sessions_codespace_id').on(table.codespaceId)]
 );
 
 export type Session = typeof sessions.$inferSelect;

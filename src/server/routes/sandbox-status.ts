@@ -40,10 +40,10 @@ interface SandboxProviderHealth {
     details?: Record<string, unknown>;
   }>;
   listSandboxes?(): Promise<Array<{ name: string; phase: string }>>;
-  get?(projectId: string): Promise<unknown>;
+  get?(codespaceId: string): Promise<unknown>;
   create?(config: {
-    projectId: string;
-    projectPath: string;
+    codespaceId: string;
+    codespacePath: string;
     image: string;
     memoryMb: number;
     cpuCores: number;
@@ -114,8 +114,8 @@ async function autoHealSandbox(
     await fs.mkdir(workspacePath, { recursive: true });
 
     await dockerProvider.create({
-      projectId: lookupId,
-      projectPath: workspacePath,
+      codespaceId: lookupId,
+      codespacePath: workspacePath,
       image,
       memoryMb: defaults?.memoryMb ?? SANDBOX_DEFAULTS.memoryMb,
       cpuCores: defaults?.cpuCores ?? SANDBOX_DEFAULTS.cpuCores,
@@ -151,8 +151,8 @@ async function autoHealK8sSandbox(
     const image = defaults?.image ?? SANDBOX_DEFAULTS.image;
 
     await k8sProvider.create({
-      projectId: lookupId,
-      projectPath: '/workspace',
+      codespaceId: lookupId,
+      codespacePath: '/workspace',
       image,
       memoryMb: defaults?.memoryMb ?? SANDBOX_DEFAULTS.memoryMb,
       cpuCores: defaults?.cpuCores ?? SANDBOX_DEFAULTS.cpuCores,
@@ -197,11 +197,11 @@ export function createSandboxStatusRoutes({
 }: SandboxStatusDeps) {
   const app = new Hono();
 
-  // GET /api/sandbox/status/:projectId - Get sandbox mode and container status
-  app.get('/:projectId', async (c) => {
-    const projectId = c.req.param('projectId');
+  // GET /api/sandbox/status/:codespaceId - Get sandbox mode and container status
+  app.get('/:codespaceId', async (c) => {
+    const codespaceId = c.req.param('codespaceId');
 
-    if (!isValidId(projectId)) {
+    if (!isValidId(codespaceId)) {
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid project ID' } }, 400);
     }
 
@@ -229,7 +229,7 @@ export function createSandboxStatusRoutes({
 
       if (dockerProvider) {
         try {
-          const lookupId = sandboxMode === 'shared' ? 'default' : projectId;
+          const lookupId = sandboxMode === 'shared' ? 'default' : codespaceId;
 
           // Validate cached containers are still alive in Docker before checking status
           if (
@@ -304,7 +304,7 @@ export function createSandboxStatusRoutes({
 
           // Only auto-heal when we KNOW there are zero pods, not when the count failed
           if (k8sCrdReady && pods !== null && k8sPodCount === 0) {
-            const lookupId = sandboxMode === 'shared' ? 'default' : projectId;
+            const lookupId = sandboxMode === 'shared' ? 'default' : codespaceId;
             const healed = await autoHealK8sSandbox(db, k8sProvider, lookupId);
             if (healed) {
               const recount = await countPods(
@@ -377,11 +377,11 @@ export function createSandboxStatusRoutes({
     }
   });
 
-  // POST /api/sandbox/status/:projectId/restart - Restart the sandbox container
-  app.post('/:projectId/restart', async (c) => {
-    const projectId = c.req.param('projectId');
+  // POST /api/sandbox/status/:codespaceId/restart - Restart the sandbox container
+  app.post('/:codespaceId/restart', async (c) => {
+    const codespaceId = c.req.param('codespaceId');
 
-    if (!isValidId(projectId)) {
+    if (!isValidId(codespaceId)) {
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid project ID' } }, 400);
     }
 
@@ -406,7 +406,7 @@ export function createSandboxStatusRoutes({
           log.warn('Failed to parse sandbox.mode setting in restart, using default');
         }
       }
-      const lookupId = sandboxMode === 'shared' ? 'default' : projectId;
+      const lookupId = sandboxMode === 'shared' ? 'default' : codespaceId;
 
       // Cast to access restart method (it's on DockerProvider but not the interface)
       const provider = dockerProviderForRestart as unknown as {

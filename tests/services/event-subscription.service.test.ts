@@ -27,7 +27,8 @@ function createMockDb() {
     query: {
       eventSources: { findFirst: vi.fn() },
       eventSubscriptions: { findFirst: vi.fn(), findMany: vi.fn() },
-      teamProjects: { findFirst: vi.fn() },
+      codespaces: { findFirst: vi.fn() },
+      teamProjectFolders: { findFirst: vi.fn() },
     },
     _insertChain: insertChain,
     _updateChain: updateChain,
@@ -40,7 +41,7 @@ function makeSubscription(overrides: Record<string, unknown> = {}) {
     id: 'sub-1',
     name: 'Test Subscription',
     eventSourceId: 'source-1',
-    targetProjectId: 'project-1',
+    targetCodespaceId: 'project-1',
     isEnabled: true,
     eventTypes: [],
     filters: [],
@@ -78,7 +79,7 @@ describe('EventSubscriptionService', () => {
     const baseInput = {
       name: 'My Subscription',
       eventSourceId: 'source-1',
-      targetProjectId: 'project-1',
+      targetCodespaceId: 'project-1',
       promptTemplate: 'Fix: {{issue.title}}',
     };
 
@@ -97,9 +98,10 @@ describe('EventSubscriptionService', () => {
         id: 'source-1',
         teamId: 'team-1',
       });
-      mockDb.query.teamProjects.findFirst.mockResolvedValue({
+      mockDb.query.codespaces.findFirst.mockResolvedValue({ projectFolderId: 'folder-1' });
+      mockDb.query.teamProjectFolders.findFirst.mockResolvedValue({
         teamId: 'team-1',
-        projectId: 'project-1',
+        codespaceId: 'project-1',
       });
 
       const created = makeSubscription({
@@ -131,9 +133,10 @@ describe('EventSubscriptionService', () => {
         id: 'source-1',
         teamId: 'team-1',
       });
-      mockDb.query.teamProjects.findFirst.mockResolvedValue({
+      mockDb.query.codespaces.findFirst.mockResolvedValue({ projectFolderId: 'folder-1' });
+      mockDb.query.teamProjectFolders.findFirst.mockResolvedValue({
         teamId: 'team-1',
-        projectId: 'project-1',
+        codespaceId: 'project-1',
       });
 
       const created = makeSubscription({ name: baseInput.name });
@@ -164,8 +167,8 @@ describe('EventSubscriptionService', () => {
       if (result.ok) return;
       expect(result.error.code).toBe('EVENT_SOURCE_NOT_FOUND');
 
-      // Should not proceed to team check or insert
-      expect(mockDb.query.teamProjects.findFirst).not.toHaveBeenCalled();
+      // Should not proceed to codespace lookup or insert
+      expect(mockDb.query.codespaces.findFirst).not.toHaveBeenCalled();
       expect(mockDb.insert).not.toHaveBeenCalled();
     });
 
@@ -174,7 +177,8 @@ describe('EventSubscriptionService', () => {
         id: 'source-1',
         teamId: 'team-1',
       });
-      mockDb.query.teamProjects.findFirst.mockResolvedValue(undefined);
+      mockDb.query.codespaces.findFirst.mockResolvedValue({ projectFolderId: 'folder-1' });
+      mockDb.query.teamProjectFolders.findFirst.mockResolvedValue(undefined);
 
       const result = await service.create(baseInput);
 
@@ -191,9 +195,10 @@ describe('EventSubscriptionService', () => {
         id: 'source-1',
         teamId: 'team-1',
       });
-      mockDb.query.teamProjects.findFirst.mockResolvedValue({
+      mockDb.query.codespaces.findFirst.mockResolvedValue({ projectFolderId: 'folder-1' });
+      mockDb.query.teamProjectFolders.findFirst.mockResolvedValue({
         teamId: 'team-1',
-        projectId: 'project-1',
+        codespaceId: 'project-1',
       });
       mockDb._insertChain.returning.mockResolvedValue([]);
 
@@ -209,9 +214,10 @@ describe('EventSubscriptionService', () => {
         id: 'source-1',
         teamId: 'team-1',
       });
-      mockDb.query.teamProjects.findFirst.mockResolvedValue({
+      mockDb.query.codespaces.findFirst.mockResolvedValue({ projectFolderId: 'folder-1' });
+      mockDb.query.teamProjectFolders.findFirst.mockResolvedValue({
         teamId: 'team-1',
-        projectId: 'project-1',
+        codespaceId: 'project-1',
       });
       mockDb._insertChain.returning.mockResolvedValue([makeSubscription()]);
 
@@ -286,18 +292,18 @@ describe('EventSubscriptionService', () => {
   });
 
   // ===========================================================================
-  // listByProject()
+  // listByCodespace()
   // ===========================================================================
 
-  describe('listByProject()', () => {
+  describe('listByCodespace()', () => {
     it('returns array of subscriptions', async () => {
       const subs = [
-        makeSubscription({ id: 'sub-1', targetProjectId: 'project-1' }),
-        makeSubscription({ id: 'sub-3', targetProjectId: 'project-1', name: 'Third' }),
+        makeSubscription({ id: 'sub-1', targetCodespaceId: 'project-1' }),
+        makeSubscription({ id: 'sub-3', targetCodespaceId: 'project-1', name: 'Third' }),
       ];
       mockDb.query.eventSubscriptions.findMany.mockResolvedValue(subs);
 
-      const result = await service.listByProject('project-1');
+      const result = await service.listByCodespace('project-1');
 
       expect(result.ok).toBe(true);
       if (!result.ok) return;
@@ -309,7 +315,7 @@ describe('EventSubscriptionService', () => {
     it('returns empty array when none exist', async () => {
       mockDb.query.eventSubscriptions.findMany.mockResolvedValue([]);
 
-      const result = await service.listByProject('project-no-subs');
+      const result = await service.listByCodespace('project-no-subs');
 
       expect(result.ok).toBe(true);
       if (!result.ok) return;

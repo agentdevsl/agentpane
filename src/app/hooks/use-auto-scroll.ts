@@ -1,4 +1,3 @@
-// biome-ignore lint/style/noRestrictedImports: factory hook — only file allowed to import useEffect
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface UseAutoScrollReturn {

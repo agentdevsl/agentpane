@@ -14,6 +14,10 @@ import {
   TEMPLATE_SYNC_INTERVAL_MIGRATION_SQL,
   TERRAFORM_MIGRATION_SQL,
 } from '../phases/schema.js';
+import {
+  PROJECT_FOLDERS_ALTER_STATEMENTS,
+  PROJECT_FOLDERS_MIGRATION_SQL,
+} from './v19-project-folders.js';
 
 /**
  * A single migration step in the ordered migration sequence.
@@ -119,4 +123,14 @@ export const MIGRATIONS: Migration[] = [
 
   // 18. DB review indexes — remove redundant index, add missing indexes (DB-008, DB-009)
   { version: 18, name: 'db-review-indexes', sql: DB_REVIEW_INDEXES_MIGRATION_SQL },
+
+  // 19. Project folders tenancy model + project→codespace rename (tables + data migration)
+  { version: 19, name: 'project-folders-and-codespace-rename', sql: PROJECT_FOLDERS_MIGRATION_SQL },
+
+  // 20. Project folders — FK column renames via ALTER TABLE (individual statements for idempotency)
+  {
+    version: 20,
+    name: 'project-folders-alter-columns',
+    statements: [...PROJECT_FOLDERS_ALTER_STATEMENTS],
+  },
 ];

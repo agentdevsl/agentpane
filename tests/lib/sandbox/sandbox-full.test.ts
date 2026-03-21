@@ -69,7 +69,7 @@ vi.mock('node:os', () => ({
 // ============================================================================
 
 const createSandboxConfig = (overrides: Partial<SandboxConfig> = {}): SandboxConfig => ({
-  projectId: 'project-123',
+  codespaceId: 'project-123',
   projectPath: '/path/to/project',
   image: 'docker/sandbox-templates:claude-code',
   memoryMb: 4096,
@@ -670,11 +670,11 @@ describe('DockerProvider - Extended Coverage', () => {
       const provider = new DockerProvider();
 
       // Create and stop first container
-      const sandbox1 = await provider.create(createSandboxConfig({ projectId: 'project-1' }));
+      const sandbox1 = await provider.create(createSandboxConfig({ codespaceId: 'project-1' }));
       await sandbox1.stop();
 
       // Create and stop second container
-      const sandbox2 = await provider.create(createSandboxConfig({ projectId: 'project-2' }));
+      const sandbox2 = await provider.create(createSandboxConfig({ codespaceId: 'project-2' }));
       await sandbox2.stop();
 
       const cleaned = await provider.cleanup({ status: ['stopped'] });
@@ -725,7 +725,7 @@ describe('DockerProvider - Extended Coverage', () => {
       unsubscribe();
 
       // Create another sandbox - events should not be captured
-      await provider.create(createSandboxConfig({ projectId: 'project-2' }));
+      await provider.create(createSandboxConfig({ codespaceId: 'project-2' }));
 
       expect(events.length).toBe(countBefore);
     });
@@ -743,7 +743,7 @@ describe('DockerProvider - Extended Coverage', () => {
 
       provider.off(listener);
 
-      await provider.create(createSandboxConfig({ projectId: 'project-2' }));
+      await provider.create(createSandboxConfig({ codespaceId: 'project-2' }));
 
       expect(events.length).toBe(countBefore);
     });
@@ -791,7 +791,7 @@ describe('DockerProvider - Extended Coverage', () => {
       const sandbox = await provider.get('project-123');
 
       expect(sandbox).not.toBeNull();
-      expect(sandbox?.projectId).toBe('project-123');
+      expect(sandbox?.codespaceId).toBe('project-123');
     });
 
     it('returns null for unknown project ID', async () => {
@@ -822,14 +822,14 @@ describe('DockerProvider - Extended Coverage', () => {
       mockDockerCreateContainer.mockResolvedValue(mockContainer);
 
       const provider = new DockerProvider();
-      await provider.create(createSandboxConfig({ projectId: 'project-1' }));
-      await provider.create(createSandboxConfig({ projectId: 'project-2' }));
+      await provider.create(createSandboxConfig({ codespaceId: 'project-1' }));
+      await provider.create(createSandboxConfig({ codespaceId: 'project-2' }));
 
       const list = await provider.list();
 
       expect(list).toHaveLength(2);
-      expect(list[0].projectId).toBe('project-1');
-      expect(list[1].projectId).toBe('project-2');
+      expect(list[0].codespaceId).toBe('project-1');
+      expect(list[1].codespaceId).toBe('project-2');
     });
   });
 });
@@ -849,7 +849,7 @@ describe('TmuxManager - Extended Coverage', () => {
 
     mockSandbox = {
       id: 'sandbox-123',
-      projectId: 'project-123',
+      codespaceId: 'project-123',
       containerId: 'container-abc',
       status: 'running',
       exec: vi.fn(),
@@ -882,7 +882,7 @@ describe('TmuxManager - Extended Coverage', () => {
   });
 
   describe('Session Creation - Edge Cases', () => {
-    it('creates session using projectId lookup', async () => {
+    it('creates session using codespaceId lookup', async () => {
       const mockSession: TmuxSession = {
         name: 'agent-task-1',
         sandboxId: 'sandbox-123',
@@ -896,7 +896,7 @@ describe('TmuxManager - Extended Coverage', () => {
 
       const manager = new TmuxManager(mockProvider);
       const result = await manager.createSession({
-        projectId: 'project-123',
+        codespaceId: 'project-123',
         taskId: 'task-1',
       });
 

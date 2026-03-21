@@ -1,15 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ProjectConfig } from '../../src/db/schema';
+import type { CodespaceConfig } from '../../src/db/schema';
 import { ok } from '../../src/lib/utils/result';
-import { ProjectService } from '../../src/services/project.service';
+import { CodespaceService } from '../../src/services/codespace.service';
 import { createRunningAgent } from '../factories/agent.factory';
 import { createTestProject, createTestProjects } from '../factories/project.factory';
 import { createTestSession } from '../factories/session.factory';
 import { createTasksInColumns, createTestTask } from '../factories/task.factory';
-import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/database';
+import { clearTestDatabase, execRawSql, getTestDb, setupTestDatabase } from '../helpers/database';
 
-describe('ProjectService', () => {
-  let projectService: ProjectService;
+describe('CodespaceService', () => {
+  let projectService: CodespaceService;
   const mockWorktreeService = {
     prune: vi.fn().mockResolvedValue(ok({ pruned: 0, failed: [] })),
   };
@@ -21,7 +21,7 @@ describe('ProjectService', () => {
   beforeEach(async () => {
     await setupTestDatabase();
     const db = getTestDb();
-    projectService = new ProjectService(db, mockWorktreeService, mockCommandRunner);
+    projectService = new CodespaceService(db, mockWorktreeService, mockCommandRunner);
     vi.clearAllMocks();
   });
 
@@ -46,6 +46,7 @@ describe('ProjectService', () => {
       });
 
       const result = await projectService.create({
+        projectFolderId: 'default-folder',
         path: '/tmp/test-project-full',
         name: 'Full Project',
         description: 'A project with all fields',
@@ -104,7 +105,7 @@ describe('ProjectService', () => {
       const getResult = await projectService.getById(project.id);
       expect(getResult.ok).toBe(false);
       if (!getResult.ok) {
-        expect(getResult.error.code).toBe('PROJECT_NOT_FOUND');
+        expect(getResult.error.code).toBe('CODESPACE_NOT_FOUND');
       }
     });
 
@@ -118,7 +119,7 @@ describe('ProjectService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.code).toBe('PROJECT_HAS_RUNNING_AGENTS');
+        expect(result.error.code).toBe('CODESPACE_HAS_RUNNING_AGENTS');
         expect(result.error.details?.runningAgentCount).toBe(1);
       }
     });
@@ -180,7 +181,7 @@ describe('ProjectService', () => {
     it('updates project config', async () => {
       const project = await createTestProject();
 
-      const newConfig: Partial<ProjectConfig> = {
+      const newConfig: Partial<CodespaceConfig> = {
         worktreeRoot: '.updated-worktrees',
         defaultBranch: 'develop',
         allowedTools: ['Read', 'Write', 'Edit', 'Bash'],
@@ -213,7 +214,7 @@ describe('ProjectService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.code).toBe('PROJECT_CONFIG_INVALID');
+        expect(result.error.code).toBe('CODESPACE_CONFIG_INVALID');
       }
     });
 
@@ -222,7 +223,7 @@ describe('ProjectService', () => {
         worktreeRoot: '.custom-worktrees',
       };
 
-      const result = projectService.validateConfig(partialConfig as Partial<ProjectConfig>);
+      const result = projectService.validateConfig(partialConfig as Partial<CodespaceConfig>);
 
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -243,12 +244,12 @@ describe('ProjectService', () => {
       };
 
       const result = projectService.validateConfig(
-        configWithSecrets as unknown as Partial<ProjectConfig>
+        configWithSecrets as unknown as Partial<CodespaceConfig>
       );
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.code).toBe('PROJECT_CONFIG_INVALID');
+        expect(result.error.code).toBe('CODESPACE_CONFIG_INVALID');
         // Secrets are reported in the details.validationErrors array
         expect(result.error.details?.validationErrors).toBeDefined();
         const errors = result.error.details?.validationErrors as string[];
@@ -275,7 +276,7 @@ describe('ProjectService', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const summary = result.value.find((s) => s.project.id === project.id);
+        const summary = result.value.find((s) => s.codespace.id === project.id);
         expect(summary).toBeDefined();
         expect(summary?.taskCounts.backlog).toBe(3);
         expect(summary?.taskCounts.inProgress).toBe(2);
@@ -295,7 +296,7 @@ describe('ProjectService', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const summary = result.value.find((s) => s.project.id === project.id);
+        const summary = result.value.find((s) => s.codespace.id === project.id);
         expect(summary?.status).toBe('running');
         expect(summary?.runningAgents.length).toBe(1);
       }
@@ -309,7 +310,7 @@ describe('ProjectService', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const summary = result.value.find((s) => s.project.id === project.id);
+        const summary = result.value.find((s) => s.codespace.id === project.id);
         expect(summary?.status).toBe('needs-approval');
       }
     });
@@ -336,7 +337,7 @@ describe('ProjectService', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const summary = result.value.find((s) => s.project.id === project.id);
+        const summary = result.value.find((s) => s.codespace.id === project.id);
         expect(summary?.lastActivityAt).toBeTruthy();
       }
     });
@@ -352,7 +353,7 @@ describe('ProjectService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.code).toBe('PROJECT_NOT_FOUND');
+        expect(result.error.code).toBe('CODESPACE_NOT_FOUND');
         expect(result.error.status).toBe(404);
       }
     });
@@ -364,7 +365,7 @@ describe('ProjectService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.code).toBe('PROJECT_NOT_FOUND');
+        expect(result.error.code).toBe('CODESPACE_NOT_FOUND');
       }
     });
 
@@ -373,7 +374,7 @@ describe('ProjectService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.code).toBe('PROJECT_NOT_FOUND');
+        expect(result.error.code).toBe('CODESPACE_NOT_FOUND');
       }
     });
 
@@ -382,11 +383,11 @@ describe('ProjectService', () => {
         maxTurns: -5, // Invalid: min is 1
       };
 
-      const result = projectService.validateConfig(invalidConfig as Partial<ProjectConfig>);
+      const result = projectService.validateConfig(invalidConfig as Partial<CodespaceConfig>);
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.code).toBe('PROJECT_CONFIG_INVALID');
+        expect(result.error.code).toBe('CODESPACE_CONFIG_INVALID');
         expect(result.error.status).toBe(400);
       }
     });
@@ -403,18 +404,20 @@ describe('ProjectService', () => {
 
       // Create a project first
       const firstResult = await projectService.create({
+        projectFolderId: 'default-folder',
         path: '/tmp/duplicate-path',
       });
       expect(firstResult.ok).toBe(true);
 
       // Try to create another project with the same path
       const result = await projectService.create({
+        projectFolderId: 'default-folder',
         path: '/tmp/duplicate-path',
       });
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.code).toBe('PROJECT_PATH_EXISTS');
+        expect(result.error.code).toBe('CODESPACE_PATH_EXISTS');
         expect(result.error.status).toBe(409);
       }
     });
@@ -460,7 +463,7 @@ describe('ProjectService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.code).toBe('PROJECT_NOT_A_GIT_REPO');
+        expect(result.error.code).toBe('CODESPACE_NOT_A_GIT_REPO');
       }
     });
 
@@ -523,7 +526,7 @@ describe('ProjectService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.code).toBe('PROJECT_PATH_EXISTS');
+        expect(result.error.code).toBe('CODESPACE_PATH_EXISTS');
       }
     });
 
@@ -542,7 +545,7 @@ describe('ProjectService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.code).toBe('PROJECT_CONFIG_INVALID');
+        expect(result.error.code).toBe('CODESPACE_CONFIG_INVALID');
         // The error details contain the validation errors with clone failure message
         expect(result.error.details?.validationErrors).toBeDefined();
         const errors = result.error.details?.validationErrors as string[];
@@ -563,7 +566,7 @@ describe('ProjectService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.code).toBe('PROJECT_NOT_FOUND');
+        expect(result.error.code).toBe('CODESPACE_NOT_FOUND');
       }
     });
 
@@ -576,7 +579,7 @@ describe('ProjectService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.code).toBe('PROJECT_CONFIG_INVALID');
+        expect(result.error.code).toBe('CODESPACE_CONFIG_INVALID');
       }
     });
   });
@@ -708,7 +711,7 @@ describe('ProjectService', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const summary = result.value.find((s) => s.project.id === project.id);
+        const summary = result.value.find((s) => s.codespace.id === project.id);
         expect(summary?.status).toBe('running');
         expect(summary?.runningAgents.length).toBe(1);
         expect(summary?.runningAgents[0].currentTaskId).toBeNull();
@@ -725,7 +728,7 @@ describe('ProjectService', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const summary = result.value.find((s) => s.project.id === project.id);
+        const summary = result.value.find((s) => s.codespace.id === project.id);
         expect(summary?.status).toBe('idle');
       }
     });
@@ -737,7 +740,7 @@ describe('ProjectService', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const summary = result.value.find((s) => s.project.id === project.id);
+        const summary = result.value.find((s) => s.codespace.id === project.id);
         expect(summary?.lastActivityAt).toBeNull();
         expect(summary?.taskCounts.total).toBe(0);
       }
@@ -773,7 +776,7 @@ describe('ProjectService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.code).toBe('PROJECT_CONFIG_INVALID');
+        expect(result.error.code).toBe('CODESPACE_CONFIG_INVALID');
       }
     });
 
@@ -787,7 +790,7 @@ describe('ProjectService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.code).toBe('PROJECT_CONFIG_INVALID');
+        expect(result.error.code).toBe('CODESPACE_CONFIG_INVALID');
       }
     });
 
@@ -879,7 +882,11 @@ describe('ProjectService', () => {
         return Promise.resolve({ stdout: '', stderr: '' });
       });
 
+      execRawSql(
+        "INSERT OR IGNORE INTO sandbox_configs (id, name) VALUES ('sandbox-config-123', 'Test Sandbox')"
+      );
       const result = await projectService.create({
+        projectFolderId: 'default-folder',
         path: '/tmp/sandbox-project',
         sandboxConfigId: 'sandbox-config-123',
       });
@@ -901,6 +908,7 @@ describe('ProjectService', () => {
       });
 
       const result = await projectService.create({
+        projectFolderId: 'default-folder',
         path: '/tmp/invalid-config-project',
         config: {
           maxTurns: 1000, // Invalid: max is 500
@@ -909,7 +917,7 @@ describe('ProjectService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.code).toBe('PROJECT_CONFIG_INVALID');
+        expect(result.error.code).toBe('CODESPACE_CONFIG_INVALID');
       }
     });
   });
@@ -924,7 +932,7 @@ describe('ProjectService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.code).toBe('PROJECT_NOT_FOUND');
+        expect(result.error.code).toBe('CODESPACE_NOT_FOUND');
       }
     });
 
@@ -952,7 +960,7 @@ describe('ProjectService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.code).toBe('PROJECT_CONFIG_INVALID');
+        expect(result.error.code).toBe('CODESPACE_CONFIG_INVALID');
         expect(result.error.details?.validationErrors).toBeDefined();
         const errors = result.error.details?.validationErrors as string[];
         expect(errors.some((e) => e.includes('GitHub sync failed'))).toBe(true);
@@ -969,7 +977,7 @@ describe('ProjectService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.code).toBe('PROJECT_CONFIG_INVALID');
+        expect(result.error.code).toBe('CODESPACE_CONFIG_INVALID');
         expect(result.error.details?.validationErrors).toContain(
           'Missing GitHub repository metadata'
         );
@@ -986,7 +994,7 @@ describe('ProjectService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.code).toBe('PROJECT_CONFIG_INVALID');
+        expect(result.error.code).toBe('CODESPACE_CONFIG_INVALID');
         expect(result.error.details?.validationErrors).toContain(
           'Missing GitHub repository metadata'
         );
@@ -1004,7 +1012,7 @@ describe('ProjectService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.code).toBe('PROJECT_CONFIG_INVALID');
+        expect(result.error.code).toBe('CODESPACE_CONFIG_INVALID');
         expect(result.error.details?.validationErrors).toContain(
           'Missing GitHub App installation ID'
         );
@@ -1012,17 +1020,33 @@ describe('ProjectService', () => {
     });
 
     it('returns error when GitHub installation not found in database', async () => {
+      const db = getTestDb();
+      const { githubInstallations } = await import('../../src/db/schema');
+      // Create an installation to satisfy FK during codespace creation
+      await db.insert(githubInstallations).values({
+        id: 'temp-install',
+        installationId: '99999',
+        accountLogin: 'test-org',
+        accountType: 'Organization',
+      });
+
       const project = await createTestProject({
         githubOwner: 'test-owner',
         githubRepo: 'test-repo',
-        githubInstallationId: 'non-existent-installation',
+        githubInstallationId: 'temp-install',
       });
+
+      // Remove the installation with FK checks disabled so the codespace
+      // keeps its dangling githubInstallationId reference
+      execRawSql('PRAGMA foreign_keys = OFF');
+      execRawSql("DELETE FROM github_installations WHERE id = 'temp-install'");
+      execRawSql('PRAGMA foreign_keys = ON');
 
       const result = await projectService.syncFromGitHub(project.id);
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.code).toBe('PROJECT_CONFIG_INVALID');
+        expect(result.error.code).toBe('CODESPACE_CONFIG_INVALID');
         expect(result.error.details?.validationErrors).toContain(
           'GitHub App installation not found'
         );

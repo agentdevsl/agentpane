@@ -11,7 +11,7 @@
 
 import { eq } from 'drizzle-orm';
 
-import { agents, projects, sessions, tasks } from '../../db/schema';
+import { agents, codespaces, sessions, tasks } from '../../db/schema';
 import type { ContainerBridge } from '../../lib/agents/container-bridge.js';
 import { createContainerBridge } from '../../lib/agents/container-bridge.js';
 import { DEFAULT_AGENT_MODEL, getFullModelId } from '../../lib/constants/models.js';
@@ -51,7 +51,7 @@ export class ContainerExecService {
     private onPlanReady: (
       taskId: string,
       sessionId: string,
-      projectId: string,
+      codespaceId: string,
       planData: {
         plan: string;
         turnCount: number;
@@ -62,7 +62,7 @@ export class ContainerExecService {
       }
     ) => Promise<void>,
     private onAgentCompleteCallback?: () =>
-      | ((projectId: string, taskId: string) => Promise<void>)
+      | ((codespaceId: string, taskId: string) => Promise<void>)
       | undefined
   ) {}
 
@@ -71,7 +71,7 @@ export class ContainerExecService {
    * Publishes status events to keep the UI informed.
    */
   private async waitForSandboxReady(
-    projectId: string,
+    codespaceId: string,
     sessionId: string,
     taskId: string,
     maxWaitMs = 30_000
@@ -81,7 +81,7 @@ export class ContainerExecService {
     const maxDelay = 5000;
 
     while (Date.now() - start < maxWaitMs) {
-      const sandbox = await this.deps.provider.get(projectId);
+      const sandbox = await this.deps.provider.get(codespaceId);
       if (sandbox && sandbox.status === 'running') {
         return sandbox;
       }
@@ -98,7 +98,9 @@ export class ContainerExecService {
       delay = Math.min(delay * 2, maxDelay);
     }
 
-    throw new Error(`Sandbox for project ${projectId} did not become ready within ${maxWaitMs}ms`);
+    throw new Error(
+      `Sandbox for codespace ${codespaceId} did not become ready within ${maxWaitMs}ms`
+    );
   }
 
   /**
@@ -107,7 +109,7 @@ export class ContainerExecService {
   private prepareContainerExec(params: {
     taskId: string;
     sessionId: string;
-    projectId: string;
+    codespaceId: string;
     phase: AgentPhase;
     sdkSessionId?: string;
     prompt: string;
@@ -119,7 +121,7 @@ export class ContainerExecService {
     const {
       taskId,
       sessionId,
-      projectId,
+      codespaceId,
       phase,
       sdkSessionId,
       prompt,
@@ -148,11 +150,11 @@ export class ContainerExecService {
       },
     });
 
-    log.debug('Creating container bridge', { data: { taskId, sessionId, projectId, phase } });
+    log.debug('Creating container bridge', { data: { taskId, sessionId, codespaceId, phase } });
     const bridge = createContainerBridge({
       taskId,
       sessionId,
-      projectId,
+      codespaceId,
       streams: this.deps.streams,
       onComplete: (status, turnCount) => {
         log.info('Agent completed via bridge callback', { data: { taskId, status, turnCount } });
@@ -166,7 +168,7 @@ export class ContainerExecService {
         log.info('Plan ready via bridge callback', {
           data: { taskId, planLength: planData.plan.length, sdkSessionId: planData.sdkSessionId },
         });
-        this.onPlanReady(taskId, sessionId, projectId, planData);
+        this.onPlanReady(taskId, sessionId, codespaceId, planData);
       },
     });
 
@@ -174,11 +176,11 @@ export class ContainerExecService {
   }
 
   /**
-   * Start an agent for a task inside its project's sandbox container.
+   * Start an agent for a task inside its codespace's sandbox container.
    */
   async startAgent(input: StartAgentInput): Promise<Result<void, SandboxError>> {
     const {
-      projectId,
+      codespaceId,
       taskId,
       sessionId,
       prompt,
@@ -193,7 +195,7 @@ export class ContainerExecService {
     log.info('Starting agent', {
       data: {
         taskId,
-        projectId,
+        codespaceId,
         sessionId,
         model,
         maxTurns,
@@ -202,24 +204,24 @@ export class ContainerExecService {
       },
     });
 
-    // Parallel fetch: project and sandbox lookup at the same time
-    const [project, initialSandbox] = await Promise.all([
-      db.query.projects.findFirst({ where: eq(projects.id, projectId) }),
-      provider.get(projectId),
+    // Parallel fetch: codespace and sandbox lookup at the same time
+    const [codespace, initialSandbox] = await Promise.all([
+      db.query.codespaces.findFirst({ where: eq(codespaces.id, codespaceId) }),
+      provider.get(codespaceId),
     ]);
 
-    if (!project) {
-      log.info('Project not found', { data: { projectId } });
+    if (!codespace) {
+      log.info('Codespace not found', { data: { codespaceId } });
       return err(SandboxErrors.PROJECT_NOT_FOUND);
     }
 
-    // Use shared sandbox mode by default (fastest path - no per-project container creation)
+    // Use shared sandbox mode by default (fastest path - no per-codespace container creation)
     let sandbox = initialSandbox;
 
     // Recovery: if sandbox exists but is in terminal state, tear it down and recreate
     if (sandbox && (sandbox.status === 'error' || sandbox.status === 'stopped')) {
       log.info('Sandbox in terminal state, tearing down for recreation', {
-        data: { projectId, sandboxId: sandbox.id, status: sandbox.status },
+        data: { codespaceId, sandboxId: sandbox.id, status: sandbox.status },
       });
       try {
         await sandbox.stop();
@@ -233,22 +235,22 @@ export class ContainerExecService {
 
     // Auto-create sandbox if missing (K8s may not have a default yet)
     if (!sandbox) {
-      log.info('No sandbox found, attempting auto-create', { data: { projectId } });
+      log.info('No sandbox found, attempting auto-create', { data: { codespaceId } });
       try {
         sandbox = await provider.create({
-          projectId,
-          projectPath: project.path ?? '/workspace',
+          codespaceId,
+          codespacePath: codespace.path ?? '/workspace',
           image: SANDBOX_DEFAULTS.image,
           memoryMb: 2048,
           cpuCores: 2,
           idleTimeoutMinutes: 30,
           volumeMounts: [],
         });
-        log.info('Auto-created sandbox', { data: { projectId, sandboxId: sandbox.id } });
+        log.info('Auto-created sandbox', { data: { codespaceId, sandboxId: sandbox.id } });
       } catch (createErr) {
         log.info('Auto-create sandbox failed', {
           data: {
-            projectId,
+            codespaceId,
             error: createErr instanceof Error ? createErr.message : String(createErr),
           },
         });
@@ -263,7 +265,7 @@ export class ContainerExecService {
         data: { sandboxId: sandbox.id, status: sandbox.status },
       });
       try {
-        sandbox = await this.waitForSandboxReady(projectId, sessionId, taskId);
+        sandbox = await this.waitForSandboxReady(codespaceId, sessionId, taskId);
         log.info('Sandbox became ready after waiting', { data: { sandboxId: sandbox.id } });
       } catch (waitErr) {
         log.info('Sandbox did not become ready in time', {
@@ -288,13 +290,13 @@ export class ContainerExecService {
 
     // Create or reuse agent record for this container agent run
     const agentId = `agent-${taskId}`;
-    log.debug('Creating agent record', { data: { agentId, projectId, taskId } });
+    log.debug('Creating agent record', { data: { agentId, codespaceId, taskId } });
     try {
       await db
         .insert(agents)
         .values({
           id: agentId,
-          projectId,
+          codespaceId,
           name: 'Container Agent',
           type: 'task',
           status: 'starting',
@@ -325,11 +327,11 @@ export class ContainerExecService {
         .insert(sessions)
         .values({
           id: sessionId,
-          projectId,
+          codespaceId,
           taskId,
           agentId,
           title: task.title ?? `Container Agent - ${taskId}`,
-          url: `/projects/${projectId}/sessions/${sessionId}`,
+          url: `/codespaces/${codespaceId}/sessions/${sessionId}`,
           status: 'active',
           sandboxProvider: provider.name,
           sandboxContainerId: sandbox.containerId ?? null,
@@ -368,7 +370,7 @@ export class ContainerExecService {
     // Create durable stream for real-time events
     log.debug('Creating durable stream', { data: { sessionId } });
     try {
-      await streams.createStream(sessionId, { type: 'container-agent', projectId, taskId });
+      await streams.createStream(sessionId, { type: 'container-agent', codespaceId, taskId });
       log.debug('Stream created successfully', { data: { sessionId } });
     } catch (streamErr) {
       const errorMessage = streamErr instanceof Error ? streamErr.message : String(streamErr);
@@ -407,19 +409,19 @@ export class ContainerExecService {
       taskId,
       sessionId,
       role: 'system',
-      content: `Validating project configuration for "${project.name}"...`,
+      content: `Validating codespace configuration for "${codespace.name}"...`,
     });
-    log.info('Validating project configuration', { data: { projectId, taskId } });
+    log.info('Validating codespace configuration', { data: { codespaceId, taskId } });
 
     // Resolve agent configuration
-    const projectModel = project.config?.model as string | undefined;
+    const codespaceModel = codespace.config?.model as string | undefined;
     const resolvedModel =
       (model ? getFullModelId(model) : undefined) ??
-      (projectModel ? getFullModelId(projectModel) : undefined) ??
+      (codespaceModel ? getFullModelId(codespaceModel) : undefined) ??
       (await getGlobalDefaultModel(db));
     const agentConfig: AgentConfig = {
       model: resolvedModel ?? getFullModelId(DEFAULT_AGENT_MODEL),
-      maxTurns: maxTurns ?? project.config?.maxTurns ?? 50,
+      maxTurns: maxTurns ?? codespace.config?.maxTurns ?? 50,
     };
     log.info('Resolved agent config', {
       data: { model: agentConfig.model, maxTurns: agentConfig.maxTurns },
@@ -522,7 +524,7 @@ export class ContainerExecService {
     if (needsRemoteWorkspaceInit) {
       const k8sResult = await this.worktreeInit.initializeRemoteWorkspace({
         sandbox,
-        project,
+        codespace,
         task,
         taskId,
         sessionId,
@@ -536,8 +538,8 @@ export class ContainerExecService {
         phase,
         taskId,
         sessionId,
-        projectId,
-        project,
+        codespaceId,
+        codespace,
         task,
         agentId,
         sandbox,
@@ -550,7 +552,7 @@ export class ContainerExecService {
     const { env, bridge } = this.prepareContainerExec({
       taskId,
       sessionId,
-      projectId,
+      codespaceId,
       phase,
       sdkSessionId,
       prompt,
@@ -611,7 +613,7 @@ export class ContainerExecService {
       const runningAgent: RunningAgent = {
         taskId,
         sessionId,
-        projectId,
+        codespaceId,
         sandboxId: sandbox.id,
         bridge,
         execResult,
@@ -969,7 +971,7 @@ export class ContainerExecService {
     // Auto-dequeue
     const callback = this.onAgentCompleteCallback?.();
     if (status === 'completed' && callback) {
-      callback(agent.projectId, taskId).catch((dequeueErr) => {
+      callback(agent.codespaceId, taskId).catch((dequeueErr) => {
         log.warn('Failed to auto-dequeue next task', {
           data: { taskId },
           error: dequeueErr,

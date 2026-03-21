@@ -12,7 +12,7 @@ import type { TmuxSession } from './types.js';
  */
 export interface CreateTmuxSessionOptions {
   sandboxId?: string;
-  projectId?: string;
+  codespaceId?: string;
   taskId?: string;
   sessionName?: string;
   initialCommand?: string;
@@ -51,8 +51,8 @@ export class TmuxManager {
 
     if (options.sandboxId) {
       sandbox = await this.provider.getById(options.sandboxId);
-    } else if (options.projectId) {
-      sandbox = await this.provider.get(options.projectId);
+    } else if (options.codespaceId) {
+      sandbox = await this.provider.get(options.codespaceId);
     }
 
     if (!sandbox) {
@@ -241,10 +241,8 @@ export class TmuxManager {
           await sandbox.killTmuxSession(session.name);
           this.sessions.delete(session.name);
           killed++;
-        } catch (error) {
+        } catch (_error) {
           // Log individual session kill errors but continue with others
-          const message = errorMessage(error);
-          console.warn(`[TmuxManager] Failed to kill session ${session.name}:`, message);
         }
       }
 

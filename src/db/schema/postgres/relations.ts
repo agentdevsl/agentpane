@@ -3,14 +3,16 @@ import { agentRuns } from './agent-runs';
 import { agents } from './agents';
 import { apiTokens } from './api-tokens';
 import { auditLogs } from './audit-logs';
+import { codespaceMembers } from './codespace-members';
+import { codespaceTags } from './codespace-tags';
+import { codespaces } from './codespaces';
 import { eventLog } from './event-log';
 import { eventSources } from './event-sources';
 import { eventSubscriptions } from './event-subscriptions';
+import { folderMembers } from './folder-members';
 import { githubInstallations, repositoryConfigs } from './github';
 import { planSessions } from './plan-sessions';
-import { projectMembers } from './project-members';
-import { projectTags } from './project-tags';
-import { projects } from './projects';
+import { projectFolders } from './project-folders';
 import { sandboxConfigs } from './sandbox-configs';
 import { sandboxInstances, sandboxTmuxSessions } from './sandboxes';
 import { sessionEvents } from './session-events';
@@ -21,46 +23,56 @@ import { taskTags } from './task-tags';
 import { tasks } from './tasks';
 import { teamInvitations } from './team-invitations';
 import { teamMembers } from './team-members';
-import { teamProjects } from './team-projects';
+import { teamProjectFolders } from './team-project-folders';
 import { teams } from './teams';
-import { templateProjects } from './template-projects';
+import { templateCodespaces } from './template-codespaces';
 import { templates } from './templates';
 import { terraformModules, terraformRegistries } from './terraform';
 import { userSessions } from './user-sessions';
 import { users } from './users';
 import { worktrees } from './worktrees';
 
-export const projectsRelations = relations(projects, ({ one, many }) => ({
+export const projectFoldersRelations = relations(projectFolders, ({ many }) => ({
+  codespaces: many(codespaces),
+  folderMembers: many(folderMembers),
+  tags: many(tags),
+  teamProjectFolders: many(teamProjectFolders),
+}));
+
+export const codespacesRelations = relations(codespaces, ({ one, many }) => ({
+  projectFolder: one(projectFolders, {
+    fields: [codespaces.projectFolderId],
+    references: [projectFolders.id],
+  }),
   tasks: many(tasks),
   agents: many(agents),
   sessions: many(sessions),
   worktrees: many(worktrees),
   auditLogs: many(auditLogs),
   templates: many(templates),
-  templateProjects: many(templateProjects),
+  templateCodespaces: many(templateCodespaces),
   planSessions: many(planSessions),
-  teamProjects: many(teamProjects),
-  projectMembers: many(projectMembers),
-  projectTags: many(projectTags),
+  codespaceMembers: many(codespaceMembers),
+  codespaceTags: many(codespaceTags),
   eventSubscriptions: many(eventSubscriptions),
   sandboxInstance: one(sandboxInstances, {
-    fields: [projects.id],
-    references: [sandboxInstances.projectId],
+    fields: [codespaces.id],
+    references: [sandboxInstances.codespaceId],
   }),
   sandboxConfig: one(sandboxConfigs, {
-    fields: [projects.sandboxConfigId],
+    fields: [codespaces.sandboxConfigId],
     references: [sandboxConfigs.id],
   }),
 }));
 
 export const sandboxConfigsRelations = relations(sandboxConfigs, ({ many }) => ({
-  projects: many(projects),
+  codespaces: many(codespaces),
 }));
 
 export const tasksRelations = relations(tasks, ({ one, many }) => ({
-  project: one(projects, {
-    fields: [tasks.projectId],
-    references: [projects.id],
+  codespace: one(codespaces, {
+    fields: [tasks.codespaceId],
+    references: [codespaces.id],
   }),
   agent: one(agents, {
     fields: [tasks.agentId],
@@ -82,9 +94,9 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
 }));
 
 export const agentsRelations = relations(agents, ({ one, many }) => ({
-  project: one(projects, {
-    fields: [agents.projectId],
-    references: [projects.id],
+  codespace: one(codespaces, {
+    fields: [agents.codespaceId],
+    references: [codespaces.id],
   }),
   tasks: many(tasks),
   agentRuns: many(agentRuns),
@@ -93,9 +105,9 @@ export const agentsRelations = relations(agents, ({ one, many }) => ({
 }));
 
 export const sessionsRelations = relations(sessions, ({ one, many }) => ({
-  project: one(projects, {
-    fields: [sessions.projectId],
-    references: [projects.id],
+  codespace: one(codespaces, {
+    fields: [sessions.codespaceId],
+    references: [codespaces.id],
   }),
   task: one(tasks, {
     fields: [sessions.taskId],
@@ -113,9 +125,9 @@ export const sessionsRelations = relations(sessions, ({ one, many }) => ({
 }));
 
 export const worktreesRelations = relations(worktrees, ({ one }) => ({
-  project: one(projects, {
-    fields: [worktrees.projectId],
-    references: [projects.id],
+  codespace: one(codespaces, {
+    fields: [worktrees.codespaceId],
+    references: [codespaces.id],
   }),
   task: one(tasks, {
     fields: [worktrees.taskId],
@@ -132,9 +144,9 @@ export const agentRunsRelations = relations(agentRuns, ({ one }) => ({
     fields: [agentRuns.taskId],
     references: [tasks.id],
   }),
-  project: one(projects, {
-    fields: [agentRuns.projectId],
-    references: [projects.id],
+  codespace: one(codespaces, {
+    fields: [agentRuns.codespaceId],
+    references: [codespaces.id],
   }),
   session: one(sessions, {
     fields: [agentRuns.sessionId],
@@ -154,23 +166,23 @@ export const repositoryConfigsRelations = relations(repositoryConfigs, ({ one })
 }));
 
 export const templatesRelations = relations(templates, ({ one, many }) => ({
-  // Legacy single project reference (for backward compatibility)
-  project: one(projects, {
-    fields: [templates.projectId],
-    references: [projects.id],
+  // Legacy single codespace reference (for backward compatibility)
+  codespace: one(codespaces, {
+    fields: [templates.codespaceId],
+    references: [codespaces.id],
   }),
   // Many-to-many relationship through junction table
-  templateProjects: many(templateProjects),
+  templateCodespaces: many(templateCodespaces),
 }));
 
-export const templateProjectsRelations = relations(templateProjects, ({ one }) => ({
+export const templateCodespacesRelations = relations(templateCodespaces, ({ one }) => ({
   template: one(templates, {
-    fields: [templateProjects.templateId],
+    fields: [templateCodespaces.templateId],
     references: [templates.id],
   }),
-  project: one(projects, {
-    fields: [templateProjects.projectId],
-    references: [projects.id],
+  codespace: one(codespaces, {
+    fields: [templateCodespaces.codespaceId],
+    references: [codespaces.id],
   }),
 }));
 
@@ -180,17 +192,17 @@ export const planSessionsRelations = relations(planSessions, ({ one }) => ({
     fields: [planSessions.taskId],
     references: [tasks.id],
   }),
-  project: one(projects, {
-    fields: [planSessions.projectId],
-    references: [projects.id],
+  codespace: one(codespaces, {
+    fields: [planSessions.codespaceId],
+    references: [codespaces.id],
   }),
 }));
 
 // Sandbox instances relations
 export const sandboxInstancesRelations = relations(sandboxInstances, ({ one, many }) => ({
-  project: one(projects, {
-    fields: [sandboxInstances.projectId],
-    references: [projects.id],
+  codespace: one(codespaces, {
+    fields: [sandboxInstances.codespaceId],
+    references: [codespaces.id],
   }),
   tmuxSessions: many(sandboxTmuxSessions),
 }));
@@ -241,7 +253,8 @@ export const terraformModulesRelations = relations(terraformModules, ({ one }) =
 export const usersRelations = relations(users, ({ many }) => ({
   sessions: many(userSessions),
   teamMemberships: many(teamMembers),
-  projectMemberships: many(projectMembers),
+  codespaceMemberships: many(codespaceMembers),
+  folderMemberships: many(folderMembers),
   apiTokens: many(apiTokens),
   invitationsSent: many(teamInvitations),
 }));
@@ -255,8 +268,7 @@ export const userSessionsRelations = relations(userSessions, ({ one }) => ({
 
 export const teamsRelations = relations(teams, ({ many }) => ({
   members: many(teamMembers),
-  projects: many(teamProjects),
-  tags: many(tags),
+  projectFolders: many(teamProjectFolders),
   apiTokens: many(apiTokens),
   invitations: many(teamInvitations),
   eventSources: many(eventSources),
@@ -273,48 +285,63 @@ export const teamMembersRelations = relations(teamMembers, ({ one }) => ({
   }),
 }));
 
-export const teamProjectsRelations = relations(teamProjects, ({ one }) => ({
+export const teamProjectFoldersRelations = relations(teamProjectFolders, ({ one }) => ({
   team: one(teams, {
-    fields: [teamProjects.teamId],
+    fields: [teamProjectFolders.teamId],
     references: [teams.id],
   }),
-  project: one(projects, {
-    fields: [teamProjects.projectId],
-    references: [projects.id],
+  projectFolder: one(projectFolders, {
+    fields: [teamProjectFolders.projectFolderId],
+    references: [projectFolders.id],
   }),
 }));
 
-export const projectMembersRelations = relations(projectMembers, ({ one }) => ({
-  project: one(projects, {
-    fields: [projectMembers.projectId],
-    references: [projects.id],
+export const folderMembersRelations = relations(folderMembers, ({ one }) => ({
+  projectFolder: one(projectFolders, {
+    fields: [folderMembers.projectFolderId],
+    references: [projectFolders.id],
   }),
   user: one(users, {
-    fields: [projectMembers.userId],
+    fields: [folderMembers.userId],
     references: [users.id],
   }),
   grantedByTeam: one(teams, {
-    fields: [projectMembers.grantedByTeamId],
+    fields: [folderMembers.grantedByTeamId],
+    references: [teams.id],
+  }),
+}));
+
+export const codespaceMembersRelations = relations(codespaceMembers, ({ one }) => ({
+  codespace: one(codespaces, {
+    fields: [codespaceMembers.codespaceId],
+    references: [codespaces.id],
+  }),
+  user: one(users, {
+    fields: [codespaceMembers.userId],
+    references: [users.id],
+  }),
+  grantedByTeam: one(teams, {
+    fields: [codespaceMembers.grantedByTeamId],
     references: [teams.id],
   }),
 }));
 
 export const tagsRelations = relations(tags, ({ one, many }) => ({
-  team: one(teams, {
-    fields: [tags.teamId],
-    references: [teams.id],
+  projectFolder: one(projectFolders, {
+    fields: [tags.projectFolderId],
+    references: [projectFolders.id],
   }),
-  projectTags: many(projectTags),
+  codespaceTags: many(codespaceTags),
   taskTags: many(taskTags),
 }));
 
-export const projectTagsRelations = relations(projectTags, ({ one }) => ({
-  project: one(projects, {
-    fields: [projectTags.projectId],
-    references: [projects.id],
+export const codespaceTagsRelations = relations(codespaceTags, ({ one }) => ({
+  codespace: one(codespaces, {
+    fields: [codespaceTags.codespaceId],
+    references: [codespaces.id],
   }),
   tag: one(tags, {
-    fields: [projectTags.tagId],
+    fields: [codespaceTags.tagId],
     references: [tags.id],
   }),
 }));
@@ -339,9 +366,9 @@ export const apiTokensRelations = relations(apiTokens, ({ one }) => ({
     fields: [apiTokens.teamId],
     references: [teams.id],
   }),
-  scopeProject: one(projects, {
-    fields: [apiTokens.scopeProjectId],
-    references: [projects.id],
+  scopeCodespace: one(codespaces, {
+    fields: [apiTokens.scopeCodespaceId],
+    references: [codespaces.id],
   }),
 }));
 
@@ -372,9 +399,9 @@ export const eventSubscriptionsRelations = relations(eventSubscriptions, ({ one 
     fields: [eventSubscriptions.eventSourceId],
     references: [eventSources.id],
   }),
-  targetProject: one(projects, {
-    fields: [eventSubscriptions.targetProjectId],
-    references: [projects.id],
+  targetCodespace: one(codespaces, {
+    fields: [eventSubscriptions.targetCodespaceId],
+    references: [codespaces.id],
   }),
 }));
 

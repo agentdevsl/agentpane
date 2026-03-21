@@ -15,7 +15,7 @@ describe('AgentCrudService', () => {
       const project = await createTestProject();
 
       const result = await service.create({
-        projectId: project.id,
+        codespaceId: project.id,
         name: 'My Agent',
         type: 'task',
         status: 'idle',
@@ -24,7 +24,7 @@ describe('AgentCrudService', () => {
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value.name).toBe('My Agent');
-        expect(result.value.projectId).toBe(project.id);
+        expect(result.value.codespaceId).toBe(project.id);
         expect(result.value.status).toBe('idle');
         expect(result.value.type).toBe('task');
         expect(result.value.id).toBeTruthy();
@@ -43,7 +43,7 @@ describe('AgentCrudService', () => {
       });
 
       const result = await service.create({
-        projectId: project.id,
+        codespaceId: project.id,
         name: 'Inheriting Agent',
         type: 'task',
         status: 'idle',
@@ -68,7 +68,7 @@ describe('AgentCrudService', () => {
       });
 
       const result = await service.create({
-        projectId: project.id,
+        codespaceId: project.id,
         name: 'Override Agent',
         type: 'task',
         status: 'idle',
@@ -89,7 +89,7 @@ describe('AgentCrudService', () => {
       const service = createService();
 
       const result = await service.create({
-        projectId: 'nonexistent-project-id',
+        codespaceId: 'nonexistent-project-id',
         name: 'Orphan Agent',
         type: 'task',
         status: 'idle',

@@ -89,8 +89,8 @@ describe('DockerProvider', () => {
   });
 
   const createSandboxConfig = (overrides: Partial<SandboxConfig> = {}): SandboxConfig => ({
-    projectId: 'project-123',
-    projectPath: '/path/to/project',
+    codespaceId: 'project-123',
+    codespacePath: '/path/to/project',
     image: 'docker/sandbox-templates:claude-code',
     memoryMb: 4096,
     cpuCores: 2,
@@ -120,7 +120,7 @@ describe('DockerProvider', () => {
           }),
         })
       );
-      expect(sandbox.projectId).toBe(config.projectId);
+      expect(sandbox.codespaceId).toBe(config.codespaceId);
       expect(sandbox.status).toBe('running');
     });
 
@@ -471,7 +471,7 @@ describe('TmuxManager', () => {
     // Create mock sandbox
     mockSandbox = {
       id: 'sandbox-123',
-      projectId: 'project-123',
+      codespaceId: 'project-123',
       containerId: 'container-abc',
       status: 'running',
       exec: vi.fn(),
@@ -756,7 +756,7 @@ describe('CredentialsInjector', () => {
     // Create mock sandbox
     mockSandbox = {
       id: 'sandbox-123',
-      projectId: 'project-123',
+      codespaceId: 'project-123',
       containerId: 'container-abc',
       status: 'running',
       exec: vi.fn().mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' }),

@@ -6,7 +6,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import { createId } from '@paralleldrive/cuid2';
 import { eq } from 'drizzle-orm';
-import { type NewTask, projects, sessions, tasks } from '@/db/schema';
+import { codespaces, type NewTask, sessions, tasks } from '@/db/schema';
 import { createLogger } from '@/lib/logging/logger';
 
 const log = createLogger('TaskCreationService');
@@ -88,7 +88,7 @@ type PermissionResolver = (result: PermissionResult) => void;
 
 export interface TaskCreationSession {
   id: string;
-  projectId: string;
+  codespaceId: string;
   status: TaskCreationSessionStatus;
   messages: TaskCreationMessage[];
   suggestion: TaskSuggestion | null;
@@ -581,19 +581,19 @@ export class TaskCreationService {
 
   /**
    * Start a new task creation conversation
-   * @param projectId - The project to create a task for
+   * @param codespaceId - The codespace to create a task for
    * @param configuredTools - Optional tools configured in settings (from frontend localStorage)
    */
   async startConversation(
-    projectId: string,
+    codespaceId: string,
     configuredTools?: string[]
   ): Promise<Result<TaskCreationSession, TaskCreationError>> {
-    // Verify project exists
-    const project = await this.db.query.projects.findFirst({
-      where: eq(projects.id, projectId),
+    // Verify codespace exists
+    const codespace = await this.db.query.codespaces.findFirst({
+      where: eq(codespaces.id, codespaceId),
     });
 
-    if (!project) {
+    if (!codespace) {
       return err(TaskCreationErrors.PROJECT_NOT_FOUND);
     }
 
@@ -738,7 +738,7 @@ export class TaskCreationService {
     if (this.sessionService) {
       try {
         const dbSessionResult = await this.sessionService.create({
-          projectId,
+          codespaceId,
           title: 'Task Creation',
         });
         if (dbSessionResult.ok) {
@@ -758,7 +758,7 @@ export class TaskCreationService {
     // This ensures canUseTool callback can find the session when it's invoked
     const session: TaskCreationSession = {
       id: sessionId,
-      projectId,
+      codespaceId,
       status: 'active',
       messages: [],
       suggestion: null,
@@ -803,11 +803,11 @@ export class TaskCreationService {
     try {
       await this.db.insert(sessions).values({
         id: sessionId,
-        projectId,
+        codespaceId,
         taskId: null,
         agentId: null,
         title: 'Task Creation',
-        url: `/projects/${projectId}/task-creation/${sessionId}`,
+        url: `/codespaces/${codespaceId}/task-creation/${sessionId}`,
         status: 'active',
         createdAt: new Date().toISOString(),
       });
@@ -821,10 +821,10 @@ export class TaskCreationService {
     // Create stream and publish start event in parallel
     await Promise.all([
       this.streams
-        .createStream(sessionId, { type: 'task-creation', projectId })
+        .createStream(sessionId, { type: 'task-creation', codespaceId })
         .catch((error) => log.error('Failed to create stream:', { error })),
       this.streams
-        .publishTaskCreationStarted(sessionId, { sessionId, projectId })
+        .publishTaskCreationStarted(sessionId, { sessionId, codespaceId })
         .catch((error) => log.error('Failed to publish start event:', { error })),
     ]);
 
@@ -1940,7 +1940,7 @@ export class TaskCreationService {
       const taskId = createId();
       const newTask: NewTask = {
         id: taskId,
-        projectId: session.projectId,
+        codespaceId: session.codespaceId,
         title: finalSuggestion.title,
         description: finalSuggestion.description,
         labels: finalSuggestion.labels,

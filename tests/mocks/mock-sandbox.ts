@@ -94,7 +94,7 @@ export function createMockExecStreamResult(
 export function createMockSandbox(overrides: Partial<Sandbox> = {}): Sandbox {
   return {
     id: 'mock-sandbox-123',
-    projectId: 'mock-project-123',
+    codespaceId: 'mock-project-123',
     containerId: 'mock-container-abc',
     status: 'running',
     exec: vi.fn().mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' }),
@@ -207,7 +207,7 @@ export function createMockSandboxWithEvents(events: Array<Record<string, unknown
  * @example
  * ```typescript
  * const config = createMockSandboxConfig({
- *   projectId: 'my-project',
+ *   codespaceId: 'my-project',
  *   memoryMb: 8192,
  * });
  *
@@ -216,7 +216,7 @@ export function createMockSandboxWithEvents(events: Array<Record<string, unknown
  */
 export function createMockSandboxConfig(overrides: Partial<SandboxConfig> = {}): SandboxConfig {
   return {
-    projectId: 'mock-project-123',
+    codespaceId: 'mock-project-123',
     projectPath: '/tmp/mock-project',
     image: 'node:20',
     memoryMb: 512,
@@ -238,14 +238,14 @@ export function createMockSandboxConfig(overrides: Partial<SandboxConfig> = {}):
  * ```typescript
  * const info = createMockSandboxInfo({
  *   status: 'running',
- *   projectId: 'my-project',
+ *   codespaceId: 'my-project',
  * });
  * ```
  */
 export function createMockSandboxInfo(overrides: Partial<SandboxInfo> = {}): SandboxInfo {
   return {
     id: 'mock-sandbox-123',
-    projectId: 'mock-project-123',
+    codespaceId: 'mock-project-123',
     containerId: 'mock-container-abc',
     status: 'running',
     image: 'node:20',

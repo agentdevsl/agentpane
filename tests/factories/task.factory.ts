@@ -4,8 +4,8 @@ import { tasks } from '../../src/db/schema';
 import type { DiffSummary } from '../../src/lib/types/diff';
 import { getTestDb } from '../helpers/database';
 
-export type TaskFactoryOptions = Partial<Omit<NewTask, 'projectId'>> & {
-  projectId?: string;
+export type TaskFactoryOptions = Partial<Omit<NewTask, 'codespaceId'>> & {
+  codespaceId?: string;
   column?: TaskColumn;
   labels?: string[];
   diffSummary?: DiffSummary;
@@ -13,13 +13,13 @@ export type TaskFactoryOptions = Partial<Omit<NewTask, 'projectId'>> & {
   withRejection?: boolean;
 };
 
-export function buildTask(projectId: string, options: TaskFactoryOptions = {}): NewTask {
+export function buildTask(codespaceId: string, options: TaskFactoryOptions = {}): NewTask {
   const id = options.id ?? createId();
   const now = new Date();
 
   return {
     id,
-    projectId,
+    codespaceId,
     title: options.title ?? `Test Task ${id.slice(0, 6)}`,
     description: options.description ?? null,
     mode: options.mode ?? 'implement',
@@ -41,11 +41,11 @@ export function buildTask(projectId: string, options: TaskFactoryOptions = {}): 
 }
 
 export async function createTestTask(
-  projectId: string,
+  codespaceId: string,
   options: TaskFactoryOptions = {}
 ): Promise<Task> {
   const db = getTestDb();
-  const data = buildTask(projectId, options);
+  const data = buildTask(codespaceId, options);
 
   const [task] = await db.insert(tasks).values(data).returning();
 
@@ -57,14 +57,14 @@ export async function createTestTask(
 }
 
 export async function createTestTasks(
-  projectId: string,
+  codespaceId: string,
   count: number,
   options: TaskFactoryOptions = {}
 ): Promise<Task[]> {
   const createdTasks: Task[] = [];
 
   for (let i = 0; i < count; i++) {
-    const task = await createTestTask(projectId, {
+    const task = await createTestTask(codespaceId, {
       ...options,
       title: options.title ?? `Test Task ${i + 1}`,
       position: options.position ?? i,
@@ -76,7 +76,7 @@ export async function createTestTasks(
 }
 
 export async function createTasksInColumns(
-  projectId: string,
+  codespaceId: string,
   counts: Partial<Record<TaskColumn, number>>
 ): Promise<Record<TaskColumn, Task[]>> {
   const result: Record<TaskColumn, Task[]> = {
@@ -89,7 +89,7 @@ export async function createTasksInColumns(
 
   for (const [column, count] of Object.entries(counts)) {
     if (count && count > 0) {
-      const tasks = await createTestTasks(projectId, count, {
+      const tasks = await createTestTasks(codespaceId, count, {
         column: column as TaskColumn,
       });
       result[column as TaskColumn] = tasks;

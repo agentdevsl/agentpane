@@ -51,12 +51,12 @@ describe('API Route Matching', () => {
   // Define routes similar to api.ts
   const routes = [
     // Project routes
-    { pattern: '/api/projects', method: 'GET', handler: 'listProjects' },
-    { pattern: '/api/projects', method: 'POST', handler: 'createProject' },
-    { pattern: '/api/projects/summaries', method: 'GET', handler: 'listProjectSummaries' },
-    { pattern: '/api/projects/:id', method: 'GET', handler: 'getProject' },
-    { pattern: '/api/projects/:id', method: 'PATCH', handler: 'updateProject' },
-    { pattern: '/api/projects/:id', method: 'DELETE', handler: 'deleteProject' },
+    { pattern: '/api/codespaces', method: 'GET', handler: 'listProjects' },
+    { pattern: '/api/codespaces', method: 'POST', handler: 'createProject' },
+    { pattern: '/api/codespaces/summaries', method: 'GET', handler: 'listProjectSummaries' },
+    { pattern: '/api/codespaces/:id', method: 'GET', handler: 'getProject' },
+    { pattern: '/api/codespaces/:id', method: 'PATCH', handler: 'updateProject' },
+    { pattern: '/api/codespaces/:id', method: 'DELETE', handler: 'deleteProject' },
     // Task routes
     { pattern: '/api/tasks', method: 'GET', handler: 'listTasks' },
     { pattern: '/api/tasks', method: 'POST', handler: 'createTask' },
@@ -154,45 +154,45 @@ describe('API Route Matching', () => {
   ];
 
   describe('Project Routes', () => {
-    it('matches GET /api/projects', () => {
-      const result = matchRoute('/api/projects', 'GET', routes);
+    it('matches GET /api/codespaces', () => {
+      const result = matchRoute('/api/codespaces', 'GET', routes);
       expect(result.matched).toBe(true);
       expect(result.handler).toBe('listProjects');
     });
 
-    it('matches POST /api/projects', () => {
-      const result = matchRoute('/api/projects', 'POST', routes);
+    it('matches POST /api/codespaces', () => {
+      const result = matchRoute('/api/codespaces', 'POST', routes);
       expect(result.matched).toBe(true);
       expect(result.handler).toBe('createProject');
     });
 
-    it('matches GET /api/projects/summaries', () => {
-      const result = matchRoute('/api/projects/summaries', 'GET', routes);
+    it('matches GET /api/codespaces/summaries', () => {
+      const result = matchRoute('/api/codespaces/summaries', 'GET', routes);
       expect(result.matched).toBe(true);
       expect(result.handler).toBe('listProjectSummaries');
     });
 
-    it('matches GET /api/projects/:id', () => {
-      const result = matchRoute('/api/projects/proj-123', 'GET', routes);
+    it('matches GET /api/codespaces/:id', () => {
+      const result = matchRoute('/api/codespaces/proj-123', 'GET', routes);
       expect(result.matched).toBe(true);
       expect(result.handler).toBe('getProject');
       expect(result.params?.id).toBe('proj-123');
     });
 
-    it('matches PATCH /api/projects/:id', () => {
-      const result = matchRoute('/api/projects/proj-123', 'PATCH', routes);
+    it('matches PATCH /api/codespaces/:id', () => {
+      const result = matchRoute('/api/codespaces/proj-123', 'PATCH', routes);
       expect(result.matched).toBe(true);
       expect(result.handler).toBe('updateProject');
     });
 
-    it('matches DELETE /api/projects/:id', () => {
-      const result = matchRoute('/api/projects/proj-123', 'DELETE', routes);
+    it('matches DELETE /api/codespaces/:id', () => {
+      const result = matchRoute('/api/codespaces/proj-123', 'DELETE', routes);
       expect(result.matched).toBe(true);
       expect(result.handler).toBe('deleteProject');
     });
 
-    it('does not match PUT /api/projects (invalid method)', () => {
-      const result = matchRoute('/api/projects', 'PUT', routes);
+    it('does not match PUT /api/codespaces (invalid method)', () => {
+      const result = matchRoute('/api/codespaces', 'PUT', routes);
       expect(result.matched).toBe(false);
     });
   });
@@ -617,7 +617,7 @@ describe('API Route Matching', () => {
     });
 
     it('does not match wrong HTTP methods', () => {
-      const result = matchRoute('/api/projects', 'PUT', routes);
+      const result = matchRoute('/api/codespaces', 'PUT', routes);
       expect(result.matched).toBe(false);
     });
 
@@ -746,7 +746,7 @@ describe('JSON Response Format', () => {
     });
 
     it('returns MISSING_PARAMS for required parameters', () => {
-      const response = jsonError('MISSING_PARAMS', 'projectId is required');
+      const response = jsonError('MISSING_PARAMS', 'codespaceId is required');
       expect(response.error.code).toBe('MISSING_PARAMS');
     });
 
@@ -908,13 +908,13 @@ describe('Query Parameter Parsing', () => {
   }
 
   describe('String Parameters', () => {
-    it('extracts projectId parameter', () => {
-      const params = parseQueryParams('/api/tasks?projectId=proj-123');
-      expect(params.get('projectId')).toBe('proj-123');
+    it('extracts codespaceId parameter', () => {
+      const params = parseQueryParams('/api/tasks?codespaceId=proj-123');
+      expect(params.get('codespaceId')).toBe('proj-123');
     });
 
     it('extracts column filter parameter', () => {
-      const params = parseQueryParams('/api/tasks?projectId=proj-123&column=backlog');
+      const params = parseQueryParams('/api/tasks?codespaceId=proj-123&column=backlog');
       expect(params.get('column')).toBe('backlog');
     });
 
@@ -930,18 +930,18 @@ describe('Query Parameter Parsing', () => {
 
     it('returns null for missing parameters', () => {
       const params = parseQueryParams('/api/tasks');
-      expect(params.get('projectId')).toBeNull();
+      expect(params.get('codespaceId')).toBeNull();
     });
 
     it('returns default value for missing parameters', () => {
       const params = parseQueryParams('/api/tasks');
-      expect(getQueryParam(params, 'projectId', 'default')).toBe('default');
+      expect(getQueryParam(params, 'codespaceId', 'default')).toBe('default');
     });
   });
 
   describe('Integer Parameters', () => {
     it('extracts limit parameter', () => {
-      const params = parseQueryParams('/api/projects?limit=10');
+      const params = parseQueryParams('/api/codespaces?limit=10');
       expect(getQueryParamInt(params, 'limit', 24)).toBe(10);
     });
 
@@ -951,12 +951,12 @@ describe('Query Parameter Parsing', () => {
     });
 
     it('returns default value for missing integer parameters', () => {
-      const params = parseQueryParams('/api/projects');
+      const params = parseQueryParams('/api/codespaces');
       expect(getQueryParamInt(params, 'limit', 24)).toBe(24);
     });
 
     it('returns default value for non-numeric strings', () => {
-      const params = parseQueryParams('/api/projects?limit=abc');
+      const params = parseQueryParams('/api/codespaces?limit=abc');
       expect(getQueryParamInt(params, 'limit', 24)).toBe(24);
     });
   });
@@ -975,8 +975,8 @@ describe('Query Parameter Parsing', () => {
 
   describe('Multiple Parameters', () => {
     it('extracts multiple parameters', () => {
-      const params = parseQueryParams('/api/tasks?projectId=proj-123&column=backlog&limit=10');
-      expect(params.get('projectId')).toBe('proj-123');
+      const params = parseQueryParams('/api/tasks?codespaceId=proj-123&column=backlog&limit=10');
+      expect(params.get('codespaceId')).toBe('proj-123');
       expect(params.get('column')).toBe('backlog');
       expect(getQueryParamInt(params, 'limit', 50)).toBe(10);
     });
@@ -1009,27 +1009,27 @@ describe('Request Body Validation', () => {
   });
 
   describe('Task Creation', () => {
-    it('validates required projectId field', () => {
+    it('validates required codespaceId field', () => {
       const body = { title: 'Task' };
-      const hasProjectId = body && 'projectId' in body && body.projectId;
+      const hasProjectId = body && 'codespaceId' in body && body.codespaceId;
       expect(hasProjectId).toBeFalsy();
     });
 
     it('validates required title field', () => {
-      const body = { projectId: 'proj-123' };
+      const body = { codespaceId: 'proj-123' };
       const hasTitle = body && 'title' in body && body.title;
       expect(hasTitle).toBeFalsy();
     });
 
     it('accepts valid task data', () => {
-      const body = { projectId: 'proj-123', title: 'Task', description: 'Description' };
-      const isValid = body?.projectId && body.title;
+      const body = { codespaceId: 'proj-123', title: 'Task', description: 'Description' };
+      const isValid = body?.codespaceId && body.title;
       expect(isValid).toBeTruthy();
     });
 
     it('accepts task with optional fields', () => {
       const body = {
-        projectId: 'proj-123',
+        codespaceId: 'proj-123',
         title: 'Task',
         description: 'Description',
         column: 'backlog',
@@ -1041,21 +1041,21 @@ describe('Request Body Validation', () => {
   });
 
   describe('Worktree Creation', () => {
-    it('validates required projectId field', () => {
+    it('validates required codespaceId field', () => {
       const body = { taskId: 'task-123' };
-      const hasProjectId = body && 'projectId' in body && body.projectId;
+      const hasProjectId = body && 'codespaceId' in body && body.codespaceId;
       expect(hasProjectId).toBeFalsy();
     });
 
     it('validates required taskId field', () => {
-      const body = { projectId: 'proj-123' };
+      const body = { codespaceId: 'proj-123' };
       const hasTaskId = body && 'taskId' in body && body.taskId;
       expect(hasTaskId).toBeFalsy();
     });
 
     it('accepts valid worktree data', () => {
-      const body = { projectId: 'proj-123', taskId: 'task-123' };
-      const isValid = body?.projectId && body.taskId;
+      const body = { codespaceId: 'proj-123', taskId: 'task-123' };
+      const isValid = body?.codespaceId && body.taskId;
       expect(isValid).toBeTruthy();
     });
   });
@@ -1188,9 +1188,9 @@ describe('Request Body Validation', () => {
   });
 
   describe('Task Creation with AI', () => {
-    it('validates required projectId for start', () => {
+    it('validates required codespaceId for start', () => {
       const body = {};
-      const hasProjectId = body && 'projectId' in body && body.projectId;
+      const hasProjectId = body && 'codespaceId' in body && body.codespaceId;
       expect(hasProjectId).toBeFalsy();
     });
 
@@ -1470,14 +1470,14 @@ describe('URL Path Parsing', () => {
   }
 
   it('parses simple paths', () => {
-    const { pathname, segments } = parseUrlPath('/api/projects');
-    expect(pathname).toBe('/api/projects');
-    expect(segments).toEqual(['api', 'projects']);
+    const { pathname, segments } = parseUrlPath('/api/codespaces');
+    expect(pathname).toBe('/api/codespaces');
+    expect(segments).toEqual(['api', 'codespaces']);
   });
 
   it('parses paths with IDs', () => {
-    const { segments } = parseUrlPath('/api/projects/proj-123');
-    expect(segments).toEqual(['api', 'projects', 'proj-123']);
+    const { segments } = parseUrlPath('/api/codespaces/proj-123');
+    expect(segments).toEqual(['api', 'codespaces', 'proj-123']);
   });
 
   it('parses nested paths', () => {
@@ -1491,13 +1491,13 @@ describe('URL Path Parsing', () => {
   });
 
   it('handles trailing slashes', () => {
-    const { pathname, segments } = parseUrlPath('/api/projects/');
-    expect(pathname).toBe('/api/projects/');
-    expect(segments).toEqual(['api', 'projects']);
+    const { pathname, segments } = parseUrlPath('/api/codespaces/');
+    expect(pathname).toBe('/api/codespaces/');
+    expect(segments).toEqual(['api', 'codespaces']);
   });
 
   it('extracts ID from path segments', () => {
-    const { segments } = parseUrlPath('/api/projects/proj-123');
+    const { segments } = parseUrlPath('/api/codespaces/proj-123');
     const id = segments[2];
     expect(id).toBe('proj-123');
   });

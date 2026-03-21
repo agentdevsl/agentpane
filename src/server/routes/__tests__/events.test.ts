@@ -706,7 +706,7 @@ describe('Events API Routes', () => {
       const res = await request(app, 'POST', '/api/events/subscriptions', {
         name: 'New Sub',
         eventSourceId: 'src-1',
-        targetProjectId: 'proj-1',
+        targetCodespaceId: 'proj-1',
         promptTemplate: 'Create a task for: {{event}}',
       });
 
@@ -738,7 +738,7 @@ describe('Events API Routes', () => {
       const res = await request(app, 'POST', '/api/events/subscriptions', {
         name: 'Sub',
         eventSourceId: 'nonexistent',
-        targetProjectId: 'proj-1',
+        targetCodespaceId: 'proj-1',
         promptTemplate: 'Create task',
       });
 
@@ -754,7 +754,7 @@ describe('Events API Routes', () => {
       const res = await request(app, 'POST', '/api/events/subscriptions', {
         name: 'Sub',
         eventSourceId: 'src-1',
-        targetProjectId: 'proj-1',
+        targetCodespaceId: 'proj-1',
         promptTemplate: 'Create task',
       });
 

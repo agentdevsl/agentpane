@@ -89,7 +89,7 @@ describe('Mock Sandbox Utilities', () => {
       const sandbox = createMockSandbox();
 
       expect(sandbox.id).toBe('mock-sandbox-123');
-      expect(sandbox.projectId).toBe('mock-project-123');
+      expect(sandbox.codespaceId).toBe('mock-project-123');
       expect(sandbox.containerId).toBe('mock-container-abc');
       expect(sandbox.status).toBe('running');
       expect(sandbox.exec).toBeDefined();
@@ -224,7 +224,7 @@ describe('Mock Sandbox Utilities', () => {
     it('creates config with sensible defaults', () => {
       const config = createMockSandboxConfig();
 
-      expect(config.projectId).toBe('mock-project-123');
+      expect(config.codespaceId).toBe('mock-project-123');
       expect(config.projectPath).toBe('/tmp/mock-project');
       expect(config.image).toBe('node:20');
       expect(config.memoryMb).toBe(512);
@@ -236,12 +236,12 @@ describe('Mock Sandbox Utilities', () => {
 
     it('allows overriding any field', () => {
       const config = createMockSandboxConfig({
-        projectId: 'custom-project',
+        codespaceId: 'custom-project',
         memoryMb: 8192,
         env: { NODE_ENV: 'test' },
       });
 
-      expect(config.projectId).toBe('custom-project');
+      expect(config.codespaceId).toBe('custom-project');
       expect(config.memoryMb).toBe(8192);
       expect(config.env).toEqual({ NODE_ENV: 'test' });
     });
@@ -252,7 +252,7 @@ describe('Mock Sandbox Utilities', () => {
       const info = createMockSandboxInfo();
 
       expect(info.id).toBe('mock-sandbox-123');
-      expect(info.projectId).toBe('mock-project-123');
+      expect(info.codespaceId).toBe('mock-project-123');
       expect(info.containerId).toBe('mock-container-abc');
       expect(info.status).toBe('running');
       expect(info.image).toBe('node:20');

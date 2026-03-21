@@ -63,7 +63,7 @@ describe('Breadcrumbs', () => {
   it('renders links for items with to prop', () => {
     const items: BreadcrumbItem[] = [
       { label: 'Home', to: '/' },
-      { label: 'Projects', to: '/projects' },
+      { label: 'Projects', to: '/codespaces' },
       { label: 'Current Page' },
     ];
 
@@ -74,18 +74,18 @@ describe('Breadcrumbs', () => {
     const currentPage = screen.getByText('Current Page');
 
     expect(homeLink).toHaveAttribute('href', '/');
-    expect(projectsLink).toHaveAttribute('href', '/projects');
+    expect(projectsLink).toHaveAttribute('href', '/codespaces');
     expect(currentPage.tagName).toBe('SPAN');
   });
 
   it('renders links with params', () => {
     const items: BreadcrumbItem[] = [
-      { label: 'Project', to: '/projects/$projectId', params: { projectId: 'proj-123' } },
+      { label: 'Project', to: '/codespaces/$codespaceId', params: { codespaceId: 'proj-123' } },
     ];
 
     render(<Breadcrumbs items={items} />);
 
     const link = screen.getByRole('link', { name: 'Project' });
-    expect(link).toHaveAttribute('data-params', JSON.stringify({ projectId: 'proj-123' }));
+    expect(link).toHaveAttribute('data-params', JSON.stringify({ codespaceId: 'proj-123' }));
   });
 });

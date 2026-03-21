@@ -91,7 +91,7 @@ vi.mock('@agentpane/agent-sandbox-sdk', () => {
     CRD_LABELS: {
       managed: 'agentpane.io/managed',
       sandbox: 'agentpane.io/sandbox',
-      projectId: 'agentpane.io/project-id',
+      codespaceId: 'agentpane.io/project-id',
       warmPool: 'agentpane.io/warm-pool',
       warmPoolState: 'agentpane.io/warm-pool-state',
     },
@@ -109,8 +109,8 @@ import { AgentSandboxProvider, createAgentSandboxProvider } from '../agent-sandb
 
 describe('AgentSandboxProvider', () => {
   const sampleConfig: SandboxConfig = {
-    projectId: 'proj-123',
-    projectPath: '/home/user/project',
+    codespaceId: 'proj-123',
+    codespacePath: '/home/user/project',
     image: 'srlynch1/agent-sandbox:latest',
     memoryMb: 4096,
     cpuCores: 2,
@@ -161,7 +161,7 @@ describe('AgentSandboxProvider', () => {
 
       expect(sandbox).toBeInstanceOf(AgentSandboxInstance);
       expect(sandbox.id).toBeDefined();
-      expect(sandbox.projectId).toBe('proj-123');
+      expect(sandbox.codespaceId).toBe('proj-123');
       expect(sandbox.status).toBe('running');
     });
 
@@ -258,7 +258,7 @@ describe('AgentSandboxProvider', () => {
       const provider = createProvider();
 
       const created = await provider.create(sampleConfig);
-      const retrieved = await provider.get(sampleConfig.projectId);
+      const retrieved = await provider.get(sampleConfig.codespaceId);
 
       expect(retrieved).toBe(created);
     });
@@ -362,7 +362,7 @@ describe('AgentSandboxProvider', () => {
       expect(list).toHaveLength(1);
       expect(list[0]).toMatchObject({
         id: 'id-1',
-        projectId: 'proj-123',
+        codespaceId: 'proj-123',
         containerId: 'agentpane-proj-123-abc',
         status: 'running',
         image: 'srlynch1/agent-sandbox:latest',
@@ -502,7 +502,7 @@ describe('AgentSandboxProvider', () => {
       mockClient.deleteSandbox.mockResolvedValue(undefined);
 
       // Stop the sandbox
-      const sandbox = await provider.get(sampleConfig.projectId);
+      const sandbox = await provider.get(sampleConfig.codespaceId);
       await sandbox!.stop();
 
       // Future date should match
@@ -625,8 +625,8 @@ describe('AgentSandboxInstance', () => {
       expect(instance.id).toBe('sandbox-id-1');
     });
 
-    it('has correct projectId', () => {
-      expect(instance.projectId).toBe('proj-123');
+    it('has correct codespaceId', () => {
+      expect(instance.codespaceId).toBe('proj-123');
     });
 
     it('containerId maps to sandbox name', () => {

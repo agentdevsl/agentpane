@@ -104,25 +104,32 @@ export { API_ERROR_CODES } from './types';
 // Export factory for custom base URLs
 export { createApiFetch };
 
-// Project types
-export type ProjectListItem = {
+// Codespace types
+export type CodespaceListItem = {
   id: string;
   name: string;
   path: string;
   description?: string | null;
+  projectFolderId?: string | null;
   createdAt: Date | null;
   updatedAt: Date | null;
 };
 
-export type ProjectListResponse = {
-  items: ProjectListItem[];
+/** @deprecated Use CodespaceListItem instead */
+export type ProjectListItem = CodespaceListItem;
+
+export type CodespaceListResponse = {
+  items: CodespaceListItem[];
   nextCursor: string | null;
   hasMore: boolean;
   totalCount: number;
 };
 
+/** @deprecated Use CodespaceListResponse instead */
+export type ProjectListResponse = CodespaceListResponse;
+
 export type ProjectSummaryItem = {
-  project: ProjectListItem;
+  codespace: CodespaceListItem;
   taskCounts: {
     backlog: number;
     queued: number;
@@ -148,16 +155,35 @@ export type ProjectSummaryResponse = {
   totalCount: number;
 };
 
+// Project folder types
+export type ProjectFolderItem = {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string | null;
+  icon: string;
+  color: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type FolderSummary = {
+  folder: ProjectFolderItem;
+  totalCodespaces: number;
+  runningAgents: number;
+  totalTasks: number;
+};
+
 // Template types
 export type CreateTemplateInput = {
   name: string;
   description?: string;
-  scope: 'org' | 'project';
+  scope: 'org' | 'codespace';
   githubUrl: string;
   branch?: string;
   configPath?: string;
-  /** Project IDs to associate with this template (for project-scoped templates) */
-  projectIds?: string[];
+  /** Codespace IDs to associate with this template (for codespace-scoped templates) */
+  codespaceIds?: string[];
 };
 
 export type UpdateTemplateInput = {
@@ -165,8 +191,8 @@ export type UpdateTemplateInput = {
   description?: string;
   branch?: string;
   configPath?: string;
-  /** Update the project associations (replaces existing) */
-  projectIds?: string[];
+  /** Update the codespace associations (replaces existing) */
+  codespaceIds?: string[];
 };
 
 // Sandbox Config types — derived from the canonical SandboxProvider type
@@ -306,23 +332,24 @@ export const apiClient = {
 
   projects: {
     list: (params?: { limit?: number }) =>
-      apiServerFetch<ProjectListResponse>(
-        `/api/projects${params?.limit ? `?limit=${params.limit}` : ''}`
+      apiServerFetch<CodespaceListResponse>(
+        `/api/codespaces${params?.limit ? `?limit=${params.limit}` : ''}`
       ),
 
     listWithSummaries: (params?: { limit?: number }) =>
       apiServerFetch<ProjectSummaryResponse>(
-        `/api/projects/summaries${params?.limit ? `?limit=${params.limit}` : ''}`
+        `/api/codespaces/summaries${params?.limit ? `?limit=${params.limit}` : ''}`
       ),
 
-    get: (id: string) => apiServerFetch<ProjectListItem>(`/api/projects/${id}`),
+    get: (id: string) => apiServerFetch<CodespaceListItem>(`/api/codespaces/${id}`),
 
     create: (data: {
       name: string;
       path: string;
       description?: string;
       sandboxConfigId?: string;
-    }) => apiServerFetch<ProjectListItem>('/api/projects', { method: 'POST', body: data }),
+      projectFolderId?: string;
+    }) => apiServerFetch<CodespaceListItem>('/api/codespaces', { method: 'POST', body: data }),
 
     update: (
       id: string,
@@ -331,26 +358,73 @@ export const apiClient = {
         description?: string;
         maxConcurrentAgents?: number;
         config?: Record<string, unknown>;
+        projectFolderId?: string;
       }
     ) =>
-      apiServerFetch<ProjectListItem>(`/api/projects/${encodeURIComponent(id)}`, {
+      apiServerFetch<CodespaceListItem>(`/api/codespaces/${encodeURIComponent(id)}`, {
         method: 'PATCH',
         body: data,
       }),
 
     delete: (id: string, options?: { deleteFiles?: boolean }) =>
       apiServerFetch<{ deleted: boolean }>(
-        `/api/projects/${encodeURIComponent(id)}${options?.deleteFiles ? '?deleteFiles=true' : ''}`,
+        `/api/codespaces/${encodeURIComponent(id)}${options?.deleteFiles ? '?deleteFiles=true' : ''}`,
         {
           method: 'DELETE',
         }
       ),
   },
 
+  // Alias: codespaces points to the same methods as projects
+  get codespaces() {
+    return this.projects;
+  },
+
+  projectFolders: {
+    list: () => apiServerFetch<{ items: ProjectFolderItem[] }>('/api/project-folders'),
+
+    get: (id: string) =>
+      apiServerFetch<ProjectFolderItem>(`/api/project-folders/${encodeURIComponent(id)}`),
+
+    create: (data: {
+      name: string;
+      slug: string;
+      icon?: string;
+      color?: string;
+      description?: string;
+    }) => apiServerFetch<ProjectFolderItem>('/api/project-folders', { method: 'POST', body: data }),
+
+    update: (
+      id: string,
+      data: Partial<{
+        name: string;
+        slug: string;
+        icon: string;
+        color: string;
+        description: string;
+      }>
+    ) =>
+      apiServerFetch<ProjectFolderItem>(`/api/project-folders/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        body: data,
+      }),
+
+    delete: (id: string) =>
+      apiServerFetch<null>(`/api/project-folders/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+    listCodespaces: (folderId: string) =>
+      apiServerFetch<{ items: CodespaceListItem[] }>(
+        `/api/project-folders/${encodeURIComponent(folderId)}/codespaces`
+      ),
+
+    getSummary: (folderId: string) =>
+      apiServerFetch<FolderSummary>(`/api/project-folders/${encodeURIComponent(folderId)}/summary`),
+  },
+
   agents: {
-    list: (params?: { projectId?: string; status?: string }) => {
+    list: (params?: { codespaceId?: string; status?: string }) => {
       const searchParams = new URLSearchParams();
-      if (params?.projectId) searchParams.set('projectId', params.projectId);
+      if (params?.codespaceId) searchParams.set('codespaceId', params.codespaceId);
       if (params?.status) searchParams.set('status', params.status);
       const query = searchParams.toString();
       return apiFetch<{ items: unknown[]; totalCount: number }>(
@@ -363,9 +437,9 @@ export const apiClient = {
   },
 
   tasks: {
-    list: (projectId: string, params?: { status?: string; limit?: number }) => {
+    list: (codespaceId: string, params?: { status?: string; limit?: number }) => {
       const searchParams = new URLSearchParams();
-      searchParams.set('projectId', projectId);
+      searchParams.set('codespaceId', codespaceId);
       if (params?.status) searchParams.set('status', params.status);
       if (params?.limit) searchParams.set('limit', String(params.limit));
       return apiServerFetch<{ items: unknown[]; totalCount: number }>(
@@ -379,7 +453,7 @@ export const apiClient = {
      * Create a new task directly (manual mode)
      */
     create: (data: {
-      projectId: string;
+      codespaceId: string;
       title: string;
       description?: string;
       labels?: string[];
@@ -388,7 +462,7 @@ export const apiClient = {
       apiServerFetch<{
         taskId: string;
         title: string;
-        projectId: string;
+        codespaceId: string;
       }>('/api/tasks', { method: 'POST', body: data }),
 
     /**
@@ -452,7 +526,7 @@ export const apiClient = {
 
   sessions: {
     list: (params?: {
-      projectId?: string;
+      codespaceId?: string;
       limit?: number;
       offset?: number;
       status?: string[];
@@ -463,7 +537,7 @@ export const apiClient = {
       search?: string;
     }) => {
       const searchParams = new URLSearchParams();
-      if (params?.projectId) searchParams.set('projectId', params.projectId);
+      if (params?.codespaceId) searchParams.set('codespaceId', params.codespaceId);
       if (params?.limit) searchParams.set('limit', String(params.limit));
       if (params?.offset) searchParams.set('offset', String(params.offset));
       if (params?.status?.length) searchParams.set('status', params.status.join(','));
@@ -487,10 +561,9 @@ export const apiClient = {
       if (params?.offset) searchParams.set('offset', String(params.offset));
       const query = searchParams.toString();
       // Use apiServerFetch to hit the Bun API server directly
-      return apiServerFetch<{
-        data: Array<{ id: string; type: string; timestamp: number; data: unknown }>;
-        pagination: { total: number; limit: number; offset: number };
-      }>(`/api/sessions/${encodeURIComponent(id)}/events${query ? `?${query}` : ''}`);
+      return apiServerFetch<Array<{ id: string; type: string; timestamp: number; data: unknown }>>(
+        `/api/sessions/${encodeURIComponent(id)}/events${query ? `?${query}` : ''}`
+      );
     },
 
     getSummary: (id: string) =>
@@ -524,9 +597,9 @@ export const apiClient = {
   },
 
   worktrees: {
-    list: (params?: { projectId?: string }) => {
+    list: (params?: { codespaceId?: string }) => {
       const searchParams = new URLSearchParams();
-      if (params?.projectId) searchParams.set('projectId', params.projectId);
+      if (params?.codespaceId) searchParams.set('codespaceId', params.codespaceId);
       const query = searchParams.toString();
       return apiServerFetch<{
         items: Array<{
@@ -562,7 +635,7 @@ export const apiClient = {
         aheadBehind?: { ahead: number; behind: number };
       }>(`/api/worktrees/${encodeURIComponent(id)}`),
 
-    create: (data: { projectId: string; taskId: string; baseBranch?: string }) =>
+    create: (data: { codespaceId: string; taskId: string; baseBranch?: string }) =>
       apiServerFetch<{
         id: string;
         branch: string;
@@ -609,15 +682,15 @@ export const apiClient = {
         stats: { filesChanged: number; additions: number; deletions: number };
       }>(`/api/worktrees/${encodeURIComponent(id)}/diff`),
 
-    prune: (projectId: string) =>
+    prune: (codespaceId: string) =>
       apiServerFetch<{
         pruned: number;
         failed: Array<{ worktreeId: string; branch: string; error: string }>;
-      }>(`/api/worktrees/prune`, { method: 'POST', body: { projectId } }),
+      }>(`/api/worktrees/prune`, { method: 'POST', body: { codespaceId } }),
   },
 
   git: {
-    status: (projectId: string) =>
+    status: (codespaceId: string) =>
       apiServerFetch<{
         repoName: string;
         currentBranch: string;
@@ -627,9 +700,9 @@ export const apiClient = {
         untracked: number;
         ahead: number;
         behind: number;
-      }>(`/api/git/status?projectId=${encodeURIComponent(projectId)}`),
+      }>(`/api/git/status?codespaceId=${encodeURIComponent(codespaceId)}`),
 
-    branches: (projectId: string) =>
+    branches: (codespaceId: string) =>
       apiServerFetch<{
         items: Array<{
           name: string;
@@ -639,10 +712,10 @@ export const apiClient = {
           isHead: boolean;
           status: 'ahead' | 'behind' | 'diverged' | 'up-to-date' | 'no-upstream';
         }>;
-      }>(`/api/git/branches?projectId=${encodeURIComponent(projectId)}`),
+      }>(`/api/git/branches?codespaceId=${encodeURIComponent(codespaceId)}`),
 
-    commits: (projectId: string, branch?: string, limit?: number) => {
-      const params = new URLSearchParams({ projectId });
+    commits: (codespaceId: string, branch?: string, limit?: number) => {
+      const params = new URLSearchParams({ codespaceId });
       if (branch) params.set('branch', branch);
       if (limit) params.set('limit', String(limit));
       return apiServerFetch<{
@@ -659,7 +732,7 @@ export const apiClient = {
       }>(`/api/git/commits?${params.toString()}`);
     },
 
-    remoteBranches: (projectId: string) =>
+    remoteBranches: (codespaceId: string) =>
       apiServerFetch<{
         items: Array<{
           name: string;
@@ -668,7 +741,7 @@ export const apiClient = {
           shortHash: string;
           commitCount: number;
         }>;
-      }>(`/api/git/remote-branches?projectId=${encodeURIComponent(projectId)}`),
+      }>(`/api/git/remote-branches?codespaceId=${encodeURIComponent(codespaceId)}`),
   },
 
   filesystem: {
@@ -770,10 +843,10 @@ export const apiClient = {
   },
 
   templates: {
-    list: (options?: { scope?: 'org' | 'project'; projectId?: string; limit?: number }) => {
+    list: (options?: { scope?: 'org' | 'codespace'; codespaceId?: string; limit?: number }) => {
       const searchParams = new URLSearchParams();
       if (options?.scope) searchParams.set('scope', options.scope);
-      if (options?.projectId) searchParams.set('projectId', options.projectId);
+      if (options?.codespaceId) searchParams.set('codespaceId', options.codespaceId);
       if (options?.limit) searchParams.set('limit', String(options.limit));
       const query = searchParams.toString();
       return apiServerFetch<{ items: unknown[]; totalCount: number }>(
@@ -836,7 +909,7 @@ export const apiClient = {
     /**
      * Start a new plan session for a task
      */
-    start: (taskId: string, data: { projectId: string; initialPrompt: string }) =>
+    start: (taskId: string, data: { codespaceId: string; initialPrompt: string }) =>
       apiFetch<{ session: PlanSession }>(`/api/plans/${encodeURIComponent(taskId)}/start`, {
         method: 'POST',
         body: data,
@@ -869,18 +942,18 @@ export const apiClient = {
   taskCreation: {
     /**
      * Start a new AI task creation conversation
-     * @param projectId - Project to create task for
+     * @param codespaceId - Project to create task for
      * @param allowedTools - Optional tools configured in settings
      */
-    start: (projectId: string, allowedTools?: string[]) =>
+    start: (codespaceId: string, allowedTools?: string[]) =>
       apiServerFetch<{
         sessionId: string;
-        projectId: string;
+        codespaceId: string;
         status: string;
         createdAt: string;
       }>('/api/tasks/create-with-ai/start', {
         method: 'POST',
-        body: { projectId, allowedTools },
+        body: { codespaceId, allowedTools },
       }),
 
     /**

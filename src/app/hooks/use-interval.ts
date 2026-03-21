@@ -1,4 +1,3 @@
-// biome-ignore lint/style/noRestrictedImports: factory hook — only file allowed to import useEffect
 import { useEffect, useRef } from 'react';
 
 /**
@@ -11,7 +10,6 @@ export function useInterval(callback: () => void, delayMs: number | null): void 
   // Always keep the ref pointing at the latest callback
   savedCallback.current = callback;
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: delay is the only reactive dep
   useEffect(() => {
     if (delayMs === null) return;
 

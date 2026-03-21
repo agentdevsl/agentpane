@@ -177,7 +177,7 @@ export async function run(): Promise<void> {
     if (sandboxState.containerAgentService) {
       const running = sandboxState.containerAgentService.getRunningAgents();
       const stopPromises = running.map((agent) =>
-        sandboxState.containerAgentService!.stopAgent(agent.taskId).catch((stopErr) => {
+        sandboxState.containerAgentService?.stopAgent(agent.taskId).catch((stopErr) => {
           log.warn('Failed to stop agent during shutdown', {
             data: { taskId: agent.taskId, error: String(stopErr) },
           });

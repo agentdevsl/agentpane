@@ -154,6 +154,26 @@ export const BROWSER_STUBS: Record<string, string> = {
     export default { ok, strictEqual, deepStrictEqual, fail };
   `,
 
+  // node:async_hooks stub
+  '\0node-async_hooks-stub': `
+    export class AsyncLocalStorage {
+      constructor() { this._store = undefined; }
+      getStore() { return this._store; }
+      run(store, callback, ...args) { const prev = this._store; this._store = store; try { return callback(...args); } finally { this._store = prev; } }
+      enterWith(store) { this._store = store; }
+      disable() { this._store = undefined; }
+    }
+    export class AsyncResource {
+      constructor() {}
+      runInAsyncScope(fn, thisArg, ...args) { return fn.apply(thisArg, args); }
+      emitDestroy() { return this; }
+    }
+    export const executionAsyncId = () => 1;
+    export const triggerAsyncId = () => 0;
+    export const createHook = () => ({ enable: () => {}, disable: () => {} });
+    export default { AsyncLocalStorage, AsyncResource, executionAsyncId, triggerAsyncId, createHook };
+  `,
+
   // @anthropic-ai/claude-agent-sdk stub
   '\0claude-agent-sdk-stub': `
     const serverOnly = () => { throw new Error('Claude Agent SDK is only available on the server'); };
@@ -202,14 +222,14 @@ export const BROWSER_STUBS: Record<string, string> = {
     export const getApiRuntime = () => ({ ok: true, value: {} });
     export const getApiRuntimeOrThrow = () => ({});
     export const getApiServices = () => ({ ok: true, value: {
-      projectService: noopService,
+      codespaceService: noopService,
       taskService: noopService,
       agentService: noopService,
       sessionService: noopService,
       worktreeService: noopService,
     }});
     export const getApiServicesOrThrow = () => ({
-      projectService: noopService,
+      codespaceService: noopService,
       taskService: noopService,
       agentService: noopService,
       sessionService: noopService,
@@ -248,6 +268,8 @@ export const MODULE_STUB_MAP: Record<string, string> = {
   util: '\0node-util-stub',
   'node:assert': '\0node-assert-stub',
   assert: '\0node-assert-stub',
+  'node:async_hooks': '\0node-async_hooks-stub',
+  async_hooks: '\0node-async_hooks-stub',
   '@anthropic-ai/claude-agent-sdk': '\0claude-agent-sdk-stub',
   '@anthropic-ai/sdk': '\0anthropic-sdk-stub',
 };

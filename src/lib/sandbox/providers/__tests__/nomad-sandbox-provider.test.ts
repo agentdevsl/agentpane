@@ -135,8 +135,8 @@ import {
 
 describe('NomadSandboxProvider', () => {
   const sampleConfig: SandboxConfig = {
-    projectId: 'proj-123',
-    projectPath: '/home/user/project',
+    codespaceId: 'proj-123',
+    codespacePath: '/home/user/project',
     image: 'srlynch1/agent-sandbox:latest',
     memoryMb: 4096,
     cpuCores: 2,
@@ -211,7 +211,7 @@ describe('NomadSandboxProvider', () => {
 
       expect(sandbox).toBeInstanceOf(NomadSandboxInstance);
       expect(sandbox.id).toBeDefined();
-      expect(sandbox.projectId).toBe('proj-123');
+      expect(sandbox.codespaceId).toBe('proj-123');
       // After create(), refreshStatus() is called which maps the mock job's 'running' status
       expect(sandbox.status).toBe('running');
     });
@@ -225,11 +225,11 @@ describe('NomadSandboxProvider', () => {
       expect(mockClient.waitForRunning).toHaveBeenCalledTimes(1);
     });
 
-    it('mounts projectPath to /workspace and additional volumeMounts', async () => {
+    it('mounts codespacePath to /workspace and additional volumeMounts', async () => {
       const provider = createProvider();
       const configWithMounts: SandboxConfig = {
         ...sampleConfig,
-        projectPath: '/data/projects/my-project',
+        codespacePath: '/data/projects/my-project',
         volumeMounts: [
           { hostPath: '/data/cache', containerPath: '/cache', readonly: true },
           { hostPath: '/data/shared', containerPath: '/shared' },
@@ -375,7 +375,7 @@ describe('NomadSandboxProvider', () => {
       const provider = createProvider();
 
       const created = await provider.create(sampleConfig);
-      const retrieved = await provider.get(sampleConfig.projectId);
+      const retrieved = await provider.get(sampleConfig.codespaceId);
 
       expect(retrieved).toBe(created);
     });
@@ -483,19 +483,19 @@ describe('NomadSandboxProvider', () => {
       expect(list).toHaveLength(3);
       expect(list[0]).toMatchObject({
         id: 'id-1',
-        projectId: 'proj-1',
+        codespaceId: 'proj-1',
         containerId: 'agentpane-proj-1-abc',
         status: 'running',
       });
       expect(list[1]).toMatchObject({
         id: 'id-2',
-        projectId: 'proj-2',
+        codespaceId: 'proj-2',
         containerId: 'agentpane-proj-2-def',
         status: 'creating',
       });
       expect(list[2]).toMatchObject({
         id: 'id-3',
-        projectId: 'proj-3',
+        codespaceId: 'proj-3',
         containerId: 'agentpane-proj-3-ghi',
         status: 'stopped',
       });
@@ -629,7 +629,7 @@ describe('NomadSandboxProvider', () => {
       const provider = createProvider();
 
       await provider.create(sampleConfig);
-      const sandbox = await provider.get(sampleConfig.projectId);
+      const sandbox = await provider.get(sampleConfig.codespaceId);
       await sandbox!.stop();
 
       // Future date should match
@@ -776,8 +776,8 @@ describe('NomadSandboxInstance', () => {
       expect(instance.id).toBe('sandbox-id-1');
     });
 
-    it('has correct projectId', () => {
-      expect(instance.projectId).toBe('proj-123');
+    it('has correct codespaceId', () => {
+      expect(instance.codespaceId).toBe('proj-123');
     });
 
     it('containerId returns jobName', () => {

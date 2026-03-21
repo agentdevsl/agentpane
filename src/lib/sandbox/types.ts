@@ -10,8 +10,8 @@ export interface VolumeMountConfig {
 }
 
 export interface SandboxConfig {
-  projectId: string;
-  projectPath: string;
+  codespaceId: string;
+  codespacePath: string;
   image: string;
   memoryMb: number;
   cpuCores: number;
@@ -24,7 +24,7 @@ export interface SandboxConfig {
 
 export interface SandboxInfo {
   id: string;
-  projectId: string;
+  codespaceId: string;
   containerId: string;
   status: SandboxStatus;
   image: string;
@@ -63,7 +63,7 @@ export type { OAuthCredentials } from '../../types/credentials.js';
 
 export type SandboxProvider = (typeof SANDBOX_TYPES)[number];
 
-export interface ProjectSandboxConfig {
+export interface CodespaceSandboxConfig {
   enabled: boolean;
   provider: SandboxProvider;
   idleTimeoutMinutes: number;
@@ -100,8 +100,8 @@ export const volumeMountConfigSchema = z.object({
 });
 
 export const sandboxConfigSchema = z.object({
-  projectId: z.string(),
-  projectPath: z.string(),
+  codespaceId: z.string(),
+  codespacePath: z.string(),
   image: z.string().default(SANDBOX_DEFAULTS.image),
   memoryMb: z.number().positive().max(32768).default(SANDBOX_DEFAULTS.memoryMb),
   cpuCores: z.number().positive().max(16).default(SANDBOX_DEFAULTS.cpuCores),

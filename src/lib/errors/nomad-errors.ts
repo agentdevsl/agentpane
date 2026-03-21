@@ -127,9 +127,9 @@ export const NomadErrors = {
       { jobId, currentStatus, errorName: 'NOMAD_JOB_NOT_RUNNING' }
     ),
 
-  JOB_ALREADY_EXISTS: (projectId: string) =>
-    createError(NOMAD_ERROR_IDS.JOB_ALREADY_EXISTS, 'Nomad job already exists for project', 409, {
-      projectId,
+  JOB_ALREADY_EXISTS: (codespaceId: string) =>
+    createError(NOMAD_ERROR_IDS.JOB_ALREADY_EXISTS, 'Nomad job already exists for codespace', 409, {
+      codespaceId,
       errorName: 'NOMAD_JOB_ALREADY_EXISTS',
     }),
 

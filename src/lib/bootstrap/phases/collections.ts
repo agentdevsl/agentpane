@@ -23,8 +23,6 @@ import type { BootstrapContext } from '../types.js';
  * - messages: Task creation conversation messages
  */
 export const initializeCollections = async (_ctx: BootstrapContext) => {
-  console.log('[Bootstrap] Initializing TanStack DB collections');
-
   // Collections are created lazily on first use via localOnlyCollectionOptions
   // Preload them to ensure they're ready
   await Promise.all([
@@ -42,9 +40,7 @@ export const initializeCollections = async (_ctx: BootstrapContext) => {
   ]);
 
   const stats = getCollectionStats();
-  const taskCreationStats = getTaskCreationCollectionStats();
-  console.log('[Bootstrap] Collections initialized:', stats);
-  console.log('[Bootstrap] Task creation collections initialized:', taskCreationStats);
+  getTaskCreationCollectionStats();
 
   return ok({
     collections: sessionCollections,

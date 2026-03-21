@@ -137,7 +137,7 @@ export interface MockTableQuery<TSelect = any> {
 export interface MockDatabase {
   // Query API for all tables
   query: {
-    projects: MockTableQuery;
+    codespaces: MockTableQuery;
     agents: MockTableQuery;
     tasks: MockTableQuery;
     sessions: MockTableQuery;
@@ -323,12 +323,12 @@ export function createTableQuery<TSelect = any>(records: TSelect[] = []): MockTa
  * ```typescript
  * const mockDb = createMockDatabase({
  *   query: {
- *     projects: createTableQuery([project1, project2]),
+ *     codespaces: createTableQuery([project1, project2]),
  *   },
  * });
  *
  * // Type-safe usage
- * const project = await mockDb.query.projects.findFirst();
+ * const project = await mockDb.query.codespaces.findFirst();
  * ```
  */
 export function createMockDatabase(overrides: DeepPartial<MockDatabase> = {}): MockDatabase {
@@ -346,7 +346,7 @@ export function createMockDatabase(overrides: DeepPartial<MockDatabase> = {}): M
   // Build the mock database
   const mockDb: MockDatabase = {
     query: {
-      projects: overrides.query?.projects ?? createTableQuery(),
+      codespaces: overrides.query?.codespaces ?? createTableQuery(),
       agents: overrides.query?.agents ?? createTableQuery(),
       tasks: overrides.query?.tasks ?? createTableQuery(),
       sessions: overrides.query?.sessions ?? createTableQuery(),

@@ -1,0 +1,2137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3-Tier Sidebar Navigation — AgentPane Wireframe</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   3-Tier Sidebar Navigation Wireframe
+   OrgRail (52px) -> FolderPanel (200px) -> NavPanel (240px) -> Content
+   Light + Dark themes, 4 view states
+   ============================================================ */
+
+:root {
+  --bg-canvas: #fafbfc;
+  --bg-surface: #f4f5f7;
+  --bg-subtle: #eef0f3;
+  --bg-muted: #e8eaef;
+  --bg-emphasis: #dce0e8;
+  --border: #d1d5dc;
+  --border-muted: #e1e5eb;
+  --border-subtle: rgba(30, 45, 60, 0.08);
+  --fg: #1a1d24;
+  --fg-muted: #5c6370;
+  --fg-subtle: #7a8290;
+  --fg-on-emphasis: #ffffff;
+  --accent: #2563eb;
+  --accent-bg: rgba(37, 99, 235, 0.12);
+  --accent-hover: #1d4ed8;
+  --success: #16a34a;
+  --success-bg: rgba(22, 163, 74, 0.12);
+  --danger: #dc2626;
+  --danger-bg: rgba(220, 38, 38, 0.12);
+  --attention: #d97706;
+  --attention-bg: rgba(217, 119, 6, 0.12);
+  --done: #7c3aed;
+  --done-bg: rgba(124, 58, 237, 0.12);
+  --pink: #db2777;
+  --yellow: #d29922;
+  --shadow-sm: 0 1px 2px rgba(30,40,60,0.06), 0 1px 3px rgba(30,40,60,0.08);
+  --shadow-md: 0 4px 6px -1px rgba(30,40,60,0.08), 0 2px 4px -2px rgba(30,40,60,0.06);
+  --font: "Mona Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mono: "Fira Code", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+[data-theme="dark"] {
+  --bg-canvas: #0d1117;
+  --bg-surface: #161b22;
+  --bg-subtle: #1c2128;
+  --bg-muted: #21262d;
+  --bg-emphasis: #30363d;
+  --border: #30363d;
+  --border-muted: #21262d;
+  --border-subtle: rgba(240, 246, 252, 0.1);
+  --fg: #e6edf3;
+  --fg-muted: #8b949e;
+  --fg-subtle: #6e7681;
+  --fg-on-emphasis: #ffffff;
+  --accent: #58a6ff;
+  --accent-bg: rgba(56, 139, 253, 0.15);
+  --accent-hover: #79c0ff;
+  --success: #3fb950;
+  --success-bg: rgba(46, 160, 67, 0.15);
+  --danger: #f85149;
+  --danger-bg: rgba(248, 81, 73, 0.15);
+  --attention: #d29922;
+  --attention-bg: rgba(187, 128, 9, 0.15);
+  --done: #a371f7;
+  --done-bg: rgba(163, 113, 247, 0.15);
+  --pink: #f778ba;
+  --yellow: #d29922;
+  --shadow-sm: 0 1px 2px rgba(1,4,9,0.3);
+  --shadow-md: 0 3px 6px rgba(1,4,9,0.3);
+}
+
+/* ---- Reset ---- */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: var(--font);
+  background: var(--bg-canvas);
+  color: var(--fg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ---- Scrollbar ---- */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--bg-emphasis); border-radius: 99px; }
+
+/* ---- Animations ---- */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* ============================================================
+   VIEW TAB BAR
+   ============================================================ */
+.view-tabs {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 36px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-muted);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 6px;
+  z-index: 100;
+}
+.view-tabs button {
+  border: none;
+  background: transparent;
+  padding: 4px 14px;
+  border-radius: 99px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--font);
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition: background 150ms, color 150ms;
+}
+.view-tabs button:hover { background: var(--bg-subtle); }
+.view-tabs button.active {
+  background: var(--accent);
+  color: white;
+}
+.view-tabs .theme-toggle {
+  margin-left: auto;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 6px;
+}
+
+/* ============================================================
+   APP SHELL
+   ============================================================ */
+.shell {
+  display: flex;
+  height: calc(100vh - 36px);
+  margin-top: 36px;
+}
+
+/* ============================================================
+   TIER 1: ORG RAIL (52px)
+   ============================================================ */
+.rail {
+  width: 52px;
+  min-width: 52px;
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 10px;
+  z-index: 10;
+}
+.rail-orgs {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+.org-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: white;
+  cursor: pointer;
+  transition: border 150ms, box-shadow 150ms;
+  border: 2px solid transparent;
+  position: relative;
+}
+.org-avatar:hover {
+  box-shadow: 0 0 8px rgba(37,99,235,0.15);
+}
+.org-avatar.active {
+  border: 2px solid var(--accent);
+  box-shadow: 0 0 12px rgba(37,99,235,0.19);
+}
+.org-avatar.active::before {
+  content: '';
+  position: absolute;
+  left: -11px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 20px;
+  background: var(--accent);
+  border-radius: 0 2px 2px 0;
+}
+.rail-divider {
+  width: 24px;
+  height: 1px;
+  background: var(--border-muted);
+  margin: 6px 0;
+}
+.rail-bottom {
+  border-top: 1px solid var(--border-muted);
+  padding: 10px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.rail-btn {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition: background 150ms, color 150ms;
+}
+.rail-btn:hover {
+  background: var(--bg-subtle);
+  color: var(--fg);
+}
+.user-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: white;
+  cursor: pointer;
+  background: linear-gradient(135deg, #16a34a, #2563eb);
+  border: 2px solid transparent;
+  transition: border 150ms;
+}
+.user-avatar:hover {
+  border: 2px solid var(--accent);
+}
+
+/* ============================================================
+   TIER 2: FOLDER PANEL (200px)
+   ============================================================ */
+.folders {
+  width: 200px;
+  min-width: 0;
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: width 200ms cubic-bezier(0.25,1,0.5,1), opacity 150ms;
+}
+.folders.collapsed {
+  width: 0;
+  opacity: 0;
+  border-right: none;
+}
+.folders-header {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px 0 14px;
+  border-bottom: 1px solid var(--border-muted);
+  flex-shrink: 0;
+}
+.folders-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.folders-brand-badge {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  color: white;
+}
+.folders-brand-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+  white-space: nowrap;
+}
+.collapse-btn {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--fg-subtle);
+  flex-shrink: 0;
+  transition: background 150ms, color 150ms;
+}
+.collapse-btn:hover {
+  background: var(--bg-subtle);
+  color: var(--fg);
+}
+.section-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-subtle);
+  padding: 8px 14px 4px;
+}
+.folders-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 6px;
+}
+.folder-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 150ms;
+  border-left: 2px solid transparent;
+  margin-bottom: 1px;
+  position: relative;
+}
+.folder-item:hover {
+  background: var(--bg-subtle);
+}
+.folder-item.active {
+  background: var(--bg-emphasis);
+}
+.folder-icon {
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.folder-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-muted);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.folder-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg-subtle);
+  background: var(--bg-subtle);
+  padding: 1px 7px;
+  border-radius: 99px;
+  font-family: var(--mono);
+  flex-shrink: 0;
+}
+.global-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition: background 150ms, color 150ms;
+  white-space: nowrap;
+}
+.global-nav-item:hover {
+  background: var(--bg-subtle);
+  color: var(--fg);
+}
+.global-nav-item svg {
+  flex-shrink: 0;
+}
+.folders-footer {
+  padding: 10px 8px;
+  flex-shrink: 0;
+}
+.new-folder-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  padding: 7px 8px;
+  font-size: 12px;
+  font-family: var(--font);
+  color: var(--fg-subtle);
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 150ms, color 150ms, background 150ms;
+}
+.new-folder-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+
+/* ============================================================
+   TIER 3: NAV PANEL (240px)
+   ============================================================ */
+.nav-panel {
+  width: 240px;
+  min-width: 0;
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: width 200ms cubic-bezier(0.25,1,0.5,1), opacity 150ms;
+}
+.nav-panel.collapsed {
+  width: 0;
+  opacity: 0;
+  border-right: none;
+}
+.nav-header {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 0 10px;
+  border-bottom: 1px solid var(--border-muted);
+  flex-shrink: 0;
+}
+.nav-back-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  color: var(--fg-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 150ms;
+}
+.nav-back-btn:hover {
+  background: var(--bg-subtle);
+}
+.nav-folder-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.nav-folder-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nav-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 8px;
+}
+.codespace-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px;
+}
+.add-codespace-btn {
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  font-family: var(--font);
+  color: var(--fg-subtle);
+  cursor: pointer;
+  transition: color 150ms;
+}
+.add-codespace-btn:hover {
+  color: var(--accent);
+}
+.codespace-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 150ms;
+  border: 1px solid transparent;
+  margin-bottom: 2px;
+}
+.codespace-item:hover {
+  background: var(--bg-subtle);
+}
+.codespace-item.active {
+  background: var(--accent-bg);
+  border: 1px solid var(--accent);
+}
+.codespace-avatar {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: white;
+}
+.codespace-info {
+  flex: 1;
+  min-width: 0;
+}
+.codespace-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.codespace-path {
+  font-size: 11px;
+  color: var(--fg-subtle);
+  font-family: var(--mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.status-dot {
+  width: 8px;
+  height: 8px;
+  min-width: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.status-dot.running {
+  background: var(--success);
+  box-shadow: 0 0 0 3px var(--success-bg);
+  animation: pulse 2s infinite;
+}
+.status-dot.idle {
+  background: var(--border);
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition: background 150ms, color 150ms;
+  white-space: nowrap;
+}
+.nav-item:hover {
+  background: var(--bg-subtle);
+  color: var(--fg);
+}
+.nav-item.active {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.nav-item svg {
+  flex-shrink: 0;
+}
+.nav-item-badge {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 99px;
+  font-family: var(--mono);
+}
+.nav-item-badge.accent {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.nav-item-badge.subtle {
+  background: var(--bg-subtle);
+  color: var(--fg-subtle);
+}
+.nav-footer {
+  border-top: 1px solid var(--border-muted);
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.nav-footer-text {
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+/* ============================================================
+   MAIN CONTENT AREA
+   ============================================================ */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* ---- Topbar ---- */
+.topbar {
+  height: 52px;
+  min-height: 52px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-muted);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+}
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.breadcrumb-sep { color: var(--fg-subtle); }
+.breadcrumb-current { color: var(--fg); font-weight: 500; }
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn {
+  border: none;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--font);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 150ms, color 150ms;
+}
+.btn-outline {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--fg-muted);
+}
+.btn-outline:hover {
+  background: var(--bg-subtle);
+  color: var(--fg);
+}
+.btn-primary {
+  background: var(--accent);
+  color: white;
+}
+.btn-primary:hover {
+  background: var(--accent-hover);
+}
+.btn-icon {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--fg-muted);
+}
+.btn-icon:hover {
+  background: var(--bg-subtle);
+  color: var(--fg);
+}
+
+/* ---- Content pane ---- */
+.content-pane {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+}
+.content-pane.hidden { display: none; }
+
+.page-title {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+  margin-bottom: 4px;
+}
+.page-subtitle {
+  font-size: 12px;
+  color: var(--fg-muted);
+  margin-bottom: 20px;
+}
+
+/* ============================================================
+   VIEW 1: CODESPACES (Card Grid)
+   ============================================================ */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+.cs-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: box-shadow 200ms, border-color 200ms;
+}
+.cs-card:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--accent);
+}
+.cs-card-header {
+  padding: 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.cs-card-avatar {
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 700;
+  color: white;
+}
+.cs-card-info { flex: 1; min-width: 0; }
+.cs-card-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  margin-bottom: 2px;
+}
+.cs-card-path {
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--fg-subtle);
+}
+.status-badge {
+  border-radius: 99px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.status-badge.running {
+  background: var(--success-bg);
+  color: var(--success);
+  border-color: rgba(22,163,74,0.2);
+}
+.status-badge.approval {
+  background: var(--attention-bg);
+  color: var(--attention);
+  border-color: rgba(217,119,6,0.2);
+}
+.status-badge.idle {
+  background: var(--bg-subtle);
+  color: var(--fg-muted);
+  border-color: var(--border);
+}
+.status-badge .pulse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse 2s infinite;
+}
+.cs-card-body { padding: 0 16px 12px; }
+.kanban-mini {
+  display: flex;
+  gap: 2px;
+  height: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+.kanban-mini span {
+  height: 100%;
+  border-radius: 2px;
+}
+.cs-card-agent {
+  background: var(--bg-canvas);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin: 0 16px 0;
+  font-size: 11px;
+  color: var(--fg-muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cs-card-agent-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  font-weight: 700;
+  color: white;
+  background: linear-gradient(135deg, var(--accent), var(--done));
+  flex-shrink: 0;
+}
+.cs-card-footer {
+  padding: 12px 16px;
+  background: var(--bg-subtle);
+  border-top: 1px solid var(--border-muted);
+  border-radius: 0 0 12px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--fg-subtle);
+}
+.cs-card-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cs-card-footer-actions a {
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+}
+.cs-card-footer-actions a.open { color: var(--accent); }
+.cs-card-footer-actions a.review { color: var(--attention); }
+.cs-card-footer-actions button {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-subtle);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 150ms;
+}
+.cs-card-footer-actions button:hover {
+  background: var(--bg-muted);
+}
+.add-card {
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  cursor: pointer;
+  transition: border-color 200ms, background 200ms;
+  gap: 10px;
+  color: var(--fg-subtle);
+}
+.add-card:hover {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.add-card-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  border: 2px dashed currentColor;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: 300;
+}
+.add-card-text {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* ============================================================
+   VIEW 2: KANBAN BOARD
+   ============================================================ */
+.kanban-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.kanban-center-btn {
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 99px;
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: var(--font);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 150ms;
+}
+.kanban-center-btn:hover { background: var(--accent-hover); }
+.kanban-board {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 16px;
+  height: calc(100% - 60px);
+}
+.kanban-col {
+  flex: 1;
+  min-width: 200px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.kanban-col-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.kanban-col-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.kanban-col-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg);
+  flex: 1;
+}
+.kanban-col-count {
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--bg-emphasis);
+  color: var(--fg-muted);
+  padding: 1px 8px;
+  border-radius: 99px;
+  font-family: var(--mono);
+}
+.kanban-col-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px;
+}
+.task-card {
+  margin: 8px;
+  padding: 12px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: box-shadow 150ms, border-color 150ms;
+}
+.task-card:hover {
+  box-shadow: var(--shadow-sm);
+  border-color: var(--accent);
+}
+.task-category {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 99px;
+  font-size: 10px;
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+.task-category.feature { background: var(--done-bg); color: var(--done); }
+.task-category.bugfix { background: var(--danger-bg); color: var(--danger); }
+.task-category.enhancement { background: var(--accent-bg); color: var(--accent); }
+.task-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg);
+  margin-bottom: 4px;
+  line-height: 1.3;
+}
+.task-id {
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--fg-subtle);
+}
+
+/* ============================================================
+   VIEW 3: SESSIONS
+   ============================================================ */
+.sessions-layout {
+  display: flex;
+  height: 100%;
+}
+.sessions-list {
+  width: 340px;
+  min-width: 340px;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+.session-item {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-muted);
+  cursor: pointer;
+  transition: background 150ms;
+  display: flex;
+  gap: 10px;
+}
+.session-item:hover {
+  background: var(--bg-subtle);
+}
+.session-avatar {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: white;
+}
+.session-info { flex: 1; min-width: 0; }
+.session-project {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg);
+  margin-bottom: 2px;
+}
+.session-id {
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--fg-subtle);
+}
+.session-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.session-time {
+  font-size: 11px;
+  color: var(--fg-subtle);
+}
+.session-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+.session-empty-circle {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  border: 2px dashed var(--border);
+  background: var(--bg-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-subtle);
+}
+.session-empty-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.session-empty-desc {
+  font-size: 12px;
+  color: var(--fg-muted);
+  text-align: center;
+  max-width: 260px;
+}
+
+/* ============================================================
+   VIEW 4: SETTINGS
+   ============================================================ */
+.settings-layout {
+  display: flex;
+  height: 100%;
+}
+.settings-sidebar {
+  width: 256px;
+  min-width: 256px;
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 0;
+}
+.settings-sidebar-header {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.settings-sidebar-logo {
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: white;
+}
+.settings-sidebar-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.settings-section {
+  padding: 12px 8px 4px;
+}
+.settings-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-subtle);
+  padding: 0 8px 6px;
+}
+.settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition: background 150ms, color 150ms;
+  border-left: 2px solid transparent;
+  margin-bottom: 1px;
+}
+.settings-nav-item:hover {
+  background: var(--bg-subtle);
+  color: var(--fg);
+}
+.settings-nav-item.active {
+  border-left: 2px solid var(--accent);
+  background: var(--accent-bg);
+  color: var(--fg);
+}
+.settings-nav-item .nav-badge {
+  margin-left: auto;
+  border-radius: 99px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+}
+.settings-nav-item .nav-badge.green {
+  background: var(--success-bg);
+  color: var(--success);
+}
+.settings-content {
+  flex: 1;
+  padding: 28px 32px;
+  overflow-y: auto;
+}
+.settings-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+.settings-card-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.settings-card-info { flex: 1; }
+.settings-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.settings-card-desc {
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.settings-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 768px) {
+  .folders, .nav-panel { display: none !important; }
+}
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     VIEW TAB BAR
+     ============================================================ -->
+<div class="view-tabs">
+  <button class="active" onclick="switchView('codespaces')">Codespaces</button>
+  <button onclick="switchView('kanban')">Kanban</button>
+  <button onclick="switchView('sessions')">Sessions</button>
+  <button onclick="switchView('settings')">Settings</button>
+  <button class="theme-toggle btn-icon" onclick="toggleTheme()" title="Toggle theme">
+    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 3v1m0 16v1m8.66-13.66l-.71.71M4.05 19.95l-.71.71M21 12h-1M4 12H3m16.66 7.66l-.71-.71M4.05 4.05l-.71-.71M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z"/></svg>
+  </button>
+</div>
+
+<!-- ============================================================
+     APP SHELL
+     ============================================================ -->
+<div class="shell">
+
+  <!-- ========== TIER 1: ORG RAIL ========== -->
+  <nav class="rail">
+    <div class="rail-orgs">
+      <div class="org-avatar active" style="background: linear-gradient(135deg, #6366f1, #8b5cf6);" onclick="selectOrg(this)" title="AgentPane">AP</div>
+      <div class="org-avatar" style="background: linear-gradient(135deg, #f97316, #ef4444);" onclick="selectOrg(this)" title="Acme Corp">AC</div>
+      <div class="org-avatar" style="background: linear-gradient(135deg, #16a34a, #14b8a6);" onclick="selectOrg(this)" title="SidePro">SP</div>
+      <div class="rail-divider"></div>
+    </div>
+    <div class="rail-bottom">
+      <button class="rail-btn" title="Settings" onclick="switchView('settings')">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.622 10.395l-1.097-2.65L20 6l-2-2-1.735 1.483-2.707-1.113L12.935 2h-1.954l-.632 2.401-2.645 1.115L6 4 4 6l1.453 1.789-1.08 2.657L2 11.065v1.954l2.401.632 1.113 2.645L4 18l2 2 1.745-1.475 2.649 1.097L11.065 22h1.954l.632-2.401 2.645-1.113L18 20l2-2-1.475-1.745 1.097-2.649L22 12.935v-1.954l-2.378-.586Z"/></svg>
+      </button>
+      <div class="user-avatar" title="Simon Lynch">SL</div>
+    </div>
+  </nav>
+
+  <!-- ========== TIER 2: FOLDER PANEL ========== -->
+  <div class="folders" id="folders-panel">
+    <div class="folders-header">
+      <div class="folders-brand">
+        <div class="folders-brand-badge" style="background: linear-gradient(135deg, #6366f1, #8b5cf6);">A</div>
+        <span class="folders-brand-text">AgentPane</span>
+      </div>
+      <button class="collapse-btn" onclick="toggle('folders-panel')" title="Collapse">
+        <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 19l-7-7 7-7"/></svg>
+      </button>
+    </div>
+    <div class="folders-content">
+      <div class="section-label">Project Folders</div>
+      <div class="folder-item active" onclick="selectFolder(this, 'Engineering', '#3b82f6')" style="border-left-color: #3b82f6;">
+        <div class="folder-icon" style="background: rgba(59,130,246,0.12);">
+          <svg width="16" height="16" fill="none" stroke="#3b82f6" stroke-width="1.5" viewBox="0 0 24 24"><path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2Z"/></svg>
+        </div>
+        <span class="folder-name">Engineering</span>
+        <span class="folder-count">4</span>
+      </div>
+      <div class="folder-item" onclick="selectFolder(this, 'Infrastructure', '#f97316')">
+        <div class="folder-icon" style="background: rgba(249,115,22,0.12);">
+          <svg width="16" height="16" fill="none" stroke="#f97316" stroke-width="1.5" viewBox="0 0 24 24"><path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2Z"/></svg>
+        </div>
+        <span class="folder-name">Infrastructure</span>
+        <span class="folder-count">3</span>
+      </div>
+      <div class="folder-item" onclick="selectFolder(this, 'ML &amp; Data', '#7c3aed')">
+        <div class="folder-icon" style="background: rgba(124,58,237,0.12);">
+          <svg width="16" height="16" fill="none" stroke="#7c3aed" stroke-width="1.5" viewBox="0 0 24 24"><path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2Z"/></svg>
+        </div>
+        <span class="folder-name">ML &amp; Data</span>
+        <span class="folder-count">2</span>
+      </div>
+      <div class="folder-item" onclick="selectFolder(this, 'Documentation', '#16a34a')">
+        <div class="folder-icon" style="background: rgba(22,163,74,0.12);">
+          <svg width="16" height="16" fill="none" stroke="#16a34a" stroke-width="1.5" viewBox="0 0 24 24"><path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2Z"/></svg>
+        </div>
+        <span class="folder-name">Documentation</span>
+        <span class="folder-count">1</span>
+      </div>
+
+      <div class="section-label" style="margin-top: 12px;">Global</div>
+      <div class="global-nav-item">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/></svg>
+        Sessions
+      </div>
+      <div class="global-nav-item">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 2a4 4 0 0 1 4 4v1a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4Zm-6 18a6 6 0 0 1 12 0"/></svg>
+        Agents
+      </div>
+      <div class="global-nav-item">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        Designer
+      </div>
+      <div class="global-nav-item">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+        Terraform
+      </div>
+      <div class="global-nav-item">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM17.5 14v7M14 17.5h7"/></svg>
+        Marketplace
+      </div>
+      <div class="global-nav-item">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>
+        Catalog
+      </div>
+    </div>
+    <div class="folders-footer">
+      <button class="new-folder-btn">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 5v14m-7-7h14"/></svg>
+        + New Folder
+      </button>
+    </div>
+  </div>
+
+  <!-- ========== TIER 3: NAV PANEL ========== -->
+  <div class="nav-panel" id="nav-panel">
+    <div class="nav-header">
+      <button class="nav-back-btn" onclick="toggle('nav-panel')" title="Back">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 12H5m7-7-7 7 7 7"/></svg>
+      </button>
+      <div class="nav-folder-dot" id="nav-dot" style="background: #3b82f6;"></div>
+      <span class="nav-folder-name" id="nav-title">Engineering</span>
+      <button class="collapse-btn" onclick="toggle('nav-panel')" title="Collapse">
+        <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 19l-7-7 7-7"/></svg>
+      </button>
+    </div>
+    <div class="nav-content">
+      <div class="codespace-header">
+        <div class="section-label" style="padding-left: 4px;">Codespaces</div>
+        <button class="add-codespace-btn">+ Add</button>
+      </div>
+      <div class="codespace-item active" onclick="selectCodespace(this, 'agentpane-nocode')">
+        <div class="codespace-avatar" style="background: linear-gradient(135deg, #16a34a, #2563eb);">AP</div>
+        <div class="codespace-info">
+          <div class="codespace-name">agentpane-nocode</div>
+          <div class="codespace-path">~/git/agentpane</div>
+        </div>
+        <div class="status-dot running"></div>
+      </div>
+      <div class="codespace-item" onclick="selectCodespace(this, 'cli-monitor')">
+        <div class="codespace-avatar" style="background: linear-gradient(135deg, #2563eb, #7c3aed);">CM</div>
+        <div class="codespace-info">
+          <div class="codespace-name">cli-monitor</div>
+          <div class="codespace-path">~/git/cli-monitor</div>
+        </div>
+        <div class="status-dot idle"></div>
+      </div>
+      <div class="codespace-item" onclick="selectCodespace(this, 'agent-sdk')">
+        <div class="codespace-avatar" style="background: linear-gradient(135deg, #f97316, #dc2626);">AS</div>
+        <div class="codespace-info">
+          <div class="codespace-name">agent-sdk</div>
+          <div class="codespace-path">~/git/agent-sdk</div>
+        </div>
+        <div class="status-dot running"></div>
+      </div>
+      <div class="codespace-item" onclick="selectCodespace(this, 'design-system')">
+        <div class="codespace-avatar" style="background: linear-gradient(135deg, #7c3aed, #db2777);">DS</div>
+        <div class="codespace-info">
+          <div class="codespace-name">design-system</div>
+          <div class="codespace-path">~/git/design-sys</div>
+        </div>
+        <div class="status-dot idle"></div>
+      </div>
+
+      <div class="section-label" style="margin-top: 12px; padding-left: 4px;">Codespace</div>
+      <div class="nav-item active">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
+        Tasks
+        <span class="nav-item-badge accent">12</span>
+      </div>
+      <div class="nav-item">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M6 3v3M6 18v3M18 3v3M18 18v3M3 6h3M18 6h3M3 18h3M18 18h3"/></svg>
+        Git
+      </div>
+      <div class="nav-item">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M14 14l7 7M3 4l7 7"/></svg>
+        Worktrees
+        <span class="nav-item-badge subtle">3</span>
+      </div>
+      <div class="nav-item">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+        Templates
+      </div>
+      <div class="nav-item">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.622 10.395l-1.097-2.65L20 6l-2-2-1.735 1.483-2.707-1.113L12.935 2h-1.954l-.632 2.401-2.645 1.115L6 4 4 6l1.453 1.789-1.08 2.657L2 11.065v1.954l2.401.632 1.113 2.645L4 18l2 2 1.745-1.475 2.649 1.097L11.065 22h1.954l.632-2.401 2.645-1.113L18 20l2-2-1.475-1.745 1.097-2.649L22 12.935v-1.954l-2.378-.586Z"/></svg>
+        Settings
+      </div>
+    </div>
+    <div class="nav-footer">
+      <div class="status-dot running" style="width: 8px; height: 8px;"></div>
+      <span class="nav-footer-text">System healthy</span>
+    </div>
+  </div>
+
+  <!-- ========== MAIN CONTENT ========== -->
+  <div class="main">
+    <!-- Topbar -->
+    <div class="topbar" id="main-topbar">
+      <div class="breadcrumb">
+        <span>AgentPane</span>
+        <span class="breadcrumb-sep">&rsaquo;</span>
+        <span>Engineering</span>
+        <span class="breadcrumb-sep">&rsaquo;</span>
+        <span class="breadcrumb-current" id="breadcrumb-current">agentpane-nocode</span>
+      </div>
+      <div class="topbar-actions" id="topbar-actions">
+        <button class="btn btn-outline btn-icon" title="Filter">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3Z"/></svg>
+        </button>
+        <button class="btn btn-primary">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 5v14m-7-7h14"/></svg>
+          New Task
+        </button>
+      </div>
+    </div>
+
+    <!-- ====== VIEW 1: CODESPACES ====== -->
+    <div class="content-pane" id="view-codespaces">
+      <h1 class="page-title">Codespaces</h1>
+      <p class="page-subtitle">Manage your development environments</p>
+      <div class="card-grid">
+        <!-- Card 1: Running -->
+        <div class="cs-card">
+          <div class="cs-card-header">
+            <div class="cs-card-avatar" style="background: linear-gradient(135deg, #16a34a, #2563eb);">AP</div>
+            <div class="cs-card-info">
+              <div class="cs-card-name">agentpane-nocode</div>
+              <div class="cs-card-path">~/git/agentpane</div>
+            </div>
+            <span class="status-badge running"><span class="pulse-dot"></span>Running</span>
+          </div>
+          <div class="cs-card-body">
+            <div class="kanban-mini">
+              <span style="flex: 2; background: var(--fg-subtle);"></span>
+              <span style="flex: 3; background: var(--accent);"></span>
+              <span style="flex: 2; background: var(--success);"></span>
+              <span style="flex: 1; background: var(--attention);"></span>
+              <span style="flex: 4; background: var(--done);"></span>
+            </div>
+          </div>
+          <div class="cs-card-agent">
+            <div class="cs-card-agent-avatar">A</div>
+            <span>Agent working on TASK-042</span>
+          </div>
+          <div class="cs-card-footer">
+            <span>Last run 5m ago</span>
+            <div class="cs-card-footer-actions">
+              <button title="Settings">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.622 10.395l-1.097-2.65L20 6l-2-2-1.735 1.483-2.707-1.113L12.935 2h-1.954l-.632 2.401-2.645 1.115L6 4 4 6l1.453 1.789-1.08 2.657L2 11.065v1.954l2.401.632 1.113 2.645L4 18l2 2 1.745-1.475 2.649 1.097L11.065 22h1.954l.632-2.401 2.645-1.113L18 20l2-2-1.475-1.745 1.097-2.649L22 12.935v-1.954l-2.378-.586Z"/></svg>
+              </button>
+              <a class="open" href="#">Open</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 2: Needs Approval -->
+        <div class="cs-card">
+          <div class="cs-card-header">
+            <div class="cs-card-avatar" style="background: linear-gradient(135deg, #2563eb, #7c3aed);">CM</div>
+            <div class="cs-card-info">
+              <div class="cs-card-name">cli-monitor</div>
+              <div class="cs-card-path">~/git/cli-monitor</div>
+            </div>
+            <span class="status-badge approval">Needs Approval</span>
+          </div>
+          <div class="cs-card-body">
+            <div class="kanban-mini">
+              <span style="flex: 1; background: var(--fg-subtle);"></span>
+              <span style="flex: 2; background: var(--accent);"></span>
+              <span style="flex: 1; background: var(--success);"></span>
+              <span style="flex: 3; background: var(--attention);"></span>
+              <span style="flex: 2; background: var(--done);"></span>
+            </div>
+          </div>
+          <div class="cs-card-agent">
+            <div class="cs-card-agent-avatar">A</div>
+            <span>Awaiting review on TASK-038</span>
+          </div>
+          <div class="cs-card-footer">
+            <span>Last run 12m ago</span>
+            <div class="cs-card-footer-actions">
+              <button title="Settings">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.622 10.395l-1.097-2.65L20 6l-2-2-1.735 1.483-2.707-1.113L12.935 2h-1.954l-.632 2.401-2.645 1.115L6 4 4 6l1.453 1.789-1.08 2.657L2 11.065v1.954l2.401.632 1.113 2.645L4 18l2 2 1.745-1.475 2.649 1.097L11.065 22h1.954l.632-2.401 2.645-1.113L18 20l2-2-1.475-1.745 1.097-2.649L22 12.935v-1.954l-2.378-.586Z"/></svg>
+              </button>
+              <a class="review" href="#">Review</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 3: Running -->
+        <div class="cs-card">
+          <div class="cs-card-header">
+            <div class="cs-card-avatar" style="background: linear-gradient(135deg, #f97316, #dc2626);">AS</div>
+            <div class="cs-card-info">
+              <div class="cs-card-name">agent-sdk</div>
+              <div class="cs-card-path">~/git/agent-sdk</div>
+            </div>
+            <span class="status-badge running"><span class="pulse-dot"></span>Running</span>
+          </div>
+          <div class="cs-card-body">
+            <div class="kanban-mini">
+              <span style="flex: 3; background: var(--fg-subtle);"></span>
+              <span style="flex: 1; background: var(--accent);"></span>
+              <span style="flex: 4; background: var(--success);"></span>
+              <span style="flex: 1; background: var(--attention);"></span>
+              <span style="flex: 1; background: var(--done);"></span>
+            </div>
+          </div>
+          <div class="cs-card-agent">
+            <div class="cs-card-agent-avatar">A</div>
+            <span>Agent working on TASK-055</span>
+          </div>
+          <div class="cs-card-footer">
+            <span>Last run 2m ago</span>
+            <div class="cs-card-footer-actions">
+              <button title="Settings">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.622 10.395l-1.097-2.65L20 6l-2-2-1.735 1.483-2.707-1.113L12.935 2h-1.954l-.632 2.401-2.645 1.115L6 4 4 6l1.453 1.789-1.08 2.657L2 11.065v1.954l2.401.632 1.113 2.645L4 18l2 2 1.745-1.475 2.649 1.097L11.065 22h1.954l.632-2.401 2.645-1.113L18 20l2-2-1.475-1.745 1.097-2.649L22 12.935v-1.954l-2.378-.586Z"/></svg>
+              </button>
+              <a class="open" href="#">Open</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 4: Idle -->
+        <div class="cs-card">
+          <div class="cs-card-header">
+            <div class="cs-card-avatar" style="background: linear-gradient(135deg, #7c3aed, #db2777);">DS</div>
+            <div class="cs-card-info">
+              <div class="cs-card-name">design-system</div>
+              <div class="cs-card-path">~/git/design-sys</div>
+            </div>
+            <span class="status-badge idle">Idle</span>
+          </div>
+          <div class="cs-card-body">
+            <div class="kanban-mini">
+              <span style="flex: 4; background: var(--fg-subtle);"></span>
+              <span style="flex: 1; background: var(--accent);"></span>
+              <span style="flex: 0; background: var(--success);"></span>
+              <span style="flex: 0; background: var(--attention);"></span>
+              <span style="flex: 5; background: var(--done);"></span>
+            </div>
+          </div>
+          <div class="cs-card-footer">
+            <span>Last run 1h ago</span>
+            <div class="cs-card-footer-actions">
+              <button title="Settings">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.622 10.395l-1.097-2.65L20 6l-2-2-1.735 1.483-2.707-1.113L12.935 2h-1.954l-.632 2.401-2.645 1.115L6 4 4 6l1.453 1.789-1.08 2.657L2 11.065v1.954l2.401.632 1.113 2.645L4 18l2 2 1.745-1.475 2.649 1.097L11.065 22h1.954l.632-2.401 2.645-1.113L18 20l2-2-1.475-1.745 1.097-2.649L22 12.935v-1.954l-2.378-.586Z"/></svg>
+              </button>
+              <a class="open" href="#">Open</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 5: Running -->
+        <div class="cs-card">
+          <div class="cs-card-header">
+            <div class="cs-card-avatar" style="background: linear-gradient(135deg, #dc2626, #f97316);">TF</div>
+            <div class="cs-card-info">
+              <div class="cs-card-name">terraform-modules</div>
+              <div class="cs-card-path">~/git/tf-modules</div>
+            </div>
+            <span class="status-badge running"><span class="pulse-dot"></span>Running</span>
+          </div>
+          <div class="cs-card-body">
+            <div class="kanban-mini">
+              <span style="flex: 1; background: var(--fg-subtle);"></span>
+              <span style="flex: 2; background: var(--accent);"></span>
+              <span style="flex: 3; background: var(--success);"></span>
+              <span style="flex: 2; background: var(--attention);"></span>
+              <span style="flex: 2; background: var(--done);"></span>
+            </div>
+          </div>
+          <div class="cs-card-agent">
+            <div class="cs-card-agent-avatar">A</div>
+            <span>Agent working on TASK-061</span>
+          </div>
+          <div class="cs-card-footer">
+            <span>Last run 8m ago</span>
+            <div class="cs-card-footer-actions">
+              <button title="Settings">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.622 10.395l-1.097-2.65L20 6l-2-2-1.735 1.483-2.707-1.113L12.935 2h-1.954l-.632 2.401-2.645 1.115L6 4 4 6l1.453 1.789-1.08 2.657L2 11.065v1.954l2.401.632 1.113 2.645L4 18l2 2 1.745-1.475 2.649 1.097L11.065 22h1.954l.632-2.401 2.645-1.113L18 20l2-2-1.475-1.745 1.097-2.649L22 12.935v-1.954l-2.378-.586Z"/></svg>
+              </button>
+              <a class="open" href="#">Open</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 6: Idle -->
+        <div class="cs-card">
+          <div class="cs-card-header">
+            <div class="cs-card-avatar" style="background: linear-gradient(135deg, #14b8a6, #16a34a);">DK</div>
+            <div class="cs-card-info">
+              <div class="cs-card-name">docker-sandbox</div>
+              <div class="cs-card-path">~/git/docker-sb</div>
+            </div>
+            <span class="status-badge idle">Idle</span>
+          </div>
+          <div class="cs-card-body">
+            <div class="kanban-mini">
+              <span style="flex: 5; background: var(--fg-subtle);"></span>
+              <span style="flex: 0; background: var(--accent);"></span>
+              <span style="flex: 0; background: var(--success);"></span>
+              <span style="flex: 0; background: var(--attention);"></span>
+              <span style="flex: 3; background: var(--done);"></span>
+            </div>
+          </div>
+          <div class="cs-card-footer">
+            <span>Last run 3h ago</span>
+            <div class="cs-card-footer-actions">
+              <button title="Settings">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.622 10.395l-1.097-2.65L20 6l-2-2-1.735 1.483-2.707-1.113L12.935 2h-1.954l-.632 2.401-2.645 1.115L6 4 4 6l1.453 1.789-1.08 2.657L2 11.065v1.954l2.401.632 1.113 2.645L4 18l2 2 1.745-1.475 2.649 1.097L11.065 22h1.954l.632-2.401 2.645-1.113L18 20l2-2-1.475-1.745 1.097-2.649L22 12.935v-1.954l-2.378-.586Z"/></svg>
+              </button>
+              <a class="open" href="#">Open</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Add New Card -->
+        <div class="add-card">
+          <div class="add-card-icon">+</div>
+          <span class="add-card-text">Add New Codespace</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====== VIEW 2: KANBAN BOARD ====== -->
+    <div class="content-pane hidden" id="view-kanban" style="display: none; flex-direction: column;">
+      <div class="kanban-header">
+        <h1 class="page-title" style="margin-bottom: 0;">Tasks</h1>
+        <button class="kanban-center-btn">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 2a4 4 0 0 0-4 4v1a4 4 0 0 0 8 0V6a4 4 0 0 0-4-4Zm9 18a9 9 0 0 0-18 0"/></svg>
+          Create task with Claude
+        </button>
+        <div class="topbar-actions">
+          <button class="btn btn-outline btn-icon" title="Filter">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3Z"/></svg>
+          </button>
+          <button class="btn btn-outline btn-icon" title="Sort">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M3 6h18M3 12h12M3 18h6"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="kanban-board">
+        <!-- Backlog -->
+        <div class="kanban-col">
+          <div class="kanban-col-header">
+            <div class="kanban-col-dot" style="background: var(--fg-subtle);"></div>
+            <span class="kanban-col-title">Backlog</span>
+            <span class="kanban-col-count">3</span>
+          </div>
+          <div class="kanban-col-body">
+            <div class="task-card">
+              <span class="task-category feature">Feature</span>
+              <div class="task-title">Add WebSocket support for real-time updates</div>
+              <div class="task-id">TASK-044</div>
+            </div>
+            <div class="task-card">
+              <span class="task-category enhancement">Enhancement</span>
+              <div class="task-title">Improve error handling in API routes</div>
+              <div class="task-id">TASK-047</div>
+            </div>
+            <div class="task-card">
+              <span class="task-category bugfix">Bug Fix</span>
+              <div class="task-title">Fix session timeout on idle connections</div>
+              <div class="task-id">TASK-051</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Queued -->
+        <div class="kanban-col">
+          <div class="kanban-col-header">
+            <div class="kanban-col-dot" style="background: var(--accent);"></div>
+            <span class="kanban-col-title">Queued</span>
+            <span class="kanban-col-count">2</span>
+          </div>
+          <div class="kanban-col-body">
+            <div class="task-card">
+              <span class="task-category feature">Feature</span>
+              <div class="task-title">Implement team mode agent spawning</div>
+              <div class="task-id">TASK-039</div>
+            </div>
+            <div class="task-card">
+              <span class="task-category enhancement">Enhancement</span>
+              <div class="task-title">Add pagination to session list</div>
+              <div class="task-id">TASK-046</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- In Progress -->
+        <div class="kanban-col">
+          <div class="kanban-col-header">
+            <div class="kanban-col-dot" style="background: var(--success);"></div>
+            <span class="kanban-col-title">In Progress</span>
+            <span class="kanban-col-count">2</span>
+          </div>
+          <div class="kanban-col-body">
+            <div class="task-card">
+              <span class="task-category feature">Feature</span>
+              <div class="task-title">Build 3-tier sidebar navigation</div>
+              <div class="task-id">TASK-042</div>
+            </div>
+            <div class="task-card">
+              <span class="task-category bugfix">Bug Fix</span>
+              <div class="task-title">Fix Docker container cleanup on crash</div>
+              <div class="task-id">TASK-055</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Waiting Approval -->
+        <div class="kanban-col">
+          <div class="kanban-col-header">
+            <div class="kanban-col-dot" style="background: var(--attention);"></div>
+            <span class="kanban-col-title">Waiting Approval</span>
+            <span class="kanban-col-count">2</span>
+          </div>
+          <div class="kanban-col-body">
+            <div class="task-card">
+              <span class="task-category enhancement">Enhancement</span>
+              <div class="task-title">Refactor agent execution service</div>
+              <div class="task-id">TASK-038</div>
+            </div>
+            <div class="task-card">
+              <span class="task-category feature">Feature</span>
+              <div class="task-title">Add Terraform compose streaming</div>
+              <div class="task-id">TASK-041</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Verified -->
+        <div class="kanban-col">
+          <div class="kanban-col-header">
+            <div class="kanban-col-dot" style="background: var(--done);"></div>
+            <span class="kanban-col-title">Verified</span>
+            <span class="kanban-col-count">3</span>
+          </div>
+          <div class="kanban-col-body">
+            <div class="task-card">
+              <span class="task-category feature">Feature</span>
+              <div class="task-title">OAuth credential file integration</div>
+              <div class="task-id">TASK-033</div>
+            </div>
+            <div class="task-card">
+              <span class="task-category bugfix">Bug Fix</span>
+              <div class="task-title">Fix HCL code extraction regex</div>
+              <div class="task-id">TASK-036</div>
+            </div>
+            <div class="task-card">
+              <span class="task-category enhancement">Enhancement</span>
+              <div class="task-title">Add durable streams buffering</div>
+              <div class="task-id">TASK-037</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====== VIEW 3: SESSIONS ====== -->
+    <div class="content-pane hidden" id="view-sessions" style="display: none; padding: 0;">
+      <div class="sessions-layout">
+        <div class="sessions-list">
+          <div style="padding: 14px 16px; border-bottom: 1px solid var(--border-muted);">
+            <div style="font-size: 14px; font-weight: 600; color: var(--fg); margin-bottom: 8px;">Sessions</div>
+            <input type="text" placeholder="Search sessions..." style="width: 100%; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-canvas); color: var(--fg); font-size: 12px; font-family: var(--font); outline: none;">
+          </div>
+          <div class="session-item">
+            <div class="session-avatar" style="background: linear-gradient(135deg, #16a34a, #2563eb);">AP</div>
+            <div class="session-info">
+              <div class="session-project">agentpane-nocode</div>
+              <div class="session-id">ses_k7x9m2p4</div>
+              <div class="session-meta">
+                <span class="status-badge running" style="font-size: 10px; padding: 1px 8px;"><span class="pulse-dot"></span>Running</span>
+                <span class="session-time">2m ago</span>
+              </div>
+            </div>
+          </div>
+          <div class="session-item">
+            <div class="session-avatar" style="background: linear-gradient(135deg, #2563eb, #7c3aed);">CM</div>
+            <div class="session-info">
+              <div class="session-project">cli-monitor</div>
+              <div class="session-id">ses_p3n8w1q6</div>
+              <div class="session-meta">
+                <span class="status-badge approval" style="font-size: 10px; padding: 1px 8px;">Approval</span>
+                <span class="session-time">12m ago</span>
+              </div>
+            </div>
+          </div>
+          <div class="session-item">
+            <div class="session-avatar" style="background: linear-gradient(135deg, #f97316, #dc2626);">AS</div>
+            <div class="session-info">
+              <div class="session-project">agent-sdk</div>
+              <div class="session-id">ses_r5t2v8j3</div>
+              <div class="session-meta">
+                <span class="status-badge running" style="font-size: 10px; padding: 1px 8px;"><span class="pulse-dot"></span>Running</span>
+                <span class="session-time">8m ago</span>
+              </div>
+            </div>
+          </div>
+          <div class="session-item">
+            <div class="session-avatar" style="background: linear-gradient(135deg, #7c3aed, #db2777);">DS</div>
+            <div class="session-info">
+              <div class="session-project">design-system</div>
+              <div class="session-id">ses_m4k6h9b2</div>
+              <div class="session-meta">
+                <span class="status-badge idle" style="font-size: 10px; padding: 1px 8px;">Completed</span>
+                <span class="session-time">1h ago</span>
+              </div>
+            </div>
+          </div>
+          <div class="session-item">
+            <div class="session-avatar" style="background: linear-gradient(135deg, #dc2626, #f97316);">TF</div>
+            <div class="session-info">
+              <div class="session-project">terraform-modules</div>
+              <div class="session-id">ses_q8w3e7r1</div>
+              <div class="session-meta">
+                <span class="status-badge idle" style="font-size: 10px; padding: 1px 8px;">Completed</span>
+                <span class="session-time">3h ago</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="session-empty">
+          <div class="session-empty-circle">
+            <svg width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+          </div>
+          <div class="session-empty-title">Select a Session</div>
+          <div class="session-empty-desc">Choose a session from the list to view its real-time output, events, and agent activity.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====== VIEW 4: SETTINGS ====== -->
+    <div class="content-pane hidden" id="view-settings" style="display: none; padding: 0;">
+      <div class="settings-layout">
+        <div class="settings-sidebar">
+          <div class="settings-sidebar-header">
+            <div class="settings-sidebar-logo">A</div>
+            <span class="settings-sidebar-name">AgentPane</span>
+          </div>
+          <div class="settings-section">
+            <div class="settings-section-label">Global Settings</div>
+            <div class="settings-nav-item active">
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3"/></svg>
+              API Keys
+              <span class="nav-badge green">Set</span>
+            </div>
+            <div class="settings-nav-item">
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v2m0 16v2m10-10h-2M4 12H2m15.07-5.07l-1.41 1.41M8.34 15.66l-1.41 1.41m0-10.14l1.41 1.41m7.32 7.32l1.41 1.41"/></svg>
+              Appearance
+            </div>
+            <div class="settings-nav-item">
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg>
+              Sandbox
+            </div>
+          </div>
+          <div class="settings-section">
+            <div class="settings-section-label">Agent Configuration</div>
+            <div class="settings-nav-item">
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 2a4 4 0 0 1 4 4v1a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4Zm-6 18a6 6 0 0 1 12 0"/></svg>
+              Agent Defaults
+            </div>
+            <div class="settings-nav-item">
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8Z"/></svg>
+              Model Optimizations
+            </div>
+            <div class="settings-nav-item">
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
+              System Prompts
+            </div>
+          </div>
+          <div class="settings-section">
+            <div class="settings-section-label">Health</div>
+            <div class="settings-nav-item">
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+              System Health
+            </div>
+            <div class="settings-nav-item">
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+              CLI Monitor
+            </div>
+            <div class="settings-nav-item">
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+              GitHub
+              <span class="nav-badge green">Connected</span>
+            </div>
+          </div>
+          <div class="settings-section">
+            <div class="settings-section-label">Integrations</div>
+            <div class="settings-nav-item">
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+              Terraform
+            </div>
+          </div>
+          <div class="settings-section">
+            <div class="settings-section-label">Navigation</div>
+            <div class="settings-nav-item">
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><circle cx="6" cy="6" r="1"/><circle cx="6" cy="18" r="1"/></svg>
+              Codespaces
+            </div>
+            <div class="settings-nav-item">
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 2a4 4 0 0 1 4 4v1a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4Zm-6 18a6 6 0 0 1 12 0"/></svg>
+              Agents
+            </div>
+          </div>
+        </div>
+        <div class="settings-content">
+          <h1 class="page-title">API Keys</h1>
+          <p class="page-subtitle" style="max-width: 480px;">Configure API keys for external services. These keys are stored securely and used by agents during execution.</p>
+          <div class="settings-card">
+            <div class="settings-card-row">
+              <div class="settings-card-info">
+                <div class="settings-card-title">
+                  <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3"/></svg>
+                  Anthropic API Key
+                  <span class="status-badge running" style="font-size: 10px; padding: 1px 8px;">Configured</span>
+                </div>
+                <div class="settings-card-desc">Required for Claude Agent SDK. Used for agent execution, planning, and Terraform compose.</div>
+              </div>
+              <div class="settings-card-actions">
+                <button class="btn btn-outline">Update</button>
+              </div>
+            </div>
+          </div>
+          <div class="settings-card">
+            <div class="settings-card-row">
+              <div class="settings-card-info">
+                <div class="settings-card-title">
+                  <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+                  GitHub Personal Access Token
+                  <span class="status-badge idle" style="font-size: 10px; padding: 1px 8px;">Optional</span>
+                </div>
+                <div class="settings-card-desc">Used for GitHub integration, PR creation, and repository access. Requires repo and read:org scopes.</div>
+              </div>
+              <div class="settings-card-actions">
+                <button class="btn btn-primary">Configure</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div><!-- end .main -->
+
+</div><!-- end .shell -->
+
+<script>
+/* ============================================================
+   View Switching
+   ============================================================ */
+function switchView(view) {
+  // Update tab bar
+  document.querySelectorAll('.view-tabs button:not(.theme-toggle)').forEach(function(btn) {
+    btn.classList.remove('active');
+  });
+  var tabs = document.querySelectorAll('.view-tabs button:not(.theme-toggle)');
+  var tabMap = { codespaces: 0, kanban: 1, sessions: 2, settings: 3 };
+  if (tabs[tabMap[view]]) tabs[tabMap[view]].classList.add('active');
+
+  // Hide all views
+  var views = ['view-codespaces', 'view-kanban', 'view-sessions', 'view-settings'];
+  views.forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) {
+      el.style.display = 'none';
+      el.classList.add('hidden');
+    }
+  });
+
+  // Show selected view
+  var target = document.getElementById('view-' + view);
+  if (target) {
+    target.classList.remove('hidden');
+    if (view === 'kanban') {
+      target.style.display = 'flex';
+      target.style.flexDirection = 'column';
+    } else if (view === 'sessions' || view === 'settings') {
+      target.style.display = 'block';
+      target.style.padding = '0';
+    } else {
+      target.style.display = 'block';
+    }
+  }
+
+  // Settings view: hide Tier 2 and 3
+  var foldersPanel = document.getElementById('folders-panel');
+  var navPanel = document.getElementById('nav-panel');
+  if (view === 'settings') {
+    foldersPanel.classList.add('collapsed');
+    navPanel.classList.add('collapsed');
+  } else {
+    foldersPanel.classList.remove('collapsed');
+    navPanel.classList.remove('collapsed');
+  }
+
+  // Update topbar
+  var topbar = document.getElementById('main-topbar');
+  var topbarActions = document.getElementById('topbar-actions');
+  if (view === 'settings' || view === 'sessions') {
+    topbar.style.display = 'none';
+  } else {
+    topbar.style.display = 'flex';
+  }
+}
+
+/* ============================================================
+   Panel Collapse/Expand
+   ============================================================ */
+function toggle(id) {
+  var el = document.getElementById(id);
+  if (el) el.classList.toggle('collapsed');
+}
+
+/* ============================================================
+   Org Selection
+   ============================================================ */
+function selectOrg(el) {
+  document.querySelectorAll('.org-avatar').forEach(function(a) {
+    a.classList.remove('active');
+  });
+  el.classList.add('active');
+
+  // Update brand badge gradient
+  var style = el.getAttribute('style');
+  var badge = document.querySelector('.folders-brand-badge');
+  if (badge && style) {
+    badge.setAttribute('style', style);
+  }
+
+  // Ensure folders panel is open
+  var foldersPanel = document.getElementById('folders-panel');
+  foldersPanel.classList.remove('collapsed');
+}
+
+/* ============================================================
+   Folder Selection
+   ============================================================ */
+function selectFolder(el, name, color) {
+  document.querySelectorAll('.folder-item').forEach(function(f) {
+    f.classList.remove('active');
+    f.style.borderLeftColor = 'transparent';
+  });
+  el.classList.add('active');
+  el.style.borderLeftColor = color;
+
+  // Update nav panel header
+  var dot = document.getElementById('nav-dot');
+  var title = document.getElementById('nav-title');
+  if (dot) dot.style.background = color;
+  if (title) title.textContent = name;
+
+  // Ensure nav panel is open
+  var navPanel = document.getElementById('nav-panel');
+  navPanel.classList.remove('collapsed');
+}
+
+/* ============================================================
+   Codespace Selection
+   ============================================================ */
+function selectCodespace(el, name) {
+  document.querySelectorAll('.codespace-item').forEach(function(c) {
+    c.classList.remove('active');
+  });
+  el.classList.add('active');
+
+  // Update breadcrumb
+  var bc = document.getElementById('breadcrumb-current');
+  if (bc) bc.textContent = name;
+}
+
+/* ============================================================
+   Theme Toggle
+   ============================================================ */
+function toggleTheme() {
+  var html = document.documentElement;
+  if (html.getAttribute('data-theme') === 'dark') {
+    html.removeAttribute('data-theme');
+  } else {
+    html.setAttribute('data-theme', 'dark');
+  }
+}
+</script>
+</body>
+</html>

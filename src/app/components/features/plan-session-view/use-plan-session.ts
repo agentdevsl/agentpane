@@ -140,7 +140,7 @@ const MAX_STREAM_RETRIES = 5;
  */
 export function usePlanSession(
   taskId: string,
-  projectId: string,
+  codespaceId: string,
   options?: {
     onError?: (error: Error) => void;
   }
@@ -375,7 +375,7 @@ export function usePlanSession(
 
       try {
         const result = await apiClient.plans.start(taskId, {
-          projectId,
+          codespaceId,
           initialPrompt,
         });
 
@@ -398,7 +398,7 @@ export function usePlanSession(
         onErrorRef.current?.(error instanceof Error ? error : new Error(String(error)));
       }
     },
-    [taskId, projectId, connectStream]
+    [taskId, codespaceId, connectStream]
   );
 
   /**

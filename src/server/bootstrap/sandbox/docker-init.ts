@@ -59,8 +59,8 @@ export async function initDockerProvider(
             await fs.mkdir(defaultWorkspacePath, { recursive: true });
 
             await dockerProvider.create({
-              projectId: 'default',
-              projectPath: defaultWorkspacePath,
+              codespaceId: 'default',
+              codespacePath: defaultWorkspacePath,
               image: defaultImage,
               memoryMb: defaults?.memoryMb ?? 2048,
               cpuCores: defaults?.cpuCores ?? 2,

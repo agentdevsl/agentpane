@@ -62,7 +62,6 @@ export function NodeInspector({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // Reset delete confirmation when node changes
-  // biome-ignore lint/correctness/useExhaustiveDependencies: We want to reset state when the selected node changes
   useWatchEffect(() => {
     setShowDeleteConfirm(false);
   }, [node?.id]);

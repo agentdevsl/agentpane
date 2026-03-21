@@ -8,7 +8,7 @@ import { apiClient } from '@/lib/api/client';
 // Session data shape from API
 interface ApiSession {
   id: string;
-  projectId: string;
+  codespaceId: string;
   taskId?: string | null;
   agentId?: string | null;
   title?: string | null;
@@ -18,17 +18,17 @@ interface ApiSession {
   closedAt?: string | null;
 }
 
-// Project data shape
-interface Project {
+// Codespace data shape
+interface Codespace {
   id: string;
   name: string;
 }
 
 export const Route = createFileRoute('/sessions/')({
   loader: async () => {
-    const [sessionsResult, projectsResult] = await Promise.all([
+    const [sessionsResult, codespacesResult] = await Promise.all([
       apiClient.sessions.list(),
-      apiClient.projects.list(),
+      apiClient.codespaces.list(),
     ]);
     return {
       sessions: sessionsResult.ok
@@ -36,10 +36,10 @@ export const Route = createFileRoute('/sessions/')({
           ? sessionsResult.data
           : []
         : [],
-      projects: projectsResult.ok
-        ? Array.isArray(projectsResult.data)
-          ? projectsResult.data
-          : ((projectsResult.data as { items?: Project[] }).items ?? [])
+      codespaces: codespacesResult.ok
+        ? Array.isArray(codespacesResult.data)
+          ? codespacesResult.data
+          : ((codespacesResult.data as { items?: Codespace[] }).items ?? [])
         : [],
     };
   },
@@ -48,24 +48,30 @@ export const Route = createFileRoute('/sessions/')({
 
 function SessionsPage(): React.JSX.Element {
   const navigate = useNavigate();
+  const filterCodespaceId =
+    typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('codespaceId')
+      : null;
   const loaderData = Route.useLoaderData() as
-    | { sessions: ApiSession[]; projects: Project[] }
+    | { sessions: ApiSession[]; codespaces: Codespace[] }
     | undefined;
   const [sessions, setSessions] = useState<ApiSession[]>(
     () => (loaderData?.sessions as ApiSession[]) ?? []
   );
-  const [projects, setProjects] = useState<Project[]>(() => loaderData?.projects ?? []);
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [codespaces, setCodespaces] = useState<Codespace[]>(() => loaderData?.codespaces ?? []);
+  const [selectedCodespaceId, setSelectedCodespaceId] = useState<string | null>(
+    filterCodespaceId ?? null
+  );
   const [isLoading, setIsLoading] = useState(!loaderData?.sessions);
 
-  // Fetch sessions and projects from API on mount
+  // Fetch sessions and codespaces from API on mount
   useMountEffect(() => {
     if (loaderData?.sessions) return;
     const fetchData = async () => {
       try {
-        const [sessionsResult, projectsResult] = await Promise.all([
+        const [sessionsResult, codespacesResult] = await Promise.all([
           apiClient.sessions.list(),
-          apiClient.projects.list(),
+          apiClient.codespaces.list(),
         ]);
 
         if (sessionsResult.ok && sessionsResult.data) {
@@ -73,11 +79,11 @@ function SessionsPage(): React.JSX.Element {
           setSessions(sessionsData as ApiSession[]);
         }
 
-        if (projectsResult.ok && projectsResult.data) {
-          const projectsData = Array.isArray(projectsResult.data)
-            ? projectsResult.data
-            : ((projectsResult.data as { items?: Project[] }).items ?? []);
-          setProjects(projectsData as Project[]);
+        if (codespacesResult.ok && codespacesResult.data) {
+          const codespacesData = Array.isArray(codespacesResult.data)
+            ? codespacesResult.data
+            : ((codespacesResult.data as { items?: Codespace[] }).items ?? []);
+          setCodespaces(codespacesData as Codespace[]);
         }
       } catch {
         // API may not be ready yet
@@ -87,11 +93,11 @@ function SessionsPage(): React.JSX.Element {
     fetchData();
   });
 
-  // Filter sessions by selected project
+  // Filter sessions by selected codespace
   const filteredSessions = useMemo(() => {
-    if (!selectedProjectId) return sessions;
-    return sessions.filter((s) => s.projectId === selectedProjectId);
-  }, [sessions, selectedProjectId]);
+    if (!selectedCodespaceId) return sessions;
+    return sessions.filter((s) => s.codespaceId === selectedCodespaceId);
+  }, [sessions, selectedCodespaceId]);
 
   if (isLoading) {
     return (
@@ -108,13 +114,16 @@ function SessionsPage(): React.JSX.Element {
       <div className="flex h-full w-full flex-col">
         <SessionHistory
           sessions={filteredSessions}
-          projects={projects}
-          selectedProjectId={selectedProjectId}
-          onProjectChange={setSelectedProjectId}
+          projects={codespaces}
+          selectedProjectId={selectedCodespaceId}
+          onProjectChange={setSelectedCodespaceId}
           isLoading={isLoading}
           onOpen={(sessionId) => navigate({ to: '/sessions/$sessionId', params: { sessionId } })}
-          onViewTask={(taskId, projectId) =>
-            navigate({ to: '/projects/$projectId/tasks/$taskId', params: { projectId, taskId } })
+          onViewTask={(taskId, codespaceId) =>
+            navigate({
+              to: '/codespaces/$codespaceId/tasks/$taskId',
+              params: { codespaceId, taskId },
+            })
           }
         />
       </div>

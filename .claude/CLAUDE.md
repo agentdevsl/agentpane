@@ -98,6 +98,66 @@ The startup script includes health checks to ensure both servers are ready befor
 - **biome `--max-diagnostics`**: By default `biome check` truncates output at ~20 diagnostics. Use `--max-diagnostics=500` to see all errors/warnings. Without this, you may think you've fixed all issues when truncated errors remain. Always use `--diagnostic-level=error` to filter noise from warnings.
 - **`gh pr edit` fails with `read:org` scope error**: The GitHub token lacks `read:org` scope needed by `gh pr edit` (GraphQL). Use the REST API instead: `gh api repos/OWNER/REPO/pulls/NUMBER --method PATCH -f body="..." -f title="..."`
 
+### Naming: Project → Codespace
+
+The codebase was renamed from "project" to "codespace". Always use `codespace`/`codespaceId` in code, API params, routes, and tests — never `project`/`projectId`. Key mappings:
+
+| Old | New |
+|-----|-----|
+| `project` | `codespace` |
+| `projectId` | `codespaceId` |
+| `/api/projects/` | `/api/codespaces/` |
+| `project.service.ts` | `codespace.service.ts` |
+| `team-projects` | `team-project-folders` |
+| `project-members` | `codespace-members` |
+| `ProjectContext` | `CodespaceContext` |
+
+### API Response Shapes
+
+The `apiServerFetch<T>` wrapper returns `{ ok: true, data: T }`. The `T` type parameter must match the actual `data` field in the JSON response — NOT the full response shape. Example:
+
+```typescript
+// Server returns: { ok: true, data: [...events...], pagination: {...} }
+// T is the type of the `data` field, NOT the full response:
+apiServerFetch<Array<{ id: string; type: string }>>('/api/sessions/x/events')
+// result.data = [...events...] (the array directly)
+// WRONG: apiServerFetch<{ data: Array<...>, pagination: {...} }>  ← result.data.data would be undefined
+```
+
+### SVG and Theme Colors
+
+Never hardcode hex colors in SVG elements. Use CSS custom properties that adapt to light/dark themes:
+
+| Instead of | Use |
+|-----------|-----|
+| `fill="#e6edf3"` | `fill="var(--fg-default)"` |
+| `fill="#8b949e"` | `fill="var(--fg-muted)"` |
+| `fill="#6e7681"` | `fill="var(--fg-subtle)"` |
+| `stroke="#21262d"` | `stroke="var(--border-default)"` |
+| `fill="#0d1117"` | `fill="var(--bg-canvas)"` |
+
+### Tailwind Color Token Names
+
+The design system uses `attention` not `warning` for yellow/amber colors. Available semantic colors:
+- `accent` (blue), `success` (green), `danger` (red), `attention` (amber/yellow), `done` (purple), `secondary` (pink), `claude` (orange)
+- Each has: `DEFAULT`, `-muted`, `-subtle`, `-emphasis` variants
+
+### React Flow / Topology Layout
+
+When rendering React Flow inside a flex/absolute layout, the container must have an explicit height. `flex-1` does NOT work inside `position: absolute` containers — use `h-full` instead. The `TopologyInner` wrapper must use `h-full` not `flex-1`.
+
+### Tests: Keep in Sync with Renames
+
+When renaming entities (tables, fields, API params), always update ALL test files. Search with: `grep -r "oldName" src/services/__tests__/ tests/ src/server/routes/__tests__/`. Tests reference field names, API endpoints, and service methods directly — they won't fail at compile time but will fail at runtime in CI.
+
+### agent-runner Lockfile
+
+After modifying `agent-runner/package.json` or its dependencies, regenerate the lockfile: `cd agent-runner && bun install && cd ..`. CI uses `--frozen-lockfile` and will fail if the lockfile is stale. The lockfile is `agent-runner/bun.lock` (not `bun.lockb`).
+
+### Always Run Tests Before Creating PRs
+
+Run `npx vitest run` before creating or pushing to a PR. CI runs tests in 3 shards — failures that pass locally often indicate test files referencing stale names/imports. Never create a PR without verifying tests pass first.
+
 ### Publishing `@agentpane/cli-monitor` to npm
 
 The CLI monitor package lives at `packages/cli-monitor`. To publish:

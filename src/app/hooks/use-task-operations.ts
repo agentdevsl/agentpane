@@ -1,6 +1,6 @@
 /**
  * FC-004: Shared task operation handlers extracted from
- * routes/projects/$projectId/index.tsx.
+ * routes/codespaces/$codespaceId/index.tsx.
  *
  * Centralizes task move, run-now, stop-agent, approve/reject plan logic
  * so it can be reused across route components without duplication.
@@ -16,7 +16,7 @@ import { apiClient } from '@/lib/api/client';
 type ClientTask = Pick<
   Task,
   | 'id'
-  | 'projectId'
+  | 'codespaceId'
   | 'title'
   | 'description'
   | 'column'
@@ -54,7 +54,7 @@ export interface TaskOperations {
 }
 
 export function useTaskOperations(
-  _projectId: string,
+  _codespaceId: string,
   options: UseTaskOperationsOptions
 ): TaskOperations {
   const { error: showError, warning: showWarning } = useToast();

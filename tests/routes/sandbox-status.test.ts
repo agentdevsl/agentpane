@@ -72,7 +72,7 @@ function createApp(deps: Parameters<typeof createSandboxStatusRoutes>[0]) {
 
 // ─── K8s auto-heal guard tests ───────────────────────────────────────────────
 
-describe('GET /sandbox/status/:projectId - K8s auto-heal guard', () => {
+describe('GET /sandbox/status/:codespaceId - K8s auto-heal guard', () => {
   let mockDb: MockDb;
 
   beforeEach(() => {
@@ -231,7 +231,7 @@ describe('GET /sandbox/status/:projectId - K8s auto-heal guard', () => {
 
 // ─── Invalid project ID tests ────────────────────────────────────────────────
 
-describe('GET /sandbox/status/:projectId - Invalid ID', () => {
+describe('GET /sandbox/status/:codespaceId - Invalid ID', () => {
   it('returns 400 for invalid project ID', async () => {
     const mockDb = createMockDb();
     const app = createApp({
@@ -250,7 +250,7 @@ describe('GET /sandbox/status/:projectId - Invalid ID', () => {
 
 // ─── Docker provider tests ───────────────────────────────────────────────────
 
-describe('GET /sandbox/status/:projectId - Docker provider', () => {
+describe('GET /sandbox/status/:codespaceId - Docker provider', () => {
   let mockDb: MockDb;
 
   beforeEach(() => {
@@ -345,7 +345,7 @@ describe('GET /sandbox/status/:projectId - Docker provider', () => {
     expect(dockerProvider.get).toHaveBeenCalledWith('default');
   });
 
-  it('uses projectId as lookupId in per-project mode', async () => {
+  it('uses codespaceId as lookupId in per-project mode', async () => {
     const perProjectDb = createMockDb('per-project');
     const dockerProvider = createMockDockerProvider();
 
@@ -386,7 +386,7 @@ describe('GET /sandbox/status/:projectId - Docker provider', () => {
 
 // ─── Nomad provider tests ────────────────────────────────────────────────────
 
-describe('GET /sandbox/status/:projectId - Nomad provider', () => {
+describe('GET /sandbox/status/:codespaceId - Nomad provider', () => {
   let mockDb: MockDb;
 
   beforeEach(() => {
@@ -478,7 +478,7 @@ describe('GET /sandbox/status/:projectId - Nomad provider', () => {
 
 // ─── Multiple providers ──────────────────────────────────────────────────────
 
-describe('GET /sandbox/status/:projectId - Multiple providers', () => {
+describe('GET /sandbox/status/:codespaceId - Multiple providers', () => {
   it('providerAvailable is true when any provider is present', async () => {
     const mockDb = createMockDb();
     const nomadProvider = createMockNomadProvider();
@@ -498,7 +498,7 @@ describe('GET /sandbox/status/:projectId - Multiple providers', () => {
 
 // ─── K8s provider with namespace not ready ───────────────────────────────────
 
-describe('GET /sandbox/status/:projectId - K8s health details', () => {
+describe('GET /sandbox/status/:codespaceId - K8s health details', () => {
   it('sets k8sCrdReady to false when namespace does not exist', async () => {
     const mockDb = createMockDb();
     const k8sProvider = createMockK8sProvider({
@@ -615,9 +615,9 @@ describe('GET /sandbox/status/:projectId - K8s health details', () => {
   });
 });
 
-// ─── POST /sandbox/status/:projectId/restart ─────────────────────────────────
+// ─── POST /sandbox/status/:codespaceId/restart ─────────────────────────────────
 
-describe('POST /sandbox/status/:projectId/restart', () => {
+describe('POST /sandbox/status/:codespaceId/restart', () => {
   let mockDb: MockDb;
 
   beforeEach(() => {
@@ -688,7 +688,7 @@ describe('POST /sandbox/status/:projectId/restart', () => {
     expect(restartFn).toHaveBeenCalledWith('default');
   });
 
-  it('restarts with projectId in per-project mode', async () => {
+  it('restarts with codespaceId in per-project mode', async () => {
     const perProjectDb = createMockDb('per-project');
     const restartFn = vi.fn().mockResolvedValue(undefined);
     const dockerProvider = createMockDockerProvider({
@@ -726,7 +726,7 @@ describe('POST /sandbox/status/:projectId/restart', () => {
 
 // ─── Server error catch-all ──────────────────────────────────────────────────
 
-describe('GET /sandbox/status/:projectId - Server error', () => {
+describe('GET /sandbox/status/:codespaceId - Server error', () => {
   it('returns 500 when db query throws', async () => {
     const badDb = {
       query: {

@@ -70,8 +70,8 @@ describe('Task Workflow Integration', () => {
       agentId: agent.id,
     });
 
-    expect(agent.projectId).toBe(project.id);
-    expect(session.projectId).toBe(project.id);
+    expect(agent.codespaceId).toBe(project.id);
+    expect(session.codespaceId).toBe(project.id);
     expect(session.taskId).toBe(task.id);
     expect(session.agentId).toBe(agent.id);
   });
@@ -84,7 +84,7 @@ describe('Task Workflow Integration', () => {
       branch: 'agent/test/task',
     });
 
-    expect(worktree.projectId).toBe(project.id);
+    expect(worktree.codespaceId).toBe(project.id);
     expect(worktree.taskId).toBe(task.id);
     expect(worktree.branch).toBe('agent/test/task');
     expect(worktree.status).toBe('active');

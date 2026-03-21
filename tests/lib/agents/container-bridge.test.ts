@@ -25,7 +25,7 @@ function createDefaultOptions(
   return {
     taskId: 'task-1',
     sessionId: 'session-1',
-    projectId: 'project-1',
+    codespaceId: 'project-1',
     streams: createMockStreams() as unknown as ContainerBridgeOptions['streams'],
     ...overrides,
   };

@@ -114,16 +114,13 @@ export class CaddyDurableStreamsServer implements DurableStreamsServer {
       lingerMs: 5,
       maxBatchBytes: 1_048_576,
       maxInFlight: 5,
-      onError: (error) => {
-        console.error(`[CaddyStreams] Producer error for ${id}:`, error);
+      onError: (_error) => {
         // Only invalidate if this is still the current entry (avoid racing with a new producer)
         const current = this.producers.get(id);
         if (current && current.producer === producer) {
           this.producers.delete(id);
           this.pendingProducers.delete(id);
-          producer.detach().catch((detachErr) => {
-            console.error(`[CaddyStreams] Failed to detach producer for ${id}:`, detachErr);
-          });
+          producer.detach().catch((_detachErr) => {});
         }
       },
     });
@@ -148,9 +145,7 @@ export class CaddyDurableStreamsServer implements DurableStreamsServer {
     for (const [id, entry] of this.producers) {
       if (now - entry.lastUsedAt > IDLE_TIMEOUT_MS) {
         this.producers.delete(id);
-        entry.producer.detach().catch((err) => {
-          console.error(`[CaddyStreams] Failed to detach idle producer for ${id}:`, err);
-        });
+        entry.producer.detach().catch((_err) => {});
       }
     }
   }
@@ -164,9 +159,7 @@ export class CaddyDurableStreamsServer implements DurableStreamsServer {
     const toRemove = entries.slice(0, this.producers.size - MAX_PRODUCERS);
     for (const [id, entry] of toRemove) {
       this.producers.delete(id);
-      entry.producer.detach().catch((err) => {
-        console.error(`[CaddyStreams] Failed to detach LRU producer for ${id}:`, err);
-      });
+      entry.producer.detach().catch((_err) => {});
     }
   }
 
@@ -189,7 +182,6 @@ export class CaddyDurableStreamsServer implements DurableStreamsServer {
       const code =
         err && typeof err === 'object' && 'code' in err ? (err as { code: string }).code : '';
       if (code === 'ALREADY_CLOSED') {
-        console.warn(`[CaddyStreams] Producer for ${id} was closed, reinitializing`);
         this.producers.delete(id);
         entry = await this.getOrCreateProducer(id);
         entry.producer.append(`${event}\n`);
@@ -232,8 +224,7 @@ export class CaddyDurableStreamsServer implements DurableStreamsServer {
     try {
       await entry.producer.detach();
       await entry.stream.delete();
-    } catch (err) {
-      console.warn(`[CaddyStreams] deleteStream(${id}) cleanup error:`, err);
+    } catch (_err) {
       success = false;
     }
 

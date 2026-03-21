@@ -28,12 +28,12 @@ import type { GitHubOrg, GitHubRepo } from '@/services/github-token.service';
 export type CreateTemplateInput = {
   name: string;
   description?: string;
-  scope: 'org' | 'project';
+  scope: 'org' | 'codespace';
   githubUrl: string;
   branch?: string;
   configPath?: string;
-  /** Project IDs to associate with this template (for project-scoped templates) */
-  projectIds?: string[];
+  /** Codespace IDs to associate with this template (for codespace-scoped templates) */
+  codespaceIds?: string[];
 };
 
 interface ProjectOption {
@@ -44,10 +44,10 @@ interface ProjectOption {
 interface AddTemplateDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  scope: 'org' | 'project';
-  /** Initial project IDs to pre-select (for project-scoped templates) */
+  scope: 'org' | 'codespace';
+  /** Initial project IDs to pre-select (for codespace-scoped templates) */
   initialProjectIds?: string[];
-  /** Available projects for project-scoped templates. Required when scope='project'. */
+  /** Available projects for codespace-scoped templates. Required when scope='codespace'. */
   projects?: ProjectOption[];
   onSubmit: (data: CreateTemplateInput) => Promise<void>;
   onFetchOrgs?: () => Promise<GitHubOrg[]>;
@@ -323,12 +323,12 @@ export function AddTemplateDialog({
       ? 'Please enter a valid GitHub repository (e.g., owner/repo or https://github.com/owner/repo)'
       : '';
   const projectError =
-    scope === 'project' && touched.project && selectedProjectIds.length === 0
+    scope === 'codespace' && touched.project && selectedProjectIds.length === 0
       ? 'Please select at least one project'
       : '';
 
   // For project-scoped templates, require at least one project selection
-  const needsProjectSelection = scope === 'project';
+  const needsProjectSelection = scope === 'codespace';
   const hasValidProject = !needsProjectSelection || selectedProjectIds.length > 0;
 
   const canSubmit = name.trim() && isValidGitHubUrl(githubUrl) && hasValidProject && !isSubmitting;
@@ -432,7 +432,7 @@ export function AddTemplateDialog({
         githubUrl: normalizedUrl,
         branch: branch.trim() || undefined,
         configPath: configPath.trim() || undefined,
-        projectIds: scope === 'project' ? selectedProjectIds : undefined,
+        codespaceIds: scope === 'codespace' ? selectedProjectIds : undefined,
       });
 
       handleOpenChange(false);
@@ -453,7 +453,7 @@ export function AddTemplateDialog({
           </DialogTitle>
           <DialogDescription>
             Add a template from a GitHub repository.
-            {scope === 'project'
+            {scope === 'codespace'
               ? ' This template will only be available for this project.'
               : ' This template will be available for all projects in your organization.'}
           </DialogDescription>

@@ -105,7 +105,7 @@ describe('API Schemas', () => {
   describe('createTaskSchema', () => {
     it('accepts a valid task with required fields', () => {
       const result = createTaskSchema.safeParse({
-        projectId: validCuid(),
+        codespaceId: validCuid(),
         title: 'Fix the login bug',
       });
       expect(result.success).toBe(true);
@@ -113,7 +113,7 @@ describe('API Schemas', () => {
 
     it('accepts a task with optional description and labels', () => {
       const result = createTaskSchema.safeParse({
-        projectId: validCuid(),
+        codespaceId: validCuid(),
         title: 'Add feature X',
         description: 'Implement the new feature',
         labels: ['feature', 'high-priority'],
@@ -121,14 +121,14 @@ describe('API Schemas', () => {
       expect(result.success).toBe(true);
     });
 
-    it('rejects when projectId is missing', () => {
+    it('rejects when codespaceId is missing', () => {
       const result = createTaskSchema.safeParse({ title: 'Some task' });
       expect(result.success).toBe(false);
     });
 
-    it('rejects invalid projectId format', () => {
+    it('rejects invalid codespaceId format', () => {
       const result = createTaskSchema.safeParse({
-        projectId: 'bad-id',
+        codespaceId: 'bad-id',
         title: 'Some task',
       });
       expect(result.success).toBe(false);
@@ -136,7 +136,7 @@ describe('API Schemas', () => {
 
     it('rejects empty title', () => {
       const result = createTaskSchema.safeParse({
-        projectId: validCuid(),
+        codespaceId: validCuid(),
         title: '',
       });
       expect(result.success).toBe(false);
@@ -144,7 +144,7 @@ describe('API Schemas', () => {
 
     it('rejects title exceeding 200 characters', () => {
       const result = createTaskSchema.safeParse({
-        projectId: validCuid(),
+        codespaceId: validCuid(),
         title: 'x'.repeat(201),
       });
       expect(result.success).toBe(false);
@@ -152,7 +152,7 @@ describe('API Schemas', () => {
 
     it('rejects description exceeding 5000 characters', () => {
       const result = createTaskSchema.safeParse({
-        projectId: validCuid(),
+        codespaceId: validCuid(),
         title: 'Valid title',
         description: 'x'.repeat(5001),
       });
@@ -161,7 +161,7 @@ describe('API Schemas', () => {
 
     it('rejects labels array exceeding 10 items', () => {
       const result = createTaskSchema.safeParse({
-        projectId: validCuid(),
+        codespaceId: validCuid(),
         title: 'Valid',
         labels: Array.from({ length: 11 }, (_, i) => `label-${i}`),
       });
@@ -172,7 +172,7 @@ describe('API Schemas', () => {
   describe('createAgentSchema', () => {
     it('accepts a valid agent with required fields', () => {
       const result = createAgentSchema.safeParse({
-        projectId: validCuid(),
+        codespaceId: validCuid(),
         name: 'Agent One',
       });
       expect(result.success).toBe(true);
@@ -183,7 +183,7 @@ describe('API Schemas', () => {
 
     it('accepts agent with explicit type', () => {
       const result = createAgentSchema.safeParse({
-        projectId: validCuid(),
+        codespaceId: validCuid(),
         name: 'Chat Agent',
         type: 'conversational',
       });
@@ -195,7 +195,7 @@ describe('API Schemas', () => {
 
     it('accepts agent with config', () => {
       const result = createAgentSchema.safeParse({
-        projectId: validCuid(),
+        codespaceId: validCuid(),
         name: 'Configured Agent',
         config: {
           maxTurns: 100,
@@ -209,7 +209,7 @@ describe('API Schemas', () => {
 
     it('rejects invalid agent type', () => {
       const result = createAgentSchema.safeParse({
-        projectId: validCuid(),
+        codespaceId: validCuid(),
         name: 'Bad',
         type: 'nonexistent',
       });
@@ -218,7 +218,7 @@ describe('API Schemas', () => {
 
     it('rejects empty name', () => {
       const result = createAgentSchema.safeParse({
-        projectId: validCuid(),
+        codespaceId: validCuid(),
         name: '',
       });
       expect(result.success).toBe(false);
@@ -226,7 +226,7 @@ describe('API Schemas', () => {
 
     it('rejects name exceeding 100 characters', () => {
       const result = createAgentSchema.safeParse({
-        projectId: validCuid(),
+        codespaceId: validCuid(),
         name: 'x'.repeat(101),
       });
       expect(result.success).toBe(false);
@@ -234,7 +234,7 @@ describe('API Schemas', () => {
 
     it('rejects config with maxTurns above 500', () => {
       const result = createAgentSchema.safeParse({
-        projectId: validCuid(),
+        codespaceId: validCuid(),
         name: 'Agent',
         config: { maxTurns: 501 },
       });
@@ -243,7 +243,7 @@ describe('API Schemas', () => {
 
     it('rejects config with temperature above 1', () => {
       const result = createAgentSchema.safeParse({
-        projectId: validCuid(),
+        codespaceId: validCuid(),
         name: 'Agent',
         config: { temperature: 1.5 },
       });
@@ -334,16 +334,16 @@ describe('API Schemas', () => {
   });
 
   describe('createSessionSchema', () => {
-    it('accepts a valid session with projectId only', () => {
+    it('accepts a valid session with codespaceId only', () => {
       const result = createSessionSchema.safeParse({
-        projectId: validCuid(),
+        codespaceId: validCuid(),
       });
       expect(result.success).toBe(true);
     });
 
     it('accepts all optional fields', () => {
       const result = createSessionSchema.safeParse({
-        projectId: validCuid(),
+        codespaceId: validCuid(),
         taskId: validCuid(),
         agentId: validCuid(),
         title: 'Test Session',
@@ -351,21 +351,21 @@ describe('API Schemas', () => {
       expect(result.success).toBe(true);
     });
 
-    it('rejects missing projectId', () => {
+    it('rejects missing codespaceId', () => {
       const result = createSessionSchema.safeParse({});
       expect(result.success).toBe(false);
     });
 
-    it('rejects invalid projectId', () => {
+    it('rejects invalid codespaceId', () => {
       const result = createSessionSchema.safeParse({
-        projectId: 'not-valid',
+        codespaceId: 'not-valid',
       });
       expect(result.success).toBe(false);
     });
 
     it('rejects invalid taskId', () => {
       const result = createSessionSchema.safeParse({
-        projectId: validCuid(),
+        codespaceId: validCuid(),
         taskId: 'NOT-A-CUID!!',
       });
       expect(result.success).toBe(false);
@@ -373,7 +373,7 @@ describe('API Schemas', () => {
 
     it('rejects title exceeding 200 characters', () => {
       const result = createSessionSchema.safeParse({
-        projectId: validCuid(),
+        codespaceId: validCuid(),
         title: 'x'.repeat(201),
       });
       expect(result.success).toBe(false);

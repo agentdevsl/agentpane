@@ -7,7 +7,7 @@ import { createHealthRoutes } from '../health.js';
 function createMockDb(shouldFail = false) {
   return {
     query: {
-      projects: {
+      codespaces: {
         findFirst: shouldFail
           ? vi.fn().mockRejectedValue(new Error('DB connection failed'))
           : vi.fn().mockResolvedValue({ id: 'proj-1' }),
@@ -34,7 +34,7 @@ function createMockSandboxProvider(sandboxes?: Array<{ status: string }>) {
   const list = vi.fn().mockResolvedValue(
     (sandboxes ?? []).map((s, i) => ({
       id: `sb-${i}`,
-      projectId: `proj-${i}`,
+      codespaceId: `proj-${i}`,
       containerId: `cnt-${i}`,
       status: s.status,
     }))

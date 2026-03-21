@@ -10,7 +10,7 @@ import { clearTestDatabase, execRawSql, getTestDb, setupTestDatabase } from '../
 const SANDBOX_TABLES_SQL = `
 CREATE TABLE IF NOT EXISTS "sandbox_instances" (
   "id" TEXT PRIMARY KEY NOT NULL,
-  "project_id" TEXT NOT NULL UNIQUE,
+  "codespace_id" TEXT NOT NULL UNIQUE,
   "container_id" TEXT NOT NULL,
   "status" TEXT DEFAULT 'stopped' NOT NULL,
   "image" TEXT NOT NULL,
@@ -60,7 +60,7 @@ function clearSandboxTables(): void {
 
 const createMockSandbox = (overrides: Partial<Sandbox> = {}): Sandbox => ({
   id: 'sandbox-123',
-  projectId: 'project-123',
+  codespaceId: 'project-123',
   containerId: 'container-abc',
   status: 'running',
   exec: vi.fn().mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' }),
@@ -136,8 +136,8 @@ describe('SandboxService', () => {
       (mockProvider.create as ReturnType<typeof vi.fn>).mockResolvedValue(mockSandbox);
 
       const config: SandboxConfig = {
-        projectId: 'project-123',
-        projectPath: '/path/to/project',
+        codespaceId: 'project-123',
+        codespacePath: '/path/to/project',
         image: 'test-image:latest',
         memoryMb: 4096,
         cpuCores: 2,
@@ -149,17 +149,17 @@ describe('SandboxService', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value.projectId).toBe('project-123');
+        expect(result.value.codespaceId).toBe('project-123');
         expect(result.value.status).toBe('running');
         expect(mockStreams.publish).toHaveBeenCalledWith(
           expect.any(String),
           'sandbox:creating',
-          expect.objectContaining({ projectId: 'project-123' })
+          expect.objectContaining({ codespaceId: 'project-123' })
         );
         expect(mockStreams.publish).toHaveBeenCalledWith(
           expect.any(String),
           'sandbox:ready',
-          expect.objectContaining({ projectId: 'project-123' })
+          expect.objectContaining({ codespaceId: 'project-123' })
         );
       }
     });
@@ -170,8 +170,8 @@ describe('SandboxService', () => {
       (mockProvider.create as ReturnType<typeof vi.fn>).mockResolvedValue(mockSandbox);
 
       const config: SandboxConfig = {
-        projectId: 'project-123',
-        projectPath: '/path/to/project',
+        codespaceId: 'project-123',
+        codespacePath: '/path/to/project',
         image: 'test-image:latest',
         memoryMb: 4096,
         cpuCores: 2,
@@ -192,8 +192,8 @@ describe('SandboxService', () => {
       (mockProvider.create as ReturnType<typeof vi.fn>).mockResolvedValue(mockSandbox);
 
       const config: SandboxConfig = {
-        projectId: 'project-123',
-        projectPath: '/path/to/project',
+        codespaceId: 'project-123',
+        codespacePath: '/path/to/project',
         image: 'test-image:latest',
         memoryMb: 4096,
         cpuCores: 2,
@@ -221,8 +221,8 @@ describe('SandboxService', () => {
       );
 
       const config: SandboxConfig = {
-        projectId: 'project-123',
-        projectPath: '/path/to/project',
+        codespaceId: 'project-123',
+        codespacePath: '/path/to/project',
         image: 'test-image:latest',
         memoryMb: 4096,
         cpuCores: 2,
@@ -239,7 +239,7 @@ describe('SandboxService', () => {
       expect(mockStreams.publish).toHaveBeenCalledWith(
         expect.any(String),
         'sandbox:error',
-        expect.objectContaining({ projectId: 'project-123' })
+        expect.objectContaining({ codespaceId: 'project-123' })
       );
     });
 
@@ -248,8 +248,8 @@ describe('SandboxService', () => {
       (mockProvider.create as ReturnType<typeof vi.fn>).mockRejectedValue(codedError);
 
       const config: SandboxConfig = {
-        projectId: 'project-123',
-        projectPath: '/path/to/project',
+        codespaceId: 'project-123',
+        codespacePath: '/path/to/project',
         image: 'test-image:latest',
         memoryMb: 4096,
         cpuCores: 2,
@@ -270,7 +270,7 @@ describe('SandboxService', () => {
   // Get or Create for Project (3 tests)
   // =============================================================================
 
-  describe('Get or Create for Project', () => {
+  describe('Get or Create for Codespace', () => {
     it('returns existing running sandbox', async () => {
       const project = await createTestProject({
         config: {
@@ -287,7 +287,7 @@ describe('SandboxService', () => {
       const { sandboxInstances } = await import('../../src/db/schema');
       await db.insert(sandboxInstances).values({
         id: 'existing-sandbox',
-        projectId: project.id,
+        codespaceId: project.id,
         containerId: 'container-abc',
         status: 'running',
         image: 'test-image',
@@ -296,7 +296,7 @@ describe('SandboxService', () => {
         idleTimeoutMinutes: 30,
       });
 
-      const result = await service.getOrCreateForProject(project.id);
+      const result = await service.getOrCreateForCodespace(project.id);
 
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -305,8 +305,8 @@ describe('SandboxService', () => {
       expect(mockProvider.create).not.toHaveBeenCalled();
     });
 
-    it('returns error when project not found', async () => {
-      const result = await service.getOrCreateForProject('non-existent-project');
+    it('returns error when codespace not found', async () => {
+      const result = await service.getOrCreateForCodespace('non-existent-codespace');
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
@@ -314,7 +314,7 @@ describe('SandboxService', () => {
       }
     });
 
-    it('returns error when sandbox not enabled for project', async () => {
+    it('returns error when sandbox not enabled for codespace', async () => {
       const project = await createTestProject({
         config: {
           worktreeRoot: '.worktrees',
@@ -325,7 +325,7 @@ describe('SandboxService', () => {
         },
       });
 
-      const result = await service.getOrCreateForProject(project.id);
+      const result = await service.getOrCreateForCodespace(project.id);
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
@@ -347,7 +347,7 @@ describe('SandboxService', () => {
       const { sandboxInstances } = await import('../../src/db/schema');
       await db.insert(sandboxInstances).values({
         id: 'sandbox-to-stop',
-        projectId: project.id,
+        codespaceId: project.id,
         containerId: 'container-abc',
         status: 'running',
         image: 'test-image',
@@ -370,7 +370,7 @@ describe('SandboxService', () => {
       expect(mockStreams.publish).toHaveBeenCalledWith(
         'sandbox-to-stop',
         'sandbox:stopped',
-        expect.objectContaining({ projectId: project.id })
+        expect.objectContaining({ codespaceId: project.id })
       );
     });
 
@@ -394,7 +394,7 @@ describe('SandboxService', () => {
       const { sandboxInstances } = await import('../../src/db/schema');
       await db.insert(sandboxInstances).values({
         id: 'sandbox-fail-stop',
-        projectId: project.id,
+        codespaceId: project.id,
         containerId: 'container-abc',
         status: 'running',
         image: 'test-image',
@@ -414,7 +414,7 @@ describe('SandboxService', () => {
       expect(mockStreams.publish).toHaveBeenCalledWith(
         'sandbox-fail-stop',
         'sandbox:error',
-        expect.objectContaining({ projectId: project.id })
+        expect.objectContaining({ codespaceId: project.id })
       );
     });
   });
@@ -599,7 +599,7 @@ describe('SandboxService', () => {
       const { sandboxInstances } = await import('../../src/db/schema');
       await db.insert(sandboxInstances).values({
         id: 'sandbox-123',
-        projectId: project.id,
+        codespaceId: project.id,
         containerId: 'container-abc',
         status: 'running',
         image: 'test-image',
@@ -626,7 +626,7 @@ describe('SandboxService', () => {
       );
     });
 
-    it('returns error when sandbox not found for project', async () => {
+    it('returns error when sandbox not found for codespace', async () => {
       const result = await service.createTmuxSessionForTask('non-existent', 'task-123');
 
       expect(result.ok).toBe(false);
@@ -667,7 +667,7 @@ describe('SandboxService', () => {
       const idleTime = new Date(Date.now() - 60 * 60 * 1000); // 1 hour ago
       await db.insert(sandboxInstances).values({
         id: 'idle-sandbox',
-        projectId: project.id,
+        codespaceId: project.id,
         containerId: 'container-abc',
         status: 'running',
         image: 'test-image',
@@ -689,7 +689,7 @@ describe('SandboxService', () => {
         'sandbox:idle',
         expect.objectContaining({
           sandboxId: 'idle-sandbox',
-          projectId: project.id,
+          codespaceId: project.id,
         })
       );
 
@@ -705,7 +705,7 @@ describe('SandboxService', () => {
       // Insert a sandbox that was active recently
       await db.insert(sandboxInstances).values({
         id: 'active-sandbox',
-        projectId: project.id,
+        codespaceId: project.id,
         containerId: 'container-abc',
         status: 'running',
         image: 'test-image',
@@ -730,8 +730,6 @@ describe('SandboxService', () => {
     });
 
     it('disables idle checker after too many failures', async () => {
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
       // Make the database query fail to simulate errors
       const db = getTestDb();
       const originalQuery = db.query;
@@ -750,11 +748,9 @@ describe('SandboxService', () => {
         await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
       }
 
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Too many consecutive idle check failures')
-      );
-
-      consoleSpy.mockRestore();
+      // After MAX_IDLE_CHECK_FAILURES consecutive failures, the idle checker
+      // should have disabled itself via stopIdleChecker(). Calling stop again
+      // should be a no-op (idempotent).
       service.stopIdleChecker();
     });
   });

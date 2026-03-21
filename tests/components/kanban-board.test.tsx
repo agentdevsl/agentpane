@@ -5,7 +5,7 @@ import type { Task } from '@/db/schema';
 
 const createTask = (overrides: Partial<Task>): Task => ({
   id: overrides.id ?? 'task-1',
-  projectId: overrides.projectId ?? 'project-1',
+  codespaceId: overrides.codespaceId ?? 'project-1',
   title: overrides.title ?? 'Task title',
   description: overrides.description ?? null,
   column: overrides.column ?? 'backlog',

@@ -1,24 +1,24 @@
 ## Goal (incl. success criteria)
 
-- Debug the current UI freeze, identify the root cause, and fix the affected project UI and topology view without regressing existing behavior.
-- Success criteria: the freeze is reproducible before the fix, the root cause is addressed in code, targeted regression coverage exists, and relevant validation passes.
+- Fix all currently failing tests in the workspace without regressing existing behavior.
+- Success criteria: every currently failing automated test is identified, covered by an intentional code or test fix, and the previously failing test commands pass locally.
 
 ## Constraints/Assumptions
 
 - Use Bun for commands.
-- Follow TDD: add regression tests before implementation changes.
+- Follow TDD: add regression tests before implementation changes when failures indicate missing behavior rather than stale expectations.
 - Do not revert unrelated user changes in the dirty worktree.
-- Root cause is currently UNCONFIRMED; investigate first and keep the fix scoped to the freezing UI path.
+- The worktree may still contain unrelated in-progress UI freeze investigation changes; preserve them unless a failing test requires an overlapping fix.
 
 ## Key decisions
 
-- Preserve prior fixes unless the freeze investigation proves they are causal.
-- Start by reproducing the freeze and inspecting likely render/subscription hot paths before changing behavior.
-- Treat shared stream consumers as the primary investigation path because topology and container-agent views freeze during live updates.
+- Triage from the current failing test output first, then fix failures in the smallest coherent batches.
+- Preserve prior UI-freeze fixes unless a failing test directly proves they are incorrect.
+- Keep ledger focus on the test-fix task; retain earlier investigation notes in Done/Working set for continuity.
 
 ## State
 
-- In progress; current live regressions are (1) container-agent log streaming not visible and (2) topology tabs showing the empty-state message (`No subagent topology yet`), which suggests topology events are not reaching the UI in the active execution path.
+- In progress; workspace-wide test triage is complete and the current suite has broad failures clustered around schema/migration drift, Project->Codespace rename fallout, stale API expectations, and missing provider wiring in component tests.
 
 ## Done
 
@@ -46,18 +46,22 @@
 - User later confirmed session topology is fixed, narrowing the remaining issue back to the projects page / project summaries path.
 - User reported a new regression: container-agent log streaming is not visible.
 - User reported the topology panel is showing the empty state instead of live subagent topology.
+- Received a new request to fix all failing tests.
+- Ran `bun run test`; current captured run reports 31 failing files and 193 failing tests.
+- Confirmed `tests/services/rbac.service.test.ts` is heavily failing because the service now resolves codespace/folder/team roles while the tests still target the older project-based API (`projectMembers`, `checkProjectScope`, `project:*` permissions).
+- Confirmed one `tests/server/api.test.ts` failure plus additional failures in `tests/components/project-settings.test.tsx`, `tests/components/session-history.test.tsx`, and `tests/lib/remaining.test.ts`; broader pattern suggests stale tests after the codespace/folder architecture shift.
 
 ## Now
 
-- Trace the active container-agent execution path for missing token/topology events, add regression coverage, and fix event delivery before resuming project-list performance work.
+- Capture machine-readable Vitest results, group failures by shared root cause, and start fixing the first batch.
 
 ## Next
 
-- After restoring visible log streaming and topology events, return to the project summaries/polling performance validation.
+- Update stale tests or implementation as appropriate for each batch, then rerun targeted suites before the full test run.
 
 ## Open questions (UNCONFIRMED if needed)
 
-- UNCONFIRMED: whether the remaining projects-page freeze is fully explained by project-summary polling/API pressure, or whether there is still an additional render hotspot in the projects UI.
+- UNCONFIRMED: the exact complete per-file failure inventory from the current run; capture a structured Vitest report before starting code changes.
 
 ## Working set (files/ids/commands)
 
@@ -106,3 +110,6 @@
 - `src/lib/agents/agentcore-bridge.ts`
 - `src/server/routes/projects.ts`
 - `git status --short`
+- `bun run test`
+- `bun run test:ui`
+- `/Users/simon.lynch/.local/share/opencode/tool-output/tool_d12ba641a0013T9fjo6Kgr4h8P`

@@ -1,6 +1,6 @@
 import { and, count, desc, eq, ne } from 'drizzle-orm';
 import type { NewSandboxConfig, SandboxConfig, SandboxType } from '../db/schema';
-import { projects, sandboxConfigs } from '../db/schema';
+import { codespaces, sandboxConfigs } from '../db/schema';
 import { decryptToken, encryptToken } from '../lib/crypto/server-encryption.js';
 import type { SandboxConfigError } from '../lib/errors/sandbox-config-errors.js';
 import { SandboxConfigErrors } from '../lib/errors/sandbox-config-errors.js';
@@ -363,13 +363,13 @@ export class SandboxConfigService {
       return err(SandboxConfigErrors.NOT_FOUND);
     }
 
-    // Check if any projects are using this config
-    const projectsUsingConfig = await this.db.query.projects.findMany({
-      where: eq(projects.sandboxConfigId, id),
+    // Check if any codespaces are using this config
+    const codespacesUsingConfig = await this.db.query.codespaces.findMany({
+      where: eq(codespaces.sandboxConfigId, id),
     });
 
-    if (projectsUsingConfig.length > 0) {
-      return err(SandboxConfigErrors.IN_USE(projectsUsingConfig.length));
+    if (codespacesUsingConfig.length > 0) {
+      return err(SandboxConfigErrors.IN_USE(codespacesUsingConfig.length));
     }
 
     await this.db.delete(sandboxConfigs).where(eq(sandboxConfigs.id, id));

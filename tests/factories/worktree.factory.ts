@@ -3,8 +3,8 @@ import type { NewWorktree, Worktree, WorktreeStatus } from '../../src/db/schema'
 import { worktrees } from '../../src/db/schema';
 import { getTestDb } from '../helpers/database';
 
-export type WorktreeFactoryOptions = Partial<Omit<NewWorktree, 'projectId'>> & {
-  projectId?: string;
+export type WorktreeFactoryOptions = Partial<Omit<NewWorktree, 'codespaceId'>> & {
+  codespaceId?: string;
   status?: WorktreeStatus;
   branch?: string;
   baseBranch?: string;
@@ -12,7 +12,7 @@ export type WorktreeFactoryOptions = Partial<Omit<NewWorktree, 'projectId'>> & {
 };
 
 export function buildWorktree(
-  projectId: string,
+  codespaceId: string,
   options: WorktreeFactoryOptions = {}
 ): NewWorktree {
   const id = options.id ?? createId();
@@ -21,7 +21,7 @@ export function buildWorktree(
 
   return {
     id,
-    projectId,
+    codespaceId,
     taskId: options.taskId ?? null,
     branch,
     path: options.path ?? `/tmp/worktrees/${id}`,
@@ -33,11 +33,11 @@ export function buildWorktree(
 }
 
 export async function createTestWorktree(
-  projectId: string,
+  codespaceId: string,
   options: WorktreeFactoryOptions = {}
 ): Promise<Worktree> {
   const db = getTestDb();
-  const data = buildWorktree(projectId, options);
+  const data = buildWorktree(codespaceId, options);
 
   const [worktree] = await db.insert(worktrees).values(data).returning();
 
@@ -49,14 +49,14 @@ export async function createTestWorktree(
 }
 
 export async function createTestWorktrees(
-  projectId: string,
+  codespaceId: string,
   count: number,
   options: WorktreeFactoryOptions = {}
 ): Promise<Worktree[]> {
   const createdWorktrees: Worktree[] = [];
 
   for (let i = 0; i < count; i++) {
-    const worktree = await createTestWorktree(projectId, {
+    const worktree = await createTestWorktree(codespaceId, {
       ...options,
     });
     createdWorktrees.push(worktree);
@@ -66,11 +66,11 @@ export async function createTestWorktrees(
 }
 
 export async function createActiveWorktree(
-  projectId: string,
+  codespaceId: string,
   taskId: string,
   options: WorktreeFactoryOptions = {}
 ): Promise<Worktree> {
-  return createTestWorktree(projectId, {
+  return createTestWorktree(codespaceId, {
     ...options,
     taskId,
     status: 'active',
@@ -78,10 +78,10 @@ export async function createActiveWorktree(
 }
 
 export async function createMergedWorktree(
-  projectId: string,
+  codespaceId: string,
   options: WorktreeFactoryOptions = {}
 ): Promise<Worktree> {
-  return createTestWorktree(projectId, {
+  return createTestWorktree(codespaceId, {
     ...options,
     status: 'active',
     mergedAt: options.mergedAt ?? new Date(),
@@ -89,10 +89,10 @@ export async function createMergedWorktree(
 }
 
 export async function createRemovedWorktree(
-  projectId: string,
+  codespaceId: string,
   options: WorktreeFactoryOptions = {}
 ): Promise<Worktree> {
-  return createTestWorktree(projectId, {
+  return createTestWorktree(codespaceId, {
     ...options,
     status: 'removed',
     removedAt: options.removedAt ?? new Date(),

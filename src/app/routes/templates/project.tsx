@@ -12,7 +12,7 @@ import { Button } from '@/app/components/ui/button';
 import { useMountEffect } from '@/app/hooks/use-mount-effect';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import type { Template } from '@/db/schema';
-import { apiClient, type ProjectListItem } from '@/lib/api/client';
+import { apiClient, type CodespaceListItem } from '@/lib/api/client';
 import type { GitHubOrg, GitHubRepo } from '@/services/github-token.service';
 
 export const Route = createFileRoute('/templates/project')({
@@ -54,7 +54,7 @@ function TemplateGrid({
 function ProjectTemplatesPage(): React.JSX.Element {
   // Data state
   const [templates, setTemplates] = useState<Template[]>([]);
-  const [projects, setProjects] = useState<ProjectListItem[]>([]);
+  const [projects, setProjects] = useState<CodespaceListItem[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | 'all'>('all');
 
   // UI state
@@ -83,16 +83,16 @@ function ProjectTemplatesPage(): React.JSX.Element {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showProjectDropdown]);
 
-  // Fetch projects and GitHub status on mount
+  // Fetch codespaces and GitHub status on mount
   useMountEffect(() => {
     const fetchInitialData = async () => {
-      const [projectsResult, healthResult] = await Promise.all([
-        apiClient.projects.list({ limit: 100 }),
+      const [codespacesResult, healthResult] = await Promise.all([
+        apiClient.codespaces.list({ limit: 100 }),
         apiClient.system.health(),
       ]);
 
-      if (projectsResult.ok) {
-        setProjects(projectsResult.data.items);
+      if (codespacesResult.ok) {
+        setProjects(codespacesResult.data.items);
       }
 
       if (healthResult.ok) {
@@ -117,9 +117,9 @@ function ProjectTemplatesPage(): React.JSX.Element {
   useWatchEffect(() => {
     const fetchTemplates = async () => {
       setIsLoading(true);
-      const options: { scope: 'project'; projectId?: string } = { scope: 'project' };
+      const options: { scope: 'codespace'; codespaceId?: string } = { scope: 'codespace' };
       if (selectedProjectId !== 'all') {
-        options.projectId = selectedProjectId;
+        options.codespaceId = selectedProjectId;
       }
       const result = await apiClient.templates.list(options);
       if (result.ok) {
@@ -135,24 +135,24 @@ function ProjectTemplatesPage(): React.JSX.Element {
     if (selectedProjectId === 'all') {
       return templates;
     }
-    return templates.filter((t) => t.projectId === selectedProjectId);
+    return templates.filter((t) => t.codespaceId === selectedProjectId);
   }, [templates, selectedProjectId]);
 
-  // Group templates by project for "all" view
+  // Group templates by codespace for "all" view
   const groupedTemplates = useMemo(() => {
     if (selectedProjectId !== 'all') {
       return null;
     }
-    const groups: Map<string, { project: ProjectListItem | null; templates: Template[] }> =
+    const groups: Map<string, { project: CodespaceListItem | null; templates: Template[] }> =
       new Map();
 
     for (const template of templates) {
-      const projectId = template.projectId ?? 'unknown';
-      if (!groups.has(projectId)) {
-        const project = projects.find((p) => p.id === projectId) ?? null;
-        groups.set(projectId, { project, templates: [] });
+      const csId = template.codespaceId ?? 'unknown';
+      if (!groups.has(csId)) {
+        const project = projects.find((p) => p.id === csId) ?? null;
+        groups.set(csId, { project, templates: [] });
       }
-      groups.get(projectId)?.templates.push(template);
+      groups.get(csId)?.templates.push(template);
     }
 
     return groups;
@@ -172,8 +172,8 @@ function ProjectTemplatesPage(): React.JSX.Element {
     }
     // Refresh templates list
     const listResult = await apiClient.templates.list({
-      scope: 'project',
-      projectId: selectedProjectId === 'all' ? undefined : selectedProjectId,
+      scope: 'codespace',
+      codespaceId: selectedProjectId === 'all' ? undefined : selectedProjectId,
     });
     if (listResult.ok) {
       setTemplates(listResult.data.items as Template[]);
@@ -187,8 +187,8 @@ function ProjectTemplatesPage(): React.JSX.Element {
       await apiClient.templates.sync(templateId);
       // Refresh templates to get updated sync status
       const result = await apiClient.templates.list({
-        scope: 'project',
-        projectId: selectedProjectId === 'all' ? undefined : selectedProjectId,
+        scope: 'codespace',
+        codespaceId: selectedProjectId === 'all' ? undefined : selectedProjectId,
       });
       if (result.ok) {
         setTemplates(result.data.items as Template[]);
@@ -351,7 +351,7 @@ function ProjectTemplatesPage(): React.JSX.Element {
       <AddTemplateDialog
         open={showAddDialog}
         onOpenChange={setShowAddDialog}
-        scope="project"
+        scope="codespace"
         initialProjectIds={selectedProjectId !== 'all' ? [selectedProjectId] : []}
         projects={projects.map((p) => ({ id: p.id, name: p.name }))}
         onSubmit={handleAddTemplate}

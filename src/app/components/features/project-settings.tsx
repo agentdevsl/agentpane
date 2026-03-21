@@ -5,6 +5,7 @@ import {
   Cpu,
   Cube,
   Database,
+  FolderSimple,
   Gear,
   GitBranch,
   HardDrives,
@@ -31,20 +32,22 @@ import { TextInput } from '@/app/components/ui/text-input';
 import { Textarea } from '@/app/components/ui/textarea';
 import { useMountEffect } from '@/app/hooks/use-mount-effect';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
-import type { Project, ProjectConfig } from '@/db/schema';
+import { useFolderData } from '@/app/providers/folder-context';
+import type { Codespace, CodespaceConfig } from '@/db/schema';
 import { apiClient } from '@/lib/api/client';
 import { AVAILABLE_MODELS } from '@/lib/constants/models';
-import type { ProjectSandboxConfig } from '@/lib/sandbox/types';
+import type { CodespaceSandboxConfig } from '@/lib/sandbox/types';
 import { cn } from '@/lib/utils/cn';
 import { DeleteProjectDialog } from './delete-project-dialog';
 
 interface ProjectSettingsProps {
-  project: Project;
+  project: Codespace;
   onSave: (input: {
     name?: string;
     description?: string;
     maxConcurrentAgents?: number;
-    config?: Partial<ProjectConfig>;
+    config?: Partial<CodespaceConfig>;
+    projectFolderId?: string;
   }) => Promise<void>;
   onDelete: (options: { deleteFiles: boolean }) => Promise<void>;
   saveStatus?: 'idle' | 'saving' | 'saved' | 'error';
@@ -151,10 +154,12 @@ export function ProjectSettings({
   onDelete,
   saveStatus = 'idle',
 }: ProjectSettingsProps): React.JSX.Element {
+  const { folders } = useFolderData();
   const [name, setName] = useState(project.name);
   const [description, setDescription] = useState(project.description ?? '');
+  const [projectFolderId, setProjectFolderId] = useState(project.projectFolderId ?? '');
   const [maxConcurrent, setMaxConcurrent] = useState(project.maxConcurrentAgents ?? 3);
-  const [config, setConfig] = useState<ProjectConfig>(
+  const [config, setConfig] = useState<CodespaceConfig>(
     project.config ?? {
       worktreeRoot: '.worktrees',
       defaultBranch: 'main',
@@ -164,7 +169,7 @@ export function ProjectSettings({
   );
 
   // Global sandbox defaults (loaded from settings)
-  const [globalDefaults, setGlobalDefaults] = useState<ProjectSandboxConfig | null>(null);
+  const [globalDefaults, setGlobalDefaults] = useState<CodespaceSandboxConfig | null>(null);
   const [isLoadingDefaults, setIsLoadingDefaults] = useState(true);
 
   // Load global defaults on mount
@@ -173,7 +178,7 @@ export function ProjectSettings({
       try {
         const result = await apiClient.settings.get(['sandbox.defaults']);
         if (result.ok && result.data.settings['sandbox.defaults']) {
-          setGlobalDefaults(result.data.settings['sandbox.defaults'] as ProjectSandboxConfig);
+          setGlobalDefaults(result.data.settings['sandbox.defaults'] as CodespaceSandboxConfig);
         }
       } catch (error) {
         console.error('[ProjectSettings] Failed to load global defaults:', error);
@@ -185,12 +190,12 @@ export function ProjectSettings({
   });
 
   // Sandbox configuration - uses existing project config or falls back to global defaults
-  const existingSandbox = project.config?.sandbox as ProjectSandboxConfig | undefined | null;
+  const existingSandbox = project.config?.sandbox as CodespaceSandboxConfig | undefined | null;
   // Track if project has explicit custom sandbox config (not null)
   const [hasCustomConfig, setHasCustomConfig] = useState(
     existingSandbox !== undefined && existingSandbox !== null
   );
-  const [sandboxConfig, setSandboxConfig] = useState<ProjectSandboxConfig>({
+  const [sandboxConfig, setSandboxConfig] = useState<CodespaceSandboxConfig>({
     enabled: existingSandbox?.enabled ?? globalDefaults?.enabled ?? false,
     provider: existingSandbox?.provider ?? globalDefaults?.provider ?? 'docker',
     idleTimeoutMinutes:
@@ -206,7 +211,9 @@ export function ProjectSettings({
   const [sandboxModified, setSandboxModified] = useState(false);
 
   // Wrapper to track sandbox modifications
-  const updateSandboxConfig = (updater: (prev: ProjectSandboxConfig) => ProjectSandboxConfig) => {
+  const updateSandboxConfig = (
+    updater: (prev: CodespaceSandboxConfig) => CodespaceSandboxConfig
+  ) => {
     setSandboxConfig(updater);
     setSandboxModified(true);
     setHasCustomConfig(true);
@@ -274,9 +281,10 @@ export function ProjectSettings({
       : undefined; // Don't touch sandbox config
 
     onSave({
-      name: name !== project.name ? name : undefined,
-      description: description !== (project.description ?? '') ? description : undefined,
+      name,
+      description,
       maxConcurrentAgents: maxConcurrent,
+      projectFolderId,
       config: {
         ...config,
         ...(sandboxToSave !== undefined && { sandbox: sandboxToSave }),
@@ -320,7 +328,7 @@ export function ProjectSettings({
           <div className="mb-4 flex items-center justify-between rounded-lg border border-warning/30 bg-warning/5 px-4 py-3">
             <div className="flex items-center gap-2 text-sm">
               <span className="text-fg-muted">Using</span>
-              <span className="font-medium text-warning">custom project settings</span>
+              <span className="font-medium text-warning">custom codespace settings</span>
             </div>
             <Button
               variant="ghost"
@@ -686,12 +694,12 @@ export function ProjectSettings({
         <SectionHeader
           icon={Gear}
           title="General Settings"
-          description="Configure basic project information and behavior."
+          description="Configure basic codespace information and behavior."
         />
 
         <div className="grid gap-5 lg:grid-cols-2">
           <div>
-            <FieldLabel htmlFor="project-name">Project Name</FieldLabel>
+            <FieldLabel htmlFor="project-name">Codespace Name</FieldLabel>
             <TextInput
               id="project-name"
               value={name}
@@ -702,7 +710,7 @@ export function ProjectSettings({
 
           <div>
             <FieldLabel htmlFor="project-path" hint="read-only">
-              Project Path
+              Codespace Path
             </FieldLabel>
             <TextInput
               id="project-path"
@@ -719,11 +727,38 @@ export function ProjectSettings({
               id="project-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Brief description of the project..."
+              placeholder="Brief description of the codespace..."
               rows={2}
               data-testid="project-description-input"
             />
           </div>
+
+          {folders.length > 0 && (
+            <div>
+              <FieldLabel htmlFor="project-folder">Project</FieldLabel>
+              <div className="relative">
+                <select
+                  id="project-folder"
+                  value={projectFolderId}
+                  onChange={(e) => setProjectFolderId(e.target.value)}
+                  className="w-full appearance-none rounded-[var(--radius)] border border-border bg-surface-subtle px-3 py-2 pl-9 text-sm text-fg focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                  data-testid="project-folder-select"
+                >
+                  {folders.map((folder) => (
+                    <option key={folder.id} value={folder.id}>
+                      {folder.name}
+                    </option>
+                  ))}
+                </select>
+                <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
+                  <FolderSimple
+                    className="h-4 w-4 text-fg-subtle"
+                    weight={projectFolderId ? 'fill' : 'regular'}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </SettingsCard>
 
@@ -732,7 +767,7 @@ export function ProjectSettings({
         <SectionHeader
           icon={Brain}
           title="Agent Configuration"
-          description="Set defaults for AI agents working on this project."
+          description="Set defaults for AI agents working on this codespace."
         />
 
         <div className="grid gap-5 lg:grid-cols-2">
@@ -920,7 +955,7 @@ export function ProjectSettings({
           data-testid="delete-project-button"
         >
           <Trash className="h-4 w-4 mr-2" />
-          Delete Project
+          Delete Codespace
         </Button>
         <div className="flex items-center gap-3">
           {saveStatus === 'saved' && (

@@ -131,8 +131,7 @@ export class ApiKeyService {
 
     try {
       return decryptToken(key.encryptedKey);
-    } catch (error) {
-      console.error(`[ApiKeyService] Failed to decrypt key for ${service}:`, error);
+    } catch (_error) {
       throw ServiceErrors.DECRYPT_FAILED(service);
     }
   }
@@ -162,8 +161,6 @@ export class ApiKeyService {
         .update(apiKeys)
         .set({ isValid: false, updatedAt: new Date().toISOString() })
         .where(eq(apiKeys.service, service));
-    } catch (error) {
-      console.error(`[ApiKeyService] Failed to mark key as invalid for ${service}:`, error);
-    }
+    } catch (_error) {}
   }
 }

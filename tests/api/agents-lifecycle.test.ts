@@ -20,7 +20,7 @@ let app: ReturnType<typeof createAgentsRoutes>;
 
 const sampleAgent: Agent = {
   id: 'agent-1',
-  projectId: 'proj-1',
+  codespaceId: 'proj-1',
   name: 'Test Agent',
   type: 'task',
   status: 'running',

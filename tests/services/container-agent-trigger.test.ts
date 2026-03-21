@@ -61,14 +61,14 @@ const createMockContainerAgentService = (
  * Call this BEFORE moveColumn to satisfy FK constraints.
  */
 async function preCreateNextSession(
-  projectId: string,
+  codespaceId: string,
   taskId: string | null = null
 ): Promise<string> {
   const db = getTestDb();
   const nextId = `test-session-id-${sessionIdCounter + 1}`;
   await db.insert(sessions).values({
     id: nextId,
-    projectId,
+    codespaceId,
     taskId,
     agentId: null,
     status: 'active',
@@ -131,7 +131,7 @@ describe('TaskService Container Agent Trigger', () => {
         expect(result.value.task.column).toBe('in_progress');
         expect(mockContainerAgentService.startAgent).toHaveBeenCalledWith(
           expect.objectContaining({
-            projectId: project.id,
+            codespaceId: project.id,
             taskId: task.id,
             sessionId: expect.any(String),
             prompt: expect.stringContaining(task.title),
@@ -175,7 +175,7 @@ describe('TaskService Container Agent Trigger', () => {
         expect(result.value.task.column).toBe('in_progress');
         expect(mockContainerAgentService.startAgent).toHaveBeenCalledWith(
           expect.objectContaining({
-            projectId: project.id,
+            codespaceId: project.id,
             taskId: task.id,
           })
         );
@@ -777,7 +777,7 @@ describe('TaskService Container Agent Trigger', () => {
       const db = getTestDb();
       await db.insert(sessions).values({
         id: existingSessionId,
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: null,
         agentId: null,
         status: 'active',

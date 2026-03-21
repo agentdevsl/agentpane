@@ -84,9 +84,7 @@ export class SessionEventRouter {
       for (const handler of channelHandlers) {
         try {
           handler(event);
-        } catch (error) {
-          console.error(`[SessionEventRouter] Handler error for channel ${event.channel}:`, error);
-        }
+        } catch (_error) {}
       }
     }
   }

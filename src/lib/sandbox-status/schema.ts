@@ -9,9 +9,9 @@ import { SANDBOX_TYPES } from '../../db/schema/shared/enums.js';
  * Sandbox status entry schema
  */
 export const sandboxStatusSchema = z.object({
-  /** Project ID (primary key) */
-  projectId: z.string(),
-  /** Sandbox mode: shared container or per-project */
+  /** Codespace ID (primary key) */
+  codespaceId: z.string(),
+  /** Sandbox mode: shared container or per-codespace */
   mode: z.enum(['shared', 'per-project']),
   /** Current container status */
   containerStatus: z.enum([

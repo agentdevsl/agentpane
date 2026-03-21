@@ -101,7 +101,7 @@ vi.mock('../../lib/logging/logger.js', () => ({
 function createMockDb() {
   return {
     query: {
-      projects: {
+      codespaces: {
         findFirst: vi.fn().mockResolvedValue({ id: 'proj-1', name: 'Test', path: '/tmp' }),
       },
     },
@@ -179,7 +179,7 @@ describe('ContainerAgentService', () => {
 
   describe('startAgent() delegation', () => {
     const baseInput = {
-      projectId: 'proj-1',
+      codespaceId: 'proj-1',
       taskId: 'task-1',
       sessionId: 'sess-1',
       prompt: 'Build feature X',
@@ -269,7 +269,7 @@ describe('ContainerAgentService', () => {
         runtimeArn: 'arn:aws:agentcore:test',
       });
 
-      db.query.projects.findFirst.mockResolvedValue(null);
+      db.query.codespaces.findFirst.mockResolvedValue(null);
 
       const result = await service.startAgent(baseInput);
 
@@ -307,7 +307,7 @@ describe('ContainerAgentService', () => {
       const agentCoreAgent = {
         taskId: 'task-1',
         sessionId: 'sess-1',
-        projectId: 'proj-1',
+        codespaceId: 'proj-1',
         sandboxId: 'sb-1',
         startedAt: new Date(),
       };
@@ -432,7 +432,7 @@ describe('ContainerAgentService', () => {
     });
 
     it('getRunningAgent delegates to state.getAnyRunningAgent', () => {
-      const info = { projectId: 'proj-1', sessionId: 'sess-1', startedAt: new Date() };
+      const info = { codespaceId: 'proj-1', sessionId: 'sess-1', startedAt: new Date() };
       const stateManager = (service as any).state as SandboxStateManager;
       (stateManager.getAnyRunningAgent as ReturnType<typeof vi.fn>).mockReturnValue(info);
 
@@ -446,13 +446,13 @@ describe('ContainerAgentService', () => {
       const stateManager = (service as any).state as SandboxStateManager;
       const containerAgent = {
         taskId: 'task-1',
-        projectId: 'proj-1',
+        codespaceId: 'proj-1',
         sessionId: 'sess-1',
         startedAt: new Date(),
       };
       const agentCoreAgent = {
         taskId: 'task-2',
-        projectId: 'proj-1',
+        codespaceId: 'proj-1',
         sessionId: 'sess-2',
         startedAt: new Date(),
       };

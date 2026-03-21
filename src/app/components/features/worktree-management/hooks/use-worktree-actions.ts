@@ -11,7 +11,7 @@ interface UseWorktreeActionsReturn {
   handleCommit: (worktreeId: string, message: string) => Promise<boolean>;
   handleMerge: (worktreeId: string, options: MergeOptions) => Promise<boolean>;
   handleRemove: (worktreeId: string, force?: boolean) => Promise<boolean>;
-  handlePrune: (projectId: string) => Promise<{ pruned: number; failed: number }>;
+  handlePrune: (codespaceId: string) => Promise<{ pruned: number; failed: number }>;
   handleOpen: (worktree: WorktreeListItem) => void;
 }
 
@@ -151,12 +151,12 @@ export function useWorktreeActions(onSuccess?: () => void): UseWorktreeActionsRe
   );
 
   const handlePrune = useCallback(
-    async (projectId: string): Promise<{ pruned: number; failed: number }> => {
+    async (codespaceId: string): Promise<{ pruned: number; failed: number }> => {
       setIsLoading(true);
       setCurrentAction('prune');
 
       try {
-        const result = await apiClient.worktrees.prune(projectId);
+        const result = await apiClient.worktrees.prune(codespaceId);
 
         if (result.ok) {
           const { pruned, failed } = result.data;
@@ -166,7 +166,7 @@ export function useWorktreeActions(onSuccess?: () => void): UseWorktreeActionsRe
           if (failed.length > 0) {
             // Log detailed failure info
             console.error('[WorktreeActions] Prune partial failure:', {
-              projectId,
+              codespaceId,
               pruned,
               failures: failed,
             });
@@ -181,12 +181,12 @@ export function useWorktreeActions(onSuccess?: () => void): UseWorktreeActionsRe
           onSuccess?.();
           return { pruned, failed: failed.length };
         } else {
-          console.error('[WorktreeActions] Prune failed:', { projectId, error: result.error });
+          console.error('[WorktreeActions] Prune failed:', { codespaceId, error: result.error });
           toast.error(`Prune failed: ${result.error.message}`);
           return { pruned: 0, failed: 0 };
         }
       } catch (err) {
-        console.error('[WorktreeActions] Prune exception:', { projectId, error: err });
+        console.error('[WorktreeActions] Prune exception:', { codespaceId, error: err });
         toast.error(`Prune failed: ${getErrorMessage(err)}`);
         return { pruned: 0, failed: 0 };
       } finally {

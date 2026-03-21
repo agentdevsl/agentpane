@@ -10,6 +10,7 @@ import type { EventEmittingSandboxProvider } from '../../lib/sandbox/providers/s
 import type { AgentService } from '../../services/agent.service.js';
 import type { ApiKeyService } from '../../services/api-key.service.js';
 import type { CliMonitorService } from '../../services/cli-monitor/index.js';
+import type { CodespaceService } from '../../services/codespace.service.js';
 import type { createContainerAgentService } from '../../services/container-agent.service.js';
 import type { DurableStreamsService } from '../../services/durable-streams.service.js';
 import type { EventProcessingService } from '../../services/event-processing.service.js';
@@ -18,7 +19,7 @@ import type { EventSubscriptionService } from '../../services/event-subscription
 import type { GitService } from '../../services/git.service.js';
 import type { GitHubTokenService } from '../../services/github-token.service.js';
 import type { MarketplaceService } from '../../services/marketplace.service.js';
-import type { ProjectService } from '../../services/project.service.js';
+import type { ProjectFolderService } from '../../services/project-folder.service.js';
 import type { SandboxConfigService } from '../../services/sandbox-config.service.js';
 import type { SchedulerService } from '../../services/scheduler.service.js';
 import type { SessionService } from '../../services/session.service.js';
@@ -68,7 +69,8 @@ export interface ServiceContainer {
   agentService: AgentService;
   workflowService: WorkflowService;
   gitService: GitService;
-  projectService: ProjectService;
+  codespaceService: CodespaceService;
+  projectFolderService: ProjectFolderService;
   cliMonitorService: CliMonitorService;
   durableStreamsService: DurableStreamsService;
   terraformRegistryService: TerraformRegistryService;

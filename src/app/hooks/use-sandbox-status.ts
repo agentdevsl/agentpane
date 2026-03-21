@@ -12,11 +12,11 @@ import { useWatchEffect } from './use-watch-effect';
 export type { SandboxStatus };
 
 /**
- * Hook to get sandbox mode and container status for a project
+ * Hook to get sandbox mode and container status for a codespace
  *
  * Uses TanStack DB collection with automatic sync from API.
  */
-export function useSandboxStatus(projectId: string): {
+export function useSandboxStatus(codespaceId: string): {
   data: SandboxStatus | null;
   isLoading: boolean;
   refetch: () => void;
@@ -27,25 +27,25 @@ export function useSandboxStatus(projectId: string): {
       q
         .from({ sandboxStatus: sandboxStatusCollection })
         .where(({ sandboxStatus }: { sandboxStatus: SandboxStatus }) =>
-          eq(sandboxStatus.projectId, projectId)
+          eq(sandboxStatus.codespaceId, codespaceId)
         ),
-    [projectId]
+    [codespaceId]
   );
 
-  // Start/stop sync when projectId changes
+  // Start/stop sync when codespaceId changes
   useWatchEffect(() => {
-    if (!projectId) return;
+    if (!codespaceId) return;
 
-    startSandboxStatusSync(projectId);
+    startSandboxStatusSync(codespaceId);
 
     return () => {
-      stopSandboxStatusSync(projectId);
+      stopSandboxStatusSync(codespaceId);
     };
-  }, [projectId]);
+  }, [codespaceId]);
 
   return {
     data: data?.[0] ?? null,
     isLoading: !sandboxStatusCollection.isReady(),
-    refetch: () => refreshSandboxStatus(projectId),
+    refetch: () => refreshSandboxStatus(codespaceId),
   };
 }

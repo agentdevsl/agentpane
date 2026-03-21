@@ -60,7 +60,7 @@ function createInstance(
     region: 'us-east-1',
     accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
     secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
-    projectId: 'proj-001',
+    codespaceId: 'proj-001',
     sandboxId: 'sandbox-001',
     ...overrides,
   });
@@ -92,7 +92,7 @@ describe('AgentCoreSandboxInstance', () => {
       expect(instance.runtimeArn).toBe(
         'arn:aws:bedrock-agentcore:us-east-1:123456789:runtime/test-runtime-id'
       );
-      expect(instance.projectId).toBe('proj-001');
+      expect(instance.codespaceId).toBe('proj-001');
       expect(instance.sandboxId).toBe('sandbox-001');
     });
   });

@@ -1,15 +1,15 @@
 import { createId } from '@paralleldrive/cuid2';
 import { and, desc, eq } from 'drizzle-orm';
 import type { Task, TaskColumn } from '../db/schema';
-import { projects, sessions, settings, tasks } from '../db/schema';
+import { codespaces, sessions, settings, tasks } from '../db/schema';
 import { getFullModelId } from '../lib/constants/models.js';
-import { ProjectErrors } from '../lib/errors/project-errors.js';
+import { CodespaceErrors } from '../lib/errors/codespace-errors.js';
 import type { SandboxError } from '../lib/errors/sandbox-errors.js';
 import type { TaskError } from '../lib/errors/task-errors.js';
 import { TaskErrors } from '../lib/errors/task-errors.js';
 import { ValidationErrors } from '../lib/errors/validation-errors.js';
 import { createLogger } from '../lib/logging/logger.js';
-import type { ProjectSandboxConfig } from '../lib/sandbox/types.js';
+import type { CodespaceSandboxConfig } from '../lib/sandbox/types.js';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
 import type { Database } from '../types/database.js';
@@ -23,7 +23,7 @@ import type { GitDiff } from './worktree.service.js';
 const log = createLogger('TaskService');
 
 export type CreateTaskInput = {
-  projectId: string;
+  codespaceId: string;
   title: string;
   description?: string;
   labels?: string[];
@@ -254,18 +254,18 @@ export class TaskService {
   }
 
   async create(input: CreateTaskInput): Promise<Result<Task, TaskError>> {
-    const { projectId, title, description, labels = [], priority = 'medium' } = input;
+    const { codespaceId, title, description, labels = [], priority = 'medium' } = input;
 
-    const project = await this.db.query.projects.findFirst({
-      where: eq(projects.id, projectId),
+    const codespace = await this.db.query.codespaces.findFirst({
+      where: eq(codespaces.id, codespaceId),
     });
 
-    if (!project) {
-      return err(ProjectErrors.NOT_FOUND);
+    if (!codespace) {
+      return err(CodespaceErrors.NOT_FOUND);
     }
 
     const lastTask = await this.db.query.tasks.findFirst({
-      where: and(eq(tasks.projectId, projectId), eq(tasks.column, 'backlog')),
+      where: and(eq(tasks.codespaceId, codespaceId), eq(tasks.column, 'backlog')),
       orderBy: desc(tasks.position),
     });
 
@@ -274,7 +274,7 @@ export class TaskService {
     const [task] = await this.db
       .insert(tasks)
       .values({
-        projectId,
+        codespaceId,
         title,
         description,
         labels,
@@ -305,7 +305,7 @@ export class TaskService {
     return ok(task);
   }
 
-  async list(projectId: string, options?: ListTasksOptions): Promise<Result<Task[], TaskError>> {
+  async list(codespaceId: string, options?: ListTasksOptions): Promise<Result<Task[], TaskError>> {
     const limit = options?.limit ?? 50;
     const offset = options?.offset ?? 0;
     const orderBy = options?.orderBy ?? 'position';
@@ -318,7 +318,7 @@ export class TaskService {
           ? tasks.updatedAt
           : tasks.position;
 
-    const filters = [eq(tasks.projectId, projectId)];
+    const filters = [eq(tasks.codespaceId, codespaceId)];
     if (options?.column) {
       filters.push(eq(tasks.column, options.column));
     }
@@ -388,7 +388,7 @@ export class TaskService {
     let newPosition = position;
     if (newPosition === undefined) {
       const lastInColumn = await this.db.query.tasks.findFirst({
-        where: and(eq(tasks.projectId, task.projectId), eq(tasks.column, column)),
+        where: and(eq(tasks.codespaceId, task.codespaceId), eq(tasks.column, column)),
         orderBy: desc(tasks.position),
       });
       newPosition = (lastInColumn?.position ?? -1) + 1;
@@ -412,11 +412,11 @@ export class TaskService {
         try {
           await tx.insert(sessions).values({
             id: sessionId,
-            projectId: task.projectId,
+            codespaceId: task.codespaceId,
             taskId: task.id,
             agentId: null,
             title: task.title ?? `Task ${task.id}`,
-            url: `/projects/${task.projectId}/sessions/${sessionId}`,
+            url: `/codespaces/${task.codespaceId}/sessions/${sessionId}`,
             status: 'active',
             sandboxProvider: this.containerAgentService?.providerName ?? null,
             createdAt: new Date().toISOString(),
@@ -464,13 +464,13 @@ export class TaskService {
   /**
    * Load global sandbox defaults from settings.
    */
-  private async getGlobalSandboxDefaults(): Promise<ProjectSandboxConfig | null> {
+  private async getGlobalSandboxDefaults(): Promise<CodespaceSandboxConfig | null> {
     try {
       const setting = await this.db.query.settings.findFirst({
         where: eq(settings.key, 'sandbox.defaults'),
       });
       if (setting?.value) {
-        return JSON.parse(setting.value) as ProjectSandboxConfig;
+        return JSON.parse(setting.value) as CodespaceSandboxConfig;
       }
     } catch (error) {
       log.warn('Failed to load global sandbox defaults', {
@@ -498,21 +498,20 @@ export class TaskService {
       return undefined;
     }
 
-    // Get project to check sandbox config
-    const project = await this.db.query.projects.findFirst({
-      where: eq(projects.id, task.projectId),
+    // Get codespace to check sandbox config
+    const codespace = await this.db.query.codespaces.findFirst({
+      where: eq(codespaces.id, task.codespaceId),
     });
 
-    if (!project) {
-      const errorMsg = `Project not found for task ${task.id}`;
-      console.warn(`[TaskService] ${errorMsg}, cannot trigger agent`);
+    if (!codespace) {
+      const errorMsg = `Codespace not found for task ${task.id}`;
       return errorMsg;
     }
 
-    // Get sandbox config - project can override global defaults
-    // If project sandbox is explicitly null, use global defaults
-    // If project sandbox exists but is disabled, still check global defaults
-    let sandboxConfig = project.config?.sandbox as ProjectSandboxConfig | null | undefined;
+    // Get sandbox config - codespace can override global defaults
+    // If codespace sandbox is explicitly null, use global defaults
+    // If codespace sandbox exists but is disabled, still check global defaults
+    let sandboxConfig = codespace.config?.sandbox as CodespaceSandboxConfig | null | undefined;
 
     // Use global defaults if:
     // - Project has no sandbox config (undefined)
@@ -521,43 +520,33 @@ export class TaskService {
     if (!sandboxConfig?.enabled) {
       const globalDefaults = await this.getGlobalSandboxDefaults();
       if (globalDefaults?.enabled) {
-        console.log(`[TaskService] Using global sandbox defaults for project ${project.id}`);
         sandboxConfig = globalDefaults;
       }
     }
 
-    // Only trigger if sandbox is enabled (either project or global)
+    // Only trigger if sandbox is enabled (either codespace or global)
     if (!sandboxConfig?.enabled) {
-      console.log(
-        `[TaskService] Sandbox not enabled for project ${project.id}, skipping container agent`
-      );
       return undefined;
     }
 
     // Build task prompt
     const prompt = this.buildTaskPrompt(task);
 
-    // Resolve model: project config → global default_model setting → hardcoded default
+    // Resolve model: codespace config → global default_model setting → hardcoded default
     // getGlobalDefaultModel already returns a full API model ID; apply getFullModelId
-    // to the project config value too since it may store a short ID
-    const projectModel = project.config?.model as string | undefined;
+    // to the codespace config value too since it may store a short ID
+    const projectModel = codespace.config?.model as string | undefined;
     const resolvedModel =
       (projectModel ? getFullModelId(projectModel) : undefined) ??
       (await getGlobalDefaultModel(this.db));
-
-    // Trigger agent execution and capture startup errors
-    // The sessionId was already set on the task in moveColumn() before this call
-    console.log(
-      `[TaskService] Triggering container agent for task ${task.id}, sessionId: ${sessionId}, model: ${resolvedModel ?? 'default'}`
-    );
     try {
       const result = await this.containerAgentService.startAgent({
-        projectId: task.projectId,
+        codespaceId: task.codespaceId,
         taskId: task.id,
         sessionId,
         prompt,
         model: resolvedModel,
-        maxTurns: project.config?.maxTurns,
+        maxTurns: codespace.config?.maxTurns,
       });
 
       if (!result.ok) {
@@ -570,15 +559,11 @@ export class TaskService {
         } else {
           errorMsg = 'Failed to start agent';
         }
-        console.error(`[TaskService] Container agent failed for task ${task.id}:`, errorMsg);
         return errorMsg;
       }
-
-      console.log(`[TaskService] Container agent started for task ${task.id}`);
       return undefined;
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Failed to start agent';
-      console.error(`[TaskService] Error starting container agent for task ${task.id}:`, error);
       return errorMsg;
     }
   }
@@ -605,7 +590,7 @@ export class TaskService {
 
     parts.push(
       '',
-      'The project is mounted at /workspace. Make the necessary changes to complete this task.',
+      'The codespace is mounted at /workspace. Make the necessary changes to complete this task.',
       'When you are done, the task will be moved to review.'
     );
 
@@ -626,9 +611,9 @@ export class TaskService {
     return ok(updated);
   }
 
-  async getByColumn(projectId: string, column: TaskColumn): Promise<Result<Task[], TaskError>> {
+  async getByColumn(codespaceId: string, column: TaskColumn): Promise<Result<Task[], TaskError>> {
     const items = await this.db.query.tasks.findMany({
-      where: and(eq(tasks.projectId, projectId), eq(tasks.column, column)),
+      where: and(eq(tasks.codespaceId, codespaceId), eq(tasks.column, column)),
       orderBy: desc(tasks.position),
     });
 

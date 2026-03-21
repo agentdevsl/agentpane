@@ -16,6 +16,7 @@ import {
 } from '@phosphor-icons/react';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { useCallback, useState } from 'react';
+import { FolderIcon } from '@/app/components/features/folder-rail/folder-icon';
 import { Button } from '@/app/components/ui/button';
 import {
   Dialog,
@@ -29,11 +30,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/app/components/ui/ta
 import { TextInput } from '@/app/components/ui/text-input';
 import { Textarea } from '@/app/components/ui/textarea';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
+import { useFolderData } from '@/app/providers/folder-context';
 import type { SANDBOX_TYPES } from '@/db/schema/shared/enums';
 import { cn } from '@/lib/utils/cn';
 import type { Result } from '@/lib/utils/result';
+import type { PathValidation } from '@/services/codespace.service';
 import type { GitHubRepo } from '@/services/github-token.service';
-import type { PathValidation } from '@/services/project.service';
 
 // Types
 interface RepositoryInfo {
@@ -70,6 +72,7 @@ interface NewProjectDialogProps {
     path: string;
     description?: string;
     sandboxType?: SandboxType;
+    projectFolderId?: string;
   }) => Promise<Result<void, { code: string; message: string }>>;
   onValidatePath: (path: string) => Promise<Result<PathValidation, unknown>>;
   onClone?: (url: string, destination: string) => Promise<Result<{ path: string }, unknown>>;
@@ -589,12 +592,18 @@ export function NewProjectDialog({
   initialSource = 'local',
   defaultSandboxType = 'docker',
 }: NewProjectDialogProps): React.JSX.Element {
+  // Folder data
+  const { folders, selectedFolderId } = useFolderData();
+
   // Form state
   const [sourceType, setSourceType] = useState<SourceType>(initialSource);
   const [name, setName] = useState('');
   const [path, setPath] = useState(initialPath);
   const [description, setDescription] = useState('');
   const [sandboxType, setSandboxType] = useState<SandboxType>(defaultSandboxType);
+  const [selectedProjectFolderId, setSelectedProjectFolderId] = useState<string>(
+    selectedFolderId ?? ''
+  );
   const [cloneUrl, setCloneUrl] = useState('');
   const [clonePath, setClonePath] = useState('~/git/');
 
@@ -643,6 +652,7 @@ export function NewProjectDialog({
       setIsCloning(false);
       setCloneError('');
       setSubmitError('');
+      setSelectedProjectFolderId(selectedFolderId ?? '');
       // Reset GitHub state
       setGithubOrgs([]);
       setIsLoadingOrgs(false);
@@ -797,6 +807,7 @@ export function NewProjectDialog({
           path: templateResult.value.path,
           description: description.trim() || undefined,
           sandboxType,
+          projectFolderId: selectedProjectFolderId || undefined,
         });
         setIsCloning(false);
 
@@ -822,6 +833,7 @@ export function NewProjectDialog({
           path: cloneResult.value.path,
           description: description.trim() || undefined,
           sandboxType,
+          projectFolderId: selectedProjectFolderId || undefined,
         });
         setIsCloning(false);
 
@@ -836,6 +848,7 @@ export function NewProjectDialog({
         path: path.trim(),
         description: description.trim() || undefined,
         sandboxType,
+        projectFolderId: selectedProjectFolderId || undefined,
       });
 
       if (!submitResult.ok) {
@@ -867,6 +880,46 @@ export function NewProjectDialog({
             Connect a local repository or clone from GitHub to start using AgentPane.
           </DialogDescription>
         </DialogHeader>
+
+        {/* Folder selector */}
+        {folders.length > 0 && (
+          <div className="mt-4 space-y-2">
+            <label
+              className="text-xs font-medium uppercase tracking-wide text-fg-muted"
+              htmlFor="project-folder"
+            >
+              Folder
+            </label>
+            <div className="relative">
+              <select
+                id="project-folder"
+                value={selectedProjectFolderId}
+                onChange={(e) => setSelectedProjectFolderId(e.target.value)}
+                className="w-full appearance-none rounded-[var(--radius)] border border-border bg-surface-subtle px-3 py-2 pl-9 text-sm text-fg focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                data-testid="project-folder-select"
+              >
+                <option value="">No folder</option>
+                {folders.map((folder) => (
+                  <option key={folder.id} value={folder.id}>
+                    {folder.name}
+                  </option>
+                ))}
+              </select>
+              <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
+                {selectedProjectFolderId ? (
+                  <FolderIcon
+                    iconName={
+                      folders.find((f) => f.id === selectedProjectFolderId)?.icon ?? 'folder'
+                    }
+                    size={16}
+                  />
+                ) : (
+                  <FolderSimple className="h-4 w-4 text-fg-subtle" />
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         <Tabs
           value={sourceType}
@@ -972,14 +1025,14 @@ export function NewProjectDialog({
               </>
             )}
 
-            {/* Project Name (only shown after valid path) */}
+            {/* Codespace Name (only shown after valid path) */}
             {pathStatus === 'valid' && (
               <div className="space-y-2">
                 <label
                   className="text-xs font-medium uppercase tracking-wide text-fg-muted"
                   htmlFor="project-name"
                 >
-                  Project name
+                  Codespace name
                 </label>
                 <TextInput
                   id="project-name"
@@ -1099,7 +1152,7 @@ export function NewProjectDialog({
             {pathStatus === 'valid' && (
               <fieldset className="space-y-2">
                 <legend className="text-xs font-medium uppercase tracking-wide text-fg-muted">
-                  Project Skills
+                  Codespace Skills
                 </legend>
                 <div className="grid grid-cols-2 gap-2">
                   {skills.map((skill) => (

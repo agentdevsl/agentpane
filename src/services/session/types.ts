@@ -54,7 +54,7 @@ export type SessionEvent = {
 };
 
 export type CreateSessionInput = {
-  projectId: string;
+  codespaceId: string;
   taskId?: string;
   agentId?: string;
   title?: string;
@@ -105,7 +105,7 @@ export type GetEventsBySessionOptions = {
 
 export type SessionWithPresence = {
   id: string;
-  projectId: string;
+  codespaceId: string;
   taskId?: string | null;
   agentId?: string | null;
   title?: string | null;

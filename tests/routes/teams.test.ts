@@ -310,7 +310,7 @@ describe('GET /teams', () => {
     expect(body.ok).toBe(true);
     expect(body.data.items[0].myRole).toBe('admin');
     expect(body.data.items[0].memberCount).toBe(5);
-    expect(body.data.items[0].projectCount).toBe(0);
+    expect(body.data.items[0].folderCount).toBe(0);
   });
 
   it('supports search filter and returns matching teams for dev mode', async () => {
@@ -446,7 +446,7 @@ describe('GET /teams/:id', () => {
     expect(body.ok).toBe(true);
     expect(body.data.id).toBe('team-abc123');
     expect(body.data.memberCount).toBe(4);
-    expect(body.data.projectCount).toBe(2);
+    expect(body.data.folderCount).toBe(2);
     expect(body.data.myRole).toBe('admin');
   });
 

@@ -19,13 +19,6 @@ const SCHEDULER_INTERVAL_MS = 60 * 1000;
 export const MIN_SYNC_INTERVAL_MINUTES = 5;
 
 /**
- * Extract error message from unknown error type
- */
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-/**
  * Calculate the next sync time based on an interval in minutes
  */
 export function calculateNextSyncAt(intervalMinutes: number): string {
@@ -78,34 +71,22 @@ export class TemplateSyncScheduler {
 
       for (const template of dueTemplates) {
         if (this.syncInProgress.has(template.id)) {
-          console.log(
-            `[TemplateSyncScheduler] Skipping ${template.name} - sync already in progress`
-          );
           continue;
         }
 
         if (template.status === 'syncing') {
-          console.log(`[TemplateSyncScheduler] Skipping ${template.name} - status is syncing`);
           continue;
         }
 
         try {
           this.syncInProgress.add(template.id);
-          console.log(`[TemplateSyncScheduler] Starting scheduled sync for: ${template.name}`);
 
           const result = await this.templateService.sync(template.id);
 
           if (result.ok) {
             synced++;
-            console.log(
-              `[TemplateSyncScheduler] Successfully synced ${template.name}: ` +
-                `${result.value.skillCount} skills, ${result.value.commandCount} commands, ${result.value.agentCount} agents`
-            );
           } else {
             errors++;
-            console.error(
-              `[TemplateSyncScheduler] Failed to sync ${template.name}: ${result.error.message}`
-            );
           }
 
           if (template.syncIntervalMinutes) {
@@ -115,24 +96,15 @@ export class TemplateSyncScheduler {
                 .update(templates)
                 .set({ nextSyncAt })
                 .where(eq(templates.id, template.id));
-            } catch (updateError) {
-              console.error(
-                `[TemplateSyncScheduler] Failed to update nextSyncAt for ${template.name}: ${getErrorMessage(updateError)}`
-              );
-            }
+            } catch (_updateError) {}
           }
-        } catch (error) {
+        } catch (_error) {
           errors++;
-          console.error(
-            `[TemplateSyncScheduler] Error syncing ${template.name}: ${getErrorMessage(error)}`
-          );
         } finally {
           this.syncInProgress.delete(template.id);
         }
       }
-    } catch (error) {
-      console.error(`[TemplateSyncScheduler] Error checking templates: ${getErrorMessage(error)}`);
-    }
+    } catch (_error) {}
 
     this.lastCheckAt = now;
     return { synced, errors };
@@ -143,38 +115,25 @@ export class TemplateSyncScheduler {
    */
   start(): () => void {
     if (this.isRunning) {
-      console.warn('[TemplateSyncScheduler] Scheduler already running');
       return () => this.stop();
     }
-
-    console.log('[TemplateSyncScheduler] Starting scheduler');
     this.isRunning = true;
 
     // Run immediately on start
     this.checkAndSyncTemplates()
       .then(({ synced, errors }) => {
         if (synced > 0 || errors > 0) {
-          console.log(`[TemplateSyncScheduler] Initial check: ${synced} synced, ${errors} errors`);
         }
       })
-      .catch((error) => {
-        console.error(
-          `[TemplateSyncScheduler] Critical error during startup sync: ${getErrorMessage(error)}`
-        );
-      });
+      .catch((_error) => {});
 
     // Set up periodic checking
     this.intervalId = setInterval(async () => {
       try {
         const { synced, errors } = await this.checkAndSyncTemplates();
         if (synced > 0 || errors > 0) {
-          console.log(`[TemplateSyncScheduler] Periodic check: ${synced} synced, ${errors} errors`);
         }
-      } catch (error) {
-        console.error(
-          `[TemplateSyncScheduler] Error during periodic check: ${getErrorMessage(error)}`
-        );
-      }
+      } catch (_error) {}
     }, SCHEDULER_INTERVAL_MS);
 
     return () => this.stop();
@@ -187,8 +146,6 @@ export class TemplateSyncScheduler {
     if (!this.isRunning) {
       return;
     }
-
-    console.log('[TemplateSyncScheduler] Stopping scheduler');
 
     if (this.intervalId) {
       clearInterval(this.intervalId);

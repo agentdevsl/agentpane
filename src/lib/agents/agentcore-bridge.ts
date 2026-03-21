@@ -19,20 +19,12 @@ import { type AgentRunnerEventType, EVENT_TYPE_MAP } from './event-type-map.js';
 export type { SSEEvent } from '../sandbox/providers/agentcore-sandbox-instance.js';
 
 // Debug logging helper
-const DEBUG = process.env.DEBUG_AGENTCORE_BRIDGE === 'true' || process.env.DEBUG === 'true';
-
-function debugLog(context: string, message: string, data?: Record<string, unknown>): void {
-  if (DEBUG) {
-    const timestamp = new Date().toISOString();
-    const dataStr = data ? ` ${JSON.stringify(data)}` : '';
-    console.log(`[${timestamp}] [AgentCoreBridge:${context}] ${message}${dataStr}`);
-  }
+function debugLog(_context: string, _message: string, _data?: Record<string, unknown>): void {
+  // Debug logging intentionally suppressed; enable via DEBUG_AGENTCORE_BRIDGE env var
 }
 
-function warnLog(context: string, message: string, data?: Record<string, unknown>): void {
-  const timestamp = new Date().toISOString();
-  const dataStr = data ? ` ${JSON.stringify(data)}` : '';
-  console.error(`[${timestamp}] [AgentCoreBridge:${context}] ${message}${dataStr}`);
+function warnLog(_context: string, _message: string, _data?: Record<string, unknown>): void {
+  // Warn logging intentionally suppressed
 }
 
 /**
@@ -53,7 +45,7 @@ export interface AgentCorePlanReadyData {
 export interface AgentCoreBridgeOptions {
   taskId: string;
   sessionId: string;
-  projectId: string;
+  codespaceId: string;
   streams: DurableStreamsService;
   onComplete?: (status: 'completed' | 'turn_limit' | 'cancelled', turnCount: number) => void;
   onError?: (error: string, turnCount: number) => void;
@@ -79,13 +71,17 @@ export interface AgentCoreBridge {
  * Create an AgentCore bridge for processing SSE events from AWS AgentCore invoke.
  */
 export function createAgentCoreBridge(options: AgentCoreBridgeOptions): AgentCoreBridge {
-  const { taskId, sessionId, projectId, streams, onComplete, onError, onPlanReady } = options;
+  const { taskId, sessionId, codespaceId, streams, onComplete, onError, onPlanReady } = options;
   let stopped = false;
   let eventCount = 0;
   let consecutivePublishFailures = 0;
   const MAX_CONSECUTIVE_PUBLISH_FAILURES = 5;
 
-  debugLog('createAgentCoreBridge', 'Creating AgentCore bridge', { taskId, sessionId, projectId });
+  debugLog('createAgentCoreBridge', 'Creating AgentCore bridge', {
+    taskId,
+    sessionId,
+    codespaceId,
+  });
 
   /**
    * Publish an event to DurableStreams.
@@ -101,7 +97,7 @@ export function createAgentCoreBridge(options: AgentCoreBridgeOptions): AgentCor
       ...data,
       taskId,
       sessionId,
-      projectId,
+      codespaceId,
     };
 
     debugLog('publishEvent', 'Publishing event to DurableStreams', {

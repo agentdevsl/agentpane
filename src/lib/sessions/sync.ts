@@ -48,11 +48,8 @@ const messageAccumulators = new Map<string, { text: string; lastTimestamp: numbe
 export function syncSessionToCollections(sessionId: string): () => void {
   // Prevent duplicate subscriptions
   if (activeSyncs.has(sessionId)) {
-    console.warn(`[SessionSync] Already syncing session ${sessionId}`);
     return () => stopSessionSync(sessionId);
   }
-
-  console.log(`[SessionSync] Starting sync for session ${sessionId}`);
 
   const subscription = subscribeToSession(sessionId, {
     onChunk: (event) => {
@@ -177,17 +174,11 @@ export function syncSessionToCollections(sessionId: string): () => void {
       }
     },
 
-    onError: (error) => {
-      console.error(`[SessionSync] Error for session ${sessionId}:`, error);
-    },
+    onError: (_error) => {},
 
-    onReconnect: () => {
-      console.log(`[SessionSync] Reconnected for session ${sessionId}`);
-    },
+    onReconnect: () => {},
 
-    onDisconnect: () => {
-      console.log(`[SessionSync] Disconnected from session ${sessionId}`);
-    },
+    onDisconnect: () => {},
   });
 
   activeSyncs.set(sessionId, subscription);
@@ -203,7 +194,6 @@ export function stopSessionSync(sessionId: string): void {
   if (subscription) {
     subscription.unsubscribe();
     activeSyncs.delete(sessionId);
-    console.log(`[SessionSync] Stopped sync for session ${sessionId}`);
   }
 
   // Clear accumulators for this session (keys are formatted as `${sessionId}:${agentId}-${turn}`)

@@ -95,11 +95,11 @@ describe('withErrorHandling', () => {
 
       const wrapped = withErrorHandling(handler);
       await wrapped({
-        request: makeRequest('http://localhost/api/projects'),
+        request: makeRequest('http://localhost/api/codespaces'),
         params: {},
       });
 
-      expect(capturedUrl).toBe('http://localhost/api/projects');
+      expect(capturedUrl).toBe('http://localhost/api/codespaces');
     });
   });
 

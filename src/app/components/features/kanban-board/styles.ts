@@ -43,7 +43,25 @@ export const cardVariants = cva(
 export type CardVariants = VariantProps<typeof cardVariants>;
 
 /**
- * Priority indicator styles
+ * Priority indicator color styles (used with PriorityIcon component)
+ */
+export const priorityColorVariants = cva('shrink-0', {
+  variants: {
+    priority: {
+      high: 'text-danger',
+      medium: 'text-attention',
+      low: 'text-success',
+    },
+  },
+  defaultVariants: {
+    priority: 'medium',
+  },
+});
+
+export type PriorityColorVariants = VariantProps<typeof priorityColorVariants>;
+
+/**
+ * @deprecated Use PriorityIcon component instead
  */
 export const priorityVariants = cva('w-2.5 h-2.5 rounded-full shrink-0 ring-1 ring-black/10', {
   variants: {

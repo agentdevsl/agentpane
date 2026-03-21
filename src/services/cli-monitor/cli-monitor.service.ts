@@ -45,7 +45,6 @@ export class CliMonitorService {
   registerDaemon(payload: DaemonRegisterPayload): Result<void, AppError> {
     // If a different daemon was connected, clear it
     if (this.daemon && this.daemon.daemonId !== payload.daemonId) {
-      console.log(`[CliMonitor] Replacing daemon ${this.daemon.daemonId} with ${payload.daemonId}`);
       this.sessions.clear();
     }
 
@@ -61,9 +60,6 @@ export class CliMonitorService {
 
     this.startHeartbeatCheck();
     this.publish('cli-monitor:daemon-connected', { daemon: this.daemon });
-    console.log(
-      `[CliMonitor] Daemon registered: ${payload.daemonId} (PID ${payload.pid}, v${payload.version})`
-    );
     return ok(undefined);
   }
 
@@ -82,12 +78,10 @@ export class CliMonitorService {
     if (this.daemon?.daemonId !== daemonId) {
       return false;
     }
-    const id = this.daemon.daemonId;
     this.daemon = null;
     this.sessions.clear();
     this.stopHeartbeatCheck();
     this.publish('cli-monitor:daemon-disconnected', {});
-    console.log(`[CliMonitor] Daemon deregistered: ${id}`);
     return true;
   }
 
@@ -149,12 +143,7 @@ export class CliMonitorService {
 
     // Persist to DB asynchronously (fire-and-forget)
     if (this.db) {
-      this.persistSessions(sessions, removedIds).catch((persistErr) => {
-        console.error(
-          '[CliMonitor] DB persist error:',
-          persistErr instanceof Error ? persistErr.message : String(persistErr)
-        );
-      });
+      this.persistSessions(sessions, removedIds).catch((_persistErr) => {});
     }
 
     return true;
@@ -201,32 +190,23 @@ export class CliMonitorService {
     if (!this.db) return [];
 
     const limit = Math.min(opts?.limit ?? 100, 500);
-
-    try {
-      const conditions = [];
-      if (opts?.projectHash) {
-        conditions.push(eq(cliSessions.projectHash, opts.projectHash));
-      }
-      if (opts?.since) {
-        conditions.push(gt(cliSessions.lastActivityAt, opts.since));
-      }
-
-      const rows = this.db
-        .select()
-        .from(cliSessions)
-        .where(conditions.length > 0 ? and(...conditions) : undefined)
-        .orderBy(desc(cliSessions.lastActivityAt))
-        .limit(limit)
-        .all();
-
-      return rows.map((row) => this.rowToSession(row));
-    } catch (err) {
-      console.error(
-        '[CliMonitor] Historical query error:',
-        err instanceof Error ? err.message : String(err)
-      );
-      throw err; // Let caller handle — returning [] masks DB failures as empty results
+    const conditions = [];
+    if (opts?.projectHash) {
+      conditions.push(eq(cliSessions.projectHash, opts.projectHash));
     }
+    if (opts?.since) {
+      conditions.push(gt(cliSessions.lastActivityAt, opts.since));
+    }
+
+    const rows = this.db
+      .select()
+      .from(cliSessions)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(cliSessions.lastActivityAt))
+      .limit(limit)
+      .all();
+
+    return rows.map((row) => this.rowToSession(row));
   }
 
   getTopologyGraph(rootSessionId: string): AgentTopologyNode[] | null {
@@ -323,16 +303,9 @@ export class CliMonitorService {
 
       const changes = (result as { changes?: number }).changes ?? 0;
       if (changes > 0) {
-        console.log(
-          `[CliMonitor] Maintenance: deleted ${changes} session(s) older than ${retentionDays} day(s)`
-        );
       }
       return changes;
-    } catch (err) {
-      console.error(
-        '[CliMonitor] Maintenance error:',
-        err instanceof Error ? err.message : String(err)
-      );
+    } catch (_err) {
       return 0;
     }
   }
@@ -400,40 +373,26 @@ export class CliMonitorService {
             target: cliSessions.sessionId,
             set: values,
           });
-      } catch (upsertErr) {
-        console.error(
-          `[CliMonitor] Upsert error for ${session.sessionId}:`,
-          upsertErr instanceof Error ? upsertErr.message : String(upsertErr)
-        );
-      }
+      } catch (_upsertErr) {}
     }
 
     // Remove deleted sessions from DB
     for (const id of removedIds) {
       try {
         await this.db.delete(cliSessions).where(eq(cliSessions.sessionId, id));
-      } catch (deleteErr) {
-        console.error(
-          `[CliMonitor] Delete error for ${id}:`,
-          deleteErr instanceof Error ? deleteErr.message : String(deleteErr)
-        );
-      }
+      } catch (_deleteErr) {}
     }
   }
 
   private safeJsonParse<T>(
     value: string | null | undefined,
-    field: string,
-    sessionId: string
+    _field: string,
+    _sessionId: string
   ): T | undefined {
     if (!value) return undefined;
     try {
       return JSON.parse(value) as T;
-    } catch (err) {
-      console.error(
-        `[CliMonitor] Corrupt JSON in ${field} for session ${sessionId}:`,
-        err instanceof Error ? err.message : String(err)
-      );
+    } catch (_err) {
       return undefined;
     }
   }
@@ -486,24 +445,14 @@ export class CliMonitorService {
 
   private publish(type: string, data: unknown): void {
     // Publish to Caddy/durable streams server
-    this.streamsServer.publish(CLI_MONITOR_STREAM_ID, type, data).catch((publishErr) => {
-      console.error(
-        `[CliMonitor] Failed to publish ${type}:`,
-        publishErr instanceof Error ? publishErr.message : String(publishErr)
-      );
-    });
+    this.streamsServer.publish(CLI_MONITOR_STREAM_ID, type, data).catch((_publishErr) => {});
 
     // Also notify local in-process SSE subscribers
     const offset = this.localOffset++;
     for (const callback of this.localSubscribers) {
       try {
         callback({ type, data, offset });
-      } catch (err) {
-        console.error(
-          `[CliMonitor] Local subscriber error:`,
-          err instanceof Error ? err.message : String(err)
-        );
-      }
+      } catch (_err) {}
     }
   }
 
@@ -513,9 +462,6 @@ export class CliMonitorService {
     this.stopHeartbeatCheck();
     this.heartbeatTimer = setInterval(() => {
       if (this.daemon && Date.now() - this.daemon.lastHeartbeatAt > DAEMON_TIMEOUT_MS * 1.5) {
-        console.warn(
-          `[CliMonitor] Daemon heartbeat timeout (${DAEMON_TIMEOUT_MS * 1.5}ms with grace), marking disconnected`
-        );
         this.deregisterDaemon(this.daemon.daemonId);
       }
     }, 15_000);
@@ -532,12 +478,7 @@ export class CliMonitorService {
 
   private startMaintenance(): void {
     this.stopMaintenance();
-    const logMaintenanceError = (err: unknown): void => {
-      console.error(
-        '[CliMonitor] Maintenance failed:',
-        err instanceof Error ? err.message : String(err)
-      );
-    };
+    const logMaintenanceError = (_err: unknown): void => {};
     // Run maintenance on startup
     this.runMaintenance().catch(logMaintenanceError);
     // Then periodically

@@ -35,9 +35,9 @@ export type {
 export type { CreateTmuxSessionOptions, TmuxExecOptions } from './tmux-manager.js';
 export { createTmuxManager, TmuxManager } from './tmux-manager.js';
 export type {
+  CodespaceSandboxConfig,
   ExecResult,
   OAuthCredentials,
-  ProjectSandboxConfig,
   SandboxConfig,
   SandboxHealthCheck,
   SandboxInfo,

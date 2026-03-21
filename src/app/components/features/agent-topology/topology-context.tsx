@@ -169,6 +169,7 @@ interface TopologyContextValue {
   state: TopologyState;
   dispatch: React.Dispatch<TopologyAction>;
   selectedNode: TopologyNode | null;
+  sessionId?: string;
 }
 
 const TopologyContext = createContext<TopologyContextValue | null>(null);
@@ -219,7 +220,10 @@ export function TopologyProvider({ children, sessionId, initialData }: TopologyP
     [state.graph.nodes, state.selectedNodeId]
   );
 
-  const value = useMemo(() => ({ state, dispatch, selectedNode }), [state, selectedNode]);
+  const value = useMemo(
+    () => ({ state, dispatch, selectedNode, sessionId }),
+    [state, selectedNode, sessionId]
+  );
 
   return <TopologyContext.Provider value={value}>{children}</TopologyContext.Provider>;
 }

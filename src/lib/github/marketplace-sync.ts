@@ -125,9 +125,6 @@ export async function syncMarketplaceFromGitHub(
 
       // Fetch metadata for each plugin in this path (with concurrency limiting)
       const pluginIds = Array.from(pluginDirs);
-      console.log(
-        `[MarketplaceSync] Fetching metadata for ${pluginIds.length} plugins from ${currentPath}`
-      );
 
       const fetchedPlugins = await batchProcess(pluginIds, (pluginId) =>
         fetchPluginMetadata(octokit, owner, repo, currentPath, pluginId, ref, tag)
@@ -190,7 +187,6 @@ async function fetchPluginMetadata(
     // Only suppress 404 (file not found), log other errors
     const status = (error as { status?: number }).status;
     if (status !== 404) {
-      console.error(`[MarketplaceSync] Failed to fetch SKILL.md for ${pluginId}:`, error);
     }
   }
 
@@ -217,7 +213,6 @@ async function fetchPluginMetadata(
     // Only suppress 404 (file not found), log other errors
     const status = (error as { status?: number }).status;
     if (status !== 404) {
-      console.error(`[MarketplaceSync] Failed to fetch README.md for ${pluginId}:`, error);
     }
   }
 

@@ -88,8 +88,8 @@ export function resolveHighestRole(
   for (const m of roles) {
     const validated = isValidRbacRole(m.role);
     if (!validated) {
-      // Log but don't crash — unknown role should not grant access
-      console.warn(`[RBAC] Unknown role value in database: "${m.role}"`);
+      // biome-ignore lint/suspicious/noConsole: legitimate RBAC warning for unknown roles
+      console.warn(`[RBAC] Unknown role encountered: "${m.role}"`);
       continue;
     }
     const level = RBAC_ROLE_LEVEL[validated];
@@ -134,3 +134,52 @@ export type ScheduleExecutionStatus = (typeof SCHEDULE_EXECUTION_STATUS)[number]
 
 export const BUDGET_WINDOWS = ['hour', 'day', 'week', 'month'] as const;
 export type BudgetWindow = (typeof BUDGET_WINDOWS)[number];
+
+export const PERMISSION_ACTIONS = [
+  // Viewer actions
+  'codespace:read',
+  'task:read',
+  'session:read',
+  'agent:read',
+  'worktree:read',
+  'settings:read',
+  'folder:read',
+  // Agent Operator actions
+  'task:create',
+  'task:update',
+  'task:move',
+  'task:delete',
+  'task:label',
+  'agent:start',
+  'agent:stop',
+  'agent:approve_plan',
+  'agent:reject_plan',
+  'agent:approve_task',
+  'session:create',
+  'worktree:create',
+  'worktree:update',
+  // Admin actions
+  'codespace:create',
+  'codespace:update',
+  'codespace:delete',
+  'codespace:manage_members',
+  'codespace:sandbox_config',
+  'agent:delete',
+  'session:delete',
+  'worktree:delete',
+  'settings:update',
+  'keys:manage',
+  'team:manage_members',
+  'team:create_tokens',
+  'team:manage_settings',
+  'team:view_audit',
+  'folder:create',
+  'folder:update',
+  'folder:delete',
+  'folder:manage_members',
+  // Owner actions
+  'team:delete',
+  'team:transfer_owner',
+  'team:promote_owner',
+] as const;
+export type PermissionAction = (typeof PERMISSION_ACTIONS)[number];

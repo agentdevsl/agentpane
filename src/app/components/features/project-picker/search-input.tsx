@@ -13,7 +13,7 @@ interface SearchInputProps {
  * clear button, and keyboard shortcut hint
  */
 export const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
-  ({ value, onChange, placeholder = 'Search projects...' }, ref) => {
+  ({ value, onChange, placeholder = 'Search codespaces...' }, ref) => {
     const isMac =
       typeof navigator !== 'undefined' && navigator.platform.toUpperCase().includes('MAC');
     const modKey = isMac ? 'Cmd' : 'Ctrl';

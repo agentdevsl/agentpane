@@ -65,7 +65,7 @@ interface PullRequestInfo {
 }
 
 interface GitViewProps {
-  projectId: string;
+  codespaceId: string;
   projectPath?: string;
 }
 
@@ -322,7 +322,7 @@ function ContextMenu({
 // MAIN GIT VIEW COMPONENT
 // ============================================
 
-export function GitView({ projectId, projectPath }: GitViewProps): React.JSX.Element {
+export function GitView({ codespaceId, projectPath }: GitViewProps): React.JSX.Element {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -366,11 +366,11 @@ export function GitView({ projectId, projectPath }: GitViewProps): React.JSX.Ele
         // Fetch all data in parallel
         const [worktreeResult, branchesResult, remoteBranchesResult, commitsResult, statusResult] =
           await Promise.all([
-            apiClient.worktrees.list({ projectId }),
-            apiClient.git.branches(projectId),
-            apiClient.git.remoteBranches(projectId),
-            apiClient.git.commits(projectId, undefined, 50),
-            apiClient.git.status(projectId),
+            apiClient.worktrees.list({ codespaceId }),
+            apiClient.git.branches(codespaceId),
+            apiClient.git.remoteBranches(codespaceId),
+            apiClient.git.commits(codespaceId, undefined, 50),
+            apiClient.git.status(codespaceId),
           ]);
 
         // Process git status
@@ -449,7 +449,7 @@ export function GitView({ projectId, projectPath }: GitViewProps): React.JSX.Ele
         setIsRefreshing(false);
       }
     },
-    [projectId, selectedBranch]
+    [codespaceId, selectedBranch]
   );
 
   useWatchEffect(() => {
@@ -460,7 +460,7 @@ export function GitView({ projectId, projectPath }: GitViewProps): React.JSX.Ele
   const fetchCommitsForBranch = useCallback(
     async (branch: string) => {
       try {
-        const result = await apiClient.git.commits(projectId, branch, 50);
+        const result = await apiClient.git.commits(codespaceId, branch, 50);
         if (result.ok) {
           const mappedCommits: CommitInfo[] = result.data.items.map((commit) => ({
             hash: commit.hash,
@@ -478,7 +478,7 @@ export function GitView({ projectId, projectPath }: GitViewProps): React.JSX.Ele
         console.error('[GitView] Failed to fetch commits:', err);
       }
     },
-    [projectId]
+    [codespaceId]
   );
 
   // Effect to fetch commits when branch selection changes

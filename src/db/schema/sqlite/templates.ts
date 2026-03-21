@@ -1,10 +1,10 @@
 import { createId } from '@paralleldrive/cuid2';
 import { sql } from 'drizzle-orm';
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
-import { projects } from './projects';
+import { codespaces } from './codespaces';
 
 // Template scope enum
-export const TEMPLATE_SCOPES = ['org', 'project'] as const;
+export const TEMPLATE_SCOPES = ['org', 'codespace'] as const;
 export type TemplateScope = (typeof TEMPLATE_SCOPES)[number];
 
 // Template status enum
@@ -56,8 +56,8 @@ export const templates = sqliteTable('templates', {
   branch: text('branch').default('main'),
   configPath: text('config_path').default('.claude'),
 
-  // For project-scoped templates
-  projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+  // For codespace-scoped templates
+  codespaceId: text('codespace_id').references(() => codespaces.id, { onDelete: 'cascade' }),
 
   // Sync state
   status: text('status').default('active').$type<TemplateStatus>(),

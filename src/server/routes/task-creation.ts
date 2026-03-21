@@ -13,7 +13,7 @@ const log = createLogger('task-creation-routes');
 
 // ─── Zod Schemas for Task Creation Routes ───────────
 const startSchema = z.object({
-  projectId: z.string().min(1, 'projectId is required'),
+  codespaceId: z.string().min(1, 'codespaceId is required'),
 });
 
 const messageSchema = z.object({
@@ -120,9 +120,9 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
     try {
       const parsed = await parseJsonBody(c, startSchema);
       if (!parsed.ok) return parsed.response;
-      const { projectId } = parsed.data;
+      const { codespaceId } = parsed.data;
 
-      const result = await taskCreationService.startConversation(projectId);
+      const result = await taskCreationService.startConversation(codespaceId);
 
       if (!result.ok) {
         return json({ ok: false, error: result.error }, 400);

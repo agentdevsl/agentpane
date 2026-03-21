@@ -4,16 +4,17 @@
 
 import { and, count, eq, inArray } from 'drizzle-orm';
 import { Hono } from 'hono';
-import { projectTags } from '../../db/schema/sqlite/project-tags';
+import { codespaceTags } from '../../db/schema/sqlite/codespace-tags';
+import { codespaces } from '../../db/schema/sqlite/codespaces';
 import { tags } from '../../db/schema/sqlite/tags';
 import { taskTags } from '../../db/schema/sqlite/task-tags';
 import { tasks } from '../../db/schema/sqlite/tasks';
-import { teamProjects } from '../../db/schema/sqlite/team-projects';
+import { teamProjectFolders } from '../../db/schema/sqlite/team-project-folders';
 import type { AuthContext } from '../../lib/api/auth-middleware';
 import { createLogger } from '../../lib/logging/logger';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
-import { isValidId, json, requireProjectRole, requireTeamRole } from '../shared';
+import { isValidId, json, requireCodespaceRole, requireTeamRole } from '../shared';
 import { assignTagSchema, createTagSchema, parseJsonBody } from '../validation';
 
 const log = createLogger('TagsRoutes');
@@ -32,10 +33,23 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
     const parsed = await parseJsonBody(c, createTagSchema);
     if (!parsed.ok) return parsed.response;
 
+    // Look up which team owns this project folder for auth
+    const folderTeams = await db
+      .select({ teamId: teamProjectFolders.teamId })
+      .from(teamProjectFolders)
+      .where(eq(teamProjectFolders.projectFolderId, parsed.data.projectFolderId));
+    const ownerTeamId = folderTeams[0]?.teamId;
+    if (!ownerTeamId) {
+      return json(
+        { ok: false, error: { code: 'NOT_FOUND', message: 'Project folder not found' } },
+        404
+      );
+    }
+
     const denied = await requireTeamRole(
       auth,
       rbacService,
-      parsed.data.teamId,
+      ownerTeamId,
       'agent_operator',
       'Requires agent_operator role in team'
     );
@@ -45,7 +59,7 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
       const [created] = await db
         .insert(tags)
         .values({
-          teamId: parsed.data.teamId,
+          projectFolderId: parsed.data.projectFolderId,
           name: parsed.data.name,
           ...(parsed.data.color && { color: parsed.data.color }),
         })
@@ -92,7 +106,18 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
     if (denied) return denied;
 
     try {
-      const teamTags = await db.select().from(tags).where(eq(tags.teamId, teamId));
+      // Tags are now per-folder; find all folders for this team, then their tags
+      const folderIds = (
+        await db
+          .select({ projectFolderId: teamProjectFolders.projectFolderId })
+          .from(teamProjectFolders)
+          .where(eq(teamProjectFolders.teamId, teamId))
+      ).map((f) => f.projectFolderId);
+
+      const teamTags =
+        folderIds.length > 0
+          ? await db.select().from(tags).where(inArray(tags.projectFolderId, folderIds))
+          : [];
 
       // Batch-fetch project and task counts to avoid N+1 queries
       const tagIds = teamTags.map((t) => t.id);
@@ -103,10 +128,10 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
       if (tagIds.length > 0) {
         const [projectCounts, taskCounts] = await Promise.all([
           db
-            .select({ tagId: projectTags.tagId, total: count() })
-            .from(projectTags)
-            .where(inArray(projectTags.tagId, tagIds))
-            .groupBy(projectTags.tagId),
+            .select({ tagId: codespaceTags.tagId, total: count() })
+            .from(codespaceTags)
+            .where(inArray(codespaceTags.tagId, tagIds))
+            .groupBy(codespaceTags.tagId),
           db
             .select({ tagId: taskTags.tagId, total: count() })
             .from(taskTags)
@@ -142,17 +167,32 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
     const auth = c.get('auth');
 
     try {
-      // Check tag existence
-      const tagRows = await db.select({ teamId: tags.teamId }).from(tags).where(eq(tags.id, id));
+      // Check tag existence and resolve team via project folder
+      const tagRows = await db
+        .select({ projectFolderId: tags.projectFolderId })
+        .from(tags)
+        .where(eq(tags.id, id));
       const foundTag = tagRows[0];
       if (!foundTag) {
         return json({ ok: false, error: { code: 'TAG_NOT_FOUND', message: 'Tag not found' } }, 404);
       }
 
+      const folderTeams = await db
+        .select({ teamId: teamProjectFolders.teamId })
+        .from(teamProjectFolders)
+        .where(eq(teamProjectFolders.projectFolderId, foundTag.projectFolderId));
+      const ownerTeamId = folderTeams[0]?.teamId;
+      if (!ownerTeamId) {
+        return json(
+          { ok: false, error: { code: 'NOT_FOUND', message: 'Tag folder has no team' } },
+          404
+        );
+      }
+
       const denied = await requireTeamRole(
         auth,
         rbacService,
-        foundTag.teamId,
+        ownerTeamId,
         'admin',
         'Requires admin role in team'
       );
@@ -170,8 +210,8 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
 }
 
 /**
- * Project tag assignment routes.
- * Mounted at /api/projects/:id/tags so paths resolve correctly.
+ * Codespace tag assignment routes.
+ * Mounted at /api/codespaces/:id/tags so paths resolve correctly.
  */
 export function createProjectTagRoutes({
   db,
@@ -182,55 +222,54 @@ export function createProjectTagRoutes({
 }) {
   const app = new Hono<{ Variables: { auth: AuthContext } }>();
 
-  // POST /api/projects/:id/tags - Assign tag to project
+  // POST /api/codespaces/:id/tags - Assign tag to codespace
   app.post('/', async (c) => {
-    const projectId = c.req.param('id') as string;
+    const codespaceId = c.req.param('id') as string;
 
-    if (!isValidId(projectId)) {
-      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid project ID' } }, 400);
+    if (!isValidId(codespaceId)) {
+      return json(
+        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid codespace ID' } },
+        400
+      );
     }
 
     const auth = c.get('auth');
-    const denied = await requireProjectRole(
+    const denied = await requireCodespaceRole(
       auth,
       rbacService,
-      projectId,
+      codespaceId,
       'agent_operator',
-      'Requires agent_operator role on project'
+      'Requires agent_operator role on codespace'
     );
     if (denied) return denied;
 
     const parsed = await parseJsonBody(c, assignTagSchema);
     if (!parsed.ok) return parsed.response;
 
-    // Verify tag belongs to a team that owns this project
+    // Verify tag belongs to a folder that owns this codespace
     const tagRecord = await db
-      .select({ teamId: tags.teamId })
+      .select({ projectFolderId: tags.projectFolderId })
       .from(tags)
       .where(eq(tags.id, parsed.data.tagId));
 
-    const foundTagForProject = tagRecord[0];
-    if (!foundTagForProject) {
+    const foundTagForCodespace = tagRecord[0];
+    if (!foundTagForCodespace) {
       return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Tag not found' } }, 404);
     }
 
-    const teamOwnsProject = await db
-      .select({ teamId: teamProjects.teamId })
-      .from(teamProjects)
-      .where(
-        and(
-          eq(teamProjects.teamId, foundTagForProject.teamId),
-          eq(teamProjects.projectId, projectId)
-        )
-      );
+    // Verify codespace belongs to the same project folder as the tag
+    const codespaceRecord = await db
+      .select({ projectFolderId: codespaces.projectFolderId })
+      .from(codespaces)
+      .where(eq(codespaces.id, codespaceId));
 
-    if (teamOwnsProject.length === 0) {
+    if (codespaceRecord[0]?.projectFolderId !== foundTagForCodespace.projectFolderId) {
       return json(
         {
           ok: false,
           error: {
             code: 'FORBIDDEN',
-            message: 'Tag does not belong to a team that owns this project',
+            message: 'Tag does not belong to a folder that owns this codespace',
           },
         },
         403
@@ -239,49 +278,53 @@ export function createProjectTagRoutes({
 
     try {
       await db
-        .insert(projectTags)
-        .values({ projectId, tagId: parsed.data.tagId })
+        .insert(codespaceTags)
+        .values({ codespaceId, tagId: parsed.data.tagId })
         .onConflictDoNothing();
 
       return json(
         {
           ok: true,
-          data: { projectId, tagId: parsed.data.tagId, assignedAt: new Date().toISOString() },
+          data: {
+            codespaceId,
+            tagId: parsed.data.tagId,
+            assignedAt: new Date().toISOString(),
+          },
         },
         201
       );
     } catch (error) {
-      log.error('Failed to assign tag to project', { error });
+      log.error('Failed to assign tag to codespace', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to assign tag' } }, 500);
     }
   });
 
-  // DELETE /api/projects/:id/tags/:tagId - Remove tag from project
+  // DELETE /api/codespaces/:id/tags/:tagId - Remove tag from codespace
   app.delete('/:tagId', async (c) => {
-    const projectId = c.req.param('id') as string;
+    const codespaceId = c.req.param('id') as string;
     const tagId = c.req.param('tagId') as string;
 
-    if (!isValidId(projectId) || !isValidId(tagId)) {
+    if (!isValidId(codespaceId) || !isValidId(tagId)) {
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID' } }, 400);
     }
 
     const auth = c.get('auth');
-    const denied = await requireProjectRole(
+    const denied = await requireCodespaceRole(
       auth,
       rbacService,
-      projectId,
+      codespaceId,
       'agent_operator',
-      'Requires agent_operator role on project'
+      'Requires agent_operator role on codespace'
     );
     if (denied) return denied;
 
     try {
       await db
-        .delete(projectTags)
-        .where(and(eq(projectTags.projectId, projectId), eq(projectTags.tagId, tagId)));
+        .delete(codespaceTags)
+        .where(and(eq(codespaceTags.codespaceId, codespaceId), eq(codespaceTags.tagId, tagId)));
       return json({ ok: true, data: { removed: true } });
     } catch (error) {
-      log.error('Failed to remove tag from project', { error });
+      log.error('Failed to remove tag from codespace', { error });
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to remove tag' } }, 500);
     }
   });
@@ -310,9 +353,9 @@ export function createTaskTagRoutes({
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid task ID' } }, 400);
     }
 
-    // Look up the task's projectId (needed for both auth and cross-team validation)
+    // Look up the task's codespaceId (needed for both auth and cross-team validation)
     const taskRows = await db
-      .select({ projectId: tasks.projectId })
+      .select({ codespaceId: tasks.codespaceId })
       .from(tasks)
       .where(eq(tasks.id, taskId));
     const foundTask = taskRows[0];
@@ -321,21 +364,21 @@ export function createTaskTagRoutes({
     }
 
     const auth = c.get('auth');
-    const denied = await requireProjectRole(
+    const denied = await requireCodespaceRole(
       auth,
       rbacService,
-      foundTask.projectId,
+      foundTask.codespaceId,
       'agent_operator',
-      'Requires agent_operator role on project'
+      'Requires agent_operator role on codespace'
     );
     if (denied) return denied;
 
     const parsed = await parseJsonBody(c, assignTagSchema);
     if (!parsed.ok) return parsed.response;
 
-    // Verify tag belongs to a team that owns this task's project
+    // Verify tag belongs to a folder that owns this task's codespace
     const tagRecord = await db
-      .select({ teamId: tags.teamId })
+      .select({ projectFolderId: tags.projectFolderId })
       .from(tags)
       .where(eq(tags.id, parsed.data.tagId));
 
@@ -344,23 +387,19 @@ export function createTaskTagRoutes({
       return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Tag not found' } }, 404);
     }
 
-    const teamOwnsProject = await db
-      .select({ teamId: teamProjects.teamId })
-      .from(teamProjects)
-      .where(
-        and(
-          eq(teamProjects.teamId, foundTagForTask.teamId),
-          eq(teamProjects.projectId, foundTask.projectId)
-        )
-      );
+    // Verify codespace belongs to the same project folder as the tag
+    const taskCodespaceRecord = await db
+      .select({ projectFolderId: codespaces.projectFolderId })
+      .from(codespaces)
+      .where(eq(codespaces.id, foundTask.codespaceId));
 
-    if (teamOwnsProject.length === 0) {
+    if (taskCodespaceRecord[0]?.projectFolderId !== foundTagForTask.projectFolderId) {
       return json(
         {
           ok: false,
           error: {
             code: 'FORBIDDEN',
-            message: "Tag does not belong to a team that owns this task's project",
+            message: "Tag does not belong to a folder that owns this task's codespace",
           },
         },
         403
@@ -394,19 +433,19 @@ export function createTaskTagRoutes({
 
     const auth = c.get('auth');
     const taskRows = await db
-      .select({ projectId: tasks.projectId })
+      .select({ codespaceId: tasks.codespaceId })
       .from(tasks)
       .where(eq(tasks.id, taskId));
     const foundTask = taskRows[0];
     if (!foundTask) {
       return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Task not found' } }, 404);
     }
-    const denied = await requireProjectRole(
+    const denied = await requireCodespaceRole(
       auth,
       rbacService,
-      foundTask.projectId,
+      foundTask.codespaceId,
       'agent_operator',
-      'Requires agent_operator role on project'
+      'Requires agent_operator role on codespace'
     );
     if (denied) return denied;
 

@@ -4,7 +4,7 @@ import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import type { ToolStatus } from '../shared/enums';
 import { agentRuns } from './agent-runs';
 import { agents } from './agents';
-import { projects } from './projects';
+import { codespaces } from './codespaces';
 import { tasks } from './tasks';
 
 export const auditLogs = sqliteTable(
@@ -16,7 +16,7 @@ export const auditLogs = sqliteTable(
     agentId: text('agent_id').references(() => agents.id, { onDelete: 'set null' }),
     agentRunId: text('agent_run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
     taskId: text('task_id').references(() => tasks.id, { onDelete: 'set null' }),
-    projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+    codespaceId: text('codespace_id').references(() => codespaces.id, { onDelete: 'cascade' }),
     tool: text('tool').notNull(),
     status: text('status').$type<ToolStatus>().notNull(),
     input: text('input', { mode: 'json' }),
@@ -29,7 +29,7 @@ export const auditLogs = sqliteTable(
   // DB-009: Add indexes for audit_logs lookups
   (table) => [
     index('idx_audit_logs_agent_id').on(table.agentId),
-    index('idx_audit_logs_project_id').on(table.projectId),
+    index('idx_audit_logs_codespace_id').on(table.codespaceId),
     index('idx_audit_logs_task_id').on(table.taskId),
     index('idx_audit_logs_created_at').on(table.createdAt),
   ]

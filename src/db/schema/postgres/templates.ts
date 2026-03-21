@@ -1,8 +1,8 @@
 import { createId } from '@paralleldrive/cuid2';
 import { integer, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
-import { projects } from './projects';
+import { codespaces } from './codespaces';
 
-export const TEMPLATE_SCOPES = ['org', 'project'] as const;
+export const TEMPLATE_SCOPES = ['org', 'codespace'] as const;
 export type TemplateScope = (typeof TEMPLATE_SCOPES)[number];
 
 export const TEMPLATE_STATUSES = ['active', 'syncing', 'error', 'disabled'] as const;
@@ -48,7 +48,7 @@ export const templates = pgTable('templates', {
   githubRepo: text('github_repo').notNull(),
   branch: text('branch').default('main'),
   configPath: text('config_path').default('.claude'),
-  projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+  codespaceId: text('codespace_id').references(() => codespaces.id, { onDelete: 'cascade' }),
   status: text('status').default('active').$type<TemplateStatus>(),
   lastSyncSha: text('last_sync_sha'),
   lastSyncedAt: timestamp('last_synced_at', { mode: 'string' }),

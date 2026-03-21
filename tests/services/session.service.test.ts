@@ -46,12 +46,12 @@ describe('SessionService', () => {
       const project = await createTestProject();
 
       const result = await sessionService.create({
-        projectId: project.id,
+        codespaceId: project.id,
       });
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value.projectId).toBe(project.id);
+        expect(result.value.codespaceId).toBe(project.id);
         expect(result.value.status).toBe('active');
         expect(result.value.url).toContain('http://localhost:3000/sessions/');
         expect(result.value.presence).toEqual([]);
@@ -65,7 +65,7 @@ describe('SessionService', () => {
       const agent = await createTestAgent(project.id);
 
       const result = await sessionService.create({
-        projectId: project.id,
+        codespaceId: project.id,
         taskId: task.id,
         agentId: agent.id,
         title: 'My Test Session',
@@ -81,12 +81,12 @@ describe('SessionService', () => {
 
     it('returns error when creating session for non-existent project', async () => {
       const result = await sessionService.create({
-        projectId: 'non-existent-project-id',
+        codespaceId: 'non-existent-project-id',
       });
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.code).toBe('PROJECT_NOT_FOUND');
+        expect(result.error.code).toBe('CODESPACE_NOT_FOUND');
       }
     });
 
@@ -94,7 +94,7 @@ describe('SessionService', () => {
       const project = await createTestProject();
 
       const result = await sessionService.create({
-        projectId: project.id,
+        codespaceId: project.id,
       });
 
       expect(result.ok).toBe(true);
@@ -111,7 +111,7 @@ describe('SessionService', () => {
       const project = await createTestProject();
 
       await sessionService.create({
-        projectId: project.id,
+        codespaceId: project.id,
       });
 
       expect(mockStreams.createStream).toHaveBeenCalledWith(expect.any(String), expect.anything());
@@ -377,7 +377,7 @@ describe('SessionService', () => {
   describe('Event Publishing', () => {
     it('publishes event to stream', async () => {
       const project = await createTestProject();
-      const createResult = await sessionService.create({ projectId: project.id });
+      const createResult = await sessionService.create({ codespaceId: project.id });
       expect(createResult.ok).toBe(true);
       if (!createResult.ok) return;
 
@@ -397,7 +397,7 @@ describe('SessionService', () => {
 
     it('succeeds even when stream publish fails (RS-013: DB-first, stream is best-effort)', async () => {
       const project = await createTestProject();
-      const createResult = await sessionService.create({ projectId: project.id });
+      const createResult = await sessionService.create({ codespaceId: project.id });
       expect(createResult.ok).toBe(true);
       if (!createResult.ok) return;
 
@@ -420,7 +420,7 @@ describe('SessionService', () => {
 
     it('publishes tool:start event', async () => {
       const project = await createTestProject();
-      const createResult = await sessionService.create({ projectId: project.id });
+      const createResult = await sessionService.create({ codespaceId: project.id });
       expect(createResult.ok).toBe(true);
       if (!createResult.ok) return;
 
@@ -440,7 +440,7 @@ describe('SessionService', () => {
 
     it('publishes terminal:output event', async () => {
       const project = await createTestProject();
-      const createResult = await sessionService.create({ projectId: project.id });
+      const createResult = await sessionService.create({ codespaceId: project.id });
       expect(createResult.ok).toBe(true);
       if (!createResult.ok) return;
 
@@ -575,7 +575,7 @@ describe('SessionService', () => {
   describe('Event Persistence', () => {
     it('persists event to database', async () => {
       const project = await createTestProject();
-      const createResult = await sessionService.create({ projectId: project.id });
+      const createResult = await sessionService.create({ codespaceId: project.id });
       expect(createResult.ok).toBe(true);
       if (!createResult.ok) return;
 
@@ -598,7 +598,7 @@ describe('SessionService', () => {
 
     it('increments offset for subsequent events', async () => {
       const project = await createTestProject();
-      const createResult = await sessionService.create({ projectId: project.id });
+      const createResult = await sessionService.create({ codespaceId: project.id });
       expect(createResult.ok).toBe(true);
       if (!createResult.ok) return;
 
@@ -647,7 +647,7 @@ describe('SessionService', () => {
 
     it('retrieves persisted events by session', async () => {
       const project = await createTestProject();
-      const createResult = await sessionService.create({ projectId: project.id });
+      const createResult = await sessionService.create({ codespaceId: project.id });
       expect(createResult.ok).toBe(true);
       if (!createResult.ok) return;
 
@@ -679,7 +679,7 @@ describe('SessionService', () => {
 
     it('paginates events correctly', async () => {
       const project = await createTestProject();
-      const createResult = await sessionService.create({ projectId: project.id });
+      const createResult = await sessionService.create({ codespaceId: project.id });
       expect(createResult.ok).toBe(true);
       if (!createResult.ok) return;
 
@@ -932,7 +932,7 @@ describe('SessionService', () => {
   describe('Channel Classification', () => {
     it('classifies chunk events to chunks channel', async () => {
       const project = await createTestProject();
-      const createResult = await sessionService.create({ projectId: project.id });
+      const createResult = await sessionService.create({ codespaceId: project.id });
       expect(createResult.ok).toBe(true);
       if (!createResult.ok) return;
 
@@ -951,7 +951,7 @@ describe('SessionService', () => {
 
     it('classifies tool events to toolCalls channel', async () => {
       const project = await createTestProject();
-      const createResult = await sessionService.create({ projectId: project.id });
+      const createResult = await sessionService.create({ codespaceId: project.id });
       expect(createResult.ok).toBe(true);
       if (!createResult.ok) return;
 
@@ -980,7 +980,7 @@ describe('SessionService', () => {
 
     it('classifies terminal events to terminal channel', async () => {
       const project = await createTestProject();
-      const createResult = await sessionService.create({ projectId: project.id });
+      const createResult = await sessionService.create({ codespaceId: project.id });
       expect(createResult.ok).toBe(true);
       if (!createResult.ok) return;
 
@@ -999,7 +999,7 @@ describe('SessionService', () => {
 
     it('classifies presence events to presence channel', async () => {
       const project = await createTestProject();
-      const createResult = await sessionService.create({ projectId: project.id });
+      const createResult = await sessionService.create({ codespaceId: project.id });
       expect(createResult.ok).toBe(true);
       if (!createResult.ok) return;
 
@@ -1018,7 +1018,7 @@ describe('SessionService', () => {
 
     it('classifies approval events to approval channel', async () => {
       const project = await createTestProject();
-      const createResult = await sessionService.create({ projectId: project.id });
+      const createResult = await sessionService.create({ codespaceId: project.id });
       expect(createResult.ok).toBe(true);
       if (!createResult.ok) return;
 
@@ -1054,7 +1054,7 @@ describe('SessionService', () => {
 
     it('classifies agent events to agent channel', async () => {
       const project = await createTestProject();
-      const createResult = await sessionService.create({ projectId: project.id });
+      const createResult = await sessionService.create({ codespaceId: project.id });
       expect(createResult.ok).toBe(true);
       if (!createResult.ok) return;
 
@@ -1087,7 +1087,7 @@ describe('SessionService', () => {
 
     it('classifies state:update to state channel', async () => {
       const project = await createTestProject();
-      const createResult = await sessionService.create({ projectId: project.id });
+      const createResult = await sessionService.create({ codespaceId: project.id });
       expect(createResult.ok).toBe(true);
       if (!createResult.ok) return;
 
@@ -1112,7 +1112,7 @@ describe('SessionService', () => {
   describe('Session Summary Offset Update', () => {
     it('creates summary when persisting first event', async () => {
       const project = await createTestProject();
-      const createResult = await sessionService.create({ projectId: project.id });
+      const createResult = await sessionService.create({ codespaceId: project.id });
       expect(createResult.ok).toBe(true);
       if (!createResult.ok) return;
 
@@ -1136,7 +1136,7 @@ describe('SessionService', () => {
 
     it('updates summary when persisting subsequent events', async () => {
       const project = await createTestProject();
-      const createResult = await sessionService.create({ projectId: project.id });
+      const createResult = await sessionService.create({ codespaceId: project.id });
       expect(createResult.ok).toBe(true);
       if (!createResult.ok) return;
 

@@ -8,7 +8,7 @@ import { createGitRoutes } from '../git.js';
 function createMockDb() {
   return {
     query: {
-      projects: {
+      codespaces: {
         findFirst: vi.fn(),
       },
     },
@@ -54,7 +54,7 @@ describe('Git API Routes', () => {
   describe('GET /api/git/status', () => {
     it('returns git status for a project', async () => {
       const { app, db, commandRunner } = createTestApp();
-      db.query.projects.findFirst.mockResolvedValue({
+      db.query.codespaces.findFirst.mockResolvedValue({
         id: 'proj-1',
         name: 'my-project',
         path: '/home/user/projects/my-project',
@@ -74,7 +74,7 @@ describe('Git API Routes', () => {
         return { stdout: '' };
       });
 
-      const res = await request(app, 'GET', '/api/git/status?projectId=proj-1');
+      const res = await request(app, 'GET', '/api/git/status?codespaceId=proj-1');
 
       expect(res.status).toBe(200);
       const json = await res.json();
@@ -89,7 +89,7 @@ describe('Git API Routes', () => {
 
     it('returns clean status when no changes', async () => {
       const { app, db, commandRunner } = createTestApp();
-      db.query.projects.findFirst.mockResolvedValue({
+      db.query.codespaces.findFirst.mockResolvedValue({
         id: 'proj-1',
         name: 'my-project',
         path: '/home/user/projects/my-project',
@@ -108,7 +108,7 @@ describe('Git API Routes', () => {
         return { stdout: '' };
       });
 
-      const res = await request(app, 'GET', '/api/git/status?projectId=proj-1');
+      const res = await request(app, 'GET', '/api/git/status?codespaceId=proj-1');
 
       expect(res.status).toBe(200);
       const json = await res.json();
@@ -116,7 +116,7 @@ describe('Git API Routes', () => {
       expect(json.data.status).toBe('clean');
     });
 
-    it('returns 400 when projectId is missing', async () => {
+    it('returns 400 when codespaceId is missing', async () => {
       const { app } = createTestApp();
 
       const res = await request(app, 'GET', '/api/git/status');
@@ -127,10 +127,10 @@ describe('Git API Routes', () => {
       expect(json.error.code).toBe('MISSING_PARAMS');
     });
 
-    it('returns 400 for invalid projectId', async () => {
+    it('returns 400 for invalid codespaceId', async () => {
       const { app } = createTestApp();
 
-      const res = await request(app, 'GET', '/api/git/status?projectId=bad!id');
+      const res = await request(app, 'GET', '/api/git/status?codespaceId=bad!id');
 
       expect(res.status).toBe(400);
       const json = await res.json();
@@ -140,9 +140,9 @@ describe('Git API Routes', () => {
 
     it('returns 404 when project not found', async () => {
       const { app, db } = createTestApp();
-      db.query.projects.findFirst.mockResolvedValue(null);
+      db.query.codespaces.findFirst.mockResolvedValue(null);
 
-      const res = await request(app, 'GET', '/api/git/status?projectId=nonexistent');
+      const res = await request(app, 'GET', '/api/git/status?codespaceId=nonexistent');
 
       expect(res.status).toBe(404);
       const json = await res.json();
@@ -152,14 +152,14 @@ describe('Git API Routes', () => {
 
     it('returns 500 on git command error', async () => {
       const { app, db, commandRunner } = createTestApp();
-      db.query.projects.findFirst.mockResolvedValue({
+      db.query.codespaces.findFirst.mockResolvedValue({
         id: 'proj-1',
         name: 'my-project',
         path: '/home/user/projects/my-project',
       });
       commandRunner.exec.mockRejectedValue(new Error('git not found'));
 
-      const res = await request(app, 'GET', '/api/git/status?projectId=proj-1');
+      const res = await request(app, 'GET', '/api/git/status?codespaceId=proj-1');
 
       expect(res.status).toBe(500);
       const json = await res.json();
@@ -169,7 +169,7 @@ describe('Git API Routes', () => {
 
     it('handles no upstream branch gracefully', async () => {
       const { app, db, commandRunner } = createTestApp();
-      db.query.projects.findFirst.mockResolvedValue({
+      db.query.codespaces.findFirst.mockResolvedValue({
         id: 'proj-1',
         name: 'my-project',
         path: '/home/user/projects/my-project',
@@ -188,7 +188,7 @@ describe('Git API Routes', () => {
         return { stdout: '' };
       });
 
-      const res = await request(app, 'GET', '/api/git/status?projectId=proj-1');
+      const res = await request(app, 'GET', '/api/git/status?codespaceId=proj-1');
 
       expect(res.status).toBe(200);
       const json = await res.json();
@@ -203,7 +203,7 @@ describe('Git API Routes', () => {
   describe('GET /api/git/branches', () => {
     it('returns branches list', async () => {
       const { app, db, commandRunner } = createTestApp();
-      db.query.projects.findFirst.mockResolvedValue({
+      db.query.codespaces.findFirst.mockResolvedValue({
         id: 'proj-1',
         name: 'my-project',
         path: '/home/user/projects/my-project',
@@ -224,7 +224,7 @@ describe('Git API Routes', () => {
         return { stdout: '' };
       });
 
-      const res = await request(app, 'GET', '/api/git/branches?projectId=proj-1');
+      const res = await request(app, 'GET', '/api/git/branches?codespaceId=proj-1');
 
       expect(res.status).toBe(200);
       const json = await res.json();
@@ -235,7 +235,7 @@ describe('Git API Routes', () => {
       expect(json.data.items[0].isHead).toBe(true);
     });
 
-    it('returns 400 when projectId is missing', async () => {
+    it('returns 400 when codespaceId is missing', async () => {
       const { app } = createTestApp();
 
       const res = await request(app, 'GET', '/api/git/branches');
@@ -246,10 +246,10 @@ describe('Git API Routes', () => {
       expect(json.error.code).toBe('MISSING_PARAMS');
     });
 
-    it('returns 400 for invalid projectId', async () => {
+    it('returns 400 for invalid codespaceId', async () => {
       const { app } = createTestApp();
 
-      const res = await request(app, 'GET', '/api/git/branches?projectId=../bad');
+      const res = await request(app, 'GET', '/api/git/branches?codespaceId=../bad');
 
       expect(res.status).toBe(400);
       const json = await res.json();
@@ -259,9 +259,9 @@ describe('Git API Routes', () => {
 
     it('returns 404 when project not found', async () => {
       const { app, db } = createTestApp();
-      db.query.projects.findFirst.mockResolvedValue(null);
+      db.query.codespaces.findFirst.mockResolvedValue(null);
 
-      const res = await request(app, 'GET', '/api/git/branches?projectId=nonexistent');
+      const res = await request(app, 'GET', '/api/git/branches?codespaceId=nonexistent');
 
       expect(res.status).toBe(404);
       const json = await res.json();
@@ -271,14 +271,14 @@ describe('Git API Routes', () => {
 
     it('returns 500 on git command error', async () => {
       const { app, db, commandRunner } = createTestApp();
-      db.query.projects.findFirst.mockResolvedValue({
+      db.query.codespaces.findFirst.mockResolvedValue({
         id: 'proj-1',
         name: 'my-project',
         path: '/home/user/projects/my-project',
       });
       commandRunner.exec.mockRejectedValue(new Error('git not found'));
 
-      const res = await request(app, 'GET', '/api/git/branches?projectId=proj-1');
+      const res = await request(app, 'GET', '/api/git/branches?codespaceId=proj-1');
 
       expect(res.status).toBe(500);
       const json = await res.json();
@@ -292,7 +292,7 @@ describe('Git API Routes', () => {
   describe('GET /api/git/commits', () => {
     it('returns commit list for a project', async () => {
       const { app, db, commandRunner } = createTestApp();
-      db.query.projects.findFirst.mockResolvedValue({
+      db.query.codespaces.findFirst.mockResolvedValue({
         id: 'proj-1',
         name: 'my-project',
         path: '/home/user/projects/my-project',
@@ -311,7 +311,7 @@ describe('Git API Routes', () => {
         return { stdout: '' };
       });
 
-      const res = await request(app, 'GET', '/api/git/commits?projectId=proj-1');
+      const res = await request(app, 'GET', '/api/git/commits?codespaceId=proj-1');
 
       expect(res.status).toBe(200);
       const json = await res.json();
@@ -324,7 +324,7 @@ describe('Git API Routes', () => {
       expect(json.data.items[0].deletions).toBe(3);
     });
 
-    it('returns 400 when projectId is missing', async () => {
+    it('returns 400 when codespaceId is missing', async () => {
       const { app } = createTestApp();
 
       const res = await request(app, 'GET', '/api/git/commits');
@@ -335,10 +335,10 @@ describe('Git API Routes', () => {
       expect(json.error.code).toBe('MISSING_PARAMS');
     });
 
-    it('returns 400 for invalid projectId', async () => {
+    it('returns 400 for invalid codespaceId', async () => {
       const { app } = createTestApp();
 
-      const res = await request(app, 'GET', '/api/git/commits?projectId=bad!id');
+      const res = await request(app, 'GET', '/api/git/commits?codespaceId=bad!id');
 
       expect(res.status).toBe(400);
       const json = await res.json();
@@ -348,13 +348,17 @@ describe('Git API Routes', () => {
 
     it('returns 400 for invalid branch name', async () => {
       const { app, db } = createTestApp();
-      db.query.projects.findFirst.mockResolvedValue({
+      db.query.codespaces.findFirst.mockResolvedValue({
         id: 'proj-1',
         name: 'my-project',
         path: '/home/user/projects/my-project',
       });
 
-      const res = await request(app, 'GET', '/api/git/commits?projectId=proj-1&branch=bad..branch');
+      const res = await request(
+        app,
+        'GET',
+        '/api/git/commits?codespaceId=proj-1&branch=bad..branch'
+      );
 
       expect(res.status).toBe(400);
       const json = await res.json();
@@ -364,9 +368,9 @@ describe('Git API Routes', () => {
 
     it('returns 404 when project not found', async () => {
       const { app, db } = createTestApp();
-      db.query.projects.findFirst.mockResolvedValue(null);
+      db.query.codespaces.findFirst.mockResolvedValue(null);
 
-      const res = await request(app, 'GET', '/api/git/commits?projectId=nonexistent');
+      const res = await request(app, 'GET', '/api/git/commits?codespaceId=nonexistent');
 
       expect(res.status).toBe(404);
       const json = await res.json();
@@ -376,14 +380,14 @@ describe('Git API Routes', () => {
 
     it('returns 500 on git command error', async () => {
       const { app, db, commandRunner } = createTestApp();
-      db.query.projects.findFirst.mockResolvedValue({
+      db.query.codespaces.findFirst.mockResolvedValue({
         id: 'proj-1',
         name: 'my-project',
         path: '/home/user/projects/my-project',
       });
       commandRunner.exec.mockRejectedValue(new Error('git log failed'));
 
-      const res = await request(app, 'GET', '/api/git/commits?projectId=proj-1');
+      const res = await request(app, 'GET', '/api/git/commits?codespaceId=proj-1');
 
       expect(res.status).toBe(500);
       const json = await res.json();
@@ -393,7 +397,7 @@ describe('Git API Routes', () => {
 
     it('uses specified branch parameter', async () => {
       const { app, db, commandRunner } = createTestApp();
-      db.query.projects.findFirst.mockResolvedValue({
+      db.query.codespaces.findFirst.mockResolvedValue({
         id: 'proj-1',
         name: 'my-project',
         path: '/home/user/projects/my-project',
@@ -410,7 +414,7 @@ describe('Git API Routes', () => {
       const res = await request(
         app,
         'GET',
-        '/api/git/commits?projectId=proj-1&branch=feature/my-branch'
+        '/api/git/commits?codespaceId=proj-1&branch=feature/my-branch'
       );
 
       expect(res.status).toBe(200);
@@ -422,7 +426,7 @@ describe('Git API Routes', () => {
   describe('GET /api/git/remote-branches', () => {
     it('returns remote branches list', async () => {
       const { app, db, commandRunner } = createTestApp();
-      db.query.projects.findFirst.mockResolvedValue({
+      db.query.codespaces.findFirst.mockResolvedValue({
         id: 'proj-1',
         name: 'my-project',
         path: '/home/user/projects/my-project',
@@ -443,7 +447,7 @@ describe('Git API Routes', () => {
         return { stdout: '' };
       });
 
-      const res = await request(app, 'GET', '/api/git/remote-branches?projectId=proj-1');
+      const res = await request(app, 'GET', '/api/git/remote-branches?codespaceId=proj-1');
 
       expect(res.status).toBe(200);
       const json = await res.json();
@@ -453,7 +457,7 @@ describe('Git API Routes', () => {
       expect(json.data.items[1].name).toBe('main');
     });
 
-    it('returns 400 when projectId is missing', async () => {
+    it('returns 400 when codespaceId is missing', async () => {
       const { app } = createTestApp();
 
       const res = await request(app, 'GET', '/api/git/remote-branches');
@@ -464,10 +468,10 @@ describe('Git API Routes', () => {
       expect(json.error.code).toBe('MISSING_PARAMS');
     });
 
-    it('returns 400 for invalid projectId', async () => {
+    it('returns 400 for invalid codespaceId', async () => {
       const { app } = createTestApp();
 
-      const res = await request(app, 'GET', '/api/git/remote-branches?projectId=bad!id');
+      const res = await request(app, 'GET', '/api/git/remote-branches?codespaceId=bad!id');
 
       expect(res.status).toBe(400);
       const json = await res.json();
@@ -477,9 +481,9 @@ describe('Git API Routes', () => {
 
     it('returns 404 when project not found', async () => {
       const { app, db } = createTestApp();
-      db.query.projects.findFirst.mockResolvedValue(null);
+      db.query.codespaces.findFirst.mockResolvedValue(null);
 
-      const res = await request(app, 'GET', '/api/git/remote-branches?projectId=nonexistent');
+      const res = await request(app, 'GET', '/api/git/remote-branches?codespaceId=nonexistent');
 
       expect(res.status).toBe(404);
       const json = await res.json();
@@ -489,7 +493,7 @@ describe('Git API Routes', () => {
 
     it('filters out HEAD pointer entries', async () => {
       const { app, db, commandRunner } = createTestApp();
-      db.query.projects.findFirst.mockResolvedValue({
+      db.query.codespaces.findFirst.mockResolvedValue({
         id: 'proj-1',
         name: 'my-project',
         path: '/home/user/projects/my-project',
@@ -510,7 +514,7 @@ describe('Git API Routes', () => {
         return { stdout: '' };
       });
 
-      const res = await request(app, 'GET', '/api/git/remote-branches?projectId=proj-1');
+      const res = await request(app, 'GET', '/api/git/remote-branches?codespaceId=proj-1');
 
       expect(res.status).toBe(200);
       const json = await res.json();
@@ -521,7 +525,7 @@ describe('Git API Routes', () => {
 
     it('returns 500 on git command error', async () => {
       const { app, db, commandRunner } = createTestApp();
-      db.query.projects.findFirst.mockResolvedValue({
+      db.query.codespaces.findFirst.mockResolvedValue({
         id: 'proj-1',
         name: 'my-project',
         path: '/home/user/projects/my-project',
@@ -534,7 +538,7 @@ describe('Git API Routes', () => {
         throw new Error('git error');
       });
 
-      const res = await request(app, 'GET', '/api/git/remote-branches?projectId=proj-1');
+      const res = await request(app, 'GET', '/api/git/remote-branches?codespaceId=proj-1');
 
       expect(res.status).toBe(500);
       const json = await res.json();

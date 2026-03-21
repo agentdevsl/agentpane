@@ -62,15 +62,16 @@ describe('Schema Hooks', () => {
     await clearTestDatabase();
   });
 
-  describe('projects table', () => {
+  describe('codespaces table', () => {
     describe('$defaultFn for id', () => {
       it('generates a valid cuid2 id when not provided', async () => {
         const db = getTestDb();
 
         const [project] = await db
-          .insert(schema.projects)
+          .insert(schema.codespaces)
           .values({
             name: 'Test Project',
+            projectFolderId: 'default-folder',
             path: '/tmp/test-project-1',
           })
           .returning();
@@ -85,10 +86,11 @@ describe('Schema Hooks', () => {
         const db = getTestDb();
 
         const [project] = await db
-          .insert(schema.projects)
+          .insert(schema.codespaces)
           .values({
             id: customId,
             name: 'Test Project',
+            projectFolderId: 'default-folder',
             path: '/tmp/test-project-2',
           })
           .returning();
@@ -102,9 +104,10 @@ describe('Schema Hooks', () => {
 
         for (let i = 0; i < 10; i++) {
           const [project] = await db
-            .insert(schema.projects)
+            .insert(schema.codespaces)
             .values({
               name: `Test Project ${i}`,
+              projectFolderId: 'default-folder',
               path: `/tmp/test-project-${i + 10}`,
             })
             .returning();
@@ -120,9 +123,10 @@ describe('Schema Hooks', () => {
         const db = getTestDb();
 
         const [project] = await db
-          .insert(schema.projects)
+          .insert(schema.codespaces)
           .values({
             name: 'Test Project',
+            projectFolderId: 'default-folder',
             path: '/tmp/test-project-timestamp',
           })
           .returning();
@@ -136,9 +140,10 @@ describe('Schema Hooks', () => {
         const db = getTestDb();
 
         const [project] = await db
-          .insert(schema.projects)
+          .insert(schema.codespaces)
           .values({
             name: 'Test Project',
+            projectFolderId: 'default-folder',
             path: '/tmp/test-project-updated',
           })
           .returning();
@@ -153,16 +158,18 @@ describe('Schema Hooks', () => {
         const db = getTestDb();
 
         await db
-          .insert(schema.projects)
+          .insert(schema.codespaces)
           .values({
             name: 'First Project',
+            projectFolderId: 'default-folder',
             path: '/tmp/unique-path',
           })
           .returning();
 
         await expect(
-          db.insert(schema.projects).values({
+          db.insert(schema.codespaces).values({
             name: 'Second Project',
+            projectFolderId: 'default-folder',
             path: '/tmp/unique-path',
           })
         ).rejects.toThrow();
@@ -172,9 +179,10 @@ describe('Schema Hooks', () => {
         const db = getTestDb();
 
         await expect(
-          db.insert(schema.projects).values({
+          db.insert(schema.codespaces).values({
             name: null as unknown as string,
             path: '/tmp/test-project-null-name',
+            projectFolderId: 'default-folder',
           })
         ).rejects.toThrow();
       });
@@ -183,8 +191,9 @@ describe('Schema Hooks', () => {
         const db = getTestDb();
 
         await expect(
-          db.insert(schema.projects).values({
+          db.insert(schema.codespaces).values({
             name: 'Test Project',
+            projectFolderId: 'default-folder',
             path: null as unknown as string,
           })
         ).rejects.toThrow();
@@ -201,7 +210,7 @@ describe('Schema Hooks', () => {
         const [agent] = await db
           .insert(schema.agents)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             name: 'Test Agent',
           })
           .returning();
@@ -219,7 +228,7 @@ describe('Schema Hooks', () => {
           .insert(schema.agents)
           .values({
             id: customId,
-            projectId: project.id,
+            codespaceId: project.id,
             name: 'Test Agent',
           })
           .returning();
@@ -236,7 +245,7 @@ describe('Schema Hooks', () => {
         const [agent] = await db
           .insert(schema.agents)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             name: 'Test Agent',
           })
           .returning();
@@ -253,7 +262,7 @@ describe('Schema Hooks', () => {
         const [agent] = await db
           .insert(schema.agents)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             name: 'Test Agent',
           })
           .returning();
@@ -271,7 +280,7 @@ describe('Schema Hooks', () => {
         const [agent] = await db
           .insert(schema.agents)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             name: 'Test Agent',
           })
           .returning();
@@ -286,7 +295,7 @@ describe('Schema Hooks', () => {
         const [agent] = await db
           .insert(schema.agents)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             name: 'Test Agent',
           })
           .returning();
@@ -301,7 +310,7 @@ describe('Schema Hooks', () => {
         const [agent] = await db
           .insert(schema.agents)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             name: 'Test Agent',
           })
           .returning();
@@ -316,7 +325,7 @@ describe('Schema Hooks', () => {
         const agent = await createTestAgent(project.id);
         const db = getTestDb();
 
-        await db.delete(schema.projects).where(eq(schema.projects.id, project.id));
+        await db.delete(schema.codespaces).where(eq(schema.codespaces.id, project.id));
 
         const deletedAgent = await db.query.agents.findFirst({
           where: eq(schema.agents.id, agent.id),
@@ -336,7 +345,7 @@ describe('Schema Hooks', () => {
         const [task] = await db
           .insert(schema.tasks)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             title: 'Test Task',
           })
           .returning();
@@ -354,7 +363,7 @@ describe('Schema Hooks', () => {
         const [task] = await db
           .insert(schema.tasks)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             title: 'Test Task',
           })
           .returning();
@@ -373,7 +382,7 @@ describe('Schema Hooks', () => {
         const [task] = await db
           .insert(schema.tasks)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             title: 'Test Task',
           })
           .returning();
@@ -388,7 +397,7 @@ describe('Schema Hooks', () => {
         const [task] = await db
           .insert(schema.tasks)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             title: 'Test Task',
           })
           .returning();
@@ -403,7 +412,7 @@ describe('Schema Hooks', () => {
         const [task] = await db
           .insert(schema.tasks)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             title: 'Test Task',
           })
           .returning();
@@ -418,7 +427,7 @@ describe('Schema Hooks', () => {
         const [task] = await db
           .insert(schema.tasks)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             title: 'Test Task',
           })
           .returning();
@@ -433,7 +442,7 @@ describe('Schema Hooks', () => {
         const [task] = await db
           .insert(schema.tasks)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             title: 'Test Task',
           })
           .returning();
@@ -448,7 +457,7 @@ describe('Schema Hooks', () => {
         const task = await createTestTask(project.id);
         const db = getTestDb();
 
-        await db.delete(schema.projects).where(eq(schema.projects.id, project.id));
+        await db.delete(schema.codespaces).where(eq(schema.codespaces.id, project.id));
 
         const deletedTask = await db.query.tasks.findFirst({
           where: eq(schema.tasks.id, task.id),
@@ -483,7 +492,7 @@ describe('Schema Hooks', () => {
         const [session] = await db
           .insert(schema.sessions)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             url: 'http://localhost:3000/sessions/test',
           })
           .returning();
@@ -501,7 +510,7 @@ describe('Schema Hooks', () => {
         const [session] = await db
           .insert(schema.sessions)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             url: 'http://localhost:3000/sessions/test',
           })
           .returning();
@@ -519,7 +528,7 @@ describe('Schema Hooks', () => {
         const [session] = await db
           .insert(schema.sessions)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             url: 'http://localhost:3000/sessions/test',
           })
           .returning();
@@ -534,7 +543,7 @@ describe('Schema Hooks', () => {
         const session = await createTestSession(project.id);
         const db = getTestDb();
 
-        await db.delete(schema.projects).where(eq(schema.projects.id, project.id));
+        await db.delete(schema.codespaces).where(eq(schema.codespaces.id, project.id));
 
         const deletedSession = await db.query.sessions.findFirst({
           where: eq(schema.sessions.id, session.id),
@@ -554,7 +563,7 @@ describe('Schema Hooks', () => {
         const [worktree] = await db
           .insert(schema.worktrees)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             branch: 'feature/test-branch',
             path: '/tmp/worktree-test',
           })
@@ -573,7 +582,7 @@ describe('Schema Hooks', () => {
         const [worktree] = await db
           .insert(schema.worktrees)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             branch: 'feature/test-branch',
             path: '/tmp/worktree-test-2',
           })
@@ -592,7 +601,7 @@ describe('Schema Hooks', () => {
         const [worktree] = await db
           .insert(schema.worktrees)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             branch: 'feature/test-branch',
             path: '/tmp/worktree-test-3',
           })
@@ -608,7 +617,7 @@ describe('Schema Hooks', () => {
         const [worktree] = await db
           .insert(schema.worktrees)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             branch: 'feature/test-branch',
             path: '/tmp/worktree-test-4',
           })
@@ -624,7 +633,7 @@ describe('Schema Hooks', () => {
         const worktree = await createTestWorktree(project.id);
         const db = getTestDb();
 
-        await db.delete(schema.projects).where(eq(schema.projects.id, project.id));
+        await db.delete(schema.codespaces).where(eq(schema.codespaces.id, project.id));
 
         const deletedWorktree = await db.query.worktrees.findFirst({
           where: eq(schema.worktrees.id, worktree.id),
@@ -648,7 +657,7 @@ describe('Schema Hooks', () => {
           .values({
             agentId: agent.id,
             taskId: task.id,
-            projectId: project.id,
+            codespaceId: project.id,
             status: 'running',
           })
           .returning();
@@ -670,7 +679,7 @@ describe('Schema Hooks', () => {
           .values({
             agentId: agent.id,
             taskId: task.id,
-            projectId: project.id,
+            codespaceId: project.id,
             status: 'running',
           })
           .returning();
@@ -693,7 +702,7 @@ describe('Schema Hooks', () => {
           .values({
             agentId: agent.id,
             taskId: task.id,
-            projectId: project.id,
+            codespaceId: project.id,
             status: 'running',
           })
           .returning();
@@ -712,7 +721,7 @@ describe('Schema Hooks', () => {
           .values({
             agentId: agent.id,
             taskId: task.id,
-            projectId: project.id,
+            codespaceId: project.id,
             status: 'running',
           })
           .returning();
@@ -734,7 +743,7 @@ describe('Schema Hooks', () => {
           .values({
             agentId: agent.id,
             taskId: task.id,
-            projectId: project.id,
+            codespaceId: project.id,
             status: 'running',
           })
           .returning();
@@ -760,7 +769,7 @@ describe('Schema Hooks', () => {
           .values({
             agentId: agent.id,
             taskId: task.id,
-            projectId: project.id,
+            codespaceId: project.id,
             status: 'running',
           })
           .returning();
@@ -786,12 +795,12 @@ describe('Schema Hooks', () => {
           .values({
             agentId: agent.id,
             taskId: task.id,
-            projectId: project.id,
+            codespaceId: project.id,
             status: 'running',
           })
           .returning();
 
-        await db.delete(schema.projects).where(eq(schema.projects.id, project.id));
+        await db.delete(schema.codespaces).where(eq(schema.codespaces.id, project.id));
 
         const deletedRun = await db.query.agentRuns.findFirst({
           where: eq(schema.agentRuns.id, agentRun.id),
@@ -811,7 +820,7 @@ describe('Schema Hooks', () => {
         const [auditLog] = await db
           .insert(schema.auditLogs)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             tool: 'Read',
             status: 'complete',
           })
@@ -830,7 +839,7 @@ describe('Schema Hooks', () => {
         const [auditLog] = await db
           .insert(schema.auditLogs)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             tool: 'Read',
             status: 'complete',
           })
@@ -850,13 +859,13 @@ describe('Schema Hooks', () => {
         const [auditLog] = await db
           .insert(schema.auditLogs)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             tool: 'Read',
             status: 'complete',
           })
           .returning();
 
-        await db.delete(schema.projects).where(eq(schema.projects.id, project.id));
+        await db.delete(schema.codespaces).where(eq(schema.codespaces.id, project.id));
 
         const deletedLog = await db.query.auditLogs.findFirst({
           where: eq(schema.auditLogs.id, auditLog.id),
@@ -873,7 +882,7 @@ describe('Schema Hooks', () => {
         const [auditLog] = await db
           .insert(schema.auditLogs)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             agentId: agent.id,
             tool: 'Read',
             status: 'complete',

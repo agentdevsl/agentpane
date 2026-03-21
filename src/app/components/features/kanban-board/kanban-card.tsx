@@ -3,17 +3,12 @@ import { CSS } from '@dnd-kit/utilities';
 import { CheckCircle, Lightning, Warning, WarningCircle, XCircle } from '@phosphor-icons/react';
 import React, { useCallback } from 'react';
 import { ExecutionBadge } from '@/app/components/ui/execution-badge';
+import { PriorityIcon } from '@/app/components/ui/priority-icon';
 import type { AgentStatusInfo } from '@/app/hooks/use-container-agent-statuses';
 import type { Task } from '@/db/schema';
 import { cn } from '@/lib/utils/cn';
 import { LABEL_TYPES, type Priority } from './constants';
-import {
-  agentStatusVariants,
-  cardVariants,
-  labelVariants,
-  lastRunStatusVariants,
-  priorityVariants,
-} from './styles';
+import { agentStatusVariants, cardVariants, labelVariants, lastRunStatusVariants } from './styles';
 
 interface KanbanCardProps {
   /** Task data */
@@ -202,7 +197,7 @@ export const KanbanCard = React.memo(function KanbanCard({
 
       {/* Header with priority and title */}
       <div className="flex items-start gap-2">
-        <div className={cn(priorityVariants({ priority }), 'mt-1.5')} />
+        <PriorityIcon priority={priority} className="mt-1" />
         <div className="flex-1 text-sm font-medium leading-snug text-fg">{task.title}</div>
       </div>
 
