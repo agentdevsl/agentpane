@@ -1,14 +1,14 @@
 // biome-ignore lint/style/noRestrictedImports: factory hook — only file allowed to import useEffect
 import { useEffect, useRef } from 'react';
 
-type EventTarget = Window | Document | HTMLElement | null;
+type ListenerTarget = Window | Document | Element | null;
 
 /**
  * Attaches an event listener with automatic cleanup.
  * The handler always uses the latest closure (no stale values).
  */
 export function useEventListener<K extends keyof WindowEventMap>(
-  target: EventTarget,
+  target: ListenerTarget,
   event: K,
   handler: (event: WindowEventMap[K]) => void,
   options?: boolean | AddEventListenerOptions
