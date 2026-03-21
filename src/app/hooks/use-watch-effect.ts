@@ -1,4 +1,3 @@
-// biome-ignore lint/style/noRestrictedImports: factory hook — only file allowed to import useEffect
 import { type DependencyList, type EffectCallback, useEffect } from 'react';
 
 /**
@@ -9,6 +8,6 @@ import { type DependencyList, type EffectCallback, useEffect } from 'react';
  * This is the sanctioned way to run a dependency-based effect.
  */
 export function useWatchEffect(effect: EffectCallback, deps: DependencyList): void {
-  // biome-ignore lint/correctness/useExhaustiveDependencies: deps managed by caller
+  // biome-ignore lint/correctness/useExhaustiveDependencies: deps are caller-managed by design
   useEffect(effect, deps);
 }

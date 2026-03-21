@@ -1,4 +1,4 @@
-import type { Agent, AgentRun, Project, Session, Task, Worktree } from '../../src/db/schema';
+import type { Agent, AgentRun, Codespace, Session, Task, Worktree } from '../../src/db/schema';
 
 export type PartialBy<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
 
@@ -10,4 +10,6 @@ export { createTestSession } from './session.factory';
 export { createTestTask } from './task.factory';
 export { createTestWorktree } from './worktree.factory';
 
-export type { Agent, AgentRun, Project, Session, Task, Worktree };
+export type { Agent, AgentRun, Codespace, Session, Task, Worktree };
+/** @deprecated Use Codespace instead */
+export type Project = Codespace;

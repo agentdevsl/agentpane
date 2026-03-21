@@ -2,6 +2,10 @@ import Database, { type Database as SQLiteDatabase } from 'better-sqlite3';
 import { type BetterSQLite3Database, drizzle } from 'drizzle-orm/better-sqlite3';
 import * as schema from '../../src/db/schema/sqlite';
 import {
+  PROJECT_FOLDERS_ALTER_STATEMENTS,
+  PROJECT_FOLDERS_MIGRATION_SQL,
+} from '../../src/lib/bootstrap/migrations/v19-project-folders';
+import {
   EVENT_SYSTEM_MIGRATION_SQL,
   MIGRATION_SQL,
   RBAC_GITHUB_TOKEN_MIGRATION_SQL,
@@ -104,6 +108,18 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
   // Run event system migrations (event_sources, event_subscriptions, event_log)
   testSqlite.exec(EVENT_SYSTEM_MIGRATION_SQL);
 
+  // Run v19 project folders + codespace rename migration
+  testSqlite.exec(PROJECT_FOLDERS_MIGRATION_SQL);
+
+  // Run v20 ALTER TABLE statements for FK column renames (idempotent)
+  for (const stmt of PROJECT_FOLDERS_ALTER_STATEMENTS) {
+    try {
+      testSqlite.exec(stmt);
+    } catch {
+      // Idempotent — column may already exist
+    }
+  }
+
   return testDb;
 }
 
@@ -131,13 +147,15 @@ export async function clearTestDatabase(): Promise<void> {
     await pgClient`TRUNCATE TABLE
       audit_logs, agent_runs, session_events, session_summaries,
       sessions, worktrees, tasks, agents,
-      template_projects, templates,
+      template_codespaces, templates,
       repository_configs, github_tokens, github_installations,
       sandbox_configs, sandboxes, volume_mounts,
       terraform_modules, terraform_registries,
       workflows, plan_sessions, cli_sessions,
       event_log, event_subscriptions, event_sources,
-      api_keys, settings, marketplaces, projects
+      api_keys, settings, marketplaces,
+      codespace_members, codespace_tags, folder_members,
+      team_project_folders, codespaces, project_folders
     CASCADE`;
     return;
   }
@@ -159,14 +177,18 @@ export async function clearTestDatabase(): Promise<void> {
       DELETE FROM github_installations;
       DELETE FROM github_tokens;
       DELETE FROM task_tags;
-      DELETE FROM project_tags;
+      DELETE FROM codespace_tags;
       DELETE FROM api_tokens;
       DELETE FROM team_invitations;
-      DELETE FROM project_members;
-      DELETE FROM team_projects;
+      DELETE FROM codespace_members;
+      DELETE FROM template_codespaces;
+      DELETE FROM folder_members;
+      DELETE FROM team_project_folders;
       DELETE FROM team_members;
       DELETE FROM tags;
       DELETE FROM teams;
+      DELETE FROM codespaces;
+      DELETE FROM project_folders;
       DELETE FROM projects;
       DELETE FROM sandbox_configs;
       DELETE FROM marketplaces;
@@ -189,15 +211,18 @@ export async function clearTestDatabase(): Promise<void> {
   await testDb.delete(schema.githubInstallations);
   await testDb.delete(schema.githubTokens);
   await testDb.delete(schema.taskTags);
-  await testDb.delete(schema.projectTags);
+  await testDb.delete(schema.codespaceTags);
   await testDb.delete(schema.apiTokens);
   await testDb.delete(schema.teamInvitations);
-  await testDb.delete(schema.projectMembers);
-  await testDb.delete(schema.teamProjects);
+  await testDb.delete(schema.codespaceMembers);
+  await testDb.delete(schema.templateCodespaces);
+  await testDb.delete(schema.folderMembers);
+  await testDb.delete(schema.teamProjectFolders);
   await testDb.delete(schema.teamMembers);
   await testDb.delete(schema.tags);
   await testDb.delete(schema.teams);
-  await testDb.delete(schema.projects);
+  await testDb.delete(schema.codespaces);
+  await testDb.delete(schema.projectFolders);
   await testDb.delete(schema.sandboxConfigs);
   await testDb.delete(schema.marketplaces);
 }
@@ -230,10 +255,10 @@ export type SeedOptions = {
   agentsPerProject?: number;
 };
 
-export async function seedTestDatabase(options: SeedOptions = {}): Promise<schema.Project[]> {
+export async function seedTestDatabase(options: SeedOptions = {}): Promise<schema.Codespace[]> {
   const { projects = 1, tasksPerProject = 5, agentsPerProject = 2 } = options;
 
-  const createdProjects: schema.Project[] = [];
+  const createdProjects: schema.Codespace[] = [];
 
   for (let projectIndex = 0; projectIndex < projects; projectIndex += 1) {
     const project = await createTestProject({

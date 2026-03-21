@@ -89,7 +89,7 @@ describe('WorktreeService Integration', () => {
 
     const result = await worktreeService.create(
       {
-        projectId: project.id,
+        codespaceId: project.id,
         agentId: agent.id,
         taskId: task.id,
         taskTitle: task.title,
@@ -119,7 +119,7 @@ describe('WorktreeService Integration', () => {
 
     const createResult = await worktreeService.create(
       {
-        projectId: project.id,
+        codespaceId: project.id,
         agentId: agent.id,
         taskId: task.id,
         taskTitle: task.title,
@@ -157,7 +157,7 @@ describe('WorktreeService Integration', () => {
 
     const createResult = await worktreeService.create(
       {
-        projectId: project.id,
+        codespaceId: project.id,
         agentId: agent.id,
         taskId: task.id,
         taskTitle: task.title,
@@ -193,7 +193,7 @@ describe('WorktreeService Integration', () => {
 
     const createResult = await worktreeService.create(
       {
-        projectId: project.id,
+        codespaceId: project.id,
         agentId: agent.id,
         taskId: task.id,
         taskTitle: task.title,
@@ -230,7 +230,7 @@ describe('WorktreeService Integration', () => {
 
     const wt1 = await worktreeService.create(
       {
-        projectId: project.id,
+        codespaceId: project.id,
         agentId: agent.id,
         taskId: task1.id,
         taskTitle: task1.title,
@@ -245,7 +245,7 @@ describe('WorktreeService Integration', () => {
 
     const wt2 = await worktreeService.create(
       {
-        projectId: project.id,
+        codespaceId: project.id,
         agentId: agent.id,
         taskId: task2.id,
         taskTitle: task2.title,

@@ -19,7 +19,7 @@ describe('SessionHistory', () => {
   const mockSessions: RawSession[] = [
     {
       id: 'session-1',
-      projectId: 'project-1',
+      codespaceId: 'project-1',
       taskId: null, // No taskId so title will show
       agentId: 'agent-1',
       title: 'Daily sync',
@@ -29,7 +29,7 @@ describe('SessionHistory', () => {
     },
     {
       id: 'session-2',
-      projectId: 'project-1',
+      codespaceId: 'project-1',
       taskId: 'task-2', // Has taskId, title won't show
       agentId: null,
       title: 'Code review',

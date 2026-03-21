@@ -43,8 +43,8 @@ function sessionAuth(userId = 'user-1'): AuthContext {
 // ── Test App Factory ──
 
 /**
- * project-members routes are mounted at /api/projects/:id/members.
- * The route reads projectId from c.req.param('id').
+ * project-members routes are mounted at /api/codespaces/:id/members.
+ * The route reads codespaceId from c.req.param('id').
  */
 function createTestApp(auth = devAuth()) {
   const db = createMockDb();
@@ -60,7 +60,7 @@ function createTestApp(auth = devAuth()) {
     c.set('auth' as never, auth as never);
     return next();
   });
-  app.route('/api/projects/:id/members', routes);
+  app.route('/api/codespaces/:id/members', routes);
 
   return { app, db, rbacService };
 }
@@ -79,9 +79,9 @@ async function request(app: Hono, method: string, path: string, body?: unknown) 
 // ── Tests ──
 
 describe('Project Members API Routes', () => {
-  // ── POST /api/projects/:id/members ──
+  // ── POST /api/codespaces/:id/members ──
 
-  describe('POST /api/projects/:id/members', () => {
+  describe('POST /api/codespaces/:id/members', () => {
     it('adds a member to a project', async () => {
       const { app, db } = createTestApp();
 
@@ -118,7 +118,7 @@ describe('Project Members API Routes', () => {
         return fn(tx);
       });
 
-      const res = await request(app, 'POST', '/api/projects/proj-1/members', {
+      const res = await request(app, 'POST', '/api/codespaces/proj-1/members', {
         userId: 'user-2',
         role: 'viewer',
       });
@@ -126,7 +126,7 @@ describe('Project Members API Routes', () => {
       expect(res.status).toBe(201);
       const json = await res.json();
       expect(json.ok).toBe(true);
-      expect(json.data.projectId).toBe('proj-1');
+      expect(json.data.codespaceId).toBe('proj-1');
       expect(json.data.userId).toBe('user-2');
       expect(json.data.role).toBe('viewer');
     });
@@ -134,7 +134,7 @@ describe('Project Members API Routes', () => {
     it('returns 400 for invalid project id', async () => {
       const { app } = createTestApp();
 
-      const res = await request(app, 'POST', '/api/projects/bad!id/members', {
+      const res = await request(app, 'POST', '/api/codespaces/bad!id/members', {
         userId: 'user-2',
         role: 'viewer',
       });
@@ -147,7 +147,7 @@ describe('Project Members API Routes', () => {
     it('returns 400 for missing required fields', async () => {
       const { app } = createTestApp();
 
-      const res = await request(app, 'POST', '/api/projects/proj-1/members', {
+      const res = await request(app, 'POST', '/api/codespaces/proj-1/members', {
         userId: 'user-2',
       });
 
@@ -159,7 +159,7 @@ describe('Project Members API Routes', () => {
     it('returns 400 for invalid role', async () => {
       const { app } = createTestApp();
 
-      const res = await request(app, 'POST', '/api/projects/proj-1/members', {
+      const res = await request(app, 'POST', '/api/codespaces/proj-1/members', {
         userId: 'user-2',
         role: 'superadmin',
       });
@@ -178,14 +178,14 @@ describe('Project Members API Routes', () => {
             from: vi.fn().mockReturnValue({
               where: vi
                 .fn()
-                .mockResolvedValue([{ projectId: 'proj-1', userId: 'user-2', role: 'viewer' }]),
+                .mockResolvedValue([{ codespaceId: 'proj-1', userId: 'user-2', role: 'viewer' }]),
             }),
           }),
         };
         return fn(tx);
       });
 
-      const res = await request(app, 'POST', '/api/projects/proj-1/members', {
+      const res = await request(app, 'POST', '/api/codespaces/proj-1/members', {
         userId: 'user-2',
         role: 'viewer',
       });
@@ -221,7 +221,7 @@ describe('Project Members API Routes', () => {
         return fn(tx);
       });
 
-      const res = await request(app, 'POST', '/api/projects/proj-1/members', {
+      const res = await request(app, 'POST', '/api/codespaces/proj-1/members', {
         userId: 'user-missing',
         role: 'viewer',
       });
@@ -238,7 +238,7 @@ describe('Project Members API Routes', () => {
       rbacService.resolveUserRole.mockResolvedValue('viewer');
       rbacService.hasMinimumRole.mockReturnValue(false);
 
-      const res = await request(app, 'POST', '/api/projects/proj-1/members', {
+      const res = await request(app, 'POST', '/api/codespaces/proj-1/members', {
         userId: 'user-2',
         role: 'viewer',
       });
@@ -254,7 +254,7 @@ describe('Project Members API Routes', () => {
 
       db.transaction.mockRejectedValue(new Error('DB failure'));
 
-      const res = await request(app, 'POST', '/api/projects/proj-1/members', {
+      const res = await request(app, 'POST', '/api/codespaces/proj-1/members', {
         userId: 'user-2',
         role: 'viewer',
       });
@@ -266,9 +266,9 @@ describe('Project Members API Routes', () => {
     });
   });
 
-  // ── GET /api/projects/:id/members ──
+  // ── GET /api/codespaces/:id/members ──
 
-  describe('GET /api/projects/:id/members', () => {
+  describe('GET /api/codespaces/:id/members', () => {
     it('returns project members list', async () => {
       const { app, db, rbacService } = createTestApp();
 
@@ -290,7 +290,7 @@ describe('Project Members API Routes', () => {
 
       rbacService.resolveUserRole.mockResolvedValue('admin');
 
-      const res = await request(app, 'GET', '/api/projects/proj-1/members');
+      const res = await request(app, 'GET', '/api/codespaces/proj-1/members');
 
       expect(res.status).toBe(200);
       const json = await res.json();
@@ -303,7 +303,7 @@ describe('Project Members API Routes', () => {
     it('returns 400 for invalid project id', async () => {
       const { app } = createTestApp();
 
-      const res = await request(app, 'GET', '/api/projects/bad!id/members');
+      const res = await request(app, 'GET', '/api/codespaces/bad!id/members');
 
       expect(res.status).toBe(400);
       const json = await res.json();
@@ -316,7 +316,7 @@ describe('Project Members API Routes', () => {
       rbacService.resolveUserRole.mockResolvedValue(null);
       rbacService.hasMinimumRole.mockReturnValue(false);
 
-      const res = await request(app, 'GET', '/api/projects/proj-1/members');
+      const res = await request(app, 'GET', '/api/codespaces/proj-1/members');
 
       expect(res.status).toBe(403);
       const json = await res.json();
@@ -331,7 +331,7 @@ describe('Project Members API Routes', () => {
         throw new Error('DB failure');
       });
 
-      const res = await request(app, 'GET', '/api/projects/proj-1/members');
+      const res = await request(app, 'GET', '/api/codespaces/proj-1/members');
 
       expect(res.status).toBe(500);
       const json = await res.json();
@@ -340,20 +340,20 @@ describe('Project Members API Routes', () => {
     });
   });
 
-  // ── PATCH /api/projects/:id/members/:uid ──
+  // ── PATCH /api/codespaces/:id/members/:uid ──
 
-  describe('PATCH /api/projects/:id/members/:uid', () => {
+  describe('PATCH /api/codespaces/:id/members/:uid', () => {
     it('updates a member role', async () => {
       const { app, db } = createTestApp();
 
       const returning = vi
         .fn()
-        .mockResolvedValue([{ projectId: 'proj-1', userId: 'user-2', role: 'admin' }]);
+        .mockResolvedValue([{ codespaceId: 'proj-1', userId: 'user-2', role: 'admin' }]);
       const where = vi.fn().mockReturnValue({ returning });
       const set = vi.fn().mockReturnValue({ where });
       db.update.mockReturnValue({ set });
 
-      const res = await request(app, 'PATCH', '/api/projects/proj-1/members/user-2', {
+      const res = await request(app, 'PATCH', '/api/codespaces/proj-1/members/user-2', {
         role: 'admin',
       });
 
@@ -366,7 +366,7 @@ describe('Project Members API Routes', () => {
     it('returns 400 for invalid project id', async () => {
       const { app } = createTestApp();
 
-      const res = await request(app, 'PATCH', '/api/projects/bad!id/members/user-2', {
+      const res = await request(app, 'PATCH', '/api/codespaces/bad!id/members/user-2', {
         role: 'admin',
       });
 
@@ -378,7 +378,7 @@ describe('Project Members API Routes', () => {
     it('returns 400 for invalid user id', async () => {
       const { app } = createTestApp();
 
-      const res = await request(app, 'PATCH', '/api/projects/proj-1/members/bad!id', {
+      const res = await request(app, 'PATCH', '/api/codespaces/proj-1/members/bad!id', {
         role: 'admin',
       });
 
@@ -394,7 +394,7 @@ describe('Project Members API Routes', () => {
       rbacService.resolveUserRole.mockResolvedValue('admin');
       rbacService.hasMinimumRole.mockReturnValue(true);
 
-      const res = await request(app, 'PATCH', '/api/projects/proj-1/members/user-1', {
+      const res = await request(app, 'PATCH', '/api/codespaces/proj-1/members/user-1', {
         role: 'viewer',
       });
 
@@ -412,7 +412,7 @@ describe('Project Members API Routes', () => {
       const set = vi.fn().mockReturnValue({ where });
       db.update.mockReturnValue({ set });
 
-      const res = await request(app, 'PATCH', '/api/projects/proj-1/members/user-missing', {
+      const res = await request(app, 'PATCH', '/api/codespaces/proj-1/members/user-missing', {
         role: 'admin',
       });
 
@@ -428,7 +428,7 @@ describe('Project Members API Routes', () => {
       rbacService.resolveUserRole.mockResolvedValue('viewer');
       rbacService.hasMinimumRole.mockReturnValue(false);
 
-      const res = await request(app, 'PATCH', '/api/projects/proj-1/members/user-2', {
+      const res = await request(app, 'PATCH', '/api/codespaces/proj-1/members/user-2', {
         role: 'admin',
       });
 
@@ -441,7 +441,7 @@ describe('Project Members API Routes', () => {
     it('returns 400 for invalid role value', async () => {
       const { app } = createTestApp();
 
-      const res = await request(app, 'PATCH', '/api/projects/proj-1/members/user-2', {
+      const res = await request(app, 'PATCH', '/api/codespaces/proj-1/members/user-2', {
         role: 'superadmin',
       });
 
@@ -457,7 +457,7 @@ describe('Project Members API Routes', () => {
         throw new Error('DB failure');
       });
 
-      const res = await request(app, 'PATCH', '/api/projects/proj-1/members/user-2', {
+      const res = await request(app, 'PATCH', '/api/codespaces/proj-1/members/user-2', {
         role: 'admin',
       });
 
@@ -468,21 +468,21 @@ describe('Project Members API Routes', () => {
     });
   });
 
-  // ── DELETE /api/projects/:id/members/:uid ──
+  // ── DELETE /api/codespaces/:id/members/:uid ──
 
-  describe('DELETE /api/projects/:id/members/:uid', () => {
+  describe('DELETE /api/codespaces/:id/members/:uid', () => {
     it('removes a member from a project', async () => {
       const { app, db, rbacService } = createTestApp();
 
       const returning = vi
         .fn()
-        .mockResolvedValue([{ projectId: 'proj-1', userId: 'user-2', role: 'viewer' }]);
+        .mockResolvedValue([{ codespaceId: 'proj-1', userId: 'user-2', role: 'viewer' }]);
       const where = vi.fn().mockReturnValue({ returning });
       db.delete.mockReturnValue({ where });
 
       rbacService.resolveUserRole.mockResolvedValue('viewer');
 
-      const res = await request(app, 'DELETE', '/api/projects/proj-1/members/user-2');
+      const res = await request(app, 'DELETE', '/api/codespaces/proj-1/members/user-2');
 
       expect(res.status).toBe(200);
       const json = await res.json();
@@ -494,7 +494,7 @@ describe('Project Members API Routes', () => {
     it('returns 400 for invalid project id', async () => {
       const { app } = createTestApp();
 
-      const res = await request(app, 'DELETE', '/api/projects/bad!id/members/user-2');
+      const res = await request(app, 'DELETE', '/api/codespaces/bad!id/members/user-2');
 
       expect(res.status).toBe(400);
       const json = await res.json();
@@ -504,7 +504,7 @@ describe('Project Members API Routes', () => {
     it('returns 400 for invalid user id', async () => {
       const { app } = createTestApp();
 
-      const res = await request(app, 'DELETE', '/api/projects/proj-1/members/bad!id');
+      const res = await request(app, 'DELETE', '/api/codespaces/proj-1/members/bad!id');
 
       expect(res.status).toBe(400);
       const json = await res.json();
@@ -518,7 +518,7 @@ describe('Project Members API Routes', () => {
       const where = vi.fn().mockReturnValue({ returning });
       db.delete.mockReturnValue({ where });
 
-      const res = await request(app, 'DELETE', '/api/projects/proj-1/members/user-missing');
+      const res = await request(app, 'DELETE', '/api/codespaces/proj-1/members/user-missing');
 
       expect(res.status).toBe(404);
       const json = await res.json();
@@ -532,7 +532,7 @@ describe('Project Members API Routes', () => {
       rbacService.resolveUserRole.mockResolvedValue('viewer');
       rbacService.hasMinimumRole.mockReturnValue(false);
 
-      const res = await request(app, 'DELETE', '/api/projects/proj-1/members/user-2');
+      const res = await request(app, 'DELETE', '/api/codespaces/proj-1/members/user-2');
 
       expect(res.status).toBe(403);
       const json = await res.json();
@@ -547,7 +547,7 @@ describe('Project Members API Routes', () => {
         throw new Error('DB failure');
       });
 
-      const res = await request(app, 'DELETE', '/api/projects/proj-1/members/user-2');
+      const res = await request(app, 'DELETE', '/api/codespaces/proj-1/members/user-2');
 
       expect(res.status).toBe(500);
       const json = await res.json();

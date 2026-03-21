@@ -36,7 +36,7 @@ import { createTasksRoutes } from '../../src/server/routes/tasks.js';
 
 const sampleTask: Task = {
   id: 'task-1',
-  projectId: 'proj-1',
+  codespaceId: 'proj-1',
   agentId: null,
   sessionId: null,
   worktreeId: null,
@@ -87,7 +87,7 @@ describe('Task API', () => {
     taskServiceMocks.list.mockResolvedValue(ok([sampleTask]));
 
     const response = await tasksRoute.request(
-      'http://localhost/?projectId=az2h33gpcldsq0a0wdimza6m'
+      'http://localhost/?codespaceId=az2h33gpcldsq0a0wdimza6m'
     );
 
     expect(response?.status).toBe(200);
@@ -103,7 +103,7 @@ describe('Task API', () => {
 
   it('validates list query', async () => {
     // Use an ID with special characters that isValidId rejects
-    const response = await tasksRoute.request('http://localhost/?projectId=invalid$id');
+    const response = await tasksRoute.request('http://localhost/?codespaceId=invalid$id');
 
     expect(response?.status).toBe(400);
     const data = await parseJson<{ ok: false; error: { code: string } }>(response as Response);
@@ -116,7 +116,7 @@ describe('Task API', () => {
     const response = await tasksRoute.request(
       '/',
       jsonRequest({
-        projectId: 'az2h33gpcldsq0a0wdimza6m',
+        codespaceId: 'az2h33gpcldsq0a0wdimza6m',
         title: 'Test Task',
       })
     );
@@ -132,7 +132,7 @@ describe('Task API', () => {
     const response = await tasksRoute.request(
       '/',
       jsonRequest({
-        projectId: 'az2h33gpcldsq0a0wdimza6m',
+        codespaceId: 'az2h33gpcldsq0a0wdimza6m',
         title: 'Test Task',
       })
     );

@@ -90,7 +90,7 @@ describe('ContainerAgentService.handleAgentError suppression', () => {
     // Create agent record
     await db.insert(agents).values({
       id: `agent-${task.id}`,
-      projectId: project.id,
+      codespaceId: project.id,
       name: 'Test Agent',
       type: 'task',
       status: 'planning',

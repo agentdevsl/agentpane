@@ -523,11 +523,11 @@ describe('ValidationErrors', () => {
   });
 
   it('INVALID_ID includes field detail', () => {
-    const error = ValidationErrors.INVALID_ID('projectId');
+    const error = ValidationErrors.INVALID_ID('codespaceId');
 
     expect(error.code).toBe('INVALID_ID');
     expect(error.status).toBe(400);
-    expect(error.details).toEqual({ field: 'projectId' });
+    expect(error.details).toEqual({ field: 'codespaceId' });
   });
 
   it('MISSING_REQUIRED_FIELD includes field detail', () => {

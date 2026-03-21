@@ -84,7 +84,7 @@ describe('API Client', () => {
       await apiClient.projects.create({ name: 'Test', path: '/test' });
 
       expect(global.fetch).toHaveBeenCalledWith(
-        '/api/projects',
+        '/api/codespaces',
         expect.objectContaining({
           headers: { 'Content-Type': 'application/json' },
         })
@@ -101,7 +101,7 @@ describe('API Client', () => {
       await apiClient.projects.list();
 
       expect(global.fetch).toHaveBeenCalledWith(
-        '/api/projects',
+        '/api/codespaces',
         expect.objectContaining({
           headers: undefined,
         })
@@ -116,7 +116,7 @@ describe('API Client', () => {
       await apiClient.projects.update('proj-1', { name: 'Updated' });
 
       expect(global.fetch).toHaveBeenCalledWith(
-        '/api/projects/proj-1',
+        '/api/codespaces/proj-1',
         expect.objectContaining({
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -189,7 +189,7 @@ describe('API Client', () => {
       const { apiClient } = await import('@/lib/api/client');
       await apiClient.projects.list({ limit: 10 });
 
-      expect(global.fetch).toHaveBeenCalledWith('/api/projects?limit=10', expect.any(Object));
+      expect(global.fetch).toHaveBeenCalledWith('/api/codespaces?limit=10', expect.any(Object));
     });
 
     it('builds query string for tasks list with multiple params', async () => {
@@ -200,7 +200,7 @@ describe('API Client', () => {
       await apiClient.tasks.list('proj-1', { status: 'in_progress', limit: 50 });
 
       const calledUrl = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
-      expect(calledUrl).toContain('projectId=proj-1');
+      expect(calledUrl).toContain('codespaceId=proj-1');
       expect(calledUrl).toContain('status=in_progress');
       expect(calledUrl).toContain('limit=50');
     });
@@ -211,7 +211,7 @@ describe('API Client', () => {
 
       const { apiClient } = await import('@/lib/api/client');
       await apiClient.sessions.list({
-        projectId: 'proj-1',
+        codespaceId: 'proj-1',
         limit: 20,
         offset: 10,
         status: ['active', 'closed'],
@@ -219,7 +219,7 @@ describe('API Client', () => {
       });
 
       const calledUrl = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
-      expect(calledUrl).toContain('projectId=proj-1');
+      expect(calledUrl).toContain('codespaceId=proj-1');
       expect(calledUrl).toContain('limit=20');
       expect(calledUrl).toContain('offset=10');
       expect(calledUrl).toContain('status=active%2Cclosed');
@@ -235,7 +235,7 @@ describe('API Client', () => {
       const { apiClient } = await import('@/lib/api/client');
       await apiClient.projects.list();
 
-      expect(global.fetch).toHaveBeenCalledWith('/api/projects', expect.any(Object));
+      expect(global.fetch).toHaveBeenCalledWith('/api/codespaces', expect.any(Object));
     });
 
     it('encodes special characters in URL parameters', async () => {
@@ -246,7 +246,7 @@ describe('API Client', () => {
       await apiClient.projects.update('proj/1&special', { name: 'Test' });
 
       expect(global.fetch).toHaveBeenCalledWith(
-        '/api/projects/proj%2F1%26special',
+        '/api/codespaces/proj%2F1%26special',
         expect.any(Object)
       );
     });
@@ -373,7 +373,7 @@ describe('API Client', () => {
       global.fetch = vi.fn().mockResolvedValue(mockResponse);
 
       const { apiClient } = await import('@/lib/api/client');
-      await apiClient.worktrees.list({ projectId: 'proj-1' });
+      await apiClient.worktrees.list({ codespaceId: 'proj-1' });
 
       // Since the client doesn't expose signal parameter directly for all methods,
       // we verify it handles abort errors properly when they occur
@@ -499,7 +499,7 @@ describe('API Client', () => {
       await apiClient.projects.list();
 
       expect(global.fetch).toHaveBeenCalledWith(
-        '/api/projects',
+        '/api/codespaces',
         expect.objectContaining({ method: 'GET' })
       );
     });
@@ -514,7 +514,7 @@ describe('API Client', () => {
       await apiClient.projects.listWithSummaries({ limit: 5 });
 
       expect(global.fetch).toHaveBeenCalledWith(
-        '/api/projects/summaries?limit=5',
+        '/api/codespaces/summaries?limit=5',
         expect.any(Object)
       );
     });
@@ -527,7 +527,7 @@ describe('API Client', () => {
       await apiClient.projects.get('proj-1');
 
       expect(global.fetch).toHaveBeenCalledWith(
-        '/api/projects/proj-1',
+        '/api/codespaces/proj-1',
         expect.objectContaining({ method: 'GET' })
       );
     });
@@ -545,7 +545,7 @@ describe('API Client', () => {
       });
 
       expect(global.fetch).toHaveBeenCalledWith(
-        '/api/projects',
+        '/api/codespaces',
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({
@@ -569,7 +569,7 @@ describe('API Client', () => {
       });
 
       expect(global.fetch).toHaveBeenCalledWith(
-        '/api/projects/proj-1',
+        '/api/codespaces/proj-1',
         expect.objectContaining({
           method: 'PATCH',
           body: JSON.stringify({ name: 'Updated Name', maxConcurrentAgents: 5 }),
@@ -585,7 +585,7 @@ describe('API Client', () => {
       await apiClient.projects.delete('proj-1');
 
       expect(global.fetch).toHaveBeenCalledWith(
-        '/api/projects/proj-1',
+        '/api/codespaces/proj-1',
         expect.objectContaining({ method: 'DELETE' })
       );
     });
@@ -595,7 +595,7 @@ describe('API Client', () => {
   // API METHODS - Tasks
   // ============================================================================
   describe('API Methods - Tasks', () => {
-    it('tasks.list calls endpoint with projectId', async () => {
+    it('tasks.list calls endpoint with codespaceId', async () => {
       const mockResponse = createMockResponse(successResponse({ items: [], totalCount: 0 }));
       global.fetch = vi.fn().mockResolvedValue(mockResponse);
 
@@ -604,7 +604,7 @@ describe('API Client', () => {
 
       const calledUrl = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
       expect(calledUrl).toContain('/api/tasks');
-      expect(calledUrl).toContain('projectId=proj-1');
+      expect(calledUrl).toContain('codespaceId=proj-1');
     });
 
     it('tasks.get calls endpoint with task id', async () => {
@@ -619,13 +619,13 @@ describe('API Client', () => {
 
     it('tasks.create sends POST with task data', async () => {
       const mockResponse = createMockResponse(
-        successResponse({ taskId: 'task-new', title: 'New Task', projectId: 'proj-1' })
+        successResponse({ taskId: 'task-new', title: 'New Task', codespaceId: 'proj-1' })
       );
       global.fetch = vi.fn().mockResolvedValue(mockResponse);
 
       const { apiClient } = await import('@/lib/api/client');
       await apiClient.tasks.create({
-        projectId: 'proj-1',
+        codespaceId: 'proj-1',
         title: 'New Task',
         description: 'Description',
         labels: ['bug', 'urgent'],
@@ -637,7 +637,7 @@ describe('API Client', () => {
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({
-            projectId: 'proj-1',
+            codespaceId: 'proj-1',
             title: 'New Task',
             description: 'Description',
             labels: ['bug', 'urgent'],
@@ -657,11 +657,11 @@ describe('API Client', () => {
       global.fetch = vi.fn().mockResolvedValue(mockResponse);
 
       const { apiClient } = await import('@/lib/api/client');
-      await apiClient.agents.list({ projectId: 'proj-1', status: 'running' });
+      await apiClient.agents.list({ codespaceId: 'proj-1', status: 'running' });
 
       const calledUrl = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
       expect(calledUrl).toContain('/api/agents');
-      expect(calledUrl).toContain('projectId=proj-1');
+      expect(calledUrl).toContain('codespaceId=proj-1');
       expect(calledUrl).toContain('status=running');
     });
 
@@ -686,7 +686,7 @@ describe('API Client', () => {
 
       const { apiClient } = await import('@/lib/api/client');
       await apiClient.sessions.list({
-        projectId: 'proj-1',
+        codespaceId: 'proj-1',
         agentId: 'agent-1',
         taskId: 'task-1',
         dateFrom: '2024-01-01',
@@ -694,7 +694,7 @@ describe('API Client', () => {
       });
 
       const calledUrl = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
-      expect(calledUrl).toContain('projectId=proj-1');
+      expect(calledUrl).toContain('codespaceId=proj-1');
       expect(calledUrl).toContain('agentId=agent-1');
       expect(calledUrl).toContain('taskId=task-1');
       expect(calledUrl).toContain('dateFrom=2024-01-01');
@@ -768,15 +768,15 @@ describe('API Client', () => {
   // API METHODS - Worktrees
   // ============================================================================
   describe('API Methods - Worktrees', () => {
-    it('worktrees.list calls endpoint with projectId', async () => {
+    it('worktrees.list calls endpoint with codespaceId', async () => {
       const mockResponse = createMockResponse(successResponse({ items: [], totalCount: 0 }));
       global.fetch = vi.fn().mockResolvedValue(mockResponse);
 
       const { apiClient } = await import('@/lib/api/client');
-      await apiClient.worktrees.list({ projectId: 'proj-1' });
+      await apiClient.worktrees.list({ codespaceId: 'proj-1' });
 
       expect(global.fetch).toHaveBeenCalledWith(
-        '/api/worktrees?projectId=proj-1',
+        '/api/worktrees?codespaceId=proj-1',
         expect.any(Object)
       );
     });
@@ -799,7 +799,7 @@ describe('API Client', () => {
 
       const { apiClient } = await import('@/lib/api/client');
       await apiClient.worktrees.create({
-        projectId: 'proj-1',
+        codespaceId: 'proj-1',
         taskId: 'task-1',
         baseBranch: 'main',
       });
@@ -808,7 +808,7 @@ describe('API Client', () => {
         '/api/worktrees',
         expect.objectContaining({
           method: 'POST',
-          body: JSON.stringify({ projectId: 'proj-1', taskId: 'task-1', baseBranch: 'main' }),
+          body: JSON.stringify({ codespaceId: 'proj-1', taskId: 'task-1', baseBranch: 'main' }),
         })
       );
     });
@@ -880,7 +880,7 @@ describe('API Client', () => {
       expect(global.fetch).toHaveBeenCalledWith('/api/worktrees/wt-1/diff', expect.any(Object));
     });
 
-    it('worktrees.prune sends POST with projectId', async () => {
+    it('worktrees.prune sends POST with codespaceId', async () => {
       const mockResponse = createMockResponse(successResponse({ pruned: 3, failed: [] }));
       global.fetch = vi.fn().mockResolvedValue(mockResponse);
 
@@ -891,7 +891,7 @@ describe('API Client', () => {
         '/api/worktrees/prune',
         expect.objectContaining({
           method: 'POST',
-          body: JSON.stringify({ projectId: 'proj-1' }),
+          body: JSON.stringify({ codespaceId: 'proj-1' }),
         })
       );
     });
@@ -901,7 +901,7 @@ describe('API Client', () => {
   // API METHODS - Git
   // ============================================================================
   describe('API Methods - Git', () => {
-    it('git.status calls endpoint with projectId', async () => {
+    it('git.status calls endpoint with codespaceId', async () => {
       const mockResponse = createMockResponse(
         successResponse({ repoName: 'test', currentBranch: 'main', status: 'clean' })
       );
@@ -911,12 +911,12 @@ describe('API Client', () => {
       await apiClient.git.status('proj-1');
 
       expect(global.fetch).toHaveBeenCalledWith(
-        '/api/git/status?projectId=proj-1',
+        '/api/git/status?codespaceId=proj-1',
         expect.any(Object)
       );
     });
 
-    it('git.branches calls endpoint with projectId', async () => {
+    it('git.branches calls endpoint with codespaceId', async () => {
       const mockResponse = createMockResponse(successResponse({ items: [] }));
       global.fetch = vi.fn().mockResolvedValue(mockResponse);
 
@@ -924,7 +924,7 @@ describe('API Client', () => {
       await apiClient.git.branches('proj-1');
 
       expect(global.fetch).toHaveBeenCalledWith(
-        '/api/git/branches?projectId=proj-1',
+        '/api/git/branches?codespaceId=proj-1',
         expect.any(Object)
       );
     });
@@ -938,12 +938,12 @@ describe('API Client', () => {
 
       const calledUrl = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
       expect(calledUrl).toContain('/api/git/commits');
-      expect(calledUrl).toContain('projectId=proj-1');
+      expect(calledUrl).toContain('codespaceId=proj-1');
       expect(calledUrl).toContain('branch=feature');
       expect(calledUrl).toContain('limit=10');
     });
 
-    it('git.remoteBranches calls endpoint with projectId', async () => {
+    it('git.remoteBranches calls endpoint with codespaceId', async () => {
       const mockResponse = createMockResponse(successResponse({ items: [] }));
       global.fetch = vi.fn().mockResolvedValue(mockResponse);
 
@@ -951,7 +951,7 @@ describe('API Client', () => {
       await apiClient.git.remoteBranches('proj-1');
 
       expect(global.fetch).toHaveBeenCalledWith(
-        '/api/git/remote-branches?projectId=proj-1',
+        '/api/git/remote-branches?codespaceId=proj-1',
         expect.any(Object)
       );
     });
@@ -1272,7 +1272,7 @@ describe('API Client', () => {
 
       const { apiClient } = await import('@/lib/api/client');
       await apiClient.plans.start('task-1', {
-        projectId: 'proj-1',
+        codespaceId: 'proj-1',
         initialPrompt: 'Create a new feature',
       });
 
@@ -1280,7 +1280,7 @@ describe('API Client', () => {
         '/api/plans/task-1/start',
         expect.objectContaining({
           method: 'POST',
-          body: JSON.stringify({ projectId: 'proj-1', initialPrompt: 'Create a new feature' }),
+          body: JSON.stringify({ codespaceId: 'proj-1', initialPrompt: 'Create a new feature' }),
         })
       );
     });
@@ -1322,9 +1322,9 @@ describe('API Client', () => {
   // API METHODS - Task Creation
   // ============================================================================
   describe('API Methods - Task Creation', () => {
-    it('taskCreation.start sends POST with projectId', async () => {
+    it('taskCreation.start sends POST with codespaceId', async () => {
       const mockResponse = createMockResponse(
-        successResponse({ sessionId: 'tc-1', projectId: 'proj-1', status: 'active' })
+        successResponse({ sessionId: 'tc-1', codespaceId: 'proj-1', status: 'active' })
       );
       global.fetch = vi.fn().mockResolvedValue(mockResponse);
 
@@ -1335,7 +1335,7 @@ describe('API Client', () => {
         '/api/tasks/create-with-ai/start',
         expect.objectContaining({
           method: 'POST',
-          body: JSON.stringify({ projectId: 'proj-1' }),
+          body: JSON.stringify({ codespaceId: 'proj-1' }),
         })
       );
     });
@@ -1552,7 +1552,7 @@ describe('API Client', () => {
       const { apiClient } = await import('@/lib/api/client');
       await apiClient.projects.update('proj/1', { name: 'Test' });
 
-      expect(global.fetch).toHaveBeenCalledWith('/api/projects/proj%2F1', expect.any(Object));
+      expect(global.fetch).toHaveBeenCalledWith('/api/codespaces/proj%2F1', expect.any(Object));
     });
 
     it('encodes special characters in worktree id', async () => {

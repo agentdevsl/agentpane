@@ -49,30 +49,30 @@ describe('Project API Handlers', () => {
     });
   });
 
-  describe('GET /api/projects - List Projects', () => {
-    it('returns empty list when no projects exist', async () => {
+  describe('GET /api/codespaces - List Projects', () => {
+    it('returns empty list when no codespaces exist', async () => {
       const db = getTestDb();
-      const { projects } = await import('@/db/schema');
+      const { codespaces } = await import('@/db/schema');
 
       // Clear the test project we just created
-      await db.delete(projects);
+      await db.delete(codespaces);
 
       // Query empty database
-      const items = await db.query.projects.findMany();
+      const items = await db.query.codespaces.findMany();
       expect(items).toHaveLength(0);
     });
 
-    it('returns projects ordered by updatedAt descending', async () => {
+    it('returns codespaces ordered by updatedAt descending', async () => {
       const db = getTestDb();
-      const { projects } = await import('@/db/schema');
+      const { codespaces } = await import('@/db/schema');
       const { desc } = await import('drizzle-orm');
 
-      // Create additional projects
+      // Create additional codespaces
       await createTestProject({ name: 'Project 2' });
       await createTestProject({ name: 'Project 3' });
 
-      const items = await db.query.projects.findMany({
-        orderBy: [desc(projects.updatedAt)],
+      const items = await db.query.codespaces.findMany({
+        orderBy: [desc(codespaces.updatedAt)],
         limit: 24,
       });
 
@@ -81,16 +81,16 @@ describe('Project API Handlers', () => {
 
     it('respects limit parameter', async () => {
       const db = getTestDb();
-      const { projects } = await import('@/db/schema');
+      const { codespaces } = await import('@/db/schema');
       const { desc } = await import('drizzle-orm');
 
-      // Create several projects
+      // Create several codespaces
       for (let i = 0; i < 5; i++) {
         await createTestProject({ name: `Project ${i}` });
       }
 
-      const items = await db.query.projects.findMany({
-        orderBy: [desc(projects.updatedAt)],
+      const items = await db.query.codespaces.findMany({
+        orderBy: [desc(codespaces.updatedAt)],
         limit: 2,
       });
 
@@ -98,10 +98,10 @@ describe('Project API Handlers', () => {
     });
   });
 
-  describe('POST /api/projects - Create Project', () => {
+  describe('POST /api/codespaces - Create Project', () => {
     it('creates a project with valid data', async () => {
       const db = getTestDb();
-      const { projects } = await import('@/db/schema');
+      const { codespaces } = await import('@/db/schema');
 
       const newProjectData = {
         name: 'New Project',
@@ -109,7 +109,7 @@ describe('Project API Handlers', () => {
         description: 'A brand new project',
       };
 
-      const [created] = await db.insert(projects).values(newProjectData).returning();
+      const [created] = await db.insert(codespaces).values(newProjectData).returning();
 
       expect(created).toBeDefined();
       expect(created?.name).toBe('New Project');
@@ -132,12 +132,12 @@ describe('Project API Handlers', () => {
 
     it('rejects duplicate project paths', async () => {
       const db = getTestDb();
-      const { projects } = await import('@/db/schema');
+      const { codespaces } = await import('@/db/schema');
       const { eq } = await import('drizzle-orm');
 
       // Check if project with same path exists
-      const existing = await db.query.projects.findFirst({
-        where: eq(projects.path, testProject.path),
+      const existing = await db.query.codespaces.findFirst({
+        where: eq(codespaces.path, testProject.path),
       });
 
       expect(existing).toBeDefined();
@@ -145,14 +145,14 @@ describe('Project API Handlers', () => {
     });
   });
 
-  describe('GET /api/projects/:id - Get Project', () => {
+  describe('GET /api/codespaces/:id - Get Project', () => {
     it('returns project by id', async () => {
       const db = getTestDb();
-      const { projects } = await import('@/db/schema');
+      const { codespaces } = await import('@/db/schema');
       const { eq } = await import('drizzle-orm');
 
-      const project = await db.query.projects.findFirst({
-        where: eq(projects.id, testProject.id),
+      const project = await db.query.codespaces.findFirst({
+        where: eq(codespaces.id, testProject.id),
       });
 
       expect(project).toBeDefined();
@@ -162,27 +162,27 @@ describe('Project API Handlers', () => {
 
     it('returns undefined for non-existent project', async () => {
       const db = getTestDb();
-      const { projects } = await import('@/db/schema');
+      const { codespaces } = await import('@/db/schema');
       const { eq } = await import('drizzle-orm');
 
-      const project = await db.query.projects.findFirst({
-        where: eq(projects.id, 'non-existent-id'),
+      const project = await db.query.codespaces.findFirst({
+        where: eq(codespaces.id, 'non-existent-id'),
       });
 
       expect(project).toBeUndefined();
     });
   });
 
-  describe('PATCH /api/projects/:id - Update Project', () => {
+  describe('PATCH /api/codespaces/:id - Update Project', () => {
     it('updates project name', async () => {
       const db = getTestDb();
-      const { projects } = await import('@/db/schema');
+      const { codespaces } = await import('@/db/schema');
       const { eq } = await import('drizzle-orm');
 
       const [updated] = await db
-        .update(projects)
+        .update(codespaces)
         .set({ name: 'Updated Name' })
-        .where(eq(projects.id, testProject.id))
+        .where(eq(codespaces.id, testProject.id))
         .returning();
 
       expect(updated?.name).toBe('Updated Name');
@@ -190,13 +190,13 @@ describe('Project API Handlers', () => {
 
     it('updates project description', async () => {
       const db = getTestDb();
-      const { projects } = await import('@/db/schema');
+      const { codespaces } = await import('@/db/schema');
       const { eq } = await import('drizzle-orm');
 
       const [updated] = await db
-        .update(projects)
+        .update(codespaces)
         .set({ description: 'New description' })
-        .where(eq(projects.id, testProject.id))
+        .where(eq(codespaces.id, testProject.id))
         .returning();
 
       expect(updated?.description).toBe('New description');
@@ -204,23 +204,23 @@ describe('Project API Handlers', () => {
 
     it('returns nothing when project not found', async () => {
       const db = getTestDb();
-      const { projects } = await import('@/db/schema');
+      const { codespaces } = await import('@/db/schema');
       const { eq } = await import('drizzle-orm');
 
       const result = await db
-        .update(projects)
+        .update(codespaces)
         .set({ name: 'Updated' })
-        .where(eq(projects.id, 'non-existent'))
+        .where(eq(codespaces.id, 'non-existent'))
         .returning();
 
       expect(result).toHaveLength(0);
     });
   });
 
-  describe('DELETE /api/projects/:id - Delete Project', () => {
+  describe('DELETE /api/codespaces/:id - Delete Project', () => {
     it('deletes project without running agents', async () => {
       const db = getTestDb();
-      const { projects, tasks, agents } = await import('@/db/schema');
+      const { codespaces, tasks, agents } = await import('@/db/schema');
       const { eq, and } = await import('drizzle-orm');
 
       // Create project with no agents
@@ -228,18 +228,18 @@ describe('Project API Handlers', () => {
 
       // Verify no running agents
       const runningAgents = await db.query.agents.findMany({
-        where: and(eq(agents.projectId, projectToDelete.id), eq(agents.status, 'running')),
+        where: and(eq(agents.codespaceId, projectToDelete.id), eq(agents.status, 'running')),
       });
       expect(runningAgents).toHaveLength(0);
 
       // Delete tasks and project
-      await db.delete(tasks).where(eq(tasks.projectId, projectToDelete.id));
-      await db.delete(agents).where(eq(agents.projectId, projectToDelete.id));
-      await db.delete(projects).where(eq(projects.id, projectToDelete.id));
+      await db.delete(tasks).where(eq(tasks.codespaceId, projectToDelete.id));
+      await db.delete(agents).where(eq(agents.codespaceId, projectToDelete.id));
+      await db.delete(codespaces).where(eq(codespaces.id, projectToDelete.id));
 
       // Verify deletion
-      const deleted = await db.query.projects.findFirst({
-        where: eq(projects.id, projectToDelete.id),
+      const deleted = await db.query.codespaces.findFirst({
+        where: eq(codespaces.id, projectToDelete.id),
       });
       expect(deleted).toBeUndefined();
     });
@@ -256,7 +256,7 @@ describe('Project API Handlers', () => {
 
       // Check for running agents
       const runningAgents = await db.query.agents.findMany({
-        where: and(eq(agents.projectId, testProject.id), eq(agents.status, 'running')),
+        where: and(eq(agents.codespaceId, testProject.id), eq(agents.status, 'running')),
       });
 
       expect(runningAgents.length).toBeGreaterThan(0);
@@ -288,7 +288,7 @@ describe('Task API Handlers', () => {
       const { eq } = await import('drizzle-orm');
 
       const projectTasks = await db.query.tasks.findMany({
-        where: eq(tasks.projectId, testProject.id),
+        where: eq(tasks.codespaceId, testProject.id),
       });
 
       expect(projectTasks.length).toBeGreaterThanOrEqual(1);
@@ -308,17 +308,17 @@ describe('Task API Handlers', () => {
       });
 
       const backlogTasks = await db.query.tasks.findMany({
-        where: and(eq(tasks.projectId, testProject.id), eq(tasks.column, 'backlog')),
+        where: and(eq(tasks.codespaceId, testProject.id), eq(tasks.column, 'backlog')),
       });
 
       // Original task + 2 new backlog tasks
       expect(backlogTasks.length).toBeGreaterThanOrEqual(3);
     });
 
-    it('requires projectId parameter', async () => {
-      // Validation check - projectId is required
-      const projectId = null;
-      const isValid = projectId !== null && projectId !== undefined;
+    it('requires codespaceId parameter', async () => {
+      // Validation check - codespaceId is required
+      const codespaceId = null;
+      const isValid = codespaceId !== null && codespaceId !== undefined;
       expect(isValid).toBe(false);
     });
   });
@@ -331,7 +331,7 @@ describe('Task API Handlers', () => {
       const [created] = await db
         .insert(tasks)
         .values({
-          projectId: testProject.id,
+          codespaceId: testProject.id,
           title: 'New Task',
           description: 'Task description',
           column: 'backlog',
@@ -347,14 +347,14 @@ describe('Task API Handlers', () => {
     });
 
     it('fails when title is missing', async () => {
-      const body = { projectId: testProject.id };
+      const body = { codespaceId: testProject.id };
       const isValid = body && 'title' in body && body.title;
       expect(isValid).toBeFalsy();
     });
 
-    it('fails when projectId is missing', async () => {
+    it('fails when codespaceId is missing', async () => {
       const body = { title: 'Task' };
-      const isValid = body && 'projectId' in body && body.projectId;
+      const isValid = body && 'codespaceId' in body && body.codespaceId;
       expect(isValid).toBeFalsy();
     });
   });
@@ -505,16 +505,16 @@ describe('Agent API Handlers', () => {
       const { eq } = await import('drizzle-orm');
 
       const projectAgents = await db.query.agents.findMany({
-        where: eq(agents.projectId, testProject.id),
+        where: eq(agents.codespaceId, testProject.id),
       });
 
       expect(projectAgents.length).toBeGreaterThanOrEqual(1);
       expect(projectAgents.some((a) => a.id === testAgent.id)).toBe(true);
     });
 
-    it('requires projectId parameter', async () => {
-      const projectId = null;
-      const isValid = projectId !== null && projectId !== undefined;
+    it('requires codespaceId parameter', async () => {
+      const codespaceId = null;
+      const isValid = codespaceId !== null && codespaceId !== undefined;
       expect(isValid).toBe(false);
     });
   });
@@ -527,7 +527,7 @@ describe('Agent API Handlers', () => {
       const [created] = await db
         .insert(agents)
         .values({
-          projectId: testProject.id,
+          codespaceId: testProject.id,
           name: 'New Agent',
           type: 'task',
           status: 'idle',
@@ -542,9 +542,9 @@ describe('Agent API Handlers', () => {
       expect(created?.status).toBe('idle');
     });
 
-    it('fails when projectId is missing', async () => {
+    it('fails when codespaceId is missing', async () => {
       const body = { name: 'Agent', type: 'task' };
-      const isValid = body && 'projectId' in body && body.projectId;
+      const isValid = body && 'codespaceId' in body && body.codespaceId;
       expect(isValid).toBeFalsy();
     });
   });
@@ -749,7 +749,7 @@ describe('Session API Handlers', () => {
       const [created] = await db
         .insert(sessions)
         .values({
-          projectId: testProject.id,
+          codespaceId: testProject.id,
           title: 'New Session',
           status: 'active',
           url: 'http://localhost:3000/sessions/new',
@@ -771,7 +771,7 @@ describe('Session API Handlers', () => {
       const [created] = await db
         .insert(sessions)
         .values({
-          projectId: testProject.id,
+          codespaceId: testProject.id,
           taskId: task.id,
           agentId: agent.id,
           title: 'Task Session',

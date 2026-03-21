@@ -74,7 +74,7 @@ import {
  * ```typescript
  * const scenario = createTaskServiceScenario();
  * const result = await scenario.service.create({
- *   projectId: 'proj-1',
+ *   codespaceId: 'proj-1',
  *   title: 'Build feature',
  * });
  * expect(result.ok).toBe(true);
@@ -121,7 +121,7 @@ export function createTaskServiceScenario(overrides?: {
 
   const defaultTask = {
     id: 'task-1',
-    projectId: 'proj-1',
+    codespaceId: 'proj-1',
     title: 'Test Task',
     description: '',
     column: 'backlog',
@@ -221,7 +221,7 @@ export function createAgentServiceScenario(overrides?: {
 
   const defaultAgent = {
     id: 'agent-1',
-    projectId: 'proj-1',
+    codespaceId: 'proj-1',
     name: 'Test Agent',
     type: 'task',
     status: 'idle',
@@ -237,7 +237,7 @@ export function createAgentServiceScenario(overrides?: {
 
   const defaultTask = {
     id: 'task-1',
-    projectId: 'proj-1',
+    codespaceId: 'proj-1',
     title: 'Test Task',
     description: 'Test description',
     column: 'backlog',
@@ -253,7 +253,7 @@ export function createAgentServiceScenario(overrides?: {
 
   const defaultSession = {
     id: 'session-1',
-    projectId: 'proj-1',
+    codespaceId: 'proj-1',
     taskId: null,
     agentId: null,
     title: 'Test Session',
@@ -265,7 +265,7 @@ export function createAgentServiceScenario(overrides?: {
 
   const defaultWorktree = {
     id: 'wt-1',
-    projectId: 'proj-1',
+    codespaceId: 'proj-1',
     branch: 'task-1',
     path: '/projects/test/.worktrees/task-1',
     status: 'active',
@@ -411,7 +411,7 @@ export function createProjectServiceScenario(overrides?: {
  * @example
  * ```typescript
  * const scenario = createSessionServiceScenario();
- * const result = await scenario.service.create({ projectId: 'proj-1' });
+ * const result = await scenario.service.create({ codespaceId: 'proj-1' });
  * expect(result.ok).toBe(true);
  * ```
  */
@@ -441,7 +441,7 @@ export function createSessionServiceScenario(overrides?: {
 
   const defaultSession = {
     id: 'session-1',
-    projectId: 'proj-1',
+    codespaceId: 'proj-1',
     taskId: null,
     agentId: null,
     title: 'Test Session',
@@ -500,7 +500,7 @@ export function createSessionServiceScenario(overrides?: {
  * ```typescript
  * const scenario = createContainerAgentScenario();
  * const result = await scenario.service.startAgent({
- *   projectId: 'proj-1',
+ *   codespaceId: 'proj-1',
  *   taskId: 'task-1',
  *   sessionId: 'session-1',
  *   prompt: 'Build a feature',
@@ -540,7 +540,7 @@ export function createContainerAgentScenario(overrides?: {
 
   const defaultAgent = {
     id: 'agent-1',
-    projectId: 'proj-1',
+    codespaceId: 'proj-1',
     name: 'Test Agent',
     type: 'task',
     status: 'idle',
@@ -556,7 +556,7 @@ export function createContainerAgentScenario(overrides?: {
 
   const defaultTask = {
     id: 'task-1',
-    projectId: 'proj-1',
+    codespaceId: 'proj-1',
     title: 'Test Task',
     description: 'Test description',
     column: 'backlog',
@@ -575,7 +575,7 @@ export function createContainerAgentScenario(overrides?: {
 
   const defaultSession = {
     id: 'session-1',
-    projectId: 'proj-1',
+    codespaceId: 'proj-1',
     taskId: null,
     agentId: null,
     title: 'Test Session',
@@ -587,7 +587,7 @@ export function createContainerAgentScenario(overrides?: {
 
   const defaultWorktree = {
     id: 'wt-1',
-    projectId: 'proj-1',
+    codespaceId: 'proj-1',
     branch: 'task-1',
     path: '/projects/test/.worktrees/task-1',
     status: 'active',
@@ -619,7 +619,7 @@ export function createContainerAgentScenario(overrides?: {
   // Create sandbox with running status
   const sandbox = createMockSandbox({
     id: 'sandbox-1',
-    projectId: 'proj-1',
+    codespaceId: 'proj-1',
     status: 'running',
   });
 
@@ -680,7 +680,7 @@ export function createContainerAgentScenario(overrides?: {
  *
  * // Create task via TaskService
  * const taskResult = await stack.taskService.create({
- *   projectId: stack.project.id,
+ *   codespaceId: stack.project.id,
  *   title: 'Build feature',
  * });
  *
@@ -732,7 +732,7 @@ export function createFullStackScenario(): {
 
   const defaultAgent = {
     id: 'agent-1',
-    projectId: 'proj-1',
+    codespaceId: 'proj-1',
     name: 'Test Agent',
     type: 'task' as const,
     status: 'idle' as const,
@@ -748,7 +748,7 @@ export function createFullStackScenario(): {
 
   const defaultTask = {
     id: 'task-1',
-    projectId: 'proj-1',
+    codespaceId: 'proj-1',
     title: 'Test Task',
     description: 'Test description',
     column: 'backlog' as const,
@@ -767,7 +767,7 @@ export function createFullStackScenario(): {
 
   const defaultSession = {
     id: 'session-1',
-    projectId: 'proj-1',
+    codespaceId: 'proj-1',
     taskId: null,
     agentId: null,
     title: 'Test Session',
@@ -779,7 +779,7 @@ export function createFullStackScenario(): {
 
   const defaultWorktree = {
     id: 'wt-1',
-    projectId: 'proj-1',
+    codespaceId: 'proj-1',
     branch: 'task-1',
     path: '/projects/test/.worktrees/task-1',
     status: 'active' as const,
@@ -811,7 +811,7 @@ export function createFullStackScenario(): {
   const streams = createMockDurableStreamsServer();
   const sandbox = createMockSandbox({
     id: 'sandbox-1',
-    projectId: 'proj-1',
+    codespaceId: 'proj-1',
     status: 'running',
   });
   const provider = createMockSandboxProvider({
@@ -944,7 +944,7 @@ export type ErrorType =
  * ```typescript
  * const scenario = createErrorScenario('containerAgent', 'api_key_missing');
  * const result = await scenario.service.startAgent({
- *   projectId: 'proj-1',
+ *   codespaceId: 'proj-1',
  *   taskId: 'task-1',
  *   sessionId: 'session-1',
  *   prompt: 'Build feature',
@@ -1076,7 +1076,7 @@ export function createConcurrencyScenario(taskCount = 3): {
   // Create multiple tasks
   const tasks = Array.from({ length: taskCount }, (_, i) => ({
     id: `task-${i + 1}`,
-    projectId: 'proj-1',
+    codespaceId: 'proj-1',
     title: `Task ${i + 1}`,
     description: '',
     column: 'backlog' as const,
@@ -1107,7 +1107,7 @@ export function createConcurrencyScenario(taskCount = 3): {
 
   const defaultAgent = {
     id: 'agent-1',
-    projectId: 'proj-1',
+    codespaceId: 'proj-1',
     name: 'Test Agent',
     type: 'task' as const,
     status: 'idle' as const,

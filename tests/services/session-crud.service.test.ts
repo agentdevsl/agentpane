@@ -44,13 +44,13 @@ describe('SessionCrudService', () => {
       const project = await createTestProject();
 
       const result = await service.create({
-        projectId: project.id,
+        codespaceId: project.id,
         title: 'Test Session',
       });
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value.projectId).toBe(project.id);
+        expect(result.value.codespaceId).toBe(project.id);
         expect(result.value.title).toBe('Test Session');
         expect(result.value.status).toBe('active');
         expect(result.value.url).toContain('http://localhost:3001/sessions/');
@@ -64,7 +64,7 @@ describe('SessionCrudService', () => {
       const service = createService(mockStreams);
       const project = await createTestProject();
 
-      const result = await service.create({ projectId: project.id });
+      const result = await service.create({ codespaceId: project.id });
       expect(result.ok).toBe(true);
       expect(mockStreams.createStream).toHaveBeenCalledTimes(1);
     });
@@ -73,7 +73,7 @@ describe('SessionCrudService', () => {
       const service = createService();
 
       const result = await service.create({
-        projectId: 'nonexistent-project-id',
+        codespaceId: 'nonexistent-project-id',
       });
 
       expect(result.ok).toBe(false);
@@ -88,7 +88,7 @@ describe('SessionCrudService', () => {
       const agent = await createTestAgent(project.id, { name: 'Session Agent' });
 
       const result = await service.create({
-        projectId: project.id,
+        codespaceId: project.id,
         agentId: agent.id,
         title: 'Agent Session',
       });
@@ -107,7 +107,7 @@ describe('SessionCrudService', () => {
       const service = createService(undefined, presenceStore);
       const project = await createTestProject();
 
-      const createResult = await service.create({ projectId: project.id, title: 'Get Me' });
+      const createResult = await service.create({ codespaceId: project.id, title: 'Get Me' });
       expect(createResult.ok).toBe(true);
       if (!createResult.ok) return;
 
@@ -147,9 +147,9 @@ describe('SessionCrudService', () => {
       const service = createService();
       const project = await createTestProject();
 
-      await service.create({ projectId: project.id, title: 'Session 1' });
-      await service.create({ projectId: project.id, title: 'Session 2' });
-      await service.create({ projectId: project.id, title: 'Session 3' });
+      await service.create({ codespaceId: project.id, title: 'Session 1' });
+      await service.create({ codespaceId: project.id, title: 'Session 2' });
+      await service.create({ codespaceId: project.id, title: 'Session 3' });
 
       const result = await service.list();
       expect(result.ok).toBe(true);
@@ -167,7 +167,7 @@ describe('SessionCrudService', () => {
       const project = await createTestProject();
 
       for (let i = 0; i < 5; i++) {
-        await service.create({ projectId: project.id, title: `Session ${i}` });
+        await service.create({ codespaceId: project.id, title: `Session ${i}` });
       }
 
       const result = await service.list({ limit: 2, offset: 1 });
@@ -193,7 +193,7 @@ describe('SessionCrudService', () => {
       const service = createService();
       const project = await createTestProject();
 
-      const createResult = await service.create({ projectId: project.id, title: 'To Close' });
+      const createResult = await service.create({ codespaceId: project.id, title: 'To Close' });
       expect(createResult.ok).toBe(true);
       if (!createResult.ok) return;
 
@@ -217,13 +217,13 @@ describe('SessionCrudService', () => {
   });
 
   describe('listSessionsWithFilters', () => {
-    it('filters sessions by projectId', async () => {
+    it('filters sessions by codespaceId', async () => {
       const service = createService();
       const project1 = await createTestProject({ name: 'Filter P1' });
       const project2 = await createTestProject({ name: 'Filter P2' });
 
-      await service.create({ projectId: project1.id, title: 'P1 Session' });
-      await service.create({ projectId: project2.id, title: 'P2 Session' });
+      await service.create({ codespaceId: project1.id, title: 'P1 Session' });
+      await service.create({ codespaceId: project2.id, title: 'P2 Session' });
 
       const result = await service.listSessionsWithFilters(project1.id);
       expect(result.ok).toBe(true);
@@ -238,9 +238,9 @@ describe('SessionCrudService', () => {
       const service = createService();
       const project = await createTestProject();
 
-      await service.create({ projectId: project.id, title: 'Bug fix session' });
-      await service.create({ projectId: project.id, title: 'Feature session' });
-      await service.create({ projectId: project.id, title: 'Another bug fix' });
+      await service.create({ codespaceId: project.id, title: 'Bug fix session' });
+      await service.create({ codespaceId: project.id, title: 'Feature session' });
+      await service.create({ codespaceId: project.id, title: 'Another bug fix' });
 
       const result = await service.listSessionsWithFilters(project.id, {
         search: 'bug',
@@ -263,12 +263,12 @@ describe('SessionCrudService', () => {
       const agentB = await createTestAgent(project.id, { name: 'Agent B' });
 
       await service.create({
-        projectId: project.id,
+        codespaceId: project.id,
         title: 'Agent A Session',
         agentId: agentA.id,
       });
       await service.create({
-        projectId: project.id,
+        codespaceId: project.id,
         title: 'Agent B Session',
         agentId: agentB.id,
       });
@@ -289,7 +289,7 @@ describe('SessionCrudService', () => {
       const project = await createTestProject();
 
       for (let i = 0; i < 5; i++) {
-        await service.create({ projectId: project.id, title: `Session ${i}` });
+        await service.create({ codespaceId: project.id, title: `Session ${i}` });
       }
 
       const result = await service.listSessionsWithFilters(project.id, {
@@ -358,7 +358,7 @@ describe('SessionCrudService', () => {
       const service = createService(undefined, presenceStore);
       const project = await createTestProject();
 
-      const createResult = await service.create({ projectId: project.id, title: 'To Delete' });
+      const createResult = await service.create({ codespaceId: project.id, title: 'To Delete' });
       expect(createResult.ok).toBe(true);
       if (!createResult.ok) return;
 

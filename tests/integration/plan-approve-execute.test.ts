@@ -58,7 +58,7 @@ describe('Plan → Approve → Execute Flow', () => {
     const bridge = createContainerBridge({
       taskId: TASK_ID,
       sessionId: SESSION_ID,
-      projectId: PROJECT_ID,
+      codespaceId: PROJECT_ID,
       streams,
       onComplete,
       onError,
@@ -102,7 +102,7 @@ describe('Plan → Approve → Execute Flow', () => {
     const bridge = createContainerBridge({
       taskId: TASK_ID,
       sessionId: SESSION_ID,
-      projectId: PROJECT_ID,
+      codespaceId: PROJECT_ID,
       streams,
       onError,
       onPlanReady,
@@ -242,7 +242,7 @@ describe('Plan → Approve → Execute Flow', () => {
     const bridge = createContainerBridge({
       taskId: TASK_ID,
       sessionId: SESSION_ID,
-      projectId: PROJECT_ID,
+      codespaceId: PROJECT_ID,
       streams,
       onError,
       onPlanReady,

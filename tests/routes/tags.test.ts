@@ -572,7 +572,7 @@ describe('POST /projects/:id/tags - Assign tag to project', () => {
     expect(res.status).toBe(201);
     const body = await res.json();
     expect(body.ok).toBe(true);
-    expect(body.data.projectId).toBe('proj-1');
+    expect(body.data.codespaceId).toBe('proj-1');
     expect(body.data.tagId).toBe('tag-1');
     expect(body.data.assignedAt).toBeDefined();
   });
@@ -801,7 +801,7 @@ describe('POST /tasks/:id/tags - Assign tag to task', () => {
       from: vi.fn().mockImplementation(() => ({
         where: vi.fn().mockImplementation(() => {
           selectCall++;
-          if (selectCall === 1) return Promise.resolve([{ projectId: 'proj-1' }]); // task lookup
+          if (selectCall === 1) return Promise.resolve([{ codespaceId: 'proj-1' }]); // task lookup
           if (selectCall === 2) return Promise.resolve([{ teamId: 'team-1' }]); // tag record
           return Promise.resolve([{ teamId: 'team-1' }]); // team owns project
         }),
@@ -866,7 +866,7 @@ describe('POST /tasks/:id/tags - Assign tag to task', () => {
       from: vi.fn().mockImplementation(() => ({
         where: vi.fn().mockImplementation(() => {
           selectCall++;
-          if (selectCall === 1) return Promise.resolve([{ projectId: 'proj-1' }]);
+          if (selectCall === 1) return Promise.resolve([{ codespaceId: 'proj-1' }]);
           if (selectCall === 2) return Promise.resolve([{ teamId: 'foreign-team-999' }]);
           return Promise.resolve([]); // foreign team doesn't own the project
         }),
@@ -897,7 +897,7 @@ describe('POST /tasks/:id/tags - Assign tag to task', () => {
       from: vi.fn().mockImplementation(() => ({
         where: vi.fn().mockImplementation(() => {
           selectCall++;
-          if (selectCall === 1) return Promise.resolve([{ projectId: 'proj-1' }]); // task found
+          if (selectCall === 1) return Promise.resolve([{ codespaceId: 'proj-1' }]); // task found
           return Promise.resolve([]); // tag not found
         }),
       })),
@@ -928,7 +928,7 @@ describe('POST /tasks/:id/tags - Assign tag to task', () => {
         where: vi.fn().mockImplementation(() => {
           selectCall++;
           return selectCall === 1
-            ? Promise.resolve([{ projectId: 'proj-1' }])
+            ? Promise.resolve([{ codespaceId: 'proj-1' }])
             : Promise.resolve([]);
         }),
       })),
@@ -982,7 +982,7 @@ describe('POST /tasks/:id/tags - Assign tag to task', () => {
         where: vi.fn().mockImplementation(() => {
           selectCall++;
           return selectCall === 1
-            ? Promise.resolve([{ projectId: 'proj-1' }])
+            ? Promise.resolve([{ codespaceId: 'proj-1' }])
             : Promise.resolve([]);
         }),
       })),
@@ -1023,7 +1023,7 @@ describe('DELETE /tasks/:id/tags/:tagId - Remove tag from task', () => {
     // Task lookup now runs unconditionally; mock it to return a valid task
     mockDb.select = vi.fn().mockReturnValue({
       from: vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue([{ projectId: 'proj-1' }]),
+        where: vi.fn().mockResolvedValue([{ codespaceId: 'proj-1' }]),
       }),
     });
 
@@ -1043,7 +1043,7 @@ describe('DELETE /tasks/:id/tags/:tagId - Remove tag from task', () => {
   it('removes tag from task for non-dev user with correct role', async () => {
     mockDb.select = vi.fn().mockReturnValue({
       from: vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue([{ projectId: 'proj-1' }]),
+        where: vi.fn().mockResolvedValue([{ codespaceId: 'proj-1' }]),
       }),
     });
 
@@ -1083,7 +1083,7 @@ describe('DELETE /tasks/:id/tags/:tagId - Remove tag from task', () => {
   it('returns 403 when non-dev caller lacks agent_operator role', async () => {
     mockDb.select = vi.fn().mockReturnValue({
       from: vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue([{ projectId: 'proj-1' }]),
+        where: vi.fn().mockResolvedValue([{ codespaceId: 'proj-1' }]),
       }),
     });
 

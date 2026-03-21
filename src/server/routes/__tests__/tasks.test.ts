@@ -49,12 +49,12 @@ describe('Tasks API Routes', () => {
     it('returns tasks list for a project', async () => {
       const { app, taskService } = createTestApp();
       const mockTasks = [
-        { id: 'task-1', title: 'Task 1', column: 'backlog', projectId: 'proj-1' },
-        { id: 'task-2', title: 'Task 2', column: 'in_progress', projectId: 'proj-1' },
+        { id: 'task-1', title: 'Task 1', column: 'backlog', codespaceId: 'proj-1' },
+        { id: 'task-2', title: 'Task 2', column: 'in_progress', codespaceId: 'proj-1' },
       ];
       taskService.list.mockResolvedValue({ ok: true, value: mockTasks });
 
-      const res = await request(app, 'GET', '/api/tasks?projectId=proj-1');
+      const res = await request(app, 'GET', '/api/tasks?codespaceId=proj-1');
 
       expect(res.status).toBe(200);
       const json = await res.json();
@@ -68,7 +68,7 @@ describe('Tasks API Routes', () => {
       });
     });
 
-    it('returns 400 when projectId is missing', async () => {
+    it('returns 400 when codespaceId is missing', async () => {
       const { app } = createTestApp();
 
       const res = await request(app, 'GET', '/api/tasks');
@@ -79,10 +79,10 @@ describe('Tasks API Routes', () => {
       expect(json.error.code).toBe('MISSING_PARAMS');
     });
 
-    it('returns 400 when projectId is invalid', async () => {
+    it('returns 400 when codespaceId is invalid', async () => {
       const { app } = createTestApp();
 
-      const res = await request(app, 'GET', '/api/tasks?projectId=bad!id');
+      const res = await request(app, 'GET', '/api/tasks?codespaceId=bad!id');
 
       expect(res.status).toBe(400);
       const json = await res.json();
@@ -94,7 +94,7 @@ describe('Tasks API Routes', () => {
       const { app, taskService } = createTestApp();
       taskService.list.mockResolvedValue({ ok: true, value: [] });
 
-      await request(app, 'GET', '/api/tasks?projectId=proj-1&column=backlog');
+      await request(app, 'GET', '/api/tasks?codespaceId=proj-1&column=backlog');
 
       expect(taskService.list).toHaveBeenCalledWith('proj-1', {
         column: 'backlog',
@@ -112,13 +112,13 @@ describe('Tasks API Routes', () => {
       const created = {
         id: 'task-new',
         title: 'New Task',
-        projectId: 'proj-1',
+        codespaceId: 'proj-1',
         column: 'backlog',
       };
       taskService.create.mockResolvedValue({ ok: true, value: created });
 
       const res = await request(app, 'POST', '/api/tasks', {
-        projectId: 'proj-1',
+        codespaceId: 'proj-1',
         title: 'New Task',
       });
 
@@ -132,7 +132,7 @@ describe('Tasks API Routes', () => {
       const { app } = createTestApp();
 
       const res = await request(app, 'POST', '/api/tasks', {
-        projectId: 'proj-1',
+        codespaceId: 'proj-1',
       });
 
       expect(res.status).toBe(400);
@@ -141,7 +141,7 @@ describe('Tasks API Routes', () => {
       expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
-    it('returns 400 when projectId is missing', async () => {
+    it('returns 400 when codespaceId is missing', async () => {
       const { app } = createTestApp();
 
       const res = await request(app, 'POST', '/api/tasks', {

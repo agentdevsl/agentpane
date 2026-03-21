@@ -57,7 +57,7 @@ describe('Presence Service', () => {
     it('tracks user joining a session', async () => {
       db.query.sessions.findFirst.mockResolvedValue({
         id: 's1',
-        projectId: 'p1',
+        codespaceId: 'p1',
         status: 'active',
         url: 'http://localhost:3000/sessions/s1',
       });
@@ -77,7 +77,7 @@ describe('Presence Service', () => {
     it('tracks user disconnecting from a session', async () => {
       db.query.sessions.findFirst.mockResolvedValue({
         id: 's1',
-        projectId: 'p1',
+        codespaceId: 'p1',
         status: 'active',
         url: 'http://localhost:3000/sessions/s1',
       });
@@ -99,7 +99,7 @@ describe('Presence Service', () => {
     it('updates user presence data with cursor and active file', async () => {
       db.query.sessions.findFirst.mockResolvedValue({
         id: 's1',
-        projectId: 'p1',
+        codespaceId: 'p1',
         status: 'active',
         url: 'http://localhost:3000/sessions/s1',
       });
@@ -125,7 +125,7 @@ describe('Presence Service', () => {
     it('tracks multiple users joining the same session', async () => {
       db.query.sessions.findFirst.mockResolvedValue({
         id: 's1',
-        projectId: 'p1',
+        codespaceId: 'p1',
         status: 'active',
         url: 'http://localhost:3000/sessions/s1',
       });
@@ -150,7 +150,7 @@ describe('Presence Service', () => {
       // Use a unique session ID to avoid state pollution from other tests
       db.query.sessions.findFirst.mockResolvedValue({
         id: 'rejoin-s1',
-        projectId: 'p1',
+        codespaceId: 'p1',
         status: 'active',
         url: 'http://localhost:3000/sessions/rejoin-s1',
       });
@@ -178,7 +178,7 @@ describe('Presence Service', () => {
     it('adds connection to session presence store', async () => {
       db.query.sessions.findFirst.mockResolvedValue({
         id: 'conn-s1',
-        projectId: 'p1',
+        codespaceId: 'p1',
         status: 'active',
         url: 'http://localhost:3000/sessions/conn-s1',
       });
@@ -201,7 +201,7 @@ describe('Presence Service', () => {
     it('removes connection from session presence store', async () => {
       db.query.sessions.findFirst.mockResolvedValue({
         id: 'conn-s2',
-        projectId: 'p1',
+        codespaceId: 'p1',
         status: 'active',
         url: 'http://localhost:3000/sessions/conn-s2',
       });
@@ -220,7 +220,7 @@ describe('Presence Service', () => {
     it('retrieves all connections for a session', async () => {
       db.query.sessions.findFirst.mockResolvedValue({
         id: 'conn-s3',
-        projectId: 'p1',
+        codespaceId: 'p1',
         status: 'active',
         url: 'http://localhost:3000/sessions/conn-s3',
       });
@@ -240,7 +240,7 @@ describe('Presence Service', () => {
     it('returns empty array when no connections exist', async () => {
       db.query.sessions.findFirst.mockResolvedValue({
         id: 'empty-s1',
-        projectId: 'p1',
+        codespaceId: 'p1',
         status: 'active',
         url: 'http://localhost:3000/sessions/empty-s1',
       });
@@ -256,7 +256,7 @@ describe('Presence Service', () => {
     it('handles removing non-existent connection gracefully', async () => {
       db.query.sessions.findFirst.mockResolvedValue({
         id: 'conn-s4',
-        projectId: 'p1',
+        codespaceId: 'p1',
         status: 'active',
         url: 'http://localhost:3000/sessions/conn-s4',
       });
@@ -279,7 +279,7 @@ describe('Presence Service', () => {
     it('updates lastSeen timestamp on presence update', async () => {
       db.query.sessions.findFirst.mockResolvedValue({
         id: 'hb-s1',
-        projectId: 'p1',
+        codespaceId: 'p1',
         status: 'active',
         url: 'http://localhost:3000/sessions/hb-s1',
       });
@@ -304,7 +304,7 @@ describe('Presence Service', () => {
     it('tracks heartbeat via presence update without cursor', async () => {
       db.query.sessions.findFirst.mockResolvedValue({
         id: 'hb-s2',
-        projectId: 'p1',
+        codespaceId: 'p1',
         status: 'active',
         url: 'http://localhost:3000/sessions/hb-s2',
       });
@@ -328,7 +328,7 @@ describe('Presence Service', () => {
     it('preserves existing presence data on partial update', async () => {
       db.query.sessions.findFirst.mockResolvedValue({
         id: 'hb-s3',
-        projectId: 'p1',
+        codespaceId: 'p1',
         status: 'active',
         url: 'http://localhost:3000/sessions/hb-s3',
       });
@@ -353,7 +353,7 @@ describe('Presence Service', () => {
     it('returns error when updating presence for non-joined user', async () => {
       db.query.sessions.findFirst.mockResolvedValue({
         id: 'hb-s4',
-        projectId: 'p1',
+        codespaceId: 'p1',
         status: 'active',
         url: 'http://localhost:3000/sessions/hb-s4',
       });
@@ -382,7 +382,7 @@ describe('Presence Service', () => {
           returning: vi.fn().mockResolvedValue([
             {
               id: 'state-s1',
-              projectId: 'p1',
+              codespaceId: 'p1',
               status: 'initializing',
               url: 'http://localhost:3000/sessions/state-s1',
             },
@@ -393,7 +393,7 @@ describe('Presence Service', () => {
         set: vi.fn(() => ({ where: vi.fn() })),
       });
 
-      const result = await service.create({ projectId: 'p1' });
+      const result = await service.create({ codespaceId: 'p1' });
 
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -404,7 +404,7 @@ describe('Presence Service', () => {
     it('returns presence data with session getById', async () => {
       db.query.sessions.findFirst.mockResolvedValue({
         id: 'state-s2',
-        projectId: 'p1',
+        codespaceId: 'p1',
         status: 'active',
         url: 'http://localhost:3000/sessions/state-s2',
       });
@@ -424,14 +424,14 @@ describe('Presence Service', () => {
     it('returns presence data in session list', async () => {
       db.query.sessions.findFirst.mockResolvedValue({
         id: 'state-s3',
-        projectId: 'p1',
+        codespaceId: 'p1',
         status: 'active',
         url: 'http://localhost:3000/sessions/state-s3',
       });
       db.query.sessions.findMany.mockResolvedValue([
         {
           id: 'state-s3',
-          projectId: 'p1',
+          codespaceId: 'p1',
           status: 'active',
           url: 'http://localhost:3000/sessions/state-s3',
         },
@@ -452,7 +452,7 @@ describe('Presence Service', () => {
     it('maintains presence after session close', async () => {
       db.query.sessions.findFirst.mockResolvedValue({
         id: 'state-s4',
-        projectId: 'p1',
+        codespaceId: 'p1',
         status: 'active',
         url: 'http://localhost:3000/sessions/state-s4',
       });
@@ -493,7 +493,7 @@ describe('Presence Service', () => {
     it('broadcasts presence:joined event when user joins', async () => {
       db.query.sessions.findFirst.mockResolvedValue({
         id: 'bc-s1',
-        projectId: 'p1',
+        codespaceId: 'p1',
         status: 'active',
         url: 'http://localhost:3000/sessions/bc-s1',
       });
@@ -506,7 +506,7 @@ describe('Presence Service', () => {
     it('broadcasts presence:left event when user leaves', async () => {
       db.query.sessions.findFirst.mockResolvedValue({
         id: 'bc-s2',
-        projectId: 'p1',
+        codespaceId: 'p1',
         status: 'active',
         url: 'http://localhost:3000/sessions/bc-s2',
       });
@@ -521,7 +521,7 @@ describe('Presence Service', () => {
     it('broadcasts presence:cursor event when presence is updated', async () => {
       db.query.sessions.findFirst.mockResolvedValue({
         id: 'bc-s3',
-        projectId: 'p1',
+        codespaceId: 'p1',
         status: 'active',
         url: 'http://localhost:3000/sessions/bc-s3',
       });
@@ -553,7 +553,7 @@ describe('Presence Service', () => {
 
       db.query.sessions.findFirst.mockResolvedValue({
         id: 'bc-s4',
-        projectId: 'p1',
+        codespaceId: 'p1',
         status: 'active',
         url: 'http://localhost:3000/sessions/bc-s4',
       });
@@ -594,7 +594,7 @@ describe('Presence Service', () => {
     it('returns error when joining closed session', async () => {
       db.query.sessions.findFirst.mockResolvedValue({
         id: 'err-s2',
-        projectId: 'p1',
+        codespaceId: 'p1',
         status: 'closed',
         url: 'http://localhost:3000/sessions/err-s2',
       });
@@ -627,7 +627,7 @@ describe('Presence Service', () => {
     it('persists presence events to database via publish', async () => {
       db.query.sessions.findFirst.mockResolvedValue({
         id: 'int-s1',
-        projectId: 'p1',
+        codespaceId: 'p1',
         status: 'active',
         url: 'http://localhost:3000/sessions/int-s1',
       });
@@ -650,7 +650,7 @@ describe('Presence Service', () => {
     it('includes presence in session with presence type', async () => {
       db.query.sessions.findFirst.mockResolvedValue({
         id: 'int-s2',
-        projectId: 'p1',
+        codespaceId: 'p1',
         taskId: 't1',
         agentId: 'a1',
         title: 'Test Session',
@@ -671,7 +671,7 @@ describe('Presence Service', () => {
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value.id).toBe('int-s2');
-        expect(result.value.projectId).toBe('p1');
+        expect(result.value.codespaceId).toBe('p1');
         expect(result.value.presence).toHaveLength(1);
         expect(result.value.presence[0]).toMatchObject({
           userId: 'user1',

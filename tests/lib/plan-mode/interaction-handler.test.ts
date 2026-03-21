@@ -62,7 +62,7 @@ function createMockSession(overrides: Partial<PlanSession> = {}): PlanSession {
   return {
     id: 'session-123',
     taskId: 'task-456',
-    projectId: 'proj-789',
+    codespaceId: 'proj-789',
     status: 'waiting_user',
     turns: [],
     createdAt: new Date().toISOString(),

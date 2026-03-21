@@ -6,7 +6,7 @@ import { createWorktreesRoutes } from '@/server/routes/worktrees';
 
 const sampleWorktree: Worktree = {
   id: 'worktree-1',
-  projectId: 'proj-1',
+  codespaceId: 'proj-1',
   taskId: 'task-1',
   branch: 'agent/abc123/task-1',
   path: '/tmp/worktrees/agent-abc123-task-1',
@@ -53,7 +53,7 @@ describe('Worktree API', () => {
     it('lists worktrees for a project', async () => {
       mockWorktreeService.list.mockResolvedValue(ok([sampleWorktreeStatus]));
 
-      const response = await app.request('/?projectId=az2h33gpcldsq0a0wdimza6m');
+      const response = await app.request('/?codespaceId=az2h33gpcldsq0a0wdimza6m');
 
       expect(response.status).toBe(200);
       const data = await response.json();
@@ -62,7 +62,7 @@ describe('Worktree API', () => {
       expect(data.data.items[0].id).toBe(sampleWorktree.id);
     });
 
-    it('validates projectId is required', async () => {
+    it('validates codespaceId is required', async () => {
       const response = await app.request('/');
 
       expect(response.status).toBe(400);
@@ -80,7 +80,7 @@ describe('Worktree API', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          projectId: 'az2h33gpcldsq0a0wdimza6m',
+          codespaceId: 'az2h33gpcldsq0a0wdimza6m',
           agentId: 'agent-1',
           taskId: 'bz3h44gpcldsq0a0xdimza7n',
           taskTitle: 'Test task',
@@ -98,7 +98,7 @@ describe('Worktree API', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          projectId: 'az2h33gpcldsq0a0wdimza6m',
+          codespaceId: 'az2h33gpcldsq0a0wdimza6m',
           taskId: 'bz3h44gpcldsq0a0xdimza7n',
           // Missing agentId and taskTitle
         }),
@@ -279,7 +279,7 @@ describe('Worktree API', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          projectId: 'az2h33gpcldsq0a0wdimza6m',
+          codespaceId: 'az2h33gpcldsq0a0wdimza6m',
         }),
       });
 
@@ -289,7 +289,7 @@ describe('Worktree API', () => {
       expect(data.data.pruned).toBe(2);
     });
 
-    it('validates projectId is required', async () => {
+    it('validates codespaceId is required', async () => {
       const response = await app.request('/prune', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

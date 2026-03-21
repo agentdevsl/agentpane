@@ -59,15 +59,15 @@ describe('Templates API Routes', () => {
       expect(json.data.totalCount).toBe(2);
     });
 
-    it('passes scope and projectId query params to service', async () => {
+    it('passes scope and codespaceId query params to service', async () => {
       const { app, templateService } = createTestApp();
       templateService.list.mockResolvedValue({ ok: true, value: [] });
 
-      await request(app, 'GET', '/api/templates?scope=project&projectId=proj-1&limit=10');
+      await request(app, 'GET', '/api/templates?scope=project&codespaceId=proj-1&limit=10');
 
       expect(templateService.list).toHaveBeenCalledWith({
         scope: 'project',
-        projectId: 'proj-1',
+        codespaceId: 'proj-1',
         limit: 10,
       });
     });

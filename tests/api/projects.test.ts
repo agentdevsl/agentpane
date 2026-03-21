@@ -17,7 +17,7 @@ vi.mock('node:fs/promises', () => ({
 // File Deletion Security Tests (using Hono routes directly)
 // =============================================================================
 
-describe('DELETE /api/projects/:id - File Deletion Security', () => {
+describe('DELETE /api/codespaces/:id - File Deletion Security', () => {
   // Import the Hono route factory
   let createProjectsRoutes: typeof import('@/server/routes/projects').createProjectsRoutes;
 

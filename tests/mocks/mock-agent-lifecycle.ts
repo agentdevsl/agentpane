@@ -8,8 +8,8 @@ import { createId } from '@paralleldrive/cuid2';
 import type {
   Agent,
   AgentConfig,
-  Project,
-  ProjectConfig,
+  Codespace,
+  CodespaceConfig,
   Session,
   Task,
   TaskColumn,
@@ -29,7 +29,7 @@ import type {
 export interface RunningAgent {
   taskId: string;
   sessionId: string;
-  projectId: string;
+  codespaceId: string;
   sandboxId: string;
   bridge: MockContainerBridge;
   execResult: MockExecResult;
@@ -65,7 +65,7 @@ export interface MockExecResult {
  */
 export function createMockStartAgentInput(overrides?: Partial<StartAgentInput>): StartAgentInput {
   return {
-    projectId: createId(),
+    codespaceId: createId(),
     taskId: createId(),
     sessionId: createId(),
     prompt: 'Fix the bug in the authentication module',
@@ -83,7 +83,7 @@ export function createMockStartAgentInput(overrides?: Partial<StartAgentInput>):
 export function createMockRunningAgent(overrides?: Partial<RunningAgent>): RunningAgent {
   const taskId = createId();
   const sessionId = createId();
-  const projectId = createId();
+  const codespaceId = createId();
 
   const mockExecResult: MockExecResult = {
     stdout: (async function* () {
@@ -103,7 +103,7 @@ export function createMockRunningAgent(overrides?: Partial<RunningAgent>): Runni
   return {
     taskId,
     sessionId,
-    projectId,
+    codespaceId,
     sandboxId: 'sandbox-shared',
     bridge: mockBridge,
     execResult: mockExecResult,
@@ -123,7 +123,7 @@ export function createMockPendingPlan(overrides?: Partial<PlanData>): PlanData {
   return {
     taskId,
     sessionId: createId(),
-    projectId: createId(),
+    codespaceId: createId(),
     plan: `# Implementation Plan
 
 ## Overview
@@ -161,7 +161,7 @@ export function createMockAgentConfig(overrides?: Partial<AgentConfig>): AgentCo
 /**
  * Create a mock ProjectConfig with realistic defaults.
  */
-export function createMockProjectConfig(overrides?: Partial<ProjectConfig>): ProjectConfig {
+export function createMockProjectConfig(overrides?: Partial<CodespaceConfig>): CodespaceConfig {
   return {
     worktreeRoot: '.worktrees',
     defaultBranch: 'main',
@@ -179,7 +179,7 @@ export function createMockProjectConfig(overrides?: Partial<ProjectConfig>): Pro
  * Create a mock Project matching the DB schema shape.
  * Includes realistic config with worktreeRoot, defaultBranch, allowedTools, maxTurns.
  */
-export function createMockProject(overrides?: Partial<Project>): Project {
+export function createMockProject(overrides?: Partial<Codespace>): Codespace {
   const now = new Date().toISOString();
   return {
     id: createId(),
@@ -207,7 +207,7 @@ export function createMockTask(overrides?: Partial<Task>): Task {
   const now = new Date().toISOString();
   return {
     id: createId(),
-    projectId: createId(),
+    codespaceId: createId(),
     agentId: null,
     sessionId: null,
     worktreeId: null,
@@ -243,7 +243,7 @@ export function createMockAgent(overrides?: Partial<Agent>): Agent {
   const now = new Date().toISOString();
   return {
     id: createId(),
-    projectId: createId(),
+    codespaceId: createId(),
     name: 'Container Agent',
     type: 'task',
     status: 'idle',
@@ -265,12 +265,12 @@ export function createMockSession(overrides?: Partial<Session>): Session {
   const now = new Date().toISOString();
   return {
     id: sessionId,
-    projectId: createId(),
+    codespaceId: createId(),
     taskId: null,
     agentId: null,
     status: 'active',
     title: 'Container Agent Session',
-    url: `/projects/${createId()}/sessions/${sessionId}`,
+    url: `/codespaces/${createId()}/sessions/${sessionId}`,
     createdAt: now,
     updatedAt: now,
     closedAt: null,
@@ -285,7 +285,7 @@ export function createMockWorktreeRecord(overrides?: Partial<Worktree>): Worktre
   const now = new Date().toISOString();
   return {
     id: createId(),
-    projectId: createId(),
+    codespaceId: createId(),
     agentId: null,
     taskId: null,
     branch: `agent/task/${createId()}`,
@@ -329,19 +329,19 @@ export interface AgentLifecycleScenario {
 export function createMockAgentLifecycleScenario(
   scenario: 'idle' | 'planning' | 'executing' | 'waiting_approval' | 'completed'
 ): AgentLifecycleScenario {
-  const projectId = createId();
+  const codespaceId = createId();
   const agentId = createId();
   const taskId = createId();
   const sessionId = createId();
   const worktreeId = createId();
 
-  const project = createMockProject({ id: projectId });
+  const project = createMockProject({ id: codespaceId });
 
   switch (scenario) {
     case 'idle': {
       const agent = createMockAgent({
         id: agentId,
-        projectId,
+        codespaceId,
         status: 'idle',
         currentTaskId: null,
         currentSessionId: null,
@@ -349,7 +349,7 @@ export function createMockAgentLifecycleScenario(
 
       const task = createMockTask({
         id: taskId,
-        projectId,
+        codespaceId,
         column: 'backlog',
         agentId: null,
         sessionId: null,
@@ -362,7 +362,7 @@ export function createMockAgentLifecycleScenario(
     case 'planning': {
       const agent = createMockAgent({
         id: agentId,
-        projectId,
+        codespaceId,
         status: 'planning',
         currentTaskId: taskId,
         currentSessionId: sessionId,
@@ -370,7 +370,7 @@ export function createMockAgentLifecycleScenario(
 
       const session = createMockSession({
         id: sessionId,
-        projectId,
+        codespaceId,
         taskId,
         agentId,
         status: 'active',
@@ -379,7 +379,7 @@ export function createMockAgentLifecycleScenario(
 
       const worktree = createMockWorktreeRecord({
         id: worktreeId,
-        projectId,
+        codespaceId,
         agentId,
         taskId,
         status: 'active',
@@ -387,7 +387,7 @@ export function createMockAgentLifecycleScenario(
 
       const task = createMockTask({
         id: taskId,
-        projectId,
+        codespaceId,
         column: 'in_progress',
         agentId,
         sessionId,
@@ -402,12 +402,12 @@ export function createMockAgentLifecycleScenario(
       const plan = createMockPendingPlan({
         taskId,
         sessionId,
-        projectId,
+        codespaceId,
       });
 
       const agent = createMockAgent({
         id: agentId,
-        projectId,
+        codespaceId,
         status: 'running',
         currentTaskId: taskId,
         currentSessionId: sessionId,
@@ -415,7 +415,7 @@ export function createMockAgentLifecycleScenario(
 
       const session = createMockSession({
         id: sessionId,
-        projectId,
+        codespaceId,
         taskId,
         agentId,
         status: 'active',
@@ -424,7 +424,7 @@ export function createMockAgentLifecycleScenario(
 
       const worktree = createMockWorktreeRecord({
         id: worktreeId,
-        projectId,
+        codespaceId,
         agentId,
         taskId,
         status: 'active',
@@ -432,7 +432,7 @@ export function createMockAgentLifecycleScenario(
 
       const task = createMockTask({
         id: taskId,
-        projectId,
+        codespaceId,
         column: 'in_progress',
         agentId,
         sessionId,
@@ -453,12 +453,12 @@ export function createMockAgentLifecycleScenario(
       const plan = createMockPendingPlan({
         taskId,
         sessionId,
-        projectId,
+        codespaceId,
       });
 
       const agent = createMockAgent({
         id: agentId,
-        projectId,
+        codespaceId,
         status: 'idle',
         currentTaskId: null,
         currentSessionId: null,
@@ -466,7 +466,7 @@ export function createMockAgentLifecycleScenario(
 
       const session = createMockSession({
         id: sessionId,
-        projectId,
+        codespaceId,
         taskId,
         agentId,
         status: 'closed',
@@ -476,7 +476,7 @@ export function createMockAgentLifecycleScenario(
 
       const worktree = createMockWorktreeRecord({
         id: worktreeId,
-        projectId,
+        codespaceId,
         agentId,
         taskId,
         status: 'active',
@@ -492,7 +492,7 @@ export function createMockAgentLifecycleScenario(
 
       const task = createMockTask({
         id: taskId,
-        projectId,
+        codespaceId,
         column: 'waiting_approval',
         agentId: null,
         sessionId: null,
@@ -514,7 +514,7 @@ export function createMockAgentLifecycleScenario(
     case 'completed': {
       const agent = createMockAgent({
         id: agentId,
-        projectId,
+        codespaceId,
         status: 'completed',
         currentTaskId: null,
         currentSessionId: null,
@@ -522,7 +522,7 @@ export function createMockAgentLifecycleScenario(
 
       const session = createMockSession({
         id: sessionId,
-        projectId,
+        codespaceId,
         taskId,
         agentId,
         status: 'closed',
@@ -532,7 +532,7 @@ export function createMockAgentLifecycleScenario(
 
       const worktree = createMockWorktreeRecord({
         id: worktreeId,
-        projectId,
+        codespaceId,
         agentId,
         taskId,
         status: 'merged',
@@ -541,7 +541,7 @@ export function createMockAgentLifecycleScenario(
 
       const task = createMockTask({
         id: taskId,
-        projectId,
+        codespaceId,
         column: 'verified',
         agentId: null,
         sessionId: null,

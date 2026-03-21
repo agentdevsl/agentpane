@@ -38,7 +38,7 @@ describe('WorktreeService (unit)', () => {
 
       const result = await service.create(
         {
-          projectId: project.id,
+          codespaceId: project.id,
           agentId: agent.id,
           taskId: task.id,
           taskTitle: task.title,
@@ -71,7 +71,7 @@ describe('WorktreeService (unit)', () => {
 
       const result = await service.create(
         {
-          projectId: project.id,
+          codespaceId: project.id,
           agentId: agent.id,
           taskId: task.id,
           taskTitle: task.title,
@@ -103,7 +103,7 @@ describe('WorktreeService (unit)', () => {
       // First create the worktree
       const createResult = await service.create(
         {
-          projectId: project.id,
+          codespaceId: project.id,
           agentId: agent.id,
           taskId: task.id,
           taskTitle: task.title,
@@ -142,7 +142,7 @@ describe('WorktreeService (unit)', () => {
 
       await service.create(
         {
-          projectId: project.id,
+          codespaceId: project.id,
           agentId: agent.id,
           taskId: task1.id,
           taskTitle: task1.title,
@@ -156,7 +156,7 @@ describe('WorktreeService (unit)', () => {
 
       await service.create(
         {
-          projectId: project.id,
+          codespaceId: project.id,
           agentId: agent.id,
           taskId: task2.id,
           taskTitle: task2.title,

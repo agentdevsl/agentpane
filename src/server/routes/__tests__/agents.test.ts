@@ -47,10 +47,12 @@ describe('Agents API Routes', () => {
   describe('GET /api/agents', () => {
     it('returns agents list for a project', async () => {
       const { app, agentService } = createTestApp();
-      const mockAgents = [{ id: 'agent-1', name: 'Agent 1', status: 'idle', projectId: 'proj-1' }];
+      const mockAgents = [
+        { id: 'agent-1', name: 'Agent 1', status: 'idle', codespaceId: 'proj-1' },
+      ];
       agentService.list.mockResolvedValue({ ok: true, value: mockAgents });
 
-      const res = await request(app, 'GET', '/api/agents?projectId=proj-1');
+      const res = await request(app, 'GET', '/api/agents?codespaceId=proj-1');
 
       expect(res.status).toBe(200);
       const json = await res.json();
@@ -59,7 +61,7 @@ describe('Agents API Routes', () => {
       expect(json.data[0].id).toBe('agent-1');
     });
 
-    it('returns 400 when projectId is missing', async () => {
+    it('returns 400 when codespaceId is missing', async () => {
       const { app } = createTestApp();
 
       const res = await request(app, 'GET', '/api/agents');
@@ -70,10 +72,10 @@ describe('Agents API Routes', () => {
       expect(json.error.code).toBe('MISSING_PARAMS');
     });
 
-    it('returns 400 when projectId is invalid', async () => {
+    it('returns 400 when codespaceId is invalid', async () => {
       const { app } = createTestApp();
 
-      const res = await request(app, 'GET', '/api/agents?projectId=bad!id');
+      const res = await request(app, 'GET', '/api/agents?codespaceId=bad!id');
 
       expect(res.status).toBe(400);
       const json = await res.json();
@@ -91,13 +93,13 @@ describe('Agents API Routes', () => {
         id: 'agent-new',
         name: 'New Agent',
         type: 'task',
-        projectId: 'proj-1',
+        codespaceId: 'proj-1',
         status: 'idle',
       };
       agentService.create.mockResolvedValue({ ok: true, value: created });
 
       const res = await request(app, 'POST', '/api/agents', {
-        projectId: 'proj-1',
+        codespaceId: 'proj-1',
         name: 'New Agent',
         type: 'task',
       });
@@ -112,7 +114,7 @@ describe('Agents API Routes', () => {
       const { app } = createTestApp();
 
       const res = await request(app, 'POST', '/api/agents', {
-        projectId: 'proj-1',
+        codespaceId: 'proj-1',
       });
 
       expect(res.status).toBe(400);
@@ -125,7 +127,7 @@ describe('Agents API Routes', () => {
       const { app } = createTestApp();
 
       const res = await request(app, 'POST', '/api/agents', {
-        projectId: 'proj-1',
+        codespaceId: 'proj-1',
         name: 'Agent',
         type: 'invalid-type',
       });
@@ -152,11 +154,11 @@ describe('Agents API Routes', () => {
       expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
-    it('returns 400 for invalid projectId format', async () => {
+    it('returns 400 for invalid codespaceId format', async () => {
       const { app } = createTestApp();
 
       const res = await request(app, 'POST', '/api/agents', {
-        projectId: '../bad',
+        codespaceId: '../bad',
         name: 'Agent',
         type: 'task',
       });

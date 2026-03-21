@@ -137,7 +137,7 @@ import {
 function createMockSandbox(overrides: Partial<Sandbox> = {}): Sandbox {
   const defaultSandbox: Sandbox = {
     id: createId(),
-    projectId: createId(),
+    codespaceId: createId(),
     containerId: 'container-123',
     status: 'running',
     exec: vi.fn().mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' }),
@@ -255,11 +255,11 @@ describe('SandboxService', () => {
       });
 
       // Create mock sandbox with matching project ID
-      const mockSandbox = createMockSandbox({ projectId: project.id });
+      const mockSandbox = createMockSandbox({ codespaceId: project.id });
       vi.mocked(mockProvider.create).mockResolvedValueOnce(mockSandbox);
 
       const config: SandboxConfig = {
-        projectId: project.id,
+        codespaceId: project.id,
         projectPath: project.path,
         image: 'node:22-slim',
         memoryMb: 4096,
@@ -272,7 +272,7 @@ describe('SandboxService', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value.projectId).toBe(project.id);
+        expect(result.value.codespaceId).toBe(project.id);
         expect(result.value.status).toBe('running');
         expect(result.value.image).toBe('node:22-slim');
       }
@@ -290,7 +290,7 @@ describe('SandboxService', () => {
       const db = getTestDb();
       await db.insert(schema.sandboxInstances).values({
         id: createId(),
-        projectId: project.id,
+        codespaceId: project.id,
         containerId: 'existing-container',
         status: 'running',
         image: 'node:22-slim',
@@ -318,7 +318,7 @@ describe('SandboxService', () => {
       vi.mocked(mockProvider.isImageAvailable).mockResolvedValueOnce(false);
 
       const config: SandboxConfig = {
-        projectId: project.id,
+        codespaceId: project.id,
         projectPath: project.path,
         image: 'custom-image:latest',
         memoryMb: 4096,
@@ -369,7 +369,7 @@ describe('SandboxService', () => {
       );
 
       const config: SandboxConfig = {
-        projectId: project.id,
+        codespaceId: project.id,
         projectPath: project.path,
         image: 'node:22-slim',
         memoryMb: 4096,
@@ -474,7 +474,7 @@ describe('SandboxService', () => {
       const db = getTestDb();
       await db.insert(schema.sandboxInstances).values({
         id: sandboxId,
-        projectId: project.id,
+        codespaceId: project.id,
         containerId: 'container-to-stop',
         status: 'running',
         image: 'node:22-slim',
@@ -505,7 +505,7 @@ describe('SandboxService', () => {
       const db = getTestDb();
       await db.insert(schema.sandboxInstances).values({
         id: sandboxId,
-        projectId: project.id,
+        codespaceId: project.id,
         containerId: 'idle-container',
         status: 'running',
         image: 'node:22-slim',
@@ -538,7 +538,7 @@ describe('SandboxService', () => {
       const db = getTestDb();
       await db.insert(schema.sandboxInstances).values({
         id: sandboxId,
-        projectId: project.id,
+        codespaceId: project.id,
         containerId: 'error-container',
         status: 'running',
         image: 'node:22-slim',
@@ -620,7 +620,7 @@ describe('SandboxService', () => {
       const db = getTestDb();
       await db.insert(schema.sandboxInstances).values({
         id: sandboxId,
-        projectId: project.id,
+        codespaceId: project.id,
         containerId: 'test-container',
         status: 'running',
         image: 'node:22-slim',
@@ -634,7 +634,7 @@ describe('SandboxService', () => {
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value?.id).toBe(sandboxId);
-        expect(result.value?.projectId).toBe(project.id);
+        expect(result.value?.codespaceId).toBe(project.id);
       }
     });
 
@@ -654,7 +654,7 @@ describe('SandboxService', () => {
       const db = getTestDb();
       await db.insert(schema.sandboxInstances).values({
         id: sandboxId,
-        projectId: project.id,
+        codespaceId: project.id,
         containerId: 'test-container',
         status: 'running',
         image: 'node:22-slim',
@@ -689,7 +689,7 @@ describe('SandboxService', () => {
       const db = getTestDb();
       await db.insert(schema.sandboxInstances).values({
         id: sandboxId,
-        projectId: project.id,
+        codespaceId: project.id,
         containerId: 'test-container',
         status: 'running',
         image: 'node:22-slim',
@@ -1432,7 +1432,7 @@ describe('DurableStreamsService', () => {
       await streamsService.publishPlanStarted('stream-1', {
         sessionId: 'session-1',
         taskId: 'task-1',
-        projectId: 'project-1',
+        codespaceId: 'project-1',
       });
 
       expect(mockServer.publish).toHaveBeenCalledWith(
@@ -1463,7 +1463,7 @@ describe('DurableStreamsService', () => {
       await streamsService.createStream('sandbox-1', {});
       await streamsService.publish('sandbox-1', 'sandbox:creating', {
         sandboxId: 'sandbox-1',
-        projectId: 'project-1',
+        codespaceId: 'project-1',
         image: 'node:22-slim',
       });
 
@@ -1478,7 +1478,7 @@ describe('DurableStreamsService', () => {
       await streamsService.createStream('sandbox-1', {});
       await streamsService.publish('sandbox-1', 'sandbox:ready', {
         sandboxId: 'sandbox-1',
-        projectId: 'project-1',
+        codespaceId: 'project-1',
         containerId: 'container-123',
       });
 
@@ -1493,7 +1493,7 @@ describe('DurableStreamsService', () => {
       await streamsService.createStream('sandbox-1', {});
       await streamsService.publish('sandbox-1', 'sandbox:error', {
         sandboxId: 'sandbox-1',
-        projectId: 'project-1',
+        codespaceId: 'project-1',
         error: 'Container failed to start',
         code: 'CONTAINER_START_FAILED',
       });

@@ -78,9 +78,6 @@ export function ResizeHandle({
 
   return (
     // biome-ignore lint/a11y/useSemanticElements: resize handle is a drag target, not a semantic separator
-    // biome-ignore lint/a11y/useAriaPropsForRole: visual-only drag handle
-    // biome-ignore lint/a11y/useFocusableInteractive: mouse-only drag interaction
-    // biome-ignore lint/a11y/noStaticElementInteractions: drag handle needs onMouseDown
     <div
       role="separator"
       aria-orientation="vertical"

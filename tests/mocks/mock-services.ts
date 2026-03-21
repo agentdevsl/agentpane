@@ -92,7 +92,7 @@ export function createMockWorktreeServiceForTask(
  */
 export interface WorktreeServiceForProject {
   prune: (
-    projectId: string
+    codespaceId: string
   ) => Promise<
     Result<
       { pruned: number; failed: Array<{ worktreeId: string; branch: string; error: string }> },
@@ -133,7 +133,7 @@ export interface WorktreeServiceFull extends WorktreeServiceForTask {
     >
   >;
   list: (
-    projectId: string
+    codespaceId: string
   ) => Promise<
     Result<
       Array<{ id: string; branch: string; status: string; path: string; updatedAt: string | null }>,
@@ -142,7 +142,7 @@ export interface WorktreeServiceFull extends WorktreeServiceForTask {
   >;
   commit: (worktreeId: string, message: string) => Promise<Result<string, unknown>>;
   prune: (
-    projectId: string
+    codespaceId: string
   ) => Promise<
     Result<
       { pruned: number; failed: Array<{ worktreeId: string; branch: string; error: string }> },
@@ -362,7 +362,7 @@ export function createMockSessionService(
 ): SessionServiceInterface {
   const defaultSession: SessionWithPresence = {
     id: 'session-1',
-    projectId: 'proj-1',
+    codespaceId: 'proj-1',
     taskId: null,
     agentId: null,
     title: 'Test Session',
@@ -442,7 +442,7 @@ export function createMockSandbox(overrides?: Partial<Sandbox>): Sandbox {
 
   return {
     id: 'sandbox-1',
-    projectId: 'proj-1',
+    codespaceId: 'proj-1',
     containerId: 'container-abc123',
     status: 'running',
     exec: vi.fn().mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' }),
@@ -474,7 +474,7 @@ export function createMockSandboxProvider(overrides?: Partial<SandboxProvider>):
 
   const defaultSandboxInfo: SandboxInfo = {
     id: 'sandbox-1',
-    projectId: 'proj-1',
+    codespaceId: 'proj-1',
     projectPath: '/workspace',
     status: 'running',
     containerId: 'container-abc123',

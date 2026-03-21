@@ -1,13 +1,6 @@
 import { createId } from '@paralleldrive/cuid2';
 import { vi } from 'vitest';
-import type {
-  Agent,
-  Project,
-  ProjectConfig,
-  Task,
-  TaskColumn,
-  Worktree,
-} from '../../src/db/schema';
+import type { Agent, Task, TaskColumn, Worktree } from '../../src/db/schema';
 import { ok } from '../../src/lib/utils/result';
 
 // Mock Project Service
@@ -111,7 +104,7 @@ export type MockTaskService = {
 export function createMockTaskService(overrides: Partial<MockTaskService> = {}): MockTaskService {
   const defaultTask: Task = {
     id: createId(),
-    projectId: createId(),
+    codespaceId: createId(),
     agentId: null,
     sessionId: null,
     worktreeId: null,
@@ -182,7 +175,7 @@ export function createMockAgentService(
 ): MockAgentService {
   const defaultAgent: Agent = {
     id: createId(),
-    projectId: createId(),
+    codespaceId: createId(),
     name: 'Mock Agent',
     type: 'task',
     status: 'idle',
@@ -255,7 +248,7 @@ export function createMockSessionService(
   const sessionId = createId();
   const defaultSession = {
     id: sessionId,
-    projectId: createId(),
+    codespaceId: createId(),
     taskId: null,
     agentId: null,
     status: 'active',
@@ -312,7 +305,7 @@ export function createMockWorktreeService(
 ): MockWorktreeService {
   const defaultWorktree: Worktree = {
     id: createId(),
-    projectId: createId(),
+    codespaceId: createId(),
     taskId: null,
     branch: 'agent/mock/task',
     path: '/tmp/worktree-mock',

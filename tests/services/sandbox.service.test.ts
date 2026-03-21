@@ -60,7 +60,7 @@ function clearSandboxTables(): void {
 
 const createMockSandbox = (overrides: Partial<Sandbox> = {}): Sandbox => ({
   id: 'sandbox-123',
-  projectId: 'project-123',
+  codespaceId: 'project-123',
   containerId: 'container-abc',
   status: 'running',
   exec: vi.fn().mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' }),
@@ -136,7 +136,7 @@ describe('SandboxService', () => {
       (mockProvider.create as ReturnType<typeof vi.fn>).mockResolvedValue(mockSandbox);
 
       const config: SandboxConfig = {
-        projectId: 'project-123',
+        codespaceId: 'project-123',
         projectPath: '/path/to/project',
         image: 'test-image:latest',
         memoryMb: 4096,
@@ -149,17 +149,17 @@ describe('SandboxService', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value.projectId).toBe('project-123');
+        expect(result.value.codespaceId).toBe('project-123');
         expect(result.value.status).toBe('running');
         expect(mockStreams.publish).toHaveBeenCalledWith(
           expect.any(String),
           'sandbox:creating',
-          expect.objectContaining({ projectId: 'project-123' })
+          expect.objectContaining({ codespaceId: 'project-123' })
         );
         expect(mockStreams.publish).toHaveBeenCalledWith(
           expect.any(String),
           'sandbox:ready',
-          expect.objectContaining({ projectId: 'project-123' })
+          expect.objectContaining({ codespaceId: 'project-123' })
         );
       }
     });
@@ -170,7 +170,7 @@ describe('SandboxService', () => {
       (mockProvider.create as ReturnType<typeof vi.fn>).mockResolvedValue(mockSandbox);
 
       const config: SandboxConfig = {
-        projectId: 'project-123',
+        codespaceId: 'project-123',
         projectPath: '/path/to/project',
         image: 'test-image:latest',
         memoryMb: 4096,
@@ -192,7 +192,7 @@ describe('SandboxService', () => {
       (mockProvider.create as ReturnType<typeof vi.fn>).mockResolvedValue(mockSandbox);
 
       const config: SandboxConfig = {
-        projectId: 'project-123',
+        codespaceId: 'project-123',
         projectPath: '/path/to/project',
         image: 'test-image:latest',
         memoryMb: 4096,
@@ -221,7 +221,7 @@ describe('SandboxService', () => {
       );
 
       const config: SandboxConfig = {
-        projectId: 'project-123',
+        codespaceId: 'project-123',
         projectPath: '/path/to/project',
         image: 'test-image:latest',
         memoryMb: 4096,
@@ -239,7 +239,7 @@ describe('SandboxService', () => {
       expect(mockStreams.publish).toHaveBeenCalledWith(
         expect.any(String),
         'sandbox:error',
-        expect.objectContaining({ projectId: 'project-123' })
+        expect.objectContaining({ codespaceId: 'project-123' })
       );
     });
 
@@ -248,7 +248,7 @@ describe('SandboxService', () => {
       (mockProvider.create as ReturnType<typeof vi.fn>).mockRejectedValue(codedError);
 
       const config: SandboxConfig = {
-        projectId: 'project-123',
+        codespaceId: 'project-123',
         projectPath: '/path/to/project',
         image: 'test-image:latest',
         memoryMb: 4096,
@@ -287,7 +287,7 @@ describe('SandboxService', () => {
       const { sandboxInstances } = await import('../../src/db/schema');
       await db.insert(sandboxInstances).values({
         id: 'existing-sandbox',
-        projectId: project.id,
+        codespaceId: project.id,
         containerId: 'container-abc',
         status: 'running',
         image: 'test-image',
@@ -347,7 +347,7 @@ describe('SandboxService', () => {
       const { sandboxInstances } = await import('../../src/db/schema');
       await db.insert(sandboxInstances).values({
         id: 'sandbox-to-stop',
-        projectId: project.id,
+        codespaceId: project.id,
         containerId: 'container-abc',
         status: 'running',
         image: 'test-image',
@@ -370,7 +370,7 @@ describe('SandboxService', () => {
       expect(mockStreams.publish).toHaveBeenCalledWith(
         'sandbox-to-stop',
         'sandbox:stopped',
-        expect.objectContaining({ projectId: project.id })
+        expect.objectContaining({ codespaceId: project.id })
       );
     });
 
@@ -394,7 +394,7 @@ describe('SandboxService', () => {
       const { sandboxInstances } = await import('../../src/db/schema');
       await db.insert(sandboxInstances).values({
         id: 'sandbox-fail-stop',
-        projectId: project.id,
+        codespaceId: project.id,
         containerId: 'container-abc',
         status: 'running',
         image: 'test-image',
@@ -414,7 +414,7 @@ describe('SandboxService', () => {
       expect(mockStreams.publish).toHaveBeenCalledWith(
         'sandbox-fail-stop',
         'sandbox:error',
-        expect.objectContaining({ projectId: project.id })
+        expect.objectContaining({ codespaceId: project.id })
       );
     });
   });
@@ -599,7 +599,7 @@ describe('SandboxService', () => {
       const { sandboxInstances } = await import('../../src/db/schema');
       await db.insert(sandboxInstances).values({
         id: 'sandbox-123',
-        projectId: project.id,
+        codespaceId: project.id,
         containerId: 'container-abc',
         status: 'running',
         image: 'test-image',
@@ -667,7 +667,7 @@ describe('SandboxService', () => {
       const idleTime = new Date(Date.now() - 60 * 60 * 1000); // 1 hour ago
       await db.insert(sandboxInstances).values({
         id: 'idle-sandbox',
-        projectId: project.id,
+        codespaceId: project.id,
         containerId: 'container-abc',
         status: 'running',
         image: 'test-image',
@@ -689,7 +689,7 @@ describe('SandboxService', () => {
         'sandbox:idle',
         expect.objectContaining({
           sandboxId: 'idle-sandbox',
-          projectId: project.id,
+          codespaceId: project.id,
         })
       );
 
@@ -705,7 +705,7 @@ describe('SandboxService', () => {
       // Insert a sandbox that was active recently
       await db.insert(sandboxInstances).values({
         id: 'active-sandbox',
-        projectId: project.id,
+        codespaceId: project.id,
         containerId: 'container-abc',
         status: 'running',
         image: 'test-image',

@@ -770,7 +770,7 @@ describe.skipIf(!ENABLED)('Provider Integration', () => {
 
   it('should create a sandbox through the provider', async () => {
     const sandbox = await provider.create({
-      projectId: generateTestName('e2e-prov'),
+      codespaceId: generateTestName('e2e-prov'),
       projectPath: '/tmp/e2e-test',
       image: getTestImage(),
       memoryMb: 256,
@@ -789,10 +789,10 @@ describe.skipIf(!ENABLED)('Provider Integration', () => {
   }, 130_000);
 
   it('should retrieve sandbox via provider.get()', async () => {
-    const projectId = generateTestName('e2e-prov-get');
+    const codespaceId = generateTestName('e2e-prov-get');
 
     const created = await provider.create({
-      projectId,
+      codespaceId,
       projectPath: '/tmp/e2e-test',
       image: getTestImage(),
       memoryMb: 256,
@@ -801,7 +801,7 @@ describe.skipIf(!ENABLED)('Provider Integration', () => {
       volumeMounts: [],
     });
 
-    const found = await provider.get(projectId);
+    const found = await provider.get(codespaceId);
     expect(found).toBeDefined();
     expect(found!.id).toBe(created.id);
 
@@ -810,10 +810,10 @@ describe.skipIf(!ENABLED)('Provider Integration', () => {
   }, 130_000);
 
   it('should list sandboxes through the provider', async () => {
-    const projectId = generateTestName('e2e-prov-list');
+    const codespaceId = generateTestName('e2e-prov-list');
 
     const created = await provider.create({
-      projectId,
+      codespaceId,
       projectPath: '/tmp/e2e-test',
       image: getTestImage(),
       memoryMb: 256,
@@ -825,7 +825,7 @@ describe.skipIf(!ENABLED)('Provider Integration', () => {
     const list = await provider.list();
     expect(list.length).toBeGreaterThanOrEqual(1);
 
-    const found = list.find((s) => s.projectId === projectId);
+    const found = list.find((s) => s.codespaceId === codespaceId);
     expect(found).toBeDefined();
 
     // Cleanup
@@ -838,9 +838,9 @@ describe.skipIf(!ENABLED)('Provider Integration', () => {
       events.push(event.type);
     });
 
-    const projectId = generateTestName('e2e-prov-evt');
+    const codespaceId = generateTestName('e2e-prov-evt');
     const sandbox = await provider.create({
-      projectId,
+      codespaceId,
       projectPath: '/tmp/e2e-test',
       image: getTestImage(),
       memoryMb: 256,
@@ -858,10 +858,10 @@ describe.skipIf(!ENABLED)('Provider Integration', () => {
   }, 130_000);
 
   it('should cleanup stopped sandboxes', async () => {
-    const projectId = generateTestName('e2e-prov-clean');
+    const codespaceId = generateTestName('e2e-prov-clean');
 
     const sandbox = await provider.create({
-      projectId,
+      codespaceId,
       projectPath: '/tmp/e2e-test',
       image: getTestImage(),
       memoryMb: 256,
@@ -876,15 +876,15 @@ describe.skipIf(!ENABLED)('Provider Integration', () => {
     expect(cleaned).toBeGreaterThanOrEqual(1);
 
     // Should no longer be retrievable
-    const found = await provider.get(projectId);
+    const found = await provider.get(codespaceId);
     expect(found).toBeNull();
   }, 130_000);
 
   it('should exec commands through the provider sandbox instance', async () => {
-    const projectId = generateTestName('e2e-prov-exec');
+    const codespaceId = generateTestName('e2e-prov-exec');
 
     const sandbox = await provider.create({
-      projectId,
+      codespaceId,
       projectPath: '/tmp/e2e-test',
       image: getTestImage(),
       memoryMb: 256,
@@ -901,10 +901,10 @@ describe.skipIf(!ENABLED)('Provider Integration', () => {
   }, 130_000);
 
   it('should reject creating duplicate sandbox for same project', async () => {
-    const projectId = generateTestName('e2e-prov-dup');
+    const codespaceId = generateTestName('e2e-prov-dup');
 
     const sandbox = await provider.create({
-      projectId,
+      codespaceId,
       projectPath: '/tmp/e2e-test',
       image: getTestImage(),
       memoryMb: 256,
@@ -915,7 +915,7 @@ describe.skipIf(!ENABLED)('Provider Integration', () => {
 
     await expect(
       provider.create({
-        projectId,
+        codespaceId,
         projectPath: '/tmp/e2e-test',
         image: getTestImage(),
         memoryMb: 256,

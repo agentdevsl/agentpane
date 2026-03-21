@@ -46,7 +46,7 @@ export function buildSubscription(options: SubscriptionFactoryOptions = {}): New
     id,
     name: options.name ?? `Test Sub ${id.slice(0, 6)}`,
     eventSourceId: options.eventSourceId ?? createId(),
-    targetProjectId: options.targetProjectId ?? createId(),
+    targetCodespaceId: options.targetCodespaceId ?? createId(),
     isEnabled: options.isEnabled ?? true,
     eventTypes: options.eventTypes ?? [],
     filters: options.filters ?? [],

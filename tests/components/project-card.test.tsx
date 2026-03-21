@@ -279,8 +279,8 @@ describe('ProjectCard', () => {
     it('links to project page', () => {
       renderCard(defaultProps);
       const link = screen.getByRole('link', { name: 'Open' });
-      expect(link).toHaveAttribute('href', '/projects/$projectId');
-      expect(link).toHaveAttribute('data-params', JSON.stringify({ projectId: 'proj-123' }));
+      expect(link).toHaveAttribute('href', '/codespaces/$codespaceId');
+      expect(link).toHaveAttribute('data-params', JSON.stringify({ codespaceId: 'proj-123' }));
     });
   });
 });

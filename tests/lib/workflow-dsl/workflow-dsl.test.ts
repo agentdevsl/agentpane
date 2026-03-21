@@ -491,7 +491,7 @@ describe('Workflow DSL Module', () => {
             label: 'Start',
             position: { x: 0, y: 0 },
             inputs: [
-              { name: 'projectId', type: 'string', required: true },
+              { name: 'codespaceId', type: 'string', required: true },
               { name: 'debug', type: 'boolean', required: false, defaultValue: false },
             ],
           },
@@ -501,7 +501,7 @@ describe('Workflow DSL Module', () => {
 
         expect(result[0].data.inputs).toHaveLength(2);
         expect(result[0].data.inputs[0]).toEqual({
-          name: 'projectId',
+          name: 'codespaceId',
           type: 'string',
           required: true,
         });

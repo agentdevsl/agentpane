@@ -227,7 +227,7 @@ describe('EventProcessingService', () => {
       const createCall = mockTaskService.create.mock.calls[0][0];
       expect(createCall.labels).toEqual(['auto']);
       expect(createCall.priority).toBe('medium');
-      expect(createCall.projectId).toBe('project-1');
+      expect(createCall.codespaceId).toBe('project-1');
     });
 
     it('updates event log with task_created status after successful processing', async () => {
@@ -680,13 +680,13 @@ describe('EventProcessingService', () => {
 
       // Verify each subscription's task was created with correct params
       expect(mockTaskService.create.mock.calls[0][0]).toMatchObject({
-        projectId: 'project-1',
+        codespaceId: 'project-1',
         description: 'Template A: Bug report',
         labels: ['a'],
         priority: 'high',
       });
       expect(mockTaskService.create.mock.calls[1][0]).toMatchObject({
-        projectId: 'project-2',
+        codespaceId: 'project-2',
         description: 'Template B: Bug report',
         labels: ['b'],
         priority: 'low',

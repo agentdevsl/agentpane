@@ -99,7 +99,7 @@ describe('EventSubscriptionService', () => {
       });
       mockDb.query.teamProjects.findFirst.mockResolvedValue({
         teamId: 'team-1',
-        projectId: 'project-1',
+        codespaceId: 'project-1',
       });
 
       const created = makeSubscription({
@@ -133,7 +133,7 @@ describe('EventSubscriptionService', () => {
       });
       mockDb.query.teamProjects.findFirst.mockResolvedValue({
         teamId: 'team-1',
-        projectId: 'project-1',
+        codespaceId: 'project-1',
       });
 
       const created = makeSubscription({ name: baseInput.name });
@@ -193,7 +193,7 @@ describe('EventSubscriptionService', () => {
       });
       mockDb.query.teamProjects.findFirst.mockResolvedValue({
         teamId: 'team-1',
-        projectId: 'project-1',
+        codespaceId: 'project-1',
       });
       mockDb._insertChain.returning.mockResolvedValue([]);
 
@@ -211,7 +211,7 @@ describe('EventSubscriptionService', () => {
       });
       mockDb.query.teamProjects.findFirst.mockResolvedValue({
         teamId: 'team-1',
-        projectId: 'project-1',
+        codespaceId: 'project-1',
       });
       mockDb._insertChain.returning.mockResolvedValue([makeSubscription()]);
 

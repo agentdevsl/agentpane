@@ -201,7 +201,7 @@ describe('Schema Hooks', () => {
         const [agent] = await db
           .insert(schema.agents)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             name: 'Test Agent',
           })
           .returning();
@@ -219,7 +219,7 @@ describe('Schema Hooks', () => {
           .insert(schema.agents)
           .values({
             id: customId,
-            projectId: project.id,
+            codespaceId: project.id,
             name: 'Test Agent',
           })
           .returning();
@@ -236,7 +236,7 @@ describe('Schema Hooks', () => {
         const [agent] = await db
           .insert(schema.agents)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             name: 'Test Agent',
           })
           .returning();
@@ -253,7 +253,7 @@ describe('Schema Hooks', () => {
         const [agent] = await db
           .insert(schema.agents)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             name: 'Test Agent',
           })
           .returning();
@@ -271,7 +271,7 @@ describe('Schema Hooks', () => {
         const [agent] = await db
           .insert(schema.agents)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             name: 'Test Agent',
           })
           .returning();
@@ -286,7 +286,7 @@ describe('Schema Hooks', () => {
         const [agent] = await db
           .insert(schema.agents)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             name: 'Test Agent',
           })
           .returning();
@@ -301,7 +301,7 @@ describe('Schema Hooks', () => {
         const [agent] = await db
           .insert(schema.agents)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             name: 'Test Agent',
           })
           .returning();
@@ -336,7 +336,7 @@ describe('Schema Hooks', () => {
         const [task] = await db
           .insert(schema.tasks)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             title: 'Test Task',
           })
           .returning();
@@ -354,7 +354,7 @@ describe('Schema Hooks', () => {
         const [task] = await db
           .insert(schema.tasks)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             title: 'Test Task',
           })
           .returning();
@@ -373,7 +373,7 @@ describe('Schema Hooks', () => {
         const [task] = await db
           .insert(schema.tasks)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             title: 'Test Task',
           })
           .returning();
@@ -388,7 +388,7 @@ describe('Schema Hooks', () => {
         const [task] = await db
           .insert(schema.tasks)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             title: 'Test Task',
           })
           .returning();
@@ -403,7 +403,7 @@ describe('Schema Hooks', () => {
         const [task] = await db
           .insert(schema.tasks)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             title: 'Test Task',
           })
           .returning();
@@ -418,7 +418,7 @@ describe('Schema Hooks', () => {
         const [task] = await db
           .insert(schema.tasks)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             title: 'Test Task',
           })
           .returning();
@@ -433,7 +433,7 @@ describe('Schema Hooks', () => {
         const [task] = await db
           .insert(schema.tasks)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             title: 'Test Task',
           })
           .returning();
@@ -483,7 +483,7 @@ describe('Schema Hooks', () => {
         const [session] = await db
           .insert(schema.sessions)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             url: 'http://localhost:3000/sessions/test',
           })
           .returning();
@@ -501,7 +501,7 @@ describe('Schema Hooks', () => {
         const [session] = await db
           .insert(schema.sessions)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             url: 'http://localhost:3000/sessions/test',
           })
           .returning();
@@ -519,7 +519,7 @@ describe('Schema Hooks', () => {
         const [session] = await db
           .insert(schema.sessions)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             url: 'http://localhost:3000/sessions/test',
           })
           .returning();
@@ -554,7 +554,7 @@ describe('Schema Hooks', () => {
         const [worktree] = await db
           .insert(schema.worktrees)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             branch: 'feature/test-branch',
             path: '/tmp/worktree-test',
           })
@@ -573,7 +573,7 @@ describe('Schema Hooks', () => {
         const [worktree] = await db
           .insert(schema.worktrees)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             branch: 'feature/test-branch',
             path: '/tmp/worktree-test-2',
           })
@@ -592,7 +592,7 @@ describe('Schema Hooks', () => {
         const [worktree] = await db
           .insert(schema.worktrees)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             branch: 'feature/test-branch',
             path: '/tmp/worktree-test-3',
           })
@@ -608,7 +608,7 @@ describe('Schema Hooks', () => {
         const [worktree] = await db
           .insert(schema.worktrees)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             branch: 'feature/test-branch',
             path: '/tmp/worktree-test-4',
           })
@@ -648,7 +648,7 @@ describe('Schema Hooks', () => {
           .values({
             agentId: agent.id,
             taskId: task.id,
-            projectId: project.id,
+            codespaceId: project.id,
             status: 'running',
           })
           .returning();
@@ -670,7 +670,7 @@ describe('Schema Hooks', () => {
           .values({
             agentId: agent.id,
             taskId: task.id,
-            projectId: project.id,
+            codespaceId: project.id,
             status: 'running',
           })
           .returning();
@@ -693,7 +693,7 @@ describe('Schema Hooks', () => {
           .values({
             agentId: agent.id,
             taskId: task.id,
-            projectId: project.id,
+            codespaceId: project.id,
             status: 'running',
           })
           .returning();
@@ -712,7 +712,7 @@ describe('Schema Hooks', () => {
           .values({
             agentId: agent.id,
             taskId: task.id,
-            projectId: project.id,
+            codespaceId: project.id,
             status: 'running',
           })
           .returning();
@@ -734,7 +734,7 @@ describe('Schema Hooks', () => {
           .values({
             agentId: agent.id,
             taskId: task.id,
-            projectId: project.id,
+            codespaceId: project.id,
             status: 'running',
           })
           .returning();
@@ -760,7 +760,7 @@ describe('Schema Hooks', () => {
           .values({
             agentId: agent.id,
             taskId: task.id,
-            projectId: project.id,
+            codespaceId: project.id,
             status: 'running',
           })
           .returning();
@@ -786,7 +786,7 @@ describe('Schema Hooks', () => {
           .values({
             agentId: agent.id,
             taskId: task.id,
-            projectId: project.id,
+            codespaceId: project.id,
             status: 'running',
           })
           .returning();
@@ -811,7 +811,7 @@ describe('Schema Hooks', () => {
         const [auditLog] = await db
           .insert(schema.auditLogs)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             tool: 'Read',
             status: 'complete',
           })
@@ -830,7 +830,7 @@ describe('Schema Hooks', () => {
         const [auditLog] = await db
           .insert(schema.auditLogs)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             tool: 'Read',
             status: 'complete',
           })
@@ -850,7 +850,7 @@ describe('Schema Hooks', () => {
         const [auditLog] = await db
           .insert(schema.auditLogs)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             tool: 'Read',
             status: 'complete',
           })
@@ -873,7 +873,7 @@ describe('Schema Hooks', () => {
         const [auditLog] = await db
           .insert(schema.auditLogs)
           .values({
-            projectId: project.id,
+            codespaceId: project.id,
             agentId: agent.id,
             tool: 'Read',
             status: 'complete',

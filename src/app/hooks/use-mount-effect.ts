@@ -1,4 +1,3 @@
-// biome-ignore lint/style/noRestrictedImports: factory hook — only file allowed to import useEffect
 import { type EffectCallback, useEffect } from 'react';
 
 /**
@@ -6,6 +5,6 @@ import { type EffectCallback, useEffect } from 'react';
  * This is the only sanctioned way to run a mount-only effect.
  */
 export function useMountEffect(effect: EffectCallback): void {
-  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only by design
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only effect intentionally has empty deps
   useEffect(effect, []);
 }

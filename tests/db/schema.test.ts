@@ -19,7 +19,7 @@ import {
   WORKTREE_STATUS,
 } from '@/db/schema/sqlite';
 import { agents } from '@/db/schema/sqlite/agents';
-import { projects } from '@/db/schema/sqlite/projects';
+import { codespaces } from '@/db/schema/sqlite/codespaces';
 import { sandboxInstances, sandboxTmuxSessions } from '@/db/schema/sqlite/sandboxes';
 import { sessionEvents } from '@/db/schema/sqlite/session-events';
 import { sessions } from '@/db/schema/sqlite/sessions';
@@ -32,55 +32,55 @@ import { worktrees } from '@/db/schema/sqlite/worktrees';
 // Projects Table Schema
 // =============================================================================
 
-describe('Projects Schema', () => {
+describe('Codespaces Schema', () => {
   it('has an id primary key column', () => {
-    expect(projects.id).toBeDefined();
-    expect(projects.id.name).toBe('id');
+    expect(codespaces.id).toBeDefined();
+    expect(codespaces.id.name).toBe('id');
   });
 
   it('has a name column that is not null', () => {
-    expect(projects.name).toBeDefined();
-    expect(projects.name.name).toBe('name');
-    expect(projects.name.notNull).toBe(true);
+    expect(codespaces.name).toBeDefined();
+    expect(codespaces.name.name).toBe('name');
+    expect(codespaces.name.notNull).toBe(true);
   });
 
   it('has a unique path column', () => {
-    expect(projects.path).toBeDefined();
-    expect(projects.path.name).toBe('path');
-    expect(projects.path.notNull).toBe(true);
-    expect(projects.path.isUnique).toBe(true);
+    expect(codespaces.path).toBeDefined();
+    expect(codespaces.path.name).toBe('path');
+    expect(codespaces.path.notNull).toBe(true);
+    expect(codespaces.path.isUnique).toBe(true);
   });
 
   it('has optional description column', () => {
-    expect(projects.description).toBeDefined();
-    expect(projects.description.notNull).toBe(false);
+    expect(codespaces.description).toBeDefined();
+    expect(codespaces.description.notNull).toBe(false);
   });
 
   it('has config JSON column', () => {
-    expect(projects.config).toBeDefined();
-    expect(projects.config.name).toBe('config');
+    expect(codespaces.config).toBeDefined();
+    expect(codespaces.config.name).toBe('config');
   });
 
   it('has maxConcurrentAgents with default 3', () => {
-    expect(projects.maxConcurrentAgents).toBeDefined();
-    expect(projects.maxConcurrentAgents.name).toBe('max_concurrent_agents');
+    expect(codespaces.maxConcurrentAgents).toBeDefined();
+    expect(codespaces.maxConcurrentAgents.name).toBe('max_concurrent_agents');
   });
 
   it('has createdAt and updatedAt timestamp columns', () => {
-    expect(projects.createdAt).toBeDefined();
-    expect(projects.createdAt.notNull).toBe(true);
-    expect(projects.updatedAt).toBeDefined();
-    expect(projects.updatedAt.notNull).toBe(true);
+    expect(codespaces.createdAt).toBeDefined();
+    expect(codespaces.createdAt.notNull).toBe(true);
+    expect(codespaces.updatedAt).toBeDefined();
+    expect(codespaces.updatedAt.notNull).toBe(true);
   });
 
   it('has github-related columns', () => {
-    expect(projects.githubOwner).toBeDefined();
-    expect(projects.githubRepo).toBeDefined();
-    expect(projects.githubInstallationId).toBeDefined();
+    expect(codespaces.githubOwner).toBeDefined();
+    expect(codespaces.githubRepo).toBeDefined();
+    expect(codespaces.githubInstallationId).toBeDefined();
   });
 
   it('has sandboxConfigId column', () => {
-    expect(projects.sandboxConfigId).toBeDefined();
+    expect(codespaces.sandboxConfigId).toBeDefined();
   });
 });
 
@@ -94,10 +94,10 @@ describe('Tasks Schema', () => {
     expect(tasks.id.name).toBe('id');
   });
 
-  it('has projectId foreign key (not null)', () => {
-    expect(tasks.projectId).toBeDefined();
-    expect(tasks.projectId.name).toBe('project_id');
-    expect(tasks.projectId.notNull).toBe(true);
+  it('has codespaceId foreign key (not null)', () => {
+    expect(tasks.codespaceId).toBeDefined();
+    expect(tasks.codespaceId.name).toBe('codespace_id');
+    expect(tasks.codespaceId.notNull).toBe(true);
   });
 
   it('has title column (not null)', () => {
@@ -175,9 +175,9 @@ describe('Agents Schema', () => {
     expect(agents.id.name).toBe('id');
   });
 
-  it('has projectId foreign key (not null)', () => {
-    expect(agents.projectId).toBeDefined();
-    expect(agents.projectId.notNull).toBe(true);
+  it('has codespaceId foreign key (not null)', () => {
+    expect(agents.codespaceId).toBeDefined();
+    expect(agents.codespaceId.notNull).toBe(true);
   });
 
   it('has name column (not null)', () => {
@@ -220,9 +220,9 @@ describe('Sessions Schema', () => {
     expect(sessions.id.name).toBe('id');
   });
 
-  it('has projectId foreign key (not null)', () => {
-    expect(sessions.projectId).toBeDefined();
-    expect(sessions.projectId.notNull).toBe(true);
+  it('has codespaceId foreign key (not null)', () => {
+    expect(sessions.codespaceId).toBeDefined();
+    expect(sessions.codespaceId.notNull).toBe(true);
   });
 
   it('has url column (not null)', () => {
@@ -260,9 +260,9 @@ describe('Worktrees Schema', () => {
     expect(worktrees.id.name).toBe('id');
   });
 
-  it('has projectId foreign key (not null)', () => {
-    expect(worktrees.projectId).toBeDefined();
-    expect(worktrees.projectId.notNull).toBe(true);
+  it('has codespaceId foreign key (not null)', () => {
+    expect(worktrees.codespaceId).toBeDefined();
+    expect(worktrees.codespaceId.notNull).toBe(true);
   });
 
   it('has branch column (not null)', () => {
@@ -362,9 +362,9 @@ describe('SandboxInstances Schema', () => {
     expect(sandboxInstances.id).toBeDefined();
   });
 
-  it('has unique projectId foreign key', () => {
-    expect(sandboxInstances.projectId).toBeDefined();
-    expect(sandboxInstances.projectId.notNull).toBe(true);
+  it('has unique codespaceId foreign key', () => {
+    expect(sandboxInstances.codespaceId).toBeDefined();
+    expect(sandboxInstances.codespaceId.notNull).toBe(true);
   });
 
   it('has containerId (not null)', () => {

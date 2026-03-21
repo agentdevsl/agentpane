@@ -397,7 +397,7 @@ describe('AddTemplateDialog', () => {
           githubUrl: 'https://github.com/owner/repo',
           branch: 'develop',
           configPath: '.templates',
-          projectIds: undefined,
+          codespaceIds: undefined,
         } satisfies CreateTemplateInput);
       });
 
@@ -438,7 +438,7 @@ describe('AddTemplateDialog', () => {
           githubUrl: 'https://github.com/owner/repo',
           branch: undefined,
           configPath: undefined,
-          projectIds: ['proj-1', 'proj-2'],
+          codespaceIds: ['proj-1', 'proj-2'],
         } satisfies CreateTemplateInput);
       });
     });
@@ -861,7 +861,7 @@ describe('AddTemplateDialog', () => {
       await waitFor(() => {
         expect(onSubmit).toHaveBeenCalledWith(
           expect.objectContaining({
-            projectIds: ['proj-1'],
+            codespaceIds: ['proj-1'],
           })
         );
       });

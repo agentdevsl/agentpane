@@ -17,7 +17,7 @@ describe('mock-agent-lifecycle', () => {
   describe('createMockStartAgentInput', () => {
     it('creates valid StartAgentInput with defaults', () => {
       const input = createMockStartAgentInput();
-      expect(input.projectId).toBeTruthy();
+      expect(input.codespaceId).toBeTruthy();
       expect(input.taskId).toBeTruthy();
       expect(input.sessionId).toBeTruthy();
       expect(input.prompt).toBe('Fix the bug in the authentication module');
@@ -43,7 +43,7 @@ describe('mock-agent-lifecycle', () => {
       const agent = createMockRunningAgent();
       expect(agent.taskId).toBeTruthy();
       expect(agent.sessionId).toBeTruthy();
-      expect(agent.projectId).toBeTruthy();
+      expect(agent.codespaceId).toBeTruthy();
       expect(agent.sandboxId).toBe('sandbox-shared');
       expect(agent.bridge).toBeDefined();
       expect(agent.execResult).toBeDefined();
@@ -58,7 +58,7 @@ describe('mock-agent-lifecycle', () => {
       const plan = createMockPendingPlan();
       expect(plan.taskId).toBeTruthy();
       expect(plan.sessionId).toBeTruthy();
-      expect(plan.projectId).toBeTruthy();
+      expect(plan.codespaceId).toBeTruthy();
       expect(plan.plan).toContain('# Implementation Plan');
       expect(plan.turnCount).toBe(5);
       expect(plan.sdkSessionId).toContain('sdk-session-');
@@ -102,7 +102,7 @@ describe('mock-agent-lifecycle', () => {
     it('creates valid Task', () => {
       const task = createMockTask();
       expect(task.id).toBeTruthy();
-      expect(task.projectId).toBeTruthy();
+      expect(task.codespaceId).toBeTruthy();
       expect(task.title).toBe('Fix authentication bug');
       expect(task.column).toBe('backlog');
       expect(task.position).toBe(0);
@@ -117,7 +117,7 @@ describe('mock-agent-lifecycle', () => {
     it('creates valid Agent', () => {
       const agent = createMockAgent();
       expect(agent.id).toBeTruthy();
-      expect(agent.projectId).toBeTruthy();
+      expect(agent.codespaceId).toBeTruthy();
       expect(agent.name).toBe('Container Agent');
       expect(agent.type).toBe('task');
       expect(agent.status).toBe('idle');
@@ -130,10 +130,10 @@ describe('mock-agent-lifecycle', () => {
     it('creates valid Session', () => {
       const session = createMockSession();
       expect(session.id).toBeTruthy();
-      expect(session.projectId).toBeTruthy();
+      expect(session.codespaceId).toBeTruthy();
       expect(session.status).toBe('active');
       expect(session.title).toBe('Container Agent Session');
-      expect(session.url).toContain('/projects/');
+      expect(session.url).toContain('/codespaces/');
       expect(session.closedAt).toBeNull();
     });
   });
@@ -142,7 +142,7 @@ describe('mock-agent-lifecycle', () => {
     it('creates valid Worktree', () => {
       const worktree = createMockWorktreeRecord();
       expect(worktree.id).toBeTruthy();
-      expect(worktree.projectId).toBeTruthy();
+      expect(worktree.codespaceId).toBeTruthy();
       expect(worktree.branch).toContain('agent/task/');
       expect(worktree.path).toContain('.worktrees/');
       expect(worktree.baseBranch).toBe('main');
@@ -214,13 +214,13 @@ describe('mock-agent-lifecycle', () => {
 
     it('uses consistent IDs across scenario entities', () => {
       const scenario = createMockAgentLifecycleScenario('executing');
-      expect(scenario.task.projectId).toBe(scenario.project.id);
+      expect(scenario.task.codespaceId).toBe(scenario.project.id);
       expect(scenario.task.agentId).toBe(scenario.agent.id);
       expect(scenario.task.sessionId).toBe(scenario.session?.id);
       expect(scenario.task.worktreeId).toBe(scenario.worktree?.id);
-      expect(scenario.agent.projectId).toBe(scenario.project.id);
-      expect(scenario.session?.projectId).toBe(scenario.project.id);
-      expect(scenario.worktree?.projectId).toBe(scenario.project.id);
+      expect(scenario.agent.codespaceId).toBe(scenario.project.id);
+      expect(scenario.session?.codespaceId).toBe(scenario.project.id);
+      expect(scenario.worktree?.codespaceId).toBe(scenario.project.id);
     });
   });
 });

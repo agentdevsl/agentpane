@@ -916,7 +916,7 @@ describe('Hooks', () => {
         sessionId: 'session-1',
         agentRunId: 'run-1',
         taskId: 'task-1',
-        projectId: 'project-1',
+        codespaceId: 'project-1',
         allowedTools: ['read_file'],
         db: mockDb as never,
         sessionService,

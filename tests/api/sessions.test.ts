@@ -22,7 +22,7 @@ import { createSessionsRoutes } from '../../src/server/routes/sessions.js';
 
 const sampleSession: Session = {
   id: 'session-1',
-  projectId: 'proj-1',
+  codespaceId: 'proj-1',
   taskId: null,
   agentId: null,
   status: 'active',
@@ -76,7 +76,7 @@ describe('Session API', () => {
 
     const response = await app.request(
       jsonRequest('http://localhost/', {
-        projectId: 'az2h33gpcldsq0a0wdimza6m',
+        codespaceId: 'az2h33gpcldsq0a0wdimza6m',
       })
     );
 
@@ -90,7 +90,7 @@ describe('Session API', () => {
 
     const response = await app.request(
       jsonRequest('http://localhost/', {
-        projectId: 'az2h33gpcldsq0a0wdimza6m',
+        codespaceId: 'az2h33gpcldsq0a0wdimza6m',
       })
     );
 

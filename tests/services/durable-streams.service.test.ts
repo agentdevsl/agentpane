@@ -33,14 +33,14 @@ function createMockServer(overrides: Partial<DurableStreamsServer> = {}): Durabl
 // Helper to create a session in the DB (for FK constraint)
 // ============================================
 
-async function createTestSession(projectId: string): Promise<string> {
+async function createTestSession(codespaceId: string): Promise<string> {
   const db = getTestDb();
   const { createId } = await import('@paralleldrive/cuid2');
   const id = createId();
   // Insert directly to avoid circular service dependencies
   await db.insert((await import('../../src/db/schema')).sessions).values({
     id,
-    projectId,
+    codespaceId,
     status: 'idle',
     url: `/api/sessions/${id}/stream`,
   });
@@ -50,7 +50,7 @@ async function createTestSession(projectId: string): Promise<string> {
 describe('DurableStreamsService', () => {
   let mockServer: DurableStreamsServer;
   let service: DurableStreamsService;
-  let projectId: string;
+  let codespaceId: string;
   let sessionId: string;
 
   beforeAll(async () => {
@@ -62,8 +62,8 @@ describe('DurableStreamsService', () => {
     mockServer = createMockServer();
 
     const project = await createTestProject({ name: 'Streams Test Project' });
-    projectId = project.id;
-    sessionId = await createTestSession(projectId);
+    codespaceId = project.id;
+    sessionId = await createTestSession(codespaceId);
 
     service = new DurableStreamsService(mockServer, getTestDb() as any);
   });
@@ -144,7 +144,7 @@ describe('DurableStreamsService', () => {
       const data = {
         sessionId,
         taskId: 'task-1',
-        projectId,
+        codespaceId,
       };
 
       const result = await service.publish(sessionId, 'plan:started', data);
@@ -169,7 +169,7 @@ describe('DurableStreamsService', () => {
       await service.publish(sessionId, 'plan:started', {
         sessionId,
         taskId: 'task-1',
-        projectId,
+        codespaceId,
       });
 
       // RS-008: Use plan:turn instead of plan:token since token events are
@@ -194,7 +194,7 @@ describe('DurableStreamsService', () => {
       const result = await service.publish('', 'plan:started', {
         sessionId: 's1',
         taskId: 't1',
-        projectId: 'p1',
+        codespaceId: 'p1',
       });
       expect(result.ok).toBe(false);
       if (!result.ok) {
@@ -211,7 +211,7 @@ describe('DurableStreamsService', () => {
       // publish should succeed (caddy failure is best-effort)
       const result = await svc.publish(sessionId, 'sandbox:creating', {
         sandboxId: 'sb-1',
-        projectId,
+        codespaceId,
         image: 'node:20',
       });
 
@@ -235,7 +235,7 @@ describe('DurableStreamsService', () => {
       const result = await svc.publish(sessionId, 'plan:started', {
         sessionId,
         taskId: 't1',
-        projectId: 'p1',
+        codespaceId: 'p1',
       });
 
       expect(result.ok).toBe(true);
@@ -343,7 +343,7 @@ describe('DurableStreamsService', () => {
     it('maps sandbox: events to sandbox channel', async () => {
       await service.publish(sessionId, 'sandbox:ready', {
         sandboxId: 'sb-1',
-        projectId,
+        codespaceId,
         containerId: 'ctr-1',
       });
 
@@ -357,7 +357,7 @@ describe('DurableStreamsService', () => {
     it('maps task-creation: events to taskCreation channel', async () => {
       await service.publish(sessionId, 'task-creation:started', {
         sessionId,
-        projectId,
+        codespaceId,
       });
 
       const db = getTestDb();
@@ -422,13 +422,13 @@ describe('DurableStreamsService', () => {
       await service.publishPlanStarted(sessionId, {
         sessionId,
         taskId: 'task-1',
-        projectId,
+        codespaceId,
       });
 
       expect(publishSpy).toHaveBeenCalledWith(sessionId, 'plan:started', {
         sessionId,
         taskId: 'task-1',
-        projectId,
+        codespaceId,
       });
     });
 
@@ -463,12 +463,12 @@ describe('DurableStreamsService', () => {
 
       await service.publishTaskCreationStarted(sessionId, {
         sessionId,
-        projectId,
+        codespaceId,
       });
 
       expect(publishSpy).toHaveBeenCalledWith(sessionId, 'task-creation:started', {
         sessionId,
-        projectId,
+        codespaceId,
       });
     });
 

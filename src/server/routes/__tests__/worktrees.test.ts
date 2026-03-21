@@ -47,12 +47,12 @@ describe('Worktrees API Routes', () => {
     it('returns worktrees list for a project', async () => {
       const { app, worktreeService } = createTestApp();
       const mockWorktrees = [
-        { id: 'wt-1', branch: 'feature/task-1', projectId: 'proj-1' },
-        { id: 'wt-2', branch: 'feature/task-2', projectId: 'proj-1' },
+        { id: 'wt-1', branch: 'feature/task-1', codespaceId: 'proj-1' },
+        { id: 'wt-2', branch: 'feature/task-2', codespaceId: 'proj-1' },
       ];
       worktreeService.list.mockResolvedValue({ ok: true, value: mockWorktrees });
 
-      const res = await request(app, 'GET', '/api/worktrees?projectId=proj-1');
+      const res = await request(app, 'GET', '/api/worktrees?codespaceId=proj-1');
 
       expect(res.status).toBe(200);
       const json = await res.json();
@@ -60,7 +60,7 @@ describe('Worktrees API Routes', () => {
       expect(json.data.items).toHaveLength(2);
     });
 
-    it('returns 400 when projectId is missing', async () => {
+    it('returns 400 when codespaceId is missing', async () => {
       const { app } = createTestApp();
 
       const res = await request(app, 'GET', '/api/worktrees');
@@ -85,7 +85,7 @@ describe('Worktrees API Routes', () => {
       worktreeService.create.mockResolvedValue({ ok: true, value: created });
 
       const res = await request(app, 'POST', '/api/worktrees', {
-        projectId: 'proj-1',
+        codespaceId: 'proj-1',
         agentId: 'agent-1',
         taskId: 'task-1',
         taskTitle: 'My Task',
@@ -101,7 +101,7 @@ describe('Worktrees API Routes', () => {
       const { app } = createTestApp();
 
       const res = await request(app, 'POST', '/api/worktrees', {
-        projectId: 'proj-1',
+        codespaceId: 'proj-1',
       });
 
       expect(res.status).toBe(400);
@@ -133,7 +133,7 @@ describe('Worktrees API Routes', () => {
       });
 
       const res = await request(app, 'POST', '/api/worktrees', {
-        projectId: 'proj-1',
+        codespaceId: 'proj-1',
         agentId: 'agent-1',
         taskId: 'task-1',
         taskTitle: 'My Task',
@@ -444,7 +444,7 @@ describe('Worktrees API Routes', () => {
       worktreeService.prune.mockResolvedValue({ ok: true, value: { pruned: 2 } });
 
       const res = await request(app, 'POST', '/api/worktrees/prune', {
-        projectId: 'proj-1',
+        codespaceId: 'proj-1',
       });
 
       expect(res.status).toBe(200);
@@ -453,7 +453,7 @@ describe('Worktrees API Routes', () => {
       expect(json.data.pruned).toBe(2);
     });
 
-    it('returns 400 when projectId is missing', async () => {
+    it('returns 400 when codespaceId is missing', async () => {
       const { app } = createTestApp();
 
       const res = await request(app, 'POST', '/api/worktrees/prune', {});

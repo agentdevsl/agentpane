@@ -1,23 +1,24 @@
 import { createId } from '@paralleldrive/cuid2';
-import type { NewProject, Project, ProjectConfig } from '../../src/db/schema';
-import { projects } from '../../src/db/schema';
+import type { Codespace, CodespaceConfig, NewCodespace } from '../../src/db/schema';
+import { codespaces } from '../../src/db/schema';
 import { getTestDb } from '../helpers/database';
 
-export type ProjectFactoryOptions = Partial<NewProject> & {
-  config?: Partial<ProjectConfig>;
+export type ProjectFactoryOptions = Partial<NewCodespace> & {
+  config?: Partial<CodespaceConfig>;
 };
 
-const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
+const DEFAULT_PROJECT_CONFIG: CodespaceConfig = {
   worktreeRoot: '.worktrees',
   defaultBranch: 'main',
   allowedTools: ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep'],
   maxTurns: 50,
 };
 
-export function buildProject(options: ProjectFactoryOptions = {}): NewProject {
+export function buildProject(options: ProjectFactoryOptions = {}): NewCodespace {
   const id = options.id ?? createId();
   return {
     id,
+    projectFolderId: options.projectFolderId ?? createId(),
     name: options.name ?? `Test Project ${id.slice(0, 6)}`,
     path: options.path ?? `/tmp/test-project-${id}`,
     description: options.description ?? null,
@@ -34,11 +35,11 @@ export function buildProject(options: ProjectFactoryOptions = {}): NewProject {
   };
 }
 
-export async function createTestProject(options: ProjectFactoryOptions = {}): Promise<Project> {
+export async function createTestProject(options: ProjectFactoryOptions = {}): Promise<Codespace> {
   const db = getTestDb();
   const data = buildProject(options);
 
-  const [project] = await db.insert(projects).values(data).returning();
+  const [project] = await db.insert(codespaces).values(data).returning();
 
   if (!project) {
     throw new Error('Failed to create test project');
@@ -50,8 +51,8 @@ export async function createTestProject(options: ProjectFactoryOptions = {}): Pr
 export async function createTestProjects(
   count: number,
   options: ProjectFactoryOptions = {}
-): Promise<Project[]> {
-  const createdProjects: Project[] = [];
+): Promise<Codespace[]> {
+  const createdProjects: Codespace[] = [];
 
   for (let i = 0; i < count; i++) {
     const project = await createTestProject({

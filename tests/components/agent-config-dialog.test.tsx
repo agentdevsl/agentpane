@@ -6,7 +6,7 @@ import type { Agent } from '@/db/schema';
 
 const createAgent = (overrides: Partial<Agent> = {}): Agent => ({
   id: overrides.id ?? 'agent-1',
-  projectId: overrides.projectId ?? 'project-1',
+  codespaceId: overrides.codespaceId ?? 'project-1',
   name: overrides.name ?? 'Test Agent',
   type: overrides.type ?? 'task',
   status: overrides.status ?? 'idle',

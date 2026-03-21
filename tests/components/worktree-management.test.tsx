@@ -74,7 +74,7 @@ describe('WorktreeManagement', () => {
   });
 
   it('renders worktree list after loading', async () => {
-    render(<WorktreeManagement projectId="project-1" />);
+    render(<WorktreeManagement codespaceId="project-1" />);
 
     // Initially shows loading
     await waitFor(() => {
@@ -97,7 +97,7 @@ describe('WorktreeManagement', () => {
       data: { items: [], totalCount: 0 },
     });
 
-    render(<WorktreeManagement projectId="project-1" />);
+    render(<WorktreeManagement codespaceId="project-1" />);
 
     await waitFor(() => {
       expect(screen.getByText('No worktrees yet')).toBeInTheDocument();
@@ -110,7 +110,7 @@ describe('WorktreeManagement', () => {
       error: { code: 'ERROR', message: 'Failed to fetch worktrees' },
     });
 
-    render(<WorktreeManagement projectId="project-1" />);
+    render(<WorktreeManagement codespaceId="project-1" />);
 
     await waitFor(() => {
       expect(screen.getByText('Failed to fetch worktrees')).toBeInTheDocument();
@@ -118,7 +118,7 @@ describe('WorktreeManagement', () => {
   });
 
   it('renders worktree items with correct structure', async () => {
-    render(<WorktreeManagement projectId="project-1" />);
+    render(<WorktreeManagement codespaceId="project-1" />);
 
     // Wait for worktrees to load
     await waitFor(
@@ -137,7 +137,7 @@ describe('WorktreeManagement', () => {
   });
 
   it('shows dirty status for worktrees with uncommitted changes', async () => {
-    render(<WorktreeManagement projectId="project-1" />);
+    render(<WorktreeManagement codespaceId="project-1" />);
 
     await waitFor(() => {
       // Second worktree has uncommitted changes, should show "dirty" status (lowercase)
@@ -146,7 +146,7 @@ describe('WorktreeManagement', () => {
   });
 
   it('supports panel mode', async () => {
-    render(<WorktreeManagement projectId="project-1" panelMode />);
+    render(<WorktreeManagement codespaceId="project-1" panelMode />);
 
     // Wait for worktrees to load (text appears multiple times so use getAllByText)
     await waitFor(
