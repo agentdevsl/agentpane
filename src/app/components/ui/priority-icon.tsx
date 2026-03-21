@@ -1,4 +1,4 @@
-import { ArrowFatDown, ArrowFatUp, Minus } from '@phosphor-icons/react';
+import { CaretDown, CaretUp, Diamond } from '@phosphor-icons/react';
 import { cn } from '@/lib/utils/cn';
 import { priorityColorVariants } from '../features/kanban-board/styles';
 
@@ -8,15 +8,15 @@ interface PriorityIconProps {
   className?: string;
 }
 
-export function PriorityIcon({ priority, size = 14, className }: PriorityIconProps) {
+export function PriorityIcon({ priority, size = 16, className }: PriorityIconProps) {
   const colorClass = priorityColorVariants({ priority });
 
   switch (priority) {
     case 'high':
-      return <ArrowFatUp size={size} weight="fill" className={cn(colorClass, className)} />;
+      return <CaretUp size={size} weight="fill" className={cn(colorClass, className)} />;
     case 'medium':
-      return <Minus size={size} weight="bold" className={cn(colorClass, className)} />;
+      return <Diamond size={size - 2} weight="fill" className={cn(colorClass, className)} />;
     case 'low':
-      return <ArrowFatDown size={size} weight="fill" className={cn(colorClass, className)} />;
+      return <CaretDown size={size} weight="fill" className={cn(colorClass, className)} />;
   }
 }

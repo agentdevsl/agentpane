@@ -17,6 +17,7 @@ import {
   lastRunStatusVariants,
 } from '@/app/components/features/kanban-board/styles';
 import { PriorityIcon } from '@/app/components/ui/priority-icon';
+import { ResizeHandle } from '@/app/components/ui/resize-handle';
 import { useLocalStorage } from '@/app/hooks/use-local-storage';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { cn } from '@/lib/utils/cn';
@@ -174,6 +175,7 @@ export function TaskListSidebar({
   const [sortBy, setSortBy] = useState<SortOption>('status');
   const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set());
   const [showCompleted, setShowCompleted] = useLocalStorage('live-task-view:show-completed', false);
+  const [sidebarWidth, setSidebarWidth] = useLocalStorage('live-task-view:sidebar-width', 252);
 
   /** Column counts computed from the full unfiltered task list. */
   const columnCounts = useMemo(() => {
@@ -247,7 +249,17 @@ export function TaskListSidebar({
   }, [filteredAndSorted, onSelectedTaskHidden, selectedTaskId]);
 
   return (
-    <aside className="flex h-full w-[252px] shrink-0 flex-col border-r border-border bg-surface">
+    <aside
+      className="relative flex h-full shrink-0 flex-col border-r border-border bg-surface"
+      style={{ width: sidebarWidth }}
+    >
+      <ResizeHandle
+        currentWidth={sidebarWidth}
+        onResize={setSidebarWidth}
+        onResizeEnd={setSidebarWidth}
+        minWidth={180}
+        maxWidth={500}
+      />
       {/* Header */}
       <div className="border-b border-border px-3 pt-3 pb-2">
         <div className="flex items-center justify-between">
@@ -387,7 +399,7 @@ function TaskCard({
     >
       {/* Header: priority icon + title */}
       <div className="flex items-start gap-2">
-        <PriorityIcon priority={priority} size={12} className="mt-1" />
+        <PriorityIcon priority={priority} className="mt-1" />
         <div className="flex-1 text-sm font-medium leading-snug text-fg truncate">{task.title}</div>
       </div>
 

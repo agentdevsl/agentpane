@@ -1,7 +1,8 @@
+import { PriorityIcon } from '@/app/components/ui/priority-icon';
 import type { Task } from '@/db/schema';
 import { cn } from '@/lib/utils/cn';
 import { DRAG_ROTATION, LABEL_TYPES, type Priority } from './constants';
-import { cardVariants, labelVariants, priorityVariants } from './styles';
+import { cardVariants, labelVariants } from './styles';
 
 interface DragOverlayCardProps {
   /** Task being dragged */
@@ -75,7 +76,7 @@ export function DragOverlayCard({ task, selectedCount }: DragOverlayCardProps): 
 
       {/* Header */}
       <div className="flex items-start gap-2">
-        <div className={cn(priorityVariants({ priority }), 'mt-1.5')} />
+        <PriorityIcon priority={priority} className="mt-1" />
         <div className="flex-1 text-sm font-medium leading-snug text-fg">{task.title}</div>
       </div>
 
