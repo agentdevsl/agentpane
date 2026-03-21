@@ -86,7 +86,7 @@ describe('SessionService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.code).toBe('PROJECT_NOT_FOUND');
+        expect(result.error.code).toBe('CODESPACE_NOT_FOUND');
       }
     });
 

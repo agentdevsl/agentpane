@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { Project, Task } from '../../src/db/schema';
+import type { Codespace as Project, Task } from '../../src/db/schema';
 import type { Database } from '../../src/types/database.js';
 import { createMockDatabase, createTableQuery, type MockDatabase } from './mock-builders.js';
 

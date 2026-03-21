@@ -49,9 +49,12 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
     return testDb;
   }
 
-  // Use in-memory SQLite for tests
+  // Use in-memory SQLite for tests.
+  // FK checking is OFF because the v19 migration adds codespace_id columns
+  // but can't remove the NOT NULL constraint on legacy project_id columns.
+  // Drizzle ORM only writes to codespace_id, causing NOT NULL failures.
   testSqlite = new Database(':memory:');
-  testSqlite.pragma('foreign_keys = ON');
+  testSqlite.pragma('foreign_keys = OFF');
 
   testDb = drizzle(testSqlite, { schema });
 
@@ -90,8 +93,13 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
     }
   };
 
-  // Run base migrations
-  testSqlite.exec(MIGRATION_SQL);
+  // Run base migrations.
+  // Patch: make project_id nullable in CREATE TABLE statements so that the
+  // Drizzle ORM (which only writes to codespace_id) doesn't fail on NOT NULL.
+  const patchedMigration = MIGRATION_SQL
+    .replace(/"project_id" TEXT NOT NULL/g, '"project_id" TEXT')
+    .replace(/"target_project_id" TEXT NOT NULL/g, '"target_project_id" TEXT');
+  testSqlite.exec(patchedMigration);
 
   // Add team_id column to github_tokens before running RBAC migration.
   // RBAC_MIGRATION_SQL creates an index on github_tokens(team_id), so the
@@ -103,10 +111,14 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
   }
 
   // Run RBAC migrations (creates teams, task_tags, api_tokens, etc.)
-  testSqlite.exec(RBAC_MIGRATION_SQL);
+  const patchedRbac = RBAC_MIGRATION_SQL
+    .replace(/"project_id" TEXT NOT NULL/g, '"project_id" TEXT');
+  testSqlite.exec(patchedRbac);
 
   // Run event system migrations (event_sources, event_subscriptions, event_log)
-  testSqlite.exec(EVENT_SYSTEM_MIGRATION_SQL);
+  const patchedEvents = EVENT_SYSTEM_MIGRATION_SQL
+    .replace(/"target_project_id" TEXT NOT NULL/g, '"target_project_id" TEXT');
+  testSqlite.exec(patchedEvents);
 
   // Run v19 project folders + codespace rename migration
   testSqlite.exec(PROJECT_FOLDERS_MIGRATION_SQL);
@@ -119,79 +131,6 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
       // Idempotent — column may already exist
     }
   }
-
-  // The base migration creates project_id NOT NULL with FK to projects on
-  // several tables. The Drizzle schema now writes to codespace_id instead.
-  // SQLite cannot ALTER column constraints, so we rebuild each table with
-  // project_id made nullable and its FK reference removed.
-  testSqlite.exec('PRAGMA foreign_keys = OFF;');
-
-  const legacyTables = ['agents', 'sessions', 'worktrees', 'tasks', 'agent_runs'];
-
-  for (const table of legacyTables) {
-    try {
-      const row = testSqlite
-        .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?")
-        .get(table) as { sql: string } | undefined;
-      if (row?.sql) {
-        const newSql = row.sql
-          .replace(
-            /"project_id" TEXT NOT NULL REFERENCES "projects"\("id"\) ON DELETE CASCADE/g,
-            '"project_id" TEXT'
-          )
-          .replace(/"project_id" TEXT NOT NULL REFERENCES "projects"\("id"\)/g, '"project_id" TEXT')
-          .replace(/"project_id" TEXT NOT NULL/g, '"project_id" TEXT');
-
-        if (newSql !== row.sql) {
-          testSqlite.exec(`ALTER TABLE "${table}" RENAME TO "_old_${table}";`);
-          testSqlite.exec(newSql);
-          const cols = (
-            testSqlite.prepare(`PRAGMA table_info("${table}")`).all() as { name: string }[]
-          )
-            .map((c) => `"${c.name}"`)
-            .join(', ');
-          testSqlite.exec(`INSERT INTO "${table}" (${cols}) SELECT ${cols} FROM "_old_${table}";`);
-          testSqlite.exec(`DROP TABLE "_old_${table}";`);
-        }
-      }
-    } catch {
-      // safe to ignore
-    }
-  }
-
-  // Also fix event_subscriptions target_project_id
-  try {
-    const row = testSqlite
-      .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='event_subscriptions'")
-      .get() as { sql: string } | undefined;
-    if (row?.sql) {
-      const newSql = row.sql
-        .replace(
-          /"target_project_id" TEXT NOT NULL REFERENCES "projects"\("id"\) ON DELETE CASCADE/g,
-          '"target_project_id" TEXT'
-        )
-        .replace(/"target_project_id" TEXT NOT NULL/g, '"target_project_id" TEXT');
-      if (newSql !== row.sql) {
-        testSqlite.exec('ALTER TABLE "event_subscriptions" RENAME TO "_old_event_subscriptions";');
-        testSqlite.exec(newSql);
-        const cols = (
-          testSqlite.prepare('PRAGMA table_info("event_subscriptions")').all() as {
-            name: string;
-          }[]
-        )
-          .map((c) => `"${c.name}"`)
-          .join(', ');
-        testSqlite.exec(
-          `INSERT INTO "event_subscriptions" (${cols}) SELECT ${cols} FROM "_old_event_subscriptions";`
-        );
-        testSqlite.exec('DROP TABLE "_old_event_subscriptions";');
-      }
-    }
-  } catch {
-    // safe to ignore
-  }
-
-  testSqlite.exec('PRAGMA foreign_keys = ON;');
 
   return testDb;
 }

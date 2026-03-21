@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import type { CachedAgent, CachedCommand, CachedSkill } from '../../src/db/schema';
-import { templateProjects, templates } from '../../src/db/schema';
+import { templateCodespaces, templates } from '../../src/db/schema';
 import { TemplateService } from '../../src/services/template.service';
 import { createTestProject } from '../factories/project.factory';
 import { flushPromises } from '../helpers/async';
@@ -41,7 +41,7 @@ describe('TemplateService', () => {
   // Helper to clear templates and template-projects tables
   async function clearTemplates() {
     const db = getTestDb();
-    await db.delete(templateProjects);
+    await db.delete(templateCodespaces);
     await db.delete(templates);
     await db.delete(githubInstallations);
     await db.delete(githubTokens);
