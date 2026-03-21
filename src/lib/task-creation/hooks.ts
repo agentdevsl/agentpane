@@ -202,6 +202,7 @@ export function useTaskCreation(codespaceId: string): UseTaskCreationReturn {
       // Update local state
       setSessionId(newSessionId);
     } catch (err) {
+      // biome-ignore lint/suspicious/noConsole: client-side error logging
       console.error('[TaskCreation] Failed to start conversation:', err);
       setLocalError(err instanceof Error ? err.message : 'Failed to start conversation');
     }

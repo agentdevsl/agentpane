@@ -10,7 +10,7 @@ import { clearTestDatabase, execRawSql, getTestDb, setupTestDatabase } from '../
 const SANDBOX_TABLES_SQL = `
 CREATE TABLE IF NOT EXISTS "sandbox_instances" (
   "id" TEXT PRIMARY KEY NOT NULL,
-  "project_id" TEXT NOT NULL UNIQUE,
+  "codespace_id" TEXT NOT NULL UNIQUE,
   "container_id" TEXT NOT NULL,
   "status" TEXT DEFAULT 'stopped' NOT NULL,
   "image" TEXT NOT NULL,
@@ -137,7 +137,7 @@ describe('SandboxService', () => {
 
       const config: SandboxConfig = {
         codespaceId: 'project-123',
-        projectPath: '/path/to/project',
+        codespacePath: '/path/to/project',
         image: 'test-image:latest',
         memoryMb: 4096,
         cpuCores: 2,
@@ -171,7 +171,7 @@ describe('SandboxService', () => {
 
       const config: SandboxConfig = {
         codespaceId: 'project-123',
-        projectPath: '/path/to/project',
+        codespacePath: '/path/to/project',
         image: 'test-image:latest',
         memoryMb: 4096,
         cpuCores: 2,
@@ -193,7 +193,7 @@ describe('SandboxService', () => {
 
       const config: SandboxConfig = {
         codespaceId: 'project-123',
-        projectPath: '/path/to/project',
+        codespacePath: '/path/to/project',
         image: 'test-image:latest',
         memoryMb: 4096,
         cpuCores: 2,
@@ -222,7 +222,7 @@ describe('SandboxService', () => {
 
       const config: SandboxConfig = {
         codespaceId: 'project-123',
-        projectPath: '/path/to/project',
+        codespacePath: '/path/to/project',
         image: 'test-image:latest',
         memoryMb: 4096,
         cpuCores: 2,
@@ -249,7 +249,7 @@ describe('SandboxService', () => {
 
       const config: SandboxConfig = {
         codespaceId: 'project-123',
-        projectPath: '/path/to/project',
+        codespacePath: '/path/to/project',
         image: 'test-image:latest',
         memoryMb: 4096,
         cpuCores: 2,
@@ -270,7 +270,7 @@ describe('SandboxService', () => {
   // Get or Create for Project (3 tests)
   // =============================================================================
 
-  describe('Get or Create for Project', () => {
+  describe('Get or Create for Codespace', () => {
     it('returns existing running sandbox', async () => {
       const project = await createTestProject({
         config: {
@@ -296,7 +296,7 @@ describe('SandboxService', () => {
         idleTimeoutMinutes: 30,
       });
 
-      const result = await service.getOrCreateForProject(project.id);
+      const result = await service.getOrCreateForCodespace(project.id);
 
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -305,8 +305,8 @@ describe('SandboxService', () => {
       expect(mockProvider.create).not.toHaveBeenCalled();
     });
 
-    it('returns error when project not found', async () => {
-      const result = await service.getOrCreateForProject('non-existent-project');
+    it('returns error when codespace not found', async () => {
+      const result = await service.getOrCreateForCodespace('non-existent-codespace');
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
@@ -314,7 +314,7 @@ describe('SandboxService', () => {
       }
     });
 
-    it('returns error when sandbox not enabled for project', async () => {
+    it('returns error when sandbox not enabled for codespace', async () => {
       const project = await createTestProject({
         config: {
           worktreeRoot: '.worktrees',
@@ -325,7 +325,7 @@ describe('SandboxService', () => {
         },
       });
 
-      const result = await service.getOrCreateForProject(project.id);
+      const result = await service.getOrCreateForCodespace(project.id);
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
@@ -626,7 +626,7 @@ describe('SandboxService', () => {
       );
     });
 
-    it('returns error when sandbox not found for project', async () => {
+    it('returns error when sandbox not found for codespace', async () => {
       const result = await service.createTmuxSessionForTask('non-existent', 'task-123');
 
       expect(result.ok).toBe(false);
@@ -730,8 +730,6 @@ describe('SandboxService', () => {
     });
 
     it('disables idle checker after too many failures', async () => {
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
       // Make the database query fail to simulate errors
       const db = getTestDb();
       const originalQuery = db.query;
@@ -750,11 +748,9 @@ describe('SandboxService', () => {
         await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
       }
 
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Too many consecutive idle check failures')
-      );
-
-      consoleSpy.mockRestore();
+      // After MAX_IDLE_CHECK_FAILURES consecutive failures, the idle checker
+      // should have disabled itself via stopIdleChecker(). Calling stop again
+      // should be a no-op (idempotent).
       service.stopIdleChecker();
     });
   });

@@ -196,7 +196,7 @@ describe('enrichAuthContext', () => {
     const cachedToken = {
       id: 'token-abc',
       role: 'admin',
-      scopeProjectId: 'proj-1',
+      scopeCodespaceId: 'proj-1',
       scopeTags: ['tag-a', 'tag-b'],
       expiresAt: null,
     };
@@ -236,7 +236,7 @@ describe('enrichAuthContext', () => {
     const cachedToken = {
       id: 'token-abc',
       role: 'viewer', // token caps at viewer
-      scopeProjectId: null,
+      scopeCodespaceId: null,
       scopeTags: null,
       expiresAt: null,
     };
@@ -273,7 +273,7 @@ describe('enrichAuthContext', () => {
     const expiredToken = {
       id: 'token-expired',
       role: 'admin',
-      scopeProjectId: null,
+      scopeCodespaceId: null,
       scopeTags: null,
       expiresAt: new Date(Date.now() - 60_000).toISOString(), // expired 1 minute ago
     };
@@ -307,7 +307,7 @@ describe('enrichAuthContext', () => {
     const validToken = {
       id: 'token-valid',
       role: 'admin',
-      scopeProjectId: null,
+      scopeCodespaceId: null,
       scopeTags: null,
       expiresAt: new Date(Date.now() + 3_600_000).toISOString(), // expires in 1 hour
     };
@@ -364,7 +364,7 @@ describe('enrichAuthContext', () => {
     const cachedToken = {
       id: 'token-track',
       role: 'viewer',
-      scopeProjectId: null,
+      scopeCodespaceId: null,
       scopeTags: null,
       expiresAt: null,
     };

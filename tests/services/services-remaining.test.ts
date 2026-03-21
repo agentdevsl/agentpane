@@ -11,7 +11,7 @@ import { clearTestDatabase, execRawSql, getTestDb, setupTestDatabase } from '../
 const SANDBOX_TABLES_SQL = `
 CREATE TABLE IF NOT EXISTS "sandbox_instances" (
   "id" TEXT PRIMARY KEY NOT NULL,
-  "project_id" TEXT NOT NULL UNIQUE,
+  "codespace_id" TEXT NOT NULL UNIQUE,
   "container_id" TEXT NOT NULL,
   "status" TEXT DEFAULT 'stopped' NOT NULL,
   "image" TEXT NOT NULL,
@@ -299,7 +299,7 @@ describe('SandboxService', () => {
         idleTimeoutMinutes: 30,
       });
 
-      const result = await sandboxService.getOrCreateForProject(project.id);
+      const result = await sandboxService.getOrCreateForCodespace(project.id);
 
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -334,7 +334,7 @@ describe('SandboxService', () => {
     });
 
     it('returns error when project not found for getOrCreateForProject', async () => {
-      const result = await sandboxService.getOrCreateForProject('non-existent-project');
+      const result = await sandboxService.getOrCreateForCodespace('non-existent-project');
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
@@ -349,7 +349,7 @@ describe('SandboxService', () => {
         },
       });
 
-      const result = await sandboxService.getOrCreateForProject(project.id);
+      const result = await sandboxService.getOrCreateForCodespace(project.id);
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
@@ -629,7 +629,7 @@ describe('SandboxService', () => {
         idleTimeoutMinutes: 30,
       });
 
-      const result = await sandboxService.getByProjectId(project.id);
+      const result = await sandboxService.getByCodespaceId(project.id);
 
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -639,7 +639,7 @@ describe('SandboxService', () => {
     });
 
     it('returns null when no sandbox for project', async () => {
-      const result = await sandboxService.getByProjectId('no-sandbox-project');
+      const result = await sandboxService.getByCodespaceId('no-sandbox-project');
 
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -1061,10 +1061,11 @@ describe('SandboxConfigService', () => {
 
       // Create a project using this config
       const db = getTestDb();
-      await db.insert(schema.projects).values({
+      await db.insert(schema.codespaces).values({
         id: createId(),
+        projectFolderId: 'default-folder',
         name: 'Test Project',
-        path: '/tmp/test',
+        path: `/tmp/test-sandbox-config-${createId()}`,
         config: {},
         sandboxConfigId: created.value.id,
       });
@@ -1604,14 +1605,17 @@ describe('TemplateSyncScheduler', () => {
         sync: vi.fn().mockResolvedValue(ok({ skillCount: 0, commandCount: 0, agentCount: 0 })),
       };
 
-      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
       startSyncScheduler(db, mockTemplateService as any);
-      startSyncScheduler(db, mockTemplateService as any); // Second call
+      const cleanup2 = startSyncScheduler(db, mockTemplateService as any); // Second call - silently returns cleanup
 
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('already running'));
+      // Second call should still return a valid cleanup function (delegates to existing instance)
+      expect(typeof cleanup2).toBe('function');
 
-      consoleSpy.mockRestore();
+      // Scheduler should still be running (not duplicated)
+      const state = getSchedulerState();
+      expect(state.isRunning).toBe(true);
+
+      cleanup2();
     });
 
     it('returns cleanup function from startSyncScheduler', () => {

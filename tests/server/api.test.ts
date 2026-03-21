@@ -103,10 +103,23 @@ describe('Project API Handlers', () => {
       const db = getTestDb();
       const { codespaces } = await import('@/db/schema');
 
+      // Ensure default folder exists for the FK constraint
+      const { projectFolders } = await import('@/db/schema');
+      try {
+        await db.insert(projectFolders).values({
+          id: 'default-folder',
+          name: 'Default',
+          slug: 'default',
+        });
+      } catch {
+        // Already exists
+      }
+
       const newProjectData = {
         name: 'New Project',
         path: '/tmp/new-project',
         description: 'A brand new project',
+        projectFolderId: 'default-folder',
       };
 
       const [created] = await db.insert(codespaces).values(newProjectData).returning();

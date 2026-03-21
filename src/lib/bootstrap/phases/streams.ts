@@ -35,6 +35,7 @@ export const connectStreams = async (_ctx?: unknown) => {
     setStreamsAvailable(false);
     return ok(null);
   } catch (error) {
+    // biome-ignore lint/suspicious/noConsole: bootstrap phase runs before logger is available
     console.warn('[streams] Failed to connect to streams server:', error);
     setStreamsAvailable(false);
     return ok(null); // Non-fatal in dev mode

@@ -88,6 +88,7 @@ export function resolveHighestRole(
   for (const m of roles) {
     const validated = isValidRbacRole(m.role);
     if (!validated) {
+      // biome-ignore lint/suspicious/noConsole: legitimate RBAC warning for unknown roles
       console.warn(`[RBAC] Unknown role encountered: "${m.role}"`);
       continue;
     }

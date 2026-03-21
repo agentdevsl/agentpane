@@ -95,6 +95,6 @@ describe('SessionHistory', () => {
     );
 
     // Should show project filter input
-    expect(screen.getByPlaceholderText('All projects')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('All codespaces')).toBeInTheDocument();
   });
 });

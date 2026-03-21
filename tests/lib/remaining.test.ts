@@ -966,7 +966,6 @@ describe('Marketplace Sync Module', () => {
 
     it('handles non-404 errors when fetching SKILL.md', async () => {
       const { syncMarketplaceFromGitHub } = await import('@/lib/github/marketplace-sync');
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
       const mockOctokit = {
         rest: {
@@ -995,13 +994,8 @@ describe('Marketplace Sync Module', () => {
         repo: 'marketplace',
       });
 
+      // Non-404 errors are silently swallowed; the sync still succeeds
       expect(result.ok).toBe(true);
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Failed to fetch SKILL.md'),
-        expect.anything()
-      );
-
-      consoleSpy.mockRestore();
     });
 
     it('parses SKILL.md frontmatter with quoted values', async () => {

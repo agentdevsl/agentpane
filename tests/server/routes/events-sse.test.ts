@@ -9,7 +9,7 @@
  * - PATCH /sources/:id: update source, invalid id
  * - DELETE /sources/:id: delete source
  * - POST /sources/:id/rotate-secret: rotate webhook secret
- * - GET /subscriptions: list by eventSourceId, by targetProjectId
+ * - GET /subscriptions: list by eventSourceId, by targetCodespaceId
  * - POST /subscriptions: create subscription, validation on missing fields
  * - PATCH /subscriptions/:id: update subscription
  * - DELETE /subscriptions/:id: delete subscription
@@ -584,7 +584,7 @@ describe('POST /events/subscriptions', () => {
       id: 'sub-1',
       name: 'PR Events',
       eventSourceId: 'src-1',
-      targetProjectId: 'proj-1',
+      targetCodespaceId: 'proj-1',
       promptTemplate: 'Handle this PR: {{event.title}}',
     };
 
@@ -604,7 +604,7 @@ describe('POST /events/subscriptions', () => {
       body: JSON.stringify({
         name: 'PR Events',
         eventSourceId: 'src-1',
-        targetProjectId: 'proj-1',
+        targetCodespaceId: 'proj-1',
         promptTemplate: 'Handle this PR: {{event.title}}',
       }),
     });
@@ -622,7 +622,7 @@ describe('POST /events/subscriptions', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         eventSourceId: 'src-1',
-        targetProjectId: 'proj-1',
+        targetCodespaceId: 'proj-1',
         // missing name and promptTemplate
       }),
     });
@@ -641,7 +641,7 @@ describe('POST /events/subscriptions', () => {
       body: JSON.stringify({
         name: 'My Sub',
         eventSourceId: 'src-1',
-        targetProjectId: 'proj-1',
+        targetCodespaceId: 'proj-1',
         // missing promptTemplate
       }),
     });
@@ -660,7 +660,7 @@ describe('POST /events/subscriptions', () => {
       body: JSON.stringify({
         name: 'Bad Sub',
         eventSourceId: '', // empty string fails idSchema
-        targetProjectId: 'proj-1',
+        targetCodespaceId: 'proj-1',
         promptTemplate: 'Do something',
       }),
     });
@@ -814,18 +814,18 @@ describe('GET /events/subscriptions', () => {
     expect(body.error.message).toBe('Invalid eventSourceId');
   });
 
-  it('returns 400 for invalid targetProjectId', async () => {
-    // Provide a source so scope check doesn't exit early before targetProjectId validation
+  it('returns 400 for invalid targetCodespaceId', async () => {
+    // Provide a source so scope check doesn't exit early before targetCodespaceId validation
     const selectChain = createChainableQuery([{ id: 'src-1' }]);
     deps.db.select.mockReturnValue({ from: vi.fn().mockReturnValue(selectChain) });
 
     const app = createApp(deps);
-    const res = await app.request('/events/subscriptions?targetProjectId=bad id!');
+    const res = await app.request('/events/subscriptions?targetCodespaceId=bad id!');
     const body = await res.json();
 
     expect(res.status).toBe(400);
     expect(body.error.code).toBe('VALIDATION_ERROR');
-    expect(body.error.message).toBe('Invalid targetProjectId');
+    expect(body.error.message).toBe('Invalid targetCodespaceId');
   });
 });
 

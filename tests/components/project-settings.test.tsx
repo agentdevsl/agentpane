@@ -3,6 +3,30 @@ import { describe, expect, it, vi } from 'vitest';
 import { ProjectSettings } from '@/app/components/features/project-settings';
 import type { Codespace as Project, CodespaceConfig as ProjectConfig } from '@/db/schema';
 
+// Mock folder context used by the component
+vi.mock('@/app/providers/folder-context', () => ({
+  useFolderData: () => ({
+    folders: [],
+    selectedFolderId: null,
+    selectedFolder: null,
+    isLoading: false,
+    isFolderPanelOpen: false,
+    isNavPanelOpen: false,
+    folderPanelWidth: 240,
+    navPanelWidth: 280,
+    selectFolder: vi.fn(),
+    toggleFolderPanel: vi.fn(),
+    toggleNavPanel: vi.fn(),
+    setFolderPanelOpen: vi.fn(),
+    setNavPanelOpen: vi.fn(),
+    setFolderPanelWidth: vi.fn(),
+    setNavPanelWidth: vi.fn(),
+    persistFolderPanelWidth: vi.fn(),
+    persistNavPanelWidth: vi.fn(),
+    refreshFolders: vi.fn(),
+  }),
+}));
+
 describe('ProjectSettings', () => {
   it('saves updated settings', () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
@@ -22,6 +46,11 @@ describe('ProjectSettings', () => {
       githubOwner: 'agentpane',
       githubRepo: 'agentpane',
       maxConcurrentAgents: 3,
+      projectFolderId: 'folder-1',
+      sandboxConfigId: null,
+      githubInstallationId: null,
+      configPath: '.claude',
+      description: null,
     };
 
     const onDelete = vi.fn().mockResolvedValue(undefined);

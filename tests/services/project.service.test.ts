@@ -6,7 +6,7 @@ import { createRunningAgent } from '../factories/agent.factory';
 import { createTestProject, createTestProjects } from '../factories/project.factory';
 import { createTestSession } from '../factories/session.factory';
 import { createTasksInColumns, createTestTask } from '../factories/task.factory';
-import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/database';
+import { clearTestDatabase, execRawSql, getTestDb, setupTestDatabase } from '../helpers/database';
 
 describe('CodespaceService', () => {
   let projectService: CodespaceService;
@@ -46,6 +46,7 @@ describe('CodespaceService', () => {
       });
 
       const result = await projectService.create({
+        projectFolderId: 'default-folder',
         path: '/tmp/test-project-full',
         name: 'Full Project',
         description: 'A project with all fields',
@@ -275,7 +276,7 @@ describe('CodespaceService', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const summary = result.value.find((s) => s.project.id === project.id);
+        const summary = result.value.find((s) => s.codespace.id === project.id);
         expect(summary).toBeDefined();
         expect(summary?.taskCounts.backlog).toBe(3);
         expect(summary?.taskCounts.inProgress).toBe(2);
@@ -295,7 +296,7 @@ describe('CodespaceService', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const summary = result.value.find((s) => s.project.id === project.id);
+        const summary = result.value.find((s) => s.codespace.id === project.id);
         expect(summary?.status).toBe('running');
         expect(summary?.runningAgents.length).toBe(1);
       }
@@ -309,7 +310,7 @@ describe('CodespaceService', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const summary = result.value.find((s) => s.project.id === project.id);
+        const summary = result.value.find((s) => s.codespace.id === project.id);
         expect(summary?.status).toBe('needs-approval');
       }
     });
@@ -336,7 +337,7 @@ describe('CodespaceService', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const summary = result.value.find((s) => s.project.id === project.id);
+        const summary = result.value.find((s) => s.codespace.id === project.id);
         expect(summary?.lastActivityAt).toBeTruthy();
       }
     });
@@ -403,12 +404,14 @@ describe('CodespaceService', () => {
 
       // Create a project first
       const firstResult = await projectService.create({
+        projectFolderId: 'default-folder',
         path: '/tmp/duplicate-path',
       });
       expect(firstResult.ok).toBe(true);
 
       // Try to create another project with the same path
       const result = await projectService.create({
+        projectFolderId: 'default-folder',
         path: '/tmp/duplicate-path',
       });
 
@@ -460,7 +463,7 @@ describe('CodespaceService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.code).toBe('PROJECT_NOT_A_GIT_REPO');
+        expect(result.error.code).toBe('CODESPACE_NOT_A_GIT_REPO');
       }
     });
 
@@ -708,7 +711,7 @@ describe('CodespaceService', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const summary = result.value.find((s) => s.project.id === project.id);
+        const summary = result.value.find((s) => s.codespace.id === project.id);
         expect(summary?.status).toBe('running');
         expect(summary?.runningAgents.length).toBe(1);
         expect(summary?.runningAgents[0].currentTaskId).toBeNull();
@@ -725,7 +728,7 @@ describe('CodespaceService', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const summary = result.value.find((s) => s.project.id === project.id);
+        const summary = result.value.find((s) => s.codespace.id === project.id);
         expect(summary?.status).toBe('idle');
       }
     });
@@ -737,7 +740,7 @@ describe('CodespaceService', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        const summary = result.value.find((s) => s.project.id === project.id);
+        const summary = result.value.find((s) => s.codespace.id === project.id);
         expect(summary?.lastActivityAt).toBeNull();
         expect(summary?.taskCounts.total).toBe(0);
       }
@@ -879,7 +882,11 @@ describe('CodespaceService', () => {
         return Promise.resolve({ stdout: '', stderr: '' });
       });
 
+      execRawSql(
+        "INSERT OR IGNORE INTO sandbox_configs (id, name) VALUES ('sandbox-config-123', 'Test Sandbox')"
+      );
       const result = await projectService.create({
+        projectFolderId: 'default-folder',
         path: '/tmp/sandbox-project',
         sandboxConfigId: 'sandbox-config-123',
       });
@@ -901,6 +908,7 @@ describe('CodespaceService', () => {
       });
 
       const result = await projectService.create({
+        projectFolderId: 'default-folder',
         path: '/tmp/invalid-config-project',
         config: {
           maxTurns: 1000, // Invalid: max is 500
@@ -1012,10 +1020,11 @@ describe('CodespaceService', () => {
     });
 
     it('returns error when GitHub installation not found in database', async () => {
+      // FK checks are OFF so we can reference a non-existent installation
       const project = await createTestProject({
         githubOwner: 'test-owner',
         githubRepo: 'test-repo',
-        githubInstallationId: 'non-existent-installation',
+        githubInstallationId: 'does-not-exist-in-db',
       });
 
       const result = await projectService.syncFromGitHub(project.id);

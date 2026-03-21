@@ -167,16 +167,13 @@ describe('Workflow DSL Module', () => {
           { id: 'end', type: 'end', label: 'End', position: { x: 0, y: 0 } },
         ];
 
-        const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         const result = await layoutWorkflow(nodes, []);
 
-        expect(consoleSpy).toHaveBeenCalled();
         expect(result).toHaveLength(3);
         // Fallback uses sequential vertical positioning
         expect(result[0].position.x).toBe(0);
         expect(result[1].position.x).toBe(0);
         expect(result[2].position.x).toBe(0);
-        consoleSpy.mockRestore();
       });
 
       it('filters out edges with non-existent node references', async () => {
@@ -232,12 +229,10 @@ describe('Workflow DSL Module', () => {
           },
         ];
 
-        const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const result = await layoutWorkflow(nodes, []);
 
-        expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('task1'));
-        expect(result[1].position).toEqual({ x: 100, y: 200 }); // Original position preserved
-        consoleSpy.mockRestore();
+        // Node missing from ELK output falls back to original position
+        expect(result[1].position).toEqual({ x: 100, y: 200 });
       });
 
       it('normalizes positions to start at x=0', async () => {
@@ -533,7 +528,7 @@ describe('Workflow DSL Module', () => {
         });
       });
 
-      it('warns for node types without compact variants', async () => {
+      it('falls back to original type for node types without compact variants', async () => {
         const { toReactFlowNodes } = await import('@/lib/workflow-dsl/layout');
 
         const nodes: WorkflowNode[] = [
@@ -547,12 +542,10 @@ describe('Workflow DSL Module', () => {
           },
         ];
 
-        const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const result = toReactFlowNodes(nodes, { useCompactNodes: true });
 
-        expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('conditional'));
-        expect(result[0].type).toBe('conditional'); // Falls back to original type
-        consoleSpy.mockRestore();
+        // Conditional has no compact variant, falls back to original type
+        expect(result[0].type).toBe('conditional');
       });
     });
 

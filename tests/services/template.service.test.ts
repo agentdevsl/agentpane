@@ -88,31 +88,31 @@ describe('TemplateService', () => {
       }
     });
 
-    it('creates a project-scoped template with project association', async () => {
+    it('creates a codespace-scoped template with codespace association', async () => {
       const project = await createTestProject();
 
       const result = await templateService.create({
-        name: 'Project Template',
-        scope: 'project',
+        name: 'Codespace Template',
+        scope: 'codespace',
         githubUrl: 'owner/repo',
         codespaceIds: [project.id],
       });
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value.scope).toBe('project');
+        expect(result.value.scope).toBe('codespace');
         expect(result.value.codespaceIds).toEqual([project.id]);
         expect(result.value.codespaceId).toBe(project.id); // Legacy field
       }
     });
 
-    it('creates template with multiple project associations', async () => {
+    it('creates template with multiple codespace associations', async () => {
       const project1 = await createTestProject();
       const project2 = await createTestProject();
 
       const result = await templateService.create({
-        name: 'Multi-Project Template',
-        scope: 'project',
+        name: 'Multi-Codespace Template',
+        scope: 'codespace',
         githubUrl: 'owner/repo',
         codespaceIds: [project1.id, project2.id],
       });
@@ -146,10 +146,10 @@ describe('TemplateService', () => {
       }
     });
 
-    it('rejects project-scoped template without project IDs', async () => {
+    it('rejects codespace-scoped template without codespace IDs', async () => {
       const result = await templateService.create({
-        name: 'Invalid Project Template',
-        scope: 'project',
+        name: 'Invalid Codespace Template',
+        scope: 'codespace',
         githubUrl: 'owner/repo',
         codespaceIds: [],
       });
@@ -254,13 +254,13 @@ describe('TemplateService', () => {
       }
     });
 
-    it('updates template project associations', async () => {
+    it('updates template codespace associations', async () => {
       const project1 = await createTestProject();
       const project2 = await createTestProject();
 
       const createResult = await templateService.create({
         name: 'Template',
-        scope: 'project',
+        scope: 'codespace',
         githubUrl: 'owner/repo',
         codespaceIds: [project1.id],
       });
@@ -369,8 +369,8 @@ describe('TemplateService', () => {
       const project = await createTestProject();
       await templateService.create({ name: 'Org 1', scope: 'org', githubUrl: 'owner/org1' });
       await templateService.create({
-        name: 'Project 1',
-        scope: 'project',
+        name: 'Codespace 1',
+        scope: 'codespace',
         githubUrl: 'owner/proj1',
         codespaceIds: [project.id],
       });
@@ -382,27 +382,27 @@ describe('TemplateService', () => {
         expect(orgResult.value[0].scope).toBe('org');
       }
 
-      const projectResult = await templateService.list({ scope: 'project' });
-      expect(projectResult.ok).toBe(true);
-      if (projectResult.ok) {
-        expect(projectResult.value).toHaveLength(1);
-        expect(projectResult.value[0].scope).toBe('project');
+      const codespaceResult = await templateService.list({ scope: 'codespace' });
+      expect(codespaceResult.ok).toBe(true);
+      if (codespaceResult.ok) {
+        expect(codespaceResult.value).toHaveLength(1);
+        expect(codespaceResult.value[0].scope).toBe('codespace');
       }
     });
 
-    it('lists templates filtered by project ID via junction table', async () => {
+    it('lists templates filtered by codespace ID via junction table', async () => {
       const project1 = await createTestProject();
       const project2 = await createTestProject();
 
       await templateService.create({
-        name: 'Project 1 Template',
-        scope: 'project',
+        name: 'Codespace 1 Template',
+        scope: 'codespace',
         githubUrl: 'owner/repo1',
         codespaceIds: [project1.id],
       });
       await templateService.create({
-        name: 'Project 2 Template',
-        scope: 'project',
+        name: 'Codespace 2 Template',
+        scope: 'codespace',
         githubUrl: 'owner/repo2',
         codespaceIds: [project2.id],
       });
@@ -412,7 +412,7 @@ describe('TemplateService', () => {
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value).toHaveLength(1);
-        expect(result.value[0].name).toBe('Project 1 Template');
+        expect(result.value[0].name).toBe('Codespace 1 Template');
       }
     });
 
@@ -434,7 +434,7 @@ describe('TemplateService', () => {
       }
     });
 
-    it('handles list with no templates matching project ID', async () => {
+    it('handles list with no templates matching codespace ID', async () => {
       const project = await createTestProject();
 
       const result = await templateService.list({ codespaceId: project.id });
@@ -450,21 +450,21 @@ describe('TemplateService', () => {
 
       // Create both org and project templates associated with the project
       await templateService.create({
-        name: 'Project Template',
-        scope: 'project',
+        name: 'Codespace Template',
+        scope: 'codespace',
         githubUrl: 'owner/proj-repo',
         codespaceIds: [project.id],
       });
 
       const result = await templateService.list({
         codespaceId: project.id,
-        scope: 'project',
+        scope: 'codespace',
       });
 
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value).toHaveLength(1);
-        expect(result.value[0].scope).toBe('project');
+        expect(result.value[0].scope).toBe('codespace');
       }
     });
 
@@ -474,8 +474,8 @@ describe('TemplateService', () => {
 
       // Create a template directly in the database with legacy codespaceId but no junction table entry
       await db.insert(templates).values({
-        name: 'Legacy Project Template',
-        scope: 'project',
+        name: 'Legacy Codespace Template',
+        scope: 'codespace',
         githubOwner: 'legacy',
         githubRepo: 'repo',
         codespaceId: project.id,
@@ -484,13 +484,13 @@ describe('TemplateService', () => {
 
       const result = await templateService.list({
         codespaceId: project.id,
-        scope: 'project',
+        scope: 'codespace',
       });
 
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value).toHaveLength(1);
-        expect(result.value[0].name).toBe('Legacy Project Template');
+        expect(result.value[0].name).toBe('Legacy Codespace Template');
       }
     });
   });
@@ -745,7 +745,7 @@ describe('TemplateService', () => {
       }
     });
 
-    it('filters syncAll by project ID', async () => {
+    it('filters syncAll by codespace ID', async () => {
       const project = await createTestProject();
       const db = getTestDb();
 
@@ -760,13 +760,13 @@ describe('TemplateService', () => {
       (syncTemplateFromGitHub as Mock).mockResolvedValue(ok(mockSyncResult));
 
       await templateService.create({
-        name: 'Project Template',
-        scope: 'project',
+        name: 'Codespace Template',
+        scope: 'codespace',
         githubUrl: 'owner/repo1',
         codespaceIds: [project.id],
       });
 
-      const result = await templateService.syncAll('project', project.id);
+      const result = await templateService.syncAll('codespace', project.id);
 
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -780,7 +780,7 @@ describe('TemplateService', () => {
   // =============================================================================
 
   describe('Merged Configuration', () => {
-    it('returns merged config with org and project templates', async () => {
+    it('returns merged config with org and codespace templates', async () => {
       const project = await createTestProject();
       const db = getTestDb();
 
@@ -802,10 +802,10 @@ describe('TemplateService', () => {
           .where(eq(templates.id, orgCreateResult.value.id));
       }
 
-      // Create project template with cached content
+      // Create codespace template with cached content
       const projCreateResult = await templateService.create({
-        name: 'Project Template',
-        scope: 'project',
+        name: 'Codespace Template',
+        scope: 'codespace',
         githubUrl: 'proj/templates',
         codespaceIds: [project.id],
       });
@@ -908,13 +908,13 @@ describe('TemplateService', () => {
   // Project IDs Support
   // =============================================================================
 
-  describe('Project IDs Support', () => {
+  describe('Codespace IDs Support', () => {
     it('supports codespaceIds array parameter in create', async () => {
       const project = await createTestProject();
 
       const result = await templateService.create({
-        name: 'Template with ProjectIds',
-        scope: 'project',
+        name: 'Template with CodespaceIds',
+        scope: 'codespace',
         githubUrl: 'owner/repo',
         codespaceIds: [project.id],
       });

@@ -8,7 +8,13 @@ import { RbacService } from '../../src/services/rbac.service';
 function createMockDb() {
   return {
     query: {
-      projectMembers: {
+      codespaceMembers: {
+        findFirst: vi.fn(),
+      },
+      codespaces: {
+        findFirst: vi.fn(),
+      },
+      folderMembers: {
         findFirst: vi.fn(),
       },
       teamMembers: {
@@ -65,46 +71,50 @@ describe('RbacService', () => {
   // ===========================================================================
 
   describe('resolveUserRole', () => {
-    it('returns the direct project member role when a direct override exists', async () => {
-      mockDb.query.projectMembers.findFirst.mockResolvedValue({ role: 'admin' });
+    it('returns the direct codespace member role when a direct override exists', async () => {
+      mockDb.query.codespaceMembers.findFirst.mockResolvedValue({ role: 'admin' });
 
-      const role = await service.resolveUserRole('user-1', 'project-1');
+      const role = await service.resolveUserRole('user-1', 'codespace-1');
 
       expect(role).toBe('admin');
-      expect(mockDb.query.projectMembers.findFirst).toHaveBeenCalledTimes(1);
+      expect(mockDb.query.codespaceMembers.findFirst).toHaveBeenCalledTimes(1);
     });
 
-    it('returns owner role when direct project member is owner', async () => {
-      mockDb.query.projectMembers.findFirst.mockResolvedValue({ role: 'owner' });
+    it('returns owner role when direct codespace member is owner', async () => {
+      mockDb.query.codespaceMembers.findFirst.mockResolvedValue({ role: 'owner' });
 
-      const role = await service.resolveUserRole('user-1', 'project-1');
+      const role = await service.resolveUserRole('user-1', 'codespace-1');
 
       expect(role).toBe('owner');
     });
 
-    it('returns viewer role when direct project member is viewer', async () => {
-      mockDb.query.projectMembers.findFirst.mockResolvedValue({ role: 'viewer' });
+    it('returns viewer role when direct codespace member is viewer', async () => {
+      mockDb.query.codespaceMembers.findFirst.mockResolvedValue({ role: 'viewer' });
 
-      const role = await service.resolveUserRole('user-1', 'project-1');
+      const role = await service.resolveUserRole('user-1', 'codespace-1');
 
       expect(role).toBe('viewer');
     });
 
-    it('falls through to team membership when no direct project member exists', async () => {
-      mockDb.query.projectMembers.findFirst.mockResolvedValue(undefined);
+    it('falls through to team membership when no direct codespace member exists', async () => {
+      mockDb.query.codespaceMembers.findFirst.mockResolvedValue(undefined);
+      mockDb.query.codespaces.findFirst.mockResolvedValue({ projectFolderId: 'folder-1' });
+      mockDb.query.folderMembers.findFirst.mockResolvedValue(undefined);
 
       // Set up the select chain for the team join query
       const chain = buildSelectChain([{ role: 'agent_operator' }]);
       mockDb.select = vi.fn().mockReturnValue(chain);
 
-      const role = await service.resolveUserRole('user-1', 'project-1');
+      const role = await service.resolveUserRole('user-1', 'codespace-1');
 
       expect(role).toBe('agent_operator');
       expect(mockDb.select).toHaveBeenCalledTimes(1);
     });
 
-    it('returns the highest role when user belongs to multiple teams linked to the project', async () => {
-      mockDb.query.projectMembers.findFirst.mockResolvedValue(undefined);
+    it('returns the highest role when user belongs to multiple teams linked to the codespace', async () => {
+      mockDb.query.codespaceMembers.findFirst.mockResolvedValue(undefined);
+      mockDb.query.codespaces.findFirst.mockResolvedValue({ projectFolderId: 'folder-1' });
+      mockDb.query.folderMembers.findFirst.mockResolvedValue(undefined);
 
       const chain = buildSelectChain([
         { role: 'viewer' },
@@ -113,27 +123,29 @@ describe('RbacService', () => {
       ]);
       mockDb.select = vi.fn().mockReturnValue(chain);
 
-      const role = await service.resolveUserRole('user-1', 'project-1');
+      const role = await service.resolveUserRole('user-1', 'codespace-1');
 
       expect(role).toBe('admin');
     });
 
     it('returns null when user has no direct membership and no team memberships', async () => {
-      mockDb.query.projectMembers.findFirst.mockResolvedValue(undefined);
+      mockDb.query.codespaceMembers.findFirst.mockResolvedValue(undefined);
+      mockDb.query.codespaces.findFirst.mockResolvedValue({ projectFolderId: 'folder-1' });
+      mockDb.query.folderMembers.findFirst.mockResolvedValue(undefined);
 
       const chain = buildSelectChain([]);
       mockDb.select = vi.fn().mockReturnValue(chain);
 
-      const role = await service.resolveUserRole('user-1', 'project-1');
+      const role = await service.resolveUserRole('user-1', 'codespace-1');
 
       expect(role).toBeNull();
     });
 
-    it('prefers direct project member role over higher team role', async () => {
+    it('prefers direct codespace member role over higher team role', async () => {
       // Direct member is viewer but team would give admin - direct member wins
-      mockDb.query.projectMembers.findFirst.mockResolvedValue({ role: 'viewer' });
+      mockDb.query.codespaceMembers.findFirst.mockResolvedValue({ role: 'viewer' });
 
-      const role = await service.resolveUserRole('user-1', 'project-1');
+      const role = await service.resolveUserRole('user-1', 'codespace-1');
 
       // select() should never be called since direct member found
       expect(mockDb.select).not.toHaveBeenCalled();
@@ -336,8 +348,8 @@ describe('RbacService', () => {
   // ===========================================================================
 
   describe('canPerformAction', () => {
-    it('allows viewer to perform project:read', () => {
-      expect(service.canPerformAction('viewer', 'project:read')).toBe(true);
+    it('allows viewer to perform codespace:read', () => {
+      expect(service.canPerformAction('viewer', 'codespace:read')).toBe(true);
     });
 
     it('allows viewer to perform task:read', () => {
@@ -348,8 +360,8 @@ describe('RbacService', () => {
       expect(service.canPerformAction('viewer', 'task:create')).toBe(false);
     });
 
-    it('denies viewer from performing project:update (requires admin)', () => {
-      expect(service.canPerformAction('viewer', 'project:update')).toBe(false);
+    it('denies viewer from performing codespace:update (requires admin)', () => {
+      expect(service.canPerformAction('viewer', 'codespace:update')).toBe(false);
     });
 
     it('denies viewer from performing team:delete (requires owner)', () => {
@@ -364,12 +376,12 @@ describe('RbacService', () => {
       expect(service.canPerformAction('agent_operator', 'agent:start')).toBe(true);
     });
 
-    it('denies agent_operator from performing project:update (requires admin)', () => {
-      expect(service.canPerformAction('agent_operator', 'project:update')).toBe(false);
+    it('denies agent_operator from performing codespace:update (requires admin)', () => {
+      expect(service.canPerformAction('agent_operator', 'codespace:update')).toBe(false);
     });
 
-    it('allows admin to perform project:update', () => {
-      expect(service.canPerformAction('admin', 'project:update')).toBe(true);
+    it('allows admin to perform codespace:update', () => {
+      expect(service.canPerformAction('admin', 'codespace:update')).toBe(true);
     });
 
     it('allows admin to perform settings:update', () => {
@@ -439,25 +451,25 @@ describe('RbacService', () => {
   // checkProjectScope
   // ===========================================================================
 
-  describe('checkProjectScope', () => {
-    it('allows access when tokenProjectId is null (no restriction)', () => {
-      expect(service.checkProjectScope(null, 'project-1')).toBe(true);
+  describe('checkCodespaceScope', () => {
+    it('allows access when tokenCodespaceId is null (no restriction)', () => {
+      expect(service.checkCodespaceScope(null, 'codespace-1')).toBe(true);
     });
 
-    it('allows access when tokenProjectId matches requestedProjectId', () => {
-      expect(service.checkProjectScope('project-1', 'project-1')).toBe(true);
+    it('allows access when tokenCodespaceId matches requestedCodespaceId', () => {
+      expect(service.checkCodespaceScope('codespace-1', 'codespace-1')).toBe(true);
     });
 
-    it('denies access when tokenProjectId does not match requestedProjectId', () => {
-      expect(service.checkProjectScope('project-1', 'project-2')).toBe(false);
+    it('denies access when tokenCodespaceId does not match requestedCodespaceId', () => {
+      expect(service.checkCodespaceScope('codespace-1', 'codespace-2')).toBe(false);
     });
 
-    it('denies access when tokenProjectId is a different project entirely', () => {
-      expect(service.checkProjectScope('proj-abc', 'proj-xyz')).toBe(false);
+    it('denies access when tokenCodespaceId is a different codespace entirely', () => {
+      expect(service.checkCodespaceScope('cs-abc', 'cs-xyz')).toBe(false);
     });
 
-    it('allows access when null token scopes any project ID', () => {
-      expect(service.checkProjectScope(null, 'any-project-id')).toBe(true);
+    it('allows access when null token scopes any codespace ID', () => {
+      expect(service.checkCodespaceScope(null, 'any-codespace-id')).toBe(true);
     });
   });
 });

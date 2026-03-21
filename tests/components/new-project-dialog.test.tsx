@@ -3,7 +3,31 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { NewProjectDialog } from '@/app/components/features/new-project-dialog';
 import type { Result } from '@/lib/utils/result';
-import type { PathValidation } from '@/services/project.service';
+import type { PathValidation } from '@/services/codespace.service';
+
+// Mock folder context used by the component
+vi.mock('@/app/providers/folder-context', () => ({
+  useFolderData: () => ({
+    folders: [],
+    selectedFolderId: null,
+    selectedFolder: null,
+    isLoading: false,
+    isFolderPanelOpen: false,
+    isNavPanelOpen: false,
+    folderPanelWidth: 240,
+    navPanelWidth: 280,
+    selectFolder: vi.fn(),
+    toggleFolderPanel: vi.fn(),
+    toggleNavPanel: vi.fn(),
+    setFolderPanelOpen: vi.fn(),
+    setNavPanelOpen: vi.fn(),
+    setFolderPanelWidth: vi.fn(),
+    setNavPanelWidth: vi.fn(),
+    persistFolderPanelWidth: vi.fn(),
+    persistNavPanelWidth: vi.fn(),
+    refreshFolders: vi.fn(),
+  }),
+}));
 
 const createValidPathResult = (
   overrides: Partial<PathValidation> = {}

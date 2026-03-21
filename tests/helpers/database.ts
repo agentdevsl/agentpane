@@ -94,8 +94,8 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
   };
 
   // Run base migrations.
-  // Patch: make project_id nullable in CREATE TABLE statements so that the
-  // Drizzle ORM (which only writes to codespace_id) doesn't fail on NOT NULL.
+  // Patch: make project_id nullable so Drizzle (which only writes codespace_id)
+  // doesn't fail on NOT NULL constraints for the legacy column.
   const patchedMigration = MIGRATION_SQL.replace(
     /"project_id" TEXT NOT NULL/g,
     '"project_id" TEXT'
@@ -137,76 +137,12 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
     }
   }
 
-  // SQLite does not enforce FK constraints added via ALTER TABLE ADD COLUMN.
-  // The Drizzle schema defines ON DELETE CASCADE on codespace_id for agents,
-  // tasks, sessions, worktrees, and agent_runs. Use PRAGMA writable_schema to
-  // patch the stored CREATE TABLE definitions so FK cascade rules match the
-  // Drizzle schema.
-  testSqlite.exec('PRAGMA writable_schema = ON;');
-
-  const cascadeFixTables = ['agents', 'sessions', 'worktrees', 'tasks', 'agent_runs'];
-
-  for (const table of cascadeFixTables) {
-    try {
-      const row = testSqlite
-        .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?")
-        .get(table) as { sql: string } | undefined;
-      if (row?.sql) {
-        // 1. Make project_id nullable and strip its FK reference to projects
-        let newSql = row.sql
-          .replace(
-            /"project_id" TEXT NOT NULL REFERENCES "projects"\("id"\) ON DELETE CASCADE/g,
-            '"project_id" TEXT'
-          )
-          .replace(/"project_id" TEXT NOT NULL REFERENCES "projects"\("id"\)/g, '"project_id" TEXT')
-          .replace(/"project_id" TEXT NOT NULL/g, '"project_id" TEXT');
-        // 2. Ensure codespace_id has ON DELETE CASCADE
-        newSql = newSql
-          .replace(
-            /"codespace_id" TEXT REFERENCES "codespaces"\("id"\) ON DELETE SET NULL/g,
-            '"codespace_id" TEXT REFERENCES "codespaces"("id") ON DELETE CASCADE'
-          )
-          .replace(
-            /"codespace_id" TEXT REFERENCES "codespaces"\("id"\)(?! ON DELETE)/g,
-            '"codespace_id" TEXT REFERENCES "codespaces"("id") ON DELETE CASCADE'
-          );
-        if (newSql !== row.sql) {
-          testSqlite
-            .prepare("UPDATE sqlite_master SET sql = ? WHERE type='table' AND name=?")
-            .run(newSql, table);
-        }
-      }
-    } catch {
-      // safe to ignore
-    }
+  // Verify FK enforcement is active
+  const fkStatus = testSqlite.pragma('foreign_keys', { simple: true });
+  if (!fkStatus) {
+    console.error('[TEST DB] WARNING: foreign_keys is OFF, re-enabling');
+    testSqlite.pragma('foreign_keys = ON');
   }
-
-  // Fix event_subscriptions target_project_id
-  try {
-    const row = testSqlite
-      .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='event_subscriptions'")
-      .get() as { sql: string } | undefined;
-    if (row?.sql) {
-      const newSql = row.sql
-        .replace(
-          /"target_project_id" TEXT NOT NULL REFERENCES "projects"\("id"\) ON DELETE CASCADE/g,
-          '"target_project_id" TEXT'
-        )
-        .replace(/"target_project_id" TEXT NOT NULL/g, '"target_project_id" TEXT');
-      if (newSql !== row.sql) {
-        testSqlite
-          .prepare(
-            "UPDATE sqlite_master SET sql = ? WHERE type='table' AND name='event_subscriptions'"
-          )
-          .run(newSql);
-      }
-    }
-  } catch {
-    // safe to ignore
-  }
-
-  testSqlite.exec('PRAGMA writable_schema = OFF;');
-  testSqlite.exec('PRAGMA integrity_check;');
 
   return testDb;
 }

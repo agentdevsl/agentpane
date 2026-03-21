@@ -140,7 +140,7 @@ describe('AgentExecutionService', () => {
     it('returns ALREADY_RUNNING when agent is not idle', async () => {
       db.query.agents.findFirst.mockResolvedValue({
         id: 'a1',
-        projectId: 'p1',
+        codespaceId: 'p1',
         status: 'running',
         currentTaskId: 'task-1',
       });
@@ -156,7 +156,7 @@ describe('AgentExecutionService', () => {
     it('returns NO_AVAILABLE_TASK when no tasks are available', async () => {
       db.query.agents.findFirst.mockResolvedValue({
         id: 'a1',
-        projectId: 'p1',
+        codespaceId: 'p1',
         status: 'idle',
         currentTaskId: null,
       });
@@ -173,13 +173,13 @@ describe('AgentExecutionService', () => {
     it('returns NO_AVAILABLE_TASK when task is not in backlog or queued', async () => {
       db.query.agents.findFirst.mockResolvedValue({
         id: 'a1',
-        projectId: 'p1',
+        codespaceId: 'p1',
         status: 'idle',
         currentTaskId: null,
       });
       db.query.tasks.findFirst.mockResolvedValue({
         id: 'task-1',
-        projectId: 'p1',
+        codespaceId: 'p1',
         column: 'in_progress',
       });
 
@@ -199,7 +199,7 @@ describe('AgentExecutionService', () => {
   describe('start() happy paths', () => {
     const idleAgent = {
       id: 'a1',
-      projectId: 'p1',
+      codespaceId: 'p1',
       status: 'idle',
       currentTaskId: null,
       config: { model: 'claude-sonnet-4-6', maxTurns: 50, allowedTools: [] },
@@ -207,7 +207,7 @@ describe('AgentExecutionService', () => {
 
     const queuedTask = {
       id: 'task-1',
-      projectId: 'p1',
+      codespaceId: 'p1',
       column: 'queued',
       title: 'Build feature X',
       description: 'Implement the feature',
@@ -255,7 +255,7 @@ describe('AgentExecutionService', () => {
 
       db.query.sessions.findFirst.mockResolvedValue({
         id: 'sess-1',
-        projectId: 'p1',
+        codespaceId: 'p1',
         taskId: 'task-1',
       });
 
@@ -275,7 +275,7 @@ describe('AgentExecutionService', () => {
 
       // Worktree was created with correct params
       expect(worktreeService.create).toHaveBeenCalledWith({
-        projectId: 'p1',
+        codespaceId: 'p1',
         agentId: 'a1',
         taskId: 'task-1',
         taskTitle: 'Build feature X',
@@ -283,7 +283,7 @@ describe('AgentExecutionService', () => {
 
       // Session was created with correct params
       expect(sessionService.create).toHaveBeenCalledWith({
-        projectId: 'p1',
+        codespaceId: 'p1',
         taskId: 'task-1',
         agentId: 'a1',
         title: 'Build feature X',

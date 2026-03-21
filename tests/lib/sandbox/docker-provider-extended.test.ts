@@ -60,7 +60,7 @@ vi.mock('dockerode', () => {
 
 const createSandboxConfig = (overrides: Partial<SandboxConfig> = {}): SandboxConfig => ({
   codespaceId: 'project-123',
-  projectPath: '/path/to/project',
+  codespacePath: '/path/to/project',
   image: 'docker/sandbox-templates:claude-code',
   memoryMb: 4096,
   cpuCores: 2,

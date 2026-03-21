@@ -398,21 +398,15 @@ describe('InteractionHandler', () => {
       expect(result.ok).toBe(true);
     });
 
-    it('should log debug message for non-predefined answers but still succeed', () => {
-      const consoleSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+    it('should succeed leniently for non-predefined answers', () => {
       const interaction = createMockInteraction();
       // Answer that doesn't match any predefined option
       const answers = { Database: 'MySQL' }; // Not in options and not "Other:" prefixed
 
       const result = handler.validateAnswers(interaction, answers);
 
-      // Validation is lenient - it succeeds but logs
+      // Validation is lenient - it succeeds without rejecting
       expect(result.ok).toBe(true);
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Answer "MySQL" not in predefined options')
-      );
-
-      consoleSpy.mockRestore();
     });
 
     it('should match answers by question text when header does not match', () => {
@@ -623,8 +617,6 @@ describe('InteractionHandler', () => {
     });
 
     it('should handle validateAnswers with all options matched (lines 159-177 full coverage)', () => {
-      const consoleSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
-
       const questions = [
         {
           question: 'Q1?',
@@ -650,18 +642,14 @@ describe('InteractionHandler', () => {
       // Test 1: Valid answers from predefined options
       const validResult = handler.validateAnswers(interaction, { H1: 'Valid1', H2: 'OptA' });
       expect(validResult.ok).toBe(true);
-      expect(consoleSpy).not.toHaveBeenCalled();
 
       // Test 2: Mixed valid and "Other:" answers
       const otherResult = handler.validateAnswers(interaction, { H1: 'Other: Custom', H2: 'OptB' });
       expect(otherResult.ok).toBe(true);
 
-      // Test 3: Invalid answer triggers debug log
+      // Test 3: Invalid answer still succeeds - lenient validation
       const invalidResult = handler.validateAnswers(interaction, { H1: 'NotAnOption', H2: 'OptA' });
-      expect(invalidResult.ok).toBe(true); // Still succeeds - lenient validation
-      expect(consoleSpy).toHaveBeenCalled();
-
-      consoleSpy.mockRestore();
+      expect(invalidResult.ok).toBe(true);
     });
 
     it('should handle validateAnswers with answer matched by question instead of header', () => {

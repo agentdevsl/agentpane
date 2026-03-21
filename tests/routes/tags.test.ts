@@ -91,11 +91,17 @@ describe('POST /tags - Create tag', () => {
   it('creates a tag successfully with name and color', async () => {
     const tag = {
       id: 'tag-1',
-      teamId: 'team-1',
+      projectFolderId: 'folder-1',
       name: 'backend',
       color: '#ff0000',
       createdAt: '2024-01-01T00:00:00Z',
     };
+    // First select: lookup team via teamProjectFolders
+    mockDb.select = vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue([{ teamId: 'team-1' }]),
+      }),
+    });
     mockDb.insert = vi.fn().mockReturnValue({
       values: vi.fn().mockReturnValue({
         returning: vi.fn().mockResolvedValue([tag]),
@@ -108,7 +114,7 @@ describe('POST /tags - Create tag', () => {
     const res = await app.request('/tags', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ teamId: 'team-1', name: 'backend', color: '#ff0000' }),
+      body: JSON.stringify({ projectFolderId: 'folder-1', name: 'backend', color: '#ff0000' }),
     });
 
     expect(res.status).toBe(201);
@@ -121,11 +127,17 @@ describe('POST /tags - Create tag', () => {
   it('creates a tag successfully without optional color', async () => {
     const tag = {
       id: 'tag-2',
-      teamId: 'team-1',
+      projectFolderId: 'folder-1',
       name: 'no-color',
       color: null,
       createdAt: '2024-01-01T00:00:00Z',
     };
+    // First select: lookup team via teamProjectFolders
+    mockDb.select = vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue([{ teamId: 'team-1' }]),
+      }),
+    });
     mockDb.insert = vi.fn().mockReturnValue({
       values: vi.fn().mockReturnValue({
         returning: vi.fn().mockResolvedValue([tag]),
@@ -138,7 +150,7 @@ describe('POST /tags - Create tag', () => {
     const res = await app.request('/tags', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ teamId: 'team-1', name: 'no-color' }),
+      body: JSON.stringify({ projectFolderId: 'folder-1', name: 'no-color' }),
     });
 
     expect(res.status).toBe(201);
@@ -146,6 +158,12 @@ describe('POST /tags - Create tag', () => {
   });
 
   it('returns 409 for duplicate tag name within a team', async () => {
+    // First select: lookup team via teamProjectFolders
+    mockDb.select = vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue([{ teamId: 'team-1' }]),
+      }),
+    });
     mockDb.insert = vi.fn().mockReturnValue({
       values: vi.fn().mockReturnValue({
         returning: vi.fn().mockRejectedValue(new Error('UNIQUE constraint failed: tags.name')),
@@ -158,7 +176,7 @@ describe('POST /tags - Create tag', () => {
     const res = await app.request('/tags', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ teamId: 'team-1', name: 'duplicate-tag' }),
+      body: JSON.stringify({ projectFolderId: 'folder-1', name: 'duplicate-tag' }),
     });
 
     expect(res.status).toBe(409);
@@ -170,6 +188,12 @@ describe('POST /tags - Create tag', () => {
       resolveTeamRole: vi.fn().mockResolvedValue('viewer'),
       hasMinimumRole: vi.fn().mockReturnValue(false),
     });
+    // First select: lookup team via teamProjectFolders
+    mockDb.select = vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue([{ teamId: 'team-1' }]),
+      }),
+    });
 
     const routes = createTagsRoutes({ db: mockDb as never, rbacService });
     const app = createApp(routes, '/tags', { userId: 'viewer-001', authMethod: 'session' });
@@ -177,7 +201,7 @@ describe('POST /tags - Create tag', () => {
     const res = await app.request('/tags', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ teamId: 'team-1', name: 'some-tag' }),
+      body: JSON.stringify({ projectFolderId: 'folder-1', name: 'some-tag' }),
     });
 
     // Non-members get 404 from requireTeamRole, members with insufficient role get 403
@@ -191,7 +215,7 @@ describe('POST /tags - Create tag', () => {
     const res = await app.request('/tags', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ teamId: 'team-1' }),
+      body: JSON.stringify({ projectFolderId: 'folder-1' }),
     });
 
     expect(res.status).toBe(400);
@@ -205,14 +229,14 @@ describe('POST /tags - Create tag', () => {
     const res = await app.request('/tags', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ teamId: 'team-1', name: 'my-tag', color: 'not-a-hex' }),
+      body: JSON.stringify({ projectFolderId: 'folder-1', name: 'my-tag', color: 'not-a-hex' }),
     });
 
     expect(res.status).toBe(400);
     expect((await res.json()).error.code).toBe('VALIDATION_ERROR');
   });
 
-  it('returns 400 for missing teamId', async () => {
+  it('returns 400 for missing projectFolderId', async () => {
     const routes = createTagsRoutes({ db: mockDb as never, rbacService });
     const app = createApp(routes, '/tags');
 
@@ -227,6 +251,12 @@ describe('POST /tags - Create tag', () => {
   });
 
   it('returns 500 on unexpected DB error', async () => {
+    // First select: lookup team via teamProjectFolders
+    mockDb.select = vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue([{ teamId: 'team-1' }]),
+      }),
+    });
     mockDb.insert = vi.fn().mockReturnValue({
       values: vi.fn().mockReturnValue({
         returning: vi.fn().mockRejectedValue(new Error('SQLITE_DISK_IO_ERROR')),
@@ -239,7 +269,7 @@ describe('POST /tags - Create tag', () => {
     const res = await app.request('/tags', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ teamId: 'team-1', name: 'crash-tag' }),
+      body: JSON.stringify({ projectFolderId: 'folder-1', name: 'crash-tag' }),
     });
 
     expect(res.status).toBe(500);
@@ -280,26 +310,34 @@ describe('GET /tags?teamId - List tags with usage counts (H3 batch)', () => {
   });
 
   it('returns 200 with tags enriched with projectCount and taskCount (H3 batch)', async () => {
-    // The route executes three sequential select calls:
-    //   call 1: db.select().from(tags).where(eq(tags.teamId, teamId)) → tags array
-    //   call 2: db.select({tagId, total}).from(projectTags).where(inArray(...)).groupBy(...) → project counts
-    //   call 3: db.select({tagId, total}).from(taskTags).where(inArray(...)).groupBy(...)   → task counts
-    // Calls 2 & 3 run in parallel via Promise.all and use a where→groupBy chain.
+    // The route now executes:
+    //   call 1: db.select({projectFolderId}).from(teamProjectFolders).where(...) → folder IDs
+    //   call 2: db.select().from(tags).where(inArray(tags.projectFolderId, folderIds)) → tags array
+    //   call 3: db.select({tagId, total}).from(codespaceTags).where(inArray(...)).groupBy(...) → project counts
+    //   call 4: db.select({tagId, total}).from(taskTags).where(inArray(...)).groupBy(...)   → task counts
     let selectCallIndex = 0;
     mockDb.select = vi.fn().mockImplementation(() => {
       selectCallIndex++;
       const call = selectCallIndex;
-      // For the first call (tag list): where() is the terminal awaitable
       if (call === 1) {
+        // Folder IDs lookup
+        return {
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockResolvedValue([{ projectFolderId: 'folder-1' }]),
+          }),
+        };
+      }
+      if (call === 2) {
+        // Tag list
         return {
           from: vi.fn().mockReturnValue({
             where: vi.fn().mockResolvedValue(teamTags),
           }),
         };
       }
-      // For calls 2 & 3 (batch count queries): where() returns a chainable object with groupBy()
+      // For calls 3 & 4 (batch count queries): where() returns a chainable object with groupBy()
       const groupByResult =
-        call === 2
+        call === 3
           ? [{ tagId: 'tag-1', total: 3 }]
           : [
               { tagId: 'tag-1', total: 5 },
@@ -330,6 +368,15 @@ describe('GET /tags?teamId - List tags with usage counts (H3 batch)', () => {
       selectCallIndex++;
       const call = selectCallIndex;
       if (call === 1) {
+        // Folder IDs lookup
+        return {
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockResolvedValue([{ projectFolderId: 'folder-1' }]),
+          }),
+        };
+      }
+      if (call === 2) {
+        // Tag list
         return {
           from: vi.fn().mockReturnValue({
             where: vi.fn().mockResolvedValue(teamTags),
@@ -411,6 +458,15 @@ describe('GET /tags?teamId - List tags with usage counts (H3 batch)', () => {
       selectCallIndex++;
       const call = selectCallIndex;
       if (call === 1) {
+        // Folder IDs lookup
+        return {
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockResolvedValue([{ projectFolderId: 'folder-1' }]),
+          }),
+        };
+      }
+      if (call === 2) {
+        // Tag list
         return {
           from: vi.fn().mockReturnValue({
             where: vi.fn().mockResolvedValue(teamTags),
@@ -449,11 +505,19 @@ describe('DELETE /tags/:id - Delete tag', () => {
       resolveTeamRole: vi.fn().mockResolvedValue('admin'),
       hasMinimumRole: vi.fn().mockReturnValue(true),
     });
-    // Default: tag exists
-    mockDb.select = vi.fn().mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue([{ teamId: 'team-1' }]),
-      }),
+    // Default: tag exists with projectFolderId, then team lookup succeeds
+    let selectCall = 0;
+    mockDb.select = vi.fn().mockImplementation(() => {
+      selectCall++;
+      return {
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockResolvedValue(
+            selectCall === 1
+              ? [{ projectFolderId: 'folder-1' }] // tag lookup
+              : [{ teamId: 'team-1' }] // team from folder lookup
+          ),
+        }),
+      };
     });
   });
 
@@ -478,7 +542,7 @@ describe('DELETE /tags/:id - Delete tag', () => {
   it('returns 404 when tag does not exist', async () => {
     mockDb.select = vi.fn().mockReturnValue({
       from: vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue([]),
+        where: vi.fn().mockResolvedValue([]), // tag not found
       }),
     });
 
@@ -494,6 +558,20 @@ describe('DELETE /tags/:id - Delete tag', () => {
     rbacService = buildMockRbacService({
       resolveTeamRole: vi.fn().mockResolvedValue('agent_operator'),
       hasMinimumRole: vi.fn().mockReturnValue(false),
+    });
+    // Tag found with projectFolderId, then team lookup succeeds
+    let selectCall = 0;
+    mockDb.select = vi.fn().mockImplementation(() => {
+      selectCall++;
+      return {
+        from: vi.fn().mockReturnValue({
+          where: vi
+            .fn()
+            .mockResolvedValue(
+              selectCall === 1 ? [{ projectFolderId: 'folder-1' }] : [{ teamId: 'team-1' }]
+            ),
+        }),
+      };
     });
 
     const routes = createTagsRoutes({ db: mockDb as never, rbacService });
@@ -538,14 +616,14 @@ describe('POST /projects/:id/tags - Assign tag to project', () => {
     rbacService = buildMockRbacService();
   });
 
-  it('assigns a tag to a project successfully', async () => {
+  it('assigns a tag to a codespace successfully', async () => {
     let selectCall = 0;
     mockDb.select = vi.fn().mockImplementation(() => ({
       from: vi.fn().mockImplementation(() => ({
         where: vi.fn().mockImplementation(() => {
           selectCall++;
-          if (selectCall === 1) return Promise.resolve([{ teamId: 'team-1' }]); // tag record
-          return Promise.resolve([{ teamId: 'team-1' }]); // team owns project
+          if (selectCall === 1) return Promise.resolve([{ projectFolderId: 'folder-1' }]); // tag record
+          return Promise.resolve([{ projectFolderId: 'folder-1' }]); // codespace's folder (same)
         }),
       })),
     }));
@@ -561,9 +639,9 @@ describe('POST /projects/:id/tags - Assign tag to project', () => {
       c.set('auth', DEV_AUTH);
       return next();
     });
-    app.route('/projects/:id/tags', routes);
+    app.route('/codespaces/:id/tags', routes);
 
-    const res = await app.request('/projects/proj-1/tags', {
+    const res = await app.request('/codespaces/proj-1/tags', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tagId: 'tag-1' }),
@@ -577,14 +655,14 @@ describe('POST /projects/:id/tags - Assign tag to project', () => {
     expect(body.data.assignedAt).toBeDefined();
   });
 
-  it('returns 403 when tag belongs to a different team than the project (cross-team forbidden)', async () => {
+  it('returns 403 when tag belongs to a different folder than the codespace (cross-folder forbidden)', async () => {
     let selectCall = 0;
     mockDb.select = vi.fn().mockImplementation(() => ({
       from: vi.fn().mockImplementation(() => ({
         where: vi.fn().mockImplementation(() => {
           selectCall++;
-          if (selectCall === 1) return Promise.resolve([{ teamId: 'foreign-team-999' }]);
-          return Promise.resolve([]); // foreign team does NOT own project
+          if (selectCall === 1) return Promise.resolve([{ projectFolderId: 'folder-foreign' }]); // tag's folder
+          return Promise.resolve([{ projectFolderId: 'folder-different' }]); // codespace's folder (different)
         }),
       })),
     }));
@@ -595,9 +673,9 @@ describe('POST /projects/:id/tags - Assign tag to project', () => {
       c.set('auth', DEV_AUTH);
       return next();
     });
-    app.route('/projects/:id/tags', routes);
+    app.route('/codespaces/:id/tags', routes);
 
-    const res = await app.request('/projects/proj-1/tags', {
+    const res = await app.request('/codespaces/proj-1/tags', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tagId: 'tag-1' }),
@@ -620,9 +698,9 @@ describe('POST /projects/:id/tags - Assign tag to project', () => {
       c.set('auth', DEV_AUTH);
       return next();
     });
-    app.route('/projects/:id/tags', routes);
+    app.route('/codespaces/:id/tags', routes);
 
-    const res = await app.request('/projects/proj-1/tags', {
+    const res = await app.request('/codespaces/proj-1/tags', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tagId: 'nonexistent-tag' }),
@@ -644,9 +722,9 @@ describe('POST /projects/:id/tags - Assign tag to project', () => {
       c.set('auth', { userId: 'viewer-001', authMethod: 'session' as const });
       return next();
     });
-    app.route('/projects/:id/tags', routes);
+    app.route('/codespaces/:id/tags', routes);
 
-    const res = await app.request('/projects/proj-1/tags', {
+    const res = await app.request('/codespaces/proj-1/tags', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tagId: 'tag-1' }),
@@ -662,9 +740,9 @@ describe('POST /projects/:id/tags - Assign tag to project', () => {
       c.set('auth', DEV_AUTH);
       return next();
     });
-    app.route('/projects/:id/tags', routes);
+    app.route('/codespaces/:id/tags', routes);
 
-    const res = await app.request('/projects/!!!/tags', {
+    const res = await app.request('/codespaces/!!!/tags', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tagId: 'tag-1' }),
@@ -681,8 +759,8 @@ describe('POST /projects/:id/tags - Assign tag to project', () => {
         where: vi.fn().mockImplementation(() => {
           selectCall++;
           return selectCall === 1
-            ? Promise.resolve([{ teamId: 'team-1' }])
-            : Promise.resolve([{ teamId: 'team-1' }]);
+            ? Promise.resolve([{ projectFolderId: 'folder-1' }])
+            : Promise.resolve([{ projectFolderId: 'folder-1' }]);
         }),
       })),
     }));
@@ -697,9 +775,9 @@ describe('POST /projects/:id/tags - Assign tag to project', () => {
       c.set('auth', DEV_AUTH);
       return next();
     });
-    app.route('/projects/:id/tags', routes);
+    app.route('/codespaces/:id/tags', routes);
 
-    const res = await app.request('/projects/proj-1/tags', {
+    const res = await app.request('/codespaces/proj-1/tags', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tagId: 'tag-1' }),
@@ -729,9 +807,9 @@ describe('DELETE /projects/:id/tags/:tagId - Remove tag from project', () => {
       c.set('auth', DEV_AUTH);
       return next();
     });
-    app.route('/projects/:id/tags', routes);
+    app.route('/codespaces/:id/tags', routes);
 
-    const res = await app.request('/projects/proj-1/tags/tag-1', { method: 'DELETE' });
+    const res = await app.request('/codespaces/proj-1/tags/tag-1', { method: 'DELETE' });
     expect(res.status).toBe(200);
     expect((await res.json()).data.removed).toBe(true);
   });
@@ -748,9 +826,9 @@ describe('DELETE /projects/:id/tags/:tagId - Remove tag from project', () => {
       c.set('auth', { userId: 'viewer-001', authMethod: 'session' as const });
       return next();
     });
-    app.route('/projects/:id/tags', routes);
+    app.route('/codespaces/:id/tags', routes);
 
-    const res = await app.request('/projects/proj-1/tags/tag-1', { method: 'DELETE' });
+    const res = await app.request('/codespaces/proj-1/tags/tag-1', { method: 'DELETE' });
     expect(res.status).toBe(403);
   });
 
@@ -761,9 +839,9 @@ describe('DELETE /projects/:id/tags/:tagId - Remove tag from project', () => {
       c.set('auth', DEV_AUTH);
       return next();
     });
-    app.route('/projects/:id/tags', routes);
+    app.route('/codespaces/:id/tags', routes);
 
-    const res = await app.request('/projects/!!!/tags/tag-1', { method: 'DELETE' });
+    const res = await app.request('/codespaces/!!!/tags/tag-1', { method: 'DELETE' });
     expect(res.status).toBe(400);
     expect((await res.json()).error.code).toBe('INVALID_ID');
   });
@@ -775,9 +853,9 @@ describe('DELETE /projects/:id/tags/:tagId - Remove tag from project', () => {
       c.set('auth', DEV_AUTH);
       return next();
     });
-    app.route('/projects/:id/tags', routes);
+    app.route('/codespaces/:id/tags', routes);
 
-    const res = await app.request('/projects/proj-1/tags/!!!', { method: 'DELETE' });
+    const res = await app.request('/codespaces/proj-1/tags/!!!', { method: 'DELETE' });
     expect(res.status).toBe(400);
     expect((await res.json()).error.code).toBe('INVALID_ID');
   });
@@ -802,8 +880,8 @@ describe('POST /tasks/:id/tags - Assign tag to task', () => {
         where: vi.fn().mockImplementation(() => {
           selectCall++;
           if (selectCall === 1) return Promise.resolve([{ codespaceId: 'proj-1' }]); // task lookup
-          if (selectCall === 2) return Promise.resolve([{ teamId: 'team-1' }]); // tag record
-          return Promise.resolve([{ teamId: 'team-1' }]); // team owns project
+          if (selectCall === 2) return Promise.resolve([{ projectFolderId: 'folder-1' }]); // tag record
+          return Promise.resolve([{ projectFolderId: 'folder-1' }]); // codespace's folder (same)
         }),
       })),
     }));
@@ -860,15 +938,15 @@ describe('POST /tasks/:id/tags - Assign tag to task', () => {
     expect((await res.json()).error.code).toBe('NOT_FOUND');
   });
 
-  it('returns 403 when tag belongs to a different team than the task project (cross-team check via project)', async () => {
+  it('returns 403 when tag belongs to a different folder than the task codespace (cross-folder check)', async () => {
     let selectCall = 0;
     mockDb.select = vi.fn().mockImplementation(() => ({
       from: vi.fn().mockImplementation(() => ({
         where: vi.fn().mockImplementation(() => {
           selectCall++;
-          if (selectCall === 1) return Promise.resolve([{ codespaceId: 'proj-1' }]);
-          if (selectCall === 2) return Promise.resolve([{ teamId: 'foreign-team-999' }]);
-          return Promise.resolve([]); // foreign team doesn't own the project
+          if (selectCall === 1) return Promise.resolve([{ codespaceId: 'proj-1' }]); // task lookup
+          if (selectCall === 2) return Promise.resolve([{ projectFolderId: 'folder-foreign' }]); // tag's folder
+          return Promise.resolve([{ projectFolderId: 'folder-different' }]); // codespace's folder (different)
         }),
       })),
     }));

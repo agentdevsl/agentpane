@@ -94,6 +94,7 @@ SELECT project_id, tag_id FROM project_tags;
 CREATE TABLE IF NOT EXISTS template_codespaces (
   template_id TEXT NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
   codespace_id TEXT NOT NULL REFERENCES codespaces(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (template_id, codespace_id)
 );
 
@@ -127,7 +128,7 @@ export const PROJECT_FOLDERS_ALTER_STATEMENTS = [
   `UPDATE agent_runs SET codespace_id = project_id WHERE codespace_id IS NULL`,
 
   // Audit logs
-  `ALTER TABLE audit_logs ADD COLUMN codespace_id TEXT`,
+  `ALTER TABLE audit_logs ADD COLUMN codespace_id TEXT REFERENCES codespaces(id) ON DELETE CASCADE`,
   `UPDATE audit_logs SET codespace_id = project_id WHERE codespace_id IS NULL`,
 
   // Plan sessions (table may not exist in all installations)

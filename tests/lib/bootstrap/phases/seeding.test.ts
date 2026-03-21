@@ -12,7 +12,8 @@ async function createSeededDb() {
     '@/lib/bootstrap/migrations/v19-project-folders'
   );
   const db = new Database(':memory:');
-  db.pragma('foreign_keys = ON');
+  // Disable FK checks during schema setup so we can rebuild tables cleanly
+  db.pragma('foreign_keys = OFF');
   db.exec(MIGRATION_SQL);
   db.exec(RBAC_MIGRATION_SQL);
   // Run v19 migration so codespaces table exists
@@ -24,6 +25,29 @@ async function createSeededDb() {
       // Idempotent — column may already exist
     }
   }
+  // Recreate agents table with codespace_id as the primary FK (matching post-rename schema).
+  // The base migration creates agents with project_id NOT NULL, but after the codespace rename
+  // the seeding code uses codespace_id. Rebuild the table to match the effective production schema.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agents_new (
+      id TEXT PRIMARY KEY NOT NULL,
+      codespace_id TEXT REFERENCES codespaces(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      type TEXT DEFAULT 'task' NOT NULL,
+      status TEXT DEFAULT 'idle' NOT NULL,
+      config TEXT,
+      current_task_id TEXT,
+      current_session_id TEXT,
+      current_turn INTEGER DEFAULT 0,
+      parent_agent_id TEXT,
+      created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+      updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+    );
+    INSERT INTO agents_new SELECT id, codespace_id, name, type, status, config, current_task_id, current_session_id, current_turn, parent_agent_id, created_at, updated_at FROM agents WHERE 0;
+    DROP TABLE agents;
+    ALTER TABLE agents_new RENAME TO agents;
+  `);
+  db.pragma('foreign_keys = ON');
   return db;
 }
 

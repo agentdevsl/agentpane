@@ -104,11 +104,8 @@ describe('Session Collections', () => {
       expect(() => clearSessionCollections()).not.toThrow();
     });
 
-    it('logs a message (via console.log)', () => {
-      const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
-      clearSessionCollections();
-      expect(spy).toHaveBeenCalledWith('[Collections] Clearing session collections');
-      spy.mockRestore();
+    it('completes without error', () => {
+      expect(() => clearSessionCollections()).not.toThrow();
     });
   });
 

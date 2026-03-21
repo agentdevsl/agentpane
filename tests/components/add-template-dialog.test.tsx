@@ -81,7 +81,7 @@ describe('AddTemplateDialog', () => {
         <AddTemplateDialog
           open
           onOpenChange={vi.fn()}
-          scope="project"
+          scope="codespace"
           projects={mockProjects}
           onSubmit={vi.fn()}
         />
@@ -97,7 +97,7 @@ describe('AddTemplateDialog', () => {
         <AddTemplateDialog
           open
           onOpenChange={vi.fn()}
-          scope="project"
+          scope="codespace"
           projects={mockProjects}
           onSubmit={vi.fn()}
         />
@@ -114,7 +114,7 @@ describe('AddTemplateDialog', () => {
         <AddTemplateDialog
           open
           onOpenChange={vi.fn()}
-          scope="project"
+          scope="codespace"
           projects={[]}
           onSubmit={vi.fn()}
         />
@@ -221,7 +221,7 @@ describe('AddTemplateDialog', () => {
         <AddTemplateDialog
           open
           onOpenChange={vi.fn()}
-          scope="project"
+          scope="codespace"
           projects={mockProjects}
           initialProjectIds={['proj-1', 'proj-3']}
           onSubmit={vi.fn()}
@@ -238,7 +238,7 @@ describe('AddTemplateDialog', () => {
         <AddTemplateDialog
           open
           onOpenChange={vi.fn()}
-          scope="project"
+          scope="codespace"
           projects={mockProjects}
           onSubmit={vi.fn()}
         />
@@ -260,7 +260,7 @@ describe('AddTemplateDialog', () => {
         <AddTemplateDialog
           open
           onOpenChange={vi.fn()}
-          scope="project"
+          scope="codespace"
           projects={mockProjects}
           initialProjectIds={['proj-1', 'proj-2']}
           onSubmit={vi.fn()}
@@ -283,7 +283,7 @@ describe('AddTemplateDialog', () => {
         <AddTemplateDialog
           open
           onOpenChange={vi.fn()}
-          scope="project"
+          scope="codespace"
           projects={mockProjects}
           onSubmit={onSubmit}
         />
@@ -345,7 +345,7 @@ describe('AddTemplateDialog', () => {
         <AddTemplateDialog
           open
           onOpenChange={vi.fn()}
-          scope="project"
+          scope="codespace"
           projects={mockProjects}
           initialProjectIds={['proj-1']}
           onSubmit={vi.fn()}
@@ -414,7 +414,7 @@ describe('AddTemplateDialog', () => {
         <AddTemplateDialog
           open
           onOpenChange={vi.fn()}
-          scope="project"
+          scope="codespace"
           projects={mockProjects}
           initialProjectIds={['proj-1', 'proj-2']}
           onSubmit={onSubmit}
@@ -434,7 +434,7 @@ describe('AddTemplateDialog', () => {
         expect(onSubmit).toHaveBeenCalledWith({
           name: 'My Template',
           description: undefined,
-          scope: 'project',
+          scope: 'codespace',
           githubUrl: 'https://github.com/owner/repo',
           branch: undefined,
           configPath: undefined,
@@ -839,7 +839,7 @@ describe('AddTemplateDialog', () => {
         <AddTemplateDialog
           open
           onOpenChange={vi.fn()}
-          scope="project"
+          scope="codespace"
           projects={mockProjects}
           initialProjectIds={['proj-1']}
           onSubmit={onSubmit}
@@ -872,7 +872,7 @@ describe('AddTemplateDialog', () => {
         <AddTemplateDialog
           open
           onOpenChange={vi.fn()}
-          scope="project"
+          scope="codespace"
           projects={mockProjects}
           initialProjectIds={['proj-2', 'proj-3']}
           onSubmit={vi.fn()}
