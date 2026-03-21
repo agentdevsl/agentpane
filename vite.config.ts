@@ -80,6 +80,7 @@ export default defineConfig({
       routesDirectory: './src/app/routes',
       generatedRouteTree: './src/app/routeTree.gen.ts',
       routeFileIgnorePattern: '.*\\/api\\/.*',
+      autoCodeSplitting: true,
     }),
     react(),
     serverOnlyStubs(),

@@ -13,6 +13,17 @@ import { apiClient } from '@/lib/api/client';
 //   - /external_plugins (third-party community plugins)
 
 export const Route = createFileRoute('/marketplace/')({
+  loader: async () => {
+    await apiClient.marketplaces.seed();
+    const [marketplacesRes, pluginsRes] = await Promise.all([
+      apiClient.marketplaces.list(),
+      apiClient.marketplaces.listPlugins({}),
+    ]);
+    return {
+      marketplaces: marketplacesRes.ok ? marketplacesRes.data.items : [],
+      plugins: pluginsRes.ok ? pluginsRes.data.items : [],
+    };
+  },
   component: MarketplacePage,
 });
 
@@ -46,9 +57,16 @@ type PluginItem = {
 };
 
 function MarketplacePage(): React.JSX.Element {
-  const [marketplaces, setMarketplaces] = useState<MarketplaceItem[]>([]);
-  const [plugins, setPlugins] = useState<PluginItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const loaderData = Route.useLoaderData() as
+    | { marketplaces: MarketplaceItem[]; plugins: PluginItem[] }
+    | undefined;
+  const [marketplaces, setMarketplaces] = useState<MarketplaceItem[]>(
+    () => (loaderData?.marketplaces as MarketplaceItem[]) ?? []
+  );
+  const [plugins, setPlugins] = useState<PluginItem[]>(
+    () => (loaderData?.plugins as PluginItem[]) ?? []
+  );
+  const [isLoading, setIsLoading] = useState(!loaderData?.marketplaces);
   const [error, setError] = useState<string | null>(null);
 
   // UI state

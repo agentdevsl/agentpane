@@ -15,32 +15,43 @@ type ClientAgent = {
   config?: Record<string, unknown>;
 };
 
+async function fetchAgentById(agentId: string): Promise<ClientAgent | null> {
+  try {
+    const response = await fetch(`/api/agents/${agentId}`);
+    const data = await response.json();
+    return data.ok ? (data.data as ClientAgent) : null;
+  } catch {
+    return null;
+  }
+}
+
 export const Route = createFileRoute('/agents/$agentId')({
+  loader: async ({ params }: { params: { agentId: string } }) => {
+    const agent = await fetchAgentById(params.agentId);
+    return { agent };
+  },
   component: AgentDetailPage,
 });
 
 function AgentDetailPage(): React.JSX.Element {
   const { agentId } = Route.useParams();
-  const [agent, setAgent] = useState<ClientAgent | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const loaderData = Route.useLoaderData() as { agent: ClientAgent | null } | undefined;
+  const [agent, setAgent] = useState<ClientAgent | null>(
+    () => (loaderData?.agent as ClientAgent) ?? null
+  );
+  const [isLoading, setIsLoading] = useState(!loaderData?.agent);
   const [showConfig, setShowConfig] = useState(false);
 
-  // Fetch agent from API on mount
+  // Fetch agent from API on mount (fallback if loader didn't run)
   useEffect(() => {
-    const fetchAgent = async () => {
-      try {
-        const response = await fetch(`/api/agents/${agentId}`);
-        const data = await response.json();
-        if (data.ok) {
-          setAgent(data.data);
-        }
-      } catch {
-        // API may not be ready
-      }
+    if (loaderData?.agent) return;
+    const doFetch = async () => {
+      const result = await fetchAgentById(agentId);
+      if (result) setAgent(result);
       setIsLoading(false);
     };
-    fetchAgent();
-  }, [agentId]);
+    doFetch();
+  }, [agentId, loaderData]);
 
   if (isLoading) {
     return (

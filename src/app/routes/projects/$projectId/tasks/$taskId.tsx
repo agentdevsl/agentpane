@@ -14,18 +14,37 @@ type ClientTask = Pick<
 };
 
 export const Route = createFileRoute('/projects/$projectId/tasks/$taskId')({
+  loader: async ({ params }: { params: { projectId: string; taskId: string } }) => {
+    const [taskResult, projectResult] = await Promise.all([
+      apiClient.tasks.get(params.taskId),
+      apiClient.projects.get(params.projectId),
+    ]);
+    const task = taskResult.ok ? taskResult.data : null;
+    return {
+      task: task && (task as ClientTask).projectId === params.projectId ? task : null,
+      project: projectResult.ok ? projectResult.data : null,
+    };
+  },
   component: TaskDetailRoute,
 });
 
 function TaskDetailRoute(): React.JSX.Element {
   const router = useRouter();
   const { projectId, taskId } = Route.useParams();
-  const [task, setTask] = useState<ClientTask | null>(null);
-  const [project, setProject] = useState<ProjectListItem | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const loaderData = Route.useLoaderData() as
+    | { task: ClientTask | null; project: ProjectListItem | null }
+    | undefined;
+  const [task, setTask] = useState<ClientTask | null>(
+    () => (loaderData?.task as ClientTask) ?? null
+  );
+  const [project, setProject] = useState<ProjectListItem | null>(
+    () => (loaderData?.project as ProjectListItem) ?? null
+  );
+  const [isLoading, setIsLoading] = useState(!loaderData?.task);
 
   // Fetch task and project from API on mount
   useEffect(() => {
+    if (loaderData?.task) return;
     const fetchData = async () => {
       const [taskResult, projectResult] = await Promise.all([
         apiClient.tasks.get(taskId),
@@ -44,7 +63,7 @@ function TaskDetailRoute(): React.JSX.Element {
       setIsLoading(false);
     };
     fetchData();
-  }, [projectId, taskId]);
+  }, [projectId, taskId, loaderData]);
 
   if (isLoading) {
     return (

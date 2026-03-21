@@ -30,6 +30,21 @@ import {
 import { cn } from '@/lib/utils/cn';
 
 export const Route = createFileRoute('/settings/prompts')({
+  loader: async () => {
+    const keys = getPromptSettingsKeys();
+    const result = await apiClient.settings.get(keys);
+    if (result.ok) {
+      const loaded: Record<string, string> = {};
+      for (const prompt of Object.values(PROMPT_REGISTRY)) {
+        const val = result.data.settings[prompt.settingsKey];
+        if (typeof val === 'string' && val.length > 0) {
+          loaded[prompt.id] = val;
+        }
+      }
+      return { promptOverrides: loaded };
+    }
+    return { promptOverrides: null };
+  },
   component: SystemPromptsPage,
 });
 
@@ -315,15 +330,22 @@ function CategorySection({
 // ============================================================================
 
 function SystemPromptsPage(): React.JSX.Element {
-  const [isLoading, setIsLoading] = useState(true);
+  const loaderData = Route.useLoaderData() as
+    | { promptOverrides: Record<string, string> | null }
+    | undefined;
+  const [isLoading, setIsLoading] = useState(!loaderData?.promptOverrides);
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Stores current edit values — empty string means "use default"
-  const [edits, setEdits] = useState<Record<string, string>>({});
+  const [edits, setEdits] = useState<Record<string, string>>(
+    () => (loaderData?.promptOverrides as Record<string, string>) ?? {}
+  );
   // Stores the last-saved values to detect dirty state
-  const [savedEdits, setSavedEdits] = useState<Record<string, string>>({});
+  const [savedEdits, setSavedEdits] = useState<Record<string, string>>(
+    () => (loaderData?.promptOverrides as Record<string, string>) ?? {}
+  );
 
   const promptsByCategory = useMemo(() => getPromptsByCategory(), []);
   const allPrompts = useMemo(() => Object.values(PROMPT_REGISTRY), []);
@@ -331,6 +353,7 @@ function SystemPromptsPage(): React.JSX.Element {
 
   // Load saved overrides from settings
   useEffect(() => {
+    if (loaderData?.promptOverrides) return;
     async function load() {
       setIsLoading(true);
       setError(null);
@@ -356,7 +379,7 @@ function SystemPromptsPage(): React.JSX.Element {
       }
     }
     load();
-  }, [allPrompts, settingsKeys]);
+  }, [allPrompts, settingsKeys, loaderData]);
 
   const handleEdit = useCallback((promptId: string, value: string) => {
     const def = PROMPT_REGISTRY[promptId];

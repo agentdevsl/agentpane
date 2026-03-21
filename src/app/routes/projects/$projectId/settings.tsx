@@ -14,6 +14,10 @@ import type { Project, ProjectConfig } from '@/db/schema';
 import { apiClient } from '@/lib/api/client';
 
 export const Route = createFileRoute('/projects/$projectId/settings')({
+  loader: async ({ params }: { params: { projectId: string } }) => {
+    const result = await apiClient.projects.get(params.projectId);
+    return { project: result.ok ? result.data : null };
+  },
   component: ProjectSettingsPage,
 });
 
@@ -21,8 +25,11 @@ function ProjectSettingsPage(): React.JSX.Element {
   const { projectId } = Route.useParams();
   const navigate = useNavigate();
   const router = useRouter();
-  const [project, setProject] = useState<Project | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const loaderData = Route.useLoaderData() as { project: Project | null } | undefined;
+  const [project, setProject] = useState<Project | null>(
+    () => (loaderData?.project as unknown as Project) ?? null
+  );
+  const [isLoading, setIsLoading] = useState(!loaderData?.project);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
   const handleBack = () => {
@@ -36,6 +43,7 @@ function ProjectSettingsPage(): React.JSX.Element {
 
   // Fetch project from API on mount
   useEffect(() => {
+    if (loaderData?.project) return;
     const fetchProject = async () => {
       const result = await apiClient.projects.get(projectId);
       if (result.ok) {
@@ -44,7 +52,7 @@ function ProjectSettingsPage(): React.JSX.Element {
       setIsLoading(false);
     };
     fetchProject();
-  }, [projectId]);
+  }, [projectId, loaderData]);
 
   const handleSave = async (input: {
     name?: string;

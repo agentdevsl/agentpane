@@ -12,6 +12,12 @@ export const router = createRouter({
   routeTree,
   context: { services: null, bootstrap: null } satisfies RouterContext,
   defaultPreload: 'intent',
+  defaultPendingMs: 200,
+  defaultPendingComponent: () => (
+    <div className="flex items-center justify-center min-h-[60vh]">
+      <div className="animate-pulse text-fg-muted text-sm">Loading…</div>
+    </div>
+  ),
 });
 
 declare module '@tanstack/react-router' {

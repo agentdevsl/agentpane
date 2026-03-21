@@ -26,6 +26,19 @@ import type { WorkflowEdge, WorkflowNode } from '@/lib/workflow-dsl/types';
 type WorkflowStatus = 'draft' | 'published' | 'archived';
 
 export const Route = createFileRoute('/catalog/')({
+  loader: async () => {
+    try {
+      const response = await fetch('/api/workflows');
+      if (!response.ok) return { workflows: [] };
+      const result = await response.json();
+      if (result.ok) {
+        return { workflows: result.data.items ?? [] };
+      }
+      return { workflows: [] };
+    } catch {
+      return { workflows: [] };
+    }
+  },
   component: CatalogPage,
 });
 
@@ -402,11 +415,31 @@ function DetailPanel({
 
 function CatalogPage(): React.JSX.Element {
   const navigate = useNavigate();
-  const [workflows, setWorkflows] = useState<WorkflowListItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const loaderData = Route.useLoaderData() as { workflows: Workflow[] } | undefined;
+  const [workflows, setWorkflows] = useState<WorkflowListItem[]>(() => {
+    const raw = loaderData?.workflows as Workflow[] | undefined;
+    if (!raw?.length) return [];
+    return raw.map((w) => ({
+      id: w.id,
+      name: w.name,
+      description: w.description,
+      status: w.status as WorkflowStatus | null,
+      nodes: (w.nodes ?? []) as WorkflowNode[],
+      edges: (w.edges ?? []) as WorkflowEdge[],
+      createdAt: w.createdAt as unknown as string,
+      updatedAt: w.updatedAt as unknown as string,
+    }));
+  });
+  const [isLoading, setIsLoading] = useState(() => {
+    const raw = loaderData?.workflows as unknown[] | undefined;
+    return !raw || raw.length === 0;
+  });
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(() => {
+    const raw = loaderData?.workflows as Workflow[] | undefined;
+    return raw?.[0]?.id ?? null;
+  });
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
 
@@ -455,12 +488,13 @@ function CatalogPage(): React.JSX.Element {
   }, []);
 
   useEffect(() => {
+    if (loaderData?.workflows && (loaderData.workflows as unknown[]).length > 0) return;
     fetchWorkflows().then((items) => {
       if (items.length > 0) {
         setSelectedId((current) => current ?? items[0]?.id ?? null);
       }
     });
-  }, [fetchWorkflows]);
+  }, [fetchWorkflows, loaderData]);
 
   const filteredWorkflows = useMemo(() => {
     if (!searchQuery.trim()) return workflows;

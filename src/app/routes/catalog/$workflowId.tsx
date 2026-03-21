@@ -8,6 +8,15 @@ import { Button } from '@/app/components/ui/button';
 import type { Workflow } from '@/db/schema';
 
 export const Route = createFileRoute('/catalog/$workflowId')({
+  loader: async ({ params }: { params: { workflowId: string } }) => {
+    try {
+      const response = await fetch(`/api/workflows/${params.workflowId}`);
+      const result = await response.json();
+      return { workflow: result.ok ? result.data : null };
+    } catch {
+      return { workflow: null };
+    }
+  },
   component: WorkflowDetailPage,
 });
 
@@ -18,8 +27,11 @@ export const Route = createFileRoute('/catalog/$workflowId')({
 function WorkflowDetailPage(): React.JSX.Element {
   const navigate = useNavigate();
   const { workflowId } = Route.useParams();
-  const [workflow, setWorkflow] = useState<Workflow | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const loaderData = Route.useLoaderData() as { workflow: Workflow | null } | undefined;
+  const [workflow, setWorkflow] = useState<Workflow | null>(
+    () => (loaderData?.workflow as Workflow) ?? null
+  );
+  const [isLoading, setIsLoading] = useState(!loaderData?.workflow);
   const [error, setError] = useState<{ message: string; code?: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -52,8 +64,9 @@ function WorkflowDetailPage(): React.JSX.Element {
 
   // Load workflow on mount
   useEffect(() => {
+    if (loaderData?.workflow) return;
     fetchWorkflow();
-  }, [fetchWorkflow]);
+  }, [fetchWorkflow, loaderData]);
 
   // Handle navigate back to catalog
   const handleBack = useCallback(() => {

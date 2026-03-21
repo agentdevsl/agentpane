@@ -18,6 +18,24 @@ import { apiClient } from '@/lib/api/client';
 import { isValidPATFormat } from '@/lib/crypto/token-encryption';
 
 export const Route = createFileRoute('/settings/api-keys')({
+  loader: async () => {
+    const [keyResult, tokenResult] = await Promise.all([
+      apiClient.apiKeys.get('anthropic'),
+      apiClient.github.getTokenInfo(),
+    ]);
+    return {
+      anthropicKey:
+        keyResult.ok && keyResult.data.keyInfo ? keyResult.data.keyInfo.maskedKey : null,
+      githubToken:
+        tokenResult.ok && tokenResult.data.tokenInfo
+          ? tokenResult.data.tokenInfo.maskedToken
+          : null,
+      githubLogin:
+        tokenResult.ok && tokenResult.data.tokenInfo
+          ? tokenResult.data.tokenInfo.githubLogin
+          : null,
+    };
+  },
   component: ApiKeysSettingsPage,
 });
 
@@ -146,21 +164,31 @@ function KeyInputCard({
 // ============================================================================
 
 function ApiKeysSettingsPage(): React.JSX.Element {
+  const loaderData = Route.useLoaderData() as
+    | { anthropicKey: string | null; githubToken: string | null; githubLogin: string | null }
+    | undefined;
   const [anthropicKey, setAnthropicKey] = useState('');
   const [showAnthropicKey, setShowAnthropicKey] = useState(false);
-  const [savedAnthropicKey, setSavedAnthropicKey] = useState<string | null>(null);
+  const [savedAnthropicKey, setSavedAnthropicKey] = useState<string | null>(
+    () => (loaderData?.anthropicKey as string) ?? null
+  );
   const [isSavingAnthropic, setIsSavingAnthropic] = useState(false);
   const [anthropicError, setAnthropicError] = useState<string | null>(null);
 
   const [githubPat, setGithubPat] = useState('');
   const [showGithubPat, setShowGithubPat] = useState(false);
-  const [savedGithubPat, setSavedGithubPat] = useState<string | null>(null);
-  const [githubLogin, setGithubLogin] = useState<string | null>(null);
+  const [savedGithubPat, setSavedGithubPat] = useState<string | null>(
+    () => (loaderData?.githubToken as string) ?? null
+  );
+  const [githubLogin, setGithubLogin] = useState<string | null>(
+    () => (loaderData?.githubLogin as string) ?? null
+  );
   const [isSavingGithub, setIsSavingGithub] = useState(false);
   const [githubError, setGithubError] = useState<string | null>(null);
 
   // Load saved keys on mount
   useEffect(() => {
+    if (loaderData?.anthropicKey !== undefined) return;
     const loadKeys = async () => {
       const [keyResult, tokenResult] = await Promise.all([
         apiClient.apiKeys.get('anthropic'),
@@ -175,7 +203,7 @@ function ApiKeysSettingsPage(): React.JSX.Element {
       }
     };
     loadKeys();
-  }, []);
+  }, [loaderData]);
 
   const handleSaveAnthropicKey = async () => {
     if (!anthropicKey.trim()) return;
