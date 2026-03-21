@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { apiClient } from '@/lib/api/client';
 import { AUTO_REFRESH_INTERVAL_MS } from '../constants';
 import type { GitDiff, WorktreeListItem } from '../types';
@@ -57,12 +58,12 @@ export function useWorktrees(projectId: string): UseWorktreesReturn {
   );
 
   // Initial fetch
-  useEffect(() => {
+  useWatchEffect(() => {
     void fetchWorktrees();
   }, [fetchWorktrees]);
 
   // Auto-refresh (silent, doesn't clear error or show loading)
-  useEffect(() => {
+  useWatchEffect(() => {
     const interval = setInterval(() => {
       void fetchWorktrees(true);
     }, AUTO_REFRESH_INTERVAL_MS);
@@ -121,7 +122,7 @@ export function useWorktreeDiff(worktreeId: string | null): UseWorktreeDiffRetur
     }
   }, [worktreeId]);
 
-  useEffect(() => {
+  useWatchEffect(() => {
     void fetchDiff();
   }, [fetchDiff]);
 

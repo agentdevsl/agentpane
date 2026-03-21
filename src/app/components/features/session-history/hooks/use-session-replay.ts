@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import type { SessionEvent } from '@/services/session.service';
 
 export type ReplaySpeed = 1 | 2 | 4;
@@ -94,17 +96,9 @@ export function useSessionReplay({
   const isPlayingRef = useRef(isPlaying);
 
   // Keep refs in sync with state
-  useEffect(() => {
-    speedRef.current = speed;
-  }, [speed]);
-
-  useEffect(() => {
-    totalDurationRef.current = totalDuration;
-  }, [totalDuration]);
-
-  useEffect(() => {
-    isPlayingRef.current = isPlaying;
-  }, [isPlaying]);
+  speedRef.current = speed;
+  totalDurationRef.current = totalDuration;
+  isPlayingRef.current = isPlaying;
 
   // Compute the start time from the first event
   const startTime = useMemo(() => {
@@ -230,7 +224,7 @@ export function useSessionReplay({
   }, [totalDuration, pause]);
 
   // Handle playing state changes - stable animate callback means this only re-runs on isPlaying change
-  useEffect(() => {
+  useWatchEffect(() => {
     if (isPlaying) {
       lastFrameTimeRef.current = 0;
       animationFrameRef.current = requestAnimationFrame(animate);
@@ -245,13 +239,13 @@ export function useSessionReplay({
   }, [isPlaying, animate]);
 
   // Cleanup on unmount
-  useEffect(() => {
+  useMountEffect(() => {
     return () => {
       if (animationFrameRef.current !== null) {
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, []);
+  });
 
   return {
     isPlaying,

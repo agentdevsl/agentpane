@@ -1,5 +1,6 @@
 import { FolderOpen, Spinner } from '@phosphor-icons/react';
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { cn } from '@/lib/utils/cn';
 import { ProjectItem } from './project-item';
 import type { ProjectPickerItem } from './types';
@@ -32,7 +33,7 @@ export function ProjectList({
   const itemRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
   // Scroll selected item into view
-  useEffect(() => {
+  useWatchEffect(() => {
     const selectedElement = itemRefs.current.get(selectedIndex);
     if (selectedElement && listRef.current) {
       const listRect = listRef.current.getBoundingClientRect();

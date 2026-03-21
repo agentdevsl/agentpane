@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { apiClient } from '@/lib/api/client';
 import type {
   SessionDetail,
@@ -131,7 +132,7 @@ export function useSessions(projectId: string, filters?: SessionFilters, sort?: 
     }
   }, [projectId, filters, sort]);
 
-  useEffect(() => {
+  useWatchEffect(() => {
     void fetchSessions();
   }, [fetchSessions]);
 
@@ -252,7 +253,7 @@ export function useSessionDetail(sessionId: string | null): UseSessionDetailRetu
     }
   }, [sessionId]);
 
-  useEffect(() => {
+  useWatchEffect(() => {
     void fetchDetail();
   }, [fetchDetail]);
 

@@ -1,5 +1,8 @@
 import { Laptop, Moon, Sun } from '@phosphor-icons/react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useEventListener } from '@/app/hooks/use-event-listener';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { cn } from '@/lib/utils/cn';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
@@ -12,27 +15,20 @@ export function ThemeToggle({ className }: ThemeToggleProps): React.JSX.Element 
   const [theme, setTheme] = useState<ThemeMode>('system');
   const [open, setOpen] = useState(false);
 
-  useEffect(() => {
+  useMountEffect(() => {
     const stored = window.localStorage.getItem('theme') as ThemeMode | null;
     if (stored) {
       setTheme(stored);
     }
-  }, []);
+  });
 
-  useEffect(() => {
-    if (!open) return;
+  useEventListener(open ? window : null, 'keydown', (event) => {
+    if (event.key === 'Escape') {
+      setOpen(false);
+    }
+  });
 
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setOpen(false);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [open]);
-
-  useEffect(() => {
+  useWatchEffect(() => {
     const root = document.documentElement;
     window.localStorage.setItem('theme', theme);
 

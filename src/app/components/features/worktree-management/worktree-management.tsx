@@ -6,9 +6,10 @@ import {
   GitFork,
   GitPullRequest,
 } from '@phosphor-icons/react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Button } from '@/app/components/ui/button';
 import { Skeleton } from '@/app/components/ui/skeleton';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { cn } from '@/lib/utils/cn';
 import { CommitDialog } from './dialogs/commit-dialog';
 import { MergeDialog } from './dialogs/merge-dialog';
@@ -243,7 +244,7 @@ function ContextMenu({
   onClose: () => void;
   actions: { label: string; onClick: () => void; danger?: boolean }[];
 }) {
-  useEffect(() => {
+  useWatchEffect(() => {
     const handleClick = () => onClose();
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();

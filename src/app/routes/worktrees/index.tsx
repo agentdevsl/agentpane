@@ -1,8 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { EmptyState } from '@/app/components/features/empty-state';
 import { LayoutShell } from '@/app/components/features/layout-shell';
 import { WorktreeManagement } from '@/app/components/features/worktree-management';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
 import { apiClient, type ProjectListItem } from '@/lib/api/client';
 
 export const Route = createFileRoute('/worktrees/')({
@@ -22,7 +23,7 @@ function WorktreesPage(): React.JSX.Element {
   const [error, setError] = useState<string | null>(null);
 
   // Fetch project from API on mount
-  useEffect(() => {
+  useMountEffect(() => {
     if (loaderData?.project !== undefined) return;
     const fetchData = async () => {
       try {
@@ -41,7 +42,7 @@ function WorktreesPage(): React.JSX.Element {
       }
     };
     void fetchData();
-  }, [loaderData]);
+  });
 
   if (isLoading) {
     return (

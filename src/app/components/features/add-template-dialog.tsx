@@ -8,7 +8,7 @@ import {
   Spinner,
   Star,
 } from '@phosphor-icons/react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Button } from '@/app/components/ui/button';
 import {
   Dialog,
@@ -20,6 +20,7 @@ import {
 } from '@/app/components/ui/dialog';
 import { TextInput } from '@/app/components/ui/text-input';
 import { Textarea } from '@/app/components/ui/textarea';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { cn } from '@/lib/utils/cn';
 import type { GitHubOrg, GitHubRepo } from '@/services/github-token.service';
 
@@ -115,7 +116,7 @@ function GitHubRepoSelector({
   const [searchTerm, setSearchTerm] = useState('');
 
   // Fetch repos when owner changes
-  useEffect(() => {
+  useWatchEffect(() => {
     if (!selectedOwner) {
       setRepos([]);
       return;
@@ -349,7 +350,7 @@ export function AddTemplateDialog({
   }, [onFetchOrgs, isGitHubConfigured, hasFetchedOrgs]);
 
   // Fetch orgs when dialog opens and GitHub is configured
-  useEffect(() => {
+  useWatchEffect(() => {
     if (open && isGitHubConfigured && !hasFetchedOrgs) {
       void fetchGitHubOrgs();
     }

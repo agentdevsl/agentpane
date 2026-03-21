@@ -11,9 +11,10 @@ import {
   Warning,
 } from '@phosphor-icons/react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Button } from '@/app/components/ui/button';
 import { ConfigSection } from '@/app/components/ui/config-section';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
 import { apiClient } from '@/lib/api/client';
 import { isValidPATFormat } from '@/lib/crypto/token-encryption';
 
@@ -187,7 +188,7 @@ function ApiKeysSettingsPage(): React.JSX.Element {
   const [githubError, setGithubError] = useState<string | null>(null);
 
   // Load saved keys on mount
-  useEffect(() => {
+  useMountEffect(() => {
     if (loaderData?.anthropicKey !== undefined) return;
     const loadKeys = async () => {
       const [keyResult, tokenResult] = await Promise.all([
@@ -203,7 +204,7 @@ function ApiKeysSettingsPage(): React.JSX.Element {
       }
     };
     loadKeys();
-  }, [loaderData]);
+  });
 
   const handleSaveAnthropicKey = async () => {
     if (!anthropicKey.trim()) return;

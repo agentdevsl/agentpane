@@ -7,13 +7,14 @@
  *
  * Consumers: use-session.ts, use-agent-stream.ts, use-container-agent.ts
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffectEvent, useRef, useState } from 'react';
 import {
   type ConnectionState,
   type SessionCallbacks,
   type Subscription,
   subscribeToSession,
 } from '@/lib/streams/client';
+import { useWatchEffect } from './use-watch-effect';
 
 /**
  * Subscribe to a session's SSE stream with automatic ref-counting.
@@ -32,14 +33,11 @@ export function useSessionSubscription(
 ): { connectionState: ConnectionState } {
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
   const subscriptionRef = useRef<Subscription | null>(null);
-  const callbacksRef = useRef<SessionCallbacks>(callbacks);
 
-  // Keep callbacks ref up-to-date without re-subscribing
-  useEffect(() => {
-    callbacksRef.current = callbacks;
-  });
+  // useEffectEvent always sees the latest callbacks without re-subscribing
+  const getCallbacks = useEffectEvent(() => callbacks);
 
-  useEffect(() => {
+  useWatchEffect(() => {
     if (!sessionId) {
       setConnectionState('disconnected');
       return;
@@ -47,7 +45,7 @@ export function useSessionSubscription(
 
     setConnectionState('connecting');
 
-    // Wrap callbacks to always use the latest ref
+    // Wrap callbacks to always use the latest ref via useEffectEvent
     const proxiedCallbacks: SessionCallbacks = {};
     const keys: Array<keyof SessionCallbacks> = [
       'onChunk',
@@ -76,7 +74,7 @@ export function useSessionSubscription(
     for (const key of keys) {
       // biome-ignore lint/suspicious/noExplicitAny: generic callback proxy
       (proxiedCallbacks as any)[key] = (event: any) => {
-        const cb = callbacksRef.current[key];
+        const cb = getCallbacks()[key];
         if (cb) {
           // biome-ignore lint/suspicious/noExplicitAny: generic callback proxy
           (cb as any)(event);
@@ -86,17 +84,17 @@ export function useSessionSubscription(
 
     // Add connection lifecycle callbacks
     proxiedCallbacks.onError = (error) => {
-      callbacksRef.current.onError?.(error);
+      getCallbacks().onError?.(error);
     };
     proxiedCallbacks.onConnectionStateChange = (nextState) => {
       setConnectionState(nextState);
-      callbacksRef.current.onConnectionStateChange?.(nextState);
+      getCallbacks().onConnectionStateChange?.(nextState);
     };
     proxiedCallbacks.onReconnect = () => {
-      callbacksRef.current.onReconnect?.();
+      getCallbacks().onReconnect?.();
     };
     proxiedCallbacks.onDisconnect = () => {
-      callbacksRef.current.onDisconnect?.();
+      getCallbacks().onDisconnect?.();
     };
 
     const subscription = subscribeToSession(sessionId, proxiedCallbacks);

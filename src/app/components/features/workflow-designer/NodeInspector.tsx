@@ -1,8 +1,9 @@
 import { Trash, Warning } from '@phosphor-icons/react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Button } from '@/app/components/ui/button';
 import { TextInput } from '@/app/components/ui/text-input';
 import { Textarea } from '@/app/components/ui/textarea';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { cn } from '@/lib/utils/cn';
 import type { WorkflowNode } from '@/lib/workflow-dsl/types';
 
@@ -62,7 +63,7 @@ export function NodeInspector({
 
   // Reset delete confirmation when node changes
   // biome-ignore lint/correctness/useExhaustiveDependencies: We want to reset state when the selected node changes
-  useEffect(() => {
+  useWatchEffect(() => {
     setShowDeleteConfirm(false);
   }, [node?.id]);
 

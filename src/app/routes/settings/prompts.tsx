@@ -17,8 +17,10 @@ import {
   WarningCircle,
 } from '@phosphor-icons/react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Button } from '@/app/components/ui/button';
+import { useTimeout } from '@/app/hooks/use-timeout';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { apiClient } from '@/lib/api/client';
 import type { PromptCategory, PromptCategoryInfo, PromptDefinition } from '@/lib/prompts';
 import {
@@ -351,8 +353,11 @@ function SystemPromptsPage(): React.JSX.Element {
   const allPrompts = useMemo(() => Object.values(PROMPT_REGISTRY), []);
   const settingsKeys = useMemo(() => getPromptSettingsKeys(), []);
 
+  // Auto-dismiss saved indicator
+  useTimeout(() => setSaved(false), saved ? 2000 : null);
+
   // Load saved overrides from settings
-  useEffect(() => {
+  useWatchEffect(() => {
     if (loaderData?.promptOverrides) return;
     async function load() {
       setIsLoading(true);
@@ -426,7 +431,6 @@ function SystemPromptsPage(): React.JSX.Element {
       if (result.ok) {
         setSavedEdits({ ...edits });
         setSaved(true);
-        setTimeout(() => setSaved(false), 2000);
       } else {
         setError('Failed to save settings. Please try again.');
       }

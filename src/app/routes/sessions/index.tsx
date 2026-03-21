@@ -1,7 +1,8 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { LayoutShell } from '@/app/components/features/layout-shell';
 import { SessionHistory } from '@/app/components/features/session-history';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
 import { apiClient } from '@/lib/api/client';
 
 // Session data shape from API
@@ -58,7 +59,7 @@ function SessionsPage(): React.JSX.Element {
   const [isLoading, setIsLoading] = useState(!loaderData?.sessions);
 
   // Fetch sessions and projects from API on mount
-  useEffect(() => {
+  useMountEffect(() => {
     if (loaderData?.sessions) return;
     const fetchData = async () => {
       try {
@@ -84,7 +85,7 @@ function SessionsPage(): React.JSX.Element {
       setIsLoading(false);
     };
     fetchData();
-  }, [loaderData]);
+  });
 
   // Filter sessions by selected project
   const filteredSessions = useMemo(() => {

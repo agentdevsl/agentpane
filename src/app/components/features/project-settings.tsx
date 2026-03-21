@@ -17,7 +17,7 @@ import {
   Trash,
 } from '@phosphor-icons/react';
 import { Link } from '@tanstack/react-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Button } from '@/app/components/ui/button';
 import {
   Select,
@@ -29,6 +29,8 @@ import {
 import { Switch } from '@/app/components/ui/switch';
 import { TextInput } from '@/app/components/ui/text-input';
 import { Textarea } from '@/app/components/ui/textarea';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import type { Project, ProjectConfig } from '@/db/schema';
 import { apiClient } from '@/lib/api/client';
 import { AVAILABLE_MODELS } from '@/lib/constants/models';
@@ -166,7 +168,7 @@ export function ProjectSettings({
   const [isLoadingDefaults, setIsLoadingDefaults] = useState(true);
 
   // Load global defaults on mount
-  useEffect(() => {
+  useMountEffect(() => {
     const loadDefaults = async () => {
       try {
         const result = await apiClient.settings.get(['sandbox.defaults']);
@@ -180,7 +182,7 @@ export function ProjectSettings({
       }
     };
     loadDefaults();
-  }, []);
+  });
 
   // Sandbox configuration - uses existing project config or falls back to global defaults
   const existingSandbox = project.config?.sandbox as ProjectSandboxConfig | undefined | null;
@@ -230,7 +232,7 @@ export function ProjectSettings({
   };
 
   // Update sandbox config when global defaults load (only if no custom config)
-  useEffect(() => {
+  useWatchEffect(() => {
     if (!hasCustomConfig && globalDefaults && !isLoadingDefaults) {
       setSandboxConfig((prev) => ({
         ...prev,

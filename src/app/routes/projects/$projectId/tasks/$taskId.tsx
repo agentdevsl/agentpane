@@ -1,7 +1,8 @@
 import { createFileRoute, useRouter } from '@tanstack/react-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { LayoutShell } from '@/app/components/features/layout-shell';
 import { TaskDetailDialog } from '@/app/components/features/task-detail-dialog';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import type { Task } from '@/db/schema';
 import { apiClient, type ProjectListItem } from '@/lib/api/client';
 
@@ -43,7 +44,7 @@ function TaskDetailRoute(): React.JSX.Element {
   const [isLoading, setIsLoading] = useState(!loaderData?.task);
 
   // Fetch task and project from API on mount
-  useEffect(() => {
+  useWatchEffect(() => {
     if (loaderData?.task) return;
     const fetchData = async () => {
       const [taskResult, projectResult] = await Promise.all([

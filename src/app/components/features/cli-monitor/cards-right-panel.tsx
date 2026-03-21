@@ -1,5 +1,6 @@
 import { ChatCircle, Clock, Lightning, Terminal } from '@phosphor-icons/react';
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import type { CliSession } from './cli-monitor-types';
 import { estimateCost, formatTokenCount, getSessionTokenTotal } from './cli-monitor-utils';
 
@@ -84,8 +85,7 @@ function StreamTab({ session }: { session: CliSession }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const isPinnedRef = useRef(true);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: recentOutput triggers auto-scroll on new output
-  useEffect(() => {
+  useWatchEffect(() => {
     if (!contentRef.current || !isPinnedRef.current) return;
     contentRef.current.scrollTop = contentRef.current.scrollHeight;
   }, [session.recentOutput]);

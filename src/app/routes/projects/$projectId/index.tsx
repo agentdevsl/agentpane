@@ -1,9 +1,10 @@
 import { GearSix } from '@phosphor-icons/react';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import React, { Suspense, useCallback, useEffect, useState } from 'react';
+import React, { Suspense, useCallback, useState } from 'react';
 import { ApprovalDialog } from '@/app/components/features/approval-dialog';
 import { KanbanBoard } from '@/app/components/features/kanban-board';
 import { LayoutShell } from '@/app/components/features/layout-shell';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 
 // Lazy-load heavy dialog components (FC-012)
 const NewTaskDialog = React.lazy(() =>
@@ -136,7 +137,7 @@ function ProjectKanban(): React.JSX.Element {
   }, [projectId]);
 
   // Fetch on mount and when projectId changes (skip if loader already provided data)
-  useEffect(() => {
+  useWatchEffect(() => {
     if (loaderData?.project) return;
     fetchData();
   }, [fetchData, loaderData]);

@@ -7,7 +7,8 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type { ElkNode } from 'elkjs/lib/elk.bundled.js';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { parseHclDependencies, type TerraformGraph } from '@/lib/terraform/parse-hcl-dependencies';
 import { parseStacksDependencies } from '@/lib/terraform/parse-stacks-dependencies';
 import { getElk } from '@/lib/workflow-dsl/layout';
@@ -162,7 +163,7 @@ function DiagramInner(): React.JSX.Element {
     }
   }, []);
 
-  useEffect(() => {
+  useWatchEffect(() => {
     if (!graph || graph.nodes.length === 0) {
       setNodes([]);
       setEdges([]);

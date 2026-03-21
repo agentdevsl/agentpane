@@ -15,7 +15,7 @@ import {
   WarningCircle,
 } from '@phosphor-icons/react';
 import { cva, type VariantProps } from 'class-variance-authority';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Button } from '@/app/components/ui/button';
 import {
   Dialog,
@@ -28,6 +28,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/app/components/ui/tabs';
 import { TextInput } from '@/app/components/ui/text-input';
 import { Textarea } from '@/app/components/ui/textarea';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import type { SANDBOX_TYPES } from '@/db/schema/shared/enums';
 import { cn } from '@/lib/utils/cn';
 import type { Result } from '@/lib/utils/result';
@@ -331,7 +332,7 @@ function GitHubRepoList({
   const [showPrivateOnly, setShowPrivateOnly] = useState(false);
 
   // Fetch repos when owner changes
-  useEffect(() => {
+  useWatchEffect(() => {
     if (!selectedOwner) {
       setRepos([]);
       return;
@@ -626,7 +627,7 @@ export function NewProjectDialog({
   const [hasFetchedOrgs, setHasFetchedOrgs] = useState(false);
 
   // Reset state when dialog closes
-  useEffect(() => {
+  useWatchEffect(() => {
     if (!open) {
       setSourceType(initialSource);
       setName('');
@@ -673,7 +674,7 @@ export function NewProjectDialog({
   }, [onFetchOrgs, isGitHubConfigured, hasFetchedOrgs]);
 
   // Fetch orgs when switching to clone tab
-  useEffect(() => {
+  useWatchEffect(() => {
     if (sourceType === 'clone' && isGitHubConfigured && !hasFetchedOrgs) {
       void fetchGitHubOrgs();
     }

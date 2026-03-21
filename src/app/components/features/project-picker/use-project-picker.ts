@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useEventListener } from '@/app/hooks/use-event-listener';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import type { ProjectPickerItem } from './types';
 
 const RECENT_PROJECTS_KEY = 'agentpane:recent-projects';
@@ -62,7 +64,7 @@ export function useProjectPickerState({
   );
 
   // Reset selected index when items change
-  useEffect(() => {
+  useWatchEffect(() => {
     // Try to keep current selection if possible, otherwise find active project or reset to 0
     if (selectedIndex >= allItems.length) {
       const activeIndex = allItems.findIndex((p) => p.id === selectedProjectId);
@@ -132,18 +134,13 @@ export function useProjectPickerState({
  * Hook to manage global Cmd+P / Ctrl+P keyboard shortcut
  */
 export function useProjectPickerHotkey(onOpen: () => void): void {
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      // Check for Cmd+P (Mac) or Ctrl+P (Windows/Linux)
-      if ((event.metaKey || event.ctrlKey) && event.key === 'p') {
-        event.preventDefault();
-        onOpen();
-      }
+  useEventListener(window, 'keydown', (event) => {
+    // Check for Cmd+P (Mac) or Ctrl+P (Windows/Linux)
+    if ((event.metaKey || event.ctrlKey) && event.key === 'p') {
+      event.preventDefault();
+      onOpen();
     }
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onOpen]);
+  });
 }
 
 /**

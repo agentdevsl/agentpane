@@ -1,6 +1,7 @@
 import { ArrowsClockwise, Eye, EyeSlash, Plus, Trash, WarningCircle } from '@phosphor-icons/react';
 import { useNavigate } from '@tanstack/react-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { apiClient } from '@/lib/api/client';
 import { useTerraform } from './terraform-context';
 import { formatTimeAgo } from './terraform-utils';
@@ -43,7 +44,7 @@ export function TerraformSettingsPanel(): React.JSX.Element {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [hasToken, setHasToken] = useState(false);
 
-  useEffect(() => {
+  useWatchEffect(() => {
     if (!registry) {
       setOrgName('');
       setSyncInterval(30);

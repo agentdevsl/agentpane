@@ -1,5 +1,4 @@
 import { eq } from '@tanstack/db';
-import { useEffect } from 'react';
 import { useCollectionQuery } from '@/lib/db/use-collection-query';
 import {
   refreshSandboxStatus,
@@ -8,6 +7,7 @@ import {
   startSandboxStatusSync,
   stopSandboxStatusSync,
 } from '@/lib/sandbox-status';
+import { useWatchEffect } from './use-watch-effect';
 
 export type { SandboxStatus };
 
@@ -33,7 +33,7 @@ export function useSandboxStatus(projectId: string): {
   );
 
   // Start/stop sync when projectId changes
-  useEffect(() => {
+  useWatchEffect(() => {
     if (!projectId) return;
 
     startSandboxStatusSync(projectId);

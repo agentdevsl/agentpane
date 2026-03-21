@@ -7,7 +7,7 @@ import {
   Trash,
 } from '@phosphor-icons/react';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { EmptyState } from '@/app/components/features/empty-state';
 import { LayoutShell } from '@/app/components/features/layout-shell';
 import { WorkflowPreviewSvg } from '@/app/components/features/workflow-preview';
@@ -19,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/app/components/ui/select';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import type { Workflow } from '@/db/schema';
 import { cn } from '@/lib/utils/cn';
 import type { WorkflowEdge, WorkflowNode } from '@/lib/workflow-dsl/types';
@@ -487,7 +488,7 @@ function CatalogPage(): React.JSX.Element {
     }
   }, []);
 
-  useEffect(() => {
+  useWatchEffect(() => {
     if (loaderData?.workflows && (loaderData.workflows as unknown[]).length > 0) return;
     fetchWorkflows().then((items) => {
       if (items.length > 0) {

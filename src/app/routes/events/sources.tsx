@@ -1,10 +1,11 @@
 import { Plugs, Plus } from '@phosphor-icons/react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { EmptyState } from '@/app/components/features/empty-state';
 import { AddSourceDialog } from '@/app/components/features/events/add-source-dialog';
 import { EventSourceCard } from '@/app/components/features/events/event-source-card';
 import { Button } from '@/app/components/ui/button';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
 import { apiClient } from '@/lib/api/client';
 import type { CreateEventSourceInput, EventSource } from '@/lib/events/types';
 
@@ -26,7 +27,7 @@ function EventSourcesPage(): React.JSX.Element {
     }
   }, []);
 
-  useEffect(() => {
+  useMountEffect(() => {
     async function load() {
       const [sourcesRes, teamsRes] = await Promise.all([
         apiClient.events.sources.list(),
@@ -37,7 +38,7 @@ function EventSourcesPage(): React.JSX.Element {
       setIsLoading(false);
     }
     load();
-  }, []);
+  });
 
   const handleAdd = useCallback(
     async (data: CreateEventSourceInput) => {

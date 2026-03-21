@@ -22,11 +22,14 @@ import {
   X,
 } from '@phosphor-icons/react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { z } from 'zod';
 import { Button } from '@/app/components/ui/button';
 import { ConfigSection } from '@/app/components/ui/config-section';
 import { Switch } from '@/app/components/ui/switch';
+import { useInterval } from '@/app/hooks/use-interval';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import {
   apiClient,
   type CreateSandboxConfigInput,
@@ -406,12 +409,12 @@ function SandboxSettingsPage(): React.JSX.Element {
   // Timeout refs for cleanup on unmount
   const defaultsSavedTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const providerSavedTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  useEffect(() => {
+  useMountEffect(() => {
     return () => {
       clearTimeout(defaultsSavedTimerRef.current);
       clearTimeout(providerSavedTimerRef.current);
     };
-  }, []);
+  });
 
   // K8s configuration state
   const [k8sStatus, setK8sStatus] = useState<K8sStatus | null>(null);
@@ -685,7 +688,7 @@ function SandboxSettingsPage(): React.JSX.Element {
     }
   };
 
-  useEffect(() => {
+  useWatchEffect(() => {
     loadConfigs();
     loadDefaultSettings();
   }, [loadConfigs, loadDefaultSettings]);
@@ -766,7 +769,7 @@ function SandboxSettingsPage(): React.JSX.Element {
   }, [k8sConfigPath, k8sContext]);
 
   // Load K8s info when provider changes to kubernetes
-  useEffect(() => {
+  useWatchEffect(() => {
     if (selectedProvider === 'kubernetes') {
       loadK8sContexts();
       loadK8sStatus();
@@ -775,7 +778,7 @@ function SandboxSettingsPage(): React.JSX.Element {
 
   // Auto-install CRDs when CRDs are missing but cluster is reachable.
   // Uses a 60-second cooldown to prevent infinite retry loops.
-  useEffect(() => {
+  useWatchEffect(() => {
     if (
       autoInstallCRDs &&
       !controllerLoading &&
@@ -827,13 +830,7 @@ function SandboxSettingsPage(): React.JSX.Element {
   ]);
 
   // Periodic K8s status polling for real-time auto-heal feedback
-  useEffect(() => {
-    if (selectedProvider !== 'kubernetes') return;
-    const interval = setInterval(() => {
-      loadK8sStatus();
-    }, 30_000);
-    return () => clearInterval(interval);
-  }, [selectedProvider, loadK8sStatus]);
+  useInterval(loadK8sStatus, selectedProvider === 'kubernetes' ? 30_000 : null);
 
   // Start minikube manually from the UI
   const handleStartMinikube = async () => {
@@ -917,7 +914,7 @@ function SandboxSettingsPage(): React.JSX.Element {
   }, []);
 
   // Load Nomad info when provider changes to nomad
-  useEffect(() => {
+  useWatchEffect(() => {
     if (selectedProvider === 'nomad') {
       loadNomadStatus();
       loadNomadNamespaces();
@@ -926,13 +923,7 @@ function SandboxSettingsPage(): React.JSX.Element {
   }, [selectedProvider, loadNomadStatus, loadNomadNamespaces, loadNomadDatacenters]);
 
   // Periodic Nomad status polling
-  useEffect(() => {
-    if (selectedProvider !== 'nomad') return;
-    const interval = setInterval(() => {
-      loadNomadStatus();
-    }, 30_000);
-    return () => clearInterval(interval);
-  }, [selectedProvider, loadNomadStatus]);
+  useInterval(loadNomadStatus, selectedProvider === 'nomad' ? 30_000 : null);
 
   const handleSaveProvider = async () => {
     setIsSavingProvider(true);

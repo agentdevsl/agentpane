@@ -11,7 +11,8 @@ import {
   PencilSimple,
 } from '@phosphor-icons/react';
 import { cva } from 'class-variance-authority';
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
 import type { DiffFile, DiffFileStatus } from '@/lib/types/diff';
 import { cn } from '@/lib/utils/cn';
 
@@ -72,7 +73,7 @@ export function FileTabs({ files, activeIndex, onSelect }: FileTabsProps): React
   const activeTabRef = useRef<HTMLButtonElement>(null);
 
   // Auto-scroll to active tab when it changes
-  useEffect(() => {
+  useMountEffect(() => {
     if (activeTabRef.current && scrollContainerRef.current) {
       const container = scrollContainerRef.current;
       const tab = activeTabRef.current;
@@ -85,7 +86,7 @@ export function FileTabs({ files, activeIndex, onSelect }: FileTabsProps): React
         container.scrollLeft += tabRect.right - containerRect.right + 16;
       }
     }
-  }, []);
+  });
 
   // Keyboard navigation
   const handleKeyDown = (event: React.KeyboardEvent, currentIndex: number) => {

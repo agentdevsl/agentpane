@@ -1,10 +1,11 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useCliMonitor } from '@/app/components/features/cli-monitor/cli-monitor-context';
 import { SummaryStrip } from '@/app/components/features/cli-monitor/summary-strip';
 import { TimelineDetailPanel } from '@/app/components/features/cli-monitor/timeline-detail-panel';
 import { TimelineSwimlane } from '@/app/components/features/cli-monitor/timeline-swimlane';
 import type { TimeRange } from '@/app/components/features/cli-monitor/timeline-time-axis';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 
 export const Route = createFileRoute('/cli-monitor/timeline')({
   component: TimelineView,
@@ -20,7 +21,7 @@ function TimelineView(): React.JSX.Element {
   const selectedSession = sessions.find((s) => s.sessionId === selectedSessionId);
 
   // Close detail panel if session disappears
-  useEffect(() => {
+  useWatchEffect(() => {
     if (selectedSessionId && !sessions.some((s) => s.sessionId === selectedSessionId)) {
       setSelectedSessionId(null);
     }

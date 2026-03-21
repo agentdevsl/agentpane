@@ -1,9 +1,10 @@
 import { Spinner } from '@phosphor-icons/react';
 import { createFileRoute, useSearch } from '@tanstack/react-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { EmptyState } from '@/app/components/features/empty-state';
 import { LayoutShell } from '@/app/components/features/layout-shell';
 import { WorkflowDesigner } from '@/app/components/features/workflow-designer';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import type { Workflow } from '@/db/schema';
 
 export const Route = createFileRoute('/designer/')({
@@ -45,7 +46,7 @@ function DesignerPage(): React.JSX.Element {
     }
   }, []);
 
-  useEffect(() => {
+  useWatchEffect(() => {
     if (workflowId) {
       fetchWorkflow(workflowId);
     }

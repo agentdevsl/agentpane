@@ -6,9 +6,9 @@ import {
   Warning,
   XCircle,
 } from '@phosphor-icons/react';
-import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/app/components/ui/button';
 import { MarkdownContent } from '@/app/components/ui/markdown-content';
+import { useAutoScroll } from '@/app/hooks/use-auto-scroll';
 import type { ContainerAgentStatus } from './container-agent-header';
 
 interface Message {
@@ -57,47 +57,7 @@ export function ContainerAgentStream({
   onRejectPlan,
   isPlanActionPending,
 }: ContainerAgentStreamProps): React.JSX.Element {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const autoScrollRef = useRef(true);
-  const userScrolledRef = useRef(false);
-  const [showScrollButton, setShowScrollButton] = useState(false);
-
-  // Auto-scroll to bottom when content changes
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally trigger on content changes
-  useEffect(() => {
-    if (autoScrollRef.current && containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
-    }
-  }, [streamedText, messages]);
-
-  // Detect user scroll
-  const handleScroll = useCallback(() => {
-    if (!containerRef.current) return;
-
-    const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
-    const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
-
-    if (!isAtBottom && !userScrolledRef.current) {
-      userScrolledRef.current = true;
-      autoScrollRef.current = false;
-      setShowScrollButton(true);
-    }
-
-    if (isAtBottom && userScrolledRef.current) {
-      userScrolledRef.current = false;
-      autoScrollRef.current = true;
-      setShowScrollButton(false);
-    }
-  }, []);
-
-  const scrollToBottom = useCallback(() => {
-    if (containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
-      autoScrollRef.current = true;
-      userScrolledRef.current = false;
-      setShowScrollButton(false);
-    }
-  }, []);
+  const { containerRef, scrollToBottom, showScrollButton, handleScroll } = useAutoScroll();
 
   const hasContent = messages.length > 0 || streamedText.length > 0;
 

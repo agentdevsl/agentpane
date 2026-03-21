@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   type ContainerAgentStarted,
   type ContainerAgentStatus,
@@ -6,6 +6,7 @@ import {
   type Subscription,
   subscribeToSession,
 } from '@/lib/streams/client';
+import { useWatchEffect } from './use-watch-effect';
 
 /**
  * Tracked status for a single agent session
@@ -118,7 +119,7 @@ export function useContainerAgentStatuses(
   sessionsRef.current = sessions;
 
   // Manage subscriptions — sessionsKey drives re-evaluation when sessions change
-  useEffect(() => {
+  useWatchEffect(() => {
     // Reference sessionsKey so the linter sees it's used (it triggers this effect)
     void sessionsKey;
     const currentSessions = sessionsRef.current;

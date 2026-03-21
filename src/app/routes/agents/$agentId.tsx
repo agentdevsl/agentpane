@@ -1,9 +1,10 @@
 import { Gear } from '@phosphor-icons/react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { AgentConfigDialog } from '@/app/components/features/agent-config-dialog';
 import { LayoutShell } from '@/app/components/features/layout-shell';
 import { Button } from '@/app/components/ui/button';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 
 // Agent type for client-side display
 type ClientAgent = {
@@ -43,7 +44,7 @@ function AgentDetailPage(): React.JSX.Element {
   const [showConfig, setShowConfig] = useState(false);
 
   // Fetch agent from API on mount (fallback if loader didn't run)
-  useEffect(() => {
+  useWatchEffect(() => {
     if (loaderData?.agent) return;
     const doFetch = async () => {
       const result = await fetchAgentById(agentId);

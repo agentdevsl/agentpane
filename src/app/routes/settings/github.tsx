@@ -10,9 +10,10 @@ import {
   LockKey,
 } from '@phosphor-icons/react';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Button } from '@/app/components/ui/button';
 import { ConfigSection } from '@/app/components/ui/config-section';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
 import { cn } from '@/lib/utils/cn';
 
 export const Route = createFileRoute('/settings/github')({
@@ -55,7 +56,7 @@ function GitHubSettingsPage(): React.JSX.Element {
   const [hasGitHubToken, setHasGitHubToken] = useState<boolean | null>(null);
 
   // Check if GitHub PAT is configured
-  useEffect(() => {
+  useMountEffect(() => {
     const checkToken = async () => {
       try {
         const savedToken = localStorage.getItem('github_pat');
@@ -65,7 +66,7 @@ function GitHubSettingsPage(): React.JSX.Element {
       }
     };
     checkToken();
-  }, []);
+  });
 
   // Loading state
   if (hasGitHubToken === null) {

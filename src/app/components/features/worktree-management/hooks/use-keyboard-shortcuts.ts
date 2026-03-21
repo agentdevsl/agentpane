@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import type { WorktreeListItem } from '../types';
 
 interface UseKeyboardShortcutsOptions {
@@ -40,7 +41,7 @@ export function useKeyboardShortcuts({
   const isKeyboardNavigationRef = useRef(false);
 
   // Update selected index when external selectedId changes (not from keyboard)
-  useEffect(() => {
+  useWatchEffect(() => {
     // Skip if this update was triggered by keyboard navigation
     if (isKeyboardNavigationRef.current) {
       isKeyboardNavigationRef.current = false;
@@ -58,7 +59,7 @@ export function useKeyboardShortcuts({
     return worktrees[selectedIndex];
   }, [worktrees, selectedIndex]);
 
-  useEffect(() => {
+  useWatchEffect(() => {
     if (!enabled || worktrees.length === 0) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -139,7 +140,7 @@ export function useKeyboardShortcuts({
   }, [enabled, worktrees, getSelectedWorktree, onSelect, onOpen, onMerge, onRemove]);
 
   // Notify parent when selection changes via keyboard
-  useEffect(() => {
+  useWatchEffect(() => {
     const selected = worktrees[selectedIndex];
     if (selected && selected.id !== selectedId) {
       onSelect(selected);

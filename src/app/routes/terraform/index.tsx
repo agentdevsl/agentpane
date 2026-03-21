@@ -1,7 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { TerraformChatPanel } from '@/app/components/features/terraform/terraform-chat-panel';
 import { TerraformRightPanel } from '@/app/components/features/terraform/terraform-right-panel';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
 
 export const Route = createFileRoute('/terraform/')({
   component: TerraformComposeView,
@@ -14,11 +15,11 @@ function TerraformComposeView(): React.JSX.Element {
 
   const cleanupRef = useRef<(() => void) | null>(null);
 
-  useEffect(() => {
+  useMountEffect(() => {
     return () => {
       cleanupRef.current?.();
     };
-  }, []);
+  });
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();

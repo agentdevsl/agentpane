@@ -1,5 +1,6 @@
 import { ArrowsIn, ArrowsOut, GitBranch, Terminal } from '@phosphor-icons/react';
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import type { CliSession } from './cli-monitor-types';
 
 const statusDotClass: Record<string, string> = {
@@ -40,8 +41,7 @@ export function TerminalPane({
   const isPinnedRef = useRef(true);
 
   // Auto-scroll to bottom when content updates
-  // biome-ignore lint/correctness/useExhaustiveDependencies: recentOutput triggers scroll
-  useEffect(() => {
+  useWatchEffect(() => {
     if (!contentRef.current || !isPinnedRef.current) return;
     contentRef.current.scrollTop = contentRef.current.scrollHeight;
   }, [session?.recentOutput]);

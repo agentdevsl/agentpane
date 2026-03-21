@@ -1,4 +1,5 @@
-import { Component, type ErrorInfo, lazy, type ReactNode, Suspense, useEffect } from 'react';
+import { Component, type ErrorInfo, lazy, type ReactNode, Suspense } from 'react';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
 import type { TopologyGraph } from '@/lib/topology/types';
 import { TopologyProvider } from './topology-context';
 
@@ -61,10 +62,10 @@ function TopologyLoading(): React.JSX.Element {
 }
 
 function DebugMount({ label }: { label: string }): null {
-  useEffect(() => {
+  useMountEffect(() => {
     console.debug(`[AgentTopology] ${label} mounted`);
     return () => console.debug(`[AgentTopology] ${label} unmounted`);
-  }, [label]);
+  });
   return null;
 }
 

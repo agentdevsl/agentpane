@@ -1,5 +1,5 @@
 import { FloppyDisk, Spinner, WarningCircle, X } from '@phosphor-icons/react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Button } from '@/app/components/ui/button';
 import {
   Dialog,
@@ -18,6 +18,7 @@ import {
 } from '@/app/components/ui/select';
 import { TextInput } from '@/app/components/ui/text-input';
 import { Textarea } from '@/app/components/ui/textarea';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import type { Workflow, WorkflowStatus } from '@/db/schema';
 import { cn } from '@/lib/utils/cn';
 
@@ -175,7 +176,7 @@ export function SaveWorkflowDialog({
   const canSubmit = name.trim() && !isSaving;
 
   // Reset form when dialog opens with new workflow data
-  useEffect(() => {
+  useWatchEffect(() => {
     if (open) {
       setName(workflow.name ?? '');
       setDescription(workflow.description ?? '');

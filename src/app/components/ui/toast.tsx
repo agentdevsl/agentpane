@@ -1,7 +1,8 @@
 import { CheckCircle, CircleNotch, Info, Warning, WarningCircle, X } from '@phosphor-icons/react';
 import * as ToastPrimitive from '@radix-ui/react-toast';
 import { cva, type VariantProps } from 'class-variance-authority';
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useRef, useState, useSyncExternalStore } from 'react';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { cn } from '@/lib/utils/cn';
 
 // =============================================================================
@@ -223,7 +224,7 @@ function useToastProgress(duration: number, onComplete: () => void) {
   const startTimeRef = useRef<number>(Date.now());
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
+  useWatchEffect(() => {
     if (duration === 0 || isPaused) return;
 
     startTimeRef.current = Date.now();

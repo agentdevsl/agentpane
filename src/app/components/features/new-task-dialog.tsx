@@ -10,7 +10,9 @@ import {
   X,
 } from '@phosphor-icons/react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { apiClient } from '@/lib/api/client';
 import {
   type TaskCreationMessage,
@@ -74,7 +76,7 @@ function useResizableDialog() {
     startSize.current = { ...sizeRef.current };
   }, []);
 
-  useEffect(() => {
+  useWatchEffect(() => {
     if (!isResizing) return;
 
     const handleMouseMove = (e: MouseEvent) => {
@@ -152,7 +154,7 @@ function useDraggableDialog() {
     startOffset.current = { ...positionRef.current };
   }, []);
 
-  useEffect(() => {
+  useWatchEffect(() => {
     if (!isDragging) return;
 
     const handleMouseMove = (e: MouseEvent) => {
@@ -335,17 +337,21 @@ function ThinkingIndicator(): React.JSX.Element {
   const [phraseIndex, setPhraseIndex] = useState(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
 
-  useEffect(() => {
+  useMountEffect(() => {
+    let timeoutId: ReturnType<typeof setTimeout>;
     const interval = setInterval(() => {
       setIsTransitioning(true);
-      setTimeout(() => {
+      timeoutId = setTimeout(() => {
         setPhraseIndex((prev) => (prev + 1) % THINKING_PHRASES.length);
         setIsTransitioning(false);
       }, 150);
     }, 2000);
 
-    return () => clearInterval(interval);
-  }, []);
+    return () => {
+      clearInterval(interval);
+      clearTimeout(timeoutId);
+    };
+  });
 
   return (
     <div className="flex items-center gap-2 px-3 py-2">
@@ -1024,7 +1030,7 @@ export function NewTaskDialog({
   const pendingQuestionsId = pendingQuestions?.id;
   const prevQuestionsIdRef = useRef<string | undefined>(undefined);
   const answersQuestionsIdRef = useRef<string | undefined>(undefined);
-  useEffect(() => {
+  useWatchEffect(() => {
     console.log('[NewTaskDialog] Questions effect:', {
       pendingQuestionsId,
       prevId: prevQuestionsIdRef.current,
@@ -1046,14 +1052,14 @@ export function NewTaskDialog({
   }, [pendingQuestionsId, pendingQuestions]);
 
   // Start conversation when dialog opens
-  useEffect(() => {
+  useWatchEffect(() => {
     if (open && status === 'idle') {
       startConversation();
     }
   }, [open, status, startConversation]);
 
   // Reset on close
-  useEffect(() => {
+  useWatchEffect(() => {
     if (!open) {
       reset();
       resetPosition();
@@ -1072,7 +1078,7 @@ export function NewTaskDialog({
   }, [open, reset, resetPosition]);
 
   // Handle task creation completion
-  useEffect(() => {
+  useWatchEffect(() => {
     if (createdTaskId) {
       onTaskCreated?.(createdTaskId);
       onOpenChange(false);
@@ -1081,7 +1087,7 @@ export function NewTaskDialog({
 
   // Auto-scroll to bottom when messages change or streaming
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional trigger deps for scroll behavior
-  useEffect(() => {
+  useWatchEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streamingContent]);
 

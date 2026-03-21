@@ -4,7 +4,6 @@ import {
   type ReactNode,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useRef,
   useState,
@@ -13,6 +12,7 @@ import {
   type ProjectPickerItem,
   useRecentProjects,
 } from '@/app/components/features/project-picker';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { apiClient, type ProjectListItem, type ProjectSummaryItem } from '@/lib/api/client';
 
 // =============================================================================
@@ -133,14 +133,14 @@ export function ProjectContextProvider({
   }, []);
 
   // FC-001: Deferred fetch -- only runs when projectId is present or picker opens
-  useEffect(() => {
+  useWatchEffect(() => {
     if (!hasFetched.current && projectId) {
       void fetchProjects();
     }
   }, [projectId, fetchProjects]);
 
   // Fetch summary data only for the current project when projectId changes
-  useEffect(() => {
+  useWatchEffect(() => {
     if (!projectId) {
       setCurrentProjectSummary(null);
       return;

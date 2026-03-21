@@ -1,7 +1,9 @@
 import { ArrowLeft } from '@phosphor-icons/react';
 import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router';
-import React, { Suspense, useEffect, useState } from 'react';
+import React, { Suspense, useState } from 'react';
 import { LayoutShell } from '@/app/components/features/layout-shell';
+import { useTimeout } from '@/app/hooks/use-timeout';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 
 // Lazy-load heavy settings component (FC-012)
 const ProjectSettings = React.lazy(() =>
@@ -41,8 +43,11 @@ function ProjectSettingsPage(): React.JSX.Element {
     }
   };
 
+  // Auto-dismiss saved status
+  useTimeout(() => setSaveStatus('idle'), saveStatus === 'saved' ? 2000 : null);
+
   // Fetch project from API on mount
-  useEffect(() => {
+  useWatchEffect(() => {
     if (loaderData?.project) return;
     const fetchProject = async () => {
       const result = await apiClient.projects.get(projectId);
@@ -72,8 +77,6 @@ function ProjectSettingsPage(): React.JSX.Element {
       if (result.ok) {
         setProject(result.data as unknown as Project);
         setSaveStatus('saved');
-        // Reset status after 2 seconds
-        setTimeout(() => setSaveStatus('idle'), 2000);
       } else {
         setSaveStatus('error');
         console.error('Failed to save project settings:', result.error);

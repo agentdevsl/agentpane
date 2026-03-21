@@ -14,9 +14,11 @@ import {
   X,
 } from '@phosphor-icons/react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Button } from '@/app/components/ui/button';
 import { ConfigSection } from '@/app/components/ui/config-section';
+import { useInterval } from '@/app/hooks/use-interval';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { apiClient } from '@/lib/api/client';
 import { cn } from '@/lib/utils/cn';
 
@@ -170,11 +172,10 @@ function SystemHealthPage(): React.JSX.Element {
     setIsLoading(false);
   }, []);
 
-  useEffect(() => {
+  useWatchEffect(() => {
     checkHealth();
-    const interval = setInterval(checkHealth, 30000);
-    return () => clearInterval(interval);
   }, [checkHealth]);
+  useInterval(checkHealth, 30000);
 
   const overallStatus =
     frontendHealth?.status === 'ok' && backendHealth?.status === 'healthy' ? 'healthy' : 'degraded';

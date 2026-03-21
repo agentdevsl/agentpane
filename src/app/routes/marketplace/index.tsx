@@ -1,11 +1,12 @@
 import { ArrowsClockwise, Plus, PuzzlePiece, Spinner } from '@phosphor-icons/react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { AddMarketplaceDialog } from '@/app/components/features/add-marketplace-dialog';
 import { EmptyState } from '@/app/components/features/empty-state';
 import { LayoutShell } from '@/app/components/features/layout-shell';
 import { type CachedPlugin, MarketplaceCard } from '@/app/components/features/marketplace-card';
 import { Button } from '@/app/components/ui/button';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { apiClient } from '@/lib/api/client';
 
 // Marketplace syncs with: https://github.com/anthropics/claude-plugins-official
@@ -158,7 +159,7 @@ function MarketplacePage(): React.JSX.Element {
     }
   }, []);
 
-  useEffect(() => {
+  useWatchEffect(() => {
     fetchData();
   }, [fetchData]);
 

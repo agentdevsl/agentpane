@@ -7,7 +7,8 @@ import {
   useReactFlow,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { TopologyDetailPanel } from './detail-panel/topology-detail-panel';
 import { AgentEdge } from './edges/agent-edge';
 import { AgentEdgeMarkers } from './edges/agent-edge-markers';
@@ -48,7 +49,7 @@ function TopologyInner(): React.JSX.Element {
   }, []);
 
   // Structural changes — trigger full ELK relayout
-  useEffect(() => {
+  useWatchEffect(() => {
     if (state.graph.nodes.length === 0) {
       setNodes([]);
       setEdges([]);
@@ -66,8 +67,7 @@ function TopologyInner(): React.JSX.Element {
   // on AgentNode can skip re-renders for untouched nodes.
   // Uses graphRef to read the latest graph data without adding it as a dependency;
   // dataVersion is the sole trigger for this effect.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: dataVersion is the intentional trigger; graph data is read from graphRef to avoid re-firing on every graph reference change
-  useEffect(() => {
+  useWatchEffect(() => {
     const graph = graphRef.current;
     if (graph.nodes.length === 0) return;
 

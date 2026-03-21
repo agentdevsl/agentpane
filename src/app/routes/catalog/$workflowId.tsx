@@ -1,10 +1,11 @@
 import { ArrowLeft, PencilSimple, Spinner, Trash } from '@phosphor-icons/react';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { EmptyState } from '@/app/components/features/empty-state';
 import { LayoutShell } from '@/app/components/features/layout-shell';
 import { WorkflowDesigner } from '@/app/components/features/workflow-designer';
 import { Button } from '@/app/components/ui/button';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import type { Workflow } from '@/db/schema';
 
 export const Route = createFileRoute('/catalog/$workflowId')({
@@ -63,7 +64,7 @@ function WorkflowDetailPage(): React.JSX.Element {
   }, [workflowId]);
 
   // Load workflow on mount
-  useEffect(() => {
+  useWatchEffect(() => {
     if (loaderData?.workflow) return;
     fetchWorkflow();
   }, [fetchWorkflow, loaderData]);

@@ -1,6 +1,6 @@
 import { FolderOpen, Terminal } from '@phosphor-icons/react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { CardsRightPanel } from '@/app/components/features/cli-monitor/cards-right-panel';
 import { useCliMonitor } from '@/app/components/features/cli-monitor/cli-monitor-context';
 import type {
@@ -12,6 +12,8 @@ import {
   getSessionTokenTotal,
 } from '@/app/components/features/cli-monitor/cli-monitor-utils';
 import { SummaryStrip } from '@/app/components/features/cli-monitor/summary-strip';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 
 // -- Constants --
 
@@ -45,11 +47,11 @@ function InstallState() {
   const [copied, setCopied] = useState(false);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
+  useMountEffect(() => {
     return () => {
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
     };
-  }, []);
+  });
 
   const handleCopy = useCallback(async () => {
     await navigator.clipboard.writeText('npx @agentpane/cli-monitor');
@@ -213,7 +215,7 @@ function ActiveState({
   const sessionListRef = useRef<HTMLDivElement | null>(null);
   const selectedSession = sessions.find((s) => s.sessionId === selectedSessionId);
 
-  useEffect(() => {
+  useWatchEffect(() => {
     if (selectedSessionId && !sessions.some((s) => s.sessionId === selectedSessionId)) {
       setSelectedSessionId(null);
     }
@@ -229,7 +231,7 @@ function ActiveState({
     [selectedSessionId]
   );
 
-  useEffect(() => {
+  useMountEffect(() => {
     const el = loadMoreRef.current;
     if (!el) return;
     const observer = new IntersectionObserver(
@@ -242,7 +244,7 @@ function ActiveState({
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  });
 
   const flatSessions = useMemo(() => sessions.filter((s) => !s.isSubagent), [sessions]);
 
@@ -252,7 +254,7 @@ function ActiveState({
   const selectedSessionIdRef = useRef(selectedSessionId);
   selectedSessionIdRef.current = selectedSessionId;
 
-  useEffect(() => {
+  useWatchEffect(() => {
     const el = sessionListRef.current;
     if (!el) return;
     const handler = (e: KeyboardEvent) => {
@@ -280,7 +282,7 @@ function ActiveState({
     return () => el.removeEventListener('keydown', handler);
   }, [flatSessions]);
 
-  useEffect(() => {
+  useWatchEffect(() => {
     if (focusedIndex < 0) return;
     const el = sessionListRef.current?.querySelector(`[data-session-index="${focusedIndex}"]`);
     if (el) {

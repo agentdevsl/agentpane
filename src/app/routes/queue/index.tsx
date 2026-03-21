@@ -1,9 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { EmptyState } from '@/app/components/features/empty-state';
 import { LayoutShell } from '@/app/components/features/layout-shell';
 import { QueueStatus } from '@/app/components/features/queue-status';
 import { QueueWaitingState } from '@/app/components/features/queue-waiting-state';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
 
 // Queue position type for client-side display
 type ClientQueuePosition = {
@@ -21,7 +22,7 @@ function QueuePage(): React.JSX.Element {
   const [isLoading, setIsLoading] = useState(true);
 
   // Fetch queue from API on mount
-  useEffect(() => {
+  useMountEffect(() => {
     const fetchQueue = async () => {
       // TODO: [CQ-018] Add API endpoint for queue status
       // For now, just show empty state
@@ -29,7 +30,7 @@ function QueuePage(): React.JSX.Element {
       setIsLoading(false);
     };
     fetchQueue();
-  }, []);
+  });
 
   if (isLoading) {
     return (

@@ -1,14 +1,7 @@
 import { stream as durableStream } from '@durable-streams/client';
 import type React from 'react';
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
 import { apiClient } from '@/lib/api/client';
 import type {
   ClarifyingQuestion,
@@ -221,11 +214,11 @@ export function TerraformProvider({ children }: { children: React.ReactNode }): 
   messagesRef.current = messages;
   composeModeRef.current = composeMode;
 
-  useEffect(() => {
+  useMountEffect(() => {
     return () => {
       isMountedRef.current = false;
     };
-  }, []);
+  });
 
   const loadRegistries = useCallback(async () => {
     try {
@@ -258,10 +251,10 @@ export function TerraformProvider({ children }: { children: React.ReactNode }): 
   }, []);
 
   // Load registries and modules on mount
-  useEffect(() => {
+  useMountEffect(() => {
     void loadRegistries();
     void loadModules();
-  }, [loadRegistries, loadModules]);
+  });
 
   const refreshModules = useCallback(async () => {
     await Promise.all([loadModules(), loadRegistries()]);

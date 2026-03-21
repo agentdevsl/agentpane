@@ -8,7 +8,9 @@
  */
 
 import { eq } from '@tanstack/db';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { useInterval } from '@/app/hooks/use-interval';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { useCollectionQuery } from '../../db/use-collection-query.js';
 import {
   agentStateCollection,
@@ -68,10 +70,7 @@ export function usePendingToolCalls(sessionId: string): ToolCallEvent[] {
 export function useSessionPresence(sessionId: string, maxAgeMs = 30000): PresenceEvent[] {
   const [now, setNow] = useState(Date.now());
 
-  useEffect(() => {
-    const interval = setInterval(() => setNow(Date.now()), 5000);
-    return () => clearInterval(interval);
-  }, []);
+  useInterval(() => setNow(Date.now()), 5000);
 
   const cutoff = now - maxAgeMs;
 
@@ -163,7 +162,7 @@ export function useSessionData(sessionId: string): UseSessionDataResult {
   const syncStartedRef = useRef(false);
 
   // Start syncing when the hook mounts
-  useEffect(() => {
+  useWatchEffect(() => {
     if (syncStartedRef.current) return;
 
     syncStartedRef.current = true;

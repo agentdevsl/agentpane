@@ -15,9 +15,11 @@ import {
   Warning,
 } from '@phosphor-icons/react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Button } from '@/app/components/ui/button';
 import { ConfigSection } from '@/app/components/ui/config-section';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
+import { useTimeout } from '@/app/hooks/use-timeout';
 import { apiClient } from '@/lib/api/client';
 import { cn } from '@/lib/utils/cn';
 
@@ -166,8 +168,11 @@ function PreferencesSettingsPage(): React.JSX.Element {
 
   const [saved, setSaved] = useState(false);
 
+  // Auto-dismiss saved indicator
+  useTimeout(() => setSaved(false), saved ? 2000 : null);
+
   // Load settings from API on mount
-  useEffect(() => {
+  useMountEffect(() => {
     async function loadSettings() {
       setIsLoading(true);
       setError(null);
@@ -206,7 +211,7 @@ function PreferencesSettingsPage(): React.JSX.Element {
       }
     }
     loadSettings();
-  }, []);
+  });
 
   const isSavingRef = useRef(false);
   const handleSave = useCallback(async () => {
@@ -223,7 +228,6 @@ function PreferencesSettingsPage(): React.JSX.Element {
       });
       if (result.ok) {
         setSaved(true);
-        setTimeout(() => setSaved(false), 2000);
       } else {
         console.error('Failed to save settings:', result.error);
         setError('Failed to save settings. Please try again.');

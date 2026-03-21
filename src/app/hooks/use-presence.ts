@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useWatchEffect } from './use-watch-effect';
 
 export type PresenceUser = {
   userId: string;
@@ -15,7 +16,8 @@ export function usePresence(
 } {
   const [users, setUsers] = useState<PresenceUser[]>([]);
 
-  useEffect(() => {
+  // Fetch + poll presence, restarting when sessionId changes
+  useWatchEffect(() => {
     let mounted = true;
 
     const refresh = async () => {

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import type { Task } from '@/db/schema';
 import { apiClient } from '@/lib/api/client';
 import { type SessionCallbacks, type Subscription, subscribeToSession } from '@/lib/streams/client';
@@ -232,7 +233,7 @@ export function useTaskActivity(task: Task | null): {
   const subscriptionRef = useRef<Subscription | null>(null);
 
   // Fetch historical events
-  useEffect(() => {
+  useWatchEffect(() => {
     if (!task?.sessionId) {
       setFetchedActivities([]);
       setIsLoading(false);
@@ -281,7 +282,7 @@ export function useTaskActivity(task: Task | null): {
   }, [task?.sessionId]);
 
   // Subscribe to SSE for in_progress tasks
-  useEffect(() => {
+  useWatchEffect(() => {
     if (!task?.sessionId || task.column !== 'in_progress') {
       subscriptionRef.current?.unsubscribe();
       subscriptionRef.current = null;

@@ -13,7 +13,8 @@ import {
   Terminal,
 } from '@phosphor-icons/react';
 import { Link, useRouterState } from '@tanstack/react-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
 import { apiClient } from '@/lib/api/client';
 
 type SettingsNavItem = {
@@ -35,7 +36,7 @@ function useSettingsSections(): SettingsSection[] {
   const [githubConnected, setGithubConnected] = useState(false);
   const [hasApiKey, setHasApiKey] = useState(false);
 
-  useEffect(() => {
+  useMountEffect(() => {
     // Check GitHub connection status via API
     const checkGitHub = async () => {
       const result = await apiClient.github.getTokenInfo();
@@ -49,7 +50,7 @@ function useSettingsSections(): SettingsSection[] {
       setHasApiKey(result.ok && result.data.keyInfo !== null);
     };
     checkAnthropicKey();
-  }, []);
+  });
 
   return [
     {

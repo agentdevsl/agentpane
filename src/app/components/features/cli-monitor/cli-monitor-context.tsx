@@ -3,11 +3,13 @@ import {
   type ReactNode,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useRef,
   useState,
 } from 'react';
+import { useEventListener } from '@/app/hooks/use-event-listener';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { apiClient } from '@/lib/api/client';
 import { useCliSessions } from '@/lib/cli-monitor/hooks';
 import { startCliMonitorSync } from '@/lib/cli-monitor/sync';
@@ -67,29 +69,21 @@ export function CliMonitorProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Cleanup alert timers on unmount
-  useEffect(() => {
+  useMountEffect(() => {
     return () => {
       for (const timer of alertTimersRef.current.values()) {
         clearTimeout(timer);
       }
       alertTimersRef.current.clear();
     };
-  }, []);
+  });
 
   // Browser offline/online detection
-  useEffect(() => {
-    const handleOnline = () => setIsOffline(false);
-    const handleOffline = () => setIsOffline(true);
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, []);
+  useEventListener(window, 'online', () => setIsOffline(false));
+  useEventListener(window, 'offline', () => setIsOffline(true));
 
   // SSE sync via collection-backed sync module
-  useEffect(() => {
+  useMountEffect(() => {
     const cleanup = startCliMonitorSync(apiClient.cliMonitor.getStreamUrl(), {
       onDaemonConnected: () => setDaemonConnected(true),
       onDaemonDisconnected: () => {
@@ -143,13 +137,13 @@ export function CliMonitorProvider({ children }: { children: ReactNode }) {
     });
 
     return cleanup;
-  }, [addAlert]);
+  });
 
   // Derive page state from sessions (including historical DB data)
   // Only upgrade pageState, never downgrade from 'active' — the SSE snapshot
   // handler in sync.ts is the primary authority, this effect catches async
   // collection updates that arrive after the snapshot callback.
-  useEffect(() => {
+  useWatchEffect(() => {
     if (sessions.length > 0) {
       setPageState('active');
     } else if (daemonConnected) {

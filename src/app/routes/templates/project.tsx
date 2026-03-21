@@ -1,6 +1,6 @@
 import { CaretDown, Files, Plus, Spinner } from '@phosphor-icons/react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   AddTemplateDialog,
   type CreateTemplateInput,
@@ -9,6 +9,8 @@ import { EmptyState } from '@/app/components/features/empty-state';
 import { LayoutShell } from '@/app/components/features/layout-shell';
 import { TemplateCard } from '@/app/components/features/template-card';
 import { Button } from '@/app/components/ui/button';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import type { Template } from '@/db/schema';
 import { apiClient, type ProjectListItem } from '@/lib/api/client';
 import type { GitHubOrg, GitHubRepo } from '@/services/github-token.service';
@@ -68,7 +70,7 @@ function ProjectTemplatesPage(): React.JSX.Element {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Click-outside handler for dropdown
-  useEffect(() => {
+  useWatchEffect(() => {
     if (!showProjectDropdown) return;
 
     const handleClickOutside = (event: MouseEvent) => {
@@ -82,7 +84,7 @@ function ProjectTemplatesPage(): React.JSX.Element {
   }, [showProjectDropdown]);
 
   // Fetch projects and GitHub status on mount
-  useEffect(() => {
+  useMountEffect(() => {
     const fetchInitialData = async () => {
       const [projectsResult, healthResult] = await Promise.all([
         apiClient.projects.list({ limit: 100 }),
@@ -98,7 +100,7 @@ function ProjectTemplatesPage(): React.JSX.Element {
       }
     };
     fetchInitialData();
-  }, []);
+  });
 
   // GitHub callbacks
   const handleFetchOrgs = useCallback(async (): Promise<GitHubOrg[]> => {
@@ -112,7 +114,7 @@ function ProjectTemplatesPage(): React.JSX.Element {
   }, []);
 
   // Fetch templates
-  useEffect(() => {
+  useWatchEffect(() => {
     const fetchTemplates = async () => {
       setIsLoading(true);
       const options: { scope: 'project'; projectId?: string } = { scope: 'project' };

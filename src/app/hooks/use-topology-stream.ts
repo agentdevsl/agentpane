@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useRef } from 'react';
 import type { TopologyAction } from '@/app/components/features/agent-topology/topology-context';
 import type {
   SessionCallbacks,
@@ -8,6 +8,8 @@ import type {
 } from '@/lib/streams/client';
 import { subscribeToSession } from '@/lib/streams/client';
 import type { TopologyNode } from '@/lib/topology/types';
+import { useMountEffect } from './use-mount-effect';
+import { useWatchEffect } from './use-watch-effect';
 
 /**
  * Map a role string from the backend to a TopologyAgentRole.
@@ -80,14 +82,14 @@ export function useTopologyStream(
   );
 
   // Clean up any pending rAF on unmount
-  useEffect(() => {
+  useMountEffect(() => {
     return () => {
       if (rafIdRef.current !== null) {
         cancelAnimationFrame(rafIdRef.current);
         rafIdRef.current = null;
       }
     };
-  }, []);
+  });
 
   const handleSpawned = useCallback(
     (event: { data: TopologyAgentSpawned }) => {
@@ -153,7 +155,7 @@ export function useTopologyStream(
     [dispatch]
   );
 
-  useEffect(() => {
+  useWatchEffect(() => {
     if (!sessionId) {
       console.debug('[useTopologyStream] no sessionId, skipping');
       return;

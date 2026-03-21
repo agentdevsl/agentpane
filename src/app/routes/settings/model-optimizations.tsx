@@ -14,11 +14,13 @@ import {
   Warning,
 } from '@phosphor-icons/react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Button } from '@/app/components/ui/button';
 import { ConfigSection } from '@/app/components/ui/config-section';
 import { ModelSelector } from '@/app/components/ui/model-selector';
 import { ToolAccessSelector } from '@/app/components/ui/tool-access-selector';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
+import { useTimeout } from '@/app/hooks/use-timeout';
 import { apiClient } from '@/lib/api/client';
 import {
   DEFAULT_AGENT_MODEL,
@@ -161,8 +163,11 @@ function ModelOptimizationsPage(): React.JSX.Element {
   const [saved, setSaved] = useState(false);
   const [showAgentTools, setShowAgentTools] = useState(false);
 
+  // Auto-dismiss saved indicator
+  useTimeout(() => setSaved(false), saved ? 2000 : null);
+
   // Load settings from API on mount
-  useEffect(() => {
+  useMountEffect(() => {
     async function loadSettings() {
       setIsLoading(true);
       setError(null);
@@ -204,7 +209,7 @@ function ModelOptimizationsPage(): React.JSX.Element {
       }
     }
     loadSettings();
-  }, []);
+  });
 
   const isSavingRef = useRef(false);
   const handleSave = useCallback(async () => {
@@ -224,7 +229,6 @@ function ModelOptimizationsPage(): React.JSX.Element {
       });
       if (result.ok) {
         setSaved(true);
-        setTimeout(() => setSaved(false), 2000);
       } else {
         console.error('Failed to save settings:', result.error);
         setError('Failed to save settings. Please try again.');

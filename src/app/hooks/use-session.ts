@@ -18,11 +18,13 @@
  * If the app grows to have deeply nested data dependencies or shared cross-route
  * cache requirements, TanStack Query should be reconsidered.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffectEvent, useRef, useState } from 'react';
 import { SessionErrors } from '@/lib/errors/session-errors';
 import type { ConnectionState, SessionCallbacks } from '@/lib/streams/client';
 import { err, ok, type Result } from '@/lib/utils/result';
+import { useInterval } from './use-interval';
 import { useSessionSubscription } from './use-session-subscription';
+import { useWatchEffect } from './use-watch-effect';
 
 export type SessionEvent = {
   type: string;
@@ -135,29 +137,56 @@ export function useSession(
     }
   }, [sessionId, userId]);
 
-  // Keep refs to join/leave so the subscription effect only depends on sessionId
-  const joinRef = useRef(join);
-  const leaveRef = useRef(leave);
-  useEffect(() => {
-    joinRef.current = join;
-  }, [join]);
-  useEffect(() => {
-    leaveRef.current = leave;
-  }, [leave]);
+  // useEffectEvent keeps the latest join/leave closures stable across renders
+  const stableJoin = useEffectEvent(() => join());
+  const stableLeave = useEffectEvent(() => leave());
 
-  // Join on mount, leave on unmount
-  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId triggers re-join when session changes
-  useEffect(() => {
-    void joinRef.current();
+  // Join on mount, leave on unmount — re-run when sessionId changes
+  useWatchEffect(() => {
+    void stableJoin();
     return () => {
-      void leaveRef.current();
+      void stableLeave();
     };
   }, [sessionId]);
 
   // Build session-specific callbacks
   const callbacks = useRef<SessionCallbacks>({});
 
-  useEffect(() => {
+  const stableOnReconnect = useEffectEvent(() => {
+    console.log('[useSession] Reconnected to session stream');
+    // RS-006: Fetch missed events from the REST API on reconnect.
+    // The durable streams client tracks its last offset and will resume
+    // from there, but if the gap is too large events may be lost.
+    // Fetch missed events from the database as a safety net.
+    // FC-006: subscription is now managed by useSessionSubscription;
+    // offset tracking is internal, so we always fetch from offset 0 on reconnect.
+    const lastOff = 0;
+    if (lastOff > 0) {
+      fetch(`/api/sessions/${sessionId}/events?offset=${lastOff}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((json) => {
+          if (!json?.ok || !Array.isArray(json.data)) return;
+          // Events are already ordered by offset from the API.
+          // Re-apply any we may have missed during the disconnect gap.
+          for (const evt of json.data) {
+            if (evt.type === 'chunk' && evt.data?.text) {
+              setState((prev) => {
+                let chunks = [...prev.chunks, { text: evt.data.text, timestamp: evt.timestamp }];
+                if (chunks.length > MAX_CHUNKS) {
+                  chunks = chunks.slice(chunks.length - MAX_CHUNKS);
+                }
+                return { ...prev, chunks };
+              });
+            }
+          }
+        })
+        .catch(() => {
+          // Best-effort -- ignore fetch errors on reconnect gap detection
+        });
+    }
+  });
+
+  useWatchEffect(() => {
     callbacks.current = {
       onChunk: (event) => {
         setState((prev) => {
@@ -228,40 +257,7 @@ export function useSession(
       },
 
       onReconnect: () => {
-        console.log('[useSession] Reconnected to session stream');
-        // RS-006: Fetch missed events from the REST API on reconnect.
-        // The durable streams client tracks its last offset and will resume
-        // from there, but if the gap is too large events may be lost.
-        // Fetch missed events from the database as a safety net.
-        // FC-006: subscription is now managed by useSessionSubscription;
-        // offset tracking is internal, so we always fetch from offset 0 on reconnect.
-        const lastOff = 0;
-        if (lastOff > 0) {
-          fetch(`/api/sessions/${sessionId}/events?offset=${lastOff}`)
-            .then((res) => (res.ok ? res.json() : null))
-            .then((json) => {
-              if (!json?.ok || !Array.isArray(json.data)) return;
-              // Events are already ordered by offset from the API.
-              // Re-apply any we may have missed during the disconnect gap.
-              for (const evt of json.data) {
-                if (evt.type === 'chunk' && evt.data?.text) {
-                  setState((prev) => {
-                    let chunks = [
-                      ...prev.chunks,
-                      { text: evt.data.text, timestamp: evt.timestamp },
-                    ];
-                    if (chunks.length > MAX_CHUNKS) {
-                      chunks = chunks.slice(chunks.length - MAX_CHUNKS);
-                    }
-                    return { ...prev, chunks };
-                  });
-                }
-              }
-            })
-            .catch(() => {
-              // Best-effort -- ignore fetch errors on reconnect gap detection
-            });
-        }
+        stableOnReconnect();
       },
 
       onDisconnect: () => {
@@ -273,23 +269,21 @@ export function useSession(
   const { connectionState } = useSessionSubscription(sessionId, callbacks.current);
 
   // Presence heartbeat at 10s interval (per spec)
-  useEffect(() => {
-    const updatePresence = async () => {
-      try {
-        await fetch(`/api/sessions/${sessionId}/presence`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId }),
-        });
-      } catch {
-        // Ignore presence update errors
-      }
-    };
+  const heartbeat = useEffectEvent(async () => {
+    try {
+      await fetch(`/api/sessions/${sessionId}/presence`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      });
+    } catch {
+      // Ignore presence update errors
+    }
+  });
 
-    const interval = window.setInterval(updatePresence, PRESENCE_HEARTBEAT_INTERVAL);
-
-    return () => window.clearInterval(interval);
-  }, [sessionId, userId]);
+  useInterval(() => {
+    void heartbeat();
+  }, PRESENCE_HEARTBEAT_INTERVAL);
 
   // FC-006: lastOffset is no longer directly tracked via subscriptionRef;
   // it is managed internally by useSessionSubscription. Return 0 for compat.
