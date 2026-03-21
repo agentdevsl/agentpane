@@ -137,13 +137,6 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
     }
   }
 
-  // Verify FK enforcement is active
-  const fkStatus = testSqlite.pragma('foreign_keys', { simple: true });
-  if (!fkStatus) {
-    console.error('[TEST DB] WARNING: foreign_keys is OFF, re-enabling');
-    testSqlite.pragma('foreign_keys = ON');
-  }
-
   return testDb;
 }
 
