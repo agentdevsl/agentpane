@@ -12,7 +12,7 @@ const ProjectSettings = React.lazy(() =>
   }))
 );
 
-import type { CodespaceConfig, Project } from '@/db/schema';
+import type { Codespace, CodespaceConfig } from '@/db/schema';
 import { apiClient } from '@/lib/api/client';
 
 export const Route = createFileRoute('/codespaces/$codespaceId/settings')({
@@ -27,9 +27,9 @@ function CodespaceSettingsPage(): React.JSX.Element {
   const { codespaceId } = Route.useParams();
   const navigate = useNavigate();
   const router = useRouter();
-  const loaderData = Route.useLoaderData() as { codespace: Project | null } | undefined;
-  const [codespace, setCodespace] = useState<Project | null>(
-    () => (loaderData?.codespace as unknown as Project) ?? null
+  const loaderData = Route.useLoaderData() as { codespace: Codespace | null } | undefined;
+  const [codespace, setCodespace] = useState<Codespace | null>(
+    () => (loaderData?.codespace as unknown as Codespace) ?? null
   );
   const [isLoading, setIsLoading] = useState(!loaderData?.codespace);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -52,7 +52,7 @@ function CodespaceSettingsPage(): React.JSX.Element {
     const fetchCodespace = async () => {
       const result = await apiClient.codespaces.get(codespaceId);
       if (result.ok) {
-        setCodespace(result.data as unknown as Project);
+        setCodespace(result.data as unknown as Codespace);
       }
       setIsLoading(false);
     };
@@ -75,7 +75,7 @@ function CodespaceSettingsPage(): React.JSX.Element {
       });
 
       if (result.ok) {
-        setCodespace(result.data as unknown as Project);
+        setCodespace(result.data as unknown as Codespace);
         setSaveStatus('saved');
       } else {
         setSaveStatus('error');
@@ -124,9 +124,9 @@ function CodespaceSettingsPage(): React.JSX.Element {
 
   return (
     <LayoutShell
-      projectId={codespace.id}
-      projectName={codespace.name}
-      projectPath={codespace.path}
+      codespaceId={codespace.id}
+      codespaceName={codespace.name}
+      codespacePath={codespace.path}
       breadcrumbs={[
         { label: 'Codespaces', to: '/codespaces' },
         { label: codespace.name, to: `/codespaces/${codespace.id}` },

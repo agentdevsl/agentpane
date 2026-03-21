@@ -194,7 +194,7 @@ function useDraggableDialog() {
 // ============================================================================
 
 interface NewTaskDialogProps {
-  projectId: string;
+  codespaceId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onTaskCreated?: (taskId: string) => void;
@@ -959,7 +959,7 @@ function EditPanel({
 // ============================================================================
 
 export function NewTaskDialog({
-  projectId,
+  codespaceId,
   open,
   onOpenChange,
   onTaskCreated,
@@ -983,7 +983,7 @@ export function NewTaskDialog({
     skipQuestions,
     cancel,
     reset,
-  } = useTaskCreation(projectId);
+  } = useTaskCreation(codespaceId);
 
   // Resizable and draggable dialog
   const { sizeRef, resizeElementRef, isResizing, handleMouseDown } = useResizableDialog();
@@ -1162,7 +1162,7 @@ export function NewTaskDialog({
       if (isManualMode) {
         // Manual mode: Create task directly without AI session
         const result = await apiClient.tasks.create({
-          projectId,
+          codespaceId,
           title: editableSuggestion.title,
           description: editableSuggestion.description,
           labels: editableSuggestion.labels,

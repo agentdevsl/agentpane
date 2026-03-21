@@ -31,15 +31,15 @@ import { TextInput } from '@/app/components/ui/text-input';
 import { Textarea } from '@/app/components/ui/textarea';
 import { useMountEffect } from '@/app/hooks/use-mount-effect';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
-import type { CodespaceConfig, Project } from '@/db/schema';
+import type { Codespace, CodespaceConfig } from '@/db/schema';
 import { apiClient } from '@/lib/api/client';
 import { AVAILABLE_MODELS } from '@/lib/constants/models';
-import type { ProjectSandboxConfig } from '@/lib/sandbox/types';
+import type { CodespaceSandboxConfig } from '@/lib/sandbox/types';
 import { cn } from '@/lib/utils/cn';
 import { DeleteProjectDialog } from './delete-project-dialog';
 
 interface ProjectSettingsProps {
-  project: Project;
+  project: Codespace;
   onSave: (input: {
     name?: string;
     description?: string;
@@ -164,7 +164,7 @@ export function ProjectSettings({
   );
 
   // Global sandbox defaults (loaded from settings)
-  const [globalDefaults, setGlobalDefaults] = useState<ProjectSandboxConfig | null>(null);
+  const [globalDefaults, setGlobalDefaults] = useState<CodespaceSandboxConfig | null>(null);
   const [isLoadingDefaults, setIsLoadingDefaults] = useState(true);
 
   // Load global defaults on mount
@@ -173,7 +173,7 @@ export function ProjectSettings({
       try {
         const result = await apiClient.settings.get(['sandbox.defaults']);
         if (result.ok && result.data.settings['sandbox.defaults']) {
-          setGlobalDefaults(result.data.settings['sandbox.defaults'] as ProjectSandboxConfig);
+          setGlobalDefaults(result.data.settings['sandbox.defaults'] as CodespaceSandboxConfig);
         }
       } catch (error) {
         console.error('[ProjectSettings] Failed to load global defaults:', error);
@@ -185,12 +185,12 @@ export function ProjectSettings({
   });
 
   // Sandbox configuration - uses existing project config or falls back to global defaults
-  const existingSandbox = project.config?.sandbox as ProjectSandboxConfig | undefined | null;
+  const existingSandbox = project.config?.sandbox as CodespaceSandboxConfig | undefined | null;
   // Track if project has explicit custom sandbox config (not null)
   const [hasCustomConfig, setHasCustomConfig] = useState(
     existingSandbox !== undefined && existingSandbox !== null
   );
-  const [sandboxConfig, setSandboxConfig] = useState<ProjectSandboxConfig>({
+  const [sandboxConfig, setSandboxConfig] = useState<CodespaceSandboxConfig>({
     enabled: existingSandbox?.enabled ?? globalDefaults?.enabled ?? false,
     provider: existingSandbox?.provider ?? globalDefaults?.provider ?? 'docker',
     idleTimeoutMinutes:
@@ -206,7 +206,9 @@ export function ProjectSettings({
   const [sandboxModified, setSandboxModified] = useState(false);
 
   // Wrapper to track sandbox modifications
-  const updateSandboxConfig = (updater: (prev: ProjectSandboxConfig) => ProjectSandboxConfig) => {
+  const updateSandboxConfig = (
+    updater: (prev: CodespaceSandboxConfig) => CodespaceSandboxConfig
+  ) => {
     setSandboxConfig(updater);
     setSandboxModified(true);
     setHasCustomConfig(true);

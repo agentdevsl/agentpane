@@ -62,9 +62,9 @@ function CodespacesPage(): React.JSX.Element {
       const query = searchQuery.toLowerCase();
       result = result.filter(
         (s) =>
-          s.project.name.toLowerCase().includes(query) ||
-          s.project.path.toLowerCase().includes(query) ||
-          s.project.description?.toLowerCase().includes(query)
+          s.codespace.name.toLowerCase().includes(query) ||
+          s.codespace.path.toLowerCase().includes(query) ||
+          s.codespace.description?.toLowerCase().includes(query)
       );
     }
 
@@ -72,16 +72,16 @@ function CodespacesPage(): React.JSX.Element {
     result.sort((a, b) => {
       switch (sortBy) {
         case 'name':
-          return a.project.name.localeCompare(b.project.name);
+          return a.codespace.name.localeCompare(b.codespace.name);
         case 'created':
           return (
-            new Date(b.project.createdAt ?? 0).getTime() -
-            new Date(a.project.createdAt ?? 0).getTime()
+            new Date(b.codespace.createdAt ?? 0).getTime() -
+            new Date(a.codespace.createdAt ?? 0).getTime()
           );
         default:
           return (
-            new Date(b.project.updatedAt ?? 0).getTime() -
-            new Date(a.project.updatedAt ?? 0).getTime()
+            new Date(b.codespace.updatedAt ?? 0).getTime() -
+            new Date(a.codespace.updatedAt ?? 0).getTime()
           );
       }
     });
@@ -438,8 +438,8 @@ function CodespacesPage(): React.JSX.Element {
           >
             {filteredCodespaces.map((summary) => (
               <ProjectCard
-                key={summary.project.id}
-                project={summary.project}
+                key={summary.codespace.id}
+                project={summary.codespace}
                 status={summary.status}
                 taskCounts={summary.taskCounts}
                 activeAgents={summary.runningAgents.map((agent) => ({

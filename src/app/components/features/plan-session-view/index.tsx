@@ -149,13 +149,13 @@ function WelcomeState(): React.JSX.Element {
  */
 export function PlanSessionView({
   taskId,
-  projectId,
+  codespaceId,
   onSessionEnd,
   onError,
 }: PlanSessionViewProps): React.JSX.Element {
   const { state, startSession, answerInteraction, cancelSession } = usePlanSession(
     taskId,
-    projectId,
+    codespaceId,
     { onError }
   );
 

@@ -81,9 +81,9 @@ function CodespaceWorktreesPage(): React.JSX.Element {
 
   return (
     <LayoutShell
-      projectId={codespaceId}
-      projectName={codespace?.name}
-      projectPath={codespace?.path}
+      codespaceId={codespaceId}
+      codespaceName={codespace?.name}
+      codespacePath={codespace?.path}
       breadcrumbs={[
         { label: 'Codespaces', to: '/codespaces' },
         { label: codespace?.name ?? 'Codespace', to: `/codespaces/${codespaceId}` },
@@ -91,7 +91,7 @@ function CodespaceWorktreesPage(): React.JSX.Element {
       ]}
     >
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-10">
-        <WorktreeManagement projectId={codespaceId} />
+        <WorktreeManagement codespaceId={codespaceId} />
       </div>
     </LayoutShell>
   );

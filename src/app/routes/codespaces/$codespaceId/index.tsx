@@ -24,7 +24,7 @@ import type { DiffSummary } from '@/lib/types/diff';
 type ClientTask = Pick<
   Task,
   | 'id'
-  | 'projectId'
+  | 'codespaceId'
   | 'title'
   | 'description'
   | 'column'
@@ -330,9 +330,9 @@ function CodespaceKanban(): React.JSX.Element {
 
   return (
     <LayoutShell
-      projectId={codespace.id}
-      projectName={codespace.name}
-      projectPath={codespace.path}
+      codespaceId={codespace.id}
+      codespaceName={codespace.name}
+      codespacePath={codespace.path}
       breadcrumbs={[{ label: 'Codespaces', to: '/codespaces' }, { label: codespace.name }]}
       centerAction={
         <AIActionButton onClick={() => setShowNewTask(true)} data-testid="add-task-button" />
@@ -382,7 +382,7 @@ function CodespaceKanban(): React.JSX.Element {
       {/* New Task Dialog - AI-powered task creation with streaming (lazy-loaded) */}
       <Suspense fallback={null}>
         <NewTaskDialog
-          projectId={codespaceId}
+          codespaceId={codespaceId}
           open={showNewTask}
           onOpenChange={(open) => {
             if (!open) setShowNewTask(false);

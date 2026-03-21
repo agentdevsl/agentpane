@@ -17,14 +17,14 @@ interface UseWorktreesReturn {
 /**
  * Hook for fetching and managing worktrees for a project
  */
-export function useWorktrees(projectId: string): UseWorktreesReturn {
+export function useWorktrees(codespaceId: string): UseWorktreesReturn {
   const [worktrees, setWorktrees] = useState<WorktreeListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<{ message: string } | null>(null);
 
   const fetchWorktrees = useCallback(
     async (isAutoRefresh = false) => {
-      if (!projectId) {
+      if (!codespaceId) {
         setWorktrees([]);
         setIsLoading(false);
         return;
@@ -36,7 +36,7 @@ export function useWorktrees(projectId: string): UseWorktreesReturn {
       }
 
       try {
-        const result = await apiClient.worktrees.list({ projectId });
+        const result = await apiClient.worktrees.list({ codespaceId });
 
         if (result.ok) {
           const items = result.data.items.map(transformWorktree);
@@ -54,7 +54,7 @@ export function useWorktrees(projectId: string): UseWorktreesReturn {
         }
       }
     },
-    [projectId]
+    [codespaceId]
   );
 
   // Initial fetch

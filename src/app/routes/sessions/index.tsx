@@ -8,7 +8,7 @@ import { apiClient } from '@/lib/api/client';
 // Session data shape from API
 interface ApiSession {
   id: string;
-  projectId: string;
+  codespaceId: string;
   taskId?: string | null;
   agentId?: string | null;
   title?: string | null;
@@ -90,7 +90,7 @@ function SessionsPage(): React.JSX.Element {
   // Filter sessions by selected codespace
   const filteredSessions = useMemo(() => {
     if (!selectedProjectId) return sessions;
-    return sessions.filter((s) => s.projectId === selectedProjectId);
+    return sessions.filter((s) => s.codespaceId === selectedProjectId);
   }, [sessions, selectedProjectId]);
 
   if (isLoading) {

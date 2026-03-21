@@ -50,7 +50,7 @@ export interface PlanStreamEvent {
 export interface PlanStartedEventData {
   sessionId: string;
   taskId: string;
-  projectId: string;
+  codespaceId: string;
 }
 
 /**
@@ -148,7 +148,7 @@ export type PlanSessionAction =
  */
 export interface PlanSessionViewProps {
   taskId: string;
-  projectId: string;
+  codespaceId: string;
   onSessionEnd?: () => void;
   onError?: (error: Error) => void;
 }

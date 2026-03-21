@@ -13,7 +13,7 @@ import { calculateTotalDuration, groupSessionsByDate } from './utils/group-by-da
  */
 export interface RawSession {
   id: string;
-  projectId: string;
+  codespaceId: string;
   taskId?: string | null;
   agentId?: string | null;
   title?: string | null;
@@ -79,8 +79,8 @@ function toSessionListItem(raw: RawSession, projectMap: Map<string, string>): Se
     duration,
     turnsUsed: raw.turnsUsed ?? 0,
     tokensUsed: raw.tokensUsed ?? 0,
-    projectId: raw.projectId,
-    projectName: projectMap.get(raw.projectId) ?? null,
+    codespaceId: raw.codespaceId,
+    codespaceName: projectMap.get(raw.codespaceId) ?? null,
     sandboxProvider: raw.sandboxProvider ?? null,
     sandboxContainerId: raw.sandboxContainerId ?? null,
     costUsd: raw.costUsd ?? null,
@@ -198,8 +198,8 @@ export function SessionHistory({
                 : null),
             turnsUsed: turnsFromEvents || summary?.turnsCount || 0,
             tokensUsed: totalTokensFromEvents || summary?.tokensUsed || 0,
-            projectId: session.projectId,
-            projectName: projectMap.get(session.projectId) ?? null,
+            codespaceId: session.codespaceId,
+            codespaceName: projectMap.get(session.codespaceId) ?? null,
             url: session.url,
             events,
             sandboxProvider: session.sandboxProvider ?? null,

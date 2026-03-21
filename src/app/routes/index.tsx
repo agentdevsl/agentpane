@@ -51,7 +51,7 @@ function Dashboard(): React.JSX.Element {
   const [projectSummaries, setProjectSummaries] = useState<ClientProjectSummary[]>(
     () =>
       loaderProjects.map((item: ProjectSummaryItem) => ({
-        project: item.project,
+        project: item.codespace,
         status: item.status,
         taskCounts: item.taskCounts,
         runningAgents: item.runningAgents.map((agent) => ({
@@ -150,7 +150,7 @@ function Dashboard(): React.JSX.Element {
           // Convert API response to client project summaries
           const summaries: ClientProjectSummary[] = result.data.items.map(
             (item: ProjectSummaryItem) => ({
-              project: item.project,
+              project: item.codespace,
               status: item.status,
               taskCounts: item.taskCounts,
               runningAgents: item.runningAgents.map((agent) => ({
@@ -260,7 +260,7 @@ function Dashboard(): React.JSX.Element {
         if (listResult.ok) {
           const summaries: ClientProjectSummary[] = listResult.data.items.map(
             (item: ProjectSummaryItem) => ({
-              project: item.project,
+              project: item.codespace,
               status: item.status,
               taskCounts: item.taskCounts,
               runningAgents: item.runningAgents.map((agent) => ({

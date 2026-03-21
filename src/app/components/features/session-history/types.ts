@@ -93,10 +93,14 @@ export interface SessionListItem {
   duration: number | null;
   turnsUsed: number;
   tokensUsed: number;
-  /** Project ID this session belongs to */
-  projectId: string;
-  /** Project name for display */
-  projectName: string | null;
+  /** Codespace ID this session belongs to */
+  codespaceId: string;
+  /** Codespace name for display */
+  codespaceName: string | null;
+  /** @deprecated Use codespaceId instead */
+  projectId?: string;
+  /** @deprecated Use codespaceName instead */
+  projectName?: string | null;
   sandboxProvider: string | null;
   sandboxContainerId: string | null;
   costUsd: number | null;
@@ -105,7 +109,7 @@ export interface SessionListItem {
 // ===== Session Detail =====
 
 export interface SessionDetail extends SessionListItem {
-  projectId: string;
+  codespaceId: string;
   url: string;
   events: SessionEvent[];
   /** Files modified during session */
@@ -192,8 +196,8 @@ export interface SessionDateGroup {
 // ===== Component Props =====
 
 export interface SessionHistoryPageProps {
-  /** Project ID to show sessions for */
-  projectId: string;
+  /** Codespace ID to show sessions for */
+  codespaceId: string;
   /** Optional task ID to filter sessions */
   taskId?: string;
   /** Initial filters */
@@ -252,7 +256,7 @@ export interface SessionDetailViewProps {
   /** Callback for refresh */
   onRefresh?: () => void;
   /** Callback to navigate to the linked task */
-  onViewTask?: (taskId: string, projectId: string) => void;
+  onViewTask?: (taskId: string, codespaceId: string) => void;
 }
 
 export interface StreamViewerProps {

@@ -182,11 +182,11 @@ export function SessionDetailView({
   // Build metadata items array for consistent rendering
   const metaItems: Array<{ icon: React.ReactNode; label: string; value: React.ReactNode }> = [];
 
-  if (session.projectName) {
+  if (session.codespaceName) {
     metaItems.push({
       icon: <Folder className="h-3.5 w-3.5" weight="fill" />,
-      label: 'Project',
-      value: session.projectName,
+      label: 'Codespace',
+      value: session.codespaceName,
     });
   }
 
@@ -206,7 +206,7 @@ export function SessionDetailView({
       value: onViewTask ? (
         <button
           type="button"
-          onClick={() => onViewTask(taskId, session.projectId)}
+          onClick={() => onViewTask(taskId, session.codespaceId)}
           className="inline-flex items-center gap-1 font-mono text-done underline-offset-2 hover:underline"
         >
           #{taskId.slice(0, 7)}

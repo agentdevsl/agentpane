@@ -15,7 +15,7 @@ import {
 } from '../../db/schema/shared/enums';
 import { agents } from '../../db/schema/sqlite/agents';
 import { apiTokens } from '../../db/schema/sqlite/api-tokens';
-import { projectTags } from '../../db/schema/sqlite/project-tags';
+import { codespaceTags } from '../../db/schema/sqlite/codespace-tags';
 import { sessions } from '../../db/schema/sqlite/sessions';
 import { taskTags } from '../../db/schema/sqlite/task-tags';
 import { tasks } from '../../db/schema/sqlite/tasks';
@@ -383,9 +383,9 @@ type TagResolver = (id: string, db: Database) => Promise<string[]>;
 const TAG_RESOLVERS: { [K in 'codespace' | 'task' | 'session' | 'agent']: TagResolver } = {
   codespace: async (id, db) => {
     const rows = await db
-      .select({ tagId: projectTags.tagId })
-      .from(projectTags)
-      .where(eq(projectTags.codespaceId, id));
+      .select({ tagId: codespaceTags.tagId })
+      .from(codespaceTags)
+      .where(eq(codespaceTags.codespaceId, id));
     return rows.map((r) => r.tagId);
   },
   task: async (id, db) => {

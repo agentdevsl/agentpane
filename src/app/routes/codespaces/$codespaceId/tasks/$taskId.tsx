@@ -9,7 +9,7 @@ import { apiClient, type CodespaceListItem } from '@/lib/api/client';
 // Client task type - subset of Task for client-side display
 type ClientTask = Pick<
   Task,
-  'id' | 'projectId' | 'title' | 'description' | 'column' | 'position' | 'sessionId'
+  'id' | 'codespaceId' | 'title' | 'description' | 'column' | 'position' | 'sessionId'
 > & {
   priority?: 'low' | 'medium' | 'high' | 'critical';
 };
@@ -22,7 +22,7 @@ export const Route = createFileRoute('/codespaces/$codespaceId/tasks/$taskId')({
     ]);
     const task = taskResult.ok ? taskResult.data : null;
     return {
-      task: task && (task as ClientTask).projectId === params.codespaceId ? task : null,
+      task: task && (task as ClientTask).codespaceId === params.codespaceId ? task : null,
       codespace: codespaceResult.ok ? codespaceResult.data : null,
     };
   },
@@ -54,7 +54,7 @@ function TaskDetailRoute(): React.JSX.Element {
 
       if (taskResult.ok) {
         const fetchedTask = taskResult.data as ClientTask;
-        if (fetchedTask.projectId === codespaceId) {
+        if (fetchedTask.codespaceId === codespaceId) {
           setTask(fetchedTask);
         }
       }
@@ -84,9 +84,9 @@ function TaskDetailRoute(): React.JSX.Element {
 
   return (
     <LayoutShell
-      projectId={codespace?.id}
-      projectName={codespace?.name}
-      projectPath={codespace?.path}
+      codespaceId={codespace?.id}
+      codespaceName={codespace?.name}
+      codespacePath={codespace?.path}
       breadcrumbs={[
         { label: 'Codespaces', to: '/codespaces' },
         { label: codespace?.name ?? 'Codespace', to: `/codespaces/${codespace?.id}` },

@@ -68,10 +68,10 @@ export function SessionCard({
           <span className="font-mono text-xs font-medium text-accent">
             #{session.id.slice(0, 7)}
           </span>
-          {session.projectName ? (
+          {session.codespaceName ? (
             <>
               <span className="text-fg-subtle">·</span>
-              <span className="truncate text-xs text-fg-muted">{session.projectName}</span>
+              <span className="truncate text-xs text-fg-muted">{session.codespaceName}</span>
             </>
           ) : null}
         </div>

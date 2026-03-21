@@ -40,10 +40,10 @@ interface SandboxProviderHealth {
     details?: Record<string, unknown>;
   }>;
   listSandboxes?(): Promise<Array<{ name: string; phase: string }>>;
-  get?(projectId: string): Promise<unknown>;
+  get?(codespaceId: string): Promise<unknown>;
   create?(config: {
-    projectId: string;
-    projectPath: string;
+    codespaceId: string;
+    codespacePath: string;
     image: string;
     memoryMb: number;
     cpuCores: number;
@@ -114,8 +114,8 @@ async function autoHealSandbox(
     await fs.mkdir(workspacePath, { recursive: true });
 
     await dockerProvider.create({
-      projectId: lookupId,
-      projectPath: workspacePath,
+      codespaceId: lookupId,
+      codespacePath: workspacePath,
       image,
       memoryMb: defaults?.memoryMb ?? SANDBOX_DEFAULTS.memoryMb,
       cpuCores: defaults?.cpuCores ?? SANDBOX_DEFAULTS.cpuCores,
@@ -151,8 +151,8 @@ async function autoHealK8sSandbox(
     const image = defaults?.image ?? SANDBOX_DEFAULTS.image;
 
     await k8sProvider.create({
-      projectId: lookupId,
-      projectPath: '/workspace',
+      codespaceId: lookupId,
+      codespacePath: '/workspace',
       image,
       memoryMb: defaults?.memoryMb ?? SANDBOX_DEFAULTS.memoryMb,
       cpuCores: defaults?.cpuCores ?? SANDBOX_DEFAULTS.cpuCores,

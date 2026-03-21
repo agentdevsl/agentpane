@@ -342,7 +342,7 @@ export function TaskDetailDialog({
             <div className="flex-1 overflow-hidden">
               <PlanSessionView
                 taskId={task.id}
-                projectId={task.projectId}
+                codespaceId={task.codespaceId}
                 onSessionEnd={() => onOpenChange(false)}
               />
             </div>

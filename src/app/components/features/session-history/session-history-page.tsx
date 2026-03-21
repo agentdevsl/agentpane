@@ -19,7 +19,7 @@ import { formatDuration } from './utils/format-duration';
 import { calculateTotalDuration, groupSessionsByDate } from './utils/group-by-date';
 
 export function SessionHistoryPage({
-  projectId,
+  codespaceId,
   taskId: initialTaskId,
   initialFilters,
   compact: _compact = false,
@@ -45,7 +45,7 @@ export function SessionHistoryPage({
     isLoading: sessionsLoading,
     error: _sessionsError,
     refetch: refetchSessions,
-  } = useSessions(projectId, effectiveFilters, sort);
+  } = useSessions(codespaceId, effectiveFilters, sort);
 
   // Fetch selected session detail
   const { data: sessionDetailData, isLoading: detailLoading } = useSessionDetail(selectedSessionId);
@@ -136,10 +136,10 @@ export function SessionHistoryPage({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `sessions-${projectId}.json`;
+    a.download = `sessions-${codespaceId}.json`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [sessionsData?.sessions, projectId]);
+  }, [sessionsData?.sessions, codespaceId]);
 
   return (
     <div className="flex h-full flex-col overflow-hidden" data-testid="session-history-page">

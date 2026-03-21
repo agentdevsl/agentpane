@@ -10,7 +10,7 @@ import type { AuthContext } from '../../lib/api/auth-middleware';
 import { createLogger } from '../../lib/logging/logger';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
-import { isValidId, json, requireProjectRole } from '../shared';
+import { isValidId, json, requireCodespaceRole } from '../shared';
 import { addProjectMemberSchema, parseJsonBody, updateProjectMemberSchema } from '../validation';
 
 const log = createLogger('ProjectMembersRoutes');
@@ -35,7 +35,7 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
       );
     }
 
-    const denied = await requireProjectRole(auth, rbacService, codespaceId, 'admin');
+    const denied = await requireCodespaceRole(auth, rbacService, codespaceId, 'admin');
     if (denied) return denied;
 
     const parsed = await parseJsonBody(c, addProjectMemberSchema);
@@ -61,7 +61,7 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
         if (userExists.length === 0) return 'USER_NOT_FOUND' as const;
 
         await tx.insert(codespaceMembers).values({
-          projectId: codespaceId,
+          codespaceId,
           userId: parsed.data.userId,
           role: parsed.data.role,
           grantedByTeamId: parsed.data.teamId ?? null,
@@ -112,7 +112,7 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
     }
 
     const auth = c.get('auth');
-    const denied = await requireProjectRole(
+    const denied = await requireCodespaceRole(
       auth,
       rbacService,
       codespaceId,
@@ -181,7 +181,7 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
       );
     }
 
-    const adminDenied = await requireProjectRole(auth, rbacService, codespaceId, 'admin');
+    const adminDenied = await requireCodespaceRole(auth, rbacService, codespaceId, 'admin');
     if (adminDenied) return adminDenied;
 
     const parsed = await parseJsonBody(c, updateProjectMemberSchema);
@@ -221,7 +221,7 @@ export function createProjectMembersRoutes({ db, rbacService }: ProjectMembersDe
       return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID' } }, 400);
     }
 
-    const denied = await requireProjectRole(auth, rbacService, codespaceId, 'admin');
+    const denied = await requireCodespaceRole(auth, rbacService, codespaceId, 'admin');
     if (denied) return denied;
 
     try {

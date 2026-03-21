@@ -14,7 +14,7 @@ import type { AuthContext } from '../../lib/api/auth-middleware';
 import { createLogger } from '../../lib/logging/logger';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
-import { isValidId, json, requireProjectRole, requireTeamRole } from '../shared';
+import { isValidId, json, requireCodespaceRole, requireTeamRole } from '../shared';
 import { assignTagSchema, createTagSchema, parseJsonBody } from '../validation';
 
 const log = createLogger('TagsRoutes');
@@ -195,7 +195,7 @@ export function createProjectTagRoutes({
     }
 
     const auth = c.get('auth');
-    const denied = await requireProjectRole(
+    const denied = await requireCodespaceRole(
       auth,
       rbacService,
       codespaceId,
@@ -251,7 +251,7 @@ export function createProjectTagRoutes({
     try {
       await db
         .insert(codespaceTags)
-        .values({ projectId: codespaceId, tagId: parsed.data.tagId })
+        .values({ codespaceId, tagId: parsed.data.tagId })
         .onConflictDoNothing();
 
       return json(
@@ -281,7 +281,7 @@ export function createProjectTagRoutes({
     }
 
     const auth = c.get('auth');
-    const denied = await requireProjectRole(
+    const denied = await requireCodespaceRole(
       auth,
       rbacService,
       codespaceId,
@@ -336,7 +336,7 @@ export function createTaskTagRoutes({
     }
 
     const auth = c.get('auth');
-    const denied = await requireProjectRole(
+    const denied = await requireCodespaceRole(
       auth,
       rbacService,
       foundTask.codespaceId,
@@ -423,7 +423,7 @@ export function createTaskTagRoutes({
     if (!foundTask) {
       return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Task not found' } }, 404);
     }
-    const denied = await requireProjectRole(
+    const denied = await requireCodespaceRole(
       auth,
       rbacService,
       foundTask.codespaceId,

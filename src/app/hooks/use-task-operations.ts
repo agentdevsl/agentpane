@@ -16,7 +16,7 @@ import { apiClient } from '@/lib/api/client';
 type ClientTask = Pick<
   Task,
   | 'id'
-  | 'projectId'
+  | 'codespaceId'
   | 'title'
   | 'description'
   | 'column'
@@ -54,7 +54,7 @@ export interface TaskOperations {
 }
 
 export function useTaskOperations(
-  _projectId: string,
+  _codespaceId: string,
   options: UseTaskOperationsOptions
 ): TaskOperations {
   const { error: showError, warning: showWarning } = useToast();

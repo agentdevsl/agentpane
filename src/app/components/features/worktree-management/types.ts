@@ -73,8 +73,8 @@ export interface GitDiff {
 
 // ===== Component Props =====
 export interface WorktreeManagementProps {
-  /** Project ID to show worktrees for */
-  projectId: string;
+  /** Codespace ID to show worktrees for */
+  codespaceId: string;
   /** Callback when worktree is selected */
   onWorktreeSelect?: (worktree: WorktreeListItem) => void;
   /** Whether to show in panel mode (sidebar) */

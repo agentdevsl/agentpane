@@ -70,12 +70,12 @@ function WorktreesPage(): React.JSX.Element {
   return (
     <LayoutShell
       breadcrumbs={[{ label: 'Worktrees' }]}
-      projectName={codespace?.name}
-      projectPath={codespace?.path}
+      codespaceName={codespace?.name}
+      codespacePath={codespace?.path}
     >
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-10">
         {codespace ? (
-          <WorktreeManagement projectId={codespace.id} />
+          <WorktreeManagement codespaceId={codespace.id} />
         ) : (
           <EmptyState
             preset="no-projects"
