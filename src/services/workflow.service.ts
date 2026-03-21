@@ -101,8 +101,7 @@ export class WorkflowService {
         offset,
         hasMore: offset + items.length < totalCount,
       });
-    } catch (error) {
-      console.error('[WorkflowService] List error:', error);
+    } catch (_error) {
       return err(WorkflowErrors.DATABASE_ERROR('Failed to list workflows'));
     }
   }
@@ -118,8 +117,7 @@ export class WorkflowService {
       }
 
       return ok(workflow);
-    } catch (error) {
-      console.error('[WorkflowService] Get error:', error);
+    } catch (_error) {
       return err(WorkflowErrors.DATABASE_ERROR('Failed to get workflow'));
     }
   }
@@ -154,8 +152,7 @@ export class WorkflowService {
       }
 
       return ok(created);
-    } catch (error) {
-      console.error('[WorkflowService] Create error:', error);
+    } catch (_error) {
       return err(WorkflowErrors.DATABASE_ERROR('Failed to create workflow'));
     }
   }
@@ -202,8 +199,7 @@ export class WorkflowService {
       }
 
       return ok(updated);
-    } catch (error) {
-      console.error('[WorkflowService] Update error:', error);
+    } catch (_error) {
       return err(WorkflowErrors.DATABASE_ERROR('Failed to update workflow'));
     }
   }
@@ -222,8 +218,7 @@ export class WorkflowService {
       await this.db.delete(workflows).where(eq(workflows.id, id));
 
       return ok(undefined);
-    } catch (error) {
-      console.error('[WorkflowService] Delete error:', error);
+    } catch (_error) {
       return err(WorkflowErrors.DATABASE_ERROR('Failed to delete workflow'));
     }
   }

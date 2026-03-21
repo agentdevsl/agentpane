@@ -31,7 +31,7 @@ class DockerSandbox implements Sandbox {
 
   constructor(
     public readonly id: string,
-    public readonly projectId: string,
+    public readonly codespaceId: string,
     public readonly containerId: string,
     public status: SandboxStatus,
     container: Docker.Container
@@ -362,9 +362,7 @@ class DockerSandbox implements Sandbox {
           });
           await killer.start({ Detach: true });
         }
-      } catch (error) {
-        console.warn('[DockerProvider] Failed to terminate exec process:', error);
-      }
+      } catch (_error) {}
     };
 
     return {
@@ -412,7 +410,7 @@ export class DockerProvider implements EventEmittingSandboxProvider {
 
   private docker: Docker;
   private sandboxes = new Map<string, DockerSandbox>();
-  private projectToSandbox = new Map<string, string>();
+  private codespaceToSandbox = new Map<string, string>();
   private listeners = new Set<SandboxProviderEventListener>();
 
   constructor(options?: Docker.DockerOptions) {
@@ -433,14 +431,7 @@ export class DockerProvider implements EventEmittingSandboxProvider {
     try {
       const imageInfo = await this.docker.getImage(SANDBOX_DEFAULTS.image).inspect();
       expectedImageId = imageInfo.Id;
-      console.log(
-        `[DockerProvider] Expected image: ${SANDBOX_DEFAULTS.image} → ${expectedImageId.slice(0, 19)}`
-      );
-    } catch {
-      console.warn(
-        `[DockerProvider] Could not resolve expected image digest for ${SANDBOX_DEFAULTS.image} — skipping stale image check`
-      );
-    }
+    } catch {}
 
     try {
       // List all containers (including stopped ones) with agentpane prefix
@@ -451,17 +442,17 @@ export class DockerProvider implements EventEmittingSandboxProvider {
 
       for (const containerInfo of containers) {
         const containerName = containerInfo.Names[0]?.replace(/^\//, '') ?? '';
-        // Parse container name: agentpane-{projectId}-{sandboxId8}
+        // Parse container name: agentpane-{codespaceId}-{sandboxId8}
         const match = containerName.match(/^agentpane-(.+)-([a-z0-9]{8})$/);
         if (!match || !match[1] || !match[2]) continue;
 
-        const projectId = match[1];
+        const codespaceId = match[1];
         const sandboxIdPrefix = match[2];
         const containerId = containerInfo.Id;
         const isRunning = containerInfo.State === 'running';
 
-        // Skip if we already have this project registered
-        if (this.projectToSandbox.has(projectId)) {
+        // Skip if we already have this codespace registered
+        if (this.codespaceToSandbox.has(codespaceId)) {
           continue;
         }
 
@@ -471,13 +462,7 @@ export class DockerProvider implements EventEmittingSandboxProvider {
             const container = this.docker.getContainer(containerId);
             await container.remove({ force: true });
             removed++;
-            console.log(`[DockerProvider] Removed stopped container: ${containerName}`);
-          } catch (err) {
-            console.warn(
-              `[DockerProvider] Failed to remove stopped container ${containerName}:`,
-              err
-            );
-          }
+          } catch (_err) {}
           continue;
         }
 
@@ -486,24 +471,12 @@ export class DockerProvider implements EventEmittingSandboxProvider {
         // become stale — they still run the old image. Remove them so a fresh container
         // is created from the updated image on next use.
         if (expectedImageId && containerInfo.ImageID !== expectedImageId) {
-          console.log(
-            `[DockerProvider] Stale image detected for ${containerName}: ` +
-              `container=${containerInfo.ImageID.slice(0, 19)} vs expected=${expectedImageId.slice(0, 19)} — removing`
-          );
           try {
             const container = this.docker.getContainer(containerId);
             await container.stop();
             await container.remove({ force: true });
             removed++;
-            console.log(
-              `[DockerProvider] Removed stale container: ${containerName} (will be recreated with updated image)`
-            );
-          } catch (err) {
-            console.warn(
-              `[DockerProvider] Failed to remove stale container ${containerName}:`,
-              err
-            );
-          }
+          } catch (_err) {}
           continue;
         }
 
@@ -511,30 +484,30 @@ export class DockerProvider implements EventEmittingSandboxProvider {
         const sandboxId = `recovered-${sandboxIdPrefix}`;
         const container = this.docker.getContainer(containerId);
 
-        const sandbox = new DockerSandbox(sandboxId, projectId, containerId, 'running', container);
+        const sandbox = new DockerSandbox(
+          sandboxId,
+          codespaceId,
+          containerId,
+          'running',
+          container
+        );
 
         this.sandboxes.set(sandboxId, sandbox);
-        this.projectToSandbox.set(projectId, sandboxId);
+        this.codespaceToSandbox.set(codespaceId, sandboxId);
         recovered++;
-
-        console.log(
-          `[DockerProvider] Recovered container: ${containerName} for project ${projectId}`
-        );
       }
-    } catch (error) {
-      console.error('[DockerProvider] Failed to recover containers:', error);
-    }
+    } catch (_error) {}
 
     return { recovered, removed };
   }
 
   async create(config: SandboxConfig): Promise<Sandbox> {
-    // Check if sandbox already exists for project
-    const existing = this.projectToSandbox.get(config.projectId);
+    // Check if sandbox already exists for codespace
+    const existing = this.codespaceToSandbox.get(config.codespaceId);
     if (existing) {
       const sandbox = this.sandboxes.get(existing);
       if (sandbox && sandbox.status !== 'stopped') {
-        throw SandboxErrors.CONTAINER_ALREADY_EXISTS(config.projectId);
+        throw SandboxErrors.CONTAINER_ALREADY_EXISTS(config.codespaceId);
       }
     }
 
@@ -543,13 +516,13 @@ export class DockerProvider implements EventEmittingSandboxProvider {
     this.emit({
       type: 'sandbox:creating',
       sandboxId,
-      projectId: config.projectId,
+      codespaceId: config.codespaceId,
     });
 
     try {
       // Build volume mounts
       const binds = [
-        `${config.projectPath}:/workspace:rw`,
+        `${config.codespacePath}:/workspace:rw`,
         ...config.volumeMounts.map(
           (v) => `${v.hostPath}:${v.containerPath}:${v.readonly ? 'ro' : 'rw'}`
         ),
@@ -558,7 +531,7 @@ export class DockerProvider implements EventEmittingSandboxProvider {
       // Create container
       const container = await this.docker.createContainer({
         Image: config.image,
-        name: `agentpane-${config.projectId}-${sandboxId.slice(0, 8)}`,
+        name: `agentpane-${config.codespaceId}-${sandboxId.slice(0, 8)}`,
         Hostname: 'sandbox',
         WorkingDir: '/workspace',
         Env: Object.entries(config.env ?? {}).map(([k, v]) => `${k}=${v}`),
@@ -579,19 +552,19 @@ export class DockerProvider implements EventEmittingSandboxProvider {
 
       const sandbox = new DockerSandbox(
         sandboxId,
-        config.projectId,
+        config.codespaceId,
         container.id,
         'running',
         container
       );
 
       this.sandboxes.set(sandboxId, sandbox);
-      this.projectToSandbox.set(config.projectId, sandboxId);
+      this.codespaceToSandbox.set(config.codespaceId, sandboxId);
 
       this.emit({
         type: 'sandbox:created',
         sandboxId,
-        projectId: config.projectId,
+        codespaceId: config.codespaceId,
         containerId: container.id,
       });
 
@@ -609,15 +582,15 @@ export class DockerProvider implements EventEmittingSandboxProvider {
     }
   }
 
-  async get(projectId: string): Promise<Sandbox | null> {
-    // First check for project-specific sandbox
-    const sandboxId = this.projectToSandbox.get(projectId);
+  async get(codespaceId: string): Promise<Sandbox | null> {
+    // First check for codespace-specific sandbox
+    const sandboxId = this.codespaceToSandbox.get(codespaceId);
     if (sandboxId) {
       return this.sandboxes.get(sandboxId) ?? null;
     }
 
-    // Fall back to global default sandbox (projectId = 'default')
-    const defaultSandboxId = this.projectToSandbox.get('default');
+    // Fall back to global default sandbox (codespaceId = 'default')
+    const defaultSandboxId = this.codespaceToSandbox.get('default');
     if (defaultSandboxId) {
       return this.sandboxes.get(defaultSandboxId) ?? null;
     }
@@ -638,7 +611,7 @@ export class DockerProvider implements EventEmittingSandboxProvider {
     for (const [sandboxId, sandbox] of this.sandboxes) {
       infos.push({
         id: sandboxId,
-        projectId: sandbox.projectId,
+        codespaceId: sandbox.codespaceId,
         containerId: sandbox.containerId,
         status: sandbox.status,
         image: 'unknown', // Would need to store this
@@ -667,9 +640,6 @@ export class DockerProvider implements EventEmittingSandboxProvider {
         // Container doesn't exist - mark for removal
         if (error && typeof error === 'object' && 'statusCode' in error) {
           if ((error as { statusCode: number }).statusCode === 404) {
-            console.log(
-              `[DockerProvider] Container ${sandbox.containerId.slice(0, 12)} not found in Docker, removing stale entry`
-            );
             staleIds.push(sandboxId);
           }
         }
@@ -680,13 +650,12 @@ export class DockerProvider implements EventEmittingSandboxProvider {
     for (const sandboxId of staleIds) {
       const sandbox = this.sandboxes.get(sandboxId);
       if (sandbox) {
-        this.projectToSandbox.delete(sandbox.projectId);
+        this.codespaceToSandbox.delete(sandbox.codespaceId);
         this.sandboxes.delete(sandboxId);
       }
     }
 
     if (staleIds.length > 0) {
-      console.log(`[DockerProvider] Pruned ${staleIds.length} stale sandbox entries`);
     }
   }
 
@@ -769,12 +738,11 @@ export class DockerProvider implements EventEmittingSandboxProvider {
             await sandbox.stop();
           }
           this.sandboxes.delete(sandboxId);
-          this.projectToSandbox.delete(sandbox.projectId);
+          this.codespaceToSandbox.delete(sandbox.codespaceId);
           cleaned++;
         } catch (error) {
           // Log cleanup errors for debugging - don't fail the entire cleanup operation
-          const message = errorMessage(error);
-          console.error(`[DockerProvider] Failed to cleanup sandbox ${sandboxId}:`, message);
+          const _message = errorMessage(error);
         }
       }
     }
@@ -786,16 +754,14 @@ export class DockerProvider implements EventEmittingSandboxProvider {
    * Restart a sandbox container by project ID.
    * Stops the container if running and starts it again.
    */
-  async restart(projectId: string): Promise<Sandbox | null> {
-    const sandboxId = this.projectToSandbox.get(projectId);
+  async restart(codespaceId: string): Promise<Sandbox | null> {
+    const sandboxId = this.codespaceToSandbox.get(codespaceId);
     if (!sandboxId) {
-      console.log(`[DockerProvider] No sandbox found for project ${projectId}`);
       return null;
     }
 
     const sandbox = this.sandboxes.get(sandboxId);
     if (!sandbox) {
-      console.log(`[DockerProvider] Sandbox ${sandboxId} not in cache`);
       return null;
     }
 
@@ -805,12 +771,8 @@ export class DockerProvider implements EventEmittingSandboxProvider {
       // Stop if running
       const info = await container.inspect();
       if (info.State.Running) {
-        console.log(`[DockerProvider] Stopping container ${sandbox.containerId.slice(0, 12)}`);
         await container.stop({ t: 5 });
       }
-
-      // Start again
-      console.log(`[DockerProvider] Starting container ${sandbox.containerId.slice(0, 12)}`);
       await container.start();
 
       // Update sandbox status
@@ -818,12 +780,9 @@ export class DockerProvider implements EventEmittingSandboxProvider {
       sandbox.touch();
 
       this.emit({ type: 'sandbox:started', sandboxId });
-
-      console.log(`[DockerProvider] Container restarted successfully for project ${projectId}`);
       return sandbox;
     } catch (error) {
       const message = errorMessage(error);
-      console.error(`[DockerProvider] Failed to restart container:`, message);
       this.emit({
         type: 'sandbox:error',
         sandboxId,
@@ -846,9 +805,7 @@ export class DockerProvider implements EventEmittingSandboxProvider {
     for (const listener of this.listeners) {
       try {
         listener(event);
-      } catch (error) {
-        console.error('[DockerProvider] Event listener error:', error);
-      }
+      } catch (_error) {}
     }
   }
 }

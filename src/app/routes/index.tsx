@@ -38,7 +38,7 @@ type ClientProjectSummary = {
 export const Route = createFileRoute('/')({
   loader: async () => {
     // Prefetch project summaries (FC-022)
-    const result = await apiClient.projects.listWithSummaries({ limit: 24 });
+    const result = await apiClient.codespaces.listWithSummaries({ limit: 24 });
     return { projects: result.ok ? result.data.items : [] };
   },
   component: Dashboard,
@@ -145,7 +145,7 @@ function Dashboard(): React.JSX.Element {
       isFetchingRef.current = true;
       console.debug('[Home] fetchProjects starting');
       try {
-        const result = await apiClient.projects.listWithSummaries({ limit: 24 });
+        const result = await apiClient.codespaces.listWithSummaries({ limit: 24 });
         if (result.ok) {
           // Convert API response to client project summaries
           const summaries: ClientProjectSummary[] = result.data.items.map(
@@ -238,7 +238,7 @@ function Dashboard(): React.JSX.Element {
           }
         }
 
-        const result = await apiClient.projects.create({
+        const result = await apiClient.codespaces.create({
           name: data.name,
           path: data.path,
           description: data.description,
@@ -256,7 +256,7 @@ function Dashboard(): React.JSX.Element {
           };
         }
 
-        const listResult = await apiClient.projects.listWithSummaries({ limit: 24 });
+        const listResult = await apiClient.codespaces.listWithSummaries({ limit: 24 });
         if (listResult.ok) {
           const summaries: ClientProjectSummary[] = listResult.data.items.map(
             (item: ProjectSummaryItem) => ({
@@ -401,9 +401,9 @@ function Dashboard(): React.JSX.Element {
 
   if (isLoading) {
     return (
-      <LayoutShell breadcrumbs={[{ label: 'Projects' }]}>
+      <LayoutShell breadcrumbs={[{ label: 'Codespaces' }]}>
         <div className="flex items-center justify-center min-h-[60vh]">
-          <div className="text-muted-foreground">Loading projects...</div>
+          <div className="text-muted-foreground">Loading codespaces...</div>
         </div>
       </LayoutShell>
     );
@@ -411,7 +411,7 @@ function Dashboard(): React.JSX.Element {
 
   return (
     <LayoutShell
-      breadcrumbs={[{ label: 'Projects' }]}
+      breadcrumbs={[{ label: 'Codespaces' }]}
       actions={
         <div className="flex items-center gap-3">
           <div className="relative">
@@ -420,14 +420,14 @@ function Dashboard(): React.JSX.Element {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search projects..."
+              placeholder="Search codespaces..."
               className="w-48 rounded-md border border-border bg-surface py-1.5 pl-9 pr-3 text-sm text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
               data-testid="project-search"
             />
           </div>
           <Button onClick={() => setShowNewProject(true)} data-testid="new-project-button">
             <Plus className="h-4 w-4" />
-            New Project
+            New Codespace
           </Button>
         </div>
       }
@@ -440,17 +440,17 @@ function Dashboard(): React.JSX.Element {
               size="lg"
               customIcon={<AgentPaneLogo />}
               title="Welcome to AgentPane!"
-              subtitle="Let's get you started with your first project"
+              subtitle="Let's get you started with your first codespace"
               steps={[
                 { label: 'Install AgentPane', completed: true },
                 { label: 'Configure Global Settings', completed: isSettingsConfigured },
-                { label: 'Create your first project', completed: false },
+                { label: 'Create your first codespace', completed: false },
                 { label: 'Run your first agent', completed: false },
               ]}
               primaryAction={
                 isSettingsConfigured
                   ? {
-                      label: 'Create Project',
+                      label: 'Create Codespace',
                       onClick: () => setShowNewProject(true),
                     }
                   : {

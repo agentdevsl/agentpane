@@ -69,12 +69,12 @@ export const ServiceErrors = {
     ),
 
   // Sandbox
-  SANDBOX_NOT_READY: (projectId: string, maxWaitMs: number) =>
+  SANDBOX_NOT_READY: (codespaceId: string, maxWaitMs: number) =>
     createError(
       'SANDBOX_NOT_READY',
-      `Sandbox for project ${projectId} did not become ready within ${maxWaitMs}ms`,
+      `Sandbox for codespace ${codespaceId} did not become ready within ${maxWaitMs}ms`,
       504,
-      { projectId, maxWaitMs }
+      { codespaceId, maxWaitMs }
     ),
 } as const;
 

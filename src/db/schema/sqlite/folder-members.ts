@@ -1,16 +1,16 @@
 import { sql } from 'drizzle-orm';
 import { primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import type { RbacRole } from '../shared/enums';
-import { projects } from './projects';
+import { projectFolders } from './project-folders';
 import { teams } from './teams';
 import { users } from './users';
 
-export const projectMembers = sqliteTable(
-  'project_members',
+export const folderMembers = sqliteTable(
+  'folder_members',
   {
-    projectId: text('project_id')
+    projectFolderId: text('project_folder_id')
       .notNull()
-      .references(() => projects.id, { onDelete: 'cascade' }),
+      .references(() => projectFolders.id, { onDelete: 'cascade' }),
     userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
@@ -20,8 +20,8 @@ export const projectMembers = sqliteTable(
     }),
     createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
   },
-  (table) => [primaryKey({ columns: [table.projectId, table.userId] })]
+  (table) => [primaryKey({ columns: [table.projectFolderId, table.userId] })]
 );
 
-export type ProjectMember = typeof projectMembers.$inferSelect;
-export type NewProjectMember = typeof projectMembers.$inferInsert;
+export type FolderMember = typeof folderMembers.$inferSelect;
+export type NewFolderMember = typeof folderMembers.$inferInsert;

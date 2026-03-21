@@ -7,7 +7,7 @@
 import { createApiFetch } from '@/lib/api/client';
 import { type SandboxStatus, updateSandboxStatus } from './collections.js';
 
-// Active sync intervals per project
+// Active sync intervals per codespace
 const activeSyncs = new Map<string, NodeJS.Timeout>();
 
 // Track inflight polls to prevent overlap
@@ -19,7 +19,7 @@ const apiFetch = createApiFetch();
 /**
  * Fetch sandbox status from the API
  */
-async function fetchSandboxStatus(projectId: string): Promise<SandboxStatus | null> {
+async function fetchSandboxStatus(codespaceId: string): Promise<SandboxStatus | null> {
   const result = await apiFetch<{
     mode: string;
     containerStatus: string;
@@ -34,15 +34,14 @@ async function fetchSandboxStatus(projectId: string): Promise<SandboxStatus | nu
     nomadVersion?: string | null;
     nomadLeader?: string | null;
     nomadJobCount: number;
-  }>(`/api/sandbox/status/${encodeURIComponent(projectId)}`);
+  }>(`/api/sandbox/status/${encodeURIComponent(codespaceId)}`);
 
   if (!result.ok) {
-    console.error('[SandboxStatusSync] API error:', result.error);
     return null;
   }
 
   return {
-    projectId,
+    codespaceId,
     mode: result.data.mode as SandboxStatus['mode'],
     containerStatus: result.data.containerStatus as SandboxStatus['containerStatus'],
     containerId: result.data.containerId,
@@ -61,21 +60,19 @@ async function fetchSandboxStatus(projectId: string): Promise<SandboxStatus | nu
 }
 
 /**
- * Start syncing sandbox status for a project
+ * Start syncing sandbox status for a codespace
  *
- * @param projectId Project ID to sync
+ * @param codespaceId Codespace ID to sync
  * @param intervalMs Polling interval in milliseconds (default: 10000)
  */
-export function startSandboxStatusSync(projectId: string, intervalMs = 10000): void {
+export function startSandboxStatusSync(codespaceId: string, intervalMs = 10000): void {
   // Don't start if already syncing
-  if (activeSyncs.has(projectId)) {
+  if (activeSyncs.has(codespaceId)) {
     return;
   }
 
-  console.log('[SandboxStatusSync] Starting sync for project:', projectId);
-
   // Fetch immediately
-  fetchSandboxStatus(projectId).then((status) => {
+  fetchSandboxStatus(codespaceId).then((status) => {
     if (status) {
       updateSandboxStatus(status);
     }
@@ -83,40 +80,39 @@ export function startSandboxStatusSync(projectId: string, intervalMs = 10000): v
 
   // Set up polling interval with overlap guard
   const interval = setInterval(async () => {
-    if (inflightPolls.has(projectId)) {
+    if (inflightPolls.has(codespaceId)) {
       return;
     }
-    inflightPolls.add(projectId);
+    inflightPolls.add(codespaceId);
     try {
-      const status = await fetchSandboxStatus(projectId);
+      const status = await fetchSandboxStatus(codespaceId);
       if (status) {
         updateSandboxStatus(status);
       }
     } finally {
-      inflightPolls.delete(projectId);
+      inflightPolls.delete(codespaceId);
     }
   }, intervalMs);
 
-  activeSyncs.set(projectId, interval);
+  activeSyncs.set(codespaceId, interval);
 }
 
 /**
  * Stop syncing sandbox status for a project
  */
-export function stopSandboxStatusSync(projectId: string): void {
-  const interval = activeSyncs.get(projectId);
+export function stopSandboxStatusSync(codespaceId: string): void {
+  const interval = activeSyncs.get(codespaceId);
   if (interval) {
-    console.log('[SandboxStatusSync] Stopping sync for project:', projectId);
     clearInterval(interval);
-    activeSyncs.delete(projectId);
+    activeSyncs.delete(codespaceId);
   }
 }
 
 /**
  * Force refresh sandbox status for a project
  */
-export async function refreshSandboxStatus(projectId: string): Promise<void> {
-  const status = await fetchSandboxStatus(projectId);
+export async function refreshSandboxStatus(codespaceId: string): Promise<void> {
+  const status = await fetchSandboxStatus(codespaceId);
   if (status) {
     updateSandboxStatus(status);
   }

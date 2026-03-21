@@ -25,7 +25,7 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
 
   // GET /api/tasks
   app.get('/', async (c) => {
-    const projectId = c.req.query('projectId');
+    const codespaceId = c.req.query('codespaceId');
     const rawColumn = c.req.query('column');
     // EH-014: Validate column query param against taskColumnSchema instead of bare cast
     let column: 'backlog' | 'queued' | 'in_progress' | 'waiting_approval' | 'verified' | undefined;
@@ -48,22 +48,22 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
     const limit = parseInt(c.req.query('limit') ?? '50', 10);
     const offset = parseInt(c.req.query('offset') ?? '0', 10);
 
-    if (!projectId) {
+    if (!codespaceId) {
       return json(
-        { ok: false, error: { code: 'MISSING_PARAMS', message: 'projectId is required' } },
+        { ok: false, error: { code: 'MISSING_PARAMS', message: 'codespaceId is required' } },
         400
       );
     }
 
-    if (!isValidId(projectId)) {
+    if (!isValidId(codespaceId)) {
       return json(
-        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid projectId format' } },
+        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid codespaceId format' } },
         400
       );
     }
 
     try {
-      const result = await taskService.list(projectId, { column, limit, offset });
+      const result = await taskService.list(codespaceId, { column, limit, offset });
 
       if (!result.ok) {
         return json({ ok: false, error: result.error }, result.error.status);
@@ -93,7 +93,7 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
       const body = parsed.data;
 
       const result = await taskService.create({
-        projectId: body.projectId,
+        codespaceId: body.codespaceId,
         title: body.title,
         description: body.description,
         labels: body.labels,
@@ -249,15 +249,6 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
       const shouldStartHostAgent = body.column === 'in_progress' && body.startAgent !== false;
 
       if (shouldStartHostAgent) {
-        // Check if project has sandbox enabled - if so, container agent is handling it
-        // We only need host-side agent as fallback when sandbox is NOT enabled
-        // For now, let the container agent service handle it via taskService.moveColumn()
-        // Host-side agent is available but container-based is preferred
-
-        // Log that container agent should have been triggered
-        console.log(
-          `[Tasks] Task ${id} moved to in_progress - container agent will run if sandbox is enabled`
-        );
       }
 
       // Return success for the move, but include agent error info if present

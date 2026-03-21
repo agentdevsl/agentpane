@@ -17,7 +17,7 @@ export type AgentPhase = 'plan' | 'execute';
  * Input for starting a container agent.
  */
 export interface StartAgentInput {
-  projectId: string;
+  codespaceId: string;
   taskId: string;
   sessionId: string;
   prompt: string;
@@ -44,7 +44,7 @@ export interface AgentConfig {
 export interface RunningAgent {
   taskId: string;
   sessionId: string;
-  projectId: string;
+  codespaceId: string;
   sandboxId: string;
   bridge: ContainerBridge;
   execResult: ExecStreamResult;
@@ -62,7 +62,7 @@ export interface RunningAgent {
 export interface RunningAgentCoreAgent {
   taskId: string;
   sessionId: string;
-  projectId: string;
+  codespaceId: string;
   sandboxId: string;
   bridge: AgentCoreBridge;
   instance: AgentCoreSandboxInstance;
@@ -79,7 +79,7 @@ export interface RunningAgentCoreAgent {
 export interface PlanData {
   taskId: string;
   sessionId: string;
-  projectId: string;
+  codespaceId: string;
   plan: string;
   turnCount: number;
   sdkSessionId: string;
@@ -97,7 +97,7 @@ export interface PlanData {
  */
 export interface TaskPlanRow {
   id: string;
-  projectId: string;
+  codespaceId: string;
   sessionId: string | null;
   plan: string | null;
   planOptions: StoredPlanOptions | null;

@@ -2,7 +2,7 @@ import { createId } from '@paralleldrive/cuid2';
 import { sql } from 'drizzle-orm';
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import type { ApiTokenStatus, RbacRole } from '../shared/enums';
-import { projects } from './projects';
+import { codespaces } from './codespaces';
 import { teams } from './teams';
 import { users } from './users';
 
@@ -21,7 +21,9 @@ export const apiTokens = sqliteTable('api_tokens', {
   tokenPrefix: text('token_prefix').notNull(),
   role: text('role').$type<RbacRole>().notNull(),
   scopeTags: text('scope_tags', { mode: 'json' }).$type<string[] | null>(),
-  scopeProjectId: text('scope_project_id').references(() => projects.id, { onDelete: 'set null' }),
+  scopeCodespaceId: text('scope_codespace_id').references(() => codespaces.id, {
+    onDelete: 'set null',
+  }),
   status: text('status').$type<ApiTokenStatus>().default('active').notNull(),
   expiresAt: text('expires_at'),
   useCount: integer('use_count').default(0),

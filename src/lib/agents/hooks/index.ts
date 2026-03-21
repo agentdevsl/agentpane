@@ -10,7 +10,7 @@ export interface CreateAgentHooksInput {
   sessionId: string;
   agentRunId: string;
   taskId: string | null;
-  projectId: string;
+  codespaceId: string;
   allowedTools: string[];
   db: Database;
   sessionService: {
@@ -19,12 +19,12 @@ export interface CreateAgentHooksInput {
 }
 
 export function createAgentHooks(input: CreateAgentHooksInput): AgentHooks {
-  const { agentId, sessionId, agentRunId, taskId, projectId, allowedTools, db, sessionService } =
+  const { agentId, sessionId, agentRunId, taskId, codespaceId, allowedTools, db, sessionService } =
     input;
 
   const streamingHooks = createStreamingHooks(agentId, sessionId, sessionService);
   const whitelistHook = createToolWhitelistHook(allowedTools);
-  const auditHook = createAuditHook(db, agentId, agentRunId, taskId, projectId);
+  const auditHook = createAuditHook(db, agentId, agentRunId, taskId, codespaceId);
 
   return {
     PreToolUse: [whitelistHook, streamingHooks.PreToolUse],

@@ -35,8 +35,8 @@ export interface AgentCoreInstanceOptions {
   accessKeyId: string;
   /** AWS secret access key */
   secretAccessKey: string;
-  /** Project this instance belongs to */
-  projectId: string;
+  /** Codespace this instance belongs to */
+  codespaceId: string;
   /** Unique sandbox identifier */
   sandboxId: string;
 }
@@ -161,7 +161,7 @@ async function signRequest(opts: {
 
 export class AgentCoreSandboxInstance {
   readonly runtimeArn: string;
-  readonly projectId: string;
+  readonly codespaceId: string;
   readonly sandboxId: string;
   readonly createdAt: string;
 
@@ -172,7 +172,7 @@ export class AgentCoreSandboxInstance {
 
   constructor(options: AgentCoreInstanceOptions) {
     this.runtimeArn = options.runtimeArn;
-    this.projectId = options.projectId;
+    this.codespaceId = options.codespaceId;
     this.sandboxId = options.sandboxId;
     this.createdAt = new Date().toISOString();
     this.region = options.region;
@@ -390,7 +390,7 @@ export class AgentCoreSandboxInstance {
   async stop(): Promise<void> {
     this._status = 'stopped';
     log.info('AgentCore instance stopped', {
-      data: { sandboxId: this.sandboxId, projectId: this.projectId },
+      data: { sandboxId: this.sandboxId, codespaceId: this.codespaceId },
     });
   }
 

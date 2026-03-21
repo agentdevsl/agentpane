@@ -12,7 +12,7 @@ import { Button } from '@/app/components/ui/button';
 import { useMountEffect } from '@/app/hooks/use-mount-effect';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import type { Template } from '@/db/schema';
-import { apiClient, type ProjectListItem } from '@/lib/api/client';
+import { apiClient, type CodespaceListItem } from '@/lib/api/client';
 import type { GitHubOrg, GitHubRepo } from '@/services/github-token.service';
 
 export const Route = createFileRoute('/templates/project')({
@@ -54,7 +54,7 @@ function TemplateGrid({
 function ProjectTemplatesPage(): React.JSX.Element {
   // Data state
   const [templates, setTemplates] = useState<Template[]>([]);
-  const [projects, setProjects] = useState<ProjectListItem[]>([]);
+  const [projects, setProjects] = useState<CodespaceListItem[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | 'all'>('all');
 
   // UI state
@@ -83,16 +83,16 @@ function ProjectTemplatesPage(): React.JSX.Element {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showProjectDropdown]);
 
-  // Fetch projects and GitHub status on mount
+  // Fetch codespaces and GitHub status on mount
   useMountEffect(() => {
     const fetchInitialData = async () => {
-      const [projectsResult, healthResult] = await Promise.all([
-        apiClient.projects.list({ limit: 100 }),
+      const [codespacesResult, healthResult] = await Promise.all([
+        apiClient.codespaces.list({ limit: 100 }),
         apiClient.system.health(),
       ]);
 
-      if (projectsResult.ok) {
-        setProjects(projectsResult.data.items);
+      if (codespacesResult.ok) {
+        setProjects(codespacesResult.data.items);
       }
 
       if (healthResult.ok) {
@@ -138,12 +138,12 @@ function ProjectTemplatesPage(): React.JSX.Element {
     return templates.filter((t) => t.projectId === selectedProjectId);
   }, [templates, selectedProjectId]);
 
-  // Group templates by project for "all" view
+  // Group templates by codespace for "all" view
   const groupedTemplates = useMemo(() => {
     if (selectedProjectId !== 'all') {
       return null;
     }
-    const groups: Map<string, { project: ProjectListItem | null; templates: Template[] }> =
+    const groups: Map<string, { project: CodespaceListItem | null; templates: Template[] }> =
       new Map();
 
     for (const template of templates) {

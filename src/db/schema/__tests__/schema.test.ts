@@ -3,8 +3,9 @@ import {
   agentRuns,
   agents,
   auditLogs,
+  codespaces,
   githubInstallations,
-  projects,
+  projectFolders,
   repositoryConfigs,
   sessions,
   tasks,
@@ -12,9 +13,14 @@ import {
 } from '../index.js';
 
 describe('schema definitions', () => {
-  it('defines projects table', () => {
-    expect(projects).toBeDefined();
-    expect(projects.id).toBeDefined();
+  it('defines project_folders table', () => {
+    expect(projectFolders).toBeDefined();
+    expect(projectFolders.id).toBeDefined();
+  });
+
+  it('defines codespaces table', () => {
+    expect(codespaces).toBeDefined();
+    expect(codespaces.id).toBeDefined();
   });
 
   it('defines tasks table', () => {

@@ -159,13 +159,8 @@ export class TaskCreationSdkService {
         return { behavior: 'allow' as const, toolUseID: options.toolUseID };
       }
 
-      console.log(
-        '[TaskCreationSdkService] AskUserQuestion permission requested, pausing for user input'
-      );
-
       const session = getSession();
       if (!session) {
-        console.error('[TaskCreationSdkService] Session not found in canUseTool callback');
         return {
           behavior: 'deny' as const,
           message: 'Session not found',

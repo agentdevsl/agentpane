@@ -32,8 +32,8 @@ import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import type { SANDBOX_TYPES } from '@/db/schema/shared/enums';
 import { cn } from '@/lib/utils/cn';
 import type { Result } from '@/lib/utils/result';
+import type { PathValidation } from '@/services/codespace.service';
 import type { GitHubRepo } from '@/services/github-token.service';
-import type { PathValidation } from '@/services/project.service';
 
 // Types
 interface RepositoryInfo {

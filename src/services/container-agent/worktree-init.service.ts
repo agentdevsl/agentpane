@@ -10,7 +10,7 @@
 
 import { eq } from 'drizzle-orm';
 
-import { projects, tasks } from '../../db/schema';
+import { codespaces, tasks } from '../../db/schema';
 import { CONTAINER_WORKSPACE_PATH } from '../../lib/constants/sandbox.js';
 import { createLogger } from '../../lib/logging/logger.js';
 import { deriveGitHubFromPath, resolveGitToken } from '../../lib/sandbox/git-token-resolver.js';
@@ -25,8 +25,8 @@ export class WorktreeInitService {
 
   /**
    * Translate a host filesystem path to the corresponding container path.
-   * The container bind-mounts the project root at /workspace, so we replace
-   * the host project path prefix with /workspace.
+   * The container bind-mounts the codespace root at /workspace, so we replace
+   * the host codespace path prefix with /workspace.
    */
   translatePathForContainer(hostWorktreePath: string, hostProjectPath: string): string {
     if (hostWorktreePath.startsWith(hostProjectPath)) {
@@ -45,7 +45,7 @@ export class WorktreeInitService {
    */
   async initializeRemoteWorkspace(params: {
     sandbox: SandboxExec;
-    project: {
+    codespace: {
       githubOwner: string | null;
       githubRepo: string | null;
       githubInstallationId: string | null;
@@ -59,42 +59,42 @@ export class WorktreeInitService {
     sessionId: string;
     phase: AgentPhase;
   }): Promise<{ worktreePath: string; branch: string } | null> {
-    const { sandbox, project, task, taskId, sessionId, phase } = params;
+    const { sandbox, codespace, task, taskId, sessionId, phase } = params;
     const { db, streams, githubTokenService } = this.deps;
 
     // Auto-derive owner/repo from git remote when not explicitly configured
-    let { githubOwner, githubRepo } = project;
-    if ((!githubOwner || !githubRepo) && project.path) {
-      const derived = deriveGitHubFromPath(project.path);
+    let { githubOwner, githubRepo } = codespace;
+    if ((!githubOwner || !githubRepo) && codespace.path) {
+      const derived = deriveGitHubFromPath(codespace.path);
       if (derived) {
         githubOwner = derived.owner;
         githubRepo = derived.repo;
         log.info('Derived GitHub owner/repo from git remote', {
-          data: { taskId, owner: derived.owner, repo: derived.repo, projectPath: project.path },
+          data: { taskId, owner: derived.owner, repo: derived.repo, codespacePath: project.path },
         });
         // Backfill the DB so future calls skip derivation
         try {
           await db
-            .update(projects)
+            .update(codespaces)
             .set({
               githubOwner: derived.owner,
               githubRepo: derived.repo,
             })
-            .where(eq(projects.id, project.id));
-          log.info('Backfilled GitHub config to project', {
-            data: { projectId: project.id, owner: derived.owner, repo: derived.repo },
+            .where(eq(codespaces.id, project.id));
+          log.info('Backfilled GitHub config to codespace', {
+            data: { codespaceId: project.id, owner: derived.owner, repo: derived.repo },
           });
         } catch (dbErr) {
           const msg = dbErr instanceof Error ? dbErr.message : String(dbErr);
           log.info('Failed to backfill GitHub config (non-critical)', {
-            data: { projectId: project.id, error: msg },
+            data: { codespaceId: project.id, error: msg },
           });
         }
       }
     }
 
     if (!githubOwner || !githubRepo) {
-      log.info('Project has no GitHub config and no git remote, using empty workspace', {
+      log.info('Codespace has no GitHub config and no git remote, using empty workspace', {
         data: { taskId },
       });
       return null;
@@ -131,7 +131,7 @@ export class WorktreeInitService {
     });
 
     const tokenResult = await resolveGitToken(
-      { ...project, githubOwner, githubRepo },
+      { ...codespace, githubOwner, githubRepo },
       { db, githubTokenService }
     );
 
@@ -161,7 +161,7 @@ export class WorktreeInitService {
     });
 
     const baseBranch =
-      (project.config as { defaultBranch?: string } | null)?.defaultBranch ?? 'main';
+      (codespace.config as { defaultBranch?: string } | null)?.defaultBranch ?? 'main';
     const result = await initializeRemoteWorkspaceInPod({
       sandbox,
       gitToken: tokenResult,
@@ -215,13 +215,14 @@ export class WorktreeInitService {
     phase: AgentPhase;
     taskId: string;
     sessionId: string;
-    projectId: string;
-    project: { path: string; name: string };
+    codespaceId: string;
+    codespace: { path: string; name: string };
     task: { title: string; worktreeId: string | null };
     agentId: string;
     sandbox: { id: string };
   }): Promise<{ worktreeId?: string; worktreePath: string }> {
-    const { phase, taskId, sessionId, projectId, project, task, agentId } = params;
+    // biome-ignore lint/correctness/noUnusedVariables: codespaceId is used in worktreeService.create() below
+    const { phase, taskId, sessionId, codespaceId, project, task, agentId } = params;
     const { db, streams, worktreeService } = this.deps;
     let worktreeId: string | undefined;
     let worktreePath = CONTAINER_WORKSPACE_PATH;
@@ -231,7 +232,7 @@ export class WorktreeInitService {
         const wts = await worktreeService.getStatus(task.worktreeId);
         if (wts.ok) {
           worktreeId = wts.value.id;
-          worktreePath = this.translatePathForContainer(wts.value.path, project.path);
+          worktreePath = this.translatePathForContainer(wts.value.path, codespace.path);
           log.info('Recovered worktree for execution', {
             data: {
               worktreeId,
@@ -289,7 +290,7 @@ export class WorktreeInitService {
       try {
         const worktreeResult = await worktreeService.create(
           {
-            projectId,
+            codespaceId,
             agentId,
             taskId,
             taskTitle: task.title,
@@ -303,7 +304,7 @@ export class WorktreeInitService {
 
         if (worktreeResult.ok) {
           worktreeId = worktreeResult.value.id;
-          worktreePath = this.translatePathForContainer(worktreeResult.value.path, project.path);
+          worktreePath = this.translatePathForContainer(worktreeResult.value.path, codespace.path);
           log.info('Worktree created', {
             data: {
               worktreeId,

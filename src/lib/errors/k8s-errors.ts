@@ -147,8 +147,8 @@ export const K8sErrors = {
       { podName, currentPhase }
     ),
 
-  POD_ALREADY_EXISTS: (projectId: string) =>
-    createError('K8S_POD_ALREADY_EXISTS', 'Pod already exists for project', 409, { projectId }),
+  POD_ALREADY_EXISTS: (codespaceId: string) =>
+    createError('K8S_POD_ALREADY_EXISTS', 'Pod already exists for codespace', 409, { codespaceId }),
 
   // Exec errors
   EXEC_FAILED: (command: string, message: string) =>

@@ -2,7 +2,7 @@ import { createId } from '@paralleldrive/cuid2';
 import { integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 import type { AgentStatus } from '../shared/enums';
 import { agents } from './agents';
-import { projects } from './projects';
+import { codespaces } from './codespaces';
 import { sessions } from './sessions';
 import { tasks } from './tasks';
 
@@ -16,9 +16,9 @@ export const agentRuns = pgTable('agent_runs', {
   taskId: text('task_id')
     .notNull()
     .references(() => tasks.id, { onDelete: 'cascade' }),
-  projectId: text('project_id')
+  codespaceId: text('codespace_id')
     .notNull()
-    .references(() => projects.id, { onDelete: 'cascade' }),
+    .references(() => codespaces.id, { onDelete: 'cascade' }),
   sessionId: text('session_id').references(() => sessions.id, { onDelete: 'set null' }),
   status: text('status').$type<AgentStatus>().notNull(),
   startedAt: timestamp('started_at', { mode: 'string' }).defaultNow().notNull(),

@@ -39,7 +39,7 @@ function getOrCreateKey(): Buffer {
     }
   } catch (error) {
     throw new Error(
-      `Cannot create data directory "${dataDir}". Please check permissions. ` + errorMessage(error)
+      `Cannot create data directory "${dataDir}". Please check permissions. ${errorMessage(error)}`
     );
   }
 

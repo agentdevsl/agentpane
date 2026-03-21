@@ -64,7 +64,7 @@ export class AgentQueueService {
    * @returns Queue position info for the newly queued task
    */
   async queueTask(
-    projectId: string,
+    codespaceId: string,
     taskId: string
   ): Promise<Result<QueuePosition, ConcurrencyError>> {
     // Validate task exists and transition is allowed
@@ -105,8 +105,6 @@ export class AgentQueueService {
     });
 
     if (!task) {
-      // Task disappeared after update — possible data integrity issue
-      console.error(`[AgentQueueService] Task ${taskId} not found after update to 'queued'`);
       return err({
         code: 'QUEUE_ERROR',
         message: 'Task not found after queue update — possible data integrity issue',
@@ -116,13 +114,13 @@ export class AgentQueueService {
 
     // Get the total count and position
     const queuedTasks = await this.db.query.tasks.findMany({
-      where: and(eq(tasks.projectId, projectId), eq(tasks.column, 'queued')),
+      where: and(eq(tasks.codespaceId, codespaceId), eq(tasks.column, 'queued')),
       orderBy: asc(tasks.updatedAt),
     });
 
     const totalQueued = queuedTasks.length;
     const position = queuedTasks.findIndex((t) => t.id === taskId);
-    const avgCompletion = await this.getAverageCompletionMs(projectId);
+    const avgCompletion = await this.getAverageCompletionMs(codespaceId);
 
     return ok(buildQueuePosition(task, position, totalQueued, avgCompletion));
   }
@@ -133,10 +131,10 @@ export class AgentQueueService {
    *
    * This is called when an agent completes a task and is ready for more work.
    */
-  async dequeueNext(projectId: string): Promise<Result<Task | null, never>> {
+  async dequeueNext(codespaceId: string): Promise<Result<Task | null, never>> {
     // Find the oldest queued task
     const nextTask = await this.db.query.tasks.findFirst({
-      where: and(eq(tasks.projectId, projectId), eq(tasks.column, 'queued')),
+      where: and(eq(tasks.codespaceId, codespaceId), eq(tasks.column, 'queued')),
       orderBy: asc(tasks.updatedAt),
     });
 
@@ -179,7 +177,7 @@ export class AgentQueueService {
       .from(tasks)
       .where(
         and(
-          eq(tasks.projectId, task.projectId),
+          eq(tasks.codespaceId, task.codespaceId),
           eq(tasks.column, 'queued'),
           lt(tasks.updatedAt, task.updatedAt)
         )
@@ -191,22 +189,22 @@ export class AgentQueueService {
     const [totalResult] = await this.db
       .select({ count: count() })
       .from(tasks)
-      .where(and(eq(tasks.projectId, task.projectId), eq(tasks.column, 'queued')));
+      .where(and(eq(tasks.codespaceId, task.codespaceId), eq(tasks.column, 'queued')));
 
     const totalQueued = totalResult?.count ?? 0;
-    const avgCompletion = await this.getAverageCompletionMs(task.projectId);
+    const avgCompletion = await this.getAverageCompletionMs(task.codespaceId);
 
     return ok(buildQueuePosition(task, position, totalQueued, avgCompletion));
   }
 
   /**
-   * Get queue statistics for a project.
+   * Get queue statistics for a codespace.
    * Includes total queued count, average completion time, and recent completion count.
    */
-  async getQueueStats(projectId?: string): Promise<Result<QueueStats, never>> {
+  async getQueueStats(codespaceId?: string): Promise<Result<QueueStats, never>> {
     // Count queued tasks
-    const queuedFilter = projectId
-      ? and(eq(tasks.column, 'queued'), eq(tasks.projectId, projectId))
+    const queuedFilter = codespaceId
+      ? and(eq(tasks.column, 'queued'), eq(tasks.codespaceId, codespaceId))
       : eq(tasks.column, 'queued');
 
     const [queuedResult] = await this.db.select({ count: count() }).from(tasks).where(queuedFilter);
@@ -214,8 +212,8 @@ export class AgentQueueService {
     const totalQueued = queuedResult?.count ?? 0;
 
     // Get average completion time and recent completions from agent_runs
-    const runFilter = projectId
-      ? and(eq(agentRuns.projectId, projectId), sql`${agentRuns.completedAt} IS NOT NULL`)
+    const runFilter = codespaceId
+      ? and(eq(agentRuns.codespaceId, codespaceId), sql`${agentRuns.completedAt} IS NOT NULL`)
       : sql`${agentRuns.completedAt} IS NOT NULL`;
 
     const recentRuns = await this.db.query.agentRuns.findMany({
@@ -256,11 +254,11 @@ export class AgentQueueService {
   }
 
   /**
-   * Get all queued tasks for a project, ordered by queue position (FIFO).
+   * Get all queued tasks for a codespace, ordered by queue position (FIFO).
    */
-  async getQueuedTasks(projectId?: string): Promise<Result<QueuePosition[], never>> {
-    const filter = projectId
-      ? and(eq(tasks.column, 'queued'), eq(tasks.projectId, projectId))
+  async getQueuedTasks(codespaceId?: string): Promise<Result<QueuePosition[], never>> {
+    const filter = codespaceId
+      ? and(eq(tasks.column, 'queued'), eq(tasks.codespaceId, codespaceId))
       : eq(tasks.column, 'queued');
 
     const queuedTasks = await this.db.query.tasks.findMany({
@@ -269,8 +267,8 @@ export class AgentQueueService {
     });
 
     const totalQueued = queuedTasks.length;
-    const avgCompletion = projectId
-      ? await this.getAverageCompletionMs(projectId)
+    const avgCompletion = codespaceId
+      ? await this.getAverageCompletionMs(codespaceId)
       : await this.getAverageCompletionMsGlobal();
 
     const positions: QueuePosition[] = queuedTasks.map((task, index) =>
@@ -281,11 +279,11 @@ export class AgentQueueService {
   }
 
   /**
-   * Compute the average completion time (ms) from recent agent runs for a project.
+   * Compute the average completion time (ms) from recent agent runs for a codespace.
    */
-  private async getAverageCompletionMs(projectId: string): Promise<number> {
+  private async getAverageCompletionMs(codespaceId: string): Promise<number> {
     const recentRuns = await this.db.query.agentRuns.findMany({
-      where: and(eq(agentRuns.projectId, projectId), sql`${agentRuns.completedAt} IS NOT NULL`),
+      where: and(eq(agentRuns.codespaceId, codespaceId), sql`${agentRuns.completedAt} IS NOT NULL`),
       orderBy: [sql`${agentRuns.completedAt} DESC`],
       limit: RECENT_RUNS_WINDOW,
     });

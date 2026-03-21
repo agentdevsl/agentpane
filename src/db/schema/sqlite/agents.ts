@@ -4,7 +4,7 @@ import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import type { AgentStatus, AgentType } from '../shared/enums';
 import type { AgentConfig } from '../shared/types';
-import { projects } from './projects';
+import { codespaces } from './codespaces';
 import { sessions } from './sessions';
 import { tasks } from './tasks';
 
@@ -16,9 +16,9 @@ export const agents = sqliteTable(
     id: text('id')
       .primaryKey()
       .$defaultFn(() => createId()),
-    projectId: text('project_id')
+    codespaceId: text('codespace_id')
       .notNull()
-      .references(() => projects.id, { onDelete: 'cascade' }),
+      .references(() => codespaces.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
     type: text('type').$type<AgentType>().default('task').notNull(),
     status: text('status').$type<AgentStatus>().default('idle').notNull(),
@@ -43,7 +43,7 @@ export const agents = sqliteTable(
       .notNull()
       .$onUpdate(() => new Date().toISOString()),
   },
-  (table) => [index('idx_agents_project_id').on(table.projectId)]
+  (table) => [index('idx_agents_codespace_id').on(table.codespaceId)]
 );
 
 export type Agent = typeof agents.$inferSelect;

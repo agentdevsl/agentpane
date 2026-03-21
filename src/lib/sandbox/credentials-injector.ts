@@ -143,8 +143,7 @@ export class CredentialsInjector {
     } catch (error) {
       // Log unexpected errors for debugging but return false
       // This is intentional - errors mean we can't confirm credentials exist
-      const message = errorMessage(error);
-      console.debug('[CredentialsInjector] Error checking credentials existence:', message);
+      const _message = errorMessage(error);
       return false;
     }
   }

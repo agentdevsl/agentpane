@@ -294,7 +294,6 @@ export function WorkflowDesigner({
   });
 
   // Increment change counter whenever nodes or edges change
-  // biome-ignore lint/correctness/useExhaustiveDependencies: counter must increment on node/edge changes
   useWatchEffect(() => {
     changeCounterRef.current += 1;
   }, [nodes, edges]);

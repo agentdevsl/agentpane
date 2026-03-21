@@ -11,7 +11,7 @@ export type { Agent, AgentConfig, NewAgent };
 export type AgentExecutionContext = {
   agentId: string;
   taskId: string;
-  projectId: string;
+  codespaceId: string;
   sessionId: string;
   cwd: string;
   allowedTools: string[];
@@ -51,7 +51,7 @@ export type PostToolUseHook = (input: {
 
 export type WorktreeService = {
   create: (input: {
-    projectId: string;
+    codespaceId: string;
     agentId: string;
     taskId: string;
     taskTitle: string;
@@ -68,7 +68,7 @@ export type TaskService = {
 
 export type SessionServiceInterface = {
   create: (input: {
-    projectId: string;
+    codespaceId: string;
     taskId?: string;
     agentId?: string;
     title?: string;

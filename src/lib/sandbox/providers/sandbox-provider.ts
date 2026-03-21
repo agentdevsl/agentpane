@@ -46,8 +46,8 @@ export interface Sandbox {
   /** Unique sandbox ID */
   readonly id: string;
 
-  /** Project this sandbox belongs to */
-  readonly projectId: string;
+  /** Codespace this sandbox belongs to */
+  readonly codespaceId: string;
 
   /** Underlying container ID */
   readonly containerId: string;
@@ -131,9 +131,9 @@ export interface SandboxProvider {
   create(config: SandboxConfig): Promise<Sandbox>;
 
   /**
-   * Get an existing sandbox by project ID
+   * Get an existing sandbox by codespace ID
    */
-  get(projectId: string): Promise<Sandbox | null>;
+  get(codespaceId: string): Promise<Sandbox | null>;
 
   /**
    * Get sandbox by sandbox ID
@@ -170,8 +170,8 @@ export interface SandboxProvider {
  * Event emitted by sandbox provider
  */
 export type SandboxProviderEvent =
-  | { type: 'sandbox:creating'; sandboxId: string; projectId: string }
-  | { type: 'sandbox:created'; sandboxId: string; projectId: string; containerId: string }
+  | { type: 'sandbox:creating'; sandboxId: string; codespaceId: string }
+  | { type: 'sandbox:created'; sandboxId: string; codespaceId: string; containerId: string }
   | { type: 'sandbox:starting'; sandboxId: string }
   | { type: 'sandbox:started'; sandboxId: string }
   | { type: 'sandbox:idle'; sandboxId: string; idleSince: Date }

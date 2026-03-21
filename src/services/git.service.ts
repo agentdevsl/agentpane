@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { projects } from '../db/schema';
+import { codespaces } from '../db/schema';
 import type { GitError } from '../lib/errors/git-errors.js';
 import { GitErrors } from '../lib/errors/git-errors.js';
 import type { Result } from '../lib/utils/result.js';
@@ -73,35 +73,34 @@ export class GitService {
   ) {}
 
   /**
-   * Resolve a project's filesystem path by project ID.
-   * Eliminates repeated project lookups across git endpoints.
+   * Resolve a codespace's filesystem path by codespace ID.
+   * Eliminates repeated codespace lookups across git endpoints.
    */
-  private async resolveProjectPath(
-    projectId: string
+  private async resolveCodespacePath(
+    codespaceId: string
   ): Promise<Result<{ path: string; name: string }, GitError>> {
     try {
-      const project = await this.db.query.projects.findFirst({
-        where: eq(projects.id, projectId),
+      const codespace = await this.db.query.codespaces.findFirst({
+        where: eq(codespaces.id, codespaceId),
       });
 
-      if (!project) {
-        return err(GitErrors.PROJECT_NOT_FOUND);
+      if (!codespace) {
+        return err(GitErrors.CODESPACE_NOT_FOUND);
       }
 
-      return ok({ path: project.path, name: project.name });
-    } catch (error) {
-      console.error('[GitService] Project lookup error:', error);
-      return err(GitErrors.DATABASE_ERROR('Failed to lookup project'));
+      return ok({ path: codespace.path, name: codespace.name });
+    } catch (_error) {
+      return err(GitErrors.DATABASE_ERROR('Failed to lookup codespace'));
     }
   }
 
-  async getStatus(projectId: string): Promise<Result<GitStatus, GitError>> {
-    const projectResult = await this.resolveProjectPath(projectId);
-    if (!projectResult.ok) {
-      return projectResult;
+  async getStatus(codespaceId: string): Promise<Result<GitStatus, GitError>> {
+    const codespaceResult = await this.resolveCodespacePath(codespaceId);
+    if (!codespaceResult.ok) {
+      return codespaceResult;
     }
 
-    const { path: projectPath, name: projectName } = projectResult.value;
+    const { path: codespacePath, name: codespaceName } = codespaceResult.value;
 
     try {
       // Get current branch
@@ -112,7 +111,7 @@ export class GitService {
       const currentBranch = branchOutput.trim();
 
       // Get repo name from path
-      const repoName = projectPath.split('/').pop() || projectName;
+      const repoName = codespacePath.split('/').pop() || codespaceName;
 
       // Get git status (porcelain format for easy parsing)
       const { stdout: statusOutput } = await this.commandRunner.exec(
@@ -158,19 +157,18 @@ export class GitService {
         ahead,
         behind,
       });
-    } catch (error) {
-      console.error('[GitService] Get status error:', error);
+    } catch (_error) {
       return err(GitErrors.COMMAND_FAILED('Failed to get git status'));
     }
   }
 
-  async listBranches(projectId: string): Promise<Result<{ items: GitBranch[] }, GitError>> {
-    const projectResult = await this.resolveProjectPath(projectId);
-    if (!projectResult.ok) {
-      return projectResult;
+  async listBranches(codespaceId: string): Promise<Result<{ items: GitBranch[] }, GitError>> {
+    const codespaceResult = await this.resolveCodespacePath(codespaceId);
+    if (!codespaceResult.ok) {
+      return codespaceResult;
     }
 
-    const projectPath = projectResult.value.path;
+    const _codespacePath = codespaceResult.value.path;
 
     try {
       // Get current HEAD branch
@@ -199,7 +197,6 @@ export class GitService {
             let commitCount = 0;
             try {
               if (!isValidBranchName(name)) {
-                console.warn('[GitService] Skipping commit count for invalid branch name:', name);
               } else {
                 // Use shellEscape for safe interpolation
                 const escapedName = shellEscape(name);
@@ -209,12 +206,7 @@ export class GitService {
                 );
                 commitCount = parseInt(countOutput.trim(), 10) || 0;
               }
-            } catch (error) {
-              console.debug(
-                '[GitService] Could not get commit count for branch:',
-                error instanceof Error ? error.message : 'unknown'
-              );
-            }
+            } catch (_error) {}
 
             // Parse tracking status
             let status: GitBranch['status'] = 'no-upstream';
@@ -251,22 +243,21 @@ export class GitService {
         });
 
       return ok({ items: validBranches });
-    } catch (error) {
-      console.error('[GitService] List branches error:', error);
+    } catch (_error) {
       return err(GitErrors.COMMAND_FAILED('Failed to list branches'));
     }
   }
 
   async listCommits(
-    projectId: string,
+    codespaceId: string,
     options?: { branch?: string; limit?: number }
   ): Promise<Result<{ items: GitCommit[] }, GitError>> {
-    const projectResult = await this.resolveProjectPath(projectId);
-    if (!projectResult.ok) {
-      return projectResult;
+    const codespaceResult = await this.resolveCodespacePath(codespaceId);
+    if (!codespaceResult.ok) {
+      return codespaceResult;
     }
 
-    const projectPath = projectResult.value.path;
+    const _codespacePath = codespaceResult.value.path;
     const branch = options?.branch;
     const limit = options?.limit ?? 50;
 
@@ -316,12 +307,7 @@ export class GitService {
               if (filesMatch) filesChanged = parseInt(filesMatch[1] || '0', 10);
               if (insertionsMatch) additions = parseInt(insertionsMatch[1] || '0', 10);
               if (deletionsMatch) deletions = parseInt(deletionsMatch[1] || '0', 10);
-            } catch (error) {
-              console.debug(
-                '[GitService] Could not get stats for commit:',
-                error instanceof Error ? error.message : 'unknown'
-              );
-            }
+            } catch (_error) {}
 
             return {
               hash,
@@ -337,32 +323,26 @@ export class GitService {
       );
 
       return ok({ items: commits });
-    } catch (error) {
-      console.error('[GitService] List commits error:', error);
+    } catch (_error) {
       return err(GitErrors.COMMAND_FAILED('Failed to list commits'));
     }
   }
 
   async listRemoteBranches(
-    projectId: string
+    codespaceId: string
   ): Promise<Result<{ items: GitRemoteBranch[] }, GitError>> {
-    const projectResult = await this.resolveProjectPath(projectId);
-    if (!projectResult.ok) {
-      return projectResult;
+    const codespaceResult = await this.resolveCodespacePath(codespaceId);
+    if (!codespaceResult.ok) {
+      return codespaceResult;
     }
 
-    const projectPath = projectResult.value.path;
+    const codespacePath = codespaceResult.value.path;
 
     try {
       // Fetch latest from remote (don't fail if offline)
       try {
-        await this.commandRunner.exec('git fetch --prune 2>/dev/null || true', projectPath);
-      } catch (error) {
-        console.debug(
-          '[GitService] Fetch failed (may be offline):',
-          error instanceof Error ? error.message : 'unknown'
-        );
-      }
+        await this.commandRunner.exec('git fetch --prune 2>/dev/null || true', codespacePath);
+      } catch (_error) {}
 
       // Get all remote branches with their commit info
       const { stdout: branchOutput } = await this.commandRunner.exec(
@@ -392,10 +372,6 @@ export class GitService {
             let commitCount = 0;
             try {
               if (!isValidBranchName(fullName)) {
-                console.warn(
-                  '[GitService] Skipping commit count for invalid remote branch name:',
-                  fullName
-                );
               } else {
                 const escapedFullName = shellEscape(fullName);
                 const { stdout: countOutput } = await this.commandRunner.exec(
@@ -404,12 +380,7 @@ export class GitService {
                 );
                 commitCount = parseInt(countOutput.trim(), 10) || 0;
               }
-            } catch (error) {
-              console.debug(
-                '[GitService] Could not get commit count for remote branch:',
-                error instanceof Error ? error.message : 'unknown'
-              );
-            }
+            } catch (_error) {}
 
             return {
               name,
@@ -427,8 +398,7 @@ export class GitService {
         .sort((a, b) => a.name.localeCompare(b.name));
 
       return ok({ items: validBranches });
-    } catch (error) {
-      console.error('[GitService] List remote branches error:', error);
+    } catch (_error) {
       return err(GitErrors.COMMAND_FAILED('Failed to list remote branches'));
     }
   }

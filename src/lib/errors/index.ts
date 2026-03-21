@@ -1,6 +1,7 @@
 export * from './agent-errors.js';
 export * from './agentcore-errors.js';
 export * from './base.js';
+export * from './codespace-errors.js';
 export * from './concurrency-errors.js';
 export * from './event-errors.js';
 export * from './git-errors.js';
@@ -9,7 +10,7 @@ export * from './k8s-errors.js';
 export * from './marketplace-errors.js';
 export * from './nomad-errors.js';
 export * from './plan-mode-errors.js';
-export * from './project-errors.js';
+export * from './project-folder-errors.js';
 export * from './sandbox-config-errors.js';
 export * from './sandbox-errors.js';
 export * from './service-errors.js';

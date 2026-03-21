@@ -12,62 +12,62 @@ const ProjectSettings = React.lazy(() =>
   }))
 );
 
-import type { Project, ProjectConfig } from '@/db/schema';
+import type { CodespaceConfig, Project } from '@/db/schema';
 import { apiClient } from '@/lib/api/client';
 
-export const Route = createFileRoute('/projects/$projectId/settings')({
-  loader: async ({ params }: { params: { projectId: string } }) => {
-    const result = await apiClient.projects.get(params.projectId);
-    return { project: result.ok ? result.data : null };
+export const Route = createFileRoute('/codespaces/$codespaceId/settings')({
+  loader: async ({ params }: { params: { codespaceId: string } }) => {
+    const result = await apiClient.codespaces.get(params.codespaceId);
+    return { codespace: result.ok ? result.data : null };
   },
-  component: ProjectSettingsPage,
+  component: CodespaceSettingsPage,
 });
 
-function ProjectSettingsPage(): React.JSX.Element {
-  const { projectId } = Route.useParams();
+function CodespaceSettingsPage(): React.JSX.Element {
+  const { codespaceId } = Route.useParams();
   const navigate = useNavigate();
   const router = useRouter();
-  const loaderData = Route.useLoaderData() as { project: Project | null } | undefined;
-  const [project, setProject] = useState<Project | null>(
-    () => (loaderData?.project as unknown as Project) ?? null
+  const loaderData = Route.useLoaderData() as { codespace: Project | null } | undefined;
+  const [codespace, setCodespace] = useState<Project | null>(
+    () => (loaderData?.codespace as unknown as Project) ?? null
   );
-  const [isLoading, setIsLoading] = useState(!loaderData?.project);
+  const [isLoading, setIsLoading] = useState(!loaderData?.codespace);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
   const handleBack = () => {
-    // Try to go back in history, fall back to project page
+    // Try to go back in history, fall back to codespace page
     if (window.history.length > 1) {
       router.history.back();
     } else {
-      navigate({ to: '/projects/$projectId', params: { projectId } });
+      navigate({ to: '/codespaces/$codespaceId', params: { codespaceId } });
     }
   };
 
   // Auto-dismiss saved status
   useTimeout(() => setSaveStatus('idle'), saveStatus === 'saved' ? 2000 : null);
 
-  // Fetch project from API on mount
+  // Fetch codespace from API on mount
   useWatchEffect(() => {
-    if (loaderData?.project) return;
-    const fetchProject = async () => {
-      const result = await apiClient.projects.get(projectId);
+    if (loaderData?.codespace) return;
+    const fetchCodespace = async () => {
+      const result = await apiClient.codespaces.get(codespaceId);
       if (result.ok) {
-        setProject(result.data as unknown as Project);
+        setCodespace(result.data as unknown as Project);
       }
       setIsLoading(false);
     };
-    fetchProject();
-  }, [projectId, loaderData]);
+    fetchCodespace();
+  }, [codespaceId, loaderData]);
 
   const handleSave = async (input: {
     name?: string;
     description?: string;
     maxConcurrentAgents?: number;
-    config?: Partial<ProjectConfig>;
+    config?: Partial<CodespaceConfig>;
   }): Promise<void> => {
     setSaveStatus('saving');
     try {
-      const result = await apiClient.projects.update(projectId, {
+      const result = await apiClient.codespaces.update(codespaceId, {
         name: input.name,
         description: input.description,
         maxConcurrentAgents: input.maxConcurrentAgents,
@@ -75,22 +75,22 @@ function ProjectSettingsPage(): React.JSX.Element {
       });
 
       if (result.ok) {
-        setProject(result.data as unknown as Project);
+        setCodespace(result.data as unknown as Project);
         setSaveStatus('saved');
       } else {
         setSaveStatus('error');
-        console.error('Failed to save project settings:', result.error);
+        console.error('Failed to save codespace settings:', result.error);
       }
     } catch (error) {
       setSaveStatus('error');
-      console.error('Error saving project settings:', error);
+      console.error('Error saving codespace settings:', error);
     }
   };
 
   const handleDelete = async (options: { deleteFiles: boolean }): Promise<void> => {
-    const result = await apiClient.projects.delete(projectId, options);
+    const result = await apiClient.codespaces.delete(codespaceId, options);
     if (result.ok) {
-      navigate({ to: '/projects' });
+      navigate({ to: '/codespaces' });
     } else {
       throw new Error(result.error.message);
     }
@@ -100,39 +100,41 @@ function ProjectSettingsPage(): React.JSX.Element {
     return (
       <LayoutShell
         breadcrumbs={[
-          { label: 'Projects', to: '/projects' },
+          { label: 'Codespaces', to: '/codespaces' },
           { label: 'Loading...' },
           { label: 'Settings' },
         ]}
       >
         <div className="flex items-center justify-center min-h-[60vh]">
-          <div className="text-muted-foreground">Loading project settings...</div>
+          <div className="text-muted-foreground">Loading codespace settings...</div>
         </div>
       </LayoutShell>
     );
   }
 
-  if (!project) {
+  if (!codespace) {
     return (
-      <LayoutShell breadcrumbs={[{ label: 'Projects', to: '/projects' }, { label: 'Not Found' }]}>
-        <div className="p-6 text-sm text-fg-muted">Project not found.</div>
+      <LayoutShell
+        breadcrumbs={[{ label: 'Codespaces', to: '/codespaces' }, { label: 'Not Found' }]}
+      >
+        <div className="p-6 text-sm text-fg-muted">Codespace not found.</div>
       </LayoutShell>
     );
   }
 
   return (
     <LayoutShell
-      projectId={project.id}
-      projectName={project.name}
-      projectPath={project.path}
+      projectId={codespace.id}
+      projectName={codespace.name}
+      projectPath={codespace.path}
       breadcrumbs={[
-        { label: 'Projects', to: '/projects' },
-        { label: project.name, to: `/projects/${project.id}` },
+        { label: 'Codespaces', to: '/codespaces' },
+        { label: codespace.name, to: `/codespaces/${codespace.id}` },
         { label: 'Settings' },
       ]}
     >
       <div className="h-full overflow-y-auto">
-        <div className="p-6 max-w-4xl mx-auto pb-12" data-testid="project-settings-page">
+        <div className="p-6 max-w-4xl mx-auto pb-12" data-testid="codespace-settings-page">
           <button
             type="button"
             onClick={handleBack}
@@ -143,9 +145,9 @@ function ProjectSettingsPage(): React.JSX.Element {
           </button>
 
           <div className="mb-6">
-            <h1 className="text-2xl font-bold text-fg">Project Settings</h1>
+            <h1 className="text-2xl font-bold text-fg">Codespace Settings</h1>
             <p className="text-sm text-fg-muted mt-1">
-              Configure project behavior and agent defaults for {project.name}
+              Configure codespace behavior and agent defaults for {codespace.name}
             </p>
           </div>
 
@@ -157,7 +159,7 @@ function ProjectSettingsPage(): React.JSX.Element {
             }
           >
             <ProjectSettings
-              project={project}
+              project={codespace}
               onSave={handleSave}
               onDelete={handleDelete}
               saveStatus={saveStatus}

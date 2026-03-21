@@ -661,17 +661,10 @@ export class DurableStreamsClient {
       if (isUnsubscribed) return;
 
       if (!streamsAvailable) {
-        console.debug('[DurableStreams] connect() skipped — streamsAvailable=false', { sessionId });
         setConnectionState('disconnected');
         callbacks.onError?.(new Error('Streams endpoint not available'));
         return;
       }
-
-      console.debug('[DurableStreams] connect() starting', {
-        sessionId,
-        hasConnected,
-        reconnectCount,
-      });
       setConnectionState(hasConnected ? 'reconnecting' : 'connecting');
 
       try {
@@ -773,11 +766,6 @@ export class DurableStreamsClient {
             if (!response.streamClosed && reconnectCount < MAX_RECONNECT_ATTEMPTS) {
               const delay = Math.min(2000 * 2 ** reconnectCount, 30000);
               reconnectCount++;
-              console.debug('[DurableStreams] scheduling reconnect', {
-                sessionId,
-                reconnectCount,
-                delay,
-              });
               reconnectTimerId = setTimeout(() => {
                 if (!isUnsubscribed) connect();
               }, delay);
@@ -821,11 +809,7 @@ export class DurableStreamsClient {
         responseCancelFn = null;
       }
     };
-
-    // Start initial connection
-    console.debug('[DurableStreams] subscribeToSession() called', { sessionId, streamsAvailable });
     connect().catch((err) => {
-      console.debug('[DurableStreams] connect() rejected', { sessionId, error: String(err) });
       callbacks.onError?.(err instanceof Error ? err : new Error(String(err)));
     });
 
@@ -882,12 +866,6 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
     case 'chunk': {
       const parsed = rawChunkDataSchema.safeParse(raw.data);
       if (!parsed.success) {
-        console.warn(
-          '[DurableStreamsClient] Invalid chunk event data:',
-          parsed.error.message,
-          'raw:',
-          raw.data
-        );
         return null;
       }
       return {
@@ -904,12 +882,6 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
     case 'tool:start': {
       const parsed = rawToolCallDataSchema.safeParse(raw.data);
       if (!parsed.success) {
-        console.warn(
-          '[DurableStreamsClient] Invalid tool:start event data:',
-          parsed.error.message,
-          'raw:',
-          raw.data
-        );
         return null;
       }
       return {
@@ -928,12 +900,6 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
     case 'tool:result': {
       const parsed = rawToolCallDataSchema.safeParse(raw.data);
       if (!parsed.success) {
-        console.warn(
-          '[DurableStreamsClient] Invalid tool:result event data:',
-          parsed.error.message,
-          'raw:',
-          raw.data
-        );
         return null;
       }
       return {
@@ -955,12 +921,6 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
     case 'presence:cursor': {
       const parsed = rawPresenceDataSchema.safeParse(raw.data);
       if (!parsed.success) {
-        console.warn(
-          '[DurableStreamsClient] Invalid presence event data:',
-          parsed.error.message,
-          'raw:',
-          raw.data
-        );
         return null;
       }
       return {
@@ -978,12 +938,6 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
     case 'terminal:output': {
       const parsed = rawTerminalDataSchema.safeParse(raw.data);
       if (!parsed.success) {
-        console.warn(
-          '[DurableStreamsClient] Invalid terminal event data:',
-          parsed.error.message,
-          'raw:',
-          raw.data
-        );
         return null;
       }
       return {
@@ -1000,12 +954,6 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
     case 'state:update': {
       const parsed = rawAgentStateDataSchema.safeParse(raw.data);
       if (!parsed.success) {
-        console.warn(
-          '[DurableStreamsClient] Invalid state:update event data:',
-          parsed.error.message,
-          'raw:',
-          raw.data
-        );
         return null;
       }
       return {
@@ -1019,10 +967,6 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
     case 'container-agent:status': {
       const parsed = rawContainerAgentStatusSchema.safeParse(raw.data);
       if (!parsed.success) {
-        console.warn(
-          '[DurableStreamsClient] Invalid container-agent:status:',
-          parsed.error.message
-        );
         return null;
       }
       return {
@@ -1035,10 +979,6 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
     case 'container-agent:started': {
       const parsed = rawContainerAgentStartedSchema.safeParse(raw.data);
       if (!parsed.success) {
-        console.warn(
-          '[DurableStreamsClient] Invalid container-agent:started:',
-          parsed.error.message
-        );
         return null;
       }
       return {
@@ -1051,7 +991,6 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
     case 'container-agent:token': {
       const parsed = rawContainerAgentTokenSchema.safeParse(raw.data);
       if (!parsed.success) {
-        console.warn('[DurableStreamsClient] Invalid container-agent:token:', parsed.error.message);
         return null;
       }
       return {
@@ -1064,7 +1003,6 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
     case 'container-agent:turn': {
       const parsed = rawContainerAgentTurnSchema.safeParse(raw.data);
       if (!parsed.success) {
-        console.warn('[DurableStreamsClient] Invalid container-agent:turn:', parsed.error.message);
         return null;
       }
       return {
@@ -1077,10 +1015,6 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
     case 'container-agent:tool:start': {
       const parsed = rawContainerAgentToolStartSchema.safeParse(raw.data);
       if (!parsed.success) {
-        console.warn(
-          '[DurableStreamsClient] Invalid container-agent:tool:start:',
-          parsed.error.message
-        );
         return null;
       }
       return {
@@ -1093,10 +1027,6 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
     case 'container-agent:tool:result': {
       const parsed = rawContainerAgentToolResultSchema.safeParse(raw.data);
       if (!parsed.success) {
-        console.warn(
-          '[DurableStreamsClient] Invalid container-agent:tool:result:',
-          parsed.error.message
-        );
         return null;
       }
       return {
@@ -1109,10 +1039,6 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
     case 'container-agent:message': {
       const parsed = rawContainerAgentMessageSchema.safeParse(raw.data);
       if (!parsed.success) {
-        console.warn(
-          '[DurableStreamsClient] Invalid container-agent:message:',
-          parsed.error.message
-        );
         return null;
       }
       return {
@@ -1125,10 +1051,6 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
     case 'container-agent:complete': {
       const parsed = rawContainerAgentCompleteSchema.safeParse(raw.data);
       if (!parsed.success) {
-        console.warn(
-          '[DurableStreamsClient] Invalid container-agent:complete:',
-          parsed.error.message
-        );
         return null;
       }
       return {
@@ -1141,7 +1063,6 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
     case 'container-agent:error': {
       const parsed = rawContainerAgentErrorSchema.safeParse(raw.data);
       if (!parsed.success) {
-        console.warn('[DurableStreamsClient] Invalid container-agent:error:', parsed.error.message);
         return null;
       }
       return {
@@ -1154,10 +1075,6 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
     case 'container-agent:cancelled': {
       const parsed = rawContainerAgentCancelledSchema.safeParse(raw.data);
       if (!parsed.success) {
-        console.warn(
-          '[DurableStreamsClient] Invalid container-agent:cancelled:',
-          parsed.error.message
-        );
         return null;
       }
       return {
@@ -1170,10 +1087,6 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
     case 'container-agent:plan_ready': {
       const parsed = rawContainerAgentPlanReadySchema.safeParse(raw.data);
       if (!parsed.success) {
-        console.warn(
-          '[DurableStreamsClient] Invalid container-agent:plan_ready:',
-          parsed.error.message
-        );
         return null;
       }
       return {
@@ -1186,10 +1099,6 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
     case 'container-agent:worktree': {
       const parsed = rawContainerAgentWorktreeSchema.safeParse(raw.data);
       if (!parsed.success) {
-        console.warn(
-          '[DurableStreamsClient] Invalid container-agent:worktree:',
-          parsed.error.message
-        );
         return null;
       }
       return {
@@ -1202,10 +1111,6 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
     case 'container-agent:file_changed': {
       const parsed = rawContainerAgentFileChangedSchema.safeParse(raw.data);
       if (!parsed.success) {
-        console.warn(
-          '[DurableStreamsClient] Invalid container-agent:file_changed:',
-          parsed.error.message
-        );
         return null;
       }
       return {
@@ -1219,10 +1124,6 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
     case 'topology:agent_spawned': {
       const parsed = rawTopologyAgentSpawnedSchema.safeParse(raw.data);
       if (!parsed.success) {
-        console.warn(
-          '[DurableStreamsClient] Invalid topology:agent_spawned:',
-          parsed.error.message
-        );
         return null;
       }
       return {
@@ -1235,10 +1136,6 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
     case 'topology:agent_progress': {
       const parsed = rawTopologyAgentProgressSchema.safeParse(raw.data);
       if (!parsed.success) {
-        console.warn(
-          '[DurableStreamsClient] Invalid topology:agent_progress:',
-          parsed.error.message
-        );
         return null;
       }
       return {
@@ -1251,10 +1148,6 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
     case 'topology:agent_completed': {
       const parsed = rawTopologyAgentCompletedSchema.safeParse(raw.data);
       if (!parsed.success) {
-        console.warn(
-          '[DurableStreamsClient] Invalid topology:agent_completed:',
-          parsed.error.message
-        );
         return null;
       }
       return {
@@ -1265,12 +1158,6 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
     }
 
     default:
-      console.warn(
-        '[DurableStreamsClient] Unknown event type received:',
-        raw.type,
-        'data:',
-        raw.data
-      );
       return null;
   }
 }
@@ -1406,9 +1293,6 @@ function ensureSubscriptionAudit(): void {
   subscriptionAuditTimer = setInterval(() => {
     for (const [sessionId, entry] of sharedSubscriptions) {
       if (entry.subscribers.size === 0) {
-        console.warn(
-          `[DurableStreams] RS-010: Orphaned subscription detected for ${sessionId}, cleaning up`
-        );
         entry.subscription.unsubscribe();
         sharedSubscriptions.delete(sessionId);
       }
@@ -1426,11 +1310,6 @@ function ensureSubscriptionAudit(): void {
  * with other subscribers for the same sessionId.
  */
 export function subscribeToSession(sessionId: string, callbacks: SessionCallbacks): Subscription {
-  console.debug('[DurableStreams] subscribeToSession (shared)', {
-    sessionId,
-    existing: sharedSubscriptions.has(sessionId),
-    streamsAvailable,
-  });
   let entry = sharedSubscriptions.get(sessionId);
 
   if (!entry) {

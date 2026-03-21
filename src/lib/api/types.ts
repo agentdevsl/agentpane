@@ -43,7 +43,7 @@ export type TaskCreationStatus = 'active' | 'completed' | 'cancelled';
  */
 export interface TaskCreationSession {
   sessionId: string;
-  projectId: string;
+  codespaceId: string;
   status: TaskCreationStatus;
   createdAt: string;
 }

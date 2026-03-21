@@ -38,8 +38,6 @@ export async function verifyWebhookSignature(
   }
 
   if (!secret) {
-    // If no secret configured, skip verification (development mode)
-    console.warn('[GitHub Webhooks] No webhook secret configured, skipping verification');
     return ok(true);
   }
 

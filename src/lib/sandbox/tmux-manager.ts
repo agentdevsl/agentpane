@@ -243,8 +243,7 @@ export class TmuxManager {
           killed++;
         } catch (error) {
           // Log individual session kill errors but continue with others
-          const message = errorMessage(error);
-          console.warn(`[TmuxManager] Failed to kill session ${session.name}:`, message);
+          const _message = errorMessage(error);
         }
       }
 

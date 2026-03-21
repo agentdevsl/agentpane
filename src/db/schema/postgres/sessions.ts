@@ -3,16 +3,16 @@ import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 import type { SessionStatus } from '../shared/enums';
 import { agents } from './agents';
-import { projects } from './projects';
+import { codespaces } from './codespaces';
 import { tasks } from './tasks';
 
 export const sessions = pgTable('sessions', {
   id: text('id')
     .primaryKey()
     .$defaultFn(() => createId()),
-  projectId: text('project_id')
+  codespaceId: text('codespace_id')
     .notNull()
-    .references(() => projects.id, { onDelete: 'cascade' }),
+    .references(() => codespaces.id, { onDelete: 'cascade' }),
   taskId: text('task_id').references((): AnyPgColumn => tasks.id, { onDelete: 'set null' }),
   agentId: text('agent_id').references(() => agents.id, { onDelete: 'set null' }),
   status: text('status').$type<SessionStatus>().default('idle').notNull(),

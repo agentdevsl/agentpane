@@ -56,7 +56,7 @@ export interface PlanTurn {
 export interface PlanSession {
   id: string;
   taskId: string;
-  projectId: string;
+  codespaceId: string;
   status: PlanSessionStatus;
   turns: PlanTurn[];
   githubIssueUrl?: string;
@@ -70,7 +70,7 @@ export interface PlanSession {
  */
 export interface CreatePlanSessionInput {
   taskId: string;
-  projectId: string;
+  codespaceId: string;
   initialPrompt: string;
 }
 
@@ -217,7 +217,7 @@ export const planSessionSchema = z
   .object({
     id: z.string(),
     taskId: z.string(),
-    projectId: z.string(),
+    codespaceId: z.string(),
     status: z.enum(['active', 'waiting_user', 'completed', 'cancelled']),
     turns: z.array(planTurnSchema),
     githubIssueUrl: z.string().optional(),
@@ -245,7 +245,7 @@ export const planSessionSchema = z
 
 export const createPlanSessionInputSchema = z.object({
   taskId: z.string(),
-  projectId: z.string(),
+  codespaceId: z.string(),
   initialPrompt: z.string(),
 });
 

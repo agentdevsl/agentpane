@@ -1,7 +1,7 @@
 import { useNavigate } from '@tanstack/react-router';
 import React, { Suspense, useCallback, useMemo } from 'react';
 import { type Shortcut, useKeyboardShortcuts } from '@/app/hooks/use-keyboard-shortcuts';
-import { useProjectContext } from '@/app/providers/project-context';
+import { useCodespaceContext } from '@/app/providers/codespace-context';
 import { useShortcutsContext } from '@/app/providers/shortcuts-provider';
 import { apiClient } from '@/lib/api/client';
 import type { Result } from '@/lib/utils/result';
@@ -89,7 +89,7 @@ export function useGlobalShortcuts(props: GlobalShortcutsProps = {}): void {
       category: 'views',
       action: () => {
         // Navigate to the first project's tasks or just /projects
-        navigate({ to: '/projects' });
+        navigate({ to: '/codespaces' });
       },
     });
 
@@ -234,7 +234,7 @@ export function GlobalShortcuts(): React.JSX.Element {
         meta: true,
         description: 'Go to Tasks/Kanban',
         category: 'views',
-        action: () => navigate({ to: '/projects' }),
+        action: () => navigate({ to: '/codespaces' }),
       },
       {
         key: '/',
@@ -268,20 +268,20 @@ export function GlobalShortcutsWithPicker(): React.JSX.Element {
     isPickerOpen,
     openPicker,
     closePicker,
-    isNewProjectDialogOpen,
-    openNewProjectDialog,
-    closeNewProjectDialog,
-    selectProject,
-    allProjects,
-    recentProjects,
-    currentProjectId,
+    isNewCodespaceDialogOpen,
+    openNewCodespaceDialog,
+    closeNewCodespaceDialog,
+    selectCodespace,
+    allCodespaces,
+    recentCodespaces,
+    currentCodespaceId,
     isLoading,
     error,
-    refreshProjects,
-  } = useProjectContext();
+    refreshCodespaces,
+  } = useCodespaceContext();
 
-  // Handle new project submission
-  const handleNewProjectSubmit = useCallback(
+  // Handle new codespace submission
+  const handleNewCodespaceSubmit = useCallback(
     async (data: {
       name: string;
       path: string;
@@ -289,7 +289,7 @@ export function GlobalShortcutsWithPicker(): React.JSX.Element {
       sandboxType?: SandboxType;
     }): Promise<Result<void, { code: string; message: string }>> => {
       try {
-        const result = await apiClient.projects.create({
+        const result = await apiClient.codespaces.create({
           name: data.name,
           path: data.path,
           description: data.description,
@@ -302,21 +302,24 @@ export function GlobalShortcutsWithPicker(): React.JSX.Element {
           };
         }
 
-        // Refresh projects and navigate to new project
-        await refreshProjects();
-        navigate({ to: '/projects/$projectId', params: { projectId: result.data.id } });
+        // Refresh codespaces and navigate to new codespace
+        await refreshCodespaces();
+        navigate({
+          to: '/codespaces/$codespaceId',
+          params: { codespaceId: result.data.id },
+        });
         return { ok: true, value: undefined };
       } catch (err) {
         return {
           ok: false,
           error: {
             code: 'UNKNOWN_ERROR',
-            message: err instanceof Error ? err.message : 'Failed to create project',
+            message: err instanceof Error ? err.message : 'Failed to create codespace',
           },
         };
       }
     },
-    [navigate, refreshProjects]
+    [navigate, refreshCodespaces]
   );
 
   // Handle path validation (stub implementation - returns basic validation result)
@@ -362,12 +365,12 @@ export function GlobalShortcutsWithPicker(): React.JSX.Element {
         meta: true,
         description: 'Go to Tasks/Kanban',
         category: 'views',
-        action: () => navigate({ to: '/projects' }),
+        action: () => navigate({ to: '/codespaces' }),
       },
       {
         key: 'p',
         meta: true,
-        description: 'Open project picker',
+        description: 'Open codespace picker',
         category: 'navigation',
         action: openPicker,
       },
@@ -375,9 +378,9 @@ export function GlobalShortcutsWithPicker(): React.JSX.Element {
         key: 'n',
         meta: true,
         shift: true,
-        description: 'New project',
+        description: 'New codespace',
         category: 'actions',
-        action: openNewProjectDialog,
+        action: openNewCodespaceDialog,
       },
       {
         key: '/',
@@ -387,7 +390,7 @@ export function GlobalShortcutsWithPicker(): React.JSX.Element {
         action: () => setHelpOpen(true),
       },
     ],
-    [navigate, setHelpOpen, openPicker, openNewProjectDialog]
+    [navigate, setHelpOpen, openPicker, openNewCodespaceDialog]
   );
 
   useKeyboardShortcuts(shortcuts, shortcutsContext);
@@ -398,19 +401,19 @@ export function GlobalShortcutsWithPicker(): React.JSX.Element {
       <ProjectPicker
         open={isPickerOpen}
         onOpenChange={(open) => (open ? openPicker() : closePicker())}
-        selectedProjectId={currentProjectId}
-        onProjectSelect={selectProject}
-        onNewProjectClick={openNewProjectDialog}
-        recentProjects={recentProjects}
-        allProjects={allProjects}
+        selectedProjectId={currentCodespaceId}
+        onProjectSelect={selectCodespace}
+        onNewProjectClick={openNewCodespaceDialog}
+        recentProjects={recentCodespaces}
+        allProjects={allCodespaces}
         isLoading={isLoading}
         error={error}
       />
       <Suspense fallback={null}>
         <NewProjectDialog
-          open={isNewProjectDialogOpen}
-          onOpenChange={(open) => (open ? openNewProjectDialog() : closeNewProjectDialog())}
-          onSubmit={handleNewProjectSubmit}
+          open={isNewCodespaceDialogOpen}
+          onOpenChange={(open) => (open ? openNewCodespaceDialog() : closeNewCodespaceDialog())}
+          onSubmit={handleNewCodespaceSubmit}
           onValidatePath={handleValidatePath}
         />
       </Suspense>

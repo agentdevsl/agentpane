@@ -16,6 +16,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { EventLogStatus, EventSourceType } from '../../db/schema/index.js';
 import {
+  codespaces,
   EVENT_LOG_STATUS,
   EVENT_SOURCE_TYPES,
   eventLog,
@@ -23,7 +24,7 @@ import {
   eventSubscriptions,
   scheduleExecutions,
   teamMembers,
-  teamProjects,
+  teamProjectFolders,
 } from '../../db/schema/index.js';
 import type { CronEventSourceConfig } from '../../db/schema/shared/cron-config.js';
 import type { EventSourceStatus } from '../../db/schema/shared/enums.js';
@@ -80,7 +81,7 @@ const updateEventSourceSchema = z
 const createSubscriptionSchema = z.object({
   name: z.string().min(1, 'Name is required').max(200),
   eventSourceId: idSchema,
-  targetProjectId: idSchema,
+  targetCodespaceId: idSchema,
   eventTypes: z.array(z.string().max(100)).max(50).optional(),
   filters: z.array(subscriptionFilterSchema).max(20).optional(),
   promptTemplate: z.string().min(1, 'Prompt template is required').max(10000),
@@ -740,12 +741,12 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
   // Event Subscriptions
   // =========================================================================
 
-  // GET /subscriptions - List subscriptions (filter by eventSourceId, targetProjectId, isEnabled)
+  // GET /subscriptions - List subscriptions (filter by eventSourceId, targetCodespaceId, isEnabled)
   app.get('/subscriptions', async (c) => {
     const auth = c.get('auth');
     const { cursor, limit } = parsePagination(c);
     const eventSourceId = c.req.query('eventSourceId');
-    const targetProjectId = c.req.query('targetProjectId');
+    const targetCodespaceId = c.req.query('targetCodespaceId');
     const isEnabledParam = c.req.query('isEnabled');
 
     try {
@@ -789,27 +790,37 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
 
       const conditions = [inArray(eventSubscriptions.eventSourceId, scopeSourceIds)];
 
-      if (targetProjectId) {
-        if (!isValidId(targetProjectId)) {
+      if (targetCodespaceId) {
+        if (!isValidId(targetCodespaceId)) {
           return json(
-            { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid targetProjectId' } },
+            {
+              ok: false,
+              error: { code: 'VALIDATION_ERROR', message: 'Invalid targetCodespaceId' },
+            },
             400
           );
         }
-        // Verify user has access to the project's team
+        // Verify user has access to the codespace's team (via project folder)
         const teamIds = await getUserTeamIds(auth, db);
-        const projectTeam = await db
-          .select({ teamId: teamProjects.teamId })
-          .from(teamProjects)
-          .where(eq(teamProjects.projectId, targetProjectId));
-        const hasAccess = projectTeam.some((tp) => teamIds.includes(tp.teamId));
+        const codespaceRecord = await db
+          .select({ projectFolderId: codespaces.projectFolderId })
+          .from(codespaces)
+          .where(eq(codespaces.id, targetCodespaceId));
+        let hasAccess = false;
+        if (codespaceRecord[0]?.projectFolderId) {
+          const folderTeams = await db
+            .select({ teamId: teamProjectFolders.teamId })
+            .from(teamProjectFolders)
+            .where(eq(teamProjectFolders.projectFolderId, codespaceRecord[0].projectFolderId));
+          hasAccess = folderTeams.some((ft) => teamIds.includes(ft.teamId));
+        }
         if (!hasAccess) {
           return json(
-            { ok: false, error: { code: 'FORBIDDEN', message: 'No access to this project' } },
+            { ok: false, error: { code: 'FORBIDDEN', message: 'No access to this codespace' } },
             403
           );
         }
-        conditions.push(eq(eventSubscriptions.targetProjectId, targetProjectId));
+        conditions.push(eq(eventSubscriptions.targetProjectId, targetCodespaceId));
       }
 
       // Filter by isEnabled

@@ -38,7 +38,7 @@ export class PlanApprovalService {
   async handlePlanReady(
     taskId: string,
     sessionId: string,
-    projectId: string,
+    codespaceId: string,
     planData: {
       plan: string;
       turnCount: number;
@@ -73,7 +73,7 @@ export class PlanApprovalService {
     this.state.setPendingPlan(taskId, {
       taskId,
       sessionId,
-      projectId,
+      codespaceId,
       plan: planData.plan,
       turnCount: planData.turnCount,
       sdkSessionId: planData.sdkSessionId,
@@ -167,7 +167,7 @@ export class PlanApprovalService {
       const recovered: PlanData = {
         taskId,
         sessionId: task.sessionId ?? '',
-        projectId: task.projectId,
+        codespaceId: task.codespaceId,
         plan: task.plan,
         turnCount: 0,
         sdkSessionId: planOptions.sdkSessionId ?? '',
@@ -216,7 +216,7 @@ export class PlanApprovalService {
       this.state.deletePendingPlan(taskId);
 
       return this.startAgentFn({
-        projectId: planData.projectId,
+        codespaceId: planData.codespaceId,
         taskId: planData.taskId,
         sessionId: planData.sessionId,
         prompt: planData.plan,
@@ -229,7 +229,7 @@ export class PlanApprovalService {
     let effectiveSdkSessionId: string | undefined = planData.sdkSessionId || undefined;
     if (planData.sandboxId) {
       try {
-        const currentSandbox = await provider.get(planData.projectId);
+        const currentSandbox = await provider.get(planData.codespaceId);
         if (!currentSandbox || currentSandbox.id !== planData.sandboxId) {
           log.warn('Sandbox changed since planning phase -- using fresh session', {
             data: {
@@ -280,7 +280,7 @@ export class PlanApprovalService {
     this.state.deletePendingPlan(taskId);
 
     return this.startAgentFn({
-      projectId: planData.projectId,
+      codespaceId: planData.codespaceId,
       taskId: planData.taskId,
       sessionId: planData.sessionId,
       prompt: planData.plan,

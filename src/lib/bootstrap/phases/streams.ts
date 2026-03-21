@@ -29,16 +29,12 @@ export const connectStreams = async (_ctx?: unknown) => {
     const isDurableStreams =
       response.ok || response.headers.get('access-control-allow-headers')?.includes('Stream-Seq');
     if (isDurableStreams) {
-      console.log(`[Streams] Durable streams reachable at ${streamsUrl} (HTTP ${response.status})`);
       setStreamsAvailable(true);
       return ok(null);
     }
-    // No stream-specific headers = Vite or other non-streams server responding
-    console.warn(`[Streams] Streams server not available (HTTP ${response.status}). SSE disabled.`);
     setStreamsAvailable(false);
     return ok(null);
-  } catch (error) {
-    console.warn(`[Streams] Caddy not reachable at ${streamsUrl}. SSE streams disabled.`, error);
+  } catch (_error) {
     setStreamsAvailable(false);
     return ok(null); // Non-fatal in dev mode
   }

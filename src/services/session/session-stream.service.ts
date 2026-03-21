@@ -81,11 +81,6 @@ export class SessionStreamService {
       // RS-013: Persist to database FIRST to ensure durability
       const persistResult = await this.persistEvent(sessionId, event);
       if (!persistResult.ok) {
-        console.error(
-          `[SessionStreamService] Failed to persist event for session ${sessionId}:`,
-          persistResult.error.code,
-          persistResult.error.message
-        );
         // Still attempt real-time delivery even if DB persistence fails
       }
 
@@ -95,12 +90,7 @@ export class SessionStreamService {
       let offset = persistResult.ok ? persistResult.value.offset : 0;
       try {
         offset = await this.streams.publish(sessionId, event.type, event.data);
-      } catch (streamErr) {
-        console.warn(
-          `[SessionStreamService] Stream publish failed (event persisted in DB):`,
-          streamErr instanceof Error ? streamErr.message : String(streamErr)
-        );
-      }
+      } catch (_streamErr) {}
 
       return ok({ offset });
     } catch (error) {

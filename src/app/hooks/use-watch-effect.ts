@@ -8,7 +8,7 @@ import { type DependencyList, useEffect } from 'react';
  *
  * This is the sanctioned way to run a dependency-based effect.
  */
-export function useWatchEffect(effect: () => void | (() => void), deps: DependencyList): void {
+export function useWatchEffect(effect: () => undefined | (() => void), deps: DependencyList): void {
   // biome-ignore lint/correctness/useExhaustiveDependencies: deps managed by caller
   useEffect(effect, deps);
 }

@@ -14,7 +14,7 @@ import { agents } from './agents';
 
 export type { TaskColumn, TaskPriority } from '../shared/enums';
 
-import { projects } from './projects';
+import { codespaces } from './codespaces';
 import { sessions } from './sessions';
 import { worktrees } from './worktrees';
 
@@ -22,9 +22,9 @@ export const tasks = pgTable('tasks', {
   id: text('id')
     .primaryKey()
     .$defaultFn(() => createId()),
-  projectId: text('project_id')
+  codespaceId: text('codespace_id')
     .notNull()
-    .references(() => projects.id, { onDelete: 'cascade' }),
+    .references(() => codespaces.id, { onDelete: 'cascade' }),
   agentId: text('agent_id').references(() => agents.id, { onDelete: 'set null' }),
   sessionId: text('session_id').references((): AnyPgColumn => sessions.id, {
     onDelete: 'set null',

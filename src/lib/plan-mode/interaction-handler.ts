@@ -166,11 +166,6 @@ export class InteractionHandler {
       // Validate that answer is one of the options (or custom "Other")
       const validOptions = question.options.map((o) => o.label);
       if (!validOptions.includes(answer) && !answer.startsWith('Other:')) {
-        // Log unexpected answers but allow them - users may provide custom input
-        // This is lenient validation to support flexible user responses
-        console.debug(
-          `[InteractionHandler] Answer "${answer}" not in predefined options for "${question.header}"`
-        );
       }
     }
 

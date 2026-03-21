@@ -202,14 +202,14 @@ export const BROWSER_STUBS: Record<string, string> = {
     export const getApiRuntime = () => ({ ok: true, value: {} });
     export const getApiRuntimeOrThrow = () => ({});
     export const getApiServices = () => ({ ok: true, value: {
-      projectService: noopService,
+      codespaceService: noopService,
       taskService: noopService,
       agentService: noopService,
       sessionService: noopService,
       worktreeService: noopService,
     }});
     export const getApiServicesOrThrow = () => ({
-      projectService: noopService,
+      codespaceService: noopService,
       taskService: noopService,
       agentService: noopService,
       sessionService: noopService,

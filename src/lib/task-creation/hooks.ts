@@ -122,7 +122,7 @@ export function useTaskCreationMessages(sessionId: string | null): TaskCreationM
  * Main hook for task creation functionality
  * Manages session lifecycle, API calls, and TanStack DB synchronization
  */
-export function useTaskCreation(projectId: string): UseTaskCreationReturn {
+export function useTaskCreation(codespaceId: string): UseTaskCreationReturn {
   // Local state for session ID (only thing we need to track locally)
   const [sessionId, setSessionId] = useState<string | null>(null);
   // Local error state for operation failures (separate from session errors)
@@ -182,10 +182,9 @@ export function useTaskCreation(projectId: string): UseTaskCreationReturn {
     const allowedTools = await getTaskCreationToolsAsync();
 
     // Call API to start session with configured tools
-    const result = await apiClient.taskCreation.start(projectId, allowedTools);
+    const result = await apiClient.taskCreation.start(codespaceId, allowedTools);
 
     if (!result.ok) {
-      console.error('[useTaskCreation] Failed to start conversation:', result.error);
       setLocalError(result.error.message || 'Failed to start conversation');
       return;
     }
@@ -193,7 +192,7 @@ export function useTaskCreation(projectId: string): UseTaskCreationReturn {
     const newSessionId = result.data.sessionId;
 
     // Create session in TanStack DB collection
-    createTaskCreationSession(newSessionId, projectId);
+    createTaskCreationSession(newSessionId, codespaceId);
 
     // Start syncing SSE events to collection
     const streamUrl = apiClient.taskCreation.getStreamUrl(newSessionId);
@@ -201,14 +200,12 @@ export function useTaskCreation(projectId: string): UseTaskCreationReturn {
 
     // Update local state
     setSessionId(newSessionId);
-    console.log('[useTaskCreation] Started session:', { sessionId: newSessionId, projectId });
-  }, [projectId]);
+  }, [codespaceId]);
 
   // Send a message
   const sendMessage = useCallback(
     async (content: string) => {
       if (!sessionId) {
-        console.error('[useTaskCreation] No active session');
         setLocalError('No active session');
         return;
       }
@@ -223,7 +220,6 @@ export function useTaskCreation(projectId: string): UseTaskCreationReturn {
       const result = await apiClient.taskCreation.sendMessage(sessionId, content);
 
       if (!result.ok) {
-        console.error('[useTaskCreation] Failed to send message:', result.error);
         // Set local error - SSE may also send an error event but this ensures immediate feedback
         setLocalError(result.error.message || 'Failed to send message');
       }
@@ -235,7 +231,6 @@ export function useTaskCreation(projectId: string): UseTaskCreationReturn {
   const acceptSuggestion = useCallback(
     async (overrides?: Partial<TaskSuggestion>): Promise<{ ok: boolean; error?: string }> => {
       if (!sessionId) {
-        console.error('[useTaskCreation] No active session');
         return { ok: false, error: 'No active session' };
       }
 
@@ -243,19 +238,13 @@ export function useTaskCreation(projectId: string): UseTaskCreationReturn {
       // the TanStack DB suggestion - the API can create the task from overrides alone
       const hasCompleteOverrides = overrides?.title && overrides?.description;
       if (!suggestion && !hasCompleteOverrides) {
-        console.error('[useTaskCreation] No suggestion available and overrides incomplete');
         return { ok: false, error: 'No suggestion available' };
       }
-
-      console.log('[useTaskCreation] Accepting suggestion:', { sessionId, overrides, suggestion });
       const result = await apiClient.taskCreation.accept(sessionId, overrides);
 
       if (!result.ok) {
-        console.error('[useTaskCreation] Failed to accept suggestion:', result.error);
         return { ok: false, error: result.error.message };
       }
-
-      console.log('[useTaskCreation] Accept API succeeded:', result.data);
       // Completion will be handled via SSE event
       return { ok: true };
     },
@@ -266,7 +255,6 @@ export function useTaskCreation(projectId: string): UseTaskCreationReturn {
   const answerQuestions = useCallback(
     async (answers: Record<string, string | string[]>) => {
       if (!sessionId || !pendingQuestions) {
-        console.error('[useTaskCreation] No active session or pending questions');
         setLocalError('No active session or pending questions');
         return;
       }
@@ -274,7 +262,6 @@ export function useTaskCreation(projectId: string): UseTaskCreationReturn {
       // Prevent double-submission using a ref (not state) to avoid the async render
       // gap where React state hasn't updated yet between rapid calls
       if (isAnsweringRef.current) {
-        console.log('[useTaskCreation] Answer already in progress, ignoring');
         return;
       }
 
@@ -286,11 +273,6 @@ export function useTaskCreation(projectId: string): UseTaskCreationReturn {
       submittedQuestionsIdRef.current = pendingQuestions.id;
 
       try {
-        console.log('[useTaskCreation] Answering questions:', {
-          sessionId,
-          questionsId: pendingQuestions.id,
-          answers,
-        });
         const result = await apiClient.taskCreation.answerQuestions(
           sessionId,
           pendingQuestions.id,
@@ -298,8 +280,6 @@ export function useTaskCreation(projectId: string): UseTaskCreationReturn {
         );
 
         if (!result.ok) {
-          console.error('[useTaskCreation] Failed to answer questions:', result.error);
-
           // If session is stale or missing, reset and let user start fresh
           if (
             result.error.code === 'INVALID_QUESTIONS_ID' ||
@@ -307,7 +287,6 @@ export function useTaskCreation(projectId: string): UseTaskCreationReturn {
             result.error.message?.includes('Questions ID does not match') ||
             result.error.message?.includes('Session not found')
           ) {
-            console.log('[useTaskCreation] Session state mismatch - resetting');
             resetTaskCreationSession(sessionId);
             setSessionId(null);
             setLocalError('Session expired. Please start a new conversation.');
@@ -325,9 +304,7 @@ export function useTaskCreation(projectId: string): UseTaskCreationReturn {
         }
         // On success, don't clear isAnswering here - let the useEffect handle it
         // when pendingQuestions changes or isStreaming becomes true
-      } catch (error) {
-        // Handle unexpected errors
-        console.error('[useTaskCreation] Unexpected error answering questions:', error);
+      } catch (_error) {
         setLocalError('An unexpected error occurred');
         isAnsweringRef.current = false;
         setIsAnswering(false);
@@ -339,13 +316,11 @@ export function useTaskCreation(projectId: string): UseTaskCreationReturn {
   // Skip clarifying questions
   const skipQuestions = useCallback(async () => {
     if (!sessionId) {
-      console.error('[useTaskCreation] No active session');
       setLocalError('No active session');
       return;
     }
 
     if (isAnsweringRef.current) {
-      console.log('[useTaskCreation] Skip already in progress, ignoring');
       return;
     }
 
@@ -359,14 +334,12 @@ export function useTaskCreation(projectId: string): UseTaskCreationReturn {
       const result = await apiClient.taskCreation.skipQuestions(sessionId);
 
       if (!result.ok) {
-        console.error('[useTaskCreation] Failed to skip questions:', result.error);
         setLocalError(result.error.message || 'Failed to skip questions');
         isAnsweringRef.current = false;
         setIsAnswering(false);
       }
       // On success, let the useEffect clear isAnswering when pendingQuestions changes or streaming starts
-    } catch (error) {
-      console.error('[useTaskCreation] Unexpected error skipping questions:', error);
+    } catch (_error) {
       setLocalError('An unexpected error occurred');
       isAnsweringRef.current = false;
       setIsAnswering(false);
@@ -376,7 +349,6 @@ export function useTaskCreation(projectId: string): UseTaskCreationReturn {
   // Cancel session
   const cancel = useCallback(async () => {
     if (!sessionId) {
-      console.error('[useTaskCreation] No active session to cancel');
       return;
     }
 
@@ -386,7 +358,6 @@ export function useTaskCreation(projectId: string): UseTaskCreationReturn {
     const result = await apiClient.taskCreation.cancel(sessionId);
 
     if (!result.ok) {
-      console.error('[useTaskCreation] Failed to cancel:', result.error);
       // Set local error - SSE may also send an error event but this ensures immediate feedback
       setLocalError(result.error.message || 'Failed to cancel session');
     }

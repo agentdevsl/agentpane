@@ -19,15 +19,15 @@ export type CreateTemplateInput = {
   githubUrl: string;
   branch?: string;
   configPath?: string;
-  /** Project IDs to associate with this template (for project-scoped templates) */
-  projectIds?: string[];
+  /** Codespace IDs to associate with this template (for codespace-scoped templates) */
+  codespaceIds?: string[];
   /** Auto-sync interval in minutes (null = disabled, minimum 5 minutes) */
   syncIntervalMinutes?: number | null;
 };
 
-/** Template with associated project IDs */
+/** Template with associated codespace IDs */
 export type TemplateWithProjects = Template & {
-  projectIds: string[];
+  codespaceIds: string[];
 };
 
 export type UpdateTemplateInput = {
@@ -35,15 +35,15 @@ export type UpdateTemplateInput = {
   description?: string;
   branch?: string;
   configPath?: string;
-  /** Update the project associations (replaces existing) */
-  projectIds?: string[];
+  /** Update the codespace associations (replaces existing) */
+  codespaceIds?: string[];
   /** Auto-sync interval in minutes (null = disabled, minimum 5 minutes) */
   syncIntervalMinutes?: number | null;
 };
 
 export type ListTemplatesOptions = {
   scope?: TemplateScope;
-  projectId?: string;
+  codespaceId?: string;
   limit?: number;
   offset?: number;
 };
@@ -87,11 +87,11 @@ export class TemplateService {
 
     const { owner, repo } = parsed.value;
 
-    const projectIds = input.projectIds ?? [];
+    const codespaceIds = input.codespaceIds ?? [];
 
-    // Validate project-scoped templates require at least one project
-    if (input.scope === 'project' && projectIds.length === 0) {
-      return err(TemplateErrors.PROJECT_REQUIRED);
+    // Validate codespace-scoped templates require at least one codespace
+    if (input.scope === 'codespace' && codespaceIds.length === 0) {
+      return err(TemplateErrors.CODESPACE_REQUIRED);
     }
 
     // Check for duplicate template (same owner/repo in same scope)
@@ -123,7 +123,7 @@ export class TemplateService {
         githubRepo: repo,
         branch: input.branch ?? 'main',
         configPath: input.configPath ?? '.claude',
-        projectId: projectIds[0], // Keep legacy field for backward compatibility
+        codespaceId: codespaceIds[0], // Keep legacy field for backward compatibility
         status: 'active',
         syncIntervalMinutes,
         nextSyncAt,
@@ -136,18 +136,18 @@ export class TemplateService {
       return err(TemplateErrors.NOT_FOUND);
     }
 
-    // Insert project associations into junction table
-    if (projectIds.length > 0) {
+    // Insert codespace associations into junction table
+    if (codespaceIds.length > 0) {
       await this.db.insert(templateProjects).values(
-        projectIds.map((projectId) => ({
+        codespaceIds.map((codespaceId) => ({
           templateId: template.id,
-          projectId,
+          codespaceId,
           createdAt: now,
         }))
       );
     }
 
-    return ok({ ...template, projectIds });
+    return ok({ ...template, codespaceIds });
   }
 
   async getById(id: string): Promise<Result<TemplateWithProjects, TemplateError>> {
@@ -159,13 +159,13 @@ export class TemplateService {
       return err(TemplateErrors.NOT_FOUND);
     }
 
-    // Get associated project IDs
+    // Get associated codespace IDs
     const associations = await this.db.query.templateProjects.findMany({
       where: eq(templateProjects.templateId, id),
     });
-    const projectIds = associations.map((a) => a.projectId);
+    const codespaceIds = associations.map((a) => a.codespaceId);
 
-    return ok({ ...template, projectIds });
+    return ok({ ...template, codespaceIds });
   }
 
   async list(
@@ -176,16 +176,16 @@ export class TemplateService {
 
     let items: Template[];
 
-    if (options?.projectId) {
-      // Find templates associated with this project via junction table
+    if (options?.codespaceId) {
+      // Find templates associated with this codespace via junction table
       const associations = await this.db.query.templateProjects.findMany({
-        where: eq(templateProjects.projectId, options.projectId),
+        where: eq(templateProjects.codespaceId, options.codespaceId),
       });
       const templateIds = associations.map((a) => a.templateId);
 
       if (templateIds.length === 0) {
-        // Also check legacy projectId field for backward compatibility
-        const conditions = [eq(templates.projectId, options.projectId)];
+        // Also check legacy codespaceId field for backward compatibility
+        const conditions = [eq(templates.codespaceId, options.codespaceId)];
         if (options.scope) {
           conditions.push(eq(templates.scope, options.scope));
         }
@@ -221,13 +221,13 @@ export class TemplateService {
       });
     }
 
-    // Get associated project IDs for each template
+    // Get associated codespace IDs for each template
     const result: TemplateWithProjects[] = await Promise.all(
       items.map(async (template) => {
         const associations = await this.db.query.templateProjects.findMany({
           where: eq(templateProjects.templateId, template.id),
         });
-        return { ...template, projectIds: associations.map((a) => a.projectId) };
+        return { ...template, codespaceIds: associations.map((a) => a.codespaceId) };
       })
     );
 
@@ -273,31 +273,31 @@ export class TemplateService {
       return err(TemplateErrors.NOT_FOUND);
     }
 
-    // Update project associations if provided
-    if (input.projectIds !== undefined) {
+    // Update codespace associations if provided
+    if (input.codespaceIds !== undefined) {
       // Delete existing associations
       await this.db.delete(templateProjects).where(eq(templateProjects.templateId, id));
 
       // Insert new associations
-      if (input.projectIds.length > 0) {
+      if (input.codespaceIds.length > 0) {
         const now = this.updateTimestamp();
         await this.db.insert(templateProjects).values(
-          input.projectIds.map((projectId) => ({
+          input.codespaceIds.map((codespaceId) => ({
             templateId: id,
-            projectId,
+            codespaceId,
             createdAt: now,
           }))
         );
       }
     }
 
-    // Get updated project associations
+    // Get updated codespace associations
     const associations = await this.db.query.templateProjects.findMany({
       where: eq(templateProjects.templateId, id),
     });
-    const projectIds = associations.map((a) => a.projectId);
+    const codespaceIds = associations.map((a) => a.codespaceId);
 
-    return ok({ ...updated, projectIds });
+    return ok({ ...updated, codespaceIds });
   }
 
   async delete(id: string): Promise<Result<void, TemplateError>> {
@@ -396,7 +396,6 @@ export class TemplateService {
       });
     } catch (error) {
       const ghError = formatGitHubError(error);
-      console.error(`[TemplateService] Sync error for ${id}:`, ghError.message);
 
       // Invalidate the token if GitHub returned 401 (expired/revoked)
       if (ghError.status === 401) {
@@ -404,7 +403,6 @@ export class TemplateService {
           .update(githubTokens)
           .set({ isValid: false })
           .where(eq(githubTokens.isValid, true));
-        console.warn('[TemplateService] Marked GitHub token as invalid due to 401 response');
       }
 
       await this.db
@@ -423,18 +421,18 @@ export class TemplateService {
    * Sync all templates of a given scope in parallel.
    * Returns both successful syncs and failed syncs for visibility.
    *
-   * @param scope - The template scope to sync ('org' or 'project')
-   * @param projectId - Optional project ID to filter project-scoped templates
+   * @param scope - The template scope to sync ('org' or 'codespace')
+   * @param codespaceId - Optional project ID to filter project-scoped templates
    * @returns SyncAllResult with successes and failures arrays
    */
   async syncAll(
     scope: TemplateScope,
-    projectId?: string
+    codespaceId?: string
   ): Promise<Result<SyncAllResult, TemplateError>> {
     const conditions = [eq(templates.scope, scope)];
 
-    if (projectId) {
-      conditions.push(eq(templates.projectId, projectId));
+    if (codespaceId) {
+      conditions.push(eq(templates.codespaceId, codespaceId));
     }
 
     const templateList = await this.db.query.templates.findMany({
@@ -458,10 +456,6 @@ export class TemplateService {
         if (result.ok) {
           successes.push(result.value);
         } else {
-          console.error(
-            `[TemplateService.syncAll] Failed to sync template ${template.id} (${template.name}):`,
-            result.error.message
-          );
           failures.push({
             templateId: template.id,
             templateName: template.name,
@@ -469,8 +463,6 @@ export class TemplateService {
           });
         }
       } else {
-        // This shouldn't happen since sync() catches its errors, but handle it
-        console.error('[TemplateService.syncAll] Unexpected sync error:', settledResult.reason);
       }
     }
 
@@ -478,23 +470,23 @@ export class TemplateService {
   }
 
   /**
-   * Get merged configuration for a project
-   * Combines org templates, project templates, and local config with proper precedence
+   * Get merged configuration for a codespace
+   * Combines org templates, codespace templates, and local config with proper precedence
    */
   async getMergedConfig(
-    projectId: string,
+    codespaceId: string,
     localConfig?: LocalConfig
   ): Promise<Result<MergedTemplateConfig, TemplateError>> {
-    // Fetch org templates (no projectId filter, scope = org)
+    // Fetch org templates (no codespaceId filter, scope = org)
     const orgTemplates = await this.db.query.templates.findMany({
       where: and(eq(templates.scope, 'org'), eq(templates.status, 'active')),
     });
 
-    // Fetch project templates
+    // Fetch codespace templates
     const projectTemplates = await this.db.query.templates.findMany({
       where: and(
-        eq(templates.scope, 'project'),
-        eq(templates.projectId, projectId),
+        eq(templates.scope, 'codespace'),
+        eq(templates.codespaceId, codespaceId),
         eq(templates.status, 'active')
       ),
     });

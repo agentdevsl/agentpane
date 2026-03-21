@@ -155,17 +155,17 @@ export class GitHubTokenService {
   }
 
   /**
-   * Resolve a GitHub token for a project via its team associations.
+   * Resolve a GitHub token for a codespace via its team associations.
    * Resolution chain: team_projects → github_tokens by teamId → global fallback (team_id IS NULL)
    */
-  async resolveGitHubTokenForProject(projectId: string): Promise<string | null> {
-    // Step 1: Find all teams associated with this project
+  async resolveGitHubTokenForCodespace(codespaceId: string): Promise<string | null> {
+    // Step 1: Find all teams associated with this codespace
     const projectTeams = await this.db
       .select({ teamId: teamProjects.teamId })
       .from(teamProjects)
-      .where(eq(teamProjects.projectId, projectId));
+      .where(eq(teamProjects.codespaceId, codespaceId));
 
-    // Step 2: If the project has teams, look for a team-specific token (single query)
+    // Step 2: If the codespace has teams, look for a team-specific token (single query)
     if (projectTeams.length > 0) {
       const teamIds = projectTeams.map((t) => t.teamId);
       const teamToken = await this.db.query.githubTokens.findFirst({

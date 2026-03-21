@@ -29,7 +29,7 @@ import type { AuthContext } from './auth-middleware';
 interface CachedApiToken {
   id: string;
   role: RbacRole;
-  scopeProjectId: string | null;
+  scopeCodespaceId: string | null;
   scopeTags: string[] | null;
   expiresAt: string | null;
 }
@@ -176,7 +176,7 @@ export function enrichAuthContext(db: Database) {
           rbacAuth.tokenScope = {
             tokenId: token.id,
             role: token.role,
-            projectId: token.scopeProjectId,
+            codespaceId: token.scopeCodespaceId,
             tags: token.scopeTags as string[] | null,
           };
 
@@ -248,7 +248,7 @@ export function enrichAuthContext(db: Database) {
  * Middleware factory that requires a minimum RBAC role for the route.
  *
  * Resolves the effective role based on:
- * - Project context (from :id param, ?projectId query, or body.projectId)
+ * - Codespace context (from :id param, ?codespaceId query, or body.codespaceId)
  * - Global context (highest role across all teams)
  *
  * Dev-mode users always pass (owner role).
@@ -281,37 +281,37 @@ export function requireRole(minimumRole: RbacRole, rbacService: RbacService) {
       );
     }
 
-    // Try to extract projectId from route params, query, or request body.
-    // Only use :id as projectId on /api/projects/* routes — on other routes
+    // Try to extract codespaceId from route params, query, or request body.
+    // Only use :id as codespaceId on /api/codespaces/* routes — on other routes
     // (tasks, sessions, agents, worktrees) the :id is a different resource.
     const path = c.req.path;
-    let projectId = c.req.query('projectId');
-    if (!projectId && path.startsWith('/api/projects/')) {
-      projectId = c.req.param('id');
+    let codespaceId = c.req.query('codespaceId');
+    if (!codespaceId && path.startsWith('/api/codespaces/')) {
+      codespaceId = c.req.param('id');
     }
 
-    // Fallback: try to extract projectId from the request body (only for methods that have a body).
+    // Fallback: try to extract codespaceId from the request body (only for methods that have a body).
     // NOTE (AR-010): This clones and parses the request body, adding overhead for every
-    // POST/PUT/PATCH passing through requireRole. For routes where projectId is always in the
-    // URL or query string, this parse is wasted work. Consider passing projectId explicitly
+    // POST/PUT/PATCH passing through requireRole. For routes where codespaceId is always in the
+    // URL or query string, this parse is wasted work. Consider passing codespaceId explicitly
     // in query params to avoid the body clone overhead in hot paths.
-    if (!projectId && ['POST', 'PUT', 'PATCH'].includes(c.req.method)) {
+    if (!codespaceId && ['POST', 'PUT', 'PATCH'].includes(c.req.method)) {
       try {
         const body = await c.req.raw.clone().json();
-        if (body && typeof body === 'object' && typeof body.projectId === 'string') {
-          projectId = body.projectId;
+        if (body && typeof body === 'object' && typeof body.codespaceId === 'string') {
+          codespaceId = body.codespaceId;
         }
       } catch (parseError) {
         // SyntaxError means the body is not JSON (e.g. form-data, empty body, binary).
         // This is expected for non-JSON endpoints and is silently ignored.
         if (!(parseError instanceof SyntaxError)) {
-          log.error('Unexpected error parsing request body for projectId', {
+          log.error('Unexpected error parsing request body for codespaceId', {
             error: parseError,
             data: { path: c.req.path },
           });
-          // If we couldn't extract a projectId from URL and body parsing failed unexpectedly,
+          // If we couldn't extract a codespaceId from URL and body parsing failed unexpectedly,
           // deny rather than falling back to potentially less-restrictive global role
-          if (!projectId) {
+          if (!codespaceId) {
             return c.json(
               {
                 ok: false,
@@ -326,27 +326,27 @@ export function requireRole(minimumRole: RbacRole, rbacService: RbacService) {
 
     let effectiveRole: RbacRole | null = null;
 
-    if (projectId) {
-      // Project-scoped: resolve role for this specific project
-      effectiveRole = await rbacService.resolveUserRole(auth.userId, projectId);
+    if (codespaceId) {
+      // Codespace-scoped: resolve role for this specific codespace
+      effectiveRole = await rbacService.resolveUserRole(auth.userId, codespaceId);
 
       // Apply token ceiling if applicable
       if (effectiveRole && auth.tokenScope) {
         effectiveRole = rbacService.applyTokenCeiling(effectiveRole, auth.tokenScope.role);
 
-        // Check project scope restriction
-        if (!rbacService.checkProjectScope(auth.tokenScope.projectId, projectId)) {
+        // Check codespace scope restriction
+        if (!rbacService.checkCodespaceScope(auth.tokenScope.codespaceId ?? null, codespaceId)) {
           return c.json(
             {
               ok: false,
-              error: { code: 'FORBIDDEN', message: 'Token not scoped for this project' },
+              error: { code: 'FORBIDDEN', message: 'Token not scoped for this codespace' },
             },
             403
           );
         }
       }
     } else {
-      // No project context -- use global role
+      // No codespace context -- use global role
       effectiveRole = auth.resolvedRole;
     }
 
@@ -380,12 +380,12 @@ export function requireRole(minimumRole: RbacRole, rbacService: RbacService) {
  */
 type TagResolver = (id: string, db: Database) => Promise<string[]>;
 
-const TAG_RESOLVERS: { [K in 'project' | 'task' | 'session' | 'agent']: TagResolver } = {
-  project: async (id, db) => {
+const TAG_RESOLVERS: { [K in 'codespace' | 'task' | 'session' | 'agent']: TagResolver } = {
+  codespace: async (id, db) => {
     const rows = await db
       .select({ tagId: projectTags.tagId })
       .from(projectTags)
-      .where(eq(projectTags.projectId, id));
+      .where(eq(projectTags.codespaceId, id));
     return rows.map((r) => r.tagId);
   },
   task: async (id, db) => {
@@ -394,19 +394,19 @@ const TAG_RESOLVERS: { [K in 'project' | 'task' | 'session' | 'agent']: TagResol
       .from(taskTags)
       .where(eq(taskTags.taskId, id));
     if (rows.length > 0) return rows.map((r) => r.tagId);
-    // Fallback to parent project tags
+    // Fallback to parent codespace tags
     const taskRows = await db
-      .select({ projectId: tasks.projectId })
+      .select({ codespaceId: tasks.codespaceId })
       .from(tasks)
       .where(eq(tasks.id, id));
-    if (taskRows[0]?.projectId) {
-      return TAG_RESOLVERS.project(taskRows[0].projectId, db);
+    if (taskRows[0]?.codespaceId) {
+      return TAG_RESOLVERS.codespace(taskRows[0].codespaceId, db);
     }
     return [];
   },
   session: async (id, db) => {
     const sessionRows = await db
-      .select({ taskId: sessions.taskId, projectId: sessions.projectId })
+      .select({ taskId: sessions.taskId, codespaceId: sessions.codespaceId })
       .from(sessions)
       .where(eq(sessions.id, id));
     const session = sessionRows[0];
@@ -415,18 +415,18 @@ const TAG_RESOLVERS: { [K in 'project' | 'task' | 'session' | 'agent']: TagResol
       const resolvedTaskTags = await TAG_RESOLVERS.task(session.taskId, db);
       if (resolvedTaskTags.length > 0) return resolvedTaskTags;
     }
-    if (session.projectId) {
-      return TAG_RESOLVERS.project(session.projectId, db);
+    if (session.codespaceId) {
+      return TAG_RESOLVERS.codespace(session.codespaceId, db);
     }
     return [];
   },
   agent: async (id, db) => {
     const agentRows = await db
-      .select({ projectId: agents.projectId })
+      .select({ codespaceId: agents.codespaceId })
       .from(agents)
       .where(eq(agents.id, id));
-    if (agentRows[0]?.projectId) {
-      return TAG_RESOLVERS.project(agentRows[0].projectId, db);
+    if (agentRows[0]?.codespaceId) {
+      return TAG_RESOLVERS.codespace(agentRows[0].codespaceId, db);
     }
     return [];
   },
@@ -435,7 +435,7 @@ const TAG_RESOLVERS: { [K in 'project' | 'task' | 'session' | 'agent']: TagResol
 /** Map URL path prefixes to resource types */
 type TagResourceType = keyof typeof TAG_RESOLVERS;
 const PATH_TO_RESOURCE: Array<[string, TagResourceType]> = [
-  ['/api/projects/', 'project'],
+  ['/api/codespaces/', 'codespace'],
   ['/api/tasks/', 'task'],
   ['/api/sessions/', 'session'],
   ['/api/agents/', 'agent'],

@@ -39,7 +39,6 @@ export async function resolveGitToken(
   const { db, githubTokenService } = deps;
 
   if (!project.githubOwner || !project.githubRepo) {
-    console.log('[GitTokenResolver] Project has no GitHub owner/repo configured');
     return null;
   }
 
@@ -55,31 +54,19 @@ export async function resolveGitToken(
       if (installation) {
         const numericId = Number(installation.installationId);
         if (Number.isNaN(numericId)) {
-          console.warn(
-            `[GitTokenResolver] Installation has non-numeric installationId: ${installation.installationId}`
-          );
         } else {
           const appOctokit = getAppOctokit();
           const { data } = await appOctokit.rest.apps.createInstallationAccessToken({
             installation_id: numericId,
           });
-
-          console.log('[GitTokenResolver] Resolved token via GitHub App installation');
           return { token: data.token, owner, repo };
         }
       } else {
-        console.warn(
-          `[GitTokenResolver] Installation record not found for id=${project.githubInstallationId}`
-        );
       }
     } catch (error) {
       const message = formatError(error);
       if (message.includes('not configured')) {
-        console.warn('[GitTokenResolver] GitHub App not configured, falling back to PAT');
       } else {
-        console.warn(
-          `[GitTokenResolver] GitHub App token API call failed (falling back to PAT): ${message}`
-        );
       }
     }
   }
@@ -89,15 +76,10 @@ export async function resolveGitToken(
     try {
       const token = await githubTokenService.getDecryptedToken();
       if (token) {
-        console.log('[GitTokenResolver] Resolved token via PAT');
         return { token, owner, repo };
       }
-    } catch (error) {
-      console.warn(`[GitTokenResolver] PAT resolution failed: ${formatError(error)}`);
-    }
+    } catch (_error) {}
   }
-
-  console.log('[GitTokenResolver] No git token could be resolved');
   return null;
 }
 

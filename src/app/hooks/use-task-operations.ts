@@ -1,6 +1,6 @@
 /**
  * FC-004: Shared task operation handlers extracted from
- * routes/projects/$projectId/index.tsx.
+ * routes/codespaces/$codespaceId/index.tsx.
  *
  * Centralizes task move, run-now, stop-agent, approve/reject plan logic
  * so it can be reused across route components without duplication.

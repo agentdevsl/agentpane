@@ -21,7 +21,6 @@ type PhaseResult = {
  * Database runs on server - client uses API endpoints.
  */
 const initializeClient = async (): Promise<ReturnType<typeof ok>> => {
-  console.log('[Bootstrap] Client mode initialized');
   return ok(null);
 };
 

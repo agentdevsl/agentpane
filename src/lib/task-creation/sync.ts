@@ -82,32 +82,23 @@ const activeSyncs = new Map<string, EventSource>();
 export function syncTaskCreationToCollections(sessionId: string, streamUrl: string): () => void {
   // Check if already syncing
   if (activeSyncs.has(sessionId)) {
-    console.log('[TaskCreation Sync] Already syncing session:', sessionId);
     return () => stopTaskCreationSync(sessionId);
   }
-
-  console.log('[TaskCreation Sync] Starting sync for session:', sessionId);
 
   // Create EventSource for SSE
   const eventSource = new EventSource(streamUrl);
   activeSyncs.set(sessionId, eventSource);
 
-  eventSource.onopen = () => {
-    console.log('[TaskCreation Sync] Connected to stream for session:', sessionId);
-  };
+  eventSource.onopen = () => {};
 
   eventSource.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data) as TaskCreationEvent;
       handleTaskCreationEvent(sessionId, data);
-    } catch (error) {
-      console.error('[TaskCreation Sync] Error parsing event:', error);
-    }
+    } catch (_error) {}
   };
 
-  eventSource.onerror = (error) => {
-    console.error('[TaskCreation Sync] Stream error:', error);
-
+  eventSource.onerror = (_error) => {
     // Update session status to error if the connection is closed
     // Also clear pendingQuestions since server session is likely lost
     if (eventSource.readyState === EventSource.CLOSED) {
@@ -129,7 +120,6 @@ export function syncTaskCreationToCollections(sessionId: string, streamUrl: stri
 export function stopTaskCreationSync(sessionId: string): void {
   const eventSource = activeSyncs.get(sessionId);
   if (eventSource) {
-    console.log('[TaskCreation Sync] Stopping sync for session:', sessionId);
     eventSource.close();
     activeSyncs.delete(sessionId);
   }
@@ -147,8 +137,6 @@ export function isSessionSyncing(sessionId: string): boolean {
 // ============================================================================
 
 function handleTaskCreationEvent(sessionId: string, event: TaskCreationEvent): void {
-  console.log('[TaskCreation Sync] Received event:', event.type);
-
   switch (event.type) {
     case 'connected':
       // Connection established, update session status
@@ -192,7 +180,6 @@ function handleTaskCreationEvent(sessionId: string, event: TaskCreationEvent): v
       break;
 
     default:
-      console.log('[TaskCreation Sync] Unknown event type:', (event as { type: string }).type);
   }
 }
 
@@ -232,13 +219,6 @@ function handleMessageEvent(sessionId: string, data: MessageEventData): void {
 }
 
 function handleQuestionsEvent(sessionId: string, data: QuestionsEventData): void {
-  console.log('[TaskCreation Sync] Received questions:', {
-    id: data.questions.id,
-    count: data.questions.questions.length,
-    round: data.questions.round,
-    totalAsked: data.questions.totalAsked,
-    headers: data.questions.questions.map((q) => q.header),
-  });
   updateSession(sessionId, {
     status: 'waiting_user',
     pendingQuestions: data.questions,
@@ -294,11 +274,11 @@ function handleErrorEvent(sessionId: string, data: ErrorEventData): void {
  */
 export function createTaskCreationSession(
   sessionId: string,
-  projectId: string
+  codespaceId: string
 ): TaskCreationSession {
   const session: TaskCreationSession = {
     id: sessionId,
-    projectId,
+    codespaceId,
     status: 'connecting',
     suggestion: null,
     pendingQuestions: null,
@@ -319,7 +299,7 @@ export function createTaskCreationSession(
  */
 function updateSession(
   sessionId: string,
-  updates: Partial<Omit<TaskCreationSession, 'id' | 'projectId' | 'createdAt'>>
+  updates: Partial<Omit<TaskCreationSession, 'id' | 'codespaceId' | 'createdAt'>>
 ): void {
   if (taskCreationSessionsCollection.has(sessionId)) {
     taskCreationSessionsCollection.update(sessionId, (draft) => {

@@ -1,7 +1,7 @@
 /**
- * Project routes
+ * Codespace routes
  *
- * Thin route handlers that delegate to ProjectService.
+ * Thin route handlers that delegate to CodespaceService.
  */
 
 import path from 'node:path';
@@ -10,40 +10,41 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { agents } from '../../db/schema';
 import { createLogger } from '../../lib/logging/logger.js';
-import type { ProjectService } from '../../services/project.service.js';
+import type { CodespaceService } from '../../services/codespace.service.js';
 import type { Database } from '../../types/database.js';
 import { isValidId, json } from '../shared.js';
 
-const logger = createLogger('routes:projects');
+const logger = createLogger('routes:codespaces');
 
 // Validation schemas
-const createProjectSchema = z.object({
+const createCodespaceSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   path: z.string().min(1, 'Path is required'),
   description: z.string().optional(),
+  projectFolderId: z.string().min(1, 'projectFolderId is required'),
 });
 
-const updateProjectSchema = z.object({
+const updateCodespaceSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().optional(),
   maxConcurrentAgents: z.number().int().positive().optional(),
   config: z.record(z.string(), z.unknown()).optional(),
 });
 
-interface ProjectsDeps {
-  projectService: ProjectService;
+interface CodespacesDeps {
+  codespaceService: CodespaceService;
   db: Database;
 }
 
-export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
+export function createCodespacesRoutes({ codespaceService, db }: CodespacesDeps) {
   const app = new Hono();
 
-  // GET /api/projects
+  // GET /api/codespaces
   app.get('/', async (c) => {
     const limit = parseInt(c.req.query('limit') ?? '24', 10);
 
     try {
-      const result = await projectService.list({ limit });
+      const result = await codespaceService.list({ limit });
 
       if (!result.ok) {
         return json(
@@ -60,6 +61,7 @@ export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
             name: p.name,
             path: p.path,
             description: p.description,
+            projectFolderId: p.projectFolderId,
             createdAt: p.createdAt,
             updatedAt: p.updatedAt,
           })),
@@ -71,13 +73,13 @@ export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
     } catch (error) {
       logger.error('List error', { error: error });
       return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to list projects' } },
+        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to list codespaces' } },
         500
       );
     }
   });
 
-  // POST /api/projects
+  // POST /api/codespaces
   app.post('/', async (c) => {
     let body: unknown;
     try {
@@ -89,7 +91,7 @@ export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
       );
     }
 
-    const parsed = createProjectSchema.safeParse(body);
+    const parsed = createCodespaceSchema.safeParse(body);
     if (!parsed.success) {
       return json(
         {
@@ -105,7 +107,7 @@ export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
 
     // AR-033: Validate path at creation time, not just deletion time.
     // Ensures the path resolves to a safe location, preventing registration of system
-    // directories that could later be deleted via the project delete endpoint.
+    // directories that could later be deleted via the codespace delete endpoint.
     // We resolve the path to prevent traversal attacks (e.g., /home/user/../../../etc).
     const resolvedPath = path.resolve(parsed.data.path);
     const normalizedPath = path.normalize(resolvedPath);
@@ -118,7 +120,7 @@ export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
           error: {
             code: 'VALIDATION_ERROR',
             message:
-              'Project path is too shallow. Must be at least 3 levels deep (e.g., /home/user/project).',
+              'Codespace path is too shallow. Must be at least 3 levels deep (e.g., /home/user/project).',
           },
         },
         400
@@ -126,16 +128,18 @@ export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
     }
 
     try {
-      const result = await projectService.create({
+      const result = await codespaceService.create({
         path: parsed.data.path,
         name: parsed.data.name,
         description: parsed.data.description,
+        projectFolderId: parsed.data.projectFolderId,
       });
 
       if (!result.ok) {
         // Map service errors to API-compatible error codes
         const statusCode = result.error.status;
-        const code = result.error.code === 'PROJECT_PATH_EXISTS' ? 'DUPLICATE' : result.error.code;
+        const code =
+          result.error.code === 'CODESPACE_PATH_EXISTS' ? 'DUPLICATE' : result.error.code;
         return json({ ok: false, error: { code, message: result.error.message } }, statusCode);
       }
 
@@ -147,6 +151,7 @@ export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
           name: created.name,
           path: created.path,
           description: created.description,
+          projectFolderId: created.projectFolderId,
           createdAt: created.createdAt,
           updatedAt: created.updatedAt,
         },
@@ -154,18 +159,18 @@ export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
     } catch (error) {
       logger.error('Create error', { error: error });
       return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to create project' } },
+        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to create codespace' } },
         500
       );
     }
   });
 
-  // GET /api/projects/summaries
+  // GET /api/codespaces/summaries
   app.get('/summaries', async (c) => {
     const limit = parseInt(c.req.query('limit') ?? '24', 10);
 
     try {
-      const result = await projectService.listWithSummaries({ limit });
+      const result = await codespaceService.listWithSummaries({ limit });
 
       if (!result.ok) {
         return json(
@@ -180,7 +185,7 @@ export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
         ok: true,
         data: {
           items: summaries.map((s) => ({
-            project: {
+            codespace: {
               id: s.project.id,
               name: s.project.name,
               path: s.project.path,
@@ -210,14 +215,14 @@ export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
       return json(
         {
           ok: false,
-          error: { code: 'DB_ERROR', message: 'Failed to list projects with summaries' },
+          error: { code: 'DB_ERROR', message: 'Failed to list codespaces with summaries' },
         },
         500
       );
     }
   });
 
-  // GET /api/projects/:id
+  // GET /api/codespaces/:id
   app.get('/:id', async (c) => {
     const id = c.req.param('id');
 
@@ -226,36 +231,40 @@ export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
     }
 
     try {
-      const result = await projectService.getById(id);
+      const result = await codespaceService.getById(id);
 
       if (!result.ok) {
-        return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Project not found' } }, 404);
+        return json(
+          { ok: false, error: { code: 'NOT_FOUND', message: 'Codespace not found' } },
+          404
+        );
       }
 
-      const project = result.value;
+      const codespace = result.value;
       return json({
         ok: true,
         data: {
-          id: project.id,
-          name: project.name,
-          path: project.path,
-          description: project.description,
-          maxConcurrentAgents: project.maxConcurrentAgents,
-          config: project.config,
-          createdAt: project.createdAt,
-          updatedAt: project.updatedAt,
+          id: codespace.id,
+          name: codespace.name,
+          path: codespace.path,
+          description: codespace.description,
+          projectFolderId: codespace.projectFolderId,
+          maxConcurrentAgents: codespace.maxConcurrentAgents,
+          config: codespace.config,
+          createdAt: codespace.createdAt,
+          updatedAt: codespace.updatedAt,
         },
       });
     } catch (error) {
       logger.error('Get error', { error: error });
       return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to get project' } },
+        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to get codespace' } },
         500
       );
     }
   });
 
-  // PATCH /api/projects/:id
+  // PATCH /api/codespaces/:id
   app.patch('/:id', async (c) => {
     const id = c.req.param('id');
 
@@ -273,7 +282,7 @@ export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
       );
     }
 
-    const parsed = updateProjectSchema.safeParse(body);
+    const parsed = updateCodespaceSchema.safeParse(body);
     if (!parsed.success) {
       return json(
         {
@@ -288,7 +297,7 @@ export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
     }
 
     try {
-      const result = await projectService.update(id, {
+      const result = await codespaceService.update(id, {
         name: parsed.data.name,
         description: parsed.data.description,
         maxConcurrentAgents: parsed.data.maxConcurrentAgents,
@@ -311,6 +320,7 @@ export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
           name: updated.name,
           path: updated.path,
           description: updated.description,
+          projectFolderId: updated.projectFolderId,
           maxConcurrentAgents: updated.maxConcurrentAgents,
           config: updated.config,
           createdAt: updated.createdAt,
@@ -320,13 +330,13 @@ export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
     } catch (error) {
       logger.error('Update error', { error: error });
       return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to update project' } },
+        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to update codespace' } },
         500
       );
     }
   });
 
-  // DELETE /api/projects/:id
+  // DELETE /api/codespaces/:id
   app.delete('/:id', async (c) => {
     const id = c.req.param('id');
     const deleteFiles = c.req.query('deleteFiles') === 'true';
@@ -336,17 +346,20 @@ export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
     }
 
     try {
-      // Get the project first (needed for file deletion path)
-      const projectResult = await projectService.getById(id);
-      if (!projectResult.ok) {
-        return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Project not found' } }, 404);
+      // Get the codespace first (needed for file deletion path)
+      const codespaceResult = await codespaceService.getById(id);
+      if (!codespaceResult.ok) {
+        return json(
+          { ok: false, error: { code: 'NOT_FOUND', message: 'Codespace not found' } },
+          404
+        );
       }
 
-      const existing = projectResult.value;
+      const existing = codespaceResult.value;
 
-      // Check if project has running agents
+      // Check if codespace has running agents
       const runningAgents = await db.query.agents.findMany({
-        where: and(eq(agents.projectId, id), eq(agents.status, 'running')),
+        where: and(eq(agents.codespaceId, id), eq(agents.status, 'running')),
       });
 
       if (runningAgents.length > 0) {
@@ -354,8 +367,8 @@ export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
           {
             ok: false,
             error: {
-              code: 'PROJECT_HAS_RUNNING_AGENTS',
-              message: 'Cannot delete project with running agents. Stop all agents first.',
+              code: 'CODESPACE_HAS_RUNNING_AGENTS',
+              message: 'Cannot delete codespace with running agents. Stop all agents first.',
             },
           },
           409
@@ -363,7 +376,7 @@ export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
       }
 
       // Delete via service (handles worktree pruning and cascade)
-      const deleteResult = await projectService.delete(id);
+      const deleteResult = await codespaceService.delete(id);
       if (!deleteResult.ok) {
         return json(
           {
@@ -374,7 +387,7 @@ export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
         );
       }
 
-      // Optionally delete project files
+      // Optionally delete codespace files
       let filesActuallyDeleted = false;
       let fileDeletionError: string | undefined;
       let deletionBlockedReason: string | undefined;
@@ -391,9 +404,6 @@ export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
         const validationResult = validatePathForDeletion(existing.path);
 
         if (validationResult.safe === false) {
-          console.warn(
-            `[Projects] Refusing to delete path (${validationResult.code}): ${normalizedPath}`
-          );
           deletionBlockedReason = validationResult.reason;
         } else {
           // Safety check: ensure the path exists and is a directory
@@ -402,17 +412,15 @@ export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
             if (stats.isDirectory()) {
               await fs.rm(normalizedPath, { recursive: true, force: true });
               filesActuallyDeleted = true;
-              console.log(`[Projects] Deleted project files at: ${normalizedPath}`);
             } else {
               // Path exists but is not a directory
               deletionBlockedReason = 'Path is not a directory';
-              console.warn(`[Projects] Path is not a directory: ${normalizedPath}`);
             }
           } catch (fsError) {
             // Track the error and return filesDeleted: false
             const errorMessage = fsError instanceof Error ? fsError.message : String(fsError);
             fileDeletionError = errorMessage;
-            logger.error(`Failed to delete project files: `);
+            logger.error(`Failed to delete codespace files: `);
           }
         }
       }
@@ -429,7 +437,7 @@ export function createProjectsRoutes({ projectService, db }: ProjectsDeps) {
     } catch (error) {
       logger.error('Delete error', { error: error });
       return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to delete project' } },
+        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to delete codespace' } },
         500
       );
     }

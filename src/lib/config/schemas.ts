@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const projectConfigSchema = z.object({
+export const codespaceConfigSchema = z.object({
   worktreeRoot: z.string().default('.worktrees'),
   initScript: z.string().optional(),
   envFile: z.string().optional(),
@@ -16,7 +16,7 @@ export const projectConfigSchema = z.object({
 /**
  * CB-016: Global config schema for environment variable validation.
  * Used by `validateEnv()` in `api.ts` to validate server-level configuration.
- * anthropicApiKey is optional because non-agent operations (project listing,
+ * anthropicApiKey is optional because non-agent operations (codespace listing,
  * settings, etc.) do not require it — it is validated at agent execution time.
  */
 export const globalConfigSchema = z.object({

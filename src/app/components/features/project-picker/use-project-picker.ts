@@ -3,7 +3,7 @@ import { useEventListener } from '@/app/hooks/use-event-listener';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import type { ProjectPickerItem } from './types';
 
-const RECENT_PROJECTS_KEY = 'agentpane:recent-projects';
+const RECENT_PROJECTS_KEY = 'agentpane:recent-codespaces';
 const MAX_RECENT_PROJECTS = 5;
 
 interface UseProjectPickerOptions {

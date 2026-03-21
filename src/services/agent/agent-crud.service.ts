@@ -1,6 +1,6 @@
 import { and, count, desc, eq } from 'drizzle-orm';
 import type { Agent, AgentConfig, NewAgent } from '../../db/schema';
-import { agents, projects } from '../../db/schema';
+import { agents, codespaces } from '../../db/schema';
 import type { AgentError } from '../../lib/errors/agent-errors.js';
 import { AgentErrors } from '../../lib/errors/agent-errors.js';
 import type { ValidationError } from '../../lib/errors/validation-errors.js';
@@ -13,9 +13,9 @@ import type { Database } from '../../types/database.js';
  * AgentCrudService handles CRUD operations for agents.
  *
  * Responsibilities:
- * - Create new agents with project config defaults
+ * - Create new agents with codespace config defaults
  * - Get agent by ID
- * - List agents by project or all
+ * - List agents by codespace or all
  * - Update agent configuration
  * - Delete agents
  * - Get running count for all agents
@@ -24,23 +24,23 @@ export class AgentCrudService {
   constructor(private db: Database) {}
 
   /**
-   * Create a new agent with configuration defaults from the project.
+   * Create a new agent with configuration defaults from the codespace.
    */
   async create(input: NewAgent): Promise<Result<Agent, ValidationError>> {
-    const project = await this.db.query.projects.findFirst({
-      where: eq(projects.id, input.projectId),
+    const codespace = await this.db.query.codespaces.findFirst({
+      where: eq(codespaces.id, input.codespaceId),
     });
 
-    if (!project) {
-      return err(ValidationErrors.INVALID_ID('projectId'));
+    if (!codespace) {
+      return err(ValidationErrors.INVALID_ID('codespaceId'));
     }
 
     const config: AgentConfig = {
-      allowedTools: input.config?.allowedTools ?? project.config?.allowedTools ?? [],
-      maxTurns: input.config?.maxTurns ?? project.config?.maxTurns ?? 50,
-      model: input.config?.model ?? project.config?.model,
-      systemPrompt: input.config?.systemPrompt ?? project.config?.systemPrompt,
-      temperature: input.config?.temperature ?? project.config?.temperature,
+      allowedTools: input.config?.allowedTools ?? codespace.config?.allowedTools ?? [],
+      maxTurns: input.config?.maxTurns ?? codespace.config?.maxTurns ?? 50,
+      model: input.config?.model ?? codespace.config?.model,
+      systemPrompt: input.config?.systemPrompt ?? codespace.config?.systemPrompt,
+      temperature: input.config?.temperature ?? codespace.config?.temperature,
     };
 
     const [agent] = await this.db
@@ -70,11 +70,11 @@ export class AgentCrudService {
   }
 
   /**
-   * List agents for a specific project, ordered by most recently updated.
+   * List agents for a specific codespace, ordered by most recently updated.
    */
-  async list(projectId: string): Promise<Result<Agent[], never>> {
+  async list(codespaceId: string): Promise<Result<Agent[], never>> {
     const items = await this.db.query.agents.findMany({
-      where: eq(agents.projectId, projectId),
+      where: eq(agents.codespaceId, codespaceId),
       orderBy: [desc(agents.updatedAt)],
     });
 
@@ -104,13 +104,13 @@ export class AgentCrudService {
   }
 
   /**
-   * Get the count of running agents for a specific project.
+   * Get the count of running agents for a specific codespace.
    */
-  async getRunningCount(projectId: string): Promise<Result<number, never>> {
+  async getRunningCount(codespaceId: string): Promise<Result<number, never>> {
     const [result] = await this.db
       .select({ count: count() })
       .from(agents)
-      .where(and(eq(agents.projectId, projectId), eq(agents.status, 'running')));
+      .where(and(eq(agents.codespaceId, codespaceId), eq(agents.status, 'running')));
     return ok(result?.count ?? 0);
   }
 

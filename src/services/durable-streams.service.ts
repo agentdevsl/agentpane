@@ -36,7 +36,7 @@ export interface DurableStreamsServer {
 export interface PlanStartedEvent {
   sessionId: string;
   taskId: string;
-  projectId: string;
+  codespaceId: string;
 }
 
 export interface PlanTurnEvent {
@@ -80,37 +80,37 @@ export interface PlanErrorEvent {
  */
 export interface SandboxCreatingEvent {
   sandboxId: string;
-  projectId: string;
+  codespaceId: string;
   image: string;
 }
 
 export interface SandboxReadyEvent {
   sandboxId: string;
-  projectId: string;
+  codespaceId: string;
   containerId: string;
 }
 
 export interface SandboxIdleEvent {
   sandboxId: string;
-  projectId: string;
+  codespaceId: string;
   idleSince: number;
   timeoutMinutes: number;
 }
 
 export interface SandboxStoppingEvent {
   sandboxId: string;
-  projectId: string;
+  codespaceId: string;
   reason: 'idle_timeout' | 'manual' | 'error';
 }
 
 export interface SandboxStoppedEvent {
   sandboxId: string;
-  projectId: string;
+  codespaceId: string;
 }
 
 export interface SandboxErrorEvent {
   sandboxId: string;
-  projectId: string;
+  codespaceId: string;
   error: string;
   code?: string;
 }
@@ -241,7 +241,7 @@ export interface ContainerAgentFileChangedEvent extends AgentFileChangedData {
  */
 export interface TaskCreationStartedEvent {
   sessionId: string;
-  projectId: string;
+  codespaceId: string;
 }
 
 export interface TaskCreationMessageEvent {
@@ -526,7 +526,6 @@ export class DurableStreamsService {
    */
   async createStream(id: string, schema: unknown): Promise<Result<void, AppError>> {
     if (!id || typeof id !== 'string' || id.trim() === '') {
-      console.error('[DurableStreamsService] createStream validation error:', { id });
       return err(
         createError(
           'STREAM_VALIDATION',
@@ -540,7 +539,6 @@ export class DurableStreamsService {
       await this.server.createStream(id, schema);
       return ok(undefined);
     } catch (error) {
-      console.error('[DurableStreamsService] createStream failed:', { streamId: id, error });
       return err(
         createError(
           'STREAM_CREATE_FAILED',
@@ -557,10 +555,7 @@ export class DurableStreamsService {
   async deleteStream(id: string): Promise<void> {
     // Call server.deleteStream if available
     if ('deleteStream' in this.server && this.server.deleteStream) {
-      const deleted = await this.server.deleteStream(id);
-      console.log(
-        `[DurableStreamsService] Stream ${id} ${deleted ? 'deleted' : 'not found (already removed)'}`
-      );
+      const _deleted = await this.server.deleteStream(id);
     }
   }
 
@@ -621,8 +616,8 @@ export class DurableStreamsService {
    *
    * @example
    * // TypeScript enforces correct data shape:
-   * await streams.publish(streamId, 'plan:started', { sessionId, taskId, projectId });
-   * await streams.publish(streamId, 'sandbox:ready', { sandboxId, projectId, containerId });
+   * await streams.publish(streamId, 'plan:started', { sessionId, taskId, codespaceId });
+   * await streams.publish(streamId, 'sandbox:ready', { sandboxId, codespaceId, containerId });
    */
   async publish<T extends TypedEventType>(
     streamId: string,
@@ -630,7 +625,6 @@ export class DurableStreamsService {
     data: StreamEventMap[T]
   ): Promise<Result<number, AppError>> {
     if (!streamId || typeof streamId !== 'string' || streamId.trim() === '') {
-      console.error('[DurableStreamsService] publish validation error:', { streamId, type });
       return err(
         createError(
           'STREAM_VALIDATION',
@@ -660,17 +654,10 @@ export class DurableStreamsService {
       let memoryOffset = 0;
       try {
         memoryOffset = await this.server.publish(streamId, type, data);
-      } catch (caddyErr) {
-        console.warn('[DurableStreamsService] Caddy publish failed (event is persisted in DB):', {
-          streamId,
-          type,
-          error: caddyErr instanceof Error ? caddyErr.message : String(caddyErr),
-        });
-      }
+      } catch (_caddyErr) {}
 
       return ok(this.db ? offset : memoryOffset);
     } catch (error) {
-      console.error('[DurableStreamsService] publish failed:', { streamId, type, error });
       return err(
         createError(
           'STREAM_PUBLISH_FAILED',
@@ -805,16 +792,7 @@ export class DurableStreamsService {
       // Caddy publish is best-effort after DB persistence
       try {
         await this.server.publish(streamId, event.type, event.data);
-      } catch (caddyErr) {
-        console.warn(
-          '[DurableStreamsService] Caddy publish failed for session event (persisted in DB):',
-          {
-            streamId,
-            type: event.type,
-            error: caddyErr instanceof Error ? caddyErr.message : String(caddyErr),
-          }
-        );
-      }
+      } catch (_caddyErr) {}
 
       return ok(undefined);
     } catch (error) {

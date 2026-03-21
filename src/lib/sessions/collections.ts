@@ -134,12 +134,7 @@ export const sessionCollections = {
  * Clear all data from all session collections
  * Useful for cleanup when leaving a session
  */
-export function clearSessionCollections(): void {
-  // TanStack DB collections don't have a clear method directly
-  // We need to delete each item - for now, create new collections
-  // This is a placeholder for proper cleanup
-  console.log('[Collections] Clearing session collections');
-}
+export function clearSessionCollections(): void {}
 
 /**
  * Get collection statistics for debugging

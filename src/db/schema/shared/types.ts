@@ -1,6 +1,6 @@
 import type { ProjectSandboxConfig } from '../../../lib/sandbox/types';
 
-export type ProjectConfig = {
+export type CodespaceConfig = {
   worktreeRoot: string;
   initScript?: string;
   envFile?: string;

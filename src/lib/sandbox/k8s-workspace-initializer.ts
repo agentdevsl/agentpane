@@ -38,12 +38,12 @@ export interface K8sWorkspaceResult {
   readonly branch: string | null;
 }
 
-function formatError(err: unknown): string {
+function _formatError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
 /** Strip credentials from a string to prevent token leakage in logs. */
-function sanitizeCredentials(str: string): string {
+function _sanitizeCredentials(str: string): string {
   return str.replace(/x-access-token:[^@]+@/g, 'x-access-token:[REDACTED]@');
 }
 
@@ -57,10 +57,7 @@ async function isWorkspaceCloned(sandbox: SandboxExec): Promise<boolean> {
   try {
     const result = await sandbox.exec('test', ['-d', `${CONTAINER_WORKSPACE_PATH}/.git`]);
     return result.exitCode === 0;
-  } catch (err) {
-    console.warn(
-      `[K8sWorkspaceInit] Failed to check clone status (will attempt fresh clone): ${formatError(err)}`
-    );
+  } catch (_err) {
     return false;
   }
 }
@@ -79,7 +76,6 @@ async function cloneRepository(
   baseBranch: string
 ): Promise<boolean> {
   if (!GITHUB_NAME_RE.test(owner) || !GITHUB_NAME_RE.test(repo)) {
-    console.warn(`[K8sWorkspaceInit] Invalid owner/repo format: ${owner}/${repo}`);
     return false;
   }
 
@@ -87,10 +83,6 @@ async function cloneRepository(
   // may not be available in the pod). We strip it from the remote immediately
   // after clone to prevent credential leakage via `git remote -v` or logs.
   const cloneUrl = `https://x-access-token:${token}@github.com/${owner}/${repo}.git`;
-
-  console.log(
-    `[K8sWorkspaceInit] Cloning ${owner}/${repo} (branch: ${baseBranch}) into ${CONTAINER_WORKSPACE_PATH}`
-  );
 
   try {
     const cloneResult = await sandbox.exec('git', [
@@ -105,9 +97,6 @@ async function cloneRepository(
     ]);
 
     if (cloneResult.exitCode !== 0) {
-      console.warn(
-        `[K8sWorkspaceInit] Clone failed (exit ${cloneResult.exitCode}): ${sanitizeCredentials(cloneResult.stderr)}`
-      );
       return false;
     }
 
@@ -121,9 +110,6 @@ async function cloneRepository(
       `https://github.com/${owner}/${repo}.git`,
     ]);
     if (stripResult.exitCode !== 0) {
-      console.error(
-        `[K8sWorkspaceInit] SECURITY: Failed to strip token from remote URL (exit ${stripResult.exitCode}). Aborting clone.`
-      );
       return false;
     }
 
@@ -136,15 +122,9 @@ async function cloneRepository(
       '',
     ]);
     if (credResult.exitCode !== 0) {
-      console.warn(
-        `[K8sWorkspaceInit] Failed to disable credential helper (exit ${credResult.exitCode})`
-      );
     }
-
-    console.log(`[K8sWorkspaceInit] Clone successful`);
     return true;
-  } catch (err) {
-    console.warn(`[K8sWorkspaceInit] Clone threw: ${sanitizeCredentials(formatError(err))}`);
+  } catch (_err) {
     return false;
   }
 }
@@ -182,54 +162,33 @@ async function createWorktree(
   try {
     const result = await sandbox.exec('test', ['-d', worktreePath]);
     if (result.exitCode === 0) {
-      console.log(`[K8sWorkspaceInit] Worktree already exists at ${worktreePath}`);
       return worktreePath;
     }
-  } catch (err) {
-    console.warn(
-      `[K8sWorkspaceInit] Failed to check worktree existence for branch=${branch}: ${formatError(err)}`
-    );
-  }
+  } catch (_err) {}
 
   // Ensure the worktrees parent directory exists
   try {
     await sandbox.exec('mkdir', ['-p', WORKTREES_DIR]);
-  } catch (err) {
-    console.warn(`[K8sWorkspaceInit] Failed to create worktrees dir: ${formatError(err)}`);
+  } catch (_err) {
     return null;
   }
-
-  console.log(
-    `[K8sWorkspaceInit] Creating worktree: branch=${branch}, base=${baseBranch}, path=${worktreePath}`
-  );
 
   // Try creating worktree with a new branch (-b), then retry without -b if branch already exists
   try {
     const result = await tryWorktreeAdd(sandbox, worktreePath, branch, baseBranch);
     if (result.exitCode === 0) {
-      console.log(`[K8sWorkspaceInit] Worktree created successfully at ${worktreePath}`);
       return worktreePath;
     }
-    console.log(
-      `[K8sWorkspaceInit] Worktree -b failed (exit ${result.exitCode}), retrying without -b`
-    );
-  } catch (err) {
-    console.warn(`[K8sWorkspaceInit] Worktree -b threw: ${formatError(err)}, retrying without -b`);
-  }
+  } catch (_err) {}
 
   // Retry without -b (branch already exists from a prior planning phase, or existingBranch was provided)
   try {
     const retryResult = await tryWorktreeAdd(sandbox, worktreePath, branch);
     if (retryResult.exitCode === 0) {
-      console.log(`[K8sWorkspaceInit] Worktree created (existing branch) at ${worktreePath}`);
       return worktreePath;
     }
-    console.warn(
-      `[K8sWorkspaceInit] Worktree retry failed (exit ${retryResult.exitCode}): ${retryResult.stderr}`
-    );
     return null;
-  } catch (err) {
-    console.warn(`[K8sWorkspaceInit] Worktree retry threw: ${formatError(err)}`);
+  } catch (_err) {
     return null;
   }
 }
@@ -254,11 +213,9 @@ export async function initializeK8sWorkspace(
   if (!cloned) {
     const cloneOk = await cloneRepository(sandbox, token, owner, repo, baseBranch);
     if (!cloneOk) {
-      console.warn(`[K8sWorkspaceInit] Clone failed, falling back to ${CONTAINER_WORKSPACE_PATH}`);
       return fallback;
     }
   } else {
-    console.log(`[K8sWorkspaceInit] Workspace already cloned, skipping clone`);
   }
 
   // Step 2: Create worktree
@@ -266,9 +223,6 @@ export async function initializeK8sWorkspace(
   const worktreePath = await createWorktree(sandbox, branch, baseBranch);
 
   if (!worktreePath) {
-    console.warn(
-      `[K8sWorkspaceInit] Worktree creation failed, falling back to ${CONTAINER_WORKSPACE_PATH}`
-    );
     return { worktreePath: CONTAINER_WORKSPACE_PATH, branch: null };
   }
 

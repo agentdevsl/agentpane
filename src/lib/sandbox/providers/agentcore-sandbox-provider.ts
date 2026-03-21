@@ -40,7 +40,7 @@ export interface AgentCoreProviderConfig {
 
 export interface AgentCoreRuntimeInfo {
   sandboxId: string;
-  projectId: string;
+  codespaceId: string;
   runtimeArn: string;
   status: SandboxStatus;
   createdAt: string;
@@ -56,7 +56,7 @@ export class AgentCoreSandboxProvider {
 
   private readonly config: AgentCoreProviderConfig;
 
-  /** Instances keyed by projectId */
+  /** Instances keyed by codespaceId */
   private instances = new Map<string, AgentCoreSandboxInstance>();
 
   /**
@@ -81,12 +81,12 @@ export class AgentCoreSandboxProvider {
    * It creates a local handle that can invoke the AgentCore runtime.
    * The actual microVM is provisioned on-demand by AWS when invoke() is called.
    */
-  create(projectId: string, sandboxId: string): AgentCoreSandboxInstance {
+  create(codespaceId: string, sandboxId: string): AgentCoreSandboxInstance {
     // Check for existing instance
-    const existing = this.instances.get(projectId);
+    const existing = this.instances.get(codespaceId);
     if (existing && existing.status !== 'stopped') {
-      log.info('Returning existing AgentCore instance for project', {
-        data: { projectId, sandboxId: existing.sandboxId },
+      log.info('Returning existing AgentCore instance for codespace', {
+        data: { codespaceId, sandboxId: existing.sandboxId },
       });
       return existing;
     }
@@ -96,15 +96,15 @@ export class AgentCoreSandboxProvider {
       region: this.config.region,
       accessKeyId: this.config.accessKeyId,
       secretAccessKey: this.config.secretAccessKey,
-      projectId,
+      codespaceId,
       sandboxId,
     };
 
     const instance = new AgentCoreSandboxInstance(options);
-    this.instances.set(projectId, instance);
+    this.instances.set(codespaceId, instance);
 
     log.info('Created AgentCore instance', {
-      data: { projectId, sandboxId, runtimeArn: this.config.runtimeArn },
+      data: { codespaceId, sandboxId, runtimeArn: this.config.runtimeArn },
     });
 
     return instance;
@@ -113,8 +113,8 @@ export class AgentCoreSandboxProvider {
   /**
    * Get an existing instance for a project.
    */
-  get(projectId: string): AgentCoreSandboxInstance | null {
-    const instance = this.instances.get(projectId);
+  get(codespaceId: string): AgentCoreSandboxInstance | null {
+    const instance = this.instances.get(codespaceId);
     if (!instance || instance.status === 'stopped') {
       return null;
     }
@@ -128,11 +128,11 @@ export class AgentCoreSandboxProvider {
     const result: AgentCoreRuntimeInfo[] = [];
 
     for (const instance of this.instances.values()) {
-      const activeSessions = this.getSessionsByProject(instance.projectId).length;
+      const activeSessions = this.getSessionsByCodespace(instance.codespaceId).length;
 
       result.push({
         sandboxId: instance.sandboxId,
-        projectId: instance.projectId,
+        codespaceId: instance.codespaceId,
         runtimeArn: instance.runtimeArn,
         status: instance.status,
         createdAt: instance.createdAt,
@@ -148,10 +148,10 @@ export class AgentCoreSandboxProvider {
    */
   async cleanup(): Promise<number> {
     let cleaned = 0;
-    const projectIds = [...this.instances.keys()];
+    const codespaceIds = [...this.instances.keys()];
 
-    for (const projectId of projectIds) {
-      const instance = this.instances.get(projectId);
+    for (const codespaceId of codespaceIds) {
+      const instance = this.instances.get(codespaceId);
       if (instance) {
         try {
           await instance.stop();
@@ -159,7 +159,7 @@ export class AgentCoreSandboxProvider {
         } catch (stopErr) {
           log.warn('Failed to stop AgentCore instance during cleanup', {
             data: {
-              projectId,
+              codespaceId,
               error: stopErr instanceof Error ? stopErr.message : String(stopErr),
             },
           });
@@ -183,19 +183,19 @@ export class AgentCoreSandboxProvider {
    *
    * Each task gets a unique session ID so that AgentCore provisions an
    * isolated microVM for its execution. Session IDs are formatted as
-   * `{projectId}:{taskId}:{timestamp}` for traceability in AWS logs.
+   * `{codespaceId}:{taskId}:{timestamp}` for traceability in AWS logs.
    */
-  getOrCreateSession(projectId: string, taskId: string): string {
+  getOrCreateSession(codespaceId: string, taskId: string): string {
     const existing = this.taskSessions.get(taskId);
     if (existing) {
       return existing;
     }
 
-    const sessionId = `${projectId}:${taskId}:${Date.now()}`;
+    const sessionId = `${codespaceId}:${taskId}:${Date.now()}`;
     this.taskSessions.set(taskId, sessionId);
 
     log.info('Created AgentCore runtime session', {
-      data: { projectId, taskId, runtimeSessionId: sessionId },
+      data: { codespaceId, taskId, runtimeSessionId: sessionId },
     });
 
     return sessionId;
@@ -224,10 +224,10 @@ export class AgentCoreSandboxProvider {
    * Get all sessions that belong to a specific project.
    * Returns [taskId, runtimeSessionId] pairs.
    */
-  private getSessionsByProject(projectId: string): [string, string][] {
+  private getSessionsByCodespace(codespaceId: string): [string, string][] {
     const result: [string, string][] = [];
     for (const [taskId, sessionId] of this.taskSessions) {
-      if (sessionId.startsWith(`${projectId}:`)) {
+      if (sessionId.startsWith(`${codespaceId}:`)) {
         result.push([taskId, sessionId]);
       }
     }
@@ -348,13 +348,13 @@ export class AgentCoreSandboxProvider {
    * on AgentCore without managing instance/session lifecycle manually.
    */
   async *invokeForTask(
-    projectId: string,
+    codespaceId: string,
     taskId: string,
     sandboxId: string,
     payload: Record<string, unknown>
   ): AsyncGenerator<SSEEvent> {
-    const instance = this.get(projectId) ?? this.create(projectId, sandboxId);
-    const runtimeSessionId = this.getOrCreateSession(projectId, taskId);
+    const instance = this.get(codespaceId) ?? this.create(codespaceId, sandboxId);
+    const runtimeSessionId = this.getOrCreateSession(codespaceId, taskId);
 
     try {
       yield* instance.invoke(payload, runtimeSessionId);

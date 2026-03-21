@@ -48,7 +48,7 @@ export class AgentCoreBridgeService {
     private onPlanReady: (
       taskId: string,
       sessionId: string,
-      projectId: string,
+      codespaceId: string,
       planData: {
         plan: string;
         turnCount: number;
@@ -59,7 +59,7 @@ export class AgentCoreBridgeService {
       }
     ) => Promise<void>,
     private onAgentCompleteCallback?: () =>
-      | ((projectId: string, taskId: string) => Promise<void>)
+      | ((codespaceId: string, taskId: string) => Promise<void>)
       | undefined
   ) {}
 
@@ -68,7 +68,7 @@ export class AgentCoreBridgeService {
    */
   async startAgentCoreAgent(
     input: StartAgentInput,
-    project: {
+    codespace: {
       id: string;
       name: string;
       path: string | null;
@@ -76,7 +76,7 @@ export class AgentCoreBridgeService {
     }
   ): Promise<Result<void, SandboxError>> {
     const {
-      projectId,
+      codespaceId,
       taskId,
       sessionId,
       prompt,
@@ -99,7 +99,7 @@ export class AgentCoreBridgeService {
     const { db, streams, apiKeyService } = this.deps;
 
     log.info('Starting agent via AgentCore', {
-      data: { taskId, projectId, sessionId, phase },
+      data: { taskId, codespaceId, sessionId, phase },
     });
 
     // Fetch task
@@ -116,7 +116,7 @@ export class AgentCoreBridgeService {
         .insert(agents)
         .values({
           id: agentId,
-          projectId,
+          codespaceId,
           name: 'AgentCore Agent',
           type: 'task',
           status: 'starting',
@@ -140,17 +140,17 @@ export class AgentCoreBridgeService {
     }
 
     // Create session record
-    const sandboxId = `agentcore-${projectId}`;
+    const sandboxId = `agentcore-${codespaceId}`;
     try {
       await db
         .insert(sessions)
         .values({
           id: sessionId,
-          projectId,
+          codespaceId,
           taskId,
           agentId,
           title: task.title ?? `AgentCore Agent - ${taskId}`,
-          url: `/projects/${projectId}/sessions/${sessionId}`,
+          url: `/codespaces/${codespaceId}/sessions/${sessionId}`,
           status: 'active',
           sandboxProvider: 'agentcore',
           sandboxContainerId: null,
@@ -180,7 +180,7 @@ export class AgentCoreBridgeService {
 
     // Create durable stream
     try {
-      await streams.createStream(sessionId, { type: 'container-agent', projectId, taskId });
+      await streams.createStream(sessionId, { type: 'container-agent', codespaceId, taskId });
     } catch (streamErr) {
       const errorMessage = streamErr instanceof Error ? streamErr.message : String(streamErr);
       if (!errorMessage.includes('already exists') && !errorMessage.includes('duplicate')) {
@@ -204,14 +204,14 @@ export class AgentCoreBridgeService {
     }
 
     // Resolve agent configuration
-    const projectModel = project.config?.model as string | undefined;
+    const _codespaceModel = codespace.config?.model as string | undefined;
     const resolvedModel =
       (model ? getFullModelId(model) : undefined) ??
       (projectModel ? getFullModelId(projectModel) : undefined) ??
       (await getGlobalDefaultModel(db));
     const agentConfig: AgentConfig = {
       model: resolvedModel ?? getFullModelId(DEFAULT_AGENT_MODEL),
-      maxTurns: maxTurns ?? (project.config?.maxTurns as number | undefined) ?? 50,
+      maxTurns: maxTurns ?? (codespace.config?.maxTurns as number | undefined) ?? 50,
     };
 
     await streams.publish(sessionId, 'container-agent:status', {
@@ -248,8 +248,8 @@ export class AgentCoreBridgeService {
     };
 
     // Get or create AgentCore instance and runtime session
-    const instance = provider.get(projectId) ?? provider.create(projectId, sandboxId);
-    const runtimeSessionId = provider.getOrCreateSession(projectId, taskId);
+    const instance = provider.get(codespaceId) ?? provider.create(codespaceId, sandboxId);
+    const runtimeSessionId = provider.getOrCreateSession(codespaceId, taskId);
 
     await streams.publish(sessionId, 'container-agent:status', {
       taskId,
@@ -264,7 +264,7 @@ export class AgentCoreBridgeService {
       const bridge = createAgentCoreBridge({
         taskId,
         sessionId,
-        projectId,
+        codespaceId,
         streams,
         onComplete: (status, turnCount) => {
           log.info('AgentCore agent completed', { data: { taskId, status, turnCount } });
@@ -278,14 +278,14 @@ export class AgentCoreBridgeService {
           log.info('AgentCore plan ready', {
             data: { taskId, planLength: planData.plan.length, sdkSessionId: planData.sdkSessionId },
           });
-          this.onPlanReady(taskId, sessionId, projectId, planData);
+          this.onPlanReady(taskId, sessionId, codespaceId, planData);
         },
       });
 
       const runningAgent: RunningAgentCoreAgent = {
         taskId,
         sessionId,
-        projectId,
+        codespaceId,
         sandboxId,
         bridge,
         instance,
@@ -520,7 +520,7 @@ export class AgentCoreBridgeService {
     // Auto-dequeue
     const callback = this.onAgentCompleteCallback?.();
     if (status === 'completed' && callback) {
-      callback(agent.projectId, taskId).catch((dequeueErr) => {
+      callback(agent.codespaceId, taskId).catch((dequeueErr) => {
         log.warn('Failed to auto-dequeue next task', {
           data: { taskId },
           error: dequeueErr,

@@ -93,7 +93,7 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
   private readonly readyTimeoutSeconds: number;
 
   private sandboxes = new Map<string, AgentSandboxInstance>();
-  private projectToSandbox = new Map<string, string>();
+  private codespaceToSandbox = new Map<string, string>();
   private listeners = new Set<SandboxProviderEventListener>();
 
   constructor(options: AgentSandboxProviderOptions = {}) {
@@ -117,35 +117,35 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
 
   // --- SandboxProvider interface ---
 
-  private creatingProjects = new Set<string>();
+  private creatingCodespaces = new Set<string>();
 
   async create(config: SandboxConfig): Promise<Sandbox> {
     // Check for existing sandbox for this project
     // (mirrors DockerProvider.create at docker-provider.ts:527-535)
-    const existing = this.projectToSandbox.get(config.projectId);
+    const existing = this.codespaceToSandbox.get(config.codespaceId);
     if (existing) {
       const sandbox = this.sandboxes.get(existing);
       if (sandbox && sandbox.status !== 'stopped') {
-        throw K8sErrors.POD_ALREADY_EXISTS(config.projectId);
+        throw K8sErrors.POD_ALREADY_EXISTS(config.codespaceId);
       }
     }
 
     // Guard against concurrent creation for the same project
-    if (this.creatingProjects.has(config.projectId)) {
-      throw K8sErrors.POD_ALREADY_EXISTS(config.projectId);
+    if (this.creatingCodespaces.has(config.codespaceId)) {
+      throw K8sErrors.POD_ALREADY_EXISTS(config.codespaceId);
     }
-    this.creatingProjects.add(config.projectId);
+    this.creatingCodespaces.add(config.codespaceId);
 
     const sandboxId = createId();
     // CRD sandbox names must be DNS-1123 compliant
-    const sandboxName = `agentpane-${config.projectId.slice(0, 20)}-${sandboxId.slice(0, 8)}`
+    const sandboxName = `agentpane-${config.codespaceId.slice(0, 20)}-${sandboxId.slice(0, 8)}`
       .toLowerCase()
       .replace(/[^a-z0-9-]/g, '-');
 
     this.emit({
       type: 'sandbox:creating',
       sandboxId,
-      projectId: config.projectId,
+      codespaceId: config.codespaceId,
     });
 
     try {
@@ -159,7 +159,7 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
         })
         .labels({
           'agentpane.io/sandbox-id': sandboxId,
-          'agentpane.io/project-id': config.projectId,
+          'agentpane.io/project-id': config.codespaceId,
         });
 
       // Configure runtime class for isolation (gvisor, kata, or default runc)
@@ -184,7 +184,7 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
       const instance = new AgentSandboxInstance(
         sandboxId,
         sandboxName,
-        config.projectId,
+        config.codespaceId,
         this.namespace,
         this.client
       );
@@ -194,12 +194,12 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
       await instance.refreshStatus();
 
       this.sandboxes.set(sandboxId, instance);
-      this.projectToSandbox.set(config.projectId, sandboxId);
+      this.codespaceToSandbox.set(config.codespaceId, sandboxId);
 
       this.emit({
         type: 'sandbox:created',
         sandboxId,
-        projectId: config.projectId,
+        codespaceId: config.codespaceId,
         containerId: sandboxName,
       });
 
@@ -215,7 +215,7 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
       });
       throw K8sErrors.POD_CREATION_FAILED(sandboxName, message);
     } finally {
-      this.creatingProjects.delete(config.projectId);
+      this.creatingCodespaces.delete(config.codespaceId);
     }
   }
 
@@ -237,17 +237,17 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
       const instance = this.sandboxes.get(sandboxId);
       if (instance) {
         log.info('Evicting stale sandbox from cache', {
-          data: { sandboxId, projectId: instance.projectId, status: instance.status },
+          data: { sandboxId, codespaceId: instance.codespaceId, status: instance.status },
         });
         this.sandboxes.delete(sandboxId);
-        this.projectToSandbox.delete(instance.projectId);
+        this.codespaceToSandbox.delete(instance.codespaceId);
       }
     }
   }
 
-  async get(projectId: string): Promise<Sandbox | null> {
+  async get(codespaceId: string): Promise<Sandbox | null> {
     // Check in-memory cache first (same pattern as DockerProvider.get)
-    const sandboxId = this.projectToSandbox.get(projectId);
+    const sandboxId = this.codespaceToSandbox.get(codespaceId);
     if (sandboxId) {
       const cached = this.sandboxes.get(sandboxId);
       if (cached) {
@@ -255,10 +255,10 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
         await cached.refreshStatus();
         if (cached.status === 'error' || cached.status === 'stopped') {
           log.info('Evicting stale sandbox from get() cache', {
-            data: { sandboxId, projectId, status: cached.status },
+            data: { sandboxId, codespaceId, status: cached.status },
           });
           this.sandboxes.delete(sandboxId);
-          this.projectToSandbox.delete(projectId);
+          this.codespaceToSandbox.delete(codespaceId);
           // Fall through to cluster query below
         } else {
           return cached;
@@ -269,14 +269,14 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
     // Fall through to cluster query using label selector.
     try {
       const result = await this.client.listSandboxes({
-        labelSelector: `agentpane.io/project-id=${projectId}`,
+        labelSelector: `agentpane.io/project-id=${codespaceId}`,
       });
 
       // Take the first active sandbox for this project
       const crdSandbox = result.items[0];
       if (!crdSandbox) {
         // Fall back to default sandbox (mirrors DockerProvider.get lines 615-619)
-        if (projectId !== 'default') {
+        if (codespaceId !== 'default') {
           return this.get('default');
         }
         return null;
@@ -284,18 +284,18 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
       const id = crdSandbox.metadata?.labels?.['agentpane.io/sandbox-id'] ?? createId();
       const name = crdSandbox.metadata?.name ?? '';
 
-      const instance = new AgentSandboxInstance(id, name, projectId, this.namespace, this.client);
+      const instance = new AgentSandboxInstance(id, name, codespaceId, this.namespace, this.client);
       await instance.refreshStatus();
 
       // Cache it
       this.sandboxes.set(id, instance);
-      this.projectToSandbox.set(projectId, id);
+      this.codespaceToSandbox.set(codespaceId, id);
 
       return instance;
     } catch (error) {
       // Only swallow "not found" type errors; propagate real failures
       const message = errorMessage(error);
-      log.error(`Failed to query sandbox for project ${projectId}: ${message}`, {
+      log.error(`Failed to query sandbox for codespace ${codespaceId}: ${message}`, {
         error: error instanceof Error ? error : new Error(message),
       });
       return null;
@@ -312,12 +312,12 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
           error: error instanceof Error ? error : new Error(String(error)),
         });
         this.sandboxes.delete(sandboxId);
-        this.projectToSandbox.delete(cached.projectId);
+        this.codespaceToSandbox.delete(cached.codespaceId);
         return null;
       }
       if (cached.status === 'error' || cached.status === 'stopped') {
         this.sandboxes.delete(sandboxId);
-        this.projectToSandbox.delete(cached.projectId);
+        this.codespaceToSandbox.delete(cached.codespaceId);
         return null;
       }
     }
@@ -333,7 +333,7 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
 
       return result.items.map((s) => ({
         id: s.metadata?.labels?.['agentpane.io/sandbox-id'] ?? '',
-        projectId: s.metadata?.labels?.['agentpane.io/project-id'] ?? '',
+        codespaceId: s.metadata?.labels?.['agentpane.io/project-id'] ?? '',
         containerId: s.metadata?.name ?? '',
         status: this.mapCrdPhase(s.status?.phase),
         image: s.spec?.podTemplateSpec?.spec?.containers?.[0]?.image ?? this.image,
@@ -457,7 +457,7 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
       }
       // Always evict from cache regardless of stop success/failure
       this.sandboxes.delete(sandboxId);
-      this.projectToSandbox.delete(instance.projectId);
+      this.codespaceToSandbox.delete(instance.codespaceId);
     }
 
     return cleaned;

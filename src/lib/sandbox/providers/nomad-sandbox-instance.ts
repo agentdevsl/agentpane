@@ -38,8 +38,8 @@ export class NomadSandboxInstance implements Sandbox {
     private readonly jobName: string,
     /** Allocation ID for exec operations */
     private allocId: string,
-    /** Project this sandbox belongs to */
-    public readonly projectId: string,
+    /** Codespace this sandbox belongs to */
+    public readonly codespaceId: string,
     /** Nomad namespace */
     private readonly namespace: string,
     /** Nomad SDK client */

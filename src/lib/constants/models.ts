@@ -123,7 +123,6 @@ const MODEL_MIGRATION_MAP: Record<string, string> = {
 export function getFullModelId(shortId: string): string {
   const migrated = MODEL_MIGRATION_MAP[shortId];
   if (migrated) {
-    console.warn(`[Models] Migrating deprecated model ID '${shortId}' to '${migrated}'`);
     return getFullModelId(migrated);
   }
   const model = AVAILABLE_MODELS.find((m) => m.id === shortId);
@@ -132,8 +131,6 @@ export function getFullModelId(shortId: string): string {
   // Check if it's already a known full ID
   const knownFull = AVAILABLE_MODELS.find((m) => m.fullId === shortId);
   if (knownFull) return shortId;
-
-  console.warn(`[Models] Unknown model ID '${shortId}' — passing through as-is`);
   return shortId;
 }
 

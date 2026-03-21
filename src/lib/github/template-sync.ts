@@ -181,8 +181,6 @@ async function fetchSkills(
     const fileResult = await fetchFileContent(octokit, owner, repo, skillFilePath, ref);
 
     if (!fileResult.ok) {
-      // Skill without SKILL.md, skip with debug log
-      console.debug(`[template-sync] Skipping skill directory "${item.name}": SKILL.md not found`);
       continue;
     }
 
@@ -225,9 +223,6 @@ async function fetchCommands(
     const fileResult = await fetchFileContent(octokit, owner, repo, item.path, ref);
 
     if (!fileResult.ok) {
-      console.debug(
-        `[template-sync] Failed to fetch command file "${item.path}": ${fileResult.error.message}`
-      );
       continue;
     }
 
@@ -270,9 +265,6 @@ async function fetchAgents(
     const fileResult = await fetchFileContent(octokit, owner, repo, item.path, ref);
 
     if (!fileResult.ok) {
-      console.debug(
-        `[template-sync] Failed to fetch agent file "${item.path}": ${fileResult.error.message}`
-      );
       continue;
     }
 

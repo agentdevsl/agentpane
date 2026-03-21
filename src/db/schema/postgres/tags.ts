@@ -1,6 +1,6 @@
 import { createId } from '@paralleldrive/cuid2';
 import { pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
-import { teams } from './teams';
+import { projectFolders } from './project-folders';
 
 export const tags = pgTable(
   'tags',
@@ -8,9 +8,9 @@ export const tags = pgTable(
     id: text('id')
       .primaryKey()
       .$defaultFn(() => createId()),
-    teamId: text('team_id')
+    projectFolderId: text('project_folder_id')
       .notNull()
-      .references(() => teams.id, { onDelete: 'cascade' }),
+      .references(() => projectFolders.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
     color: text('color').notNull().default('#6B7280'),
     createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
@@ -19,7 +19,7 @@ export const tags = pgTable(
       .notNull()
       .$onUpdate(() => new Date().toISOString()),
   },
-  (table) => [uniqueIndex('tags_team_name_unique').on(table.teamId, table.name)]
+  (table) => [uniqueIndex('tags_folder_name_unique').on(table.projectFolderId, table.name)]
 );
 
 export type Tag = typeof tags.$inferSelect;

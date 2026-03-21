@@ -50,7 +50,7 @@ export async function loadSandboxDefaultsFromDb(db: Database): Promise<{
  */
 export async function ensureDefaultSandbox(
   provider: {
-    get(projectId: string): Promise<{ status: string; stop(): Promise<void> } | null>;
+    get(codespaceId: string): Promise<{ status: string; stop(): Promise<void> } | null>;
     create(config: SandboxConfig): Promise<unknown>;
   },
   label: string,
@@ -82,8 +82,8 @@ export async function ensureDefaultSandbox(
 
     const defaults = await loadSandboxDefaultsFromDb(db);
     await provider.create({
-      projectId: 'default',
-      projectPath: '/workspace',
+      codespaceId: 'default',
+      codespacePath: '/workspace',
       image: defaults?.image ?? SANDBOX_DEFAULTS.image,
       memoryMb: defaults?.memoryMb ?? 2048,
       cpuCores: defaults?.cpuCores ?? 2,

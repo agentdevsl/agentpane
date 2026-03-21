@@ -80,7 +80,7 @@ export function runMigrations(db: RawSQLiteDatabase, migrations: Migration[]): v
   }
 
   log.info(`Applying ${pending.length} pending migration(s)`, {
-    data: { from: maxApplied, to: pending[pending.length - 1]!.version },
+    data: { from: maxApplied, to: pending[pending.length - 1]?.version },
   });
 
   const recordMigration = db.prepare('INSERT INTO schema_migrations (version, name) VALUES (?, ?)');

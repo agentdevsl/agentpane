@@ -18,12 +18,12 @@ export function createTemplatesRoutes({ templateService }: TemplatesDeps) {
 
   // GET /api/templates
   app.get('/', async (c) => {
-    const scope = c.req.query('scope') as 'org' | 'project' | undefined;
-    const projectId = c.req.query('projectId') ?? undefined;
+    const scope = c.req.query('scope') as 'org' | 'codespace' | undefined;
+    const codespaceId = c.req.query('codespaceId') ?? undefined;
     const limit = parseInt(c.req.query('limit') ?? '50', 10);
 
     try {
-      const result = await templateService.list({ scope, projectId, limit });
+      const result = await templateService.list({ scope, codespaceId, limit });
 
       if (!result.ok) {
         return json({ ok: false, error: result.error }, result.error.status);
@@ -56,8 +56,8 @@ export function createTemplatesRoutes({ templateService }: TemplatesDeps) {
       githubUrl?: string;
       branch?: string;
       configPath?: string;
-      projectId?: string;
-      projectIds?: string[];
+      codespaceId?: string;
+      codespaceIds?: string[];
     };
     try {
       body = await c.req.json();
@@ -75,7 +75,7 @@ export function createTemplatesRoutes({ templateService }: TemplatesDeps) {
         400
       );
     }
-    if (!body.scope || !['org', 'project'].includes(body.scope)) {
+    if (!body.scope || !['org', 'codespace'].includes(body.scope)) {
       return json(
         {
           ok: false,
@@ -95,11 +95,11 @@ export function createTemplatesRoutes({ templateService }: TemplatesDeps) {
       const result = await templateService.create({
         name: body.name,
         description: body.description,
-        scope: body.scope as 'org' | 'project',
+        scope: body.scope as 'org' | 'codespace',
         githubUrl: body.githubUrl,
         branch: body.branch,
         configPath: body.configPath,
-        projectIds: body.projectIds ?? (body.projectId ? [body.projectId] : undefined),
+        codespaceIds: body.codespaceIds ?? (body.codespaceId ? [body.codespaceId] : undefined),
       });
 
       if (!result.ok) {
@@ -188,7 +188,7 @@ export function createTemplatesRoutes({ templateService }: TemplatesDeps) {
       description?: string;
       branch?: string;
       configPath?: string;
-      projectIds?: string[];
+      codespaceIds?: string[];
     };
     try {
       body = await c.req.json();
@@ -205,7 +205,7 @@ export function createTemplatesRoutes({ templateService }: TemplatesDeps) {
         description: body.description,
         branch: body.branch,
         configPath: body.configPath,
-        projectIds: body.projectIds,
+        codespaceIds: body.codespaceIds,
       });
 
       if (!result.ok) {

@@ -1,6 +1,6 @@
 import { createId } from '@paralleldrive/cuid2';
 import { integer, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
-import { projects } from './projects';
+import { codespaces } from './codespaces';
 import { tasks } from './tasks';
 
 export type PlanSessionStatus = 'active' | 'waiting_user' | 'completed' | 'cancelled';
@@ -31,9 +31,9 @@ export const planSessions = pgTable('plan_sessions', {
   taskId: text('task_id')
     .notNull()
     .references(() => tasks.id, { onDelete: 'cascade' }),
-  projectId: text('project_id')
+  codespaceId: text('codespace_id')
     .notNull()
-    .references(() => projects.id, { onDelete: 'cascade' }),
+    .references(() => codespaces.id, { onDelete: 'cascade' }),
   status: text('status').$type<PlanSessionStatus>().default('active').notNull(),
   turns: jsonb('turns').$type<PlanTurnRecord[]>().default([]),
   githubIssueUrl: text('github_issue_url'),

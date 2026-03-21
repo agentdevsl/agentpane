@@ -1,23 +1,33 @@
 import type { ReactNode } from 'react';
 import { type BreadcrumbItem, Breadcrumbs } from '@/app/components/features/breadcrumbs';
+import { FolderRail } from '@/app/components/features/folder-rail';
 import { Sidebar } from '@/app/components/features/sidebar';
 
 interface LayoutShellProps {
   breadcrumbs?: BreadcrumbItem[];
+  codespaceId?: string;
+  codespaceName?: string;
+  codespacePath?: string;
+  /** @deprecated Use codespaceId instead */
   projectId?: string;
+  /** @deprecated Use codespaceName instead */
   projectName?: string;
+  /** @deprecated Use codespacePath instead */
   projectPath?: string;
   /** Actions displayed on the right side of the header */
   actions?: ReactNode;
   /** Action displayed in the center of the header */
   centerAction?: ReactNode;
-  /** Custom header element — when provided, replaces the default breadcrumbs-based header */
+  /** Custom header element -- when provided, replaces the default breadcrumbs-based header */
   header?: ReactNode;
   children: ReactNode;
 }
 
 export function LayoutShell({
   breadcrumbs,
+  codespaceId,
+  codespaceName,
+  codespacePath,
   projectId,
   projectName,
   projectPath,
@@ -26,10 +36,24 @@ export function LayoutShell({
   header,
   children,
 }: LayoutShellProps): React.JSX.Element {
+  // Support both old and new prop names during migration
+  const resolvedCodespaceId = codespaceId ?? projectId;
+  const resolvedCodespaceName = codespaceName ?? projectName;
+  const resolvedCodespacePath = codespacePath ?? projectPath;
+
   return (
     <div className="flex h-screen bg-canvas text-fg" data-testid="layout-shell">
+      {/* Folder rail - always visible on md+ screens */}
       <div className="hidden h-full md:flex">
-        <Sidebar projectId={projectId} projectName={projectName} projectPath={projectPath} />
+        <FolderRail />
+      </div>
+      {/* Collapsible sidebar */}
+      <div className="hidden h-full md:flex">
+        <Sidebar
+          codespaceId={resolvedCodespaceId}
+          codespaceName={resolvedCodespaceName}
+          codespacePath={resolvedCodespacePath}
+        />
       </div>
       <div className="flex flex-1 flex-col min-h-0 min-w-0">
         {header && header}

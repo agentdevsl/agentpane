@@ -1,6 +1,6 @@
 import type { Octokit } from 'octokit';
 import { z } from 'zod';
-import type { ProjectConfig } from '../../db/schema';
+import type { CodespaceConfig } from '../../db/schema';
 import { GitHubErrors } from '../errors/github-errors.js';
 import type { Result } from '../utils/result.js';
 import { err, ok } from '../utils/result.js';
@@ -14,7 +14,7 @@ export interface SyncConfigOptions {
 }
 
 export interface SyncConfigResult {
-  config: ProjectConfig;
+  config: CodespaceConfig;
   sha: string;
   path: string;
 }
@@ -75,8 +75,8 @@ export async function syncConfigFromGitHub(
       );
     }
 
-    // Convert to full ProjectConfig with defaults
-    const fullConfig: ProjectConfig = {
+    // Convert to full CodespaceConfig with defaults
+    const fullConfig: CodespaceConfig = {
       worktreeRoot: validationResult.data.worktreeRoot ?? '.worktrees',
       initScript: validationResult.data.initScript,
       envFile: validationResult.data.envFile ?? '.env',

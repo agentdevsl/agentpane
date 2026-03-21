@@ -1,7 +1,7 @@
 import { createId } from '@paralleldrive/cuid2';
 import { boolean, integer, jsonb, pgTable, text, timestamp, unique } from 'drizzle-orm/pg-core';
 import type { SandboxStatus, VolumeMountRecord } from '../shared/types';
-import { projects } from './projects';
+import { codespaces } from './codespaces';
 import { tasks } from './tasks';
 
 export type { SandboxStatus, VolumeMountRecord };
@@ -10,10 +10,10 @@ export const sandboxInstances = pgTable('sandbox_instances', {
   id: text('id')
     .primaryKey()
     .$defaultFn(() => createId()),
-  projectId: text('project_id')
+  codespaceId: text('codespace_id')
     .notNull()
     .unique()
-    .references(() => projects.id, { onDelete: 'cascade' }),
+    .references(() => codespaces.id, { onDelete: 'cascade' }),
   containerId: text('container_id').notNull(),
   status: text('status').$type<SandboxStatus>().default('stopped').notNull(),
   image: text('image').notNull(),

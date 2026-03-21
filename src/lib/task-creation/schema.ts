@@ -84,7 +84,7 @@ export type SessionStatus = z.infer<typeof sessionStatusSchema>;
  */
 export const taskCreationSessionSchema = z.object({
   id: z.string(),
-  projectId: z.string(),
+  codespaceId: z.string(),
   status: sessionStatusSchema,
   suggestion: taskSuggestionSchema.nullable(),
   pendingQuestions: pendingQuestionsSchema.nullable(),

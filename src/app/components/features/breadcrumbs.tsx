@@ -21,12 +21,12 @@ export function Breadcrumbs({ items, className }: BreadcrumbsProps): React.JSX.E
     >
       {items.map((item, index) => {
         const isLast = index === items.length - 1;
-        const isHomeLink = item.to === '/projects';
-        const isProjectLink = Boolean(item.to?.startsWith('/projects/') && !isHomeLink);
+        const isHomeLink = item.to === '/codespaces';
+        const isCodespaceLink = Boolean(item.to?.startsWith('/codespaces/') && !isHomeLink);
         const linkTestId = isHomeLink
           ? 'breadcrumb-home'
-          : isProjectLink
-            ? 'breadcrumb-project'
+          : isCodespaceLink
+            ? 'breadcrumb-codespace'
             : undefined;
         return (
           <div key={`${item.label}-${index}`} className="flex items-center gap-2">

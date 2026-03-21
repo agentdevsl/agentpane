@@ -1,7 +1,7 @@
 import { createId } from '@paralleldrive/cuid2';
 import { sql } from 'drizzle-orm';
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
-import { projects } from './projects';
+import { codespaces } from './codespaces';
 import { tasks } from './tasks';
 
 /**
@@ -43,9 +43,9 @@ export const planSessions = sqliteTable('plan_sessions', {
     .notNull()
     .references(() => tasks.id, { onDelete: 'cascade' }),
 
-  projectId: text('project_id')
+  codespaceId: text('codespace_id')
     .notNull()
-    .references(() => projects.id, { onDelete: 'cascade' }),
+    .references(() => codespaces.id, { onDelete: 'cascade' }),
 
   status: text('status').$type<PlanSessionStatus>().default('active').notNull(),
 

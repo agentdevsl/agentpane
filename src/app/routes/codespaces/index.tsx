@@ -24,26 +24,27 @@ import {
 import type { Result } from '@/lib/utils/result';
 import type { GitHubOrg, GitHubRepo } from '@/services/github-token.service';
 
-// Use the API response type for project summaries
-type ClientProjectSummary = ProjectSummaryItem;
+// Use the API response type for codespace summaries
+type ClientCodespaceSummary = ProjectSummaryItem;
 
-export const Route = createFileRoute('/projects/')({
+export const Route = createFileRoute('/codespaces/')({
   loader: async () => {
-    // Prefetch project summaries (FC-022)
-    const result = await apiClient.projects.listWithSummaries({ limit: 24 });
-    return { projects: result.ok ? result.data.items : [] };
+    // Prefetch codespace summaries (FC-022)
+    const result = await apiClient.codespaces.listWithSummaries({ limit: 24 });
+    return { codespaces: result.ok ? result.data.items : [] };
   },
-  component: ProjectsPage,
+  component: CodespacesPage,
 });
 
 type SortOption = 'recent' | 'name' | 'created';
 
-function ProjectsPage(): React.JSX.Element {
-  const loaderData = Route.useLoaderData() as { projects: ProjectSummaryItem[] } | undefined;
-  const loaderProjects = (loaderData?.projects ?? []) as ClientProjectSummary[];
-  const [projectSummaries, setProjectSummaries] = useState<ClientProjectSummary[]>(loaderProjects);
-  const [isLoading, setIsLoading] = useState(loaderProjects.length === 0);
-  const [showNewProject, setShowNewProject] = useState(false);
+function CodespacesPage(): React.JSX.Element {
+  const loaderData = Route.useLoaderData() as { codespaces: ProjectSummaryItem[] } | undefined;
+  const loaderCodespaces = (loaderData?.codespaces ?? []) as ClientCodespaceSummary[];
+  const [codespaceSummaries, setCodespaceSummaries] =
+    useState<ClientCodespaceSummary[]>(loaderCodespaces);
+  const [isLoading, setIsLoading] = useState(loaderCodespaces.length === 0);
+  const [showNewCodespace, setShowNewCodespace] = useState(false);
   const [isSettingsConfigured, setIsSettingsConfigured] = useState(false);
   const [isGitHubConfigured, setIsGitHubConfigured] = useState(false);
   const [localRepos, setLocalRepos] = useState<{ name: string; path: string }[]>([]);
@@ -52,9 +53,9 @@ function ProjectsPage(): React.JSX.Element {
   const [defaultSandboxType, setDefaultSandboxType] = useState<SandboxType>('docker');
   const [sandboxConfigs, setSandboxConfigs] = useState<SandboxConfigItem[]>([]);
 
-  // Filter and sort projects
-  const filteredProjects = useMemo(() => {
-    let result = [...projectSummaries];
+  // Filter and sort codespaces
+  const filteredCodespaces = useMemo(() => {
+    let result = [...codespaceSummaries];
 
     // Filter by search query
     if (searchQuery.trim()) {
@@ -86,7 +87,7 @@ function ProjectsPage(): React.JSX.Element {
     });
 
     return result;
-  }, [projectSummaries, searchQuery, sortBy]);
+  }, [codespaceSummaries, searchQuery, sortBy]);
 
   // Check if global settings are configured (API key is required, GitHub PAT is optional)
   // Batch all mount API calls with Promise.all to avoid 4 separate re-renders
@@ -131,24 +132,24 @@ function ProjectsPage(): React.JSX.Element {
     loadInitialData();
   });
 
-  // Polling interval ref for project updates
+  // Polling interval ref for codespace updates
   const pollingIntervalRef = useRef<number | null>(null);
   const currentIntervalMsRef = useRef<number | null>(null);
   const isFetchingRef = useRef(false);
 
-  // Fetch projects with summaries from API on mount and poll when agents are running
+  // Fetch codespaces with summaries from API on mount and poll when agents are running
   useMountEffect(() => {
-    const fetchProjects = async () => {
+    const fetchCodespaces = async () => {
       if (isFetchingRef.current) {
-        console.debug('[Projects] fetchProjects skipped — already in-flight');
+        console.debug('[Codespaces] fetchCodespaces skipped — already in-flight');
         return;
       }
       isFetchingRef.current = true;
-      console.debug('[Projects] fetchProjects starting');
+      console.debug('[Codespaces] fetchCodespaces starting');
       try {
-        const result = await apiClient.projects.listWithSummaries({ limit: 24 });
+        const result = await apiClient.codespaces.listWithSummaries({ limit: 24 });
         if (result.ok) {
-          setProjectSummaries(result.data.items);
+          setCodespaceSummaries(result.data.items);
 
           // Poll at 10s when agents are running for near-real-time updates,
           // 30s when idle to detect newly started agents without stopping entirely
@@ -159,7 +160,7 @@ function ProjectsPage(): React.JSX.Element {
             if (pollingIntervalRef.current !== null) {
               window.clearInterval(pollingIntervalRef.current);
             }
-            pollingIntervalRef.current = window.setInterval(fetchProjects, desiredInterval);
+            pollingIntervalRef.current = window.setInterval(fetchCodespaces, desiredInterval);
             currentIntervalMsRef.current = desiredInterval;
           }
         }
@@ -168,17 +169,17 @@ function ProjectsPage(): React.JSX.Element {
         setIsLoading(false);
       }
     };
-    if (loaderProjects.length > 0) {
+    if (loaderCodespaces.length > 0) {
       // Loader already has data — skip immediate fetch, but start polling
-      const hasRunningAgents = loaderProjects.some(
-        (s: ClientProjectSummary) => s.runningAgents.length > 0
+      const hasRunningAgents = loaderCodespaces.some(
+        (s: ClientCodespaceSummary) => s.runningAgents.length > 0
       );
       const desiredInterval = hasRunningAgents ? 10000 : 30000;
-      pollingIntervalRef.current = window.setInterval(fetchProjects, desiredInterval);
+      pollingIntervalRef.current = window.setInterval(fetchCodespaces, desiredInterval);
       currentIntervalMsRef.current = desiredInterval;
       setIsLoading(false);
     } else {
-      fetchProjects();
+      fetchCodespaces();
     }
 
     return () => {
@@ -190,7 +191,7 @@ function ProjectsPage(): React.JSX.Element {
     };
   });
 
-  const handleCreateProject = useCallback(
+  const handleCreateCodespace = useCallback(
     async (data: {
       name: string;
       path: string;
@@ -219,7 +220,7 @@ function ProjectsPage(): React.JSX.Element {
         }
       }
 
-      const result = await apiClient.projects.create({
+      const result = await apiClient.codespaces.create({
         name: data.name,
         path: data.path,
         description: data.description,
@@ -236,10 +237,10 @@ function ProjectsPage(): React.JSX.Element {
         };
       }
 
-      // Refresh project list with summaries
-      const listResult = await apiClient.projects.listWithSummaries({ limit: 24 });
+      // Refresh codespace list with summaries
+      const listResult = await apiClient.codespaces.listWithSummaries({ limit: 24 });
       if (listResult.ok) {
-        setProjectSummaries(listResult.data.items);
+        setCodespaceSummaries(listResult.data.items);
       }
 
       return { ok: true, value: undefined };
@@ -332,9 +333,9 @@ function ProjectsPage(): React.JSX.Element {
 
   if (isLoading) {
     return (
-      <LayoutShell breadcrumbs={[{ label: 'Projects' }]}>
+      <LayoutShell breadcrumbs={[{ label: 'Codespaces' }]}>
         <div className="flex items-center justify-center min-h-[60vh]">
-          <div className="text-muted-foreground">Loading projects...</div>
+          <div className="text-muted-foreground">Loading codespaces...</div>
         </div>
       </LayoutShell>
     );
@@ -342,7 +343,7 @@ function ProjectsPage(): React.JSX.Element {
 
   return (
     <LayoutShell
-      breadcrumbs={[{ label: 'Projects' }]}
+      breadcrumbs={[{ label: 'Codespaces' }]}
       actions={
         <div className="flex items-center gap-3">
           {/* Search input */}
@@ -352,9 +353,9 @@ function ProjectsPage(): React.JSX.Element {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search projects..."
+              placeholder="Search codespaces..."
               className="w-48 rounded-md border border-border bg-surface py-1.5 pl-9 pr-3 text-sm text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-              data-testid="project-search"
+              data-testid="codespace-search"
             />
           </div>
 
@@ -364,7 +365,7 @@ function ProjectsPage(): React.JSX.Element {
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as SortOption)}
               className="appearance-none rounded-md border border-border bg-surface py-1.5 pl-3 pr-8 text-sm text-fg focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-              data-testid="project-sort"
+              data-testid="codespace-sort"
             >
               <option value="recent">Recently Updated</option>
               <option value="name">Name (A-Z)</option>
@@ -373,33 +374,33 @@ function ProjectsPage(): React.JSX.Element {
             <SortAscending className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" />
           </div>
 
-          <Button data-testid="create-project-button" onClick={() => setShowNewProject(true)}>
+          <Button data-testid="create-codespace-button" onClick={() => setShowNewCodespace(true)}>
             <Plus className="h-4 w-4" />
-            New Project
+            New Codespace
           </Button>
         </div>
       }
     >
-      <div data-testid="projects-page" className="p-6">
-        {projectSummaries.length === 0 ? (
+      <div data-testid="codespaces-page" className="p-6">
+        {codespaceSummaries.length === 0 ? (
           <div className="flex items-center justify-center min-h-[60vh]">
             <EmptyState
               preset="first-run"
               size="lg"
               customIcon={<AgentPaneLogo />}
               title="Welcome to AgentPane!"
-              subtitle="Let's get you started with your first project"
+              subtitle="Let's get you started with your first codespace"
               steps={[
                 { label: 'Install AgentPane', completed: true },
                 { label: 'Configure Global Settings', completed: isSettingsConfigured },
-                { label: 'Create your first project', completed: false },
+                { label: 'Create your first codespace', completed: false },
                 { label: 'Run your first agent', completed: false },
               ]}
               primaryAction={
                 isSettingsConfigured
                   ? {
-                      label: 'Create Project',
-                      onClick: () => setShowNewProject(true),
+                      label: 'Create Codespace',
+                      onClick: () => setShowNewCodespace(true),
                     }
                   : {
                       label: 'Configure Settings',
@@ -413,15 +414,15 @@ function ProjectsPage(): React.JSX.Element {
                   ? undefined
                   : {
                       label: 'Skip for now',
-                      onClick: () => setShowNewProject(true),
+                      onClick: () => setShowNewCodespace(true),
                     }
               }
             />
           </div>
-        ) : filteredProjects.length === 0 ? (
+        ) : filteredCodespaces.length === 0 ? (
           <div className="flex flex-col items-center justify-center min-h-[40vh] text-center">
             <MagnifyingGlass className="h-12 w-12 text-fg-subtle mb-4" />
-            <p className="text-fg-muted">No projects match "{searchQuery}"</p>
+            <p className="text-fg-muted">No codespaces match "{searchQuery}"</p>
             <button
               type="button"
               onClick={() => setSearchQuery('')}
@@ -433,9 +434,9 @@ function ProjectsPage(): React.JSX.Element {
         ) : (
           <div
             className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
-            data-testid="project-list"
+            data-testid="codespace-list"
           >
-            {filteredProjects.map((summary) => (
+            {filteredCodespaces.map((summary) => (
               <ProjectCard
                 key={summary.project.id}
                 project={summary.project}
@@ -451,16 +452,16 @@ function ProjectsPage(): React.JSX.Element {
                 lastRunAt={summary.lastActivityAt}
               />
             ))}
-            <AddProjectCard onClick={() => setShowNewProject(true)} />
+            <AddProjectCard onClick={() => setShowNewCodespace(true)} />
           </div>
         )}
       </div>
 
       <Suspense fallback={null}>
         <NewProjectDialog
-          open={showNewProject}
-          onOpenChange={setShowNewProject}
-          onSubmit={handleCreateProject}
+          open={showNewCodespace}
+          onOpenChange={setShowNewCodespace}
+          onSubmit={handleCreateCodespace}
           onValidatePath={handleValidatePath}
           onClone={handleClone}
           onCreateFromTemplate={handleCreateFromTemplate}

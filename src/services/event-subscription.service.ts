@@ -20,7 +20,7 @@ import type { Database } from '../types/database.js';
 export type CreateSubscriptionInput = {
   name: string;
   eventSourceId: string;
-  targetProjectId: string;
+  targetCodespaceId: string;
   eventTypes?: string[];
   filters?: SubscriptionFilter[];
   promptTemplate: string;
@@ -50,15 +50,15 @@ export class EventSubscriptionService {
   constructor(private db: Database) {}
 
   /**
-   * Create a new subscription linking an event source to a project.
-   * Validates that the event source exists and that the target project
+   * Create a new subscription linking an event source to a codespace.
+   * Validates that the event source exists and that the target codespace
    * belongs to the same team as the source.
    */
   async create(input: CreateSubscriptionInput): Promise<Result<EventSubscription, AppError>> {
     const {
       name,
       eventSourceId,
-      targetProjectId,
+      targetCodespaceId,
       eventTypes = [],
       filters = [],
       promptTemplate,
@@ -77,12 +77,12 @@ export class EventSubscriptionService {
       return err(EventErrors.SOURCE_NOT_FOUND());
     }
 
-    // Validate target project belongs to the same team as the source.
+    // Validate target codespace belongs to the same team as the source.
     // Join through team_projects to verify team membership.
     const teamProject = await this.db.query.teamProjects.findFirst({
       where: and(
         eq(teamProjects.teamId, source.teamId),
-        eq(teamProjects.projectId, targetProjectId)
+        eq(teamProjects.codespaceId, targetCodespaceId)
       ),
     });
 
@@ -98,7 +98,7 @@ export class EventSubscriptionService {
         id: createId(),
         name,
         eventSourceId,
-        targetProjectId,
+        targetCodespaceId,
         isEnabled: true,
         eventTypes,
         filters,
@@ -150,11 +150,11 @@ export class EventSubscriptionService {
   }
 
   /**
-   * List all subscriptions targeting a specific project.
+   * List all subscriptions targeting a specific codespace.
    */
-  async listByProject(projectId: string): Promise<Result<EventSubscription[], AppError>> {
+  async listByCodespace(codespaceId: string): Promise<Result<EventSubscription[], AppError>> {
     const subscriptions = await this.db.query.eventSubscriptions.findMany({
-      where: eq(eventSubscriptions.targetProjectId, projectId),
+      where: eq(eventSubscriptions.targetCodespaceId, codespaceId),
       orderBy: [desc(eventSubscriptions.createdAt)],
     });
 

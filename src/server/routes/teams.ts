@@ -7,12 +7,12 @@ import { and, count, eq, gt, inArray, like, ne } from 'drizzle-orm';
 import { Hono } from 'hono';
 import type { RbacRole } from '../../db/schema/shared/enums';
 import { apiTokens } from '../../db/schema/sqlite/api-tokens';
+import { codespaceMembers } from '../../db/schema/sqlite/codespace-members';
 import { githubTokens } from '../../db/schema/sqlite/github';
-import { projectMembers } from '../../db/schema/sqlite/project-members';
 import { tags } from '../../db/schema/sqlite/tags';
 import { teamInvitations } from '../../db/schema/sqlite/team-invitations';
 import { teamMembers } from '../../db/schema/sqlite/team-members';
-import { teamProjects } from '../../db/schema/sqlite/team-projects';
+import { teamProjectFolders } from '../../db/schema/sqlite/team-project-folders';
 import { teams } from '../../db/schema/sqlite/teams';
 import type { AuthContext } from '../../lib/api/auth-middleware';
 import { createLogger } from '../../lib/logging/logger';
@@ -116,22 +116,22 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
       // Helper: batch-fetch member and project counts for a set of team IDs (H2+H7)
       async function enrichTeamCounts(teamIds: string[]) {
         if (teamIds.length === 0)
-          return { memberMap: new Map<string, number>(), projectMap: new Map<string, number>() };
-        const [memberCounts, projectCounts] = await Promise.all([
+          return { memberMap: new Map<string, number>(), folderMap: new Map<string, number>() };
+        const [memberCounts, folderCounts] = await Promise.all([
           db
             .select({ teamId: teamMembers.teamId, total: count() })
             .from(teamMembers)
             .where(inArray(teamMembers.teamId, teamIds))
             .groupBy(teamMembers.teamId),
           db
-            .select({ teamId: teamProjects.teamId, total: count() })
-            .from(teamProjects)
-            .where(inArray(teamProjects.teamId, teamIds))
-            .groupBy(teamProjects.teamId),
+            .select({ teamId: teamProjectFolders.teamId, total: count() })
+            .from(teamProjectFolders)
+            .where(inArray(teamProjectFolders.teamId, teamIds))
+            .groupBy(teamProjectFolders.teamId),
         ]);
         return {
           memberMap: new Map(memberCounts.map((r) => [r.teamId, r.total])),
-          projectMap: new Map(projectCounts.map((r) => [r.teamId, r.total])),
+          folderMap: new Map(folderCounts.map((r) => [r.teamId, r.total])),
         };
       }
 
@@ -161,12 +161,12 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
 
         // Batch-fetch member and project counts to avoid N+1 queries
         const teamIds = pagedTeams.map((t) => t.id);
-        const { memberMap, projectMap } = await enrichTeamCounts(teamIds);
+        const { memberMap, folderMap } = await enrichTeamCounts(teamIds);
 
         const items = pagedTeams.map((team) => ({
           ...team,
           memberCount: memberMap.get(team.id) ?? 0,
-          projectCount: projectMap.get(team.id) ?? 0,
+          folderCount: folderMap.get(team.id) ?? 0,
           myRole: null as RbacRole | null,
         }));
 
@@ -219,14 +219,14 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
 
       const roleByTeamId = new Map(memberships.map((m) => [m.teamId, m.role]));
 
-      // Batch-fetch member and project counts to avoid N+1 queries
+      // Batch-fetch member and folder counts to avoid N+1 queries
       const pagedTeamIds = pagedRows.map((t) => t.id);
-      const { memberMap, projectMap } = await enrichTeamCounts(pagedTeamIds);
+      const { memberMap, folderMap } = await enrichTeamCounts(pagedTeamIds);
 
       const items = pagedRows.map((team) => ({
         ...team,
         memberCount: memberMap.get(team.id) ?? 0,
-        projectCount: projectMap.get(team.id) ?? 0,
+        folderCount: folderMap.get(team.id) ?? 0,
         myRole: roleByTeamId.get(team.id) ?? null,
       }));
 
@@ -259,10 +259,13 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
         return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Team not found' } }, 404);
       }
 
-      // H7: Fetch both memberCount and projectCount
-      const [[memberCountResult], [projectCountResult]] = await Promise.all([
+      // H7: Fetch both memberCount and folderCount
+      const [[memberCountResult], [folderCountResult]] = await Promise.all([
         db.select({ total: count() }).from(teamMembers).where(eq(teamMembers.teamId, id)),
-        db.select({ total: count() }).from(teamProjects).where(eq(teamProjects.teamId, id)),
+        db
+          .select({ total: count() })
+          .from(teamProjectFolders)
+          .where(eq(teamProjectFolders.teamId, id)),
       ]);
 
       // Get caller's role
@@ -276,7 +279,7 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
         data: {
           ...team,
           memberCount: memberCountResult?.total ?? 0,
-          projectCount: projectCountResult?.total ?? 0,
+          folderCount: folderCountResult?.total ?? 0,
           myRole,
         },
       });
@@ -453,19 +456,10 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
         await tx.delete(githubTokens).where(eq(githubTokens.teamId, id));
         await tx.delete(tags).where(eq(tags.teamId, id)); // cascades to project_tags and task_tags
         // Clean up project member overrides granted by this team
-        const teamProjectIds = await tx
-          .select({ projectId: teamProjects.projectId })
-          .from(teamProjects)
-          .where(eq(teamProjects.teamId, id));
-        if (teamProjectIds.length > 0) {
-          const pIds = teamProjectIds.map((r) => r.projectId);
-          await tx
-            .delete(projectMembers)
-            .where(
-              and(inArray(projectMembers.projectId, pIds), eq(projectMembers.grantedByTeamId, id))
-            );
-        }
-        await tx.delete(teamProjects).where(eq(teamProjects.teamId, id));
+        // Note: project members are now resolved through folder membership;
+        // direct overrides with grantedByTeamId still need cleanup.
+        await tx.delete(codespaceMembers).where(eq(codespaceMembers.grantedByTeamId, id));
+        await tx.delete(teamProjectFolders).where(eq(teamProjectFolders.teamId, id));
         await tx.delete(teamMembers).where(eq(teamMembers.teamId, id));
         await tx.delete(teams).where(eq(teams.id, id));
 

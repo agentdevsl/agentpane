@@ -17,7 +17,7 @@ import { AIActionButton } from '@/app/components/ui/ai-action-button';
 import { useSandboxStatus } from '@/app/hooks/use-sandbox-status';
 import { useToast } from '@/app/hooks/use-toast';
 import type { Task } from '@/db/schema';
-import { apiClient, type ProjectListItem } from '@/lib/api/client';
+import { apiClient, type CodespaceListItem } from '@/lib/api/client';
 import type { DiffSummary } from '@/lib/types/diff';
 
 // Client task type - subset of Task for client-side display
@@ -40,33 +40,33 @@ type ClientTask = Pick<
   diffSummary?: DiffSummary | null;
 };
 
-export const Route = createFileRoute('/projects/$projectId/')({
-  loader: async ({ params }: { params: { projectId: string } }) => {
-    // Prefetch project and tasks in parallel (FC-022)
-    const [projectResult, tasksResult] = await Promise.all([
-      apiClient.projects.get(params.projectId),
-      apiClient.tasks.list(params.projectId),
+export const Route = createFileRoute('/codespaces/$codespaceId/')({
+  loader: async ({ params }: { params: { codespaceId: string } }) => {
+    // Prefetch codespace and tasks in parallel (FC-022)
+    const [codespaceResult, tasksResult] = await Promise.all([
+      apiClient.codespaces.get(params.codespaceId),
+      apiClient.tasks.list(params.codespaceId),
     ]);
     return {
-      project: projectResult.ok ? projectResult.data : null,
+      codespace: codespaceResult.ok ? codespaceResult.data : null,
       tasks: tasksResult.ok ? tasksResult.data.items : [],
     };
   },
-  component: ProjectKanban,
+  component: CodespaceKanban,
 });
 
-function ProjectKanban(): React.JSX.Element {
-  const { projectId } = Route.useParams();
+function CodespaceKanban(): React.JSX.Element {
+  const { codespaceId } = Route.useParams();
   const loaderData = Route.useLoaderData() as
-    | { project: ProjectListItem | null; tasks: ClientTask[] }
+    | { codespace: CodespaceListItem | null; tasks: ClientTask[] }
     | undefined;
   const { error: showError, warning: showWarning } = useToast();
   const navigate = useNavigate();
-  const [project, setProject] = useState<ProjectListItem | null>(
-    (loaderData?.project as ProjectListItem | null) ?? null
+  const [codespace, setCodespace] = useState<CodespaceListItem | null>(
+    (loaderData?.codespace as CodespaceListItem | null) ?? null
   );
   const [tasks, setTasks] = useState<ClientTask[]>((loaderData?.tasks as ClientTask[]) ?? []);
-  const [isLoading, setIsLoading] = useState(!loaderData?.project);
+  const [isLoading, setIsLoading] = useState(!loaderData?.codespace);
   const [error, setError] = useState<string | null>(null);
   const [selectedTask, setSelectedTask] = useState<ClientTask | null>(null);
   const [showNewTask, setShowNewTask] = useState(false);
@@ -78,13 +78,13 @@ function ProjectKanban(): React.JSX.Element {
     data: sandboxStatus,
     isLoading: sandboxLoading,
     refetch: refetchSandboxStatus,
-  } = useSandboxStatus(projectId);
+  } = useSandboxStatus(codespaceId);
 
   // Handler to restart the sandbox container
   const handleRestartSandbox = async () => {
     setIsRestartingSandbox(true);
     try {
-      const response = await fetch(`/api/sandbox/status/${projectId}/restart`, {
+      const response = await fetch(`/api/sandbox/status/${codespaceId}/restart`, {
         method: 'POST',
       });
       if (!response.ok) {
@@ -95,50 +95,50 @@ function ProjectKanban(): React.JSX.Element {
       // Refetch sandbox status after restart
       refetchSandboxStatus();
     } catch (err) {
-      console.error('[ProjectKanban] Failed to restart sandbox:', err);
+      console.error('[CodespaceKanban] Failed to restart sandbox:', err);
       showError('Failed to restart sandbox', err instanceof Error ? err.message : 'Unknown error');
     } finally {
       setIsRestartingSandbox(false);
     }
   };
 
-  // Fetch project and tasks from API
+  // Fetch codespace and tasks from API
   const fetchData = useCallback(async () => {
     setError(null);
     setIsLoading(true);
 
     try {
-      const [projectResult, tasksResult] = await Promise.all([
-        apiClient.projects.get(projectId),
-        apiClient.tasks.list(projectId),
+      const [codespaceResult, tasksResult] = await Promise.all([
+        apiClient.codespaces.get(codespaceId),
+        apiClient.tasks.list(codespaceId),
       ]);
 
-      if (!projectResult.ok) {
-        console.error('[ProjectKanban] Failed to fetch project:', projectResult.error);
-        setError(`Failed to load project: ${projectResult.error.message}`);
+      if (!codespaceResult.ok) {
+        console.error('[CodespaceKanban] Failed to fetch codespace:', codespaceResult.error);
+        setError(`Failed to load codespace: ${codespaceResult.error.message}`);
         setIsLoading(false);
         return;
       }
 
-      setProject(projectResult.data);
+      setCodespace(codespaceResult.data);
 
       if (!tasksResult.ok) {
-        console.error('[ProjectKanban] Failed to fetch tasks:', tasksResult.error);
+        console.error('[CodespaceKanban] Failed to fetch tasks:', tasksResult.error);
         setError(`Failed to load tasks: ${tasksResult.error.message}`);
       } else {
         setTasks(tasksResult.data.items as ClientTask[]);
       }
     } catch (err) {
-      console.error('[ProjectKanban] Unexpected error:', err);
+      console.error('[CodespaceKanban] Unexpected error:', err);
       setError('An unexpected error occurred. Please try again.');
     } finally {
       setIsLoading(false);
     }
-  }, [projectId]);
+  }, [codespaceId]);
 
-  // Fetch on mount and when projectId changes (skip if loader already provided data)
+  // Fetch on mount and when codespaceId changes (skip if loader already provided data)
   useWatchEffect(() => {
-    if (loaderData?.project) return;
+    if (loaderData?.codespace) return;
     fetchData();
   }, [fetchData, loaderData]);
 
@@ -149,7 +149,7 @@ function ProjectKanban(): React.JSX.Element {
     // Persist to backend
     const result = await apiClient.tasks.move(taskId, column, position);
     if (!result.ok) {
-      console.error('[ProjectKanban] Failed to move task:', result.error);
+      console.error('[CodespaceKanban] Failed to move task:', result.error);
       showError('Failed to move task', result.error?.message || 'Unknown error');
       // Revert optimistic update on error
       fetchData();
@@ -159,7 +159,7 @@ function ProjectKanban(): React.JSX.Element {
     // Check for agent startup errors (task moved but agent failed to start)
     const data = result.data as { task: Task; agentError?: string };
     if (data.agentError) {
-      console.warn('[ProjectKanban] Agent failed to start:', data.agentError);
+      console.warn('[CodespaceKanban] Agent failed to start:', data.agentError);
       showWarning('Agent failed to start', data.agentError);
     }
 
@@ -178,7 +178,7 @@ function ProjectKanban(): React.JSX.Element {
     // Move task to in_progress which will auto-trigger the agent
     const result = await apiClient.tasks.move(taskId, 'in_progress', 0);
     if (!result.ok) {
-      console.error('[ProjectKanban] Failed to run task:', result.error);
+      console.error('[CodespaceKanban] Failed to run task:', result.error);
       showError('Failed to start task', result.error?.message || 'Unknown error');
       // Revert optimistic update on error
       fetchData();
@@ -188,7 +188,7 @@ function ProjectKanban(): React.JSX.Element {
     // Check for agent startup errors (task moved but agent failed to start)
     const data = result.data as { task: Task; agentError?: string };
     if (data.agentError) {
-      console.warn('[ProjectKanban] Agent failed to start:', data.agentError);
+      console.warn('[CodespaceKanban] Agent failed to start:', data.agentError);
       showWarning('Agent failed to start', data.agentError);
     }
 
@@ -211,7 +211,7 @@ function ProjectKanban(): React.JSX.Element {
       // Refresh to get updated task state
       await fetchData();
     } catch (error) {
-      console.error('[ProjectKanban] Failed to stop agent:', error);
+      console.error('[CodespaceKanban] Failed to stop agent:', error);
       showError('Failed to stop agent', error instanceof Error ? error.message : 'Unknown error');
     }
   };
@@ -297,9 +297,11 @@ function ProjectKanban(): React.JSX.Element {
 
   if (isLoading) {
     return (
-      <LayoutShell breadcrumbs={[{ label: 'Projects', to: '/projects' }, { label: 'Loading...' }]}>
+      <LayoutShell
+        breadcrumbs={[{ label: 'Codespaces', to: '/codespaces' }, { label: 'Loading...' }]}
+      >
         <div className="flex items-center justify-center min-h-[60vh]">
-          <div className="text-muted-foreground">Loading project...</div>
+          <div className="text-muted-foreground">Loading codespace...</div>
         </div>
       </LayoutShell>
     );
@@ -307,7 +309,7 @@ function ProjectKanban(): React.JSX.Element {
 
   if (error) {
     return (
-      <LayoutShell breadcrumbs={[{ label: 'Projects', to: '/projects' }, { label: 'Error' }]}>
+      <LayoutShell breadcrumbs={[{ label: 'Codespaces', to: '/codespaces' }, { label: 'Error' }]}>
         <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
           <div className="text-destructive text-sm">{error}</div>
           <button
@@ -322,16 +324,16 @@ function ProjectKanban(): React.JSX.Element {
     );
   }
 
-  if (!project) {
-    return <div className="p-6 text-sm text-fg-muted">Project not found.</div>;
+  if (!codespace) {
+    return <div className="p-6 text-sm text-fg-muted">Codespace not found.</div>;
   }
 
   return (
     <LayoutShell
-      projectId={project.id}
-      projectName={project.name}
-      projectPath={project.path}
-      breadcrumbs={[{ label: 'Projects', to: '/projects' }, { label: project.name }]}
+      projectId={codespace.id}
+      projectName={codespace.name}
+      projectPath={codespace.path}
+      breadcrumbs={[{ label: 'Codespaces', to: '/codespaces' }, { label: codespace.name }]}
       centerAction={
         <AIActionButton onClick={() => setShowNewTask(true)} data-testid="add-task-button" />
       }
@@ -357,13 +359,13 @@ function ProjectKanban(): React.JSX.Element {
             />
           )}
           <Link
-            to="/projects/$projectId/settings"
-            params={{ projectId: project.id }}
+            to="/codespaces/$codespaceId/settings"
+            params={{ codespaceId: codespace.id }}
             className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-surface-subtle text-fg-muted transition-colors hover:bg-surface hover:text-fg"
-            data-testid="project-settings-link"
+            data-testid="codespace-settings-link"
           >
             <GearSix className="h-4 w-4" />
-            <span className="sr-only">Project settings</span>
+            <span className="sr-only">Codespace settings</span>
           </Link>
         </div>
       }
@@ -380,14 +382,14 @@ function ProjectKanban(): React.JSX.Element {
       {/* New Task Dialog - AI-powered task creation with streaming (lazy-loaded) */}
       <Suspense fallback={null}>
         <NewTaskDialog
-          projectId={projectId}
+          projectId={codespaceId}
           open={showNewTask}
           onOpenChange={(open) => {
             if (!open) setShowNewTask(false);
           }}
           onTaskCreated={async (_taskId) => {
             // Refresh tasks list after AI creates a new task
-            const tasksResult = await apiClient.tasks.list(projectId);
+            const tasksResult = await apiClient.tasks.list(codespaceId);
             if (tasksResult.ok) {
               setTasks(tasksResult.data.items as ClientTask[]);
             }
@@ -414,7 +416,7 @@ function ProjectKanban(): React.JSX.Element {
           if (result.ok) {
             setTasks((prev) => prev.filter((task) => task.id !== id));
           } else {
-            console.error('[ProjectKanban] Failed to delete task:', result.error);
+            console.error('[CodespaceKanban] Failed to delete task:', result.error);
           }
         }}
         onViewSession={(sessionId) => {

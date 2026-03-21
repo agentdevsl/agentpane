@@ -1,15 +1,15 @@
 import { pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core';
 import type { RbacRole } from '../shared/enums';
-import { projects } from './projects';
+import { codespaces } from './codespaces';
 import { teams } from './teams';
 import { users } from './users';
 
-export const projectMembers = pgTable(
-  'project_members',
+export const codespaceMembers = pgTable(
+  'codespace_members',
   {
-    projectId: text('project_id')
+    codespaceId: text('codespace_id')
       .notNull()
-      .references(() => projects.id, { onDelete: 'cascade' }),
+      .references(() => codespaces.id, { onDelete: 'cascade' }),
     userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
@@ -19,8 +19,8 @@ export const projectMembers = pgTable(
     }),
     createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
   },
-  (table) => [primaryKey({ columns: [table.projectId, table.userId] })]
+  (table) => [primaryKey({ columns: [table.codespaceId, table.userId] })]
 );
 
-export type ProjectMember = typeof projectMembers.$inferSelect;
-export type NewProjectMember = typeof projectMembers.$inferInsert;
+export type CodespaceMember = typeof codespaceMembers.$inferSelect;
+export type NewCodespaceMember = typeof codespaceMembers.$inferInsert;

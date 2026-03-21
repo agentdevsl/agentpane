@@ -1,7 +1,7 @@
 import { createId } from '@paralleldrive/cuid2';
 import { eq } from 'drizzle-orm';
 import type { NewSandboxInstance, NewSandboxTmuxSession, SandboxInstance } from '../db/schema';
-import { projects, sandboxInstances, sandboxTmuxSessions } from '../db/schema';
+import { codespaces, sandboxInstances, sandboxTmuxSessions } from '../db/schema';
 import type { SandboxError } from '../lib/errors/sandbox-errors.js';
 import { SandboxErrors } from '../lib/errors/sandbox-errors.js';
 import type { CredentialsInjector } from '../lib/sandbox/credentials-injector.js';
@@ -10,7 +10,7 @@ import type { Sandbox, SandboxProvider } from '../lib/sandbox/providers/sandbox-
 import type { TmuxManager } from '../lib/sandbox/tmux-manager.js';
 import { createTmuxManager, TmuxManager as TmuxMgr } from '../lib/sandbox/tmux-manager.js';
 import type {
-  ProjectSandboxConfig,
+  CodespaceSandboxConfig,
   SandboxConfig,
   SandboxInfo,
   SandboxMetrics,
@@ -34,7 +34,7 @@ const IDLE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 const MAX_IDLE_CHECK_FAILURES = 5;
 
 /**
- * SandboxService manages Docker sandbox containers for projects
+ * SandboxService manages Docker sandbox containers for codespaces
  */
 export class SandboxService {
   private tmuxManager: TmuxManager;
@@ -66,18 +66,11 @@ export class SandboxService {
           // Reset failure count on success
           this.idleCheckFailureCount = 0;
         })
-        .catch((error) => {
+        .catch((_error) => {
           this.idleCheckFailureCount++;
-          console.error(
-            `[SandboxService] Idle check error (${this.idleCheckFailureCount}/${MAX_IDLE_CHECK_FAILURES}):`,
-            error
-          );
 
           // Disable checker if too many consecutive failures
           if (this.idleCheckFailureCount >= MAX_IDLE_CHECK_FAILURES) {
-            console.error(
-              '[SandboxService] Too many consecutive idle check failures, disabling idle checker. Manual restart required.'
-            );
             this.stopIdleChecker();
           }
         });
@@ -95,33 +88,33 @@ export class SandboxService {
   }
 
   /**
-   * Get or create a sandbox for a project
+   * Get or create a sandbox for a codespace
    */
-  async getOrCreateForProject(projectId: string): Promise<Result<SandboxInfo, SandboxError>> {
+  async getOrCreateForCodespace(codespaceId: string): Promise<Result<SandboxInfo, SandboxError>> {
     // Check if sandbox exists and is running
-    const existing = await this.getByProjectId(projectId);
+    const existing = await this.getByCodespaceId(codespaceId);
     if (existing.ok && existing.value && existing.value.status === 'running') {
       return ok(existing.value);
     }
 
-    // Get project and validate sandbox is enabled
-    const project = await this.db.query.projects.findFirst({
-      where: eq(projects.id, projectId),
+    // Get codespace and validate sandbox is enabled
+    const codespace = await this.db.query.codespaces.findFirst({
+      where: eq(codespaces.id, codespaceId),
     });
 
-    if (!project) {
-      return err(SandboxErrors.PROJECT_NOT_FOUND);
+    if (!codespace) {
+      return err(SandboxErrors.CODESPACE_NOT_FOUND);
     }
 
-    const sandboxConfig = project.config?.sandbox as ProjectSandboxConfig | undefined;
+    const sandboxConfig = codespace.config?.sandbox as CodespaceSandboxConfig | undefined;
     if (!sandboxConfig?.enabled) {
-      return err(SandboxErrors.SANDBOX_NOT_ENABLED(projectId));
+      return err(SandboxErrors.SANDBOX_NOT_ENABLED(codespaceId));
     }
 
     // Build sandbox configuration
     const config: SandboxConfig = {
-      projectId,
-      projectPath: project.path,
+      codespaceId,
+      codespacePath: codespace.path,
       image: sandboxConfig.image ?? SANDBOX_DEFAULTS.image,
       memoryMb: sandboxConfig.memoryMb ?? SANDBOX_DEFAULTS.memoryMb,
       cpuCores: sandboxConfig.cpuCores ?? SANDBOX_DEFAULTS.cpuCores,
@@ -142,14 +135,14 @@ export class SandboxService {
     // Create the stream for real-time events
     await this.streams.createStream(sandboxId, {
       type: 'sandbox',
-      projectId: config.projectId,
+      codespaceId: config.codespaceId,
       image: config.image,
     });
 
     // Publish creating event
     await this.streams.publish(sandboxId, 'sandbox:creating', {
       sandboxId,
-      projectId: config.projectId,
+      codespaceId: config.codespaceId,
       image: config.image,
     });
 
@@ -170,17 +163,16 @@ export class SandboxService {
         // Emit warning event so user is aware credentials are missing
         await this.streams.publish(sandbox.id, 'sandbox:error', {
           sandboxId: sandbox.id,
-          projectId: config.projectId,
+          codespaceId: config.codespaceId,
           error: `Sandbox created but credentials injection failed: ${credResult.error.message}. Claude API/CLI access inside the sandbox may not work.`,
           code: 'CREDENTIALS_INJECTION_WARNING',
         });
-        console.warn('[SandboxService] Failed to inject credentials:', credResult.error);
       }
 
       // Store in database
       const dbSandbox: NewSandboxInstance = {
         id: sandbox.id,
-        projectId: config.projectId,
+        codespaceId: config.codespaceId,
         containerId: sandbox.containerId,
         status: 'running',
         image: config.image,
@@ -198,7 +190,7 @@ export class SandboxService {
       // Publish ready event
       await this.streams.publish(sandbox.id, 'sandbox:ready', {
         sandboxId: sandbox.id,
-        projectId: config.projectId,
+        codespaceId: config.codespaceId,
         containerId: sandbox.containerId,
       });
 
@@ -209,7 +201,7 @@ export class SandboxService {
       // Publish error event
       await this.streams.publish(sandboxId, 'sandbox:error', {
         sandboxId,
-        projectId: config.projectId,
+        codespaceId: config.codespaceId,
         error: message,
       });
 
@@ -222,11 +214,11 @@ export class SandboxService {
   }
 
   /**
-   * Get sandbox by project ID
+   * Get sandbox by codespace ID
    */
-  async getByProjectId(projectId: string): Promise<Result<SandboxInfo | null, SandboxError>> {
+  async getByCodespaceId(codespaceId: string): Promise<Result<SandboxInfo | null, SandboxError>> {
     const dbSandbox = await this.db.query.sandboxInstances.findFirst({
-      where: eq(sandboxInstances.projectId, projectId),
+      where: eq(sandboxInstances.codespaceId, codespaceId),
     });
 
     if (!dbSandbox) {
@@ -269,7 +261,7 @@ export class SandboxService {
     // Publish stopping event
     await this.streams.publish(sandboxId, 'sandbox:stopping', {
       sandboxId,
-      projectId: dbSandbox.projectId,
+      codespaceId: dbSandbox.codespaceId,
       reason,
     });
 
@@ -280,10 +272,6 @@ export class SandboxService {
         // Kill all tmux sessions - log if any fail but continue with stop
         const killResult = await this.tmuxManager.killAllSessions(sandboxId);
         if (!killResult.ok) {
-          console.warn(
-            `[SandboxService] Failed to kill tmux sessions for sandbox ${sandboxId}:`,
-            killResult.error.message
-          );
         }
 
         // Stop container
@@ -303,7 +291,7 @@ export class SandboxService {
       // Publish stopped event
       await this.streams.publish(sandboxId, 'sandbox:stopped', {
         sandboxId,
-        projectId: dbSandbox.projectId,
+        codespaceId: dbSandbox.codespaceId,
       });
 
       return ok(undefined);
@@ -323,7 +311,7 @@ export class SandboxService {
       // Publish error event
       await this.streams.publish(sandboxId, 'sandbox:error', {
         sandboxId,
-        projectId: dbSandbox.projectId,
+        codespaceId: dbSandbox.codespaceId,
         error: message,
       });
 
@@ -335,10 +323,10 @@ export class SandboxService {
    * Create a tmux session for a task
    */
   async createTmuxSessionForTask(
-    projectId: string,
+    codespaceId: string,
     taskId: string
   ): Promise<Result<TmuxSession, SandboxError>> {
-    const sandboxResult = await this.getByProjectId(projectId);
+    const sandboxResult = await this.getByCodespaceId(codespaceId);
     if (!sandboxResult.ok) {
       return sandboxResult;
     }
@@ -473,7 +461,7 @@ export class SandboxService {
           // Publish idle event
           await this.streams.publish(dbSandbox.id, 'sandbox:idle', {
             sandboxId: dbSandbox.id,
-            projectId: dbSandbox.projectId,
+            codespaceId: dbSandbox.codespaceId,
             idleSince: lastActivity,
             timeoutMinutes: dbSandbox.idleTimeoutMinutes,
           });
@@ -481,11 +469,7 @@ export class SandboxService {
           // Stop the sandbox
           await this.stop(dbSandbox.id, 'idle_timeout');
         }
-      } catch (sandboxErr) {
-        console.error(
-          `[SandboxService] Error checking idle sandbox ${dbSandbox.id}:`,
-          sandboxErr instanceof Error ? sandboxErr.message : String(sandboxErr)
-        );
+      } catch (_sandboxErr) {
         // Continue checking remaining sandboxes
       }
     }
@@ -512,7 +496,7 @@ export class SandboxService {
   private sandboxToInfo(sandbox: Sandbox, config: SandboxConfig): SandboxInfo {
     return {
       id: sandbox.id,
-      projectId: sandbox.projectId,
+      codespaceId: sandbox.codespaceId,
       containerId: sandbox.containerId,
       status: sandbox.status,
       image: config.image,
@@ -529,7 +513,7 @@ export class SandboxService {
   private dbSandboxToInfo(dbSandbox: SandboxInstance): SandboxInfo {
     return {
       id: dbSandbox.id,
-      projectId: dbSandbox.projectId,
+      codespaceId: dbSandbox.codespaceId,
       containerId: dbSandbox.containerId,
       status: dbSandbox.status,
       image: dbSandbox.image,

@@ -31,7 +31,7 @@ import { TextInput } from '@/app/components/ui/text-input';
 import { Textarea } from '@/app/components/ui/textarea';
 import { useMountEffect } from '@/app/hooks/use-mount-effect';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
-import type { Project, ProjectConfig } from '@/db/schema';
+import type { CodespaceConfig, Project } from '@/db/schema';
 import { apiClient } from '@/lib/api/client';
 import { AVAILABLE_MODELS } from '@/lib/constants/models';
 import type { ProjectSandboxConfig } from '@/lib/sandbox/types';
@@ -44,7 +44,7 @@ interface ProjectSettingsProps {
     name?: string;
     description?: string;
     maxConcurrentAgents?: number;
-    config?: Partial<ProjectConfig>;
+    config?: Partial<CodespaceConfig>;
   }) => Promise<void>;
   onDelete: (options: { deleteFiles: boolean }) => Promise<void>;
   saveStatus?: 'idle' | 'saving' | 'saved' | 'error';
@@ -154,7 +154,7 @@ export function ProjectSettings({
   const [name, setName] = useState(project.name);
   const [description, setDescription] = useState(project.description ?? '');
   const [maxConcurrent, setMaxConcurrent] = useState(project.maxConcurrentAgents ?? 3);
-  const [config, setConfig] = useState<ProjectConfig>(
+  const [config, setConfig] = useState<CodespaceConfig>(
     project.config ?? {
       worktreeRoot: '.worktrees',
       defaultBranch: 'main',

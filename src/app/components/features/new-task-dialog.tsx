@@ -1086,7 +1086,6 @@ export function NewTaskDialog({
   }, [createdTaskId, onTaskCreated, onOpenChange]);
 
   // Auto-scroll to bottom when messages change or streaming
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional trigger deps for scroll behavior
   useWatchEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streamingContent]);

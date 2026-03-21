@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { and, eq, inArray, lt } from 'drizzle-orm';
 import type { Worktree, WorktreeStatus } from '../db/schema';
-import { agents, projects, worktrees } from '../db/schema';
+import { agents, codespaces, worktrees } from '../db/schema';
 import { ServiceErrors } from '../lib/errors/service-errors.js';
 import type { WorktreeError } from '../lib/errors/worktree-errors.js';
 import { WorktreeErrors } from '../lib/errors/worktree-errors.js';
@@ -12,7 +12,7 @@ import { slugify } from '../lib/utils/slugify.js';
 import type { Database } from '../types/database.js';
 
 export type WorktreeCreateInput = {
-  projectId: string;
+  codespaceId: string;
   agentId: string;
   taskId: string;
   taskTitle: string;
@@ -169,14 +169,14 @@ export class WorktreeService {
     input: WorktreeCreateInput,
     options?: WorktreeSetupOptions
   ): WorktreeServiceResult<Worktree> {
-    const { projectId, agentId, taskId, taskTitle, baseBranch = 'main' } = input;
+    const { codespaceId, agentId, taskId, taskTitle, baseBranch = 'main' } = input;
 
-    const project = await this.db.query.projects.findFirst({
-      where: eq(projects.id, projectId),
+    const codespace = await this.db.query.codespaces.findFirst({
+      where: eq(codespaces.id, codespaceId),
     });
 
-    if (!project) {
-      return err(WorktreeErrors.CREATION_FAILED('unknown', 'Project not found'));
+    if (!codespace) {
+      return err(WorktreeErrors.CREATION_FAILED('unknown', 'Codespace not found'));
     }
 
     const agent = await this.db.query.agents.findFirst({
@@ -197,13 +197,13 @@ export class WorktreeService {
 
     // Path: .worktrees/{taskSlug}-{shortId}
     // Example: .worktrees/fix-login-validation-abc123
-    const root = project.config?.worktreeRoot ?? '.worktrees';
-    const worktreePath = path.join(project.path, root, branch);
+    const root = codespace.config?.worktreeRoot ?? '.worktrees';
+    const worktreePath = path.join(codespace.path, root, branch);
 
     const escapedBranchForCheck = escapeShellString(branch);
     const branchCheck = await this.runner.exec(
       `git branch --list "${escapedBranchForCheck}"`,
-      project.path
+      codespace.path
     );
     if (branchCheck.stdout.trim()) {
       return err(WorktreeErrors.BRANCH_EXISTS(branch));
@@ -216,7 +216,7 @@ export class WorktreeService {
 
       await this.runner.exec(
         `git worktree add "${escapedPath}" -b "${escapedBranch}" "${escapedBaseBranch}"`,
-        project.path
+        codespace.path
       );
     } catch (error) {
       return err(WorktreeErrors.CREATION_FAILED(branch, String(error)));
@@ -225,7 +225,7 @@ export class WorktreeService {
     const [insertedWorktree] = await this.db
       .insert(worktrees)
       .values({
-        projectId,
+        codespaceId,
         agentId,
         taskId,
         branch,
@@ -264,7 +264,7 @@ export class WorktreeService {
       }
     }
 
-    if (!options?.skipInitScript && project.config?.initScript) {
+    if (!options?.skipInitScript && codespace.config?.initScript) {
       const initResult = await this.runInitScript(worktreeId);
       if (!initResult.ok) {
         await this.db
@@ -291,7 +291,7 @@ export class WorktreeService {
   async remove(worktreeId: string, force = false): WorktreeServiceResult<void> {
     const worktree = await this.db.query.worktrees.findFirst({
       where: eq(worktrees.id, worktreeId),
-      with: { project: true },
+      with: { codespace: true },
     });
 
     if (!worktree) {
@@ -310,9 +310,9 @@ export class WorktreeService {
 
       await this.runner.exec(
         `git worktree remove "${escapedPath}" ${forceFlag}`,
-        worktree.project.path
+        worktree.codespace.path
       );
-      await this.runner.exec(`git branch -D "${escapedBranch}"`, worktree.project.path);
+      await this.runner.exec(`git branch -D "${escapedBranch}"`, worktree.codespace.path);
 
       await this.db
         .update(worktrees)
@@ -334,12 +334,12 @@ export class WorktreeService {
     }
   }
 
-  async prune(projectId: string): WorktreeServiceResult<PruneResult> {
+  async prune(codespaceId: string): WorktreeServiceResult<PruneResult> {
     // Use ISO string for comparison since SQLite stores dates as TEXT
     const staleThreshold = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const stale = await this.db.query.worktrees.findMany({
       where: and(
-        eq(worktrees.projectId, projectId),
+        eq(worktrees.codespaceId, codespaceId),
         eq(worktrees.status, 'active'),
         lt(worktrees.updatedAt, staleThreshold)
       ),
@@ -353,10 +353,6 @@ export class WorktreeService {
       if (result.ok) {
         pruned += 1;
       } else {
-        console.warn(
-          `[WorktreeService] Failed to prune worktree ${worktree.id} (${worktree.branch}):`,
-          result.error
-        );
         failed.push({
           worktreeId: worktree.id,
           branch: worktree.branch,
@@ -371,21 +367,21 @@ export class WorktreeService {
   async copyEnv(worktreeId: string): WorktreeServiceResult<void> {
     const worktree = await this.db.query.worktrees.findFirst({
       where: eq(worktrees.id, worktreeId),
-      with: { project: true },
+      with: { codespace: true },
     });
 
     if (!worktree) {
       return err(WorktreeErrors.NOT_FOUND);
     }
 
-    const envFile = worktree.project.config?.envFile ?? '.env';
-    const sourcePath = path.join(worktree.project.path, envFile);
+    const envFile = worktree.codespace.config?.envFile ?? '.env';
+    const sourcePath = path.join(worktree.codespace.path, envFile);
     const targetPath = path.join(worktree.path, envFile);
 
     try {
       const escapedSource = escapeShellString(sourcePath);
       const escapedTarget = escapeShellString(targetPath);
-      await this.runner.exec(`cp "${escapedSource}" "${escapedTarget}"`, worktree.project.path);
+      await this.runner.exec(`cp "${escapedSource}" "${escapedTarget}"`, worktree.codespace.path);
       return ok(undefined);
     } catch (error) {
       return err(WorktreeErrors.ENV_COPY_FAILED(String(error)));
@@ -412,21 +408,21 @@ export class WorktreeService {
   async runInitScript(worktreeId: string): WorktreeServiceResult<void> {
     const worktree = await this.db.query.worktrees.findFirst({
       where: eq(worktrees.id, worktreeId),
-      with: { project: true },
+      with: { codespace: true },
     });
 
     if (!worktree) {
       return err(WorktreeErrors.NOT_FOUND);
     }
 
-    const initScript = worktree.project.config?.initScript;
+    const initScript = worktree.codespace.config?.initScript;
     if (!initScript) {
       return ok(undefined);
     }
 
     // Sanitize the init script - remove null bytes and control characters
     // Note: initScript is intentionally a user-configured shell command.
-    // Security relies on access control for project config modifications.
+    // Security relies on access control for codespace config modifications.
     const sanitizedScript = initScript
       .replace(/\0/g, '') // Remove null bytes
       .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '') // Remove control characters except \t, \n, \r
@@ -435,10 +431,6 @@ export class WorktreeService {
     if (!sanitizedScript) {
       return ok(undefined);
     }
-
-    console.log(
-      `[WorktreeService] Running init script for worktree ${worktreeId} in ${worktree.path}`
-    );
 
     try {
       await this.runner.exec(sanitizedScript, worktree.path);
@@ -484,7 +476,7 @@ export class WorktreeService {
   async merge(worktreeId: string, targetBranch?: string): WorktreeServiceResult<void> {
     const worktree = await this.db.query.worktrees.findFirst({
       where: eq(worktrees.id, worktreeId),
-      with: { project: true },
+      with: { codespace: true },
     });
 
     if (!worktree) {
@@ -508,23 +500,23 @@ export class WorktreeService {
       const escapedTarget = escapeShellString(target);
       const escapedBranch = escapeShellString(worktree.branch);
 
-      await this.runner.exec(`git checkout "${escapedTarget}"`, worktree.project.path);
-      await this.runner.exec('git pull --rebase', worktree.project.path);
+      await this.runner.exec(`git checkout "${escapedTarget}"`, worktree.codespace.path);
+      await this.runner.exec('git pull --rebase', worktree.codespace.path);
       const mergeMessage = escapeShellString(`Merge branch '${worktree.branch}'`);
       const merge = await this.runner.exec(
         `git merge "${escapedBranch}" --no-ff -m "${mergeMessage}"`,
-        worktree.project.path
+        worktree.codespace.path
       );
 
       if (merge.stderr.includes('CONFLICT')) {
         const conflicts = await this.runner.exec(
           'git diff --name-only --diff-filter=U',
-          worktree.project.path
+          worktree.codespace.path
         );
 
         // Abort the failed merge to leave the repo in a clean state
         try {
-          await this.runner.exec('git merge --abort', worktree.project.path);
+          await this.runner.exec('git merge --abort', worktree.codespace.path);
         } catch {
           // Merge abort can fail if merge wasn't in progress — ignore
         }
@@ -643,9 +635,9 @@ export class WorktreeService {
     });
   }
 
-  async list(projectId: string): Promise<Result<WorktreeStatusInfo[], never>> {
+  async list(codespaceId: string): Promise<Result<WorktreeStatusInfo[], never>> {
     const list = await this.db.query.worktrees.findMany({
-      where: eq(worktrees.projectId, projectId),
+      where: eq(worktrees.codespaceId, codespaceId),
     });
 
     // Sync with filesystem - remove records for worktrees that no longer exist
@@ -667,16 +659,11 @@ export class WorktreeService {
       for (const id of staleIds) {
         this.cleaningUpStaleIds.add(id);
       }
-      console.log(`[WorktreeService] Cleaning up ${staleIds.length} stale worktree records`);
       this.db
         .delete(worktrees)
         .where(inArray(worktrees.id, staleIds))
-        .then(() => {
-          console.log(`[WorktreeService] Removed ${staleIds.length} stale worktree records`);
-        })
-        .catch((deleteErr) => {
-          console.error('[WorktreeService] Failed to clean up stale worktree records:', deleteErr);
-        })
+        .then(() => {})
+        .catch((_deleteErr) => {})
         .finally(() => {
           // Remove from tracking set regardless of success/failure
           for (const id of staleIds) {
@@ -696,9 +683,9 @@ export class WorktreeService {
     );
   }
 
-  async getByBranch(projectId: string, branch: string): Promise<Result<Worktree | null, never>> {
+  async getByBranch(codespaceId: string, branch: string): Promise<Result<Worktree | null, never>> {
     const worktree = await this.db.query.worktrees.findFirst({
-      where: and(eq(worktrees.projectId, projectId), eq(worktrees.branch, branch)),
+      where: and(eq(worktrees.codespaceId, codespaceId), eq(worktrees.branch, branch)),
     });
 
     return ok(worktree ?? null);

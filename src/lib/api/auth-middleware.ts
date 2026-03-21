@@ -42,7 +42,7 @@ export interface AuthContext {
   tokenScope?: {
     tokenId: string;
     role: import('../../db/schema/shared/enums').RbacRole;
-    projectId: string | null;
+    codespaceId: string | null;
     tags: string[] | null;
   };
 }

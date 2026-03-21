@@ -113,7 +113,7 @@ function useSettingsSections(): SettingsSection[] {
       id: 'navigation',
       title: 'Navigation',
       items: [
-        { id: 'projects', label: 'Projects', to: '/settings/projects', icon: Folder },
+        { id: 'codespaces', label: 'Codespaces', to: '/settings/projects', icon: Folder },
         { id: 'agents', label: 'Agents', to: '/settings/agents', icon: Robot },
       ],
     },

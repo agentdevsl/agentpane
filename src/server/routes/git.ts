@@ -17,23 +17,23 @@ export function createGitRoutes({ gitService }: GitDeps) {
 
   // GET /api/git/status
   app.get('/status', async (c) => {
-    const projectId = c.req.query('projectId');
+    const codespaceId = c.req.query('codespaceId');
 
-    if (!projectId) {
+    if (!codespaceId) {
       return json(
-        { ok: false, error: { code: 'MISSING_PARAMS', message: 'projectId is required' } },
+        { ok: false, error: { code: 'MISSING_PARAMS', message: 'codespaceId is required' } },
         400
       );
     }
 
-    if (!isValidId(projectId)) {
+    if (!isValidId(codespaceId)) {
       return json(
-        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid projectId format' } },
+        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid codespaceId format' } },
         400
       );
     }
 
-    const result = await gitService.getStatus(projectId);
+    const result = await gitService.getStatus(codespaceId);
 
     if (!result.ok) {
       return json(
@@ -47,23 +47,23 @@ export function createGitRoutes({ gitService }: GitDeps) {
 
   // GET /api/git/branches
   app.get('/branches', async (c) => {
-    const projectId = c.req.query('projectId');
+    const codespaceId = c.req.query('codespaceId');
 
-    if (!projectId) {
+    if (!codespaceId) {
       return json(
-        { ok: false, error: { code: 'MISSING_PARAMS', message: 'projectId is required' } },
+        { ok: false, error: { code: 'MISSING_PARAMS', message: 'codespaceId is required' } },
         400
       );
     }
 
-    if (!isValidId(projectId)) {
+    if (!isValidId(codespaceId)) {
       return json(
-        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid projectId format' } },
+        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid codespaceId format' } },
         400
       );
     }
 
-    const result = await gitService.listBranches(projectId);
+    const result = await gitService.listBranches(codespaceId);
 
     if (!result.ok) {
       return json(
@@ -77,25 +77,28 @@ export function createGitRoutes({ gitService }: GitDeps) {
 
   // GET /api/git/commits
   app.get('/commits', async (c) => {
-    const projectId = c.req.query('projectId');
+    const codespaceId = c.req.query('codespaceId');
     const branch = c.req.query('branch');
     const limit = parseInt(c.req.query('limit') ?? '50', 10);
 
-    if (!projectId) {
+    if (!codespaceId) {
       return json(
-        { ok: false, error: { code: 'MISSING_PARAMS', message: 'projectId is required' } },
+        { ok: false, error: { code: 'MISSING_PARAMS', message: 'codespaceId is required' } },
         400
       );
     }
 
-    if (!isValidId(projectId)) {
+    if (!isValidId(codespaceId)) {
       return json(
-        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid projectId format' } },
+        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid codespaceId format' } },
         400
       );
     }
 
-    const result = await gitService.listCommits(projectId, { branch: branch || undefined, limit });
+    const result = await gitService.listCommits(codespaceId, {
+      branch: branch || undefined,
+      limit,
+    });
 
     if (!result.ok) {
       return json(
@@ -109,23 +112,23 @@ export function createGitRoutes({ gitService }: GitDeps) {
 
   // GET /api/git/remote-branches
   app.get('/remote-branches', async (c) => {
-    const projectId = c.req.query('projectId');
+    const codespaceId = c.req.query('codespaceId');
 
-    if (!projectId) {
+    if (!codespaceId) {
       return json(
-        { ok: false, error: { code: 'MISSING_PARAMS', message: 'projectId is required' } },
+        { ok: false, error: { code: 'MISSING_PARAMS', message: 'codespaceId is required' } },
         400
       );
     }
 
-    if (!isValidId(projectId)) {
+    if (!isValidId(codespaceId)) {
       return json(
-        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid projectId format' } },
+        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid codespaceId format' } },
         400
       );
     }
 
-    const result = await gitService.listRemoteBranches(projectId);
+    const result = await gitService.listRemoteBranches(codespaceId);
 
     if (!result.ok) {
       return json(

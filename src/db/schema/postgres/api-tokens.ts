@@ -1,7 +1,7 @@
 import { createId } from '@paralleldrive/cuid2';
 import { integer, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 import type { ApiTokenStatus, RbacRole } from '../shared/enums';
-import { projects } from './projects';
+import { codespaces } from './codespaces';
 import { teams } from './teams';
 import { users } from './users';
 
@@ -20,7 +20,9 @@ export const apiTokens = pgTable('api_tokens', {
   tokenPrefix: text('token_prefix').notNull(),
   role: text('role').$type<RbacRole>().notNull(),
   scopeTags: jsonb('scope_tags').$type<string[] | null>(),
-  scopeProjectId: text('scope_project_id').references(() => projects.id, { onDelete: 'set null' }),
+  scopeCodespaceId: text('scope_codespace_id').references(() => codespaces.id, {
+    onDelete: 'set null',
+  }),
   status: text('status').$type<ApiTokenStatus>().default('active').notNull(),
   expiresAt: timestamp('expires_at', { mode: 'string' }),
   useCount: integer('use_count').default(0),

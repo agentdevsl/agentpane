@@ -4,7 +4,7 @@ import { LayoutShell } from '@/app/components/features/layout-shell';
 import { TaskDetailDialog } from '@/app/components/features/task-detail-dialog';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import type { Task } from '@/db/schema';
-import { apiClient, type ProjectListItem } from '@/lib/api/client';
+import { apiClient, type CodespaceListItem } from '@/lib/api/client';
 
 // Client task type - subset of Task for client-side display
 type ClientTask = Pick<
@@ -14,16 +14,16 @@ type ClientTask = Pick<
   priority?: 'low' | 'medium' | 'high' | 'critical';
 };
 
-export const Route = createFileRoute('/projects/$projectId/tasks/$taskId')({
-  loader: async ({ params }: { params: { projectId: string; taskId: string } }) => {
-    const [taskResult, projectResult] = await Promise.all([
+export const Route = createFileRoute('/codespaces/$codespaceId/tasks/$taskId')({
+  loader: async ({ params }: { params: { codespaceId: string; taskId: string } }) => {
+    const [taskResult, codespaceResult] = await Promise.all([
       apiClient.tasks.get(params.taskId),
-      apiClient.projects.get(params.projectId),
+      apiClient.codespaces.get(params.codespaceId),
     ]);
     const task = taskResult.ok ? taskResult.data : null;
     return {
-      task: task && (task as ClientTask).projectId === params.projectId ? task : null,
-      project: projectResult.ok ? projectResult.data : null,
+      task: task && (task as ClientTask).projectId === params.codespaceId ? task : null,
+      codespace: codespaceResult.ok ? codespaceResult.data : null,
     };
   },
   component: TaskDetailRoute,
@@ -31,44 +31,46 @@ export const Route = createFileRoute('/projects/$projectId/tasks/$taskId')({
 
 function TaskDetailRoute(): React.JSX.Element {
   const router = useRouter();
-  const { projectId, taskId } = Route.useParams();
+  const { codespaceId, taskId } = Route.useParams();
   const loaderData = Route.useLoaderData() as
-    | { task: ClientTask | null; project: ProjectListItem | null }
+    | { task: ClientTask | null; codespace: CodespaceListItem | null }
     | undefined;
   const [task, setTask] = useState<ClientTask | null>(
     () => (loaderData?.task as ClientTask) ?? null
   );
-  const [project, setProject] = useState<ProjectListItem | null>(
-    () => (loaderData?.project as ProjectListItem) ?? null
+  const [codespace, setCodespace] = useState<CodespaceListItem | null>(
+    () => (loaderData?.codespace as CodespaceListItem) ?? null
   );
   const [isLoading, setIsLoading] = useState(!loaderData?.task);
 
-  // Fetch task and project from API on mount
+  // Fetch task and codespace from API on mount
   useWatchEffect(() => {
     if (loaderData?.task) return;
     const fetchData = async () => {
-      const [taskResult, projectResult] = await Promise.all([
+      const [taskResult, codespaceResult] = await Promise.all([
         apiClient.tasks.get(taskId),
-        apiClient.projects.get(projectId),
+        apiClient.codespaces.get(codespaceId),
       ]);
 
       if (taskResult.ok) {
         const fetchedTask = taskResult.data as ClientTask;
-        if (fetchedTask.projectId === projectId) {
+        if (fetchedTask.projectId === codespaceId) {
           setTask(fetchedTask);
         }
       }
-      if (projectResult.ok) {
-        setProject(projectResult.data);
+      if (codespaceResult.ok) {
+        setCodespace(codespaceResult.data);
       }
       setIsLoading(false);
     };
     fetchData();
-  }, [projectId, taskId, loaderData]);
+  }, [codespaceId, taskId, loaderData]);
 
   if (isLoading) {
     return (
-      <LayoutShell breadcrumbs={[{ label: 'Projects', to: '/projects' }, { label: 'Loading...' }]}>
+      <LayoutShell
+        breadcrumbs={[{ label: 'Codespaces', to: '/codespaces' }, { label: 'Loading...' }]}
+      >
         <div className="flex items-center justify-center min-h-[60vh]">
           <div className="text-muted-foreground">Loading task...</div>
         </div>
@@ -82,12 +84,12 @@ function TaskDetailRoute(): React.JSX.Element {
 
   return (
     <LayoutShell
-      projectId={project?.id}
-      projectName={project?.name}
-      projectPath={project?.path}
+      projectId={codespace?.id}
+      projectName={codespace?.name}
+      projectPath={codespace?.path}
       breadcrumbs={[
-        { label: 'Projects', to: '/projects' },
-        { label: project?.name ?? 'Project', to: `/projects/${project?.id}` },
+        { label: 'Codespaces', to: '/codespaces' },
+        { label: codespace?.name ?? 'Codespace', to: `/codespaces/${codespace?.id}` },
         { label: task.title },
       ]}
     >
@@ -96,7 +98,10 @@ function TaskDetailRoute(): React.JSX.Element {
         open
         onOpenChange={(open) => {
           if (!open) {
-            router.navigate({ to: '/projects/$projectId', params: { projectId } });
+            router.navigate({
+              to: '/codespaces/$codespaceId',
+              params: { codespaceId },
+            });
           }
         }}
         onSave={async (data) => {
@@ -107,7 +112,7 @@ function TaskDetailRoute(): React.JSX.Element {
           // TODO: [CQ-018] Add API endpoint for deleting tasks
         }}
         onViewSession={(sessionId) => {
-          window.location.href = `/projects/${projectId}/sessions/${sessionId}`;
+          window.location.href = `/codespaces/${codespaceId}/sessions/${sessionId}`;
         }}
       />
     </LayoutShell>

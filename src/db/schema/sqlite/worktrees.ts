@@ -7,7 +7,7 @@ import type { WorktreeStatus } from '../shared/enums';
 export type { WorktreeStatus } from '../shared/enums';
 
 import { agents } from './agents';
-import { projects } from './projects';
+import { codespaces } from './codespaces';
 import { tasks } from './tasks';
 
 export const worktrees = sqliteTable(
@@ -16,9 +16,9 @@ export const worktrees = sqliteTable(
     id: text('id')
       .primaryKey()
       .$defaultFn(() => createId()),
-    projectId: text('project_id')
+    codespaceId: text('codespace_id')
       .notNull()
-      .references(() => projects.id, { onDelete: 'cascade' }),
+      .references(() => codespaces.id, { onDelete: 'cascade' }),
     agentId: text('agent_id').references((): AnySQLiteColumn => agents.id, {
       onDelete: 'set null',
     }),
@@ -35,7 +35,7 @@ export const worktrees = sqliteTable(
     mergedAt: text('merged_at'),
     removedAt: text('removed_at'),
   },
-  (table) => [index('idx_worktrees_project_id').on(table.projectId)]
+  (table) => [index('idx_worktrees_codespace_id').on(table.codespaceId)]
 );
 
 export type Worktree = typeof worktrees.$inferSelect;

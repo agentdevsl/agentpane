@@ -5,7 +5,7 @@ import { EmptyState } from '@/app/components/features/empty-state';
 import { LayoutShell } from '@/app/components/features/layout-shell';
 import { Button } from '@/app/components/ui/button';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
-import { apiClient, type ProjectListItem } from '@/lib/api/client';
+import { apiClient, type CodespaceListItem } from '@/lib/api/client';
 
 // Agent type for client-side display
 type ClientAgent = {
@@ -18,19 +18,19 @@ type ClientAgent = {
 // Loader return type (Route.useLoaderData() returns void in this route tree)
 type AgentsLoaderData = {
   agents: ClientAgent[];
-  projects: ProjectListItem[];
+  codespaces: CodespaceListItem[];
 };
 
 export const Route = createFileRoute('/agents/')({
   loader: async () => {
-    // Prefetch agents and projects in parallel (FC-022)
-    const [agentsResult, projectsResult] = await Promise.all([
+    // Prefetch agents and codespaces in parallel (FC-022)
+    const [agentsResult, codespacesResult] = await Promise.all([
       apiClient.agents.list(),
-      apiClient.projects.list({ limit: 10 }),
+      apiClient.codespaces.list({ limit: 10 }),
     ]);
     return {
       agents: agentsResult.ok ? agentsResult.data.items : [],
-      projects: projectsResult.ok ? projectsResult.data.items : [],
+      codespaces: codespacesResult.ok ? codespacesResult.data.items : [],
     };
   },
   component: AgentsPage,
@@ -40,37 +40,37 @@ function AgentsPage(): React.JSX.Element {
   const navigate = useNavigate();
   const loaderData = Route.useLoaderData() as AgentsLoaderData;
   const loaderAgents = loaderData.agents as ClientAgent[];
-  const loaderProjects = loaderData.projects as ProjectListItem[];
+  const loaderCodespaces = loaderData.codespaces as CodespaceListItem[];
   const [agents, setAgents] = useState<ClientAgent[]>(loaderAgents);
-  const [projects, setProjects] = useState<ProjectListItem[]>(loaderProjects);
+  const [codespaces, setCodespaces] = useState<CodespaceListItem[]>(loaderCodespaces);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Fetch agents and projects from API on mount (fallback if loader data is empty)
+  // Fetch agents and codespaces from API on mount (fallback if loader data is empty)
   useWatchEffect(() => {
-    if (loaderAgents.length > 0 || loaderProjects.length > 0) return;
+    if (loaderAgents.length > 0 || loaderCodespaces.length > 0) return;
 
     const fetchData = async () => {
       setIsLoading(true);
-      const [agentsResult, projectsResult] = await Promise.all([
+      const [agentsResult, codespacesResult] = await Promise.all([
         apiClient.agents.list(),
-        apiClient.projects.list({ limit: 10 }),
+        apiClient.codespaces.list({ limit: 10 }),
       ]);
 
       if (agentsResult.ok) {
         setAgents(agentsResult.data.items as ClientAgent[]);
       }
-      if (projectsResult.ok) {
-        setProjects(projectsResult.data.items);
+      if (codespacesResult.ok) {
+        setCodespaces(codespacesResult.data.items);
       }
       setIsLoading(false);
     };
     fetchData();
-  }, [loaderAgents.length, loaderProjects.length]);
+  }, [loaderAgents.length, loaderCodespaces.length]);
 
   const handleNewAgent = () => {
-    const firstProject = projects[0];
-    if (firstProject) {
-      navigate({ to: '/projects/$projectId', params: { projectId: firstProject.id } });
+    const firstCodespace = codespaces[0];
+    if (firstCodespace) {
+      navigate({ to: '/codespaces/$codespaceId', params: { codespaceId: firstCodespace.id } });
     } else {
       navigate({ to: '/' });
     }

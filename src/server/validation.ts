@@ -35,7 +35,7 @@ export const taskPrioritySchema = z.enum(['high', 'medium', 'low']);
 // ─── Task Schemas ────────────────────────────────────
 
 export const createTaskSchema = z.object({
-  projectId: idSchema,
+  codespaceId: idSchema,
   title: z.string().min(1, 'Title is required').max(500),
   description: z.string().max(10000).optional(),
   labels: z.array(z.string().max(50)).max(20).optional(),
@@ -64,7 +64,7 @@ export const moveTaskSchema = z.object({
 export const agentTypeSchema = z.enum(['task', 'conversational', 'background']);
 
 export const createAgentSchema = z.object({
-  projectId: idSchema,
+  codespaceId: idSchema,
   name: z.string().min(1, 'Name is required').max(200),
   type: agentTypeSchema,
   config: z.record(z.string(), z.unknown()).optional(),
@@ -73,7 +73,7 @@ export const createAgentSchema = z.object({
 // ─── Session Schemas ─────────────────────────────────
 
 export const createSessionSchema = z.object({
-  projectId: idSchema,
+  codespaceId: idSchema,
   taskId: idSchema.optional(),
   agentId: idSchema.optional(),
   title: z.string().max(500).optional(),
@@ -86,7 +86,7 @@ export const exportSessionSchema = z.object({
 // ─── Worktree Schemas ────────────────────────────────
 
 export const createWorktreeSchema = z.object({
-  projectId: idSchema,
+  codespaceId: idSchema,
   agentId: idSchema,
   taskId: idSchema,
   taskTitle: z.string().min(1).max(500),

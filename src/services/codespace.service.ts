@@ -16,13 +16,13 @@ const pathUtils = {
 };
 
 import { and, desc, eq, inArray } from 'drizzle-orm';
-import type { Project, ProjectConfig } from '../db/schema';
-import { agents, githubInstallations, projects, tasks } from '../db/schema';
-import { projectConfigSchema } from '../lib/config/schemas.js';
-import { DEFAULT_PROJECT_CONFIG } from '../lib/config/types.js';
+import type { Codespace, CodespaceConfig } from '../db/schema';
+import { agents, codespaces, githubInstallations, tasks } from '../db/schema';
+import { codespaceConfigSchema } from '../lib/config/schemas.js';
+import { DEFAULT_CODESPACE_CONFIG } from '../lib/config/types.js';
 import { containsSecrets } from '../lib/config/validate-secrets.js';
-import type { ProjectError } from '../lib/errors/project-errors.js';
-import { ProjectErrors } from '../lib/errors/project-errors.js';
+import type { CodespaceError } from '../lib/errors/codespace-errors.js';
+import { CodespaceErrors } from '../lib/errors/codespace-errors.js';
 import { getInstallationOctokit } from '../lib/github/client.js';
 import { syncConfigFromGitHub } from '../lib/github/config-sync.js';
 import { deepMerge } from '../lib/utils/deep-merge.js';
@@ -31,16 +31,17 @@ import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
 import type { Database } from '../types/database.js';
 
-export type CreateProjectInput = {
+export type CreateCodespaceInput = {
+  projectFolderId: string;
   path: string;
   name?: string;
   description?: string;
-  config?: Partial<ProjectConfig>;
+  config?: Partial<CodespaceConfig>;
   maxConcurrentAgents?: number;
   sandboxConfigId?: string;
 };
 
-export type UpdateProjectInput = {
+export type UpdateCodespaceInput = {
   name?: string;
   description?: string;
   maxConcurrentAgents?: number;
@@ -50,11 +51,12 @@ export type UpdateProjectInput = {
   config?: Record<string, unknown>;
 };
 
-export type ListProjectsOptions = {
+export type ListCodespacesOptions = {
   limit?: number;
   offset?: number;
   orderBy?: 'name' | 'createdAt' | 'updatedAt';
   orderDirection?: 'asc' | 'desc';
+  projectFolderId?: string;
 };
 
 export type PathValidation = {
@@ -66,8 +68,8 @@ export type PathValidation = {
   remoteUrl?: string;
 };
 
-export type ProjectSummary = {
-  project: Project;
+export type CodespaceSummary = {
+  codespace: Codespace;
   taskCounts: {
     backlog: number;
     inProgress: number;
@@ -89,16 +91,16 @@ export type CommandRunner = {
   exec: (command: string, cwd: string) => Promise<{ stdout: string; stderr: string }>;
 };
 
-export class ProjectService {
+export class CodespaceService {
   constructor(
     private db: Database,
     private worktreeService: {
       prune: (
-        projectId: string
+        codespaceId: string
       ) => Promise<
         Result<
           { pruned: number; failed: Array<{ worktreeId: string; branch: string; error: string }> },
-          ProjectError
+          CodespaceError
         >
       >;
     },
@@ -109,30 +111,31 @@ export class ProjectService {
     return new Date().toISOString();
   }
 
-  async create(input: CreateProjectInput): Promise<Result<Project, ProjectError>> {
+  async create(input: CreateCodespaceInput): Promise<Result<Codespace, CodespaceError>> {
     const resolved = pathUtils.resolve(input.path);
     const validation = await this.validatePath(resolved);
     if (!validation.ok) {
       return validation;
     }
 
-    const existing = await this.db.query.projects.findFirst({
-      where: eq(projects.path, resolved),
+    const existing = await this.db.query.codespaces.findFirst({
+      where: eq(codespaces.path, resolved),
     });
     if (existing) {
-      return err(ProjectErrors.PATH_EXISTS);
+      return err(CodespaceErrors.PATH_EXISTS);
     }
 
     const name = validation.value.name;
-    const merged = deepMerge(DEFAULT_PROJECT_CONFIG, input.config ?? {});
+    const merged = deepMerge(DEFAULT_CODESPACE_CONFIG, input.config ?? {});
     const validated = this.validateConfig(merged);
     if (!validated.ok) {
       return validated;
     }
 
-    const [project] = await this.db
-      .insert(projects)
+    const [codespace] = await this.db
+      .insert(codespaces)
       .values({
+        projectFolderId: input.projectFolderId,
         name,
         path: resolved,
         config: validated.value,
@@ -143,26 +146,26 @@ export class ProjectService {
       })
       .returning();
 
-    if (!project) {
-      return err(ProjectErrors.NOT_FOUND);
+    if (!codespace) {
+      return err(CodespaceErrors.NOT_FOUND);
     }
 
-    return ok(project);
+    return ok(codespace);
   }
 
-  async getById(id: string): Promise<Result<Project, ProjectError>> {
-    const project = await this.db.query.projects.findFirst({
-      where: eq(projects.id, id),
+  async getById(id: string): Promise<Result<Codespace, CodespaceError>> {
+    const codespace = await this.db.query.codespaces.findFirst({
+      where: eq(codespaces.id, id),
     });
 
-    if (!project) {
-      return err(ProjectErrors.NOT_FOUND);
+    if (!codespace) {
+      return err(CodespaceErrors.NOT_FOUND);
     }
 
-    return ok(project);
+    return ok(codespace);
   }
 
-  async list(options?: ListProjectsOptions): Promise<Result<Project[], ProjectError>> {
+  async list(options?: ListCodespacesOptions): Promise<Result<Codespace[], CodespaceError>> {
     const limit = options?.limit ?? 50;
     const offset = options?.offset ?? 0;
     const orderBy = options?.orderBy ?? 'updatedAt';
@@ -170,12 +173,17 @@ export class ProjectService {
 
     const orderColumn =
       orderBy === 'name'
-        ? projects.name
+        ? codespaces.name
         : orderBy === 'createdAt'
-          ? projects.createdAt
-          : projects.updatedAt;
+          ? codespaces.createdAt
+          : codespaces.updatedAt;
 
-    const items = await this.db.query.projects.findMany({
+    const whereClause = options?.projectFolderId
+      ? eq(codespaces.projectFolderId, options.projectFolderId)
+      : undefined;
+
+    const items = await this.db.query.codespaces.findMany({
+      where: whereClause,
       orderBy: (direction === 'asc' ? [orderColumn] : [desc(orderColumn)]) as never,
       limit,
       offset,
@@ -185,34 +193,34 @@ export class ProjectService {
   }
 
   async listWithSummaries(
-    options?: ListProjectsOptions
-  ): Promise<Result<ProjectSummary[], ProjectError>> {
-    const projectsResult = await this.list(options);
-    if (!projectsResult.ok) {
-      return projectsResult;
+    options?: ListCodespacesOptions
+  ): Promise<Result<CodespaceSummary[], CodespaceError>> {
+    const codespaceResult = await this.list(options);
+    if (!codespaceResult.ok) {
+      return codespaceResult;
     }
 
-    const projectList = projectsResult.value;
-    const projectIds = projectList.map((p) => p.id);
+    const codespaceList = codespaceResult.value;
+    const codespaceIds = codespaceList.map((c) => c.id);
 
-    // Short-circuit: no projects means no summaries
-    if (projectIds.length === 0) {
+    // Short-circuit: no codespaces means no summaries
+    if (codespaceIds.length === 0) {
       return ok([]);
     }
 
-    // Query 2: Get ALL tasks for ALL projects in one batch query (fixes N+1)
+    // Query 2: Get ALL tasks for ALL codespaces in one batch query (fixes N+1)
     const allTasks = await this.db.query.tasks.findMany({
-      where: inArray(tasks.projectId, projectIds),
+      where: inArray(tasks.codespaceId, codespaceIds),
     });
 
-    // Group tasks by projectId
-    const tasksByProject = new Map<string, typeof allTasks>();
+    // Group tasks by codespaceId
+    const tasksByCodespace = new Map<string, typeof allTasks>();
     for (const task of allTasks) {
-      const existing = tasksByProject.get(task.projectId);
+      const existing = tasksByCodespace.get(task.codespaceId);
       if (existing) {
         existing.push(task);
       } else {
-        tasksByProject.set(task.projectId, [task]);
+        tasksByCodespace.set(task.codespaceId, [task]);
       }
     }
 
@@ -222,28 +230,28 @@ export class ProjectService {
       taskTitleMap.set(task.id, task.title);
     }
 
-    // Query 3: Get ALL active agents for ALL projects in one batch query (fixes N+1)
+    // Query 3: Get ALL active agents for ALL codespaces in one batch query (fixes N+1)
     const activeStatuses = ['starting', 'planning', 'running'] as const;
     const allActiveAgents = await this.db.query.agents.findMany({
       where: and(
-        inArray(agents.projectId, projectIds),
+        inArray(agents.codespaceId, codespaceIds),
         inArray(agents.status, [...activeStatuses])
       ),
     });
 
-    // Group agents by projectId
-    const agentsByProject = new Map<string, typeof allActiveAgents>();
+    // Group agents by codespaceId
+    const agentsByCodespace = new Map<string, typeof allActiveAgents>();
     for (const agent of allActiveAgents) {
-      const existing = agentsByProject.get(agent.projectId);
+      const existing = agentsByCodespace.get(agent.codespaceId);
       if (existing) {
         existing.push(agent);
       } else {
-        agentsByProject.set(agent.projectId, [agent]);
+        agentsByCodespace.set(agent.codespaceId, [agent]);
       }
     }
 
-    const summaries: ProjectSummary[] = projectList.map((project) => {
-      const projectTasks = tasksByProject.get(project.id) ?? [];
+    const summaries: CodespaceSummary[] = codespaceList.map((codespace) => {
+      const csTasks = tasksByCodespace.get(codespace.id) ?? [];
 
       // SL-010: Single-loop counting instead of 4x .filter().length
       const taskCounts = {
@@ -251,9 +259,9 @@ export class ProjectService {
         inProgress: 0,
         waitingApproval: 0,
         verified: 0,
-        total: projectTasks.length,
+        total: csTasks.length,
       };
-      for (const t of projectTasks) {
+      for (const t of csTasks) {
         switch (t.column) {
           case 'backlog':
             taskCounts.backlog++;
@@ -270,7 +278,7 @@ export class ProjectService {
         }
       }
 
-      const runningAgentsList = agentsByProject.get(project.id) ?? [];
+      const runningAgentsList = agentsByCodespace.get(codespace.id) ?? [];
 
       // Resolve task titles from the in-memory lookup map (no extra queries)
       const runningAgents = runningAgentsList.map((agent) => ({
@@ -280,8 +288,8 @@ export class ProjectService {
         currentTaskTitle: agent.currentTaskId ? taskTitleMap.get(agent.currentTaskId) : undefined,
       }));
 
-      // Determine project status
-      let status: ProjectSummary['status'] = 'idle';
+      // Determine codespace status
+      let status: CodespaceSummary['status'] = 'idle';
       if (runningAgents.length > 0) {
         status = 'running';
       } else if (taskCounts.waitingApproval > 0) {
@@ -289,14 +297,14 @@ export class ProjectService {
       }
 
       // Get last activity date (updatedAt is an ISO string from SQLite)
-      const lastTask = projectTasks.sort((a, b) => {
+      const lastTask = csTasks.sort((a, b) => {
         const aTime = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
         const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
         return bTime - aTime;
       })[0];
 
       return {
-        project,
+        codespace,
         taskCounts,
         runningAgents,
         status,
@@ -307,20 +315,23 @@ export class ProjectService {
     return ok(summaries);
   }
 
-  async update(id: string, input: UpdateProjectInput): Promise<Result<Project, ProjectError>> {
-    // For config merges, we need the existing project
+  async update(
+    id: string,
+    input: UpdateCodespaceInput
+  ): Promise<Result<Codespace, CodespaceError>> {
+    // For config merges, we need the existing codespace
     let existingConfig: Record<string, unknown> | null = null;
     if (input.config !== undefined) {
-      const existing = await this.db.query.projects.findFirst({
-        where: eq(projects.id, id),
+      const existing = await this.db.query.codespaces.findFirst({
+        where: eq(codespaces.id, id),
       });
       if (!existing) {
-        return err(ProjectErrors.NOT_FOUND);
+        return err(CodespaceErrors.NOT_FOUND);
       }
       existingConfig = (existing.config as Record<string, unknown>) ?? {};
     }
 
-    const updates: Partial<Project> = {};
+    const updates: Partial<Codespace> = {};
     if (input.name !== undefined) {
       updates.name = input.name;
     }
@@ -340,93 +351,93 @@ export class ProjectService {
       updates.githubRepo = input.githubRepo;
     }
     if (input.config !== undefined && existingConfig !== null) {
-      updates.config = { ...existingConfig, ...input.config } as Project['config'];
+      updates.config = { ...existingConfig, ...input.config } as Codespace['config'];
     }
 
     const [updated] = await this.db
-      .update(projects)
+      .update(codespaces)
       .set({ ...updates, updatedAt: this.updateTimestamp() })
-      .where(eq(projects.id, id))
+      .where(eq(codespaces.id, id))
       .returning();
 
     if (!updated) {
-      return err(ProjectErrors.NOT_FOUND);
+      return err(CodespaceErrors.NOT_FOUND);
     }
 
     return ok(updated);
   }
 
-  async delete(id: string): Promise<Result<void, ProjectError>> {
-    const project = await this.db.query.projects.findFirst({
-      where: eq(projects.id, id),
+  async delete(id: string): Promise<Result<void, CodespaceError>> {
+    const codespace = await this.db.query.codespaces.findFirst({
+      where: eq(codespaces.id, id),
     });
 
-    if (!project) {
-      return err(ProjectErrors.NOT_FOUND);
+    if (!codespace) {
+      return err(CodespaceErrors.NOT_FOUND);
     }
 
     const running = await this.db.query.agents.findMany({
-      where: and(eq(agents.projectId, id), eq(agents.status, 'running')),
+      where: and(eq(agents.codespaceId, id), eq(agents.status, 'running')),
     });
     const runningAgents = running;
 
     if (runningAgents.length > 0) {
-      return err(ProjectErrors.HAS_RUNNING_AGENTS(runningAgents.length));
+      return err(CodespaceErrors.HAS_RUNNING_AGENTS(runningAgents.length));
     }
 
     await this.worktreeService.prune(id);
-    await this.db.delete(projects).where(eq(projects.id, id));
+    await this.db.delete(codespaces).where(eq(codespaces.id, id));
 
     return ok(undefined);
   }
 
   async updateConfig(
     id: string,
-    config: Partial<ProjectConfig>
-  ): Promise<Result<Project, ProjectError>> {
+    config: Partial<CodespaceConfig>
+  ): Promise<Result<Codespace, CodespaceError>> {
     const validation = this.validateConfig(config);
     if (!validation.ok) {
       return validation;
     }
 
     const [updated] = await this.db
-      .update(projects)
+      .update(codespaces)
       .set({ config: validation.value, updatedAt: this.updateTimestamp() })
-      .where(eq(projects.id, id))
+      .where(eq(codespaces.id, id))
       .returning();
 
     if (!updated) {
-      return err(ProjectErrors.NOT_FOUND);
+      return err(CodespaceErrors.NOT_FOUND);
     }
 
     return ok(updated);
   }
 
-  async syncFromGitHub(id: string): Promise<Result<Project, ProjectError>> {
-    const project = await this.db.query.projects.findFirst({
-      where: eq(projects.id, id),
+  async syncFromGitHub(id: string): Promise<Result<Codespace, CodespaceError>> {
+    const codespace = await this.db.query.codespaces.findFirst({
+      where: eq(codespaces.id, id),
     });
 
-    if (!project) {
-      return err(ProjectErrors.NOT_FOUND);
+    if (!codespace) {
+      return err(CodespaceErrors.NOT_FOUND);
     }
 
-    if (!project.githubOwner || !project.githubRepo) {
-      return err(ProjectErrors.CONFIG_INVALID(['Missing GitHub repository metadata']));
+    if (!codespace.githubOwner || !codespace.githubRepo) {
+      return err(CodespaceErrors.CONFIG_INVALID(['Missing GitHub repository metadata']));
     }
 
-    if (!project.githubInstallationId) {
-      return err(ProjectErrors.CONFIG_INVALID(['Missing GitHub App installation ID']));
+    if (!codespace.githubInstallationId) {
+      return err(CodespaceErrors.CONFIG_INVALID(['Missing GitHub App installation ID']));
     }
 
     try {
       // Get installation-scoped Octokit client
       const installation = await this.db.query.githubInstallations.findFirst({
-        where: eq(githubInstallations.id, project.githubInstallationId),
+        where: eq(githubInstallations.id, codespace.githubInstallationId),
       });
 
       if (!installation) {
-        return err(ProjectErrors.CONFIG_INVALID(['GitHub App installation not found']));
+        return err(CodespaceErrors.CONFIG_INVALID(['GitHub App installation not found']));
       }
 
       const octokit = await getInstallationOctokit(Number(installation.installationId));
@@ -434,13 +445,13 @@ export class ProjectService {
       // Fetch config from GitHub
       const configResult = await syncConfigFromGitHub({
         octokit,
-        owner: project.githubOwner,
-        repo: project.githubRepo,
-        configPath: project.configPath ?? '.claude',
+        owner: codespace.githubOwner,
+        repo: codespace.githubRepo,
+        configPath: codespace.configPath ?? '.claude',
       });
 
       if (!configResult.ok) {
-        return err(ProjectErrors.CONFIG_INVALID([configResult.error.message]));
+        return err(CodespaceErrors.CONFIG_INVALID([configResult.error.message]));
       }
 
       // Validate the synced config
@@ -450,27 +461,22 @@ export class ProjectService {
       }
 
       // Merge synced config with existing config
-      const mergedConfig = deepMerge(project.config ?? {}, validation.value) as ProjectConfig;
+      const mergedConfig = deepMerge(codespace.config ?? {}, validation.value) as CodespaceConfig;
 
-      // Update project with synced config
+      // Update codespace with synced config
       const [updated] = await this.db
-        .update(projects)
+        .update(codespaces)
         .set({ config: mergedConfig, updatedAt: this.updateTimestamp() })
-        .where(eq(projects.id, id))
+        .where(eq(codespaces.id, id))
         .returning();
 
       if (!updated) {
-        return err(ProjectErrors.NOT_FOUND);
+        return err(CodespaceErrors.NOT_FOUND);
       }
-
-      console.log(
-        `[ProjectService] Synced config from GitHub for project ${id}: ${configResult.value.path} (sha: ${configResult.value.sha})`
-      );
 
       return ok(updated);
     } catch (error) {
-      console.error(`[ProjectService] GitHub sync failed for project ${id}:`, error);
-      return err(ProjectErrors.CONFIG_INVALID([`GitHub sync failed: ${errorMessage(error)}`]));
+      return err(CodespaceErrors.CONFIG_INVALID([`GitHub sync failed: ${errorMessage(error)}`]));
     }
   }
 
@@ -481,7 +487,7 @@ export class ProjectService {
   async cloneRepository(
     url: string,
     destinationDir: string
-  ): Promise<Result<{ path: string; name: string }, ProjectError>> {
+  ): Promise<Result<{ path: string; name: string }, CodespaceError>> {
     // Extract repo name from URL
     const repoName = url.split('/').pop()?.replace('.git', '') ?? 'repo';
 
@@ -507,7 +513,7 @@ export class ProjectService {
       // Check if target path already exists
       try {
         await this.runner.exec(`test -d "${targetPath}"`, '/tmp');
-        return err(ProjectErrors.PATH_EXISTS);
+        return err(CodespaceErrors.PATH_EXISTS);
       } catch {
         // Directory doesn't exist, which is good
       }
@@ -521,27 +527,26 @@ export class ProjectService {
       });
     } catch (error) {
       return err(
-        ProjectErrors.CONFIG_INVALID([`Failed to clone repository: ${errorMessage(error)}`])
+        CodespaceErrors.CONFIG_INVALID([`Failed to clone repository: ${errorMessage(error)}`])
       );
     }
   }
 
-  async validatePath(projectPath: string): Promise<Result<PathValidation, ProjectError>> {
-    const normalized = pathUtils.resolve(projectPath);
+  async validatePath(codspacePath: string): Promise<Result<PathValidation, CodespaceError>> {
+    const normalized = pathUtils.resolve(codspacePath);
     const name = pathUtils.basename(normalized);
 
     try {
       await this.runner.exec('git rev-parse --git-dir', normalized);
     } catch {
-      return err(ProjectErrors.NOT_A_GIT_REPO(normalized));
+      return err(CodespaceErrors.NOT_A_GIT_REPO(normalized));
     }
 
     let remoteUrl: string | undefined;
     try {
       const remote = await this.runner.exec('git remote get-url origin', normalized);
       remoteUrl = remote.stdout.trim() || undefined;
-    } catch (error) {
-      console.warn(`[ProjectService] Could not detect remote URL for ${normalized}:`, error);
+    } catch (_error) {
       remoteUrl = undefined;
     }
 
@@ -549,8 +554,7 @@ export class ProjectService {
     try {
       const branch = await this.runner.exec('git symbolic-ref --short HEAD', normalized);
       defaultBranch = branch.stdout.trim() || 'main';
-    } catch (error) {
-      console.warn(`[ProjectService] Could not detect default branch for ${normalized}:`, error);
+    } catch (_error) {
       defaultBranch = 'main';
     }
 
@@ -561,10 +565,6 @@ export class ProjectService {
         error: undefined as string | undefined,
       }))
       .catch((error) => {
-        console.warn(
-          `[ProjectService] Could not detect .claude directory for ${normalized}:`,
-          error
-        );
         return { detected: false, error: String(error) };
       });
 
@@ -578,16 +578,16 @@ export class ProjectService {
     });
   }
 
-  validateConfig(config: Partial<ProjectConfig>): Result<ProjectConfig, ProjectError> {
+  validateConfig(config: Partial<CodespaceConfig>): Result<CodespaceConfig, CodespaceError> {
     try {
-      const validated = projectConfigSchema.parse(config);
+      const validated = codespaceConfigSchema.parse(config);
       const secrets = containsSecrets(config as Record<string, unknown>);
       if (secrets.length > 0) {
-        return err(ProjectErrors.CONFIG_INVALID([`Secrets detected: ${secrets.join(', ')}`]));
+        return err(CodespaceErrors.CONFIG_INVALID([`Secrets detected: ${secrets.join(', ')}`]));
       }
       return ok(validated);
     } catch (error) {
-      return err(ProjectErrors.CONFIG_INVALID([String(error)]));
+      return err(CodespaceErrors.CONFIG_INVALID([String(error)]));
     }
   }
 }

@@ -22,13 +22,14 @@ import type { EventEmittingSandboxProvider } from '../lib/sandbox/index.js';
 import type { AgentService } from '../services/agent.service.js';
 import type { ApiKeyService } from '../services/api-key.service.js';
 import type { CliMonitorService } from '../services/cli-monitor/index.js';
+import type { CodespaceService } from '../services/codespace.service.js';
 import type { EventProcessingService } from '../services/event-processing.service.js';
 import type { EventSourceService } from '../services/event-source.service.js';
 import type { EventSubscriptionService } from '../services/event-subscription.service.js';
 import type { GitService } from '../services/git.service.js';
 import type { GitHubTokenService } from '../services/github-token.service.js';
 import type { MarketplaceService } from '../services/marketplace.service.js';
-import type { ProjectService } from '../services/project.service.js';
+import type { ProjectFolderService } from '../services/project-folder.service.js';
 import { RbacService } from '../services/rbac.service.js';
 import type { SandboxConfigService } from '../services/sandbox-config.service.js';
 import type { SchedulerService } from '../services/scheduler.service.js';
@@ -46,6 +47,7 @@ import { createAgentsRoutes } from './routes/agents.js';
 import { createApiKeysRoutes } from './routes/api-keys.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createCliMonitorRoutes } from './routes/cli-monitor.js';
+import { createCodespacesRoutes } from './routes/codespaces.js';
 import { createEventsRoutes } from './routes/events.js';
 import { createFilesystemRoutes } from './routes/filesystem.js';
 import { createGitRoutes } from './routes/git.js';
@@ -54,8 +56,8 @@ import { createHealthRoutes } from './routes/health.js';
 import { createInvitationAcceptRoutes } from './routes/invitation-accept.js';
 import { createMarketplacesRoutes } from './routes/marketplaces.js';
 import { createMeRoutes } from './routes/me.js';
+import { createProjectFoldersRoutes } from './routes/project-folders.js';
 import { createProjectMembersRoutes } from './routes/project-members.js';
-import { createProjectsRoutes } from './routes/projects.js';
 import { createRbacTokensRoutes } from './routes/rbac-tokens.js';
 import { createSandboxConfigRoutes } from './routes/sandbox-configs.js';
 import { createK8sRoutes } from './routes/sandbox-k8s.js';
@@ -69,7 +71,7 @@ import { createTasksRoutes } from './routes/tasks.js';
 import { createTeamGitHubTokenRoutes } from './routes/team-github-token.js';
 import { createTeamInvitationsRoutes } from './routes/team-invitations.js';
 import { createTeamMembersRoutes } from './routes/team-members.js';
-import { createTeamProjectsRoutes } from './routes/team-projects.js';
+import { createTeamProjectFoldersRoutes } from './routes/team-project-folders.js';
 import { createTeamsRoutes } from './routes/teams.js';
 import { createTemplatesRoutes } from './routes/templates.js';
 import { createTerraformRoutes } from './routes/terraform.js';
@@ -179,7 +181,8 @@ export interface RouterDependencies {
   commandRunner: CommandRunner;
   workflowService: WorkflowService;
   gitService: GitService;
-  projectService: ProjectService;
+  codespaceService: CodespaceService;
+  projectFolderService: ProjectFolderService;
   getSandboxProvider?: () => EventEmittingSandboxProvider | null;
   getK8sProvider?: () => SandboxProviderHealth | null;
   getNomadProvider?: () => SandboxProviderHealth | null;
@@ -304,7 +307,9 @@ export function createRouter(deps: RouterDependencies) {
   // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
   useRoleGuard(app, '/api/keys', 'admin', rbacService);
   // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
-  useRoleGuard(app, '/api/projects', 'viewer', rbacService);
+  useRoleGuard(app, '/api/codespaces', 'viewer', rbacService);
+  // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
+  useRoleGuard(app, '/api/project-folders', 'viewer', rbacService);
   // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
   useRoleGuard(app, '/api/tasks', 'viewer', rbacService);
   // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
@@ -380,7 +385,7 @@ export function createRouter(deps: RouterDependencies) {
   app.get('/api/healthz', (c) => c.json({ ok: true, status: 'alive' }));
   app.get('/api/readyz', async (c) => {
     try {
-      await deps.db.query.projects.findFirst();
+      await deps.db.query.codespaces.findFirst();
       return c.json({ ok: true, status: 'ready' });
     } catch {
       return c.json({ ok: false, status: 'not_ready' }, 503);
@@ -392,8 +397,12 @@ export function createRouter(deps: RouterDependencies) {
 
   app.route('/api/settings', createSettingsRoutes({ settingsService: deps.settingsService }));
   app.route(
-    '/api/projects',
-    createProjectsRoutes({ projectService: deps.projectService, db: deps.db })
+    '/api/codespaces',
+    createCodespacesRoutes({ codespaceService: deps.codespaceService, db: deps.db })
+  );
+  app.route(
+    '/api/project-folders',
+    createProjectFoldersRoutes({ projectFolderService: deps.projectFolderService })
   );
   app.route('/api/agents', createAgentsRoutes({ agentService: deps.agentService }));
   app.route(
@@ -479,7 +488,10 @@ export function createRouter(deps: RouterDependencies) {
   // the handler. Each team handler calls requireTeamRole() at the top of its body.
   app.route('/api/teams', createTeamsRoutes({ db: deps.db, rbacService }));
   app.route('/api/teams/:id/members', createTeamMembersRoutes({ db: deps.db, rbacService }));
-  app.route('/api/teams/:id/projects', createTeamProjectsRoutes({ db: deps.db, rbacService }));
+  app.route(
+    '/api/teams/:id/project-folders',
+    createTeamProjectFoldersRoutes({ db: deps.db, rbacService })
+  );
   app.route(
     '/api/teams/:id/invitations',
     createTeamInvitationsRoutes({ db: deps.db, rbacService })
@@ -494,10 +506,13 @@ export function createRouter(deps: RouterDependencies) {
   // - /api/me: Returns the authenticated user's own profile. Any authenticated user should
   //   be able to view and update their own profile regardless of team membership.
   app.route('/api/invitations', createInvitationAcceptRoutes({ db: deps.db }));
-  app.route('/api/projects/:id/members', createProjectMembersRoutes({ db: deps.db, rbacService }));
+  app.route(
+    '/api/codespaces/:id/members',
+    createProjectMembersRoutes({ db: deps.db, rbacService })
+  );
   app.route('/api/tokens', createRbacTokensRoutes({ db: deps.db, rbacService }));
   app.route('/api/tags', createTagsRoutes({ db: deps.db, rbacService }));
-  app.route('/api/projects/:id/tags', createProjectTagRoutes({ db: deps.db, rbacService }));
+  app.route('/api/codespaces/:id/tags', createProjectTagRoutes({ db: deps.db, rbacService }));
   app.route('/api/tasks/:id/tags', createTaskTagRoutes({ db: deps.db, rbacService }));
   app.route('/api/me', createMeRoutes({ db: deps.db }));
 
