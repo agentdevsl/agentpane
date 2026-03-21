@@ -4,6 +4,7 @@ import React, { Suspense, useCallback, useMemo, useRef, useState } from 'react';
 import { EmptyState } from '@/app/components/features/empty-state';
 import { LayoutShell } from '@/app/components/features/layout-shell';
 import { useMountEffect } from '@/app/hooks/use-mount-effect';
+import { useSelectedFolder } from '@/app/providers/folder-context';
 
 // Lazy-load heavy dialog component (FC-012)
 const NewProjectDialog = React.lazy(() =>
@@ -41,6 +42,7 @@ type SortOption = 'recent' | 'name' | 'created';
 function CodespacesPage(): React.JSX.Element {
   const loaderData = Route.useLoaderData() as { codespaces: ProjectSummaryItem[] } | undefined;
   const loaderCodespaces = (loaderData?.codespaces ?? []) as ClientCodespaceSummary[];
+  const { selectedFolderId, selectedFolder } = useSelectedFolder();
   const [codespaceSummaries, setCodespaceSummaries] =
     useState<ClientCodespaceSummary[]>(loaderCodespaces);
   const [isLoading, setIsLoading] = useState(loaderCodespaces.length === 0);
@@ -56,6 +58,11 @@ function CodespacesPage(): React.JSX.Element {
   // Filter and sort codespaces
   const filteredCodespaces = useMemo(() => {
     let result = [...codespaceSummaries];
+
+    // Filter by selected folder
+    if (selectedFolderId) {
+      result = result.filter((s) => s.codespace.projectFolderId === selectedFolderId);
+    }
 
     // Filter by search query
     if (searchQuery.trim()) {
@@ -87,7 +94,7 @@ function CodespacesPage(): React.JSX.Element {
     });
 
     return result;
-  }, [codespaceSummaries, searchQuery, sortBy]);
+  }, [codespaceSummaries, selectedFolderId, searchQuery, sortBy]);
 
   // Check if global settings are configured (API key is required, GitHub PAT is optional)
   // Batch all mount API calls with Promise.all to avoid 4 separate re-renders
@@ -197,6 +204,7 @@ function CodespacesPage(): React.JSX.Element {
       path: string;
       description?: string;
       sandboxType?: SandboxType;
+      projectFolderId?: string;
     }): Promise<Result<void, { code: string; message: string }>> => {
       // Find or create sandbox config for the selected type
       const selectedType = data.sandboxType ?? defaultSandboxType;
@@ -225,6 +233,7 @@ function CodespacesPage(): React.JSX.Element {
         path: data.path,
         description: data.description,
         sandboxConfigId,
+        projectFolderId: data.projectFolderId,
       });
 
       if (!result.ok) {
@@ -422,14 +431,22 @@ function CodespacesPage(): React.JSX.Element {
         ) : filteredCodespaces.length === 0 ? (
           <div className="flex flex-col items-center justify-center min-h-[40vh] text-center">
             <MagnifyingGlass className="h-12 w-12 text-fg-subtle mb-4" />
-            <p className="text-fg-muted">No codespaces match "{searchQuery}"</p>
-            <button
-              type="button"
-              onClick={() => setSearchQuery('')}
-              className="mt-2 text-sm text-accent hover:text-accent/80"
-            >
-              Clear search
-            </button>
+            <p className="text-fg-muted">
+              {searchQuery.trim()
+                ? `No codespaces match "${searchQuery}"`
+                : selectedFolder
+                  ? `No codespaces in folder "${selectedFolder.name}"`
+                  : 'No codespaces found'}
+            </p>
+            {searchQuery.trim() && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="mt-2 text-sm text-accent hover:text-accent/80"
+              >
+                Clear search
+              </button>
+            )}
           </div>
         ) : (
           <div

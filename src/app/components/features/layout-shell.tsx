@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react';
 import { type BreadcrumbItem, Breadcrumbs } from '@/app/components/features/breadcrumbs';
+import { FolderPanel } from '@/app/components/features/folder-panel';
 import { FolderRail } from '@/app/components/features/folder-rail';
-import { Sidebar } from '@/app/components/features/sidebar';
+import { NavPanel } from '@/app/components/features/nav-panel';
+import { ViewTabBar } from '@/app/components/features/view-tab-bar';
 
 interface LayoutShellProps {
   breadcrumbs?: BreadcrumbItem[];
@@ -20,40 +22,38 @@ interface LayoutShellProps {
   centerAction?: ReactNode;
   /** Custom header element -- when provided, replaces the default breadcrumbs-based header */
   header?: ReactNode;
+  /** Show the view tab bar (Codespaces, Kanban Board, Sessions, Settings) */
+  showViewTabs?: boolean;
   children: ReactNode;
 }
 
 export function LayoutShell({
   breadcrumbs,
-  codespaceId,
-  codespaceName,
-  codespacePath,
-  projectId,
-  projectName,
-  projectPath,
+  codespaceId: _codespaceId,
+  codespaceName: _codespaceName,
+  codespacePath: _codespacePath,
+  projectId: _projectId,
+  projectName: _projectName,
+  projectPath: _projectPath,
   actions,
   centerAction,
   header,
+  showViewTabs,
   children,
 }: LayoutShellProps): React.JSX.Element {
-  // Support both old and new prop names during migration
-  const resolvedCodespaceId = codespaceId ?? projectId;
-  const resolvedCodespaceName = codespaceName ?? projectName;
-  const resolvedCodespacePath = codespacePath ?? projectPath;
-
   return (
     <div className="flex h-screen bg-canvas text-fg" data-testid="layout-shell">
       {/* Folder rail - always visible on md+ screens */}
-      <div className="hidden h-full md:flex">
+      <div className="hidden h-full shrink-0 md:flex">
         <FolderRail />
       </div>
-      {/* Collapsible sidebar */}
-      <div className="hidden h-full md:flex">
-        <Sidebar
-          codespaceId={resolvedCodespaceId}
-          codespaceName={resolvedCodespaceName}
-          codespacePath={resolvedCodespacePath}
-        />
+      {/* Folder panel (Tier 2) - toggleable from org avatar */}
+      <div className="hidden h-full shrink-0 md:flex">
+        <FolderPanel />
+      </div>
+      {/* Nav panel (Tier 3) - codespace list + contextual nav */}
+      <div className="hidden h-full shrink-0 md:flex">
+        <NavPanel />
       </div>
       <div className="flex flex-1 flex-col min-h-0 min-w-0">
         {header && header}
@@ -91,6 +91,7 @@ export function LayoutShell({
             )}
           </header>
         )}
+        {showViewTabs && <ViewTabBar />}
         <main className="flex flex-1 flex-col min-h-0 overflow-hidden" data-testid="layout-main">
           {children}
         </main>

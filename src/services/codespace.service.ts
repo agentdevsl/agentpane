@@ -49,6 +49,7 @@ export type UpdateCodespaceInput = {
   githubOwner?: string;
   githubRepo?: string;
   config?: Record<string, unknown>;
+  projectFolderId?: string;
 };
 
 export type ListCodespacesOptions = {
@@ -353,10 +354,15 @@ export class CodespaceService {
     if (input.config !== undefined && existingConfig !== null) {
       updates.config = { ...existingConfig, ...input.config } as Codespace['config'];
     }
+    if (input.projectFolderId !== undefined) {
+      updates.projectFolderId = input.projectFolderId;
+    }
+
+    const setPayload = { ...updates, updatedAt: this.updateTimestamp() };
 
     const [updated] = await this.db
       .update(codespaces)
-      .set({ ...updates, updatedAt: this.updateTimestamp() })
+      .set(setPayload)
       .where(eq(codespaces.id, id))
       .returning();
 

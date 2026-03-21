@@ -348,6 +348,7 @@ export const apiClient = {
       path: string;
       description?: string;
       sandboxConfigId?: string;
+      projectFolderId?: string;
     }) => apiServerFetch<CodespaceListItem>('/api/codespaces', { method: 'POST', body: data }),
 
     update: (
@@ -357,6 +358,7 @@ export const apiClient = {
         description?: string;
         maxConcurrentAgents?: number;
         config?: Record<string, unknown>;
+        projectFolderId?: string;
       }
     ) =>
       apiServerFetch<CodespaceListItem>(`/api/codespaces/${encodeURIComponent(id)}`, {

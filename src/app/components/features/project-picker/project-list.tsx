@@ -17,7 +17,7 @@ interface ProjectListProps {
 }
 
 /**
- * Scrollable list of projects with "Recent" and "All Projects" sections
+ * Scrollable list of projects with "Recent" and "All Codespaces" sections
  */
 export function ProjectList({
   recentProjects,
@@ -56,7 +56,7 @@ export function ProjectList({
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
-        <div className="text-danger text-sm font-medium mb-1">Failed to load projects</div>
+        <div className="text-danger text-sm font-medium mb-1">Failed to load codespaces</div>
         <div className="text-fg-muted text-xs">{error.message}</div>
       </div>
     );
@@ -70,13 +70,13 @@ export function ProjectList({
         <FolderOpen className="w-12 h-12 text-fg-muted mb-3" weight="thin" />
         {searchQuery ? (
           <>
-            <div className="text-fg-muted text-sm font-medium mb-1">No projects found</div>
-            <div className="text-fg-subtle text-xs">No projects match "{searchQuery}"</div>
+            <div className="text-fg-muted text-sm font-medium mb-1">No codespaces found</div>
+            <div className="text-fg-subtle text-xs">No codespaces match "{searchQuery}"</div>
           </>
         ) : (
           <>
-            <div className="text-fg-muted text-sm font-medium mb-1">No projects yet</div>
-            <div className="text-fg-subtle text-xs">Create your first project to get started</div>
+            <div className="text-fg-muted text-sm font-medium mb-1">No codespaces yet</div>
+            <div className="text-fg-subtle text-xs">Create your first codespace to get started</div>
           </>
         )}
       </div>
@@ -93,11 +93,11 @@ export function ProjectList({
       aria-label="Projects"
       data-testid="project-dropdown"
     >
-      {/* Recent Projects Section */}
+      {/* Recent Codespaces Section */}
       {recentProjects.length > 0 && (
         <div>
           <div className="px-5 py-2 text-xs font-medium text-fg-muted uppercase tracking-wide">
-            Recent Projects
+            Recent Codespaces
           </div>
           {recentProjects.map((project) => {
             const index = currentIndex++;
@@ -120,7 +120,7 @@ export function ProjectList({
         </div>
       )}
 
-      {/* All Projects Section */}
+      {/* All Codespaces Section */}
       {allProjects.length > 0 && (
         <div>
           <div
@@ -129,7 +129,7 @@ export function ProjectList({
               recentProjects.length > 0 && 'border-t border-border-subtle mt-2 pt-4'
             )}
           >
-            All Projects
+            All Codespaces
           </div>
           {allProjects.map((project) => {
             const index = currentIndex++;

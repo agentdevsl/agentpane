@@ -36,7 +36,7 @@ export const Route = createFileRoute('/sessions/')({
           ? sessionsResult.data
           : []
         : [],
-      projects: codespacesResult.ok
+      codespaces: codespacesResult.ok
         ? Array.isArray(codespacesResult.data)
           ? codespacesResult.data
           : ((codespacesResult.data as { items?: Codespace[] }).items ?? [])
@@ -48,14 +48,20 @@ export const Route = createFileRoute('/sessions/')({
 
 function SessionsPage(): React.JSX.Element {
   const navigate = useNavigate();
+  const filterCodespaceId =
+    typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('codespaceId')
+      : null;
   const loaderData = Route.useLoaderData() as
-    | { sessions: ApiSession[]; projects: Codespace[] }
+    | { sessions: ApiSession[]; codespaces: Codespace[] }
     | undefined;
   const [sessions, setSessions] = useState<ApiSession[]>(
     () => (loaderData?.sessions as ApiSession[]) ?? []
   );
-  const [projects, setProjects] = useState<Codespace[]>(() => loaderData?.projects ?? []);
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [codespaces, setCodespaces] = useState<Codespace[]>(() => loaderData?.codespaces ?? []);
+  const [selectedCodespaceId, setSelectedCodespaceId] = useState<string | null>(
+    filterCodespaceId ?? null
+  );
   const [isLoading, setIsLoading] = useState(!loaderData?.sessions);
 
   // Fetch sessions and codespaces from API on mount
@@ -77,7 +83,7 @@ function SessionsPage(): React.JSX.Element {
           const codespacesData = Array.isArray(codespacesResult.data)
             ? codespacesResult.data
             : ((codespacesResult.data as { items?: Codespace[] }).items ?? []);
-          setProjects(codespacesData as Codespace[]);
+          setCodespaces(codespacesData as Codespace[]);
         }
       } catch {
         // API may not be ready yet
@@ -89,9 +95,9 @@ function SessionsPage(): React.JSX.Element {
 
   // Filter sessions by selected codespace
   const filteredSessions = useMemo(() => {
-    if (!selectedProjectId) return sessions;
-    return sessions.filter((s) => s.codespaceId === selectedProjectId);
-  }, [sessions, selectedProjectId]);
+    if (!selectedCodespaceId) return sessions;
+    return sessions.filter((s) => s.codespaceId === selectedCodespaceId);
+  }, [sessions, selectedCodespaceId]);
 
   if (isLoading) {
     return (
@@ -108,9 +114,9 @@ function SessionsPage(): React.JSX.Element {
       <div className="flex h-full w-full flex-col">
         <SessionHistory
           sessions={filteredSessions}
-          projects={projects}
-          selectedProjectId={selectedProjectId}
-          onProjectChange={setSelectedProjectId}
+          projects={codespaces}
+          selectedProjectId={selectedCodespaceId}
+          onProjectChange={setSelectedCodespaceId}
           isLoading={isLoading}
           onOpen={(sessionId) => navigate({ to: '/sessions/$sessionId', params: { sessionId } })}
           onViewTask={(taskId, codespaceId) =>

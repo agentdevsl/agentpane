@@ -12,6 +12,7 @@ const ProjectSettings = React.lazy(() =>
   }))
 );
 
+import { useCodespaceData } from '@/app/providers/codespace-context';
 import type { Codespace, CodespaceConfig } from '@/db/schema';
 import { apiClient } from '@/lib/api/client';
 
@@ -27,6 +28,7 @@ function CodespaceSettingsPage(): React.JSX.Element {
   const { codespaceId } = Route.useParams();
   const navigate = useNavigate();
   const router = useRouter();
+  const { refreshCodespaces } = useCodespaceData();
   const loaderData = Route.useLoaderData() as { codespace: Codespace | null } | undefined;
   const [codespace, setCodespace] = useState<Codespace | null>(
     () => (loaderData?.codespace as unknown as Codespace) ?? null
@@ -64,6 +66,7 @@ function CodespaceSettingsPage(): React.JSX.Element {
     description?: string;
     maxConcurrentAgents?: number;
     config?: Partial<CodespaceConfig>;
+    projectFolderId?: string;
   }): Promise<void> => {
     setSaveStatus('saving');
     try {
@@ -72,11 +75,14 @@ function CodespaceSettingsPage(): React.JSX.Element {
         description: input.description,
         maxConcurrentAgents: input.maxConcurrentAgents,
         config: input.config as Record<string, unknown>,
+        projectFolderId: input.projectFolderId || undefined,
       });
 
       if (result.ok) {
         setCodespace(result.data as unknown as Codespace);
         setSaveStatus('saved');
+        // Refresh the codespace list so sidebar/folder counts update immediately
+        void refreshCodespaces();
       } else {
         setSaveStatus('error');
         console.error('Failed to save codespace settings:', result.error);

@@ -45,7 +45,7 @@ export function DeleteProjectDialog({
       await onConfirm({ deleteFiles });
       onOpenChange(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete project');
+      setError(err instanceof Error ? err.message : 'Failed to delete codespace');
     } finally {
       setIsDeleting(false);
     }
@@ -69,7 +69,7 @@ export function DeleteProjectDialog({
               <Warning className="h-5 w-5 text-danger" weight="fill" />
             </div>
             <div>
-              <DialogTitle>Delete project</DialogTitle>
+              <DialogTitle>Delete codespace</DialogTitle>
               <DialogDescription>This action cannot be undone.</DialogDescription>
             </div>
           </div>
@@ -77,7 +77,7 @@ export function DeleteProjectDialog({
 
         <div className="mt-4 space-y-4">
           <p className="text-sm text-fg-muted">
-            This will permanently delete the project{' '}
+            This will permanently delete the codespace{' '}
             <span className="font-semibold text-fg">{projectName}</span> and all associated data
             including tasks, agents, and sessions.
           </p>
@@ -96,7 +96,7 @@ export function DeleteProjectDialog({
                     className={cn('h-5 w-5', deleteFiles ? 'text-danger' : 'text-fg-muted')}
                     weight={deleteFiles ? 'fill' : 'regular'}
                   />
-                  <span className="font-medium text-fg">Also delete project files</span>
+                  <span className="font-medium text-fg">Also delete codespace files</span>
                 </div>
                 <p className="mt-1 text-sm text-fg-muted">
                   Permanently delete all files at:{' '}
@@ -130,7 +130,7 @@ export function DeleteProjectDialog({
               className="text-xs font-medium uppercase tracking-wide text-fg-muted"
               htmlFor="confirm-delete"
             >
-              Project name
+              Codespace name
             </label>
             <TextInput
               id="confirm-delete"
@@ -159,7 +159,7 @@ export function DeleteProjectDialog({
             disabled={!isConfirmValid || isDeleting}
             data-testid="confirm-delete-button"
           >
-            {isDeleting ? 'Deleting...' : 'Delete project'}
+            {isDeleting ? 'Deleting...' : 'Delete codespace'}
           </Button>
         </DialogFooter>
       </DialogContent>

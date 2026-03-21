@@ -150,7 +150,7 @@ export function Sidebar({ codespaceId: _codespaceId }: SidebarProps): React.JSX.
   return (
     <aside
       className={cn(
-        'flex h-full flex-col border-r border-border bg-surface transition-all duration-200 overflow-hidden',
+        'flex h-full shrink-0 flex-col border-r border-border bg-surface transition-all duration-200 overflow-hidden',
         collapsed ? 'w-0 border-r-0' : 'w-60'
       )}
       data-testid="sidebar"

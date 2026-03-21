@@ -29,6 +29,7 @@ const updateCodespaceSchema = z.object({
   description: z.string().optional(),
   maxConcurrentAgents: z.number().int().positive().optional(),
   config: z.record(z.string(), z.unknown()).optional(),
+  projectFolderId: z.string().min(1).optional(),
 });
 
 interface CodespacesDeps {
@@ -190,6 +191,7 @@ export function createCodespacesRoutes({ codespaceService, db }: CodespacesDeps)
               name: s.codespace.name,
               path: s.codespace.path,
               description: s.codespace.description,
+              projectFolderId: s.codespace.projectFolderId,
               createdAt: s.codespace.createdAt,
               updatedAt: s.codespace.updatedAt,
             },
@@ -302,6 +304,7 @@ export function createCodespacesRoutes({ codespaceService, db }: CodespacesDeps)
         description: parsed.data.description,
         maxConcurrentAgents: parsed.data.maxConcurrentAgents,
         config: parsed.data.config,
+        projectFolderId: parsed.data.projectFolderId,
       });
 
       if (!result.ok) {

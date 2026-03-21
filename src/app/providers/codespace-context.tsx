@@ -12,6 +12,7 @@ import {
   type ProjectPickerItem,
   useRecentProjects,
 } from '@/app/components/features/project-picker';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { apiClient, type CodespaceListItem, type ProjectSummaryItem } from '@/lib/api/client';
 import { useSelectedFolder } from './folder-context';
@@ -28,8 +29,12 @@ interface CodespaceDataContextValue {
   currentCodespace: ProjectSummaryItem | null;
   /** Currently selected codespace ID from URL */
   currentCodespaceId: string | undefined;
-  /** All codespaces for the picker */
+  /** Codespaces filtered by selected folder (for NavPanel list) */
   allCodespaces: ProjectPickerItem[];
+  /** All codespaces unfiltered (for picker dialog) */
+  allCodespacesUnfiltered: ProjectPickerItem[];
+  /** Unfiltered codespace list (raw API data for folder counts) */
+  rawCodespaceList: CodespaceListItem[];
   /** Recent codespaces for the picker */
   recentCodespaces: ProjectPickerItem[];
   /** Whether codespaces are loading */
@@ -86,7 +91,17 @@ export function CodespaceContextProvider({
 }: CodespaceContextProviderProps): React.JSX.Element {
   const navigate = useNavigate();
   const params = useParams({ strict: false });
-  const codespaceId = (params as { codespaceId?: string }).codespaceId;
+  const urlCodespaceId = (params as { codespaceId?: string }).codespaceId;
+
+  // Remember the last selected codespace ID so the sidebar stays visible
+  // even when navigating to non-codespace routes (e.g., /templates/project)
+  const [rememberedCodespaceId, setRememberedCodespaceId] = useState<string | undefined>(
+    urlCodespaceId
+  );
+  if (urlCodespaceId && urlCodespaceId !== rememberedCodespaceId) {
+    setRememberedCodespaceId(urlCodespaceId);
+  }
+  const codespaceId = urlCodespaceId ?? rememberedCodespaceId;
 
   // Get selected folder for filtering
   const { selectedFolderId } = useSelectedFolder();
@@ -129,12 +144,10 @@ export function CodespaceContextProvider({
     }
   }, []);
 
-  // Deferred fetch -- only runs when codespaceId is present or picker opens
-  useWatchEffect(() => {
-    if (!hasFetched.current && codespaceId) {
-      void fetchCodespaces();
-    }
-  }, [codespaceId, fetchCodespaces]);
+  // Eager fetch -- always fetch on mount so FolderPanel can compute per-folder counts
+  useMountEffect(() => {
+    void fetchCodespaces();
+  });
 
   // Fetch summary data only for the current codespace when codespaceId changes
   useWatchEffect(() => {
@@ -161,19 +174,12 @@ export function CodespaceContextProvider({
     return currentCodespaceSummary ?? null;
   }, [currentCodespaceSummary]);
 
-  // Convert lightweight codespace list to picker items, filtered by selected folder
-  const allCodespaces = useMemo<ProjectPickerItem[]>(() => {
-    const colors = ['blue', 'green', 'purple', 'orange', 'red'] as const;
-
-    // Filter by selected folder if one is active
-    const filtered = selectedFolderId
-      ? codespaceList.filter((cs) => cs.projectFolderId === selectedFolderId)
-      : codespaceList;
-
-    return filtered.map((codespace) => {
+  // Convert codespace list item to picker item
+  const toPickerItem = useCallback(
+    (codespace: CodespaceListItem): ProjectPickerItem => {
+      const colors = ['blue', 'green', 'purple', 'orange', 'red'] as const;
       const hash = codespace.name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
       const color = colors[hash % colors.length] ?? 'blue';
-
       return {
         id: codespace.id,
         name: codespace.name,
@@ -184,23 +190,32 @@ export function CodespaceContextProvider({
           color,
         },
         isActive: codespace.id === codespaceId,
-        stats: {
-          activeAgents: 0,
-          totalTasks: 0,
-          backlogTasks: 0,
-          inProgressTasks: 0,
-        },
+        stats: { activeAgents: 0, totalTasks: 0, backlogTasks: 0, inProgressTasks: 0 },
         lastAccessedAt: codespace.updatedAt ?? new Date(),
       };
-    });
-  }, [codespaceList, codespaceId, selectedFolderId]);
+    },
+    [codespaceId]
+  );
 
-  // Recent codespaces filtered from all
+  // Codespaces filtered by selected folder (for NavPanel list)
+  const allCodespaces = useMemo<ProjectPickerItem[]>(() => {
+    const filtered = selectedFolderId
+      ? codespaceList.filter((cs) => cs.projectFolderId === selectedFolderId)
+      : codespaceList;
+    return filtered.map(toPickerItem);
+  }, [codespaceList, selectedFolderId, toPickerItem]);
+
+  // All codespaces unfiltered (for picker dialog)
+  const allCodespacesUnfiltered = useMemo<ProjectPickerItem[]>(() => {
+    return codespaceList.map(toPickerItem);
+  }, [codespaceList, toPickerItem]);
+
+  // Recent codespaces (from unfiltered list so they show across all folders)
   const recentCodespaces = useMemo<ProjectPickerItem[]>(() => {
     return recentCodespaceIds
-      .map((id) => allCodespaces.find((p) => p.id === id))
+      .map((id) => allCodespacesUnfiltered.find((p) => p.id === id))
       .filter((p): p is ProjectPickerItem => p !== undefined);
-  }, [recentCodespaceIds, allCodespaces]);
+  }, [recentCodespaceIds, allCodespacesUnfiltered]);
 
   // Modal controls
   const openPicker = useCallback(() => {
@@ -216,14 +231,34 @@ export function CodespaceContextProvider({
   }, []);
   const closeNewCodespaceDialog = useCallback(() => setIsNewCodespaceDialogOpen(false), []);
 
-  // Select codespace - navigate and track recent
+  // Select codespace - navigate, track recent, and reassign to current folder if needed
   const selectCodespace = useCallback(
     (codespace: ProjectPickerItem) => {
       addRecentCodespace(codespace.id);
+
+      // If a folder is selected, reassign the codespace to that folder
+      if (selectedFolderId) {
+        const existing = codespaceList.find((cs) => cs.id === codespace.id);
+        if (existing && existing.projectFolderId !== selectedFolderId) {
+          apiClient.codespaces
+            .update(codespace.id, { projectFolderId: selectedFolderId })
+            .then((result) => {
+              if (result.ok) {
+                // Update local list so the NavPanel and folder counts reflect the change
+                setCodespaceList((prev) =>
+                  prev.map((cs) =>
+                    cs.id === codespace.id ? { ...cs, projectFolderId: selectedFolderId } : cs
+                  )
+                );
+              }
+            });
+        }
+      }
+
       navigate({ to: '/codespaces/$codespaceId', params: { codespaceId: codespace.id } });
       setIsPickerOpen(false);
     },
-    [addRecentCodespace, navigate]
+    [addRecentCodespace, navigate, selectedFolderId, codespaceList]
   );
 
   // Build separate context values
@@ -232,6 +267,8 @@ export function CodespaceContextProvider({
       currentCodespace,
       currentCodespaceId: codespaceId,
       allCodespaces,
+      allCodespacesUnfiltered,
+      rawCodespaceList: codespaceList,
       recentCodespaces,
       isLoading,
       error,
@@ -242,6 +279,8 @@ export function CodespaceContextProvider({
       currentCodespace,
       codespaceId,
       allCodespaces,
+      allCodespacesUnfiltered,
+      codespaceList,
       recentCodespaces,
       isLoading,
       error,

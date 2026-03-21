@@ -1,6 +1,6 @@
 import { GearSix } from '@phosphor-icons/react';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import React, { Suspense, useCallback, useState } from 'react';
+import React, { Suspense, useCallback, useRef, useState } from 'react';
 import { ApprovalDialog } from '@/app/components/features/approval-dialog';
 import { KanbanBoard } from '@/app/components/features/kanban-board';
 import { LayoutShell } from '@/app/components/features/layout-shell';
@@ -136,11 +136,20 @@ function CodespaceKanban(): React.JSX.Element {
     }
   }, [codespaceId]);
 
-  // Fetch on mount and when codespaceId changes (skip if loader already provided data)
+  // Re-fetch when codespaceId changes. On initial mount, use loader data if available.
+  // On subsequent codespaceId changes (navigating between codespaces), always re-fetch
+  // since useState keeps stale data from the previous codespace.
+  const prevCodespaceIdRef = useRef(codespaceId);
   useWatchEffect(() => {
-    if (loaderData?.codespace) return;
+    const isInitialMount = prevCodespaceIdRef.current === codespaceId;
+    if (isInitialMount && loaderData?.codespace) {
+      // Loader already provided data for this codespace
+      prevCodespaceIdRef.current = codespaceId;
+      return;
+    }
+    prevCodespaceIdRef.current = codespaceId;
     fetchData();
-  }, [fetchData, loaderData]);
+  }, [codespaceId, fetchData, loaderData]);
 
   const handleTaskMove = async (taskId: string, column: ClientTask['column'], position: number) => {
     // Optimistic update

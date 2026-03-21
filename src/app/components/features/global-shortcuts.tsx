@@ -272,7 +272,7 @@ export function GlobalShortcutsWithPicker(): React.JSX.Element {
     openNewCodespaceDialog,
     closeNewCodespaceDialog,
     selectCodespace,
-    allCodespaces,
+    allCodespacesUnfiltered,
     recentCodespaces,
     currentCodespaceId,
     isLoading,
@@ -405,7 +405,7 @@ export function GlobalShortcutsWithPicker(): React.JSX.Element {
         onProjectSelect={selectCodespace}
         onNewProjectClick={openNewCodespaceDialog}
         recentProjects={recentCodespaces}
-        allProjects={allCodespaces}
+        allProjects={allCodespacesUnfiltered}
         isLoading={isLoading}
         error={error}
       />
