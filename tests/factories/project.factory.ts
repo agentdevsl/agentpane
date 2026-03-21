@@ -1,7 +1,7 @@
 import { createId } from '@paralleldrive/cuid2';
 import type { Codespace, CodespaceConfig, NewCodespace } from '../../src/db/schema';
 import { codespaces, projectFolders } from '../../src/db/schema';
-import { getTestDb } from '../helpers/database';
+import { execRawSql, getTestDb } from '../helpers/database';
 
 /** Ensure the default project folder exists (idempotent) */
 async function ensureDefaultFolder(db: ReturnType<typeof getTestDb>) {
@@ -55,6 +55,16 @@ export async function createTestProject(options: ProjectFactoryOptions = {}): Pr
   const data = buildProject(options);
 
   const [project] = await db.insert(codespaces).values(data).returning();
+
+  // Also insert into legacy projects table so old FK constraints on
+  // project_id columns (agents, tasks, sessions, etc.) are satisfied
+  try {
+    execRawSql(
+      `INSERT OR IGNORE INTO projects (id, name, path, created_at, updated_at) VALUES ('${data.id}', '${(data.name ?? '').replace(/'/g, "''")}', '${(data.path ?? '').replace(/'/g, "''")}', datetime('now'), datetime('now'))`
+    );
+  } catch {
+    // safe to ignore if table doesn't exist or already has the row
+  }
 
   if (!project) {
     throw new Error('Failed to create test project');
