@@ -17,7 +17,8 @@ import {
   TreeStructure,
 } from '@phosphor-icons/react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
 import { useProjectContext } from '@/app/providers/project-context';
 import { apiClient } from '@/lib/api/client';
 
@@ -99,17 +100,17 @@ export function Sidebar({ projectId: _projectId }: SidebarProps): React.JSX.Elem
   }, [currentProject, navigate]);
 
   // Cleanup timeout on unmount
-  useEffect(() => {
+  useMountEffect(() => {
     return () => {
       if (clickTimeoutRef.current) {
         clearTimeout(clickTimeoutRef.current);
       }
     };
-  }, []);
+  });
 
   // FC-011: Check system health periodically -- compare values before setState
   // to avoid unnecessary re-renders every 30 seconds.
-  useEffect(() => {
+  useMountEffect(() => {
     const checkHealth = async () => {
       const result = await apiClient.system.health();
       const nextHealthy = result.ok && result.data.status === 'healthy';
@@ -122,7 +123,7 @@ export function Sidebar({ projectId: _projectId }: SidebarProps): React.JSX.Elem
     checkHealth();
     const interval = setInterval(checkHealth, 30000); // Check every 30 seconds
     return () => clearInterval(interval);
-  }, []);
+  });
 
   // Admin nav items
   const adminNavItems: NavItem[] = [

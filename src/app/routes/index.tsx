@@ -1,8 +1,9 @@
 import { MagnifyingGlass, Plus } from '@phosphor-icons/react';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, useCallback, useMemo, useRef, useState } from 'react';
 import { EmptyState } from '@/app/components/features/empty-state';
 import { LayoutShell } from '@/app/components/features/layout-shell';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
 
 // Lazy-load heavy dialog component (FC-012)
 const NewProjectDialog = React.lazy(() =>
@@ -85,7 +86,7 @@ function Dashboard(): React.JSX.Element {
 
   // Check if global settings are configured (API key is required, GitHub PAT is optional)
   // Batch all mount API calls with Promise.all to avoid 4 separate re-renders
-  useEffect(() => {
+  useMountEffect(() => {
     const loadInitialData = async () => {
       const [keyResult, githubResult, reposResult, configsResult] = await Promise.all([
         apiClient.apiKeys.get('anthropic').catch((error) => {
@@ -126,7 +127,7 @@ function Dashboard(): React.JSX.Element {
       }
     };
     loadInitialData();
-  }, []);
+  });
 
   // Polling interval ref for project updates
   const pollingIntervalRef = useRef<number | null>(null);
@@ -135,8 +136,7 @@ function Dashboard(): React.JSX.Element {
 
   // FC-021: Polling (5s active, 30s idle) chosen over SSE because dashboard has no single session to subscribe to
   // Skip initial fetch if loader already provided data
-  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only effect — loaderProjects is stable from the route loader
-  useEffect(() => {
+  useMountEffect(() => {
     const fetchProjects = async () => {
       if (isFetchingRef.current) {
         console.debug('[Home] fetchProjects skipped — already in-flight');
@@ -206,7 +206,7 @@ function Dashboard(): React.JSX.Element {
         currentIntervalMsRef.current = null;
       }
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  });
 
   const handleCreateProject = useCallback(
     async (data: {

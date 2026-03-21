@@ -9,9 +9,10 @@ import {
   Trash,
   Warning,
 } from '@phosphor-icons/react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Button } from '@/app/components/ui/button';
 import { TextInput } from '@/app/components/ui/text-input';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { useServices } from '@/app/services/service-context';
 import type { TokenInfo } from '@/services/github-token.service';
 
@@ -30,7 +31,7 @@ export function GitHubAppSetup({ onTokenSaved }: GitHubAppSetupProps): React.JSX
   const [isSaving, setIsSaving] = useState(false);
 
   // Load existing token info on mount
-  useEffect(() => {
+  useWatchEffect(() => {
     const loadToken = async () => {
       setIsLoading(true);
       try {
@@ -46,7 +47,7 @@ export function GitHubAppSetup({ onTokenSaved }: GitHubAppSetupProps): React.JSX
       setIsLoading(false);
     };
     void loadToken();
-  }, [services]);
+  }, [services?.githubTokenService]);
 
   const handleSaveToken = async () => {
     if (!token.trim()) {

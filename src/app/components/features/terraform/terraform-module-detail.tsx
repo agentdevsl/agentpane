@@ -9,8 +9,9 @@ import {
 } from '@phosphor-icons/react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import type React from 'react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import type { TerraformOutput, TerraformVariable } from '@/db/schema';
 import { apiClient } from '@/lib/api/client';
 import { PROVIDER_COLORS, type TerraformModuleView } from '@/lib/terraform/types';
@@ -368,7 +369,7 @@ export function TerraformModuleDetail({ moduleId }: { moduleId: string }): React
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<DetailTab>('overview');
 
-  useEffect(() => {
+  useWatchEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);

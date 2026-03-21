@@ -1,8 +1,9 @@
 import type { Icon } from '@phosphor-icons/react';
 import { Check, Desktop, Moon, Palette, Sun, Swatches } from '@phosphor-icons/react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ConfigSection } from '@/app/components/ui/config-section';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { cn } from '@/lib/utils/cn';
 
 type Theme = 'light' | 'dark' | 'system';
@@ -102,14 +103,14 @@ function AppearanceSettingsPage(): React.JSX.Element {
     return (stored as Theme) || 'system';
   });
 
-  useEffect(() => {
+  useWatchEffect(() => {
     applyTheme(theme);
   }, [theme]);
 
   const handleThemeChange = (newTheme: Theme) => {
     setTheme(newTheme);
     localStorage.setItem('theme', newTheme);
-    // applyTheme is handled by the useEffect on theme change
+    // applyTheme is handled by the useWatchEffect on theme change
   };
 
   const themeLabel = theme === 'light' ? 'Light' : theme === 'dark' ? 'Dark' : 'System';

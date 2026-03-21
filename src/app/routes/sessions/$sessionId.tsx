@@ -1,9 +1,11 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { AgentSessionView } from '@/app/components/features/agent-session-view';
 import { ContainerAgentPanel } from '@/app/components/features/container-agent-panel';
 import { EmptyState } from '@/app/components/features/empty-state';
 import { LayoutShell } from '@/app/components/features/layout-shell';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { apiClient } from '@/lib/api/client';
 
 // Session type for client-side display
@@ -86,13 +88,13 @@ function SessionPage(): React.JSX.Element {
   const userId = 'current-user';
 
   // Cleanup timeout on unmount
-  useEffect(() => {
+  useMountEffect(() => {
     return () => {
       if (errorTimeoutRef.current) {
         clearTimeout(errorTimeoutRef.current);
       }
     };
-  }, []);
+  });
 
   const showTemporaryError = useCallback((message: string) => {
     // Clear any existing timeout to avoid stale clears
@@ -145,7 +147,7 @@ function SessionPage(): React.JSX.Element {
   }, [session?.taskId, navigate, showTemporaryError]);
 
   // Fetch session from API on mount if not already loaded by route loader
-  useEffect(() => {
+  useWatchEffect(() => {
     // Skip if loader already provided data
     if (initialSession || loaderData.sessionError) return;
 

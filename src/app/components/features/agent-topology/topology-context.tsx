@@ -1,13 +1,6 @@
-import {
-  createContext,
-  type ReactNode,
-  useContext,
-  useEffect,
-  useMemo,
-  useReducer,
-  useRef,
-} from 'react';
+import { createContext, type ReactNode, useContext, useMemo, useReducer, useRef } from 'react';
 import { useTopologyStream } from '@/app/hooks/use-topology-stream';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import type { TopologyDecision, TopologyGraph, TopologyNode } from '@/lib/topology/types';
 
 interface TopologyMetrics {
@@ -206,7 +199,7 @@ export function TopologyProvider({ children, sessionId, initialData }: TopologyP
 
   // Sync initialData prop changes into reducer (skip first render — already in initial state)
   const prevInitialDataRef = useRef(initialData);
-  useEffect(() => {
+  useWatchEffect(() => {
     if (initialData && initialData !== prevInitialDataRef.current) {
       prevInitialDataRef.current = initialData;
       dispatch({ type: 'REPLACE_GRAPH', graph: initialData });

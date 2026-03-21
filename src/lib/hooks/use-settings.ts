@@ -3,7 +3,8 @@
  * Provides caching and easy access to common settings like task creation model and tools.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
 import { apiClient } from '@/lib/api/client';
 import { DEFAULT_TASK_CREATION_MODEL, getFullModelId } from '@/lib/constants/models';
 import { DEFAULT_TASK_CREATION_TOOLS } from '@/lib/constants/tools';
@@ -210,7 +211,7 @@ export function useSettings(): UseSettingsReturn {
   const [settings, setSettings] = useState<Record<string, unknown>>({});
 
   // Load settings on mount
-  useEffect(() => {
+  useMountEffect(() => {
     const loadSettings = async () => {
       setIsLoading(true);
       setError(null);
@@ -223,8 +224,8 @@ export function useSettings(): UseSettingsReturn {
         setIsLoading(false);
       }
     };
-    loadSettings();
-  }, []);
+    void loadSettings();
+  });
 
   // Derived values
   const taskCreationModel =

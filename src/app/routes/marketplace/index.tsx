@@ -1,11 +1,12 @@
 import { ArrowsClockwise, Plus, PuzzlePiece, Spinner } from '@phosphor-icons/react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { AddMarketplaceDialog } from '@/app/components/features/add-marketplace-dialog';
 import { EmptyState } from '@/app/components/features/empty-state';
 import { LayoutShell } from '@/app/components/features/layout-shell';
 import { type CachedPlugin, MarketplaceCard } from '@/app/components/features/marketplace-card';
 import { Button } from '@/app/components/ui/button';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { apiClient } from '@/lib/api/client';
 
 // Marketplace syncs with: https://github.com/anthropics/claude-plugins-official
@@ -13,6 +14,17 @@ import { apiClient } from '@/lib/api/client';
 //   - /external_plugins (third-party community plugins)
 
 export const Route = createFileRoute('/marketplace/')({
+  loader: async () => {
+    await apiClient.marketplaces.seed();
+    const [marketplacesRes, pluginsRes] = await Promise.all([
+      apiClient.marketplaces.list(),
+      apiClient.marketplaces.listPlugins({}),
+    ]);
+    return {
+      marketplaces: marketplacesRes.ok ? marketplacesRes.data.items : [],
+      plugins: pluginsRes.ok ? pluginsRes.data.items : [],
+    };
+  },
   component: MarketplacePage,
 });
 
@@ -46,9 +58,16 @@ type PluginItem = {
 };
 
 function MarketplacePage(): React.JSX.Element {
-  const [marketplaces, setMarketplaces] = useState<MarketplaceItem[]>([]);
-  const [plugins, setPlugins] = useState<PluginItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const loaderData = Route.useLoaderData() as
+    | { marketplaces: MarketplaceItem[]; plugins: PluginItem[] }
+    | undefined;
+  const [marketplaces, setMarketplaces] = useState<MarketplaceItem[]>(
+    () => (loaderData?.marketplaces as MarketplaceItem[]) ?? []
+  );
+  const [plugins, setPlugins] = useState<PluginItem[]>(
+    () => (loaderData?.plugins as PluginItem[]) ?? []
+  );
+  const [isLoading, setIsLoading] = useState(!loaderData?.marketplaces);
   const [error, setError] = useState<string | null>(null);
 
   // UI state
@@ -140,7 +159,7 @@ function MarketplacePage(): React.JSX.Element {
     }
   }, []);
 
-  useEffect(() => {
+  useWatchEffect(() => {
     fetchData();
   }, [fetchData]);
 

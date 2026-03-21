@@ -2,7 +2,7 @@
  * FC-005: Refactored from useState to useReducer with discriminated union actions.
  * FC-006: Uses useSessionSubscription for shared SSE connection.
  */
-import { useCallback, useEffect, useReducer, useRef } from 'react';
+import { useCallback, useEffectEvent, useReducer, useRef } from 'react';
 import type {
   ConnectionState,
   ContainerAgentComplete,
@@ -18,7 +18,9 @@ import type {
   ContainerAgentWorktree,
   SessionCallbacks,
 } from '@/lib/streams/client';
+import { useMountEffect } from './use-mount-effect';
 import { useSessionSubscription } from './use-session-subscription';
+import { useWatchEffect } from './use-watch-effect';
 
 /**
  * Container agent startup stage
@@ -383,13 +385,15 @@ export function useContainerAgent(sessionId: string | null): {
     };
   }, []);
 
-  // Keep callbacks ref in sync
-  useEffect(() => {
-    callbacks.current = buildCallbacks();
-  }, [buildCallbacks]);
+  // Keep callbacks ref in sync — useEffectEvent always sees the latest buildCallbacks
+  const stableBuild = useEffectEvent(() => buildCallbacks());
+
+  useMountEffect(() => {
+    callbacks.current = stableBuild();
+  });
 
   // Reset state when sessionId changes to null
-  useEffect(() => {
+  useWatchEffect(() => {
     if (!sessionId) {
       dispatch({ type: 'RESET' });
     }

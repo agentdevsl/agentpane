@@ -1,9 +1,10 @@
 import { Funnel, Play, Robot } from '@phosphor-icons/react';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { EmptyState } from '@/app/components/features/empty-state';
 import { LayoutShell } from '@/app/components/features/layout-shell';
 import { Button } from '@/app/components/ui/button';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { apiClient, type ProjectListItem } from '@/lib/api/client';
 
 // Agent type for client-side display
@@ -45,7 +46,7 @@ function AgentsPage(): React.JSX.Element {
   const [isLoading, setIsLoading] = useState(false);
 
   // Fetch agents and projects from API on mount (fallback if loader data is empty)
-  useEffect(() => {
+  useWatchEffect(() => {
     if (loaderAgents.length > 0 || loaderProjects.length > 0) return;
 
     const fetchData = async () => {

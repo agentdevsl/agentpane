@@ -1,5 +1,6 @@
 import { eq } from '@tanstack/db';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { apiClient } from '@/lib/api/client';
 import { getTaskCreationToolsAsync } from '@/lib/constants/tools';
 import { useCollectionQuery } from '@/lib/db/use-collection-query';
@@ -147,7 +148,7 @@ export function useTaskCreation(projectId: string): UseTaskCreationReturn {
 
   // Clear isAnswering when questions change or streaming starts
   // This handles the gap between API response and SSE stream starting
-  useEffect(() => {
+  useWatchEffect(() => {
     if (!submittedQuestionsIdRef.current) return;
 
     // Clear loading state when:
@@ -164,7 +165,7 @@ export function useTaskCreation(projectId: string): UseTaskCreationReturn {
   }, [pendingQuestions?.id, isStreaming]);
 
   // Cleanup on unmount
-  useEffect(() => {
+  useWatchEffect(() => {
     return () => {
       if (sessionId) {
         stopTaskCreationSync(sessionId);

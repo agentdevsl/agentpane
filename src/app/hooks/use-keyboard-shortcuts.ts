@@ -1,4 +1,6 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback } from 'react';
+import { useEventListener } from './use-event-listener';
+import { useWatchEffect } from './use-watch-effect';
 
 // =============================================================================
 // Types
@@ -209,7 +211,7 @@ function matchesShortcut(event: KeyboardEvent, shortcut: Shortcut): boolean {
 export function useKeyboardShortcuts(shortcuts: Shortcut[], context: ShortcutsContextValue): void {
   const { registerShortcut, isEnabled } = context;
 
-  useEffect(() => {
+  useWatchEffect(() => {
     if (!isEnabled) return;
 
     // Register all shortcuts and collect unregister functions
@@ -261,8 +263,5 @@ export function useGlobalKeyboardHandler(getShortcuts: () => Shortcut[], isEnabl
     [getShortcuts, isEnabled]
   );
 
-  useEffect(() => {
-    window.addEventListener('keydown', handleKeyDown, true);
-    return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [handleKeyDown]);
+  useEventListener(typeof window !== 'undefined' ? window : null, 'keydown', handleKeyDown, true);
 }

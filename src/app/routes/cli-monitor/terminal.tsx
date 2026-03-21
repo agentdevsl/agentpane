@@ -1,9 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useCliMonitor } from '@/app/components/features/cli-monitor/cli-monitor-context';
 import { SessionPicker } from '@/app/components/features/cli-monitor/session-picker';
 import { TerminalGrid } from '@/app/components/features/cli-monitor/terminal-grid';
 import { TerminalStatusBar } from '@/app/components/features/cli-monitor/terminal-status-bar';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 
 export const Route = createFileRoute('/cli-monitor/terminal')({
   component: TerminalView,
@@ -29,7 +30,7 @@ function TerminalView(): React.JSX.Element {
   );
 
   // Auto-assign first 4 sessions on mount or when session IDs actually change
-  useEffect(() => {
+  useWatchEffect(() => {
     if (activeIdsKey === prevActiveIdsRef.current) return;
     prevActiveIdsRef.current = activeIdsKey;
 

@@ -8,8 +8,9 @@ import {
   WifiSlash,
 } from '@phosphor-icons/react';
 import { cva } from 'class-variance-authority';
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import { ExecutionBadge } from '@/app/components/ui/execution-badge';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import type { ConnectionState } from '@/lib/streams/client';
 
 export type ContainerAgentStatus =
@@ -108,7 +109,7 @@ export function ContainerAgentHeader({
   const elapsedRef = useRef<HTMLSpanElement>(null);
 
   // Update elapsed time every second when running (direct DOM update to avoid re-renders)
-  useEffect(() => {
+  useWatchEffect(() => {
     if (!startedAt || (status !== 'running' && status !== 'starting')) {
       return;
     }

@@ -1,6 +1,7 @@
 import { ArrowDown, ArrowUp, Plus, X } from '@phosphor-icons/react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useRef } from 'react';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { cn } from '@/lib/utils/cn';
 import { ProjectList } from './project-list';
 import { SearchInput } from './search-input';
@@ -42,7 +43,7 @@ export function ProjectPicker({
   });
 
   // Focus search input when modal opens
-  useEffect(() => {
+  useWatchEffect(() => {
     if (open) {
       resetState();
       // Use requestAnimationFrame to ensure the modal is rendered

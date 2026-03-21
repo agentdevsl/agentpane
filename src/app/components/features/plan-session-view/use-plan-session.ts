@@ -1,6 +1,7 @@
 import type { StreamResponse } from '@durable-streams/client';
 import { stream as durableStream } from '@durable-streams/client';
-import { useCallback, useEffect, useReducer, useRef } from 'react';
+import { useCallback, useReducer, useRef } from 'react';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { apiClient } from '@/lib/api/client';
 import type {
   PlanCompletedEventData,
@@ -468,8 +469,8 @@ export function usePlanSession(
     }
   }, [taskId]);
 
-  // Initialize on mount
-  useEffect(() => {
+  // Initialize when loadSession changes (e.g., taskId changes)
+  useWatchEffect(() => {
     isMountedRef.current = true;
 
     if (!isInitializedRef.current) {
@@ -477,7 +478,7 @@ export function usePlanSession(
       loadSession();
     }
 
-    // Cleanup on unmount
+    // Cleanup on unmount or when loadSession changes
     return () => {
       isMountedRef.current = false;
       if (unsubscribeRef.current) {

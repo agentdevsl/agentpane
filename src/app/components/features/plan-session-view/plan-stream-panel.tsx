@@ -1,5 +1,6 @@
 import { Sparkle, User } from '@phosphor-icons/react';
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { cn } from '@/lib/utils/cn';
 import type { PlanStreamPanelProps, StreamMessage } from './types';
 
@@ -245,8 +246,7 @@ export function PlanStreamPanel({
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom on new messages
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional triggers to re-scroll when content changes
-  useEffect(() => {
+  useWatchEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }

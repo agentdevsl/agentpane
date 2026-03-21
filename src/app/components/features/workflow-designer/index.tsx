@@ -1,6 +1,8 @@
 import { CaretLeft, Warning } from '@phosphor-icons/react';
 import { type Edge, type Node, useEdgesState, useNodesState, type Viewport } from '@xyflow/react';
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useMemo, useRef, useState } from 'react';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import '@xyflow/react/dist/style.css';
 
 import type { Workflow } from '@/db/schema';
@@ -245,7 +247,7 @@ export function WorkflowDesigner({
   const [templates, setTemplates] = useState<TemplateWithContent[]>([]);
 
   // Fetch org templates on mount (for AI generation)
-  useEffect(() => {
+  useMountEffect(() => {
     async function fetchTemplates() {
       try {
         const response = await fetch('/api/templates?scope=org');
@@ -260,10 +262,10 @@ export function WorkflowDesigner({
     }
 
     fetchTemplates();
-  }, []);
+  });
 
   // Fetch saved workflows on mount
-  useEffect(() => {
+  useMountEffect(() => {
     async function fetchWorkflows() {
       try {
         const response = await fetch('/api/workflows');
@@ -289,11 +291,11 @@ export function WorkflowDesigner({
     }
 
     fetchWorkflows();
-  }, []);
+  });
 
   // Increment change counter whenever nodes or edges change
   // biome-ignore lint/correctness/useExhaustiveDependencies: counter must increment on node/edge changes
-  useEffect(() => {
+  useWatchEffect(() => {
     changeCounterRef.current += 1;
   }, [nodes, edges]);
 
@@ -329,7 +331,7 @@ export function WorkflowDesigner({
       setWorkflowName(sourceName);
       setWorkflowDescription(description ?? '');
       setActiveWorkflowId(null); // This is a new workflow, not an update
-      // The change counter will increment via the useEffect watching [nodes, edges]
+      // The change counter will increment via the useWatchEffect watching [nodes, edges]
     },
     [setNodes, setEdges]
   );
@@ -441,7 +443,7 @@ export function WorkflowDesigner({
     setWorkflowDescription('');
     // Sync counters so hasUnsavedChanges becomes false after next render
     savedCounterRef.current = changeCounterRef.current + 1;
-    // The +1 accounts for the upcoming useEffect increment from setNodes/setEdges
+    // The +1 accounts for the upcoming useWatchEffect increment from setNodes/setEdges
   }, [readOnly, setNodes, setEdges]);
 
   // Select a saved workflow to load

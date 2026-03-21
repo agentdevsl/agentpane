@@ -1,5 +1,6 @@
 import { CaretDown, CaretRight, FileCode, SpinnerGap } from '@phosphor-icons/react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import type { DiffFile } from '@/lib/types/diff';
 import { cn } from '@/lib/utils/cn';
 import { CompactChangesSummary } from './approval-dialog/changes-summary';
@@ -158,7 +159,7 @@ export function WorktreeDiffViewer({ worktreeId }: WorktreeDiffViewerProps): Rea
     }
   }, [worktreeId]);
 
-  useEffect(() => {
+  useWatchEffect(() => {
     void fetchDiff();
   }, [fetchDiff]);
 

@@ -1,6 +1,7 @@
 import { CaretDown, CaretRight, Gear } from '@phosphor-icons/react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Skeleton, SkeletonText } from '@/app/components/ui/skeleton';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { cn } from '@/lib/utils/cn';
 import type { StreamViewerProps } from '../types';
 import { StreamEntry } from './stream-entry';
@@ -29,7 +30,7 @@ export function StreamViewer({
   }, [entries]);
 
   // Scroll to current entry when it changes
-  useEffect(() => {
+  useWatchEffect(() => {
     if (currentEntryId && currentEntryRef.current) {
       currentEntryRef.current.scrollIntoView({
         behavior: 'smooth',

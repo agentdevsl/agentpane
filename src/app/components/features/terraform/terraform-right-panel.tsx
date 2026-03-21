@@ -1,6 +1,7 @@
 import { Code, Copy, DownloadSimple, FileCode, GitBranch, Sliders } from '@phosphor-icons/react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/app/components/ui/tabs';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { parseHclVariables } from '@/lib/terraform/parse-hcl-variables';
 import { cn } from '@/lib/utils/cn';
 import { useTerraform } from './terraform-context';
@@ -132,7 +133,7 @@ const shikiPromise = import('shiki');
 function useHighlightedCode(code: string | null): string | null {
   const [html, setHtml] = useState<string | null>(null);
 
-  useEffect(() => {
+  useWatchEffect(() => {
     if (!code) {
       setHtml(null);
       return;

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
 import { BootstrapService } from './service.js';
 import type { BootstrapContext, BootstrapState } from './types.js';
 
@@ -16,7 +17,7 @@ export const useBootstrap = (): {
   const [context, setContext] = useState<BootstrapContext | null>(null);
   const serviceRef = useRef<BootstrapService | null>(null);
 
-  useEffect(() => {
+  useMountEffect(() => {
     const service = new BootstrapService();
     serviceRef.current = service;
     const unsubscribe = service.subscribe(setState);
@@ -28,7 +29,7 @@ export const useBootstrap = (): {
     });
 
     return unsubscribe;
-  }, []);
+  });
 
   const retry = useCallback(async () => {
     if (!serviceRef.current) {

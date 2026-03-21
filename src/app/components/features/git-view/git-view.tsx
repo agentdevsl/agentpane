@@ -12,9 +12,11 @@ import {
   GitPullRequest,
   WarningCircle,
 } from '@phosphor-icons/react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Button } from '@/app/components/ui/button';
 import { Skeleton } from '@/app/components/ui/skeleton';
+import { useEventListener } from '@/app/hooks/use-event-listener';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { apiClient } from '@/lib/api/client';
 import { cn } from '@/lib/utils/cn';
 
@@ -284,18 +286,10 @@ function ContextMenu({
   onClose: () => void;
   actions: { label: string; onClick: () => void; danger?: boolean }[];
 }) {
-  useEffect(() => {
-    const handleClick = () => onClose();
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('click', handleClick);
-    document.addEventListener('keydown', handleEscape);
-    return () => {
-      document.removeEventListener('click', handleClick);
-      document.removeEventListener('keydown', handleEscape);
-    };
-  }, [onClose]);
+  useEventListener(document, 'click', () => onClose());
+  useEventListener(document, 'keydown', (e) => {
+    if (e.key === 'Escape') onClose();
+  });
 
   return (
     <div
@@ -458,7 +452,7 @@ export function GitView({ projectId, projectPath }: GitViewProps): React.JSX.Ele
     [projectId, selectedBranch]
   );
 
-  useEffect(() => {
+  useWatchEffect(() => {
     fetchData();
   }, [fetchData]);
 
@@ -488,7 +482,7 @@ export function GitView({ projectId, projectPath }: GitViewProps): React.JSX.Ele
   );
 
   // Effect to fetch commits when branch selection changes
-  useEffect(() => {
+  useWatchEffect(() => {
     if (selectedBranch) {
       fetchCommitsForBranch(selectedBranch);
     }

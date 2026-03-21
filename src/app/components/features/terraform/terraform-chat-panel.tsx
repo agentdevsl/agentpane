@@ -15,7 +15,9 @@ import {
   TreeStructure,
   WarningCircle,
 } from '@phosphor-icons/react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import type {
   ClarifyingQuestion,
   ComposeMessage,
@@ -619,15 +621,14 @@ export function TerraformChatPanel(): React.JSX.Element {
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-scroll to bottom when messages or compose stage change
-  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll must trigger on message/stage changes
-  useEffect(() => {
+  useWatchEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, composeStage, composeComplete, matchedModules]);
 
   // Auto-focus input
-  useEffect(() => {
+  useMountEffect(() => {
     inputRef.current?.focus();
-  }, []);
+  });
 
   const handleSubmit = useCallback(async () => {
     const trimmed = input.trim();

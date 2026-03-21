@@ -1,8 +1,9 @@
 /**
  * FC-006: Updated to use useSessionSubscription for shared SSE connections.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffectEvent, useMemo, useRef, useState } from 'react';
 import type { ConnectionState, SessionAgentState, SessionCallbacks } from '@/lib/streams/client';
+import { useMountEffect } from './use-mount-effect';
 import { useSessionSubscription } from './use-session-subscription';
 
 export type AgentStreamChunk = {
@@ -37,8 +38,9 @@ export function useAgentStream(sessionId: string): {
   // Build callbacks for the shared subscription
   const callbacks = useRef<SessionCallbacks>({});
 
-  useEffect(() => {
-    callbacks.current = {
+  // useEffectEvent captures the latest setters without needing deps
+  const buildCallbacks = useEffectEvent(
+    (): SessionCallbacks => ({
       onChunk: (event) => {
         setChunks((prev) => [
           ...prev,
@@ -91,8 +93,12 @@ export function useAgentStream(sessionId: string): {
       onDisconnect: () => {
         console.log('[useAgentStream] Disconnected from stream');
       },
-    };
-  }, []);
+    })
+  );
+
+  useMountEffect(() => {
+    callbacks.current = buildCallbacks();
+  });
 
   const { connectionState } = useSessionSubscription(sessionId, callbacks.current);
 

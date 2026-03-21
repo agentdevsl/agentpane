@@ -1,6 +1,6 @@
 import { Buildings, Plus, Spinner } from '@phosphor-icons/react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   AddTemplateDialog,
   type CreateTemplateInput,
@@ -9,6 +9,7 @@ import { EmptyState } from '@/app/components/features/empty-state';
 import { LayoutShell } from '@/app/components/features/layout-shell';
 import { TemplateCard } from '@/app/components/features/template-card';
 import { Button } from '@/app/components/ui/button';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
 import type { Template } from '@/db/schema';
 import { apiClient } from '@/lib/api/client';
 import type { GitHubOrg, GitHubRepo } from '@/services/github-token.service';
@@ -30,7 +31,7 @@ function OrgTemplatesPage(): React.JSX.Element {
   const [isGitHubConfigured, setIsGitHubConfigured] = useState(false);
 
   // Fetch org templates and check GitHub status on mount
-  useEffect(() => {
+  useMountEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
 
@@ -51,7 +52,7 @@ function OrgTemplatesPage(): React.JSX.Element {
       setIsLoading(false);
     };
     fetchData();
-  }, []);
+  });
 
   // GitHub callbacks
   const handleFetchOrgs = useCallback(async (): Promise<GitHubOrg[]> => {

@@ -36,7 +36,8 @@
             "noConsole": "off"
           },
           "style": {
-            "noNonNullAssertion": "off"
+            "noNonNullAssertion": "off",
+            "noRestrictedImports": "off"
           },
           "correctness": {
             "useYield": "off",
@@ -55,6 +56,23 @@
           "suspicious": {
             "noExplicitAny": "off",
             "noConsole": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "src/app/hooks/use-mount-effect.ts",
+        "src/app/hooks/use-watch-effect.ts",
+        "src/app/hooks/use-interval.ts",
+        "src/app/hooks/use-timeout.ts",
+        "src/app/hooks/use-event-listener.ts",
+        "src/app/hooks/use-auto-scroll.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": "off"
           }
         }
       }
@@ -115,6 +133,17 @@
       },
       "style": {
         "noNonNullAssertion": "warn",
+        "noRestrictedImports": {
+          "level": "error",
+          "options": {
+            "paths": {
+              "react": {
+                "importNames": ["useEffect"],
+                "message": "useEffect is banned. Use hooks from @/app/hooks/use-effect-factories instead."
+              }
+            }
+          }
+        },
         "useConst": "error",
         "useImportType": "error"
       },

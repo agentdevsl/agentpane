@@ -1,4 +1,5 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useMemo, useRef, useState } from 'react';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 
 const AgentTopology = lazy(() =>
   import('@/app/components/features/agent-topology').then((m) => ({ default: m.AgentTopology }))
@@ -171,7 +172,7 @@ export function AgentSessionView({
   const agentStatus = mapAgentStatus(state.agentState?.status);
 
   // Track start time
-  useEffect(() => {
+  useWatchEffect(() => {
     if (agentStatus === 'running' && !startTimeRef.current) {
       startTimeRef.current = Date.now();
     }
@@ -182,7 +183,7 @@ export function AgentSessionView({
 
   // Mark as loaded after first state update
   const hasData = state.chunks.length > 0 || state.agentState !== null;
-  useEffect(() => {
+  useWatchEffect(() => {
     if (hasData) {
       setIsLoading(false);
       return;
@@ -193,7 +194,7 @@ export function AgentSessionView({
   }, [hasData]);
 
   // Track user joins/leaves
-  useEffect(() => {
+  useWatchEffect(() => {
     const prevUserIds = new Set(prevUsersRef.current);
     const currentUserIds = new Set(users.map((u) => u.userId));
 
@@ -235,7 +236,7 @@ export function AgentSessionView({
   }, [users, userId]);
 
   // Track agent state changes
-  useEffect(() => {
+  useWatchEffect(() => {
     const currentStatus = state.agentState?.status;
     if (currentStatus && currentStatus !== prevStatusRef.current) {
       const statusMessages: Record<string, { type: ActivityItemType; message: string } | null> = {
@@ -265,7 +266,7 @@ export function AgentSessionView({
   }, [state.agentState?.status]);
 
   // Handle errors
-  useEffect(() => {
+  useWatchEffect(() => {
     if (error) {
       onError?.(error);
     }

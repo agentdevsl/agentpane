@@ -1,7 +1,8 @@
 import { Pause, Play, Square, Timer } from '@phosphor-icons/react';
 import { cva } from 'class-variance-authority';
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import { Button } from '@/app/components/ui/button';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 
 export type AgentStatus = 'idle' | 'starting' | 'running' | 'paused' | 'error' | 'completed';
 
@@ -81,7 +82,7 @@ export function HeaderBar({
   const elapsedRef = useRef<HTMLSpanElement>(null);
 
   // Update elapsed time every second when running (direct DOM update to avoid re-renders)
-  useEffect(() => {
+  useWatchEffect(() => {
     if (!startTime || status !== 'running') {
       return;
     }

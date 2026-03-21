@@ -14,7 +14,7 @@ import {
   X,
   XCircle,
 } from '@phosphor-icons/react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Button } from '@/app/components/ui/button';
 import { Checkbox } from '@/app/components/ui/checkbox';
 import {
@@ -28,6 +28,8 @@ import {
 import { MarkdownContent } from '@/app/components/ui/markdown-content';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/app/components/ui/tabs';
 import { Textarea } from '@/app/components/ui/textarea';
+import { useEventListener } from '@/app/hooks/use-event-listener';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import type { Task } from '@/db/schema';
 import type { DiffFile, DiffResult, DiffSummary } from '@/lib/types/diff';
 import { cn } from '@/lib/utils/cn';
@@ -80,16 +82,11 @@ export function ApprovalDialog({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submittingAction, setSubmittingAction] = useState<'approve' | 'reject' | null>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onOpenChange(false);
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [open, onOpenChange]);
+  useEventListener(open ? window : null, 'keydown', (event) => {
+    if (event.key === 'Escape') onOpenChange(false);
+  });
 
-  useEffect(() => {
+  useWatchEffect(() => {
     if (open) {
       setTab('summary');
       setRejectReason('');

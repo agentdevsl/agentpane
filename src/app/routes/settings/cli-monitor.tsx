@@ -1,9 +1,11 @@
 import type { Icon } from '@phosphor-icons/react';
 import { Check, CircleNotch, Database, Terminal, Timer, Warning } from '@phosphor-icons/react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Button } from '@/app/components/ui/button';
 import { ConfigSection } from '@/app/components/ui/config-section';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
+import { useTimeout } from '@/app/hooks/use-timeout';
 import { apiClient } from '@/lib/api/client';
 import { cn } from '@/lib/utils/cn';
 
@@ -76,7 +78,10 @@ function CliMonitorSettingsPage(): React.JSX.Element {
   const [retentionDays, setRetentionDays] = useState('7');
   const [saved, setSaved] = useState(false);
 
-  useEffect(() => {
+  // Auto-dismiss saved indicator
+  useTimeout(() => setSaved(false), saved ? 2000 : null);
+
+  useMountEffect(() => {
     async function loadSettings() {
       setIsLoading(true);
       setError(null);
@@ -97,7 +102,7 @@ function CliMonitorSettingsPage(): React.JSX.Element {
       }
     }
     loadSettings();
-  }, []);
+  });
 
   const isSavingRef = useRef(false);
   const handleSave = useCallback(async () => {
@@ -111,7 +116,6 @@ function CliMonitorSettingsPage(): React.JSX.Element {
       });
       if (result.ok) {
         setSaved(true);
-        setTimeout(() => setSaved(false), 2000);
       } else {
         setError('Failed to save settings. Please try again.');
       }

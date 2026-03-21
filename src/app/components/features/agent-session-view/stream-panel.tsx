@@ -1,6 +1,6 @@
 import { Terminal } from '@phosphor-icons/react';
-import { useCallback, useEffect, useRef, useState } from 'react';
 import { EmptyState } from '@/app/components/features/empty-state';
+import { useAutoScroll } from '@/app/hooks/use-auto-scroll';
 import { cn } from '@/lib/utils/cn';
 import { StreamCursor, StreamLine } from './stream-line';
 import type { StreamLine as StreamLineData } from './use-stream-parser';
@@ -16,49 +16,7 @@ export function StreamPanel({
   isStreaming,
   viewerColors = [],
 }: StreamPanelProps): React.JSX.Element {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const autoScrollRef = useRef(true);
-  const userScrolledRef = useRef(false);
-  const [showScrollButton, setShowScrollButton] = useState(false);
-
-  // Auto-scroll to bottom when new lines arrive
-  useEffect(() => {
-    if (autoScrollRef.current && containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
-    }
-  });
-
-  // Detect user scroll to disable auto-scroll
-  const handleScroll = useCallback(() => {
-    if (!containerRef.current) return;
-
-    const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
-    const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
-
-    // If user scrolled up, disable auto-scroll
-    if (!isAtBottom && !userScrolledRef.current) {
-      userScrolledRef.current = true;
-      autoScrollRef.current = false;
-      setShowScrollButton(true);
-    }
-
-    // If user scrolled back to bottom, re-enable auto-scroll
-    if (isAtBottom && userScrolledRef.current) {
-      userScrolledRef.current = false;
-      autoScrollRef.current = true;
-      setShowScrollButton(false);
-    }
-  }, []);
-
-  // Scroll to bottom button
-  const scrollToBottom = useCallback(() => {
-    if (containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
-      autoScrollRef.current = true;
-      userScrolledRef.current = false;
-      setShowScrollButton(false);
-    }
-  }, []);
+  const { containerRef, scrollToBottom, showScrollButton, handleScroll } = useAutoScroll();
 
   return (
     <div className="flex flex-1 flex-col rounded-lg border border-border bg-surface m-4 mr-2 overflow-hidden">

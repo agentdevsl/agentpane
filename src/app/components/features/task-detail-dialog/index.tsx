@@ -1,8 +1,9 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useCallback, useMemo, useReducer, useRef, useState } from 'react';
 import { ContainerAgentPanel } from '@/app/components/features/container-agent-panel';
 import { PlanSessionView } from '@/app/components/features/plan-session-view';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import type { Task, TaskColumn, Worktree } from '@/db/schema';
 import { cn } from '@/lib/utils/cn';
 import { TaskActions } from './task-actions';
@@ -42,7 +43,7 @@ function useDraggable() {
     e.preventDefault();
   }, []);
 
-  useEffect(() => {
+  useWatchEffect(() => {
     if (!isDragging) return;
 
     const handleMouseMove = (e: MouseEvent) => {
@@ -175,7 +176,7 @@ export function TaskDetailDialog({
   const { elementRef, isDragging, handleMouseDown, reset: resetPosition } = useDraggable();
 
   // Reset state when task changes or dialog closes
-  useEffect(() => {
+  useWatchEffect(() => {
     if (!open || !task) {
       setPendingChanges({});
       dispatch({ type: 'CANCEL_EDIT' });
@@ -237,7 +238,7 @@ export function TaskDetailDialog({
   handleSaveRef.current = handleSave;
 
   // Keyboard shortcuts
-  useEffect(() => {
+  useWatchEffect(() => {
     if (!open) return;
 
     function handleKeyDown(e: KeyboardEvent) {

@@ -1,6 +1,8 @@
 import { CheckCircle, Clock, MagnifyingGlass, X } from '@phosphor-icons/react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Skeleton, SkeletonText } from '@/app/components/ui/skeleton';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { cn } from '@/lib/utils/cn';
 import type { SessionTimelineProps } from '../types';
 import { SessionCard } from './session-card';
@@ -34,8 +36,7 @@ function ProjectSearch({
   }, [projects, searchQuery]);
 
   const filteredProjectsLength = filteredProjects.length;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally reset when length changes
-  useEffect(() => {
+  useWatchEffect(() => {
     setHighlightedIndex(0);
   }, [filteredProjectsLength]);
 
@@ -75,7 +76,7 @@ function ProjectSearch({
     }
   };
 
-  useEffect(() => {
+  useMountEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (
         inputRef.current &&
@@ -89,7 +90,7 @@ function ProjectSearch({
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  });
 
   return (
     <div className="relative">

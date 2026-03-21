@@ -4,7 +4,6 @@ import {
   type ReactNode,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useRef,
   useState,
@@ -13,7 +12,8 @@ import {
   type ProjectPickerItem,
   useRecentProjects,
 } from '@/app/components/features/project-picker';
-import { apiClient, type ProjectSummaryItem } from '@/lib/api/client';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
+import { apiClient, type ProjectListItem, type ProjectSummaryItem } from '@/lib/api/client';
 
 // =============================================================================
 // Types
@@ -97,7 +97,12 @@ export function ProjectContextProvider({
   const [isNewProjectDialogOpen, setIsNewProjectDialogOpen] = useState(false);
 
   // Project data states
-  const [projectSummaries, setProjectSummaries] = useState<ProjectSummaryItem[]>([]);
+  // Lightweight project list for the picker (just id, name, path)
+  const [projectList, setProjectList] = useState<ProjectListItem[]>([]);
+  // Summary for current project only (task counts, running agents)
+  const [currentProjectSummary, setCurrentProjectSummary] = useState<ProjectSummaryItem | null>(
+    null
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | undefined>(undefined);
 
@@ -108,14 +113,14 @@ export function ProjectContextProvider({
   // Recent projects from localStorage
   const { recentProjectIds, addRecentProject } = useRecentProjects();
 
-  // Fetch all projects
+  // Fetch lightweight project list (just id, name, path) for the picker
   const fetchProjects = useCallback(async () => {
     setIsLoading(true);
     setError(undefined);
     try {
-      const result = await apiClient.projects.listWithSummaries({ limit: 100 });
+      const result = await apiClient.projects.list({ limit: 100 });
       if (result.ok) {
-        setProjectSummaries(result.data.items);
+        setProjectList(result.data.items);
       } else {
         setError(new Error(result.error.message));
       }
@@ -128,23 +133,41 @@ export function ProjectContextProvider({
   }, []);
 
   // FC-001: Deferred fetch -- only runs when projectId is present or picker opens
-  useEffect(() => {
+  useWatchEffect(() => {
     if (!hasFetched.current && projectId) {
       void fetchProjects();
     }
   }, [projectId, fetchProjects]);
 
-  // Current project from summaries
-  const currentProject = useMemo(() => {
-    if (!projectId) return null;
-    return projectSummaries.find((p) => p.project.id === projectId) ?? null;
-  }, [projectId, projectSummaries]);
+  // Fetch summary data only for the current project when projectId changes
+  useWatchEffect(() => {
+    if (!projectId) {
+      setCurrentProjectSummary(null);
+      return;
+    }
+    const fetchCurrentSummary = async () => {
+      try {
+        const result = await apiClient.projects.listWithSummaries({ limit: 100 });
+        if (result.ok) {
+          const summary = result.data.items.find((p) => p.project.id === projectId) ?? null;
+          setCurrentProjectSummary(summary);
+        }
+      } catch {
+        // Summary fetch failure is non-critical
+      }
+    };
+    void fetchCurrentSummary();
+  }, [projectId]);
 
-  // Convert summaries to picker items
+  // Current project from summary
+  const currentProject = useMemo(() => {
+    return currentProjectSummary ?? null;
+  }, [currentProjectSummary]);
+
+  // Convert lightweight project list to picker items
   const allProjects = useMemo<ProjectPickerItem[]>(() => {
     const colors = ['blue', 'green', 'purple', 'orange', 'red'] as const;
-    return projectSummaries.map((summary) => {
-      const { project } = summary;
+    return projectList.map((project) => {
       // Derive icon color from project name hash for consistency
       const hash = project.name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
       const color = colors[hash % colors.length] ?? 'blue';
@@ -160,15 +183,15 @@ export function ProjectContextProvider({
         },
         isActive: project.id === projectId,
         stats: {
-          activeAgents: summary.runningAgents.length,
-          totalTasks: summary.taskCounts.total,
-          backlogTasks: summary.taskCounts.backlog,
-          inProgressTasks: summary.taskCounts.inProgress,
+          activeAgents: 0,
+          totalTasks: 0,
+          backlogTasks: 0,
+          inProgressTasks: 0,
         },
         lastAccessedAt: project.updatedAt ?? new Date(),
       };
     });
-  }, [projectSummaries, projectId]);
+  }, [projectList, projectId]);
 
   // Recent projects filtered from all
   const recentProjects = useMemo<ProjectPickerItem[]>(() => {

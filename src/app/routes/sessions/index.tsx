@@ -1,7 +1,8 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { LayoutShell } from '@/app/components/features/layout-shell';
 import { SessionHistory } from '@/app/components/features/session-history';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
 import { apiClient } from '@/lib/api/client';
 
 // Session data shape from API
@@ -24,18 +25,42 @@ interface Project {
 }
 
 export const Route = createFileRoute('/sessions/')({
+  loader: async () => {
+    const [sessionsResult, projectsResult] = await Promise.all([
+      apiClient.sessions.list(),
+      apiClient.projects.list(),
+    ]);
+    return {
+      sessions: sessionsResult.ok
+        ? Array.isArray(sessionsResult.data)
+          ? sessionsResult.data
+          : []
+        : [],
+      projects: projectsResult.ok
+        ? Array.isArray(projectsResult.data)
+          ? projectsResult.data
+          : ((projectsResult.data as { items?: Project[] }).items ?? [])
+        : [],
+    };
+  },
   component: SessionsPage,
 });
 
 function SessionsPage(): React.JSX.Element {
   const navigate = useNavigate();
-  const [sessions, setSessions] = useState<ApiSession[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
+  const loaderData = Route.useLoaderData() as
+    | { sessions: ApiSession[]; projects: Project[] }
+    | undefined;
+  const [sessions, setSessions] = useState<ApiSession[]>(
+    () => (loaderData?.sessions as ApiSession[]) ?? []
+  );
+  const [projects, setProjects] = useState<Project[]>(() => loaderData?.projects ?? []);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(!loaderData?.sessions);
 
   // Fetch sessions and projects from API on mount
-  useEffect(() => {
+  useMountEffect(() => {
+    if (loaderData?.sessions) return;
     const fetchData = async () => {
       try {
         const [sessionsResult, projectsResult] = await Promise.all([
@@ -60,7 +85,7 @@ function SessionsPage(): React.JSX.Element {
       setIsLoading(false);
     };
     fetchData();
-  }, []);
+  });
 
   // Filter sessions by selected project
   const filteredSessions = useMemo(() => {

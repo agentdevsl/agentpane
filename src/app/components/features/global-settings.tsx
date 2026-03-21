@@ -1,6 +1,7 @@
 import { CircleNotch, Eye, EyeSlash, Gear, Key, Palette, Warning } from '@phosphor-icons/react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Button } from '@/app/components/ui/button';
+import { useMountEffect } from '@/app/hooks/use-mount-effect';
 import { apiClient } from '@/lib/api/client';
 import { isValidPATFormat } from '@/lib/crypto/token-encryption';
 
@@ -72,7 +73,7 @@ function ApiKeysSection(): React.JSX.Element {
   const [githubError, setGithubError] = useState<string | null>(null);
 
   // Load saved keys on mount
-  useEffect(() => {
+  useMountEffect(() => {
     const loadAnthropicKey = async () => {
       const result = await apiClient.apiKeys.get('anthropic');
       if (result.ok && result.data.keyInfo) {
@@ -94,7 +95,7 @@ function ApiKeysSection(): React.JSX.Element {
       }
     };
     loadGitHubToken();
-  }, []);
+  });
 
   const handleSaveAnthropicKey = async () => {
     if (!anthropicKey.trim()) return;
@@ -388,7 +389,7 @@ function DefaultsSection(): React.JSX.Element {
   const [maxConcurrentAgents, setMaxConcurrentAgents] = useState('3');
 
   // Load settings from API on mount
-  useEffect(() => {
+  useMountEffect(() => {
     async function loadSettings() {
       setIsLoading(true);
       setError(null);
@@ -414,7 +415,7 @@ function DefaultsSection(): React.JSX.Element {
       }
     }
     loadSettings();
-  }, []);
+  });
 
   const handleSaveDefaults = async () => {
     setIsSaving(true);

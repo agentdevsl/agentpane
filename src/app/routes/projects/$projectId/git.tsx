@@ -1,21 +1,30 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { GitView } from '@/app/components/features/git-view';
 import { LayoutShell } from '@/app/components/features/layout-shell';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { apiClient, type ProjectListItem } from '@/lib/api/client';
 
 export const Route = createFileRoute('/projects/$projectId/git')({
+  loader: async ({ params }: { params: { projectId: string } }) => {
+    const result = await apiClient.projects.get(params.projectId);
+    return { project: result.ok ? result.data : null };
+  },
   component: ProjectGitPage,
 });
 
 function ProjectGitPage(): React.JSX.Element {
   const { projectId } = Route.useParams();
-  const [project, setProject] = useState<ProjectListItem | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const loaderData = Route.useLoaderData() as { project: ProjectListItem | null } | undefined;
+  const [project, setProject] = useState<ProjectListItem | null>(
+    () => (loaderData?.project as ProjectListItem) ?? null
+  );
+  const [isLoading, setIsLoading] = useState(!loaderData?.project);
   const [error, setError] = useState<string | null>(null);
 
   // Fetch project from API
-  useEffect(() => {
+  useWatchEffect(() => {
+    if (loaderData?.project) return;
     const fetchProject = async () => {
       try {
         const result = await apiClient.projects.get(projectId);
@@ -33,7 +42,7 @@ function ProjectGitPage(): React.JSX.Element {
       }
     };
     void fetchProject();
-  }, [projectId]);
+  }, [projectId, loaderData]);
 
   if (isLoading) {
     return (
