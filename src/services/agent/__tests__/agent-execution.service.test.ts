@@ -56,7 +56,7 @@ const createDbMock = () => {
   return {
     query: {
       agents: { findFirst: vi.fn(), findMany: vi.fn() },
-      projects: { findFirst: vi.fn().mockResolvedValue({ id: 'p1', config: {} }) },
+      codespaces: { findFirst: vi.fn().mockResolvedValue({ id: 'p1', config: {} }) },
       tasks: { findFirst: vi.fn() },
       sessions: { findFirst: vi.fn() },
       worktrees: { findFirst: vi.fn() },
@@ -221,7 +221,7 @@ describe('AgentExecutionService', () => {
       db.query.tasks.findFirst.mockResolvedValue(queuedTask);
 
       // Project lookup for concurrency check
-      db.query.projects.findFirst.mockResolvedValue({
+      db.query.codespaces.findFirst.mockResolvedValue({
         id: 'p1',
         config: {},
         maxConcurrentAgents: 3,

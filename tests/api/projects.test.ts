@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Project } from '@/db/schema';
-import { DEFAULT_PROJECT_CONFIG } from '@/lib/config/types';
+import type { Codespace } from '@/db/schema';
+import { DEFAULT_CODESPACE_CONFIG } from '@/lib/config/types';
 
 // Hoisted mocks for file deletion tests
 const fsMocks = vi.hoisted(() => ({
@@ -19,10 +19,10 @@ vi.mock('node:fs/promises', () => ({
 
 describe('DELETE /api/codespaces/:id - File Deletion Security', () => {
   // Import the Hono route factory
-  let createProjectsRoutes: typeof import('@/server/routes/projects').createProjectsRoutes;
+  let createCodespacesRoutes: typeof import('@/server/routes/codespaces').createCodespacesRoutes;
 
-  // Mock project service
-  const mockProjectService: Record<string, any> = {
+  // Mock codespace service
+  const mockCodespaceService: Record<string, any> = {
     getById: vi.fn(),
     delete: vi.fn(),
     list: vi.fn(),
@@ -34,7 +34,7 @@ describe('DELETE /api/codespaces/:id - File Deletion Security', () => {
   // Mock database (still needed for running agents check)
   const mockDb: Record<string, any> = {
     query: {
-      projects: {
+      codespaces: {
         findFirst: vi.fn(),
         findMany: vi.fn(),
       },
@@ -52,17 +52,21 @@ describe('DELETE /api/codespaces/:id - File Deletion Security', () => {
     return callback(mockDb);
   });
 
-  const createTestProject = (overrides: Partial<Project> = {}): Project => ({
+  const createTestCodespace = (overrides: Partial<Codespace> = {}): Codespace => ({
     id: 'proj-test-1',
+    projectFolderId: 'default-folder',
     name: 'Test Project',
     path: '/Users/testuser/projects/myproject',
     description: null,
-    config: DEFAULT_PROJECT_CONFIG,
+    config: DEFAULT_CODESPACE_CONFIG,
     maxConcurrentAgents: 3,
     githubOwner: null,
     githubRepo: null,
-    createdAt: new Date('2026-01-01T00:00:00Z'),
-    updatedAt: new Date('2026-01-02T00:00:00Z'),
+    githubInstallationId: null,
+    configPath: '.claude',
+    sandboxConfigId: null,
+    createdAt: new Date('2026-01-01T00:00:00Z').toISOString(),
+    updatedAt: new Date('2026-01-02T00:00:00Z').toISOString(),
     ...overrides,
   });
 
@@ -71,15 +75,15 @@ describe('DELETE /api/codespaces/:id - File Deletion Security', () => {
     vi.resetModules();
 
     // Re-import after reset to get fresh module with mocks
-    const module = await import('@/server/routes/projects');
-    createProjectsRoutes = module.createProjectsRoutes;
+    const module = await import('@/server/routes/codespaces');
+    createCodespacesRoutes = module.createCodespacesRoutes;
 
-    // Reset mock project service
-    mockProjectService.getById.mockReset();
-    mockProjectService.delete.mockReset();
+    // Reset mock codespace service
+    mockCodespaceService.getById.mockReset();
+    mockCodespaceService.delete.mockReset();
 
     // Reset mock database
-    mockDb.query.projects.findFirst.mockReset();
+    mockDb.query.codespaces.findFirst.mockReset();
     mockDb.query.agents.findMany.mockReset();
     mockDb.delete.mockReturnValue({
       where: vi.fn().mockResolvedValue(undefined),
@@ -90,13 +94,13 @@ describe('DELETE /api/codespaces/:id - File Deletion Security', () => {
   });
 
   it('returns filesDeleted: false with reason when path is too shallow', async () => {
-    const project = createTestProject({ path: '/home/user' }); // Only 2 components
-    mockProjectService.getById.mockResolvedValue({ ok: true, value: project });
-    mockProjectService.delete.mockResolvedValue({ ok: true, value: undefined });
+    const codespace = createTestCodespace({ path: '/home/user' }); // Only 2 components
+    mockCodespaceService.getById.mockResolvedValue({ ok: true, value: codespace });
+    mockCodespaceService.delete.mockResolvedValue({ ok: true, value: undefined });
     mockDb.query.agents.findMany.mockResolvedValue([]);
 
-    const app = createProjectsRoutes({
-      projectService: mockProjectService as never,
+    const app = createCodespacesRoutes({
+      codespaceService: mockCodespaceService as never,
       db: mockDb as never,
     });
     const response = await app.request('/proj-test-1?deleteFiles=true', {
@@ -112,13 +116,13 @@ describe('DELETE /api/codespaces/:id - File Deletion Security', () => {
   });
 
   it('returns filesDeleted: false with reason when path matches system directory', async () => {
-    const project = createTestProject({ path: '/Users' }); // Exact match to dangerous prefix
-    mockProjectService.getById.mockResolvedValue({ ok: true, value: project });
-    mockProjectService.delete.mockResolvedValue({ ok: true, value: undefined });
+    const codespace = createTestCodespace({ path: '/Users' }); // Exact match to dangerous prefix
+    mockCodespaceService.getById.mockResolvedValue({ ok: true, value: codespace });
+    mockCodespaceService.delete.mockResolvedValue({ ok: true, value: undefined });
     mockDb.query.agents.findMany.mockResolvedValue([]);
 
-    const app = createProjectsRoutes({
-      projectService: mockProjectService as never,
+    const app = createCodespacesRoutes({
+      codespaceService: mockCodespaceService as never,
       db: mockDb as never,
     });
     const response = await app.request('/proj-test-1?deleteFiles=true', {
@@ -134,13 +138,13 @@ describe('DELETE /api/codespaces/:id - File Deletion Security', () => {
   });
 
   it('returns filesDeleted: false with reason when path has insufficient depth under system prefix', async () => {
-    const project = createTestProject({ path: '/Users/testuser/projects' }); // 3 components, but under dangerous prefix needs 4
-    mockProjectService.getById.mockResolvedValue({ ok: true, value: project });
-    mockProjectService.delete.mockResolvedValue({ ok: true, value: undefined });
+    const codespace = createTestCodespace({ path: '/Users/testuser/projects' }); // 3 components, but under dangerous prefix needs 4
+    mockCodespaceService.getById.mockResolvedValue({ ok: true, value: codespace });
+    mockCodespaceService.delete.mockResolvedValue({ ok: true, value: undefined });
     mockDb.query.agents.findMany.mockResolvedValue([]);
 
-    const app = createProjectsRoutes({
-      projectService: mockProjectService as never,
+    const app = createCodespacesRoutes({
+      codespaceService: mockCodespaceService as never,
       db: mockDb as never,
     });
     const response = await app.request('/proj-test-1?deleteFiles=true', {
@@ -157,9 +161,9 @@ describe('DELETE /api/codespaces/:id - File Deletion Security', () => {
   });
 
   it('returns filesDeleted: true when path is safe and deletion succeeds', async () => {
-    const project = createTestProject({ path: '/Users/testuser/projects/myproject' }); // 4 components - safe
-    mockProjectService.getById.mockResolvedValue({ ok: true, value: project });
-    mockProjectService.delete.mockResolvedValue({ ok: true, value: undefined });
+    const codespace = createTestCodespace({ path: '/Users/testuser/projects/myproject' }); // 4 components - safe
+    mockCodespaceService.getById.mockResolvedValue({ ok: true, value: codespace });
+    mockCodespaceService.delete.mockResolvedValue({ ok: true, value: undefined });
     mockDb.query.agents.findMany.mockResolvedValue([]);
 
     // Mock fs.stat to return directory
@@ -167,8 +171,8 @@ describe('DELETE /api/codespaces/:id - File Deletion Security', () => {
     // Mock fs.rm to succeed
     fsMocks.rm.mockResolvedValue(undefined);
 
-    const app = createProjectsRoutes({
-      projectService: mockProjectService as never,
+    const app = createCodespacesRoutes({
+      codespaceService: mockCodespaceService as never,
       db: mockDb as never,
     });
     const response = await app.request('/proj-test-1?deleteFiles=true', {
@@ -180,13 +184,13 @@ describe('DELETE /api/codespaces/:id - File Deletion Security', () => {
     expect(data.ok).toBe(true);
     expect(data.data.deleted).toBe(true);
     expect(data.data.filesDeleted).toBe(true);
-    expect(fsMocks.rm).toHaveBeenCalledWith(project.path, { recursive: true, force: true });
+    expect(fsMocks.rm).toHaveBeenCalledWith(codespace.path, { recursive: true, force: true });
   });
 
   it('returns filesDeleted: false with error when fs.rm fails', async () => {
-    const project = createTestProject({ path: '/Users/testuser/projects/myproject' });
-    mockProjectService.getById.mockResolvedValue({ ok: true, value: project });
-    mockProjectService.delete.mockResolvedValue({ ok: true, value: undefined });
+    const codespace = createTestCodespace({ path: '/Users/testuser/projects/myproject' });
+    mockCodespaceService.getById.mockResolvedValue({ ok: true, value: codespace });
+    mockCodespaceService.delete.mockResolvedValue({ ok: true, value: undefined });
     mockDb.query.agents.findMany.mockResolvedValue([]);
 
     // Mock fs.stat to return directory
@@ -194,8 +198,8 @@ describe('DELETE /api/codespaces/:id - File Deletion Security', () => {
     // Mock fs.rm to fail
     fsMocks.rm.mockRejectedValue(new Error('Permission denied'));
 
-    const app = createProjectsRoutes({
-      projectService: mockProjectService as never,
+    const app = createCodespacesRoutes({
+      codespaceService: mockCodespaceService as never,
       db: mockDb as never,
     });
     const response = await app.request('/proj-test-1?deleteFiles=true', {
@@ -212,16 +216,16 @@ describe('DELETE /api/codespaces/:id - File Deletion Security', () => {
   });
 
   it('returns filesDeleted: false when path is not a directory', async () => {
-    const project = createTestProject({ path: '/Users/testuser/projects/myproject' });
-    mockProjectService.getById.mockResolvedValue({ ok: true, value: project });
-    mockProjectService.delete.mockResolvedValue({ ok: true, value: undefined });
+    const codespace = createTestCodespace({ path: '/Users/testuser/projects/myproject' });
+    mockCodespaceService.getById.mockResolvedValue({ ok: true, value: codespace });
+    mockCodespaceService.delete.mockResolvedValue({ ok: true, value: undefined });
     mockDb.query.agents.findMany.mockResolvedValue([]);
 
     // Mock fs.stat to return a file (not a directory)
     fsMocks.stat.mockResolvedValue({ isDirectory: () => false });
 
-    const app = createProjectsRoutes({
-      projectService: mockProjectService as never,
+    const app = createCodespacesRoutes({
+      codespaceService: mockCodespaceService as never,
       db: mockDb as never,
     });
     const response = await app.request('/proj-test-1?deleteFiles=true', {
