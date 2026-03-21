@@ -96,9 +96,10 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
   // Run base migrations.
   // Patch: make project_id nullable in CREATE TABLE statements so that the
   // Drizzle ORM (which only writes to codespace_id) doesn't fail on NOT NULL.
-  const patchedMigration = MIGRATION_SQL
-    .replace(/"project_id" TEXT NOT NULL/g, '"project_id" TEXT')
-    .replace(/"target_project_id" TEXT NOT NULL/g, '"target_project_id" TEXT');
+  const patchedMigration = MIGRATION_SQL.replace(
+    /"project_id" TEXT NOT NULL/g,
+    '"project_id" TEXT'
+  ).replace(/"target_project_id" TEXT NOT NULL/g, '"target_project_id" TEXT');
   testSqlite.exec(patchedMigration);
 
   // Add team_id column to github_tokens before running RBAC migration.
@@ -111,13 +112,17 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
   }
 
   // Run RBAC migrations (creates teams, task_tags, api_tokens, etc.)
-  const patchedRbac = RBAC_MIGRATION_SQL
-    .replace(/"project_id" TEXT NOT NULL/g, '"project_id" TEXT');
+  const patchedRbac = RBAC_MIGRATION_SQL.replace(
+    /"project_id" TEXT NOT NULL/g,
+    '"project_id" TEXT'
+  );
   testSqlite.exec(patchedRbac);
 
   // Run event system migrations (event_sources, event_subscriptions, event_log)
-  const patchedEvents = EVENT_SYSTEM_MIGRATION_SQL
-    .replace(/"target_project_id" TEXT NOT NULL/g, '"target_project_id" TEXT');
+  const patchedEvents = EVENT_SYSTEM_MIGRATION_SQL.replace(
+    /"target_project_id" TEXT NOT NULL/g,
+    '"target_project_id" TEXT'
+  );
   testSqlite.exec(patchedEvents);
 
   // Run v19 project folders + codespace rename migration
@@ -131,6 +136,77 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
       // Idempotent — column may already exist
     }
   }
+
+  // SQLite does not enforce FK constraints added via ALTER TABLE ADD COLUMN.
+  // The Drizzle schema defines ON DELETE CASCADE on codespace_id for agents,
+  // tasks, sessions, worktrees, and agent_runs. Use PRAGMA writable_schema to
+  // patch the stored CREATE TABLE definitions so FK cascade rules match the
+  // Drizzle schema.
+  testSqlite.exec('PRAGMA writable_schema = ON;');
+
+  const cascadeFixTables = ['agents', 'sessions', 'worktrees', 'tasks', 'agent_runs'];
+
+  for (const table of cascadeFixTables) {
+    try {
+      const row = testSqlite
+        .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?")
+        .get(table) as { sql: string } | undefined;
+      if (row?.sql) {
+        // 1. Make project_id nullable and strip its FK reference to projects
+        let newSql = row.sql
+          .replace(
+            /"project_id" TEXT NOT NULL REFERENCES "projects"\("id"\) ON DELETE CASCADE/g,
+            '"project_id" TEXT'
+          )
+          .replace(/"project_id" TEXT NOT NULL REFERENCES "projects"\("id"\)/g, '"project_id" TEXT')
+          .replace(/"project_id" TEXT NOT NULL/g, '"project_id" TEXT');
+        // 2. Ensure codespace_id has ON DELETE CASCADE
+        newSql = newSql
+          .replace(
+            /"codespace_id" TEXT REFERENCES "codespaces"\("id"\) ON DELETE SET NULL/g,
+            '"codespace_id" TEXT REFERENCES "codespaces"("id") ON DELETE CASCADE'
+          )
+          .replace(
+            /"codespace_id" TEXT REFERENCES "codespaces"\("id"\)(?! ON DELETE)/g,
+            '"codespace_id" TEXT REFERENCES "codespaces"("id") ON DELETE CASCADE'
+          );
+        if (newSql !== row.sql) {
+          testSqlite
+            .prepare("UPDATE sqlite_master SET sql = ? WHERE type='table' AND name=?")
+            .run(newSql, table);
+        }
+      }
+    } catch {
+      // safe to ignore
+    }
+  }
+
+  // Fix event_subscriptions target_project_id
+  try {
+    const row = testSqlite
+      .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='event_subscriptions'")
+      .get() as { sql: string } | undefined;
+    if (row?.sql) {
+      const newSql = row.sql
+        .replace(
+          /"target_project_id" TEXT NOT NULL REFERENCES "projects"\("id"\) ON DELETE CASCADE/g,
+          '"target_project_id" TEXT'
+        )
+        .replace(/"target_project_id" TEXT NOT NULL/g, '"target_project_id" TEXT');
+      if (newSql !== row.sql) {
+        testSqlite
+          .prepare(
+            "UPDATE sqlite_master SET sql = ? WHERE type='table' AND name='event_subscriptions'"
+          )
+          .run(newSql);
+      }
+    }
+  } catch {
+    // safe to ignore
+  }
+
+  testSqlite.exec('PRAGMA writable_schema = OFF;');
+  testSqlite.exec('PRAGMA integrity_check;');
 
   return testDb;
 }

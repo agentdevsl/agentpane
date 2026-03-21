@@ -221,7 +221,6 @@ export class WorktreeInitService {
     agentId: string;
     sandbox: { id: string };
   }): Promise<{ worktreeId?: string; worktreePath: string }> {
-    // biome-ignore lint/correctness/noUnusedVariables: codespaceId is used in worktreeService.create() below
     const { phase, taskId, sessionId, codespaceId, codespace, task, agentId } = params;
     const { db, streams, worktreeService } = this.deps;
     let worktreeId: string | undefined;

@@ -107,7 +107,7 @@ SELECT template_id, project_id FROM template_projects;
  */
 export const PROJECT_FOLDERS_ALTER_STATEMENTS = [
   // Agents: add codespace_id column, copy data, (can't drop old in SQLite)
-  `ALTER TABLE agents ADD COLUMN codespace_id TEXT REFERENCES codespaces(id) ON DELETE SET NULL`,
+  `ALTER TABLE agents ADD COLUMN codespace_id TEXT REFERENCES codespaces(id) ON DELETE CASCADE`,
   `UPDATE agents SET codespace_id = project_id WHERE codespace_id IS NULL`,
 
   // Tasks
@@ -115,7 +115,7 @@ export const PROJECT_FOLDERS_ALTER_STATEMENTS = [
   `UPDATE tasks SET codespace_id = project_id WHERE codespace_id IS NULL`,
 
   // Sessions
-  `ALTER TABLE sessions ADD COLUMN codespace_id TEXT REFERENCES codespaces(id)`,
+  `ALTER TABLE sessions ADD COLUMN codespace_id TEXT REFERENCES codespaces(id) ON DELETE CASCADE`,
   `UPDATE sessions SET codespace_id = project_id WHERE codespace_id IS NULL`,
 
   // Worktrees (SQLite disallows NOT NULL in ALTER TABLE ADD COLUMN with REFERENCES)
