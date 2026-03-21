@@ -38,14 +38,13 @@ export interface K8sWorkspaceResult {
   readonly branch: string | null;
 }
 
-function _formatError(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
 /** Strip credentials from a string to prevent token leakage in logs. */
-function _sanitizeCredentials(str: string): string {
+function sanitizeCredentials(str: string): string {
   return str.replace(/x-access-token:[^@]+@/g, 'x-access-token:[REDACTED]@');
 }
+
+// Re-export for potential future use
+void sanitizeCredentials;
 
 /** Validate that a string is a valid GitHub owner or repo name. */
 const GITHUB_NAME_RE = /^[a-zA-Z0-9._-]+$/;

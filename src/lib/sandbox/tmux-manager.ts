@@ -241,9 +241,8 @@ export class TmuxManager {
           await sandbox.killTmuxSession(session.name);
           this.sessions.delete(session.name);
           killed++;
-        } catch (error) {
+        } catch (_error) {
           // Log individual session kill errors but continue with others
-          const _message = errorMessage(error);
         }
       }
 

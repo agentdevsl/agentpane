@@ -103,7 +103,7 @@ export class SandboxService {
     });
 
     if (!codespace) {
-      return err(SandboxErrors.CODESPACE_NOT_FOUND);
+      return err(SandboxErrors.PROJECT_NOT_FOUND);
     }
 
     const sandboxConfig = codespace.config?.sandbox as CodespaceSandboxConfig | undefined;

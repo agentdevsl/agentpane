@@ -6,7 +6,12 @@ import type {
   TaskColumn,
   TaskPriority,
 } from '../db/schema/index.js';
-import { eventSources, eventSubscriptions, teamProjects } from '../db/schema/index.js';
+import {
+  codespaces,
+  eventSources,
+  eventSubscriptions,
+  teamProjectFolders,
+} from '../db/schema/index.js';
 import type { AppError } from '../lib/errors/base.js';
 import { EventErrors } from '../lib/errors/event-errors.js';
 import type { Result } from '../lib/utils/result.js';
@@ -78,15 +83,23 @@ export class EventSubscriptionService {
     }
 
     // Validate target codespace belongs to the same team as the source.
-    // Join through team_projects to verify team membership.
-    const teamProject = await this.db.query.teamProjects.findFirst({
+    // Resolve through codespace → projectFolder → teamProjectFolders.
+    const codespace = await this.db.query.codespaces.findFirst({
+      where: eq(codespaces.id, targetCodespaceId),
+    });
+
+    if (!codespace?.projectFolderId) {
+      return err(EventErrors.PROJECT_TEAM_MISMATCH());
+    }
+
+    const folderTeam = await this.db.query.teamProjectFolders.findFirst({
       where: and(
-        eq(teamProjects.teamId, source.teamId),
-        eq(teamProjects.codespaceId, targetCodespaceId)
+        eq(teamProjectFolders.teamId, source.teamId),
+        eq(teamProjectFolders.projectFolderId, codespace.projectFolderId)
       ),
     });
 
-    if (!teamProject) {
+    if (!folderTeam) {
       return err(EventErrors.PROJECT_TEAM_MISMATCH());
     }
 

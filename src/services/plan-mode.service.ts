@@ -125,7 +125,7 @@ export class PlanModeService {
     });
 
     if (!codespace) {
-      return err(PlanModeErrors.CODESPACE_NOT_FOUND);
+      return err(PlanModeErrors.PROJECT_NOT_FOUND);
     }
 
     // Verify task exists

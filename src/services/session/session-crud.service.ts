@@ -45,7 +45,7 @@ export class SessionCrudService {
   ) {}
 
   async create(input: CreateSessionInput): Promise<Result<SessionWithPresence, SessionError>> {
-    const _project = await this.db.query.codespaces.findFirst({
+    const codespace = await this.db.query.codespaces.findFirst({
       where: eq(codespaces.id, input.codespaceId),
     });
 

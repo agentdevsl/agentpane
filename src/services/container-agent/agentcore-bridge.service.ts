@@ -204,10 +204,10 @@ export class AgentCoreBridgeService {
     }
 
     // Resolve agent configuration
-    const _codespaceModel = codespace.config?.model as string | undefined;
+    const codespaceModel = codespace.config?.model as string | undefined;
     const resolvedModel =
       (model ? getFullModelId(model) : undefined) ??
-      (projectModel ? getFullModelId(projectModel) : undefined) ??
+      (codespaceModel ? getFullModelId(codespaceModel) : undefined) ??
       (await getGlobalDefaultModel(db));
     const agentConfig: AgentConfig = {
       model: resolvedModel ?? getFullModelId(DEFAULT_AGENT_MODEL),

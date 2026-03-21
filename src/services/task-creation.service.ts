@@ -589,7 +589,7 @@ export class TaskCreationService {
     configuredTools?: string[]
   ): Promise<Result<TaskCreationSession, TaskCreationError>> {
     // Verify codespace exists
-    const _project = await this.db.query.codespaces.findFirst({
+    const codespace = await this.db.query.codespaces.findFirst({
       where: eq(codespaces.id, codespaceId),
     });
 

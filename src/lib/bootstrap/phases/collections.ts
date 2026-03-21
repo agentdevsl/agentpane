@@ -40,7 +40,7 @@ export const initializeCollections = async (_ctx: BootstrapContext) => {
   ]);
 
   const stats = getCollectionStats();
-  const _taskCreationStats = getTaskCreationCollectionStats();
+  getTaskCreationCollectionStats();
 
   return ok({
     collections: sessionCollections,

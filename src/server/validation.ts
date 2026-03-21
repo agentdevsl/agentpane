@@ -172,12 +172,12 @@ export const createApiTokenSchema = z.object({
   teamId: idSchema,
   role: assignableRoleSchema,
   scopeTags: z.array(z.string().min(1).max(50).trim()).max(20).optional(),
-  scopeProjectId: idSchema.optional(),
+  scopeCodespaceId: idSchema.optional(),
   expiresInDays: z.number().int().min(1).max(365).optional(),
 });
 
 export const createTagSchema = z.object({
-  teamId: idSchema,
+  projectFolderId: idSchema,
   name: z.string().min(1, 'Tag name is required').max(50),
   color: z
     .string()

@@ -6,7 +6,7 @@ import { AgentService } from '../agent.service.js';
 
 const createDbMock = () => ({
   query: {
-    projects: { findFirst: vi.fn() },
+    codespaces: { findFirst: vi.fn() },
     agents: { findFirst: vi.fn(), findMany: vi.fn() },
     tasks: { findFirst: vi.fn() },
   },
@@ -36,7 +36,7 @@ const createSessionServiceMock = () => ({
 describe('AgentService', () => {
   it('creates agent with defaults', async () => {
     const db = createDbMock();
-    db.query.projects.findFirst.mockResolvedValue({
+    db.query.codespaces.findFirst.mockResolvedValue({
       id: 'p1',
       config: { allowedTools: ['Read'], maxTurns: 10 },
     });
@@ -44,7 +44,7 @@ describe('AgentService', () => {
     const returning = vi
       .fn()
       .mockResolvedValue([
-        { id: 'a1', projectId: 'p1', config: { allowedTools: ['Read'], maxTurns: 10 } },
+        { id: 'a1', codespaceId: 'p1', config: { allowedTools: ['Read'], maxTurns: 10 } },
       ]);
     db.insert.mockReturnValue({ values: vi.fn(() => ({ returning })) });
 
@@ -55,7 +55,7 @@ describe('AgentService', () => {
       createSessionServiceMock() as never
     );
     const result = await service.create({
-      projectId: 'p1',
+      codespaceId: 'p1',
       name: 'Agent',
       type: 'task',
       status: 'idle',
@@ -66,7 +66,7 @@ describe('AgentService', () => {
 
   it('returns validation error when project missing', async () => {
     const db = createDbMock();
-    db.query.projects.findFirst.mockResolvedValue(null);
+    db.query.codespaces.findFirst.mockResolvedValue(null);
 
     const service = new AgentService(
       db as never,
@@ -75,7 +75,7 @@ describe('AgentService', () => {
       createSessionServiceMock() as never
     );
     const result = await service.create({
-      projectId: 'missing',
+      codespaceId: 'missing',
       name: 'Agent',
       type: 'task',
       status: 'idle',
@@ -83,7 +83,7 @@ describe('AgentService', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      const expected = ValidationErrors.INVALID_ID('projectId');
+      const expected = ValidationErrors.INVALID_ID('codespaceId');
       expect(result.error).toMatchObject({
         code: expected.code,
         message: expected.message,
@@ -113,9 +113,9 @@ describe('AgentService', () => {
 
   it('fails start when concurrency exceeded', async () => {
     const db = createDbMock();
-    db.query.agents.findFirst.mockResolvedValue({ id: 'a1', status: 'idle', projectId: 'p1' });
+    db.query.agents.findFirst.mockResolvedValue({ id: 'a1', status: 'idle', codespaceId: 'p1' });
     db.query.tasks.findFirst.mockResolvedValue({ id: 't1', column: 'backlog' });
-    db.query.projects.findFirst.mockResolvedValue({ id: 'p1', maxConcurrentAgents: 1 });
+    db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1', maxConcurrentAgents: 1 });
     // checkAvailability and getRunningCount now use db.select({ count }).from().where()
     db.select.mockReturnValue({
       from: vi.fn(() => ({
@@ -165,7 +165,7 @@ describe('AgentService', () => {
     const db = createDbMock();
     db.query.agents.findFirst.mockResolvedValue({
       id: 'a1',
-      projectId: 'p1',
+      codespaceId: 'p1',
       name: 'Test Agent',
       status: 'idle',
     });
@@ -188,8 +188,8 @@ describe('AgentService', () => {
   it('list returns agents for project', async () => {
     const db = createDbMock();
     db.query.agents.findMany.mockResolvedValue([
-      { id: 'a1', projectId: 'p1', name: 'Agent 1' },
-      { id: 'a2', projectId: 'p1', name: 'Agent 2' },
+      { id: 'a1', codespaceId: 'p1', name: 'Agent 1' },
+      { id: 'a2', codespaceId: 'p1', name: 'Agent 2' },
     ]);
 
     const service = new AgentService(
@@ -398,7 +398,7 @@ describe('AgentService', () => {
     db.query.agents.findFirst.mockResolvedValue({
       id: 'a1',
       status: 'idle',
-      projectId: 'p1',
+      codespaceId: 'p1',
     });
     db.query.tasks.findFirst.mockResolvedValue(null);
 
@@ -421,7 +421,7 @@ describe('AgentService', () => {
     db.query.agents.findFirst.mockResolvedValue({
       id: 'a1',
       status: 'idle',
-      projectId: 'p1',
+      codespaceId: 'p1',
     });
     db.query.tasks.findFirst.mockResolvedValue({
       id: 't1',
@@ -563,7 +563,7 @@ describe('AgentService', () => {
 
   it('checkAvailability returns false when project not found', async () => {
     const db = createDbMock();
-    db.query.projects.findFirst.mockResolvedValue(null);
+    db.query.codespaces.findFirst.mockResolvedValue(null);
 
     const service = new AgentService(
       db as never,
@@ -581,7 +581,7 @@ describe('AgentService', () => {
 
   it('checkAvailability returns true when under limit', async () => {
     const db = createDbMock();
-    db.query.projects.findFirst.mockResolvedValue({
+    db.query.codespaces.findFirst.mockResolvedValue({
       id: 'p1',
       maxConcurrentAgents: 3,
     });
@@ -608,7 +608,7 @@ describe('AgentService', () => {
 
   it('checkAvailability returns false when at limit', async () => {
     const db = createDbMock();
-    db.query.projects.findFirst.mockResolvedValue({
+    db.query.codespaces.findFirst.mockResolvedValue({
       id: 'p1',
       maxConcurrentAgents: 2,
     });
@@ -662,7 +662,7 @@ describe('AgentService', () => {
     (db.query.tasks as Record<string, unknown>).findMany = vi.fn().mockResolvedValue([
       {
         id: 't1',
-        projectId: 'p1',
+        codespaceId: 'p1',
         column: 'queued',
         updatedAt: new Date().toISOString(),
       },
@@ -679,13 +679,13 @@ describe('AgentService', () => {
     db.query.tasks.findFirst
       .mockResolvedValueOnce({
         id: 't1',
-        projectId: 'p1',
+        codespaceId: 'p1',
         column: 'backlog',
         updatedAt: new Date().toISOString(),
       })
       .mockResolvedValue({
         id: 't1',
-        projectId: 'p1',
+        codespaceId: 'p1',
         column: 'queued',
         updatedAt: new Date().toISOString(),
       });
@@ -740,14 +740,14 @@ describe('AgentService', () => {
     db.query.agents.findFirst.mockResolvedValue({
       id: 'a1',
       status: 'idle',
-      projectId: 'p1',
+      codespaceId: 'p1',
     });
     db.query.tasks.findFirst.mockResolvedValue({
       id: 't1',
       column: 'backlog',
-      projectId: 'p1',
+      codespaceId: 'p1',
     });
-    db.query.projects.findFirst.mockResolvedValue({
+    db.query.codespaces.findFirst.mockResolvedValue({
       id: 'p1',
       maxConcurrentAgents: 3,
     });
@@ -784,14 +784,14 @@ describe('AgentService', () => {
     db.query.agents.findFirst.mockResolvedValue({
       id: 'a1',
       status: 'idle',
-      projectId: 'p1',
+      codespaceId: 'p1',
     });
     db.query.tasks.findFirst.mockResolvedValue({
       id: 't1',
       column: 'backlog',
-      projectId: 'p1',
+      codespaceId: 'p1',
     });
-    db.query.projects.findFirst.mockResolvedValue({
+    db.query.codespaces.findFirst.mockResolvedValue({
       id: 'p1',
       maxConcurrentAgents: 3,
     });
@@ -833,7 +833,7 @@ describe('AgentService', () => {
       db.query.agents.findFirst.mockResolvedValue({
         id: 'a1',
         status: 'planning',
-        projectId: 'p1',
+        codespaceId: 'p1',
         currentTaskId: 't1',
         currentSessionId: 's1',
         currentTurn: 3,
@@ -846,7 +846,7 @@ describe('AgentService', () => {
         plan: 'Step 1: do X\nStep 2: do Y',
         planOptions: null,
         worktreeId: 'w1',
-        projectId: 'p1',
+        codespaceId: 'p1',
       });
 
       const updateWhere = vi.fn();
@@ -875,7 +875,7 @@ describe('AgentService', () => {
       db.query.agents.findFirst.mockResolvedValue({
         id: 'a1',
         status: 'planning',
-        projectId: 'p1',
+        codespaceId: 'p1',
         currentTaskId: 't1',
         currentSessionId: 's1',
         currentTurn: 3,
@@ -888,7 +888,7 @@ describe('AgentService', () => {
         plan: 'Execute the plan',
         planOptions: null,
         worktreeId: 'w1',
-        projectId: 'p1',
+        codespaceId: 'p1',
       });
 
       const setMock = vi.fn();
@@ -915,7 +915,7 @@ describe('AgentService', () => {
       db.query.agents.findFirst.mockResolvedValue({
         id: 'a1',
         status: 'planning',
-        projectId: 'p1',
+        codespaceId: 'p1',
         currentTaskId: 't1',
         currentSessionId: 's1',
         currentTurn: 3,
@@ -1081,7 +1081,7 @@ describe('AgentService', () => {
       db.query.agents.findFirst.mockResolvedValue({
         id: 'a1',
         status: 'planning',
-        projectId: 'p1',
+        codespaceId: 'p1',
         currentTaskId: 't1',
         currentSessionId: 's1',
         currentTurn: 5,
@@ -1094,7 +1094,7 @@ describe('AgentService', () => {
         plan: '1. Create file A\n2. Update file B',
         planOptions: { allowedPrompts: [] },
         worktreeId: 'w1',
-        projectId: 'p1',
+        codespaceId: 'p1',
       });
 
       const updateWhere = vi.fn();
@@ -1126,7 +1126,7 @@ describe('AgentService', () => {
       db.query.agents.findFirst.mockResolvedValue({
         id: 'a1',
         status: 'planning',
-        projectId: 'p1',
+        codespaceId: 'p1',
         currentTaskId: 't1',
         currentSessionId: 's1',
         currentTurn: 3,
@@ -1139,7 +1139,7 @@ describe('AgentService', () => {
         plan: 'The plan',
         planOptions: null,
         worktreeId: 'w1',
-        projectId: 'p1',
+        codespaceId: 'p1',
       });
 
       const updateWhere = vi.fn();
@@ -1163,7 +1163,7 @@ describe('AgentService', () => {
 
   it('create uses project config defaults when agent config not provided', async () => {
     const db = createDbMock();
-    db.query.projects.findFirst.mockResolvedValue({
+    db.query.codespaces.findFirst.mockResolvedValue({
       id: 'p1',
       config: {
         allowedTools: ['Read', 'Write'],
@@ -1177,7 +1177,7 @@ describe('AgentService', () => {
     const returning = vi.fn().mockResolvedValue([
       {
         id: 'a1',
-        projectId: 'p1',
+        codespaceId: 'p1',
         config: {
           allowedTools: ['Read', 'Write'],
           maxTurns: 100,
@@ -1196,7 +1196,7 @@ describe('AgentService', () => {
       createSessionServiceMock() as never
     );
     const result = await service.create({
-      projectId: 'p1',
+      codespaceId: 'p1',
       name: 'Agent',
       type: 'task',
       status: 'idle',

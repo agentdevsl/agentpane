@@ -33,10 +33,23 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
     const parsed = await parseJsonBody(c, createTagSchema);
     if (!parsed.ok) return parsed.response;
 
+    // Look up which team owns this project folder for auth
+    const folderTeams = await db
+      .select({ teamId: teamProjectFolders.teamId })
+      .from(teamProjectFolders)
+      .where(eq(teamProjectFolders.projectFolderId, parsed.data.projectFolderId));
+    const ownerTeamId = folderTeams[0]?.teamId;
+    if (!ownerTeamId) {
+      return json(
+        { ok: false, error: { code: 'NOT_FOUND', message: 'Project folder not found' } },
+        404
+      );
+    }
+
     const denied = await requireTeamRole(
       auth,
       rbacService,
-      parsed.data.teamId,
+      ownerTeamId,
       'agent_operator',
       'Requires agent_operator role in team'
     );
@@ -46,7 +59,7 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
       const [created] = await db
         .insert(tags)
         .values({
-          teamId: parsed.data.teamId,
+          projectFolderId: parsed.data.projectFolderId,
           name: parsed.data.name,
           ...(parsed.data.color && { color: parsed.data.color }),
         })
@@ -93,7 +106,18 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
     if (denied) return denied;
 
     try {
-      const teamTags = await db.select().from(tags).where(eq(tags.teamId, teamId));
+      // Tags are now per-folder; find all folders for this team, then their tags
+      const folderIds = (
+        await db
+          .select({ projectFolderId: teamProjectFolders.projectFolderId })
+          .from(teamProjectFolders)
+          .where(eq(teamProjectFolders.teamId, teamId))
+      ).map((f) => f.projectFolderId);
+
+      const teamTags =
+        folderIds.length > 0
+          ? await db.select().from(tags).where(inArray(tags.projectFolderId, folderIds))
+          : [];
 
       // Batch-fetch project and task counts to avoid N+1 queries
       const tagIds = teamTags.map((t) => t.id);
@@ -143,17 +167,32 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
     const auth = c.get('auth');
 
     try {
-      // Check tag existence
-      const tagRows = await db.select({ teamId: tags.teamId }).from(tags).where(eq(tags.id, id));
+      // Check tag existence and resolve team via project folder
+      const tagRows = await db
+        .select({ projectFolderId: tags.projectFolderId })
+        .from(tags)
+        .where(eq(tags.id, id));
       const foundTag = tagRows[0];
       if (!foundTag) {
         return json({ ok: false, error: { code: 'TAG_NOT_FOUND', message: 'Tag not found' } }, 404);
       }
 
+      const folderTeams = await db
+        .select({ teamId: teamProjectFolders.teamId })
+        .from(teamProjectFolders)
+        .where(eq(teamProjectFolders.projectFolderId, foundTag.projectFolderId));
+      const ownerTeamId = folderTeams[0]?.teamId;
+      if (!ownerTeamId) {
+        return json(
+          { ok: false, error: { code: 'NOT_FOUND', message: 'Tag folder has no team' } },
+          404
+        );
+      }
+
       const denied = await requireTeamRole(
         auth,
         rbacService,
-        foundTag.teamId,
+        ownerTeamId,
         'admin',
         'Requires admin role in team'
       );
@@ -207,9 +246,9 @@ export function createProjectTagRoutes({
     const parsed = await parseJsonBody(c, assignTagSchema);
     if (!parsed.ok) return parsed.response;
 
-    // Verify tag belongs to a team that owns this codespace
+    // Verify tag belongs to a folder that owns this codespace
     const tagRecord = await db
-      .select({ teamId: tags.teamId })
+      .select({ projectFolderId: tags.projectFolderId })
       .from(tags)
       .where(eq(tags.id, parsed.data.tagId));
 
@@ -218,30 +257,19 @@ export function createProjectTagRoutes({
       return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Tag not found' } }, 404);
     }
 
-    // Verify team owns the codespace (via project folder)
+    // Verify codespace belongs to the same project folder as the tag
     const codespaceRecord = await db
       .select({ projectFolderId: codespaces.projectFolderId })
       .from(codespaces)
       .where(eq(codespaces.id, codespaceId));
-    const teamOwnsCodespace = codespaceRecord[0]?.projectFolderId
-      ? await db
-          .select({ teamId: teamProjectFolders.teamId })
-          .from(teamProjectFolders)
-          .where(
-            and(
-              eq(teamProjectFolders.teamId, foundTagForCodespace.teamId),
-              eq(teamProjectFolders.projectFolderId, codespaceRecord[0].projectFolderId)
-            )
-          )
-      : [];
 
-    if (teamOwnsCodespace.length === 0) {
+    if (codespaceRecord[0]?.projectFolderId !== foundTagForCodespace.projectFolderId) {
       return json(
         {
           ok: false,
           error: {
             code: 'FORBIDDEN',
-            message: 'Tag does not belong to a team that owns this codespace',
+            message: 'Tag does not belong to a folder that owns this codespace',
           },
         },
         403
@@ -348,9 +376,9 @@ export function createTaskTagRoutes({
     const parsed = await parseJsonBody(c, assignTagSchema);
     if (!parsed.ok) return parsed.response;
 
-    // Verify tag belongs to a team that owns this task's codespace
+    // Verify tag belongs to a folder that owns this task's codespace
     const tagRecord = await db
-      .select({ teamId: tags.teamId })
+      .select({ projectFolderId: tags.projectFolderId })
       .from(tags)
       .where(eq(tags.id, parsed.data.tagId));
 
@@ -359,30 +387,19 @@ export function createTaskTagRoutes({
       return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Tag not found' } }, 404);
     }
 
-    // Verify team owns the task's codespace (via project folder)
+    // Verify codespace belongs to the same project folder as the tag
     const taskCodespaceRecord = await db
       .select({ projectFolderId: codespaces.projectFolderId })
       .from(codespaces)
       .where(eq(codespaces.id, foundTask.codespaceId));
-    const teamOwnsTaskCodespace = taskCodespaceRecord[0]?.projectFolderId
-      ? await db
-          .select({ teamId: teamProjectFolders.teamId })
-          .from(teamProjectFolders)
-          .where(
-            and(
-              eq(teamProjectFolders.teamId, foundTagForTask.teamId),
-              eq(teamProjectFolders.projectFolderId, taskCodespaceRecord[0].projectFolderId)
-            )
-          )
-      : [];
 
-    if (teamOwnsTaskCodespace.length === 0) {
+    if (taskCodespaceRecord[0]?.projectFolderId !== foundTagForTask.projectFolderId) {
       return json(
         {
           ok: false,
           error: {
             code: 'FORBIDDEN',
-            message: "Tag does not belong to a team that owns this task's codespace",
+            message: "Tag does not belong to a folder that owns this task's codespace",
           },
         },
         403

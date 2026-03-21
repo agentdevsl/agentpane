@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import type { NewTemplate, Template, TemplateScope } from '../db/schema';
-import { githubTokens, templateProjects, templates } from '../db/schema';
+import { githubTokens, templateCodespaces, templates } from '../db/schema';
 import type { LocalConfig, MergedTemplateConfig } from '../lib/config/template-merge.js';
 import { mergeTemplates } from '../lib/config/template-merge.js';
 import type { TemplateError } from '../lib/errors/template-errors.js';
@@ -91,7 +91,7 @@ export class TemplateService {
 
     // Validate codespace-scoped templates require at least one codespace
     if (input.scope === 'codespace' && codespaceIds.length === 0) {
-      return err(TemplateErrors.CODESPACE_REQUIRED);
+      return err(TemplateErrors.PROJECT_REQUIRED);
     }
 
     // Check for duplicate template (same owner/repo in same scope)
@@ -138,7 +138,7 @@ export class TemplateService {
 
     // Insert codespace associations into junction table
     if (codespaceIds.length > 0) {
-      await this.db.insert(templateProjects).values(
+      await this.db.insert(templateCodespaces).values(
         codespaceIds.map((codespaceId) => ({
           templateId: template.id,
           codespaceId,
@@ -160,8 +160,8 @@ export class TemplateService {
     }
 
     // Get associated codespace IDs
-    const associations = await this.db.query.templateProjects.findMany({
-      where: eq(templateProjects.templateId, id),
+    const associations = await this.db.query.templateCodespaces.findMany({
+      where: eq(templateCodespaces.templateId, id),
     });
     const codespaceIds = associations.map((a) => a.codespaceId);
 
@@ -178,8 +178,8 @@ export class TemplateService {
 
     if (options?.codespaceId) {
       // Find templates associated with this codespace via junction table
-      const associations = await this.db.query.templateProjects.findMany({
-        where: eq(templateProjects.codespaceId, options.codespaceId),
+      const associations = await this.db.query.templateCodespaces.findMany({
+        where: eq(templateCodespaces.codespaceId, options.codespaceId),
       });
       const templateIds = associations.map((a) => a.templateId);
 
@@ -224,8 +224,8 @@ export class TemplateService {
     // Get associated codespace IDs for each template
     const result: TemplateWithProjects[] = await Promise.all(
       items.map(async (template) => {
-        const associations = await this.db.query.templateProjects.findMany({
-          where: eq(templateProjects.templateId, template.id),
+        const associations = await this.db.query.templateCodespaces.findMany({
+          where: eq(templateCodespaces.templateId, template.id),
         });
         return { ...template, codespaceIds: associations.map((a) => a.codespaceId) };
       })
@@ -276,12 +276,12 @@ export class TemplateService {
     // Update codespace associations if provided
     if (input.codespaceIds !== undefined) {
       // Delete existing associations
-      await this.db.delete(templateProjects).where(eq(templateProjects.templateId, id));
+      await this.db.delete(templateCodespaces).where(eq(templateCodespaces.templateId, id));
 
       // Insert new associations
       if (input.codespaceIds.length > 0) {
         const now = this.updateTimestamp();
-        await this.db.insert(templateProjects).values(
+        await this.db.insert(templateCodespaces).values(
           input.codespaceIds.map((codespaceId) => ({
             templateId: id,
             codespaceId,
@@ -292,8 +292,8 @@ export class TemplateService {
     }
 
     // Get updated codespace associations
-    const associations = await this.db.query.templateProjects.findMany({
-      where: eq(templateProjects.templateId, id),
+    const associations = await this.db.query.templateCodespaces.findMany({
+      where: eq(templateCodespaces.templateId, id),
     });
     const codespaceIds = associations.map((a) => a.codespaceId);
 

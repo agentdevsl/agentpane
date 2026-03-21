@@ -70,7 +70,7 @@ export class WorktreeInitService {
         githubOwner = derived.owner;
         githubRepo = derived.repo;
         log.info('Derived GitHub owner/repo from git remote', {
-          data: { taskId, owner: derived.owner, repo: derived.repo, codespacePath: project.path },
+          data: { taskId, owner: derived.owner, repo: derived.repo, codespacePath: codespace.path },
         });
         // Backfill the DB so future calls skip derivation
         try {
@@ -80,14 +80,14 @@ export class WorktreeInitService {
               githubOwner: derived.owner,
               githubRepo: derived.repo,
             })
-            .where(eq(codespaces.id, project.id));
+            .where(eq(codespaces.id, codespace.id));
           log.info('Backfilled GitHub config to codespace', {
-            data: { codespaceId: project.id, owner: derived.owner, repo: derived.repo },
+            data: { codespaceId: codespace.id, owner: derived.owner, repo: derived.repo },
           });
         } catch (dbErr) {
           const msg = dbErr instanceof Error ? dbErr.message : String(dbErr);
           log.info('Failed to backfill GitHub config (non-critical)', {
-            data: { codespaceId: project.id, error: msg },
+            data: { codespaceId: codespace.id, error: msg },
           });
         }
       }
@@ -222,7 +222,7 @@ export class WorktreeInitService {
     sandbox: { id: string };
   }): Promise<{ worktreeId?: string; worktreePath: string }> {
     // biome-ignore lint/correctness/noUnusedVariables: codespaceId is used in worktreeService.create() below
-    const { phase, taskId, sessionId, codespaceId, project, task, agentId } = params;
+    const { phase, taskId, sessionId, codespaceId, codespace, task, agentId } = params;
     const { db, streams, worktreeService } = this.deps;
     let worktreeId: string | undefined;
     let worktreePath = CONTAINER_WORKSPACE_PATH;

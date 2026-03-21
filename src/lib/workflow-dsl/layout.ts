@@ -443,11 +443,8 @@ function mapToCompactNodeType(type: WorkflowNode['type']): string {
     case 'loop':
     case 'parallel':
       return type;
-    default: {
-      // TypeScript exhaustiveness check - if this is reached, we have an unhandled type
-      const _exhaustiveCheck: never = type;
+    default:
       return type as string;
-    }
   }
 }
 

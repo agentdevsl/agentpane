@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ProjectErrors } from '../../lib/errors/project-errors.js';
+import { CodespaceErrors } from '../../lib/errors/codespace-errors.js';
 import { TaskErrors } from '../../lib/errors/task-errors.js';
 import { TaskService } from '../task.service.js';
 
 const createDbMock = () => {
   const mock = {
     query: {
-      projects: { findFirst: vi.fn() },
+      codespaces: { findFirst: vi.fn() },
       tasks: { findFirst: vi.fn(), findMany: vi.fn() },
       settings: { findFirst: vi.fn() },
     },
@@ -33,14 +33,14 @@ describe('TaskService', () => {
   it('creates task in backlog', async () => {
     const db = createDbMock();
     const worktrees = createWorktreeServiceMock();
-    db.query.projects.findFirst.mockResolvedValue({ id: 'p1' });
+    db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1' });
     db.query.tasks.findFirst.mockResolvedValue(null);
 
     const returning = vi.fn().mockResolvedValue([{ id: 't1', column: 'backlog', position: 0 }]);
     db.insert.mockReturnValue({ values: vi.fn(() => ({ returning })) });
 
     const service = new TaskService(db as never, worktrees as never);
-    const result = await service.create({ projectId: 'p1', title: 'Task' });
+    const result = await service.create({ codespaceId: 'p1', title: 'Task' });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -51,21 +51,21 @@ describe('TaskService', () => {
   it('returns error if project missing', async () => {
     const db = createDbMock();
     const worktrees = createWorktreeServiceMock();
-    db.query.projects.findFirst.mockResolvedValue(null);
+    db.query.codespaces.findFirst.mockResolvedValue(null);
 
     const service = new TaskService(db as never, worktrees as never);
-    const result = await service.create({ projectId: 'p1', title: 'Task' });
+    const result = await service.create({ codespaceId: 'p1', title: 'Task' });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toMatchObject(ProjectErrors.NOT_FOUND);
+      expect(result.error).toMatchObject(CodespaceErrors.NOT_FOUND);
     }
   });
 
   it('rejects invalid column transitions', async () => {
     const db = createDbMock();
     const worktrees = createWorktreeServiceMock();
-    db.query.tasks.findFirst.mockResolvedValue({ id: 't1', column: 'backlog', projectId: 'p1' });
+    db.query.tasks.findFirst.mockResolvedValue({ id: 't1', column: 'backlog', codespaceId: 'p1' });
 
     const service = new TaskService(db as never, worktrees as never);
     const result = await service.moveColumn('t1', 'verified');
@@ -86,7 +86,7 @@ describe('TaskService', () => {
       id: 't1',
       column: 'waiting_approval',
       worktreeId: 'w1',
-      projectId: 'p1',
+      codespaceId: 'p1',
     });
 
     worktrees.getDiff.mockResolvedValue({
@@ -323,7 +323,7 @@ describe('TaskService', () => {
     const db = createDbMock();
     const worktrees = createWorktreeServiceMock();
     db.query.tasks.findFirst
-      .mockResolvedValueOnce({ id: 't1', column: 'backlog', projectId: 'p1' })
+      .mockResolvedValueOnce({ id: 't1', column: 'backlog', codespaceId: 'p1' })
       .mockResolvedValueOnce(null); // No existing tasks in column
 
     const updateReturning = vi
@@ -362,7 +362,7 @@ describe('TaskService', () => {
     db.query.tasks.findFirst.mockResolvedValue({
       id: 't1',
       column: 'backlog',
-      projectId: 'p1',
+      codespaceId: 'p1',
     });
 
     const updateReturning = vi
@@ -385,7 +385,7 @@ describe('TaskService', () => {
     const db = createDbMock();
     const worktrees = createWorktreeServiceMock();
     db.query.tasks.findFirst
-      .mockResolvedValueOnce({ id: 't1', column: 'backlog', projectId: 'p1' })
+      .mockResolvedValueOnce({ id: 't1', column: 'backlog', codespaceId: 'p1' })
       .mockResolvedValueOnce(null);
 
     const updateReturning = vi
@@ -405,7 +405,7 @@ describe('TaskService', () => {
     const db = createDbMock();
     const worktrees = createWorktreeServiceMock();
     db.query.tasks.findFirst
-      .mockResolvedValueOnce({ id: 't1', column: 'backlog', projectId: 'p1' })
+      .mockResolvedValueOnce({ id: 't1', column: 'backlog', codespaceId: 'p1' })
       .mockResolvedValueOnce(null);
 
     const updateReturning = vi.fn().mockResolvedValue([]);
@@ -574,7 +574,7 @@ describe('TaskService', () => {
       id: 't1',
       column: 'waiting_approval',
       worktreeId: 'w1',
-      projectId: 'p1',
+      codespaceId: 'p1',
     });
 
     worktrees.getDiff.mockResolvedValue({
@@ -606,7 +606,7 @@ describe('TaskService', () => {
       id: 't1',
       column: 'waiting_approval',
       worktreeId: 'w1',
-      projectId: 'p1',
+      codespaceId: 'p1',
     });
 
     worktrees.getDiff.mockResolvedValue({
@@ -631,7 +631,7 @@ describe('TaskService', () => {
       id: 't1',
       column: 'waiting_approval',
       worktreeId: 'w1',
-      projectId: 'p1',
+      codespaceId: 'p1',
     });
 
     worktrees.getDiff.mockResolvedValue({
@@ -833,7 +833,7 @@ describe('TaskService', () => {
   it('create handles existing tasks in backlog for position', async () => {
     const db = createDbMock();
     const worktrees = createWorktreeServiceMock();
-    db.query.projects.findFirst.mockResolvedValue({ id: 'p1' });
+    db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1' });
     db.query.tasks.findFirst.mockResolvedValue({
       id: 't0',
       position: 5,
@@ -843,7 +843,7 @@ describe('TaskService', () => {
     db.insert.mockReturnValue({ values: vi.fn(() => ({ returning })) });
 
     const service = new TaskService(db as never, worktrees as never);
-    const result = await service.create({ projectId: 'p1', title: 'Task' });
+    const result = await service.create({ codespaceId: 'p1', title: 'Task' });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -854,14 +854,14 @@ describe('TaskService', () => {
   it('create returns error when insert fails', async () => {
     const db = createDbMock();
     const worktrees = createWorktreeServiceMock();
-    db.query.projects.findFirst.mockResolvedValue({ id: 'p1' });
+    db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1' });
     db.query.tasks.findFirst.mockResolvedValue(null);
 
     const returning = vi.fn().mockResolvedValue([]);
     db.insert.mockReturnValue({ values: vi.fn(() => ({ returning })) });
 
     const service = new TaskService(db as never, worktrees as never);
-    const result = await service.create({ projectId: 'p1', title: 'Task' });
+    const result = await service.create({ codespaceId: 'p1', title: 'Task' });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -873,7 +873,7 @@ describe('TaskService', () => {
     const db = createDbMock();
     const worktrees = createWorktreeServiceMock();
     db.query.tasks.findFirst
-      .mockResolvedValueOnce({ id: 't1', column: 'waiting_approval', projectId: 'p1' })
+      .mockResolvedValueOnce({ id: 't1', column: 'waiting_approval', codespaceId: 'p1' })
       .mockResolvedValueOnce(null);
 
     const updateReturning = vi

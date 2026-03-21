@@ -33,7 +33,7 @@ export interface CreateTokenParams {
   name: string;
   role: RbacRole;
   scopeTags?: string[] | null;
-  scopeProjectId?: string | null;
+  scopeCodespaceId?: string | null;
   expiresInDays?: number;
 }
 
@@ -44,7 +44,7 @@ export interface CreateTokenResult {
   role: RbacRole;
   teamId: string;
   scopeTags: string[] | null;
-  scopeProjectId: string | null;
+  scopeCodespaceId: string | null;
   token: string;
   expiresAt: string | null;
   createdAt: string;
@@ -56,7 +56,7 @@ export interface TokenListItem {
   tokenPrefix: string;
   role: RbacRole;
   scopeTags: string[] | null;
-  scopeProjectId: string | null;
+  scopeCodespaceId: string | null;
   status: ApiTokenStatus;
   expiresAt: string | null;
   lastUsedAt: string | null;
@@ -70,7 +70,7 @@ export interface ResolvedToken {
   userId: string;
   teamId: string;
   role: RbacRole;
-  scopeProjectId: string | null;
+  scopeCodespaceId: string | null;
   scopeTags: string[] | null;
   status: ApiTokenStatus;
   expiresAt: string | null;
@@ -156,7 +156,7 @@ export class RbacTokenService {
             tokenPrefix,
             role: params.role,
             scopeTags: params.scopeTags ?? null,
-            scopeProjectId: params.scopeProjectId ?? null,
+            scopeCodespaceId: params.scopeCodespaceId ?? null,
             expiresAt,
           })
           .returning();
@@ -173,7 +173,7 @@ export class RbacTokenService {
             role: created.role,
             teamId: created.teamId,
             scopeTags: created.scopeTags,
-            scopeProjectId: created.scopeProjectId,
+            scopeCodespaceId: created.scopeCodespaceId,
             token: rawToken,
             expiresAt: created.expiresAt,
             createdAt: created.createdAt,
@@ -213,7 +213,7 @@ export class RbacTokenService {
       userId: record.userId,
       teamId: record.teamId,
       role: record.role,
-      scopeProjectId: record.scopeProjectId,
+      scopeCodespaceId: record.scopeCodespaceId,
       scopeTags: record.scopeTags,
       status: record.status,
       expiresAt: record.expiresAt,

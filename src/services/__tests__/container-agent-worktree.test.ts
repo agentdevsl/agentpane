@@ -27,7 +27,7 @@ function createDbMock() {
 
   return {
     query: {
-      projects: { findFirst: vi.fn() },
+      codespaces: { findFirst: vi.fn() },
       agents: { findFirst: vi.fn() },
       tasks: { findFirst: vi.fn() },
       sessions: { findFirst: vi.fn() },
@@ -160,7 +160,7 @@ describe('ContainerAgentService — worktree integration', () => {
   const task = {
     id: 't1',
     title: 'Fix login bug',
-    projectId: 'p1',
+    codespaceId: 'p1',
     worktreeId: null as string | null,
   };
 
@@ -171,7 +171,7 @@ describe('ContainerAgentService — worktree integration', () => {
     apiKey = createApiKeyMock();
     worktreeService = createWorktreeMock();
 
-    db.query.projects.findFirst.mockResolvedValue(project);
+    db.query.codespaces.findFirst.mockResolvedValue(project);
     db.query.tasks.findFirst.mockResolvedValue(task);
 
     service = new ContainerAgentService(
@@ -187,7 +187,7 @@ describe('ContainerAgentService — worktree integration', () => {
 
   it('translates worktree path to /workspace/... format on creation', async () => {
     await service.startAgent({
-      projectId: 'p1',
+      codespaceId: 'p1',
       taskId: 't1',
       sessionId: 's1',
       prompt: 'Fix the bug',
@@ -208,7 +208,7 @@ describe('ContainerAgentService — worktree integration', () => {
     });
 
     await service.startAgent({
-      projectId: 'p1',
+      codespaceId: 'p1',
       taskId: 't1',
       sessionId: 's1',
       prompt: 'Execute plan',
@@ -228,7 +228,7 @@ describe('ContainerAgentService — worktree integration', () => {
     });
 
     await service.startAgent({
-      projectId: 'p1',
+      codespaceId: 'p1',
       taskId: 't1',
       sessionId: 's1',
       prompt: 'Fix the bug',
@@ -245,7 +245,7 @@ describe('ContainerAgentService — worktree integration', () => {
   it('commits worktree changes on completed status', async () => {
     // Start agent to populate running agents
     await service.startAgent({
-      projectId: 'p1',
+      codespaceId: 'p1',
       taskId: 't1',
       sessionId: 's1',
       prompt: 'Fix the bug',
@@ -266,7 +266,7 @@ describe('ContainerAgentService — worktree integration', () => {
 
   it('cleans up worktree on cancelled status', async () => {
     await service.startAgent({
-      projectId: 'p1',
+      codespaceId: 'p1',
       taskId: 't1',
       sessionId: 's1',
       prompt: 'Fix the bug',
@@ -283,7 +283,7 @@ describe('ContainerAgentService — worktree integration', () => {
 
   it('cleans up worktree on agent error', async () => {
     await service.startAgent({
-      projectId: 'p1',
+      codespaceId: 'p1',
       taskId: 't1',
       sessionId: 's1',
       prompt: 'Fix the bug',
@@ -311,7 +311,7 @@ describe('ContainerAgentService — worktree integration', () => {
     (service as any).state.setPendingPlan('t1', {
       taskId: 't1',
       sessionId: 's1',
-      projectId: 'p1',
+      codespaceId: 'p1',
       plan: 'Some plan',
       turnCount: 3,
       sdkSessionId: 'sdk-1',
@@ -357,7 +357,7 @@ describe('ContainerAgentService — worktree integration', () => {
     provider.sandbox.execStream.mockRejectedValue(new Error('Container exec failed'));
 
     const result = await service.startAgent({
-      projectId: 'p1',
+      codespaceId: 'p1',
       taskId: 't1',
       sessionId: 's1',
       prompt: 'Fix the bug',
@@ -375,7 +375,7 @@ describe('ContainerAgentService — worktree integration', () => {
 
   it('cleans up worktree as safety net during stopAgent', async () => {
     await service.startAgent({
-      projectId: 'p1',
+      codespaceId: 'p1',
       taskId: 't1',
       sessionId: 's1',
       prompt: 'Fix the bug',
@@ -394,7 +394,7 @@ describe('ContainerAgentService — worktree integration', () => {
   it('cleans up worktree when plan DB persistence fails in handlePlanReady', async () => {
     // Start agent to populate running agents with a worktree
     await service.startAgent({
-      projectId: 'p1',
+      codespaceId: 'p1',
       taskId: 't1',
       sessionId: 's1',
       prompt: 'Fix the bug',
@@ -440,7 +440,7 @@ describe('ContainerAgentService — worktree integration', () => {
     });
 
     await service.startAgent({
-      projectId: 'p1',
+      codespaceId: 'p1',
       taskId: 't1',
       sessionId: 's1',
       prompt: 'Fix the bug',
@@ -463,7 +463,7 @@ describe('ContainerAgentService — worktree integration', () => {
   it('prevents concurrent startAgent calls for the same task', async () => {
     // First call succeeds and registers as running
     const result1 = await service.startAgent({
-      projectId: 'p1',
+      codespaceId: 'p1',
       taskId: 't1',
       sessionId: 's1',
       prompt: 'Fix the bug',
@@ -473,7 +473,7 @@ describe('ContainerAgentService — worktree integration', () => {
 
     // Second call should fail because the first agent is already running
     const result2 = await service.startAgent({
-      projectId: 'p1',
+      codespaceId: 'p1',
       taskId: 't1',
       sessionId: 's2',
       prompt: 'Fix the bug',
@@ -505,7 +505,7 @@ describe('ContainerAgentService — K8s worktree integration', () => {
   const task = {
     id: 't1',
     title: 'Fix login bug',
-    projectId: 'p1',
+    codespaceId: 'p1',
     worktreeId: null as string | null,
     branch: null as string | null,
   };
@@ -518,7 +518,7 @@ describe('ContainerAgentService — K8s worktree integration', () => {
     worktreeService = createWorktreeMock();
     githubTokenService = createGithubTokenServiceMock();
 
-    db.query.projects.findFirst.mockResolvedValue(project);
+    db.query.codespaces.findFirst.mockResolvedValue(project);
     db.query.tasks.findFirst.mockResolvedValue(task);
 
     vi.mocked(resolveGitToken).mockReset();
@@ -546,7 +546,7 @@ describe('ContainerAgentService — K8s worktree integration', () => {
     });
 
     await service.startAgent({
-      projectId: 'p1',
+      codespaceId: 'p1',
       taskId: 't1',
       sessionId: 's1',
       prompt: 'Fix the bug',
@@ -574,7 +574,7 @@ describe('ContainerAgentService — K8s worktree integration', () => {
     });
 
     await service.startAgent({
-      projectId: 'p1',
+      codespaceId: 'p1',
       taskId: 't1',
       sessionId: 's1',
       prompt: 'Fix the bug',
@@ -586,9 +586,9 @@ describe('ContainerAgentService — K8s worktree integration', () => {
     expect(env.AGENT_CWD).toBe('/workspace/.worktrees/fix-bug-abc123');
   });
 
-  it('projects without GitHub config fall back to empty /workspace', async () => {
+  it('codespaces without GitHub config fall back to empty /workspace', async () => {
     // Override project to have no GitHub config
-    db.query.projects.findFirst.mockResolvedValue({
+    db.query.codespaces.findFirst.mockResolvedValue({
       ...project,
       githubOwner: null,
       githubRepo: null,
@@ -597,7 +597,7 @@ describe('ContainerAgentService — K8s worktree integration', () => {
     vi.mocked(resolveGitToken).mockResolvedValue(null);
 
     await service.startAgent({
-      projectId: 'p1',
+      codespaceId: 'p1',
       taskId: 't1',
       sessionId: 's1',
       prompt: 'Fix the bug',
@@ -622,7 +622,7 @@ describe('ContainerAgentService — K8s worktree integration', () => {
     });
 
     await service.startAgent({
-      projectId: 'p1',
+      codespaceId: 'p1',
       taskId: 't1',
       sessionId: 's1',
       prompt: 'Fix the bug',
@@ -646,7 +646,7 @@ describe('ContainerAgentService — K8s worktree integration', () => {
     );
 
     await dockerService.startAgent({
-      projectId: 'p1',
+      codespaceId: 'p1',
       taskId: 't1',
       sessionId: 's1',
       prompt: 'Fix the bug',

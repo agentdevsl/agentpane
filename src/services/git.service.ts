@@ -85,7 +85,7 @@ export class GitService {
       });
 
       if (!codespace) {
-        return err(GitErrors.CODESPACE_NOT_FOUND);
+        return err(GitErrors.PROJECT_NOT_FOUND);
       }
 
       return ok({ path: codespace.path, name: codespace.name });
@@ -106,7 +106,7 @@ export class GitService {
       // Get current branch
       const { stdout: branchOutput } = await this.commandRunner.exec(
         'git rev-parse --abbrev-ref HEAD',
-        projectPath
+        codespacePath
       );
       const currentBranch = branchOutput.trim();
 
@@ -116,7 +116,7 @@ export class GitService {
       // Get git status (porcelain format for easy parsing)
       const { stdout: statusOutput } = await this.commandRunner.exec(
         'git status --porcelain',
-        projectPath
+        codespacePath
       );
 
       const statusLines = statusOutput
@@ -137,7 +137,7 @@ export class GitService {
       try {
         const { stdout: aheadBehind } = await this.commandRunner.exec(
           'git rev-list --left-right --count HEAD...@{upstream}',
-          projectPath
+          codespacePath
         );
         const [aheadStr, behindStr] = aheadBehind.trim().split(/\s+/);
         ahead = Number.parseInt(aheadStr || '0', 10) || 0;
@@ -168,20 +168,20 @@ export class GitService {
       return codespaceResult;
     }
 
-    const _codespacePath = codespaceResult.value.path;
+    const codespacePath = codespaceResult.value.path;
 
     try {
       // Get current HEAD branch
       const { stdout: headOutput } = await this.commandRunner.exec(
         'git rev-parse --abbrev-ref HEAD',
-        projectPath
+        codespacePath
       );
       const currentBranch = headOutput.trim();
 
       // Get all local branches with their commit info
       const { stdout: branchOutput } = await this.commandRunner.exec(
         'git for-each-ref --format="%(refname:short)|%(objectname)|%(objectname:short)|%(upstream:track)" refs/heads/',
-        projectPath
+        codespacePath
       );
 
       const branches = await Promise.all(
@@ -202,7 +202,7 @@ export class GitService {
                 const escapedName = shellEscape(name);
                 const { stdout: countOutput } = await this.commandRunner.exec(
                   `git rev-list --count main..${escapedName} 2>/dev/null || git rev-list --count master..${escapedName} 2>/dev/null || echo "0"`,
-                  projectPath
+                  codespacePath
                 );
                 commitCount = parseInt(countOutput.trim(), 10) || 0;
               }
@@ -257,7 +257,7 @@ export class GitService {
       return codespaceResult;
     }
 
-    const _codespacePath = codespaceResult.value.path;
+    const codespacePath = codespaceResult.value.path;
     const branch = options?.branch;
     const limit = options?.limit ?? 50;
 
@@ -273,7 +273,7 @@ export class GitService {
       // Get commit log with format: hash|short|subject|author|date
       const { stdout: logOutput } = await this.commandRunner.exec(
         `git log ${targetBranch} --format="%H|%h|%s|%an|%aI" -n ${Number(limit)}`,
-        projectPath
+        codespacePath
       );
 
       const commits = await Promise.all(
@@ -297,7 +297,7 @@ export class GitService {
             try {
               const { stdout: statsOutput } = await this.commandRunner.exec(
                 `git show ${shellEscape(hash)} --stat --format="" | tail -1`,
-                projectPath
+                codespacePath
               );
               const statsLine = statsOutput.trim();
               const filesMatch = statsLine.match(/(\d+) files? changed/);
@@ -347,7 +347,7 @@ export class GitService {
       // Get all remote branches with their commit info
       const { stdout: branchOutput } = await this.commandRunner.exec(
         'git for-each-ref --format="%(refname:short)|%(objectname)|%(objectname:short)" refs/remotes/',
-        projectPath
+        codespacePath
       );
 
       const branches = await Promise.all(
@@ -376,7 +376,7 @@ export class GitService {
                 const escapedFullName = shellEscape(fullName);
                 const { stdout: countOutput } = await this.commandRunner.exec(
                   `git rev-list --count main..${escapedFullName} 2>/dev/null || git rev-list --count master..${escapedFullName} 2>/dev/null || echo "0"`,
-                  projectPath
+                  codespacePath
                 );
                 commitCount = parseInt(countOutput.trim(), 10) || 0;
               }

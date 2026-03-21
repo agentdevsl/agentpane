@@ -38,6 +38,6 @@ export const withErrorHandling =
     }
   };
 
-export const logRequest = async (_request: Request, context: ApiContext): Promise<void> => {
-  const _duration = Date.now() - context.startedAt;
+export const logRequest = async (_request: Request, _context: ApiContext): Promise<void> => {
+  // Request logging intentionally suppressed
 };

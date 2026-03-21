@@ -19,13 +19,6 @@ const SCHEDULER_INTERVAL_MS = 60 * 1000;
 export const MIN_SYNC_INTERVAL_MINUTES = 5;
 
 /**
- * Extract error message from unknown error type
- */
-function _getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-/**
  * Calculate the next sync time based on an interval in minutes
  */
 export function calculateNextSyncAt(intervalMinutes: number): string {

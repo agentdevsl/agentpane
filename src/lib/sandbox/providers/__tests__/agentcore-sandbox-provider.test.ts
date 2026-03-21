@@ -98,7 +98,7 @@ describe('AgentCoreSandboxProvider', () => {
       const instance = provider.create('proj-001', 'sandbox-001');
 
       expect(instance).toBeInstanceOf(AgentCoreSandboxInstance);
-      expect(instance.projectId).toBe('proj-001');
+      expect(instance.codespaceId).toBe('proj-001');
       expect(instance.sandboxId).toBe('sandbox-001');
       expect(instance.runtimeArn).toBe(testConfig.runtimeArn);
     });
@@ -130,8 +130,8 @@ describe('AgentCoreSandboxProvider', () => {
       const instance2 = provider.create('proj-002', 'sandbox-002');
 
       expect(instance1).not.toBe(instance2);
-      expect(instance1.projectId).toBe('proj-001');
-      expect(instance2.projectId).toBe('proj-002');
+      expect(instance1.codespaceId).toBe('proj-001');
+      expect(instance2.codespaceId).toBe('proj-002');
     });
   });
 
@@ -188,11 +188,11 @@ describe('AgentCoreSandboxProvider', () => {
       expect(session2).toBe(session1);
     });
 
-    it('should format session ID as projectId:taskId:timestamp', () => {
+    it('should format session ID as codespaceId:taskId:timestamp', () => {
       const provider = createProvider();
       const session = provider.getOrCreateSession('proj-001', 'task-001');
 
-      // Format: {projectId}:{taskId}:{timestamp}
+      // Format: {codespaceId}:{taskId}:{timestamp}
       const parts = session.split(':');
       expect(parts).toHaveLength(3);
       expect(parts[0]).toBe('proj-001');
@@ -371,7 +371,7 @@ describe('AgentCoreSandboxProvider', () => {
       const list = provider.list();
 
       expect(list).toHaveLength(2);
-      expect(list.map((i) => i.projectId).sort()).toEqual(['proj-001', 'proj-002']);
+      expect(list.map((i) => i.codespaceId).sort()).toEqual(['proj-001', 'proj-002']);
     });
 
     it('should include correct info for each instance', () => {
@@ -383,7 +383,7 @@ describe('AgentCoreSandboxProvider', () => {
       expect(list).toHaveLength(1);
       expect(list[0]).toMatchObject({
         sandboxId: 'sandbox-001',
-        projectId: 'proj-001',
+        codespaceId: 'proj-001',
         runtimeArn: testConfig.runtimeArn,
         status: 'running',
       });

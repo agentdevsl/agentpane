@@ -246,7 +246,7 @@ export class AgentExecutionService {
     const resolvedModel = resolveModel({
       taskModelOverride: taskModelOverride,
       agentModel: agent.config?.model,
-      codespaceModel: codespaceConfig?.model,
+      projectModel: codespaceConfig?.model,
       globalDefault,
     });
 
@@ -708,7 +708,7 @@ export class AgentExecutionService {
       const resolvedModel = resolveModel({
         taskModelOverride: taskModelOverride,
         agentModel: agent.config?.model,
-        codespaceModel: codespaceConfig?.model,
+        projectModel: codespaceConfig?.model,
         globalDefault,
       });
 

@@ -186,12 +186,12 @@ export function createCodespacesRoutes({ codespaceService, db }: CodespacesDeps)
         data: {
           items: summaries.map((s) => ({
             codespace: {
-              id: s.project.id,
-              name: s.project.name,
-              path: s.project.path,
-              description: s.project.description,
-              createdAt: s.project.createdAt,
-              updatedAt: s.project.updatedAt,
+              id: s.codespace.id,
+              name: s.codespace.name,
+              path: s.codespace.path,
+              description: s.codespace.description,
+              createdAt: s.codespace.createdAt,
+              updatedAt: s.codespace.updatedAt,
             },
             taskCounts: {
               backlog: s.taskCounts.backlog,
@@ -203,7 +203,7 @@ export function createCodespacesRoutes({ codespaceService, db }: CodespacesDeps)
             },
             runningAgents: s.runningAgents,
             status: s.status,
-            lastActivityAt: s.lastActivityAt ?? s.project.updatedAt,
+            lastActivityAt: s.lastActivityAt ?? s.codespace.updatedAt,
           })),
           nextCursor: null,
           hasMore: false,

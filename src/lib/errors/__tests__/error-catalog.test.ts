@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   AgentErrors,
+  CodespaceErrors,
   ConcurrencyErrors,
   createError,
   GitHubErrors,
-  ProjectErrors,
   SandboxConfigErrors,
   SessionErrors,
   TaskErrors,
@@ -25,52 +25,52 @@ describe('error catalog', () => {
     });
   });
 
-  it('ProjectErrors.NOT_FOUND', () => {
-    expect(ProjectErrors.NOT_FOUND).toMatchObject({
-      code: 'PROJECT_NOT_FOUND',
-      message: 'Project not found',
+  it('CodespaceErrors.NOT_FOUND', () => {
+    expect(CodespaceErrors.NOT_FOUND).toMatchObject({
+      code: 'CODESPACE_NOT_FOUND',
+      message: 'Codespace not found',
       status: 404,
       details: undefined,
     });
   });
 
-  it('ProjectErrors.PATH_EXISTS', () => {
-    expect(ProjectErrors.PATH_EXISTS).toMatchObject({
-      code: 'PROJECT_PATH_EXISTS',
-      message: 'A project with this path already exists',
+  it('CodespaceErrors.PATH_EXISTS', () => {
+    expect(CodespaceErrors.PATH_EXISTS).toMatchObject({
+      code: 'CODESPACE_PATH_EXISTS',
+      message: 'A codespace with this path already exists',
       status: 409,
       details: undefined,
     });
   });
 
-  it('ProjectErrors.PATH_INVALID', () => {
-    const error = ProjectErrors.PATH_INVALID('/tmp/project');
+  it('CodespaceErrors.PATH_INVALID', () => {
+    const error = CodespaceErrors.PATH_INVALID('/tmp/project');
 
     expect(error).toMatchObject({
-      code: 'PROJECT_PATH_INVALID',
-      message: 'Invalid project path: /tmp/project',
+      code: 'CODESPACE_PATH_INVALID',
+      message: 'Invalid codespace path: /tmp/project',
       status: 400,
       details: { path: '/tmp/project' },
     });
   });
 
-  it('ProjectErrors.HAS_RUNNING_AGENTS', () => {
-    const error = ProjectErrors.HAS_RUNNING_AGENTS(2);
+  it('CodespaceErrors.HAS_RUNNING_AGENTS', () => {
+    const error = CodespaceErrors.HAS_RUNNING_AGENTS(2);
 
     expect(error).toMatchObject({
-      code: 'PROJECT_HAS_RUNNING_AGENTS',
-      message: 'Cannot delete project with 2 running agent(s)',
+      code: 'CODESPACE_HAS_RUNNING_AGENTS',
+      message: 'Cannot delete codespace with 2 running agent(s)',
       status: 409,
       details: { runningAgentCount: 2 },
     });
   });
 
-  it('ProjectErrors.CONFIG_INVALID', () => {
-    const error = ProjectErrors.CONFIG_INVALID(['invalid']);
+  it('CodespaceErrors.CONFIG_INVALID', () => {
+    const error = CodespaceErrors.CONFIG_INVALID(['invalid']);
 
     expect(error).toMatchObject({
-      code: 'PROJECT_CONFIG_INVALID',
-      message: 'Invalid project configuration',
+      code: 'CODESPACE_CONFIG_INVALID',
+      message: 'Invalid codespace configuration',
       status: 400,
       details: { validationErrors: ['invalid'] },
     });

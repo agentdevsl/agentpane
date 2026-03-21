@@ -78,7 +78,6 @@ export class CliMonitorService {
     if (this.daemon?.daemonId !== daemonId) {
       return false;
     }
-    const _id = this.daemon.daemonId;
     this.daemon = null;
     this.sessions.clear();
     this.stopHeartbeatCheck();

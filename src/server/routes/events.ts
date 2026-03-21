@@ -820,7 +820,7 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
             403
           );
         }
-        conditions.push(eq(eventSubscriptions.targetProjectId, targetCodespaceId));
+        conditions.push(eq(eventSubscriptions.targetCodespaceId, targetCodespaceId));
       }
 
       // Filter by isEnabled

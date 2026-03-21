@@ -117,7 +117,7 @@ function ProjectTemplatesPage(): React.JSX.Element {
   useWatchEffect(() => {
     const fetchTemplates = async () => {
       setIsLoading(true);
-      const options: { scope: 'project'; codespaceId?: string } = { scope: 'project' };
+      const options: { scope: 'codespace'; codespaceId?: string } = { scope: 'codespace' };
       if (selectedProjectId !== 'all') {
         options.codespaceId = selectedProjectId;
       }
@@ -172,7 +172,7 @@ function ProjectTemplatesPage(): React.JSX.Element {
     }
     // Refresh templates list
     const listResult = await apiClient.templates.list({
-      scope: 'project',
+      scope: 'codespace',
       codespaceId: selectedProjectId === 'all' ? undefined : selectedProjectId,
     });
     if (listResult.ok) {
@@ -187,7 +187,7 @@ function ProjectTemplatesPage(): React.JSX.Element {
       await apiClient.templates.sync(templateId);
       // Refresh templates to get updated sync status
       const result = await apiClient.templates.list({
-        scope: 'project',
+        scope: 'codespace',
         codespaceId: selectedProjectId === 'all' ? undefined : selectedProjectId,
       });
       if (result.ok) {
@@ -351,7 +351,7 @@ function ProjectTemplatesPage(): React.JSX.Element {
       <AddTemplateDialog
         open={showAddDialog}
         onOpenChange={setShowAddDialog}
-        scope="project"
+        scope="codespace"
         initialProjectIds={selectedProjectId !== 'all' ? [selectedProjectId] : []}
         projects={projects.map((p) => ({ id: p.id, name: p.name }))}
         onSubmit={handleAddTemplate}

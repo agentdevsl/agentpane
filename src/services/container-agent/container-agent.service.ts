@@ -212,7 +212,7 @@ export class ContainerAgentService {
         const codespace = await this.deps.db.query.codespaces.findFirst({
           where: eq(codespaces.id, input.codespaceId),
         });
-        if (!codespace) return err(SandboxErrors.CODESPACE_NOT_FOUND);
+        if (!codespace) return err(SandboxErrors.PROJECT_NOT_FOUND);
         return this.agentCoreBridge.startAgentCoreAgent(input, codespace);
       }
       return this.containerExec.startAgent(input);

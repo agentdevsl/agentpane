@@ -117,10 +117,10 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
       }
     }
 
-    // E3: Validate scopeTags exist and belong to the specified team
+    // E3: Validate scopeTags exist and belong to the specified team (via project folders)
     if (parsed.data.scopeTags && parsed.data.scopeTags.length > 0) {
       const foundTags = await db
-        .select({ id: tags.id, teamId: tags.teamId })
+        .select({ id: tags.id, projectFolderId: tags.projectFolderId })
         .from(tags)
         .where(inArray(tags.id, parsed.data.scopeTags));
 
@@ -140,7 +140,13 @@ export function createRbacTokensRoutes({ db, rbacService }: TokensDeps) {
         );
       }
 
-      const wrongTeamTags = foundTags.filter((t) => t.teamId !== parsed.data.teamId);
+      // Verify tags belong to folders owned by the specified team
+      const teamFolders = await db
+        .select({ projectFolderId: teamProjectFolders.projectFolderId })
+        .from(teamProjectFolders)
+        .where(eq(teamProjectFolders.teamId, parsed.data.teamId));
+      const teamFolderIds = new Set(teamFolders.map((f) => f.projectFolderId));
+      const wrongTeamTags = foundTags.filter((t) => !teamFolderIds.has(t.projectFolderId));
       if (wrongTeamTags.length > 0) {
         return json(
           {

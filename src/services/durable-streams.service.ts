@@ -555,7 +555,7 @@ export class DurableStreamsService {
   async deleteStream(id: string): Promise<void> {
     // Call server.deleteStream if available
     if ('deleteStream' in this.server && this.server.deleteStream) {
-      const _deleted = await this.server.deleteStream(id);
+      await this.server.deleteStream(id);
     }
   }
 

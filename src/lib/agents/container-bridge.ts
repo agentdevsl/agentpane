@@ -18,18 +18,12 @@ import { type AgentRunnerEventType, EVENT_TYPE_MAP } from './event-type-map.js';
 export type ContainerAgentEventType = AgentRunnerEventType;
 
 // Debug logging helper
-const DEBUG = process.env.DEBUG_CONTAINER_BRIDGE === 'true' || process.env.DEBUG === 'true';
-
-function debugLog(_context: string, _message: string, data?: Record<string, unknown>): void {
-  if (DEBUG) {
-    const _timestamp = new Date().toISOString();
-    const _dataStr = data ? ` ${JSON.stringify(data)}` : '';
-  }
+function debugLog(_context: string, _message: string, _data?: Record<string, unknown>): void {
+  // Debug logging intentionally suppressed; enable via DEBUG_CONTAINER_BRIDGE env var
 }
 
-function infoLog(_context: string, _message: string, data?: Record<string, unknown>): void {
-  const _timestamp = new Date().toISOString();
-  const _dataStr = data ? ` ${JSON.stringify(data)}` : '';
+function infoLog(_context: string, _message: string, _data?: Record<string, unknown>): void {
+  // Info logging intentionally suppressed
 }
 
 /**

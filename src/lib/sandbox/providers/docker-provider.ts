@@ -740,9 +740,8 @@ export class DockerProvider implements EventEmittingSandboxProvider {
           this.sandboxes.delete(sandboxId);
           this.codespaceToSandbox.delete(sandbox.codespaceId);
           cleaned++;
-        } catch (error) {
+        } catch (_error) {
           // Log cleanup errors for debugging - don't fail the entire cleanup operation
-          const _message = errorMessage(error);
         }
       }
     }

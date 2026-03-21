@@ -454,7 +454,15 @@ export function createTeamsRoutes({ db, rbacService }: TeamsDeps) {
         await tx.delete(teamInvitations).where(eq(teamInvitations.teamId, id));
         await tx.delete(apiTokens).where(eq(apiTokens.teamId, id));
         await tx.delete(githubTokens).where(eq(githubTokens.teamId, id));
-        await tx.delete(tags).where(eq(tags.teamId, id)); // cascades to project_tags and task_tags
+        // Delete tags belonging to project folders owned by this team
+        const teamFolders = await tx
+          .select({ projectFolderId: teamProjectFolders.projectFolderId })
+          .from(teamProjectFolders)
+          .where(eq(teamProjectFolders.teamId, id));
+        const folderIds = teamFolders.map((f) => f.projectFolderId);
+        if (folderIds.length > 0) {
+          await tx.delete(tags).where(inArray(tags.projectFolderId, folderIds));
+        }
         // Clean up project member overrides granted by this team
         // Note: project members are now resolved through folder membership;
         // direct overrides with grantedByTeamId still need cleanup.

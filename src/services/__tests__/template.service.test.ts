@@ -34,7 +34,7 @@ const createDbMock = () => ({
       findFirst: vi.fn(),
       findMany: vi.fn(),
     },
-    templateProjects: {
+    templateCodespaces: {
       findMany: vi.fn(),
     },
     githubInstallations: {
@@ -58,7 +58,7 @@ const sampleTemplate = {
   githubRepo: 'template-repo',
   branch: 'main',
   configPath: '.claude',
-  projectId: null,
+  codespaceId: null,
   status: 'active' as const,
   lastSyncSha: null,
   lastSyncedAt: null,
@@ -93,18 +93,18 @@ describe('TemplateService', () => {
       if (result.ok) {
         expect(result.value.name).toBe('Test Template');
         expect(result.value.scope).toBe('org');
-        expect(result.value.projectIds).toEqual([]);
+        expect(result.value.codespaceIds).toEqual([]);
       }
     });
 
-    it('creates a project-scoped template with projectId', async () => {
+    it('creates a project-scoped template with codespaceId', async () => {
       const db = createDbMock();
       db.query.templates.findFirst.mockResolvedValue(null); // No duplicate
 
       const projectTemplate = {
         ...sampleTemplate,
-        scope: 'project' as const,
-        projectId: 'proj-1',
+        scope: 'codespace' as const,
+        codespaceId: 'proj-1',
       };
       const returning = vi.fn().mockResolvedValue([projectTemplate]);
       const values = vi.fn(() => ({ returning }));
@@ -113,15 +113,15 @@ describe('TemplateService', () => {
       const service = new TemplateService(db as never);
       const result = await service.create({
         name: 'Project Template',
-        scope: 'project',
+        scope: 'codespace',
         githubUrl: 'testorg/template-repo',
-        projectIds: ['proj-1'],
+        codespaceIds: ['proj-1'],
       });
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value.scope).toBe('project');
-        expect(result.value.projectIds).toEqual(['proj-1']);
+        expect(result.value.scope).toBe('codespace');
+        expect(result.value.codespaceIds).toEqual(['proj-1']);
       }
     });
 
@@ -158,15 +158,15 @@ describe('TemplateService', () => {
       }
     });
 
-    it('returns error for project-scoped template without projectId', async () => {
+    it('returns error for project-scoped template without codespaceId', async () => {
       const db = createDbMock();
 
       const service = new TemplateService(db as never);
       const result = await service.create({
         name: 'Project Template',
-        scope: 'project',
+        scope: 'codespace',
         githubUrl: 'testorg/template-repo',
-        // No projectIds
+        // No codespaceIds
       });
 
       expect(result.ok).toBe(false);
@@ -180,7 +180,7 @@ describe('TemplateService', () => {
     it('returns template when found', async () => {
       const db = createDbMock();
       db.query.templates.findFirst.mockResolvedValue(sampleTemplate);
-      db.query.templateProjects.findMany.mockResolvedValue([]);
+      db.query.templateCodespaces.findMany.mockResolvedValue([]);
 
       const service = new TemplateService(db as never);
       const result = await service.getById('tpl-1');
@@ -188,16 +188,16 @@ describe('TemplateService', () => {
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value.id).toBe('tpl-1');
-        expect(result.value.projectIds).toEqual([]);
+        expect(result.value.codespaceIds).toEqual([]);
       }
     });
 
     it('returns template with associated project IDs', async () => {
       const db = createDbMock();
       db.query.templates.findFirst.mockResolvedValue(sampleTemplate);
-      db.query.templateProjects.findMany.mockResolvedValue([
-        { templateId: 'tpl-1', projectId: 'proj-1', createdAt: '2026-01-01T00:00:00Z' },
-        { templateId: 'tpl-1', projectId: 'proj-2', createdAt: '2026-01-01T00:00:00Z' },
+      db.query.templateCodespaces.findMany.mockResolvedValue([
+        { templateId: 'tpl-1', codespaceId: 'proj-1', createdAt: '2026-01-01T00:00:00Z' },
+        { templateId: 'tpl-1', codespaceId: 'proj-2', createdAt: '2026-01-01T00:00:00Z' },
       ]);
 
       const service = new TemplateService(db as never);
@@ -205,7 +205,7 @@ describe('TemplateService', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value.projectIds).toEqual(['proj-1', 'proj-2']);
+        expect(result.value.codespaceIds).toEqual(['proj-1', 'proj-2']);
       }
     });
 
@@ -227,7 +227,7 @@ describe('TemplateService', () => {
     it('returns list of templates', async () => {
       const db = createDbMock();
       db.query.templates.findMany.mockResolvedValue([sampleTemplate]);
-      db.query.templateProjects.findMany.mockResolvedValue([]);
+      db.query.templateCodespaces.findMany.mockResolvedValue([]);
 
       const service = new TemplateService(db as never);
       const result = await service.list();
@@ -255,7 +255,7 @@ describe('TemplateService', () => {
     it('filters by scope', async () => {
       const db = createDbMock();
       db.query.templates.findMany.mockResolvedValue([sampleTemplate]);
-      db.query.templateProjects.findMany.mockResolvedValue([]);
+      db.query.templateCodespaces.findMany.mockResolvedValue([]);
 
       const service = new TemplateService(db as never);
       await service.list({ scope: 'org' });
@@ -263,15 +263,15 @@ describe('TemplateService', () => {
       expect(db.query.templates.findMany).toHaveBeenCalled();
     });
 
-    it('filters by projectId via junction table', async () => {
+    it('filters by codespaceId via junction table', async () => {
       const db = createDbMock();
-      db.query.templateProjects.findMany.mockResolvedValue([
-        { templateId: 'tpl-1', projectId: 'proj-1', createdAt: '2026-01-01T00:00:00Z' },
+      db.query.templateCodespaces.findMany.mockResolvedValue([
+        { templateId: 'tpl-1', codespaceId: 'proj-1', createdAt: '2026-01-01T00:00:00Z' },
       ]);
       db.query.templates.findMany.mockResolvedValue([sampleTemplate]);
 
       const service = new TemplateService(db as never);
-      const result = await service.list({ projectId: 'proj-1' });
+      const result = await service.list({ codespaceId: 'proj-1' });
 
       expect(result.ok).toBe(true);
     });
@@ -287,7 +287,7 @@ describe('TemplateService', () => {
       const updateSet = vi.fn(() => ({ where: updateWhere }));
       db.update.mockReturnValue({ set: updateSet });
 
-      db.query.templateProjects.findMany.mockResolvedValue([]);
+      db.query.templateCodespaces.findMany.mockResolvedValue([]);
 
       const service = new TemplateService(db as never);
       const result = await service.update('tpl-1', { name: 'Updated Name' });
@@ -330,16 +330,16 @@ describe('TemplateService', () => {
       const insertValues = vi.fn(() => ({ returning: vi.fn() }));
       db.insert.mockReturnValue({ values: insertValues });
 
-      db.query.templateProjects.findMany.mockResolvedValue([
-        { templateId: 'tpl-1', projectId: 'proj-new', createdAt: '2026-01-01T00:00:00Z' },
+      db.query.templateCodespaces.findMany.mockResolvedValue([
+        { templateId: 'tpl-1', codespaceId: 'proj-new', createdAt: '2026-01-01T00:00:00Z' },
       ]);
 
       const service = new TemplateService(db as never);
-      const result = await service.update('tpl-1', { projectIds: ['proj-new'] });
+      const result = await service.update('tpl-1', { codespaceIds: ['proj-new'] });
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value.projectIds).toEqual(['proj-new']);
+        expect(result.value.codespaceIds).toEqual(['proj-new']);
       }
     });
   });

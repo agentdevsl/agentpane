@@ -19,18 +19,12 @@ import { type AgentRunnerEventType, EVENT_TYPE_MAP } from './event-type-map.js';
 export type { SSEEvent } from '../sandbox/providers/agentcore-sandbox-instance.js';
 
 // Debug logging helper
-const DEBUG = process.env.DEBUG_AGENTCORE_BRIDGE === 'true' || process.env.DEBUG === 'true';
-
-function debugLog(_context: string, _message: string, data?: Record<string, unknown>): void {
-  if (DEBUG) {
-    const _timestamp = new Date().toISOString();
-    const _dataStr = data ? ` ${JSON.stringify(data)}` : '';
-  }
+function debugLog(_context: string, _message: string, _data?: Record<string, unknown>): void {
+  // Debug logging intentionally suppressed; enable via DEBUG_AGENTCORE_BRIDGE env var
 }
 
-function warnLog(_context: string, _message: string, data?: Record<string, unknown>): void {
-  const _timestamp = new Date().toISOString();
-  const _dataStr = data ? ` ${JSON.stringify(data)}` : '';
+function warnLog(_context: string, _message: string, _data?: Record<string, unknown>): void {
+  // Warn logging intentionally suppressed
 }
 
 /**

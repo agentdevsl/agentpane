@@ -842,7 +842,7 @@ export const apiClient = {
   },
 
   templates: {
-    list: (options?: { scope?: 'org' | 'project'; codespaceId?: string; limit?: number }) => {
+    list: (options?: { scope?: 'org' | 'codespace'; codespaceId?: string; limit?: number }) => {
       const searchParams = new URLSearchParams();
       if (options?.scope) searchParams.set('scope', options.scope);
       if (options?.codespaceId) searchParams.set('codespaceId', options.codespaceId);
