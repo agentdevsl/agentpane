@@ -1,0 +1,286 @@
+import {
+  CaretDown,
+  CaretUp,
+  CheckCircle,
+  FunnelSimple,
+  Lightning,
+  MagnifyingGlass,
+  Warning,
+  WarningCircle,
+  XCircle,
+} from '@phosphor-icons/react';
+import { useMemo, useState } from 'react';
+import {
+  agentStatusVariants,
+  lastRunStatusVariants,
+  priorityVariants,
+} from '@/app/components/features/kanban-board/styles';
+import { cn } from '@/lib/utils/cn';
+
+// =============================================================================
+// Types
+// =============================================================================
+
+interface TaskItem {
+  id: string;
+  title: string;
+  column: string; // 'backlog' | 'queued' | 'in_progress' | 'waiting_approval' | 'done'
+  priority?: 'low' | 'medium' | 'high';
+  agentId?: string | null;
+  sessionId?: string | null;
+  lastAgentStatus?: string | null;
+  labels?: string[] | null;
+}
+
+interface TaskListSidebarProps {
+  tasks: TaskItem[];
+  selectedTaskId: string | null;
+  onTaskSelect: (taskId: string) => void;
+  searchQuery: string;
+  onSearchChange: (query: string) => void;
+}
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+/** Sort weight per column — lower values float to the top. */
+const columnSortOrder: Record<string, number> = {
+  in_progress: 0,
+  waiting_approval: 1,
+  queued: 2,
+  backlog: 3,
+  done: 4,
+};
+
+/** Priority label mapping. */
+const priorityLabels: Record<string, string> = {
+  high: 'P0',
+  medium: 'P1',
+  low: 'P2',
+};
+
+/** Get icon and label for last agent run status (same as kanban-card.tsx) */
+function getLastRunStatusInfo(status: string | null | undefined): {
+  icon: React.ReactNode;
+  label: string;
+  status: 'completed' | 'cancelled' | 'error' | 'turn_limit' | 'planning';
+} | null {
+  if (!status) return null;
+  switch (status) {
+    case 'completed':
+      return {
+        icon: <CheckCircle className="w-3 h-3" weight="fill" />,
+        label: 'Completed',
+        status: 'completed',
+      };
+    case 'cancelled':
+      return {
+        icon: <XCircle className="w-3 h-3" weight="fill" />,
+        label: 'Cancelled',
+        status: 'cancelled',
+      };
+    case 'error':
+      return {
+        icon: <WarningCircle className="w-3 h-3" weight="fill" />,
+        label: 'Error',
+        status: 'error',
+      };
+    case 'turn_limit':
+      return {
+        icon: <Warning className="w-3 h-3" weight="fill" />,
+        label: 'Turn limit',
+        status: 'turn_limit',
+      };
+    case 'planning':
+      return {
+        icon: <Lightning className="w-3 h-3" weight="fill" />,
+        label: 'Plan ready',
+        status: 'planning',
+      };
+    default:
+      return null;
+  }
+}
+
+/** Format task ID for display (same as kanban-card.tsx) */
+function formatTaskId(id: string): string {
+  return `#TSK-${id.slice(-3).toUpperCase()}`;
+}
+
+// =============================================================================
+// Component
+// =============================================================================
+
+type SortOption = 'status' | 'priority' | 'name';
+
+const prioritySortOrder: Record<string, number> = {
+  high: 0,
+  medium: 1,
+  low: 2,
+};
+
+export function TaskListSidebar({
+  tasks,
+  selectedTaskId,
+  onTaskSelect,
+  searchQuery,
+  onSearchChange,
+}: TaskListSidebarProps): React.JSX.Element {
+  const [sortBy, setSortBy] = useState<SortOption>('status');
+
+  const filteredAndSorted = useMemo(() => {
+    const query = searchQuery.toLowerCase().trim();
+    const filtered = query ? tasks.filter((t) => t.title.toLowerCase().includes(query)) : tasks;
+
+    return [...filtered].sort((a, b) => {
+      switch (sortBy) {
+        case 'status':
+          return (columnSortOrder[a.column] ?? 99) - (columnSortOrder[b.column] ?? 99);
+        case 'priority':
+          return (
+            (prioritySortOrder[a.priority ?? ''] ?? 99) -
+            (prioritySortOrder[b.priority ?? ''] ?? 99)
+          );
+        case 'name':
+          return a.title.localeCompare(b.title);
+        default:
+          return 0;
+      }
+    });
+  }, [tasks, searchQuery, sortBy]);
+
+  return (
+    <aside className="flex h-full w-[252px] shrink-0 flex-col border-r border-border bg-surface">
+      {/* Header */}
+      <div className="border-b border-border px-3 pt-3 pb-2">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-fg-subtle">
+            Tasks
+          </span>
+          {/* Sort control */}
+          <div className="flex items-center gap-1">
+            <FunnelSimple size={12} className="text-fg-subtle" />
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as SortOption)}
+              className="appearance-none bg-transparent text-[10px] font-medium text-fg-muted outline-none cursor-pointer hover:text-fg transition-colors"
+            >
+              <option value="status">Status</option>
+              <option value="priority">Priority</option>
+              <option value="name">Name</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Search */}
+        <div className="relative mt-2">
+          <MagnifyingGlass className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-fg-muted" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder="Search tasks…"
+            className="w-full rounded-md border border-border bg-surface-subtle py-1.5 pl-8 pr-3 text-sm text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none transition-colors duration-[220ms] ease-[cubic-bezier(0.4,0,0.2,1)]"
+          />
+        </div>
+      </div>
+
+      {/* Task list */}
+      <div className="flex-1 overflow-y-auto px-1.5 py-1.5">
+        {filteredAndSorted.length === 0 ? (
+          <div className="flex items-center justify-center py-12">
+            <p className="text-xs text-fg-muted">No tasks found</p>
+          </div>
+        ) : (
+          <div className="space-y-0.5">
+            {filteredAndSorted.map((task) => (
+              <TaskCard
+                key={task.id}
+                task={task}
+                isSelected={task.id === selectedTaskId}
+                onSelect={onTaskSelect}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="flex items-center justify-between border-t border-border px-3 py-2">
+        <span className="text-[10px] text-fg-subtle">
+          {filteredAndSorted.length} {filteredAndSorted.length === 1 ? 'task' : 'tasks'}
+        </span>
+        <span className="flex items-center gap-1 text-[10px] text-fg-subtle">
+          <CaretUp className="h-3 w-3" />
+          <CaretDown className="h-3 w-3" />
+          navigate
+        </span>
+      </div>
+    </aside>
+  );
+}
+
+// =============================================================================
+// Sub-components
+// =============================================================================
+
+function TaskCard({
+  task,
+  isSelected,
+  onSelect,
+}: {
+  task: TaskItem;
+  isSelected: boolean;
+  onSelect: (id: string) => void;
+}): React.JSX.Element {
+  const priority = (task.priority ?? 'medium') as 'high' | 'medium' | 'low';
+  const isAgentRunning =
+    task.column === 'in_progress' && (Boolean(task.agentId) || Boolean(task.sessionId));
+  const lastRunStatus = getLastRunStatusInfo(task.lastAgentStatus);
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(task.id)}
+      className={cn(
+        'w-full rounded-md border bg-surface p-3 text-left transition-all duration-150',
+        isSelected ? 'border-accent bg-accent-muted' : 'border-border hover:border-fg-subtle'
+      )}
+    >
+      {/* Header: priority dot + title */}
+      <div className="flex items-start gap-2">
+        <div className={cn(priorityVariants({ priority }), 'mt-1.5')} />
+        <div className="flex-1 text-sm font-medium leading-snug text-fg truncate">{task.title}</div>
+      </div>
+
+      {/* Footer: task ID + status badge */}
+      <div className="flex items-center justify-between mt-2">
+        <span className="font-mono text-xs text-fg-muted">{formatTaskId(task.id)}</span>
+
+        {/* Last run status (matches kanban card) */}
+        {lastRunStatus && !isAgentRunning && (
+          <div className={lastRunStatusVariants({ status: lastRunStatus.status })}>
+            {lastRunStatus.icon}
+            <span>{lastRunStatus.label}</span>
+          </div>
+        )}
+
+        {/* Priority label */}
+        {!lastRunStatus && !isAgentRunning && (
+          <span className="text-[10px] font-medium text-fg-subtle">
+            {priorityLabels[priority] ?? 'P1'}
+          </span>
+        )}
+      </div>
+
+      {/* Agent running indicator (matches kanban card) */}
+      {isAgentRunning && (
+        <div className={agentStatusVariants({ status: 'running' })}>
+          <div className="w-1.5 h-1.5 bg-current rounded-full animate-pulse" />
+          <span>Agent running...</span>
+        </div>
+      )}
+    </button>
+  );
+}

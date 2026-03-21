@@ -1,4 +1,4 @@
-import { GearSix } from '@phosphor-icons/react';
+import { Broadcast, GearSix, Kanban as KanbanIcon } from '@phosphor-icons/react';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import React, { Suspense, useCallback, useRef, useState } from 'react';
 import { ApprovalDialog } from '@/app/components/features/approval-dialog';
@@ -11,6 +11,7 @@ const NewTaskDialog = React.lazy(() =>
   import('@/app/components/features/new-task-dialog').then((m) => ({ default: m.NewTaskDialog }))
 );
 
+import { LiveTaskView } from '@/app/components/features/live-task-view';
 import { SandboxIndicator } from '@/app/components/features/sandbox-indicator';
 import { TaskDetailDialog } from '@/app/components/features/task-detail-dialog/index';
 import { AIActionButton } from '@/app/components/ui/ai-action-button';
@@ -19,6 +20,7 @@ import { useToast } from '@/app/hooks/use-toast';
 import type { Task } from '@/db/schema';
 import { apiClient, type CodespaceListItem } from '@/lib/api/client';
 import type { DiffSummary } from '@/lib/types/diff';
+import { cn } from '@/lib/utils/cn';
 
 // Client task type - subset of Task for client-side display
 type ClientTask = Pick<
@@ -72,6 +74,7 @@ function CodespaceKanban(): React.JSX.Element {
   const [showNewTask, setShowNewTask] = useState(false);
   const [approvalTask, setApprovalTask] = useState<ClientTask | null>(null);
   const [isRestartingSandbox, setIsRestartingSandbox] = useState(false);
+  const [viewMode, setViewMode] = useState<'kanban' | 'live'>('kanban');
 
   // Fetch sandbox status for the title bar indicator
   const {
@@ -342,51 +345,113 @@ function CodespaceKanban(): React.JSX.Element {
       codespaceId={codespace.id}
       codespaceName={codespace.name}
       codespacePath={codespace.path}
-      breadcrumbs={[{ label: 'Codespaces', to: '/codespaces' }, { label: codespace.name }]}
-      centerAction={
-        <AIActionButton onClick={() => setShowNewTask(true)} data-testid="add-task-button" />
-      }
-      actions={
-        <div className="flex items-center gap-2">
-          {sandboxStatus && (
-            <SandboxIndicator
-              mode={sandboxStatus.mode}
-              containerStatus={sandboxStatus.containerStatus}
-              providerAvailable={sandboxStatus.providerAvailable}
-              provider={sandboxStatus.provider}
-              isLoading={sandboxLoading}
-              isRestarting={isRestartingSandbox}
-              onRestart={handleRestartSandbox}
-              k8sCrdReady={sandboxStatus.k8sCrdReady}
-              k8sClusterVersion={sandboxStatus.k8sClusterVersion}
-              k8sPodCount={sandboxStatus.k8sPodCount}
-              k8sPodsRunning={sandboxStatus.k8sPodsRunning}
-              nomadHealthy={sandboxStatus.nomadHealthy}
-              nomadVersion={sandboxStatus.nomadVersion}
-              nomadLeader={sandboxStatus.nomadLeader}
-              nomadJobCount={sandboxStatus.nomadJobCount}
-            />
-          )}
-          <Link
-            to="/codespaces/$codespaceId/settings"
-            params={{ codespaceId: codespace.id }}
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-surface-subtle text-fg-muted transition-colors hover:bg-surface hover:text-fg"
-            data-testid="codespace-settings-link"
+      header={
+        <header
+          className="flex items-center gap-4 border-b border-border bg-surface px-4 py-3 sm:px-6 sm:py-4"
+          data-testid="layout-header"
+        >
+          {/* Breadcrumbs */}
+          <div className="flex items-center gap-2 text-sm">
+            <Link to="/codespaces" className="text-fg-muted hover:text-fg transition-colors">
+              Codespaces
+            </Link>
+            <span className="text-fg-subtle">/</span>
+            <span className="font-medium text-fg">{codespace.name}</span>
+          </div>
+
+          {/* View mode toggle — left-aligned, prominent */}
+          <div
+            className="flex items-center rounded-lg border border-border bg-surface-subtle p-0.5"
+            data-testid="view-mode-toggle"
           >
-            <GearSix className="h-4 w-4" />
-            <span className="sr-only">Codespace settings</span>
-          </Link>
-        </div>
+            <button
+              type="button"
+              onClick={() => setViewMode('kanban')}
+              className={cn(
+                'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[13px] font-medium transition-all duration-[220ms] ease-[cubic-bezier(0.4,0,0.2,1)]',
+                viewMode === 'kanban'
+                  ? 'bg-surface-emphasis text-fg shadow-sm'
+                  : 'text-fg-muted hover:text-fg'
+              )}
+              data-testid="view-mode-kanban"
+            >
+              <KanbanIcon size={16} weight={viewMode === 'kanban' ? 'fill' : 'regular'} />
+              Kanban
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('live')}
+              className={cn(
+                'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[13px] font-medium transition-all duration-[220ms] ease-[cubic-bezier(0.4,0,0.2,1)]',
+                viewMode === 'live'
+                  ? 'bg-surface-emphasis text-fg shadow-sm'
+                  : 'text-fg-muted hover:text-fg'
+              )}
+              data-testid="view-mode-live"
+            >
+              <Broadcast size={16} weight={viewMode === 'live' ? 'fill' : 'regular'} />
+              Live
+            </button>
+          </div>
+
+          {/* Spacer */}
+          <div className="flex-1" />
+
+          {/* Center: AI Action Button */}
+          <AIActionButton onClick={() => setShowNewTask(true)} data-testid="add-task-button" />
+
+          {/* Spacer */}
+          <div className="flex-1" />
+
+          {/* Right: Sandbox + Settings */}
+          <div className="flex items-center gap-2">
+            {sandboxStatus && (
+              <SandboxIndicator
+                mode={sandboxStatus.mode}
+                containerStatus={sandboxStatus.containerStatus}
+                providerAvailable={sandboxStatus.providerAvailable}
+                provider={sandboxStatus.provider}
+                isLoading={sandboxLoading}
+                isRestarting={isRestartingSandbox}
+                onRestart={handleRestartSandbox}
+                k8sCrdReady={sandboxStatus.k8sCrdReady}
+                k8sClusterVersion={sandboxStatus.k8sClusterVersion}
+                k8sPodCount={sandboxStatus.k8sPodCount}
+                k8sPodsRunning={sandboxStatus.k8sPodsRunning}
+                nomadHealthy={sandboxStatus.nomadHealthy}
+                nomadVersion={sandboxStatus.nomadVersion}
+                nomadLeader={sandboxStatus.nomadLeader}
+                nomadJobCount={sandboxStatus.nomadJobCount}
+              />
+            )}
+            <Link
+              to="/codespaces/$codespaceId/settings"
+              params={{ codespaceId: codespace.id }}
+              className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-surface-subtle text-fg-muted transition-colors hover:bg-surface hover:text-fg"
+              data-testid="codespace-settings-link"
+            >
+              <GearSix className="h-4 w-4" />
+              <span className="sr-only">Codespace settings</span>
+            </Link>
+          </div>
+        </header>
       }
     >
-      {/* FC-002: 3-level prop drilling is acceptable here -- callbacks are memoized via useCallback */}
-      <KanbanBoard
-        tasks={tasks as Parameters<typeof KanbanBoard>[0]['tasks']}
-        onTaskMove={handleTaskMove as Parameters<typeof KanbanBoard>[0]['onTaskMove']}
-        onTaskClick={handleTaskClick as Parameters<typeof KanbanBoard>[0]['onTaskClick']}
-        onRunNow={handleRunNow}
-        onStopAgent={handleStopAgent}
-      />
+      {viewMode === 'kanban' ? (
+        <KanbanBoard
+          tasks={tasks as Parameters<typeof KanbanBoard>[0]['tasks']}
+          onTaskMove={handleTaskMove as Parameters<typeof KanbanBoard>[0]['onTaskMove']}
+          onTaskClick={handleTaskClick as Parameters<typeof KanbanBoard>[0]['onTaskClick']}
+          onRunNow={handleRunNow}
+          onStopAgent={handleStopAgent}
+        />
+      ) : (
+        <LiveTaskView
+          tasks={tasks}
+          codespaceId={codespaceId}
+          onTaskMove={handleTaskMove as (taskId: string, column: string, position: number) => void}
+        />
+      )}
 
       {/* New Task Dialog - AI-powered task creation with streaming (lazy-loaded) */}
       <Suspense fallback={null}>

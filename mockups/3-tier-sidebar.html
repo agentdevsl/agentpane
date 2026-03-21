@@ -1,0 +1,1321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentPane — 3-Tier Sidebar Navigation</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg-deep: #08090c;
+  --bg-base: #0c0e14;
+  --bg-surface: #111318;
+  --bg-raised: #161820;
+  --bg-hover: #1a1d27;
+  --bg-active: #1e2230;
+  --border: #1e2230;
+  --border-subtle: #171a24;
+  --text-primary: #e2e4ea;
+  --text-secondary: #9499a8;
+  --text-muted: #5c6178;
+  --accent: #22d3ee;
+  --accent-glow: #22d3ee30;
+  --accent-dim: #22d3ee18;
+  --green: #34d399;
+  --amber: #fbbf24;
+  --red: #f87171;
+  --violet: #a78bfa;
+  --font-sans: 'DM Sans', -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --transition: 220ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  height: 100vh;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ═══════════════════════════════════════════════
+   LAYOUT SHELL
+   ═══════════════════════════════════════════════ */
+.app-shell {
+  display: flex;
+  height: 100vh;
+  position: relative;
+}
+
+/* ═══════════════════════════════════════════════
+   TIER 1 — ORGANIZATION RAIL (48px)
+   ═══════════════════════════════════════════════ */
+.org-rail {
+  width: 52px;
+  min-width: 52px;
+  height: 100%;
+  background: var(--bg-base);
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 30;
+  position: relative;
+}
+
+.org-rail::after {
+  content: '';
+  position: absolute;
+  right: -1px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: linear-gradient(180deg, var(--accent-dim) 0%, transparent 30%, transparent 70%, var(--accent-dim) 100%);
+  pointer-events: none;
+}
+
+.rail-top {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 0 8px;
+}
+
+.rail-middle {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 0;
+  overflow-y: auto;
+}
+
+.rail-bottom {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 0 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.rail-btn {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.rail-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.rail-btn.active {
+  background: var(--bg-active);
+  color: var(--text-primary);
+}
+
+.rail-btn.active::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 20px;
+  background: var(--accent);
+  border-radius: 0 3px 3px 0;
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+
+.rail-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: white;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: all var(--transition);
+  border: 2px solid transparent;
+}
+
+.rail-avatar:hover {
+  border-color: var(--accent);
+  transform: scale(1.05);
+}
+
+.rail-avatar.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+
+.org-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all var(--transition);
+  border: 2px solid transparent;
+  position: relative;
+}
+
+.org-icon:hover {
+  transform: scale(1.05);
+}
+
+.org-icon.active::before {
+  content: '';
+  position: absolute;
+  left: -10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 20px;
+  background: var(--accent);
+  border-radius: 0 3px 3px 0;
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+
+.rail-divider {
+  width: 24px;
+  height: 1px;
+  background: var(--border);
+  margin: 6px 0;
+}
+
+/* Tooltip */
+.rail-btn[data-tooltip], .org-icon[data-tooltip], .rail-avatar[data-tooltip] {
+  position: relative;
+}
+
+.rail-btn[data-tooltip]::after, .org-icon[data-tooltip]::after, .rail-avatar[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: calc(100% + 12px);
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 150ms;
+  border: 1px solid var(--border);
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0,0,0,.4);
+}
+
+.rail-btn[data-tooltip]:hover::after, .org-icon[data-tooltip]:hover::after, .rail-avatar[data-tooltip]:hover::after {
+  opacity: 1;
+}
+
+/* ═══════════════════════════════════════════════
+   TIER 2 — PROJECT FOLDERS (200px)
+   ═══════════════════════════════════════════════ */
+.folder-panel {
+  width: 0;
+  min-width: 0;
+  height: 100%;
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border-subtle);
+  overflow: hidden;
+  transition: width var(--transition), min-width var(--transition), opacity 180ms;
+  display: flex;
+  flex-direction: column;
+  z-index: 20;
+  opacity: 0;
+}
+
+.folder-panel.open {
+  width: 200px;
+  min-width: 200px;
+  opacity: 1;
+}
+
+.folder-header {
+  padding: 14px 14px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-subtle);
+  min-height: 52px;
+}
+
+.folder-header h2 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.folder-header-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+}
+
+.folder-gear {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition);
+}
+
+.folder-gear:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.folder-label {
+  padding: 10px 14px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.folder-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 8px;
+}
+
+.folder-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition);
+  margin-bottom: 1px;
+  position: relative;
+}
+
+.folder-item:hover {
+  background: var(--bg-hover);
+}
+
+.folder-item.active {
+  background: var(--bg-active);
+}
+
+.folder-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 16px;
+  border-radius: 0 2px 2px 0;
+}
+
+.folder-item-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.folder-item-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color var(--transition);
+}
+
+.folder-item:hover .folder-item-name,
+.folder-item.active .folder-item-name {
+  color: var(--text-primary);
+}
+
+.folder-item-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-base);
+  padding: 1px 6px;
+  border-radius: 10px;
+  min-width: 18px;
+  text-align: center;
+  font-family: var(--font-mono);
+}
+
+.folder-footer {
+  padding: 8px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.new-folder-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--font-sans);
+  transition: all var(--transition);
+}
+
+.new-folder-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
+/* ═══════════════════════════════════════════════
+   TIER 3 — CODESPACE NAVIGATION (240px)
+   ═══════════════════════════════════════════════ */
+.nav-panel {
+  width: 0;
+  min-width: 0;
+  height: 100%;
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+  transition: width var(--transition), min-width var(--transition), opacity 180ms;
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+  opacity: 0;
+}
+
+.nav-panel.open {
+  width: 240px;
+  min-width: 240px;
+  opacity: 1;
+}
+
+.nav-header {
+  padding: 12px 14px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  min-height: 52px;
+}
+
+.nav-back {
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition);
+  flex-shrink: 0;
+}
+
+.nav-back:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.nav-header-title {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.nav-header-title h3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-header-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.nav-content {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: 8px;
+}
+
+.nav-section {
+  padding: 0 8px;
+}
+
+.nav-section-label {
+  padding: 12px 8px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.codespace-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition);
+  margin-bottom: 1px;
+}
+
+.codespace-item:hover {
+  background: var(--bg-hover);
+}
+
+.codespace-item.active {
+  background: var(--accent-dim);
+}
+
+.codespace-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  color: white;
+  flex-shrink: 0;
+  letter-spacing: 0.3px;
+}
+
+.codespace-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.codespace-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color var(--transition);
+}
+
+.codespace-item:hover .codespace-name,
+.codespace-item.active .codespace-name {
+  color: var(--text-primary);
+}
+
+.codespace-path {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.codespace-status {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.codespace-status.running {
+  background: var(--green);
+  box-shadow: 0 0 6px rgba(52, 211, 153, 0.4);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+.codespace-status.idle {
+  background: var(--text-muted);
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition);
+  margin-bottom: 1px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.nav-link:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.nav-link.active {
+  background: var(--bg-active);
+  color: var(--text-primary);
+}
+
+.nav-link-icon {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.nav-link:hover .nav-link-icon,
+.nav-link.active .nav-link-icon {
+  color: var(--text-secondary);
+}
+
+.nav-link-badge {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-family: var(--font-mono);
+}
+
+.nav-footer {
+  padding: 10px 14px;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.health-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 4px rgba(52, 211, 153, 0.3);
+}
+
+.health-text {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* ═══════════════════════════════════════════════
+   MAIN CONTENT
+   ═══════════════════════════════════════════════ */
+.main-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-deep);
+}
+
+.main-topbar {
+  height: 52px;
+  min-height: 52px;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  gap: 8px;
+  background: var(--bg-base);
+}
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.breadcrumb-item {
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--transition);
+  font-weight: 500;
+}
+
+.breadcrumb-item:hover {
+  color: var(--text-secondary);
+}
+
+.breadcrumb-item.current {
+  color: var(--text-primary);
+  cursor: default;
+}
+
+.breadcrumb-sep {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.main-body {
+  flex: 1;
+  padding: 24px;
+  overflow-y: auto;
+}
+
+.content-placeholder {
+  max-width: 900px;
+}
+
+.content-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.content-title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.content-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn {
+  padding: 7px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  transition: all var(--transition);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--bg-deep);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.btn-primary:hover {
+  background: #06b6d4;
+  border-color: #06b6d4;
+  color: var(--bg-deep);
+  box-shadow: 0 0 16px var(--accent-glow);
+}
+
+/* Content cards */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.card:hover {
+  border-color: var(--text-muted);
+  background: var(--bg-raised);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0,0,0,.3);
+}
+
+.card-name {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.card-path {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  margin-bottom: 12px;
+}
+
+.card-stats {
+  display: flex;
+  gap: 12px;
+}
+
+.card-stat {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.card-stat-val {
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
+/* ═══════════════════════════════════════════════
+   SVG ICONS (inline)
+   ═══════════════════════════════════════════════ */
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ═══════════════════════════════════════════════
+   SCROLLBARS
+   ═══════════════════════════════════════════════ */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ═══════════════════════════════════════════════
+   RESPONSIVE
+   ═══════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  .folder-panel.open { width: 0; min-width: 0; opacity: 0; }
+  .nav-panel.open { width: 0; min-width: 0; opacity: 0; }
+}
+
+/* ═══════════════════════════════════════════════
+   COLLAPSE BUTTONS
+   ═══════════════════════════════════════════════ */
+.collapse-btn {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  transition: all var(--transition);
+  flex-shrink: 0;
+}
+
+.collapse-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+/* Add codespace button */
+.add-codespace-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--font-sans);
+  transition: all var(--transition);
+  margin-bottom: 2px;
+}
+
+.add-codespace-btn:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+</style>
+</head>
+<body>
+
+<div class="app-shell">
+  <!-- ═══ TIER 1: Organization Rail ═══ -->
+  <nav class="org-rail">
+    <div class="rail-top">
+      <div class="org-icon active" data-tooltip="AgentPane" data-org="agentpane"
+           style="background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; font-size: 12px;">
+        AP
+      </div>
+      <div class="org-icon" data-tooltip="Acme Corp" data-org="acme"
+           style="background: linear-gradient(135deg, #f97316, #ef4444); color: white; font-size: 12px;">
+        AC
+      </div>
+      <div class="org-icon" data-tooltip="Side Projects" data-org="side"
+           style="background: linear-gradient(135deg, #22c55e, #14b8a6); color: white; font-size: 12px;">
+        SP
+      </div>
+      <div class="rail-divider"></div>
+    </div>
+
+    <div class="rail-middle">
+      <button class="rail-btn active" data-tooltip="Home" data-nav="home">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      </button>
+      <button class="rail-btn" data-tooltip="Sessions" data-nav="sessions">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+      </button>
+      <button class="rail-btn" data-tooltip="Agents" data-nav="agents">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+      </button>
+      <button class="rail-btn" data-tooltip="Catalog" data-nav="catalog">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+      </button>
+    </div>
+
+    <div class="rail-bottom">
+      <button class="rail-btn" data-tooltip="Settings" data-nav="settings">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+      <div class="rail-avatar active" data-tooltip="Simon Lynch">SL</div>
+    </div>
+  </nav>
+
+  <!-- ═══ TIER 2: Project Folders ═══ -->
+  <div class="folder-panel open" id="folderPanel">
+    <div class="folder-header">
+      <h2>
+        <span class="folder-header-icon" style="background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; font-size: 9px; font-weight: 700;">AP</span>
+        AgentPane
+      </h2>
+      <button class="collapse-btn" onclick="togglePanel('folderPanel')" title="Collapse">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+    </div>
+
+    <div class="folder-label">Project Folders</div>
+
+    <div class="folder-list">
+      <div class="folder-item active" data-folder="engineering" onclick="selectFolder(this, 'engineering')">
+        <div class="folder-item-icon" style="background: #3b82f620; color: #3b82f6;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        </div>
+        <span class="folder-item-name">Engineering</span>
+        <span class="folder-item-badge">4</span>
+        <style>.folder-item[data-folder="engineering"].active::before { background: #3b82f6; }</style>
+      </div>
+
+      <div class="folder-item" data-folder="infrastructure" onclick="selectFolder(this, 'infrastructure')">
+        <div class="folder-item-icon" style="background: #f9731620; color: #f97316;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+        </div>
+        <span class="folder-item-name">Infrastructure</span>
+        <span class="folder-item-badge">3</span>
+        <style>.folder-item[data-folder="infrastructure"].active::before { background: #f97316; }</style>
+      </div>
+
+      <div class="folder-item" data-folder="ml" onclick="selectFolder(this, 'ml')">
+        <div class="folder-item-icon" style="background: #a78bfa20; color: #a78bfa;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        </div>
+        <span class="folder-item-name">ML & Data</span>
+        <span class="folder-item-badge">2</span>
+        <style>.folder-item[data-folder="ml"].active::before { background: #a78bfa; }</style>
+      </div>
+
+      <div class="folder-item" data-folder="docs" onclick="selectFolder(this, 'docs')">
+        <div class="folder-item-icon" style="background: #22c55e20; color: #22c55e;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        </div>
+        <span class="folder-item-name">Documentation</span>
+        <span class="folder-item-badge">1</span>
+        <style>.folder-item[data-folder="docs"].active::before { background: #22c55e; }</style>
+      </div>
+    </div>
+
+    <div class="folder-footer">
+      <button class="new-folder-btn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        New Folder
+      </button>
+    </div>
+  </div>
+
+  <!-- ═══ TIER 3: Codespace Navigation ═══ -->
+  <div class="nav-panel open" id="navPanel">
+    <div class="nav-header">
+      <button class="nav-back" onclick="togglePanel('navPanel')" title="Back">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+      <div class="nav-header-title">
+        <div class="nav-header-dot" style="background: #3b82f6;"></div>
+        <h3 id="navTitle">Engineering</h3>
+      </div>
+      <button class="collapse-btn" onclick="togglePanel('navPanel')" title="Collapse">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+    </div>
+
+    <div class="nav-content">
+      <!-- Codespaces in this folder -->
+      <div class="nav-section">
+        <div class="nav-section-label">Codespaces</div>
+
+        <button class="add-codespace-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add codespace
+        </button>
+
+        <div class="codespace-item active" onclick="selectCodespace(this, 'agentpane')">
+          <div class="codespace-avatar" style="background: linear-gradient(135deg, #6366f1, #818cf8);">AP</div>
+          <div class="codespace-info">
+            <div class="codespace-name">agentpane-nocode</div>
+            <div class="codespace-path">~/git/agentpane_nocode</div>
+          </div>
+          <div class="codespace-status running"></div>
+        </div>
+
+        <div class="codespace-item" onclick="selectCodespace(this, 'cli-monitor')">
+          <div class="codespace-avatar" style="background: linear-gradient(135deg, #06b6d4, #22d3ee);">CM</div>
+          <div class="codespace-info">
+            <div class="codespace-name">cli-monitor</div>
+            <div class="codespace-path">~/git/cli-monitor</div>
+          </div>
+          <div class="codespace-status idle"></div>
+        </div>
+
+        <div class="codespace-item" onclick="selectCodespace(this, 'agent-sdk')">
+          <div class="codespace-avatar" style="background: linear-gradient(135deg, #f97316, #fb923c);">AS</div>
+          <div class="codespace-info">
+            <div class="codespace-name">agent-sdk</div>
+            <div class="codespace-path">~/git/agent-sdk</div>
+          </div>
+          <div class="codespace-status running"></div>
+        </div>
+
+        <div class="codespace-item" onclick="selectCodespace(this, 'design-system')">
+          <div class="codespace-avatar" style="background: linear-gradient(135deg, #ec4899, #f472b6);">DS</div>
+          <div class="codespace-info">
+            <div class="codespace-name">design-system</div>
+            <div class="codespace-path">~/git/design-system</div>
+          </div>
+          <div class="codespace-status idle"></div>
+        </div>
+      </div>
+
+      <!-- Contextual navigation (for selected codespace) -->
+      <div class="nav-section" id="contextNav">
+        <div class="nav-section-label">Codespace</div>
+
+        <div class="nav-link active">
+          <span class="nav-link-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+          </span>
+          Tasks
+          <span class="nav-link-badge" style="background: var(--accent-dim); color: var(--accent);">12</span>
+        </div>
+
+        <div class="nav-link">
+          <span class="nav-link-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>
+          </span>
+          Git
+        </div>
+
+        <div class="nav-link">
+          <span class="nav-link-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </span>
+          Worktrees
+          <span class="nav-link-badge" style="background: var(--bg-base); color: var(--text-muted);">3</span>
+        </div>
+
+        <div class="nav-link">
+          <span class="nav-link-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          </span>
+          Templates
+        </div>
+
+        <div class="nav-link">
+          <span class="nav-link-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </span>
+          Settings
+        </div>
+      </div>
+
+      <!-- Global nav -->
+      <div class="nav-section">
+        <div class="nav-section-label">Global</div>
+
+        <div class="nav-link">
+          <span class="nav-link-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+          </span>
+          Designer
+        </div>
+
+        <div class="nav-link">
+          <span class="nav-link-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          </span>
+          Terraform
+        </div>
+
+        <div class="nav-link">
+          <span class="nav-link-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          </span>
+          Marketplace
+        </div>
+      </div>
+    </div>
+
+    <div class="nav-footer">
+      <div class="health-dot"></div>
+      <span class="health-text">All systems healthy</span>
+    </div>
+  </div>
+
+  <!-- ═══ MAIN CONTENT ═══ -->
+  <div class="main-content">
+    <div class="main-topbar">
+      <div class="breadcrumb">
+        <span class="breadcrumb-item">AgentPane</span>
+        <span class="breadcrumb-sep">›</span>
+        <span class="breadcrumb-item">Engineering</span>
+        <span class="breadcrumb-sep">›</span>
+        <span class="breadcrumb-item current" id="breadcrumbCurrent">agentpane-nocode</span>
+      </div>
+    </div>
+
+    <div class="main-body">
+      <div class="content-placeholder">
+        <div class="content-header">
+          <h1 class="content-title" id="contentTitle">Tasks</h1>
+          <div class="content-actions">
+            <button class="btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+              Filter
+            </button>
+            <button class="btn btn-primary">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              New Task
+            </button>
+          </div>
+        </div>
+
+        <div class="card-grid" id="contentCards">
+          <div class="card">
+            <div class="card-name">Implement auth middleware</div>
+            <div class="card-path">feat/auth-middleware</div>
+            <div class="card-stats">
+              <span class="card-stat"><span class="card-stat-val" style="color: var(--green);">●</span> Running</span>
+              <span class="card-stat">Tokens: <span class="card-stat-val">124k</span></span>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-name">Fix pagination cursor</div>
+            <div class="card-path">fix/cursor-pagination</div>
+            <div class="card-stats">
+              <span class="card-stat"><span class="card-stat-val" style="color: var(--amber);">●</span> Planning</span>
+              <span class="card-stat">Tokens: <span class="card-stat-val">45k</span></span>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-name">Add webhook retries</div>
+            <div class="card-path">feat/webhook-retry</div>
+            <div class="card-stats">
+              <span class="card-stat"><span class="card-stat-val" style="color: var(--text-muted);">●</span> Queued</span>
+              <span class="card-stat">Tokens: <span class="card-stat-val">—</span></span>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-name">Refactor DB migrations</div>
+            <div class="card-path">refactor/migrations</div>
+            <div class="card-stats">
+              <span class="card-stat"><span class="card-stat-val" style="color: var(--green);">●</span> Running</span>
+              <span class="card-stat">Tokens: <span class="card-stat-val">89k</span></span>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-name">E2E test coverage</div>
+            <div class="card-path">test/e2e-coverage</div>
+            <div class="card-stats">
+              <span class="card-stat"><span class="card-stat-val" style="color: var(--green);">✓</span> Done</span>
+              <span class="card-stat">Tokens: <span class="card-stat-val">201k</span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══ Panel toggle ═══
+function togglePanel(id) {
+  const panel = document.getElementById(id);
+  panel.classList.toggle('open');
+}
+
+// ═══ Folder selection ═══
+const folderData = {
+  engineering: { name: 'Engineering', color: '#3b82f6', codespaces: ['agentpane-nocode', 'cli-monitor', 'agent-sdk', 'design-system'] },
+  infrastructure: { name: 'Infrastructure', color: '#f97316', codespaces: ['terraform-modules', 'k8s-operator', 'ci-pipelines'] },
+  ml: { name: 'ML & Data', color: '#a78bfa', codespaces: ['model-training', 'data-pipeline'] },
+  docs: { name: 'Documentation', color: '#22c55e', codespaces: ['docs-site'] },
+};
+
+function selectFolder(el, folderId) {
+  // Update active state
+  document.querySelectorAll('.folder-item').forEach(f => f.classList.remove('active'));
+  el.classList.add('active');
+
+  // Update nav panel header
+  const folder = folderData[folderId];
+  document.getElementById('navTitle').textContent = folder.name;
+  document.querySelector('.nav-header-dot').style.background = folder.color;
+
+  // Open nav panel
+  document.getElementById('navPanel').classList.add('open');
+
+  // Update breadcrumb
+  document.querySelector('.breadcrumb').children[2].textContent = folder.name;
+}
+
+// ═══ Codespace selection ═══
+function selectCodespace(el, name) {
+  document.querySelectorAll('.codespace-item').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+
+  const displayName = el.querySelector('.codespace-name').textContent;
+  document.getElementById('breadcrumbCurrent').textContent = displayName;
+
+  // Show context nav
+  document.getElementById('contextNav').style.display = 'block';
+}
+
+// ═══ Org selection ═══
+document.querySelectorAll('.org-icon').forEach(icon => {
+  icon.addEventListener('click', () => {
+    document.querySelectorAll('.org-icon').forEach(i => i.classList.remove('active'));
+    icon.classList.add('active');
+
+    const orgName = icon.dataset.tooltip;
+    document.querySelector('.folder-header h2').innerHTML = `
+      <span class="folder-header-icon" style="background: ${icon.style.background}; color: white; font-size: 9px; font-weight: 700;">${icon.textContent.trim()}</span>
+      ${orgName}
+    `;
+
+    document.getElementById('folderPanel').classList.add('open');
+    document.querySelector('.breadcrumb').children[0].textContent = orgName;
+  });
+});
+
+// ═══ Rail nav buttons ═══
+document.querySelectorAll('.rail-btn[data-nav]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.rail-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+
+    if (btn.dataset.nav === 'settings') {
+      document.getElementById('folderPanel').classList.remove('open');
+      document.getElementById('navPanel').classList.remove('open');
+      document.getElementById('contentTitle').textContent = 'Settings';
+    }
+  });
+});
+</script>
+</body>
+</html>

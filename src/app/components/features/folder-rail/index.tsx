@@ -73,7 +73,7 @@ export function FolderRail(): React.JSX.Element {
               type="button"
               onClick={toggleFolderPanel}
               className={cn(
-                'relative flex h-[38px] w-[38px] items-center justify-center rounded-lg overflow-hidden transition-all duration-[220ms] ease-[cubic-bezier(0.4,0,0.2,1)] cursor-pointer border-2',
+                'relative flex h-[42px] w-[42px] items-center justify-center rounded-xl overflow-hidden transition-all duration-[220ms] ease-[cubic-bezier(0.4,0,0.2,1)] cursor-pointer border-2',
                 'bg-surface-subtle shadow-[0_1px_2px_rgba(0,0,0,0.06),0_0_0_1px_rgba(0,0,0,0.05)] dark:shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset,0_0_0_1px_rgba(255,255,255,0.06)]',
                 isFolderPanelOpen
                   ? 'border-accent shadow-[0_0_12px_rgba(34,211,238,0.19)]'
@@ -82,7 +82,7 @@ export function FolderRail(): React.JSX.Element {
               data-testid="org-avatar"
             >
               <svg
-                className="h-6 w-6 drop-shadow-[0_0_4px_rgba(163,113,247,0.3)]"
+                className="h-7 w-7 drop-shadow-[0_0_6px_rgba(163,113,247,0.4)]"
                 viewBox="0 0 32 32"
                 fill="none"
                 aria-hidden="true"

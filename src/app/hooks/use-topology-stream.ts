@@ -166,6 +166,8 @@ export function useTopologyStream(
     let hasReceivedEvent = false;
     let disconnectCount = 0;
 
+    let rootNodeCreated = false;
+
     const callbacks: SessionCallbacks = {
       onTopologyAgentSpawned: (event) => {
         hasReceivedEvent = true;
@@ -178,6 +180,58 @@ export function useTopologyStream(
       onTopologyAgentCompleted: (event) => {
         hasReceivedEvent = true;
         handleCompleted(event);
+      },
+      // Handle container-agent sessions: create a root node when the agent starts
+      onContainerAgentStarted: (event) => {
+        if (rootNodeCreated) return;
+        rootNodeCreated = true;
+        hasReceivedEvent = true;
+        const data = event.data as { taskId?: string; sessionId?: string; model?: string };
+        const node: TopologyNode = {
+          id: `agent-${data.taskId ?? sessionId}`,
+          name: data.model ?? 'Agent',
+          role: 'coder',
+          status: 'running',
+          parentId: null,
+          childIds: [],
+          progress: 0,
+          tokens: 0,
+          cost: 0,
+          turns: 0,
+          messages: 0,
+          startedAt: Date.now(),
+          completedAt: null,
+          verified: false,
+          verificationScore: 0,
+          decisions: [],
+        };
+        dispatch({ type: 'ADD_NODE', node });
+      },
+      // Track progress from container-agent tool calls
+      onContainerAgentToolStart: () => {
+        hasReceivedEvent = true;
+      },
+      onContainerAgentComplete: (event) => {
+        hasReceivedEvent = true;
+        const data = event.data as { taskId?: string };
+        const agentId = `agent-${data.taskId ?? sessionId}`;
+        dispatch({
+          type: 'COMPLETE_NODE',
+          nodeId: agentId,
+          status: 'completed',
+          completedAt: Date.now(),
+        });
+      },
+      onContainerAgentError: (event) => {
+        hasReceivedEvent = true;
+        const data = event.data as { taskId?: string };
+        const agentId = `agent-${data.taskId ?? sessionId}`;
+        dispatch({
+          type: 'COMPLETE_NODE',
+          nodeId: agentId,
+          status: 'failed',
+          completedAt: Date.now(),
+        });
       },
       onError: (error) => {
         console.error('[useTopologyStream] Stream error:', error);

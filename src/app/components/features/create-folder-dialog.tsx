@@ -113,7 +113,7 @@ export function CreateFolderDialog({
           onOpenChange(false);
           resetForm();
         } else {
-          setError((result.error as { message?: string })?.message ?? 'Failed to create folder');
+          setError((result.error as { message?: string })?.message ?? 'Failed to create project');
         }
       } catch {
         setError('An unexpected error occurred');
@@ -138,9 +138,9 @@ export function CreateFolderDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Create Folder</DialogTitle>
+          <DialogTitle>Create Project</DialogTitle>
           <DialogDescription>
-            Organize your codespaces into folders for easier navigation.
+            Organize your codespaces into projects for easier navigation.
           </DialogDescription>
         </DialogHeader>
 
@@ -152,7 +152,7 @@ export function CreateFolderDialog({
             </label>
             <TextInput
               id="folder-name"
-              placeholder="My Folder"
+              placeholder="My Project"
               value={name}
               onChange={handleNameChange}
               autoFocus
@@ -167,7 +167,7 @@ export function CreateFolderDialog({
             </label>
             <TextInput
               id="folder-slug"
-              placeholder="my-folder"
+              placeholder="my-project"
               value={slug}
               onChange={handleSlugChange}
               data-testid="create-folder-slug"
@@ -235,8 +235,8 @@ export function CreateFolderDialog({
               <FolderIcon iconName={selectedIcon} size={18} weight="fill" />
             </div>
             <div>
-              <div className="text-sm font-medium text-fg">{name || 'Folder name'}</div>
-              <div className="text-xs text-fg-muted">{slug || 'folder-slug'}</div>
+              <div className="text-sm font-medium text-fg">{name || 'Project name'}</div>
+              <div className="text-xs text-fg-muted">{slug || 'project-slug'}</div>
             </div>
           </div>
 
@@ -262,7 +262,7 @@ export function CreateFolderDialog({
               disabled={!name.trim() || !slug.trim() || isSubmitting}
               data-testid="create-folder-submit"
             >
-              {isSubmitting ? 'Creating...' : 'Create Folder'}
+              {isSubmitting ? 'Creating...' : 'Create Project'}
             </Button>
           </DialogFooter>
         </form>

@@ -45,7 +45,7 @@ export function NavPanel(): React.JSX.Element {
   return (
     <aside
       className={cn(
-        'relative flex h-full shrink-0 flex-col border-r border-border bg-surface overflow-hidden z-10',
+        'relative flex h-full shrink-0 flex-col border-r border-border-subtle bg-surface overflow-hidden z-10',
         expanded
           ? ''
           : 'w-[48px] min-w-[48px] transition-all duration-[220ms] ease-[cubic-bezier(0.4,0,0.2,1)]'
@@ -56,8 +56,8 @@ export function NavPanel(): React.JSX.Element {
       {/* Header */}
       <div
         className={cn(
-          'flex items-center min-h-[52px] border-b border-border-subtle',
-          expanded ? 'gap-2 px-3.5 py-3' : 'justify-center py-3'
+          'flex items-center min-h-[48px] border-b border-border-subtle',
+          expanded ? 'gap-2 px-3 py-2.5' : 'justify-center py-2.5'
         )}
       >
         {expanded ? (
@@ -65,7 +65,7 @@ export function NavPanel(): React.JSX.Element {
             <button
               type="button"
               onClick={toggleNavPanel}
-              className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md bg-transparent text-fg-subtle transition-all duration-[220ms] ease-[cubic-bezier(0.4,0,0.2,1)] hover:bg-surface-subtle hover:text-fg"
+              className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md text-fg-subtle transition-all duration-[220ms] ease-[cubic-bezier(0.4,0,0.2,1)] hover:bg-surface-subtle hover:text-fg"
               data-testid="nav-panel-back"
               title="Collapse"
             >
@@ -87,7 +87,7 @@ export function NavPanel(): React.JSX.Element {
           <button
             type="button"
             onClick={toggleNavPanel}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-fg-muted transition-all duration-[220ms] ease-[cubic-bezier(0.4,0,0.2,1)] hover:bg-surface-subtle hover:text-fg"
+            className="flex h-[26px] w-[26px] items-center justify-center rounded-md text-fg-subtle transition-all duration-[220ms] ease-[cubic-bezier(0.4,0,0.2,1)] hover:bg-surface-subtle hover:text-fg"
             data-testid="nav-panel-expand"
             title="Expand"
           >
