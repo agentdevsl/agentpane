@@ -3,9 +3,14 @@ import {
   ClockCounterClockwise,
   Lightning,
   ListBullets,
+  SpinnerGap,
   Terminal,
+  WarningCircle,
 } from '@phosphor-icons/react';
-import { useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
+import { apiClient } from '@/lib/api/client';
+import { type SessionCallbacks, subscribeToSession } from '@/lib/streams/client';
 import { cn } from '@/lib/utils/cn';
 
 // =============================================================================
@@ -35,6 +40,25 @@ interface TimelineEvent {
   timestamp: string;
 }
 
+interface StreamMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp: number;
+}
+
+interface SessionEventRecord {
+  id: string;
+  type: string;
+  timestamp: number;
+  data: unknown;
+}
+
+function extractSessionEvents(
+  payload: SessionEventRecord[] | { data: SessionEventRecord[] }
+): SessionEventRecord[] {
+  return Array.isArray(payload) ? payload : payload.data;
+}
+
 // =============================================================================
 // Helpers
 // =============================================================================
@@ -55,64 +79,124 @@ function getStatusBadge(column: string, agentStatus?: string | null) {
     case 'waiting_approval':
       return { label: 'Waiting Approval', className: 'bg-attention/15 text-attention' };
     case 'done':
+    case 'verified':
       return { label: 'Done', className: 'bg-success/15 text-success' };
     default:
       return { label: column, className: 'bg-fg-subtle/15 text-fg-subtle' };
   }
 }
 
-function buildTimelineEvents(task: AuditTrailPanelProps['task']): TimelineEvent[] {
-  if (!task) return [];
+function formatRelativeTime(timestamp: number): string {
+  const now = Date.now();
+  const diffMs = now - timestamp;
+  const diffSec = Math.floor(diffMs / 1000);
 
-  const events: TimelineEvent[] = [
-    {
-      id: 'created',
-      label: 'Task created',
-      color: 'bg-fg-subtle',
-      timestamp: 'Just now',
-    },
-  ];
+  if (diffSec < 60) return `${Math.max(0, diffSec)}s ago`;
 
-  if (
-    task.column === 'in_progress' ||
-    task.column === 'waiting_approval' ||
-    task.column === 'done'
-  ) {
-    events.push(
-      {
-        id: 'moved-ip',
-        label: 'Moved to In Progress',
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+
+  return new Date(timestamp).toLocaleDateString();
+}
+
+function mapEventToTimelineEntry(event: {
+  id: string;
+  type: string;
+  timestamp: number;
+  data: unknown;
+}): TimelineEvent {
+  const d = event.data as Record<string, unknown>;
+  const ts = formatRelativeTime(event.timestamp);
+
+  switch (event.type) {
+    case 'container-agent:status':
+      return {
+        id: event.id,
+        label: String(d?.message ?? d?.stage ?? 'Status update'),
+        color: 'bg-fg-subtle',
+        timestamp: ts,
+      };
+
+    case 'container-agent:started':
+      return {
+        id: event.id,
+        label: `Agent started${d?.model ? ` (${d.model})` : ''}`,
         color: 'bg-accent',
-        timestamp: 'Just now',
-      },
-      {
-        id: 'agent-assigned',
-        label: 'Agent assigned',
+        timestamp: ts,
+      };
+
+    case 'container-agent:tool:start':
+      return {
+        id: event.id,
+        label: `Tool: ${String(d?.toolName ?? d?.tool ?? 'Command')}`,
+        color: 'bg-fg-subtle',
+        timestamp: ts,
+      };
+
+    case 'container-agent:message': {
+      const content = String(d?.content ?? '');
+      const truncated = content.length > 80 ? `${content.slice(0, 80)}...` : content;
+      const role = String(d?.role ?? 'system');
+      const color = role === 'assistant' ? 'bg-accent' : 'bg-fg-subtle';
+      return {
+        id: event.id,
+        label: truncated || 'Message',
+        color,
+        timestamp: ts,
+      };
+    }
+
+    case 'container-agent:plan_ready':
+      return {
+        id: event.id,
+        label: 'Plan ready for review',
+        color: 'bg-warning',
+        timestamp: ts,
+      };
+
+    case 'container-agent:complete':
+      return {
+        id: event.id,
+        label: 'Agent completed',
+        color: 'bg-success',
+        timestamp: ts,
+      };
+
+    case 'container-agent:error':
+      return {
+        id: event.id,
+        label: String(d?.error ?? 'Error'),
+        color: 'bg-danger',
+        timestamp: ts,
+      };
+
+    case 'topology:agent_spawned':
+      return {
+        id: event.id,
+        label: `Agent spawned: ${String(d?.name ?? 'unknown')}`,
         color: 'bg-accent',
-        timestamp: 'Just now',
-      }
-    );
-  }
+        timestamp: ts,
+      };
 
-  if (task.column === 'waiting_approval' || task.column === 'done') {
-    events.push({
-      id: 'plan-ready',
-      label: 'Plan ready for review',
-      color: 'bg-attention',
-      timestamp: 'Just now',
-    });
-  }
+    case 'topology:agent_completed':
+      return {
+        id: event.id,
+        label: 'Agent completed',
+        color: 'bg-success',
+        timestamp: ts,
+      };
 
-  if (task.column === 'done') {
-    events.push({
-      id: 'completed',
-      label: 'Task completed',
-      color: 'bg-success',
-      timestamp: 'Just now',
-    });
+    default:
+      return {
+        id: event.id,
+        label: event.type,
+        color: 'bg-fg-subtle',
+        timestamp: ts,
+      };
   }
-
-  return events;
 }
 
 // =============================================================================
@@ -142,7 +226,6 @@ export function AuditTrailPanel({ task }: AuditTrailPanelProps): React.JSX.Eleme
   }
 
   const badge = getStatusBadge(task.column, task.lastAgentStatus);
-  const events = buildTimelineEvents(task);
 
   return (
     <aside
@@ -181,9 +264,9 @@ export function AuditTrailPanel({ task }: AuditTrailPanelProps): React.JSX.Eleme
       {/* Tab content */}
       <div className="flex-1 overflow-y-auto">
         {activeTab === 'events' ? (
-          <EventsTab events={events} />
+          <EventsTab sessionId={task.sessionId} />
         ) : (
-          <StreamTab sessionId={task.sessionId} />
+          <StreamTab sessionId={task.sessionId} taskColumn={task.column} />
         )}
       </div>
     </aside>
@@ -228,7 +311,209 @@ function TabButton({
 // EventsTab Sub-component
 // =============================================================================
 
-function EventsTab({ events }: { events: TimelineEvent[] }): React.JSX.Element {
+function EventsTab({ sessionId }: { sessionId?: string | null }): React.JSX.Element {
+  const [events, setEvents] = useState<TimelineEvent[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const seenEventIdsRef = useRef<Set<string>>(new Set());
+
+  useWatchEffect(() => {
+    if (!sessionId) {
+      setEvents([]);
+      setLoading(false);
+      setError(null);
+      seenEventIdsRef.current = new Set();
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    seenEventIdsRef.current = new Set();
+
+    apiClient.sessions
+      .getEvents(sessionId, { limit: 200 })
+      .then((result) => {
+        if (cancelled) return;
+
+        if (!result.ok) {
+          setError(result.error?.message ?? 'Failed to fetch events');
+          setEvents([]);
+        } else {
+          const raw = extractSessionEvents(
+            result.data as SessionEventRecord[] | { data: SessionEventRecord[] }
+          );
+          seenEventIdsRef.current = new Set(raw.map((event) => event.id));
+          const mapped = raw.map(mapEventToTimelineEntry);
+          setEvents(mapped);
+        }
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : 'Unexpected error');
+        setEvents([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
+
+  useWatchEffect(() => {
+    if (!sessionId) return;
+
+    const callbacks: SessionCallbacks = {
+      onContainerAgentStatus: (event) => {
+        const id = `stream-status-${event.offset ?? event.data.timestamp}`;
+        if (seenEventIdsRef.current.has(id)) return;
+        seenEventIdsRef.current.add(id);
+        setEvents((prev) => [
+          ...prev,
+          mapEventToTimelineEntry({
+            id,
+            type: 'container-agent:status',
+            timestamp: event.data.timestamp,
+            data: event.data,
+          }),
+        ]);
+      },
+      onContainerAgentToolStart: (event) => {
+        const id = `stream-tool-start-${event.offset ?? event.data.toolId}`;
+        if (seenEventIdsRef.current.has(id)) return;
+        seenEventIdsRef.current.add(id);
+        setEvents((prev) => [
+          ...prev,
+          mapEventToTimelineEntry({
+            id,
+            type: 'container-agent:tool:start',
+            timestamp: event.data.timestamp,
+            data: event.data,
+          }),
+        ]);
+      },
+      onContainerAgentMessage: (event) => {
+        const id = `stream-message-${event.offset ?? event.data.timestamp}`;
+        if (seenEventIdsRef.current.has(id)) return;
+        seenEventIdsRef.current.add(id);
+        setEvents((prev) => [
+          ...prev,
+          mapEventToTimelineEntry({
+            id,
+            type: 'container-agent:message',
+            timestamp: event.data.timestamp,
+            data: event.data,
+          }),
+        ]);
+      },
+      onContainerAgentPlanReady: (event) => {
+        const id = `stream-plan-ready-${event.offset ?? event.data.timestamp}`;
+        if (seenEventIdsRef.current.has(id)) return;
+        seenEventIdsRef.current.add(id);
+        setEvents((prev) => [
+          ...prev,
+          mapEventToTimelineEntry({
+            id,
+            type: 'container-agent:plan_ready',
+            timestamp: event.data.timestamp,
+            data: event.data,
+          }),
+        ]);
+      },
+      onContainerAgentComplete: (event) => {
+        const id = `stream-complete-${event.offset ?? event.data.timestamp}`;
+        if (seenEventIdsRef.current.has(id)) return;
+        seenEventIdsRef.current.add(id);
+        setEvents((prev) => [
+          ...prev,
+          mapEventToTimelineEntry({
+            id,
+            type: 'container-agent:complete',
+            timestamp: event.data.timestamp,
+            data: event.data,
+          }),
+        ]);
+      },
+      onContainerAgentError: (event) => {
+        const id = `stream-error-${event.offset ?? event.data.timestamp}`;
+        if (seenEventIdsRef.current.has(id)) return;
+        seenEventIdsRef.current.add(id);
+        setEvents((prev) => [
+          ...prev,
+          mapEventToTimelineEntry({
+            id,
+            type: 'container-agent:error',
+            timestamp: event.data.timestamp,
+            data: event.data,
+          }),
+        ]);
+      },
+      onTopologyAgentSpawned: (event) => {
+        const id = `stream-topology-spawned-${event.offset ?? event.data.agentId}`;
+        if (seenEventIdsRef.current.has(id)) return;
+        seenEventIdsRef.current.add(id);
+        setEvents((prev) => [
+          ...prev,
+          mapEventToTimelineEntry({
+            id,
+            type: 'topology:agent_spawned',
+            timestamp: event.data.timestamp,
+            data: event.data,
+          }),
+        ]);
+      },
+      onTopologyAgentCompleted: (event) => {
+        const id = `stream-topology-completed-${event.offset ?? event.data.agentId}`;
+        if (seenEventIdsRef.current.has(id)) return;
+        seenEventIdsRef.current.add(id);
+        setEvents((prev) => [
+          ...prev,
+          mapEventToTimelineEntry({
+            id,
+            type: 'topology:agent_completed',
+            timestamp: event.data.timestamp,
+            data: event.data,
+          }),
+        ]);
+      },
+    };
+
+    const subscription = subscribeToSession(sessionId, callbacks);
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [sessionId]);
+
+  if (!sessionId) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-2 px-6 py-12">
+        <Lightning size={18} className="text-fg-subtle" />
+        <p className="text-[12px] text-fg-muted">No session attached</p>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-2 px-6 py-12">
+        <SpinnerGap size={18} className="text-fg-subtle animate-spin" />
+        <p className="text-[12px] text-fg-muted">Loading events...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-2 px-6 py-12">
+        <WarningCircle size={18} className="text-danger" />
+        <p className="text-[12px] text-danger">{error}</p>
+      </div>
+    );
+  }
+
   if (events.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-2 px-6 py-12">
@@ -276,7 +561,110 @@ function EventsTab({ events }: { events: TimelineEvent[] }): React.JSX.Element {
 // StreamTab Sub-component
 // =============================================================================
 
-function StreamTab({ sessionId }: { sessionId?: string | null }): React.JSX.Element {
+function StreamTab({
+  sessionId,
+  taskColumn,
+}: {
+  sessionId?: string | null;
+  taskColumn: string;
+}): React.JSX.Element {
+  const [messages, setMessages] = useState<StreamMessage[]>([]);
+  const [currentDelta, setCurrentDelta] = useState('');
+  const [connected, setConnected] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const isLive = taskColumn === 'in_progress';
+
+  const scrollToBottom = useCallback(() => {
+    requestAnimationFrame(() => {
+      if (scrollRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      }
+    });
+  }, []);
+
+  // Fetch historical messages from session events
+  useWatchEffect(() => {
+    if (!sessionId) {
+      setMessages([]);
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+
+    apiClient.sessions
+      .getEvents(sessionId, { limit: 500 })
+      .then((result) => {
+        if (cancelled || !result.ok) return;
+        const msgs: StreamMessage[] = [];
+        for (const event of extractSessionEvents(
+          result.data as SessionEventRecord[] | { data: SessionEventRecord[] }
+        )) {
+          if (event.type === 'container-agent:message') {
+            const d = event.data as Record<string, unknown>;
+            const content = String(d?.content ?? '');
+            if (content) {
+              msgs.push({
+                role: (d?.role as StreamMessage['role']) ?? 'system',
+                content,
+                timestamp: event.timestamp,
+              });
+            }
+          }
+        }
+        setMessages(msgs);
+        scrollToBottom();
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, scrollToBottom]);
+
+  // Subscribe to live SSE when task is actively running
+  useWatchEffect(() => {
+    if (!sessionId || !isLive) {
+      setConnected(false);
+      return;
+    }
+
+    const callbacks: SessionCallbacks = {
+      onConnectionStateChange: (state) => {
+        setConnected(state === 'connected');
+      },
+      onContainerAgentMessage: (event) => {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: event.data.role,
+            content: event.data.content,
+            timestamp: event.data.timestamp,
+          },
+        ]);
+        setCurrentDelta('');
+        scrollToBottom();
+      },
+      onContainerAgentToken: (event) => {
+        setCurrentDelta((prev) => prev + event.data.delta);
+        scrollToBottom();
+      },
+      onChunk: (event) => {
+        setCurrentDelta((prev) => prev + event.data.text);
+        scrollToBottom();
+      },
+    };
+
+    const subscription = subscribeToSession(sessionId, callbacks);
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [sessionId, isLive, scrollToBottom]);
+
   if (!sessionId) {
     return (
       <div className="flex flex-col items-center justify-center gap-2 px-6 py-12">
@@ -286,20 +674,104 @@ function StreamTab({ sessionId }: { sessionId?: string | null }): React.JSX.Elem
     );
   }
 
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-2 px-6 py-12">
+        <SpinnerGap size={18} className="text-fg-subtle animate-spin" />
+        <p className="text-[12px] text-fg-muted">Loading messages...</p>
+      </div>
+    );
+  }
+
+  const hasContent = messages.length > 0 || currentDelta.length > 0;
+
   return (
-    <div className="px-4 py-3">
-      <div className="flex items-center gap-2 rounded-md bg-surface-emphasis px-3 py-2">
-        <Circle size={8} weight="fill" className="shrink-0 text-success animate-pulse" />
-        <p className="text-[12px] font-mono text-fg-muted truncate">
-          Connected to session <span className="text-fg">{sessionId.slice(0, 12)}</span>
+    <div className="flex flex-col h-full">
+      {/* Status indicator */}
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-border-subtle">
+        <Circle
+          size={8}
+          weight="fill"
+          className={cn(
+            'shrink-0',
+            isLive && connected
+              ? 'text-success animate-pulse'
+              : isLive
+                ? 'text-fg-subtle'
+                : 'text-fg-subtle'
+          )}
+        />
+        <p className="text-[11px] font-mono text-fg-muted truncate">
+          {isLive && connected ? (
+            <>
+              Live <span className="text-fg">{sessionId.slice(0, 12)}</span>
+            </>
+          ) : isLive ? (
+            'Connecting...'
+          ) : (
+            <>
+              Session <span className="text-fg">{sessionId.slice(0, 12)}</span>
+            </>
+          )}
         </p>
+        {!isLive && messages.length > 0 && (
+          <span className="ml-auto text-[10px] text-fg-subtle">{messages.length} messages</span>
+        )}
       </div>
 
-      {/* Placeholder for future stream output */}
-      <div className="mt-3 rounded-md border border-border-subtle bg-surface-emphasis p-3">
-        <p className="text-[11px] text-fg-subtle italic">
-          Session output will appear here when streaming is connected.
-        </p>
+      {/* Messages area */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto bg-surface-emphasis font-mono">
+        {!hasContent ? (
+          <div className="flex flex-col items-center justify-center gap-2 px-6 py-12">
+            <Terminal size={18} className="text-fg-subtle" />
+            <p className="text-[12px] text-fg-muted italic">
+              {isLive ? 'Listening for events...' : 'No messages in this session'}
+            </p>
+          </div>
+        ) : (
+          <div className="px-3 py-2 space-y-2">
+            {messages.map((msg, i) => (
+              <div
+                key={`msg-${msg.timestamp}-${i}`}
+                className="rounded-md border border-border-subtle bg-surface px-3 py-2"
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <span
+                    className={cn(
+                      'text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded',
+                      msg.role === 'assistant'
+                        ? 'bg-accent/15 text-accent'
+                        : 'bg-fg-subtle/15 text-fg-subtle'
+                    )}
+                  >
+                    {msg.role}
+                  </span>
+                  <span className="text-[10px] text-fg-subtle">
+                    {formatRelativeTime(msg.timestamp)}
+                  </span>
+                </div>
+                <p className="text-[11px] text-fg/90 whitespace-pre-wrap break-words leading-relaxed">
+                  {msg.content}
+                </p>
+              </div>
+            ))}
+
+            {/* Current streaming delta */}
+            {currentDelta.length > 0 && (
+              <div className="rounded-md border border-accent/20 bg-accent/5 px-3 py-2">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-accent/15 text-accent">
+                    assistant
+                  </span>
+                  <SpinnerGap size={10} className="text-accent animate-spin" />
+                </div>
+                <p className="text-[11px] text-fg/90 whitespace-pre-wrap break-words leading-relaxed">
+                  {currentDelta}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

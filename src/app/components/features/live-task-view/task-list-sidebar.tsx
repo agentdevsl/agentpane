@@ -2,6 +2,8 @@ import {
   CaretDown,
   CaretUp,
   CheckCircle,
+  Eye,
+  EyeSlash,
   FunnelSimple,
   Lightning,
   MagnifyingGlass,
@@ -15,6 +17,8 @@ import {
   lastRunStatusVariants,
   priorityVariants,
 } from '@/app/components/features/kanban-board/styles';
+import { useLocalStorage } from '@/app/hooks/use-local-storage';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { cn } from '@/lib/utils/cn';
 
 // =============================================================================
@@ -24,7 +28,7 @@ import { cn } from '@/lib/utils/cn';
 interface TaskItem {
   id: string;
   title: string;
-  column: string; // 'backlog' | 'queued' | 'in_progress' | 'waiting_approval' | 'done'
+  column: string; // 'backlog' | 'queued' | 'in_progress' | 'waiting_approval' | 'done' | 'verified'
   priority?: 'low' | 'medium' | 'high';
   agentId?: string | null;
   sessionId?: string | null;
@@ -36,6 +40,7 @@ interface TaskListSidebarProps {
   tasks: TaskItem[];
   selectedTaskId: string | null;
   onTaskSelect: (taskId: string) => void;
+  onSelectedTaskHidden?: () => void;
   searchQuery: string;
   onSearchChange: (query: string) => void;
 }
@@ -51,7 +56,45 @@ const columnSortOrder: Record<string, number> = {
   queued: 2,
   backlog: 3,
   done: 4,
+  verified: 4,
 };
+
+/** Column filter chip definitions with their visual styles. */
+const FILTER_COLUMNS = [
+  {
+    id: 'backlog',
+    label: 'Backlog',
+    dotColor: 'bg-fg-subtle',
+    activeClass: 'bg-fg-subtle/15 text-fg-muted border-fg-subtle/30',
+  },
+  {
+    id: 'queued',
+    label: 'Queued',
+    dotColor: 'bg-accent',
+    activeClass: 'bg-accent/15 text-accent border-accent/30',
+  },
+  {
+    id: 'in_progress',
+    label: 'Active',
+    dotColor: 'bg-success',
+    activeClass: 'bg-success/15 text-success border-success/30',
+  },
+  {
+    id: 'waiting_approval',
+    label: 'Review',
+    dotColor: 'bg-attention',
+    activeClass: 'bg-attention/15 text-attention border-attention/30',
+  },
+  {
+    id: 'verified',
+    label: 'Done',
+    dotColor: 'bg-done',
+    activeClass: 'bg-done/15 text-done border-done/30',
+  },
+] as const;
+
+/** Completed column identifiers (codebase uses both 'done' and 'verified'). */
+const COMPLETED_COLUMNS = new Set(['done', 'verified']);
 
 /** Priority label mapping. */
 const priorityLabels: Record<string, string> = {
@@ -124,14 +167,58 @@ export function TaskListSidebar({
   tasks,
   selectedTaskId,
   onTaskSelect,
+  onSelectedTaskHidden,
   searchQuery,
   onSearchChange,
 }: TaskListSidebarProps): React.JSX.Element {
   const [sortBy, setSortBy] = useState<SortOption>('status');
+  const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set());
+  const [showCompleted, setShowCompleted] = useLocalStorage('live-task-view:show-completed', false);
+
+  /** Column counts computed from the full unfiltered task list. */
+  const columnCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const task of tasks) {
+      // Normalise 'done' → 'verified' so counts merge under the chip id
+      const key = task.column === 'done' ? 'verified' : task.column;
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    return counts;
+  }, [tasks]);
+
+  /** Toggle a column filter chip on/off. */
+  function toggleFilter(columnId: string) {
+    setActiveFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(columnId)) {
+        next.delete(columnId);
+      } else {
+        next.add(columnId);
+      }
+      return next;
+    });
+  }
 
   const filteredAndSorted = useMemo(() => {
     const query = searchQuery.toLowerCase().trim();
-    const filtered = query ? tasks.filter((t) => t.title.toLowerCase().includes(query)) : tasks;
+
+    const filtered = tasks.filter((t) => {
+      // 1. Text search filter
+      if (query && !t.title.toLowerCase().includes(query)) return false;
+
+      // Normalise column for filter comparison
+      const col = t.column === 'done' ? 'verified' : t.column;
+
+      // 2. Column chip filter
+      if (activeFilters.size > 0 && !activeFilters.has(col)) return false;
+
+      // 3. Auto-hide completed tasks (unless user toggled show or explicitly selected the Done chip)
+      if (!showCompleted && !activeFilters.has('verified') && COMPLETED_COLUMNS.has(t.column)) {
+        return false;
+      }
+
+      return true;
+    });
 
     return [...filtered].sort((a, b) => {
       switch (sortBy) {
@@ -148,7 +235,16 @@ export function TaskListSidebar({
           return 0;
       }
     });
-  }, [tasks, searchQuery, sortBy]);
+  }, [tasks, searchQuery, sortBy, activeFilters, showCompleted]);
+
+  useWatchEffect(() => {
+    if (!selectedTaskId) return;
+
+    const isSelectedTaskVisible = filteredAndSorted.some((task) => task.id === selectedTaskId);
+    if (!isSelectedTaskVisible) {
+      onSelectedTaskHidden?.();
+    }
+  }, [filteredAndSorted, onSelectedTaskHidden, selectedTaskId]);
 
   return (
     <aside className="flex h-full w-[252px] shrink-0 flex-col border-r border-border bg-surface">
@@ -184,6 +280,31 @@ export function TaskListSidebar({
             className="w-full rounded-md border border-border bg-surface-subtle py-1.5 pl-8 pr-3 text-sm text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none transition-colors duration-[220ms] ease-[cubic-bezier(0.4,0,0.2,1)]"
           />
         </div>
+
+        {/* Filter chips */}
+        <div className="mt-2 flex flex-wrap gap-1">
+          {FILTER_COLUMNS.map((col) => {
+            const isActive = activeFilters.has(col.id);
+            const count = columnCounts[col.id] ?? 0;
+            return (
+              <button
+                key={col.id}
+                type="button"
+                onClick={() => toggleFilter(col.id)}
+                className={cn(
+                  'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium transition-all duration-150',
+                  isActive
+                    ? col.activeClass
+                    : 'border-transparent bg-surface-subtle text-fg-subtle hover:bg-surface-emphasis hover:text-fg-muted'
+                )}
+              >
+                <span className={cn('h-1.5 w-1.5 rounded-full', col.dotColor)} />
+                {col.label}
+                {count > 0 && <span className="ml-0.5 text-[9px] opacity-70">{count}</span>}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Task list */}
@@ -211,6 +332,22 @@ export function TaskListSidebar({
         <span className="text-[10px] text-fg-subtle">
           {filteredAndSorted.length} {filteredAndSorted.length === 1 ? 'task' : 'tasks'}
         </span>
+
+        {/* Done toggle */}
+        <button
+          type="button"
+          onClick={() => setShowCompleted((prev) => !prev)}
+          className={cn(
+            'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium transition-all duration-150',
+            showCompleted
+              ? 'bg-done/10 text-done'
+              : 'text-fg-subtle hover:text-fg-muted hover:bg-surface-subtle'
+          )}
+        >
+          {showCompleted ? <Eye className="h-3 w-3" /> : <EyeSlash className="h-3 w-3" />}
+          Done ({columnCounts.verified ?? 0})
+        </button>
+
         <span className="flex items-center gap-1 text-[10px] text-fg-subtle">
           <CaretUp className="h-3 w-3" />
           <CaretDown className="h-3 w-3" />

@@ -1,15 +1,16 @@
 import {
   ArrowRight,
   Broadcast,
-  CaretRight,
   CheckCircle,
   GitBranch,
   Lightning,
+  WarningCircle,
 } from '@phosphor-icons/react';
 import React, { Suspense, useMemo, useState } from 'react';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { apiClient } from '@/lib/api/client';
 import type { TopologyGraph, TopologyNode } from '@/lib/topology/types';
+import { deriveContainerAgentNodeId } from '@/lib/topology/utils';
 import { cn } from '@/lib/utils/cn';
 import { TaskListSidebar } from './task-list-sidebar';
 
@@ -26,6 +27,8 @@ const AuditTrailPanel = React.lazy(() =>
     default: m.AuditTrailPanel,
   }))
 );
+
+const COMPLETED_COLUMNS = new Set(['done', 'verified']);
 
 // =============================================================================
 // Types
@@ -51,6 +54,19 @@ interface LiveTaskViewProps {
   onTaskMove?: (taskId: string, column: string, position: number) => void;
 }
 
+interface SessionEventRecord {
+  id: string;
+  type: string;
+  timestamp: number;
+  data: unknown;
+}
+
+function extractSessionEvents(
+  payload: SessionEventRecord[] | { data: SessionEventRecord[] }
+): SessionEventRecord[] {
+  return Array.isArray(payload) ? payload : payload.data;
+}
+
 // =============================================================================
 // LiveTaskView Component
 // =============================================================================
@@ -67,30 +83,44 @@ export function LiveTaskView({
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [topologyData, setTopologyData] = useState<TopologyGraph | undefined>(undefined);
+  const [topologyError, setTopologyError] = useState<string | null>(null);
+  const [retryCounter, setRetryCounter] = useState(0);
+
+  const normalizedSelectedTaskId = useMemo(() => {
+    if (!selectedTaskId) return null;
+    return tasks.some((task) => task.id === selectedTaskId) ? selectedTaskId : null;
+  }, [selectedTaskId, tasks]);
 
   const selectedTask = useMemo(
-    () => tasks.find((t) => t.id === selectedTaskId) ?? null,
-    [tasks, selectedTaskId]
+    () => tasks.find((t) => t.id === normalizedSelectedTaskId) ?? null,
+    [normalizedSelectedTaskId, tasks]
   );
 
   // Fetch session events to build initial topology data when a task is selected
   useWatchEffect(() => {
     const sessionId = selectedTask?.sessionId;
-    if (!sessionId) {
-      setTopologyData(undefined);
-      return;
-    }
+
+    // Bug 2 fix: always reset when dependencies change (prevents stale data on task switch)
+    setTopologyData(undefined);
+    setTopologyError(null);
+
+    if (!sessionId) return;
+
+    let cancelled = false;
 
     const fetchTopologyFromEvents = async () => {
       try {
         const result = await apiClient.sessions.getEvents(sessionId, { limit: 500 });
-        if (!result.ok) return;
+        if (cancelled) return;
 
-        // Handle both response shapes: {data: [...], pagination} or flat [...]
-        const rawData = result.data as
-          | { data: Array<{ id: string; type: string; timestamp: number; data: unknown }> }
-          | Array<{ id: string; type: string; timestamp: number; data: unknown }>;
-        const events = Array.isArray(rawData) ? rawData : rawData.data;
+        if (!result.ok) {
+          setTopologyError('Session events not found');
+          return;
+        }
+
+        const events = extractSessionEvents(
+          result.data as SessionEventRecord[] | { data: SessionEventRecord[] }
+        );
         const nodes = new Map<string, TopologyNode>();
         const edges: Array<{ id: string; sourceId: string; targetId: string }> = [];
 
@@ -142,9 +172,12 @@ export function LiveTaskView({
               if (parent) parent.childIds.push(d.agentId);
             }
           } else if (event.type === 'container-agent:started' && nodes.size === 0) {
-            // Container-agent session: create root node from started event
             const d = event.data as { taskId?: string; model?: string };
-            const agentId = selectedTask?.agentId ?? `agent-${d.taskId ?? selectedTask?.id}`;
+            const agentId = deriveContainerAgentNodeId({
+              agentId: selectedTask?.agentId,
+              taskId: d.taskId ?? selectedTask?.id,
+              sessionId,
+            });
             nodes.set(agentId, {
               id: agentId,
               name: d.model ?? selectedTask?.title ?? 'Agent',
@@ -195,7 +228,6 @@ export function LiveTaskView({
               if (node.status === 'completed') node.progress = 100;
             }
           } else if (event.type === 'container-agent:tool:start') {
-            // Update root node tool count for container-agent sessions
             const firstNode = nodes.values().next().value;
             if (firstNode) {
               firstNode.turns += 1;
@@ -217,14 +249,16 @@ export function LiveTaskView({
 
         // If still no nodes, create a root from task metadata
         if (nodes.size === 0) {
-          // Build root node from container-agent events or task metadata
-          const agentId = selectedTask?.agentId ?? `agent-${selectedTask?.id}`;
+          const agentId = deriveContainerAgentNodeId({
+            agentId: selectedTask?.agentId,
+            taskId: selectedTask?.id,
+            sessionId,
+          });
           const isCompleted =
             selectedTask?.column === 'verified' || selectedTask?.column === 'done';
           const isRunning = selectedTask?.column === 'in_progress';
           const isPlanReady = selectedTask?.lastAgentStatus === 'planning';
 
-          // Estimate tokens from tool events
           let toolCount = 0;
           for (const event of events) {
             if (event.type.includes('tool:start')) toolCount++;
@@ -264,21 +298,34 @@ export function LiveTaskView({
           taskName: selectedTask?.title ?? '',
           taskPriority: selectedTask?.priority ?? '',
         });
-      } catch {
-        // Non-critical — topology will still try live streaming
+      } catch (err) {
+        if (cancelled) return;
+        console.error('[LiveTaskView] Failed to fetch topology events:', err);
+        setTopologyError(err instanceof Error ? err.message : 'Failed to load session data');
       }
     };
 
     void fetchTopologyFromEvents();
-  }, [selectedTask?.sessionId, selectedTask?.id, selectedTask?.title, selectedTask?.priority]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    selectedTask?.sessionId,
+    selectedTask?.id,
+    selectedTask?.title,
+    selectedTask?.priority,
+    retryCounter,
+  ]);
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden" data-testid="live-task-view">
       {/* Left: Task List Sidebar */}
       <TaskListSidebar
         tasks={tasks}
-        selectedTaskId={selectedTaskId}
+        selectedTaskId={normalizedSelectedTaskId}
         onTaskSelect={setSelectedTaskId}
+        onSelectedTaskHidden={() => setSelectedTaskId(null)}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
       />
@@ -325,6 +372,23 @@ export function LiveTaskView({
                   </Suspense>
                 </div>
               </div>
+            ) : selectedTask.sessionId && topologyError ? (
+              <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center px-6">
+                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-danger/10">
+                  <WarningCircle size={28} className="text-danger" />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-medium text-fg">Failed to load session data</p>
+                  <p className="text-xs text-fg-subtle max-w-xs">{topologyError}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setRetryCounter((c) => c + 1)}
+                  className="rounded-md border border-border bg-surface-subtle px-4 py-1.5 text-xs font-medium text-fg-muted transition-all duration-150 hover:bg-surface-emphasis hover:text-fg hover:border-fg-subtle"
+                >
+                  Retry
+                </button>
+              </div>
             ) : selectedTask.sessionId && !topologyData ? (
               <div className="flex flex-1 items-center justify-center">
                 <p className="text-sm text-fg-muted">Loading session data...</p>
@@ -356,15 +420,15 @@ export function LiveTaskView({
 }
 
 // =============================================================================
-// TaskStatusPipeline — visual kanban column indicator with progression
+// TaskStatusPipeline — connected stepper with track line
 // =============================================================================
 
-const PIPELINE_COLUMNS = [
-  { id: 'backlog', label: 'Backlog', color: 'bg-fg-subtle' },
-  { id: 'queued', label: 'Queued', color: 'bg-accent' },
-  { id: 'in_progress', label: 'In Progress', color: 'bg-success' },
-  { id: 'waiting_approval', label: 'Review', color: 'bg-warning' },
-  { id: 'verified', label: 'Done', color: 'bg-done' },
+const PIPELINE_STEPS = [
+  { id: 'backlog', label: 'Backlog' },
+  { id: 'queued', label: 'Queued' },
+  { id: 'in_progress', label: 'In Progress' },
+  { id: 'waiting_approval', label: 'Review' },
+  { id: 'verified', label: 'Done' },
 ] as const;
 
 function TaskStatusPipeline({
@@ -376,46 +440,68 @@ function TaskStatusPipeline({
   taskId: string;
   onMove?: (taskId: string, column: string, position: number) => void;
 }): React.JSX.Element {
-  const currentIndex = PIPELINE_COLUMNS.findIndex((c) => c.id === currentColumn);
+  const normalizedCurrentColumn = COMPLETED_COLUMNS.has(currentColumn) ? 'verified' : currentColumn;
+  const currentIndex = PIPELINE_STEPS.findIndex((c) => c.id === normalizedCurrentColumn);
   const nextColumn =
-    currentIndex < PIPELINE_COLUMNS.length - 1 ? PIPELINE_COLUMNS[currentIndex + 1] : null;
+    currentIndex < PIPELINE_STEPS.length - 1 ? PIPELINE_STEPS[currentIndex + 1] : null;
 
   return (
-    <div className="flex items-center gap-1 px-4 pb-2.5">
-      {/* Pipeline steps */}
-      <div className="flex items-center gap-0.5 flex-1">
-        {PIPELINE_COLUMNS.map((col, i) => {
-          const isActive = col.id === currentColumn;
+    <div className="flex items-center gap-3 px-4 pb-3">
+      {/* Connected stepper */}
+      <div className="flex items-center flex-1 min-w-0">
+        {PIPELINE_STEPS.map((step, i) => {
+          const isActive = step.id === normalizedCurrentColumn;
           const isPast = i < currentIndex;
+          const isFuture = i > currentIndex;
+
           return (
-            <React.Fragment key={col.id}>
+            <React.Fragment key={step.id}>
+              {/* Connector line before step (except first) */}
               {i > 0 && (
-                <CaretRight
-                  size={10}
+                <div
                   className={cn(
-                    'shrink-0',
-                    isPast ? 'text-done' : i <= currentIndex ? 'text-fg-muted' : 'text-fg-subtle/30'
+                    'h-px flex-1 min-w-3 max-w-8 transition-colors duration-300',
+                    isPast || isActive ? 'bg-done' : 'bg-border'
                   )}
                 />
               )}
+
+              {/* Step */}
               <button
                 type="button"
-                onClick={() => onMove?.(taskId, col.id, 0)}
+                onClick={() => onMove?.(taskId, step.id, 0)}
                 disabled={!onMove}
                 className={cn(
-                  'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition-all duration-150',
-                  isActive
-                    ? `${col.color}/15 text-fg border border-current/20 shadow-sm`
-                    : isPast
-                      ? 'text-done/70 hover:bg-done/10'
-                      : 'text-fg-subtle hover:bg-surface-subtle',
+                  'group relative flex items-center gap-1.5 shrink-0 transition-all duration-200',
                   onMove && 'cursor-pointer'
                 )}
-                title={onMove ? `Move to ${col.label}` : col.label}
+                title={onMove ? `Move to ${step.label}` : step.label}
               >
-                {isPast && <CheckCircle size={12} weight="fill" className="text-done" />}
-                {isActive && <div className={cn('h-[6px] w-[6px] rounded-full', col.color)} />}
-                <span>{col.label}</span>
+                {/* Step indicator */}
+                <div
+                  className={cn(
+                    'relative flex items-center justify-center rounded-full transition-all duration-200',
+                    isPast && 'h-5 w-5 bg-done',
+                    isActive &&
+                      'h-5 w-5 border-2 border-accent bg-accent/15 shadow-[0_0_0_3px_var(--accent-subtle)]',
+                    isFuture && 'h-4 w-4 border border-border bg-surface-subtle'
+                  )}
+                >
+                  {isPast && <CheckCircle size={14} weight="fill" className="text-bg-canvas" />}
+                  {isActive && <div className="h-1.5 w-1.5 rounded-full bg-accent" />}
+                </div>
+
+                {/* Label */}
+                <span
+                  className={cn(
+                    'text-[11px] font-medium transition-colors duration-200',
+                    isPast && 'text-done',
+                    isActive && 'text-fg',
+                    isFuture && 'text-fg-subtle group-hover:text-fg-muted'
+                  )}
+                >
+                  {step.label}
+                </span>
               </button>
             </React.Fragment>
           );
