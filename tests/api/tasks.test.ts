@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Task } from '../../src/db/schema';
-import { ProjectErrors } from '../../src/lib/errors/project-errors.js';
+import { CodespaceErrors } from '../../src/lib/errors/codespace-errors.js';
 import { TaskErrors } from '../../src/lib/errors/task-errors.js';
 import { err, ok } from '../../src/lib/utils/result.js';
 
@@ -127,7 +127,7 @@ describe('Task API', () => {
   });
 
   it('returns not found when project missing', async () => {
-    taskServiceMocks.create.mockResolvedValue(err(ProjectErrors.NOT_FOUND));
+    taskServiceMocks.create.mockResolvedValue(err(CodespaceErrors.NOT_FOUND));
 
     const response = await tasksRoute.request(
       '/',
@@ -139,7 +139,7 @@ describe('Task API', () => {
 
     expect(response?.status).toBe(404);
     const data = await parseJson<{ ok: false; error: { code: string } }>(response as Response);
-    expect(data.error.code).toBe('PROJECT_NOT_FOUND');
+    expect(data.error.code).toBe('CODESPACE_NOT_FOUND');
   });
 
   it('gets a task by id', async () => {

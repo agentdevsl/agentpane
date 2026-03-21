@@ -13,7 +13,7 @@ import { flushPromises } from '../helpers/async';
 
 const createDbMock = () => ({
   query: {
-    projects: { findFirst: vi.fn() },
+    codespaces: { findFirst: vi.fn() },
     sessions: { findFirst: vi.fn(), findMany: vi.fn() },
     sessionEvents: { findFirst: vi.fn(), findMany: vi.fn() },
     sessionSummaries: { findFirst: vi.fn() },
@@ -376,7 +376,7 @@ describe('Presence Service', () => {
 
   describe('Presence State Management', () => {
     it('initializes presence store on session create', async () => {
-      db.query.projects.findFirst.mockResolvedValue({ id: 'p1' });
+      db.query.codespaces.findFirst.mockResolvedValue({ id: 'p1' });
       db.insert.mockReturnValue({
         values: vi.fn(() => ({
           returning: vi.fn().mockResolvedValue([

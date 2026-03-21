@@ -88,6 +88,7 @@ export function resolveHighestRole(
   for (const m of roles) {
     const validated = isValidRbacRole(m.role);
     if (!validated) {
+      console.warn(`[RBAC] Unknown role encountered: "${m.role}"`);
       continue;
     }
     const level = RBAC_ROLE_LEVEL[validated];

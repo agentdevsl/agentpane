@@ -178,28 +178,33 @@ export function useTaskCreation(codespaceId: string): UseTaskCreationReturn {
     // Clear any previous local error
     setLocalError(null);
 
-    // Get configured tools from API (falls back to localStorage/defaults)
-    const allowedTools = await getTaskCreationToolsAsync();
+    try {
+      // Get configured tools from API (falls back to localStorage/defaults)
+      const allowedTools = await getTaskCreationToolsAsync();
 
-    // Call API to start session with configured tools
-    const result = await apiClient.taskCreation.start(codespaceId, allowedTools);
+      // Call API to start session with configured tools
+      const result = await apiClient.taskCreation.start(codespaceId, allowedTools);
 
-    if (!result.ok) {
-      setLocalError(result.error.message || 'Failed to start conversation');
-      return;
+      if (!result.ok) {
+        setLocalError(result.error.message || 'Failed to start conversation');
+        return;
+      }
+
+      const newSessionId = result.data.sessionId;
+
+      // Create session in TanStack DB collection
+      createTaskCreationSession(newSessionId, codespaceId);
+
+      // Start syncing SSE events to collection
+      const streamUrl = apiClient.taskCreation.getStreamUrl(newSessionId);
+      syncTaskCreationToCollections(newSessionId, streamUrl);
+
+      // Update local state
+      setSessionId(newSessionId);
+    } catch (err) {
+      console.error('[TaskCreation] Failed to start conversation:', err);
+      setLocalError(err instanceof Error ? err.message : 'Failed to start conversation');
     }
-
-    const newSessionId = result.data.sessionId;
-
-    // Create session in TanStack DB collection
-    createTaskCreationSession(newSessionId, codespaceId);
-
-    // Start syncing SSE events to collection
-    const streamUrl = apiClient.taskCreation.getStreamUrl(newSessionId);
-    syncTaskCreationToCollections(newSessionId, streamUrl);
-
-    // Update local state
-    setSessionId(newSessionId);
   }, [codespaceId]);
 
   // Send a message

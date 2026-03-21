@@ -133,7 +133,9 @@ export function ActivityTab({ node, sessionId }: ActivityTabProps) {
         }
         setEntries(mapped);
       })
-      .catch(() => {})
+      .catch((err) => {
+        if (!cancelled) console.error('[ActivityTab] Failed to load session events:', err);
+      })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });

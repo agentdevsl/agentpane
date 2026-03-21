@@ -34,7 +34,8 @@ export const connectStreams = async (_ctx?: unknown) => {
     }
     setStreamsAvailable(false);
     return ok(null);
-  } catch (_error) {
+  } catch (error) {
+    console.warn('[streams] Failed to connect to streams server:', error);
     setStreamsAvailable(false);
     return ok(null); // Non-fatal in dev mode
   }

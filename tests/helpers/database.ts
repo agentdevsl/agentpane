@@ -120,47 +120,38 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
     }
   }
 
-  // The base migration creates project_id as NOT NULL on several tables.
-  // The Drizzle schema now only writes to codespace_id. Use BEFORE INSERT
-  // triggers to auto-fill project_id from codespace_id, preventing NOT NULL
-  // constraint failures when Drizzle ORM omits the old column.
-  const tablesWithProjectId = ['agents', 'sessions', 'worktrees', 'tasks', 'agent_runs'];
-  for (const table of tablesWithProjectId) {
-    try {
-      testSqlite.exec(`
-        CREATE TRIGGER IF NOT EXISTS trg_${table}_fill_project_id
-        BEFORE INSERT ON ${table}
-        FOR EACH ROW
-        WHEN NEW.project_id IS NULL AND NEW.codespace_id IS NOT NULL
-        BEGIN
-          SELECT RAISE(IGNORE);
-        END;
-      `);
-    } catch {
-      // table may not have both columns yet
-    }
-  }
+  // The base migration creates project_id NOT NULL with FK to projects on
+  // several tables. The Drizzle schema now writes to codespace_id instead.
+  // SQLite cannot ALTER column constraints, so we rebuild each table with
+  // project_id made nullable and its FK reference removed.
+  testSqlite.exec('PRAGMA foreign_keys = OFF;');
 
-  // Actually, RAISE(IGNORE) aborts the insert. Use a different approach:
-  // disable FK and NOT NULL checking by using writable_schema to modify table defs.
-  // Simpler: just insert a matching row into the old projects table from codespaces.
-  // The factories/setup already create codespace records. We just need the old
-  // project_id column to be populated. Since triggers can't modify NEW values in
-  // SQLite, the cleanest approach is to drop the NOT NULL on project_id by
-  // recreating the table schema text directly.
-  testSqlite.exec('PRAGMA writable_schema = ON;');
-  for (const table of tablesWithProjectId) {
+  const legacyTables = ['agents', 'sessions', 'worktrees', 'tasks', 'agent_runs'];
+
+  for (const table of legacyTables) {
     try {
-      const sqlDef = testSqlite
+      const row = testSqlite
         .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?")
         .get(table) as { sql: string } | undefined;
-      if (sqlDef?.sql) {
-        // Remove NOT NULL from project_id column definition
-        const newSql = sqlDef.sql.replace(/"project_id" TEXT NOT NULL/g, '"project_id" TEXT');
-        if (newSql !== sqlDef.sql) {
-          testSqlite.exec(
-            `UPDATE sqlite_master SET sql = '${newSql.replace(/'/g, "''")}' WHERE type='table' AND name='${table}';`
-          );
+      if (row?.sql) {
+        const newSql = row.sql
+          .replace(
+            /"project_id" TEXT NOT NULL REFERENCES "projects"\("id"\) ON DELETE CASCADE/g,
+            '"project_id" TEXT'
+          )
+          .replace(/"project_id" TEXT NOT NULL REFERENCES "projects"\("id"\)/g, '"project_id" TEXT')
+          .replace(/"project_id" TEXT NOT NULL/g, '"project_id" TEXT');
+
+        if (newSql !== row.sql) {
+          testSqlite.exec(`ALTER TABLE "${table}" RENAME TO "_old_${table}";`);
+          testSqlite.exec(newSql);
+          const cols = (
+            testSqlite.prepare(`PRAGMA table_info("${table}")`).all() as { name: string }[]
+          )
+            .map((c) => `"${c.name}"`)
+            .join(', ');
+          testSqlite.exec(`INSERT INTO "${table}" (${cols}) SELECT ${cols} FROM "_old_${table}";`);
+          testSqlite.exec(`DROP TABLE "_old_${table}";`);
         }
       }
     } catch {
@@ -170,44 +161,37 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
 
   // Also fix event_subscriptions target_project_id
   try {
-    const sqlDef = testSqlite
+    const row = testSqlite
       .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='event_subscriptions'")
       .get() as { sql: string } | undefined;
-    if (sqlDef?.sql) {
-      const newSql = sqlDef.sql.replace(
-        /"target_project_id" TEXT NOT NULL/g,
-        '"target_project_id" TEXT'
-      );
-      if (newSql !== sqlDef.sql) {
+    if (row?.sql) {
+      const newSql = row.sql
+        .replace(
+          /"target_project_id" TEXT NOT NULL REFERENCES "projects"\("id"\) ON DELETE CASCADE/g,
+          '"target_project_id" TEXT'
+        )
+        .replace(/"target_project_id" TEXT NOT NULL/g, '"target_project_id" TEXT');
+      if (newSql !== row.sql) {
+        testSqlite.exec('ALTER TABLE "event_subscriptions" RENAME TO "_old_event_subscriptions";');
+        testSqlite.exec(newSql);
+        const cols = (
+          testSqlite.prepare('PRAGMA table_info("event_subscriptions")').all() as {
+            name: string;
+          }[]
+        )
+          .map((c) => `"${c.name}"`)
+          .join(', ');
         testSqlite.exec(
-          `UPDATE sqlite_master SET sql = '${newSql.replace(/'/g, "''")}' WHERE type='table' AND name='event_subscriptions';`
+          `INSERT INTO "event_subscriptions" (${cols}) SELECT ${cols} FROM "_old_event_subscriptions";`
         );
+        testSqlite.exec('DROP TABLE "_old_event_subscriptions";');
       }
     }
   } catch {
     // safe to ignore
   }
 
-  // Also fix template_projects table project_id
-  try {
-    const sqlDef = testSqlite
-      .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='template_projects'")
-      .get() as { sql: string } | undefined;
-    if (sqlDef?.sql) {
-      const newSql = sqlDef.sql.replace(/"project_id" TEXT NOT NULL/g, '"project_id" TEXT');
-      if (newSql !== sqlDef.sql) {
-        testSqlite.exec(
-          `UPDATE sqlite_master SET sql = '${newSql.replace(/'/g, "''")}' WHERE type='table' AND name='template_projects';`
-        );
-      }
-    }
-  } catch {
-    // safe to ignore
-  }
-
-  testSqlite.exec('PRAGMA writable_schema = OFF;');
-  // Verify schema integrity
-  testSqlite.exec('PRAGMA integrity_check;');
+  testSqlite.exec('PRAGMA foreign_keys = ON;');
 
   return testDb;
 }
@@ -246,6 +230,10 @@ export async function clearTestDatabase(): Promise<void> {
       codespace_members, codespace_tags, folder_members,
       team_project_folders, codespaces, project_folders
     CASCADE`;
+    // Re-seed the default project folder so FK constraints are satisfied
+    await pgClient`INSERT INTO project_folders (id, name, slug, description, icon, color)
+      VALUES ('default-folder', 'Default', 'default', 'Default project folder for tests', 'Folder', '#6B7280')
+      ON CONFLICT (id) DO NOTHING`;
     return;
   }
 
@@ -283,6 +271,11 @@ export async function clearTestDatabase(): Promise<void> {
       DELETE FROM marketplaces;
       PRAGMA defer_foreign_keys = OFF;
     `);
+    // Re-seed the default project folder so FK constraints are satisfied
+    testSqlite.exec(`
+      INSERT OR IGNORE INTO project_folders (id, name, slug, description, icon, color)
+      VALUES ('default-folder', 'Default', 'default', 'Default project folder for tests', 'Folder', '#6B7280');
+    `);
     return;
   }
 
@@ -314,6 +307,16 @@ export async function clearTestDatabase(): Promise<void> {
   await testDb.delete(schema.projectFolders);
   await testDb.delete(schema.sandboxConfigs);
   await testDb.delete(schema.marketplaces);
+
+  // Re-seed the default project folder so FK constraints are satisfied
+  await testDb.insert(schema.projectFolders).values({
+    id: 'default-folder',
+    name: 'Default',
+    slug: 'default',
+    description: 'Default project folder for tests',
+    icon: 'Folder',
+    color: '#6B7280',
+  });
 }
 
 export async function closeTestDatabase(): Promise<void> {

@@ -345,43 +345,43 @@ describe('Configuration Module', () => {
 
   describe('Schema Validation', () => {
     it('validates maxTurns within range 1-500', async () => {
-      const { projectConfigSchema } = await import('@/lib/config/schemas');
+      const { codespaceConfigSchema } = await import('@/lib/config/schemas');
 
       // Valid values
-      expect(() => projectConfigSchema.parse({ maxTurns: 1 })).not.toThrow();
-      expect(() => projectConfigSchema.parse({ maxTurns: 500 })).not.toThrow();
-      expect(() => projectConfigSchema.parse({ maxTurns: 250 })).not.toThrow();
+      expect(() => codespaceConfigSchema.parse({ maxTurns: 1 })).not.toThrow();
+      expect(() => codespaceConfigSchema.parse({ maxTurns: 500 })).not.toThrow();
+      expect(() => codespaceConfigSchema.parse({ maxTurns: 250 })).not.toThrow();
 
       // Invalid values
-      expect(() => projectConfigSchema.parse({ maxTurns: 0 })).toThrow();
-      expect(() => projectConfigSchema.parse({ maxTurns: 501 })).toThrow();
-      expect(() => projectConfigSchema.parse({ maxTurns: -1 })).toThrow();
+      expect(() => codespaceConfigSchema.parse({ maxTurns: 0 })).toThrow();
+      expect(() => codespaceConfigSchema.parse({ maxTurns: 501 })).toThrow();
+      expect(() => codespaceConfigSchema.parse({ maxTurns: -1 })).toThrow();
     });
 
     it('validates maxConcurrentAgents within range 1-10', async () => {
-      const { projectConfigSchema } = await import('@/lib/config/schemas');
+      const { codespaceConfigSchema } = await import('@/lib/config/schemas');
 
       // Valid values
-      expect(() => projectConfigSchema.parse({ maxConcurrentAgents: 1 })).not.toThrow();
-      expect(() => projectConfigSchema.parse({ maxConcurrentAgents: 10 })).not.toThrow();
-      expect(() => projectConfigSchema.parse({ maxConcurrentAgents: 5 })).not.toThrow();
+      expect(() => codespaceConfigSchema.parse({ maxConcurrentAgents: 1 })).not.toThrow();
+      expect(() => codespaceConfigSchema.parse({ maxConcurrentAgents: 10 })).not.toThrow();
+      expect(() => codespaceConfigSchema.parse({ maxConcurrentAgents: 5 })).not.toThrow();
 
       // Invalid values
-      expect(() => projectConfigSchema.parse({ maxConcurrentAgents: 0 })).toThrow();
-      expect(() => projectConfigSchema.parse({ maxConcurrentAgents: 11 })).toThrow();
+      expect(() => codespaceConfigSchema.parse({ maxConcurrentAgents: 0 })).toThrow();
+      expect(() => codespaceConfigSchema.parse({ maxConcurrentAgents: 11 })).toThrow();
     });
 
     it('validates temperature within range 0-1', async () => {
-      const { projectConfigSchema } = await import('@/lib/config/schemas');
+      const { codespaceConfigSchema } = await import('@/lib/config/schemas');
 
       // Valid values
-      expect(() => projectConfigSchema.parse({ temperature: 0 })).not.toThrow();
-      expect(() => projectConfigSchema.parse({ temperature: 1 })).not.toThrow();
-      expect(() => projectConfigSchema.parse({ temperature: 0.5 })).not.toThrow();
+      expect(() => codespaceConfigSchema.parse({ temperature: 0 })).not.toThrow();
+      expect(() => codespaceConfigSchema.parse({ temperature: 1 })).not.toThrow();
+      expect(() => codespaceConfigSchema.parse({ temperature: 0.5 })).not.toThrow();
 
       // Invalid values
-      expect(() => projectConfigSchema.parse({ temperature: -0.1 })).toThrow();
-      expect(() => projectConfigSchema.parse({ temperature: 1.1 })).toThrow();
+      expect(() => codespaceConfigSchema.parse({ temperature: -0.1 })).toThrow();
+      expect(() => codespaceConfigSchema.parse({ temperature: 1.1 })).toThrow();
     });
   });
 

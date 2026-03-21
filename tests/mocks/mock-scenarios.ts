@@ -15,8 +15,8 @@ import { vi } from 'vitest';
 import type { Result } from '../../src/lib/utils/result.js';
 import { err, ok } from '../../src/lib/utils/result.js';
 import { AgentExecutionService } from '../../src/services/agent/agent-execution.service.js';
+import { CodespaceService } from '../../src/services/codespace.service.js';
 import { ContainerAgentService } from '../../src/services/container-agent.service.js';
-import { ProjectService } from '../../src/services/project.service.js';
 import type { SessionWithPresence } from '../../src/services/session/types.js';
 import { SessionService } from '../../src/services/session.service.js';
 import type { ContainerAgentTrigger } from '../../src/services/task.service.js';
@@ -315,13 +315,13 @@ export function createAgentServiceScenario(overrides?: {
 }
 
 // =============================================================================
-// ProjectService Scenario
+// CodespaceService Scenario
 // =============================================================================
 
 /**
- * Pre-configured scenario for ProjectService testing.
+ * Pre-configured scenario for CodespaceService testing.
  *
- * Provides a fully wired ProjectService with:
+ * Provides a fully wired CodespaceService with:
  * - Mock database with default project
  * - Mock worktree service with prune support
  * - Mock command runner with git support
@@ -331,12 +331,12 @@ export function createAgentServiceScenario(overrides?: {
  *
  * @example
  * ```typescript
- * const scenario = createProjectServiceScenario();
+ * const scenario = createCodespaceServiceScenario();
  * const result = await scenario.service.getById('proj-1');
  * expect(result.ok).toBe(true);
  * ```
  */
-export function createProjectServiceScenario(overrides?: {
+export function createCodespaceServiceScenario(overrides?: {
   db?: MockDatabase;
   worktreeService?: WorktreeServiceForProject;
   runner?: CommandRunner;
@@ -344,7 +344,7 @@ export function createProjectServiceScenario(overrides?: {
   db: MockDatabase;
   worktreeService: WorktreeServiceForProject;
   runner: CommandRunner;
-  service: ProjectService;
+  service: CodespaceService;
 } {
   const defaultProject = {
     id: 'proj-1',
@@ -383,7 +383,7 @@ export function createProjectServiceScenario(overrides?: {
       exec: vi.fn().mockResolvedValue({ stdout: 'main', stderr: '' }),
     });
 
-  const service = new ProjectService(db as unknown as Database, worktreeService, runner);
+  const service = new CodespaceService(db as unknown as Database, worktreeService, runner);
 
   return {
     db,
@@ -711,7 +711,7 @@ export function createFullStackScenario(): {
   sessionService: SessionService;
   taskService: TaskService;
   agentService: AgentExecutionService;
-  projectService: ProjectService;
+  projectService: CodespaceService;
   containerAgentService: ContainerAgentService;
 } {
   // Create shared entities
@@ -873,7 +873,7 @@ export function createFullStackScenario(): {
     sessionServiceInterface
   );
 
-  const projectService = new ProjectService(db as unknown as Database, worktreeService, runner);
+  const projectService = new CodespaceService(db as unknown as Database, worktreeService, runner);
 
   const containerAgentService = new ContainerAgentService(
     db as unknown as Database,
@@ -961,7 +961,7 @@ export function createErrorScenario(
 ): ReturnType<
   | typeof createTaskServiceScenario
   | typeof createAgentServiceScenario
-  | typeof createProjectServiceScenario
+  | typeof createCodespaceServiceScenario
   | typeof createSessionServiceScenario
   | typeof createContainerAgentScenario
 > {
@@ -977,7 +977,7 @@ export function createErrorScenario(
         : service === 'agent'
           ? createAgentServiceScenario({ db })
           : service === 'project'
-            ? createProjectServiceScenario({ db })
+            ? createCodespaceServiceScenario({ db })
             : service === 'session'
               ? createSessionServiceScenario({ db })
               : createContainerAgentScenario({ db });
@@ -994,7 +994,7 @@ export function createErrorScenario(
         : service === 'agent'
           ? createAgentServiceScenario({ db })
           : service === 'project'
-            ? createProjectServiceScenario({ db })
+            ? createCodespaceServiceScenario({ db })
             : service === 'session'
               ? createSessionServiceScenario({ db })
               : createContainerAgentScenario({ db });
@@ -1009,7 +1009,7 @@ export function createErrorScenario(
         : service === 'agent'
           ? createAgentServiceScenario({ worktreeService })
           : service === 'project'
-            ? createProjectServiceScenario({ worktreeService })
+            ? createCodespaceServiceScenario({ worktreeService })
             : createContainerAgentScenario({ worktreeService });
     }
 

@@ -1,6 +1,6 @@
 import { createId } from '@paralleldrive/cuid2';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PlanSession as DbPlanSession, Project, Task } from '../../src/db/schema';
+import type { PlanSession as DbPlanSession, Codespace as Project, Task } from '../../src/db/schema';
 import { PlanModeErrors } from '../../src/lib/errors/plan-mode-errors';
 import type { GitHubIssueCreator, GitHubIssueResult } from '../../src/lib/github/issue-creator';
 import type {
@@ -29,6 +29,7 @@ import { createClaudeClient } from '../../src/lib/plan-mode/claude-client';
 function createMockProject(overrides: Partial<Project> = {}): Project {
   return {
     id: createId(),
+    projectFolderId: 'default-folder',
     name: 'Test Project',
     path: '/tmp/test-project',
     description: null,
@@ -43,8 +44,9 @@ function createMockProject(overrides: Partial<Project> = {}): Project {
     githubRepo: null,
     githubInstallationId: null,
     configPath: '.claude',
-    createdAt: new Date(),
-    updatedAt: new Date(),
+    sandboxConfigId: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
     ...overrides,
   };
 }
@@ -133,7 +135,7 @@ function createMockInteraction(overrides: Partial<UserInteraction> = {}): UserIn
 function createMockDatabase() {
   return {
     query: {
-      projects: {
+      codespaces: {
         findFirst: vi.fn(),
       },
       tasks: {
@@ -250,7 +252,7 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
@@ -304,7 +306,7 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
@@ -345,7 +347,7 @@ describe('PlanModeService', () => {
       const project = createMockProject();
       const task = createMockTask(project.id);
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
@@ -385,7 +387,7 @@ describe('PlanModeService', () => {
       const project = createMockProject();
       const task = createMockTask(project.id);
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
@@ -427,7 +429,7 @@ describe('PlanModeService', () => {
       const project = createMockProject();
       const task = createMockTask(project.id);
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
@@ -458,7 +460,7 @@ describe('PlanModeService', () => {
     });
 
     it('should return error when project not found', async () => {
-      db.query.projects.findFirst.mockResolvedValue(null);
+      db.query.codespaces.findFirst.mockResolvedValue(null);
 
       const result = await service.start({
         codespaceId: 'nonexistent',
@@ -474,7 +476,7 @@ describe('PlanModeService', () => {
 
     it('should return error when task not found', async () => {
       const project = createMockProject();
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(null);
 
       const result = await service.start({
@@ -493,7 +495,7 @@ describe('PlanModeService', () => {
       const project = createMockProject();
       const task = createMockTask(project.id);
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       vi.mocked(createClaudeClient).mockResolvedValue(err(PlanModeErrors.CREDENTIALS_NOT_FOUND));
@@ -522,7 +524,7 @@ describe('PlanModeService', () => {
       const sessionId = createId();
       const interactionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
@@ -636,7 +638,7 @@ describe('PlanModeService', () => {
       const project = createMockProject();
       const task = createMockTask(project.id);
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
@@ -693,7 +695,7 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
@@ -730,7 +732,7 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
@@ -795,7 +797,7 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
@@ -864,7 +866,7 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
@@ -912,7 +914,7 @@ describe('PlanModeService', () => {
       const project = createMockProject();
       const task = createMockTask(project.id);
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi.fn().mockRejectedValue(new Error('Database connection lost'));
@@ -937,7 +939,7 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
@@ -988,7 +990,7 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi.fn().mockResolvedValue([
@@ -1032,7 +1034,7 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
@@ -1212,7 +1214,7 @@ describe('PlanModeService', () => {
         turns.push(createMockTurn(i % 2 === 0 ? 'user' : 'assistant', `Turn ${i}`));
       }
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
@@ -1283,7 +1285,7 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
@@ -1350,7 +1352,7 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
@@ -1417,7 +1419,7 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
@@ -1474,7 +1476,7 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
@@ -1538,7 +1540,7 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
@@ -1592,7 +1594,7 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
@@ -1656,7 +1658,7 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
@@ -1720,7 +1722,7 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
@@ -1782,7 +1784,7 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
@@ -1852,7 +1854,7 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
@@ -1905,7 +1907,7 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
@@ -2068,7 +2070,7 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
@@ -2113,7 +2115,7 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
@@ -2151,7 +2153,7 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
@@ -2203,7 +2205,7 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
@@ -2331,7 +2333,7 @@ describe('PlanModeService', () => {
       const project = createMockProject();
       const task = createMockTask(project.id);
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       // Return empty array from insert
@@ -2357,7 +2359,7 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi
@@ -2397,7 +2399,7 @@ describe('PlanModeService', () => {
       const task = createMockTask(project.id);
       const sessionId = createId();
 
-      db.query.projects.findFirst.mockResolvedValue(project);
+      db.query.codespaces.findFirst.mockResolvedValue(project);
       db.query.tasks.findFirst.mockResolvedValue(task);
 
       const insertReturning = vi

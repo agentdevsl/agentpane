@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from '../../src/db/schema';
-import { ProjectErrors } from '../../src/lib/errors/project-errors.js';
+import { CodespaceErrors } from '../../src/lib/errors/codespace-errors.js';
 import { SessionErrors } from '../../src/lib/errors/session-errors.js';
 import { err, ok } from '../../src/lib/utils/result.js';
 
@@ -86,7 +86,7 @@ describe('Session API', () => {
   });
 
   it('returns not found when project missing', async () => {
-    sessionServiceMocks.create.mockResolvedValue(err(ProjectErrors.NOT_FOUND));
+    sessionServiceMocks.create.mockResolvedValue(err(CodespaceErrors.NOT_FOUND));
 
     const response = await app.request(
       jsonRequest('http://localhost/', {
@@ -96,7 +96,7 @@ describe('Session API', () => {
 
     expect(response?.status).toBe(404);
     const data = await parseJson<{ ok: false; error: { code: string } }>(response as Response);
-    expect(data.error.code).toBe('PROJECT_NOT_FOUND');
+    expect(data.error.code).toBe('CODESPACE_NOT_FOUND');
   });
 
   it('gets a session by id', async () => {
