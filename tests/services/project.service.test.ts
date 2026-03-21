@@ -1020,12 +1020,27 @@ describe('CodespaceService', () => {
     });
 
     it('returns error when GitHub installation not found in database', async () => {
-      // FK checks are OFF so we can reference a non-existent installation
+      const db = getTestDb();
+      const { githubInstallations } = await import('../../src/db/schema');
+      // Create an installation to satisfy FK during codespace creation
+      await db.insert(githubInstallations).values({
+        id: 'temp-install',
+        installationId: '99999',
+        accountLogin: 'test-org',
+        accountType: 'Organization',
+      });
+
       const project = await createTestProject({
         githubOwner: 'test-owner',
         githubRepo: 'test-repo',
-        githubInstallationId: 'does-not-exist-in-db',
+        githubInstallationId: 'temp-install',
       });
+
+      // Remove the installation with FK checks disabled so the codespace
+      // keeps its dangling githubInstallationId reference
+      execRawSql('PRAGMA foreign_keys = OFF');
+      execRawSql("DELETE FROM github_installations WHERE id = 'temp-install'");
+      execRawSql('PRAGMA foreign_keys = ON');
 
       const result = await projectService.syncFromGitHub(project.id);
 

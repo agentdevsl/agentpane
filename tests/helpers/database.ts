@@ -220,6 +220,8 @@ export async function clearTestDatabase(): Promise<void> {
       INSERT OR IGNORE INTO project_folders (id, name, slug, description, icon, color)
       VALUES ('default-folder', 'Default', 'default', 'Default project folder for tests', 'Folder', '#6B7280');
     `);
+    // Ensure FK enforcement is active (a test may have disabled it temporarily)
+    testSqlite.pragma('foreign_keys = ON');
     return;
   }
 
