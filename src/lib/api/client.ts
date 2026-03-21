@@ -561,10 +561,9 @@ export const apiClient = {
       if (params?.offset) searchParams.set('offset', String(params.offset));
       const query = searchParams.toString();
       // Use apiServerFetch to hit the Bun API server directly
-      return apiServerFetch<{
-        data: Array<{ id: string; type: string; timestamp: number; data: unknown }>;
-        pagination: { total: number; limit: number; offset: number };
-      }>(`/api/sessions/${encodeURIComponent(id)}/events${query ? `?${query}` : ''}`);
+      return apiServerFetch<Array<{ id: string; type: string; timestamp: number; data: unknown }>>(
+        `/api/sessions/${encodeURIComponent(id)}/events${query ? `?${query}` : ''}`
+      );
     },
 
     getSummary: (id: string) =>

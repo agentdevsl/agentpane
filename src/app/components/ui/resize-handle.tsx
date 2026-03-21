@@ -13,6 +13,8 @@ interface ResizeHandleProps {
   maxWidth?: number;
   /** Current panel width — used as the drag start reference */
   currentWidth: number;
+  /** Which side of the panel the handle sits on. 'right' = left panel, 'left' = right panel */
+  side?: 'left' | 'right';
 }
 
 export function ResizeHandle({
@@ -21,6 +23,7 @@ export function ResizeHandle({
   minWidth = 160,
   maxWidth = 480,
   currentWidth,
+  side = 'right',
 }: ResizeHandleProps): React.JSX.Element {
   const [isDragging, setIsDragging] = useState(false);
   const startXRef = useRef(0);
@@ -42,7 +45,10 @@ export function ResizeHandle({
     let latestWidth = startWidthRef.current;
 
     const handleMouseMove = (e: MouseEvent) => {
-      const delta = e.clientX - startXRef.current;
+      const rawDelta = e.clientX - startXRef.current;
+      // For right-side handles (left panels), dragging right = wider.
+      // For left-side handles (right panels), dragging left = wider (negate delta).
+      const delta = side === 'right' ? rawDelta : -rawDelta;
       const newWidth = Math.round(
         Math.min(maxWidth, Math.max(minWidth, startWidthRef.current + delta))
       );
@@ -82,10 +88,12 @@ export function ResizeHandle({
       aria-valuenow={currentWidth}
       onMouseDown={handleMouseDown}
       className={cn(
-        'absolute right-0 top-0 z-50 h-full w-[5px] cursor-col-resize',
+        'absolute top-0 z-50 h-full w-[5px] cursor-col-resize',
+        side === 'right' ? 'right-0' : 'left-0',
         'transition-opacity duration-150',
         isDragging ? 'opacity-100' : 'opacity-0 hover:opacity-100',
-        'after:absolute after:right-[2px] after:top-0 after:h-full after:w-px',
+        'after:absolute after:top-0 after:h-full after:w-px',
+        side === 'right' ? 'after:right-[2px]' : 'after:left-[2px]',
         isDragging ? 'after:bg-accent' : 'after:bg-border-subtle hover:after:bg-accent/60'
       )}
       data-testid="resize-handle"

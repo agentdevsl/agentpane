@@ -1,118 +1,155 @@
+import { useState } from 'react';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
+import { apiClient } from '@/lib/api/client';
 import type { TopologyNode } from '@/lib/topology/types';
 import { STATUS_COLORS } from '../nodes/agent-node-types';
 
 interface ActivityTabProps {
   node: TopologyNode;
+  sessionId?: string;
 }
 
 interface ActivityEntry {
+  id: string;
   label: string;
-  timestamp: number | null;
+  timestamp: number;
   isCurrent: boolean;
   isFailed: boolean;
 }
 
-function formatTimestamp(ts: number | null): string {
-  if (!ts) return '';
+function formatTimestamp(ts: number): string {
   const d = new Date(ts);
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-// TODO: [CQ-018] Replace with real activity events from the backend
-function buildActivityEntries(node: TopologyNode): ActivityEntry[] {
-  const entries: ActivityEntry[] = [];
-  const baseTime = node.startedAt ?? Date.now();
+function mapEventToActivity(event: {
+  id: string;
+  type: string;
+  timestamp: number;
+  data: unknown;
+}): ActivityEntry | null {
+  const d = event.data as Record<string, unknown>;
 
-  if (node.startedAt) {
-    entries.push({
-      label: 'Started',
-      timestamp: node.startedAt,
-      isCurrent: false,
-      isFailed: false,
-    });
+  switch (event.type) {
+    case 'container-agent:status':
+      return {
+        id: event.id,
+        label: String(d?.message ?? d?.stage ?? 'Status update'),
+        timestamp: event.timestamp,
+        isCurrent: false,
+        isFailed: false,
+      };
+    case 'container-agent:started':
+      return {
+        id: event.id,
+        label: `Agent started${d?.model ? ` (${d.model})` : ''}`,
+        timestamp: event.timestamp,
+        isCurrent: false,
+        isFailed: false,
+      };
+    case 'container-agent:tool:start': {
+      const toolName = String(d?.toolName ?? d?.tool ?? 'Tool');
+      return {
+        id: event.id,
+        label: toolName,
+        timestamp: event.timestamp,
+        isCurrent: false,
+        isFailed: false,
+      };
+    }
+    case 'container-agent:plan_ready':
+      return {
+        id: event.id,
+        label: 'Plan ready for review',
+        timestamp: event.timestamp,
+        isCurrent: true,
+        isFailed: false,
+      };
+    case 'container-agent:complete':
+      return {
+        id: event.id,
+        label: 'Completed',
+        timestamp: event.timestamp,
+        isCurrent: false,
+        isFailed: false,
+      };
+    case 'container-agent:error':
+      return {
+        id: event.id,
+        label: String(d?.error ?? 'Error'),
+        timestamp: event.timestamp,
+        isCurrent: false,
+        isFailed: true,
+      };
+    case 'topology:agent_spawned':
+      return {
+        id: event.id,
+        label: `Spawned: ${String(d?.name ?? 'agent')}`,
+        timestamp: event.timestamp,
+        isCurrent: false,
+        isFailed: false,
+      };
+    case 'topology:agent_completed':
+      return {
+        id: event.id,
+        label: 'Agent completed',
+        timestamp: event.timestamp,
+        isCurrent: false,
+        isFailed: false,
+      };
+    default:
+      // Skip message events and unknown types to keep activity concise
+      return null;
   }
-  if (node.progress >= 10) {
-    entries.push({
-      label: 'Scanning workspace',
-      timestamp: baseTime + 10_000,
-      isCurrent: false,
-      isFailed: false,
-    });
-  }
-  if (node.progress >= 25) {
-    entries.push({
-      label: 'Planning implementation',
-      timestamp: baseTime + 30_000,
-      isCurrent: false,
-      isFailed: false,
-    });
-  }
-  if (node.progress >= 40) {
-    entries.push({
-      label: 'Writing code',
-      timestamp: baseTime + 60_000,
-      isCurrent: false,
-      isFailed: false,
-    });
-  }
-  if (node.progress >= 60) {
-    entries.push({
-      label: 'Running tests',
-      timestamp: baseTime + 120_000,
-      isCurrent: false,
-      isFailed: false,
-    });
-  }
-  if (node.progress >= 80) {
-    entries.push({
-      label: 'Code review',
-      timestamp: baseTime + 180_000,
-      isCurrent: false,
-      isFailed: false,
-    });
-  }
-  if (node.status === 'verifying') {
-    entries.push({
-      label: 'Verifying results',
-      timestamp: baseTime + 240_000,
-      isCurrent: true,
-      isFailed: false,
-    });
-  }
-  if (node.status === 'completed') {
-    entries.push({
-      label: 'Completed successfully',
-      timestamp: node.completedAt,
-      isCurrent: false,
-      isFailed: false,
-    });
-  }
-  if (node.status === 'failed') {
-    entries.push({
-      label: 'Failed',
-      timestamp: node.completedAt ?? Date.now(),
-      isCurrent: false,
-      isFailed: true,
-    });
-  }
-
-  // Mark the latest non-failed entry as current if no explicit current
-  if (
-    entries.length > 0 &&
-    !entries.some((e) => e.isCurrent) &&
-    node.status !== 'completed' &&
-    node.status !== 'failed'
-  ) {
-    const last = entries[entries.length - 1];
-    if (last) last.isCurrent = true;
-  }
-
-  return entries;
 }
 
-export function ActivityTab({ node }: ActivityTabProps) {
-  const entries = buildActivityEntries(node);
+export function ActivityTab({ node, sessionId }: ActivityTabProps) {
+  const [entries, setEntries] = useState<ActivityEntry[]>([]);
+  const [loading, setLoading] = useState(false);
   const statusColor = STATUS_COLORS[node.status];
+
+  useWatchEffect(() => {
+    if (!sessionId) {
+      setEntries([]);
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+
+    apiClient.sessions
+      .getEvents(sessionId, { limit: 500 })
+      .then((result) => {
+        if (cancelled || !result.ok) return;
+        const mapped: ActivityEntry[] = [];
+        for (const event of result.data) {
+          const entry = mapEventToActivity(event);
+          if (entry) mapped.push(entry);
+        }
+        // Mark last non-failed entry as current if none explicitly set
+        if (mapped.length > 0 && !mapped.some((e) => e.isCurrent)) {
+          const last = mapped[mapped.length - 1];
+          if (last && !last.isFailed) last.isCurrent = true;
+        }
+        setEntries(mapped);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
+
+  if (loading) {
+    return (
+      <div className="flex h-32 items-center justify-center">
+        <span className="text-xs text-fg-muted">Loading activity...</span>
+      </div>
+    );
+  }
 
   if (entries.length === 0) {
     return (
@@ -134,7 +171,7 @@ export function ActivityTab({ node }: ActivityTabProps) {
               : '#475569';
 
           return (
-            <div key={entry.label} className="relative flex gap-3 pb-4">
+            <div key={entry.id} className="relative flex gap-3 pb-4">
               {/* Vertical line */}
               {!isLast && (
                 <div className="absolute left-[5px] top-3 bottom-0 w-px border-l border-border" />
@@ -149,9 +186,7 @@ export function ActivityTab({ node }: ActivityTabProps) {
                 <div className={entry.isFailed ? 'text-xs text-red-400' : 'text-xs text-fg'}>
                   {entry.label}
                 </div>
-                {entry.timestamp && (
-                  <div className="text-xs text-fg-subtle">{formatTimestamp(entry.timestamp)}</div>
-                )}
+                <div className="text-xs text-fg-subtle">{formatTimestamp(entry.timestamp)}</div>
               </div>
             </div>
           );

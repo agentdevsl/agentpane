@@ -15,8 +15,8 @@ import { useMemo, useState } from 'react';
 import {
   agentStatusVariants,
   lastRunStatusVariants,
-  priorityVariants,
 } from '@/app/components/features/kanban-board/styles';
+import { PriorityIcon } from '@/app/components/ui/priority-icon';
 import { useLocalStorage } from '@/app/hooks/use-local-storage';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { cn } from '@/lib/utils/cn';
@@ -385,9 +385,9 @@ function TaskCard({
         isSelected ? 'border-accent bg-accent-muted' : 'border-border hover:border-fg-subtle'
       )}
     >
-      {/* Header: priority dot + title */}
+      {/* Header: priority icon + title */}
       <div className="flex items-start gap-2">
-        <div className={cn(priorityVariants({ priority }), 'mt-1.5')} />
+        <PriorityIcon priority={priority} size={12} className="mt-1" />
         <div className="flex-1 text-sm font-medium leading-snug text-fg truncate">{task.title}</div>
       </div>
 

@@ -254,7 +254,7 @@ export function useTaskActivity(task: Task | null): {
         if (cancelled) return;
 
         if (result.ok) {
-          const events = result.data.data;
+          const events = result.data;
           const mapped: ActivityEntry[] = [];
           for (const event of events) {
             seenOffsets.current.add(event.id);

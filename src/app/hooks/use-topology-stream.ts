@@ -8,6 +8,7 @@ import type {
 } from '@/lib/streams/client';
 import { subscribeToSession } from '@/lib/streams/client';
 import type { TopologyNode } from '@/lib/topology/types';
+import { deriveContainerAgentNodeId } from '@/lib/topology/utils';
 import { useMountEffect } from './use-mount-effect';
 import { useWatchEffect } from './use-watch-effect';
 
@@ -187,8 +188,9 @@ export function useTopologyStream(
         rootNodeCreated = true;
         hasReceivedEvent = true;
         const data = event.data as { taskId?: string; sessionId?: string; model?: string };
+        const nodeId = deriveContainerAgentNodeId({ taskId: data.taskId, sessionId });
         const node: TopologyNode = {
-          id: `agent-${data.taskId ?? sessionId}`,
+          id: nodeId,
           name: data.model ?? 'Agent',
           role: 'coder',
           status: 'running',
@@ -214,7 +216,7 @@ export function useTopologyStream(
       onContainerAgentComplete: (event) => {
         hasReceivedEvent = true;
         const data = event.data as { taskId?: string };
-        const agentId = `agent-${data.taskId ?? sessionId}`;
+        const agentId = deriveContainerAgentNodeId({ taskId: data.taskId, sessionId });
         dispatch({
           type: 'COMPLETE_NODE',
           nodeId: agentId,
@@ -225,7 +227,7 @@ export function useTopologyStream(
       onContainerAgentError: (event) => {
         hasReceivedEvent = true;
         const data = event.data as { taskId?: string };
-        const agentId = `agent-${data.taskId ?? sessionId}`;
+        const agentId = deriveContainerAgentNodeId({ taskId: data.taskId, sessionId });
         dispatch({
           type: 'COMPLETE_NODE',
           nodeId: agentId,

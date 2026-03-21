@@ -8,6 +8,8 @@ import {
   WarningCircle,
 } from '@phosphor-icons/react';
 import { useCallback, useRef, useState } from 'react';
+import { ResizeHandle } from '@/app/components/ui/resize-handle';
+import { useLocalStorage } from '@/app/hooks/use-local-storage';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { apiClient } from '@/lib/api/client';
 import { type SessionCallbacks, subscribeToSession } from '@/lib/streams/client';
@@ -205,14 +207,24 @@ function mapEventToTimelineEntry(event: {
 
 export function AuditTrailPanel({ task }: AuditTrailPanelProps): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<Tab>('events');
+  const [panelWidth, setPanelWidth] = useLocalStorage('live-task-view:audit-width', 440);
 
   // Empty state
   if (!task) {
     return (
       <aside
-        className="flex h-full w-[360px] shrink-0 flex-col border-l border-border bg-surface"
+        className="relative flex h-full shrink-0 flex-col border-l border-border bg-surface"
+        style={{ width: panelWidth }}
         data-testid="audit-trail-panel"
       >
+        <ResizeHandle
+          side="left"
+          currentWidth={panelWidth}
+          onResize={setPanelWidth}
+          onResizeEnd={setPanelWidth}
+          minWidth={200}
+          maxWidth={1200}
+        />
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6">
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-surface-emphasis">
             <ClockCounterClockwise size={20} className="text-fg-subtle" />
@@ -229,9 +241,18 @@ export function AuditTrailPanel({ task }: AuditTrailPanelProps): React.JSX.Eleme
 
   return (
     <aside
-      className="flex h-full w-[360px] shrink-0 flex-col border-l border-border bg-surface"
+      className="relative flex h-full shrink-0 flex-col border-l border-border bg-surface"
+      style={{ width: panelWidth }}
       data-testid="audit-trail-panel"
     >
+      <ResizeHandle
+        side="left"
+        currentWidth={panelWidth}
+        onResize={setPanelWidth}
+        onResizeEnd={setPanelWidth}
+        minWidth={200}
+        maxWidth={1200}
+      />
       {/* Header */}
       <div className="flex items-center gap-2 border-b border-border-subtle px-4 py-3 min-h-[52px]">
         <h3 className="flex-1 truncate text-[13px] font-semibold text-fg">{task.title}</h3>

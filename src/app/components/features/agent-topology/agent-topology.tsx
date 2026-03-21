@@ -22,7 +22,7 @@ const edgeTypes = { agentEdge: AgentEdge };
 const FIT_VIEW_OPTIONS = { padding: 0.3, maxZoom: 1 };
 
 function TopologyInner(): React.JSX.Element {
-  const { state, dispatch, selectedNode } = useTopology();
+  const { state, dispatch, selectedNode, sessionId } = useTopology();
   const { fitView, zoomIn, zoomOut } = useReactFlow();
   const [nodes, setNodes] = useState<ReactFlowNode[]>([]);
   const [edges, setEdges] = useState<ReactFlowEdge[]>([]);
@@ -162,14 +162,14 @@ function TopologyInner(): React.JSX.Element {
   }
 
   return (
-    <div className="flex flex-1 min-h-0 min-w-0">
+    <div className="flex h-full min-h-0 min-w-0">
       {/* Canvas */}
       <div className="relative flex-1 min-h-0 min-w-0">
         <div
-          className="h-full w-full"
+          className="h-full w-full bg-canvas"
           style={{
             backgroundImage:
-              'radial-gradient(circle, var(--color-border-subtle) 0.5px, transparent 0.5px)',
+              'radial-gradient(circle, var(--border-default) 0.5px, transparent 0.5px)',
             backgroundSize: '32px 32px',
           }}
         >
@@ -226,17 +226,6 @@ function TopologyInner(): React.JSX.Element {
 
         {/* Legend overlay — hidden for single-node view */}
         {state.graph.nodes.length > 1 && <TopologyLegend />}
-
-        {/* Subtle radial vignette for single-node view */}
-        {state.graph.nodes.length === 1 && (
-          <div
-            className="pointer-events-none absolute inset-0"
-            style={{
-              background:
-                'radial-gradient(ellipse at center, transparent 40%, rgba(13,17,23,0.4) 100%)',
-            }}
-          />
-        )}
       </div>
 
       {/* Detail panel */}
@@ -245,6 +234,7 @@ function TopologyInner(): React.JSX.Element {
         allNodes={state.graph.nodes}
         taskName={state.graph.taskName}
         taskPriority={state.graph.taskPriority}
+        sessionId={sessionId}
         onClose={() => dispatch({ type: 'SELECT_NODE', nodeId: null })}
       />
     </div>

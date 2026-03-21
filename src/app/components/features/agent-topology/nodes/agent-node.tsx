@@ -81,7 +81,14 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
         )}
 
         {/* Progress arc background */}
-        <circle cx={0} cy={0} r={ARC_R} fill="none" stroke="#21262d" strokeWidth={3} />
+        <circle
+          cx={0}
+          cy={0}
+          r={ARC_R}
+          fill="none"
+          stroke="var(--border-default)"
+          strokeWidth={3}
+        />
 
         {/* Progress arc fill */}
         {pct > 0 && (
@@ -128,7 +135,7 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
           dominantBaseline="central"
           textAnchor="middle"
           fontSize={ICON_SIZE}
-          fill="#0d1117"
+          fill="var(--bg-canvas)"
           style={{ pointerEvents: 'none' }}
         >
           {roleConfig.icon}
@@ -140,7 +147,7 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
           cy={-RADIUS * 0.72}
           r={5}
           fill={statusColor}
-          stroke="#0d1117"
+          stroke="var(--bg-canvas)"
           strokeWidth={1}
         />
 
@@ -150,7 +157,7 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
           y={RADIUS + 20}
           textAnchor="middle"
           fontSize={12}
-          fill="#e6edf3"
+          fill="var(--fg-default)"
           fontWeight={500}
           style={{ pointerEvents: 'none' }}
         >
@@ -163,7 +170,7 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
           y={RADIUS + 42}
           textAnchor="middle"
           fontSize={10}
-          fill="#8b949e"
+          fill="var(--fg-muted)"
           style={{ pointerEvents: 'none' }}
         >
           {status} &middot; {progress}%
@@ -175,7 +182,7 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
           y={RADIUS + 56}
           textAnchor="middle"
           fontSize={9}
-          fill="#6e7681"
+          fill="var(--fg-subtle)"
           style={{ pointerEvents: 'none' }}
         >
           {metricsText}

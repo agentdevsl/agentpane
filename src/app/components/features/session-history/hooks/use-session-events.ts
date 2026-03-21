@@ -194,8 +194,8 @@ export function useSessionDetail(sessionId: string | null): UseSessionDetailRetu
 
       // Get events from the events endpoint
       let events: SessionDetail['events'] = [];
-      if (eventsResult.ok && eventsResult.data?.data) {
-        events = eventsResult.data.data.map((e) => ({
+      if (eventsResult.ok && eventsResult.data) {
+        events = eventsResult.data.map((e) => ({
           id: e.id,
           type: e.type as SessionDetail['events'][0]['type'],
           timestamp: e.timestamp,
