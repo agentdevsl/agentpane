@@ -118,9 +118,9 @@ export const PROJECT_FOLDERS_ALTER_STATEMENTS = [
   `ALTER TABLE sessions ADD COLUMN codespace_id TEXT REFERENCES codespaces(id)`,
   `UPDATE sessions SET codespace_id = project_id WHERE codespace_id IS NULL`,
 
-  // Worktrees
-  `ALTER TABLE worktrees ADD COLUMN codespace_id TEXT NOT NULL DEFAULT '' REFERENCES codespaces(id) ON DELETE CASCADE`,
-  `UPDATE worktrees SET codespace_id = project_id WHERE codespace_id = ''`,
+  // Worktrees (SQLite disallows NOT NULL in ALTER TABLE ADD COLUMN with REFERENCES)
+  `ALTER TABLE worktrees ADD COLUMN codespace_id TEXT REFERENCES codespaces(id) ON DELETE CASCADE`,
+  `UPDATE worktrees SET codespace_id = project_id WHERE codespace_id IS NULL`,
 
   // Agent runs
   `ALTER TABLE agent_runs ADD COLUMN codespace_id TEXT REFERENCES codespaces(id) ON DELETE CASCADE`,
@@ -130,11 +130,13 @@ export const PROJECT_FOLDERS_ALTER_STATEMENTS = [
   `ALTER TABLE audit_logs ADD COLUMN codespace_id TEXT`,
   `UPDATE audit_logs SET codespace_id = project_id WHERE codespace_id IS NULL`,
 
-  // Plan sessions
+  // Plan sessions (table may not exist in all installations)
+  `CREATE TABLE IF NOT EXISTS plan_sessions (id TEXT PRIMARY KEY, codespace_id TEXT, project_id TEXT, task_id TEXT, session_id TEXT, status TEXT, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`,
   `ALTER TABLE plan_sessions ADD COLUMN codespace_id TEXT REFERENCES codespaces(id) ON DELETE CASCADE`,
   `UPDATE plan_sessions SET codespace_id = project_id WHERE codespace_id IS NULL`,
 
-  // Sandboxes
+  // Sandboxes (table may not exist in all installations)
+  `CREATE TABLE IF NOT EXISTS sandboxes (id TEXT PRIMARY KEY, codespace_id TEXT, project_id TEXT, type TEXT, status TEXT, container_id TEXT, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`,
   `ALTER TABLE sandboxes ADD COLUMN codespace_id TEXT REFERENCES codespaces(id) ON DELETE CASCADE`,
   `UPDATE sandboxes SET codespace_id = project_id WHERE codespace_id IS NULL`,
 
