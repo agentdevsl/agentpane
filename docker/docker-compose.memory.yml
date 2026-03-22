@@ -1,0 +1,57 @@
+# Memory Service Sidecar (Honcho)
+# Usage: docker compose -f docker-compose.yml -f docker/docker-compose.memory.yml up
+
+services:
+  honcho:
+    image: ghcr.io/plastic-labs/honcho:latest
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://honcho:honcho@honcho-postgres:5432/honcho
+      REDIS_URL: redis://honcho-redis:6379/0
+      HONCHO_API_KEY: ${HONCHO_API_KEY:-}
+    depends_on:
+      honcho-postgres:
+        condition: service_healthy
+      honcho-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  honcho-postgres:
+    image: pgvector/pgvector:pg16
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: honcho
+      POSTGRES_PASSWORD: honcho
+      POSTGRES_DB: honcho
+    volumes:
+      - honcho_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U honcho"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  honcho-redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    volumes:
+      - honcho_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  honcho_pgdata:
+  honcho_redis:

@@ -22,6 +22,10 @@ import { EventSubscriptionService } from '../../services/event-subscription.serv
 import { GitService } from '../../services/git.service.js';
 import { GitHubTokenService } from '../../services/github-token.service.js';
 import { MarketplaceService } from '../../services/marketplace.service.js';
+import { MemoryService } from '../../services/memory/index.js';
+import { MemoryAdminService } from '../../services/memory/memory-admin.service.js';
+import { MemoryCaptureService } from '../../services/memory/memory-capture.service.js';
+import { MemoryQueryService } from '../../services/memory/memory-query.service.js';
 import { ProjectFolderService } from '../../services/project-folder.service.js';
 import { SandboxConfigService } from '../../services/sandbox-config.service.js';
 import { SchedulerService } from '../../services/scheduler.service.js';
@@ -125,8 +129,25 @@ export function createServiceContainer(db: Database, config: ServerConfig): Serv
   // 5. Task creation service
   const taskCreationService = createTaskCreationService(db, durableStreamsService, sessionService);
 
+  // 5.5. Memory service (created early so AgentService can receive it)
+  const memoryService = new MemoryService(settingsService, db);
+
+  // Wire memory sub-services
+  const memoryQueryService = new MemoryQueryService(memoryService.getClient(), settingsService);
+  memoryService.setQueryService(memoryQueryService);
+  const memoryCaptureService = new MemoryCaptureService(memoryService.getClient(), settingsService);
+  memoryService.setCaptureService(memoryCaptureService);
+  const memoryAdminService = new MemoryAdminService(memoryService.getClient());
+  memoryService.setAdminService(memoryAdminService);
+
   // 6. Agent service
-  const agentService = new AgentService(db, worktreeService, taskService, sessionService);
+  const agentService = new AgentService(
+    db,
+    worktreeService,
+    taskService,
+    sessionService,
+    memoryService
+  );
 
   // Wire agent execution service into task service for host-mode plan approval (AE-002)
   taskService.setAgentExecutionService(agentService);
@@ -137,6 +158,7 @@ export function createServiceContainer(db: Database, config: ServerConfig): Serv
   // 8. Git, Codespace, and ProjectFolder services
   const gitService = new GitService(db, commandRunner);
   const codespaceService = new CodespaceService(db, worktreeService, commandRunner);
+  codespaceService.setMemoryService(memoryService);
   const projectFolderService = new ProjectFolderService(db);
 
   // 9. Event system
@@ -197,5 +219,6 @@ export function createServiceContainer(db: Database, config: ServerConfig): Serv
     schedulerService,
     commandRunner,
     containerAgentService: null,
+    memoryService,
   };
 }

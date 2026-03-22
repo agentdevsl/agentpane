@@ -25,6 +25,7 @@ import type { CodespaceError } from '../lib/errors/codespace-errors.js';
 import { CodespaceErrors } from '../lib/errors/codespace-errors.js';
 import { getInstallationOctokit } from '../lib/github/client.js';
 import { syncConfigFromGitHub } from '../lib/github/config-sync.js';
+import { createLogger } from '../lib/logging/logger.js';
 import { deepMerge } from '../lib/utils/deep-merge.js';
 import { errorMessage } from '../lib/utils/error-message.js';
 import type { Result } from '../lib/utils/result.js';
@@ -92,7 +93,11 @@ export type CommandRunner = {
   exec: (command: string, cwd: string) => Promise<{ stdout: string; stderr: string }>;
 };
 
+const log = createLogger('CodespaceService');
+
 export class CodespaceService {
+  private memoryService: { deleteWorkspace: (codespaceId: string) => Promise<void> } | null = null;
+
   constructor(
     private db: Database,
     private worktreeService: {
@@ -107,6 +112,13 @@ export class CodespaceService {
     },
     private runner: CommandRunner
   ) {}
+
+  /** Set the memory service for cascade workspace deletion. */
+  setMemoryService(
+    memoryService: { deleteWorkspace: (codespaceId: string) => Promise<void> } | null
+  ): void {
+    this.memoryService = memoryService;
+  }
 
   private updateTimestamp(): string {
     return new Date().toISOString();
@@ -392,6 +404,13 @@ export class CodespaceService {
     }
 
     await this.worktreeService.prune(id);
+    // Delete memory workspace (fire-and-forget)
+    this.memoryService?.deleteWorkspace(id).catch((error) => {
+      log.warn('Failed to delete memory workspace during codespace cascade delete', {
+        error: error instanceof Error ? error : new Error(String(error)),
+        data: { codespaceId: id },
+      });
+    });
     await this.db.delete(codespaces).where(eq(codespaces.id, id));
 
     return ok(undefined);

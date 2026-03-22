@@ -16,6 +16,7 @@ import { resolveModel } from '../../lib/utils/resolve-model.js';
 import type { Result } from '../../lib/utils/result.js';
 import { err, ok } from '../../lib/utils/result.js';
 import type { Database } from '../../types/database.js';
+import type { HonchoSessionRef, MemoryService } from '../memory/index.js';
 import { getGlobalDefaultModel } from '../settings.service.js';
 import type { AgentQueueService } from './agent-queue.service.js';
 import type {
@@ -65,13 +66,17 @@ export class AgentExecutionService {
   private preToolHooks = new Map<string, PreToolUseHook[]>();
   private postToolHooks = new Map<string, PostToolUseHook[]>();
   private queueService: AgentQueueService | null = null;
+  private memoryService: MemoryService | null = null;
 
   constructor(
     private db: Database,
     private worktreeService: WorktreeService,
     _taskService: TaskService,
-    private sessionService: SessionServiceInterface
-  ) {}
+    private sessionService: SessionServiceInterface,
+    memoryService?: MemoryService | null
+  ) {
+    this.memoryService = memoryService ?? null;
+  }
 
   /**
    * Set the queue service for auto-dequeue on agent completion.
@@ -251,7 +256,34 @@ export class AgentExecutionService {
     });
 
     // Build task prompt
-    const taskPrompt = `Work on the following task:\n\nTitle: ${task.title}\n\nDescription: ${task.description ?? 'No description provided'}\n\nThe task is in the worktree at: ${worktree.value.path}`;
+    let taskPrompt = `Work on the following task:\n\nTitle: ${task.title}\n\nDescription: ${task.description ?? 'No description provided'}\n\nThe task is in the worktree at: ${worktree.value.path}`;
+
+    // Inject memory context if available (Phase 3)
+    if (this.memoryService) {
+      try {
+        const memoryResult = await this.memoryService.getContext({
+          codespaceId: agent.codespaceId,
+          agentId: agent.id,
+          taskTitle: task.title,
+          taskDescription: task.description,
+        });
+        if (memoryResult.ok && memoryResult.value.text) {
+          taskPrompt = `${taskPrompt}\n\n---\n\n${memoryResult.value.text}`;
+          log.info('Memory context injected into agent prompt', {
+            data: {
+              agentId,
+              tokenCount: memoryResult.value.tokenCount,
+              sources: memoryResult.value.sources,
+            },
+          });
+        }
+      } catch (error) {
+        log.warn('Failed to inject memory context, continuing without it', {
+          error: error instanceof Error ? error : new Error(String(error)),
+          data: { agentId },
+        });
+      }
+    }
 
     // Start agent execution asynchronously (fire-and-forget with error handling)
     // The agent runs in the background and updates state through events
@@ -318,6 +350,55 @@ export class AgentExecutionService {
   ): Promise<void> {
     // Abort signal handling is managed by stream-handler.ts which publishes agent:stopped
 
+    // Start memory session for tracking (Phase 3 — capture wired in Phase 4)
+    let honchoRef: HonchoSessionRef | null = null;
+    if (this.memoryService) {
+      try {
+        // Resolve codespaceId from the agent record
+        const agentRecord = await this.db.query.agents.findFirst({
+          where: eq(agents.id, agentId),
+        });
+        if (agentRecord) {
+          const sessionResult = await this.memoryService.startSession({
+            codespaceId: agentRecord.codespaceId,
+            agentId,
+            taskId,
+            sessionId,
+            phase: 'planning',
+            model: options.model,
+          });
+          if (sessionResult?.ok) {
+            honchoRef = sessionResult.value;
+          }
+        }
+      } catch (error) {
+        log.warn('Failed to start memory session for planning, continuing without it', {
+          error: error instanceof Error ? error : new Error(String(error)),
+          data: { agentId },
+        });
+      }
+    }
+
+    // Build onMessage callback for memory capture — capture refs as const to avoid non-null assertions
+    const memSvc = this.memoryService;
+    const memRef = honchoRef;
+    const onMessage =
+      memRef && memSvc
+        ? async (params: {
+            role: 'user' | 'assistant';
+            content: string;
+            turn: number;
+            metadata?: Record<string, unknown>;
+          }) => {
+            await memSvc.captureMessage({
+              honchoSessionRef: memRef,
+              role: params.role,
+              content: params.content,
+              metadata: params.metadata,
+            });
+          }
+        : undefined;
+
     try {
       const result = await runAgentPlanning({
         agentId,
@@ -328,9 +409,19 @@ export class AgentExecutionService {
         model: options.model,
         cwd: options.cwd,
         signal: options.signal,
-        // hooks are wired separately via stream-handler's canUseTool callback
         sessionService: this.sessionService,
+        onMessage,
       });
+
+      // Finalize memory session after planning completes
+      if (honchoRef && this.memoryService) {
+        this.memoryService.finalizeSession(honchoRef).catch((finalizeErr) => {
+          log.warn('Failed to finalize memory session after planning', {
+            error: finalizeErr instanceof Error ? finalizeErr : new Error(String(finalizeErr)),
+            data: { agentId },
+          });
+        });
+      }
 
       // Update agent run with result
       // Map SDK statuses to database enum values:
@@ -451,6 +542,16 @@ export class AgentExecutionService {
       }
     } catch (error) {
       log.error('Agent execution failed', { error, data: { agentId } });
+
+      // Finalize memory session even on error (fire-and-forget)
+      if (honchoRef && this.memoryService) {
+        this.memoryService.finalizeSession(honchoRef).catch((finalizeErr) => {
+          log.warn('Failed to finalize memory session after planning error', {
+            error: finalizeErr instanceof Error ? finalizeErr : new Error(String(finalizeErr)),
+            data: { agentId },
+          });
+        });
+      }
 
       const errMsg = errorMessage(error);
       const recovery = handleAgentError(error instanceof Error ? error : new Error(errMsg), {
@@ -662,6 +763,9 @@ export class AgentExecutionService {
 
     let runId = createId();
 
+    // Start memory session for execution phase tracking (Phase 3)
+    let honchoRef: HonchoSessionRef | null = null;
+
     try {
       // Get agent config for model/tools/maxTurns
       const agent = await this.db.query.agents.findFirst({
@@ -726,6 +830,48 @@ export class AgentExecutionService {
 
       runId = agentRun?.id ?? runId;
 
+      // Start memory session for execution phase (Phase 3)
+      if (this.memoryService) {
+        try {
+          const memSessionResult = await this.memoryService.startSession({
+            codespaceId: agent.codespaceId,
+            agentId,
+            taskId: task.id,
+            sessionId,
+            phase: 'execution',
+            model: resolvedModel,
+          });
+          if (memSessionResult?.ok) {
+            honchoRef = memSessionResult.value;
+          }
+        } catch (error) {
+          log.warn('Failed to start memory session for execution, continuing without it', {
+            error: error instanceof Error ? error : new Error(String(error)),
+            data: { agentId },
+          });
+        }
+      }
+
+      // Build onMessage callback for memory capture (execution phase) — capture refs as const
+      const execMemSvc = this.memoryService;
+      const execMemRef = honchoRef;
+      const execOnMessage =
+        execMemRef && execMemSvc
+          ? async (params: {
+              role: 'user' | 'assistant';
+              content: string;
+              turn: number;
+              metadata?: Record<string, unknown>;
+            }) => {
+              await execMemSvc.captureMessage({
+                honchoSessionRef: execMemRef,
+                role: params.role,
+                content: params.content,
+                metadata: params.metadata,
+              });
+            }
+          : undefined;
+
       const result = await runAgentExecution({
         agentId,
         sessionId,
@@ -735,9 +881,19 @@ export class AgentExecutionService {
         model: resolvedModel,
         cwd,
         signal,
-        // hooks are wired separately via stream-handler's canUseTool callback
         sessionService: this.sessionService,
+        onMessage: execOnMessage,
       });
+
+      // Finalize memory session after execution completes
+      if (honchoRef && this.memoryService) {
+        this.memoryService.finalizeSession(honchoRef).catch((finalizeErr) => {
+          log.warn('Failed to finalize memory session after execution', {
+            error: finalizeErr instanceof Error ? finalizeErr : new Error(String(finalizeErr)),
+            data: { agentId },
+          });
+        });
+      }
 
       // Update agent run with result
       let dbStatus: 'completed' | 'error' | 'paused' | 'running';
@@ -828,6 +984,16 @@ export class AgentExecutionService {
       }
     } catch (error) {
       log.error('Agent execution failed', { error, data: { agentId } });
+
+      // Finalize memory session even on error (fire-and-forget)
+      if (honchoRef && this.memoryService) {
+        this.memoryService.finalizeSession(honchoRef).catch((finalizeErr) => {
+          log.warn('Failed to finalize memory session after execution error', {
+            error: finalizeErr instanceof Error ? finalizeErr : new Error(String(finalizeErr)),
+            data: { agentId },
+          });
+        });
+      }
 
       const errMsg = errorMessage(error);
 

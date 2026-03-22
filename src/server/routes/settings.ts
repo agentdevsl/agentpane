@@ -28,11 +28,17 @@ const ALLOWED_SETTINGS_KEYS = new Set([
   'github.appId',
   'theme',
   'general.agentModel',
+  'memory.enabled',
+  'memory.honcho',
+  'memory.contextMaxTokens',
+  'memory.captureEnabled',
+  'memory.captureMinTurnLength',
 ]);
 
 const SENSITIVE_FIELDS: Record<string, { secretKey: string; flagKey: string }> = {
   'sandbox.nomad': { secretKey: 'token', flagKey: 'hasToken' },
   'sandbox.agentcore': { secretKey: 'secretAccessKey', flagKey: 'hasSecretAccessKey' },
+  'memory.honcho': { secretKey: 'apiKey', flagKey: 'hasApiKey' },
 };
 
 // Validation schemas

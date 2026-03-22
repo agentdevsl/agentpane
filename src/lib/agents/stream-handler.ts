@@ -19,6 +19,13 @@ export interface StreamHandlerOptions {
   sessionService: {
     publish: (sessionId: string, event: SessionEvent) => Promise<unknown>;
   };
+  /** Optional callback for memory capture. Fire-and-forget — errors must not propagate. */
+  onMessage?: (params: {
+    role: 'user' | 'assistant';
+    content: string;
+    turn: number;
+    metadata?: Record<string, unknown>;
+  }) => Promise<void>;
 }
 
 export interface ExitPlanModeOptions {
@@ -349,6 +356,17 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
     // Send the task prompt - the agent will automatically enter plan mode
     await session.send(prompt);
 
+    // Capture user prompt for memory
+    if (options.onMessage) {
+      options
+        .onMessage({ role: 'user', content: prompt, turn: 0, metadata: { phase: 'planning' } })
+        .catch((captureErr) => {
+          log.warn('Memory capture failed for user prompt', {
+            error: captureErr instanceof Error ? captureErr : new Error(String(captureErr)),
+          });
+        });
+    }
+
     // Stream the planning response
     for await (const msg of session.stream()) {
       // Check if abort signal has been triggered
@@ -414,6 +432,22 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
           timestamp: Date.now(),
           data: { agentId, turn, phase: 'planning' },
         });
+
+        // Capture assistant turn for memory
+        if (options.onMessage && textContent && textContent.length >= 10) {
+          options
+            .onMessage({
+              role: 'assistant',
+              content: textContent,
+              turn,
+              metadata: { model: options.model, phase: 'planning' },
+            })
+            .catch((captureErr) => {
+              log.warn('Memory capture failed', {
+                error: captureErr instanceof Error ? captureErr : new Error(String(captureErr)),
+              });
+            });
+        }
 
         // Check for SDK-level errors on assistant messages (v0.2.76+)
         const assistantError = (msg as { error?: string }).error;
@@ -665,6 +699,17 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
     // Send the execution prompt
     await session.send(prompt);
 
+    // Capture user prompt for memory
+    if (options.onMessage) {
+      options
+        .onMessage({ role: 'user', content: prompt, turn: 0, metadata: { phase: 'execution' } })
+        .catch((captureErr) => {
+          log.warn('Memory capture failed for user prompt', {
+            error: captureErr instanceof Error ? captureErr : new Error(String(captureErr)),
+          });
+        });
+    }
+
     // Stream responses from the SDK
     for await (const msg of session.stream()) {
       // Check if abort signal has been triggered
@@ -740,6 +785,22 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
             usage: message?.usage,
           },
         });
+
+        // Capture assistant turn for memory
+        if (options.onMessage && textContent && textContent.length >= 10) {
+          options
+            .onMessage({
+              role: 'assistant',
+              content: textContent,
+              turn,
+              metadata: { model: options.model, phase: 'execution' },
+            })
+            .catch((captureErr) => {
+              log.warn('Memory capture failed', {
+                error: captureErr instanceof Error ? captureErr : new Error(String(captureErr)),
+              });
+            });
+        }
 
         // Check for SDK-level errors on assistant messages (v0.2.76+)
         const assistantError = (msg as { error?: string }).error;

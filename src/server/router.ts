@@ -29,6 +29,7 @@ import type { EventSubscriptionService } from '../services/event-subscription.se
 import type { GitService } from '../services/git.service.js';
 import type { GitHubTokenService } from '../services/github-token.service.js';
 import type { MarketplaceService } from '../services/marketplace.service.js';
+import type { MemoryService } from '../services/memory/index.js';
 import type { ProjectFolderService } from '../services/project-folder.service.js';
 import { RbacService } from '../services/rbac.service.js';
 import type { SandboxConfigService } from '../services/sandbox-config.service.js';
@@ -56,6 +57,7 @@ import { createHealthRoutes } from './routes/health.js';
 import { createInvitationAcceptRoutes } from './routes/invitation-accept.js';
 import { createMarketplacesRoutes } from './routes/marketplaces.js';
 import { createMeRoutes } from './routes/me.js';
+import { createMemoryRoutes } from './routes/memory.js';
 import { createProjectFoldersRoutes } from './routes/project-folders.js';
 import { createProjectMembersRoutes } from './routes/project-members.js';
 import { createRbacTokensRoutes } from './routes/rbac-tokens.js';
@@ -195,6 +197,7 @@ export interface RouterDependencies {
   eventSubscriptionService?: EventSubscriptionService;
   eventProcessingService?: EventProcessingService;
   schedulerService?: SchedulerService;
+  memoryService?: MemoryService | null;
 }
 
 /**
@@ -306,6 +309,8 @@ export function createRouter(deps: RouterDependencies) {
   useRoleGuard(app, '/api/settings', 'admin', rbacService);
   // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
   useRoleGuard(app, '/api/keys', 'admin', rbacService);
+  // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
+  useRoleGuard(app, '/api/memory', 'admin', rbacService);
   // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
   useRoleGuard(app, '/api/codespaces', 'viewer', rbacService);
   // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
@@ -456,6 +461,10 @@ export function createRouter(deps: RouterDependencies) {
       '/api/cli-monitor',
       createCliMonitorRoutes({ cliMonitorService: deps.cliMonitorService })
     );
+  }
+
+  if (deps.memoryService) {
+    app.route('/api/memory', createMemoryRoutes({ memoryService: deps.memoryService }));
   }
 
   if (deps.eventSourceService && deps.eventSubscriptionService) {
