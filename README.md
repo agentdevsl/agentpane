@@ -10,13 +10,13 @@ Running AI agents in the background creates hard problems: agents need filesyste
 
 ## Architecture
 
-System-level view of the AgentPane platform showing the browser client, TanStack DB, Caddy durable streams, Bun API server, SQLite database, and sandbox infrastructure.
+System-level view of the AgentPane platform showing the browser client, Go CLI, TanStack DB, Caddy durable streams, Bun API server, persistent memory layer (Honcho + pgvector + Redis), skill injection pipeline, SQLite/PostgreSQL database, and multi-provider sandbox infrastructure.
 
 ![AgentPane Architecture](docs/_architecture-diagram.png)
 
 ### Tenancy Model
 
-Authentication, ownership hierarchy, and role-based access control — from GitHub OAuth through the workspace/folder/codespace/task ownership chain.
+Authentication, ownership hierarchy, and role-based access control. Shows the GitHub OAuth flow, workspace/folder/codespace/task ownership chain, folder-level membership with role inheritance, and how RBAC policies cascade from team → folder → codespace level.
 
 ![Tenancy Model](docs/tenancy-model.png)
 
@@ -49,7 +49,7 @@ Webhook ingestion pipeline: external sources (GitHub, Linear, Jira, cron) throug
 - **Session Replay** — Full session history with timeline, event filtering, and play/pause/seek controls
 - **Agent Topology** — Real-time React Flow graph showing live agent activity with ELK auto-layout
 - **AI-Assisted Planning** — Interactive planning sessions where Claude asks clarifying questions before execution
-- **Persistent Memory** — Agent memory powered by Honcho with automatic context injection, conclusion derivation, and semantic search across sessions
+- **Persistent Memory** — Agent memory powered by [Honcho](https://github.com/plastic-labs/honcho) with automatic context injection from previous sessions. The memory service derives conclusions from agent interactions, stores them in pgvector for semantic search, and injects relevant context into new agent prompts. Memory is scoped per-codespace and persists across agent sessions.
 
 ### Task Management
 
@@ -57,7 +57,7 @@ Webhook ingestion pipeline: external sources (GitHub, Linear, Jira, cron) throug
 - **Auto-Start** — Moving a task to "In Progress" automatically assigns and starts an agent
 - **AI Task Creation** — Claude asks multi-round clarifying questions to refine task requirements before submission
 - **Code Review** — Approve or reject agent changes with diff visualization before merge
-- **Live Task View** — 3-column layout with task list sidebar, real-time agent session view, and agent topology graph
+- **Live Task View** — Alternative to the Kanban board: a 3-column layout with resizable task list sidebar (status filters, search, keyboard navigation), real-time agent topology graph (React Flow + ELK auto-layout showing live agent activity), and audit trail panel with session events + live SSE streaming
 
 ### Sandboxed Execution
 
@@ -66,7 +66,7 @@ Webhook ingestion pipeline: external sources (GitHub, Linear, Jira, cron) throug
 - **Nomad Jobs** — HashiCorp Nomad sandbox provider for job-based agent isolation
 - **AWS Bedrock AgentCore** — Managed AWS runtimes with STS auth, ECR image validation, and orphan cleanup
 - **Per-Codespace or Shared** — Choose between a shared container or per-codespace isolation
-- **Skill Injection** — Org and template skills automatically materialized into `.claude/skills/` inside the sandbox before agent execution
+- **Skill Injection** — Tasks can reference a `skillId` that maps to a `.claude/skills/{skillId}/SKILL.md` file. Org and template skills are automatically materialized into the sandbox filesystem before agent execution. The agent prompt includes a lightweight `use skill {name}` directive — the agent reads the full skill content from disk.
 
 ### Terraform No-Code Composer
 
@@ -98,7 +98,17 @@ Webhook ingestion pipeline: external sources (GitHub, Linear, Jira, cron) throug
 - **CLI Monitor** — Real-time monitoring of Claude CLI sessions (`@agentpane/cli-monitor`)
 - **Durable Streams** — Real-time event streaming via Caddy front door (LMDB-backed SSE + long-poll)
 - **Encrypted API Keys** — UI-managed per-service API key storage with masked display
-- **Factory Hook Architecture** — `useEffect` banned; all side effects use purpose-built factory hooks (`useMountEffect`, `useWatchEffect`, `useInterval`, etc.)
+- **Factory Hook Architecture** — `useEffect` is banned via Biome lint rules. All side effects use purpose-built factory hooks: `useMountEffect()` for mount/unmount, `useWatchEffect()` for value changes, `useInterval()`, `useTimeout()`, `useEventListener()`, and `useAutoScroll()`. This eliminates exhaustive dependency lint suppressions and makes intent explicit.
+- **Memory Service** — Optional [Honcho](https://github.com/plastic-labs/honcho) sidecar for persistent agent memory. Deploys via `docker/docker-compose.memory.yml` with pgvector PostgreSQL and Redis. Agents automatically receive relevant context from prior sessions. Supports conclusions (derived facts), document indexing (RAG), and semantic search. Conditional — if Honcho isn't configured, memory endpoints don't exist.
+
+### Organization
+
+- **Folder Hierarchy** — 3-tier organizational model: Workspace → Project Folders → Codespaces. Folders group related codespaces with folder-level RBAC membership. Teams are linked to folders via `team_project_folders`, and access cascades from folder to codespace level.
+
+### CLI & SDK
+
+- **Go CLI** (`agentpane`) — Full-featured command-line interface for AgentPane. Manage codespaces, tasks, agents, sessions, and worktrees from the terminal. Supports JSON output (`-json` flag) for scripting and piping to `jq`. Configuration via environment variables (`AP_API_TOKEN`, `AP_ADDRESS`, `AP_CODESPACE`).
+- **Go SDK** — Typed Go client library at `cli/sdk/` for programmatic API access. Includes typed request/response structs for all API resources.
 
 ## Tech Stack
 

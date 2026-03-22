@@ -8,6 +8,7 @@ In production, Caddy (durable-streams-server) is the single entry point on port 
 flowchart TB
     %% ── Clients ──
     Browser["Browser Client"]
+    GoCLI["Go CLI<br/><small>agentpane binary · REST consumer</small>"]
 
     %% ── Reverse Proxy ──
     subgraph Caddy["Caddy · durable-streams-server :3000"]
@@ -89,8 +90,14 @@ flowchart TB
         AnthropicAPI["Anthropic API<br/><small>Claude Agent SDK<br/>@anthropic-ai/sdk</small>"]
         GitHubAPI["GitHub<br/><small>OAuth · App · Webhooks<br/>Octokit REST + GraphQL</small>"]
         GitWorktrees["Git Worktrees<br/><small>isolated branches<br/>per-task workspaces</small>"]
-        HonchoAPI["Honcho API<br/><small>@honcho-ai/sdk<br/>persistent agent memory</small>"]
-        GoCLI["Go CLI<br/><small>agentpane binary<br/>REST API consumer</small>"]
+    end
+
+    %% ── Memory Layer ──
+    subgraph Memory["Persistent Memory · Honcho"]
+        direction LR
+        HonchoAPI["Honcho API<br/><small>@honcho-ai/sdk · :8000</small>"]
+        PgVector["pgvector<br/><small>PostgreSQL :5433</small>"]
+        Redis["Redis<br/><small>cache :6380</small>"]
     end
 
     %% ── Event Streaming ──
@@ -146,11 +153,14 @@ flowchart TB
     WorktreeSvc --> GitWorktrees
     Services -->|"Octokit"| GitHubAPI
 
-    %% ── Go CLI → API ──
+    %% ── Go CLI → API (same as Browser) ──
+    GoCLI -->|"HTTPS"| Caddy
     GoCLI -->|"REST /api/*"| API
 
-    %% ── Memory → Honcho ──
+    %% ── Memory Layer connections ──
     MemorySvc -->|"@honcho-ai/sdk"| HonchoAPI
+    HonchoAPI --> PgVector
+    HonchoAPI --> Redis
 
     %% ── Skill injection ──
     ContainerAgentSvc --> SkillInjector
@@ -180,8 +190,9 @@ flowchart TB
     classDef sandbox fill:#e0e7ff,stroke:#6366f1,color:#312e81
     classDef external fill:#ccfbf1,stroke:#14b8a6,color:#134e4a
     classDef events fill:#fef9c3,stroke:#eab308,color:#713f12
+    classDef memory fill:#f3e8ff,stroke:#a855f7,color:#581c87
 
-    class Browser client
+    class Browser,GoCLI client
     class Caddy,StaticFiles,StreamsEndpoint,APIProxy proxy
     class Frontend,TanStackStart,UIComponents,ClientState,DurableClient,ReactFlow,DndKit frontend
     class API,Routes,Auth,Validation api
@@ -189,6 +200,7 @@ flowchart TB
     class AgentRuntime,AgentExec,PlanPhase,ExecPhase,TeamMode,StreamHandler,SkillInjector runtime
     class Database,SQLite,PostgreSQL,Drizzle db
     class Sandbox,DockerProv,NomadProv,AgentCoreProv,AgentSandboxProv sandbox
-    class External,AnthropicAPI,GitHubAPI,GitWorktrees,HonchoAPI,GoCLI external
+    class External,AnthropicAPI,GitHubAPI,GitWorktrees external
+    class Memory,HonchoAPI,PgVector,Redis memory
     class Events,EventPublish,SSE,EventPlugins events
 ```

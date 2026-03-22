@@ -5,6 +5,7 @@ Production deployment uses a single Docker container running Caddy (with the dur
 ```mermaid
 flowchart TB
     INET["Internet / Client Browser"]
+    GOCLI["Go CLI<br/><small>agentpane binary</small>"]
 
     subgraph COMPOSE ["Docker Compose"]
         subgraph MAIN ["agentpane container"]
@@ -53,6 +54,7 @@ flowchart TB
     end
 
     INET -- "HTTPS" --> CADDY
+    GOCLI -- "REST /api/*" --> CADDY
     PROXY -- "flush_interval -1<br/>(streaming)" --> HONO
     HONO --> SERVICES
     SERVICES --> SQLITE
@@ -71,7 +73,8 @@ flowchart TB
     style BUN fill:#14532d,color:#e2e8f0
     style STORAGE fill:#713f12,color:#e2e8f0
     style SANDBOX fill:#581c87,color:#e2e8f0
-    style HONCHO fill:#4a1d6e,color:#e2e8f0
+    style HONCHO fill:#4a1d6e,color:#e2e8f0,stroke:#bc8cff,stroke-width:2px
+    style GOCLI fill:#1a3a2a,color:#3fb950,stroke:#3fb950,stroke-width:2px
 ```
 
 ## Docker Images
