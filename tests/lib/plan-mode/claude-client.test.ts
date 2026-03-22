@@ -329,10 +329,8 @@ describe('ClaudeClient', () => {
       mockMessagesCreate.mockResolvedValue(createMockStreamIterator(streamEvents));
 
       const tokens: string[] = [];
-      const accumulated: string[] = [];
-      const onToken = (delta: string, acc: string) => {
+      const onToken = (delta: string) => {
         tokens.push(delta);
-        accumulated.push(acc);
       };
 
       const turns = [
@@ -352,7 +350,6 @@ describe('ClaudeClient', () => {
         expect((result.value as TextResult).text).toBe('Hello world');
       }
       expect(tokens).toEqual(['Hello', ' world']);
-      expect(accumulated).toEqual(['Hello', 'Hello world']);
     });
 
     it('should handle streaming tool use response', async () => {

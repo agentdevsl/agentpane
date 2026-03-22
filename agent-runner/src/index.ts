@@ -607,7 +607,6 @@ async function runPlanningPhase(): Promise<void> {
           accumulatedText += delta;
           events.token({
             delta,
-            accumulated: accumulatedText,
           });
         }
       }
@@ -969,7 +968,6 @@ async function runExecutionPhase(): Promise<void> {
           accumulatedText += delta;
           events.token({
             delta,
-            accumulated: accumulatedText,
           });
         }
       }

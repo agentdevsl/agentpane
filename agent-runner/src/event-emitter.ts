@@ -43,7 +43,6 @@ export interface AgentStartedData {
 
 export interface AgentTokenData {
   delta: string;
-  accumulated: string;
 }
 
 export interface AgentTurnData {

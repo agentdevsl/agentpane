@@ -72,7 +72,7 @@ export interface TextResult {
 /**
  * Streaming callback for tokens
  */
-export type TokenCallback = (delta: string, accumulated: string) => void;
+export type TokenCallback = (delta: string) => void;
 
 /**
  * Result of a Claude API call
@@ -265,7 +265,7 @@ export class ClaudeClient {
       } else if (event.type === 'content_block_delta') {
         if (event.delta.type === 'text_delta') {
           accumulated += event.delta.text;
-          onToken(event.delta.text, accumulated);
+          onToken(event.delta.text);
         } else if (event.delta.type === 'input_json_delta' && toolUse) {
           // Accumulate JSON delta for tool input - parse at content_block_stop
           toolInputJson += event.delta.partial_json;

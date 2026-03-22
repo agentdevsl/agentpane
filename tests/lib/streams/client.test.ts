@@ -492,7 +492,6 @@ describe('DurableStreamsClient', () => {
             taskId: 't-1',
             sessionId: 's-1',
             delta: 'Hello',
-            accumulated: 'Hello',
           },
           timestamp: Date.now(),
         },

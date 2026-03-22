@@ -33,6 +33,8 @@ const ALLOWED_SETTINGS_KEYS = new Set([
   'memory.contextMaxTokens',
   'memory.captureEnabled',
   'memory.captureMinTurnLength',
+  'retention.sessionEventsDays',
+  'retention.eventLogDays',
 ]);
 
 const SENSITIVE_FIELDS: Record<string, { secretKey: string; flagKey: string }> = {

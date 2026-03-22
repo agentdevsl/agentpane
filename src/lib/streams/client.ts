@@ -81,7 +81,6 @@ const rawContainerAgentTokenSchema = z.object({
   taskId: z.string(),
   sessionId: z.string(),
   delta: z.string(),
-  accumulated: z.string(),
 });
 
 const rawContainerAgentTurnSchema = z.object({
@@ -331,7 +330,6 @@ export interface ContainerAgentToken {
   taskId: string;
   sessionId: string;
   delta: string;
-  accumulated: string;
   timestamp: number;
 }
 

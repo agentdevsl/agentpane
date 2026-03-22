@@ -22,7 +22,6 @@ interface SessionCallbacks {
       taskId: string;
       sessionId: string;
       delta: string;
-      accumulated: string;
       timestamp: number;
     };
     offset?: number;

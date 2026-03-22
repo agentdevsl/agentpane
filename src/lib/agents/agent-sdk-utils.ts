@@ -16,7 +16,7 @@ export interface AgentQueryOptions {
   /** Model to use for the query */
   model?: string;
   /** Optional callback for streaming tokens */
-  onToken?: (delta: string, accumulated: string) => void;
+  onToken?: (delta: string) => void;
 }
 
 export interface AgentQueryResult {
@@ -132,7 +132,7 @@ export async function agentQuery(
           accumulated += delta;
 
           if (onToken) {
-            onToken(delta, accumulated);
+            onToken(delta);
           }
         }
       }

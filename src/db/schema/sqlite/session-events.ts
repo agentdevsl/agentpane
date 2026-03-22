@@ -25,6 +25,7 @@ export const sessionEvents = sqliteTable(
     // DB-008: Removed redundant session_events_offset_idx — covered by unique_offset below
     // Enforce unique offset per session to prevent race conditions
     uniqueIndex('session_events_unique_offset').on(table.sessionId, table.offset),
+    index('session_events_created_at_idx').on(table.createdAt),
   ]
 );
 

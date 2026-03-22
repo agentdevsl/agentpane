@@ -23,7 +23,6 @@ const chunkSchema = z.object({
   agentId: z.string(),
   sessionId: z.string(),
   text: z.string(),
-  accumulated: z.string().optional(),
   turn: z.number().optional(),
   timestamp: z.number(),
 });

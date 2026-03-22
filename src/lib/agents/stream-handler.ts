@@ -4,6 +4,7 @@ import { createLogger } from '../../lib/logging/logger.js';
 import type { SessionEvent } from '../../services/session.service.js';
 import { deriveAgentName, mapAgentRole } from '../topology/map-agent-role.js';
 import { buildSdkEnv } from './agent-sdk-utils.js';
+import { ChunkBatcher } from './chunk-batcher.js';
 
 const log = createLogger('StreamHandler');
 
@@ -18,6 +19,8 @@ export interface StreamHandlerOptions {
   signal?: AbortSignal;
   sessionService: {
     publish: (sessionId: string, event: SessionEvent) => Promise<unknown>;
+    persistOnly?: (sessionId: string, event: SessionEvent) => Promise<unknown>;
+    publishRealtimeOnly?: (sessionId: string, type: string, data: unknown) => Promise<number>;
   };
   /** Optional callback for memory capture. Fire-and-forget — errors must not propagate. */
   onMessage?: (params: {
@@ -117,6 +120,53 @@ interface TopologyTracker {
 
 function createTopologyTracker(): TopologyTracker {
   return { taskToNodeId: new Map(), rootEmitted: false };
+}
+
+/**
+ * Create a ChunkBatcher wired to the session service's split publish paths.
+ * Falls back to the unified `publish` method when split methods are unavailable.
+ */
+function createChunkBatcher(
+  sessionId: string,
+  agentId: string,
+  phase: 'planning' | 'execution',
+  sessionService: StreamHandlerOptions['sessionService']
+): ChunkBatcher {
+  const batcher = new ChunkBatcher({
+    sessionId,
+    agentId,
+    persistEvent: async (sid, event) => {
+      const result = await (sessionService.persistOnly?.(sid, event as SessionEvent) ??
+        sessionService.publish(sid, event as SessionEvent));
+      if (result && typeof result === 'object' && 'ok' in result && !result.ok) {
+        const errorMsg = (result as { error?: { message?: string } }).error?.message ?? 'unknown';
+        throw new Error(`Chunk persist failed: ${JSON.stringify(errorMsg)}`);
+      }
+      return result;
+    },
+    publishRealtime: (sid, type, data) =>
+      sessionService.publishRealtimeOnly?.(sid, type, data) ?? Promise.resolve(0),
+  });
+  batcher.setPhase(phase);
+  return batcher;
+}
+
+/**
+ * Safely destroy a ChunkBatcher, logging but not re-throwing errors.
+ */
+async function destroyBatcher(
+  batcher: ChunkBatcher,
+  agentId: string,
+  sessionId: string
+): Promise<void> {
+  try {
+    await batcher.destroy();
+  } catch (err) {
+    log.error('ChunkBatcher destroy failed during error cleanup', {
+      error: err instanceof Error ? err : new Error(String(err)),
+      data: { agentId, sessionId },
+    });
+  }
 }
 
 /**
@@ -352,6 +402,8 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
     canUseTool,
   });
 
+  const batcher = createChunkBatcher(sessionId, agentId, 'planning', sessionService);
+
   try {
     // Send the task prompt - the agent will automatically enter plan mode
     await session.send(prompt);
@@ -371,6 +423,7 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
     for await (const msg of session.stream()) {
       // Check if abort signal has been triggered
       if (signal?.aborted) {
+        await batcher.destroy();
         session.close();
         await sessionService.publish(sessionId, {
           id: createId(),
@@ -400,12 +453,8 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
         ) {
           accumulated += event.delta.text;
 
-          await sessionService.publish(sessionId, {
-            id: createId(),
-            type: 'chunk',
-            timestamp: Date.now(),
-            data: { agentId, delta: event.delta.text, accumulated, phase: 'planning' },
-          });
+          // Use ChunkBatcher: immediate SSE delivery + batched DB persistence
+          await batcher.addDelta(event.delta.text);
         }
       }
 
@@ -424,6 +473,9 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
         if (textContent) {
           accumulated = textContent;
         }
+
+        // Flush batcher before turn boundary event to ensure chunk ordering
+        await batcher.flush();
 
         // Publish turn event for planning phase
         await sessionService.publish(sessionId, {
@@ -555,6 +607,7 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
       if (msg.type === 'result') {
         const result = msg as Record<string, unknown>;
 
+        await batcher.destroy();
         session.close(); // Always close first — before any potentially-failing publishes
 
         publishMetrics(sessionService, sessionId, agentId, runId, result).catch((publishErr) => {
@@ -586,6 +639,7 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
     }
 
     // If we exit the loop, planning completed
+    await batcher.destroy();
     session.close();
 
     await sessionService.publish(sessionId, {
@@ -610,6 +664,8 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     log.error('Agent planning error', { error, data: { agentId } });
+
+    await destroyBatcher(batcher, agentId, sessionId);
 
     await sessionService.publish(sessionId, {
       id: createId(),
@@ -695,6 +751,8 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
     canUseTool,
   });
 
+  const batcher = createChunkBatcher(sessionId, agentId, 'execution', sessionService);
+
   try {
     // Send the execution prompt
     await session.send(prompt);
@@ -714,6 +772,7 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
     for await (const msg of session.stream()) {
       // Check if abort signal has been triggered
       if (signal?.aborted) {
+        await batcher.destroy();
         session.close();
         await sessionService.publish(sessionId, {
           id: createId(),
@@ -745,12 +804,8 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
         ) {
           accumulated += event.delta.text;
 
-          await sessionService.publish(sessionId, {
-            id: createId(),
-            type: 'chunk',
-            timestamp: Date.now(),
-            data: { agentId, delta: event.delta.text, accumulated, phase: 'execution' },
-          });
+          // Use ChunkBatcher: immediate SSE delivery + batched DB persistence
+          await batcher.addDelta(event.delta.text);
         }
       }
 
@@ -772,6 +827,9 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
         if (textContent) {
           accumulated = textContent;
         }
+
+        // Flush batcher before turn boundary event to ensure chunk ordering
+        await batcher.flush();
 
         await sessionService.publish(sessionId, {
           id: createId(),
@@ -821,6 +879,7 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
         }
 
         if (turn >= maxTurns) {
+          await batcher.destroy();
           await sessionService.publish(sessionId, {
             id: createId(),
             type: 'agent:turn_limit',
@@ -925,6 +984,7 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
       if (msg.type === 'result') {
         const result = msg as Record<string, unknown>;
 
+        await batcher.destroy();
         session.close(); // Always close first — before any potentially-failing publishes
 
         publishMetrics(sessionService, sessionId, agentId, runId, result).catch((publishErr) => {
@@ -961,6 +1021,7 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
       }
     }
 
+    await batcher.destroy();
     session.close();
 
     await sessionService.publish(sessionId, {
@@ -979,6 +1040,8 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     log.error('Agent execution error', { error, data: { agentId } });
+
+    await destroyBatcher(batcher, agentId, sessionId);
 
     // AE-008: Emit topology:agent_completed with status 'failed' for any tracked subagent nodes
     // that were still in-flight when the error occurred

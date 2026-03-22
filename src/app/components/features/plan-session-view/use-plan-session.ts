@@ -70,7 +70,7 @@ function planSessionReducer(state: PlanSessionState, action: PlanSessionAction):
       return { ...state, isStreaming: true, streamingContent: '' };
 
     case 'STREAM_TOKEN':
-      return { ...state, streamingContent: action.accumulated };
+      return { ...state, streamingContent: state.streamingContent + action.delta };
 
     case 'STREAM_END': {
       // Create a new message from the streamed content
@@ -224,7 +224,6 @@ export function usePlanSession(
                 dispatch({
                   type: 'STREAM_TOKEN',
                   delta: data.delta,
-                  accumulated: data.accumulated,
                 });
                 break;
               }

@@ -593,7 +593,6 @@ export function createContainerAgentEvent(type: ContainerEventType, data?: unkno
         taskId,
         sessionId,
         delta: 'Hello',
-        accumulated: 'Hello',
       };
       return { ...defaults, ...(data as Partial<ContainerAgentTokenEvent>) };
     }

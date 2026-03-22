@@ -24,7 +24,7 @@ import type { DurableStreamsService } from './durable-streams.service.js';
 /**
  * Token streaming callback
  */
-export type PlanTokenCallback = (delta: string, accumulated: string) => void;
+export type PlanTokenCallback = (delta: string) => void;
 
 /**
  * Configuration for PlanModeService
@@ -360,15 +360,14 @@ export class PlanModeService {
     // Token streaming wrapper
     let accumulated = '';
     const tokenCallback = onToken
-      ? (delta: string, acc: string) => {
-          accumulated = acc;
-          onToken(delta, acc);
+      ? (delta: string) => {
+          accumulated += delta;
+          onToken(delta);
           // Publish token event (fire-and-forget with error logging)
           this.streams
             .publishPlanToken(session.id, {
               sessionId: session.id,
               delta,
-              accumulated: acc,
             })
             .catch((_streamError: unknown) => {
               this.droppedEventCount++;

@@ -400,7 +400,6 @@ async function* handleInvocation(
           accumulatedText += delta;
           yield evt('agent:token', {
             delta,
-            accumulated: accumulatedText,
           } satisfies AgentTokenData);
         }
       }

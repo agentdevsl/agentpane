@@ -144,11 +144,11 @@ describe('parseContainerEvent', () => {
       timestamp: Date.now(),
       taskId: 'task-1',
       sessionId: 'session-1',
-      data: { delta: 'hello', accumulated: 'hello world' },
+      data: { delta: 'hello' },
     });
 
     const event = parseContainerEvent(line);
-    expect(event?.data).toEqual({ delta: 'hello', accumulated: 'hello world' });
+    expect(event?.data).toEqual({ delta: 'hello' });
   });
 });
 

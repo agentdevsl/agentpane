@@ -97,7 +97,7 @@ export function SkillPicker({
   className,
   compact = false,
   'data-testid': testId = 'skill-picker',
-}: SkillPickerProps): React.JSX.Element {
+}: SkillPickerProps): React.JSX.Element | null {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());

@@ -152,6 +152,22 @@ export class SessionService {
     return this.streamService.publish(sessionId, event);
   }
 
+  /**
+   * Persist an event to the database WITHOUT publishing to real-time stream.
+   * Used by ChunkBatcher for batched chunk persistence.
+   */
+  async persistOnly(sessionId: string, event: SessionEvent) {
+    return this.streamService.persistOnly(sessionId, event);
+  }
+
+  /**
+   * Publish to real-time stream ONLY (no DB persistence).
+   * Used by ChunkBatcher for individual delta delivery to SSE clients.
+   */
+  async publishRealtimeOnly(sessionId: string, type: string, data: unknown) {
+    return this.streamService.publishRealtimeOnly(sessionId, type, data);
+  }
+
   async *subscribe(sessionId: string, options?: SubscribeOptions): AsyncIterable<SessionEvent> {
     yield* this.streamService.subscribe(sessionId, options);
   }
