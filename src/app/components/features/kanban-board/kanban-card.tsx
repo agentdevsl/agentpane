@@ -1,6 +1,13 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { CheckCircle, Lightning, Warning, WarningCircle, XCircle } from '@phosphor-icons/react';
+import {
+  BookOpen,
+  CheckCircle,
+  Lightning,
+  Warning,
+  WarningCircle,
+  XCircle,
+} from '@phosphor-icons/react';
 import React, { useCallback } from 'react';
 import { ExecutionBadge } from '@/app/components/ui/execution-badge';
 import { PriorityIcon } from '@/app/components/ui/priority-icon';
@@ -85,6 +92,8 @@ const stageLabels: Record<string, string> = {
   initializing: 'Initializing...',
   validating: 'Validating...',
   credentials: 'Auth...',
+  injecting_skills: 'Injecting Skills...',
+  creating_sandbox: 'Creating Sandbox...',
   executing: 'Starting...',
   running: 'Running',
 };
@@ -204,6 +213,16 @@ export const KanbanCard = React.memo(function KanbanCard({
       {/* Description preview */}
       {task.description && (
         <p className="mt-1.5 text-xs text-fg-muted line-clamp-2">{task.description}</p>
+      )}
+
+      {/* Skill badge */}
+      {task.skillName && (
+        <div className="mt-2 flex">
+          <span className="inline-flex items-center gap-1 rounded-full bg-accent-subtle px-2 py-0.5 text-[10px] font-medium text-accent">
+            <BookOpen className="h-3 w-3" weight="bold" />
+            {task.skillName}
+          </span>
+        </div>
       )}
 
       {/* Footer */}

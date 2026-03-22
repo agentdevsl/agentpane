@@ -45,6 +45,10 @@ export const tasks = pgTable('tasks', {
   rejectionCount: integer('rejection_count').default(0),
   rejectionReason: text('rejection_reason'),
   modelOverride: text('model_override'),
+  /** Skill directory name (e.g., 'terraform-stacks') — maps to .claude/skills/{skillId}/SKILL.md */
+  skillId: text('skill_id'),
+  /** Denormalized skill display name for UI rendering */
+  skillName: text('skill_name'),
   planOptions: jsonb('plan_options').$type<StoredPlanOptions>(),
   plan: text('plan'),
   createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),

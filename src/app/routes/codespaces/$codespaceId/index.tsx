@@ -37,6 +37,8 @@ type ClientTask = Pick<
   | 'lastAgentStatus'
   | 'plan'
   | 'branch'
+  | 'skillId'
+  | 'skillName'
 > & {
   priority?: 'low' | 'medium' | 'high';
   diffSummary?: DiffSummary | null;
@@ -480,6 +482,12 @@ function CodespaceKanban(): React.JSX.Element {
         }}
         onSave={async (data) => {
           if (selectedTask) {
+            // Persist to API
+            const result = await apiClient.tasks.update(selectedTask.id, data);
+            if (!result.ok) {
+              console.error('[CodespaceKanban] Failed to update task:', result.error);
+            }
+            // Optimistic local update
             setTasks((prev) =>
               prev.map((task) => (task.id === selectedTask.id ? { ...task, ...data } : task))
             );

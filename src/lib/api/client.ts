@@ -373,6 +373,18 @@ export const apiClient = {
           method: 'DELETE',
         }
       ),
+
+    getSkills: (id: string) =>
+      apiServerFetch<
+        Array<{
+          id: string;
+          name: string;
+          description?: string;
+          tags?: string[];
+          sourceType: string;
+          sourceName: string;
+        }>
+      >(`/api/codespaces/${encodeURIComponent(id)}/skills`),
   },
 
   // Alias: codespaces points to the same methods as projects
@@ -458,12 +470,33 @@ export const apiClient = {
       description?: string;
       labels?: string[];
       priority?: 'high' | 'medium' | 'low';
+      skillId?: string | null;
+      skillName?: string | null;
     }) =>
       apiServerFetch<{
         taskId: string;
         title: string;
         codespaceId: string;
       }>('/api/tasks', { method: 'POST', body: data }),
+
+    /**
+     * Update a task (title, description, labels, priority, skill, etc.)
+     */
+    update: (
+      id: string,
+      data: {
+        title?: string;
+        description?: string;
+        labels?: string[];
+        priority?: 'high' | 'medium' | 'low';
+        skillId?: string | null;
+        skillName?: string | null;
+      }
+    ) =>
+      apiServerFetch<unknown>(`/api/tasks/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        body: data,
+      }),
 
     /**
      * Delete a task

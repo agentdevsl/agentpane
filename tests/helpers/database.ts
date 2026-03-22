@@ -137,6 +137,18 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
     }
   }
 
+  // Add skill columns to tasks (migration 0012)
+  try {
+    testSqlite.exec('ALTER TABLE tasks ADD COLUMN skill_id TEXT');
+  } catch {
+    // Column may already exist
+  }
+  try {
+    testSqlite.exec('ALTER TABLE tasks ADD COLUMN skill_name TEXT');
+  } catch {
+    // Column may already exist
+  }
+
   return testDb;
 }
 

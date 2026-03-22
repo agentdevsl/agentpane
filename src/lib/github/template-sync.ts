@@ -186,10 +186,21 @@ async function fetchSkills(
 
     const { frontmatter, body } = parseFrontmatter(fileResult.value.content);
 
+    // Parse tags: comma-separated string → string[]
+    const rawTags = frontmatter.tags;
+    const tags =
+      typeof rawTags === 'string' && rawTags.length > 0
+        ? rawTags
+            .split(',')
+            .map((t) => t.trim())
+            .filter(Boolean)
+        : undefined;
+
     skills.push({
       id: item.name,
       name: (frontmatter.name as string) ?? item.name,
       description: frontmatter.description as string | undefined,
+      tags,
       content: body,
     });
   }

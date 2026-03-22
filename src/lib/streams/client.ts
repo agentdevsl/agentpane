@@ -154,6 +154,7 @@ const rawContainerAgentStatusSchema = z.object({
     'initializing',
     'validating',
     'credentials',
+    'injecting_skills',
     'creating_sandbox',
     'executing',
     'running',
@@ -308,6 +309,7 @@ export interface ContainerAgentStatus {
     | 'initializing'
     | 'validating'
     | 'credentials'
+    | 'injecting_skills'
     | 'creating_sandbox'
     | 'executing'
     | 'running';

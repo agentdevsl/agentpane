@@ -94,6 +94,14 @@ export function TaskDetailsCollapsible({
                   <span className="text-fg-muted">{task.modelOverride}</span>
                 </div>
               )}
+              {(task as Task & { skillName?: string | null }).skillName && (
+                <div className="flex justify-between col-span-2">
+                  <span className="text-fg-subtle">Skill</span>
+                  <span className="text-fg-muted">
+                    {(task as Task & { skillName?: string | null }).skillName}
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Labels */}

@@ -1,0 +1,298 @@
+import { BookOpen, Tag } from '@phosphor-icons/react';
+import { useCallback, useMemo, useState } from 'react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/app/components/ui/select.js';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect.js';
+import { apiClient } from '@/lib/api/client.js';
+import { cn } from '@/lib/utils/cn.js';
+
+// ============================================================================
+// TYPES
+// ============================================================================
+
+interface Skill {
+  id: string;
+  name: string;
+  description: string;
+  tags?: string[];
+  sourceType: 'local' | 'project' | 'org';
+  sourceName: string;
+}
+
+export interface SkillPickerProps {
+  /** Codespace to fetch skills for */
+  codespaceId: string;
+  /** Currently selected skill ID */
+  value: string | null;
+  /** Called when skill selection changes */
+  onChange: (skillId: string | null, skillName: string | null) => void;
+  /** Additional CSS classes */
+  className?: string;
+  /** Compact display mode */
+  compact?: boolean;
+  /** Test ID */
+  'data-testid'?: string;
+}
+
+// ============================================================================
+// SOURCE TYPE LABELS
+// ============================================================================
+
+const SOURCE_TYPE_LABELS: Record<string, string> = {
+  org: 'Organization',
+  project: 'Project',
+  local: 'Local',
+};
+
+const SOURCE_TYPE_ORDER: string[] = ['org', 'project', 'local'];
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+/** Collect all unique tags from a list of skills, sorted alphabetically. */
+function collectUniqueTags(skills: Skill[]): string[] {
+  const tagSet = new Set<string>();
+  for (const skill of skills) {
+    if (skill.tags) {
+      for (const tag of skill.tags) {
+        tagSet.add(tag);
+      }
+    }
+  }
+  return Array.from(tagSet).sort();
+}
+
+/** Filter skills to only those matching ALL selected tags (AND logic). */
+function filterByTags(skills: Skill[], selectedTags: Set<string>): Skill[] {
+  if (selectedTags.size === 0) return skills;
+  return skills.filter((skill) => {
+    if (!skill.tags) return false;
+    for (const tag of selectedTags) {
+      if (!skill.tags.includes(tag)) return false;
+    }
+    return true;
+  });
+}
+
+// ============================================================================
+// COMPONENT
+// ============================================================================
+
+/**
+ * Skill picker dropdown.
+ * Fetches available skills for a codespace and lets users select one.
+ * Skills are grouped by sourceType (org / project / local).
+ * Supports optional tag-based filtering when skills have tags.
+ */
+export function SkillPicker({
+  codespaceId,
+  value,
+  onChange,
+  className,
+  compact = false,
+  'data-testid': testId = 'skill-picker',
+}: SkillPickerProps): React.JSX.Element {
+  const [skills, setSkills] = useState<Skill[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
+
+  // Fetch skills when codespaceId changes
+  useWatchEffect(() => {
+    if (!codespaceId) return;
+
+    let cancelled = false;
+    setIsLoading(true);
+
+    apiClient.codespaces
+      .getSkills(codespaceId)
+      .then((result) => {
+        if (cancelled) return;
+        if (result.ok) {
+          setSkills(result.data as Skill[]);
+          setSelectedTags(new Set());
+        } else {
+          console.error('[SkillPicker] Failed to fetch skills:', result.error);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) console.error('[SkillPicker] Unexpected error:', error);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [codespaceId]);
+
+  // Collect all unique tags from fetched skills
+  const allTags = useMemo(() => collectUniqueTags(skills), [skills]);
+
+  // Filter skills by selected tags
+  const filteredSkills = useMemo(() => filterByTags(skills, selectedTags), [skills, selectedTags]);
+
+  // Group filtered skills by sourceType
+  const groupedSkills = useMemo(() => {
+    const groups: Record<string, Skill[]> = {};
+    for (const skill of filteredSkills) {
+      const key = skill.sourceType;
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(skill);
+    }
+    // Return groups sorted by SOURCE_TYPE_ORDER
+    return SOURCE_TYPE_ORDER.filter((key) => groups[key]?.length).map((key) => ({
+      sourceType: key,
+      label: SOURCE_TYPE_LABELS[key] ?? key,
+      items: groups[key] ?? [],
+    }));
+  }, [filteredSkills]);
+
+  // Toggle a tag filter
+  const toggleTag = useCallback((tag: string) => {
+    setSelectedTags((prev) => {
+      const next = new Set(prev);
+      if (next.has(tag)) {
+        next.delete(tag);
+      } else {
+        next.add(tag);
+      }
+      return next;
+    });
+  }, []);
+
+  // Get display name for current value
+  const getDisplayValue = () => {
+    if (!value) return 'No skill';
+    const skill = skills.find((s) => s.id === value);
+    return skill?.name ?? value;
+  };
+
+  // Don't render if no skills available and nothing selected
+  if (!isLoading && skills.length === 0 && !value) {
+    return <></>;
+  }
+
+  return (
+    <Select
+      value={value ?? '__none__'}
+      onValueChange={(v) => {
+        if (v === '__none__') {
+          onChange(null, null);
+        } else {
+          const skill = skills.find((s) => s.id === v);
+          onChange(v, skill?.name ?? v);
+        }
+      }}
+    >
+      <SelectTrigger
+        className={cn('min-w-[180px]', compact && 'h-8', className)}
+        data-testid={testId}
+      >
+        <div className="flex items-center gap-2">
+          <BookOpen className="h-4 w-4 text-fg-muted flex-shrink-0" />
+          <SelectValue placeholder={getDisplayValue()}>{getDisplayValue()}</SelectValue>
+        </div>
+      </SelectTrigger>
+      <SelectContent>
+        {/* No skill option */}
+        <SelectItem value="__none__" className="flex flex-col items-start">
+          <div className="font-medium">No skill</div>
+          <div className="text-[11px] text-fg-muted">Run without a specific skill</div>
+        </SelectItem>
+
+        {/* Tag filter chips — only shown when tags exist */}
+        {allTags.length > 0 && (
+          <div className="px-2 py-1.5 flex flex-wrap gap-1 border-b border-border-default">
+            <Tag className="h-3 w-3 text-fg-subtle flex-shrink-0 mt-0.5" weight="bold" />
+            {allTags.map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  toggleTag(tag);
+                }}
+                className={cn(
+                  'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors',
+                  'border cursor-pointer select-none',
+                  selectedTags.has(tag)
+                    ? 'bg-accent-subtle border-accent text-accent'
+                    : 'bg-bg-subtle border-border-default text-fg-muted hover:border-border-emphasis'
+                )}
+              >
+                {tag}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Grouped skills */}
+        {groupedSkills.map((group) => (
+          <div key={group.sourceType}>
+            {/* Group header */}
+            <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-fg-subtle">
+              {group.label}
+            </div>
+            {group.items.map((skill) => (
+              <SelectItem key={skill.id} value={skill.id} className="flex flex-col items-start">
+                <div className="font-medium">{skill.name}</div>
+                {skill.description && (
+                  <div className="text-[11px] text-fg-muted line-clamp-1">{skill.description}</div>
+                )}
+                {skill.tags && skill.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-0.5">
+                    {skill.tags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="inline-flex items-center rounded-full bg-bg-subtle px-1.5 py-px text-[9px] text-fg-subtle"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </SelectItem>
+            ))}
+          </div>
+        ))}
+
+        {/* Empty state when tag filters eliminate all results */}
+        {!isLoading &&
+          allTags.length > 0 &&
+          selectedTags.size > 0 &&
+          filteredSkills.length === 0 && (
+            <div className="px-2 py-2 text-xs text-fg-muted">No skills match the selected tags</div>
+          )}
+
+        {isLoading && <div className="px-2 py-2 text-xs text-fg-muted">Loading skills...</div>}
+      </SelectContent>
+    </Select>
+  );
+}
+
+/**
+ * Inline skill picker for compact spaces (e.g., metadata sections).
+ */
+export function SkillPickerInline({
+  codespaceId,
+  value,
+  onChange,
+}: Omit<SkillPickerProps, 'compact'>): React.JSX.Element {
+  return (
+    <SkillPicker
+      codespaceId={codespaceId}
+      value={value}
+      onChange={onChange}
+      compact
+      className="h-7 text-xs"
+    />
+  );
+}

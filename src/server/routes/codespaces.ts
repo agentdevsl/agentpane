@@ -11,6 +11,7 @@ import { z } from 'zod';
 import { agents } from '../../db/schema';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { CodespaceService } from '../../services/codespace.service.js';
+import type { TemplateService } from '../../services/template.service.js';
 import type { Database } from '../../types/database.js';
 import { isValidId, json } from '../shared.js';
 
@@ -34,10 +35,11 @@ const updateCodespaceSchema = z.object({
 
 interface CodespacesDeps {
   codespaceService: CodespaceService;
+  templateService: TemplateService;
   db: Database;
 }
 
-export function createCodespacesRoutes({ codespaceService, db }: CodespacesDeps) {
+export function createCodespacesRoutes({ codespaceService, templateService, db }: CodespacesDeps) {
   const app = new Hono();
 
   // GET /api/codespaces
@@ -443,6 +445,108 @@ export function createCodespacesRoutes({ codespaceService, db }: CodespacesDeps)
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to delete codespace' } },
         500
       );
+    }
+  });
+
+  // GET /api/codespaces/:id/skills - List available skills for a codespace
+  app.get('/:id/skills', async (c) => {
+    const codespaceId = c.req.param('id');
+
+    if (!isValidId(codespaceId)) {
+      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID format' } }, 400);
+    }
+
+    try {
+      const result = await templateService.getMergedConfig(codespaceId);
+
+      if (!result.ok) {
+        // No templates configured for this codespace — return empty skills list
+        // This is expected when a codespace has no template associations
+        return json({ ok: true, data: [] });
+      }
+
+      if (result.value.skills.length === 0) {
+        return json({ ok: true, data: [] });
+      }
+
+      const skills = result.value.skills.map((skill) => ({
+        id: skill.id,
+        name: skill.name,
+        description: skill.description,
+        tags: skill.tags,
+        sourceType: skill.sourceType,
+        sourceName: skill.sourceName,
+      }));
+
+      return json({ ok: true, data: skills });
+    } catch (error) {
+      logger.error('List skills error', { error });
+      return json(
+        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to list skills' } },
+        500
+      );
+    }
+  });
+
+  // GET /api/codespaces/:id/skills/:skillId - Get full skill content
+  app.get('/:id/skills/:skillId', async (c) => {
+    const codespaceId = c.req.param('id');
+    const skillId = c.req.param('skillId');
+
+    if (!isValidId(codespaceId)) {
+      return json(
+        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid codespace ID format' } },
+        400
+      );
+    }
+
+    if (!skillId || !/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(skillId)) {
+      return json(
+        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid skill ID format' } },
+        400
+      );
+    }
+
+    try {
+      const result = await templateService.getMergedConfig(codespaceId);
+
+      if (!result.ok) {
+        return json(
+          {
+            ok: false,
+            error: { code: 'SKILL_NOT_FOUND', message: 'Skill not found' },
+          },
+          404
+        );
+      }
+
+      const skill = result.value.skills.find((s) => s.id === skillId);
+
+      if (!skill) {
+        return json(
+          {
+            ok: false,
+            error: { code: 'SKILL_NOT_FOUND', message: 'Skill not found' },
+          },
+          404
+        );
+      }
+
+      return json({
+        ok: true,
+        data: {
+          id: skill.id,
+          name: skill.name,
+          description: skill.description,
+          tags: skill.tags,
+          content: skill.content,
+          sourceType: skill.sourceType,
+          sourceName: skill.sourceName,
+        },
+      });
+    } catch (error) {
+      logger.error('Get skill error', { error });
+      return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to get skill' } }, 500);
     }
   });
 

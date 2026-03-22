@@ -11,6 +11,7 @@ import { TaskActivity } from './task-activity';
 import { TaskDescription } from './task-description';
 import { TaskDetailsCollapsible } from './task-details-collapsible';
 import { TaskHeader } from './task-header';
+import { TaskSkill } from './task-skill.js';
 
 /**
  * Custom hook for drag functionality.
@@ -89,6 +90,8 @@ export interface UpdateTaskInput {
   labels?: string[];
   priority?: 'high' | 'medium' | 'low';
   modelOverride?: string | null;
+  skillId?: string | null;
+  skillName?: string | null;
 }
 
 export interface ActivityEntry {
@@ -199,6 +202,11 @@ export function TaskDetailDialog({
     },
     []
   );
+
+  // Skill change handler - updates both skillId and skillName atomically
+  const handleSkillChange = useCallback((skillId: string | null, skillName: string | null) => {
+    setPendingChanges((prev) => ({ ...prev, skillId, skillName }));
+  }, []);
 
   // Save handler
   const handleSave = useCallback(async () => {
@@ -364,6 +372,14 @@ export function TaskDetailDialog({
                   onChange={(description) => handleFieldChange('description', description)}
                   onSave={handleSave}
                   onCancel={() => dispatch({ type: 'CANCEL_EDIT' })}
+                />
+
+                {/* Skill assignment */}
+                <TaskSkill
+                  codespaceId={task.codespaceId}
+                  skillId={displayTask.skillId ?? null}
+                  skillName={displayTask.skillName ?? null}
+                  onChange={handleSkillChange}
                 />
 
                 {/* Collapsible details: metadata, labels, worktree */}

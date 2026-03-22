@@ -22,6 +22,7 @@ import {
 import { cn } from '@/lib/utils/cn';
 import { getLabelColors, type Priority } from './kanban-board/constants';
 import { QuestionsPanel } from './new-task-dialog/questions-panel';
+import { SkillPicker } from './skill-picker.js';
 
 // ============================================================================
 // RESIZE & DRAG HOOKS
@@ -546,16 +547,22 @@ function SuggestionCard({
  * Task details sidebar - always visible, shows priority and tags
  */
 function TaskDetailsSidebar({
+  codespaceId,
   priority,
   tags,
+  skillId,
   onPriorityChange,
   onTagsChange,
+  onSkillChange,
   onCreateManually,
 }: {
+  codespaceId: string;
   priority: Priority;
   tags: string[];
+  skillId: string | null;
   onPriorityChange: (p: Priority) => void;
   onTagsChange: (tags: string[]) => void;
+  onSkillChange: (skillId: string | null, skillName: string | null) => void;
   onCreateManually: () => void;
 }): React.JSX.Element {
   return (
@@ -626,6 +633,20 @@ function TaskDetailsSidebar({
               );
             })}
           </div>
+        </div>
+
+        {/* Skill */}
+        <div className="space-y-2">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-fg-subtle">
+            Skill
+          </span>
+          <SkillPicker
+            codespaceId={codespaceId}
+            value={skillId}
+            onChange={onSkillChange}
+            compact
+            className="w-full"
+          />
         </div>
       </div>
 
@@ -1006,6 +1027,8 @@ export function NewTaskDialog({
   const [localError, setLocalError] = useState<string | null>(null);
   const [selectedPriority, setSelectedPriority] = useState<Priority>('medium');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
+  const [selectedSkillName, setSelectedSkillName] = useState<string | null>(null);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, string | string[]>>({});
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -1071,6 +1094,8 @@ export function NewTaskDialog({
       setLocalError(null);
       setSelectedPriority('medium');
       setSelectedTags([]);
+      setSelectedSkillId(null);
+      setSelectedSkillName(null);
       setSelectedAnswers({});
     } else {
       setTimeout(() => inputRef.current?.focus(), 100);
@@ -1167,6 +1192,8 @@ export function NewTaskDialog({
           description: editableSuggestion.description,
           labels: editableSuggestion.labels,
           priority: editableSuggestion.priority,
+          skillId: selectedSkillId,
+          skillName: selectedSkillName,
         });
 
         if (result.ok) {
@@ -1550,10 +1577,16 @@ export function NewTaskDialog({
 
               {/* RIGHT PANEL - Task Details Sidebar */}
               <TaskDetailsSidebar
+                codespaceId={codespaceId}
                 priority={selectedPriority}
                 tags={selectedTags}
+                skillId={selectedSkillId}
                 onPriorityChange={setSelectedPriority}
                 onTagsChange={setSelectedTags}
+                onSkillChange={(id, name) => {
+                  setSelectedSkillId(id);
+                  setSelectedSkillName(name);
+                }}
                 onCreateManually={handleCreateManually}
               />
             </div>
