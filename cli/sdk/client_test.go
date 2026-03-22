@@ -3,9 +3,11 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 )
 
@@ -327,5 +329,252 @@ func TestDo_OKFalseWith200(t *testing.T) {
 	}
 	if apiErr.Code != "VALIDATION_ERROR" {
 		t.Errorf("expected code VALIDATION_ERROR, got %q", apiErr.Code)
+	}
+}
+
+// --- getList tests ---
+
+// testItem is a simple struct used to exercise the generic getList helper.
+type testItem struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+func TestGetList_PaginatedResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"ok": true,
+			"data": map[string]interface{}{
+				"items": []map[string]string{
+					{"id": "a", "name": "Alpha"},
+					{"id": "b", "name": "Bravo"},
+				},
+				"pagination": map[string]int{
+					"total":  2,
+					"limit":  100,
+					"offset": 0,
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{Address: server.URL, Token: "tok"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	items, pag, err := getList[testItem](client, context.Background(), "/api/things")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+	if items[0].ID != "a" || items[0].Name != "Alpha" {
+		t.Errorf("unexpected first item: %+v", items[0])
+	}
+	if items[1].ID != "b" || items[1].Name != "Bravo" {
+		t.Errorf("unexpected second item: %+v", items[1])
+	}
+	if pag == nil {
+		t.Fatal("expected pagination to be non-nil")
+	}
+	if pag.Total != 2 {
+		t.Errorf("expected total=2, got %d", pag.Total)
+	}
+	if pag.Limit != 100 {
+		t.Errorf("expected limit=100, got %d", pag.Limit)
+	}
+	if pag.Offset != 0 {
+		t.Errorf("expected offset=0, got %d", pag.Offset)
+	}
+}
+
+func TestGetList_FlatArrayResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"ok": true,
+			"data": []map[string]string{
+				{"id": "x", "name": "X-ray"},
+				{"id": "y", "name": "Yankee"},
+				{"id": "z", "name": "Zulu"},
+			},
+		})
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{Address: server.URL, Token: "tok"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	items, pag, err := getList[testItem](client, context.Background(), "/api/things")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(items) != 3 {
+		t.Fatalf("expected 3 items, got %d", len(items))
+	}
+	if items[0].ID != "x" {
+		t.Errorf("expected first id 'x', got %q", items[0].ID)
+	}
+	if items[2].Name != "Zulu" {
+		t.Errorf("expected third name 'Zulu', got %q", items[2].Name)
+	}
+	if pag != nil {
+		t.Errorf("expected nil pagination for flat array, got %+v", pag)
+	}
+}
+
+func TestGetList_EmptyPaginatedResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"ok": true,
+			"data": map[string]interface{}{
+				"items": []interface{}{},
+				"pagination": map[string]int{
+					"total":  0,
+					"limit":  100,
+					"offset": 0,
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{Address: server.URL, Token: "tok"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	items, pag, err := getList[testItem](client, context.Background(), "/api/things")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(items) != 0 {
+		t.Errorf("expected 0 items, got %d", len(items))
+	}
+	if pag == nil {
+		t.Fatal("expected pagination metadata even for empty result")
+	}
+	if pag.Total != 0 {
+		t.Errorf("expected total=0, got %d", pag.Total)
+	}
+}
+
+func TestGetList_ErrorResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"ok": false,
+			"error": map[string]string{
+				"code":    "INTERNAL_ERROR",
+				"message": "something broke",
+			},
+		})
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{Address: server.URL, Token: "tok"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	items, pag, err := getList[testItem](client, context.Background(), "/api/things")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if items != nil {
+		t.Errorf("expected nil items on error, got %v", items)
+	}
+	if pag != nil {
+		t.Errorf("expected nil pagination on error, got %v", pag)
+	}
+	apiErr, ok := err.(*APIError)
+	if !ok {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if apiErr.StatusCode != 500 {
+		t.Errorf("expected status 500, got %d", apiErr.StatusCode)
+	}
+	if apiErr.Code != "INTERNAL_ERROR" {
+		t.Errorf("expected code INTERNAL_ERROR, got %q", apiErr.Code)
+	}
+}
+
+func TestGetList_MultiPagePagination(t *testing.T) {
+	// Simulates a server that returns 2 items per page with total=5.
+	// The Tasks.List auto-pagination loop should fetch all 3 pages.
+	var requestCount int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		page := atomic.AddInt32(&requestCount, 1)
+		w.Header().Set("Content-Type", "application/json")
+
+		var items []map[string]interface{}
+		offset := 0
+		switch page {
+		case 1:
+			offset = 0
+			items = []map[string]interface{}{
+				{"id": "t1", "codespaceId": "cs", "title": "Task 1", "column": "backlog", "position": 0, "priority": "low", "labels": []string{}, "createdAt": "2025-01-01T00:00:00Z", "updatedAt": "2025-01-01T00:00:00Z"},
+				{"id": "t2", "codespaceId": "cs", "title": "Task 2", "column": "backlog", "position": 1, "priority": "low", "labels": []string{}, "createdAt": "2025-01-01T00:00:00Z", "updatedAt": "2025-01-01T00:00:00Z"},
+			}
+		case 2:
+			offset = 2
+			items = []map[string]interface{}{
+				{"id": "t3", "codespaceId": "cs", "title": "Task 3", "column": "backlog", "position": 2, "priority": "low", "labels": []string{}, "createdAt": "2025-01-01T00:00:00Z", "updatedAt": "2025-01-01T00:00:00Z"},
+				{"id": "t4", "codespaceId": "cs", "title": "Task 4", "column": "backlog", "position": 3, "priority": "low", "labels": []string{}, "createdAt": "2025-01-01T00:00:00Z", "updatedAt": "2025-01-01T00:00:00Z"},
+			}
+		case 3:
+			offset = 4
+			items = []map[string]interface{}{
+				{"id": "t5", "codespaceId": "cs", "title": "Task 5", "column": "backlog", "position": 4, "priority": "low", "labels": []string{}, "createdAt": "2025-01-01T00:00:00Z", "updatedAt": "2025-01-01T00:00:00Z"},
+			}
+		default:
+			t.Errorf("unexpected request page %d", page)
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"ok": true,
+			"data": map[string]interface{}{
+				"items": items,
+				"pagination": map[string]int{
+					"total":  5,
+					"limit":  2,
+					"offset": offset,
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{Address: server.URL, Token: "tok"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	tasks, err := client.Tasks.List(context.Background(), TaskListOptions{
+		CodespaceID: "cs",
+		Limit:       2,
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(tasks) != 5 {
+		t.Fatalf("expected 5 tasks across 3 pages, got %d", len(tasks))
+	}
+	for i, task := range tasks {
+		want := fmt.Sprintf("t%d", i+1)
+		if task.ID != want {
+			t.Errorf("task[%d]: expected ID %q, got %q", i, want, task.ID)
+		}
+	}
+	if atomic.LoadInt32(&requestCount) != 3 {
+		t.Errorf("expected 3 HTTP requests for multi-page, got %d", atomic.LoadInt32(&requestCount))
 	}
 }

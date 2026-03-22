@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 )
 
@@ -174,5 +175,71 @@ func TestIsConflict_NilError(t *testing.T) {
 func TestIsValidationError_NilError(t *testing.T) {
 	if IsValidationError(nil) {
 		t.Error("expected IsValidationError to return false for nil")
+	}
+}
+
+// --- Wrapped error tests (errors.As through fmt.Errorf %w) ---
+
+func TestIsNotFound_WrappedError(t *testing.T) {
+	inner := &APIError{StatusCode: 404, Code: "NOT_FOUND", Message: "gone"}
+	wrapped := fmt.Errorf("context: %w", inner)
+	if !IsNotFound(wrapped) {
+		t.Error("expected IsNotFound to return true for wrapped 404 APIError")
+	}
+}
+
+func TestIsUnauthorized_WrappedError(t *testing.T) {
+	inner := &APIError{StatusCode: 401, Code: "UNAUTHORIZED", Message: "bad token"}
+	wrapped := fmt.Errorf("auth failed: %w", inner)
+	if !IsUnauthorized(wrapped) {
+		t.Error("expected IsUnauthorized to return true for wrapped 401 APIError")
+	}
+}
+
+func TestIsForbidden_WrappedError(t *testing.T) {
+	inner := &APIError{StatusCode: 403, Code: "FORBIDDEN", Message: "no access"}
+	wrapped := fmt.Errorf("access denied: %w", inner)
+	if !IsForbidden(wrapped) {
+		t.Error("expected IsForbidden to return true for wrapped 403 APIError")
+	}
+}
+
+func TestIsConflict_WrappedError(t *testing.T) {
+	inner := &APIError{StatusCode: 409, Code: "CONFLICT", Message: "duplicate"}
+	wrapped := fmt.Errorf("create failed: %w", inner)
+	if !IsConflict(wrapped) {
+		t.Error("expected IsConflict to return true for wrapped 409 APIError")
+	}
+}
+
+func TestIsValidationError_WrappedError(t *testing.T) {
+	inner := &APIError{StatusCode: 422, Code: "VALIDATION_ERROR", Message: "bad input"}
+	wrapped := fmt.Errorf("validation: %w", inner)
+	if !IsValidationError(wrapped) {
+		t.Error("expected IsValidationError to return true for wrapped 422 APIError")
+	}
+}
+
+func TestIsNotFound_DoubleWrappedError(t *testing.T) {
+	inner := &APIError{StatusCode: 404, Code: "NOT_FOUND", Message: "gone"}
+	wrapped := fmt.Errorf("layer1: %w", fmt.Errorf("layer2: %w", inner))
+	if !IsNotFound(wrapped) {
+		t.Error("expected IsNotFound to return true for double-wrapped 404 APIError")
+	}
+}
+
+func TestIsNotFound_WrappedNonAPIError(t *testing.T) {
+	inner := errors.New("plain error")
+	wrapped := fmt.Errorf("wrapped: %w", inner)
+	if IsNotFound(wrapped) {
+		t.Error("expected IsNotFound to return false for wrapped non-APIError")
+	}
+}
+
+func TestIsUnauthorized_WrappedWrongStatus(t *testing.T) {
+	inner := &APIError{StatusCode: 404, Code: "NOT_FOUND", Message: "not auth"}
+	wrapped := fmt.Errorf("wrapped: %w", inner)
+	if IsUnauthorized(wrapped) {
+		t.Error("expected IsUnauthorized to return false for wrapped 404 (not 401)")
 	}
 }

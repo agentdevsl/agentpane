@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"fmt"
+	"net/url"
 )
 
 // ProjectService provides operations on project resources.
@@ -22,7 +23,7 @@ func (s *ProjectService) List(ctx context.Context) ([]Project, error) {
 // Get returns a single project by ID.
 func (s *ProjectService) Get(ctx context.Context, id string) (*Project, error) {
 	var result Project
-	if err := s.client.get(ctx, fmt.Sprintf("/api/project-folders/%s", id), &result); err != nil {
+	if err := s.client.get(ctx, fmt.Sprintf("/api/project-folders/%s", url.PathEscape(id)), &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -39,5 +40,5 @@ func (s *ProjectService) Create(ctx context.Context, opts ProjectCreateOptions) 
 
 // Delete removes a project.
 func (s *ProjectService) Delete(ctx context.Context, id string) error {
-	return s.client.del(ctx, fmt.Sprintf("/api/project-folders/%s", id))
+	return s.client.del(ctx, fmt.Sprintf("/api/project-folders/%s", url.PathEscape(id)))
 }

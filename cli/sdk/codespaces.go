@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"fmt"
+	"net/url"
 )
 
 // CodespaceService provides operations on codespace resources.
@@ -22,7 +23,7 @@ func (s *CodespaceService) List(ctx context.Context) ([]Codespace, error) {
 // Get returns a single codespace by ID.
 func (s *CodespaceService) Get(ctx context.Context, id string) (*Codespace, error) {
 	var result Codespace
-	if err := s.client.get(ctx, fmt.Sprintf("/api/codespaces/%s", id), &result); err != nil {
+	if err := s.client.get(ctx, fmt.Sprintf("/api/codespaces/%s", url.PathEscape(id)), &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -40,7 +41,7 @@ func (s *CodespaceService) Create(ctx context.Context, opts CodespaceCreateOptio
 // Update modifies a codespace.
 func (s *CodespaceService) Update(ctx context.Context, id string, opts CodespaceUpdateOptions) (*Codespace, error) {
 	var result Codespace
-	if err := s.client.patch(ctx, fmt.Sprintf("/api/codespaces/%s", id), opts, &result); err != nil {
+	if err := s.client.patch(ctx, fmt.Sprintf("/api/codespaces/%s", url.PathEscape(id)), opts, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -48,5 +49,5 @@ func (s *CodespaceService) Update(ctx context.Context, id string, opts Codespace
 
 // Delete removes a codespace by ID.
 func (s *CodespaceService) Delete(ctx context.Context, id string) error {
-	return s.client.del(ctx, fmt.Sprintf("/api/codespaces/%s", id))
+	return s.client.del(ctx, fmt.Sprintf("/api/codespaces/%s", url.PathEscape(id)))
 }

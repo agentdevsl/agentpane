@@ -30,7 +30,7 @@ func (c *ProjectDeleteCommand) Run(args []string) int {
 	}
 
 	if err := client.Projects.Delete(context.Background(), posArgs[0]); err != nil {
-		fmt.Fprintf(os.Stderr, "Error deleting project: %s\n", err)
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 		return 1
 	}
 

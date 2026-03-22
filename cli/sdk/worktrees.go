@@ -33,7 +33,7 @@ func (s *WorktreeService) List(ctx context.Context, codespaceID string) ([]Workt
 // Get returns a single worktree by ID.
 func (s *WorktreeService) Get(ctx context.Context, id string) (*Worktree, error) {
 	var result Worktree
-	if err := s.client.get(ctx, fmt.Sprintf("/api/worktrees/%s", id), &result); err != nil {
+	if err := s.client.get(ctx, fmt.Sprintf("/api/worktrees/%s", url.PathEscape(id)), &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -42,7 +42,7 @@ func (s *WorktreeService) Get(ctx context.Context, id string) (*Worktree, error)
 // Delete removes a worktree by ID. If force is true, the worktree
 // is removed even if it has uncommitted changes.
 func (s *WorktreeService) Delete(ctx context.Context, id string, force bool) error {
-	path := fmt.Sprintf("/api/worktrees/%s", id)
+	path := fmt.Sprintf("/api/worktrees/%s", url.PathEscape(id))
 	if force {
 		path += "?force=true"
 	}

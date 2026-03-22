@@ -50,7 +50,7 @@ func (c *CodespaceUpdateCommand) Run(args []string) int {
 
 	cs, err := client.Codespaces.Update(context.Background(), posArgs[0], opts)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error updating codespace: %s\n", err)
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 		return 1
 	}
 

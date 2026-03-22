@@ -41,7 +41,7 @@ func (c *ProjectCreateCommand) Run(args []string) int {
 
 	folder, err := client.Projects.Create(context.Background(), opts)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating project: %s\n", err)
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 		return 1
 	}
 

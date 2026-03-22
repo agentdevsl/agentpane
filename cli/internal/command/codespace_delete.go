@@ -30,7 +30,7 @@ func (c *CodespaceDeleteCommand) Run(args []string) int {
 	}
 
 	if err := client.Codespaces.Delete(context.Background(), posArgs[0]); err != nil {
-		fmt.Fprintf(os.Stderr, "Error deleting codespace: %s\n", err)
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 		return 1
 	}
 

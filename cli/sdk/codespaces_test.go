@@ -211,6 +211,148 @@ func TestCodespaces_Create(t *testing.T) {
 	}
 }
 
+func TestCodespaces_Update(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			t.Errorf("expected PATCH, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/codespaces/cs-1" {
+			t.Errorf("expected path /api/codespaces/cs-1, got %s", r.URL.Path)
+		}
+
+		body, _ := io.ReadAll(r.Body)
+		var opts CodespaceUpdateOptions
+		if err := json.Unmarshal(body, &opts); err != nil {
+			t.Fatalf("failed to parse request body: %v", err)
+		}
+		if opts.Name == nil || *opts.Name != "Renamed CS" {
+			t.Errorf("expected name 'Renamed CS', got %v", opts.Name)
+		}
+		if opts.Description == nil || *opts.Description != "Updated description" {
+			t.Errorf("expected description 'Updated description', got %v", opts.Description)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"ok": true,
+			"data": map[string]interface{}{
+				"id":                  "cs-1",
+				"projectFolderId":     "folder-1",
+				"name":                "Renamed CS",
+				"path":                "/home/user/project",
+				"description":         "Updated description",
+				"maxConcurrentAgents": 3,
+				"createdAt":           "2025-01-01T00:00:00Z",
+				"updatedAt":           "2025-01-02T00:00:00Z",
+			},
+		})
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{Address: server.URL, Token: "test-token"})
+	if err != nil {
+		t.Fatalf("unexpected error creating client: %v", err)
+	}
+
+	name := "Renamed CS"
+	desc := "Updated description"
+	result, err := client.Codespaces.Update(context.Background(), "cs-1", CodespaceUpdateOptions{
+		Name:        &name,
+		Description: &desc,
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if result.ID != "cs-1" {
+		t.Errorf("expected ID 'cs-1', got %q", result.ID)
+	}
+	if result.Name != "Renamed CS" {
+		t.Errorf("expected name 'Renamed CS', got %q", result.Name)
+	}
+	if result.Description == nil || *result.Description != "Updated description" {
+		t.Errorf("expected description 'Updated description', got %v", result.Description)
+	}
+}
+
+func TestCodespaces_Update_PartialFields(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var raw map[string]interface{}
+		if err := json.Unmarshal(body, &raw); err != nil {
+			t.Fatalf("failed to parse request body: %v", err)
+		}
+		// Only name should be present; description should be omitted (omitempty)
+		if _, hasDesc := raw["description"]; hasDesc {
+			t.Errorf("expected description to be omitted, but it was present")
+		}
+		if raw["name"] != "Only Name" {
+			t.Errorf("expected name 'Only Name', got %v", raw["name"])
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"ok": true,
+			"data": map[string]interface{}{
+				"id":                  "cs-1",
+				"projectFolderId":     "folder-1",
+				"name":                "Only Name",
+				"path":                "/home/user/project",
+				"maxConcurrentAgents": 1,
+				"createdAt":           "2025-01-01T00:00:00Z",
+				"updatedAt":           "2025-01-02T00:00:00Z",
+			},
+		})
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{Address: server.URL, Token: "test-token"})
+	if err != nil {
+		t.Fatalf("unexpected error creating client: %v", err)
+	}
+
+	name := "Only Name"
+	result, err := client.Codespaces.Update(context.Background(), "cs-1", CodespaceUpdateOptions{
+		Name: &name,
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if result.Name != "Only Name" {
+		t.Errorf("expected name 'Only Name', got %q", result.Name)
+	}
+}
+
+func TestCodespaces_Update_NotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"ok": false,
+			"error": map[string]string{
+				"code":    "NOT_FOUND",
+				"message": "Codespace not found",
+			},
+		})
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{Address: server.URL, Token: "test-token"})
+	if err != nil {
+		t.Fatalf("unexpected error creating client: %v", err)
+	}
+
+	name := "Doesn't matter"
+	_, err = client.Codespaces.Update(context.Background(), "nonexistent", CodespaceUpdateOptions{
+		Name: &name,
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !IsNotFound(err) {
+		t.Errorf("expected IsNotFound to be true, got false (err: %v)", err)
+	}
+}
+
 func TestCodespaces_Delete(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete {
@@ -231,5 +373,36 @@ func TestCodespaces_Delete(t *testing.T) {
 	err = client.Codespaces.Delete(context.Background(), "cs-1")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
+	}
+}
+
+func TestCodespaces_Delete_NotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("expected DELETE, got %s", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"ok": false,
+			"error": map[string]string{
+				"code":    "NOT_FOUND",
+				"message": "Codespace not found",
+			},
+		})
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{Address: server.URL, Token: "test-token"})
+	if err != nil {
+		t.Fatalf("unexpected error creating client: %v", err)
+	}
+
+	err = client.Codespaces.Delete(context.Background(), "nonexistent")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !IsNotFound(err) {
+		t.Errorf("expected IsNotFound to be true, got false (err: %v)", err)
 	}
 }

@@ -33,7 +33,7 @@ func (s *AgentService) List(ctx context.Context, codespaceID string) ([]Agent, e
 // Get returns a single agent by ID.
 func (s *AgentService) Get(ctx context.Context, id string) (*Agent, error) {
 	var result Agent
-	if err := s.client.get(ctx, fmt.Sprintf("/api/agents/%s", id), &result); err != nil {
+	if err := s.client.get(ctx, fmt.Sprintf("/api/agents/%s", url.PathEscape(id)), &result); err != nil {
 		return nil, err
 	}
 	return &result, nil

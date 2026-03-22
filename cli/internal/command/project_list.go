@@ -27,12 +27,17 @@ func (c *ProjectListCommand) Run(args []string) int {
 
 	projects, err := client.Projects.List(context.Background())
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error listing projects: %s\n", err)
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 		return 1
 	}
 
 	if c.JSONOutput() {
 		output.PrintJSON(projects)
+		return 0
+	}
+
+	if len(projects) == 0 {
+		fmt.Println("No projects found.")
 		return 0
 	}
 

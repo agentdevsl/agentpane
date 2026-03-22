@@ -16,12 +16,12 @@ type CodespaceCreateCommand struct {
 
 // Run executes the codespace create command.
 func (c *CodespaceCreateCommand) Run(args []string) int {
-	var name, path, folderID, description string
+	var name, path, projectID, description string
 
 	flags := c.FlagSet("codespace create")
 	flags.StringVar(&name, "name", "", "Codespace name (required)")
 	flags.StringVar(&path, "path", "", "Filesystem path (required)")
-	flags.StringVar(&folderID, "project-id", "", "Project ID (required)")
+	flags.StringVar(&projectID, "project-id", "", "Project ID (required)")
 	flags.StringVar(&description, "description", "", "Description")
 	if err := flags.Parse(args); err != nil {
 		return 1
@@ -35,7 +35,7 @@ func (c *CodespaceCreateCommand) Run(args []string) int {
 		fmt.Fprintf(os.Stderr, "Error: -path is required\n")
 		return 1
 	}
-	if folderID == "" {
+	if projectID == "" {
 		fmt.Fprintf(os.Stderr, "Error: -project-id is required\n")
 		return 1
 	}
@@ -49,7 +49,7 @@ func (c *CodespaceCreateCommand) Run(args []string) int {
 	opts := sdk.CodespaceCreateOptions{
 		Name:     name,
 		Path:     path,
-		ProjectID: folderID,
+		ProjectID: projectID,
 	}
 	if description != "" {
 		opts.Description = &description

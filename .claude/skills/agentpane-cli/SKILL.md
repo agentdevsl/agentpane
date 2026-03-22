@@ -12,7 +12,7 @@ The AgentPane CLI (`agentpane`) is a Go-based command-line tool for managing cod
 ### Build
 
 ```bash
-cd /Users/simon.lynch/git/agentpane_nocode-cli/cli
+cd cli
 make build
 ```
 
@@ -105,13 +105,7 @@ agentpane codespace show <codespace-id> -json
 #### Create a codespace
 
 ```bash
-agentpane codespace create -name "My Project" -path "/path/to/repo"
-```
-
-With a folder assignment:
-
-```bash
-agentpane codespace create -name "My Project" -path "/path/to/repo" -folder-id <folder-id>
+agentpane codespace create -name "My Project" -path "/path/to/repo" -project-id <project-id>
 ```
 
 ### Task Management
@@ -446,7 +440,7 @@ fi
 
 ## Project Structure
 
-The CLI source code is at `/Users/simon.lynch/git/agentpane_nocode-cli/cli/`:
+The CLI source code is at `cli/`:
 
 ```
 cli/
@@ -474,7 +468,7 @@ cli/
 ### Build the binary
 
 ```bash
-cd /Users/simon.lynch/git/agentpane_nocode-cli/cli
+cd cli
 make build
 ```
 
@@ -523,7 +517,7 @@ make clean
 The API server is not running. Start it:
 
 ```bash
-cd /Users/simon.lynch/git/agentpane_nocode-cli
+cd .
 npm run dev
 ```
 
@@ -562,7 +556,7 @@ go version
 If dependencies are missing, run:
 
 ```bash
-cd /Users/simon.lynch/git/agentpane_nocode-cli/cli
+cd cli
 go mod tidy
 ```
 
