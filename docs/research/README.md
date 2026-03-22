@@ -21,6 +21,8 @@ Recommended entry points:
 - [`opencode/10-risk-register.md`](opencode/10-risk-register.md)
 - [`opencode/11-rollout-plan.md`](opencode/11-rollout-plan.md)
 - [`opencode/12-handoff-checklist.md`](opencode/12-handoff-checklist.md)
+- [`opencode/13-stream-envelope-proposal.md`](opencode/13-stream-envelope-proposal.md)
+- [`opencode/14-cursor-migration-plan.md`](opencode/14-cursor-migration-plan.md)
 
 ## Reports
 

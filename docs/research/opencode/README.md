@@ -29,6 +29,8 @@ fits for AgentPane right now.
 | `10-risk-register.md` | First-tranche failure-mode tracker | Captures the main risks and mitigations for the OC-005 and OC-006 tranche |
 | `11-rollout-plan.md` | First-tranche rollout and rollback guide | Defines how to ship and back out the stream-contract tranche safely |
 | `12-handoff-checklist.md` | Team kickoff handoff guide | Gives the team a short meeting-ready checklist before tranche implementation starts |
+| `13-stream-envelope-proposal.md` | Concrete OC-005 schema proposal | Gives the team a proposed stream envelope to implement against |
+| `14-cursor-migration-plan.md` | Concrete OC-006 migration design | Defines how opaque resume cursors should move through the stack |
 
 ## Executive Summary
 
@@ -94,6 +96,8 @@ fits for AgentPane right now.
 11. Use `docs/research/opencode/10-risk-register.md` to review tranche failure modes before merging major changes.
 12. Use `docs/research/opencode/11-rollout-plan.md` to gate rollout and rollback decisions for the first tranche.
 13. Use `docs/research/opencode/12-handoff-checklist.md` to hand the tranche to the team cleanly.
+14. Use `docs/research/opencode/13-stream-envelope-proposal.md` to implement `OC-005`.
+15. Use `docs/research/opencode/14-cursor-migration-plan.md` to implement `OC-006`.
 
 ## Key Themes
 
