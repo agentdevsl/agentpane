@@ -20,13 +20,21 @@ type Controller = {
   closed: Promise<void>;
   emit: (batch: {
     offset?: string;
-    items: Array<{ type: string; data: unknown; timestamp?: number }>;
+    items: Array<{ type: string; data: unknown; timestamp?: number; meta?: unknown }>;
   }) => void;
   close: () => void;
 };
 
+type ControllerStore = {
+  0: Controller;
+  1: Controller;
+  [index: number]: Controller;
+  length: number;
+  push: (...controllers: Controller[]) => number;
+};
+
 const durableMocks = vi.hoisted(() => {
-  const controllers: Controller[] = [];
+  const controllers = [] as unknown as ControllerStore;
 
   const stream = vi.fn(async (options: StreamOptions) => {
     let handler: ((chunk: StreamTextChunk) => void) | null = null;
@@ -371,6 +379,66 @@ describe('DurableStreamsClient', () => {
 
     expect(tools).toHaveLength(1);
     expect((tools[0] as { data: { status: string } }).data.status).toBe('complete');
+
+    sub.unsubscribe();
+  });
+
+  it('uses metadata blockId as stable tool identity when payload id is missing', async () => {
+    const { DurableStreamsClient, setStreamsAvailable } = await import(
+      '../../../src/lib/streams/client'
+    );
+    setStreamsAvailable(true);
+
+    const tools: Array<{ data: { id: string; status: string; output?: unknown } }> = [];
+    const client = new DurableStreamsClient({ url: '/v1/stream/sessions' });
+    const sub = client.subscribeToSession('sess-tool-block-id', {
+      onToolCall: (e) =>
+        tools.push(e as { data: { id: string; status: string; output?: unknown } }),
+    });
+
+    await flushPromises();
+    const controller = durableMocks.controllers[0];
+
+    controller.emit({
+      offset: '3_1',
+      items: [
+        {
+          type: 'tool:start',
+          data: { tool: 'read_file', input: { path: '/x' } },
+          timestamp: Date.now(),
+          meta: {
+            schemaVersion: 1,
+            eventId: 'evt-tool-start-1',
+            streamId: 'sess-tool-block-id',
+            blockId: 'tool-block-1',
+            partType: 'tool_start',
+            durability: 'durable',
+            sequence: null,
+            createdAt: new Date().toISOString(),
+          },
+        },
+        {
+          type: 'tool:result',
+          data: { tool: 'read_file', output: 'file contents' },
+          timestamp: Date.now(),
+          meta: {
+            schemaVersion: 1,
+            eventId: 'evt-tool-result-1',
+            streamId: 'sess-tool-block-id',
+            blockId: 'tool-block-1',
+            partType: 'tool_result',
+            durability: 'durable',
+            sequence: null,
+            createdAt: new Date().toISOString(),
+          },
+        },
+      ],
+    });
+
+    expect(tools).toHaveLength(2);
+    expect(tools[0]?.data.id).toBe('tool-block-1');
+    expect(tools[1]?.data.id).toBe('tool-block-1');
+    expect(tools[1]?.data.status).toBe('complete');
 
     sub.unsubscribe();
   });
@@ -1004,6 +1072,85 @@ describe('reconnection behavior', () => {
 
     sub.unsubscribe();
   });
+
+  it('resumes mixed chunk and tool replay from the last opaque cursor after transient error', async () => {
+    const streamModule = await import('../../../src/lib/streams/client');
+    streamModule.setStreamsAvailable(true);
+
+    const chunks: Array<{ data: { text: string } }> = [];
+    const tools: Array<{ data: { id: string; status: string; output?: unknown } }> = [];
+
+    const sub = streamModule.subscribeToSession('sess-mixed-resume', {
+      onChunk: (event) => chunks.push(event as { data: { text: string } }),
+      onToolCall: (event) =>
+        tools.push(event as { data: { id: string; status: string; output?: unknown } }),
+    });
+
+    await flushPromises();
+
+    const firstController = durableMocks.controllers[0];
+    firstController?.emit({
+      offset: 'opaque_100',
+      items: [
+        { type: 'chunk', data: { text: 'hello' }, timestamp: Date.now() },
+        {
+          type: 'tool:start',
+          data: { tool: 'bash', input: { command: 'pwd' } },
+          timestamp: Date.now(),
+          meta: {
+            schemaVersion: 1,
+            eventId: 'evt-tool-start-100',
+            streamId: 'sess-mixed-resume',
+            blockId: 'tool-block-100',
+            partType: 'tool_start',
+            durability: 'durable',
+            sequence: null,
+            createdAt: new Date().toISOString(),
+          },
+        },
+      ],
+    });
+
+    expect(sub.getLastCursor()).toBe('opaque_100');
+    expect(chunks).toHaveLength(1);
+    expect(tools[0]?.data.id).toBe('tool-block-100');
+
+    firstController?.options.onError?.(new Error('ECONNRESET'));
+    await flushPromises();
+    expect(sub.getState()).toBe('reconnecting');
+
+    firstController?.emit({
+      offset: 'opaque_101',
+      items: [
+        {
+          type: 'tool:result',
+          data: { tool: 'bash', output: 'pwd output' },
+          timestamp: Date.now(),
+          meta: {
+            schemaVersion: 1,
+            eventId: 'evt-tool-result-100',
+            streamId: 'sess-mixed-resume',
+            blockId: 'tool-block-100',
+            partType: 'tool_result',
+            durability: 'durable',
+            sequence: null,
+            createdAt: new Date().toISOString(),
+          },
+        },
+        { type: 'chunk', data: { text: ' world' }, timestamp: Date.now() },
+      ],
+    });
+
+    expect(sub.getState()).toBe('connected');
+    expect(sub.getLastCursor()).toBe('opaque_101');
+    expect(chunks).toHaveLength(2);
+    expect(chunks[1]?.data.text).toBe(' world');
+    expect(tools).toHaveLength(2);
+    expect(tools[1]?.data.id).toBe('tool-block-100');
+    expect(tools[1]?.data.status).toBe('complete');
+
+    sub.unsubscribe();
+  });
 });
 
 // =============================================================================
@@ -1208,7 +1355,7 @@ describe('error scenarios', () => {
     await flushPromises();
 
     expect(errors).toHaveLength(1);
-    expect(errors[0].message).toBe('Connection refused');
+    expect(errors[0]?.message).toBe('Connection refused');
 
     sub.unsubscribe();
   });

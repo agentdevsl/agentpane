@@ -94,6 +94,11 @@ type PendingSessionUpdates = {
   agentState: SessionAgentState;
 };
 
+type StableEventIdentity = {
+  meta?: StreamEventMetadata;
+  cursor?: StreamCursor;
+};
+
 function createInitialState(): SessionState {
   return {
     chunks: [],
@@ -113,6 +118,21 @@ function createPendingSessionUpdates(): PendingSessionUpdates {
     hasAgentState: false,
     agentState: null,
   };
+}
+
+function getStableEventId(
+  event: StableEventIdentity,
+  fallbackParts: Array<string | number | undefined>
+): string {
+  if (event.meta?.eventId) {
+    return event.meta.eventId;
+  }
+
+  if (event.cursor) {
+    return event.cursor;
+  }
+
+  return fallbackParts.map((part) => String(part ?? 'unknown')).join(':');
 }
 
 function applyPendingSessionUpdates(
@@ -197,6 +217,7 @@ export function useSession(
   const [state, setState] = useState<SessionState>(createInitialState);
   const pendingUpdatesRef = useRef<PendingSessionUpdates>(createPendingSessionUpdates());
   const flushFrameRef = useRef<number | null>(null);
+  const seenEventIdsRef = useRef<Set<string>>(new Set());
 
   const flushPendingUpdates = useEffectEvent(() => {
     const batch = pendingUpdatesRef.current;
@@ -301,6 +322,7 @@ export function useSession(
         cancelAnimationFrame(flushFrameRef.current);
         flushFrameRef.current = null;
       }
+      seenEventIdsRef.current.clear();
     };
   });
 
@@ -318,6 +340,7 @@ export function useSession(
       flushFrameRef.current = null;
     }
     pendingUpdatesRef.current = createPendingSessionUpdates();
+    seenEventIdsRef.current.clear();
     setState(createInitialState());
   }, [sessionId]);
 
@@ -334,6 +357,17 @@ export function useSession(
   useWatchEffect(() => {
     callbacks.current = {
       onChunk: (event) => {
+        const eventId = getStableEventId(event, [
+          'chunk',
+          event.data.timestamp,
+          event.data.agentId,
+          event.data.text,
+        ]);
+        if (seenEventIdsRef.current.has(eventId)) {
+          return;
+        }
+
+        seenEventIdsRef.current.add(eventId);
         queueChunk({
           text: event.data.text,
           timestamp: event.data.timestamp,
@@ -344,8 +378,19 @@ export function useSession(
       },
 
       onToolCall: (event) => {
+        const fallbackToolId =
+          event.meta?.blockId ??
+          event.data.id ??
+          getStableEventId(event, [
+            'tool',
+            event.data.tool,
+            event.data.status,
+            event.data.timestamp,
+          ]);
+
         queueToolCall({
           ...event.data,
+          id: fallbackToolId,
           cursor: event.cursor,
           meta: event.meta,
         });
@@ -356,6 +401,16 @@ export function useSession(
       },
 
       onTerminal: (event) => {
+        const eventId = getStableEventId(event, [
+          'terminal',
+          event.data.type,
+          event.data.timestamp,
+        ]);
+        if (seenEventIdsRef.current.has(eventId)) {
+          return;
+        }
+
+        seenEventIdsRef.current.add(eventId);
         queueTerminal({
           ...event.data,
           cursor: event.cursor,

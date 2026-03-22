@@ -327,6 +327,26 @@ type TypedSessionEventMetadata = {
   meta?: StreamEventMetadata;
 };
 
+function getStableToolCallId(raw: RawSessionEvent, payloadId?: string): string {
+  if (payloadId && payloadId.length > 0) {
+    return payloadId;
+  }
+
+  if (raw.meta?.blockId) {
+    return raw.meta.blockId;
+  }
+
+  if (raw.meta?.eventId) {
+    return raw.meta.eventId;
+  }
+
+  if (raw.cursor) {
+    return raw.cursor;
+  }
+
+  return `tool:${raw.type}:${raw.timestamp}`;
+}
+
 /**
  * Container agent event types
  */
@@ -940,7 +960,7 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
       return {
         channel: 'toolCalls',
         data: {
-          id: parsed.data.id ?? crypto.randomUUID(),
+          id: getStableToolCallId(raw, parsed.data.id),
           tool: parsed.data.tool,
           input: parsed.data.input,
           status: 'running',
@@ -960,7 +980,7 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
       return {
         channel: 'toolCalls',
         data: {
-          id: parsed.data.id ?? '',
+          id: getStableToolCallId(raw, parsed.data.id),
           tool: parsed.data.tool,
           input: parsed.data.input,
           output: parsed.data.output,

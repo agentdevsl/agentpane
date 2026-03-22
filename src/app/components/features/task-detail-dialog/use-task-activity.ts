@@ -292,21 +292,50 @@ export function useTaskActivity(task: Task | null): {
     const sessionId = task.sessionId;
 
     const getStableStreamId = (
-      event: { meta?: { eventId?: string | undefined }; cursor?: string; offset?: number },
+      event: {
+        meta?: { eventId?: string | undefined; createdAt?: string | undefined };
+        cursor?: string;
+        offset?: number;
+      },
       fallback: string
     ): string => event.meta?.eventId ?? event.cursor ?? fallback;
 
-    const getAgentStateFallbackId = (status: string | undefined): string =>
-      `stream-agent-state-${status ?? 'unknown'}`;
+    const getStreamTimestamp = (
+      event: {
+        meta?: { createdAt?: string | undefined };
+      },
+      fallback: number
+    ): number => {
+      const createdAt = event.meta?.createdAt;
+      if (!createdAt) {
+        return fallback;
+      }
 
-    const getToolFallbackId = (tool: string): string => `stream-tool-${tool}`;
+      const parsed = Date.parse(createdAt);
+      return Number.isNaN(parsed) ? fallback : parsed;
+    };
 
-    const getTurnFallbackId = (turn: number): string => `stream-turn-${turn}`;
+    const getAgentStateFallbackId = (data: {
+      status?: string;
+      turn?: number;
+      progress?: number;
+    }): string =>
+      `stream-agent-state-${data.status ?? 'unknown'}-${data.turn ?? 'na'}-${data.progress ?? 'na'}`;
+
+    const getToolFallbackId = (data: {
+      id?: string;
+      tool: string;
+      status: string;
+      timestamp: number;
+    }): string => `stream-tool-${data.id ?? data.tool}-${data.status}-${data.timestamp}`;
+
+    const getTurnFallbackId = (turn: number, timestamp: number): string =>
+      `stream-turn-${turn}-${timestamp}`;
 
     const callbacks: SessionCallbacks = {
       onAgentState: (event) => {
         if (!event.data) return;
-        const id = getStableStreamId(event, getAgentStateFallbackId(event.data.status));
+        const id = getStableStreamId(event, getAgentStateFallbackId(event.data));
         if (seenOffsets.current.has(id)) return;
         seenOffsets.current.add(id);
 
@@ -319,11 +348,16 @@ export function useTaskActivity(task: Task | null): {
 
         setFetchedActivities((prev) => [
           ...prev,
-          { id, type: 'status_change', timestamp: Date.now(), message },
+          {
+            id,
+            type: 'status_change',
+            timestamp: getStreamTimestamp(event, Date.now()),
+            message,
+          },
         ]);
       },
       onToolCall: (event) => {
-        const id = getStableStreamId(event, getToolFallbackId(event.data.tool));
+        const id = getStableStreamId(event, getToolFallbackId(event.data));
         if (seenOffsets.current.has(id)) return;
         seenOffsets.current.add(id);
 
@@ -336,11 +370,19 @@ export function useTaskActivity(task: Task | null): {
 
         setFetchedActivities((prev) => [
           ...prev,
-          { id, type: 'tool_call', timestamp: event.data.timestamp, message: msg },
+          {
+            id,
+            type: 'tool_call',
+            timestamp: getStreamTimestamp(event, event.data.timestamp),
+            message: msg,
+          },
         ]);
       },
       onContainerAgentTurn: (event) => {
-        const id = getStableStreamId(event, getTurnFallbackId(event.data.turn));
+        const id = getStableStreamId(
+          event,
+          getTurnFallbackId(event.data.turn, event.data.timestamp)
+        );
         if (seenOffsets.current.has(id)) return;
         seenOffsets.current.add(id);
 
@@ -349,7 +391,7 @@ export function useTaskActivity(task: Task | null): {
           {
             id,
             type: 'tool_call',
-            timestamp: event.data.timestamp,
+            timestamp: getStreamTimestamp(event, event.data.timestamp),
             message: `Turn ${event.data.turn} completed`,
           },
         ]);
@@ -364,7 +406,7 @@ export function useTaskActivity(task: Task | null): {
           {
             id,
             type: 'tool_call',
-            timestamp: event.data.timestamp,
+            timestamp: getStreamTimestamp(event, event.data.timestamp),
             message: `Running ${event.data.toolName}`,
           },
         ]);
@@ -379,13 +421,16 @@ export function useTaskActivity(task: Task | null): {
           {
             id,
             type: 'tool_call',
-            timestamp: event.data.timestamp,
+            timestamp: getStreamTimestamp(event, event.data.timestamp),
             message: `Tool completed (${event.data.durationMs}ms)`,
           },
         ]);
       },
       onContainerAgentComplete: (event) => {
-        const id = getStableStreamId(event, `stream-ccomplete-${event.data.turnCount}`);
+        const id = getStableStreamId(
+          event,
+          `stream-ccomplete-${event.data.status}-${event.data.turnCount}-${event.data.timestamp}`
+        );
         if (seenOffsets.current.has(id)) return;
         seenOffsets.current.add(id);
 
@@ -394,13 +439,16 @@ export function useTaskActivity(task: Task | null): {
           {
             id,
             type: 'status_change',
-            timestamp: event.data.timestamp,
+            timestamp: getStreamTimestamp(event, event.data.timestamp),
             message: 'Agent completed successfully',
           },
         ]);
       },
       onContainerAgentError: (event) => {
-        const id = getStableStreamId(event, `stream-cerror-${event.data.code ?? 'unknown'}`);
+        const id = getStableStreamId(
+          event,
+          `stream-cerror-${event.data.code ?? 'unknown'}-${event.data.turnCount}-${event.data.timestamp}`
+        );
         if (seenOffsets.current.has(id)) return;
         seenOffsets.current.add(id);
 
@@ -409,7 +457,7 @@ export function useTaskActivity(task: Task | null): {
           {
             id,
             type: 'status_change',
-            timestamp: event.data.timestamp,
+            timestamp: getStreamTimestamp(event, event.data.timestamp),
             message: `Agent encountered an error: ${event.data.error}`,
           },
         ]);

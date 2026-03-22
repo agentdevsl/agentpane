@@ -5,6 +5,7 @@ import { useCallback, useEffectEvent, useMemo, useRef, useState } from 'react';
 import type { ConnectionState, SessionAgentState, SessionCallbacks } from '@/lib/streams/client';
 import { useMountEffect } from './use-mount-effect';
 import { useSessionSubscription } from './use-session-subscription';
+import { useWatchEffect } from './use-watch-effect';
 
 export type AgentStreamChunk = {
   text: string;
@@ -21,6 +22,26 @@ export type ToolExecution = {
   timestamp: number;
 };
 
+type StableEventIdentity = {
+  meta?: { eventId?: string };
+  cursor?: string;
+};
+
+function getStableEventId(
+  event: StableEventIdentity,
+  fallbackParts: Array<string | number | undefined>
+): string {
+  if (event.meta?.eventId) {
+    return event.meta.eventId;
+  }
+
+  if (event.cursor) {
+    return event.cursor;
+  }
+
+  return fallbackParts.map((part) => String(part ?? 'unknown')).join(':');
+}
+
 export function useAgentStream(sessionId: string): {
   chunks: AgentStreamChunk[];
   fullText: string;
@@ -34,6 +55,7 @@ export function useAgentStream(sessionId: string): {
   const [tools, setTools] = useState<ToolExecution[]>([]);
   const [agentState, setAgentState] = useState<SessionAgentState>(null);
   const [isStreaming, setIsStreaming] = useState(false);
+  const seenChunkIdsRef = useRef<Set<string>>(new Set());
 
   // Build callbacks for the shared subscription
   const callbacks = useRef<SessionCallbacks>({});
@@ -42,6 +64,17 @@ export function useAgentStream(sessionId: string): {
   const buildCallbacks = useEffectEvent(
     (): SessionCallbacks => ({
       onChunk: (event) => {
+        const eventId = getStableEventId(event, [
+          'chunk',
+          event.data.timestamp,
+          event.data.agentId,
+          event.data.text,
+        ]);
+        if (seenChunkIdsRef.current.has(eventId)) {
+          return;
+        }
+
+        seenChunkIdsRef.current.add(eventId);
         setChunks((prev) => [
           ...prev,
           {
@@ -99,6 +132,14 @@ export function useAgentStream(sessionId: string): {
   useMountEffect(() => {
     callbacks.current = buildCallbacks();
   });
+
+  useWatchEffect(() => {
+    seenChunkIdsRef.current.clear();
+    setChunks([]);
+    setTools([]);
+    setAgentState(null);
+    setIsStreaming(false);
+  }, [sessionId]);
 
   const { connectionState } = useSessionSubscription(sessionId, callbacks.current);
 
