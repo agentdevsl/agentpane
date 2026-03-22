@@ -427,8 +427,8 @@ const PIPELINE_STEPS = [
   { id: 'backlog', label: 'Backlog' },
   { id: 'queued', label: 'Queued' },
   { id: 'in_progress', label: 'In Progress' },
-  { id: 'waiting_approval', label: 'Review' },
-  { id: 'verified', label: 'Done' },
+  { id: 'waiting_approval', label: 'Waiting Approval' },
+  { id: 'verified', label: 'Verified' },
 ] as const;
 
 function TaskStatusPipeline({

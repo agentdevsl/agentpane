@@ -60,13 +60,13 @@ const columnSortOrder: Record<string, number> = {
   verified: 4,
 };
 
-/** Column filter chip definitions with their visual styles. */
+/** Column filter chip definitions — colors match kanban COLUMN_HEADER_STYLES. */
 const FILTER_COLUMNS = [
   {
     id: 'backlog',
     label: 'Backlog',
-    dotColor: 'bg-fg-subtle',
-    activeClass: 'bg-fg-subtle/15 text-fg-muted border-fg-subtle/30',
+    dotColor: 'bg-[var(--fg-muted)]',
+    activeClass: 'bg-[var(--fg-muted)]/15 text-[var(--fg-muted)] border-[var(--fg-muted)]/30',
   },
   {
     id: 'queued',
@@ -76,33 +76,82 @@ const FILTER_COLUMNS = [
   },
   {
     id: 'in_progress',
-    label: 'Active',
-    dotColor: 'bg-success',
-    activeClass: 'bg-success/15 text-success border-success/30',
-  },
-  {
-    id: 'waiting_approval',
-    label: 'Review',
+    label: 'In Progress',
     dotColor: 'bg-attention',
     activeClass: 'bg-attention/15 text-attention border-attention/30',
   },
   {
-    id: 'verified',
-    label: 'Done',
+    id: 'waiting_approval',
+    label: 'Waiting Approval',
     dotColor: 'bg-done',
     activeClass: 'bg-done/15 text-done border-done/30',
+  },
+  {
+    id: 'verified',
+    label: 'Verified',
+    dotColor: 'bg-success',
+    activeClass: 'bg-success/15 text-success border-success/30',
   },
 ] as const;
 
 /** Completed column identifiers (codebase uses both 'done' and 'verified'). */
 const COMPLETED_COLUMNS = new Set(['done', 'verified']);
 
-/** Priority label mapping. */
-const priorityLabels: Record<string, string> = {
-  high: 'P0',
-  medium: 'P1',
-  low: 'P2',
+interface CardStyle {
+  gradientColor: string;
+  tagClass: string;
+  tagLabel: string;
+  borderClass?: string;
+}
+
+/**
+ * Column-based visual styles for task cards.
+ * Gradient rgba values match COLUMN_HEADER_STYLES in kanban-board/constants.ts.
+ */
+const COLUMN_CARD_STYLES: Record<string, CardStyle> = {
+  backlog: {
+    gradientColor: 'rgba(139,148,158,0.12)',
+    tagClass: 'bg-[var(--fg-muted)]/15 text-[var(--fg-muted)]',
+    tagLabel: 'Backlog',
+  },
+  queued: {
+    gradientColor: 'rgba(88,166,255,0.12)',
+    tagClass: 'bg-[var(--accent-muted)] text-[var(--accent-fg)]',
+    tagLabel: 'Queued',
+  },
+  in_progress: {
+    gradientColor: 'rgba(210,153,34,0.12)',
+    tagClass: 'bg-[var(--attention-muted)] text-[var(--attention-fg)]',
+    tagLabel: 'In Progress',
+  },
+  waiting_approval: {
+    gradientColor: 'rgba(163,113,247,0.12)',
+    tagClass: 'bg-[var(--done-muted)] text-[var(--done-fg)]',
+    tagLabel: 'Waiting Approval',
+  },
+  done: {
+    gradientColor: 'rgba(63,185,80,0.12)',
+    tagClass: 'bg-[var(--success-muted)] text-[var(--success-fg)]',
+    tagLabel: 'Verified',
+  },
+  verified: {
+    gradientColor: 'rgba(63,185,80,0.12)',
+    tagClass: 'bg-[var(--success-muted)] text-[var(--success-fg)]',
+    tagLabel: 'Verified',
+  },
 };
+
+/** Fallback card style for unknown columns. */
+const DEFAULT_CARD_STYLE: CardStyle = {
+  gradientColor: 'rgba(139,148,158,0.12)',
+  tagClass: 'bg-[var(--fg-muted)]/15 text-[var(--fg-muted)]',
+  tagLabel: 'Backlog',
+};
+
+/** Card style for a given column. */
+function getCardStyle(column: string): CardStyle {
+  return COLUMN_CARD_STYLES[column] ?? DEFAULT_CARD_STYLE;
+}
 
 /** Get icon and label for last agent run status (same as kanban-card.tsx) */
 function getLastRunStatusInfo(status: string | null | undefined): {
@@ -352,12 +401,12 @@ export function TaskListSidebar({
           className={cn(
             'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium transition-all duration-150',
             showCompleted
-              ? 'bg-done/10 text-done'
+              ? 'bg-success/10 text-success'
               : 'text-fg-subtle hover:text-fg-muted hover:bg-surface-subtle'
           )}
         >
           {showCompleted ? <Eye className="h-3 w-3" /> : <EyeSlash className="h-3 w-3" />}
-          Done ({columnCounts.verified ?? 0})
+          Verified ({columnCounts.verified ?? 0})
         </button>
 
         <span className="flex items-center gap-1 text-[10px] text-fg-subtle">
@@ -387,47 +436,74 @@ function TaskCard({
   const isAgentRunning =
     task.column === 'in_progress' && (Boolean(task.agentId) || Boolean(task.sessionId));
   const lastRunStatus = getLastRunStatusInfo(task.lastAgentStatus);
+  const isError = task.lastAgentStatus === 'error';
+
+  // Pick card style — error overrides column style
+  const style = isError
+    ? {
+        gradientColor: 'rgba(248,81,73,0.12)',
+        tagClass: 'bg-[var(--danger-muted)] text-[var(--danger-fg)]',
+        tagLabel: 'Error',
+        borderClass: 'border-danger/20' as string | undefined,
+      }
+    : getCardStyle(task.column);
+
+  const gradientStyle = isSelected
+    ? {
+        background: 'linear-gradient(to right, rgba(88,166,255,0.10), transparent 60%)',
+      }
+    : {
+        background: `linear-gradient(to right, ${style.gradientColor}, transparent 60%)`,
+      };
 
   return (
     <button
       type="button"
       onClick={() => onSelect(task.id)}
       className={cn(
-        'w-full rounded-md border bg-surface p-3 text-left transition-all duration-150',
-        isSelected ? 'border-accent bg-accent-muted' : 'border-border hover:border-fg-subtle'
+        'relative w-full overflow-hidden rounded-md border p-3 text-left transition-all duration-150',
+        isSelected
+          ? 'border-accent bg-accent-muted'
+          : cn('border-border hover:border-fg-subtle', style.borderClass)
       )}
     >
-      {/* Header: priority icon + title */}
-      <div className="flex items-start gap-2">
-        <PriorityIcon priority={priority} className="mt-1" />
+      {/* Gradient wash overlay */}
+      <div className="pointer-events-none absolute inset-0 rounded-md" style={gradientStyle} />
+
+      {/* Row 1: Status tag + task ID */}
+      <div className="relative flex items-center gap-2 mb-1.5">
+        <span
+          className={cn(
+            'inline-flex items-center gap-1 rounded-sm px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide',
+            isSelected ? 'bg-accent/15 text-accent' : style.tagClass
+          )}
+        >
+          {style.tagLabel}
+        </span>
+        <span className="font-mono text-[10px] text-fg-subtle">{formatTaskId(task.id)}</span>
+      </div>
+
+      {/* Row 2: Priority icon + title */}
+      <div className="relative flex items-start gap-2">
+        <PriorityIcon priority={priority} className="mt-0.5" />
         <div className="flex-1 text-sm font-medium leading-snug text-fg truncate">{task.title}</div>
       </div>
 
-      {/* Footer: task ID + status badge */}
-      <div className="flex items-center justify-between mt-2">
-        <span className="font-mono text-xs text-fg-muted">{formatTaskId(task.id)}</span>
+      {/* Row 3: Agent running indicator */}
+      {isAgentRunning && (
+        <div className={cn('relative', agentStatusVariants({ status: 'running' }))}>
+          <div className="w-1.5 h-1.5 bg-current rounded-full animate-pulse" />
+          <span>Agent running...</span>
+        </div>
+      )}
 
-        {/* Last run status (matches kanban card) */}
-        {lastRunStatus && !isAgentRunning && (
+      {/* Row 3: Last run status badge */}
+      {lastRunStatus && !isAgentRunning && (
+        <div className="relative flex items-center justify-end mt-1.5">
           <div className={lastRunStatusVariants({ status: lastRunStatus.status })}>
             {lastRunStatus.icon}
             <span>{lastRunStatus.label}</span>
           </div>
-        )}
-
-        {/* Priority label */}
-        {!lastRunStatus && !isAgentRunning && (
-          <span className="text-[10px] font-medium text-fg-subtle">
-            {priorityLabels[priority] ?? 'P1'}
-          </span>
-        )}
-      </div>
-
-      {/* Agent running indicator (matches kanban card) */}
-      {isAgentRunning && (
-        <div className={agentStatusVariants({ status: 'running' })}>
-          <div className="w-1.5 h-1.5 bg-current rounded-full animate-pulse" />
-          <span>Agent running...</span>
         </div>
       )}
     </button>
