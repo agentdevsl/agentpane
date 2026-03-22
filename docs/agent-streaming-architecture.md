@@ -305,9 +305,9 @@ async function flushAndExit(code: number): Promise<never> {
 | `agent-runner/src/index.ts` | Entry point for Claude SDK inside container |
 | `agent-runner/src/event-emitter.ts` | JSON event output to stdout |
 | `src/lib/agents/container-bridge.ts` | Parses container stdout/stderr |
-| `src/services/container-agent.service.ts` | Orchestrates container agent lifecycle |
+| `src/services/container-agent/container-exec.service.ts` | Orchestrates container agent execution lifecycle |
 | `src/services/durable-streams.service.ts` | Event persistence and pub/sub |
-| `src/app/hooks/use-durable-streams-client.ts` | Client-side SSE connection |
+| `src/app/hooks/use-session.ts` | React hook for session subscription and SSE connection |
 
 ## Authentication
 

@@ -47,12 +47,13 @@ flowchart LR
 
 | Category | Events |
 |----------|--------|
-| Agent lifecycle | `agent:started`, `agent:planning`, `agent:turn`, `agent:plan_ready`, `agent:completed`, `agent:error`, `agent:turn_limit` |
+| Agent lifecycle | `state:update`, `agent:started`, `agent:planning`, `agent:turn`, `agent:plan_ready`, `agent:completed`, `agent:error`, `agent:turn_limit`, `agent:stopped`, `agent:rate_limit` |
 | Streaming | `chunk` (text deltas with accumulated content) |
 | Tool use | `tool:start`, `tool:result`, `agent:tool_progress` |
 | Diagnostics | `agent:metrics`, `agent:compacted` |
 | Plan mode | `plan:started`, `plan:turn`, `plan:token`, `plan:interaction`, `plan:completed` |
 | Sandbox | `sandbox:creating`, `sandbox:ready`, `sandbox:idle`, `sandbox:stopping`, `sandbox:stopped`, `sandbox:error` |
-| Container agent | `container-agent:status`, `container-agent:started`, `container-agent:token`, `container-agent:turn`, `container-agent:tool:start/result`, `container-agent:complete`, `container-agent:error` |
+| Container agent | `container-agent:status`, `container-agent:started`, `container-agent:message`, `container-agent:error`, `container-agent:cancelled`, `container-agent:task-update-failed` |
 | Terraform compose | `terraform:status`, `terraform:text`, `terraform:modules`, `terraform:questions`, `terraform:code`, `terraform:done` |
+| Topology | `topology:agent_spawned`, `topology:agent_progress`, `topology:agent_completed` |
 | Task creation | `task-creation:started`, `task-creation:message`, `task-creation:token`, `task-creation:suggestion`, `task-creation:questions`, `task-creation:completed` |

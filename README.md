@@ -61,7 +61,7 @@ Webhook ingestion pipeline: external sources (GitHub, Linear, Jira, cron) throug
 
 ### Sandboxed Execution
 
-- **Docker Containers** — Run agents in isolated Docker containers with project bind-mounts
+- **Docker Containers** — Run agents in isolated Docker containers with codespace bind-mounts
 - **Kubernetes CRD** — Agent Sandbox SDK for Kubernetes pod provisioning via `agents.x-k8s.io/v1alpha1`
 - **Nomad Jobs** — HashiCorp Nomad sandbox provider for job-based agent isolation
 - **AWS Bedrock AgentCore** — Managed AWS runtimes with STS auth, ECR image validation, and orphan cleanup
@@ -86,7 +86,7 @@ Webhook ingestion pipeline: external sources (GitHub, Linear, Jira, cron) throug
 ### Templates
 
 - **GitHub-Synced Templates** — Add GitHub repos as template sources for skills, commands, and agents
-- **Org & Project Scoping** — Templates can be scoped to an organization or individual project
+- **Org & Codespace Scoping** — Templates can be scoped to an organization or individual codespace
 - **Auto-Sync** — Background scheduler syncs template changes from GitHub on configurable intervals
 
 ### Integrations
@@ -118,7 +118,7 @@ Webhook ingestion pipeline: external sources (GitHub, Linear, Jira, cron) throug
 | Build | Vite | vite | 8.0.1 |
 | Front Door | Caddy (durable-streams-server) | [durable-streams](https://github.com/anthropics/durable-streams) | 0.2.2 |
 | Framework | TanStack Start | @tanstack/react-start | 1.166.1 |
-| API Router | Hono | hono | 4.12.7 |
+| API Router | Hono | hono | 4.12.8 |
 | Database | SQLite + PostgreSQL | better-sqlite3 / postgres | 12.8.0 / 3.4.8 |
 | ORM | Drizzle | drizzle-orm + drizzle-kit | 0.45.1 / 0.31.10 |
 | Validation | Zod | zod | 4.3.6 |
@@ -225,10 +225,10 @@ bun run build
 ```
 ├── src/
 │   ├── app/
-│   │   ├── routes/              # TanStack Start file-based routes (44 routes)
+│   │   ├── routes/              # TanStack Start file-based routes (51 routes)
 │   │   └── components/
 │   │       ├── ui/              # Radix-based primitives (Button, Dialog, etc.)
-│   │       └── features/        # Feature modules (17 modules)
+│   │       └── features/        # Feature modules (20 modules)
 │   │           ├── kanban-board/         # Drag-drop task board
 │   │           ├── terraform/            # No-code HCL composer
 │   │           ├── agent-session-view/   # Real-time agent execution
@@ -245,8 +245,8 @@ bun run build
 │   │           └── ...
 │   ├── db/
 │   │   └── schema/              # Drizzle schemas (SQLite + PostgreSQL)
-│   │       ├── sqlite/          # SQLite schema (21 tables)
-│   │       ├── postgres/        # PostgreSQL schema (21 tables)
+│   │       ├── sqlite/          # SQLite schema (42 tables)
+│   │       ├── postgres/        # PostgreSQL schema (42 tables)
 │   │       └── shared/          # Shared enums and types
 │   ├── lib/
 │   │   ├── agents/              # Claude Agent SDK integration
@@ -255,11 +255,11 @@ bun run build
 │   │   ├── state-machines/      # 4 state machines (agent, task, session, worktree)
 │   │   ├── terraform/           # Terraform compose prompts
 │   │   ├── prompts/             # Prompt registry and templates
-│   │   ├── bootstrap/           # 6-phase app initialization
+│   │   ├── bootstrap/           # 7-phase app initialization
 │   │   └── ...
 │   ├── server/
-│   │   └── routes/              # Hono API routes (21 route files)
-│   └── services/                # Business logic (34 service files)
+│   │   └── routes/              # Hono API routes (38 route files)
+│   └── services/                # Business logic (50+ service files)
 │       ├── agent/               # Agent CRUD, execution, queueing
 │       ├── session/             # Session CRUD, streaming, presence
 │       ├── cli-monitor/         # CLI monitoring infrastructure
@@ -283,6 +283,7 @@ bun run build
 ├── docker/
 │   ├── Dockerfile               # Multi-stage build (deps → build → caddy → runtime)
 │   ├── Dockerfile.agent-sandbox # Agent sandbox environment
+│   ├── Dockerfile.agentcore    # AWS Bedrock AgentCore runtime (ARM64)
 │   ├── start.sh                 # Entrypoint: starts Caddy + Bun
 │   ├── docker-compose.yml       # Development (SQLite)
 │   ├── docker-compose.postgres.yml # Production (PostgreSQL)
@@ -290,13 +291,13 @@ bun run build
 ├── k8s/                         # Kubernetes manifests
 ├── specs/
 │   └── application/             # Complete application specifications
-│       ├── api/                 # REST API (29 endpoints)
+│       ├── api/                 # REST API (60+ endpoints)
 │       ├── components/          # UI component specs (19 specs)
 │       ├── database/            # Database schema
 │       ├── services/            # Service layer
 │       ├── state-machines/      # State machine specs (4 machines)
 │       ├── testing/             # Test infrastructure (193 test cases)
-│       ├── wireframes/          # Visual designs (41 HTML wireframes)
+│       ├── wireframes/          # Visual designs (42 HTML wireframes)
 │       └── ...
 ├── scripts/                     # Dev, testing, migration, and K8s scripts
 └── tests/                       # Unit, integration, and E2E test suites
@@ -349,7 +350,7 @@ External Event (GitHub, Linear, Jira, Cron)
 | Generic Webhook | `X-Webhook-Signature` | Any JSON payload |
 | Cron | N/A (internal) | `schedule.tick`, `schedule.manual_trigger` |
 
-**Event Subscriptions** — Route events from a source to a project. Each subscription defines which event types to match, optional field filters (repo, branch, labels, author, action), a prompt template with `{{variable}}` interpolation, and which Kanban column to place the created task in. If the target column is "In Progress", the task auto-starts an agent.
+**Event Subscriptions** — Route events from a source to a codespace. Each subscription defines which event types to match, optional field filters (repo, branch, labels, author, action), a prompt template with `{{variable}}` interpolation, and which Kanban column to place the created task in. If the target column is "In Progress", the task auto-starts an agent.
 
 **GitHub Issue Events** — When a GitHub issue is opened (or labeled, assigned, etc.), the webhook delivers the event, the GitHub plugin normalizes it, matching subscriptions render their prompt templates with issue data (`{{issue.title}}`, `{{issue.body}}`, `{{repo.full_name}}`, etc.), and a task is created in the target codespace. This enables fully automated issue-to-agent pipelines.
 
@@ -414,7 +415,7 @@ Additional schedulers handle template sync and Terraform registry sync on config
 
 ## Documentation
 
-- **Specifications** — [`/specs/application/README.md`](specs/application/README.md) — Complete application specs (41 user stories, 29 API endpoints, 19 component specs, 4 state machines, 193 test cases)
+- **Specifications** — [`/specs/application/README.md`](specs/application/README.md) — Complete application specs (41 user stories, 60+ API endpoints, 19 component specs, 4 state machines, 193 test cases)
 - **Development Guide** — [`AGENTS.md`](AGENTS.md) — Development guidelines, architecture, and coding conventions
 - **AI Assistant Guide** — [`.claude/CLAUDE.md`](.claude/CLAUDE.md) — AI-assisted development instructions
 

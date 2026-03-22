@@ -87,10 +87,10 @@ sequenceDiagram
 
 | Role | Level | Example Permissions |
 |------|-------|-------------------|
-| **viewer** | 10 | Read codespaces, folders, tasks, sessions, agents |
-| **agent_operator** | 20 | Create/update tasks, start/stop agents, approve plans |
-| **admin** | 30 | Create/delete codespaces, manage members/folders, update settings |
-| **owner** | 40 | Delete team, transfer ownership |
+| **viewer** | 1 | Read codespaces, folders, tasks, sessions, agents |
+| **agent_operator** | 2 | Create/update tasks, start/stop agents, approve plans |
+| **admin** | 3 | Create/delete codespaces, manage members/folders, update settings |
+| **owner** | 4 | Delete team, transfer ownership |
 
 ## Role Resolution Order
 

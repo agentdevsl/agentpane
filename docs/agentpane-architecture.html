@@ -288,12 +288,12 @@ const NODES = [
 
   // New nodes from PRs #108-#112
   { id: 'live-task-view',  label: 'Live Task View',      subtitle: 'features/live-task/',                x: 920, y: 30, w: 120, h: 40, layer: 'frontend', desc: '3-column layout: task list, agent topology, audit trail.' },
-  { id: 'memory-service',  label: 'Memory Service',      subtitle: 'services/memory.service.ts',         x: 790, y: 330, w: 125, h: 36, layer: 'services', desc: 'Honcho-backed persistent agent memory with context injection.' },
-  { id: 'skill-injector',  label: 'Skill Injector',      subtitle: 'services/skill-injector.ts',         x: 930, y: 275, w: 120, h: 40, layer: 'services', desc: 'Materializes org/template skills into sandbox .claude/skills/.' },
-  { id: 'folder-service',  label: 'Folder Service',      subtitle: 'services/folder.service.ts',         x: 930, y: 330, w: 120, h: 36, layer: 'services', desc: 'Project folder hierarchy management.' },
+  { id: 'memory-service',  label: 'Memory Service',      subtitle: 'services/memory/memory.service.ts',  x: 790, y: 330, w: 125, h: 36, layer: 'services', desc: 'Honcho-backed persistent agent memory with context injection.' },
+  { id: 'skill-injector',  label: 'Skill Injector',      subtitle: 'lib/sandbox/skill-injector.ts',      x: 930, y: 275, w: 120, h: 40, layer: 'services', desc: 'Materializes org/template skills into sandbox .claude/skills/.' },
+  { id: 'folder-service',  label: 'Folder Service',      subtitle: 'services/project-folder.service.ts', x: 930, y: 330, w: 120, h: 36, layer: 'services', desc: 'Project folder hierarchy management.' },
   { id: 'honcho-api',      label: 'Honcho API',          subtitle: 'honcho.dev',                         x: 740, y: 670, w: 110, h: 36, layer: 'external', desc: 'Persistent memory backend with pgvector + Redis.' },
   { id: 'go-cli',          label: 'Go CLI',              subtitle: 'agentpane binary',                   x: 870, y: 670, w: 100, h: 36, layer: 'external', desc: 'agentpane binary - REST API consumer.' },
-  { id: 'db-project-folders', label: 'project_folders',  subtitle: 'db/schema/sqlite/',                  x: 890, y: 525, w: 120, h: 36, layer: 'data', desc: 'Organizational hierarchy for codespaces.' },
+  { id: 'db-project-folders', label: 'project_folders',  subtitle: 'db/schema/sqlite/',                  x: 1040, y: 525, w: 120, h: 36, layer: 'data', desc: 'Organizational hierarchy for codespaces.' },
 ];
 
 const CONNECTIONS = [

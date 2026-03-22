@@ -4,15 +4,15 @@
 
 | Area | Spec Coverage | Status |
 |------|--------------|--------|
-| Database (36 tables) | Full | Updated |
-| API Routes (33 modules, 60+ endpoints) | Full | Updated |
-| Services (27+) | 9 documented | Partial |
+| Database (42 tables) | Full | Updated |
+| API Routes (38 modules, 60+ endpoints) | Full | Updated |
+| Services (50+) | 9 documented | Partial |
 | State Machines (4) | Full | Updated |
 | UI Components (19 spec'd) | Full | Current |
 | Integrations (6) | Full | Updated |
 | Security (4) | Full | Updated |
 | Architecture Diagrams (9) | Full | New |
-| Wireframes (20 HTML) | Full | Current |
+| Wireframes (42 HTML) | Full | Current |
 
 ---
 
@@ -24,7 +24,7 @@ specs/
 │
 ├── application/                       # Core application specs (source of truth)
 │   ├── README.md                      # Spec overview and document tree
-│   ├── user-stories.md                # 23 user stories with acceptance criteria
+│   ├── user-stories.md                # 41 user stories with acceptance criteria
 │   │
 │   ├── api/                           # REST API (60+ endpoints)
 │   │   ├── endpoints.md               # All API endpoints (Hono-based)
@@ -55,10 +55,10 @@ specs/
 │   │   └── worktree-management.md
 │   │
 │   ├── configuration/
-│   │   └── config-management.md       # Project config, env vars
+│   │   └── config-management.md       # Codespace config, env vars
 │   │
 │   ├── database/
-│   │   └── schema.md                  # Drizzle ORM schema (36 tables, SQLite + PostgreSQL)
+│   │   └── schema.md                  # Drizzle ORM schema (42 tables, SQLite + PostgreSQL)
 │   │
 │   ├── errors/
 │   │   └── error-catalog.md           # 44 error codes with HTTP mappings
@@ -95,7 +95,7 @@ specs/
 │   │   ├── cli-monitor-service.md     # CLI monitor package
 │   │   ├── container-agent-service.md # Docker container agent execution
 │   │   ├── event-service.md           # Event sources, subscriptions, processing
-│   │   ├── project-service.md         # Project CRUD and config
+│   │   ├── project-service.md         # Codespace CRUD and config
 │   │   ├── scheduler-service.md       # Task scheduling and cron
 │   │   ├── session-service.md         # Session management (7 states)
 │   │   ├── task-service.md            # Task workflow (5 columns)
@@ -108,10 +108,10 @@ specs/
 │   │   └── worktree-lifecycle.md      # 6 states: creating → removed
 │   │
 │   ├── testing/
-│   │   ├── test-cases.md              # 164+ test case definitions
+│   │   ├── test-cases.md              # 193 test case definitions
 │   │   └── test-infrastructure.md     # Mocks, factories, CI setup
 │   │
-│   └── wireframes/                    # Visual Designs (20 HTML files)
+│   └── wireframes/                    # Visual Designs (42 HTML files)
 │       ├── design-tokens.css
 │       └── *.html
 │
@@ -128,6 +128,8 @@ specs/
 │
 ├── memory/                            # Honcho-backed persistent agent memory
 │
+├── events_review/                     # Event system review and analysis
+│
 ├── diagrams/                          # Mermaid architecture diagrams (9)
 │   ├── README.md
 │   ├── 01-system-architecture.md
@@ -141,7 +143,7 @@ specs/
 │   └── 09-deployment-architecture.md
 │
 ├── reviews/                           # Architecture reviews
-│   └── 2026-02-architecture/          # Feb 2026 review (148 findings)
+│   └── 2026-03-architecture/          # Mar 2026 review (148 findings)
 │
 ├── ideas/                             # Product roadmap (prioritized initiatives)
 │   └── README.md                      # 29 initiatives across 4 priority tiers

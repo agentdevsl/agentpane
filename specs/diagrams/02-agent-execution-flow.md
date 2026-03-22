@@ -10,7 +10,7 @@ The complete lifecycle of an agent working on a task in AgentPane, from the user
 | `src/services/task.service.ts` | Task state transitions, delegates to container agent service |
 | `src/services/agent/agent-execution.service.ts` | Agent lifecycle: worktree, session, planning kickoff |
 | `src/lib/agents/stream-handler.ts` | Claude SDK sessions for planning and execution phases |
-| `src/services/container-agent.service.ts` | Container-based agent orchestration, plan approval/rejection |
+| `src/services/container-agent/container-exec.service.ts` | Container-based execution, skill injection, plan approval |
 
 ## Sequence Diagram
 
@@ -243,7 +243,6 @@ Events published to DurableStreams during the agent lifecycle:
 | `agent:turn_limit` | Execution | Max turns reached, agent paused |
 | `agent:completed` | Execution | Agent finished successfully |
 | `agent:error` | Any | Error with recovery action |
-| `memory:context_injected` | Init | Memory context appended to agent prompt |
 
 ## ExitPlanMode Options
 

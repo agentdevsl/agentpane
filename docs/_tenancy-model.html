@@ -199,12 +199,13 @@ svg { display: block; }
 <line x1="350" y1="865" x2="350" y2="890" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
 
 <!-- Codespace Entity -->
-<rect x="160" y="890" width="380" height="120" rx="8" fill="#161b22" stroke="#58a6ff" stroke-width="2"/>
+<rect x="160" y="890" width="380" height="136" rx="8" fill="#161b22" stroke="#58a6ff" stroke-width="2"/>
 <text x="350" y="916" text-anchor="middle" fill="#58a6ff" font-size="16" font-weight="600">Codespace</text>
 <text x="180" y="938" fill="#8b949e" font-size="11">id · name · path (unique)</text>
 <text x="180" y="956" fill="#8b949e" font-size="11">config (JSON) · maxConcurrentAgents</text>
 <text x="180" y="974" fill="#8b949e" font-size="11">githubOwner · githubRepo · githubInstallationId</text>
-<text x="180" y="992" fill="#484f58" font-size="11">No userId column — ownership via team_project_folders only</text>
+<text x="180" y="992" fill="#8b949e" font-size="11">projectFolderId (FK → project_folders) NOT NULL</text>
+<text x="180" y="1008" fill="#484f58" font-size="11">No userId column — ownership via team_project_folders only</text>
 
 <!-- Codespace Members (override) -->
 <rect x="610" y="890" width="290" height="90" rx="8" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>

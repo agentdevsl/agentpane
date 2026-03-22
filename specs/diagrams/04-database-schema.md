@@ -133,7 +133,7 @@ erDiagram
 
 ## 2. Auth and RBAC
 
-Authentication via GitHub OAuth, session tokens, team-based access control with role inheritance through a folder-based hierarchy (teams own project folders, which contain codespaces), API tokens with scoped permissions, and tag-based organization for codespaces and tasks.
+Authentication via GitHub OAuth, session tokens, team-based access control with role inheritance through a folder-based hierarchy (teams own project folders, which contain codespaces). Roles are `owner`, `admin`, `agent_operator`, and `viewer`. API tokens with scoped permissions, and tag-based organization for codespaces and tasks.
 
 ```mermaid
 erDiagram
@@ -164,7 +164,7 @@ erDiagram
     team_members {
         text team_id PK_FK
         text user_id PK_FK
-        text role "owner|admin|member|viewer"
+        text role "owner|admin|agent_operator|viewer"
     }
 
     team_invitations {
@@ -172,9 +172,9 @@ erDiagram
         text team_id FK
         text invited_by FK
         text email
-        text role "owner|admin|member|viewer"
+        text role "owner|admin|agent_operator|viewer"
         text token UK
-        text status "pending|accepted|expired"
+        text status "pending|accepted|declined|expired|revoked"
     }
 
     team_project_folders {
@@ -185,14 +185,14 @@ erDiagram
     codespace_members {
         text codespace_id PK_FK
         text user_id PK_FK
-        text role "owner|admin|member|viewer"
+        text role "owner|admin|agent_operator|viewer"
         text granted_by_team_id FK
     }
 
     folder_members {
         text project_folder_id PK_FK
         text user_id PK_FK
-        text role "owner|admin|member|viewer"
+        text role "owner|admin|agent_operator|viewer"
         text granted_by_team_id FK
     }
 
@@ -219,7 +219,7 @@ erDiagram
 
     tags {
         text id PK
-        text team_id FK
+        text project_folder_id FK
         text name
         text color
     }
@@ -245,7 +245,7 @@ erDiagram
     teams ||--o{ team_project_folders : "owns folders"
     teams ||--o{ team_invitations : "has invitations"
     teams ||--o{ api_tokens : "scopes tokens"
-    teams ||--o{ tags : "defines"
+    project_folders ||--o{ tags : "defines"
     teams ||--o{ codespace_members : "grants via"
     teams ||--o{ folder_members : "grants via"
 
@@ -265,7 +265,7 @@ erDiagram
         text id PK
         text team_id FK
         text name
-        text type "github|webhook|schedule|..."
+        text type "github|linear|jira|generic_webhook|cron"
         text slug UK
         text status "active|disabled|error"
         int is_enabled

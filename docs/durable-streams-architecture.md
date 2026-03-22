@@ -159,7 +159,7 @@ If Caddy/LMDB is temporarily unavailable, events are still durable in SQLite. LM
 │  │  publish(streamId, type, data):                                             ││
 │  │    1. Get next offset from session_events table                             ││
 │  │    2. INSERT into session_events (SQLite) ─────────────────┐                ││
-│  │    3. Publish to InMemoryServer for real-time SSE ────┐    │                ││
+│  │    3. Publish to Caddy/LMDB for real-time SSE ────┐    │                ││
 │  │                                                       │    │                ││
 │  └───────────────────────────────────────────────────────┼────┼────────────────┘│
 │                                                          │    │                  │
@@ -500,8 +500,7 @@ src/
 ├── lib/
 │   ├── streams/
 │   │   ├── client.ts           # DurableStreamsClient (EventSource wrapper)
-│   │   ├── server.ts           # InMemoryDurableStreamsServer
-│   │   └── provider.ts         # Stream provider singleton
+│   │   └── caddy-producer.ts   # CaddyDurableStreamsServer (real-time delivery via Caddy)
 │   ├── sessions/
 │   │   ├── schema.ts           # Zod schemas for all event types
 │   │   ├── collections.ts      # TanStack DB collection definitions
@@ -518,7 +517,7 @@ src/
 │       ├── session-crud.service.ts     # CRUD operations
 │       ├── session-presence.service.ts # Presence management
 │       └── session-stream.service.ts   # Event streaming & persistence
-├── db/schema/
+├── db/schema/sqlite/
 │   ├── session-events.ts       # Event persistence table
 │   └── session-summaries.ts    # Aggregated metrics table
 ├── app/
