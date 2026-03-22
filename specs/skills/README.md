@@ -33,7 +33,7 @@ Skills become the orchestration layer for tasks. Each task can reference a skill
 ## Default Skills Path
 
 ```
-.claude/skills/{skillname}/SKILL.md
+.claude/skills/{name}/SKILL.md
 ```
 
 | Environment | Resolved Path |

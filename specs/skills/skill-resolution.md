@@ -83,9 +83,19 @@ Use the same exec-based file writing pattern as `credentials-injector.ts`:
 ```typescript
 // Write SKILL.md content to the container filesystem
 const content = Buffer.from(skill.content).toString('base64');
-await sandbox.exec([
-  'bash', '-c',
-  `mkdir -p /workspace/.claude/skills/${skill.id} && echo "${content}" | base64 -d > /workspace/.claude/skills/${skill.id}/SKILL.md`
+const skillDir = `/workspace/.claude/skills/${skill.id}`;
+const skillFile = `${skillDir}/SKILL.md`;
+
+// Create directory safely (no shell interpolation)
+await sandbox.exec('mkdir', ['-p', skillDir]);
+
+// Write file safely using positional arguments
+await sandbox.exec('sh', [
+  '-c',
+  `set -o pipefail; printf '%s' "$1" | base64 -d > "$2" && test -s "$2"`,
+  '--',
+  content,
+  skillFile,
 ]);
 ```
 
