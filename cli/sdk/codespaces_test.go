@@ -170,8 +170,8 @@ func TestCodespaces_Create(t *testing.T) {
 		if opts.Path != "/tmp/project" {
 			t.Errorf("expected path '/tmp/project', got %q", opts.Path)
 		}
-		if opts.FolderID != "folder-1" {
-			t.Errorf("expected folderID 'folder-1', got %q", opts.FolderID)
+		if opts.ProjectID != "folder-1" {
+			t.Errorf("expected folderID 'folder-1', got %q", opts.ProjectID)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -198,7 +198,7 @@ func TestCodespaces_Create(t *testing.T) {
 	result, err := client.Codespaces.Create(context.Background(), CodespaceCreateOptions{
 		Name:     "New CS",
 		Path:     "/tmp/project",
-		FolderID: "folder-1",
+		ProjectID: "folder-1",
 	})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)

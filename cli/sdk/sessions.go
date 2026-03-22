@@ -22,7 +22,7 @@ func (s *SessionService) List(ctx context.Context, opts SessionListOptions) ([]S
 		limit = defaultPageSize
 	}
 
-	for {
+	for page := 0; page < maxPages; page++ {
 		params := url.Values{}
 		if opts.CodespaceID != "" {
 			params.Set("codespaceId", opts.CodespaceID)
@@ -38,26 +38,24 @@ func (s *SessionService) List(ctx context.Context, opts SessionListOptions) ([]S
 
 		path := "/api/sessions?" + params.Encode()
 
-		var page ListResponse[Session]
-		if err := s.client.get(ctx, path, &page); err != nil {
-			// Fallback: try as flat array
-			var flat []Session
-			if flatErr := s.client.get(ctx, path, &flat); flatErr == nil {
-				return flat, nil
-			}
+		items, pagination, err := getList[Session](s.client, ctx, path)
+		if err != nil {
 			return nil, err
 		}
 
-		allSessions = append(allSessions, page.Items...)
+		allSessions = append(allSessions, items...)
 
-		if len(page.Items) < limit {
+		if len(items) == 0 || len(items) < limit {
 			break
 		}
-		if page.Pagination != nil && offset+len(page.Items) >= page.Pagination.Total {
+		if pagination != nil && offset+len(items) >= pagination.Total {
+			break
+		}
+		if pagination == nil {
 			break
 		}
 
-		offset += len(page.Items)
+		offset += len(items)
 	}
 
 	return allSessions, nil
@@ -66,7 +64,7 @@ func (s *SessionService) List(ctx context.Context, opts SessionListOptions) ([]S
 // Get returns a single session by ID.
 func (s *SessionService) Get(ctx context.Context, id string) (*Session, error) {
 	var result Session
-	if err := s.client.get(ctx, fmt.Sprintf("/api/sessions/%s", id), &result); err != nil {
+	if err := s.client.get(ctx, fmt.Sprintf("/api/sessions/%s", url.PathEscape(id)), &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -83,7 +81,7 @@ func (s *SessionService) GetEvents(ctx context.Context, id string, limit, offset
 		params.Set("offset", strconv.Itoa(offset))
 	}
 
-	path := fmt.Sprintf("/api/sessions/%s/events", id)
+	path := fmt.Sprintf("/api/sessions/%s/events", url.PathEscape(id))
 	if len(params) > 0 {
 		path += "?" + params.Encode()
 	}
@@ -98,7 +96,7 @@ func (s *SessionService) GetEvents(ctx context.Context, id string, limit, offset
 // GetSummary returns aggregated metrics for a session.
 func (s *SessionService) GetSummary(ctx context.Context, id string) (*SessionSummary, error) {
 	var result SessionSummary
-	if err := s.client.get(ctx, fmt.Sprintf("/api/sessions/%s/summary", id), &result); err != nil {
+	if err := s.client.get(ctx, fmt.Sprintf("/api/sessions/%s/summary", url.PathEscape(id)), &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -106,5 +104,5 @@ func (s *SessionService) GetSummary(ctx context.Context, id string) (*SessionSum
 
 // Delete removes a session by ID.
 func (s *SessionService) Delete(ctx context.Context, id string) error {
-	return s.client.del(ctx, fmt.Sprintf("/api/sessions/%s", id))
+	return s.client.del(ctx, fmt.Sprintf("/api/sessions/%s", url.PathEscape(id)))
 }

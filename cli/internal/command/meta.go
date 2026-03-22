@@ -21,12 +21,6 @@ type Meta struct {
 	client *sdk.Client
 	mu     sync.Mutex
 
-	// codespaceID is the resolved codespace identifier.
-	codespaceID string
-
-	// jsonOutput indicates whether output should be formatted as JSON.
-	jsonOutput bool
-
 	// Global flag values.
 	flagToken     string
 	flagAddress   string

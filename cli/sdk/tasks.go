@@ -15,6 +15,9 @@ type TaskService struct {
 // defaultPageSize is the number of items fetched per page when auto-paginating.
 const defaultPageSize = 100
 
+// maxPages prevents infinite pagination loops.
+const maxPages = 100
+
 // List returns all tasks matching the given filter options, automatically
 // paginating through all results. At minimum, CodespaceID should be provided.
 func (s *TaskService) List(ctx context.Context, opts TaskListOptions) ([]Task, error) {
@@ -25,7 +28,7 @@ func (s *TaskService) List(ctx context.Context, opts TaskListOptions) ([]Task, e
 		limit = defaultPageSize
 	}
 
-	for {
+	for page := 0; page < maxPages; page++ {
 		params := url.Values{}
 		if opts.CodespaceID != "" {
 			params.Set("codespaceId", opts.CodespaceID)
@@ -38,28 +41,27 @@ func (s *TaskService) List(ctx context.Context, opts TaskListOptions) ([]Task, e
 
 		path := "/api/tasks?" + params.Encode()
 
-		var page ListResponse[Task]
-		if err := s.client.get(ctx, path, &page); err != nil {
-			// Fallback: try as flat array (some endpoints return flat arrays)
-			var flat []Task
-			if flatErr := s.client.get(ctx, path, &flat); flatErr == nil {
-				return flat, nil
-			}
+		items, pagination, err := getList[Task](s.client, ctx, path)
+		if err != nil {
 			return nil, err
 		}
 
-		allTasks = append(allTasks, page.Items...)
+		allTasks = append(allTasks, items...)
 
-		// If we got fewer items than requested, we've reached the end
-		if len(page.Items) < limit {
+		// Stop if no items returned or fewer than requested
+		if len(items) == 0 || len(items) < limit {
 			break
 		}
-		// If pagination info says we have all items, stop
-		if page.Pagination != nil && offset+len(page.Items) >= page.Pagination.Total {
+		// Stop if pagination says we have all results
+		if pagination != nil && offset+len(items) >= pagination.Total {
+			break
+		}
+		// If no pagination metadata, we got a flat array — no more pages
+		if pagination == nil {
 			break
 		}
 
-		offset += len(page.Items)
+		offset += len(items)
 	}
 
 	return allTasks, nil
@@ -68,7 +70,7 @@ func (s *TaskService) List(ctx context.Context, opts TaskListOptions) ([]Task, e
 // Get returns a single task by ID.
 func (s *TaskService) Get(ctx context.Context, id string) (*Task, error) {
 	var result Task
-	if err := s.client.get(ctx, fmt.Sprintf("/api/tasks/%s", id), &result); err != nil {
+	if err := s.client.get(ctx, fmt.Sprintf("/api/tasks/%s", url.PathEscape(id)), &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -86,7 +88,7 @@ func (s *TaskService) Create(ctx context.Context, opts TaskCreateOptions) (*Task
 // Update modifies an existing task by ID.
 func (s *TaskService) Update(ctx context.Context, id string, opts TaskUpdateOptions) (*Task, error) {
 	var result Task
-	if err := s.client.put(ctx, fmt.Sprintf("/api/tasks/%s", id), opts, &result); err != nil {
+	if err := s.client.put(ctx, fmt.Sprintf("/api/tasks/%s", url.PathEscape(id)), opts, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -94,14 +96,14 @@ func (s *TaskService) Update(ctx context.Context, id string, opts TaskUpdateOpti
 
 // Delete removes a task by ID.
 func (s *TaskService) Delete(ctx context.Context, id string) error {
-	return s.client.del(ctx, fmt.Sprintf("/api/tasks/%s", id))
+	return s.client.del(ctx, fmt.Sprintf("/api/tasks/%s", url.PathEscape(id)))
 }
 
 // Move changes a task's column and/or position on the board.
 // Moving a task to "in_progress" triggers automatic agent assignment.
 func (s *TaskService) Move(ctx context.Context, id string, opts TaskMoveOptions) (*Task, error) {
 	var result Task
-	if err := s.client.patch(ctx, fmt.Sprintf("/api/tasks/%s/move", id), opts, &result); err != nil {
+	if err := s.client.patch(ctx, fmt.Sprintf("/api/tasks/%s/move", url.PathEscape(id)), opts, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -109,7 +111,7 @@ func (s *TaskService) Move(ctx context.Context, id string, opts TaskMoveOptions)
 
 // ApprovePlan approves the agent's plan for a task, triggering execution.
 func (s *TaskService) ApprovePlan(ctx context.Context, id string) error {
-	return s.client.post(ctx, fmt.Sprintf("/api/tasks/%s/approve-plan", id), nil, nil)
+	return s.client.post(ctx, fmt.Sprintf("/api/tasks/%s/approve-plan", url.PathEscape(id)), nil, nil)
 }
 
 // RejectPlan rejects the agent's plan for a task with an optional reason.
@@ -118,10 +120,10 @@ func (s *TaskService) RejectPlan(ctx context.Context, id string, reason string) 
 	if reason != "" {
 		body["reason"] = reason
 	}
-	return s.client.post(ctx, fmt.Sprintf("/api/tasks/%s/reject-plan", id), body, nil)
+	return s.client.post(ctx, fmt.Sprintf("/api/tasks/%s/reject-plan", url.PathEscape(id)), body, nil)
 }
 
 // StopAgent stops the agent currently working on a task.
 func (s *TaskService) StopAgent(ctx context.Context, id string) error {
-	return s.client.post(ctx, fmt.Sprintf("/api/tasks/%s/stop-agent", id), nil, nil)
+	return s.client.post(ctx, fmt.Sprintf("/api/tasks/%s/stop-agent", url.PathEscape(id)), nil, nil)
 }

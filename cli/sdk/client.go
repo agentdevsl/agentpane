@@ -41,7 +41,7 @@ type Client struct {
 	Sessions *SessionService
 	// Worktrees provides operations on worktree resources.
 	Worktrees *WorktreeService
-	// Folders provides operations on project folder resources.
+	// Projects provides operations on project resources.
 	Projects *ProjectService
 	// Teams provides operations on team resources.
 	Teams *TeamService
@@ -163,11 +163,17 @@ func (c *Client) do(ctx context.Context, method, path string, body interface{}, 
 		return fmt.Errorf("sdk: failed to decode response: %w", err)
 	}
 
-	if !envelope.OK && envelope.Error != nil {
+	if !envelope.OK {
+		if envelope.Error != nil {
+			return &APIError{
+				StatusCode: resp.StatusCode,
+				Code:       envelope.Error.Code,
+				Message:    envelope.Error.Message,
+			}
+		}
 		return &APIError{
 			StatusCode: resp.StatusCode,
-			Code:       envelope.Error.Code,
-			Message:    envelope.Error.Message,
+			Message:    "server returned ok=false with no error details",
 		}
 	}
 
@@ -184,6 +190,31 @@ func (c *Client) do(ctx context.Context, method, path string, body interface{}, 
 // get performs an HTTP GET request.
 func (c *Client) get(ctx context.Context, path string, result interface{}) error {
 	return c.do(ctx, http.MethodGet, path, nil, result)
+}
+
+// getList performs a GET request and tries to unmarshal the response data
+// as ListResponse[T] first. If that fails (items is nil), falls back to
+// unmarshaling as a flat []T array — all from the same response bytes,
+// avoiding a duplicate HTTP request.
+func getList[T any](c *Client, ctx context.Context, path string) ([]T, *Pagination, error) {
+	// Use do() to get the raw data envelope
+	var raw json.RawMessage
+	if err := c.get(ctx, path, &raw); err != nil {
+		return nil, nil, err
+	}
+
+	// Try paginated shape: { items: [...], pagination: {...} }
+	var page ListResponse[T]
+	if err := json.Unmarshal(raw, &page); err == nil && page.Items != nil {
+		return page.Items, page.Pagination, nil
+	}
+
+	// Fallback: flat array [...]
+	var flat []T
+	if err := json.Unmarshal(raw, &flat); err != nil {
+		return nil, nil, fmt.Errorf("sdk: failed to decode list response: %w", err)
+	}
+	return flat, nil, nil
 }
 
 // post performs an HTTP POST request.

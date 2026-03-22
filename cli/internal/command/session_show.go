@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/agentdevsl/agentpane/cli/internal/output"
+	"github.com/agentdevsl/agentpane/cli/sdk"
 )
 
 // SessionShowCommand displays details for a single session, including its summary.
@@ -42,7 +43,10 @@ func (c *SessionShowCommand) Run(args []string) int {
 	}
 
 	// Fetch summary (may not exist for all sessions).
-	summary, _ := client.Sessions.GetSummary(ctx, sessionID)
+	summary, summaryErr := client.Sessions.GetSummary(ctx, sessionID)
+	if summaryErr != nil && !sdk.IsNotFound(summaryErr) {
+		fmt.Fprintf(os.Stderr, "Warning: failed to fetch session summary: %s\n", summaryErr)
+	}
 
 	if c.JSONOutput() {
 		result := map[string]interface{}{

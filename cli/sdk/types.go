@@ -1,6 +1,44 @@
 // Package sdk provides a Go client for the AgentPane REST API.
 package sdk
 
+// Task column constants.
+const (
+	ColumnBacklog         = "backlog"
+	ColumnQueued          = "queued"
+	ColumnInProgress      = "in_progress"
+	ColumnWaitingApproval = "waiting_approval"
+	ColumnVerified        = "verified"
+)
+
+// Task priority constants.
+const (
+	PriorityHigh   = "high"
+	PriorityMedium = "medium"
+	PriorityLow    = "low"
+)
+
+// Agent status constants.
+const (
+	AgentStatusIdle      = "idle"
+	AgentStatusStarting  = "starting"
+	AgentStatusPlanning  = "planning"
+	AgentStatusRunning   = "running"
+	AgentStatusPaused    = "paused"
+	AgentStatusError     = "error"
+	AgentStatusCompleted = "completed"
+)
+
+// Session status constants.
+const (
+	SessionStatusIdle         = "idle"
+	SessionStatusInitializing = "initializing"
+	SessionStatusActive       = "active"
+	SessionStatusPaused       = "paused"
+	SessionStatusClosing      = "closing"
+	SessionStatusClosed       = "closed"
+	SessionStatusError        = "error"
+)
+
 // Codespace represents a development workspace (formerly called Project).
 type Codespace struct {
 	ID                  string  `json:"id"`
@@ -178,7 +216,7 @@ type Pagination struct {
 type CodespaceCreateOptions struct {
 	Name        string  `json:"name"`
 	Path        string  `json:"path"`
-	FolderID    string  `json:"projectFolderId"`
+	ProjectID   string  `json:"projectFolderId"`
 	Description *string `json:"description,omitempty"`
 }
 

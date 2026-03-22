@@ -1,6 +1,9 @@
 package sdk
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // APIError represents an error response from the AgentPane API.
 // The API returns errors in the format: { ok: false, error: { code, message } }.
@@ -22,8 +25,10 @@ func (e *APIError) Error() string {
 }
 
 // IsNotFound reports whether the error is a 404 Not Found response.
+// Supports wrapped errors via errors.As.
 func IsNotFound(err error) bool {
-	if apiErr, ok := err.(*APIError); ok {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
 		return apiErr.StatusCode == 404
 	}
 	return false
@@ -31,7 +36,8 @@ func IsNotFound(err error) bool {
 
 // IsUnauthorized reports whether the error is a 401 Unauthorized response.
 func IsUnauthorized(err error) bool {
-	if apiErr, ok := err.(*APIError); ok {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
 		return apiErr.StatusCode == 401
 	}
 	return false
@@ -39,7 +45,8 @@ func IsUnauthorized(err error) bool {
 
 // IsForbidden reports whether the error is a 403 Forbidden response.
 func IsForbidden(err error) bool {
-	if apiErr, ok := err.(*APIError); ok {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
 		return apiErr.StatusCode == 403
 	}
 	return false
@@ -47,7 +54,8 @@ func IsForbidden(err error) bool {
 
 // IsConflict reports whether the error is a 409 Conflict response.
 func IsConflict(err error) bool {
-	if apiErr, ok := err.(*APIError); ok {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
 		return apiErr.StatusCode == 409
 	}
 	return false
@@ -55,17 +63,9 @@ func IsConflict(err error) bool {
 
 // IsValidationError reports whether the error is a 400 or 422 validation error.
 func IsValidationError(err error) bool {
-	if apiErr, ok := err.(*APIError); ok {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
 		return apiErr.StatusCode == 400 || apiErr.StatusCode == 422
 	}
 	return false
-}
-
-// apiErrorResponse represents the raw JSON error envelope from the API.
-type apiErrorResponse struct {
-	OK    bool `json:"ok"`
-	Error struct {
-		Code    string `json:"code"`
-		Message string `json:"message"`
-	} `json:"error"`
 }
