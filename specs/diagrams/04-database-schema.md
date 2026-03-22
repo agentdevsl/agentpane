@@ -1,17 +1,30 @@
 # AgentPane Database Schema
 
-Entity-relationship diagrams for the AgentPane SQLite database. The schema is defined with Drizzle ORM across 36+ tables in `src/db/schema/sqlite/`. These diagrams show key columns (primary keys, foreign keys, status/type fields) and all foreign key relationships.
+Entity-relationship diagrams for the AgentPane SQLite database. The primary entity is now "codespaces" (renamed from projects), organized under project folders. The schema is defined with Drizzle ORM across 36+ tables in `src/db/schema/sqlite/`. These diagrams show key columns (primary keys, foreign keys, status/type fields) and all foreign key relationships.
 
 ## 1. Core Domain
 
-The central tables that drive agent-based task execution: projects own tasks, agents work on tasks within sessions, worktrees provide git isolation, and agent runs track execution history.
+The central tables that drive agent-based task execution: codespaces own tasks, organized under project folders. Agents work on tasks within sessions, worktrees provide git isolation, and agent runs track execution history.
 
 ```mermaid
 erDiagram
-    projects {
+    project_folders {
         text id PK
         text name
+        text slug UK
+        text description
+        text icon
+        text color
+    }
+
+    codespaces {
+        text id PK
+        text project_folder_id FK
+        text name
         text path UK
+        text description
+        text github_owner
+        text github_repo
         text github_installation_id FK
         text sandbox_config_id FK
         json config
@@ -20,13 +33,17 @@ erDiagram
 
     tasks {
         text id PK
-        text project_id FK
+        text codespace_id FK
         text agent_id FK
         text session_id FK
         text worktree_id FK
         text title
+        text description
         text column "backlog|queued|in_progress|waiting_approval|verified"
         text priority "high|medium|low"
+        text skill_id
+        text skill_name
+        text model_override
         text last_agent_status "completed|cancelled|error|turn_limit|planning"
         json plan_options
         text plan
@@ -34,10 +51,11 @@ erDiagram
 
     agents {
         text id PK
-        text project_id FK
+        text codespace_id FK
         text name
         text type "task|conversational|background"
         text status "idle|starting|planning|running|paused|error|completed"
+        json config
         text current_task_id
         text current_session_id
         text parent_agent_id
@@ -46,10 +64,11 @@ erDiagram
 
     sessions {
         text id PK
-        text project_id FK
+        text codespace_id FK
         text task_id FK
         text agent_id FK
         text status "idle|initializing|active|paused|closing|closed|error"
+        text title
         text url
         text sandbox_provider
         text sandbox_container_id
@@ -57,7 +76,7 @@ erDiagram
 
     worktrees {
         text id PK
-        text project_id FK
+        text codespace_id FK
         text agent_id FK
         text task_id FK
         text branch
@@ -70,7 +89,7 @@ erDiagram
         text id PK
         text agent_id FK
         text task_id FK
-        text project_id FK
+        text codespace_id FK
         text session_id FK
         text status
         int turns_used
@@ -83,18 +102,19 @@ erDiagram
         text agent_id FK
         text agent_run_id FK
         text task_id FK
-        text project_id FK
+        text codespace_id FK
         text tool
         text status
         int duration_ms
     }
 
-    projects ||--o{ tasks : "has"
-    projects ||--o{ agents : "has"
-    projects ||--o{ sessions : "has"
-    projects ||--o{ worktrees : "has"
-    projects ||--o{ agent_runs : "has"
-    projects ||--o{ audit_logs : "has"
+    project_folders ||--o{ codespaces : "contains"
+    codespaces ||--o{ tasks : "has"
+    codespaces ||--o{ agents : "has"
+    codespaces ||--o{ sessions : "has"
+    codespaces ||--o{ worktrees : "has"
+    codespaces ||--o{ agent_runs : "has"
+    codespaces ||--o{ audit_logs : "has"
 
     agents ||--o{ tasks : "assigned to"
     agents ||--o{ sessions : "runs in"
@@ -113,7 +133,7 @@ erDiagram
 
 ## 2. Auth and RBAC
 
-Authentication via GitHub OAuth, session tokens, team-based access control with role inheritance, API tokens with scoped permissions, and tag-based organization for projects and tasks.
+Authentication via GitHub OAuth, session tokens, team-based access control with role inheritance through a folder-based hierarchy (teams own project folders, which contain codespaces), API tokens with scoped permissions, and tag-based organization for codespaces and tasks.
 
 ```mermaid
 erDiagram
@@ -157,13 +177,20 @@ erDiagram
         text status "pending|accepted|expired"
     }
 
-    team_projects {
+    team_project_folders {
         text team_id PK_FK
-        text project_id PK_FK
+        text project_folder_id PK_FK
     }
 
-    project_members {
-        text project_id PK_FK
+    codespace_members {
+        text codespace_id PK_FK
+        text user_id PK_FK
+        text role "owner|admin|member|viewer"
+        text granted_by_team_id FK
+    }
+
+    folder_members {
+        text project_folder_id PK_FK
         text user_id PK_FK
         text role "owner|admin|member|viewer"
         text granted_by_team_id FK
@@ -185,7 +212,7 @@ erDiagram
         text token_hash UK
         text token_prefix
         text role
-        text scope_project_id FK
+        text scope_codespace_id FK
         text status "active|revoked|expired"
         int use_count
     }
@@ -202,26 +229,30 @@ erDiagram
         text tag_id PK_FK
     }
 
-    project_tags {
-        text project_id PK_FK
+    codespace_tags {
+        text codespace_id PK_FK
         text tag_id PK_FK
     }
 
     users ||--o{ user_sessions : "authenticates via"
     users ||--o{ team_members : "belongs to"
-    users ||--o{ project_members : "member of"
+    users ||--o{ codespace_members : "member of"
+    users ||--o{ folder_members : "member of"
     users ||--o{ api_tokens : "owns"
     users ||--o{ team_invitations : "sends"
 
     teams ||--o{ team_members : "has members"
-    teams ||--o{ team_projects : "owns projects"
+    teams ||--o{ team_project_folders : "owns folders"
     teams ||--o{ team_invitations : "has invitations"
     teams ||--o{ api_tokens : "scopes tokens"
     teams ||--o{ tags : "defines"
-    teams ||--o{ project_members : "grants via"
+    teams ||--o{ codespace_members : "grants via"
+    teams ||--o{ folder_members : "grants via"
+
+    team_project_folders }o--|| project_folders : "assigns"
 
     tags ||--o{ task_tags : "applied to"
-    tags ||--o{ project_tags : "applied to"
+    tags ||--o{ codespace_tags : "applied to"
 ```
 
 ## 3. Extended Features
@@ -244,7 +275,7 @@ erDiagram
     event_subscriptions {
         text id PK
         text event_source_id FK
-        text target_project_id FK
+        text target_codespace_id FK
         text name
         int is_enabled
         json event_types
@@ -289,7 +320,7 @@ erDiagram
 
     sandbox_instances {
         text id PK
-        text project_id FK_UK
+        text codespace_id FK_UK
         text container_id
         text status "running|stopped|error"
         text image
@@ -327,8 +358,8 @@ erDiagram
     templates {
         text id PK
         text name
-        text scope "org|project"
-        text project_id FK
+        text scope "org|codespace"
+        text codespace_id FK
         text github_owner
         text github_repo
         text branch
@@ -336,9 +367,9 @@ erDiagram
         json cached_skills
     }
 
-    template_projects {
+    template_codespaces {
         text template_id PK_FK
-        text project_id PK_FK
+        text codespace_id PK_FK
     }
 
     workflows {
@@ -354,7 +385,7 @@ erDiagram
     plan_sessions {
         text id PK
         text task_id FK
-        text project_id FK
+        text codespace_id FK
         text status "active|waiting_user|completed|cancelled"
         json turns
     }
@@ -444,7 +475,7 @@ erDiagram
 
     terraform_registries ||--o{ terraform_modules : "contains"
 
-    templates ||--o{ template_projects : "assigned to"
+    templates ||--o{ template_codespaces : "assigned to"
 
     workflows ||--o| templates : "sourced from"
 

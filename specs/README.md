@@ -6,7 +6,7 @@
 |------|--------------|--------|
 | Database (36 tables) | Full | Updated |
 | API Routes (33 modules, 60+ endpoints) | Full | Updated |
-| Services (25+) | 9 documented | Partial |
+| Services (27+) | 9 documented | Partial |
 | State Machines (4) | Full | Updated |
 | UI Components (19 spec'd) | Full | Current |
 | Integrations (6) | Full | Updated |
@@ -123,6 +123,10 @@ specs/
 │   ├── security/
 │   ├── terminal/
 │   └── worktree/
+│
+├── skills/                            # Skill injection and materialization
+│
+├── memory/                            # Honcho-backed persistent agent memory
 │
 ├── diagrams/                          # Mermaid architecture diagrams (9)
 │   ├── README.md

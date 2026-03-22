@@ -22,7 +22,7 @@ flowchart TB
         direction TB
         TanStackStart["TanStack Start<br/><small>React 19 · TanStack Router</small>"]
         UIComponents["UI Components<br/><small>Radix · Tailwind · CVA</small>"]
-        ClientState["Client State<br/><small>TanStack DB · React Query</small>"]
+        ClientState["Client State<br/><small>TanStack DB · React Query<br/>Factory hooks (no useEffect)</small>"]
         DurableClient["DurableStreamsClient<br/><small>EventSource SSE</small>"]
         ReactFlow["Workflow Designer<br/><small>React Flow · ELK layout</small>"]
         DndKit["Kanban Board<br/><small>dnd-kit drag & drop</small>"]
@@ -31,7 +31,7 @@ flowchart TB
     %% ── API Layer ──
     subgraph API["Bun API Server · Hono :3001"]
         direction TB
-        Routes["REST Routes<br/><small>projects · tasks · agents<br/>sessions · settings · worktrees<br/>workflows · terraform · git<br/>sandbox · webhooks · health</small>"]
+        Routes["REST Routes<br/><small>codespaces · tasks · agents<br/>sessions · settings · worktrees<br/>workflows · terraform · git<br/>sandbox · webhooks · memory · health</small>"]
         Auth["Authentication<br/><small>GitHub OAuth · RBAC tokens<br/>API keys · Team membership</small>"]
         Validation["Request Validation<br/><small>Zod schemas</small>"]
     end
@@ -39,8 +39,9 @@ flowchart TB
     %% ── Services ──
     subgraph Services["Business Logic Services"]
         direction TB
-        ProjectSvc["ProjectService"]
+        CodespaceSvc["CodespaceService"]
         TaskSvc["TaskService"]
+        FolderSvc["ProjectFolderService"]
         AgentSvc["AgentService"]
         SessionSvc["SessionService"]
         WorktreeSvc["WorktreeService"]
@@ -51,6 +52,7 @@ flowchart TB
         TerraformSvc["TerraformComposeService"]
         TaskCreationSvc["TaskCreationService"]
         TemplateSvc["TemplateService"]
+        MemorySvc["MemoryService"]
     end
 
     %% ── Agent Runtime ──
@@ -61,6 +63,7 @@ flowchart TB
         ExecPhase["Execution Phase<br/><small>permissionMode: acceptEdits</small>"]
         TeamMode["Team Mode<br/><small>parallel agent spawning</small>"]
         StreamHandler["Stream Handler<br/><small>SDK session management<br/>tool hooks · event publish</small>"]
+        SkillInjector["Skill Injection<br/><small>materialize .claude/skills/<br/>from templates + marketplace</small>"]
     end
 
     %% ── Database ──
@@ -74,7 +77,7 @@ flowchart TB
     %% ── Sandbox Providers ──
     subgraph Sandbox["Sandbox Providers"]
         direction TB
-        DockerProv["Docker<br/><small>dockerode · per-project<br/>or shared container</small>"]
+        DockerProv["Docker<br/><small>dockerode · per-codespace<br/>or shared container</small>"]
         NomadProv["Nomad<br/><small>HashiCorp Nomad<br/>job scheduling</small>"]
         AgentCoreProv["AgentCore<br/><small>Anthropic managed<br/>cloud sandboxes</small>"]
         AgentSandboxProv["Agent Sandbox<br/><small>Dockerfile.agent-sandbox<br/>Claude CLI inside</small>"]
@@ -86,6 +89,8 @@ flowchart TB
         AnthropicAPI["Anthropic API<br/><small>Claude Agent SDK<br/>@anthropic-ai/sdk</small>"]
         GitHubAPI["GitHub<br/><small>OAuth · App · Webhooks<br/>Octokit REST + GraphQL</small>"]
         GitWorktrees["Git Worktrees<br/><small>isolated branches<br/>per-task workspaces</small>"]
+        HonchoAPI["Honcho API<br/><small>@honcho-ai/sdk<br/>persistent agent memory</small>"]
+        GoCLI["Go CLI<br/><small>agentpane binary<br/>REST API consumer</small>"]
     end
 
     %% ── Event Streaming ──
@@ -141,6 +146,15 @@ flowchart TB
     WorktreeSvc --> GitWorktrees
     Services -->|"Octokit"| GitHubAPI
 
+    %% ── Go CLI → API ──
+    GoCLI -->|"REST /api/*"| API
+
+    %% ── Memory → Honcho ──
+    MemorySvc -->|"@honcho-ai/sdk"| HonchoAPI
+
+    %% ── Skill injection ──
+    ContainerAgentSvc --> SkillInjector
+
     %% ── Services → Events ──
     StreamsSvc --> EventPublish
     EventPublish -->|"persist"| Drizzle
@@ -171,10 +185,10 @@ flowchart TB
     class Caddy,StaticFiles,StreamsEndpoint,APIProxy proxy
     class Frontend,TanStackStart,UIComponents,ClientState,DurableClient,ReactFlow,DndKit frontend
     class API,Routes,Auth,Validation api
-    class Services,ProjectSvc,TaskSvc,AgentSvc,SessionSvc,WorktreeSvc,SandboxSvc,ContainerAgentSvc,StreamsSvc,SchedulerSvc,TerraformSvc,TaskCreationSvc,TemplateSvc service
-    class AgentRuntime,AgentExec,PlanPhase,ExecPhase,TeamMode,StreamHandler runtime
+    class Services,CodespaceSvc,TaskSvc,FolderSvc,AgentSvc,SessionSvc,WorktreeSvc,SandboxSvc,ContainerAgentSvc,StreamsSvc,SchedulerSvc,TerraformSvc,TaskCreationSvc,TemplateSvc,MemorySvc service
+    class AgentRuntime,AgentExec,PlanPhase,ExecPhase,TeamMode,StreamHandler,SkillInjector runtime
     class Database,SQLite,PostgreSQL,Drizzle db
     class Sandbox,DockerProv,NomadProv,AgentCoreProv,AgentSandboxProv sandbox
-    class External,AnthropicAPI,GitHubAPI,GitWorktrees external
+    class External,AnthropicAPI,GitHubAPI,GitWorktrees,HonchoAPI,GoCLI external
     class Events,EventPublish,SSE,EventPlugins events
 ```

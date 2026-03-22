@@ -44,7 +44,7 @@ svg { display: block; }
 <text x="50" y="100" fill="#58a6ff" font-size="14" font-weight="700">Server-Side (Bun API Process)</text>
 
 <!-- ==================== COL 1: EVENT SOURCES ==================== -->
-<rect x="50" y="120" width="260" height="520" rx="10" fill="none" stroke="#f0883e" stroke-width="1.5" stroke-dasharray="8,4"/>
+<rect x="50" y="120" width="260" height="590" rx="10" fill="none" stroke="#f0883e" stroke-width="1.5" stroke-dasharray="8,4"/>
 <text x="180" y="142" text-anchor="middle" fill="#f0883e" font-size="13" font-weight="600">Event Sources</text>
 
 <!-- Container Agent Service -->
@@ -77,11 +77,18 @@ svg { display: block; }
 <text x="75" y="495" fill="#8b949e" font-size="9">task-creation:suggestion · questions</text>
 <text x="75" y="507" fill="#8b949e" font-size="9">task-creation:completed · cancelled · error</text>
 
+<!-- Memory Service -->
+<rect x="65" y="540" width="230" height="65" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
+<text x="180" y="560" text-anchor="middle" fill="#f0883e" font-size="12" font-weight="600">Memory Service</text>
+<text x="75" y="578" fill="#8b949e" font-size="9">memory:context_injected · memory:stored</text>
+<text x="75" y="590" fill="#8b949e" font-size="9">memory:recalled · memory:error</text>
+<text x="75" y="602" fill="#8b949e" font-size="9">Honcho persistent memory (optional)</text>
+
 <!-- Session Events (chunk, tool, etc.) -->
-<rect x="65" y="540" width="230" height="55" rx="7" fill="#161b22" stroke="#d29922" stroke-width="1"/>
-<text x="180" y="560" text-anchor="middle" fill="#d29922" font-size="12" font-weight="600">Session Events</text>
-<text x="75" y="578" fill="#8b949e" font-size="9">chunk · tool:start · tool:result · state:update</text>
-<text x="75" y="590" fill="#8b949e" font-size="9">presence:joined · terminal:output</text>
+<rect x="65" y="618" width="230" height="55" rx="7" fill="#161b22" stroke="#d29922" stroke-width="1"/>
+<text x="180" y="638" text-anchor="middle" fill="#d29922" font-size="12" font-weight="600">Session Events</text>
+<text x="75" y="656" fill="#8b949e" font-size="9">chunk · tool:start · tool:result · state:update</text>
+<text x="75" y="668" fill="#8b949e" font-size="9">presence:joined · terminal:output</text>
 
 <!-- ==================== COL 2: DURABLE STREAMS SERVICE ==================== -->
 <rect x="340" y="120" width="310" height="380" rx="10" fill="#161b22" stroke="#58a6ff" stroke-width="2"/>
@@ -103,7 +110,7 @@ svg { display: block; }
 <!-- Channel routing -->
 <rect x="360" y="312" width="270" height="48" rx="6" fill="#1c2333" stroke="#d29922" stroke-width="1"/>
 <text x="495" y="332" text-anchor="middle" fill="#d29922" font-size="11" font-weight="600">Channel Routing</text>
-<text x="370" y="348" fill="#8b949e" font-size="9">plan · sandbox · taskCreation · containerAgent · terraform</text>
+<text x="370" y="348" fill="#8b949e" font-size="9">plan · sandbox · taskCreation · containerAgent · terraform · memory</text>
 
 <!-- Dual-write strategy -->
 <rect x="360" y="372" width="270" height="68" rx="6" fill="#1c2333" stroke="#7ee787" stroke-width="1.5"/>
@@ -316,7 +323,8 @@ svg { display: block; }
 <path d="M 295 302 L 330 302 L 330 260 L 340 260" fill="none" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrow-coral)"/>
 <path d="M 295 393 L 330 393 L 330 320 L 340 320" fill="none" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrow-coral)"/>
 <path d="M 295 485 L 330 485 L 330 380 L 340 380" fill="none" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrow-coral)"/>
-<path d="M 295 567 L 325 567 L 325 440 L 340 440" fill="none" stroke="#d29922" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
+<path d="M 295 572 L 325 572 L 325 440 L 340 440" fill="none" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrow-coral)"/>
+<path d="M 295 645 L 325 645 L 325 460 L 340 460" fill="none" stroke="#d29922" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
 
 <!-- ==================== FLOW ARROWS: Service -> Caddy ==================== -->
 <path d="M 650 260 L 690 260" fill="none" stroke="#bc8cff" stroke-width="2" marker-end="url(#arrow-purple)"/>
@@ -456,9 +464,9 @@ svg { display: block; }
 
 <!-- Event counts -->
 <text x="50" y="1135" fill="#d29922" font-size="12" font-weight="600">Event Types</text>
-<text x="175" y="1135" fill="#8b949e" font-size="11">container-agent: 13 · plan: 7 · sandbox: 8 · task-creation: 9 · terraform: 7 · session: 10</text>
+<text x="175" y="1135" fill="#8b949e" font-size="11">container-agent: 13 · plan: 7 · sandbox: 8 · task-creation: 9 · terraform: 7 · memory: 4 · session: 10</text>
 <text x="50" y="1155" fill="#d29922" font-size="12" font-weight="600">Total</text>
-<text x="105" y="1155" fill="#8b949e" font-size="11">54 typed event types across 5 channels · 7 TanStack DB collections · 4 connection states</text>
+<text x="105" y="1155" fill="#8b949e" font-size="11">58 typed event types across 6 channels · 7 TanStack DB collections · 4 connection states</text>
 <text x="50" y="1175" fill="#d29922" font-size="12" font-weight="600">Packages</text>
 <text x="130" y="1175" fill="#8b949e" font-size="11">@durable-streams/client · @tanstack/db · @tanstack/react-db · drizzle-orm · zod</text>
 

@@ -10,7 +10,7 @@ svg { display: block; }
 </style>
 </head>
 <body>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1260" width="1920" height="1260">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1310" width="1920" height="1310">
 <defs>
   <marker id="arrow-gray" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
     <path d="M0,0 L8,3 L0,6" fill="none" stroke="#484f58" stroke-width="1.5"/>
@@ -36,14 +36,14 @@ svg { display: block; }
 </defs>
 
 <!-- Background -->
-<rect width="1920" height="1260" fill="#0d1117"/>
+<rect width="1920" height="1310" fill="#0d1117"/>
 
 <!-- ==================== TITLE ==================== -->
 <text x="960" y="38" text-anchor="middle" fill="#e6edf3" font-size="22" font-weight="700">AgentPane — OpenShift Deployment with Cloudflare Tunnel</text>
 <text x="960" y="58" text-anchor="middle" fill="#8b949e" font-size="13">GitHub.com connectivity via egress proxy (outbound) and Cloudflare Tunnel (webhooks via agentpane.teams)</text>
 
 <!-- ==================== LEFT: CORPORATE NETWORK ==================== -->
-<rect x="40" y="80" width="1130" height="1080" rx="14" fill="none" stroke="#3fb950" stroke-width="2.5" stroke-dasharray="10,5"/>
+<rect x="40" y="80" width="1130" height="1130" rx="14" fill="none" stroke="#3fb950" stroke-width="2.5" stroke-dasharray="10,5"/>
 <text x="60" y="100" fill="#3fb950" font-size="14" font-weight="700">Private Network / Corporate LAN</text>
 
 <!-- ==================== USER BROWSER ==================== -->
@@ -51,8 +51,18 @@ svg { display: block; }
 <text x="220" y="143" text-anchor="middle" fill="#58a6ff" font-size="16" font-weight="600">User Browser</text>
 <text x="220" y="163" text-anchor="middle" fill="#8b949e" font-size="11">Corporate desktop, internet access</text>
 
+<!-- ==================== GO CLI ==================== -->
+<rect x="400" y="120" width="200" height="55" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="2"/>
+<text x="500" y="143" text-anchor="middle" fill="#3fb950" font-size="16" font-weight="600">Go CLI</text>
+<text x="500" y="163" text-anchor="middle" fill="#8b949e" font-size="11">agentpane CLI · REST API client</text>
+
+<!-- Connection: Go CLI -> Router (same route as Browser) -->
+<path d="M 500 175 L 500 200 L 400 200 L 400 248" fill="none" stroke="#3fb950" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+<rect x="406" y="184" width="38" height="16" rx="3" fill="#0d1117" stroke="#8b949e" stroke-width="0.5"/>
+<text x="425" y="196" text-anchor="middle" fill="#8b949e" font-size="10">HTTPS</text>
+
 <!-- ==================== OPENSHIFT CLUSTER ==================== -->
-<rect x="60" y="210" width="1090" height="770" rx="12" fill="none" stroke="#f85149" stroke-width="2" stroke-dasharray="8,4"/>
+<rect x="60" y="210" width="1090" height="820" rx="12" fill="none" stroke="#f85149" stroke-width="2" stroke-dasharray="8,4"/>
 <text x="80" y="232" fill="#f85149" font-size="14" font-weight="700">OpenShift Cluster</text>
 
 <!-- ====== OCP ROUTER / HAProxy ====== -->
@@ -74,7 +84,7 @@ svg { display: block; }
 <text x="295" y="196" text-anchor="middle" fill="#8b949e" font-size="10">HTTPS</text>
 
 <!-- ====== AGENTPANE NAMESPACE ====== -->
-<rect x="80" y="400" width="570" height="390" rx="10" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-dasharray="8,4"/>
+<rect x="80" y="400" width="570" height="430" rx="10" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-dasharray="8,4"/>
 <text x="100" y="420" fill="#58a6ff" font-size="13" font-weight="600">Namespace: agentpane</text>
 
 <!-- ClusterIP Service -->
@@ -121,27 +131,37 @@ svg { display: block; }
 <!-- Connection: Service -> Pod -->
 <line x1="370" y1="480" x2="370" y2="498" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
 
+<!-- Honcho Pod (optional memory sidecar) -->
+<rect x="120" y="680" width="210" height="55" rx="8" fill="#161b22" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3"/>
+<text x="225" y="702" text-anchor="middle" fill="#bc8cff" font-size="13" font-weight="600">Honcho Pod</text>
+<text x="225" y="720" text-anchor="middle" fill="#8b949e" font-size="10">honcho:2.0.1 + pgvector + redis</text>
+
+<!-- Connection: AgentPane Pod -> Honcho Pod (memory API) -->
+<path d="M 255 663 L 255 680" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="4,2" marker-end="url(#arrow-purple)"/>
+<rect x="261" y="664" width="90" height="14" rx="3" fill="#0d1117" stroke="#bc8cff" stroke-width="0.5"/>
+<text x="306" y="674" text-anchor="middle" fill="#bc8cff" font-size="9">memory API :8000</text>
+
 <!-- PostgreSQL -->
-<rect x="120" y="700" width="170" height="55" rx="8" fill="#161b22" stroke="#7ee787" stroke-width="1.5"/>
-<text x="205" y="722" text-anchor="middle" fill="#7ee787" font-size="13" font-weight="600">PostgreSQL</text>
-<text x="205" y="740" text-anchor="middle" fill="#8b949e" font-size="10">Bitnami subchart · :5432</text>
+<rect x="120" y="752" width="170" height="55" rx="8" fill="#161b22" stroke="#7ee787" stroke-width="1.5"/>
+<text x="205" y="774" text-anchor="middle" fill="#7ee787" font-size="13" font-weight="600">PostgreSQL</text>
+<text x="205" y="792" text-anchor="middle" fill="#8b949e" font-size="10">Bitnami subchart · :5432</text>
 
 <!-- cloudflared Deployment (Cloudflare Tunnel) -->
-<rect x="300" y="700" width="170" height="55" rx="8" fill="#161b22" stroke="#d29922" stroke-width="2"/>
-<text x="385" y="722" text-anchor="middle" fill="#d29922" font-size="13" font-weight="600">cloudflared</text>
-<text x="385" y="740" text-anchor="middle" fill="#8b949e" font-size="10">Tunnel to Cloudflare Edge</text>
+<rect x="300" y="752" width="170" height="55" rx="8" fill="#161b22" stroke="#d29922" stroke-width="2"/>
+<text x="385" y="774" text-anchor="middle" fill="#d29922" font-size="13" font-weight="600">cloudflared</text>
+<text x="385" y="792" text-anchor="middle" fill="#8b949e" font-size="10">Tunnel to Cloudflare Edge</text>
 
 <!-- PVC -->
-<rect x="480" y="700" width="140" height="55" rx="8" fill="#161b22" stroke="#8b949e" stroke-width="1"/>
-<text x="550" y="722" text-anchor="middle" fill="#8b949e" font-size="13" font-weight="600">PVC: data</text>
-<text x="550" y="740" text-anchor="middle" fill="#8b949e" font-size="10">enc.key · LMDB</text>
+<rect x="480" y="752" width="140" height="55" rx="8" fill="#161b22" stroke="#8b949e" stroke-width="1"/>
+<text x="550" y="774" text-anchor="middle" fill="#8b949e" font-size="13" font-weight="600">PVC: data</text>
+<text x="550" y="792" text-anchor="middle" fill="#8b949e" font-size="10">enc.key · LMDB</text>
 
 <!-- Connections: Pod -> PG, cloudflared, PVC -->
-<line x1="205" y1="663" x2="205" y2="700" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
-<line x1="550" y1="663" x2="550" y2="700" stroke="#484f58" stroke-width="1" stroke-dasharray="4,2"/>
+<line x1="160" y1="663" x2="160" y2="752" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="550" y1="663" x2="550" y2="752" stroke="#484f58" stroke-width="1" stroke-dasharray="4,2"/>
 
 <!-- Connection: cloudflared -> Service (internal webhook forwarding) -->
-<path d="M 300 725 L 92 725 L 92 460 L 120 460" fill="none" stroke="#d29922" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
+<path d="M 300 777 L 92 777 L 92 460 L 120 460" fill="none" stroke="#d29922" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
 <rect x="93" y="560" width="16" height="90" rx="3" fill="#0d1117" stroke="none"/>
 <g transform="rotate(-90 101 605)">
 <rect x="50" y="593" width="102" height="16" rx="3" fill="#0d1117" stroke="#d29922" stroke-width="0.5"/>
@@ -190,32 +210,32 @@ svg { display: block; }
 <text x="686" y="555" text-anchor="middle" fill="#f0883e" font-size="10">creates</text>
 
 <!-- ====== EGRESS PROXY ====== -->
-<rect x="80" y="820" width="400" height="55" rx="8" fill="#161b22" stroke="#bc8cff" stroke-width="2"/>
-<text x="280" y="842" text-anchor="middle" fill="#bc8cff" font-size="15" font-weight="600">Egress Proxy</text>
-<text x="280" y="860" text-anchor="middle" fill="#8b949e" font-size="11">HTTPS_PROXY · forward to internet</text>
+<rect x="80" y="870" width="400" height="55" rx="8" fill="#161b22" stroke="#bc8cff" stroke-width="2"/>
+<text x="280" y="892" text-anchor="middle" fill="#bc8cff" font-size="15" font-weight="600">Egress Proxy</text>
+<text x="280" y="910" text-anchor="middle" fill="#8b949e" font-size="11">HTTPS_PROXY · forward to internet</text>
 
 <!-- Connection: Pod -> Egress Proxy -->
-<path d="M 160 663 L 160 678 L 80 678 L 80 820" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3"/>
-<rect x="86" y="735" width="82" height="16" rx="3" fill="#0d1117" stroke="#bc8cff" stroke-width="0.5"/>
-<text x="127" y="747" text-anchor="middle" fill="#bc8cff" font-size="10">HTTPS_PROXY</text>
+<path d="M 160 663 L 160 678 L 80 678 L 80 870" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3"/>
+<rect x="86" y="760" width="82" height="16" rx="3" fill="#0d1117" stroke="#bc8cff" stroke-width="0.5"/>
+<text x="127" y="772" text-anchor="middle" fill="#bc8cff" font-size="10">HTTPS_PROXY</text>
 
 <!-- Connection: Sandbox -> Egress Proxy (via network policy) -->
-<path d="M 812 681 L 812 780 L 280 780 L 280 820" fill="none" stroke="#f0883e" stroke-width="1.5" stroke-dasharray="6,3"/>
-<rect x="430" y="763" width="240" height="16" rx="3" fill="#0d1117" stroke="#f0883e" stroke-width="0.5"/>
-<text x="550" y="775" text-anchor="middle" fill="#f0883e" font-size="10">sandbox egress (HTTPS only, no RFC1918)</text>
+<path d="M 812 681 L 812 830 L 280 830 L 280 870" fill="none" stroke="#f0883e" stroke-width="1.5" stroke-dasharray="6,3"/>
+<rect x="430" y="813" width="240" height="16" rx="3" fill="#0d1117" stroke="#f0883e" stroke-width="0.5"/>
+<text x="550" y="825" text-anchor="middle" fill="#f0883e" font-size="10">sandbox egress (HTTPS only, no RFC1918)</text>
 
 <!-- Connection: cloudflared -> Egress Proxy (tunnel outbound) -->
-<path d="M 385 755 L 385 820" fill="none" stroke="#d29922" stroke-width="2" stroke-dasharray="6,3"/>
-<rect x="390" y="770" width="90" height="16" rx="3" fill="#0d1117" stroke="#d29922" stroke-width="0.5"/>
-<text x="435" y="782" text-anchor="middle" fill="#d29922" font-size="10">tunnel via proxy</text>
+<path d="M 385 807 L 385 870" fill="none" stroke="#d29922" stroke-width="2" stroke-dasharray="6,3"/>
+<rect x="390" y="822" width="90" height="16" rx="3" fill="#0d1117" stroke="#d29922" stroke-width="0.5"/>
+<text x="435" y="834" text-anchor="middle" fill="#d29922" font-size="10">tunnel via proxy</text>
 
 <!-- ==================== FIREWALL ==================== -->
-<rect x="60" y="910" width="1090" height="50" rx="8" fill="#161b22" stroke="#f85149" stroke-width="2"/>
-<text x="605" y="932" text-anchor="middle" fill="#f85149" font-size="15" font-weight="700">Corporate Firewall</text>
-<text x="605" y="950" text-anchor="middle" fill="#8b949e" font-size="11">Outbound: all HTTPS allowed via proxy · No inbound rules needed (Cloudflare Tunnel is outbound-only)</text>
+<rect x="60" y="960" width="1090" height="50" rx="8" fill="#161b22" stroke="#f85149" stroke-width="2"/>
+<text x="605" y="982" text-anchor="middle" fill="#f85149" font-size="15" font-weight="700">Corporate Firewall</text>
+<text x="605" y="1000" text-anchor="middle" fill="#8b949e" font-size="11">Outbound: all HTTPS allowed via proxy · No inbound rules needed (Cloudflare Tunnel is outbound-only)</text>
 
 <!-- ==================== RIGHT: PUBLIC INTERNET ==================== -->
-<rect x="1230" y="80" width="650" height="1140" rx="14" fill="none" stroke="#8b949e" stroke-width="2" stroke-dasharray="10,5"/>
+<rect x="1230" y="80" width="650" height="1190" rx="14" fill="none" stroke="#8b949e" stroke-width="2" stroke-dasharray="10,5"/>
 <text x="1250" y="100" fill="#8b949e" font-size="14" font-weight="700">Public Internet</text>
 
 <!-- GitHub.com -->
@@ -270,26 +290,26 @@ svg { display: block; }
 <!-- ==================== FLOW ARROWS ==================== -->
 
 <!-- Outbound: Proxy -> GitHub API (via firewall) -->
-<path d="M 480 847 L 1170 847 L 1170 935 L 1230 935" fill="none" stroke="#bc8cff" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
-<rect x="746" y="828" width="148" height="16" rx="3" fill="#0d1117" stroke="#bc8cff" stroke-width="0.5"/>
-<text x="820" y="840" text-anchor="middle" fill="#bc8cff" font-size="10">outbound HTTPS via proxy</text>
+<path d="M 480 897 L 1170 897 L 1170 985 L 1230 985" fill="none" stroke="#bc8cff" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+<rect x="746" y="878" width="148" height="16" rx="3" fill="#0d1117" stroke="#bc8cff" stroke-width="0.5"/>
+<text x="820" y="890" text-anchor="middle" fill="#bc8cff" font-size="10">outbound HTTPS via proxy</text>
 
 <!-- Outbound continues up to GitHub API -->
-<path d="M 1230 935 L 1200 935 L 1200 252 L 1300 252" fill="none" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+<path d="M 1230 985 L 1200 985 L 1200 252 L 1300 252" fill="none" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
 <g transform="rotate(-90 1205 600)">
 <rect x="1201" y="588" width="88" height="16" rx="3" fill="#0d1117" stroke="#58a6ff" stroke-width="0.5"/>
 <text x="1245" y="600" text-anchor="middle" fill="#58a6ff" font-size="10">api.github.com</text>
 </g>
 
 <!-- Outbound: Proxy -> Anthropic -->
-<path d="M 1230 935 L 1200 935 L 1200 587 L 1270 587" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-purple)"/>
+<path d="M 1230 985 L 1200 985 L 1200 587 L 1270 587" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-purple)"/>
 
 <!-- Cloudflare Tunnel: cloudflared -> firewall -> Cloudflare Edge (outbound-initiated) -->
-<path d="M 470 727 L 655 727 L 655 935 L 1190 935" fill="none" stroke="#d29922" stroke-width="2" stroke-dasharray="8,4"/>
-<path d="M 1190 935 L 1190 500 L 1270 500" fill="none" stroke="#d29922" stroke-width="2" marker-end="url(#arrow-orange)"/>
-<g transform="rotate(-90 1195 720)">
-<rect x="1128" y="708" width="134" height="16" rx="3" fill="#0d1117" stroke="#d29922" stroke-width="0.5"/>
-<text x="1195" y="720" text-anchor="middle" fill="#d29922" font-size="10">Cloudflare Tunnel</text>
+<path d="M 470 777 L 655 777 L 655 985 L 1190 985" fill="none" stroke="#d29922" stroke-width="2" stroke-dasharray="8,4"/>
+<path d="M 1190 985 L 1190 500 L 1270 500" fill="none" stroke="#d29922" stroke-width="2" marker-end="url(#arrow-orange)"/>
+<g transform="rotate(-90 1195 745)">
+<rect x="1128" y="733" width="134" height="16" rx="3" fill="#0d1117" stroke="#d29922" stroke-width="0.5"/>
+<text x="1195" y="745" text-anchor="middle" fill="#d29922" font-size="10">Cloudflare Tunnel</text>
 </g>
 
 <!-- GitHub Webhooks -> Cloudflare Edge -->
@@ -304,38 +324,38 @@ svg { display: block; }
 <text x="702" y="140" text-anchor="middle" fill="#bc8cff" font-size="10">browser redirect (OAuth login)</text>
 
 <!-- ==================== OAUTH FLOW (bottom) ==================== -->
-<rect x="60" y="990" width="1090" height="115" rx="10" fill="#161b22" stroke="#bc8cff" stroke-width="1.5"/>
-<text x="605" y="1016" text-anchor="middle" fill="#bc8cff" font-size="14" font-weight="700">GitHub OAuth Flow (works through proxy — browser-initiated)</text>
+<rect x="60" y="1040" width="1090" height="115" rx="10" fill="#161b22" stroke="#bc8cff" stroke-width="1.5"/>
+<text x="605" y="1066" text-anchor="middle" fill="#bc8cff" font-size="14" font-weight="700">GitHub OAuth Flow (works through proxy — browser-initiated)</text>
 
-<rect x="70" y="1032" width="140" height="28" rx="5" fill="#1c2333" stroke="#58a6ff" stroke-width="1"/>
-<text x="140" y="1050" text-anchor="middle" fill="#58a6ff" font-size="10">1. Browser → App</text>
+<rect x="70" y="1082" width="140" height="28" rx="5" fill="#1c2333" stroke="#58a6ff" stroke-width="1"/>
+<text x="140" y="1100" text-anchor="middle" fill="#58a6ff" font-size="10">1. Browser → App</text>
 
-<line x1="210" y1="1046" x2="230" y2="1046" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="210" y1="1096" x2="230" y2="1096" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
 
-<rect x="230" y="1032" width="170" height="28" rx="5" fill="#1c2333" stroke="#bc8cff" stroke-width="1"/>
-<text x="315" y="1050" text-anchor="middle" fill="#bc8cff" font-size="10">2. Redirect → github.com</text>
+<rect x="230" y="1082" width="170" height="28" rx="5" fill="#1c2333" stroke="#bc8cff" stroke-width="1"/>
+<text x="315" y="1100" text-anchor="middle" fill="#bc8cff" font-size="10">2. Redirect → github.com</text>
 
-<line x1="400" y1="1046" x2="420" y2="1046" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="400" y1="1096" x2="420" y2="1096" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
 
-<rect x="420" y="1032" width="170" height="28" rx="5" fill="#1c2333" stroke="#bc8cff" stroke-width="1"/>
-<text x="505" y="1050" text-anchor="middle" fill="#bc8cff" font-size="10">3. GitHub → callback</text>
+<rect x="420" y="1082" width="170" height="28" rx="5" fill="#1c2333" stroke="#bc8cff" stroke-width="1"/>
+<text x="505" y="1100" text-anchor="middle" fill="#bc8cff" font-size="10">3. GitHub → callback</text>
 
-<line x1="590" y1="1046" x2="610" y2="1046" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="590" y1="1096" x2="610" y2="1096" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
 
-<rect x="610" y="1032" width="170" height="28" rx="5" fill="#1c2333" stroke="#3fb950" stroke-width="1"/>
-<text x="695" y="1050" text-anchor="middle" fill="#3fb950" font-size="10">4. Server → token (proxy)</text>
+<rect x="610" y="1082" width="170" height="28" rx="5" fill="#1c2333" stroke="#3fb950" stroke-width="1"/>
+<text x="695" y="1100" text-anchor="middle" fill="#3fb950" font-size="10">4. Server → token (proxy)</text>
 
-<line x1="780" y1="1046" x2="800" y2="1046" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="780" y1="1096" x2="800" y2="1096" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
 
-<rect x="800" y="1032" width="170" height="28" rx="5" fill="#1c2333" stroke="#3fb950" stroke-width="1"/>
-<text x="885" y="1050" text-anchor="middle" fill="#3fb950" font-size="10">5. Server → user (proxy)</text>
+<rect x="800" y="1082" width="170" height="28" rx="5" fill="#1c2333" stroke="#3fb950" stroke-width="1"/>
+<text x="885" y="1100" text-anchor="middle" fill="#3fb950" font-size="10">5. Server → user (proxy)</text>
 
-<line x1="970" y1="1046" x2="990" y2="1046" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="970" y1="1096" x2="990" y2="1096" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
 
-<rect x="990" y="1032" width="150" height="28" rx="5" fill="#1c2333" stroke="#58a6ff" stroke-width="1"/>
-<text x="1065" y="1050" text-anchor="middle" fill="#58a6ff" font-size="10">6. Set session cookie</text>
+<rect x="990" y="1082" width="150" height="28" rx="5" fill="#1c2333" stroke="#58a6ff" stroke-width="1"/>
+<text x="1065" y="1100" text-anchor="middle" fill="#58a6ff" font-size="10">6. Set session cookie</text>
 
-<text x="70" y="1090" fill="#8b949e" font-size="10">Steps 1-3: browser redirects (user has internet access). Steps 4-5: server outbound via HTTPS_PROXY. Step 6: internal.</text>
+<text x="70" y="1140" fill="#8b949e" font-size="10">Steps 1-3: browser redirects (user has internet access). Steps 4-5: server outbound via HTTPS_PROXY. Step 6: internal.</text>
 
 <!-- ==================== LEGEND ==================== -->
 <rect x="1270" y="710" width="590" height="260" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
@@ -370,6 +390,10 @@ svg { display: block; }
 
 <rect x="1295" y="948" width="14" height="12" rx="3" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
 <text x="1319" y="958" fill="#8b949e" font-size="12">cloudflared tunnel pod</text>
+
+<line x1="1295" y1="934" x2="1348" y2="934" stroke="#bc8cff" stroke-width="2" stroke-dasharray="6,3"/>
+<rect x="1295" y="928" width="14" height="12" rx="3" fill="#161b22" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="4,2"/>
+<text x="1358" y="938" fill="#8b949e" font-size="12">Optional sidecar (Honcho memory)</text>
 
 <!-- ==================== KEY CONFIG ==================== -->
 <rect x="1270" y="1000" width="590" height="210" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>

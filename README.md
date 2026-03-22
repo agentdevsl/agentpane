@@ -16,7 +16,7 @@ System-level view of the AgentPane platform showing the browser client, TanStack
 
 ### Tenancy Model
 
-Authentication, ownership hierarchy, and role-based access control — from GitHub OAuth through the organization/project/task ownership chain.
+Authentication, ownership hierarchy, and role-based access control — from GitHub OAuth through the workspace/folder/codespace/task ownership chain.
 
 ![Tenancy Model](docs/tenancy-model.png)
 
@@ -49,6 +49,7 @@ Webhook ingestion pipeline: external sources (GitHub, Linear, Jira, cron) throug
 - **Session Replay** — Full session history with timeline, event filtering, and play/pause/seek controls
 - **Agent Topology** — Real-time React Flow graph showing live agent activity with ELK auto-layout
 - **AI-Assisted Planning** — Interactive planning sessions where Claude asks clarifying questions before execution
+- **Persistent Memory** — Agent memory powered by Honcho with automatic context injection, conclusion derivation, and semantic search across sessions
 
 ### Task Management
 
@@ -56,6 +57,7 @@ Webhook ingestion pipeline: external sources (GitHub, Linear, Jira, cron) throug
 - **Auto-Start** — Moving a task to "In Progress" automatically assigns and starts an agent
 - **AI Task Creation** — Claude asks multi-round clarifying questions to refine task requirements before submission
 - **Code Review** — Approve or reject agent changes with diff visualization before merge
+- **Live Task View** — 3-column layout with task list sidebar, real-time agent session view, and agent topology graph
 
 ### Sandboxed Execution
 
@@ -63,7 +65,8 @@ Webhook ingestion pipeline: external sources (GitHub, Linear, Jira, cron) throug
 - **Kubernetes CRD** — Agent Sandbox SDK for Kubernetes pod provisioning via `agents.x-k8s.io/v1alpha1`
 - **Nomad Jobs** — HashiCorp Nomad sandbox provider for job-based agent isolation
 - **AWS Bedrock AgentCore** — Managed AWS runtimes with STS auth, ECR image validation, and orphan cleanup
-- **Per-Project or Shared** — Choose between a shared container or per-project isolation
+- **Per-Codespace or Shared** — Choose between a shared container or per-codespace isolation
+- **Skill Injection** — Org and template skills automatically materialized into `.claude/skills/` inside the sandbox before agent execution
 
 ### Terraform No-Code Composer
 
@@ -95,34 +98,36 @@ Webhook ingestion pipeline: external sources (GitHub, Linear, Jira, cron) throug
 - **CLI Monitor** — Real-time monitoring of Claude CLI sessions (`@agentpane/cli-monitor`)
 - **Durable Streams** — Real-time event streaming via Caddy front door (LMDB-backed SSE + long-poll)
 - **Encrypted API Keys** — UI-managed per-service API key storage with masked display
+- **Factory Hook Architecture** — `useEffect` banned; all side effects use purpose-built factory hooks (`useMountEffect`, `useWatchEffect`, `useInterval`, etc.)
 
 ## Tech Stack
 
 | Layer | Technology | Package | Version |
 |-------|------------|---------|---------|
 | Runtime | Bun | [bun.sh](https://bun.sh) | 1.3.10 |
-| Front Door | Caddy (durable-streams-server) | [durable-streams](https://github.com/anthropics/durable-streams) | 0.2.1 |
-| Framework | TanStack Start | @tanstack/react-start | 1.161.3 |
-| API Router | Hono | hono | 4.11.9 |
+| Front Door | Caddy (durable-streams-server) | [durable-streams](https://github.com/anthropics/durable-streams) | 0.2.2 |
+| Framework | TanStack Start | @tanstack/react-start | 1.166.9 |
+| API Router | Hono | hono | 4.12.7 |
 | Database | SQLite + PostgreSQL | better-sqlite3 / postgres | 12.6.2 / 3.4.8 |
-| ORM | Drizzle | drizzle-orm + drizzle-kit | 0.45.1 / 0.31.8 |
-| Client State | TanStack DB | @tanstack/db + @tanstack/react-db | 0.5.28 / 0.1.73 |
-| Real-time | Durable Streams | @durable-streams/* | 0.2.1 |
-| AI / Agents | Claude Agent SDK | @anthropic-ai/claude-agent-sdk | 0.2.55 |
+| ORM | Drizzle | drizzle-orm + drizzle-kit | 0.45.1 / 0.31.9 |
+| Client State | TanStack DB | @tanstack/db + @tanstack/react-db | 0.5.30 / 0.1.77 |
+| Real-time | Durable Streams | @durable-streams/* | 0.2.2 |
+| AI / Agents | Claude Agent SDK | @anthropic-ai/claude-agent-sdk | 0.2.63 |
 | AI / API | Anthropic SDK | @anthropic-ai/sdk | 0.72.1 |
-| UI | React + Radix + Tailwind | react + @radix-ui/* + tailwindcss | 19.2.4 / 4.1.18 |
+| UI | React + Radix + Tailwind | react + @radix-ui/* + tailwindcss | 19.2.4 / 4.2.1 |
 | Flow Editor | React Flow | @xyflow/react | 12.10.1 |
-| Graph Layout | ELK | elkjs | 0.11.0 |
+| Graph Layout | ELK | elkjs | 0.11.1 |
 | Drag & Drop | dnd-kit | @dnd-kit/core + @dnd-kit/sortable | 6.3.1 / 10.0.0 |
 | Icons | Phosphor | @phosphor-icons/react | 2.1.10 |
 | Syntax | Shiki | shiki | 3.22.0 |
-| Testing | Vitest | vitest | 4.0.16 |
-| E2E Testing | Playwright | @playwright/test | 1.58.1 |
-| Linting | Biome | @biomejs/biome | 2.4.4 |
+| Testing | Vitest | vitest | 4.1.0 |
+| E2E Testing | Playwright | @playwright/test | 1.58.2 |
+| Linting | Biome | @biomejs/biome | 2.4.7 |
 | Containers | Dockerode | dockerode | 4.0.9 |
 | Kubernetes | K8s Client | @kubernetes/client-node | 1.4.0 |
 | AWS | AWS SDK | @aws-sdk/client-sts | 3.1004.0 |
 | GitHub | Octokit | octokit | 5.0.5 |
+| Memory | Honcho | @honcho-ai/sdk | 2.0.1 |
 
 ## Getting Started
 
@@ -222,6 +227,7 @@ bun run build
 │   │           ├── workflow-catalog/     # Workflow browser with SVG previews
 │   │           ├── git-view/            # Git dashboard (PRs, branches, worktrees)
 │   │           ├── cli-monitor/         # CLI event streaming
+│   │           ├── live-task-view/         # 3-column live task dashboard
 │   │           ├── session-history/     # Session list with filters
 │   │           └── ...
 │   ├── db/
@@ -244,12 +250,17 @@ bun run build
 │       ├── agent/               # Agent CRUD, execution, queueing
 │       ├── session/             # Session CRUD, streaming, presence
 │       ├── cli-monitor/         # CLI monitoring infrastructure
+│       ├── memory/               # Honcho-backed persistent agent memory
 │       ├── terraform-compose.service.ts
 │       ├── container-agent.service.ts
 │       ├── marketplace.service.ts
 │       ├── template.service.ts
 │       ├── sandbox.service.ts
 │       └── ...
+├── cli/                          # Go CLI + SDK (agentpane command)
+│   ├── main.go                   # Entry point
+│   ├── sdk/                      # Go SDK (API client, typed resources)
+│   └── internal/                 # CLI internals (commands, output)
 ├── agent-runner/                # Claude Agent SDK runner for containers
 ├── packages/
 │   ├── agent-sandbox-sdk/       # @agentpane/agent-sandbox-sdk (K8s CRD client)
@@ -261,7 +272,8 @@ bun run build
 │   ├── Dockerfile.agent-sandbox # Agent sandbox environment
 │   ├── start.sh                 # Entrypoint: starts Caddy + Bun
 │   ├── docker-compose.yml       # Development (SQLite)
-│   └── docker-compose.postgres.yml # Production (PostgreSQL)
+│   ├── docker-compose.postgres.yml # Production (PostgreSQL)
+│   └── docker-compose.memory.yml # Honcho memory sidecar (PostgreSQL + Redis)
 ├── k8s/                         # Kubernetes manifests
 ├── specs/
 │   └── application/             # Complete application specifications
@@ -294,7 +306,7 @@ Task moved to "In Progress"
 
 | Provider | Description | Status |
 |----------|-------------|--------|
-| Docker | Container-based isolation with project bind-mounts | Active |
+| Docker | Container-based isolation with codespace bind-mounts | Active |
 | Agent Sandbox SDK | Kubernetes CRD-based pod provisioning (`agents.x-k8s.io/v1alpha1`) | Active |
 | Nomad | HashiCorp Nomad job-based isolation via `@agentpane/nomad-sandbox-sdk` | Active |
 | AWS Bedrock AgentCore | Managed AWS runtimes via Bedrock Agent Runtime API with STS/ECR integration | Active |
@@ -326,7 +338,7 @@ External Event (GitHub, Linear, Jira, Cron)
 
 **Event Subscriptions** — Route events from a source to a project. Each subscription defines which event types to match, optional field filters (repo, branch, labels, author, action), a prompt template with `{{variable}}` interpolation, and which Kanban column to place the created task in. If the target column is "In Progress", the task auto-starts an agent.
 
-**GitHub Issue Events** — When a GitHub issue is opened (or labeled, assigned, etc.), the webhook delivers the event, the GitHub plugin normalizes it, matching subscriptions render their prompt templates with issue data (`{{issue.title}}`, `{{issue.body}}`, `{{repo.full_name}}`, etc.), and a task is created in the target project. This enables fully automated issue-to-agent pipelines.
+**GitHub Issue Events** — When a GitHub issue is opened (or labeled, assigned, etc.), the webhook delivers the event, the GitHub plugin normalizes it, matching subscriptions render their prompt templates with issue data (`{{issue.title}}`, `{{issue.body}}`, `{{repo.full_name}}`, etc.), and a task is created in the target codespace. This enables fully automated issue-to-agent pipelines.
 
 **Webhookd** — The webhook delivery infrastructure. Public endpoint at `/hooks/events/:slug` sits outside the `/api/*` auth boundary (rate-limited at 60 req/min per IP). Webhook secrets are AES-256 encrypted at rest with rotation via `POST /api/events/sources/:id/rotate-secret`. Deduplication uses a unique constraint on `(eventSourceId, deliveryId)` so retried deliveries from external systems are silently accepted without creating duplicate tasks. The full event audit trail is stored in the `event_log` table with status tracking (`received` → `matched` → `task_created` | `ignored`).
 
@@ -385,6 +397,7 @@ Additional schedulers handle template sync and Terraform registry sync on config
 | [`@agentpane/agent-sandbox-sdk`](packages/agent-sandbox-sdk) | TypeScript SDK for the kubernetes-sigs Agent Sandbox CRD (`agents.x-k8s.io/v1alpha1`) |
 | [`@agentpane/cli-monitor`](packages/cli-monitor) | CLI monitor daemon — watches Claude Code sessions in real-time |
 | [`@agentpane/nomad-sandbox-sdk`](packages/nomad-sandbox-sdk) | TypeScript SDK for HashiCorp Nomad sandbox management via HTTP API |
+| [`agentpane` CLI](cli) | Go CLI and SDK for AgentPane API — manage codespaces, tasks, sessions, and agents from the terminal |
 
 ## Documentation
 

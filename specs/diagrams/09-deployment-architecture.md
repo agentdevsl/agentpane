@@ -38,8 +38,17 @@ flowchart TB
 
         subgraph SANDBOX ["Agent Sandbox Containers"]
             direction LR
-            S1["agent-sandbox:latest<br/><i>per-project container</i>"]
-            S2["agent-sandbox:latest<br/><i>per-project container</i>"]
+            S1["agent-sandbox:latest<br/><i>per-codespace container</i>"]
+            S2["agent-sandbox:latest<br/><i>per-codespace container</i>"]
+        end
+
+        subgraph HONCHO ["Honcho Memory (optional)"]
+            direction LR
+            HONCHO_API["honcho:2.0.1<br/><i>Memory API :8000</i>"]
+            HONCHO_PG["pgvector/pgvector:pg16<br/><i>PostgreSQL :5433</i>"]
+            HONCHO_REDIS["redis:7-alpine<br/><i>Redis :6380</i>"]
+            HONCHO_API --> HONCHO_PG
+            HONCHO_API --> HONCHO_REDIS
         end
     end
 
@@ -50,6 +59,7 @@ flowchart TB
     CADDY --> LMDB
     SERVICES -- "DurableStreamsService<br/>publish()" --> STREAMS
     SERVICES -- "ContainerAgentService<br/>exec / execStream" --> SANDBOX
+    SERVICES -. "MemoryService<br/>(optional)" .-> HONCHO_API
     S1 -. "/workspace<br/>bind mount" .-> SQLITE
     S2 -. "/workspace<br/>bind mount" .-> SQLITE
 
@@ -61,6 +71,7 @@ flowchart TB
     style BUN fill:#14532d,color:#e2e8f0
     style STORAGE fill:#713f12,color:#e2e8f0
     style SANDBOX fill:#581c87,color:#e2e8f0
+    style HONCHO fill:#4a1d6e,color:#e2e8f0
 ```
 
 ## Docker Images
@@ -70,6 +81,7 @@ flowchart TB
 | `agentpane:latest` | `docker/Dockerfile` | Main application (Caddy + Bun) |
 | `srlynch1/agent-sandbox:latest` | `docker/Dockerfile.agent-sandbox` | Sandboxed agent execution (Claude CLI + agent-runner) |
 | `agentpane-agentcore:latest` | `docker/Dockerfile.agentcore` | AWS Bedrock AgentCore runtime (ARM64) |
+| `ghcr.io/plastic-labs/honcho:2.0.1` | `docker/docker-compose.memory.yml` | Persistent agent memory (Honcho API + pgvector + Redis) |
 
 ## Build Stages (Main Dockerfile)
 
@@ -101,8 +113,11 @@ flowchart TB
 |--------|-------|----------|
 | `agentpane-data` | `/app/data` | SQLite database |
 | `agentpane-streams` | `/app/streams` | LMDB durable stream data |
+| `honcho_pgdata` | Honcho PostgreSQL | Honcho memory data (optional) |
+| `honcho_redis` | Honcho Redis | Honcho cache data (optional) |
 
 ## Alternative Configurations
 
 - **PostgreSQL**: `docker/docker-compose.postgres.yml` provides a PostgreSQL 18 instance for environments requiring a relational database instead of SQLite
 - **Agent sandbox containers**: created dynamically by `ContainerAgentService` with project directories bind-mounted to `/workspace`
+- **Honcho Memory**: `docker/docker-compose.memory.yml` provides Honcho (memory API), pgvector PostgreSQL, and Redis as an optional sidecar for persistent agent memory

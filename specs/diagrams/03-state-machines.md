@@ -8,7 +8,7 @@ Four state machines govern the core lifecycles in AgentPane. Each diagram below 
 
 **Enum:** `AGENT_STATUS = ['idle', 'starting', 'planning', 'running', 'paused', 'error', 'completed']`
 
-The agent lifecycle governs execution from task assignment through completion. After starting, the agent enters a **planning** phase where it explores the codebase and creates an implementation plan (using `permissionMode: 'plan'`). Once the plan is approved, the agent transitions to **running** for full execution. The agent can be paused (e.g., turn limit reached or user input needed) and resumed, and errors may be recoverable or terminal.
+The agent lifecycle governs execution from task assignment through completion. After starting, the agent enters a **planning** phase where it explores the codebase and creates an implementation plan (using `permissionMode: 'plan'`). If the task has an associated skill, the prompt includes a `use skill` directive. If MemoryService is available, context from previous sessions is injected into the prompt before planning begins. Once the plan is approved, the agent transitions to **running** for full execution. The agent can be paused (e.g., turn limit reached or user input needed) and resumed, and errors may be recoverable or terminal.
 
 - **Initial state:** `idle`
 - **Terminal state:** `completed` (can also restart from `completed` via a new `START` event)

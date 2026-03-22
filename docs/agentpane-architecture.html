@@ -227,8 +227,8 @@ const NODES = [
   { id: 'events-ui',       label: 'Events UI',           subtitle: 'features/events/',                 x: 785, y: 30, w: 100, h: 40, layer: 'frontend', desc: 'Event log timeline, source cards, subscription management.' },
   { id: 'api-client',      label: 'API Client',          subtitle: 'src/lib/api/client.ts',            x: 100, y: 85, w: 110, h: 36, layer: 'frontend', desc: 'Typed fetch wrapper with dual endpoints (port 3000/3001).' },
   { id: 'streams-client',  label: 'Durable Streams',     subtitle: 'src/lib/streams/client.ts',        x: 260, y: 85, w: 125, h: 36, layer: 'frontend', desc: 'SSE client with auto-reconnect, offset tracking, Zod validation.' },
-  { id: 'hooks',           label: 'Custom Hooks',        subtitle: 'src/app/hooks/',                   x: 430, y: 85, w: 110, h: 36, layer: 'frontend', desc: 'useSession, useAgentStream, useContainerAgent, useQueuePosition.' },
-  { id: 'providers',       label: 'Context Providers',   subtitle: 'src/app/providers/',                x: 590, y: 85, w: 120, h: 36, layer: 'frontend', desc: 'ProjectContext, ShortcutsProvider, ServiceProvider, Bootstrap.' },
+  { id: 'hooks',           label: 'Custom Hooks',        subtitle: 'src/app/hooks/',                   x: 430, y: 85, w: 110, h: 36, layer: 'frontend', desc: 'useSession, useAgentStream, useContainerAgent, useQueuePosition, useMountEffect, useWatchEffect, useInterval.' },
+  { id: 'providers',       label: 'Context Providers',   subtitle: 'src/app/providers/',                x: 590, y: 85, w: 120, h: 36, layer: 'frontend', desc: 'CodespaceContext, ShortcutsProvider, ServiceProvider, Bootstrap.' },
 
   // API Layer (y: 150-190)
   { id: 'hono-router',     label: 'Hono Router',         subtitle: 'src/server/router.ts',              x: 60,  y: 155, w: 120, h: 40, layer: 'api', desc: 'Middleware chain: CORS → Auth → RBAC → Rate Limit → Route.' },
@@ -264,7 +264,7 @@ const NODES = [
   { id: 'container-bridge', label: 'Container Bridge',   subtitle: 'lib/agents/container-bridge.ts',    x: 100, y: 455, w: 125, h: 36, layer: 'agents', desc: 'Parses JSON-line stdout from agent-runner. Maps to stream events.' },
 
   // Data Layer (y: 520-560)
-  { id: 'db-projects',     label: 'projects',            subtitle: 'db/schema/sqlite/',                  x: 60,  y: 525, w: 100, h: 36, layer: 'data', desc: 'Project with config, GitHub owner/repo, sandbox config FK.' },
+  { id: 'db-codespaces',   label: 'codespaces',          subtitle: 'db/schema/sqlite/',                  x: 60,  y: 525, w: 100, h: 36, layer: 'data', desc: 'Codespace with config, GitHub owner/repo, sandbox config FK.' },
   { id: 'db-tasks',        label: 'tasks',               subtitle: 'db/schema/sqlite/',                  x: 180, y: 525, w: 90,  h: 36, layer: 'data', desc: '5-column workflow: backlog→queued→in_progress→waiting_approval→verified.' },
   { id: 'db-agents',       label: 'agents',              subtitle: 'db/schema/sqlite/',                  x: 290, y: 525, w: 90,  h: 36, layer: 'data', desc: '7 statuses: idle→starting→planning→running→paused→error→completed.' },
   { id: 'db-sessions',     label: 'sessions',            subtitle: 'db/schema/sqlite/',                  x: 400, y: 525, w: 100, h: 36, layer: 'data', desc: 'SSE stream URL. Sandbox provider/container ID.' },
@@ -274,7 +274,7 @@ const NODES = [
   { id: 'db-sched-exec',   label: 'schedule_executions', subtitle: 'db/schema/sqlite/',                  x: 890, y: 525, w: 130, h: 36, layer: 'data', desc: 'Budget tracking per window. CAS lock support.' },
 
   // Infrastructure (y: 590-630)
-  { id: 'docker',          label: 'Docker Provider',     subtitle: 'lib/sandbox/docker-provider.ts',    x: 80,  y: 600, w: 120, h: 36, layer: 'infra', desc: 'Project-isolated containers via dockerode. Volume mounts.' },
+  { id: 'docker',          label: 'Docker Provider',     subtitle: 'lib/sandbox/docker-provider.ts',    x: 80,  y: 600, w: 120, h: 36, layer: 'infra', desc: 'Codespace-isolated containers via dockerode. Volume mounts.' },
   { id: 'k8s',             label: 'K8s Provider',        subtitle: 'lib/sandbox/agent-sandbox',         x: 220, y: 600, w: 110, h: 36, layer: 'infra', desc: 'CRD-based pods. gVisor/Kata runtime. Warm pool.' },
   { id: 'agent-runner',    label: 'Agent Runner',        subtitle: 'agent-runner/src/index.ts',          x: 360, y: 600, w: 120, h: 36, layer: 'infra', desc: 'Entry point inside container. Claude SDK + JSON-line events.' },
   { id: 'encryption',      label: 'Server Encryption',   subtitle: 'lib/crypto/server-encryption.ts',   x: 510, y: 600, w: 130, h: 36, layer: 'infra', desc: 'AES-256-GCM. Key in ./data/encryption.key (0o600).' },
@@ -284,7 +284,16 @@ const NODES = [
   { id: 'claude-api',      label: 'Claude API',          subtitle: 'anthropic.com',                      x: 100, y: 670, w: 110, h: 36, layer: 'external', desc: 'claude-opus-4-6 / claude-sonnet-4-6. Streaming sessions.' },
   { id: 'github-api',      label: 'GitHub API',          subtitle: 'api.github.com',                     x: 260, y: 670, w: 110, h: 36, layer: 'external', desc: 'Repos, branches, orgs. Webhook delivery. OAuth.' },
   { id: 'tf-registry',     label: 'Terraform Registry',  subtitle: 'registry.terraform.io',              x: 420, y: 670, w: 130, h: 36, layer: 'external', desc: 'Provider/module search. Version resolution.' },
-  { id: 'git-repos',       label: 'Git Repositories',    subtitle: 'Local / Remote',                     x: 590, y: 670, w: 120, h: 36, layer: 'external', desc: 'Project repos. Worktree branches. Merge targets.' },
+  { id: 'git-repos',       label: 'Git Repositories',    subtitle: 'Local / Remote',                     x: 590, y: 670, w: 120, h: 36, layer: 'external', desc: 'Codespace repos. Worktree branches. Merge targets.' },
+
+  // New nodes from PRs #108-#112
+  { id: 'live-task-view',  label: 'Live Task View',      subtitle: 'features/live-task/',                x: 920, y: 30, w: 120, h: 40, layer: 'frontend', desc: '3-column layout: task list, agent topology, audit trail.' },
+  { id: 'memory-service',  label: 'Memory Service',      subtitle: 'services/memory.service.ts',         x: 790, y: 330, w: 125, h: 36, layer: 'services', desc: 'Honcho-backed persistent agent memory with context injection.' },
+  { id: 'skill-injector',  label: 'Skill Injector',      subtitle: 'services/skill-injector.ts',         x: 930, y: 275, w: 120, h: 40, layer: 'services', desc: 'Materializes org/template skills into sandbox .claude/skills/.' },
+  { id: 'folder-service',  label: 'Folder Service',      subtitle: 'services/folder.service.ts',         x: 930, y: 330, w: 120, h: 36, layer: 'services', desc: 'Project folder hierarchy management.' },
+  { id: 'honcho-api',      label: 'Honcho API',          subtitle: 'honcho.dev',                         x: 740, y: 670, w: 110, h: 36, layer: 'external', desc: 'Persistent memory backend with pgvector + Redis.' },
+  { id: 'go-cli',          label: 'Go CLI',              subtitle: 'agentpane binary',                   x: 870, y: 670, w: 100, h: 36, layer: 'external', desc: 'agentpane binary - REST API consumer.' },
+  { id: 'db-project-folders', label: 'project_folders',  subtitle: 'db/schema/sqlite/',                  x: 890, y: 525, w: 120, h: 36, layer: 'data', desc: 'Organizational hierarchy for codespaces.' },
 ];
 
 const CONNECTIONS = [
@@ -354,6 +363,11 @@ const CONNECTIONS = [
   { from: 'github-plugin',  to: 'github-api',       type: 'data-flow', label: 'verify' },
   { from: 'worktree-service', to: 'git-repos',      type: 'data-flow', label: '' },
   { from: 'tf-compose',     to: 'tf-registry',      type: 'data-flow', label: '' },
+
+  // New connections from PRs #108-#112
+  { from: 'memory-service', to: 'honcho-api',       type: 'data-flow', label: '' },
+  { from: 'container-agent', to: 'skill-injector',  type: 'data-flow', label: '' },
+  { from: 'go-cli',        to: 'hono-router',       type: 'data-flow', label: 'REST' },
 ];
 
 // =========================================================================

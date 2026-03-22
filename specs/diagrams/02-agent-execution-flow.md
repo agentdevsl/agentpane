@@ -1,6 +1,6 @@
 # Agent Execution Flow
 
-The complete lifecycle of an agent working on a task in AgentPane, from the user dragging a task card on the Kanban board through planning, approval, execution, and final review.
+The complete lifecycle of an agent working on a task in AgentPane, from the user dragging a task card on the Kanban board or the Live Task View through planning, approval, execution, and final review.
 
 ## Key source files
 
@@ -23,6 +23,7 @@ sequenceDiagram
     participant AgentExecutionService
     participant ClaudeSDK
     participant DurableStreams
+    participant MemoryService
 
     %% ── Phase 1: Task Move ──────────────────────────────────
     Note over User,DurableStreams: Phase 1 - Task Move to In Progress
@@ -37,6 +38,7 @@ sequenceDiagram
 
     alt Container sandbox enabled
         TaskService->>TaskService: Trigger container agent via containerAgentService
+        Note right of TaskService: Skills injected into<br/>.claude/skills/ during startup
     else Host-side agent
         API->>API: Log: container agent will run if sandbox enabled
     end
@@ -49,7 +51,7 @@ sequenceDiagram
 
     AgentExecutionService->>AgentExecutionService: Find idle agent or create new one
     AgentExecutionService->>AgentExecutionService: Validate agent status == "idle"
-    AgentExecutionService->>AgentExecutionService: Check project concurrency limits
+    AgentExecutionService->>AgentExecutionService: Check codespace concurrency limits
 
     AgentExecutionService->>AgentExecutionService: Create git worktree<br/>(isolated branch for task)
     AgentExecutionService->>AgentExecutionService: Create session record
@@ -60,8 +62,20 @@ sequenceDiagram
 
     AgentExecutionService->>DurableStreams: Publish state:update<br/>{status: "starting"}
     AgentExecutionService->>AgentExecutionService: Set agent status = "planning"
-    AgentExecutionService->>AgentExecutionService: Resolve model (task -> agent -> project -> global)
+    AgentExecutionService->>AgentExecutionService: Resolve model (task -> agent -> codespace -> global)
     AgentExecutionService->>AgentExecutionService: Create agent hooks (streaming + audit)
+
+    AgentExecutionService->>AgentExecutionService: Build task prompt<br/>(title, description, worktree path)
+
+    opt Task has skillId
+        AgentExecutionService->>AgentExecutionService: Prepend "use skill {skillName}"<br/>directive to prompt
+    end
+
+    opt MemoryService available
+        AgentExecutionService->>MemoryService: getContext(codespaceId, taskTitle)
+        MemoryService-->>AgentExecutionService: MemoryContext {text, sources}
+        AgentExecutionService->>AgentExecutionService: Append memory context to prompt
+    end
 
     %% ── Phase 3: Planning ───────────────────────────────────
     Note over User,DurableStreams: Phase 3 - Planning (permissionMode: "plan")
@@ -71,6 +85,10 @@ sequenceDiagram
 
     ClaudeSDK->>ClaudeSDK: unstable_v2_createSession()<br/>permissionMode: "plan"
     ClaudeSDK->>ClaudeSDK: session.send(taskPrompt)
+
+    opt MemoryService available
+        AgentExecutionService->>MemoryService: startSession(codespaceId,<br/>agentId, taskId, "planning")
+    end
 
     loop Streaming planning turns
         ClaudeSDK->>DurableStreams: Publish chunk<br/>{delta, accumulated, phase: "planning"}
@@ -92,6 +110,11 @@ sequenceDiagram
 
     ClaudeSDK->>ClaudeSDK: Extract plan content from accumulated text
     ClaudeSDK->>ClaudeSDK: session.close()
+
+    opt MemoryService available
+        AgentExecutionService->>MemoryService: finalizeSession()
+        Note right of MemoryService: Triggers Honcho deriver
+    end
 
     ClaudeSDK->>DurableStreams: Publish agent:metrics<br/>{totalCostUsd, durationMs, numTurns}
     ClaudeSDK->>DurableStreams: Publish agent:plan_ready<br/>{plan, allowedPrompts}
@@ -220,6 +243,7 @@ Events published to DurableStreams during the agent lifecycle:
 | `agent:turn_limit` | Execution | Max turns reached, agent paused |
 | `agent:completed` | Execution | Agent finished successfully |
 | `agent:error` | Any | Error with recovery action |
+| `memory:context_injected` | Init | Memory context appended to agent prompt |
 
 ## ExitPlanMode Options
 

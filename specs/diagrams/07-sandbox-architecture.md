@@ -1,6 +1,6 @@
 # Sandbox Architecture
 
-Multi-provider sandbox system for isolated agent execution. The `SandboxService` manages container lifecycle (create, idle-check, stop) while the `ContainerAgentService` orchestrates agent processes inside those containers via stdout event bridging or SSE invocation.
+Multi-provider sandbox system for isolated agent execution. The `SandboxService` manages container lifecycle (create, idle-check, stop) while the `ContainerAgentService` orchestrates agent processes inside those containers — including skill injection from org/template configurations — via stdout event bridging or SSE invocation.
 
 ```mermaid
 flowchart TB
@@ -8,12 +8,14 @@ flowchart TB
     CAS["ContainerAgentService<br/><i>container-agent.service.ts</i>"]
     SS["SandboxService<br/><i>sandbox.service.ts</i>"]
     CREDS["CredentialsInjector<br/><i>OAuth token -> ~/.claude/.credentials.json</i>"]
+    SKILLS["SkillInjector<br/><i>skill-injector.ts</i><br/><small>org/template skills → .claude/skills/</small>"]
     PS{{"Provider Selection<br/><i>SandboxProvider interface</i>"}}
 
     TASK --> CAS
     CAS --> SS
     SS --> CREDS
-    SS --> PS
+    CREDS --> SKILLS
+    SKILLS --> PS
 
     PS --> DOCKER
     PS --> NOMAD
@@ -67,9 +69,11 @@ flowchart TB
         RUNNER["Agent Runner<br/><i>/opt/agent-runner/dist/index.js</i>"]
         CLI["Claude Code CLI<br/><i>claude-agent-sdk</i>"]
         WS["/workspace<br/><i>bind-mounted project dir</i>"]
+        SKILLDIR[".claude/skills/<br/><i>materialized skill files</i>"]
         ENTRY --> RUNNER
         RUNNER --> CLI
         CLI --> WS
+        CLI --> SKILLDIR
     end
 
     D3 --> Container
@@ -98,8 +102,9 @@ flowchart TB
 
 Defaults from `SANDBOX_DEFAULTS`:
 - **Image**: `srlynch1/agent-sandbox:latest`
-- **Memory**: configurable per-project
-- **CPU**: configurable per-project
+- **Memory**: configurable per-codespace
+- **CPU**: configurable per-codespace
 - **Idle timeout**: auto-stop after inactivity (checked every 5 minutes)
 - **Volume mounts**: project path bind-mounted to `/workspace`
 - **Security**: non-root `node` user, limited sudo, `git safe.directory *`
+- **Skill injection**: org/template skills materialized to `/workspace/.claude/skills/{skillId}/SKILL.md` before agent execution (non-fatal on failure)

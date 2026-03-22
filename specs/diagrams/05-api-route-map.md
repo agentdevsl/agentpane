@@ -1,12 +1,16 @@
 # API Route Map
 
-All 33 Hono route modules registered under `/api`, grouped by domain. Each module lives in `src/server/routes/<name>.ts` and is mounted by the main API router.
+All Hono route modules registered under `/api`, grouped by domain. Each module lives in `src/server/routes/<name>.ts` and is mounted by the main API router. Core routes manage codespaces (formerly projects) and their child resources.
 
 ```mermaid
 mindmap
   root((API Routes))
     Core
-      projects
+      codespaces
+        skills
+        tags
+        members
+      project-folders
       tasks
       agents
       sessions
@@ -18,13 +22,12 @@ mindmap
         POST /logout
       teams
       team-members
-      team-projects
+      team-project-folders
       team-invitations
       team-github-token
       me
       rbac-tokens
       invitation-accept
-      project-members
     Features
       events
         sources CRUD
@@ -36,9 +39,15 @@ mindmap
         modules search
         validate
         compose
+      memory
+        health
+        conclusions CRUD
+        sessions
+        search
       cli-monitor
       sandbox
       sandbox-status
+      sandbox-configs
       settings
       api-keys
       templates

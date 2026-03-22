@@ -37,18 +37,22 @@ sequenceDiagram
     Note over User,RBAC: Authenticated API Request
 
     User->>App: Navigate / interact
-    App->>API: GET /api/projects (with session cookie)
+    App->>API: GET /api/codespaces (with session cookie)
     API->>API: Extract token from cookie
     API->>DB: Validate session (hash lookup, check expiry)
     DB-->>API: userId
 
-    API->>RBAC: resolveUserRole(userId, projectId)
+    API->>RBAC: resolveUserRole(userId, codespaceId)
 
-    alt Direct project member
-        RBAC->>DB: Query project_members
+    alt Direct codespace member
+        RBAC->>DB: Query codespace_members
         DB-->>RBAC: role override
-    else Team membership
-        RBAC->>DB: JOIN team_members + team_projects
+    else Folder-level member
+        RBAC->>DB: Lookup codespace.projectFolderId
+        RBAC->>DB: Query folder_members
+        DB-->>RBAC: folder role
+    else Team membership via folder
+        RBAC->>DB: JOIN team_members + team_project_folders
         DB-->>RBAC: highest role across linked teams
     end
 
@@ -66,10 +70,10 @@ sequenceDiagram
     App->>API: GET /api/... (Authorization: Bearer <token>)
     API->>DB: Validate rbac_token (hash lookup, check expiry)
     DB-->>API: token record (role ceiling, project scope, tags)
-    API->>RBAC: resolveUserRole(token.userId, projectId)
+    API->>RBAC: resolveUserRole(token.userId, codespaceId)
     RBAC-->>API: membership role
     API->>API: applyTokenCeiling(membershipRole, tokenRole)
-    API->>API: checkProjectScope + checkTagAccess
+    API->>API: checkCodespaceScope + checkTagAccess
 
     Note over User,RBAC: Logout
 
@@ -83,20 +87,21 @@ sequenceDiagram
 
 | Role | Level | Example Permissions |
 |------|-------|-------------------|
-| **viewer** | 10 | Read projects, tasks, sessions, agents |
+| **viewer** | 10 | Read codespaces, folders, tasks, sessions, agents |
 | **agent_operator** | 20 | Create/update tasks, start/stop agents, approve plans |
-| **admin** | 30 | Create/delete projects, manage members, update settings |
+| **admin** | 30 | Create/delete codespaces, manage members/folders, update settings |
 | **owner** | 40 | Delete team, transfer ownership |
 
 ## Role Resolution Order
 
-1. **Direct project_members override** -- if the user has a row in `project_members` for this project, use that role
-2. **Team membership via team_projects** -- JOIN `team_members` with `team_projects`, take the highest role across all linked teams
-3. **No membership found** -- deny access (return null)
+1. **Direct codespace_members override** -- if the user has a row in `codespace_members` for this codespace, use that role
+2. **Folder-level membership via folder_members** -- look up the codespace's `projectFolderId`, query `folder_members` for that folder
+3. **Team membership via team_project_folders** -- JOIN `team_members` with `team_project_folders` on the folder, take the highest role across all linked teams
+4. **No membership found** -- deny access (return null)
 
 ## API Token Scoping
 
 RBAC tokens support three scoping mechanisms:
 - **Role ceiling**: effective role = min(membership role, token role)
-- **Project scope**: token can be restricted to a single project
+- **Codespace scope**: token can be restricted to a single codespace
 - **Tag access**: token scope tags must overlap with resource tags
