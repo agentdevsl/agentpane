@@ -40,6 +40,15 @@ export const createTaskSchema = z.object({
   description: z.string().max(10000).optional(),
   labels: z.array(z.string().max(50)).max(20).optional(),
   priority: taskPrioritySchema.optional(),
+  skillId: z
+    .string()
+    .max(200)
+    .regex(
+      /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/,
+      'Skill ID must contain only alphanumeric characters, hyphens, and underscores'
+    )
+    .optional(),
+  skillName: z.string().max(200).optional(),
 });
 
 export const updateTaskSchema = z
@@ -48,6 +57,16 @@ export const updateTaskSchema = z
     description: z.string().max(10000).optional(),
     labels: z.array(z.string().max(50)).max(20).optional(),
     priority: taskPrioritySchema.optional(),
+    skillId: z
+      .string()
+      .max(200)
+      .regex(
+        /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/,
+        'Skill ID must contain only alphanumeric characters, hyphens, and underscores'
+      )
+      .nullable()
+      .optional(),
+    skillName: z.string().max(200).nullable().optional(),
   })
   .refine((data) => Object.values(data).some((v) => v !== undefined), {
     message: 'At least one field must be provided',

@@ -50,6 +50,10 @@ export const tasks = sqliteTable(
     rejectionReason: text('rejection_reason'),
     /** Model override for this task (short ID like 'claude-opus-4') */
     modelOverride: text('model_override'),
+    /** Skill directory name (e.g., 'terraform-stacks') — maps to .claude/skills/{skillId}/SKILL.md */
+    skillId: text('skill_id'),
+    /** Denormalized skill display name for UI rendering */
+    skillName: text('skill_name'),
     /** Plan options from ExitPlanMode plus SDK session context */
     planOptions: text('plan_options', { mode: 'json' }).$type<StoredPlanOptions>(),
     /** The generated plan content */

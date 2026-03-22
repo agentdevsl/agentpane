@@ -28,6 +28,8 @@ export type CreateTaskInput = {
   description?: string;
   labels?: string[];
   priority?: 'high' | 'medium' | 'low';
+  skillId?: string;
+  skillName?: string;
 };
 
 export type UpdateTaskInput = {
@@ -37,6 +39,8 @@ export type UpdateTaskInput = {
   priority?: 'high' | 'medium' | 'low';
   /** Model override for this task (short ID like 'claude-opus-4') */
   modelOverride?: string | null;
+  skillId?: string | null;
+  skillName?: string | null;
 };
 
 export type ListTasksOptions = {
@@ -254,7 +258,15 @@ export class TaskService {
   }
 
   async create(input: CreateTaskInput): Promise<Result<Task, TaskError>> {
-    const { codespaceId, title, description, labels = [], priority = 'medium' } = input;
+    const {
+      codespaceId,
+      title,
+      description,
+      labels = [],
+      priority = 'medium',
+      skillId,
+      skillName,
+    } = input;
 
     const codespace = await this.db.query.codespaces.findFirst({
       where: eq(codespaces.id, codespaceId),
@@ -281,6 +293,8 @@ export class TaskService {
         priority,
         column: 'backlog',
         position,
+        skillId,
+        skillName,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       })
@@ -572,13 +586,19 @@ export class TaskService {
    * Build the prompt for container agent execution.
    */
   private buildTaskPrompt(task: Task): string {
-    const parts = [
+    const parts: string[] = [];
+
+    if (task.skillId) {
+      parts.push(`use skill ${task.skillId}`, '');
+    }
+
+    parts.push(
       'Work on the following task:',
       '',
       `Title: ${task.title}`,
       '',
-      `Description: ${task.description ?? 'No description provided.'}`,
-    ];
+      `Description: ${task.description ?? 'No description provided.'}`
+    );
 
     if (task.labels && task.labels.length > 0) {
       parts.push('', `Labels: ${task.labels.join(', ')}`);

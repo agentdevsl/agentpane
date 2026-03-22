@@ -5,8 +5,8 @@ import type { TaskColumn, TaskPriority } from '../shared/enums';
 import { codespaces } from './codespaces';
 import { eventSources } from './event-sources';
 
-export type { SubscriptionFilter };
 export type { TaskColumn, TaskPriority } from '../shared/enums';
+export type { SubscriptionFilter };
 
 export const eventSubscriptions = pgTable(
   'event_subscriptions',

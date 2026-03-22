@@ -398,7 +398,11 @@ export function createRouter(deps: RouterDependencies) {
   app.route('/api/settings', createSettingsRoutes({ settingsService: deps.settingsService }));
   app.route(
     '/api/codespaces',
-    createCodespacesRoutes({ codespaceService: deps.codespaceService, db: deps.db })
+    createCodespacesRoutes({
+      codespaceService: deps.codespaceService,
+      templateService: deps.templateService,
+      db: deps.db,
+    })
   );
   app.route(
     '/api/project-folders',

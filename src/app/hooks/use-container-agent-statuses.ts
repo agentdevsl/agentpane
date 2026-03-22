@@ -18,6 +18,7 @@ export interface AgentStatusInfo {
     | 'initializing'
     | 'validating'
     | 'credentials'
+    | 'injecting_skills'
     | 'creating_sandbox'
     | 'executing'
     | 'running';
