@@ -27,6 +27,7 @@ export type CachedSkill = {
   id: string;
   name: string;
   description?: string;
+  tags?: string[];
   content: string;
 };
 

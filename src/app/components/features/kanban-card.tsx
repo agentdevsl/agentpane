@@ -1,6 +1,7 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
+  BookOpen,
   CheckCircle,
   Circle,
   DotsSixVertical,
@@ -244,6 +245,16 @@ export function KanbanCard({
           </p>
         </div>
       </div>
+
+      {/* Skill badge */}
+      {task.skillName && (
+        <div className="mt-2 flex" data-testid="task-skill-badge">
+          <span className="inline-flex items-center gap-1 rounded-full bg-[var(--accent-subtle)] px-2 py-0.5 text-[10px] font-medium text-[var(--accent-fg)]">
+            <BookOpen className="h-3 w-3" weight="bold" />
+            {task.skillName}
+          </span>
+        </div>
+      )}
 
       {/* Footer with ID, status badges, and run button */}
       <div className="mt-2.5 flex items-center justify-between gap-2">

@@ -152,6 +152,51 @@ No system-level fallback is needed — the agent handles missing files naturally
 
 The `skillId` stays on the task until manually updated. The skill might be temporarily missing (branch switch, sync error) and could return.
 
+## Skill Tags
+
+Skills support an optional `tags` field for categorization and filtering.
+
+### Frontmatter Format
+
+Tags are declared as a comma-separated string in SKILL.md frontmatter:
+
+```yaml
+---
+name: terraform-stacks
+description: Guide for Terraform Stacks
+tags: terraform, infrastructure, stacks
+---
+```
+
+### Data Model
+
+- Stored as `tags?: string[]` on the `CachedSkill` type (both SQLite and PostgreSQL schemas)
+- `MergedSkill` inherits `tags` from `CachedSkill` automatically
+- Parsed during template sync: comma-separated string is split, trimmed, and stored as an array
+- Returned from both `GET /:id/skills` (list) and `GET /:id/skills/:skillId` (detail) endpoints
+
+### UI Filtering
+
+The skill picker collects all unique tags from fetched skills and displays them as filter chips:
+
+- Clicking a tag chip toggles it on/off
+- Multiple tags can be selected simultaneously (AND logic: show skills matching ALL selected tags)
+- Each skill item displays its tags as small badges
+- Tag filters reset when the codespace changes
+
+### Materialization
+
+When skills are materialized into sandbox containers via the skill injector, tags are included in the generated SKILL.md frontmatter:
+
+```yaml
+---
+name: "terraform-stacks"
+description: "Guide for Terraform Stacks"
+tags: terraform, infrastructure, stacks
+source: org
+---
+```
+
 ## Skills for Codespace Endpoint
 
 To power the skill picker UI:
@@ -160,7 +205,7 @@ To power the skill picker UI:
 1. Call `templateService.getMergedConfig(codespaceId)` for template skills
 2. Also scan the project's `.claude/skills/` directory for local skills not in templates
 3. Merge and deduplicate
-4. Return `{ id, name, description, sourceType }` sorted by name
+4. Return `{ id, name, description, tags, sourceType }` sorted by name
 
 **GET /api/codespaces/:id/skills/:skillId** — Returns full skill content:
 1. Try template merge first

@@ -44,6 +44,9 @@ function buildSkillMarkdown(skill: MergedSkill): string {
   if (skill.description) {
     lines.push(`description: "${escapeYamlValue(skill.description)}"`);
   }
+  if (skill.tags && skill.tags.length > 0) {
+    lines.push(`tags: ${skill.tags.join(', ')}`);
+  }
   lines.push(`source: ${skill.sourceType}`);
   lines.push('---');
   lines.push(skill.content);

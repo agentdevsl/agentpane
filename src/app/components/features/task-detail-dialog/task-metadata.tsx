@@ -1,4 +1,5 @@
 import {
+  BookOpen,
   Brain,
   CalendarBlank,
   Clock,
@@ -7,6 +8,7 @@ import {
   Hash,
   Terminal,
 } from '@phosphor-icons/react';
+import { SkillPickerInline } from '@/app/components/features/skill-picker.js';
 import { ExecutionBadge } from '@/app/components/ui/execution-badge';
 import { ModelSelectorInline } from '@/app/components/ui/model-selector';
 import type { Task } from '@/db/schema';
@@ -19,6 +21,7 @@ interface TaskMetadataProps {
   sandboxProvider?: string | null;
   sandboxContainerId?: string | null;
   onModelChange?: (modelId: string | null) => void;
+  onSkillChange?: (skillId: string | null, skillName: string | null) => void;
   onViewSession?: (sessionId: string) => void;
 }
 
@@ -67,6 +70,7 @@ export function TaskMetadata({
   sandboxProvider,
   sandboxContainerId,
   onModelChange,
+  onSkillChange,
   onViewSession,
 }: TaskMetadataProps): React.JSX.Element {
   // Extract additional metadata from diffSummary if available
@@ -88,6 +92,10 @@ export function TaskMetadata({
   // Get model name for display
   const modelOverride = (task as Task & { modelOverride?: string | null }).modelOverride;
   const modelDisplay = modelOverride ? (getModelById(modelOverride)?.name ?? modelOverride) : null;
+
+  // Get skill data
+  const skillId = (task as Task & { skillId?: string | null }).skillId ?? null;
+  const skillName = (task as Task & { skillName?: string | null }).skillName ?? null;
 
   return (
     <div className="space-y-3">
@@ -168,6 +176,28 @@ export function TaskMetadata({
               onChange={onModelChange}
               allowInherit
               inheritLabel="Default"
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Skill Section */}
+      <div className="rounded-md border border-border bg-surface-subtle p-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <BookOpen className="h-4 w-4 text-fg-muted" />
+            <div>
+              <p className="text-sm font-medium text-fg">Skill</p>
+              <p className="text-xs text-fg-muted">
+                {skillName ? `Using ${skillName}` : 'No skill assigned'}
+              </p>
+            </div>
+          </div>
+          {onSkillChange && (
+            <SkillPickerInline
+              codespaceId={task.codespaceId}
+              value={skillId}
+              onChange={onSkillChange}
             />
           )}
         </div>

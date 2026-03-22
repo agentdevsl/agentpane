@@ -80,24 +80,49 @@ See [skill-resolution.md](skill-resolution.md) for the materialization flow.
 
 ### Skill Picker (New Component)
 
-Dropdown/combobox in new task dialog and task detail dialog:
+**File**: `src/app/components/features/skill-picker.tsx`
+
+Radix Select-based dropdown used in new task dialog and task detail dialog:
 - Fetches available skills via `GET /api/codespaces/:id/skills`
-- Groups by source (local / project template / org template)
-- Selecting a skill sets both `skillId` and `skillName`
-- Optional — tasks without skills work as before
+- Groups by `sourceType` (Organization / Project / Local)
+- Shows skill name, description, and tags as small badges
+- **Tag filtering**: Clickable tag chips above the skill list. Multiple tags use AND logic.
+- Allow clearing the selection (no skill)
+- Props: `codespaceId`, `value` (current skillId), `onChange(skillId, skillName)`
+- `SkillPickerInline` variant for compact metadata sections
+- Self-hides when no skills are available and none selected
 
-### Kanban Card Badge
+### Kanban Card Skill Badge
 
-Small pill on cards with a skill: `[Skill icon] terraform-stacks`
+**Files**: `src/app/components/features/kanban-board/kanban-card.tsx`, `src/app/components/features/kanban-card.tsx`
 
-Uses denormalized `task.skillName`. No filesystem access needed for rendering.
+Small pill displayed on kanban cards when `task.skillName` is truthy:
+- `BookOpen` Phosphor icon + skill name
+- `accent-subtle` background with `accent` text color
+- Positioned between description preview and footer
+- Display-only — no click handlers
+- Uses denormalized `task.skillName` — no API calls
 
-### Task Detail Dialog
+### Task Detail Dialog — Skill Section
 
-- Shows assigned skill with name, description, source
-- Change/remove skill via picker
-- Collapsible preview of SKILL.md content (fetched from API)
-- Warning if skill not found on filesystem
+**File**: `src/app/components/features/task-detail-dialog/task-skill.tsx`
+
+Dedicated `TaskSkill` component rendered below the description:
+- **Skill assigned**: Shows skill name as a pill with `Lightning` icon in `claude` (orange) color. "Change" button opens dropdown, "X" button clears.
+- **No skill**: Shows "Add skill" button with dashed border. Clicking opens dropdown that lazily fetches skills.
+- On change: sets `skillId`/`skillName` in `pendingChanges`, saved via `PUT /api/tasks/:id`
+
+Also integrated into:
+- `task-metadata.tsx` — Skill row in metadata section with `BookOpen` icon
+- `task-details-collapsible.tsx` — Skill name in read-only metadata grid
+
+### New Task Dialog Integration
+
+**File**: `src/app/components/features/new-task-dialog.tsx`
+
+- `SkillPicker` added to `TaskDetailsSidebar` between Tags and "Create manually" button
+- `selectedSkillId`/`selectedSkillName` state passed to `apiClient.tasks.create()`
+- State resets when dialog closes
 
 ## Backward Compatibility
 

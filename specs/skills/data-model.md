@@ -153,19 +153,38 @@ New types for the skill injection service:
 ```typescript
 // src/lib/sandbox/skill-injector.ts
 
-interface SkillInjectorOptions {
-  sandbox: SandboxInstance;
-  codespaceId: string;
-  templateService: TemplateService;
-  workspacePath?: string;  // default: '/workspace'
+/** Only allow directory-safe characters in skill IDs */
+const SAFE_SKILL_ID = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
+
+interface SkillInjectionResult {
+  injected: number;
+  skipped: number;
+  errors: Array<{ skillId: string; message: string }>;
 }
 
-interface InjectedSkill {
+async function injectSkills(
+  sandbox: Sandbox,
+  skills: MergedSkill[],
+  workspacePath?: string  // default: '/workspace'
+): Promise<SkillInjectionResult>
+```
+
+## CachedSkill Type (with tags)
+
+```typescript
+// src/db/schema/sqlite/templates.ts (and postgres mirror)
+export type CachedSkill = {
   id: string;
   name: string;
-  source: 'org' | 'project' | 'local';
-  path: string;  // e.g., '/workspace/.claude/skills/terraform-stacks/SKILL.md'
-}
+  description?: string;
+  tags?: string[];      // Parsed from comma-separated frontmatter
+  content: string;
+};
+```
+
+Tags are parsed from SKILL.md frontmatter during template sync:
+```yaml
+tags: terraform, infrastructure, stacks
 ```
 
 ## Validation Schema Changes
@@ -179,8 +198,10 @@ const createTaskSchema = z.object({
   description: z.string().max(10000).optional(),
   labels: z.array(z.string().max(50)).max(20).optional(),
   priority: taskPrioritySchema.optional(),
-  skillId: z.string().max(200).optional(),       // NEW
-  skillName: z.string().max(200).optional(),      // NEW
+  skillId: z.string().max(200)
+    .regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/, 'Skill ID must contain only alphanumeric characters, hyphens, and underscores')
+    .optional(),
+  skillName: z.string().max(200).optional(),
 });
 ```
 
@@ -192,11 +213,14 @@ const updateTaskSchema = z.object({
   description: z.string().max(10000).optional(),
   labels: z.array(z.string().max(50)).max(20).optional(),
   priority: taskPrioritySchema.optional(),
-  modelOverride: z.string().max(100).nullable().optional(),
-  skillId: z.string().max(200).nullable().optional(),     // NEW
-  skillName: z.string().max(200).nullable().optional(),   // NEW
+  skillId: z.string().max(200)
+    .regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/, 'Skill ID must contain only alphanumeric characters, hyphens, and underscores')
+    .nullable().optional(),
+  skillName: z.string().max(200).nullable().optional(),
 }).refine(/* at least one field required */);
 ```
+
+**Security**: The `skillId` regex (`/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/`) prevents path traversal, shell injection, and special characters. It matches the `SAFE_SKILL_ID` constant in `skill-injector.ts`.
 
 ## Design Decisions
 

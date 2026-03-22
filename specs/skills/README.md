@@ -19,6 +19,7 @@ Skills become the orchestration layer for tasks. Each task can reference a skill
 - **Shared filesystem**: All agents in a sandbox (orchestrator + sub-agents) share `/workspace/.claude/skills/` and can read any skill.
 - **Skill materialization**: Org/template skills not in the project repo are written to the sandbox filesystem before agent execution, similar to credential injection.
 - **Natural language composition**: Skills reference other skills by name. The agent reads them from disk and follows instructions naturally.
+- **Tags for filtering**: Skills support optional `tags` in frontmatter (comma-separated). The skill picker UI shows tag filter chips with AND logic.
 
 ## Design Principles
 

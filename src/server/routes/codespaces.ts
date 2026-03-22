@@ -473,6 +473,7 @@ export function createCodespacesRoutes({ codespaceService, templateService, db }
         id: skill.id,
         name: skill.name,
         description: skill.description,
+        tags: skill.tags,
         sourceType: skill.sourceType,
         sourceName: skill.sourceName,
       }));
@@ -537,6 +538,7 @@ export function createCodespacesRoutes({ codespaceService, templateService, db }
           id: skill.id,
           name: skill.name,
           description: skill.description,
+          tags: skill.tags,
           content: skill.content,
           sourceType: skill.sourceType,
           sourceName: skill.sourceName,

@@ -105,11 +105,16 @@ function TaskDetailRoute(): React.JSX.Element {
           }
         }}
         onSave={async (data) => {
-          // TODO: [CQ-018] Add API endpoint for updating tasks
+          if (task) {
+            const result = await apiClient.tasks.update(task.id, data);
+            if (!result.ok) {
+              console.error('[TaskDetailRoute] Failed to update task:', result.error);
+            }
+          }
           setTask((prev) => (prev ? { ...prev, ...data } : null));
         }}
-        onDelete={async (_id) => {
-          // TODO: [CQ-018] Add API endpoint for deleting tasks
+        onDelete={async (id) => {
+          await apiClient.tasks.delete(id);
         }}
         onViewSession={(sessionId) => {
           window.location.href = `/codespaces/${codespaceId}/sessions/${sessionId}`;
