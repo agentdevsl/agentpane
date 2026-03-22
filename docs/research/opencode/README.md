@@ -27,6 +27,7 @@ fits for AgentPane right now.
 | `08-kickoff-checklist.md` | Immediate implementation startup guide | Turns the first tranche into a practical kickoff checklist for the team |
 | `09-validation-matrix.md` | Tranche test and verification guide | Defines what must be validated before the first stream-correctness tranche is done |
 | `10-risk-register.md` | First-tranche failure-mode tracker | Captures the main risks and mitigations for the OC-005 and OC-006 tranche |
+| `11-rollout-plan.md` | First-tranche rollout and rollback guide | Defines how to ship and back out the stream-contract tranche safely |
 
 ## Executive Summary
 
@@ -90,6 +91,7 @@ fits for AgentPane right now.
 9. Use `docs/research/opencode/08-kickoff-checklist.md` to start the first implementation tranche.
 10. Use `docs/research/opencode/09-validation-matrix.md` to verify the first tranche before moving on.
 11. Use `docs/research/opencode/10-risk-register.md` to review tranche failure modes before merging major changes.
+12. Use `docs/research/opencode/11-rollout-plan.md` to gate rollout and rollback decisions for the first tranche.
 
 ## Key Themes
 
