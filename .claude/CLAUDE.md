@@ -193,12 +193,58 @@ EOF
 )"
 ```
 
-#### After PR creation
+#### Multi-agent code review (before committing or before PR)
+
+Run `/pr-review-toolkit:review-pr` to launch parallel review agents. Use up to 4 Opus agents for comprehensive coverage:
+
+**Review agent types:**
+- **code-reviewer** — bugs, CLAUDE.md compliance, import patterns, logic errors
+- **silent-failure-hunter** — swallowed errors, empty catches, fake success responses, path traversal
+- **pr-test-analyzer** — test coverage gaps, missing fixtures, priority test list
+- **type-design-analyzer** — type safety, invariant enforcement, encapsulation
+- **code-simplifier** — duplication, unnecessary complexity, dead code
+
+**Review workflow:**
+
+1. **Launch agents in parallel** — each agent gets the `git diff` and focuses on its specialty
+2. **Compile findings** — aggregate into Critical / Important / Suggestion categories
+3. **Fix critical + important** — edit files directly, verify with `npx tsc --noEmit`
+4. **Re-run review** — launch agents again to verify fixes and catch regressions
+5. **Repeat** until no critical/important issues remain (typically 2-3 rounds)
+
+**What each round catches:**
+- Round 1: Security issues (path traversal, injection), logic bugs, type mismatches
+- Round 2: Fix verification + new issues introduced by fixes
+- Round 3: Final verification — should be clean
+
+**Key patterns found in reviews:**
+- Shell commands: use positional args (`$1`, `$2` with `--` separator), never string interpolation
+- Skill/resource IDs in paths: validate with `/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/` regex
+- YAML values from user input: escape `"`, `\n`, `\r`, `\` before interpolation
+- API error responses: never return `{ ok: true, data: [] }` to mask a real error
+- Try/catch scope: narrow to the specific operation, don't wrap unrelated code
+
+#### After PR creation — CI and review comments
 
 1. **Poll CI**: `gh run watch <run-id> --exit-status` or `gh pr checks <pr-number> --watch`
-2. **Check for review comments**: `gh api repos/agentdevsl/agentpane/pulls/<number>/comments`
-3. **Fix review findings**: commit fixes, push, then comment on the PR explaining what was addressed
-4. **Comment on PR**: `gh pr comment <number> --body "Addressed review comments in <commit>..."`
+2. **Check for review comments** (bot reviews like Gemini, human reviewers):
+   ```bash
+   gh api repos/agentdevsl/agentpane/pulls/<number>/comments  # inline review comments
+   gh api repos/agentdevsl/agentpane/issues/<number>/comments  # general PR comments
+   ```
+3. **Evaluate each comment**:
+   - If valid: fix in code, commit, push
+   - If incorrect (e.g., bot misunderstands context): decline with explanation in PR comment
+   - If spec-only: update the spec doc, not the code
+4. **Commit fixes**: use a descriptive commit message referencing what was addressed
+5. **Comment on PR** explaining what was fixed and what was declined:
+   ```bash
+   gh pr comment <number> --body "Addressed review comments in <commit>:
+   1. Fixed X — <explanation>
+   2. Fixed Y — <explanation>
+   3. Declined Z — <reason>"
+   ```
+6. **Re-poll CI** to verify fixes pass: `gh pr checks <number> --watch`
 
 #### CI pipeline (GitHub Actions)
 
