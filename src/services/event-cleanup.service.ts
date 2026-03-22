@@ -61,49 +61,26 @@ export class EventCleanupService {
   }
 
   /**
-   * Batch-delete old session_events rows. Returns total rows deleted.
+   * Batch-delete old rows from a table using a parameterized query.
+   * Deletes in BATCH_SIZE chunks to avoid long-held locks.
    */
-  private batchDeleteSessionEvents(cutoff: string): number {
+  private batchDelete(
+    buildQuery: (cutoff: string) => ReturnType<typeof sql>,
+    table: string,
+    cutoff: string
+  ): number {
     let totalDeleted = 0;
     let batchDeleted = BATCH_SIZE;
 
     while (batchDeleted >= BATCH_SIZE) {
       try {
-        const result = this.db.run(
-          sql`DELETE FROM session_events WHERE rowid IN (SELECT rowid FROM session_events WHERE created_at < ${cutoff} LIMIT ${BATCH_SIZE})`
-        );
+        const result = this.db.run(buildQuery(cutoff));
         batchDeleted = result.changes;
         totalDeleted += batchDeleted;
       } catch (err) {
-        log.error('Batch delete failed for session_events', {
+        log.error(`Batch delete failed for ${table}`, {
           error: err instanceof Error ? err : new Error(String(err)),
-          data: { table: 'session_events', totalDeletedSoFar: totalDeleted, cutoff },
-        });
-        break;
-      }
-    }
-
-    return totalDeleted;
-  }
-
-  /**
-   * Batch-delete old event_log rows. Returns total rows deleted.
-   */
-  private batchDeleteEventLog(cutoff: string): number {
-    let totalDeleted = 0;
-    let batchDeleted = BATCH_SIZE;
-
-    while (batchDeleted >= BATCH_SIZE) {
-      try {
-        const result = this.db.run(
-          sql`DELETE FROM event_log WHERE rowid IN (SELECT rowid FROM event_log WHERE received_at < ${cutoff} LIMIT ${BATCH_SIZE})`
-        );
-        batchDeleted = result.changes;
-        totalDeleted += batchDeleted;
-      } catch (err) {
-        log.error('Batch delete failed for event_log', {
-          error: err instanceof Error ? err : new Error(String(err)),
-          data: { table: 'event_log', totalDeletedSoFar: totalDeleted, cutoff },
+          data: { table, totalDeletedSoFar: totalDeleted, cutoff },
         });
         break;
       }
@@ -130,16 +107,24 @@ export class EventCleanupService {
 
     const now = new Date();
 
-    const sessionEventsCutoff = new Date(now);
-    sessionEventsCutoff.setDate(sessionEventsCutoff.getDate() - sessionEventsDays);
-    const sessionEventsCutoffStr = sessionEventsCutoff.toISOString();
+    function cutoffIso(days: number): string {
+      const d = new Date(now);
+      d.setDate(d.getDate() - days);
+      return d.toISOString();
+    }
 
-    const eventLogCutoff = new Date(now);
-    eventLogCutoff.setDate(eventLogCutoff.getDate() - eventLogDays);
-    const eventLogCutoffStr = eventLogCutoff.toISOString();
-
-    const sessionEventsDeleted = this.batchDeleteSessionEvents(sessionEventsCutoffStr);
-    const eventLogDeleted = this.batchDeleteEventLog(eventLogCutoffStr);
+    const sessionEventsDeleted = this.batchDelete(
+      (cutoff) =>
+        sql`DELETE FROM session_events WHERE rowid IN (SELECT rowid FROM session_events WHERE created_at < ${cutoff} LIMIT ${BATCH_SIZE})`,
+      'session_events',
+      cutoffIso(sessionEventsDays)
+    );
+    const eventLogDeleted = this.batchDelete(
+      (cutoff) =>
+        sql`DELETE FROM event_log WHERE rowid IN (SELECT rowid FROM event_log WHERE received_at < ${cutoff} LIMIT ${BATCH_SIZE})`,
+      'event_log',
+      cutoffIso(eventLogDays)
+    );
 
     this.lastRunAt = now.toISOString();
 

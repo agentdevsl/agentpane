@@ -123,6 +123,47 @@ function createTopologyTracker(): TopologyTracker {
 }
 
 /**
+ * Create a ChunkBatcher wired to the session service's split publish paths.
+ * Falls back to the unified `publish` method when split methods are unavailable.
+ */
+function createChunkBatcher(
+  sessionId: string,
+  agentId: string,
+  phase: 'planning' | 'execution',
+  sessionService: StreamHandlerOptions['sessionService']
+): ChunkBatcher {
+  const batcher = new ChunkBatcher({
+    sessionId,
+    agentId,
+    persistEvent: (sid, event) =>
+      sessionService.persistOnly?.(sid, event as SessionEvent) ??
+      sessionService.publish(sid, event as SessionEvent),
+    publishRealtime: (sid, type, data) =>
+      sessionService.publishRealtimeOnly?.(sid, type, data) ?? Promise.resolve(0),
+  });
+  batcher.setPhase(phase);
+  return batcher;
+}
+
+/**
+ * Safely destroy a ChunkBatcher, logging but not re-throwing errors.
+ */
+async function destroyBatcher(
+  batcher: ChunkBatcher,
+  agentId: string,
+  sessionId: string
+): Promise<void> {
+  try {
+    await batcher.destroy();
+  } catch (err) {
+    log.error('ChunkBatcher destroy failed during error cleanup', {
+      error: err instanceof Error ? err : new Error(String(err)),
+      data: { agentId, sessionId },
+    });
+  }
+}
+
+/**
  * Handle SDK system messages related to subagent lifecycle.
  * Returns true if the message was a topology event (consumed).
  */
@@ -355,17 +396,7 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
     canUseTool,
   });
 
-  // Create ChunkBatcher for split publish: real-time SSE + batched DB persistence
-  const batcher = new ChunkBatcher({
-    sessionId,
-    agentId,
-    persistEvent: (sid, event) =>
-      sessionService.persistOnly?.(sid, event as SessionEvent) ??
-      sessionService.publish(sid, event as SessionEvent),
-    publishRealtime: (sid, type, data) =>
-      sessionService.publishRealtimeOnly?.(sid, type, data) ?? Promise.resolve(0),
-  });
-  batcher.setPhase('planning');
+  const batcher = createChunkBatcher(sessionId, agentId, 'planning', sessionService);
 
   try {
     // Send the task prompt - the agent will automatically enter plan mode
@@ -628,14 +659,7 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
     const errorMessage = error instanceof Error ? error.message : String(error);
     log.error('Agent planning error', { error, data: { agentId } });
 
-    try {
-      await batcher.destroy();
-    } catch (destroyErr) {
-      log.error('ChunkBatcher destroy failed during error cleanup', {
-        error: destroyErr instanceof Error ? destroyErr : new Error(String(destroyErr)),
-        data: { agentId, sessionId },
-      });
-    }
+    await destroyBatcher(batcher, agentId, sessionId);
 
     await sessionService.publish(sessionId, {
       id: createId(),
@@ -721,17 +745,7 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
     canUseTool,
   });
 
-  // Create ChunkBatcher for split publish: real-time SSE + batched DB persistence
-  const batcher = new ChunkBatcher({
-    sessionId,
-    agentId,
-    persistEvent: (sid, event) =>
-      sessionService.persistOnly?.(sid, event as SessionEvent) ??
-      sessionService.publish(sid, event as SessionEvent),
-    publishRealtime: (sid, type, data) =>
-      sessionService.publishRealtimeOnly?.(sid, type, data) ?? Promise.resolve(0),
-  });
-  batcher.setPhase('execution');
+  const batcher = createChunkBatcher(sessionId, agentId, 'execution', sessionService);
 
   try {
     // Send the execution prompt
@@ -1021,14 +1035,7 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
     const errorMessage = error instanceof Error ? error.message : String(error);
     log.error('Agent execution error', { error, data: { agentId } });
 
-    try {
-      await batcher.destroy();
-    } catch (destroyErr) {
-      log.error('ChunkBatcher destroy failed during error cleanup', {
-        error: destroyErr instanceof Error ? destroyErr : new Error(String(destroyErr)),
-        data: { agentId, sessionId },
-      });
-    }
+    await destroyBatcher(batcher, agentId, sessionId);
 
     // AE-008: Emit topology:agent_completed with status 'failed' for any tracked subagent nodes
     // that were still in-flight when the error occurred

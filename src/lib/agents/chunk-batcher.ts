@@ -113,36 +113,15 @@ export class ChunkBatcher {
   }
 
   /**
-   * Force flush (fire-and-forget). Used during phase transitions.
+   * Fire-and-forget flush. Used during phase transitions where we cannot await.
    */
   private flushSync(): void {
-    if (this.flushTimer) {
-      clearTimeout(this.flushTimer);
-      this.flushTimer = null;
-    }
-
-    if (this.buffer.length === 0) return;
-
-    const batchedDelta = this.buffer.join('');
-    this.buffer = [];
-
-    this.options
-      .persistEvent(this.options.sessionId, {
-        id: createId(),
-        type: 'chunk',
-        timestamp: Date.now(),
-        data: {
-          agentId: this.options.agentId,
-          delta: batchedDelta,
-          phase: this.currentPhase,
-        },
-      })
-      .catch((err) => {
-        log.error('Phase-transition flush failed, chunk data may be lost', {
-          error: err instanceof Error ? err : new Error(String(err)),
-          data: { sessionId: this.options.sessionId, agentId: this.options.agentId },
-        });
+    this.flush().catch((err) => {
+      log.error('Phase-transition flush failed, chunk data may be lost', {
+        error: err instanceof Error ? err : new Error(String(err)),
+        data: { sessionId: this.options.sessionId, agentId: this.options.agentId },
       });
+    });
   }
 
   /**
@@ -150,10 +129,6 @@ export class ChunkBatcher {
    */
   async destroy(): Promise<void> {
     this.destroyed = true;
-    if (this.flushTimer) {
-      clearTimeout(this.flushTimer);
-      this.flushTimer = null;
-    }
     await this.flush();
   }
 }
