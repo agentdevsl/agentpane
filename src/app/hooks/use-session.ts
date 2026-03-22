@@ -20,7 +20,12 @@
  */
 import { useCallback, useEffectEvent, useRef, useState } from 'react';
 import { SessionErrors } from '@/lib/errors/session-errors';
-import type { ConnectionState, SessionCallbacks } from '@/lib/streams/client';
+import type {
+  ConnectionState,
+  SessionCallbacks,
+  StreamCursor,
+  StreamEventMetadata,
+} from '@/lib/streams/client';
 import { err, ok, type Result } from '@/lib/utils/result';
 import { useInterval } from './use-interval';
 import { useMountEffect } from './use-mount-effect';
@@ -37,6 +42,8 @@ export type SessionChunk = {
   text: string;
   timestamp: number;
   agentId?: string;
+  cursor?: StreamCursor;
+  meta?: StreamEventMetadata;
 };
 
 export type SessionToolCall = {
@@ -46,12 +53,16 @@ export type SessionToolCall = {
   output?: unknown;
   status: 'pending' | 'running' | 'complete' | 'error';
   timestamp: number;
+  cursor?: StreamCursor;
+  meta?: StreamEventMetadata;
 };
 
 export type SessionTerminal = {
   type: 'input' | 'output';
   data: string;
   timestamp: number;
+  cursor?: StreamCursor;
+  meta?: StreamEventMetadata;
 };
 
 export type SessionPresence = {
@@ -179,7 +190,7 @@ export function useSession(
 ): {
   state: SessionState;
   connectionState: ConnectionState;
-  lastOffset: number;
+  lastCursor: StreamCursor | null;
   join: () => Promise<Result<void, ReturnType<typeof SessionErrors.CONNECTION_FAILED>>>;
   leave: () => Promise<Result<void, ReturnType<typeof SessionErrors.CONNECTION_FAILED>>>;
 } {
@@ -327,11 +338,17 @@ export function useSession(
           text: event.data.text,
           timestamp: event.data.timestamp,
           agentId: event.data.agentId,
+          cursor: event.cursor,
+          meta: event.meta,
         });
       },
 
       onToolCall: (event) => {
-        queueToolCall(event.data);
+        queueToolCall({
+          ...event.data,
+          cursor: event.cursor,
+          meta: event.meta,
+        });
       },
 
       onPresence: (event) => {
@@ -339,7 +356,11 @@ export function useSession(
       },
 
       onTerminal: (event) => {
-        queueTerminal(event.data);
+        queueTerminal({
+          ...event.data,
+          cursor: event.cursor,
+          meta: event.meta,
+        });
       },
 
       onAgentState: (event) => {
@@ -360,7 +381,7 @@ export function useSession(
     };
   }, [sessionId]);
 
-  const { connectionState } = useSessionSubscription(sessionId, callbacks.current);
+  const { connectionState, getLastCursor } = useSessionSubscription(sessionId, callbacks.current);
 
   // Presence heartbeat at 10s interval (per spec)
   const heartbeat = useEffectEvent(async () => {
@@ -379,9 +400,7 @@ export function useSession(
     void heartbeat();
   }, PRESENCE_HEARTBEAT_INTERVAL);
 
-  // FC-006: lastOffset is no longer directly tracked via subscriptionRef;
-  // it is managed internally by useSessionSubscription. Return 0 for compat.
-  const lastOffset = 0;
+  const lastCursor = getLastCursor();
 
-  return { state, connectionState, lastOffset, join, leave };
+  return { state, connectionState, lastCursor, join, leave };
 }

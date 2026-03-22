@@ -245,9 +245,26 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
 
     const limit = parseInt(c.req.query('limit') ?? '100', 10);
     const offset = parseInt(c.req.query('offset') ?? '0', 10);
+    const afterEventId = c.req.query('afterEventId') ?? undefined;
+
+    if (afterEventId && c.req.query('offset') !== undefined) {
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'INVALID_PARAMS',
+            message: 'Use either offset or afterEventId, not both',
+          },
+        },
+        400
+      );
+    }
 
     try {
-      const result = await sessionService.getEventsBySession(id, { limit, offset });
+      const result = await sessionService.getEventsBySession(
+        id,
+        afterEventId ? { limit, afterEventId } : { limit, offset }
+      );
       if (!result.ok) {
         return json({ ok: false, error: result.error }, result.error.status ?? 404);
       }
@@ -255,7 +272,12 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
       return json({
         ok: true,
         data: result.value,
-        pagination: { total: result.value.length, limit, offset },
+        pagination: {
+          total: result.value.length,
+          limit,
+          offset,
+          afterEventId: afterEventId ?? null,
+        },
       });
     } catch (error) {
       logger.error('Get events error', { error });

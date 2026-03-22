@@ -1,0 +1,14 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "..",
+    "paths": {
+      "@/*": ["src/*"],
+      "@agentpane/agent-sandbox-sdk": ["packages/agent-sandbox-sdk/src/index.ts"],
+      "@agentpane/nomad-sandbox-sdk": ["packages/nomad-sandbox-sdk/src/index.ts"]
+    },
+    "noEmit": true,
+    "types": ["vitest/globals"]
+  },
+  "include": ["./**/*"]
+}

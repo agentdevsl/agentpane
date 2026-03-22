@@ -11,6 +11,7 @@ import { useEffectEvent, useRef, useState } from 'react';
 import {
   type ConnectionState,
   type SessionCallbacks,
+  type StreamCursor,
   type Subscription,
   subscribeToSession,
 } from '@/lib/streams/client';
@@ -30,7 +31,7 @@ import { useWatchEffect } from './use-watch-effect';
 export function useSessionSubscription(
   sessionId: string | null,
   callbacks: SessionCallbacks
-): { connectionState: ConnectionState } {
+): { connectionState: ConnectionState; getLastCursor: () => StreamCursor | null } {
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
   const subscriptionRef = useRef<Subscription | null>(null);
 
@@ -107,5 +108,8 @@ export function useSessionSubscription(
     };
   }, [sessionId]);
 
-  return { connectionState };
+  return {
+    connectionState,
+    getLastCursor: () => subscriptionRef.current?.getLastCursor() ?? null,
+  };
 }

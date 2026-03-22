@@ -291,10 +291,22 @@ export function useTaskActivity(task: Task | null): {
 
     const sessionId = task.sessionId;
 
+    const getStableStreamId = (
+      event: { meta?: { eventId?: string | undefined }; cursor?: string; offset?: number },
+      fallback: string
+    ): string => event.meta?.eventId ?? event.cursor ?? fallback;
+
+    const getAgentStateFallbackId = (status: string | undefined): string =>
+      `stream-agent-state-${status ?? 'unknown'}`;
+
+    const getToolFallbackId = (tool: string): string => `stream-tool-${tool}`;
+
+    const getTurnFallbackId = (turn: number): string => `stream-turn-${turn}`;
+
     const callbacks: SessionCallbacks = {
       onAgentState: (event) => {
         if (!event.data) return;
-        const id = `stream-agent-state-${event.offset ?? Date.now()}`;
+        const id = getStableStreamId(event, getAgentStateFallbackId(event.data.status));
         if (seenOffsets.current.has(id)) return;
         seenOffsets.current.add(id);
 
@@ -311,7 +323,7 @@ export function useTaskActivity(task: Task | null): {
         ]);
       },
       onToolCall: (event) => {
-        const id = `stream-tool-${event.offset ?? Date.now()}`;
+        const id = getStableStreamId(event, getToolFallbackId(event.data.tool));
         if (seenOffsets.current.has(id)) return;
         seenOffsets.current.add(id);
 
@@ -328,7 +340,7 @@ export function useTaskActivity(task: Task | null): {
         ]);
       },
       onContainerAgentTurn: (event) => {
-        const id = `stream-turn-${event.offset ?? Date.now()}`;
+        const id = getStableStreamId(event, getTurnFallbackId(event.data.turn));
         if (seenOffsets.current.has(id)) return;
         seenOffsets.current.add(id);
 
@@ -343,7 +355,7 @@ export function useTaskActivity(task: Task | null): {
         ]);
       },
       onContainerAgentToolStart: (event) => {
-        const id = `stream-ctool-start-${event.offset ?? Date.now()}`;
+        const id = getStableStreamId(event, `stream-ctool-start-${event.data.toolId}`);
         if (seenOffsets.current.has(id)) return;
         seenOffsets.current.add(id);
 
@@ -358,7 +370,7 @@ export function useTaskActivity(task: Task | null): {
         ]);
       },
       onContainerAgentToolResult: (event) => {
-        const id = `stream-ctool-result-${event.offset ?? Date.now()}`;
+        const id = getStableStreamId(event, `stream-ctool-result-${event.data.toolId}`);
         if (seenOffsets.current.has(id)) return;
         seenOffsets.current.add(id);
 
@@ -373,7 +385,7 @@ export function useTaskActivity(task: Task | null): {
         ]);
       },
       onContainerAgentComplete: (event) => {
-        const id = `stream-ccomplete-${event.offset ?? Date.now()}`;
+        const id = getStableStreamId(event, `stream-ccomplete-${event.data.turnCount}`);
         if (seenOffsets.current.has(id)) return;
         seenOffsets.current.add(id);
 
@@ -388,7 +400,7 @@ export function useTaskActivity(task: Task | null): {
         ]);
       },
       onContainerAgentError: (event) => {
-        const id = `stream-cerror-${event.offset ?? Date.now()}`;
+        const id = getStableStreamId(event, `stream-cerror-${event.data.code ?? 'unknown'}`);
         if (seenOffsets.current.has(id)) return;
         seenOffsets.current.add(id);
 

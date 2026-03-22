@@ -1,12 +1,67 @@
 import { type CanUseTool, unstable_v2_createSession } from '@anthropic-ai/claude-agent-sdk';
 import { createId } from '@paralleldrive/cuid2';
 import { createLogger } from '../../lib/logging/logger.js';
+import { createSessionEventWithMetadata } from '../../services/session/event-metadata.js';
 import type { SessionEvent } from '../../services/session.service.js';
+import type { StreamDurability, StreamEventMetadata, StreamPartType } from '../streams/envelope.js';
 import { deriveAgentName, mapAgentRole } from '../topology/map-agent-role.js';
 import { buildSdkEnv } from './agent-sdk-utils.js';
 import { ChunkBatcher } from './chunk-batcher.js';
 
 const log = createLogger('StreamHandler');
+
+function createStreamMetadata(params: {
+  eventId: string;
+  streamId: string;
+  blockId?: string | null;
+  partType: StreamPartType;
+  durability: StreamDurability;
+  sequence?: number | null;
+  createdAt?: string;
+}): StreamEventMetadata {
+  return {
+    schemaVersion: 1,
+    eventId: params.eventId,
+    streamId: params.streamId,
+    blockId: params.blockId ?? null,
+    partType: params.partType,
+    durability: params.durability,
+    sequence: params.sequence ?? null,
+    createdAt: params.createdAt ?? new Date().toISOString(),
+  };
+}
+
+function createMetadataEvent(params: {
+  sessionId: string;
+  type: SessionEvent['type'];
+  partType: StreamPartType;
+  durability?: StreamDurability;
+  blockId?: string | null;
+  sequence?: number | null;
+  timestamp?: number;
+  data: Record<string, unknown>;
+}): SessionEvent {
+  const timestamp = params.timestamp ?? Date.now();
+  const eventId = createId();
+
+  return {
+    id: eventId,
+    type: params.type,
+    timestamp,
+    data: {
+      ...params.data,
+      meta: createStreamMetadata({
+        eventId,
+        streamId: params.sessionId,
+        blockId: params.blockId,
+        partType: params.partType,
+        durability: params.durability ?? 'durable',
+        sequence: params.sequence,
+        createdAt: new Date(timestamp).toISOString(),
+      }),
+    },
+  };
+}
 
 export interface StreamHandlerOptions {
   agentId: string;
@@ -64,17 +119,20 @@ async function publishToolProgress(
   agentId: string,
   msg: Record<string, unknown>
 ): Promise<void> {
-  await sessionService.publish(sessionId, {
-    id: createId(),
-    type: 'agent:tool_progress',
-    timestamp: Date.now(),
-    data: {
-      agentId,
-      toolUseId: typeof msg.tool_use_id === 'string' ? msg.tool_use_id : 'unknown',
-      toolName: typeof msg.tool_name === 'string' ? msg.tool_name : 'unknown',
-      elapsedSeconds: typeof msg.elapsed_time_seconds === 'number' ? msg.elapsed_time_seconds : 0,
-    },
-  });
+  await sessionService.publish(
+    sessionId,
+    createMetadataEvent({
+      sessionId,
+      type: 'agent:tool_progress',
+      partType: 'system',
+      data: {
+        agentId,
+        toolUseId: typeof msg.tool_use_id === 'string' ? msg.tool_use_id : 'unknown',
+        toolName: typeof msg.tool_name === 'string' ? msg.tool_name : 'unknown',
+        elapsedSeconds: typeof msg.elapsed_time_seconds === 'number' ? msg.elapsed_time_seconds : 0,
+      },
+    })
+  );
 }
 
 async function publishCompactBoundary(
@@ -85,16 +143,19 @@ async function publishCompactBoundary(
 ): Promise<void> {
   const compact = msg as { compact_metadata?: { trigger?: string; pre_tokens?: number } };
   if (!compact.compact_metadata) return;
-  await sessionService.publish(sessionId, {
-    id: createId(),
-    type: 'agent:compacted',
-    timestamp: Date.now(),
-    data: {
-      agentId,
-      trigger: compact.compact_metadata.trigger ?? 'unknown',
-      preTokens: compact.compact_metadata.pre_tokens ?? 0,
-    },
-  });
+  await sessionService.publish(
+    sessionId,
+    createMetadataEvent({
+      sessionId,
+      type: 'agent:compacted',
+      partType: 'system',
+      data: {
+        agentId,
+        trigger: compact.compact_metadata.trigger ?? 'unknown',
+        preTokens: compact.compact_metadata.pre_tokens ?? 0,
+      },
+    })
+  );
 }
 
 const VALID_TOPOLOGY_STATUSES = new Set(['completed', 'failed', 'stopped']);
@@ -193,36 +254,44 @@ async function handleTopologySystemMessage(
     // Emit root orchestrator node on first subagent spawn
     if (!tracker.rootEmitted) {
       tracker.rootEmitted = true;
-      await sessionService.publish(sessionId, {
-        id: createId(),
-        type: 'topology:agent_spawned',
-        timestamp: Date.now(),
-        data: {
-          agentId,
-          taskId: taskId ?? '',
-          name: 'Orchestrator',
-          role: 'orchestrator',
-          parentId: null,
-        },
-      });
+      await sessionService.publish(
+        sessionId,
+        createMetadataEvent({
+          sessionId,
+          type: 'topology:agent_spawned',
+          partType: 'lifecycle',
+          blockId: agentId,
+          data: {
+            agentId,
+            taskId: taskId ?? '',
+            name: 'Orchestrator',
+            role: 'orchestrator',
+            parentId: null,
+          },
+        })
+      );
     }
 
     const nodeId = createId();
     tracker.taskToNodeId.set(sdkTaskId, nodeId);
 
-    await sessionService.publish(sessionId, {
-      id: createId(),
-      type: 'topology:agent_spawned',
-      timestamp: Date.now(),
-      data: {
-        agentId: nodeId,
-        taskId: taskId ?? '',
-        name: deriveAgentName(taskType, description),
-        role: mapAgentRole(taskType, description),
-        parentId: agentId,
-        sdkTaskId,
-      },
-    });
+    await sessionService.publish(
+      sessionId,
+      createMetadataEvent({
+        sessionId,
+        type: 'topology:agent_spawned',
+        partType: 'lifecycle',
+        blockId: nodeId,
+        data: {
+          agentId: nodeId,
+          taskId: taskId ?? '',
+          name: deriveAgentName(taskType, description),
+          role: mapAgentRole(taskType, description),
+          parentId: agentId,
+          sdkTaskId,
+        },
+      })
+    );
     return true;
   }
 
@@ -235,20 +304,24 @@ async function handleTopologySystemMessage(
       | { total_tokens?: number; tool_uses?: number; duration_ms?: number }
       | undefined;
 
-    await sessionService.publish(sessionId, {
-      id: createId(),
-      type: 'topology:agent_progress',
-      timestamp: Date.now(),
-      data: {
-        agentId: nodeId,
-        sdkTaskId,
-        tokens: usage?.total_tokens ?? 0,
-        toolUses: usage?.tool_uses ?? 0,
-        durationMs: usage?.duration_ms ?? 0,
-        summary: msg.summary as string | undefined,
-        lastToolName: msg.last_tool_name as string | undefined,
-      },
-    });
+    await sessionService.publish(
+      sessionId,
+      createMetadataEvent({
+        sessionId,
+        type: 'topology:agent_progress',
+        partType: 'system',
+        blockId: nodeId,
+        data: {
+          agentId: nodeId,
+          sdkTaskId,
+          tokens: usage?.total_tokens ?? 0,
+          toolUses: usage?.tool_uses ?? 0,
+          durationMs: usage?.duration_ms ?? 0,
+          summary: msg.summary as string | undefined,
+          lastToolName: msg.last_tool_name as string | undefined,
+        },
+      })
+    );
     return true;
   }
 
@@ -261,20 +334,24 @@ async function handleTopologySystemMessage(
       | { total_tokens?: number; tool_uses?: number; duration_ms?: number }
       | undefined;
 
-    await sessionService.publish(sessionId, {
-      id: createId(),
-      type: 'topology:agent_completed',
-      timestamp: Date.now(),
-      data: {
-        agentId: nodeId,
-        sdkTaskId,
-        status: normalizeTopologyStatus(msg.status),
-        summary: typeof msg.summary === 'string' ? msg.summary : undefined,
-        tokens: usage?.total_tokens,
-        toolUses: usage?.tool_uses,
-        durationMs: usage?.duration_ms,
-      },
-    });
+    await sessionService.publish(
+      sessionId,
+      createMetadataEvent({
+        sessionId,
+        type: 'topology:agent_completed',
+        partType: 'lifecycle',
+        blockId: nodeId,
+        data: {
+          agentId: nodeId,
+          sdkTaskId,
+          status: normalizeTopologyStatus(msg.status),
+          summary: typeof msg.summary === 'string' ? msg.summary : undefined,
+          tokens: usage?.total_tokens,
+          toolUses: usage?.tool_uses,
+          durationMs: usage?.duration_ms,
+        },
+      })
+    );
     tracker.taskToNodeId.delete(sdkTaskId);
     return true;
   }
@@ -316,22 +393,26 @@ async function publishMetrics(
     msg.usage != null && typeof msg.usage === 'object'
       ? (msg.usage as { input_tokens?: number; output_tokens?: number })
       : undefined;
-  await sessionService.publish(sessionId, {
-    id: createId(),
-    type: 'agent:metrics',
-    timestamp: Date.now(),
-    data: {
-      agentId,
-      runId,
-      totalCostUsd: typeof msg.total_cost_usd === 'number' ? msg.total_cost_usd : undefined,
-      durationMs: typeof msg.duration_ms === 'number' ? msg.duration_ms : undefined,
-      durationApiMs: typeof msg.duration_api_ms === 'number' ? msg.duration_api_ms : undefined,
-      numTurns: typeof msg.num_turns === 'number' ? msg.num_turns : undefined,
-      usage,
-      modelUsage,
-      stopReason: msg.stop_reason !== undefined ? (msg.stop_reason as string | null) : undefined,
-    },
-  });
+  await sessionService.publish(
+    sessionId,
+    createSessionEventWithMetadata({
+      sessionId,
+      type: 'agent:metrics',
+      partType: 'system',
+      blockId: runId,
+      data: {
+        agentId,
+        runId,
+        totalCostUsd: typeof msg.total_cost_usd === 'number' ? msg.total_cost_usd : undefined,
+        durationMs: typeof msg.duration_ms === 'number' ? msg.duration_ms : undefined,
+        durationApiMs: typeof msg.duration_api_ms === 'number' ? msg.duration_api_ms : undefined,
+        numTurns: typeof msg.num_turns === 'number' ? msg.num_turns : undefined,
+        usage,
+        modelUsage,
+        stopReason: msg.stop_reason !== undefined ? (msg.stop_reason as string | null) : undefined,
+      },
+    })
+  );
 }
 
 // AE-010: Deferred - functions share ~70% code but have enough phase-specific logic to make extraction risky
@@ -353,12 +434,16 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
   let exitPlanModeOptions: ExitPlanModeOptions | undefined;
 
   // Publish planning started event
-  await sessionService.publish(sessionId, {
-    id: createId(),
-    type: 'agent:planning',
-    timestamp: Date.now(),
-    data: { agentId, runId, model },
-  });
+  await sessionService.publish(
+    sessionId,
+    createSessionEventWithMetadata({
+      sessionId,
+      type: 'agent:planning',
+      partType: 'lifecycle',
+      blockId: runId,
+      data: { agentId, runId, model },
+    })
+  );
 
   // Track active tools by toolUseID for correlating with tool_use_summary
   const activeTools = new Map<string, { toolName: string; startTime: number }>();
@@ -369,18 +454,22 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
   const canUseTool: CanUseTool = async (toolName, input, toolOptions) => {
     activeTools.set(toolOptions.toolUseID, { toolName, startTime: Date.now() });
 
-    await sessionService.publish(sessionId, {
-      id: createId(),
-      type: 'tool:start',
-      timestamp: Date.now(),
-      data: {
-        agentId,
-        toolId: toolOptions.toolUseID,
-        tool: toolName,
-        input: input as Record<string, unknown>,
-        phase: 'planning',
-      },
-    });
+    await sessionService.publish(
+      sessionId,
+      createMetadataEvent({
+        sessionId,
+        type: 'tool:start',
+        partType: 'tool_start',
+        blockId: toolOptions.toolUseID,
+        data: {
+          agentId,
+          toolId: toolOptions.toolUseID,
+          tool: toolName,
+          input: input as Record<string, unknown>,
+          phase: 'planning',
+        },
+      })
+    );
 
     if (toolName === 'ExitPlanMode') {
       const planOptions = input as ExitPlanModeOptions | undefined;
@@ -425,12 +514,16 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
       if (signal?.aborted) {
         await batcher.destroy();
         session.close();
-        await sessionService.publish(sessionId, {
-          id: createId(),
-          type: 'agent:stopped',
-          timestamp: Date.now(),
-          data: { agentId, runId, reason: 'aborted', phase: 'planning' },
-        });
+        await sessionService.publish(
+          sessionId,
+          createSessionEventWithMetadata({
+            sessionId,
+            type: 'agent:stopped',
+            partType: 'lifecycle',
+            blockId: runId,
+            data: { agentId, runId, reason: 'aborted', phase: 'planning' },
+          })
+        );
         return {
           runId,
           status: 'paused',
@@ -478,12 +571,16 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
         await batcher.flush();
 
         // Publish turn event for planning phase
-        await sessionService.publish(sessionId, {
-          id: createId(),
-          type: 'agent:turn',
-          timestamp: Date.now(),
-          data: { agentId, turn, phase: 'planning' },
-        });
+        await sessionService.publish(
+          sessionId,
+          createSessionEventWithMetadata({
+            sessionId,
+            type: 'agent:turn',
+            partType: 'lifecycle',
+            blockId: runId,
+            data: { agentId, turn, phase: 'planning' },
+          })
+        );
 
         // Capture assistant turn for memory
         if (options.onMessage && textContent && textContent.length >= 10) {
@@ -506,17 +603,21 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
         if (assistantError) {
           log.warn('Assistant error during planning', { data: { agentId, error: assistantError } });
           sessionService
-            .publish(sessionId, {
-              id: createId(),
-              type: 'agent:error',
-              timestamp: Date.now(),
-              data: {
-                agentId,
-                runId,
-                error: `Assistant error: ${assistantError}`,
-                phase: 'planning',
-              },
-            })
+            .publish(
+              sessionId,
+              createSessionEventWithMetadata({
+                sessionId,
+                type: 'agent:error',
+                partType: 'lifecycle',
+                blockId: runId,
+                data: {
+                  agentId,
+                  runId,
+                  error: `Assistant error: ${assistantError}`,
+                  phase: 'planning',
+                },
+              })
+            )
             .catch((publishErr) => {
               log.warn('Failed to publish assistant error', {
                 error: publishErr,
@@ -536,19 +637,23 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
           const tracked = activeTools.get(toolUseId);
           if (!tracked) continue;
 
-          await sessionService.publish(sessionId, {
-            id: createId(),
-            type: 'tool:result',
-            timestamp: Date.now(),
-            data: {
-              agentId,
-              toolId: toolUseId,
-              tool: tracked.toolName,
-              output: toolSummary.summary?.slice(0, 1000),
-              isError: false,
-              phase: 'planning',
-            },
-          });
+          await sessionService.publish(
+            sessionId,
+            createMetadataEvent({
+              sessionId,
+              type: 'tool:result',
+              partType: 'tool_result',
+              blockId: toolUseId,
+              data: {
+                agentId,
+                toolId: toolUseId,
+                tool: tracked.toolName,
+                output: toolSummary.summary?.slice(0, 1000),
+                isError: false,
+                phase: 'planning',
+              },
+            })
+          );
 
           // Check if this is ExitPlanMode - this means the plan is ready
           if (tracked.toolName === 'ExitPlanMode') {
@@ -578,16 +683,20 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
           rate_limit_info: { status: string; resetsAt?: number };
         };
         sessionService
-          .publish(sessionId, {
-            id: createId(),
-            type: 'agent:rate_limit',
-            timestamp: Date.now(),
-            data: {
-              agentId,
-              status: rateLimitMsg.rate_limit_info.status,
-              resetsAt: rateLimitMsg.rate_limit_info.resetsAt,
-            },
-          })
+          .publish(
+            sessionId,
+            createSessionEventWithMetadata({
+              sessionId,
+              type: 'agent:rate_limit',
+              partType: 'system',
+              blockId: runId,
+              data: {
+                agentId,
+                status: rateLimitMsg.rate_limit_info.status,
+                resetsAt: rateLimitMsg.rate_limit_info.resetsAt,
+              },
+            })
+          )
           .catch((publishErr) => {
             log.warn('Failed to publish rate_limit', { error: publishErr });
           });
@@ -615,17 +724,21 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
         });
 
         // Publish plan ready event with plan options
-        await sessionService.publish(sessionId, {
-          id: createId(),
-          type: 'agent:plan_ready',
-          timestamp: Date.now(),
-          data: {
-            agentId,
-            runId,
-            plan: planContent || accumulated,
-            allowedPrompts: exitPlanModeOptions?.allowedPrompts,
-          },
-        });
+        await sessionService.publish(
+          sessionId,
+          createSessionEventWithMetadata({
+            sessionId,
+            type: 'agent:plan_ready',
+            partType: 'lifecycle',
+            blockId: runId,
+            data: {
+              agentId,
+              runId,
+              plan: planContent || accumulated,
+              allowedPrompts: exitPlanModeOptions?.allowedPrompts,
+            },
+          })
+        );
 
         return {
           runId,
@@ -642,17 +755,21 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
     await batcher.destroy();
     session.close();
 
-    await sessionService.publish(sessionId, {
-      id: createId(),
-      type: 'agent:plan_ready',
-      timestamp: Date.now(),
-      data: {
-        agentId,
-        runId,
-        plan: planContent || accumulated,
-        allowedPrompts: exitPlanModeOptions?.allowedPrompts,
-      },
-    });
+    await sessionService.publish(
+      sessionId,
+      createSessionEventWithMetadata({
+        sessionId,
+        type: 'agent:plan_ready',
+        partType: 'lifecycle',
+        blockId: runId,
+        data: {
+          agentId,
+          runId,
+          plan: planContent || accumulated,
+          allowedPrompts: exitPlanModeOptions?.allowedPrompts,
+        },
+      })
+    );
 
     return {
       runId,
@@ -667,12 +784,16 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
 
     await destroyBatcher(batcher, agentId, sessionId);
 
-    await sessionService.publish(sessionId, {
-      id: createId(),
-      type: 'agent:error',
-      timestamp: Date.now(),
-      data: { agentId, runId, error: errorMessage, phase: 'planning' },
-    });
+    await sessionService.publish(
+      sessionId,
+      createSessionEventWithMetadata({
+        sessionId,
+        type: 'agent:error',
+        partType: 'lifecycle',
+        blockId: runId,
+        data: { agentId, runId, error: errorMessage, phase: 'planning' },
+      })
+    );
 
     session.close();
     return {
@@ -699,26 +820,34 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
   const topology = createTopologyTracker();
 
   // Publish agent started event
-  await sessionService.publish(sessionId, {
-    id: createId(),
-    type: 'agent:started',
-    timestamp: Date.now(),
-    data: { agentId, runId, maxTurns, model, phase: 'execution' },
-  });
+  await sessionService.publish(
+    sessionId,
+    createSessionEventWithMetadata({
+      sessionId,
+      type: 'agent:started',
+      partType: 'lifecycle',
+      blockId: runId,
+      data: { agentId, runId, maxTurns, model, phase: 'execution' },
+    })
+  );
 
   // Always emit root agent node in topology
   topology.rootEmitted = true;
-  await sessionService.publish(sessionId, {
-    id: createId(),
-    type: 'topology:agent_spawned',
-    timestamp: Date.now(),
-    data: {
-      agentId,
-      name: 'Agent',
-      role: 'orchestrator',
-      parentId: null,
-    },
-  });
+  await sessionService.publish(
+    sessionId,
+    createMetadataEvent({
+      sessionId,
+      type: 'topology:agent_spawned',
+      partType: 'lifecycle',
+      blockId: agentId,
+      data: {
+        agentId,
+        name: 'Agent',
+        role: 'orchestrator',
+        parentId: null,
+      },
+    })
+  );
 
   // Track active tools by toolUseID for correlating with tool_use_summary
   const activeTools = new Map<string, { toolName: string; startTime: number }>();
@@ -726,17 +855,21 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
   const canUseTool: CanUseTool = async (toolName, input, toolOptions) => {
     activeTools.set(toolOptions.toolUseID, { toolName, startTime: Date.now() });
 
-    await sessionService.publish(sessionId, {
-      id: createId(),
-      type: 'tool:start',
-      timestamp: Date.now(),
-      data: {
-        agentId,
-        toolId: toolOptions.toolUseID,
-        tool: toolName,
-        input: input as Record<string, unknown>,
-      },
-    });
+    await sessionService.publish(
+      sessionId,
+      createMetadataEvent({
+        sessionId,
+        type: 'tool:start',
+        partType: 'tool_start',
+        blockId: toolOptions.toolUseID,
+        data: {
+          agentId,
+          toolId: toolOptions.toolUseID,
+          tool: toolName,
+          input: input as Record<string, unknown>,
+        },
+      })
+    );
 
     return { behavior: 'allow' as const, toolUseID: toolOptions.toolUseID };
   };
@@ -774,12 +907,16 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
       if (signal?.aborted) {
         await batcher.destroy();
         session.close();
-        await sessionService.publish(sessionId, {
-          id: createId(),
-          type: 'agent:stopped',
-          timestamp: Date.now(),
-          data: { agentId, runId, reason: 'aborted', phase: 'execution' },
-        });
+        await sessionService.publish(
+          sessionId,
+          createSessionEventWithMetadata({
+            sessionId,
+            type: 'agent:stopped',
+            partType: 'lifecycle',
+            blockId: runId,
+            data: { agentId, runId, reason: 'aborted', phase: 'execution' },
+          })
+        );
         return {
           runId,
           status: 'paused',
@@ -831,18 +968,22 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
         // Flush batcher before turn boundary event to ensure chunk ordering
         await batcher.flush();
 
-        await sessionService.publish(sessionId, {
-          id: createId(),
-          type: 'agent:turn',
-          timestamp: Date.now(),
-          data: {
-            agentId,
-            turn,
-            maxTurns,
-            remaining: maxTurns - turn,
-            usage: message?.usage,
-          },
-        });
+        await sessionService.publish(
+          sessionId,
+          createSessionEventWithMetadata({
+            sessionId,
+            type: 'agent:turn',
+            partType: 'lifecycle',
+            blockId: runId,
+            data: {
+              agentId,
+              turn,
+              maxTurns,
+              remaining: maxTurns - turn,
+              usage: message?.usage,
+            },
+          })
+        );
 
         // Capture assistant turn for memory
         if (options.onMessage && textContent && textContent.length >= 10) {
@@ -867,12 +1008,16 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
             data: { agentId, error: assistantError },
           });
           sessionService
-            .publish(sessionId, {
-              id: createId(),
-              type: 'agent:error',
-              timestamp: Date.now(),
-              data: { agentId, runId, error: `Assistant error: ${assistantError}` },
-            })
+            .publish(
+              sessionId,
+              createSessionEventWithMetadata({
+                sessionId,
+                type: 'agent:error',
+                partType: 'lifecycle',
+                blockId: runId,
+                data: { agentId, runId, error: `Assistant error: ${assistantError}` },
+              })
+            )
             .catch((publishErr) => {
               log.warn('Failed to publish assistant error', { error: publishErr });
             });
@@ -880,12 +1025,16 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
 
         if (turn >= maxTurns) {
           await batcher.destroy();
-          await sessionService.publish(sessionId, {
-            id: createId(),
-            type: 'agent:turn_limit',
-            timestamp: Date.now(),
-            data: { agentId, turn, maxTurns },
-          });
+          await sessionService.publish(
+            sessionId,
+            createSessionEventWithMetadata({
+              sessionId,
+              type: 'agent:turn_limit',
+              partType: 'lifecycle',
+              blockId: runId,
+              data: { agentId, turn, maxTurns },
+            })
+          );
 
           session.close();
           return {
@@ -908,18 +1057,22 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
           const tracked = activeTools.get(toolUseId);
           if (!tracked) continue;
 
-          await sessionService.publish(sessionId, {
-            id: createId(),
-            type: 'tool:result',
-            timestamp: Date.now(),
-            data: {
-              agentId,
-              toolId: toolUseId,
-              tool: tracked.toolName,
-              output: toolSummary.summary?.slice(0, 1000),
-              isError: false,
-            },
-          });
+          await sessionService.publish(
+            sessionId,
+            createMetadataEvent({
+              sessionId,
+              type: 'tool:result',
+              partType: 'tool_result',
+              blockId: toolUseId,
+              data: {
+                agentId,
+                toolId: toolUseId,
+                tool: tracked.toolName,
+                output: toolSummary.summary?.slice(0, 1000),
+                isError: false,
+              },
+            })
+          );
 
           activeTools.delete(toolUseId);
         }
@@ -943,16 +1096,20 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
           rate_limit_info: { status: string; resetsAt?: number };
         };
         sessionService
-          .publish(sessionId, {
-            id: createId(),
-            type: 'agent:rate_limit',
-            timestamp: Date.now(),
-            data: {
-              agentId,
-              status: rateLimitMsg.rate_limit_info.status,
-              resetsAt: rateLimitMsg.rate_limit_info.resetsAt,
-            },
-          })
+          .publish(
+            sessionId,
+            createSessionEventWithMetadata({
+              sessionId,
+              type: 'agent:rate_limit',
+              partType: 'system',
+              blockId: runId,
+              data: {
+                agentId,
+                status: rateLimitMsg.rate_limit_info.status,
+                resetsAt: rateLimitMsg.rate_limit_info.resetsAt,
+              },
+            })
+          )
           .catch((publishErr) => {
             log.warn('Failed to publish rate_limit', { error: publishErr });
           });
@@ -997,19 +1154,27 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
             : undefined;
 
         // Complete root topology node
-        await sessionService.publish(sessionId, {
-          id: createId(),
-          type: 'topology:agent_completed',
-          timestamp: Date.now(),
-          data: { agentId, status: 'completed' },
-        });
+        await sessionService.publish(
+          sessionId,
+          createMetadataEvent({
+            sessionId,
+            type: 'topology:agent_completed',
+            partType: 'lifecycle',
+            blockId: agentId,
+            data: { agentId, status: 'completed' },
+          })
+        );
 
-        await sessionService.publish(sessionId, {
-          id: createId(),
-          type: 'agent:completed',
-          timestamp: Date.now(),
-          data: { agentId, runId, turnCount: turn, usage },
-        });
+        await sessionService.publish(
+          sessionId,
+          createSessionEventWithMetadata({
+            sessionId,
+            type: 'agent:completed',
+            partType: 'lifecycle',
+            blockId: runId,
+            data: { agentId, runId, turnCount: turn, usage },
+          })
+        );
 
         return {
           runId,
@@ -1024,12 +1189,16 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
     await batcher.destroy();
     session.close();
 
-    await sessionService.publish(sessionId, {
-      id: createId(),
-      type: 'agent:completed',
-      timestamp: Date.now(),
-      data: { agentId, runId, turnCount: turn },
-    });
+    await sessionService.publish(
+      sessionId,
+      createSessionEventWithMetadata({
+        sessionId,
+        type: 'agent:completed',
+        partType: 'lifecycle',
+        blockId: runId,
+        data: { agentId, runId, turnCount: turn },
+      })
+    );
 
     return {
       runId,
@@ -1047,17 +1216,21 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
     // that were still in-flight when the error occurred
     for (const [sdkTaskId, nodeId] of topology.taskToNodeId) {
       sessionService
-        .publish(sessionId, {
-          id: createId(),
-          type: 'topology:agent_completed',
-          timestamp: Date.now(),
-          data: {
-            agentId: nodeId,
-            sdkTaskId,
-            status: 'failed',
-            summary: `Parent agent failed: ${errorMessage}`,
-          },
-        })
+        .publish(
+          sessionId,
+          createMetadataEvent({
+            sessionId,
+            type: 'topology:agent_completed',
+            partType: 'lifecycle',
+            blockId: nodeId,
+            data: {
+              agentId: nodeId,
+              sdkTaskId,
+              status: 'failed',
+              summary: `Parent agent failed: ${errorMessage}`,
+            },
+          })
+        )
         .catch((publishErr) => {
           log.warn('Failed to publish topology failure for subagent', {
             error: publishErr,
@@ -1068,19 +1241,27 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
     topology.taskToNodeId.clear();
 
     // Emit topology:agent_completed for root node
-    await sessionService.publish(sessionId, {
-      id: createId(),
-      type: 'topology:agent_completed',
-      timestamp: Date.now(),
-      data: { agentId, status: 'failed' },
-    });
+    await sessionService.publish(
+      sessionId,
+      createMetadataEvent({
+        sessionId,
+        type: 'topology:agent_completed',
+        partType: 'lifecycle',
+        blockId: agentId,
+        data: { agentId, status: 'failed' },
+      })
+    );
 
-    await sessionService.publish(sessionId, {
-      id: createId(),
-      type: 'agent:error',
-      timestamp: Date.now(),
-      data: { agentId, runId, error: errorMessage },
-    });
+    await sessionService.publish(
+      sessionId,
+      createSessionEventWithMetadata({
+        sessionId,
+        type: 'agent:error',
+        partType: 'lifecycle',
+        blockId: runId,
+        data: { agentId, runId, error: errorMessage },
+      })
+    );
 
     session.close();
     return {

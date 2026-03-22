@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type StreamTextChunk = {
   offset?: string;
@@ -886,6 +886,11 @@ describe('reconnection behavior', () => {
   beforeEach(() => {
     vi.resetModules();
     durableMocks.reset();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('calls onReconnect when transitioning from reconnecting to connected', async () => {
@@ -967,6 +972,37 @@ describe('reconnection behavior', () => {
     await flushPromises();
 
     expect(disconnectSpy).not.toHaveBeenCalled();
+  });
+
+  it('reconnects with the last opaque cursor after clean stream closure', async () => {
+    const streamModule = await import('../../../src/lib/streams/client');
+    streamModule.setStreamsAvailable(true);
+
+    const chunkSpy = vi.fn();
+    const sub = streamModule.subscribeToSession('sess-resume-cursor', {
+      onChunk: chunkSpy,
+    });
+
+    await flushPromises();
+
+    const firstController = durableMocks.controllers[0];
+    firstController?.emit({
+      offset: 'opaque_42',
+      items: [{ type: 'chunk', data: { text: 'first' }, timestamp: Date.now() }],
+    });
+
+    expect(sub.getLastCursor()).toBe('opaque_42');
+
+    firstController?.close();
+    await flushPromises();
+
+    await vi.advanceTimersByTimeAsync(2000);
+    await flushPromises();
+
+    expect(durableMocks.stream).toHaveBeenCalledTimes(2);
+    expect(durableMocks.controllers[1]?.options.offset).toBe('opaque_42');
+
+    sub.unsubscribe();
   });
 });
 

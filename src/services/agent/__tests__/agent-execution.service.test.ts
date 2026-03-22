@@ -319,6 +319,13 @@ describe('AgentExecutionService', () => {
             status: 'starting',
             agentId: 'a1',
             taskId: 'task-1',
+            meta: expect.objectContaining({
+              schemaVersion: 1,
+              streamId: 'sess-1',
+              partType: 'lifecycle',
+              durability: 'durable',
+              blockId: 'a1',
+            }),
           }),
         })
       );

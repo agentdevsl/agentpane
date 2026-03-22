@@ -14,7 +14,7 @@
  */
 
 import { createId } from '@paralleldrive/cuid2';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, gt, sql } from 'drizzle-orm';
 import type { NewSessionSummary, SessionSummary } from '../../db/schema';
 import { sessionEvents, sessionSummaries, sessions } from '../../db/schema';
 import type { SessionError } from '../../lib/errors/session-errors.js';
@@ -191,6 +191,35 @@ export class SessionStreamService {
 
       const limit = options?.limit ?? 100;
       const offset = options?.offset ?? 0;
+      const afterEventId = options?.afterEventId;
+
+      if (afterEventId) {
+        const anchor = await this.db.query.sessionEvents.findFirst({
+          where: and(eq(sessionEvents.sessionId, sessionId), eq(sessionEvents.id, afterEventId)),
+        });
+
+        if (!anchor) {
+          return err(SessionErrors.RESUME_POINT_NOT_FOUND(afterEventId));
+        }
+
+        const events = await this.db.query.sessionEvents.findMany({
+          where: and(
+            eq(sessionEvents.sessionId, sessionId),
+            gt(sessionEvents.offset, anchor.offset)
+          ),
+          orderBy: [sessionEvents.offset],
+          limit,
+        });
+
+        return ok(
+          events.map((e) => ({
+            id: e.id,
+            type: e.type as SessionEventType,
+            timestamp: e.timestamp,
+            data: e.data,
+          }))
+        );
+      }
 
       const events = await this.db.query.sessionEvents.findMany({
         where: eq(sessionEvents.sessionId, sessionId),

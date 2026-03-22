@@ -2,6 +2,11 @@ import { createId } from '@paralleldrive/cuid2';
 import { desc, eq } from 'drizzle-orm';
 import { sessionEvents } from '../db/schema';
 import { type AppError, createError } from '../lib/errors/base.js';
+import {
+  type StreamEventMetadata,
+  type StreamPartType,
+  streamEventMetadataSchema,
+} from '../lib/streams/envelope.js';
 import type {
   ClarifyingQuestion,
   ComposeStage,
@@ -11,6 +16,7 @@ import type {
 import { err, ok, type Result } from '../lib/utils/result.js';
 import type { AgentFileChangedData } from '../types/agent-events.js';
 import type { Database } from '../types/database.js';
+import { createStreamPayloadWithMetadata } from './session/event-metadata.js';
 import type { SessionEvent, SessionEventType } from './session.service.js';
 
 /**
@@ -581,7 +587,7 @@ export class DurableStreamsService {
 
       try {
         await this.db.insert(sessionEvents).values({
-          id: attempt === 0 ? eventId : createId(),
+          id: eventId,
           sessionId: streamId,
           offset,
           type,
@@ -633,7 +639,9 @@ export class DurableStreamsService {
 
     try {
       const timestamp = Date.now();
-      const eventId = createId();
+      const payload = this.ensurePayloadMetadata(streamId, type, data, timestamp);
+      const payloadMeta = this.extractPayloadMeta(payload);
+      const eventId = payloadMeta?.eventId ?? createId();
 
       // Persist to database FIRST (ensures durability), then publish to Caddy
       const offset = await this.persistToDb(
@@ -641,7 +649,7 @@ export class DurableStreamsService {
         eventId,
         type,
         this.getChannelForType(type),
-        data as unknown,
+        payload as unknown,
         timestamp
       );
 
@@ -650,7 +658,7 @@ export class DurableStreamsService {
       // and clients can hydrate from the database on refresh.
       let memoryOffset = 0;
       try {
-        memoryOffset = await this.server.publish(streamId, type, data);
+        memoryOffset = await this.server.publish(streamId, type, payload);
       } catch (_caddyErr) {}
 
       return ok(this.db ? offset : memoryOffset);
@@ -663,6 +671,117 @@ export class DurableStreamsService {
         )
       );
     }
+  }
+
+  private extractPayloadMeta(data: unknown): StreamEventMetadata | null {
+    if (!data || typeof data !== 'object' || !('meta' in data)) {
+      return null;
+    }
+
+    const parsed = streamEventMetadataSchema.safeParse(data.meta);
+    return parsed.success ? parsed.data : null;
+  }
+
+  private ensurePayloadMetadata<T extends TypedEventType>(
+    streamId: string,
+    type: T,
+    data: StreamEventMap[T],
+    timestamp: number
+  ): StreamEventMap[T] {
+    if (!this.isMetadataEligiblePayload(data) || this.extractPayloadMeta(data)) {
+      return data;
+    }
+
+    return createStreamPayloadWithMetadata({
+      streamId,
+      partType: this.derivePartType(type, data),
+      blockId: this.deriveBlockId(data),
+      data,
+      timestamp,
+    }) as StreamEventMap[T];
+  }
+
+  private isMetadataEligiblePayload(data: unknown): data is Record<string, unknown> {
+    return data !== null && typeof data === 'object' && !Array.isArray(data);
+  }
+
+  private derivePartType(type: TypedEventType, data: Record<string, unknown>): StreamPartType {
+    if (type.endsWith(':token') || type === 'terraform:text') {
+      return 'chunk_delta';
+    }
+
+    if (
+      type === 'task-creation:message' ||
+      type === 'container-agent:message' ||
+      type === 'plan:turn'
+    ) {
+      return 'chunk_end';
+    }
+
+    if (type.includes(':tool:start')) {
+      return 'tool_start';
+    }
+
+    if (type.includes(':tool:result')) {
+      return data.isError === true ? 'tool_error' : 'tool_result';
+    }
+
+    if (type === 'container-agent:file_changed' || type === 'terraform:code') {
+      return 'diff';
+    }
+
+    if (
+      type.startsWith('topology:') ||
+      type.startsWith('sandbox:') ||
+      type.endsWith(':started') ||
+      type.endsWith(':completed') ||
+      type.endsWith(':complete') ||
+      type.endsWith(':cancelled') ||
+      type.endsWith(':error') ||
+      type.endsWith(':plan_ready')
+    ) {
+      return 'lifecycle';
+    }
+
+    return 'system';
+  }
+
+  private deriveBlockId(data: Record<string, unknown>): string | null {
+    const directKeys = [
+      'toolId',
+      'messageId',
+      'turnId',
+      'interactionId',
+      'worktreeId',
+      'sandboxId',
+      'sessionName',
+      'jobId',
+      'agentId',
+      'taskId',
+    ] as const;
+
+    for (const key of directKeys) {
+      const value = data[key];
+      if (typeof value === 'string' && value.length > 0) {
+        return value;
+      }
+    }
+
+    if (typeof data.path === 'string' && data.path.length > 0) {
+      return data.path;
+    }
+
+    if (
+      'questions' in data &&
+      data.questions &&
+      typeof data.questions === 'object' &&
+      'id' in data.questions &&
+      typeof data.questions.id === 'string'
+    ) {
+      return data.questions.id;
+    }
+
+    return null;
   }
 
   // ============================================

@@ -32,6 +32,7 @@ const createStreamsMock = () => ({
   publishTaskCreationToken: vi.fn().mockResolvedValue(undefined),
   publishTaskCreationSuggestion: vi.fn().mockResolvedValue(undefined),
   publishTaskCreationQuestions: vi.fn().mockResolvedValue(undefined),
+  publishTaskCreationProcessing: vi.fn().mockResolvedValue(undefined),
   publishTaskCreationCompleted: vi.fn().mockResolvedValue(undefined),
   publishTaskCreationCancelled: vi.fn().mockResolvedValue(undefined),
   publishTaskCreationError: vi.fn().mockResolvedValue(undefined),
@@ -1158,6 +1159,11 @@ describe('TaskCreationService', () => {
       expect(toolStartCall?.[1]?.data).toMatchObject({
         id: 'tool-1',
         tool: 'Read',
+        meta: expect.objectContaining({
+          eventId: expect.any(String),
+          streamId: 'db-session-1',
+          partType: 'tool_start',
+        }),
       });
     });
 
@@ -1225,6 +1231,11 @@ describe('TaskCreationService', () => {
         tool: 'Read',
         input: { file_path: '/test.txt' },
         isError: false,
+        meta: expect.objectContaining({
+          eventId: expect.any(String),
+          streamId: 'db-session-1',
+          partType: 'tool_result',
+        }),
       });
       expect(toolResultCall?.[1]?.data?.duration).toBeGreaterThanOrEqual(0);
     });
@@ -1311,6 +1322,11 @@ describe('TaskCreationService', () => {
         id: 'tool-1',
         tool: 'Grep',
         input: { pattern: 'test', path: '/src' },
+        meta: expect.objectContaining({
+          eventId: expect.any(String),
+          streamId: 'db-session-1',
+          partType: 'tool_result',
+        }),
       });
     });
   });

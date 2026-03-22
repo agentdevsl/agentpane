@@ -1,4 +1,5 @@
 import { createLogger } from '../../../lib/logging/logger.js';
+import { createSessionEventWithMetadata } from '../../../services/session/event-metadata.js';
 import type { SessionEvent } from '../../../services/session.service.js';
 import type {
   PostToolUseHook,
@@ -74,17 +75,21 @@ export function createStreamingHooks(
 
           // Publish tool start event to session
           try {
-            await sessionService.publish(sessionId, {
-              id: crypto.randomUUID(),
-              type: 'tool:start',
-              timestamp: Date.now(),
-              data: {
-                id: toolCallId,
-                agentId,
-                tool: input.tool_name,
-                input: input.tool_input,
-              },
-            });
+            await sessionService.publish(
+              sessionId,
+              createSessionEventWithMetadata({
+                sessionId,
+                type: 'tool:start',
+                partType: 'tool_start',
+                blockId: toolCallId,
+                data: {
+                  id: toolCallId,
+                  agentId,
+                  tool: input.tool_name,
+                  input: input.tool_input,
+                },
+              })
+            );
           } catch (error) {
             log.error('Failed to publish tool:start event', {
               data: { tool: input.tool_name, sessionId },
@@ -125,21 +130,25 @@ export function createStreamingHooks(
 
           // Publish tool completion event
           try {
-            await sessionService.publish(sessionId, {
-              id: crypto.randomUUID(),
-              type: 'tool:result',
-              timestamp: Date.now(),
-              data: {
-                id: toolCallId ?? crypto.randomUUID(),
-                agentId,
-                tool: input.tool_name,
-                input: input.tool_input,
-                output: input.tool_response,
-                duration: input.duration_ms,
-                isError,
-                error: errorMessage,
-              },
-            });
+            await sessionService.publish(
+              sessionId,
+              createSessionEventWithMetadata({
+                sessionId,
+                type: 'tool:result',
+                partType: isError ? 'tool_error' : 'tool_result',
+                blockId: toolCallId ?? null,
+                data: {
+                  id: toolCallId ?? crypto.randomUUID(),
+                  agentId,
+                  tool: input.tool_name,
+                  input: input.tool_input,
+                  output: input.tool_response,
+                  duration: input.duration_ms,
+                  isError,
+                  error: errorMessage,
+                },
+              })
+            );
           } catch (error) {
             log.error('Failed to publish tool:result event', {
               data: { tool: input.tool_name, sessionId },

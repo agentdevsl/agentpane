@@ -515,6 +515,47 @@ describe('SessionService', () => {
     }
   });
 
+  it('getEventsBySession supports afterEventId as the explicit history resume boundary', async () => {
+    const db = createDbMock();
+    const streams = createStreamsMock();
+    db.query.sessions.findFirst.mockResolvedValue({ id: 's1' });
+    db.query.sessionEvents.findFirst.mockResolvedValue({ id: 'evt-1', sessionId: 's1', offset: 4 });
+    db.query.sessionEvents.findMany.mockResolvedValue([
+      { id: 'evt-2', type: 'chunk', timestamp: 2000, data: { text: 'after' } },
+    ]);
+
+    const service = new SessionService(db as never, streams as never, {
+      baseUrl: 'http://localhost:3000',
+    });
+
+    const result = await service.getEventsBySession('s1', { limit: 50, afterEventId: 'evt-1' });
+
+    expect(result.ok).toBe(true);
+    expect(db.query.sessionEvents.findFirst).toHaveBeenCalled();
+    if (result.ok) {
+      expect(result.value).toHaveLength(1);
+      expect(result.value[0]?.id).toBe('evt-2');
+    }
+  });
+
+  it('getEventsBySession returns a resume-point error when afterEventId is unknown', async () => {
+    const db = createDbMock();
+    const streams = createStreamsMock();
+    db.query.sessions.findFirst.mockResolvedValue({ id: 's1' });
+    db.query.sessionEvents.findFirst.mockResolvedValue(null);
+
+    const service = new SessionService(db as never, streams as never, {
+      baseUrl: 'http://localhost:3000',
+    });
+
+    const result = await service.getEventsBySession('s1', { afterEventId: 'missing-anchor' });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('SESSION_RESUME_POINT_NOT_FOUND');
+    }
+  });
+
   it('generateUrl creates correct URL', () => {
     const db = createDbMock();
     const streams = createStreamsMock();

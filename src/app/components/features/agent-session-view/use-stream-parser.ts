@@ -143,6 +143,23 @@ interface StreamEvent {
   data?: string;
 }
 
+function getStableEventId(
+  baseType: 'chunk' | 'tool' | 'terminal',
+  fallbackParts: Array<string | number | undefined>,
+  meta?: { eventId?: string | undefined },
+  cursor?: string
+): string {
+  if (meta?.eventId) {
+    return meta.eventId;
+  }
+
+  if (cursor) {
+    return `${baseType}:${cursor}`;
+  }
+
+  return `${baseType}:${fallbackParts.map((part) => String(part ?? 'unknown')).join(':')}`;
+}
+
 export function useStreamParser(
   chunks: SessionChunk[],
   toolCalls: SessionToolCall[],
@@ -153,20 +170,35 @@ export function useStreamParser(
 
     // Merge and sort all events by timestamp
     const allEvents: StreamEvent[] = [
-      ...chunks.map((chunk, index) => ({
+      ...chunks.map((chunk) => ({
         ...chunk,
         _source: 'chunk' as const,
-        _eventId: `chunk:${chunk.timestamp}:${chunk.agentId ?? 'unknown'}:${index}`,
+        _eventId: getStableEventId(
+          'chunk',
+          [chunk.timestamp, chunk.agentId],
+          chunk.meta,
+          chunk.cursor
+        ),
       })),
-      ...toolCalls.map((toolCall, index) => ({
+      ...toolCalls.map((toolCall) => ({
         ...toolCall,
         _source: 'tool' as const,
-        _eventId: `tool:${toolCall.id}:${index}`,
+        _eventId: getStableEventId(
+          'tool',
+          [toolCall.id, toolCall.timestamp],
+          toolCall.meta,
+          toolCall.cursor
+        ),
       })),
-      ...terminal.map((terminalEvent, index) => ({
+      ...terminal.map((terminalEvent) => ({
         ...terminalEvent,
         _source: 'terminal' as const,
-        _eventId: `terminal:${terminalEvent.timestamp}:${terminalEvent.type}:${index}`,
+        _eventId: getStableEventId(
+          'terminal',
+          [terminalEvent.timestamp, terminalEvent.type],
+          terminalEvent.meta,
+          terminalEvent.cursor
+        ),
       })),
     ].sort((a, b) => a.timestamp - b.timestamp);
 

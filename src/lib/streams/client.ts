@@ -19,9 +19,18 @@ import type {
   SessionTerminal,
   SessionToolCall,
 } from '../../app/hooks/use-session';
+import {
+  cursorToApproxOffset,
+  normalizeStreamWireEvent,
+  type StreamEventMetadata,
+  streamEventMetadataSchema,
+} from './envelope';
 
 // Re-export types for convenience
 export type { SessionAgentState, SessionChunk, SessionPresence, SessionTerminal, SessionToolCall };
+export type { StreamEventMetadata };
+
+export type StreamCursor = string;
 
 /**
  * Zod schemas for validating raw event data from server
@@ -30,6 +39,7 @@ export type { SessionAgentState, SessionChunk, SessionPresence, SessionTerminal,
 const rawChunkDataSchema = z.object({
   text: z.string().default(''),
   agentId: z.string().optional(),
+  meta: z.unknown().optional(),
 });
 
 const rawToolCallDataSchema = z.object({
@@ -37,6 +47,7 @@ const rawToolCallDataSchema = z.object({
   tool: z.string().default('unknown'),
   input: z.unknown().optional(),
   output: z.unknown().optional(),
+  meta: z.unknown().optional(),
 });
 
 const rawPresenceDataSchema = z.object({
@@ -51,7 +62,17 @@ const rawPresenceDataSchema = z.object({
 
 const rawTerminalDataSchema = z.object({
   data: z.string().default(''),
+  meta: z.unknown().optional(),
 });
+
+function extractPayloadMeta(data: unknown): StreamEventMetadata | undefined {
+  if (!data || typeof data !== 'object' || !('meta' in data)) {
+    return undefined;
+  }
+
+  const parsed = streamEventMetadataSchema.safeParse(data.meta);
+  return parsed.success ? parsed.data : undefined;
+}
 
 const rawAgentStateDataSchema = z.object({
   agentId: z.string().min(1).optional(),
@@ -296,7 +317,15 @@ export interface RawSessionEvent {
   data: unknown;
   timestamp: number;
   offset?: number;
+  cursor?: StreamCursor;
+  meta?: StreamEventMetadata;
 }
+
+type TypedSessionEventMetadata = {
+  offset?: number;
+  cursor?: StreamCursor;
+  meta?: StreamEventMetadata;
+};
 
 /**
  * Container agent event types
@@ -463,123 +492,149 @@ export interface TopologyAgentCompleted {
  * Typed session event for callback routing
  */
 export type TypedSessionEvent =
-  | { channel: 'chunks'; data: SessionChunk; offset?: number }
-  | { channel: 'toolCalls'; data: SessionToolCall; offset?: number }
-  | { channel: 'presence'; data: SessionPresence; offset?: number }
-  | { channel: 'terminal'; data: SessionTerminal; offset?: number }
-  | { channel: 'agentState'; data: SessionAgentState; offset?: number }
-  | { channel: 'containerAgent:status'; data: ContainerAgentStatus; offset?: number }
-  | { channel: 'containerAgent:started'; data: ContainerAgentStarted; offset?: number }
-  | { channel: 'containerAgent:token'; data: ContainerAgentToken; offset?: number }
-  | { channel: 'containerAgent:turn'; data: ContainerAgentTurn; offset?: number }
-  | { channel: 'containerAgent:toolStart'; data: ContainerAgentToolStart; offset?: number }
-  | { channel: 'containerAgent:toolResult'; data: ContainerAgentToolResult; offset?: number }
-  | { channel: 'containerAgent:message'; data: ContainerAgentMessage; offset?: number }
-  | { channel: 'containerAgent:complete'; data: ContainerAgentComplete; offset?: number }
-  | { channel: 'containerAgent:error'; data: ContainerAgentError; offset?: number }
-  | { channel: 'containerAgent:cancelled'; data: ContainerAgentCancelled; offset?: number }
-  | { channel: 'containerAgent:planReady'; data: ContainerAgentPlanReady; offset?: number }
-  | { channel: 'containerAgent:worktree'; data: ContainerAgentWorktree; offset?: number }
-  | { channel: 'containerAgent:fileChanged'; data: ContainerAgentFileChanged; offset?: number }
-  | { channel: 'topology:agentSpawned'; data: TopologyAgentSpawned; offset?: number }
-  | { channel: 'topology:agentProgress'; data: TopologyAgentProgress; offset?: number }
-  | { channel: 'topology:agentCompleted'; data: TopologyAgentCompleted; offset?: number };
+  | ({ channel: 'chunks'; data: SessionChunk } & TypedSessionEventMetadata)
+  | ({ channel: 'toolCalls'; data: SessionToolCall } & TypedSessionEventMetadata)
+  | ({ channel: 'presence'; data: SessionPresence } & TypedSessionEventMetadata)
+  | ({ channel: 'terminal'; data: SessionTerminal } & TypedSessionEventMetadata)
+  | ({ channel: 'agentState'; data: SessionAgentState } & TypedSessionEventMetadata)
+  | ({ channel: 'containerAgent:status'; data: ContainerAgentStatus } & TypedSessionEventMetadata)
+  | ({ channel: 'containerAgent:started'; data: ContainerAgentStarted } & TypedSessionEventMetadata)
+  | ({ channel: 'containerAgent:token'; data: ContainerAgentToken } & TypedSessionEventMetadata)
+  | ({ channel: 'containerAgent:turn'; data: ContainerAgentTurn } & TypedSessionEventMetadata)
+  | ({
+      channel: 'containerAgent:toolStart';
+      data: ContainerAgentToolStart;
+    } & TypedSessionEventMetadata)
+  | ({
+      channel: 'containerAgent:toolResult';
+      data: ContainerAgentToolResult;
+    } & TypedSessionEventMetadata)
+  | ({ channel: 'containerAgent:message'; data: ContainerAgentMessage } & TypedSessionEventMetadata)
+  | ({
+      channel: 'containerAgent:complete';
+      data: ContainerAgentComplete;
+    } & TypedSessionEventMetadata)
+  | ({ channel: 'containerAgent:error'; data: ContainerAgentError } & TypedSessionEventMetadata)
+  | ({
+      channel: 'containerAgent:cancelled';
+      data: ContainerAgentCancelled;
+    } & TypedSessionEventMetadata)
+  | ({
+      channel: 'containerAgent:planReady';
+      data: ContainerAgentPlanReady;
+    } & TypedSessionEventMetadata)
+  | ({
+      channel: 'containerAgent:worktree';
+      data: ContainerAgentWorktree;
+    } & TypedSessionEventMetadata)
+  | ({
+      channel: 'containerAgent:fileChanged';
+      data: ContainerAgentFileChanged;
+    } & TypedSessionEventMetadata)
+  | ({ channel: 'topology:agentSpawned'; data: TopologyAgentSpawned } & TypedSessionEventMetadata)
+  | ({ channel: 'topology:agentProgress'; data: TopologyAgentProgress } & TypedSessionEventMetadata)
+  | ({
+      channel: 'topology:agentCompleted';
+      data: TopologyAgentCompleted;
+    } & TypedSessionEventMetadata);
+
+export type ChunkSessionEvent = Extract<TypedSessionEvent, { channel: 'chunks' }>;
+export type ToolCallSessionEvent = Extract<TypedSessionEvent, { channel: 'toolCalls' }>;
+export type PresenceSessionEvent = Extract<TypedSessionEvent, { channel: 'presence' }>;
+export type TerminalSessionEvent = Extract<TypedSessionEvent, { channel: 'terminal' }>;
+export type AgentStateSessionEvent = Extract<TypedSessionEvent, { channel: 'agentState' }>;
+export type ContainerAgentStatusSessionEvent = Extract<
+  TypedSessionEvent,
+  { channel: 'containerAgent:status' }
+>;
+export type ContainerAgentStartedSessionEvent = Extract<
+  TypedSessionEvent,
+  { channel: 'containerAgent:started' }
+>;
+export type ContainerAgentTokenSessionEvent = Extract<
+  TypedSessionEvent,
+  { channel: 'containerAgent:token' }
+>;
+export type ContainerAgentTurnSessionEvent = Extract<
+  TypedSessionEvent,
+  { channel: 'containerAgent:turn' }
+>;
+export type ContainerAgentToolStartSessionEvent = Extract<
+  TypedSessionEvent,
+  { channel: 'containerAgent:toolStart' }
+>;
+export type ContainerAgentToolResultSessionEvent = Extract<
+  TypedSessionEvent,
+  { channel: 'containerAgent:toolResult' }
+>;
+export type ContainerAgentMessageSessionEvent = Extract<
+  TypedSessionEvent,
+  { channel: 'containerAgent:message' }
+>;
+export type ContainerAgentCompleteSessionEvent = Extract<
+  TypedSessionEvent,
+  { channel: 'containerAgent:complete' }
+>;
+export type ContainerAgentErrorSessionEvent = Extract<
+  TypedSessionEvent,
+  { channel: 'containerAgent:error' }
+>;
+export type ContainerAgentCancelledSessionEvent = Extract<
+  TypedSessionEvent,
+  { channel: 'containerAgent:cancelled' }
+>;
+export type ContainerAgentPlanReadySessionEvent = Extract<
+  TypedSessionEvent,
+  { channel: 'containerAgent:planReady' }
+>;
+export type ContainerAgentWorktreeSessionEvent = Extract<
+  TypedSessionEvent,
+  { channel: 'containerAgent:worktree' }
+>;
+export type ContainerAgentFileChangedSessionEvent = Extract<
+  TypedSessionEvent,
+  { channel: 'containerAgent:fileChanged' }
+>;
+export type TopologyAgentSpawnedSessionEvent = Extract<
+  TypedSessionEvent,
+  { channel: 'topology:agentSpawned' }
+>;
+export type TopologyAgentProgressSessionEvent = Extract<
+  TypedSessionEvent,
+  { channel: 'topology:agentProgress' }
+>;
+export type TopologyAgentCompletedSessionEvent = Extract<
+  TypedSessionEvent,
+  { channel: 'topology:agentCompleted' }
+>;
 
 /**
  * Callbacks for session subscription
  */
 export interface SessionCallbacks {
-  onChunk?: (event: { channel: 'chunks'; data: SessionChunk; offset?: number }) => void;
-  onToolCall?: (event: { channel: 'toolCalls'; data: SessionToolCall; offset?: number }) => void;
-  onPresence?: (event: { channel: 'presence'; data: SessionPresence; offset?: number }) => void;
-  onTerminal?: (event: { channel: 'terminal'; data: SessionTerminal; offset?: number }) => void;
-  onAgentState?: (event: {
-    channel: 'agentState';
-    data: SessionAgentState;
-    offset?: number;
-  }) => void;
+  onChunk?: (event: ChunkSessionEvent) => void;
+  onToolCall?: (event: ToolCallSessionEvent) => void;
+  onPresence?: (event: PresenceSessionEvent) => void;
+  onTerminal?: (event: TerminalSessionEvent) => void;
+  onAgentState?: (event: AgentStateSessionEvent) => void;
   // Container agent callbacks
-  onContainerAgentStatus?: (event: {
-    channel: 'containerAgent:status';
-    data: ContainerAgentStatus;
-    offset?: number;
-  }) => void;
-  onContainerAgentStarted?: (event: {
-    channel: 'containerAgent:started';
-    data: ContainerAgentStarted;
-    offset?: number;
-  }) => void;
-  onContainerAgentToken?: (event: {
-    channel: 'containerAgent:token';
-    data: ContainerAgentToken;
-    offset?: number;
-  }) => void;
-  onContainerAgentTurn?: (event: {
-    channel: 'containerAgent:turn';
-    data: ContainerAgentTurn;
-    offset?: number;
-  }) => void;
-  onContainerAgentToolStart?: (event: {
-    channel: 'containerAgent:toolStart';
-    data: ContainerAgentToolStart;
-    offset?: number;
-  }) => void;
-  onContainerAgentToolResult?: (event: {
-    channel: 'containerAgent:toolResult';
-    data: ContainerAgentToolResult;
-    offset?: number;
-  }) => void;
-  onContainerAgentMessage?: (event: {
-    channel: 'containerAgent:message';
-    data: ContainerAgentMessage;
-    offset?: number;
-  }) => void;
-  onContainerAgentComplete?: (event: {
-    channel: 'containerAgent:complete';
-    data: ContainerAgentComplete;
-    offset?: number;
-  }) => void;
-  onContainerAgentError?: (event: {
-    channel: 'containerAgent:error';
-    data: ContainerAgentError;
-    offset?: number;
-  }) => void;
-  onContainerAgentCancelled?: (event: {
-    channel: 'containerAgent:cancelled';
-    data: ContainerAgentCancelled;
-    offset?: number;
-  }) => void;
-  onContainerAgentPlanReady?: (event: {
-    channel: 'containerAgent:planReady';
-    data: ContainerAgentPlanReady;
-    offset?: number;
-  }) => void;
-  onContainerAgentWorktree?: (event: {
-    channel: 'containerAgent:worktree';
-    data: ContainerAgentWorktree;
-    offset?: number;
-  }) => void;
-  onContainerAgentFileChanged?: (event: {
-    channel: 'containerAgent:fileChanged';
-    data: ContainerAgentFileChanged;
-    offset?: number;
-  }) => void;
+  onContainerAgentStatus?: (event: ContainerAgentStatusSessionEvent) => void;
+  onContainerAgentStarted?: (event: ContainerAgentStartedSessionEvent) => void;
+  onContainerAgentToken?: (event: ContainerAgentTokenSessionEvent) => void;
+  onContainerAgentTurn?: (event: ContainerAgentTurnSessionEvent) => void;
+  onContainerAgentToolStart?: (event: ContainerAgentToolStartSessionEvent) => void;
+  onContainerAgentToolResult?: (event: ContainerAgentToolResultSessionEvent) => void;
+  onContainerAgentMessage?: (event: ContainerAgentMessageSessionEvent) => void;
+  onContainerAgentComplete?: (event: ContainerAgentCompleteSessionEvent) => void;
+  onContainerAgentError?: (event: ContainerAgentErrorSessionEvent) => void;
+  onContainerAgentCancelled?: (event: ContainerAgentCancelledSessionEvent) => void;
+  onContainerAgentPlanReady?: (event: ContainerAgentPlanReadySessionEvent) => void;
+  onContainerAgentWorktree?: (event: ContainerAgentWorktreeSessionEvent) => void;
+  onContainerAgentFileChanged?: (event: ContainerAgentFileChangedSessionEvent) => void;
   // Topology callbacks
-  onTopologyAgentSpawned?: (event: {
-    channel: 'topology:agentSpawned';
-    data: TopologyAgentSpawned;
-    offset?: number;
-  }) => void;
-  onTopologyAgentProgress?: (event: {
-    channel: 'topology:agentProgress';
-    data: TopologyAgentProgress;
-    offset?: number;
-  }) => void;
-  onTopologyAgentCompleted?: (event: {
-    channel: 'topology:agentCompleted';
-    data: TopologyAgentCompleted;
-    offset?: number;
-  }) => void;
+  onTopologyAgentSpawned?: (event: TopologyAgentSpawnedSessionEvent) => void;
+  onTopologyAgentProgress?: (event: TopologyAgentProgressSessionEvent) => void;
+  onTopologyAgentCompleted?: (event: TopologyAgentCompletedSessionEvent) => void;
   onError?: (error: Error) => void;
   onConnectionStateChange?: (state: ConnectionState) => void;
   onReconnect?: () => void;
@@ -599,17 +654,10 @@ export interface Subscription {
   unsubscribe: () => void;
   /** Get current connection state */
   getState: () => ConnectionState;
+  /** Get the last received opaque cursor for resume */
+  getLastCursor: () => StreamCursor | null;
   /** Get the last received offset for resume */
   getLastOffset: () => number;
-}
-
-/**
- * Raw stream event shape as delivered by the durable stream (NDJSON items).
- */
-interface StreamEventItem {
-  type: string;
-  data: unknown;
-  timestamp?: number;
 }
 
 /**
@@ -630,7 +678,7 @@ export class DurableStreamsClient {
    */
   subscribeToSession(sessionId: string, callbacks: SessionCallbacks): Subscription {
     let state: ConnectionState = 'disconnected';
-    let lastOffset: string = '-1';
+    let lastCursor: StreamCursor | null = null;
     let unsubscribeFn: (() => void) | null = null;
     let responseCancelFn: (() => void) | null = null;
     let isUnsubscribed = false;
@@ -675,7 +723,7 @@ export class DurableStreamsClient {
         const response: StreamResponse = await durableStream({
           url,
           live: 'sse',
-          offset: lastOffset,
+          offset: lastCursor ?? '-1',
           onError: (error) => {
             const normalizedError = error instanceof Error ? error : new Error(String(error));
 
@@ -721,11 +769,11 @@ export class DurableStreamsClient {
 
           // Update offset from chunk metadata
           if (chunk.offset) {
-            lastOffset = chunk.offset;
+            lastCursor = chunk.offset;
           }
 
           // Parse the text as a JSON array of events
-          let items: StreamEventItem[];
+          let items: unknown[];
           try {
             const parsed = JSON.parse(chunk.text);
             items = Array.isArray(parsed) ? parsed : [parsed];
@@ -736,11 +784,18 @@ export class DurableStreamsClient {
 
           for (const item of items) {
             try {
+              const wireEvent = normalizeStreamWireEvent(item);
+              if (!wireEvent) {
+                continue;
+              }
+
               const rawEvent: RawSessionEvent = {
-                type: item.type as SessionEventType,
-                data: item.data,
-                timestamp: item.timestamp ?? Date.now(),
-                offset: undefined, // Durable streams use opaque string offsets
+                type: wireEvent.type as SessionEventType,
+                data: wireEvent.data,
+                timestamp: wireEvent.timestamp ?? Date.now(),
+                offset: cursorToApproxOffset(lastCursor),
+                cursor: lastCursor ?? undefined,
+                meta: wireEvent.meta ?? extractPayloadMeta(wireEvent.data),
               };
 
               const typedEvent = mapRawEventToTyped(rawEvent);
@@ -816,13 +871,9 @@ export class DurableStreamsClient {
     return {
       unsubscribe,
       getState: () => state,
+      getLastCursor: () => lastCursor,
       getLastOffset: () => {
-        if (lastOffset === '-1') return 0;
-        // Durable stream offsets are opaque strings (e.g. "3_128").
-        // Parse the leading read-sequence number as a numeric approximation
-        // for callers that expect a number.
-        const num = parseInt(lastOffset, 10);
-        return Number.isNaN(num) ? 0 : num;
+        return cursorToApproxOffset(lastCursor) ?? 0;
       },
     };
   }
@@ -876,6 +927,8 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
           agentId: parsed.data.agentId,
         },
         offset: raw.offset,
+        cursor: raw.cursor,
+        meta: raw.meta,
       };
     }
 
@@ -894,6 +947,8 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
           timestamp: raw.timestamp,
         },
         offset: raw.offset,
+        cursor: raw.cursor,
+        meta: raw.meta,
       };
     }
 
@@ -913,6 +968,8 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
           timestamp: raw.timestamp,
         },
         offset: raw.offset,
+        cursor: raw.cursor,
+        meta: raw.meta,
       };
     }
 
@@ -931,6 +988,8 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
           cursor: parsed.data.cursor,
         },
         offset: raw.offset,
+        cursor: raw.cursor,
+        meta: raw.meta,
       };
     }
 
@@ -948,6 +1007,8 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
           timestamp: raw.timestamp,
         },
         offset: raw.offset,
+        cursor: raw.cursor,
+        meta: raw.meta,
       };
     }
 
@@ -960,6 +1021,8 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
         channel: 'agentState',
         data: parsed.data as SessionAgentState,
         offset: raw.offset,
+        cursor: raw.cursor,
+        meta: raw.meta,
       };
     }
 
@@ -973,6 +1036,8 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
         channel: 'containerAgent:status',
         data: { ...parsed.data, timestamp: raw.timestamp },
         offset: raw.offset,
+        cursor: raw.cursor,
+        meta: raw.meta,
       };
     }
 
@@ -985,6 +1050,8 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
         channel: 'containerAgent:started',
         data: { ...parsed.data, timestamp: raw.timestamp },
         offset: raw.offset,
+        cursor: raw.cursor,
+        meta: raw.meta,
       };
     }
 
@@ -997,6 +1064,8 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
         channel: 'containerAgent:token',
         data: { ...parsed.data, timestamp: raw.timestamp },
         offset: raw.offset,
+        cursor: raw.cursor,
+        meta: raw.meta,
       };
     }
 
@@ -1009,6 +1078,8 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
         channel: 'containerAgent:turn',
         data: { ...parsed.data, timestamp: raw.timestamp },
         offset: raw.offset,
+        cursor: raw.cursor,
+        meta: raw.meta,
       };
     }
 
@@ -1021,6 +1092,8 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
         channel: 'containerAgent:toolStart',
         data: { ...parsed.data, timestamp: raw.timestamp },
         offset: raw.offset,
+        cursor: raw.cursor,
+        meta: raw.meta,
       };
     }
 
@@ -1033,6 +1106,8 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
         channel: 'containerAgent:toolResult',
         data: { ...parsed.data, timestamp: raw.timestamp },
         offset: raw.offset,
+        cursor: raw.cursor,
+        meta: raw.meta,
       };
     }
 
@@ -1045,6 +1120,8 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
         channel: 'containerAgent:message',
         data: { ...parsed.data, timestamp: raw.timestamp },
         offset: raw.offset,
+        cursor: raw.cursor,
+        meta: raw.meta,
       };
     }
 
@@ -1057,6 +1134,8 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
         channel: 'containerAgent:complete',
         data: { ...parsed.data, timestamp: raw.timestamp },
         offset: raw.offset,
+        cursor: raw.cursor,
+        meta: raw.meta,
       };
     }
 
@@ -1069,6 +1148,8 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
         channel: 'containerAgent:error',
         data: { ...parsed.data, timestamp: raw.timestamp },
         offset: raw.offset,
+        cursor: raw.cursor,
+        meta: raw.meta,
       };
     }
 
@@ -1081,6 +1162,8 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
         channel: 'containerAgent:cancelled',
         data: { ...parsed.data, timestamp: raw.timestamp },
         offset: raw.offset,
+        cursor: raw.cursor,
+        meta: raw.meta,
       };
     }
 
@@ -1093,6 +1176,8 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
         channel: 'containerAgent:planReady',
         data: { ...parsed.data, timestamp: raw.timestamp },
         offset: raw.offset,
+        cursor: raw.cursor,
+        meta: raw.meta,
       };
     }
 
@@ -1105,6 +1190,8 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
         channel: 'containerAgent:worktree',
         data: { ...parsed.data, timestamp: raw.timestamp },
         offset: raw.offset,
+        cursor: raw.cursor,
+        meta: raw.meta,
       };
     }
 
@@ -1117,6 +1204,8 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
         channel: 'containerAgent:fileChanged',
         data: { ...parsed.data, timestamp: raw.timestamp },
         offset: raw.offset,
+        cursor: raw.cursor,
+        meta: raw.meta,
       };
     }
 
@@ -1130,6 +1219,8 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
         channel: 'topology:agentSpawned',
         data: { ...parsed.data, timestamp: raw.timestamp },
         offset: raw.offset,
+        cursor: raw.cursor,
+        meta: raw.meta,
       };
     }
 
@@ -1142,6 +1233,8 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
         channel: 'topology:agentProgress',
         data: { ...parsed.data, timestamp: raw.timestamp },
         offset: raw.offset,
+        cursor: raw.cursor,
+        meta: raw.meta,
       };
     }
 
@@ -1154,6 +1247,8 @@ function mapRawEventToTyped(raw: RawSessionEvent): TypedSessionEvent | null {
         channel: 'topology:agentCompleted',
         data: { ...parsed.data, timestamp: raw.timestamp },
         offset: raw.offset,
+        cursor: raw.cursor,
+        meta: raw.meta,
       };
     }
 
@@ -1387,6 +1482,7 @@ export function subscribeToSession(sessionId: string, callbacks: SessionCallback
       }
     },
     getState: () => currentEntry.subscription.getState(),
+    getLastCursor: () => currentEntry.subscription.getLastCursor(),
     getLastOffset: () => currentEntry.subscription.getLastOffset(),
   };
 }
