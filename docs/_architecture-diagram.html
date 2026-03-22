@@ -230,18 +230,18 @@ svg { display: block; }
 <path d="M 735 620 L 735 720 L 1135 720 L 1135 770" fill="none" stroke="#f69d50" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-aws)"/>
 
 <!-- ==================== PostgreSQL (Remote) ==================== -->
-<rect x="1200" y="360" width="310" height="110" rx="10" fill="none" stroke="#8b949e" stroke-width="2" stroke-dasharray="8,4"/>
-<text x="1218" y="380" fill="#8b949e" font-size="12" font-weight="600">PostgreSQL (Remote)</text>
+<rect x="1200" y="376" width="310" height="110" rx="10" fill="none" stroke="#8b949e" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="1218" y="396" fill="#8b949e" font-size="12" font-weight="600">PostgreSQL (Remote)</text>
 
-<rect x="1220" y="392" width="270" height="38" rx="7" fill="#161b22" stroke="#bc8cff" stroke-width="1.5"/>
-<text x="1355" y="411" text-anchor="middle" fill="#bc8cff" font-size="14" font-weight="600">PostgreSQL</text>
-<text x="1355" y="424" text-anchor="middle" fill="#8b949e" font-size="10">:5432</text>
+<rect x="1220" y="408" width="270" height="38" rx="7" fill="#161b22" stroke="#bc8cff" stroke-width="1.5"/>
+<text x="1355" y="427" text-anchor="middle" fill="#bc8cff" font-size="14" font-weight="600">PostgreSQL</text>
+<text x="1355" y="440" text-anchor="middle" fill="#8b949e" font-size="10">:5432</text>
 
-<rect x="1220" y="438" width="270" height="24" rx="5" fill="#161b22" stroke="#8b949e" stroke-width="1"/>
-<text x="1355" y="454" text-anchor="middle" fill="#8b949e" font-size="11">Drizzle Migrations · migrations-pgs</text>
+<rect x="1220" y="454" width="270" height="24" rx="5" fill="#161b22" stroke="#8b949e" stroke-width="1"/>
+<text x="1355" y="470" text-anchor="middle" fill="#8b949e" font-size="11">Drizzle Migrations · migrations-pgs</text>
 
-<!-- Connection: pg driver -> PostgreSQL -->
-<path d="M 730 420 L 1220 420" fill="none" stroke="#484f58" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-gray)"/>
+<!-- Connection: pg driver -> PostgreSQL (routed below Event System to avoid crossing plugin boxes) -->
+<path d="M 730 420 L 780 420 L 780 548 L 1160 548 L 1160 427 L 1220 427" fill="none" stroke="#484f58" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-gray)"/>
 
 <!-- ==================== Event System Tables ==================== -->
 <rect x="1200" y="500" width="310" height="120" rx="10" fill="#161b22" stroke="#d29922" stroke-width="1.5" stroke-dasharray="6,3"/>
@@ -259,6 +259,7 @@ svg { display: block; }
 
 <!-- Connection: Event tables -> Drizzle ORM -->
 <path d="M 1200 560 L 1170 560 L 1170 342 L 770 342" fill="none" stroke="#d29922" stroke-width="1" stroke-dasharray="4,2"/>
+
 
 <!-- ==================== MEMORY LAYER (PR #111) ==================== -->
 <rect x="1200" y="640" width="380" height="120" rx="10" fill="none" stroke="#a855f7" stroke-width="2" stroke-dasharray="8,4"/>
@@ -284,8 +285,8 @@ svg { display: block; }
 <!-- Connection: Honcho -> Redis -->
 <line x1="1380" y1="694" x2="1400" y2="694" stroke="#a855f7" stroke-width="1.5" stroke-dasharray="4,2"/>
 
-<!-- Connection: MemoryService -> Honcho API (prominent) -->
-<path d="M 250 471 L 280 471 L 280 510 L 780 510 L 780 660 L 1155 660 L 1155 694 L 1220 694" fill="none" stroke="#a855f7" stroke-width="2" marker-end="url(#arrow-memory)"/>
+<!-- Connection: MemoryService -> Honcho API (routed left of Container Agent to avoid crossing it) -->
+<path d="M 160 490 L 160 498 L 55 498 L 55 560 L 780 560 L 780 660 L 1155 660 L 1155 694 L 1220 694" fill="none" stroke="#a855f7" stroke-width="2" marker-end="url(#arrow-memory)"/>
 <text x="900" y="654" fill="#a855f7" font-size="10" font-weight="600">memory queries</text>
 
 <!-- ==================== LEGEND ==================== -->
@@ -426,8 +427,8 @@ svg { display: block; }
 <!-- Honcho API and Go CLI promoted to dedicated sections above -->
 
 <!-- Connection: GitHub Webhooks -> Event System (drops below service boxes, then far right) -->
-<path d="M 1030 1220 L 1030 1245 L 1580 1245 L 1580 478 L 1160 478" fill="none" stroke="#d29922" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-orange)"/>
-<text x="1585" y="910" fill="#d29922" font-size="10">webhooks</text>
+<path d="M 1030 1220 L 1030 1245 L 1580 1245 L 1580 478 L 1130 478" fill="none" stroke="#d29922" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-orange)"/>
+<text x="1610" y="910" text-anchor="end" fill="#d29922" font-size="10">webhooks</text>
 
 <!-- Connections: containers -> Anthropic API -->
 <line x1="190" y1="892" x2="190" y2="1145" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-purple)"/>
