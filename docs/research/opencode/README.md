@@ -22,6 +22,7 @@ fits for AgentPane right now.
 | `03-roadmap.md` | Prioritized implementation path | Orders work by user-visible value and risk reduction |
 | `04-implementation-backlog.md` | Actionable implementation backlog | Converts the roadmap into high-priority execution-ready work |
 | `05-open-questions.md` | Remaining architecture decisions | Captures unresolved choices with recommended defaults so implementation stays unblocked |
+| `06-execution-briefs.md` | Issue-ready and PR-ready drafts | Turns the active backlog into copy-paste execution briefs for implementation |
 
 ## Executive Summary
 
@@ -80,6 +81,7 @@ fits for AgentPane right now.
 4. Then read `docs/research/opencode/03-roadmap.md`.
 5. Use `docs/research/opencode/04-implementation-backlog.md` to plan implementation order.
 6. Use `docs/research/opencode/05-open-questions.md` for unresolved decisions and defaults.
+7. Use `docs/research/opencode/06-execution-briefs.md` to draft issues and the first PRs.
 
 ## Key Themes
 
