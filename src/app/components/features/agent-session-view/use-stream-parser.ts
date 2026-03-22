@@ -24,10 +24,6 @@ export interface StreamLine {
 // ANSI escape code regex
 const ANSI_REGEX = /\x1b\[[0-9;]*m/g;
 
-function generateId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-}
-
 function stripAnsiCodes(text: string): string {
   return text.replace(ANSI_REGEX, '');
 }
@@ -92,15 +88,20 @@ function detectLineType(text: string): StreamLineType {
   return 'output';
 }
 
-function parseTextToLines(text: string, timestamp: number, agentId?: string): StreamLine[] {
+function parseTextToLines(
+  text: string,
+  timestamp: number,
+  baseId: string,
+  agentId?: string
+): StreamLine[] {
   const lines: StreamLine[] = [];
   const textLines = text.split('\n');
 
-  for (const line of textLines) {
+  for (const [lineIndex, line] of textLines.entries()) {
     if (line.length === 0) continue;
 
     lines.push({
-      id: generateId(),
+      id: `${baseId}:line:${lineIndex}`,
       type: detectLineType(line),
       content: stripAnsiCodes(line),
       timestamp,
@@ -127,6 +128,7 @@ function formatToolOutput(output: unknown): string {
 
 interface StreamEvent {
   _source: 'chunk' | 'tool' | 'terminal';
+  _eventId: string;
   timestamp: number;
   // Chunk fields
   text?: string;
@@ -151,30 +153,36 @@ export function useStreamParser(
 
     // Merge and sort all events by timestamp
     const allEvents: StreamEvent[] = [
-      ...chunks.map((c) => ({
-        ...c,
+      ...chunks.map((chunk, index) => ({
+        ...chunk,
         _source: 'chunk' as const,
+        _eventId: `chunk:${chunk.timestamp}:${chunk.agentId ?? 'unknown'}:${index}`,
       })),
-      ...toolCalls.map((t) => ({
-        ...t,
+      ...toolCalls.map((toolCall, index) => ({
+        ...toolCall,
         _source: 'tool' as const,
+        _eventId: `tool:${toolCall.id}:${index}`,
       })),
-      ...terminal.map((t) => ({
-        ...t,
+      ...terminal.map((terminalEvent, index) => ({
+        ...terminalEvent,
         _source: 'terminal' as const,
+        _eventId: `terminal:${terminalEvent.timestamp}:${terminalEvent.type}:${index}`,
       })),
     ].sort((a, b) => a.timestamp - b.timestamp);
 
     for (const event of allEvents) {
       if (event._source === 'chunk') {
-        // Parse chunk text into lines
-        const textLines = parseTextToLines(event.text ?? '', event.timestamp, event.agentId);
+        const textLines = parseTextToLines(
+          event.text ?? '',
+          event.timestamp,
+          event._eventId,
+          event.agentId
+        );
         lines.push(...textLines);
       } else if (event._source === 'tool') {
-        // Tool call start/result
         if (event.status === 'running') {
           lines.push({
-            id: `${event.id}-start`,
+            id: `${event._eventId}:start`,
             type: 'tool',
             content: `-> ${event.tool}`,
             timestamp: event.timestamp,
@@ -185,7 +193,7 @@ export function useStreamParser(
           const output = formatToolOutput(event.output);
           if (output) {
             lines.push({
-              id: `${event.id}-result`,
+              id: `${event._eventId}:result`,
               type: 'output',
               content: output,
               timestamp: event.timestamp,
@@ -195,7 +203,7 @@ export function useStreamParser(
           }
         } else if (event.status === 'error') {
           lines.push({
-            id: `${event.id}-error`,
+            id: `${event._eventId}:error`,
             type: 'error',
             content: formatToolOutput(event.output) || 'Tool execution failed',
             timestamp: event.timestamp,
@@ -204,11 +212,10 @@ export function useStreamParser(
           });
         }
       } else if (event._source === 'terminal') {
-        // Terminal I/O
         const terminalType: StreamLineType = event.type === 'input' ? 'command' : 'output';
         if (event.data) {
           lines.push({
-            id: generateId(),
+            id: `${event._eventId}:line`,
             type: terminalType,
             content: stripAnsiCodes(event.data),
             timestamp: event.timestamp,

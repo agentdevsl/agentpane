@@ -3,6 +3,18 @@
 **Date:** March 2026
 **Scope:** Comprehensive evaluation of technology alternatives across 11 architectural domains
 
+## Supplemental UX-First Set
+
+The reports below are the broad architecture survey. There is also a narrower,
+more execution-focused supplement under [`opencode/README.md`](opencode/README.md).
+That set focuses on trust, recovery, deployment honesty, reconnect behavior,
+and implementation sequencing.
+
+Recommended entry points:
+
+- [`opencode/00-executive-brief.md`](opencode/00-executive-brief.md)
+- [`opencode/04-implementation-backlog.md`](opencode/04-implementation-backlog.md)
+
 ## Reports
 
 | Report | Domain | Key Findings |
@@ -20,6 +32,11 @@
 | [11-platform-patterns.md](11-platform-patterns.md) | Cursor/Linear/Figma/Vercel/Temporal/Replit patterns | Structured stream parts; optimistic Kanban; separate presence from persistence; AsyncAPI spec |
 
 ## Consolidated Priority Actions
+
+Note: the consolidated actions below are the broad cross-report synthesis. The
+`opencode` supplement further narrows the near-term active queue to `OC-001`,
+`OC-004`, `OC-005`, `OC-006`, `OC-008`, and `OC-007`, with `OC-002` and
+`OC-003` intentionally deferred for now.
 
 ### Critical (Security)
 

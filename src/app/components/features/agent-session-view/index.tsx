@@ -144,7 +144,7 @@ export function AgentSessionView({
   onSessionEnd,
   onError,
 }: AgentSessionViewProps): React.JSX.Element {
-  const { state, leave } = useSession(sessionId, userId);
+  const { state, connectionState, leave } = useSession(sessionId, userId);
   const isStreaming = state.agentState?.status === 'running';
   const { users } = usePresence(sessionId, userId);
   const [activeTab, setActiveTab] = useState<SessionTab>('stream');
@@ -447,6 +447,7 @@ export function AgentSessionView({
               <StreamPanel
                 lines={streamLines}
                 isStreaming={isStreaming}
+                connectionState={connectionState}
                 viewerColors={viewerColors}
               />
             </div>

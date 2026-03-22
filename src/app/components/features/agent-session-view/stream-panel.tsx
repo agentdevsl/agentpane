@@ -1,6 +1,7 @@
 import { Terminal } from '@phosphor-icons/react';
 import { EmptyState } from '@/app/components/features/empty-state';
 import { useAutoScroll } from '@/app/hooks/use-auto-scroll';
+import type { ConnectionState } from '@/lib/streams/client';
 import { cn } from '@/lib/utils/cn';
 import { StreamCursor, StreamLine } from './stream-line';
 import type { StreamLine as StreamLineData } from './use-stream-parser';
@@ -8,15 +9,42 @@ import type { StreamLine as StreamLineData } from './use-stream-parser';
 interface StreamPanelProps {
   lines: StreamLineData[];
   isStreaming: boolean;
+  connectionState: ConnectionState;
   viewerColors?: string[];
 }
 
 export function StreamPanel({
   lines,
   isStreaming,
+  connectionState,
   viewerColors = [],
 }: StreamPanelProps): React.JSX.Element {
   const { containerRef, scrollToBottom, showScrollButton, handleScroll } = useAutoScroll();
+  const connectionMeta =
+    connectionState === 'connected'
+      ? {
+          label: isStreaming ? 'Live' : 'Connected',
+          textClass: 'text-success',
+          dotClass: isStreaming ? 'bg-success animate-pulse' : 'bg-success/80',
+        }
+      : connectionState === 'connecting'
+        ? {
+            label: 'Connecting',
+            textClass: 'text-fg-muted',
+            dotClass: 'bg-fg-muted animate-pulse',
+          }
+        : connectionState === 'reconnecting'
+          ? {
+              label: 'Reconnecting',
+              textClass: 'text-warning',
+              dotClass: 'bg-warning animate-pulse',
+            }
+          : {
+              label: 'Disconnected',
+              textClass: 'text-danger',
+              dotClass: 'bg-danger',
+            };
+  const showStreamingCursor = isStreaming && connectionState === 'connected';
 
   return (
     <div className="flex flex-1 flex-col rounded-lg border border-border bg-surface m-4 mr-2 overflow-hidden">
@@ -28,12 +56,10 @@ export function StreamPanel({
           <span className="text-xs text-fg-muted" data-testid="token-usage">
             Tokens: --
           </span>
-          {isStreaming && (
-            <span className="flex items-center gap-1.5 text-xs text-success">
-              <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
-              Live
-            </span>
-          )}
+          <span className={cn('flex items-center gap-1.5 text-xs', connectionMeta.textClass)}>
+            <span className={cn('h-1.5 w-1.5 rounded-full', connectionMeta.dotClass)} />
+            {connectionMeta.label}
+          </span>
         </div>
 
         {/* Viewer indicators */}
@@ -72,7 +98,7 @@ export function StreamPanel({
                 <StreamLine line={line} showTimestamp />
               </div>
             ))}
-            {isStreaming && (
+            {showStreamingCursor && (
               <div className="flex items-center gap-2 py-0.5 pl-16">
                 <StreamCursor />
               </div>

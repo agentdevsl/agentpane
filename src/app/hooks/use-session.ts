@@ -23,6 +23,7 @@ import { SessionErrors } from '@/lib/errors/session-errors';
 import type { ConnectionState, SessionCallbacks } from '@/lib/streams/client';
 import { err, ok, type Result } from '@/lib/utils/result';
 import { useInterval } from './use-interval';
+import { useMountEffect } from './use-mount-effect';
 import { useSessionSubscription } from './use-session-subscription';
 import { useWatchEffect } from './use-watch-effect';
 
@@ -73,13 +74,98 @@ export type SessionState = {
   agentState: SessionAgentState;
 };
 
-const initialState: SessionState = {
-  chunks: [],
-  toolCalls: [],
-  terminal: [],
-  presence: [],
-  agentState: null,
+type PendingSessionUpdates = {
+  chunks: SessionChunk[];
+  toolCalls: SessionToolCall[];
+  terminal: SessionTerminal[];
+  presence: SessionPresence[];
+  hasAgentState: boolean;
+  agentState: SessionAgentState;
 };
+
+function createInitialState(): SessionState {
+  return {
+    chunks: [],
+    toolCalls: [],
+    terminal: [],
+    presence: [],
+    agentState: null,
+  };
+}
+
+function createPendingSessionUpdates(): PendingSessionUpdates {
+  return {
+    chunks: [],
+    toolCalls: [],
+    terminal: [],
+    presence: [],
+    hasAgentState: false,
+    agentState: null,
+  };
+}
+
+function applyPendingSessionUpdates(
+  prev: SessionState,
+  batch: PendingSessionUpdates
+): SessionState {
+  let nextState = prev;
+
+  if (batch.chunks.length > 0) {
+    const chunks = [...prev.chunks, ...batch.chunks];
+    nextState = {
+      ...nextState,
+      chunks: chunks.length > MAX_CHUNKS ? chunks.slice(chunks.length - MAX_CHUNKS) : chunks,
+    };
+  }
+
+  if (batch.toolCalls.length > 0) {
+    const toolCalls = [...nextState.toolCalls];
+    for (const toolCall of batch.toolCalls) {
+      const existingIndex = toolCalls.findIndex((item) => item.id === toolCall.id);
+      if (existingIndex >= 0) {
+        const existing = toolCalls[existingIndex];
+        if (existing) {
+          toolCalls[existingIndex] = {
+            ...existing,
+            ...toolCall,
+          };
+        }
+      } else {
+        toolCalls.push(toolCall);
+      }
+    }
+    nextState = { ...nextState, toolCalls };
+  }
+
+  if (batch.presence.length > 0) {
+    const presence = [...nextState.presence];
+    for (const activeUser of batch.presence) {
+      const existingIndex = presence.findIndex((item) => item.userId === activeUser.userId);
+      if (existingIndex >= 0) {
+        presence[existingIndex] = activeUser;
+      } else {
+        presence.push(activeUser);
+      }
+    }
+    nextState = { ...nextState, presence };
+  }
+
+  if (batch.terminal.length > 0) {
+    nextState = {
+      ...nextState,
+      terminal: [...nextState.terminal, ...batch.terminal],
+    };
+  }
+
+  if (batch.hasAgentState) {
+    nextState = {
+      ...nextState,
+      agentState: batch.agentState,
+    };
+  }
+
+  return nextState;
+}
 
 /** Presence heartbeat interval in ms (10 seconds per spec) */
 const PRESENCE_HEARTBEAT_INTERVAL = 10000;
@@ -97,7 +183,64 @@ export function useSession(
   join: () => Promise<Result<void, ReturnType<typeof SessionErrors.CONNECTION_FAILED>>>;
   leave: () => Promise<Result<void, ReturnType<typeof SessionErrors.CONNECTION_FAILED>>>;
 } {
-  const [state, setState] = useState<SessionState>(initialState);
+  const [state, setState] = useState<SessionState>(createInitialState);
+  const pendingUpdatesRef = useRef<PendingSessionUpdates>(createPendingSessionUpdates());
+  const flushFrameRef = useRef<number | null>(null);
+
+  const flushPendingUpdates = useEffectEvent(() => {
+    const batch = pendingUpdatesRef.current;
+    const hasUpdates =
+      batch.chunks.length > 0 ||
+      batch.toolCalls.length > 0 ||
+      batch.terminal.length > 0 ||
+      batch.presence.length > 0 ||
+      batch.hasAgentState;
+
+    flushFrameRef.current = null;
+
+    if (!hasUpdates) {
+      return;
+    }
+
+    pendingUpdatesRef.current = createPendingSessionUpdates();
+    setState((prev) => applyPendingSessionUpdates(prev, batch));
+  });
+
+  const scheduleFlush = useEffectEvent(() => {
+    if (flushFrameRef.current !== null) {
+      return;
+    }
+
+    flushFrameRef.current = requestAnimationFrame(() => {
+      flushPendingUpdates();
+    });
+  });
+
+  const queueChunk = useEffectEvent((chunk: SessionChunk) => {
+    pendingUpdatesRef.current.chunks.push(chunk);
+    scheduleFlush();
+  });
+
+  const queueToolCall = useEffectEvent((toolCall: SessionToolCall) => {
+    pendingUpdatesRef.current.toolCalls.push(toolCall);
+    scheduleFlush();
+  });
+
+  const queuePresence = useEffectEvent((presence: SessionPresence) => {
+    pendingUpdatesRef.current.presence.push(presence);
+    scheduleFlush();
+  });
+
+  const queueTerminal = useEffectEvent((terminal: SessionTerminal) => {
+    pendingUpdatesRef.current.terminal.push(terminal);
+    scheduleFlush();
+  });
+
+  const queueAgentState = useEffectEvent((agentState: SessionAgentState) => {
+    pendingUpdatesRef.current.hasAgentState = true;
+    pendingUpdatesRef.current.agentState = agentState;
+    scheduleFlush();
+  });
 
   const join = useCallback(async () => {
     try {
@@ -141,6 +284,15 @@ export function useSession(
   const stableJoin = useEffectEvent(() => join());
   const stableLeave = useEffectEvent(() => leave());
 
+  useMountEffect(() => {
+    return () => {
+      if (flushFrameRef.current !== null) {
+        cancelAnimationFrame(flushFrameRef.current);
+        flushFrameRef.current = null;
+      }
+    };
+  });
+
   // Join on mount, leave on unmount — re-run when sessionId changes
   useWatchEffect(() => {
     void stableJoin();
@@ -149,107 +301,49 @@ export function useSession(
     };
   }, [sessionId]);
 
+  useWatchEffect(() => {
+    if (flushFrameRef.current !== null) {
+      cancelAnimationFrame(flushFrameRef.current);
+      flushFrameRef.current = null;
+    }
+    pendingUpdatesRef.current = createPendingSessionUpdates();
+    setState(createInitialState());
+  }, [sessionId]);
+
   // Build session-specific callbacks
   const callbacks = useRef<SessionCallbacks>({});
 
   const stableOnReconnect = useEffectEvent(() => {
     console.log('[useSession] Reconnected to session stream');
-    // RS-006: Fetch missed events from the REST API on reconnect.
-    // The durable streams client tracks its last offset and will resume
-    // from there, but if the gap is too large events may be lost.
-    // Fetch missed events from the database as a safety net.
-    // FC-006: subscription is now managed by useSessionSubscription;
-    // offset tracking is internal, so we always fetch from offset 0 on reconnect.
-    const lastOff = 0;
-    if (lastOff > 0) {
-      fetch(`/api/sessions/${sessionId}/events?offset=${lastOff}`)
-        .then((res) => (res.ok ? res.json() : null))
-        .then((json) => {
-          if (!json?.ok || !Array.isArray(json.data)) return;
-          // Events are already ordered by offset from the API.
-          // Re-apply any we may have missed during the disconnect gap.
-          for (const evt of json.data) {
-            if (evt.type === 'chunk' && evt.data?.text) {
-              setState((prev) => {
-                let chunks = [...prev.chunks, { text: evt.data.text, timestamp: evt.timestamp }];
-                if (chunks.length > MAX_CHUNKS) {
-                  chunks = chunks.slice(chunks.length - MAX_CHUNKS);
-                }
-                return { ...prev, chunks };
-              });
-            }
-          }
-        })
-        .catch(() => {
-          // Best-effort -- ignore fetch errors on reconnect gap detection
-        });
-    }
+    // Durable stream resume remains the authoritative reconnect mechanism.
+    // The REST gap-healing path stays disabled until opaque stream offsets are
+    // mapped to durable DB offsets without lossy conversion.
   });
 
   useWatchEffect(() => {
     callbacks.current = {
       onChunk: (event) => {
-        setState((prev) => {
-          const newChunk = {
-            text: event.data.text,
-            timestamp: event.data.timestamp,
-            agentId: event.data.agentId,
-          };
-          let chunks = [...prev.chunks, newChunk];
-          // RS-011: Cap chunks array to prevent unbounded memory growth.
-          // Slice oldest entries when overflow occurs.
-          if (chunks.length > MAX_CHUNKS) {
-            chunks = chunks.slice(chunks.length - MAX_CHUNKS);
-          }
-          return { ...prev, chunks };
+        queueChunk({
+          text: event.data.text,
+          timestamp: event.data.timestamp,
+          agentId: event.data.agentId,
         });
       },
 
       onToolCall: (event) => {
-        setState((prev) => {
-          const existingIndex = prev.toolCalls.findIndex((t) => t.id === event.data.id);
-          if (existingIndex >= 0) {
-            const updated = [...prev.toolCalls];
-            updated[existingIndex] = {
-              ...updated[existingIndex],
-              ...event.data,
-            };
-            return { ...prev, toolCalls: updated };
-          }
-          return {
-            ...prev,
-            toolCalls: [...prev.toolCalls, event.data],
-          };
-        });
+        queueToolCall(event.data);
       },
 
       onPresence: (event) => {
-        setState((prev) => {
-          const existingIndex = prev.presence.findIndex((p) => p.userId === event.data.userId);
-          if (existingIndex >= 0) {
-            const updated = [...prev.presence];
-            updated[existingIndex] = event.data;
-            return { ...prev, presence: updated };
-          }
-          return {
-            ...prev,
-            presence: [...prev.presence, event.data],
-          };
-        });
+        queuePresence(event.data);
       },
 
       onTerminal: (event) => {
-        setState((prev) => ({
-          ...prev,
-          terminal: [...prev.terminal, event.data],
-        }));
+        queueTerminal(event.data);
       },
 
       onAgentState: (event) => {
-        setState((prev) => ({
-          ...prev,
-          agentState: event.data,
-        }));
+        queueAgentState(event.data);
       },
 
       onError: (error) => {

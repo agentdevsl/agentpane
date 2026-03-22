@@ -44,14 +44,76 @@ interface TaskCreationDeps {
   taskCreationService: TaskCreationService;
 }
 
-// Store active SSE connections for streaming
-const sseConnections = new Map<string, ReadableStreamDefaultController<Uint8Array>>();
+type TaskCreationStreamController = ReadableStreamDefaultController<Uint8Array>;
+
+const textEncoder = new TextEncoder();
+const sseConnections = new Map<string, Map<number, TaskCreationStreamController>>();
+let nextSseConnectionId = 0;
+
+function addSseConnection(sessionId: string, controller: TaskCreationStreamController): number {
+  const sessionConnections =
+    sseConnections.get(sessionId) ?? new Map<number, TaskCreationStreamController>();
+  const connectionId = nextSseConnectionId++;
+  sessionConnections.set(connectionId, controller);
+  sseConnections.set(sessionId, sessionConnections);
+  return connectionId;
+}
+
+function removeSseConnection(sessionId: string, connectionId: number): void {
+  const sessionConnections = sseConnections.get(sessionId);
+  if (!sessionConnections) {
+    return;
+  }
+
+  sessionConnections.delete(connectionId);
+  if (sessionConnections.size === 0) {
+    sseConnections.delete(sessionId);
+  }
+}
+
+function broadcastTaskCreationEvent(sessionId: string, payload: unknown): void {
+  const sessionConnections = sseConnections.get(sessionId);
+  if (!sessionConnections || sessionConnections.size === 0) {
+    return;
+  }
+
+  const message = `data: ${JSON.stringify(payload)}\n\n`;
+  for (const [connectionId, controller] of sessionConnections) {
+    try {
+      controller.enqueue(textEncoder.encode(message));
+    } catch (error) {
+      log.debug('Failed to enqueue SSE event, removing connection', {
+        data: {
+          sessionId,
+          connectionId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+      removeSseConnection(sessionId, connectionId);
+    }
+  }
+}
+
+function closeTaskCreationConnections(sessionId: string): void {
+  const sessionConnections = sseConnections.get(sessionId);
+  if (!sessionConnections) {
+    return;
+  }
+
+  for (const [connectionId, controller] of sessionConnections) {
+    try {
+      controller.close();
+    } catch {
+      // Connection already closed.
+    }
+    removeSseConnection(sessionId, connectionId);
+  }
+}
 
 /**
  * Send task creation state updates to SSE client.
  */
 function sendTaskCreationSSEUpdate(
-  controller: ReadableStreamDefaultController<Uint8Array>,
   sessionId: string,
   session: {
     messages: Array<{ id: string; role: string; content: string }>;
@@ -80,7 +142,7 @@ function sendTaskCreationSSEUpdate(
         content: lastMessage.content,
       },
     });
-    controller.enqueue(new TextEncoder().encode(`data: ${messageData}\n\n`));
+    broadcastTaskCreationEvent(sessionId, JSON.parse(messageData));
   }
 
   // Send questions event if pending
@@ -93,7 +155,7 @@ function sendTaskCreationSSEUpdate(
         questions: session.pendingQuestions,
       },
     });
-    controller.enqueue(new TextEncoder().encode(`data: ${questionsData}\n\n`));
+    broadcastTaskCreationEvent(sessionId, JSON.parse(questionsData));
     log.debug('Questions event enqueued');
   } else {
     log.debug('No pendingQuestions to send');
@@ -108,7 +170,7 @@ function sendTaskCreationSSEUpdate(
         suggestion: session.suggestion,
       },
     });
-    controller.enqueue(new TextEncoder().encode(`data: ${suggestionData}\n\n`));
+    broadcastTaskCreationEvent(sessionId, JSON.parse(suggestionData));
   }
 }
 
@@ -146,45 +208,35 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
       const { sessionId, message } = parsed.data;
 
       // Send message with token streaming to SSE
-      const controller = sseConnections.get(sessionId);
-      const onToken = controller
-        ? (delta: string) => {
-            const data = JSON.stringify({
-              type: 'task-creation:token',
-              data: { delta },
-            });
-            controller.enqueue(new TextEncoder().encode(`data: ${data}\n\n`));
-          }
-        : undefined;
+      const onToken = (delta: string) => {
+        broadcastTaskCreationEvent(sessionId, {
+          type: 'task-creation:token',
+          data: { sessionId, delta },
+        });
+      };
 
       // Callback for when background processor publishes an assistant message (sends SSE event)
-      const onMessage = controller
-        ? (messageId: string, role: 'user' | 'assistant', content: string) => {
-            log.debug('onMessage callback - sending SSE event');
-            const messageData = JSON.stringify({
-              type: 'task-creation:message',
-              data: { sessionId, messageId, role, content },
-            });
-            controller.enqueue(new TextEncoder().encode(`data: ${messageData}\n\n`));
-          }
-        : undefined;
+      const onMessage = (messageId: string, role: 'user' | 'assistant', content: string) => {
+        log.debug('onMessage callback - sending SSE event');
+        broadcastTaskCreationEvent(sessionId, {
+          type: 'task-creation:message',
+          data: { sessionId, messageId, role, content },
+        });
+      };
 
       // Callback for when background processor finds a suggestion (sends SSE event)
-      const onSuggestion = controller
-        ? (suggestion: {
-            title: string;
-            description: string;
-            labels: string[];
-            priority: string;
-          }) => {
-            log.debug('onSuggestion callback - sending SSE event');
-            const suggestionData = JSON.stringify({
-              type: 'task-creation:suggestion',
-              data: { sessionId, suggestion },
-            });
-            controller.enqueue(new TextEncoder().encode(`data: ${suggestionData}\n\n`));
-          }
-        : undefined;
+      const onSuggestion = (suggestion: {
+        title: string;
+        description: string;
+        labels: string[];
+        priority: string;
+      }) => {
+        log.debug('onSuggestion callback - sending SSE event');
+        broadcastTaskCreationEvent(sessionId, {
+          type: 'task-creation:suggestion',
+          data: { sessionId, suggestion },
+        });
+      };
 
       const result = await taskCreationService.sendMessage(
         sessionId,
@@ -196,13 +248,10 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
 
       if (!result.ok) {
         // Send error to SSE if connected
-        if (controller) {
-          const errorData = JSON.stringify({
-            type: 'task-creation:error',
-            data: { error: result.error.message },
-          });
-          controller.enqueue(new TextEncoder().encode(`data: ${errorData}\n\n`));
-        }
+        broadcastTaskCreationEvent(sessionId, {
+          type: 'task-creation:error',
+          data: { sessionId, error: result.error.message },
+        });
         return json({ ok: false, error: result.error }, 400);
       }
 
@@ -210,13 +259,13 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
       log.debug('About to send SSE update', {
         data: {
           sessionId,
-          hasController: !!controller,
+          hasController: sseConnections.has(sessionId),
           sseConnectionsSize: sseConnections.size,
           hasPendingQuestions: !!result.value?.pendingQuestions,
         },
       });
-      if (controller) {
-        sendTaskCreationSSEUpdate(controller, sessionId, result.value);
+      if (sseConnections.has(sessionId)) {
+        sendTaskCreationSSEUpdate(sessionId, result.value);
       } else {
         log.debug('No SSE controller found for session', { data: { sessionId } });
       }
@@ -245,14 +294,10 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
       }
 
       // Send completion to SSE
-      const controller = sseConnections.get(sessionId);
-      if (controller) {
-        const completeData = JSON.stringify({
-          type: 'task-creation:completed',
-          data: { taskId: result.value.taskId },
-        });
-        controller.enqueue(new TextEncoder().encode(`data: ${completeData}\n\n`));
-      }
+      broadcastTaskCreationEvent(sessionId, {
+        type: 'task-creation:completed',
+        data: { sessionId, taskId: result.value.taskId },
+      });
 
       return json({
         ok: true,
@@ -281,13 +326,11 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
       }
 
       // Close SSE connection
-      const controller = sseConnections.get(sessionId);
-      if (controller) {
-        const cancelData = JSON.stringify({ type: 'task-creation:cancelled', data: { sessionId } });
-        controller.enqueue(new TextEncoder().encode(`data: ${cancelData}\n\n`));
-        controller.close();
-        sseConnections.delete(sessionId);
-      }
+      broadcastTaskCreationEvent(sessionId, {
+        type: 'task-creation:cancelled',
+        data: { sessionId },
+      });
+      closeTaskCreationConnections(sessionId);
 
       return json({ ok: true, data: { sessionId, status: 'cancelled' } });
     } catch (error) {
@@ -306,27 +349,22 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
       if (!parsed.ok) return parsed.response;
       const { sessionId, questionsId, answers } = parsed.data;
 
-      const controller = sseConnections.get(sessionId);
-
       // The service publishes SSE processing/update events internally
       const result = await taskCreationService.answerQuestions(sessionId, questionsId, answers);
 
       if (!result.ok) {
-        if (controller) {
-          const errorData = JSON.stringify({
-            type: 'task-creation:error',
-            data: { error: result.error.message },
-          });
-          controller.enqueue(new TextEncoder().encode(`data: ${errorData}\n\n`));
-        }
+        broadcastTaskCreationEvent(sessionId, {
+          type: 'task-creation:error',
+          data: { sessionId, error: result.error.message },
+        });
         return json({ ok: false, error: result.error }, 400);
       }
 
       // Send SSE update based on session state, but skip for duplicate submissions
       // since the session has already advanced past this question round
       const alreadyProcessed = 'alreadyProcessed' in result.value && result.value.alreadyProcessed;
-      if (controller && !alreadyProcessed) {
-        sendTaskCreationSSEUpdate(controller, sessionId, result.value);
+      if (!alreadyProcessed) {
+        sendTaskCreationSSEUpdate(sessionId, result.value);
       }
 
       return json({
@@ -349,24 +387,18 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
       if (!parsed.ok) return parsed.response;
       const { sessionId } = parsed.data;
 
-      const controller = sseConnections.get(sessionId);
       const result = await taskCreationService.skipQuestions(sessionId);
 
       if (!result.ok) {
-        if (controller) {
-          const errorData = JSON.stringify({
-            type: 'task-creation:error',
-            data: { error: result.error.message },
-          });
-          controller.enqueue(new TextEncoder().encode(`data: ${errorData}\n\n`));
-        }
+        broadcastTaskCreationEvent(sessionId, {
+          type: 'task-creation:error',
+          data: { sessionId, error: result.error.message },
+        });
         return json({ ok: false, error: result.error }, 400);
       }
 
       // Send events to SSE based on session state
-      if (controller) {
-        sendTaskCreationSSEUpdate(controller, sessionId, result.value);
-      }
+      sendTaskCreationSSEUpdate(sessionId, result.value);
 
       return json({ ok: true, data: { sessionId, status: result.value.status } });
     } catch (error) {
@@ -404,23 +436,24 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
 
     // Create SSE stream with keep-alive
     let pingInterval: ReturnType<typeof setInterval> | null = null;
+    let connectionId: number | null = null;
 
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         // Store controller for this session
-        sseConnections.set(sessionId, controller);
+        connectionId = addSseConnection(sessionId, controller);
 
         // Send initial connected event
         const connectedData = JSON.stringify({ type: 'connected', sessionId });
-        controller.enqueue(new TextEncoder().encode(`data: ${connectedData}\n\n`));
+        controller.enqueue(textEncoder.encode(`data: ${connectedData}\n\n`));
 
         // Send immediate ping to keep connection alive
-        controller.enqueue(new TextEncoder().encode(`: ping\n\n`));
+        controller.enqueue(textEncoder.encode(`: ping\n\n`));
 
         // Send keep-alive ping every 5 seconds
         pingInterval = setInterval(() => {
           try {
-            controller.enqueue(new TextEncoder().encode(`: ping\n\n`));
+            controller.enqueue(textEncoder.encode(`: ping\n\n`));
           } catch (error) {
             // Connection likely closed - clean up interval
             log.debug('Ping failed, closing connection', {
@@ -430,7 +463,9 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
               clearInterval(pingInterval);
               pingInterval = null;
             }
-            sseConnections.delete(sessionId);
+            if (connectionId !== null) {
+              removeSseConnection(sessionId, connectionId);
+            }
           }
         }, 5000);
       },
@@ -439,7 +474,9 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
           clearInterval(pingInterval);
           pingInterval = null;
         }
-        sseConnections.delete(sessionId);
+        if (connectionId !== null) {
+          removeSseConnection(sessionId, connectionId);
+        }
       },
     });
 

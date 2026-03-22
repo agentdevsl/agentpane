@@ -5,8 +5,91 @@
  * lists, headings, and other formatting.
  */
 
+import { isValidElement, type ReactNode, useState } from 'react';
 import Markdown from 'react-markdown';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { cn } from '@/lib/utils/cn';
+
+const shikiPromise = import('shiki');
+
+function extractTextContent(value: ReactNode): string {
+  if (typeof value === 'string' || typeof value === 'number') {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(extractTextContent).join('');
+  }
+
+  if (isValidElement(value)) {
+    return extractTextContent((value.props as { children?: ReactNode }).children);
+  }
+
+  return '';
+}
+
+function getLanguage(className?: string): string {
+  const match = /language-([\w-]+)/.exec(className ?? '');
+  return match?.[1] ?? 'text';
+}
+
+function MarkdownCodeBlock({ children }: { children: ReactNode }): React.JSX.Element {
+  const child = Array.isArray(children) ? children[0] : children;
+  const childProps = isValidElement(child)
+    ? (child.props as { children?: ReactNode; className?: string })
+    : null;
+  const code = extractTextContent(childProps?.children ?? children).replace(/\n$/, '');
+  const language = getLanguage(childProps?.className);
+  const [highlightedHtml, setHighlightedHtml] = useState<string | null>(null);
+
+  useWatchEffect(() => {
+    if (!code) {
+      setHighlightedHtml(null);
+      return;
+    }
+
+    let cancelled = false;
+    shikiPromise
+      .then(({ codeToHtml }) =>
+        codeToHtml(code, {
+          lang: language,
+          themes: {
+            light: 'github-light-default',
+            dark: 'github-dark-default',
+          },
+        }).then((result) => {
+          if (!cancelled) {
+            setHighlightedHtml(result);
+          }
+        })
+      )
+      .catch(() => {
+        if (!cancelled) {
+          setHighlightedHtml(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [code, language]);
+
+  if (highlightedHtml) {
+    return (
+      <div
+        className="overflow-x-auto rounded-md border border-border bg-surface-muted p-3 text-xs leading-relaxed [&_pre]:!m-0 [&_pre]:!bg-transparent [&_pre]:!p-0 [&_code]:font-mono"
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: shiki escapes code input and returns safe HTML
+        dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+      />
+    );
+  }
+
+  return (
+    <pre className="overflow-x-auto rounded-md border border-border bg-surface-muted p-3 font-mono text-xs">
+      <code>{code}</code>
+    </pre>
+  );
+}
 
 interface MarkdownContentProps {
   content: string;
@@ -22,15 +105,8 @@ export function MarkdownContent({ content, className }: MarkdownContentProps): R
       <Markdown
         components={{
           // Code blocks and inline code
-          pre({ children, ...props }) {
-            return (
-              <pre
-                className="overflow-x-auto rounded-md border border-border bg-surface-muted p-3 font-mono text-xs"
-                {...props}
-              >
-                {children}
-              </pre>
-            );
+          pre({ children }) {
+            return <MarkdownCodeBlock>{children}</MarkdownCodeBlock>;
           },
           code({ children, className, ...props }) {
             const isInline = !className;

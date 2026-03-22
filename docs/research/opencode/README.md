@@ -16,9 +16,12 @@ fits for AgentPane right now.
 
 | File | Focus | Why it matters |
 | --- | --- | --- |
+| `00-executive-brief.md` | Fast planning summary | Gives the shortest path through the main findings and current execution queue |
 | `01-reality-check.md` | Current architecture through a UX lens | Identifies the biggest trust and usability gaps in the codebase today |
 | `02-technology-choices.md` | Concrete technology options | Separates good technology from good fit for AgentPane |
 | `03-roadmap.md` | Prioritized implementation path | Orders work by user-visible value and risk reduction |
+| `04-implementation-backlog.md` | Actionable implementation backlog | Converts the roadmap into high-priority execution-ready work |
+| `05-open-questions.md` | Remaining architecture decisions | Captures unresolved choices with recommended defaults so implementation stays unblocked |
 
 ## Executive Summary
 
@@ -71,9 +74,12 @@ fits for AgentPane right now.
 
 ## Reading Order
 
-1. Start with `docs/research/opencode/01-reality-check.md`.
-2. Then read `docs/research/opencode/02-technology-choices.md`.
-3. Finish with `docs/research/opencode/03-roadmap.md`.
+1. Start with `docs/research/opencode/00-executive-brief.md`.
+2. Then read `docs/research/opencode/01-reality-check.md`.
+3. Continue with `docs/research/opencode/02-technology-choices.md`.
+4. Then read `docs/research/opencode/03-roadmap.md`.
+5. Use `docs/research/opencode/04-implementation-backlog.md` to plan implementation order.
+6. Use `docs/research/opencode/05-open-questions.md` for unresolved decisions and defaults.
 
 ## Key Themes
 

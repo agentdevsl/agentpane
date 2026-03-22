@@ -74,6 +74,8 @@ Webhook ingestion, plugin-based normalization, subscription matching, and automa
 |----------|-------------|
 | [`agent-streaming-architecture.md`](agent-streaming-architecture.md) | Detailed write-up of the agent event streaming architecture |
 | [`durable-streams-architecture.md`](durable-streams-architecture.md) | Detailed write-up of the durable streams system design |
+| [`research/README.md`](research/README.md) | Broad architecture technology research across 11 domains |
+| [`research/opencode/README.md`](research/opencode/README.md) | UX-first architecture supplement with executive brief, roadmap, backlog, and open questions |
 
 ## Regenerating PNGs
 
