@@ -75,16 +75,18 @@ function getStatusBadge(column: string, agentStatus?: string | null) {
 
   switch (column) {
     case 'backlog':
-      return { label: 'Backlog', className: 'bg-fg-subtle/15 text-fg-subtle' };
+      return { label: 'Backlog', className: 'bg-[var(--fg-muted)]/15 text-[var(--fg-muted)]' };
+    case 'queued':
+      return { label: 'Queued', className: 'bg-accent/15 text-accent' };
     case 'in_progress':
-      return { label: 'In Progress', className: 'bg-accent/15 text-accent' };
+      return { label: 'In Progress', className: 'bg-attention/15 text-attention' };
     case 'waiting_approval':
-      return { label: 'Waiting Approval', className: 'bg-attention/15 text-attention' };
+      return { label: 'Waiting Approval', className: 'bg-done/15 text-done' };
     case 'done':
     case 'verified':
-      return { label: 'Done', className: 'bg-success/15 text-success' };
+      return { label: 'Verified', className: 'bg-success/15 text-success' };
     default:
-      return { label: column, className: 'bg-fg-subtle/15 text-fg-subtle' };
+      return { label: column, className: 'bg-[var(--fg-muted)]/15 text-[var(--fg-muted)]' };
   }
 }
 

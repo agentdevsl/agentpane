@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Option A — Left Border Accent</title>
+  <link rel="stylesheet" href="../design-tokens.css">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Geist:wght@400;500;600&display=swap');
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: var(--bg-canvas);
+      color: var(--fg-default);
+      font-family: 'Geist', -apple-system, sans-serif;
+      padding: 32px;
+    }
+
+    h2 {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--fg-subtle);
+      margin-bottom: 16px;
+    }
+
+    .description {
+      font-size: 13px;
+      color: var(--fg-muted);
+      margin-bottom: 24px;
+      line-height: 1.5;
+      max-width: 400px;
+    }
+
+    .sidebar {
+      width: 320px;
+      background: var(--bg-default);
+      border: 1px solid var(--border-default);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    /* Header */
+    .header {
+      padding: 12px 12px 10px;
+      border-bottom: 1px solid var(--border-default);
+    }
+    .header-top {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 8px;
+    }
+    .header-title {
+      font-size: 10px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.08em; color: var(--fg-subtle);
+    }
+    .sort-label {
+      font-size: 10px; color: var(--fg-subtle);
+    }
+
+    /* Search */
+    .search {
+      width: 100%; padding: 6px 10px 6px 30px;
+      background: var(--bg-subtle); border: 1px solid var(--border-default);
+      border-radius: 6px; color: var(--fg-default); font-size: 13px;
+      outline: none; font-family: inherit;
+    }
+    .search::placeholder { color: var(--fg-subtle); }
+    .search-wrap { position: relative; margin-bottom: 8px; }
+    .search-icon {
+      position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+      color: var(--fg-subtle); font-size: 12px;
+    }
+
+    /* Filter chips */
+    .chips { display: flex; gap: 4px; flex-wrap: wrap; }
+    .chip {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 8px; border-radius: 99px; font-size: 10px; font-weight: 500;
+      background: var(--bg-subtle); color: var(--fg-subtle);
+      border: 1px solid transparent;
+    }
+    .chip-dot { width: 6px; height: 6px; border-radius: 50%; }
+
+    /* Task list */
+    .task-list { padding: 6px; display: flex; flex-direction: column; gap: 3px; }
+
+    /* === TASK CARD — Option A === */
+    .task-card {
+      position: relative;
+      padding: 10px 12px 10px 16px;
+      border-radius: 6px;
+      border: 1px solid var(--border-default);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      overflow: hidden;
+    }
+
+    /* Left border accent — 3px solid color bar */
+    .task-card::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 3px;
+      border-radius: 6px 0 0 6px;
+    }
+
+    /* Status-specific styles */
+    .task-card[data-status="backlog"] {
+      background: rgba(110, 118, 129, 0.04);
+    }
+    .task-card[data-status="backlog"]::before {
+      background: var(--fg-subtle);
+      opacity: 0.4;
+    }
+
+    .task-card[data-status="queued"] {
+      background: rgba(56, 139, 253, 0.04);
+    }
+    .task-card[data-status="queued"]::before {
+      background: var(--accent-fg);
+    }
+
+    .task-card[data-status="active"] {
+      background: rgba(46, 160, 67, 0.05);
+    }
+    .task-card[data-status="active"]::before {
+      background: var(--success-fg);
+    }
+
+    .task-card[data-status="review"] {
+      background: rgba(187, 128, 9, 0.05);
+    }
+    .task-card[data-status="review"]::before {
+      background: var(--attention-fg);
+    }
+
+    .task-card[data-status="error"] {
+      background: rgba(248, 81, 73, 0.06);
+      border-color: rgba(248, 81, 73, 0.2);
+    }
+    .task-card[data-status="error"]::before {
+      background: var(--danger-fg);
+    }
+
+    .task-card[data-status="done"] {
+      background: rgba(163, 113, 247, 0.04);
+    }
+    .task-card[data-status="done"]::before {
+      background: var(--done-fg);
+      opacity: 0.6;
+    }
+
+    .task-card:hover {
+      border-color: var(--fg-subtle);
+    }
+
+    .task-card.selected {
+      border-color: var(--accent-fg);
+      background: var(--accent-muted);
+    }
+    .task-card.selected::before {
+      background: var(--accent-fg) !important;
+      opacity: 1 !important;
+    }
+
+    /* Card content */
+    .card-header {
+      display: flex; align-items: flex-start; gap: 8px;
+    }
+    .priority-icon {
+      width: 16px; height: 16px; margin-top: 2px; flex-shrink: 0;
+    }
+    .task-title {
+      font-size: 13px; font-weight: 500; line-height: 1.35;
+      color: var(--fg-default);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      flex: 1;
+    }
+    .card-footer {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-top: 6px;
+    }
+    .task-id {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; color: var(--fg-subtle);
+    }
+
+    /* Status badge — pill with icon */
+    .status-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 8px; border-radius: 99px;
+      font-size: 10px; font-weight: 500;
+    }
+    .status-badge .badge-dot {
+      width: 5px; height: 5px; border-radius: 50%;
+    }
+
+    .badge-planning { background: rgba(247, 120, 186, 0.12); color: #f778ba; }
+    .badge-planning .badge-dot { background: #f778ba; }
+
+    .badge-error { background: rgba(248, 81, 73, 0.12); color: #f85149; }
+    .badge-error .badge-dot { background: #f85149; }
+
+    .badge-running { background: rgba(46, 160, 67, 0.12); color: #3fb950; }
+    .badge-running .badge-dot { background: #3fb950; animation: pulse 1.5s infinite; }
+
+    .badge-completed { background: rgba(163, 113, 247, 0.12); color: #a371f7; }
+    .badge-completed .badge-dot { background: #a371f7; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    /* Agent running bar */
+    .agent-running {
+      display: flex; align-items: center; gap: 6px;
+      margin-top: 6px; padding: 3px 0;
+      font-size: 10px; font-weight: 500; color: var(--success-fg);
+    }
+    .agent-running .pulse-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--success-fg);
+      animation: pulse 1.5s infinite;
+    }
+
+    /* Footer */
+    .sidebar-footer {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 12px; border-top: 1px solid var(--border-default);
+      font-size: 10px; color: var(--fg-subtle);
+    }
+  </style>
+</head>
+<body>
+  <h2>Option A — Left Border Accent</h2>
+  <p class="description">
+    Bold 3px colored left border per status with subtle background tinting.
+    Status badges use pill shape with colored dot indicators. Error cards get a tinted border.
+    Clean and scannable — the left edge creates a strong color column for instant recognition.
+  </p>
+
+  <div class="sidebar">
+    <div class="header">
+      <div class="header-top">
+        <span class="header-title">Tasks</span>
+        <span class="sort-label">⇅ Status</span>
+      </div>
+      <div class="search-wrap">
+        <span class="search-icon">⌕</span>
+        <input class="search" placeholder="Search tasks…">
+      </div>
+      <div class="chips">
+        <span class="chip"><span class="chip-dot" style="background:var(--fg-subtle)"></span> Backlog</span>
+        <span class="chip"><span class="chip-dot" style="background:var(--accent-fg)"></span> Queued</span>
+        <span class="chip"><span class="chip-dot" style="background:var(--success-fg)"></span> Active</span>
+        <span class="chip" style="background:var(--attention-muted);color:var(--attention-fg);border-color:rgba(210,153,34,0.3)">
+          <span class="chip-dot" style="background:var(--attention-fg)"></span> Review <span style="opacity:0.7">9</span>
+        </span>
+        <span class="chip"><span class="chip-dot" style="background:var(--done-fg)"></span> Done <span style="opacity:0.7">5</span></span>
+      </div>
+    </div>
+
+    <div class="task-list">
+      <!-- Active + agent running -->
+      <div class="task-card" data-status="active">
+        <div class="card-header">
+          <svg class="priority-icon" viewBox="0 0 16 16"><polygon points="8,2 14,14 2,14" fill="var(--attention-fg)" opacity="0.8"/></svg>
+          <span class="task-title">Build AWS Web App Terraform Module</span>
+        </div>
+        <div class="agent-running">
+          <span class="pulse-dot"></span>
+          Agent running…
+        </div>
+      </div>
+
+      <!-- Review / Plan ready -->
+      <div class="task-card" data-status="review">
+        <div class="card-header">
+          <svg class="priority-icon" viewBox="0 0 16 16"><polygon points="8,2 14,14 2,14" fill="var(--attention-fg)" opacity="0.8"/></svg>
+          <span class="task-title">Build AWS Terraform Module with Docs</span>
+        </div>
+        <div class="card-footer">
+          <span class="task-id">#TSK-LA6</span>
+          <span class="status-badge badge-planning"><span class="badge-dot"></span> Plan ready</span>
+        </div>
+      </div>
+
+      <!-- Review / Plan ready -->
+      <div class="task-card" data-status="review">
+        <div class="card-header">
+          <svg class="priority-icon" viewBox="0 0 16 16"><polygon points="8,2 14,14 2,14" fill="var(--attention-fg)" opacity="0.8"/></svg>
+          <span class="task-title">Create reusable Terraform S3 module</span>
+        </div>
+        <div class="card-footer">
+          <span class="task-id">#TSK-M3W</span>
+          <span class="status-badge badge-planning"><span class="badge-dot"></span> Plan ready</span>
+        </div>
+      </div>
+
+      <!-- Error -->
+      <div class="task-card" data-status="error">
+        <div class="card-header">
+          <svg class="priority-icon" viewBox="0 0 16 16"><polygon points="8,2 14,14 2,14" fill="var(--danger-fg)" opacity="0.9"/></svg>
+          <span class="task-title">Create reusable Terraform module for S3</span>
+        </div>
+        <div class="card-footer">
+          <span class="task-id">#TSK-UZ3</span>
+          <span class="status-badge badge-error"><span class="badge-dot"></span> Error</span>
+        </div>
+      </div>
+
+      <!-- Queued -->
+      <div class="task-card" data-status="queued">
+        <div class="card-header">
+          <svg class="priority-icon" viewBox="0 0 16 16"><rect x="3" y="6" width="10" height="4" rx="1" fill="var(--accent-fg)" opacity="0.7"/></svg>
+          <span class="task-title">Build reusable S3 module with versioning</span>
+        </div>
+        <div class="card-footer">
+          <span class="task-id">#TSK-Q20</span>
+          <span class="status-badge" style="background:var(--accent-muted);color:var(--accent-fg)"><span class="badge-dot" style="background:var(--accent-fg)"></span> Queued</span>
+        </div>
+      </div>
+
+      <!-- Backlog -->
+      <div class="task-card" data-status="backlog">
+        <div class="card-header">
+          <svg class="priority-icon" viewBox="0 0 16 16"><rect x="3" y="6" width="10" height="4" rx="1" fill="var(--fg-subtle)" opacity="0.5"/></svg>
+          <span class="task-title">Create reusable Terraform module for AWS</span>
+        </div>
+        <div class="card-footer">
+          <span class="task-id">#TSK-ZVG</span>
+          <span style="font-size:10px;font-weight:500;color:var(--fg-subtle)">P1</span>
+        </div>
+      </div>
+
+      <!-- Selected card -->
+      <div class="task-card selected" data-status="review">
+        <div class="card-header">
+          <svg class="priority-icon" viewBox="0 0 16 16"><polygon points="8,2 14,14 2,14" fill="var(--attention-fg)" opacity="0.8"/></svg>
+          <span class="task-title">Build reusable S3 module for AWS</span>
+        </div>
+        <div class="card-footer">
+          <span class="task-id">#TSK-VXI</span>
+          <span class="status-badge badge-planning"><span class="badge-dot"></span> Plan ready</span>
+        </div>
+      </div>
+
+      <!-- Done -->
+      <div class="task-card" data-status="done">
+        <div class="card-header">
+          <svg class="priority-icon" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5" fill="var(--done-fg)" opacity="0.5"/></svg>
+          <span class="task-title">Create S3 module with encryption</span>
+        </div>
+        <div class="card-footer">
+          <span class="task-id">#TSK-5B6</span>
+          <span class="status-badge badge-completed"><span class="badge-dot"></span> Completed</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar-footer">
+      <span>8 tasks</span>
+      <span>👁 Done (5)</span>
+      <span>↑↓ navigate</span>
+    </div>
+  </div>
+</body>
+</html>

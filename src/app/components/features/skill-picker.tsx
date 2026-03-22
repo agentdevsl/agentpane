@@ -1,4 +1,4 @@
-import { BookOpen, Tag } from '@phosphor-icons/react';
+import { BookOpen, MagnifyingGlass, Tag } from '@phosphor-icons/react';
 import { useCallback, useMemo, useState } from 'react';
 import {
   Select,
@@ -101,6 +101,7 @@ export function SkillPicker({
   const [skills, setSkills] = useState<Skill[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Fetch skills when codespaceId changes
   useWatchEffect(() => {
@@ -154,6 +155,20 @@ export function SkillPicker({
     }));
   }, [filteredSkills]);
 
+  // Apply search query on top of tag-filtered grouped skills
+  const displayedGroups = useMemo(() => {
+    if (!searchQuery.trim()) return groupedSkills;
+    const q = searchQuery.toLowerCase().trim();
+    return groupedSkills
+      .map((group) => ({
+        ...group,
+        items: group.items.filter(
+          (s) => s.name.toLowerCase().includes(q) || s.description?.toLowerCase().includes(q)
+        ),
+      }))
+      .filter((group) => group.items.length > 0);
+  }, [groupedSkills, searchQuery]);
+
   // Toggle a tag filter
   const toggleTag = useCallback((tag: string) => {
     setSelectedTags((prev) => {
@@ -200,7 +215,23 @@ export function SkillPicker({
           <SelectValue placeholder={getDisplayValue()}>{getDisplayValue()}</SelectValue>
         </div>
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent className="max-w-[480px]">
+        {/* Search input */}
+        <div className="px-2 py-1.5 border-b border-border">
+          <div className="relative">
+            <MagnifyingGlass className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-fg-muted" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => e.stopPropagation()}
+              placeholder="Search skills…"
+              className="w-full rounded-md border border-border bg-surface-subtle py-1 pl-7 pr-2 text-xs text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none"
+            />
+          </div>
+        </div>
+
         {/* No skill option */}
         <SelectItem value="__none__" className="flex flex-col items-start">
           <div className="font-medium">No skill</div>
@@ -209,7 +240,7 @@ export function SkillPicker({
 
         {/* Tag filter chips — only shown when tags exist */}
         {allTags.length > 0 && (
-          <div className="px-2 py-1.5 flex flex-wrap gap-1 border-b border-border-default">
+          <div className="px-2 py-1.5 flex flex-wrap gap-1 border-b border-border">
             <Tag className="h-3 w-3 text-fg-subtle flex-shrink-0 mt-0.5" weight="bold" />
             {allTags.map((tag) => (
               <button
@@ -225,7 +256,7 @@ export function SkillPicker({
                   'border cursor-pointer select-none',
                   selectedTags.has(tag)
                     ? 'bg-accent-subtle border-accent text-accent'
-                    : 'bg-bg-subtle border-border-default text-fg-muted hover:border-border-emphasis'
+                    : 'bg-surface-subtle border-border text-fg-muted hover:border-fg-subtle'
                 )}
               >
                 {tag}
@@ -235,24 +266,30 @@ export function SkillPicker({
         )}
 
         {/* Grouped skills */}
-        {groupedSkills.map((group) => (
+        {displayedGroups.map((group) => (
           <div key={group.sourceType}>
             {/* Group header */}
-            <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-fg-subtle">
+            <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-fg-subtle border-b border-border/50">
               {group.label}
             </div>
             {group.items.map((skill) => (
-              <SelectItem key={skill.id} value={skill.id} className="flex flex-col items-start">
-                <div className="font-medium">{skill.name}</div>
+              <SelectItem
+                key={skill.id}
+                value={skill.id}
+                className="flex flex-col items-start border-b border-border/30 last:border-b-0"
+              >
+                <div className="font-medium text-[13px]">{skill.name}</div>
                 {skill.description && (
-                  <div className="text-[11px] text-fg-muted line-clamp-1">{skill.description}</div>
+                  <div className="text-[11px] text-fg-muted line-clamp-2 leading-relaxed mt-0.5">
+                    {skill.description}
+                  </div>
                 )}
                 {skill.tags && skill.tags.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-0.5">
+                  <div className="flex flex-wrap gap-1 mt-1">
                     {skill.tags.map((tag) => (
                       <span
                         key={tag}
-                        className="inline-flex items-center rounded-full bg-bg-subtle px-1.5 py-px text-[9px] text-fg-subtle"
+                        className="inline-flex items-center rounded-full bg-surface-subtle px-1.5 py-px text-[9px] text-fg-subtle border border-border/50"
                       >
                         {tag}
                       </span>
@@ -264,12 +301,13 @@ export function SkillPicker({
           </div>
         ))}
 
-        {/* Empty state when tag filters eliminate all results */}
+        {/* Empty state when filters eliminate all results */}
         {!isLoading &&
-          allTags.length > 0 &&
-          selectedTags.size > 0 &&
-          filteredSkills.length === 0 && (
-            <div className="px-2 py-2 text-xs text-fg-muted">No skills match the selected tags</div>
+          displayedGroups.length === 0 &&
+          (filteredSkills.length === 0 || searchQuery) && (
+            <div className="px-2 py-4 text-center text-xs text-fg-muted">
+              No skills match {searchQuery ? `"${searchQuery}"` : 'the selected tags'}
+            </div>
           )}
 
         {isLoading && <div className="px-2 py-2 text-xs text-fg-muted">Loading skills...</div>}
