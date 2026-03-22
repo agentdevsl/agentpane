@@ -26,6 +26,7 @@ Recommended entry points:
 - [`opencode/15-implementation-map.md`](opencode/15-implementation-map.md)
 - [`opencode/16-event-inventory.md`](opencode/16-event-inventory.md)
 - [`opencode/17-cursor-flow-inventory.md`](opencode/17-cursor-flow-inventory.md)
+- [`opencode/18-slice-dependency-graph.md`](opencode/18-slice-dependency-graph.md)
 
 ## Reports
 

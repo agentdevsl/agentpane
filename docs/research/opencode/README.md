@@ -34,6 +34,7 @@ fits for AgentPane right now.
 | `15-implementation-map.md` | File-level first-tranche map | Points the team at likely repo touchpoints for `OC-005` and `OC-006` |
 | `16-event-inventory.md` | Current-to-proposed event migration inventory | Maps today’s event families to the new envelope concepts for `OC-005` |
 | `17-cursor-flow-inventory.md` | Current reconnect-path inventory | Shows where opaque cursor identity is currently preserved or lost for `OC-006` |
+| `18-slice-dependency-graph.md` | First-tranche dependency map | Shows which `OC-005` and `OC-006` slices block or enable the others |
 
 ## Executive Summary
 
@@ -104,6 +105,7 @@ fits for AgentPane right now.
 16. Use `docs/research/opencode/15-implementation-map.md` to map tranche slices to likely repo files.
 17. Use `docs/research/opencode/16-event-inventory.md` to migrate current event families toward the new envelope.
 18. Use `docs/research/opencode/17-cursor-flow-inventory.md` to identify where cursor correctness is currently lost.
+19. Use `docs/research/opencode/18-slice-dependency-graph.md` to sequence `OC-005` and `OC-006` safely.
 
 ## Key Themes
 
