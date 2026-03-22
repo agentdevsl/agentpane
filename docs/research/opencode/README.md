@@ -1,0 +1,84 @@
+# OpenCode Architecture Research
+
+Date: March 2026
+
+Scope: UX-first architecture research for AgentPane, with emphasis on pitfalls,
+trust, recovery, perceived performance, and the gap between documented design
+and repository reality.
+
+This folder complements the existing `docs/research/*.md` set. The earlier
+research is broad and useful. This pass is intentionally narrower and more
+opinionated: it focuses on what users feel when the architecture is stressed,
+where the code disagrees with the docs, and which technology choices are good
+fits for AgentPane right now.
+
+## Files
+
+| File | Focus | Why it matters |
+| --- | --- | --- |
+| `01-reality-check.md` | Current architecture through a UX lens | Identifies the biggest trust and usability gaps in the codebase today |
+| `02-technology-choices.md` | Concrete technology options | Separates good technology from good fit for AgentPane |
+| `03-roadmap.md` | Prioritized implementation path | Orders work by user-visible value and risk reduction |
+
+## Executive Summary
+
+- AgentPane already has strong primitives: worktree isolation in `src/services/worktree.service.ts:168`, a real sandbox abstraction in `src/lib/sandbox/providers/sandbox-provider.ts:124`, append-only session events in `src/services/session/session-stream.service.ts:133`, and a plan/execute split in `src/lib/agents/stream-handler.ts:346`.
+- The biggest problem is not missing frameworks. It is that the product often knows more than it tells the user. Durability, reconnect healing, startup success, memory availability, and stream health are frequently best-effort while the UI still looks confident.
+- The most important stream contradiction is that the docs describe a clean persist-first model, but hot chunk delivery is realtime-first in `src/lib/agents/chunk-batcher.ts:43`. Users can see output that is not yet durable.
+- The most important reconnect contradiction is that `useSession()` always falls back to `lastOff = 0` on reconnect in `src/app/hooks/use-session.ts:163`, while the durable stream client drops opaque offsets when mapping raw events in `src/lib/streams/client.ts:743`.
+- The most important performance issue is long-session rendering: repeated array copies in `src/app/hooks/use-session.ts:192`, full merge-sort in `src/app/components/features/agent-session-view/use-stream-parser.ts:149`, and no virtualization in `src/app/components/features/agent-session-view/stream-panel.tsx:50`.
+- The most important deployment contradiction is that production docs describe Caddy on `:3000` as the front door in `Caddyfile:6` and `docs/durable-streams-architecture.md:18`, but the Helm chart exposes only port `3001` in `charts/agentpane/templates/deployment.yaml:42`, `charts/agentpane/templates/service.yaml:10`, and `charts/agentpane/templates/httproute.yaml:20`.
+- The biggest scale-out honesty problem is that the repo exposes PostgreSQL and HPA-like shapes while the real stream layer, rate limiter, and deployment assumptions are still single-node in practice.
+
+## Strongest Recommendations
+
+1. Adopt a structured stream protocol with stable event IDs, block IDs, schema versioning, and a clear transient/durable split.
+2. Add IndexedDB hydration with Dexie for session replay, last-read position, and reload resilience.
+3. Replace full stream re-sorts with append-only timelines and virtualize transcript panes.
+4. Make connection health first-class in the UI: `live`, `reconnecting`, `catching up`, `degraded`, `stale`.
+5. Instrument the full run lifecycle with OpenTelemetry + Langfuse, and add Sentry for product-visible failures.
+6. Make gVisor the default sandbox isolation mode and stop injecting OAuth tokens as container env vars.
+7. Fix the documented-vs-deployed front-door mismatch before doing any multi-node or autoscaling work.
+8. Treat PostgreSQL + Electric as a long-term scale path, not as a runtime toggle that is already product-ready.
+
+## Recommended Technology Stance
+
+| Technology | Why | Recommendation |
+| --- | --- | --- |
+| SSE + Durable Streams | Best fit for one-way agent output; already integrated | Adopt, but harden semantics before scaling |
+| Structured stream protocol | Biggest correctness and UX win | Adopt |
+| Dexie.js | Best near-term fix for refresh pain and reload trust | Trial now |
+| BroadcastChannel | Low-risk multi-tab coordination | Adopt |
+| SharedWorker | Useful later, but higher lifecycle and browser risk | Assess |
+| `react-virtuoso` | Best fit for streaming transcript virtualization | Trial now |
+| Shiki | Immediate readability improvement for code and diffs | Adopt |
+| OpenTelemetry + Langfuse | Makes runs explainable and debuggable | Adopt |
+| Sentry | Product-facing reliability signal | Adopt |
+| gVisor | Highest safety gain with low architecture churn | Adopt |
+| Upstash or Redis-backed rate limiting | Fixes false multi-instance safety | Adopt as a pluggable backend |
+| Infisical + file-based secret injection | Better operator trust and lower leak risk | Adopt |
+| Node 24 for production API | Lower-surprise hosted runtime | Assess |
+| Honest single-node SQLite + backups | Best near-term operational posture | Adopt |
+| PostgreSQL + Electric | Strongest long-term synced-state path | Assess after parity work |
+| NATS JetStream | Useful only after real service decomposition | Hold for now |
+| LiveStore | Interesting technology, wrong timing | Hold |
+
+## Near-Term Target State
+
+- One honest production story: a single-node control plane with a real Caddy front door, durable SSE, SQLite plus off-node backup, and no pretend multi-node claims.
+- One coherent streaming model: stable IDs, explicit durability semantics, local hydration, visible reconnect state, and the same lifecycle rules across session view, plan view, task creation, and CLI monitoring.
+- One trustworthy execution story: richer run states, sandbox continuity reporting, traceable startup failures, and review surfaces that emphasize file changes and phases over raw transcript theater.
+
+## Reading Order
+
+1. Start with `docs/research/opencode/01-reality-check.md`.
+2. Then read `docs/research/opencode/02-technology-choices.md`.
+3. Finish with `docs/research/opencode/03-roadmap.md`.
+
+## Key Themes
+
+- Fix semantics before scale.
+- Improve recovery before adding features.
+- Prefer technologies that make the product more honest, not just more modern.
+- Separate good technology from good timing.
+- Preserve AgentPane's differentiators instead of replacing them with generic agent stacks.
