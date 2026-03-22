@@ -97,5 +97,8 @@
   "enabledMcpjsonServers": [
     "XcodeBuildMCP"
   ],
-  "disableAllHooks": true
+  "disableAllHooks": true,
+  "enabledPlugins": {
+    "cloudflare@cloudflare": true
+  }
 }
