@@ -24,6 +24,7 @@ fits for AgentPane right now.
 | `05-open-questions.md` | Remaining architecture decisions | Captures unresolved choices with recommended defaults so implementation stays unblocked |
 | `06-execution-briefs.md` | Issue-ready and PR-ready drafts | Turns the active backlog into copy-paste execution briefs for implementation |
 | `07-phase-plan.md` | Milestone-style shipment plan | Groups the active queue into phases so the team knows what should ship together |
+| `08-kickoff-checklist.md` | Immediate implementation startup guide | Turns the first tranche into a practical kickoff checklist for the team |
 
 ## Executive Summary
 
@@ -84,6 +85,7 @@ fits for AgentPane right now.
 6. Use `docs/research/opencode/05-open-questions.md` for unresolved decisions and defaults.
 7. Use `docs/research/opencode/06-execution-briefs.md` to draft issues and the first PRs.
 8. Use `docs/research/opencode/07-phase-plan.md` to group the active queue into shippable milestones.
+9. Use `docs/research/opencode/08-kickoff-checklist.md` to start the first implementation tranche.
 
 ## Key Themes
 

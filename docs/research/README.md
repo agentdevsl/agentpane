@@ -16,6 +16,7 @@ Recommended entry points:
 - [`opencode/04-implementation-backlog.md`](opencode/04-implementation-backlog.md)
 - [`opencode/06-execution-briefs.md`](opencode/06-execution-briefs.md)
 - [`opencode/07-phase-plan.md`](opencode/07-phase-plan.md)
+- [`opencode/08-kickoff-checklist.md`](opencode/08-kickoff-checklist.md)
 
 ## Reports
 
