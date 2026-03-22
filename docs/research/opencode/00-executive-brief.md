@@ -27,19 +27,19 @@ This is the shortest planning version of the OpenCode research set.
 
 The current execution queue is:
 
-1. `OC-001` Align production front door topology.
-2. `OC-004` Expose honest live health states.
-3. `OC-005` Adopt a structured stream envelope.
-4. `OC-006` Preserve opaque resume cursors end-to-end.
+1. `OC-005` Adopt a structured stream envelope.
+2. `OC-006` Preserve opaque resume cursors end-to-end.
+3. `OC-001` Align production front door topology.
+4. `OC-004` Expose honest live health states.
 5. `OC-008` Replace full transcript rebuilds with append-only timelines and virtualization.
 6. `OC-007` Add Dexie-backed durable session hydration.
 
 This order is intentional.
 
-- Fix deployment truth first.
-- Then make live-state UX honest.
-- Then define the stream contract.
+- First define the stream contract.
 - Then make reconnect correct.
+- Then align deployment truth around the clarified stream model.
+- Then make live-state UX honest.
 - Then improve transcript performance.
 - Then add local durable hydration on top of stable semantics.
 
@@ -52,12 +52,12 @@ These still matter, but they are not in the active implementation queue right no
 
 ## Best First Three PRs
 
-1. `OC-001a` + `OC-001b`
-   - Choose the canonical front door and align Helm plus docs.
-2. `OC-004a` + `OC-004b`
-   - Define shared live-health states and apply them to the main session view.
-3. `OC-005a`
+1. `OC-005a`
    - Define the structured stream envelope before deeper server/client migration work.
+2. `OC-006a` + `OC-006b`
+   - Preserve opaque cursor identity and remove reconnect-from-zero behavior in the main session path.
+3. `OC-001a` + `OC-001b`
+   - Choose the canonical front door and align Helm plus docs.
 
 ## Success Looks Like
 

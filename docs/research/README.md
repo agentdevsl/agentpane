@@ -15,6 +15,7 @@ Recommended entry points:
 - [`opencode/00-executive-brief.md`](opencode/00-executive-brief.md)
 - [`opencode/04-implementation-backlog.md`](opencode/04-implementation-backlog.md)
 - [`opencode/06-execution-briefs.md`](opencode/06-execution-briefs.md)
+- [`opencode/07-phase-plan.md`](opencode/07-phase-plan.md)
 
 ## Reports
 
@@ -35,8 +36,8 @@ Recommended entry points:
 ## Consolidated Priority Actions
 
 Note: the consolidated actions below are the broad cross-report synthesis. The
-`opencode` supplement further narrows the near-term active queue to `OC-001`,
-`OC-004`, `OC-005`, `OC-006`, `OC-008`, and `OC-007`, with `OC-002` and
+`opencode` supplement further narrows the near-term active queue to `OC-005`,
+`OC-006`, `OC-001`, `OC-004`, `OC-008`, and `OC-007`, with `OC-002` and
 `OC-003` intentionally deferred for now.
 
 ### Critical (Security)

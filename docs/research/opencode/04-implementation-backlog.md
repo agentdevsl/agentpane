@@ -21,9 +21,9 @@ of the active plan.
 
 ## Current Focus
 
-- Active now: `OC-001`, `OC-004`, `OC-005`, `OC-006`, `OC-007`, `OC-008`.
+- Active now: `OC-005`, `OC-006`, `OC-001`, `OC-004`, `OC-008`, `OC-007`.
 - Deferred for later: `OC-002`, `OC-003`.
-- Bias for the next implementation cycle: fix deployment truth and stream semantics before adding cache or rendering optimizations.
+- Bias for the next implementation cycle: fix stream semantics and replay correctness before deployment cleanup, then do cache or rendering optimizations.
 
 ## Sizing Guide
 
@@ -62,10 +62,10 @@ of the active plan.
 
 ## Recommended Execution Order
 
-1. `OC-001` Align the deployed topology with the documented Caddy front door.
-2. `OC-004` Add a shared live health state model for startup and streaming.
-3. `OC-005` Adopt a structured stream envelope with stable IDs.
-4. `OC-006` Preserve opaque resume cursors end-to-end.
+1. `OC-005` Adopt a structured stream envelope with stable IDs.
+2. `OC-006` Preserve opaque resume cursors end-to-end.
+3. `OC-001` Align the deployed topology with the documented Caddy front door.
+4. `OC-004` Add a shared live health state model for startup and streaming.
 5. `OC-008` Replace full transcript rebuilds with append-only timelines and virtualization.
 6. `OC-007` Add Dexie-backed durable session hydration.
 
@@ -372,33 +372,35 @@ Deferred from the active queue: `OC-002`, `OC-003`.
 
 This is the smallest practical sequence that keeps dependencies clear.
 
-1. `OC-001a` + `OC-001b`: choose the canonical front door and align Helm/docs.
-2. `OC-001c` + `OC-001d`: validate end-to-end routing and remove misleading scale-out guidance.
-3. `OC-004a` + `OC-004b`: define shared live-health states and land them in the main session view.
-4. `OC-005a` + `OC-005b`: define the structured stream envelope and update server emitters.
-5. `OC-005c` + `OC-005d`: update client parsing and gate or migrate old protocol behavior.
-6. `OC-006a` + `OC-006b`: preserve opaque resume cursors and remove reconnect-from-zero behavior.
-7. `OC-006c` + `OC-006d`: update catch-up paths and add reconnect regression tests.
-8. `OC-008a` + `OC-008b`: stabilize line identity and move to append-only transcript updates.
-9. `OC-008c` + `OC-008d`: virtualize transcript-heavy panes.
-10. `OC-007a` through `OC-007d`: add durable local hydration once stream correctness is stable.
+1. `OC-005a`: define the structured stream envelope contract in one shared schema.
+2. `OC-005b` + `OC-005c`: update emitters and client parsing to use stable event identity.
+3. `OC-005d`: make migration behavior explicit and prevent ambiguous dual-protocol handling.
+4. `OC-006a` + `OC-006b`: preserve opaque resume cursors and remove reconnect-from-zero behavior.
+5. `OC-006c` + `OC-006d`: update catch-up paths and add reconnect regression tests.
+6. `OC-001a` + `OC-001b`: choose the canonical front door and align Helm/docs.
+7. `OC-001c` + `OC-001d`: validate end-to-end routing and remove misleading scale-out guidance.
+8. `OC-004a` + `OC-004b`: define shared live-health states and land them in the main session view.
+9. `OC-004c` + `OC-004d`: extend the same semantics across other live surfaces and lock them in with coverage.
+10. `OC-008a` + `OC-008b`: stabilize line identity and move to append-only transcript updates.
+11. `OC-008c` + `OC-008d`: virtualize transcript-heavy panes.
+12. `OC-007a` through `OC-007d`: add durable local hydration once stream correctness is stable.
 
 ## Recommended First Three PRs
 
 If the team wants the smallest useful starting set, begin here:
 
-1. `OC-001a` + `OC-001b`
-   - Size: `M`
-   - Risk: medium
-   - Outcome: the deployment story becomes honest before deeper fixes land.
-2. `OC-004a` + `OC-004b`
-   - Size: `M`
-   - Risk: medium
-   - Outcome: the main live transcript stops over-promising health.
-3. `OC-005a`
+1. `OC-005a`
    - Size: `M`
    - Risk: high
    - Outcome: the stream contract is defined before server/client migration work starts.
+2. `OC-006a` + `OC-006b`
+   - Size: `M`
+   - Risk: high
+   - Outcome: reconnect stops depending on reconnect-from-zero behavior in the main session path.
+3. `OC-001a` + `OC-001b`
+   - Size: `M`
+   - Risk: medium
+   - Outcome: the deployment story becomes honest once the stream contract is clearer.
 
 ## What To Avoid While Executing
 

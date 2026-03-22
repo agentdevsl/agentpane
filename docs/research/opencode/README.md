@@ -23,6 +23,7 @@ fits for AgentPane right now.
 | `04-implementation-backlog.md` | Actionable implementation backlog | Converts the roadmap into high-priority execution-ready work |
 | `05-open-questions.md` | Remaining architecture decisions | Captures unresolved choices with recommended defaults so implementation stays unblocked |
 | `06-execution-briefs.md` | Issue-ready and PR-ready drafts | Turns the active backlog into copy-paste execution briefs for implementation |
+| `07-phase-plan.md` | Milestone-style shipment plan | Groups the active queue into phases so the team knows what should ship together |
 
 ## Executive Summary
 
@@ -82,6 +83,7 @@ fits for AgentPane right now.
 5. Use `docs/research/opencode/04-implementation-backlog.md` to plan implementation order.
 6. Use `docs/research/opencode/05-open-questions.md` for unresolved decisions and defaults.
 7. Use `docs/research/opencode/06-execution-briefs.md` to draft issues and the first PRs.
+8. Use `docs/research/opencode/07-phase-plan.md` to group the active queue into shippable milestones.
 
 ## Key Themes
 
