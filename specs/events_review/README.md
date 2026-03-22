@@ -4,6 +4,11 @@
 > **Scope**: Real-time event streaming, persistence, client consumption, webhook processing
 > **Status**: Review complete — actionable findings with OSS recommendations
 
+## Related Documents
+
+- **[Hybrid Architecture Evolution](./hybrid-architecture.md)** — 3-phase evolution plan with 17+ OSS technology evaluations, pattern catalog (outbox, CQRS, DLQ, edge CEP), agent event model evolution (CloudEvents, hierarchical naming, delta/done pairing), and industry comparison across 7 agent platforms
+- **[Prioritized Roadmap & Next Steps](./roadmap.md)** — 19 work items across P0-P3 priorities with effort estimates, dependencies, success criteria, milestone checkpoints, and risk register
+
 ---
 
 ## Table of Contents
