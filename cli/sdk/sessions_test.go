@@ -99,14 +99,15 @@ func TestSessions_List_WithPagination(t *testing.T) {
 
 func TestSessions_List_NoFilters(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.RawQuery != "" {
-			t.Errorf("expected no query params, got %q", r.URL.RawQuery)
+		// Auto-pagination always sends limit and offset
+		if r.URL.Query().Get("codespaceId") != "" {
+			t.Errorf("expected no codespaceId filter, got %q", r.URL.Query().Get("codespaceId"))
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"ok":   true,
-			"data": []map[string]interface{}{},
+			"data": map[string]interface{}{"items": []interface{}{}},
 		})
 	}))
 	defer server.Close()

@@ -12,33 +12,57 @@ type TaskService struct {
 	client *Client
 }
 
-// List returns tasks matching the given filter options.
-// At minimum, CodespaceID should be provided.
+// defaultPageSize is the number of items fetched per page when auto-paginating.
+const defaultPageSize = 100
+
+// List returns all tasks matching the given filter options, automatically
+// paginating through all results. At minimum, CodespaceID should be provided.
 func (s *TaskService) List(ctx context.Context, opts TaskListOptions) ([]Task, error) {
-	params := url.Values{}
-	if opts.CodespaceID != "" {
-		params.Set("codespaceId", opts.CodespaceID)
-	}
-	if opts.Column != "" {
-		params.Set("column", opts.Column)
-	}
-	if opts.Limit > 0 {
-		params.Set("limit", strconv.Itoa(opts.Limit))
-	}
-	if opts.Offset > 0 {
-		params.Set("offset", strconv.Itoa(opts.Offset))
+	var allTasks []Task
+	offset := opts.Offset
+	limit := opts.Limit
+	if limit <= 0 {
+		limit = defaultPageSize
 	}
 
-	path := "/api/tasks"
-	if len(params) > 0 {
-		path += "?" + params.Encode()
+	for {
+		params := url.Values{}
+		if opts.CodespaceID != "" {
+			params.Set("codespaceId", opts.CodespaceID)
+		}
+		if opts.Column != "" {
+			params.Set("column", opts.Column)
+		}
+		params.Set("limit", strconv.Itoa(limit))
+		params.Set("offset", strconv.Itoa(offset))
+
+		path := "/api/tasks?" + params.Encode()
+
+		var page ListResponse[Task]
+		if err := s.client.get(ctx, path, &page); err != nil {
+			// Fallback: try as flat array (some endpoints return flat arrays)
+			var flat []Task
+			if flatErr := s.client.get(ctx, path, &flat); flatErr == nil {
+				return flat, nil
+			}
+			return nil, err
+		}
+
+		allTasks = append(allTasks, page.Items...)
+
+		// If we got fewer items than requested, we've reached the end
+		if len(page.Items) < limit {
+			break
+		}
+		// If pagination info says we have all items, stop
+		if page.Pagination != nil && offset+len(page.Items) >= page.Pagination.Total {
+			break
+		}
+
+		offset += len(page.Items)
 	}
 
-	var result []Task
-	if err := s.client.get(ctx, path, &result); err != nil {
-		return nil, err
-	}
-	return result, nil
+	return allTasks, nil
 }
 
 // Get returns a single task by ID.

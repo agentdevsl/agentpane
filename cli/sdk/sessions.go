@@ -12,35 +12,55 @@ type SessionService struct {
 	client *Client
 }
 
-// List returns sessions matching the given filter options.
+// List returns all sessions matching the given filter options, automatically
+// paginating through results.
 func (s *SessionService) List(ctx context.Context, opts SessionListOptions) ([]Session, error) {
-	params := url.Values{}
-	if opts.CodespaceID != "" {
-		params.Set("codespaceId", opts.CodespaceID)
-	}
-	if opts.Status != "" {
-		params.Set("status", opts.Status)
-	}
-	if opts.AgentID != "" {
-		params.Set("agentId", opts.AgentID)
-	}
-	if opts.Limit > 0 {
-		params.Set("limit", strconv.Itoa(opts.Limit))
-	}
-	if opts.Offset > 0 {
-		params.Set("offset", strconv.Itoa(opts.Offset))
+	var allSessions []Session
+	offset := opts.Offset
+	limit := opts.Limit
+	if limit <= 0 {
+		limit = defaultPageSize
 	}
 
-	path := "/api/sessions"
-	if len(params) > 0 {
-		path += "?" + params.Encode()
+	for {
+		params := url.Values{}
+		if opts.CodespaceID != "" {
+			params.Set("codespaceId", opts.CodespaceID)
+		}
+		if opts.Status != "" {
+			params.Set("status", opts.Status)
+		}
+		if opts.AgentID != "" {
+			params.Set("agentId", opts.AgentID)
+		}
+		params.Set("limit", strconv.Itoa(limit))
+		params.Set("offset", strconv.Itoa(offset))
+
+		path := "/api/sessions?" + params.Encode()
+
+		var page ListResponse[Session]
+		if err := s.client.get(ctx, path, &page); err != nil {
+			// Fallback: try as flat array
+			var flat []Session
+			if flatErr := s.client.get(ctx, path, &flat); flatErr == nil {
+				return flat, nil
+			}
+			return nil, err
+		}
+
+		allSessions = append(allSessions, page.Items...)
+
+		if len(page.Items) < limit {
+			break
+		}
+		if page.Pagination != nil && offset+len(page.Items) >= page.Pagination.Total {
+			break
+		}
+
+		offset += len(page.Items)
 	}
 
-	var result []Session
-	if err := s.client.get(ctx, path, &result); err != nil {
-		return nil, err
-	}
-	return result, nil
+	return allSessions, nil
 }
 
 // Get returns a single session by ID.
