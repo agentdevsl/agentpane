@@ -115,29 +115,32 @@ Webhook ingestion pipeline: external sources (GitHub, Linear, Jira, cron) throug
 | Layer | Technology | Package | Version |
 |-------|------------|---------|---------|
 | Runtime | Bun | [bun.sh](https://bun.sh) | 1.3.10 |
+| Build | Vite | vite | 8.0.1 |
 | Front Door | Caddy (durable-streams-server) | [durable-streams](https://github.com/anthropics/durable-streams) | 0.2.2 |
-| Framework | TanStack Start | @tanstack/react-start | 1.166.9 |
+| Framework | TanStack Start | @tanstack/react-start | 1.166.1 |
 | API Router | Hono | hono | 4.12.7 |
-| Database | SQLite + PostgreSQL | better-sqlite3 / postgres | 12.6.2 / 3.4.8 |
-| ORM | Drizzle | drizzle-orm + drizzle-kit | 0.45.1 / 0.31.9 |
-| Client State | TanStack DB | @tanstack/db + @tanstack/react-db | 0.5.30 / 0.1.77 |
-| Real-time | Durable Streams | @durable-streams/* | 0.2.2 |
-| AI / Agents | Claude Agent SDK | @anthropic-ai/claude-agent-sdk | 0.2.63 |
-| AI / API | Anthropic SDK | @anthropic-ai/sdk | 0.72.1 |
-| UI | React + Radix + Tailwind | react + @radix-ui/* + tailwindcss | 19.2.4 / 4.2.1 |
+| Database | SQLite + PostgreSQL | better-sqlite3 / postgres | 12.8.0 / 3.4.8 |
+| ORM | Drizzle | drizzle-orm + drizzle-kit | 0.45.1 / 0.31.10 |
+| Validation | Zod | zod | 4.3.6 |
+| Client State | TanStack DB | @tanstack/db + @tanstack/react-db | 0.5.33 / 0.1.77 |
+| Real-time | Durable Streams | @durable-streams/* | 0.2.x |
+| AI / Agents | Claude Agent SDK | @anthropic-ai/claude-agent-sdk | 0.2.76 |
+| AI / API | Anthropic SDK | @anthropic-ai/sdk | 0.78.0 |
+| Memory | Honcho | @honcho-ai/sdk | 2.0.1 |
+| UI | React + Radix + Tailwind | react + @radix-ui/* + tailwindcss | 19.2.4 / 4.1.18 |
 | Flow Editor | React Flow | @xyflow/react | 12.10.1 |
-| Graph Layout | ELK | elkjs | 0.11.1 |
+| Graph Layout | ELK | elkjs | 0.11.0 |
 | Drag & Drop | dnd-kit | @dnd-kit/core + @dnd-kit/sortable | 6.3.1 / 10.0.0 |
 | Icons | Phosphor | @phosphor-icons/react | 2.1.10 |
 | Syntax | Shiki | shiki | 3.22.0 |
-| Testing | Vitest | vitest | 4.1.0 |
-| E2E Testing | Playwright | @playwright/test | 1.58.2 |
-| Linting | Biome | @biomejs/biome | 2.4.7 |
-| Containers | Dockerode | dockerode | 4.0.9 |
+| Markdown | react-markdown | react-markdown | 10.1.0 |
+| Testing | Vitest | vitest | 4.0.16 |
+| E2E Testing | Playwright | @playwright/test | 1.58.1 |
+| Linting | Biome | @biomejs/biome | 2.4.4 |
+| Containers | Dockerode | dockerode | 4.0.10 |
 | Kubernetes | K8s Client | @kubernetes/client-node | 1.4.0 |
 | AWS | AWS SDK | @aws-sdk/client-sts | 3.1004.0 |
 | GitHub | Octokit | octokit | 5.0.5 |
-| Memory | Honcho | @honcho-ai/sdk | 2.0.1 |
 
 ## Getting Started
 
