@@ -86,8 +86,8 @@
 **Files**:
 - New: `src/services/event-cleanup.service.ts`
 - `src/db/schema/sqlite/session-events.ts` (add index)
-- `src/db/schema/sqlite/event-log.ts` (add index)
-- `src/server/api.ts` (register cleanup on start)
+- `src/db/schema/sqlite/event-log.ts` (verify index)
+- `src/server/bootstrap/phases/schedulers.ts` (register cleanup on start)
 
 ---
 
@@ -115,7 +115,9 @@
 
 **Files**:
 - `src/lib/agents/stream-handler.ts`
-- `src/services/durable-streams.service.ts`
+- `src/lib/agents/chunk-batcher.ts` (new)
+- `src/services/session/session-stream.service.ts` (new methods)
+- `src/services/session.service.ts` (facade methods)
 
 ---
 

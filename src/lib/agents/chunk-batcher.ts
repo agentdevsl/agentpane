@@ -51,7 +51,7 @@ export class ChunkBatcher {
     try {
       await this.options.publishRealtime(this.options.sessionId, 'chunk', {
         agentId: this.options.agentId,
-        delta,
+        text: delta,
         phase: this.currentPhase,
       });
     } catch (err) {
@@ -101,7 +101,7 @@ export class ChunkBatcher {
         timestamp: Date.now(),
         data: {
           agentId: this.options.agentId,
-          delta: batchedDelta,
+          text: batchedDelta,
           phase: this.currentPhase,
         },
       });

@@ -24,11 +24,12 @@ describe('ChunkBatcher', () => {
   function createBatcher(overrides?: {
     flushIntervalMs?: number;
     maxBatchSize?: number;
+    persistEvent?: PersistFn;
   }): ChunkBatcher {
     return new ChunkBatcher({
       sessionId: 'session-1',
       agentId: 'agent-1',
-      persistEvent,
+      persistEvent: overrides?.persistEvent ?? persistEvent,
       publishRealtime,
       flushIntervalMs: overrides?.flushIntervalMs ?? 100,
       maxBatchSize: overrides?.maxBatchSize ?? 10,
@@ -44,12 +45,12 @@ describe('ChunkBatcher', () => {
     expect(publishRealtime).toHaveBeenCalledTimes(2);
     expect(publishRealtime).toHaveBeenCalledWith('session-1', 'chunk', {
       agentId: 'agent-1',
-      delta: 'Hello',
+      text: 'Hello',
       phase: 'planning',
     });
     expect(publishRealtime).toHaveBeenCalledWith('session-1', 'chunk', {
       agentId: 'agent-1',
-      delta: ' world',
+      text: ' world',
       phase: 'planning',
     });
 
@@ -69,7 +70,7 @@ describe('ChunkBatcher', () => {
     const call = persistEvent.mock.calls[0]!;
     expect(call[0]).toBe('session-1');
     expect(call[1].type).toBe('chunk');
-    expect(call[1].data.delta).toBe('abc');
+    expect(call[1].data.text).toBe('abc');
     expect(call[1].data.agentId).toBe('agent-1');
     expect(call[1].data.phase).toBe('planning');
 
@@ -86,7 +87,7 @@ describe('ChunkBatcher', () => {
     await vi.advanceTimersByTimeAsync(150);
 
     expect(persistEvent).toHaveBeenCalledTimes(1);
-    expect(persistEvent.mock.calls[0]![1].data.delta).toBe('hello');
+    expect(persistEvent.mock.calls[0]![1].data.text).toBe('hello');
 
     await batcher.destroy();
   });
@@ -99,7 +100,7 @@ describe('ChunkBatcher', () => {
 
     await batcher.flush();
     expect(persistEvent).toHaveBeenCalledTimes(1);
-    expect(persistEvent.mock.calls[0]![1].data.delta).toBe('data');
+    expect(persistEvent.mock.calls[0]![1].data.text).toBe('data');
 
     // Timer should be cleared - advancing should not cause another persist
     await vi.advanceTimersByTimeAsync(200);
@@ -116,7 +117,7 @@ describe('ChunkBatcher', () => {
 
     await batcher.destroy();
     expect(persistEvent).toHaveBeenCalledTimes(1);
-    expect(persistEvent.mock.calls[0]![1].data.delta).toBe('remaining');
+    expect(persistEvent.mock.calls[0]![1].data.text).toBe('remaining');
   });
 
   it('setPhase() flushes current buffer before switching', async () => {
@@ -132,7 +133,7 @@ describe('ChunkBatcher', () => {
     await vi.advanceTimersByTimeAsync(0);
 
     expect(persistEvent).toHaveBeenCalledTimes(1);
-    expect(persistEvent.mock.calls[0]![1].data.delta).toBe('planning-data');
+    expect(persistEvent.mock.calls[0]![1].data.text).toBe('planning-data');
     expect(persistEvent.mock.calls[0]![1].data.phase).toBe('planning');
 
     // New deltas should use the new phase
@@ -164,7 +165,7 @@ describe('ChunkBatcher', () => {
     // Delta should still be buffered
     await batcher.flush();
     expect(persistEvent).toHaveBeenCalledTimes(1);
-    expect(persistEvent.mock.calls[0]![1].data.delta).toBe('resilient');
+    expect(persistEvent.mock.calls[0]![1].data.text).toBe('resilient');
 
     await batcher.destroy();
   });
@@ -181,17 +182,17 @@ describe('ChunkBatcher', () => {
     expect(persistEvent).toHaveBeenCalledTimes(2);
 
     // First batch: d0..d9
-    const firstBatch = persistEvent.mock.calls[0]![1].data.delta;
+    const firstBatch = persistEvent.mock.calls[0]![1].data.text;
     expect(firstBatch).toBe('d0d1d2d3d4d5d6d7d8d9');
 
     // Second batch: d10..d19
-    const secondBatch = persistEvent.mock.calls[1]![1].data.delta;
+    const secondBatch = persistEvent.mock.calls[1]![1].data.text;
     expect(secondBatch).toBe('d10d11d12d13d14d15d16d17d18d19');
 
     // Remaining 5 deltas still in buffer - flush via destroy
     await batcher.destroy();
     expect(persistEvent).toHaveBeenCalledTimes(3);
-    const thirdBatch = persistEvent.mock.calls[2]![1].data.delta;
+    const thirdBatch = persistEvent.mock.calls[2]![1].data.text;
     expect(thirdBatch).toBe('d20d21d22d23d24');
 
     // All 25 deltas should have been published to realtime individually
@@ -214,5 +215,53 @@ describe('ChunkBatcher', () => {
     expect(event.timestamp).toBeGreaterThan(0);
 
     await batcher.destroy();
+  });
+
+  it('restores buffer on persist failure', async () => {
+    let callCount = 0;
+    const failingPersist = vi.fn<PersistFn>().mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return Promise.reject(new Error('DB locked'));
+      }
+      return Promise.resolve(undefined);
+    });
+
+    const batcher = createBatcher({ maxBatchSize: 10, persistEvent: failingPersist });
+
+    // Add 10 deltas — the 10th triggers a threshold flush which will fail.
+    // flush() restores the buffer then re-throws, so addDelta propagates the error.
+    for (let i = 0; i < 10; i++) {
+      if (i < 9) {
+        await batcher.addDelta(`chunk${i}`);
+      } else {
+        await expect(batcher.addDelta(`chunk${i}`)).rejects.toThrow('DB locked');
+      }
+    }
+
+    expect(failingPersist).toHaveBeenCalledTimes(1);
+
+    // Buffer was restored after the failure — flush again (should succeed)
+    await batcher.flush();
+
+    expect(failingPersist).toHaveBeenCalledTimes(2);
+    // Second call should contain all the original data
+    const secondCallData = failingPersist.mock.calls[1]![1].data;
+    expect(secondCallData.text).toBe(
+      'chunk0chunk1chunk2chunk3chunk4chunk5chunk6chunk7chunk8chunk9'
+    );
+
+    await batcher.destroy();
+  });
+
+  it('silently ignores addDelta after destroy', async () => {
+    const batcher = createBatcher();
+    await batcher.destroy();
+    await batcher.addDelta('late');
+
+    // publishRealtime should NOT have been called for the late delta
+    // (it may have been called 0 times if destroy was on empty buffer)
+    expect(publishRealtime).not.toHaveBeenCalled();
+    expect(persistEvent).not.toHaveBeenCalled();
   });
 });

@@ -135,9 +135,15 @@ function createChunkBatcher(
   const batcher = new ChunkBatcher({
     sessionId,
     agentId,
-    persistEvent: (sid, event) =>
-      sessionService.persistOnly?.(sid, event as SessionEvent) ??
-      sessionService.publish(sid, event as SessionEvent),
+    persistEvent: async (sid, event) => {
+      const result = await (sessionService.persistOnly?.(sid, event as SessionEvent) ??
+        sessionService.publish(sid, event as SessionEvent));
+      if (result && typeof result === 'object' && 'ok' in result && !result.ok) {
+        const errorMsg = (result as { error?: { message?: string } }).error?.message ?? 'unknown';
+        throw new Error(`Chunk persist failed: ${JSON.stringify(errorMsg)}`);
+      }
+      return result;
+    },
     publishRealtime: (sid, type, data) =>
       sessionService.publishRealtimeOnly?.(sid, type, data) ?? Promise.resolve(0),
   });
