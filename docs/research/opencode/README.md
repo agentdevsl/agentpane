@@ -26,6 +26,7 @@ fits for AgentPane right now.
 | `07-phase-plan.md` | Milestone-style shipment plan | Groups the active queue into phases so the team knows what should ship together |
 | `08-kickoff-checklist.md` | Immediate implementation startup guide | Turns the first tranche into a practical kickoff checklist for the team |
 | `09-validation-matrix.md` | Tranche test and verification guide | Defines what must be validated before the first stream-correctness tranche is done |
+| `10-risk-register.md` | First-tranche failure-mode tracker | Captures the main risks and mitigations for the OC-005 and OC-006 tranche |
 
 ## Executive Summary
 
@@ -88,6 +89,7 @@ fits for AgentPane right now.
 8. Use `docs/research/opencode/07-phase-plan.md` to group the active queue into shippable milestones.
 9. Use `docs/research/opencode/08-kickoff-checklist.md` to start the first implementation tranche.
 10. Use `docs/research/opencode/09-validation-matrix.md` to verify the first tranche before moving on.
+11. Use `docs/research/opencode/10-risk-register.md` to review tranche failure modes before merging major changes.
 
 ## Key Themes
 

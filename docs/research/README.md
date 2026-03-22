@@ -18,6 +18,7 @@ Recommended entry points:
 - [`opencode/07-phase-plan.md`](opencode/07-phase-plan.md)
 - [`opencode/08-kickoff-checklist.md`](opencode/08-kickoff-checklist.md)
 - [`opencode/09-validation-matrix.md`](opencode/09-validation-matrix.md)
+- [`opencode/10-risk-register.md`](opencode/10-risk-register.md)
 
 ## Reports
 
