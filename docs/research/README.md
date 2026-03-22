@@ -24,6 +24,8 @@ Recommended entry points:
 - [`opencode/13-stream-envelope-proposal.md`](opencode/13-stream-envelope-proposal.md)
 - [`opencode/14-cursor-migration-plan.md`](opencode/14-cursor-migration-plan.md)
 - [`opencode/15-implementation-map.md`](opencode/15-implementation-map.md)
+- [`opencode/16-event-inventory.md`](opencode/16-event-inventory.md)
+- [`opencode/17-cursor-flow-inventory.md`](opencode/17-cursor-flow-inventory.md)
 
 ## Reports
 

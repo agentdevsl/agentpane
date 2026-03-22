@@ -32,6 +32,8 @@ fits for AgentPane right now.
 | `13-stream-envelope-proposal.md` | Concrete OC-005 schema proposal | Gives the team a proposed stream envelope to implement against |
 | `14-cursor-migration-plan.md` | Concrete OC-006 migration design | Defines how opaque resume cursors should move through the stack |
 | `15-implementation-map.md` | File-level first-tranche map | Points the team at likely repo touchpoints for `OC-005` and `OC-006` |
+| `16-event-inventory.md` | Current-to-proposed event migration inventory | Maps today’s event families to the new envelope concepts for `OC-005` |
+| `17-cursor-flow-inventory.md` | Current reconnect-path inventory | Shows where opaque cursor identity is currently preserved or lost for `OC-006` |
 
 ## Executive Summary
 
@@ -100,6 +102,8 @@ fits for AgentPane right now.
 14. Use `docs/research/opencode/13-stream-envelope-proposal.md` to implement `OC-005`.
 15. Use `docs/research/opencode/14-cursor-migration-plan.md` to implement `OC-006`.
 16. Use `docs/research/opencode/15-implementation-map.md` to map tranche slices to likely repo files.
+17. Use `docs/research/opencode/16-event-inventory.md` to migrate current event families toward the new envelope.
+18. Use `docs/research/opencode/17-cursor-flow-inventory.md` to identify where cursor correctness is currently lost.
 
 ## Key Themes
 
