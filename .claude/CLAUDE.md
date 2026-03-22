@@ -154,9 +154,72 @@ When renaming entities (tables, fields, API params), always update ALL test file
 
 After modifying `agent-runner/package.json` or its dependencies, regenerate the lockfile: `cd agent-runner && bun install && cd ..`. CI uses `--frozen-lockfile` and will fail if the lockfile is stale. The lockfile is `agent-runner/bun.lock` (not `bun.lockb`).
 
-### Always Run Tests Before Creating PRs
+### CI/CD and PR Process
 
-Run `npx vitest run` before creating or pushing to a PR. CI runs tests in 3 shards — failures that pass locally often indicate test files referencing stale names/imports. Never create a PR without verifying tests pass first.
+#### Pre-commit hooks (automatic)
+
+Pre-commit hooks run on every `git commit`:
+- **Biome Check** — lint + format. Auto-fixes files; if files are modified, the commit fails and you must re-stage and retry.
+- **TypeScript Type Check** — `tsc --noEmit`
+- **Detect secrets** — blocks commits with API keys, tokens, etc.
+- **Fix end of files / trim trailing whitespace** — auto-fix
+
+Pre-push hooks run on `git push`:
+- **Biome Fix** — final format pass
+- **Detect secrets** — re-check before push
+
+#### Before creating a PR
+
+1. Run `npx @biomejs/biome check --write --max-diagnostics=500 --diagnostic-level=error src/` to fix all lint issues upfront
+2. Run `npx tsc --noEmit` to verify type checking passes
+3. Run `npx vitest run` to verify tests pass — CI runs tests in 3 shards, failures that pass locally often indicate stale names/imports
+4. Stage specific files (not `git add -A`) and commit — if Biome auto-fixes files, re-stage and commit again
+5. Push to remote with `git push -u origin <branch>`
+
+#### Creating the PR
+
+Use `gh pr create` with a structured body:
+```bash
+gh pr create --title "feat: short title" --body "$(cat <<'EOF'
+## Summary
+- Bullet points of what changed
+
+## Test plan
+- [ ] Manual verification steps
+- [ ] Edge cases to check
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+EOF
+)"
+```
+
+#### After PR creation
+
+1. **Poll CI**: `gh run watch <run-id> --exit-status` or `gh pr checks <pr-number> --watch`
+2. **Check for review comments**: `gh api repos/agentdevsl/agentpane/pulls/<number>/comments`
+3. **Fix review findings**: commit fixes, push, then comment on the PR explaining what was addressed
+4. **Comment on PR**: `gh pr comment <number> --body "Addressed review comments in <commit>..."`
+
+#### CI pipeline (GitHub Actions)
+
+The CI pipeline runs these jobs:
+- **install** — `bun install --frozen-lockfile`
+- **build** — `bun run build`
+- **lint-and-typecheck** — Biome + TypeScript
+- **test (1/3, 2/3, 3/3)** — Vitest sharded across 3 runners
+
+All jobs must pass before merge. The `--frozen-lockfile` flag means CI fails if `bun.lock` is stale — always run `bun install` after modifying dependencies.
+
+#### Worktree workflow
+
+For feature branches, use git worktrees to work in isolation:
+```bash
+git worktree add .worktrees/<name> -b <branch> main
+cd .worktrees/<name>
+# ... work, commit, push, create PR
+```
+
+All file paths in commits and PRs should be relative to the worktree root. The worktree shares `.git` with the main repo but has its own working tree.
 
 ### Publishing `@agentpane/cli-monitor` to npm
 
