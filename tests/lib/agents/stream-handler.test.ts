@@ -230,7 +230,7 @@ describe('runAgentPlanning', () => {
     const call = findPublishedEvent(sessionService, 'chunk');
     expect(call).toBeDefined();
     const event = call![1] as { data: Record<string, unknown> };
-    expect(event.data.delta).toBe('hello');
+    expect(event.data.text).toBe('hello');
     expect(event.data.phase).toBe('planning');
   });
 
