@@ -1633,3 +1633,38 @@ bun run db:generate  # Generate migrations
 bun run db:migrate   # Run migrations
 bun run db:studio    # Open Drizzle Studio
 ```
+
+<!-- intent-skills:start -->
+# Skill mappings - when working in these areas, load the linked skill file into context
+
+skills:
+
+- task: "Working with TanStack DB collections, live queries, or React state sync"
+    load: "node_modules/@tanstack/react-db/skills/react-db/SKILL.md"
+- task: "Setting up or modifying TanStack DB collection adapters and sync config"
+    load: "node_modules/@tanstack/db/skills/db-core/collection-setup/SKILL.md"
+- task: "Building live queries with filtering, joins, aggregates, or derived collections"
+    load: "node_modules/@tanstack/db/skills/db-core/live-queries/SKILL.md"
+- task: "Optimistic mutations, transactions, or paced mutations on collections"
+    load: "node_modules/@tanstack/db/skills/db-core/mutations-optimistic/SKILL.md"
+- task: "Stream-backed reactive database with @durable-streams/state"
+    load: "node_modules/@durable-streams/server/node_modules/@durable-streams/state/skills/stream-db/SKILL.md"
+- task: "Defining typed state schemas for durable streams collections"
+    load: "node_modules/@durable-streams/server/node_modules/@durable-streams/state/skills/state-schema/SKILL.md"
+- task: "Reading or subscribing to durable streams (SSE, long-poll, reconnect)"
+    load: "node_modules/@durable-streams/server/node_modules/@durable-streams/client/skills/reading-streams/SKILL.md"
+- task: "Writing or appending data to durable streams (producers, batching)"
+    load: "node_modules/@durable-streams/server/node_modules/@durable-streams/client/skills/writing-data/SKILL.md"
+- task: "Deploying or configuring durable stream servers (Caddy, test server)"
+    load: "node_modules/@durable-streams/server/node_modules/@durable-streams/client/skills/server-deployment/SKILL.md"
+- task: "TanStack Router routes, navigation, Link component, or useNavigate"
+    load: "node_modules/@tanstack/router-core/skills/router-core/navigation/SKILL.md"
+- task: "Route data loading, loaders, staleTime, pendingComponent, or beforeLoad"
+    load: "node_modules/@tanstack/router-core/skills/router-core/data-loading/SKILL.md"
+- task: "Route auth guards, protected routes, RBAC, or redirect"
+    load: "node_modules/@tanstack/router-core/skills/router-core/auth-and-guards/SKILL.md"
+- task: "Search params validation, search middlewares, or URL state"
+    load: "node_modules/@tanstack/router-core/skills/router-core/search-params/SKILL.md"
+- task: "E2E browser testing, screenshots, form filling, or web interaction"
+    load: "node_modules/agent-browser/skills/agent-browser/SKILL.md"
+<!-- intent-skills:end -->
