@@ -25,6 +25,7 @@ fits for AgentPane right now.
 | `06-execution-briefs.md` | Issue-ready and PR-ready drafts | Turns the active backlog into copy-paste execution briefs for implementation |
 | `07-phase-plan.md` | Milestone-style shipment plan | Groups the active queue into phases so the team knows what should ship together |
 | `08-kickoff-checklist.md` | Immediate implementation startup guide | Turns the first tranche into a practical kickoff checklist for the team |
+| `09-validation-matrix.md` | Tranche test and verification guide | Defines what must be validated before the first stream-correctness tranche is done |
 
 ## Executive Summary
 
@@ -86,6 +87,7 @@ fits for AgentPane right now.
 7. Use `docs/research/opencode/06-execution-briefs.md` to draft issues and the first PRs.
 8. Use `docs/research/opencode/07-phase-plan.md` to group the active queue into shippable milestones.
 9. Use `docs/research/opencode/08-kickoff-checklist.md` to start the first implementation tranche.
+10. Use `docs/research/opencode/09-validation-matrix.md` to verify the first tranche before moving on.
 
 ## Key Themes
 
