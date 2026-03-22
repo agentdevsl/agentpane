@@ -4,7 +4,7 @@ package sdk
 // Codespace represents a development workspace (formerly called Project).
 type Codespace struct {
 	ID                  string  `json:"id"`
-	ProjectFolderID     string  `json:"projectFolderId"`
+	ProjectID     string  `json:"projectFolderId"`
 	Name                string  `json:"name"`
 	Path                string  `json:"path"`
 	Description         *string `json:"description,omitempty"`
@@ -109,8 +109,8 @@ type Worktree struct {
 	MergedAt    *string `json:"mergedAt,omitempty"`
 }
 
-// ProjectFolder groups codespaces into organizational folders.
-type ProjectFolder struct {
+// Project groups codespaces into organizational folders.
+type Project struct {
 	ID          string  `json:"id"`
 	Name        string  `json:"name"`
 	Slug        string  `json:"slug"`
@@ -188,8 +188,8 @@ type CodespaceUpdateOptions struct {
 	Description *string `json:"description,omitempty"`
 }
 
-// FolderCreateOptions specifies the parameters for creating a project folder.
-type FolderCreateOptions struct {
+// ProjectCreateOptions specifies the parameters for creating a project.
+type ProjectCreateOptions struct {
 	Name        string  `json:"name"`
 	Description *string `json:"description,omitempty"`
 }

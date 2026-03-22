@@ -34,12 +34,12 @@ func (c *ProjectCreateCommand) Run(args []string) int {
 		return 1
 	}
 
-	opts := sdk.FolderCreateOptions{Name: name}
+	opts := sdk.ProjectCreateOptions{Name: name}
 	if description != "" {
 		opts.Description = &description
 	}
 
-	folder, err := client.Folders.Create(context.Background(), opts)
+	folder, err := client.Projects.Create(context.Background(), opts)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating project: %s\n", err)
 		return 1

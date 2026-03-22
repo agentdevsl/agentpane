@@ -50,7 +50,7 @@ func (c *CodespaceShowCommand) Run(args []string) int {
 		{Key: "ID", Value: cs.ID},
 		{Key: "Name", Value: cs.Name},
 		{Key: "Path", Value: cs.Path},
-		{Key: "Folder ID", Value: cs.ProjectFolderID},
+		{Key: "Project ID", Value: cs.ProjectID},
 		{Key: "Max Agents", Value: strconv.Itoa(cs.MaxConcurrentAgents)},
 		{Key: "Created", Value: cs.CreatedAt},
 		{Key: "Updated", Value: cs.UpdatedAt},

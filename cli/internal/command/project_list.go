@@ -8,7 +8,7 @@ import (
 	"github.com/agentdevsl/agentpane/cli/internal/output"
 )
 
-// ProjectListCommand lists project folders.
+// ProjectListCommand lists projects.
 type ProjectListCommand struct {
 	*Meta
 }
@@ -25,21 +25,21 @@ func (c *ProjectListCommand) Run(args []string) int {
 		return 1
 	}
 
-	folders, err := client.Folders.List(context.Background())
+	projects, err := client.Projects.List(context.Background())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error listing projects: %s\n", err)
 		return 1
 	}
 
 	if c.JSONOutput() {
-		output.PrintJSON(folders)
+		output.PrintJSON(projects)
 		return 0
 	}
 
 	headers := []string{"ID", "Name", "Slug", "Icon", "Color"}
-	rows := make([][]string, len(folders))
-	for i, f := range folders {
-		rows[i] = []string{f.ID, f.Name, f.Slug, f.Icon, f.Color}
+	rows := make([][]string, len(projects))
+	for i, p := range projects {
+		rows[i] = []string{p.ID, p.Name, p.Slug, p.Icon, p.Color}
 	}
 	output.PrintTable(headers, rows)
 	return 0

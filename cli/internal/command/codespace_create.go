@@ -21,7 +21,7 @@ func (c *CodespaceCreateCommand) Run(args []string) int {
 	flags := c.FlagSet("codespace create")
 	flags.StringVar(&name, "name", "", "Codespace name (required)")
 	flags.StringVar(&path, "path", "", "Filesystem path (required)")
-	flags.StringVar(&folderID, "folder-id", "", "Project folder ID (required)")
+	flags.StringVar(&folderID, "project-id", "", "Project project ID (required)")
 	flags.StringVar(&description, "description", "", "Description")
 	if err := flags.Parse(args); err != nil {
 		return 1
@@ -36,7 +36,7 @@ func (c *CodespaceCreateCommand) Run(args []string) int {
 		return 1
 	}
 	if folderID == "" {
-		fmt.Fprintf(os.Stderr, "Error: -folder-id is required\n")
+		fmt.Fprintf(os.Stderr, "Error: -project-id is required\n")
 		return 1
 	}
 
@@ -86,7 +86,7 @@ Required Flags:
 
   -name=<name>          Codespace name
   -path=<path>          Filesystem path
-  -folder-id=<id>       Project folder ID
+  -project-id=<id>       Project project ID
 
 Optional Flags:
 

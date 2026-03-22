@@ -31,7 +31,7 @@ func (c *ProjectShowCommand) Run(args []string) int {
 		return 1
 	}
 
-	project, err := client.Folders.Get(context.Background(), posArgs[0])
+	project, err := client.Projects.Get(context.Background(), posArgs[0])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 		return 1

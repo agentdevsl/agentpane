@@ -42,7 +42,7 @@ type Client struct {
 	// Worktrees provides operations on worktree resources.
 	Worktrees *WorktreeService
 	// Folders provides operations on project folder resources.
-	Folders *FolderService
+	Projects *ProjectService
 	// Teams provides operations on team resources.
 	Teams *TeamService
 	// Git provides git operations for codespaces.
@@ -77,7 +77,7 @@ func NewClient(cfg Config) (*Client, error) {
 	c.Agents = &AgentService{client: c}
 	c.Sessions = &SessionService{client: c}
 	c.Worktrees = &WorktreeService{client: c}
-	c.Folders = &FolderService{client: c}
+	c.Projects = &ProjectService{client: c}
 	c.Teams = &TeamService{client: c}
 	c.Git = &GitService{client: c}
 	c.Health = &HealthService{client: c}

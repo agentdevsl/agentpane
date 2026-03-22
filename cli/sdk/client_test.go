@@ -35,8 +35,8 @@ func TestNewClient_ValidConfig(t *testing.T) {
 	if client.Worktrees == nil {
 		t.Error("expected Worktrees service to be initialized")
 	}
-	if client.Folders == nil {
-		t.Error("expected Folders service to be initialized")
+	if client.Projects == nil {
+		t.Error("expected Projects service to be initialized")
 	}
 	if client.Teams == nil {
 		t.Error("expected Teams service to be initialized")

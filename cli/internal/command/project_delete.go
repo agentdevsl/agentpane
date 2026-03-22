@@ -6,7 +6,7 @@ import (
 	"os"
 )
 
-// ProjectDeleteCommand deletes a project folder.
+// ProjectDeleteCommand deletes a project.
 type ProjectDeleteCommand struct {
 	*Meta
 }
@@ -19,7 +19,7 @@ func (c *ProjectDeleteCommand) Run(args []string) int {
 
 	posArgs := flags.Args()
 	if len(posArgs) != 1 {
-		fmt.Fprintf(os.Stderr, "Error: project ID is required\nUsage: agentpane project delete <folder-id>\n")
+		fmt.Fprintf(os.Stderr, "Error: project ID is required\nUsage: agentpane project delete <project-id>\n")
 		return 1
 	}
 
@@ -29,7 +29,7 @@ func (c *ProjectDeleteCommand) Run(args []string) int {
 		return 1
 	}
 
-	if err := client.Folders.Delete(context.Background(), posArgs[0]); err != nil {
+	if err := client.Projects.Delete(context.Background(), posArgs[0]); err != nil {
 		fmt.Fprintf(os.Stderr, "Error deleting project: %s\n", err)
 		return 1
 	}
@@ -39,7 +39,7 @@ func (c *ProjectDeleteCommand) Run(args []string) int {
 }
 
 func (c *ProjectDeleteCommand) Help() string {
-	return "Usage: agentpane project delete <folder-id> [options]\n\n  Delete a project.\n"
+	return "Usage: agentpane project delete <project-id> [options]\n\n  Delete a project.\n"
 }
 
 func (c *ProjectDeleteCommand) Synopsis() string { return "Delete a project" }
