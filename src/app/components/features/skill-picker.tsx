@@ -115,9 +115,13 @@ export function SkillPicker({
         if (cancelled) return;
         if (result.ok) {
           setSkills(result.data as Skill[]);
-          // Reset tag filters when skills change
           setSelectedTags(new Set());
+        } else {
+          console.error('[SkillPicker] Failed to fetch skills:', result.error);
         }
+      })
+      .catch((error) => {
+        if (!cancelled) console.error('[SkillPicker] Unexpected error:', error);
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false);
@@ -135,7 +139,7 @@ export function SkillPicker({
   const filteredSkills = useMemo(() => filterByTags(skills, selectedTags), [skills, selectedTags]);
 
   // Group filtered skills by sourceType
-  const groupedSkills = useCallback(() => {
+  const groupedSkills = useMemo(() => {
     const groups: Record<string, Skill[]> = {};
     for (const skill of filteredSkills) {
       const key = skill.sourceType;
@@ -148,7 +152,7 @@ export function SkillPicker({
       label: SOURCE_TYPE_LABELS[key] ?? key,
       items: groups[key] ?? [],
     }));
-  }, [filteredSkills])();
+  }, [filteredSkills]);
 
   // Toggle a tag filter
   const toggleTag = useCallback((tag: string) => {

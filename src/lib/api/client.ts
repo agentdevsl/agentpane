@@ -379,7 +379,8 @@ export const apiClient = {
         Array<{
           id: string;
           name: string;
-          description: string;
+          description?: string;
+          tags?: string[];
           sourceType: string;
           sourceName: string;
         }>
@@ -491,7 +492,11 @@ export const apiClient = {
         skillId?: string | null;
         skillName?: string | null;
       }
-    ) => apiServerFetch<unknown>(`/api/tasks/${id}`, { method: 'PUT', body: data }),
+    ) =>
+      apiServerFetch<unknown>(`/api/tasks/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        body: data,
+      }),
 
     /**
      * Delete a task

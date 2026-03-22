@@ -87,6 +87,8 @@ const STAGE_LABELS: Record<string, string> = {
   initializing: 'Initializing...',
   validating: 'Validating...',
   credentials: 'Auth...',
+  injecting_skills: 'Injecting Skills...',
+  creating_sandbox: 'Creating Sandbox...',
   executing: 'Starting...',
   running: 'Running',
 };

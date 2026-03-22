@@ -9,7 +9,15 @@ import { apiClient, type CodespaceListItem } from '@/lib/api/client';
 // Client task type - subset of Task for client-side display
 type ClientTask = Pick<
   Task,
-  'id' | 'codespaceId' | 'title' | 'description' | 'column' | 'position' | 'sessionId'
+  | 'id'
+  | 'codespaceId'
+  | 'title'
+  | 'description'
+  | 'column'
+  | 'position'
+  | 'sessionId'
+  | 'skillId'
+  | 'skillName'
 > & {
   priority?: 'low' | 'medium' | 'high' | 'critical';
 };
