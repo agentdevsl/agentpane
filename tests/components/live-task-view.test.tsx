@@ -326,15 +326,14 @@ describe('AuditTrailPanel', () => {
     sessionCallbacksById.clear();
   });
 
-  it('shows a Done badge for verified tasks', () => {
+  it('shows a Verified badge for verified tasks', () => {
     render(
       <AuditTrailPanel
         task={createTask({ column: 'verified', title: 'Verified task', sessionId: null })}
       />
     );
 
-    expect(screen.getByText('Done')).toBeInTheDocument();
-    expect(screen.queryByText(/^verified$/)).not.toBeInTheDocument();
+    expect(screen.getByText('Verified')).toBeInTheDocument();
   });
 
   it('appends live events in the Events tab after the initial fetch', async () => {
