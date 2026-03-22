@@ -60,6 +60,22 @@ export async function run(): Promise<void> {
   // Phase 4: Services
   const services = createServiceContainer(database.db, config);
 
+  // Phase 4.5: Memory service initialization (non-blocking)
+  if (services.memoryService) {
+    try {
+      await services.memoryService.initialize();
+      if (services.memoryService.isAvailable()) {
+        log.info('Memory service initialized (Honcho connected)');
+      } else {
+        log.info('Memory service disabled or Honcho unreachable');
+      }
+    } catch (memErr) {
+      log.warn('Memory service initialization failed, continuing without memory', {
+        error: memErr instanceof Error ? memErr : new Error(String(memErr)),
+      });
+    }
+  }
+
   // Phase 5: API Key Resolution
   await resolveApiKey(services.apiKeyService);
 

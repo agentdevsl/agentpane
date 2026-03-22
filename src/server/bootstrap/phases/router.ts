@@ -48,5 +48,6 @@ export function createAppRouter(
     eventSubscriptionService: services.eventSubscriptionService,
     eventProcessingService: services.eventProcessingService,
     schedulerService: services.schedulerService,
+    memoryService: services.memoryService,
   });
 }

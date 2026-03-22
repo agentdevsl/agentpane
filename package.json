@@ -80,6 +80,7 @@
     "@durable-streams/client": "^0.2.1",
     "@durable-streams/server": "^0.2.2",
     "@durable-streams/state": "^0.2.0",
+    "@honcho-ai/sdk": "^2.0.1",
     "@kubernetes/client-node": "^1.4.0",
     "@paralleldrive/cuid2": "^3.3.0",
     "@phosphor-icons/react": "^2.1.10",

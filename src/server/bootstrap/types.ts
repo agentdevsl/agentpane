@@ -19,6 +19,7 @@ import type { EventSubscriptionService } from '../../services/event-subscription
 import type { GitService } from '../../services/git.service.js';
 import type { GitHubTokenService } from '../../services/github-token.service.js';
 import type { MarketplaceService } from '../../services/marketplace.service.js';
+import type { MemoryService } from '../../services/memory/index.js';
 import type { ProjectFolderService } from '../../services/project-folder.service.js';
 import type { SandboxConfigService } from '../../services/sandbox-config.service.js';
 import type { SchedulerService } from '../../services/scheduler.service.js';
@@ -82,6 +83,7 @@ export interface ServiceContainer {
   schedulerService: SchedulerService;
   commandRunner: CommandRunner;
   containerAgentService: ReturnType<typeof createContainerAgentService> | null;
+  memoryService: MemoryService | null;
 }
 
 /** Mutable sandbox state shared across bootstrap phases and runtime. */

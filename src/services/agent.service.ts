@@ -30,6 +30,7 @@ import type {
   TaskService,
   WorktreeService,
 } from './agent/types.js';
+import type { MemoryService } from './memory/index.js';
 
 // Re-export types for backward compatibility
 export type {
@@ -54,14 +55,16 @@ export class AgentService {
     db: Database,
     worktreeService: WorktreeService,
     taskService: TaskService,
-    sessionService: SessionServiceInterface
+    sessionService: SessionServiceInterface,
+    memoryService?: MemoryService | null
   ) {
     this.crudService = new AgentCrudService(db);
     this.executionService = new AgentExecutionService(
       db,
       worktreeService,
       taskService,
-      sessionService
+      sessionService,
+      memoryService
     );
     this.queueService = new AgentQueueService(db);
 
