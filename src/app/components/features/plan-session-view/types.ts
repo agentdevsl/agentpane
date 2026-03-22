@@ -69,7 +69,6 @@ export interface PlanTurnEventData {
 export interface PlanTokenEventData {
   sessionId: string;
   delta: string;
-  accumulated: string;
 }
 
 /**
@@ -136,7 +135,7 @@ export type PlanSessionAction =
   | { type: 'SET_LOADING'; isLoading: boolean }
   | { type: 'SET_ERROR'; error: string | null }
   | { type: 'STREAM_START' }
-  | { type: 'STREAM_TOKEN'; delta: string; accumulated: string }
+  | { type: 'STREAM_TOKEN'; delta: string }
   | { type: 'STREAM_END'; content: string }
   | { type: 'ADD_TURN'; turn: PlanTurn }
   | { type: 'SET_INTERACTION'; interaction: UserInteraction | null }

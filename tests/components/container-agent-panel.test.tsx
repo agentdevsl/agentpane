@@ -39,7 +39,6 @@ function emitToken(index: number): void {
         taskId: 'task-1',
         sessionId: 'session-1',
         delta: `${index}`,
-        accumulated: `token-${index}`,
         timestamp: index,
       },
       offset: index,

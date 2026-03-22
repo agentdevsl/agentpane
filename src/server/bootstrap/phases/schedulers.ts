@@ -6,6 +6,7 @@
  */
 
 import { createLogger } from '../../../lib/logging/logger.js';
+import { EventCleanupService } from '../../../services/event-cleanup.service.js';
 import { startSyncScheduler } from '../../../services/template-sync-scheduler.js';
 import { startTerraformSyncScheduler } from '../../../services/terraform-sync-scheduler.js';
 import type { Database } from '../../../types/database.js';
@@ -31,6 +32,12 @@ export async function startSchedulers(
   const stopTerraformSync = startTerraformSyncScheduler(db, services.terraformRegistryService);
   shutdown.register('terraformSyncScheduler', stopTerraformSync);
   log.info('Terraform sync scheduler started');
+
+  // Event cleanup scheduler
+  const eventCleanup = new EventCleanupService(db, services.settingsService);
+  const stopEventCleanup = eventCleanup.start();
+  shutdown.register('eventCleanupScheduler', stopEventCleanup);
+  log.info('Event cleanup scheduler started');
 
   // Task scheduler
   try {

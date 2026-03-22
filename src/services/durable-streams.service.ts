@@ -49,7 +49,6 @@ export interface PlanTurnEvent {
 export interface PlanTokenEvent {
   sessionId: string;
   delta: string;
-  accumulated: string;
 }
 
 export interface PlanInteractionEvent {
@@ -142,7 +141,6 @@ export interface ContainerAgentTokenEvent {
   taskId: string;
   sessionId: string;
   delta: string;
-  accumulated: string;
 }
 
 export interface ContainerAgentTurnEvent {
@@ -255,7 +253,6 @@ export interface TaskCreationMessageEvent {
 export interface TaskCreationTokenEvent {
   sessionId: string;
   delta: string;
-  accumulated: string;
 }
 
 export interface TaskCreationSuggestionEvent {
@@ -329,7 +326,6 @@ export interface TerraformStatusEvent {
 export interface TerraformTextEvent {
   jobId: string;
   delta: string;
-  accumulated?: string;
 }
 
 export interface TerraformModulesEvent {

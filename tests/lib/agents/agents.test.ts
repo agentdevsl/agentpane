@@ -171,8 +171,8 @@ describe('SDK Utils - agentQuery', () => {
     await agentQuery('Test prompt', { onToken });
 
     expect(onToken).toHaveBeenCalledTimes(2);
-    expect(onToken).toHaveBeenNthCalledWith(1, 'Hello', 'Hello');
-    expect(onToken).toHaveBeenNthCalledWith(2, ' World', 'Hello World');
+    expect(onToken).toHaveBeenNthCalledWith(1, 'Hello');
+    expect(onToken).toHaveBeenNthCalledWith(2, ' World');
   });
 
   it('closes session after completion', async () => {

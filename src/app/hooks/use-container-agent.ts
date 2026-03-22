@@ -196,7 +196,7 @@ function containerAgentReducer(
       return {
         ...state,
         status: 'running',
-        streamedText: action.data.accumulated,
+        streamedText: state.streamedText + action.data.delta,
         isStreaming: true,
       };
 

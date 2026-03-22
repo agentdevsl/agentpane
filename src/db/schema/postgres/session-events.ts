@@ -32,6 +32,7 @@ export const sessionEvents = pgTable(
     index('session_events_session_idx').on(table.sessionId),
     index('session_events_offset_idx').on(table.sessionId, table.offset),
     uniqueIndex('session_events_unique_offset').on(table.sessionId, table.offset),
+    index('session_events_created_at_idx').on(table.createdAt),
   ]
 );
 

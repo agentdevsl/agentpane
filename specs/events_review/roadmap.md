@@ -23,7 +23,7 @@
 
 | Phase | Items | Total Effort | New Infra Required |
 |-------|-------|-------------|-------------------|
-| **1. Foundation** | 9 items (3x P0, 6x P1) | ~3-4 weeks | None |
+| **1. Foundation** | 9 items (3 P0 complete, 6 P1 remaining) | ~3-4 weeks | None |
 | **2. Scaling** | 5 items (all P2) | ~6-8 weeks | NATS JetStream, Valkey |
 | **3. Durability** | 5 items (all P3) | ~8-12 weeks | Litestream, Inngest/Restate |
 
@@ -32,6 +32,8 @@
 ## Phase 1: Foundation — No New Infrastructure
 
 ### P0-1: Drop `accumulated` from Chunk Events
+
+> **Status**: Completed (2026-03-22)
 
 | Attribute | Detail |
 |-----------|--------|
@@ -58,6 +60,8 @@
 ---
 
 ### P0-2: Event Retention & Cleanup
+
+> **Status**: Completed (2026-03-22)
 
 | Attribute | Detail |
 |-----------|--------|
@@ -88,6 +92,8 @@
 ---
 
 ### P0-3: Chunk Event Batching
+
+> **Status**: Completed (2026-03-22)
 
 | Attribute | Detail |
 |-----------|--------|
@@ -645,12 +651,12 @@ P1-6  Producer pool LRU
 
 These items are independent, low-risk, and deliver immediate value:
 
-| # | Item | Effort | Impact |
-|---|------|--------|--------|
-| 1 | **P0-1**: Drop `accumulated` from chunks | 1-2 hours | ~80% storage reduction per session |
-| 2 | **P0-2**: Event retention cleanup job | 2-4 hours | Bounded storage growth |
-| 3 | **P1-4**: Truncation warning banner | 1-2 hours | No more silent data loss |
-| 4 | **P1-6**: Producer pool LRU eviction | 2-4 hours | Bounded memory growth |
+| # | Item | Effort | Impact | Status |
+|---|------|--------|--------|--------|
+| 1 | **P0-1**: Drop `accumulated` from chunks | 1-2 hours | ~80% storage reduction per session | Completed |
+| 2 | **P0-2**: Event retention cleanup job | 2-4 hours | Bounded storage growth | Completed |
+| 3 | **P1-4**: Truncation warning banner | 1-2 hours | No more silent data loss | — |
+| 4 | **P1-6**: Producer pool LRU eviction | 2-4 hours | Bounded memory growth | — |
 
 Total: ~1 day of work for 4 significant improvements.
 
@@ -660,8 +666,8 @@ Total: ~1 day of work for 4 significant improvements.
 
 ### Milestone 1: "Reliable Foundation" (End of Phase 1)
 
-- [ ] Chunk events carry only delta (no accumulated)
-- [ ] Event retention job running automatically
+- [x] Chunk events carry only delta (no accumulated)
+- [x] Event retention job running automatically
 - [ ] All events flow through transactional outbox
 - [ ] Single unified event bus replaces 3 SSE subsystems
 - [ ] SSE connection limit raised to 200 with graceful degradation

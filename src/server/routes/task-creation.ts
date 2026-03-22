@@ -148,10 +148,10 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
       // Send message with token streaming to SSE
       const controller = sseConnections.get(sessionId);
       const onToken = controller
-        ? (delta: string, accumulated: string) => {
+        ? (delta: string) => {
             const data = JSON.stringify({
               type: 'task-creation:token',
-              data: { delta, accumulated },
+              data: { delta },
             });
             controller.enqueue(new TextEncoder().encode(`data: ${data}\n\n`));
           }

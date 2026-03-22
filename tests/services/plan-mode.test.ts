@@ -2191,8 +2191,8 @@ describe('PlanModeService', () => {
       );
 
       expect(result.ok).toBe(true);
-      expect(tokenCallback).toHaveBeenCalledWith('Hello', 'Hello');
-      expect(tokenCallback).toHaveBeenCalledWith(' World', 'Hello World');
+      expect(tokenCallback).toHaveBeenCalledWith('Hello');
+      expect(tokenCallback).toHaveBeenCalledWith(' World');
       expect(streams.publish).toHaveBeenCalledWith(
         expect.any(String),
         'plan:token',

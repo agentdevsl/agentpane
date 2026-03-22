@@ -22,7 +22,6 @@ interface TaskCreationEventData {
 
 interface TokenEventData extends TaskCreationEventData {
   delta: string;
-  accumulated: string;
 }
 
 interface MessageEventData extends TaskCreationEventData {
@@ -186,11 +185,14 @@ function handleTaskCreationEvent(sessionId: string, event: TaskCreationEvent): v
 function handleTokenEvent(sessionId: string, data: TokenEventData): void {
   // Clear pendingQuestions when streaming starts (fallback if processing event was missed)
   // This makes the UI more resilient to event ordering issues
-  updateSession(sessionId, {
-    isStreaming: true,
-    streamingContent: data.accumulated,
-    pendingQuestions: null, // Clear questions when AI starts responding
-  });
+  if (taskCreationSessionsCollection.has(sessionId)) {
+    taskCreationSessionsCollection.update(sessionId, (draft) => {
+      draft.isStreaming = true;
+      draft.streamingContent = (draft.streamingContent || '') + data.delta;
+      draft.pendingQuestions = null; // Clear questions when AI starts responding
+      draft.updatedAt = Date.now();
+    });
+  }
 }
 
 function handleMessageEvent(sessionId: string, data: MessageEventData): void {

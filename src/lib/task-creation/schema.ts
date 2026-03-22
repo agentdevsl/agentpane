@@ -104,7 +104,6 @@ export const tokenEventSchema = z.object({
   id: z.string(),
   sessionId: z.string(),
   delta: z.string(),
-  accumulated: z.string(),
   timestamp: z.number(),
 });
 export type TokenEvent = z.infer<typeof tokenEventSchema>;

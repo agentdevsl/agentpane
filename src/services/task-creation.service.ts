@@ -180,7 +180,7 @@ const SYSTEM_PROMPT_DEFAULT = getPromptDefaultText('task-creation');
 // Service Implementation
 // ============================================================================
 
-export type TokenCallback = (delta: string, accumulated: string) => void;
+export type TokenCallback = (delta: string) => void;
 export type SuggestionCallback = (suggestion: TaskSuggestion) => void;
 export type MessageCallback = (
   messageId: string,
@@ -298,12 +298,7 @@ export class TaskCreationService {
   /**
    * Add a token to the buffer and publish if threshold reached
    */
-  private async bufferToken(
-    sessionId: string,
-    delta: string,
-    getAccumulated: () => string,
-    forceFlush = false
-  ): Promise<void> {
+  private async bufferToken(sessionId: string, delta: string, forceFlush = false): Promise<void> {
     let buffer = this.tokenBuffers.get(sessionId);
     if (!buffer) {
       buffer = { chunks: [], lastFlush: Date.now() };
@@ -329,7 +324,6 @@ export class TaskCreationService {
         await this.streams.publishTaskCreationToken(sessionId, {
           sessionId,
           delta: batchedDelta,
-          accumulated: getAccumulated(),
         });
       } catch (error: unknown) {
         log.error('Failed to publish token batch:', { error });
@@ -340,8 +334,8 @@ export class TaskCreationService {
   /**
    * Flush any remaining tokens in the buffer
    */
-  private async flushTokenBuffer(sessionId: string, getAccumulated: () => string): Promise<void> {
-    await this.bufferToken(sessionId, '', getAccumulated, true);
+  private async flushTokenBuffer(sessionId: string): Promise<void> {
+    await this.bufferToken(sessionId, '', true);
     this.tokenBuffers.delete(sessionId);
   }
 
@@ -1032,7 +1026,7 @@ export class TaskCreationService {
                 accumulatedChunks.push(block.text);
                 // Stream token to UI
                 if (onToken) {
-                  onToken(block.text, getAccumulated());
+                  onToken(block.text);
                 }
               }
 
@@ -1264,11 +1258,11 @@ export class TaskCreationService {
             accumulatedChunks.push(delta);
 
             if (onToken) {
-              onToken(delta, getAccumulated());
+              onToken(delta);
             }
 
             // Publish token event (batched)
-            await this.bufferToken(sessionId, delta, getAccumulated);
+            await this.bufferToken(sessionId, delta);
           }
         }
 
@@ -1402,7 +1396,7 @@ export class TaskCreationService {
       }
 
       // Flush any remaining tokens before processing
-      await this.flushTokenBuffer(sessionId, getAccumulated);
+      await this.flushTokenBuffer(sessionId);
 
       // Get final accumulated text
       const accumulated = getAccumulated();
@@ -1631,7 +1625,7 @@ export class TaskCreationService {
               if (block.type === 'text' && block.text) {
                 accumulatedChunks.push(block.text);
                 if (onToken) {
-                  onToken(block.text, getAccumulated());
+                  onToken(block.text);
                 }
               }
 
@@ -1689,11 +1683,11 @@ export class TaskCreationService {
             accumulatedChunks.push(delta);
 
             if (onToken) {
-              onToken(delta, getAccumulated());
+              onToken(delta);
             }
 
             // Publish token event (batched)
-            await this.bufferToken(session.id, delta, getAccumulated);
+            await this.bufferToken(session.id, delta);
           }
         }
 
@@ -1712,7 +1706,7 @@ export class TaskCreationService {
       }
 
       // Flush any remaining tokens
-      await this.flushTokenBuffer(session.id, getAccumulated);
+      await this.flushTokenBuffer(session.id);
 
       // Get final accumulated text
       const accumulated = getAccumulated();

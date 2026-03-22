@@ -293,7 +293,7 @@ describe.skip('useTaskCreation', () => {
       await act(async () => {
         eventSource.simulateMessage({
           type: 'task-creation:token',
-          data: { delta: 'Hello', accumulated: 'Hello' },
+          data: { delta: 'Hello' },
         });
       });
 
@@ -304,7 +304,7 @@ describe.skip('useTaskCreation', () => {
       await act(async () => {
         eventSource.simulateMessage({
           type: 'task-creation:token',
-          data: { delta: ' world', accumulated: 'Hello world' },
+          data: { delta: ' world' },
         });
       });
 

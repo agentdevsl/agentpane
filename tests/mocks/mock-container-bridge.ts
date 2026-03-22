@@ -54,16 +54,8 @@ export function createAgentStartedEvent(
  * Creates an agent:token event for streaming tokens.
  * Emitted as the agent generates text output.
  */
-export function createAgentTokenEvent(
-  taskId: string,
-  sessionId: string,
-  delta: string,
-  accumulated?: string
-): string {
+export function createAgentTokenEvent(taskId: string, sessionId: string, delta: string): string {
   const data: Record<string, unknown> = { delta };
-  if (accumulated !== undefined) {
-    data.accumulated = accumulated;
-  }
   return createBaseEvent('agent:token', taskId, sessionId, data);
 }
 
