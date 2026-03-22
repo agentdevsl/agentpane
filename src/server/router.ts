@@ -310,7 +310,7 @@ export function createRouter(deps: RouterDependencies) {
   // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
   useRoleGuard(app, '/api/keys', 'admin', rbacService);
   // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
-  useRoleGuard(app, '/api/memory', 'admin', rbacService);
+  useRoleGuard(app, '/api/memory', 'viewer', rbacService);
   // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
   useRoleGuard(app, '/api/codespaces', 'viewer', rbacService);
   // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook

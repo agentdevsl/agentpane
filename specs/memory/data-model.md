@@ -14,13 +14,13 @@ Honcho workspaces provide top-level isolation for memory data. AgentPane uses a 
 
 | Workspace | Naming Pattern | Purpose | Created When |
 |-----------|---------------|---------|-------------|
-| **Codespace workspace** | `codespace:{codespaceId}` | Per-codespace isolation. Agents remember patterns, skills, and user preferences scoped to this codebase. | First agent execution in the codespace |
+| **Codespace workspace** | `codespace-{codespaceId}` | Per-codespace isolation. Agents remember patterns, skills, and user preferences scoped to this codebase. | First agent execution in the codespace |
 | **Platform workspace** | `platform` | Global cross-project knowledge. User preferences, skill optimization data, and patterns that transcend any single codespace. | First successful Honcho connection (bootstrap) |
 
 ### 1.2 Workspace Naming
 
 ```
-codespace:cm4x7k2a10001 .......... per-codespace workspace
+codespace-cm4x7k2a10001 .......... per-codespace workspace
 platform ............................. global platform workspace
 ```
 
@@ -95,7 +95,7 @@ The `platform` workspace stores knowledge that is not scoped to any single codes
 
 ```typescript
 // Create codespace workspace
-const workspace = await honcho.workspaces.getOrCreate('codespace:cm4x7k2a10001', {
+const workspace = await honcho.workspaces.getOrCreate('codespace-cm4x7k2a10001', {
   metadata: {
     type: 'codespace',
     codespace_id: 'cm4x7k2a10001',
@@ -124,13 +124,13 @@ Honcho peers represent participants in a workspace. Each peer is either a user, 
 
 | Peer Type | Naming Pattern | Scope | Purpose |
 |-----------|---------------|-------|---------|
-| **User** | `user:{userId}` | Per workspace | Represents the human user interacting with agents |
-| **Agent** | `agent:{agentId}` | Per workspace | Represents a specific agent instance |
+| **User** | `user-{userId}` | Per workspace | Represents the human user interacting with agents |
+| **Agent** | `agent-{agentId}` | Per workspace | Represents a specific agent instance |
 | **System** | `system` | Platform workspace only | Represents the platform itself for global observations |
 
 ```
-user:cm4x8abc0002 ................. a user peer
-agent:cm4x9def0003 ................ an agent peer
+user-cm4x8abc0002 ................. a user peer
+agent-cm4x9def0003 ................ an agent peer
 system ............................... platform-level system peer
 ```
 
@@ -244,7 +244,7 @@ Honcho sessions map 1:1 to AgentPane sessions. Each agent execution creates exac
 | AgentPane | Honcho | Relationship |
 |-----------|--------|-------------|
 | `sessions.id` | Session ID | 1:1 (Honcho session metadata contains `agentpane_session_id`) |
-| `sessions.codespaceId` | Workspace | Session belongs to workspace `codespace:{codespaceId}` |
+| `sessions.codespaceId` | Workspace | Session belongs to workspace `codespace-{codespaceId}` |
 | `sessions.agentId` | Session peer (agent) | Agent peer is added on creation |
 | `sessions.taskId` | Session metadata | Stored in metadata for correlation |
 
@@ -418,8 +418,8 @@ Honcho collections and documents provide a RAG (Retrieval-Augmented Generation) 
 
 | Collection | Naming Pattern | Contents |
 |-----------|---------------|----------|
-| **Skills** | `codespace:{codespaceId}:skills` | Learned procedures and techniques |
-| **Docs** | `codespace:{codespaceId}:docs` | Code patterns, architecture notes, factual knowledge |
+| **Skills** | `codespace-{codespaceId}:skills` | Learned procedures and techniques |
+| **Docs** | `codespace-{codespaceId}:docs` | Code patterns, architecture notes, factual knowledge |
 | **Platform skills** | `platform:skills` | Cross-project skills and optimization patterns |
 
 ### 5.2 Document Types

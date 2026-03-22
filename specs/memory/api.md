@@ -81,7 +81,7 @@ The route group is guarded at the router level with `requireRole('viewer')`, and
 
 ### Health
 
-#### `POST /api/memory/health`
+#### `GET /api/memory/health`
 
 Check Honcho backend availability and connection status.
 

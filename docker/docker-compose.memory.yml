@@ -3,7 +3,7 @@
 
 services:
   honcho:
-    image: ghcr.io/plastic-labs/honcho:latest
+    image: ghcr.io/plastic-labs/honcho:2.0.1
     ports:
       - "8000:8000"
     environment:
