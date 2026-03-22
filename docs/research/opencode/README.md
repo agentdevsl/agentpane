@@ -31,6 +31,7 @@ fits for AgentPane right now.
 | `12-handoff-checklist.md` | Team kickoff handoff guide | Gives the team a short meeting-ready checklist before tranche implementation starts |
 | `13-stream-envelope-proposal.md` | Concrete OC-005 schema proposal | Gives the team a proposed stream envelope to implement against |
 | `14-cursor-migration-plan.md` | Concrete OC-006 migration design | Defines how opaque resume cursors should move through the stack |
+| `15-implementation-map.md` | File-level first-tranche map | Points the team at likely repo touchpoints for `OC-005` and `OC-006` |
 
 ## Executive Summary
 
@@ -98,6 +99,7 @@ fits for AgentPane right now.
 13. Use `docs/research/opencode/12-handoff-checklist.md` to hand the tranche to the team cleanly.
 14. Use `docs/research/opencode/13-stream-envelope-proposal.md` to implement `OC-005`.
 15. Use `docs/research/opencode/14-cursor-migration-plan.md` to implement `OC-006`.
+16. Use `docs/research/opencode/15-implementation-map.md` to map tranche slices to likely repo files.
 
 ## Key Themes
 

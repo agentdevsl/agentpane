@@ -1,6 +1,7 @@
 # AgentPane Development Guidelines
 
 <default_follow_through_policy>
+
 - If the user's intent is clear and the next step is reversible and low-risk, proceed without asking.
 - Ask permission only if the next step is:
   (a) irreversible,
@@ -18,6 +19,7 @@
 </instruction_priority>
 
 <dependency_checks>
+
 - Before taking an action, check whether prerequisite discovery, lookup, or memory retrieval steps are required.
 - Do not skip prerequisite steps just because the intended final action seems obvious.
 - If the task depends on the output of a prior step, resolve that dependency first.

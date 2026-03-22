@@ -23,6 +23,7 @@ Recommended entry points:
 - [`opencode/12-handoff-checklist.md`](opencode/12-handoff-checklist.md)
 - [`opencode/13-stream-envelope-proposal.md`](opencode/13-stream-envelope-proposal.md)
 - [`opencode/14-cursor-migration-plan.md`](opencode/14-cursor-migration-plan.md)
+- [`opencode/15-implementation-map.md`](opencode/15-implementation-map.md)
 
 ## Reports
 
