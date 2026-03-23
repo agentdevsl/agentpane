@@ -69,6 +69,106 @@ function extractPayloadMeta(data: unknown): StreamEventMetadata | undefined {
   return getPayloadStreamMetadata(data) ?? undefined;
 }
 
+function parseStreamChunkItems(text: string): unknown[] | null {
+  const trimmedText = text.trim();
+  if (trimmedText.length === 0) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(trimmedText);
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    // DurableStreamTestServer catch-up can concatenate multiple JSON payloads
+    // into a single text chunk, e.g. `[...][]`. Parse them sequentially.
+  }
+
+  const items: unknown[] = [];
+  let index = 0;
+
+  while (index < trimmedText.length) {
+    while (index < trimmedText.length && /\s/u.test(trimmedText[index] ?? '')) {
+      index++;
+    }
+
+    if (index >= trimmedText.length) {
+      break;
+    }
+
+    const firstCharacter = trimmedText[index];
+    if (firstCharacter !== '[' && firstCharacter !== '{') {
+      return null;
+    }
+
+    let depth = 0;
+    let endIndex = -1;
+    let inString = false;
+    let isEscaped = false;
+
+    for (let cursor = index; cursor < trimmedText.length; cursor++) {
+      const character = trimmedText[cursor];
+      if (!character) {
+        continue;
+      }
+
+      if (inString) {
+        if (isEscaped) {
+          isEscaped = false;
+          continue;
+        }
+
+        if (character === '\\') {
+          isEscaped = true;
+          continue;
+        }
+
+        if (character === '"') {
+          inString = false;
+        }
+
+        continue;
+      }
+
+      if (character === '"') {
+        inString = true;
+        continue;
+      }
+
+      if (character === '[' || character === '{') {
+        depth++;
+        continue;
+      }
+
+      if (character === ']' || character === '}') {
+        depth--;
+        if (depth === 0) {
+          endIndex = cursor + 1;
+          break;
+        }
+      }
+    }
+
+    if (endIndex === -1) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(trimmedText.slice(index, endIndex));
+      if (Array.isArray(parsed)) {
+        items.push(...parsed);
+      } else {
+        items.push(parsed);
+      }
+    } catch {
+      return null;
+    }
+
+    index = endIndex;
+  }
+
+  return items;
+}
+
 const rawAgentStateDataSchema = z.object({
   agentId: z.string().min(1).optional(),
   sessionId: z.string().min(1).optional(),
@@ -787,13 +887,8 @@ export class DurableStreamsClient {
             lastCursor = chunk.offset;
           }
 
-          // Parse the text as a JSON array of events
-          let items: unknown[];
-          try {
-            const parsed = JSON.parse(chunk.text);
-            items = Array.isArray(parsed) ? parsed : [parsed];
-          } catch {
-            // Not valid JSON — skip silently (may be SSE keepalive)
+          const items = parseStreamChunkItems(chunk.text);
+          if (!items) {
             return;
           }
 

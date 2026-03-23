@@ -35,6 +35,7 @@ type Controller = {
     offset?: string;
     items: Array<{ type: string; data: unknown; timestamp?: number; meta?: unknown }>;
   }) => void;
+  emitText: (chunk: { offset?: string; text: string }) => void;
   close: () => void;
 };
 
@@ -68,6 +69,9 @@ const durableMocks = vi.hoisted(() => {
           offset: batch.offset,
           text: JSON.stringify(batch.items),
         };
+        handler?.(chunk);
+      },
+      emitText: (chunk) => {
         handler?.(chunk);
       },
       close: () => {
@@ -334,6 +338,55 @@ describe('DurableStreamsClient', () => {
 
     expect(chunks).toHaveLength(1);
     expect((chunks[0] as { data: { text: string } }).data.text).toBe('Hello world');
+
+    sub.unsubscribe();
+  });
+
+  it('parses concatenated catch-up batches from a single text chunk', async () => {
+    const { DurableStreamsClient, setStreamsAvailable } = await import(
+      '../../../src/lib/streams/client'
+    );
+    setStreamsAvailable(true);
+
+    const chunks: unknown[] = [];
+    const states: unknown[] = [];
+    const client = new DurableStreamsClient({ url: '/v1/stream/sessions' });
+    const sub = client.subscribeToSession('sess-concatenated-catchup', {
+      onChunk: (event) => chunks.push(event),
+      onAgentState: (event) => states.push(event),
+    });
+
+    await flushPromises();
+    const controller = durableMocks.controllers[0];
+
+    const stateBatch = JSON.stringify([
+      {
+        type: 'state:update',
+        data: { status: 'running', sessionId: 'sess-concatenated-catchup' },
+        timestamp: 10,
+        meta: createMeta('sess-concatenated-catchup', 'evt-state-1', 'lifecycle', 'agent-1'),
+      },
+    ]);
+
+    const chunkBatch = JSON.stringify([
+      {
+        type: 'chunk',
+        data: { text: 'hello', agentId: 'agent-1' },
+        timestamp: 11,
+        meta: createMeta('sess-concatenated-catchup', 'evt-chunk-1', 'chunk_end', 'block-1'),
+      },
+    ]);
+
+    controller.emitText({
+      offset: 'opaque_concat_1',
+      text: `${stateBatch}${chunkBatch}`,
+    });
+
+    expect(states).toHaveLength(1);
+    expect((states[0] as { data: { status: string } }).data.status).toBe('running');
+    expect(chunks).toHaveLength(1);
+    expect((chunks[0] as { data: { text: string } }).data.text).toBe('hello');
+    expect(sub.getLastCursor()).toBe('opaque_concat_1');
 
     sub.unsubscribe();
   });
