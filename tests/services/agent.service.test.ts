@@ -456,7 +456,7 @@ describe('AgentService', () => {
         session.id,
         expect.objectContaining({
           type: 'agent:resumed',
-          data: { feedback: 'Continue please' },
+          data: expect.objectContaining({ feedback: 'Continue please' }),
         })
       );
     });

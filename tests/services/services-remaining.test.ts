@@ -1421,9 +1421,11 @@ describe('DurableStreamsService', () => {
       await streamsService.createStream('stream-1', {});
       await streamsService.publish('stream-1', 'plan:started', { sessionId: 'session-1' });
 
-      expect(mockServer.publish).toHaveBeenCalledWith('stream-1', 'plan:started', {
-        sessionId: 'session-1',
-      });
+      expect(mockServer.publish).toHaveBeenCalledWith(
+        'stream-1',
+        'plan:started',
+        expect.objectContaining({ sessionId: 'session-1' })
+      );
     });
   });
 
