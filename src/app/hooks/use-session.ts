@@ -344,9 +344,6 @@ export function useSession(
     setState(createInitialState());
   }, [sessionId]);
 
-  // Build session-specific callbacks
-  const callbacks = useRef<SessionCallbacks>({});
-
   const stableOnReconnect = useEffectEvent(() => {
     console.log('[useSession] Reconnected to session stream');
     // Durable stream resume remains the authoritative reconnect mechanism.
@@ -354,89 +351,78 @@ export function useSession(
     // mapped to durable DB offsets without lossy conversion.
   });
 
-  useWatchEffect(() => {
-    callbacks.current = {
-      onChunk: (event) => {
-        const eventId = getStableEventId(event, [
-          'chunk',
-          event.data.timestamp,
-          event.data.agentId,
-          event.data.text,
-        ]);
-        if (seenEventIdsRef.current.has(eventId)) {
-          return;
-        }
+  const callbacks: SessionCallbacks = {
+    onChunk: (event) => {
+      const eventId = getStableEventId(event, [
+        'chunk',
+        event.data.timestamp,
+        event.data.agentId,
+        event.data.text,
+      ]);
+      if (seenEventIdsRef.current.has(eventId)) {
+        return;
+      }
 
-        seenEventIdsRef.current.add(eventId);
-        queueChunk({
-          text: event.data.text,
-          timestamp: event.data.timestamp,
-          agentId: event.data.agentId,
-          cursor: event.cursor,
-          meta: event.meta,
-        });
-      },
+      seenEventIdsRef.current.add(eventId);
+      queueChunk({
+        text: event.data.text,
+        timestamp: event.data.timestamp,
+        agentId: event.data.agentId,
+        cursor: event.cursor,
+        meta: event.meta,
+      });
+    },
 
-      onToolCall: (event) => {
-        const fallbackToolId =
-          event.meta?.blockId ??
-          event.data.id ??
-          getStableEventId(event, [
-            'tool',
-            event.data.tool,
-            event.data.status,
-            event.data.timestamp,
-          ]);
+    onToolCall: (event) => {
+      const fallbackToolId =
+        event.meta?.blockId ??
+        event.data.id ??
+        getStableEventId(event, ['tool', event.data.tool, event.data.status, event.data.timestamp]);
 
-        queueToolCall({
-          ...event.data,
-          id: fallbackToolId,
-          cursor: event.cursor,
-          meta: event.meta,
-        });
-      },
+      queueToolCall({
+        ...event.data,
+        id: fallbackToolId,
+        cursor: event.cursor,
+        meta: event.meta,
+      });
+    },
 
-      onPresence: (event) => {
-        queuePresence(event.data);
-      },
+    onPresence: (event) => {
+      queuePresence(event.data);
+    },
 
-      onTerminal: (event) => {
-        const eventId = getStableEventId(event, [
-          'terminal',
-          event.data.type,
-          event.data.timestamp,
-        ]);
-        if (seenEventIdsRef.current.has(eventId)) {
-          return;
-        }
+    onTerminal: (event) => {
+      const eventId = getStableEventId(event, ['terminal', event.data.type, event.data.timestamp]);
+      if (seenEventIdsRef.current.has(eventId)) {
+        return;
+      }
 
-        seenEventIdsRef.current.add(eventId);
-        queueTerminal({
-          ...event.data,
-          cursor: event.cursor,
-          meta: event.meta,
-        });
-      },
+      seenEventIdsRef.current.add(eventId);
+      queueTerminal({
+        ...event.data,
+        cursor: event.cursor,
+        meta: event.meta,
+      });
+    },
 
-      onAgentState: (event) => {
-        queueAgentState(event.data);
-      },
+    onAgentState: (event) => {
+      queueAgentState(event.data);
+    },
 
-      onError: (error) => {
-        console.error('[useSession] Stream error:', error);
-      },
+    onError: (error) => {
+      console.error('[useSession] Stream error:', error);
+    },
 
-      onReconnect: () => {
-        stableOnReconnect();
-      },
+    onReconnect: () => {
+      stableOnReconnect();
+    },
 
-      onDisconnect: () => {
-        console.log('[useSession] Disconnected from session stream');
-      },
-    };
-  }, [sessionId]);
+    onDisconnect: () => {
+      console.log('[useSession] Disconnected from session stream');
+    },
+  };
 
-  const { connectionState, getLastCursor } = useSessionSubscription(sessionId, callbacks.current);
+  const { connectionState, getLastCursor } = useSessionSubscription(sessionId, callbacks);
 
   // Presence heartbeat at 10s interval (per spec)
   const heartbeat = useEffectEvent(async () => {

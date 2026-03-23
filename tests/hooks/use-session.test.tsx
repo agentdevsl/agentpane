@@ -27,6 +27,14 @@ describe('useSession', () => {
     vi.restoreAllMocks();
   });
 
+  it('registers stream callbacks on the initial render', () => {
+    renderHook(() => useSession('session-1', 'user-1'));
+
+    expect(latestCallbacks?.onChunk).toBeTypeOf('function');
+    expect(latestCallbacks?.onToolCall).toBeTypeOf('function');
+    expect(latestCallbacks?.onAgentState).toBeTypeOf('function');
+  });
+
   it('deduplicates replayed chunks by stable event identity', async () => {
     const { result } = renderHook(() => useSession('session-1', 'user-1'));
 

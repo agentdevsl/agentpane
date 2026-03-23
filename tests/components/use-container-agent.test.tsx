@@ -4,6 +4,7 @@ import { useContainerAgent } from '@/app/hooks/use-container-agent';
 import type { SessionCallbacks } from '@/lib/streams/client';
 
 let latestCallbacks: SessionCallbacks | null = null;
+let onSubscribe: ((callbacks: SessionCallbacks) => void) | null = null;
 
 vi.mock('@/lib/streams/client', async () => {
   const actual =
@@ -13,6 +14,7 @@ vi.mock('@/lib/streams/client', async () => {
     ...actual,
     subscribeToSession: vi.fn((_sessionId: string, callbacks: SessionCallbacks) => {
       latestCallbacks = callbacks;
+      onSubscribe?.(callbacks);
       return {
         unsubscribe: vi.fn(),
         getState: () => 'connected' as const,
@@ -25,6 +27,30 @@ vi.mock('@/lib/streams/client', async () => {
 describe('useContainerAgent', () => {
   beforeEach(() => {
     latestCallbacks = null;
+    onSubscribe = null;
+  });
+
+  it('processes catch-up events emitted during initial subscription setup', async () => {
+    onSubscribe = (callbacks) => {
+      callbacks.onContainerAgentMessage?.({
+        channel: 'containerAgent:message',
+        data: {
+          taskId: 'task-1',
+          sessionId: 'session-1',
+          role: 'assistant',
+          content: 'catch-up event',
+          timestamp: 50,
+        },
+        cursor: 'cursor-initial',
+        meta: { eventId: 'evt-initial-message' },
+      } as never);
+    };
+
+    const { result } = renderHook(() => useContainerAgent('session-1'));
+
+    await waitFor(() => {
+      expect(result.current.state.messages[0]?.content).toBe('catch-up event');
+    });
   });
 
   it('deduplicates repeated container-agent message events by stable metadata identity', async () => {

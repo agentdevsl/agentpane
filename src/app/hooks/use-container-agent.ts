@@ -2,7 +2,7 @@
  * FC-005: Refactored from useState to useReducer with discriminated union actions.
  * FC-006: Uses useSessionSubscription for shared SSE connection.
  */
-import { useCallback, useEffectEvent, useReducer, useRef } from 'react';
+import { useReducer, useRef } from 'react';
 import type {
   ConnectionState,
   ContainerAgentComplete,
@@ -18,7 +18,6 @@ import type {
   ContainerAgentWorktree,
   SessionCallbacks,
 } from '@/lib/streams/client';
-import { useMountEffect } from './use-mount-effect';
 import { useSessionSubscription } from './use-session-subscription';
 import { useWatchEffect } from './use-watch-effect';
 
@@ -370,160 +369,144 @@ export function useContainerAgent(sessionId: string | null): {
   const [state, dispatch] = useReducer(containerAgentReducer, initialState);
   const seenEventIdsRef = useRef<Set<string>>(new Set());
 
-  // Build callbacks that dispatch actions
-  const callbacks = useRef<SessionCallbacks>({});
+  const handleEvent = <TData>(
+    event: ContainerAgentStreamEvent<TData>,
+    fallbackId: string,
+    onEvent: () => void
+  ): void => {
+    const eventId = getStableEventId(event, fallbackId);
+    if (seenEventIdsRef.current.has(eventId)) {
+      return;
+    }
 
-  const buildCallbacks = useCallback((): SessionCallbacks => {
-    const handleEvent = <TData>(
-      event: ContainerAgentStreamEvent<TData>,
-      fallbackId: string,
-      onEvent: () => void
-    ): void => {
-      const eventId = getStableEventId(event, fallbackId);
-      if (seenEventIdsRef.current.has(eventId)) {
-        return;
-      }
+    seenEventIdsRef.current.add(eventId);
+    onEvent();
+  };
 
-      seenEventIdsRef.current.add(eventId);
-      onEvent();
-    };
-
-    return {
-      onContainerAgentStatus: (event) => {
-        handleEvent(
-          event,
-          `container-agent:status:${event.data.stage}:${event.data.timestamp}`,
-          () => {
-            dispatch({ type: 'STATUS', data: event.data });
-          }
-        );
-      },
-      onContainerAgentStarted: (event) => {
-        handleEvent(
-          event,
-          `container-agent:started:${event.data.timestamp}:${event.data.model}`,
-          () => {
-            dispatch({ type: 'STARTED', data: event.data });
-          }
-        );
-      },
-      onContainerAgentToken: (event) => {
-        handleEvent(
-          event,
-          `container-agent:token:${event.data.timestamp}:${event.data.delta}`,
-          () => {
-            dispatch({ type: 'TOKEN', data: event.data });
-          }
-        );
-      },
-      onContainerAgentTurn: (event) => {
-        handleEvent(
-          event,
-          `container-agent:turn:${event.data.turn}:${event.data.timestamp}`,
-          () => {
-            dispatch({ type: 'TURN', data: event.data });
-          }
-        );
-      },
-      onContainerAgentToolStart: (event) => {
-        handleEvent(
-          event,
-          `container-agent:tool:start:${event.data.toolId}:${event.data.timestamp}`,
-          () => {
-            dispatch({ type: 'TOOL_START', data: event.data });
-          }
-        );
-      },
-      onContainerAgentToolResult: (event) => {
-        handleEvent(
-          event,
-          `container-agent:tool:result:${event.data.toolId}:${event.data.timestamp}`,
-          () => {
-            dispatch({ type: 'TOOL_RESULT', data: event.data });
-          }
-        );
-      },
-      onContainerAgentMessage: (event) => {
-        handleEvent(
-          event,
-          `container-agent:message:${event.data.role}:${event.data.timestamp}:${event.data.content}`,
-          () => {
-            dispatch({ type: 'MESSAGE', data: event.data });
-          }
-        );
-      },
-      onContainerAgentComplete: (event) => {
-        handleEvent(
-          event,
-          `container-agent:complete:${event.data.status}:${event.data.turnCount}:${event.data.timestamp}`,
-          () => {
-            dispatch({ type: 'COMPLETE', data: event.data });
-          }
-        );
-      },
-      onContainerAgentError: (event) => {
-        handleEvent(
-          event,
-          `container-agent:error:${event.data.code ?? 'unknown'}:${event.data.timestamp}`,
-          () => {
-            dispatch({ type: 'ERROR', data: event.data });
-          }
-        );
-      },
-      onContainerAgentCancelled: (event) => {
-        handleEvent(
-          event,
-          `container-agent:cancelled:${event.data.turnCount}:${event.data.timestamp}`,
-          () => {
-            dispatch({ type: 'CANCELLED', data: event.data });
-          }
-        );
-      },
-      onContainerAgentPlanReady: (event) => {
-        handleEvent(
-          event,
-          `container-agent:plan-ready:${event.data.sdkSessionId}:${event.data.timestamp}`,
-          () => {
-            dispatch({ type: 'PLAN_READY', data: event.data });
-          }
-        );
-      },
-      onContainerAgentWorktree: (event) => {
-        handleEvent(
-          event,
-          `container-agent:worktree:${event.data.worktreeId}:${event.data.timestamp}`,
-          () => {
-            dispatch({ type: 'WORKTREE', data: event.data });
-          }
-        );
-      },
-      onContainerAgentFileChanged: (event) => {
-        handleEvent(
-          event,
-          `container-agent:file-changed:${event.data.path}:${event.data.timestamp}`,
-          () => {
-            dispatch({ type: 'FILE_CHANGED', data: event.data });
-          }
-        );
-      },
-      onError: (error) => {
-        console.error('[useContainerAgent] Stream error:', error);
-      },
-      onReconnect: () => {
-        console.log('[useContainerAgent] Reconnected to session stream');
-      },
-      onDisconnect: () => {
-        console.log('[useContainerAgent] Disconnected from session stream');
-      },
-    };
-  }, []);
-
-  // Keep callbacks ref in sync — useEffectEvent always sees the latest buildCallbacks
-  const stableBuild = useEffectEvent(() => buildCallbacks());
-
-  useMountEffect(() => {
-    callbacks.current = stableBuild();
-  });
+  const callbacks: SessionCallbacks = {
+    onContainerAgentStatus: (event) => {
+      handleEvent(
+        event,
+        `container-agent:status:${event.data.stage}:${event.data.timestamp}`,
+        () => {
+          dispatch({ type: 'STATUS', data: event.data });
+        }
+      );
+    },
+    onContainerAgentStarted: (event) => {
+      handleEvent(
+        event,
+        `container-agent:started:${event.data.timestamp}:${event.data.model}`,
+        () => {
+          dispatch({ type: 'STARTED', data: event.data });
+        }
+      );
+    },
+    onContainerAgentToken: (event) => {
+      handleEvent(
+        event,
+        `container-agent:token:${event.data.timestamp}:${event.data.delta}`,
+        () => {
+          dispatch({ type: 'TOKEN', data: event.data });
+        }
+      );
+    },
+    onContainerAgentTurn: (event) => {
+      handleEvent(event, `container-agent:turn:${event.data.turn}:${event.data.timestamp}`, () => {
+        dispatch({ type: 'TURN', data: event.data });
+      });
+    },
+    onContainerAgentToolStart: (event) => {
+      handleEvent(
+        event,
+        `container-agent:tool:start:${event.data.toolId}:${event.data.timestamp}`,
+        () => {
+          dispatch({ type: 'TOOL_START', data: event.data });
+        }
+      );
+    },
+    onContainerAgentToolResult: (event) => {
+      handleEvent(
+        event,
+        `container-agent:tool:result:${event.data.toolId}:${event.data.timestamp}`,
+        () => {
+          dispatch({ type: 'TOOL_RESULT', data: event.data });
+        }
+      );
+    },
+    onContainerAgentMessage: (event) => {
+      handleEvent(
+        event,
+        `container-agent:message:${event.data.role}:${event.data.timestamp}:${event.data.content}`,
+        () => {
+          dispatch({ type: 'MESSAGE', data: event.data });
+        }
+      );
+    },
+    onContainerAgentComplete: (event) => {
+      handleEvent(
+        event,
+        `container-agent:complete:${event.data.status}:${event.data.turnCount}:${event.data.timestamp}`,
+        () => {
+          dispatch({ type: 'COMPLETE', data: event.data });
+        }
+      );
+    },
+    onContainerAgentError: (event) => {
+      handleEvent(
+        event,
+        `container-agent:error:${event.data.code ?? 'unknown'}:${event.data.timestamp}`,
+        () => {
+          dispatch({ type: 'ERROR', data: event.data });
+        }
+      );
+    },
+    onContainerAgentCancelled: (event) => {
+      handleEvent(
+        event,
+        `container-agent:cancelled:${event.data.turnCount}:${event.data.timestamp}`,
+        () => {
+          dispatch({ type: 'CANCELLED', data: event.data });
+        }
+      );
+    },
+    onContainerAgentPlanReady: (event) => {
+      handleEvent(
+        event,
+        `container-agent:plan-ready:${event.data.sdkSessionId}:${event.data.timestamp}`,
+        () => {
+          dispatch({ type: 'PLAN_READY', data: event.data });
+        }
+      );
+    },
+    onContainerAgentWorktree: (event) => {
+      handleEvent(
+        event,
+        `container-agent:worktree:${event.data.worktreeId}:${event.data.timestamp}`,
+        () => {
+          dispatch({ type: 'WORKTREE', data: event.data });
+        }
+      );
+    },
+    onContainerAgentFileChanged: (event) => {
+      handleEvent(
+        event,
+        `container-agent:file-changed:${event.data.path}:${event.data.timestamp}`,
+        () => {
+          dispatch({ type: 'FILE_CHANGED', data: event.data });
+        }
+      );
+    },
+    onError: (error) => {
+      console.error('[useContainerAgent] Stream error:', error);
+    },
+    onReconnect: () => {
+      console.log('[useContainerAgent] Reconnected to session stream');
+    },
+    onDisconnect: () => {
+      console.log('[useContainerAgent] Disconnected from session stream');
+    },
+  };
 
   // Reset state and dedupe cache when session changes
   useWatchEffect(() => {
@@ -531,7 +514,7 @@ export function useContainerAgent(sessionId: string | null): {
     dispatch({ type: 'RESET' });
   }, [sessionId]);
 
-  const { connectionState } = useSessionSubscription(sessionId, callbacks.current);
+  const { connectionState } = useSessionSubscription(sessionId, callbacks);
 
   return { state, connectionState, isStreaming: state.isStreaming };
 }

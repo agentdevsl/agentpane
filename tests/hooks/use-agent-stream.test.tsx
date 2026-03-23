@@ -20,6 +20,14 @@ describe('useAgentStream', () => {
     latestCallbacks = null;
   });
 
+  it('registers stream callbacks on the initial render', () => {
+    renderHook(() => useAgentStream('session-1'));
+
+    expect(latestCallbacks?.onChunk).toBeTypeOf('function');
+    expect(latestCallbacks?.onToolCall).toBeTypeOf('function');
+    expect(latestCallbacks?.onAgentState).toBeTypeOf('function');
+  });
+
   it('deduplicates replayed chunks by stable event identity', async () => {
     const { result } = renderHook(() => useAgentStream('session-1'));
 
