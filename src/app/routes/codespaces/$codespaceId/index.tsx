@@ -493,6 +493,13 @@ function CodespaceKanban(): React.JSX.Element {
             );
           }
         }}
+        onTaskUpdated={(data) => {
+          if (selectedTask) {
+            setTasks((prev) =>
+              prev.map((task) => (task.id === selectedTask.id ? { ...task, ...data } : task))
+            );
+          }
+        }}
         onDelete={async (id) => {
           const result = await apiClient.tasks.delete(id);
           if (result.ok) {
