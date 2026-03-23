@@ -79,6 +79,8 @@ Scope:
 - `src/lib/streams/client.ts` preserves envelope metadata and now derives stable tool IDs from payload `id`, then `meta.blockId`, then envelope identity.
 - Main hooks and live consumers now dedupe on stable identity in `src/app/hooks/use-session.ts`, `src/app/hooks/use-agent-stream.ts`, `src/app/hooks/use-container-agent.ts`, `src/app/hooks/use-container-agent-statuses.ts`, `src/app/hooks/use-topology-stream.ts`, `src/app/components/features/live-task-view/audit-trail-panel.tsx`, and `src/app/components/features/task-detail-dialog/use-task-activity.ts`.
 - `src/app/components/features/agent-session-view/use-stream-parser.ts` already prefers stable event identity, and `src/app/components/features/agent-session-view/stream-line.tsx` now surfaces transient-versus-durable trust labels.
+- `src/app/components/features/agent-session-view.tsx` now re-exports the modern directory component so route imports no longer fall back to the stale legacy session shell.
+- `src/lib/streams/client.ts` now parses concatenated catch-up replay payloads from the dev durable-stream server, which fixed dropped initial reload replay in the main session view.
 - Broader `blockId`/`sequence`-aware grouping remains incomplete.
 
 ## `OC-005d` Explicit Migration Gate
@@ -178,7 +180,8 @@ Scope:
 
 - Automated regression coverage now exists across raw stream reconnects, mixed chunk/tool replay, session refresh catch-up, task activity, and major live stream consumers.
 - Focused validation currently passes across the migration-gate suites plus the main reconnect/replay/dedupe consumer suites.
-- Manual reconnect/refresh verification is still pending, so this slice is not fully done yet.
+- Manual reconnect/refresh verification is now complete on the seeded dev session path: offline append replay resumed after reconnect, refresh catch-up preserved ordering, and no duplicate lines were observed in the verified flow.
+- The main session header now visibly transitions `Live` -> `Disconnected` -> `Live` during browser offline/online simulation, closing the reconnect-state indicator UX gap that was found during earlier manual verification.
 
 ## Slice Completion Rule
 

@@ -133,9 +133,13 @@ If implementation starts tomorrow, these are the most likely first places to cha
   - `src/app/components/features/live-task-view/audit-trail-panel.tsx`
   - `src/app/components/features/task-detail-dialog/use-task-activity.ts`
   - `src/app/components/features/session-history/session-history.tsx`
+- `src/app/components/features/agent-session-view.tsx` now acts as the shared import-path shim so `/sessions/$sessionId` resolves to the modern stream-aware session view instead of the stale legacy shell.
+- `src/lib/streams/client.ts` now parses concatenated catch-up payloads such as `[...][]`, which the dev `DurableStreamTestServer` can emit in a single text chunk during replay.
+- `src/app/hooks/use-session.ts`, `src/app/hooks/use-agent-stream.ts`, and `src/app/hooks/use-container-agent.ts` now register subscription callbacks early enough for initial catch-up batches instead of depending on late callback-ref timing.
+- `src/app/hooks/use-session-subscription.ts` now combines shared stream state with browser offline/online events so the session header reflects a real disconnected state during local offline simulation.
 - `OC-005d` is now functionally landed with an explicit structured-envelope-only migration gate rather than silent mixed compatibility.
 - The main remaining `OC-005` target from this map is deeper parser/rendering work around `blockId`, `sequence`, and transcript trust semantics in `src/app/components/features/agent-session-view/use-stream-parser.ts` and nearby surfaces.
-- The main remaining `OC-006` target is manual reconnect/refresh verification rather than a major unimplemented code path.
+- Manual `OC-006` continuity verification now passes for reconnect and refresh on the seeded dev session path, including visible `Live` -> `Disconnected` -> `Live` header transitions during browser offline/online simulation.
 
 ## Things To Avoid
 

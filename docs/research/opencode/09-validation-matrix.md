@@ -39,6 +39,7 @@ Current tranche status:
 
 - Covered now: shared envelope parsing, durable-stream metadata propagation, task-creation tool events, agent resume metadata, stable tool identity parsing, live-consumer replay dedupe, and transcript durability label rendering in the main agent session stream.
 - Covered now: explicit old/new protocol migration-gate behavior in shared envelope helpers, client event parsing, session-event publishing, durable-stream typed publishing, and presence/session regression suites.
+- Covered now: the main session route import path resolves to the modern stream view, and the client catch-up parser handles concatenated JSON replay batches from `DurableStreamTestServer`.
 - Still missing or incomplete: broader automated coverage for `blockId`/`sequence`-aware transcript grouping semantics across all remaining render surfaces.
 
 ### `OC-005` Manual verification
@@ -68,7 +69,9 @@ Current tranche status:
 Current tranche status:
 
 - Covered now: opaque cursor preservation, clean-close reconnect resume, transient reconnect mixed chunk/tool replay, session-history refresh via `afterEventId`, explicit catch-up boundary behavior, and replay dedupe in major live consumers.
-- Manual verification remains required for reconnect/refresh continuity before calling the tranche fully complete.
+- Manual reconnect/refresh continuity is now verified in the dev app using a seeded session, browser offline/online toggles, and out-of-band durable-stream appends while disconnected.
+- Verified manually: missed events appended while offline appeared after reconnect without visible duplication, and full-page refresh replay preserved transcript order and continuity.
+- Verified manually: the main session header now flips from `Live` to `Disconnected` during browser-offline simulation and returns to `Live` after connectivity is restored.
 
 ### `OC-006` Manual verification
 
