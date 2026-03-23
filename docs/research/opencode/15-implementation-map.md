@@ -61,6 +61,12 @@ practical starting map for `OC-005` and `OC-006`.
 - Why these files:
   - they are likely candidates for central compatibility handling rather than scattered per-surface fallbacks
 
+- Current landed status:
+  - `src/lib/streams/envelope.ts` now defines the shared structured-envelope migration gate and shared validation helpers.
+  - `src/lib/streams/client.ts` now applies that gate in the main stream subscription path and blocks legacy wire events that omit structured metadata.
+  - `src/services/session/session-stream.service.ts` now rejects session publish/persist calls when payload metadata is missing or conflicts with wrapper identity.
+  - `src/services/durable-streams.service.ts` now rejects typed publish and session-event publish calls when payload metadata conflicts with the target stream.
+
 ## File Map For `OC-006`
 
 ### `OC-006a` Preserve opaque cursor identity in the client stream layer
@@ -127,6 +133,7 @@ If implementation starts tomorrow, these are the most likely first places to cha
   - `src/app/components/features/live-task-view/audit-trail-panel.tsx`
   - `src/app/components/features/task-detail-dialog/use-task-activity.ts`
   - `src/app/components/features/session-history/session-history.tsx`
+- `OC-005d` is now functionally landed with an explicit structured-envelope-only migration gate rather than silent mixed compatibility.
 - The main remaining `OC-005` target from this map is deeper parser/rendering work around `blockId`, `sequence`, and transcript trust semantics in `src/app/components/features/agent-session-view/use-stream-parser.ts` and nearby surfaces.
 - The main remaining `OC-006` target is manual reconnect/refresh verification rather than a major unimplemented code path.
 

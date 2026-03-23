@@ -97,9 +97,11 @@ Scope:
 
 ### Implementation status
 
-- This slice is only partially complete.
-- The current implementation centralizes most compatibility in shared metadata helpers, `src/lib/streams/client.ts`, and the session catch-up boundary, which avoids broad per-surface protocol logic.
-- However, the tranche does not yet enforce one hard migration gate for old/new protocol coexistence, and the UI still tolerates some semantic fallback forms.
+- This slice is now functionally complete for the active tranche.
+- `src/lib/streams/envelope.ts` defines one explicit structured-envelope-only migration gate and shared promotion/validation helpers.
+- `src/lib/streams/client.ts` applies that gate in the main durable-stream parsing path, blocks legacy wire events with missing metadata, and rejects conflicting wire-versus-payload metadata.
+- `src/services/session/session-stream.service.ts` and `src/services/durable-streams.service.ts` enforce the same gate for publish/persist paths, including wrapper-versus-payload identity checks and stream-target consistency checks.
+- Focused regression coverage now exists across `src/lib/streams/__tests__/envelope.test.ts`, `tests/lib/streams/client.test.ts`, `src/services/__tests__/session.service.test.ts`, `tests/services/durable-streams.service.test.ts`, `tests/services/presence.service.test.ts`, and `tests/services/session.service.test.ts`.
 
 ## `OC-006a` Preserve Opaque Cursor Values
 
@@ -155,6 +157,7 @@ Scope:
 - `/api/sessions/:id/events` accepts `afterEventId` and rejects mixed `offset` plus `afterEventId` requests.
 - `src/services/session/session-stream.service.ts` isolates the explicit resume-anchor path server-side and returns `SESSION_RESUME_POINT_NOT_FOUND` when the anchor is missing.
 - Session-history refresh now uses `afterEventId` end-to-end and falls back to a full reload only at that explicit boundary.
+- The remaining work in this slice is documentation/manual validation cleanup rather than a missing core code path.
 
 ## `OC-006d` Duplicate And Gap Regression Coverage
 
@@ -174,7 +177,7 @@ Scope:
 ### Implementation status
 
 - Automated regression coverage now exists across raw stream reconnects, mixed chunk/tool replay, session refresh catch-up, task activity, and major live stream consumers.
-- Focused validation currently passes across 14 test files / 236 tests in the tranche sweep.
+- Focused validation currently passes across the migration-gate suites plus the main reconnect/replay/dedupe consumer suites.
 - Manual reconnect/refresh verification is still pending, so this slice is not fully done yet.
 
 ## Slice Completion Rule

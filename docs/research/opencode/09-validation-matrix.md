@@ -37,9 +37,9 @@ The goal is simple: do not call the tranche done just because the code compiles.
 
 Current tranche status:
 
-- Covered now: shared envelope parsing, durable-stream metadata propagation, task-creation tool events, agent resume metadata, stable tool identity parsing, and live-consumer replay dedupe.
 - Covered now: shared envelope parsing, durable-stream metadata propagation, task-creation tool events, agent resume metadata, stable tool identity parsing, live-consumer replay dedupe, and transcript durability label rendering in the main agent session stream.
-- Still missing or incomplete: explicit automated coverage for `blockId`/`sequence`-aware transcript grouping semantics and a hard old/new protocol migration gate.
+- Covered now: explicit old/new protocol migration-gate behavior in shared envelope helpers, client event parsing, session-event publishing, durable-stream typed publishing, and presence/session regression suites.
+- Still missing or incomplete: broader automated coverage for `blockId`/`sequence`-aware transcript grouping semantics across all remaining render surfaces.
 
 ### `OC-005` Manual verification
 
@@ -67,7 +67,7 @@ Current tranche status:
 
 Current tranche status:
 
-- Covered now: opaque cursor preservation, clean-close reconnect resume, transient reconnect mixed chunk/tool replay, session-history refresh via `afterEventId`, and replay dedupe in major live consumers.
+- Covered now: opaque cursor preservation, clean-close reconnect resume, transient reconnect mixed chunk/tool replay, session-history refresh via `afterEventId`, explicit catch-up boundary behavior, and replay dedupe in major live consumers.
 - Manual verification remains required for reconnect/refresh continuity before calling the tranche fully complete.
 
 ### `OC-006` Manual verification
