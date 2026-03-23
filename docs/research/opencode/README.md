@@ -16,9 +16,26 @@ fits for AgentPane right now.
 
 | File | Focus | Why it matters |
 | --- | --- | --- |
+| `00-executive-brief.md` | Fast planning summary | Gives the shortest path through the main findings and current execution queue |
 | `01-reality-check.md` | Current architecture through a UX lens | Identifies the biggest trust and usability gaps in the codebase today |
 | `02-technology-choices.md` | Concrete technology options | Separates good technology from good fit for AgentPane |
 | `03-roadmap.md` | Prioritized implementation path | Orders work by user-visible value and risk reduction |
+| `04-implementation-backlog.md` | Actionable implementation backlog | Converts the roadmap into high-priority execution-ready work |
+| `05-open-questions.md` | Remaining architecture decisions | Captures unresolved choices with recommended defaults so implementation stays unblocked |
+| `06-execution-briefs.md` | Issue-ready and PR-ready drafts | Turns the active backlog into copy-paste execution briefs for implementation |
+| `07-phase-plan.md` | Milestone-style shipment plan | Groups the active queue into phases so the team knows what should ship together |
+| `08-kickoff-checklist.md` | Immediate implementation startup guide | Turns the first tranche into a practical kickoff checklist for the team |
+| `09-validation-matrix.md` | Tranche test and verification guide | Defines what must be validated before the first stream-correctness tranche is done |
+| `10-risk-register.md` | First-tranche failure-mode tracker | Captures the main risks and mitigations for the OC-005 and OC-006 tranche |
+| `11-rollout-plan.md` | First-tranche rollout and rollback guide | Defines how to ship and back out the stream-contract tranche safely |
+| `12-handoff-checklist.md` | Team kickoff handoff guide | Gives the team a short meeting-ready checklist before tranche implementation starts |
+| `13-stream-envelope-proposal.md` | Concrete OC-005 schema proposal | Gives the team a proposed stream envelope to implement against |
+| `14-cursor-migration-plan.md` | Concrete OC-006 migration design | Defines how opaque resume cursors should move through the stack |
+| `15-implementation-map.md` | File-level first-tranche map | Points the team at likely repo touchpoints for `OC-005` and `OC-006` |
+| `16-event-inventory.md` | Current-to-proposed event migration inventory | Maps today’s event families to the new envelope concepts for `OC-005` |
+| `17-cursor-flow-inventory.md` | Current reconnect-path inventory | Shows where opaque cursor identity is currently preserved or lost for `OC-006` |
+| `18-slice-dependency-graph.md` | First-tranche dependency map | Shows which `OC-005` and `OC-006` slices block or enable the others |
+| `19-slice-checklists.md` | Per-slice ready/done checklist | Gives implementation-ready checklists for each `OC-005` and `OC-006` slice |
 
 ## Executive Summary
 
@@ -71,9 +88,26 @@ fits for AgentPane right now.
 
 ## Reading Order
 
-1. Start with `docs/research/opencode/01-reality-check.md`.
-2. Then read `docs/research/opencode/02-technology-choices.md`.
-3. Finish with `docs/research/opencode/03-roadmap.md`.
+1. Start with `docs/research/opencode/00-executive-brief.md`.
+2. Then read `docs/research/opencode/01-reality-check.md`.
+3. Continue with `docs/research/opencode/02-technology-choices.md`.
+4. Then read `docs/research/opencode/03-roadmap.md`.
+5. Use `docs/research/opencode/04-implementation-backlog.md` to plan implementation order.
+6. Use `docs/research/opencode/05-open-questions.md` for unresolved decisions and defaults.
+7. Use `docs/research/opencode/06-execution-briefs.md` to draft issues and the first PRs.
+8. Use `docs/research/opencode/07-phase-plan.md` to group the active queue into shippable milestones.
+9. Use `docs/research/opencode/08-kickoff-checklist.md` to start the first implementation tranche.
+10. Use `docs/research/opencode/09-validation-matrix.md` to verify the first tranche before moving on.
+11. Use `docs/research/opencode/10-risk-register.md` to review tranche failure modes before merging major changes.
+12. Use `docs/research/opencode/11-rollout-plan.md` to gate rollout and rollback decisions for the first tranche.
+13. Use `docs/research/opencode/12-handoff-checklist.md` to hand the tranche to the team cleanly.
+14. Use `docs/research/opencode/13-stream-envelope-proposal.md` to implement `OC-005`.
+15. Use `docs/research/opencode/14-cursor-migration-plan.md` to implement `OC-006`.
+16. Use `docs/research/opencode/15-implementation-map.md` to map tranche slices to likely repo files.
+17. Use `docs/research/opencode/16-event-inventory.md` to migrate current event families toward the new envelope.
+18. Use `docs/research/opencode/17-cursor-flow-inventory.md` to identify where cursor correctness is currently lost.
+19. Use `docs/research/opencode/18-slice-dependency-graph.md` to sequence `OC-005` and `OC-006` safely.
+20. Use `docs/research/opencode/19-slice-checklists.md` to track ready and done states for each slice.
 
 ## Key Themes
 

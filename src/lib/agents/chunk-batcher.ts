@@ -1,5 +1,6 @@
 import { createId } from '@paralleldrive/cuid2';
 import { createLogger } from '../logging/logger.js';
+import type { StreamEventMetadata, StreamPartType } from '../streams/envelope.js';
 
 const log = createLogger('ChunkBatcher');
 
@@ -19,6 +20,27 @@ interface ChunkBatcherOptions {
   maxBatchSize?: number;
 }
 
+function createChunkMetadata(params: {
+  eventId: string;
+  streamId: string;
+  blockId: string;
+  partType: StreamPartType;
+  durability: 'transient' | 'durable';
+  sequence: number | null;
+  createdAt: string;
+}): StreamEventMetadata {
+  return {
+    schemaVersion: 1,
+    eventId: params.eventId,
+    streamId: params.streamId,
+    blockId: params.blockId,
+    partType: params.partType,
+    durability: params.durability,
+    sequence: params.sequence,
+    createdAt: params.createdAt,
+  };
+}
+
 export class ChunkBatcher {
   private buffer: string[] = [];
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -26,6 +48,8 @@ export class ChunkBatcher {
   private destroyed = false;
   private readonly flushIntervalMs: number;
   private readonly maxBatchSize: number;
+  private currentBlockId: string = createId();
+  private nextSequence = 0;
 
   constructor(private options: ChunkBatcherOptions) {
     this.flushIntervalMs = options.flushIntervalMs ?? 100;
@@ -47,12 +71,27 @@ export class ChunkBatcher {
   async addDelta(delta: string): Promise<void> {
     if (this.destroyed) return;
 
+    const timestamp = Date.now();
+    const eventId = createId();
+    const createdAt = new Date(timestamp).toISOString();
+    const meta = createChunkMetadata({
+      eventId,
+      streamId: this.options.sessionId,
+      blockId: this.currentBlockId,
+      partType: 'chunk_delta',
+      durability: 'transient',
+      sequence: this.nextSequence,
+      createdAt,
+    });
+    this.nextSequence += 1;
+
     // 1. Immediately publish to Caddy for real-time SSE delivery
     try {
       await this.options.publishRealtime(this.options.sessionId, 'chunk', {
         agentId: this.options.agentId,
         text: delta,
         phase: this.currentPhase,
+        meta,
       });
     } catch (err) {
       log.warn('Failed to publish real-time chunk to SSE', {
@@ -93,18 +132,33 @@ export class ChunkBatcher {
     const batchedDelta = this.buffer.join('');
     const snapshot = this.buffer;
     this.buffer = [];
+    const timestamp = Date.now();
+    const eventId = createId();
+    const createdAt = new Date(timestamp).toISOString();
+    const meta = createChunkMetadata({
+      eventId,
+      streamId: this.options.sessionId,
+      blockId: this.currentBlockId,
+      partType: 'chunk_end',
+      durability: 'durable',
+      sequence: null,
+      createdAt,
+    });
 
     try {
       await this.options.persistEvent(this.options.sessionId, {
-        id: createId(),
+        id: eventId,
         type: 'chunk',
-        timestamp: Date.now(),
+        timestamp,
         data: {
           agentId: this.options.agentId,
           text: batchedDelta,
           phase: this.currentPhase,
+          meta,
         },
       });
+      this.currentBlockId = createId();
+      this.nextSequence = 0;
     } catch (err) {
       // Restore buffer on failure so data is not lost
       this.buffer = [...snapshot, ...this.buffer];

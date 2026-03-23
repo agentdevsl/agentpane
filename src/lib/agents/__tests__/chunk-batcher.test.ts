@@ -43,16 +43,40 @@ describe('ChunkBatcher', () => {
     await batcher.addDelta(' world');
 
     expect(publishRealtime).toHaveBeenCalledTimes(2);
-    expect(publishRealtime).toHaveBeenCalledWith('session-1', 'chunk', {
-      agentId: 'agent-1',
-      text: 'Hello',
-      phase: 'planning',
-    });
-    expect(publishRealtime).toHaveBeenCalledWith('session-1', 'chunk', {
-      agentId: 'agent-1',
-      text: ' world',
-      phase: 'planning',
-    });
+    expect(publishRealtime).toHaveBeenNthCalledWith(
+      1,
+      'session-1',
+      'chunk',
+      expect.objectContaining({
+        agentId: 'agent-1',
+        text: 'Hello',
+        phase: 'planning',
+        meta: expect.objectContaining({
+          schemaVersion: 1,
+          streamId: 'session-1',
+          partType: 'chunk_delta',
+          durability: 'transient',
+          sequence: 0,
+        }),
+      })
+    );
+    expect(publishRealtime).toHaveBeenNthCalledWith(
+      2,
+      'session-1',
+      'chunk',
+      expect.objectContaining({
+        agentId: 'agent-1',
+        text: ' world',
+        phase: 'planning',
+        meta: expect.objectContaining({
+          schemaVersion: 1,
+          streamId: 'session-1',
+          partType: 'chunk_delta',
+          durability: 'transient',
+          sequence: 1,
+        }),
+      })
+    );
 
     await batcher.destroy();
   });
@@ -73,6 +97,15 @@ describe('ChunkBatcher', () => {
     expect(call[1].data.text).toBe('abc');
     expect(call[1].data.agentId).toBe('agent-1');
     expect(call[1].data.phase).toBe('planning');
+    expect(call[1].data.meta).toEqual(
+      expect.objectContaining({
+        schemaVersion: 1,
+        streamId: 'session-1',
+        partType: 'chunk_end',
+        durability: 'durable',
+        sequence: null,
+      })
+    );
 
     await batcher.destroy();
   });

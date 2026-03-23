@@ -1,10 +1,10 @@
 /**
  * FC-006: Updated to use useSessionSubscription for shared SSE connections.
  */
-import { useCallback, useEffectEvent, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import type { ConnectionState, SessionAgentState, SessionCallbacks } from '@/lib/streams/client';
-import { useMountEffect } from './use-mount-effect';
 import { useSessionSubscription } from './use-session-subscription';
+import { useWatchEffect } from './use-watch-effect';
 
 export type AgentStreamChunk = {
   text: string;
@@ -21,6 +21,26 @@ export type ToolExecution = {
   timestamp: number;
 };
 
+type StableEventIdentity = {
+  meta?: { eventId?: string };
+  cursor?: string;
+};
+
+function getStableEventId(
+  event: StableEventIdentity,
+  fallbackParts: Array<string | number | undefined>
+): string {
+  if (event.meta?.eventId) {
+    return event.meta.eventId;
+  }
+
+  if (event.cursor) {
+    return event.cursor;
+  }
+
+  return fallbackParts.map((part) => String(part ?? 'unknown')).join(':');
+}
+
 export function useAgentStream(sessionId: string): {
   chunks: AgentStreamChunk[];
   fullText: string;
@@ -34,73 +54,85 @@ export function useAgentStream(sessionId: string): {
   const [tools, setTools] = useState<ToolExecution[]>([]);
   const [agentState, setAgentState] = useState<SessionAgentState>(null);
   const [isStreaming, setIsStreaming] = useState(false);
+  const seenChunkIdsRef = useRef<Set<string>>(new Set());
 
-  // Build callbacks for the shared subscription
-  const callbacks = useRef<SessionCallbacks>({});
+  const callbacks: SessionCallbacks = {
+    onChunk: (event) => {
+      const eventId = getStableEventId(event, [
+        'chunk',
+        event.data.timestamp,
+        event.data.agentId,
+        event.data.text,
+      ]);
+      if (seenChunkIdsRef.current.has(eventId)) {
+        return;
+      }
 
-  // useEffectEvent captures the latest setters without needing deps
-  const buildCallbacks = useEffectEvent(
-    (): SessionCallbacks => ({
-      onChunk: (event) => {
-        setChunks((prev) => [
-          ...prev,
-          {
-            text: event.data.text,
-            timestamp: event.data.timestamp,
-          },
-        ]);
-        setIsStreaming(true);
-      },
+      seenChunkIdsRef.current.add(eventId);
+      setChunks((prev) => [
+        ...prev,
+        {
+          text: event.data.text,
+          timestamp: event.data.timestamp,
+        },
+      ]);
+      setIsStreaming(true);
+    },
 
-      onToolCall: (event) => {
-        setTools((prev) => {
-          const existingIndex = prev.findIndex((t) => t.id === event.data.id);
-          if (existingIndex >= 0) {
-            const updated = [...prev];
+    onToolCall: (event) => {
+      setTools((prev) => {
+        const existingIndex = prev.findIndex((t) => t.id === event.data.id);
+        if (existingIndex >= 0) {
+          const updated = [...prev];
+          const existing = updated[existingIndex];
+          if (existing) {
             updated[existingIndex] = {
-              ...updated[existingIndex],
+              ...existing,
               ...event.data,
             };
-            return updated;
           }
-          return [...prev, event.data];
-        });
-      },
-
-      onAgentState: (event) => {
-        setAgentState(event.data);
-        // Stop streaming indicator when agent completes
-        if (
-          event.data?.status === 'completed' ||
-          event.data?.status === 'error' ||
-          event.data?.status === 'idle'
-        ) {
-          setIsStreaming(false);
-        } else if (event.data?.status === 'running') {
-          setIsStreaming(true);
+          return updated;
         }
-      },
+        return [...prev, event.data];
+      });
+    },
 
-      onError: (error) => {
-        console.error('[useAgentStream] Stream error:', error);
+    onAgentState: (event) => {
+      setAgentState(event.data);
+      if (
+        event.data?.status === 'completed' ||
+        event.data?.status === 'error' ||
+        event.data?.status === 'idle'
+      ) {
         setIsStreaming(false);
-      },
+      } else if (event.data?.status === 'running') {
+        setIsStreaming(true);
+      }
+    },
 
-      onReconnect: () => {
-        console.log('[useAgentStream] Reconnected to stream');
-      },
+    onError: (error) => {
+      console.error('[useAgentStream] Stream error:', error);
+      setIsStreaming(false);
+    },
 
-      onDisconnect: () => {
-        console.log('[useAgentStream] Disconnected from stream');
-      },
-    })
-  );
+    onReconnect: () => {
+      console.log('[useAgentStream] Reconnected to stream');
+    },
 
-  useMountEffect(() => {
-    callbacks.current = buildCallbacks();
-  });
+    onDisconnect: () => {
+      console.log('[useAgentStream] Disconnected from stream');
+    },
+  };
 
-  const { connectionState } = useSessionSubscription(sessionId, callbacks.current);
+  useWatchEffect(() => {
+    seenChunkIdsRef.current.clear();
+    setChunks([]);
+    setTools([]);
+    setAgentState(null);
+    setIsStreaming(false);
+  }, [sessionId]);
+
+  const { connectionState } = useSessionSubscription(sessionId, callbacks);
 
   const fullText = useMemo(() => chunks.map((chunk) => chunk.text).join(''), [chunks]);
 

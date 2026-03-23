@@ -502,7 +502,7 @@ describe('AgentExecutionService', () => {
         session.id,
         expect.objectContaining({
           type: 'agent:resumed',
-          data: { feedback: 'Please try a different approach' },
+          data: expect.objectContaining({ feedback: 'Please try a different approach' }),
         })
       );
     });

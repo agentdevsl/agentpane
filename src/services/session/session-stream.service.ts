@@ -14,11 +14,15 @@
  */
 
 import { createId } from '@paralleldrive/cuid2';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, gt, sql } from 'drizzle-orm';
 import type { NewSessionSummary, SessionSummary } from '../../db/schema';
 import { sessionEvents, sessionSummaries, sessions } from '../../db/schema';
 import type { SessionError } from '../../lib/errors/session-errors.js';
 import { SessionErrors } from '../../lib/errors/session-errors.js';
+import {
+  requirePayloadStreamMetadata,
+  STREAM_PROTOCOL_MIGRATION_GATE,
+} from '../../lib/streams/envelope.js';
 import type { Result } from '../../lib/utils/result.js';
 import { err, ok } from '../../lib/utils/result.js';
 import type { Database } from '../../types/database.js';
@@ -67,6 +71,71 @@ export class SessionStreamService {
     return false;
   }
 
+  private getStructuredSessionMetadata(
+    event: SessionEvent
+  ): Result<import('../../lib/streams/envelope.js').StreamEventMetadata, SessionError> {
+    const metadataResult = requirePayloadStreamMetadata(
+      event.data,
+      `Session event '${event.type}'`
+    );
+
+    if (!metadataResult.ok) {
+      return err(
+        SessionErrors.PROTOCOL_MISMATCH(metadataResult.error.message, {
+          gate: STREAM_PROTOCOL_MIGRATION_GATE,
+          type: event.type,
+          reason: metadataResult.error.code,
+        })
+      );
+    }
+
+    return ok(metadataResult.value);
+  }
+
+  private validateStructuredSessionEventForStream(
+    sessionId: string,
+    event: SessionEvent
+  ): Result<void, SessionError> {
+    const metadataResult = this.getStructuredSessionMetadata(event);
+    if (!metadataResult.ok) {
+      return err(metadataResult.error);
+    }
+
+    const metadata = metadataResult.value;
+
+    if (metadata.streamId !== sessionId) {
+      return err(
+        SessionErrors.PROTOCOL_MISMATCH(
+          `Session event '${event.type}' targets stream '${metadata.streamId}' but was published to '${sessionId}'.`,
+          {
+            gate: STREAM_PROTOCOL_MIGRATION_GATE,
+            type: event.type,
+            reason: 'CONFLICTING_METADATA',
+            expectedStreamId: sessionId,
+            actualStreamId: metadata.streamId,
+          }
+        )
+      );
+    }
+
+    if (metadata.eventId !== event.id) {
+      return err(
+        SessionErrors.PROTOCOL_MISMATCH(
+          `Session event '${event.type}' has payload eventId '${metadata.eventId}' but wrapper id '${event.id}'.`,
+          {
+            gate: STREAM_PROTOCOL_MIGRATION_GATE,
+            type: event.type,
+            reason: 'CONFLICTING_METADATA',
+            expectedEventId: event.id,
+            actualEventId: metadata.eventId,
+          }
+        )
+      );
+    }
+
+    return ok(undefined);
+  }
+
   /**
    * RS-013: DB-first persistence strategy.
    * Events are persisted to the database FIRST (awaited), then published to the
@@ -77,6 +146,11 @@ export class SessionStreamService {
     sessionId: string,
     event: SessionEvent
   ): Promise<Result<{ offset: number }, SessionError>> {
+    const validationResult = this.validateStructuredSessionEventForStream(sessionId, event);
+    if (!validationResult.ok) {
+      return err(validationResult.error);
+    }
+
     try {
       // RS-013: Persist to database FIRST to ensure durability
       const persistResult = await this.persistEvent(sessionId, event);
@@ -134,6 +208,11 @@ export class SessionStreamService {
     sessionId: string,
     event: SessionEvent
   ): Promise<Result<{ id: string; offset: number }, SessionError>> {
+    const validationResult = this.validateStructuredSessionEventForStream(sessionId, event);
+    if (!validationResult.ok) {
+      return err(validationResult.error);
+    }
+
     try {
       // DB-017: Use cached session existence check
       if (!(await this.sessionExists(sessionId))) {
@@ -191,6 +270,35 @@ export class SessionStreamService {
 
       const limit = options?.limit ?? 100;
       const offset = options?.offset ?? 0;
+      const afterEventId = options?.afterEventId;
+
+      if (afterEventId) {
+        const anchor = await this.db.query.sessionEvents.findFirst({
+          where: and(eq(sessionEvents.sessionId, sessionId), eq(sessionEvents.id, afterEventId)),
+        });
+
+        if (!anchor) {
+          return err(SessionErrors.RESUME_POINT_NOT_FOUND(afterEventId));
+        }
+
+        const events = await this.db.query.sessionEvents.findMany({
+          where: and(
+            eq(sessionEvents.sessionId, sessionId),
+            gt(sessionEvents.offset, anchor.offset)
+          ),
+          orderBy: [sessionEvents.offset],
+          limit,
+        });
+
+        return ok(
+          events.map((e) => ({
+            id: e.id,
+            type: e.type as SessionEventType,
+            timestamp: e.timestamp,
+            data: e.data,
+          }))
+        );
+      }
 
       const events = await this.db.query.sessionEvents.findMany({
         where: eq(sessionEvents.sessionId, sessionId),
@@ -304,6 +412,17 @@ export class SessionStreamService {
    * Used by ChunkBatcher for individual delta delivery to SSE clients.
    */
   async publishRealtimeOnly(sessionId: string, type: string, data: unknown): Promise<number> {
+    const metadataResult = requirePayloadStreamMetadata(data, `Realtime session event '${type}'`);
+    if (!metadataResult.ok) {
+      throw new Error(metadataResult.error.message);
+    }
+
+    if (metadataResult.value.streamId !== sessionId) {
+      throw new Error(
+        `Realtime session event '${type}' targets stream '${metadataResult.value.streamId}' but was published to '${sessionId}'.`
+      );
+    }
+
     const streamId = sessionId;
     return this.streams.publish(streamId, type, data);
   }

@@ -373,6 +373,31 @@ describe('Sessions API Routes', () => {
       });
     });
 
+    it('passes afterEventId to the service as the explicit history resume boundary', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.getEventsBySession.mockResolvedValue({ ok: true, value: [] });
+
+      await request(app, 'GET', '/api/sessions/sess-1/events?limit=25&afterEventId=evt-1');
+
+      expect(sessionService.getEventsBySession).toHaveBeenCalledWith('sess-1', {
+        limit: 25,
+        afterEventId: 'evt-1',
+      });
+    });
+
+    it('rejects mixed offset and afterEventId params', async () => {
+      const { app, sessionService } = createTestApp();
+
+      const res = await request(
+        app,
+        'GET',
+        '/api/sessions/sess-1/events?offset=10&afterEventId=evt-1'
+      );
+
+      expect(res.status).toBe(400);
+      expect(sessionService.getEventsBySession).not.toHaveBeenCalled();
+    });
+
     it('defaults to limit=100 and offset=0', async () => {
       const { app, sessionService } = createTestApp();
       sessionService.getEventsBySession.mockResolvedValue({ ok: true, value: [] });

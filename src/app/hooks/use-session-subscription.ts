@@ -11,9 +11,11 @@ import { useEffectEvent, useRef, useState } from 'react';
 import {
   type ConnectionState,
   type SessionCallbacks,
+  type StreamCursor,
   type Subscription,
   subscribeToSession,
 } from '@/lib/streams/client';
+import { useEventListener } from './use-event-listener';
 import { useWatchEffect } from './use-watch-effect';
 
 /**
@@ -30,9 +32,21 @@ import { useWatchEffect } from './use-watch-effect';
 export function useSessionSubscription(
   sessionId: string | null,
   callbacks: SessionCallbacks
-): { connectionState: ConnectionState } {
+): { connectionState: ConnectionState; getLastCursor: () => StreamCursor | null } {
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
+  const [isBrowserOffline, setIsBrowserOffline] = useState<boolean>(() => {
+    return typeof navigator !== 'undefined' ? !navigator.onLine : false;
+  });
   const subscriptionRef = useRef<Subscription | null>(null);
+  const browserTarget = typeof window !== 'undefined' ? window : null;
+
+  useEventListener(browserTarget, 'online', () => {
+    setIsBrowserOffline(false);
+  });
+
+  useEventListener(browserTarget, 'offline', () => {
+    setIsBrowserOffline(true);
+  });
 
   // useEffectEvent always sees the latest callbacks without re-subscribing
   const getCallbacks = useEffectEvent(() => callbacks);
@@ -107,5 +121,10 @@ export function useSessionSubscription(
     };
   }, [sessionId]);
 
-  return { connectionState };
+  const effectiveConnectionState = isBrowserOffline ? 'disconnected' : connectionState;
+
+  return {
+    connectionState: effectiveConnectionState,
+    getLastCursor: () => subscriptionRef.current?.getLastCursor() ?? null,
+  };
 }

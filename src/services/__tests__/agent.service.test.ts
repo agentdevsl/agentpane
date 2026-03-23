@@ -978,7 +978,14 @@ describe('AgentService', () => {
         's1',
         expect.objectContaining({
           type: 'agent:resumed',
-          data: expect.objectContaining({ feedback: 'please continue with step 2' }),
+          data: expect.objectContaining({
+            feedback: 'please continue with step 2',
+            meta: expect.objectContaining({
+              eventId: expect.any(String),
+              streamId: 's1',
+              partType: 'lifecycle',
+            }),
+          }),
         })
       );
     });

@@ -19,6 +19,7 @@ import type { Result } from '@/lib/utils/result';
 import { err, ok } from '@/lib/utils/result';
 import type { Database } from '@/types/database';
 import type { DurableStreamsService } from './durable-streams.service';
+import { createSessionEventWithMetadata } from './session/event-metadata';
 import type { SessionService } from './session.service';
 import type { SettingsService } from './settings.service';
 
@@ -705,16 +706,20 @@ export class TaskCreationService {
       // Persist to database if available
       if (session.dbSessionId && this.sessionService) {
         try {
-          await this.sessionService.publish(session.dbSessionId, {
-            id: createId(),
-            type: 'tool:start',
-            timestamp: Date.now(),
-            data: {
-              id: options.toolUseID,
-              tool: 'AskUserQuestion',
-              input: { questions: questions.questions },
-            },
-          });
+          await this.sessionService.publish(
+            session.dbSessionId,
+            createSessionEventWithMetadata({
+              sessionId: session.dbSessionId,
+              type: 'tool:start',
+              partType: 'tool_start',
+              blockId: options.toolUseID,
+              data: {
+                id: options.toolUseID,
+                tool: 'AskUserQuestion',
+                input: { questions: questions.questions },
+              },
+            })
+          );
         } catch (error: unknown) {
           log.error('Failed to persist tool:start:', { error });
         }
@@ -888,12 +893,16 @@ export class TaskCreationService {
     // Persist user message to database for session history
     if (session.dbSessionId && this.sessionService) {
       try {
-        await this.sessionService.publish(session.dbSessionId, {
-          id: userMessage.id,
-          type: 'chunk',
-          timestamp: Date.now(),
-          data: { role: 'user', content },
-        });
+        await this.sessionService.publish(
+          session.dbSessionId,
+          createSessionEventWithMetadata({
+            sessionId: session.dbSessionId,
+            type: 'chunk',
+            partType: 'chunk_end',
+            blockId: userMessage.id,
+            data: { role: 'user', content },
+          })
+        );
       } catch (error: unknown) {
         log.error('Failed to persist user message:', { error });
       }
@@ -1151,16 +1160,20 @@ export class TaskCreationService {
             // Publish tool:start event to session
             if (session.dbSessionId && this.sessionService) {
               try {
-                const publishResult = await this.sessionService.publish(session.dbSessionId, {
-                  id: createId(),
-                  type: 'tool:start',
-                  timestamp: Date.now(),
-                  data: {
-                    id: toolId,
-                    tool: toolName,
-                    input: {},
-                  },
-                });
+                const publishResult = await this.sessionService.publish(
+                  session.dbSessionId,
+                  createSessionEventWithMetadata({
+                    sessionId: session.dbSessionId,
+                    type: 'tool:start',
+                    partType: 'tool_start',
+                    blockId: toolId,
+                    data: {
+                      id: toolId,
+                      tool: toolName,
+                      input: {},
+                    },
+                  })
+                );
                 if (publishResult.ok) {
                   log.info(
                     `[TaskCreationService] Published tool:start for ${toolName}, offset: ${publishResult.value.offset}`
@@ -1227,19 +1240,23 @@ export class TaskCreationService {
               if (session.dbSessionId && this.sessionService) {
                 try {
                   // Publish tool:result event
-                  await this.sessionService.publish(session.dbSessionId, {
-                    id: createId(),
-                    type: 'tool:result',
-                    timestamp: Date.now(),
-                    data: {
-                      id: toolInfo.id,
-                      tool: toolInfo.name,
-                      input: parsedInput,
-                      output: null, // Output comes from the actual tool execution, not available here
-                      duration,
-                      isError: false,
-                    },
-                  });
+                  await this.sessionService.publish(
+                    session.dbSessionId,
+                    createSessionEventWithMetadata({
+                      sessionId: session.dbSessionId,
+                      type: 'tool:result',
+                      partType: 'tool_result',
+                      blockId: toolInfo.id,
+                      data: {
+                        id: toolInfo.id,
+                        tool: toolInfo.name,
+                        input: parsedInput,
+                        output: null,
+                        duration,
+                        isError: false,
+                      },
+                    })
+                  );
                 } catch (error: unknown) {
                   log.error('Failed to publish tool:result:', { error });
                 }
@@ -1303,30 +1320,40 @@ export class TaskCreationService {
                   try {
                     const timestamp = Date.now();
                     // Emit tool:start
-                    await this.sessionService.publish(session.dbSessionId, {
-                      id: createId(),
-                      type: 'tool:start',
-                      timestamp,
-                      data: {
-                        id: toolId,
-                        tool: block.name,
-                        input: (block.input as Record<string, unknown>) ?? {},
-                      },
-                    });
+                    await this.sessionService.publish(
+                      session.dbSessionId,
+                      createSessionEventWithMetadata({
+                        sessionId: session.dbSessionId,
+                        type: 'tool:start',
+                        partType: 'tool_start',
+                        blockId: toolId,
+                        timestamp,
+                        data: {
+                          id: toolId,
+                          tool: block.name,
+                          input: (block.input as Record<string, unknown>) ?? {},
+                        },
+                      })
+                    );
                     // Emit tool:result immediately (we don't have the actual result)
-                    await this.sessionService.publish(session.dbSessionId, {
-                      id: createId(),
-                      type: 'tool:result',
-                      timestamp: timestamp + 1,
-                      data: {
-                        id: toolId,
-                        tool: block.name,
-                        input: (block.input as Record<string, unknown>) ?? {},
-                        output: null,
-                        duration: 0,
-                        isError: false,
-                      },
-                    });
+                    await this.sessionService.publish(
+                      session.dbSessionId,
+                      createSessionEventWithMetadata({
+                        sessionId: session.dbSessionId,
+                        type: 'tool:result',
+                        partType: 'tool_result',
+                        blockId: toolId,
+                        timestamp: timestamp + 1,
+                        data: {
+                          id: toolId,
+                          tool: block.name,
+                          input: (block.input as Record<string, unknown>) ?? {},
+                          output: null,
+                          duration: 0,
+                          isError: false,
+                        },
+                      })
+                    );
                   } catch (error: unknown) {
                     log.error(
                       '[TaskCreationService] Failed to publish tool events from assistant',
@@ -1370,16 +1397,20 @@ export class TaskCreationService {
           );
           if (!existingTool && session.dbSessionId && this.sessionService) {
             try {
-              await this.sessionService.publish(session.dbSessionId, {
-                id: createId(),
-                type: 'tool:start',
-                timestamp: Date.now(),
-                data: {
-                  id: progress.tool_use_id,
-                  tool: progress.tool_name,
-                  input: {},
-                },
-              });
+              await this.sessionService.publish(
+                session.dbSessionId,
+                createSessionEventWithMetadata({
+                  sessionId: session.dbSessionId,
+                  type: 'tool:start',
+                  partType: 'tool_start',
+                  blockId: progress.tool_use_id,
+                  data: {
+                    id: progress.tool_use_id,
+                    tool: progress.tool_name,
+                    input: {},
+                  },
+                })
+              );
             } catch (error: unknown) {
               log.error('Failed to publish tool:start from progress', { error });
             }
@@ -1850,24 +1881,28 @@ export class TaskCreationService {
     if (session.dbSessionId && this.sessionService) {
       try {
         const totalTokens = usage ? usage.inputTokens + usage.outputTokens : 0;
-        await this.sessionService.publish(session.dbSessionId, {
-          id: message.id,
-          type: 'chunk',
-          timestamp: Date.now(),
-          data: {
-            role: 'assistant',
-            content,
-            model: usage?.modelUsed || undefined,
-            usage:
-              totalTokens > 0 && usage
-                ? {
-                    inputTokens: usage.inputTokens,
-                    outputTokens: usage.outputTokens,
-                    totalTokens,
-                  }
-                : undefined,
-          },
-        });
+        await this.sessionService.publish(
+          session.dbSessionId,
+          createSessionEventWithMetadata({
+            sessionId: session.dbSessionId,
+            type: 'chunk',
+            partType: 'chunk_end',
+            blockId: message.id,
+            data: {
+              role: 'assistant',
+              content,
+              model: usage?.modelUsed || undefined,
+              usage:
+                totalTokens > 0 && usage
+                  ? {
+                      inputTokens: usage.inputTokens,
+                      outputTokens: usage.outputTokens,
+                      totalTokens,
+                    }
+                  : undefined,
+            },
+          })
+        );
       } catch (error: unknown) {
         log.error('Failed to persist assistant message:', { error });
       }
@@ -2136,19 +2171,23 @@ export class TaskCreationService {
       // Publish tool:result event for AskUserQuestion
       if (session.dbSessionId && this.sessionService) {
         try {
-          await this.sessionService.publish(session.dbSessionId, {
-            id: createId(),
-            type: 'tool:result',
-            timestamp: Date.now(),
-            data: {
-              id: pendingToolUseId ?? 'unknown',
-              tool: 'AskUserQuestion',
-              input: { questions },
-              output: { answers: formattedAnswers },
-              duration: 0,
-              isError: false,
-            },
-          });
+          await this.sessionService.publish(
+            session.dbSessionId,
+            createSessionEventWithMetadata({
+              sessionId: session.dbSessionId,
+              type: 'tool:result',
+              partType: 'tool_result',
+              blockId: pendingToolUseId ?? 'unknown',
+              data: {
+                id: pendingToolUseId ?? 'unknown',
+                tool: 'AskUserQuestion',
+                input: { questions },
+                output: { answers: formattedAnswers },
+                duration: 0,
+                isError: false,
+              },
+            })
+          );
           log.info('Published tool:result for AskUserQuestion');
         } catch (error: unknown) {
           log.error('Failed to publish tool:result:', { error });
@@ -2357,16 +2396,20 @@ export class TaskCreationService {
                 // Publish tool:start event for round 2+ AskUserQuestion
                 if (session.dbSessionId && this.sessionService) {
                   try {
-                    await this.sessionService.publish(session.dbSessionId, {
-                      id: createId(),
-                      type: 'tool:start',
-                      timestamp: Date.now(),
-                      data: {
-                        id: block.id,
-                        tool: 'AskUserQuestion',
-                        input: block.input as Record<string, unknown>,
-                      },
-                    });
+                    await this.sessionService.publish(
+                      session.dbSessionId,
+                      createSessionEventWithMetadata({
+                        sessionId: session.dbSessionId,
+                        type: 'tool:start',
+                        partType: 'tool_start',
+                        blockId: block.id,
+                        data: {
+                          id: block.id,
+                          tool: 'AskUserQuestion',
+                          input: block.input as Record<string, unknown>,
+                        },
+                      })
+                    );
                     log.info(
                       '[TaskCreationService] Published tool:start for AskUserQuestion (round 2+)'
                     );

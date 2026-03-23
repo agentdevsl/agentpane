@@ -121,6 +121,9 @@ function TaskDetailRoute(): React.JSX.Element {
           }
           setTask((prev) => (prev ? { ...prev, ...data } : null));
         }}
+        onTaskUpdated={(data) => {
+          setTask((prev) => (prev ? { ...prev, ...data } : null));
+        }}
         onDelete={async (id) => {
           await apiClient.tasks.delete(id);
         }}

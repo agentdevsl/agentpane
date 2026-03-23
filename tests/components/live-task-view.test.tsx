@@ -15,6 +15,8 @@ interface SessionCallbacks {
       timestamp: number;
     };
     offset?: number;
+    cursor?: string;
+    meta?: { eventId?: string };
   }) => void;
   onContainerAgentToken?: (event: {
     channel: 'containerAgent:token';
@@ -25,6 +27,8 @@ interface SessionCallbacks {
       timestamp: number;
     };
     offset?: number;
+    cursor?: string;
+    meta?: { eventId?: string };
   }) => void;
   onContainerAgentToolStart?: (event: {
     channel: 'containerAgent:toolStart';
@@ -181,6 +185,53 @@ function emitAssistantMessage(sessionId: string, content: string, timestamp = 1)
         timestamp,
       },
       offset: timestamp,
+      cursor: `cursor-${timestamp}`,
+      meta: { eventId: `evt-message-${timestamp}` },
+    });
+  });
+}
+
+function emitAssistantMessageWithId(
+  sessionId: string,
+  content: string,
+  options: { timestamp?: number; cursor?: string; eventId?: string } = {}
+): void {
+  const timestamp = options.timestamp ?? 1;
+  act(() => {
+    getSessionCallbacks(sessionId).onContainerAgentMessage?.({
+      channel: 'containerAgent:message',
+      data: {
+        taskId: 'task-1',
+        sessionId,
+        role: 'assistant',
+        content,
+        timestamp,
+      },
+      offset: timestamp,
+      cursor: options.cursor,
+      meta: options.eventId ? { eventId: options.eventId } : undefined,
+    });
+  });
+}
+
+function emitToken(
+  sessionId: string,
+  delta: string,
+  options: { timestamp?: number; cursor?: string; eventId?: string } = {}
+): void {
+  const timestamp = options.timestamp ?? 1;
+  act(() => {
+    getSessionCallbacks(sessionId).onContainerAgentToken?.({
+      channel: 'containerAgent:token',
+      data: {
+        taskId: 'task-1',
+        sessionId,
+        delta,
+        timestamp,
+      },
+      offset: timestamp,
+      cursor: options.cursor,
+      meta: options.eventId ? { eventId: options.eventId } : undefined,
     });
   });
 }
@@ -383,5 +434,48 @@ describe('AuditTrailPanel', () => {
 
     expect(screen.getByText('hello from the stream')).toBeInTheDocument();
     expect(screen.queryByText('Session ended')).not.toBeInTheDocument();
+  });
+
+  it('deduplicates replayed live stream messages and tokens by stable identity', async () => {
+    const user = userEvent.setup();
+    getEventsMock.mockResolvedValue({ ok: true, data: [] });
+
+    render(
+      <AuditTrailPanel task={createTask({ sessionId: 'session-dedupe', column: 'in_progress' })} />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Stream' }));
+
+    await waitFor(() => {
+      expect(subscribeToSessionMock).toHaveBeenCalledWith('session-dedupe', expect.any(Object));
+    });
+
+    emitAssistantMessageWithId('session-dedupe', 'deduped message', {
+      timestamp: 30,
+      cursor: 'cursor-message-1',
+      eventId: 'evt-message-1',
+    });
+    emitAssistantMessageWithId('session-dedupe', 'deduped message', {
+      timestamp: 30,
+      cursor: 'cursor-message-1',
+      eventId: 'evt-message-1',
+    });
+
+    expect(await screen.findByText('deduped message')).toBeInTheDocument();
+    expect(screen.getAllByText('deduped message')).toHaveLength(1);
+
+    emitToken('session-dedupe', 'A', {
+      timestamp: 40,
+      cursor: 'cursor-token-1',
+      eventId: 'evt-token-1',
+    });
+    emitToken('session-dedupe', 'A', {
+      timestamp: 40,
+      cursor: 'cursor-token-1',
+      eventId: 'evt-token-1',
+    });
+
+    expect(screen.getByText('A')).toBeInTheDocument();
+    expect(screen.queryByText('AA')).not.toBeInTheDocument();
   });
 });

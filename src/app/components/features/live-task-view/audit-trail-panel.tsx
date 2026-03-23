@@ -43,6 +43,7 @@ interface TimelineEvent {
 }
 
 interface StreamMessage {
+  id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: number;
@@ -201,6 +202,13 @@ function mapEventToTimelineEntry(event: {
         timestamp: ts,
       };
   }
+}
+
+function getStableStreamId(
+  event: { meta?: { eventId?: string | undefined }; cursor?: string },
+  fallback: string
+): string {
+  return event.meta?.eventId ?? event.cursor ?? fallback;
 }
 
 // =============================================================================
@@ -390,7 +398,7 @@ function EventsTab({ sessionId }: { sessionId?: string | null }): React.JSX.Elem
 
     const callbacks: SessionCallbacks = {
       onContainerAgentStatus: (event) => {
-        const id = `stream-status-${event.offset ?? event.data.timestamp}`;
+        const id = getStableStreamId(event, `stream-status-${event.data.timestamp}`);
         if (seenEventIdsRef.current.has(id)) return;
         seenEventIdsRef.current.add(id);
         setEvents((prev) => [
@@ -404,7 +412,7 @@ function EventsTab({ sessionId }: { sessionId?: string | null }): React.JSX.Elem
         ]);
       },
       onContainerAgentToolStart: (event) => {
-        const id = `stream-tool-start-${event.offset ?? event.data.toolId}`;
+        const id = getStableStreamId(event, `stream-tool-start-${event.data.toolId}`);
         if (seenEventIdsRef.current.has(id)) return;
         seenEventIdsRef.current.add(id);
         setEvents((prev) => [
@@ -418,7 +426,7 @@ function EventsTab({ sessionId }: { sessionId?: string | null }): React.JSX.Elem
         ]);
       },
       onContainerAgentMessage: (event) => {
-        const id = `stream-message-${event.offset ?? event.data.timestamp}`;
+        const id = getStableStreamId(event, `stream-message-${event.data.timestamp}`);
         if (seenEventIdsRef.current.has(id)) return;
         seenEventIdsRef.current.add(id);
         setEvents((prev) => [
@@ -432,7 +440,7 @@ function EventsTab({ sessionId }: { sessionId?: string | null }): React.JSX.Elem
         ]);
       },
       onContainerAgentPlanReady: (event) => {
-        const id = `stream-plan-ready-${event.offset ?? event.data.timestamp}`;
+        const id = getStableStreamId(event, `stream-plan-ready-${event.data.timestamp}`);
         if (seenEventIdsRef.current.has(id)) return;
         seenEventIdsRef.current.add(id);
         setEvents((prev) => [
@@ -446,7 +454,7 @@ function EventsTab({ sessionId }: { sessionId?: string | null }): React.JSX.Elem
         ]);
       },
       onContainerAgentComplete: (event) => {
-        const id = `stream-complete-${event.offset ?? event.data.timestamp}`;
+        const id = getStableStreamId(event, `stream-complete-${event.data.timestamp}`);
         if (seenEventIdsRef.current.has(id)) return;
         seenEventIdsRef.current.add(id);
         setEvents((prev) => [
@@ -460,7 +468,7 @@ function EventsTab({ sessionId }: { sessionId?: string | null }): React.JSX.Elem
         ]);
       },
       onContainerAgentError: (event) => {
-        const id = `stream-error-${event.offset ?? event.data.timestamp}`;
+        const id = getStableStreamId(event, `stream-error-${event.data.timestamp}`);
         if (seenEventIdsRef.current.has(id)) return;
         seenEventIdsRef.current.add(id);
         setEvents((prev) => [
@@ -474,7 +482,7 @@ function EventsTab({ sessionId }: { sessionId?: string | null }): React.JSX.Elem
         ]);
       },
       onTopologyAgentSpawned: (event) => {
-        const id = `stream-topology-spawned-${event.offset ?? event.data.agentId}`;
+        const id = getStableStreamId(event, `stream-topology-spawned-${event.data.agentId}`);
         if (seenEventIdsRef.current.has(id)) return;
         seenEventIdsRef.current.add(id);
         setEvents((prev) => [
@@ -488,7 +496,7 @@ function EventsTab({ sessionId }: { sessionId?: string | null }): React.JSX.Elem
         ]);
       },
       onTopologyAgentCompleted: (event) => {
-        const id = `stream-topology-completed-${event.offset ?? event.data.agentId}`;
+        const id = getStableStreamId(event, `stream-topology-completed-${event.data.agentId}`);
         if (seenEventIdsRef.current.has(id)) return;
         seenEventIdsRef.current.add(id);
         setEvents((prev) => [
@@ -596,6 +604,7 @@ function StreamTab({
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const seenStreamEventIdsRef = useRef<Set<string>>(new Set());
   const isLive = taskColumn === 'in_progress';
 
   const scrollToBottom = useCallback(() => {
@@ -610,17 +619,22 @@ function StreamTab({
   useWatchEffect(() => {
     if (!sessionId) {
       setMessages([]);
+      setCurrentDelta('');
+      seenStreamEventIdsRef.current = new Set();
       return;
     }
 
     let cancelled = false;
     setLoading(true);
+    setCurrentDelta('');
+    seenStreamEventIdsRef.current = new Set();
 
     apiClient.sessions
       .getEvents(sessionId, { limit: 500 })
       .then((result) => {
         if (cancelled || !result.ok) return;
         const msgs: StreamMessage[] = [];
+        const seenIds = new Set<string>();
         for (const event of extractSessionEvents(
           result.data as SessionEventRecord[] | { data: SessionEventRecord[] }
         )) {
@@ -628,7 +642,9 @@ function StreamTab({
             const d = event.data as Record<string, unknown>;
             const content = String(d?.content ?? '');
             if (content) {
+              seenIds.add(event.id);
               msgs.push({
+                id: event.id,
                 role: (d?.role as StreamMessage['role']) ?? 'system',
                 content,
                 timestamp: event.timestamp,
@@ -636,6 +652,7 @@ function StreamTab({
             }
           }
         }
+        seenStreamEventIdsRef.current = seenIds;
         setMessages(msgs);
         scrollToBottom();
       })
@@ -661,9 +678,19 @@ function StreamTab({
         setConnected(state === 'connected');
       },
       onContainerAgentMessage: (event) => {
+        const id = getStableStreamId(
+          event,
+          `stream-message-${event.data.role}:${event.data.timestamp}:${event.data.content}`
+        );
+        if (seenStreamEventIdsRef.current.has(id)) {
+          return;
+        }
+
+        seenStreamEventIdsRef.current.add(id);
         setMessages((prev) => [
           ...prev,
           {
+            id,
             role: event.data.role,
             content: event.data.content,
             timestamp: event.data.timestamp,
@@ -673,10 +700,28 @@ function StreamTab({
         scrollToBottom();
       },
       onContainerAgentToken: (event) => {
+        const id = getStableStreamId(
+          event,
+          `stream-token-${event.data.timestamp}:${event.data.delta}`
+        );
+        if (seenStreamEventIdsRef.current.has(id)) {
+          return;
+        }
+
+        seenStreamEventIdsRef.current.add(id);
         setCurrentDelta((prev) => prev + event.data.delta);
         scrollToBottom();
       },
       onChunk: (event) => {
+        const id = getStableStreamId(
+          event,
+          `stream-chunk-${event.data.timestamp}:${event.data.text}`
+        );
+        if (seenStreamEventIdsRef.current.has(id)) {
+          return;
+        }
+
+        seenStreamEventIdsRef.current.add(id);
         setCurrentDelta((prev) => prev + event.data.text);
         scrollToBottom();
       },
@@ -753,9 +798,9 @@ function StreamTab({
           </div>
         ) : (
           <div className="px-3 py-2 space-y-2">
-            {messages.map((msg, i) => (
+            {messages.map((msg) => (
               <div
-                key={`msg-${msg.timestamp}-${i}`}
+                key={msg.id}
                 className="rounded-md border border-border-subtle bg-surface px-3 py-2"
               >
                 <div className="flex items-center gap-2 mb-1">

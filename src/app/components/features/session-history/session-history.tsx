@@ -34,6 +34,40 @@ export interface RawSession {
   costUsd?: number | null;
 }
 
+type SessionEventRecord = {
+  id: string;
+  type: string;
+  timestamp: number;
+  data: unknown;
+};
+
+function extractSessionEvents(
+  payload: SessionEventRecord[] | { data?: SessionEventRecord[] }
+): SessionEventRecord[] {
+  return Array.isArray(payload) ? payload : (payload.data ?? []);
+}
+
+function mapSessionEvents(events: SessionEventRecord[]): SessionDetail['events'] {
+  return events.map((event) => ({
+    id: event.id,
+    type: event.type as SessionDetail['events'][0]['type'],
+    timestamp: event.timestamp,
+    data: event.data,
+  }));
+}
+
+function mergeSessionEvents(
+  existingEvents: SessionDetail['events'],
+  newEvents: SessionDetail['events']
+): SessionDetail['events'] {
+  if (newEvents.length === 0) {
+    return existingEvents;
+  }
+
+  const seenIds = new Set(existingEvents.map((event) => event.id));
+  return [...existingEvents, ...newEvents.filter((event) => !seenIds.has(event.id))];
+}
+
 /** Project for filtering */
 export interface ProjectOption {
   id: string;
@@ -134,38 +168,74 @@ export function SessionHistory({
       setSelectedSessionId(sessionId);
       setDetailLoading(true);
 
+      const previousDetail = sessionDetail?.id === sessionId ? sessionDetail : null;
+
+      const loadEvents = async (): Promise<{
+        mode: 'full' | 'incremental';
+        result: Awaited<ReturnType<typeof apiClient.sessions.getEvents>>;
+      }> => {
+        const lastEvent = previousDetail?.events[previousDetail.events.length - 1];
+        const lastEventId = lastEvent?.id;
+
+        if (!lastEventId) {
+          return {
+            mode: 'full',
+            result: await apiClient.sessions.getEvents(sessionId, { limit: 1000 }),
+          };
+        }
+
+        const incrementalResult = await apiClient.sessions.getEvents(sessionId, {
+          limit: 1000,
+          afterEventId: lastEventId,
+        });
+
+        if (
+          !incrementalResult.ok &&
+          incrementalResult.error.code === 'SESSION_RESUME_POINT_NOT_FOUND'
+        ) {
+          return {
+            mode: 'full',
+            result: await apiClient.sessions.getEvents(sessionId, { limit: 1000 }),
+          };
+        }
+
+        return {
+          mode: 'incremental',
+          result: incrementalResult,
+        };
+      };
+
       try {
         // Fetch session, events, and summary in parallel
-        const [sessionResult, eventsResult, summaryResult] = await Promise.all([
+        const [sessionResult, eventsLoad, summaryResult] = await Promise.all([
           apiClient.sessions.get(sessionId),
-          apiClient.sessions.getEvents(sessionId, { limit: 1000 }),
+          loadEvents(),
           apiClient.sessions.getSummary(sessionId),
         ]);
 
-        if (sessionResult.ok && sessionResult.data) {
+        const sessionData = sessionResult?.ok ? sessionResult.data : null;
+        if (sessionData) {
           // Transform API response to SessionDetail format
-          const session = sessionResult.data as RawSession;
+          const session = sessionData as RawSession;
           const createdAt = session.createdAt ?? new Date().toISOString();
 
-          // Parse events from API response
-          // API returns { ok: true, data: [...events], pagination: {...} }
-          type EventData = { id: string; type: string; timestamp: number; data: unknown };
-          let events: SessionDetail['events'] = [];
-          if (eventsResult.ok && eventsResult.data) {
-            // eventsResult.data is the array of events directly
-            const eventsArray = Array.isArray(eventsResult.data)
-              ? eventsResult.data
-              : ((eventsResult.data as { data?: EventData[] }).data ?? []);
-            events = (eventsArray as EventData[]).map((e) => ({
-              id: e.id,
-              type: e.type as SessionDetail['events'][0]['type'],
-              timestamp: e.timestamp,
-              data: e.data,
-            }));
+          let events = previousDetail?.events ?? [];
+          if (eventsLoad.result.ok && eventsLoad.result.data) {
+            const fetchedEvents = mapSessionEvents(
+              extractSessionEvents(
+                eventsLoad.result.data as SessionEventRecord[] | { data?: SessionEventRecord[] }
+              )
+            );
+            events =
+              eventsLoad.mode === 'incremental' && previousDetail
+                ? mergeSessionEvents(previousDetail.events, fetchedEvents)
+                : fetchedEvents;
+          } else if (!eventsLoad.result.ok) {
+            console.error('Failed to fetch session events:', eventsLoad.result.error.message);
           }
 
           // Get metrics from summary
-          const summary = summaryResult.ok ? summaryResult.data : null;
+          const summary = summaryResult?.ok ? summaryResult.data : null;
 
           // Calculate total tokens and turns from events
           let totalTokensFromEvents = 0;
@@ -193,23 +263,28 @@ export function SessionHistory({
             closedAt: session.closedAt ?? null,
             duration:
               summary?.durationMs ??
+              previousDetail?.duration ??
               (session.closedAt
                 ? new Date(session.closedAt).getTime() - new Date(createdAt).getTime()
                 : null),
-            turnsUsed: turnsFromEvents || summary?.turnsCount || 0,
-            tokensUsed: totalTokensFromEvents || summary?.tokensUsed || 0,
+            turnsUsed: turnsFromEvents || summary?.turnsCount || previousDetail?.turnsUsed || 0,
+            tokensUsed:
+              totalTokensFromEvents || summary?.tokensUsed || previousDetail?.tokensUsed || 0,
             codespaceId: session.codespaceId,
             codespaceName: projectMap.get(session.codespaceId) ?? null,
             url: session.url,
             events,
             sandboxProvider: session.sandboxProvider ?? null,
             sandboxContainerId: session.sandboxContainerId ?? null,
-            filesModified: summary?.filesModified ?? 0,
-            linesAdded: summary?.linesAdded ?? 0,
-            linesRemoved: summary?.linesRemoved ?? 0,
-            testsRun: 0,
-            testsPassed: 0,
-            costUsd: (summary as { costUsd?: number | null } | null)?.costUsd ?? null,
+            filesModified: summary?.filesModified ?? previousDetail?.filesModified ?? 0,
+            linesAdded: summary?.linesAdded ?? previousDetail?.linesAdded ?? 0,
+            linesRemoved: summary?.linesRemoved ?? previousDetail?.linesRemoved ?? 0,
+            testsRun: previousDetail?.testsRun ?? 0,
+            testsPassed: previousDetail?.testsPassed ?? 0,
+            costUsd:
+              (summary as { costUsd?: number | null } | null)?.costUsd ??
+              previousDetail?.costUsd ??
+              null,
           };
           setSessionDetail(detail);
         }
@@ -219,7 +294,7 @@ export function SessionHistory({
         setDetailLoading(false);
       }
     },
-    [projectMap]
+    [projectMap, sessionDetail]
   );
 
   // Handle export

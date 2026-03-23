@@ -3,6 +3,32 @@
 **Date:** March 2026
 **Scope:** Comprehensive evaluation of technology alternatives across 11 architectural domains
 
+## Supplemental UX-First Set
+
+The reports below are the broad architecture survey. There is also a narrower,
+more execution-focused supplement under [`opencode/README.md`](opencode/README.md).
+That set focuses on trust, recovery, deployment honesty, reconnect behavior,
+and implementation sequencing.
+
+Recommended entry points:
+
+- [`opencode/00-executive-brief.md`](opencode/00-executive-brief.md)
+- [`opencode/04-implementation-backlog.md`](opencode/04-implementation-backlog.md)
+- [`opencode/06-execution-briefs.md`](opencode/06-execution-briefs.md)
+- [`opencode/07-phase-plan.md`](opencode/07-phase-plan.md)
+- [`opencode/08-kickoff-checklist.md`](opencode/08-kickoff-checklist.md)
+- [`opencode/09-validation-matrix.md`](opencode/09-validation-matrix.md)
+- [`opencode/10-risk-register.md`](opencode/10-risk-register.md)
+- [`opencode/11-rollout-plan.md`](opencode/11-rollout-plan.md)
+- [`opencode/12-handoff-checklist.md`](opencode/12-handoff-checklist.md)
+- [`opencode/13-stream-envelope-proposal.md`](opencode/13-stream-envelope-proposal.md)
+- [`opencode/14-cursor-migration-plan.md`](opencode/14-cursor-migration-plan.md)
+- [`opencode/15-implementation-map.md`](opencode/15-implementation-map.md)
+- [`opencode/16-event-inventory.md`](opencode/16-event-inventory.md)
+- [`opencode/17-cursor-flow-inventory.md`](opencode/17-cursor-flow-inventory.md)
+- [`opencode/18-slice-dependency-graph.md`](opencode/18-slice-dependency-graph.md)
+- [`opencode/19-slice-checklists.md`](opencode/19-slice-checklists.md)
+
 ## Reports
 
 | Report | Domain | Key Findings |
@@ -20,6 +46,11 @@
 | [11-platform-patterns.md](11-platform-patterns.md) | Cursor/Linear/Figma/Vercel/Temporal/Replit patterns | Structured stream parts; optimistic Kanban; separate presence from persistence; AsyncAPI spec |
 
 ## Consolidated Priority Actions
+
+Note: the consolidated actions below are the broad cross-report synthesis. The
+`opencode` supplement further narrows the near-term active queue to `OC-005`,
+`OC-006`, `OC-001`, `OC-004`, `OC-008`, and `OC-007`, with `OC-002` and
+`OC-003` intentionally deferred for now.
 
 ### Critical (Security)
 

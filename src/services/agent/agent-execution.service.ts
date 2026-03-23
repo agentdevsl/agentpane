@@ -17,6 +17,7 @@ import type { Result } from '../../lib/utils/result.js';
 import { err, ok } from '../../lib/utils/result.js';
 import type { Database } from '../../types/database.js';
 import type { HonchoSessionRef, MemoryService } from '../memory/index.js';
+import { createSessionEventWithMetadata } from '../session/event-metadata.js';
 import { getGlobalDefaultModel } from '../settings.service.js';
 import type { AgentQueueService } from './agent-queue.service.js';
 import type {
@@ -225,12 +226,16 @@ export class AgentExecutionService {
       return err(AgentErrors.EXECUTION_ERROR('Failed to start agent: transaction error'));
     }
 
-    await this.sessionService.publish(session.value.id, {
-      id: createId(),
-      type: 'state:update',
-      timestamp: Date.now(),
-      data: { status: 'starting', agentId, taskId: task.id },
-    });
+    await this.sessionService.publish(
+      session.value.id,
+      createSessionEventWithMetadata({
+        sessionId: session.value.id,
+        type: 'state:update',
+        partType: 'lifecycle',
+        blockId: agentId,
+        data: { status: 'starting', agentId, taskId: task.id },
+      })
+    );
 
     const controller = new AbortController();
     this.runningAgents.set(agentId, controller);
@@ -581,12 +586,16 @@ export class AgentExecutionService {
         .where(eq(agents.id, agentId));
 
       // Publish error event
-      await this.sessionService.publish(sessionId, {
-        id: createId(),
-        type: 'agent:error',
-        timestamp: Date.now(),
-        data: { agentId, error: errMsg, recovery: recovery.action },
-      });
+      await this.sessionService.publish(
+        sessionId,
+        createSessionEventWithMetadata({
+          sessionId,
+          type: 'agent:error',
+          partType: 'lifecycle',
+          blockId: agentId,
+          data: { agentId, error: errMsg, recovery: recovery.action },
+        })
+      );
 
       this.runningAgents.delete(agentId);
     }
@@ -733,12 +742,16 @@ export class AgentExecutionService {
 
     // AE-012: Renamed from 'approval:rejected' to 'agent:resumed'
     if (agent.currentSessionId) {
-      await this.sessionService.publish(agent.currentSessionId, {
-        id: createId(),
-        type: 'agent:resumed',
-        timestamp: Date.now(),
-        data: { feedback },
-      });
+      await this.sessionService.publish(
+        agent.currentSessionId,
+        createSessionEventWithMetadata({
+          sessionId: agent.currentSessionId,
+          type: 'agent:resumed',
+          partType: 'lifecycle',
+          blockId: agentId,
+          data: { feedback },
+        })
+      );
     }
 
     return ok({
@@ -778,12 +791,16 @@ export class AgentExecutionService {
           .update(agents)
           .set({ status: 'error', updatedAt: new Date().toISOString() })
           .where(eq(agents.id, agentId));
-        await this.sessionService.publish(sessionId, {
-          id: createId(),
-          type: 'agent:error',
-          timestamp: Date.now(),
-          data: { agentId, error: 'Agent not found during execution phase' },
-        });
+        await this.sessionService.publish(
+          sessionId,
+          createSessionEventWithMetadata({
+            sessionId,
+            type: 'agent:error',
+            partType: 'lifecycle',
+            blockId: agentId,
+            data: { agentId, error: 'Agent not found during execution phase' },
+          })
+        );
         this.runningAgents.delete(agentId);
         return;
       }
@@ -1022,12 +1039,16 @@ export class AgentExecutionService {
         })
         .where(eq(agents.id, agentId));
 
-      await this.sessionService.publish(sessionId, {
-        id: createId(),
-        type: 'agent:error',
-        timestamp: Date.now(),
-        data: { agentId, error: errMsg, recovery: recovery.action },
-      });
+      await this.sessionService.publish(
+        sessionId,
+        createSessionEventWithMetadata({
+          sessionId,
+          type: 'agent:error',
+          partType: 'lifecycle',
+          blockId: agentId,
+          data: { agentId, error: errMsg, recovery: recovery.action },
+        })
+      );
 
       this.runningAgents.delete(agentId);
     }

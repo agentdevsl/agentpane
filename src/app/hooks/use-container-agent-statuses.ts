@@ -1,12 +1,26 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import {
+  type ContainerAgentCancelledSessionEvent,
+  type ContainerAgentCompleteSessionEvent,
+  type ContainerAgentErrorSessionEvent,
   type ContainerAgentStarted,
+  type ContainerAgentStartedSessionEvent,
   type ContainerAgentStatus,
+  type ContainerAgentStatusSessionEvent,
   type SessionCallbacks,
   type Subscription,
   subscribeToSession,
 } from '@/lib/streams/client';
 import { useWatchEffect } from './use-watch-effect';
+
+type EventIdentity = {
+  meta?: { eventId?: string };
+  cursor?: string;
+};
+
+function getStableEventId(event: EventIdentity, fallback: string): string {
+  return event.meta?.eventId ?? event.cursor ?? fallback;
+}
 
 /**
  * Tracked status for a single agent session
@@ -53,6 +67,21 @@ export function useContainerAgentStatuses(
 ): Map<string, AgentStatusInfo> {
   const [statuses, setStatuses] = useState<Map<string, AgentStatusInfo>>(new Map());
   const subscriptionsRef = useRef<Map<string, Subscription>>(new Map());
+  const seenEventIdsRef = useRef<Map<string, Set<string>>>(new Map());
+
+  const shouldProcessEvent = useCallback((sessionId: string, eventId: string): boolean => {
+    const seenIds = seenEventIdsRef.current.get(sessionId) ?? new Set<string>();
+    if (!seenEventIdsRef.current.has(sessionId)) {
+      seenEventIdsRef.current.set(sessionId, seenIds);
+    }
+
+    if (seenIds.has(eventId)) {
+      return false;
+    }
+
+    seenIds.add(eventId);
+    return true;
+  }, []);
 
   // Handler for status events
   const handleStatus = useCallback((sessionId: string, data: ContainerAgentStatus) => {
@@ -142,18 +171,53 @@ export function useContainerAgentStatuses(
         // Subscribe
         const callbacks: SessionCallbacks = {
           onContainerAgentStatus: (event) => {
+            const eventId = getStableEventId(
+              event as ContainerAgentStatusSessionEvent,
+              `container-agent:status:${event.data.stage}:${event.data.timestamp}`
+            );
+            if (!shouldProcessEvent(sessionId, eventId)) {
+              return;
+            }
             handleStatus(sessionId, event.data);
           },
           onContainerAgentStarted: (event) => {
+            const eventId = getStableEventId(
+              event as ContainerAgentStartedSessionEvent,
+              `container-agent:started:${event.data.model}:${event.data.timestamp}`
+            );
+            if (!shouldProcessEvent(sessionId, eventId)) {
+              return;
+            }
             handleStarted(sessionId, event.data);
           },
-          onContainerAgentComplete: () => {
+          onContainerAgentComplete: (event) => {
+            const eventId = getStableEventId(
+              event as ContainerAgentCompleteSessionEvent,
+              `container-agent:complete:${event.data.status}:${event.data.turnCount}:${event.data.timestamp}`
+            );
+            if (!shouldProcessEvent(sessionId, eventId)) {
+              return;
+            }
             handleComplete(sessionId);
           },
-          onContainerAgentError: () => {
+          onContainerAgentError: (event) => {
+            const eventId = getStableEventId(
+              event as ContainerAgentErrorSessionEvent,
+              `container-agent:error:${event.data.code ?? 'unknown'}:${event.data.timestamp}`
+            );
+            if (!shouldProcessEvent(sessionId, eventId)) {
+              return;
+            }
             handleComplete(sessionId, true);
           },
-          onContainerAgentCancelled: () => {
+          onContainerAgentCancelled: (event) => {
+            const eventId = getStableEventId(
+              event as ContainerAgentCancelledSessionEvent,
+              `container-agent:cancelled:${event.data.turnCount}:${event.data.timestamp}`
+            );
+            if (!shouldProcessEvent(sessionId, eventId)) {
+              return;
+            }
             handleComplete(sessionId);
           },
         };
@@ -168,6 +232,7 @@ export function useContainerAgentStatuses(
       if (!currentSessionIds.has(sessionId)) {
         subscription.unsubscribe();
         subscriptions.delete(sessionId);
+        seenEventIdsRef.current.delete(sessionId);
         setStatuses((prev) => {
           const newMap = new Map(prev);
           newMap.delete(sessionId);
@@ -182,8 +247,9 @@ export function useContainerAgentStatuses(
         subscription.unsubscribe();
       }
       subscriptions.clear();
+      seenEventIdsRef.current.clear();
     };
-  }, [sessionsKey, handleStatus, handleStarted, handleComplete]);
+  }, [sessionsKey, handleStatus, handleStarted, handleComplete, shouldProcessEvent]);
 
   return statuses;
 }

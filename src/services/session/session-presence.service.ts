@@ -8,7 +8,6 @@
  * - getActiveUsers() - Get active users in session
  */
 
-import { createId } from '@paralleldrive/cuid2';
 import { eq } from 'drizzle-orm';
 import { sessions } from '../../db/schema';
 import type { SessionError } from '../../lib/errors/session-errors.js';
@@ -17,6 +16,7 @@ import { createLogger } from '../../lib/logging/logger.js';
 import type { Result } from '../../lib/utils/result.js';
 import { err, ok } from '../../lib/utils/result.js';
 import type { Database } from '../../types/database.js';
+import { createSessionEventWithMetadata } from './event-metadata.js';
 import type { SessionStreamService } from './session-stream.service.js';
 import type { ActiveUser, PresenceUpdate, SessionWithPresence } from './types.js';
 
@@ -73,12 +73,16 @@ export class SessionPresenceService {
     presence.set(userId, { userId, lastSeen: Date.now() });
     this.presenceStore.set(sessionId, presence);
 
-    await this.getStreamService().publish(sessionId, {
-      id: createId(),
-      type: 'presence:joined',
-      timestamp: Date.now(),
-      data: { userId },
-    });
+    await this.getStreamService().publish(
+      sessionId,
+      createSessionEventWithMetadata({
+        sessionId,
+        type: 'presence:joined',
+        partType: 'lifecycle',
+        blockId: userId,
+        data: { userId },
+      })
+    );
 
     return ok({ ...session, presence: Array.from(presence.values()) });
   }
@@ -99,12 +103,16 @@ export class SessionPresenceService {
     presence.delete(userId);
     this.presenceStore.set(sessionId, presence);
 
-    await this.getStreamService().publish(sessionId, {
-      id: createId(),
-      type: 'presence:left',
-      timestamp: Date.now(),
-      data: { userId },
-    });
+    await this.getStreamService().publish(
+      sessionId,
+      createSessionEventWithMetadata({
+        sessionId,
+        type: 'presence:left',
+        partType: 'lifecycle',
+        blockId: userId,
+        data: { userId },
+      })
+    );
 
     return ok({ ...session, presence: Array.from(presence.values()) });
   }
@@ -131,12 +139,16 @@ export class SessionPresenceService {
     presence.set(userId, { ...current, ...presenceUpdate, lastSeen: Date.now() });
     this.presenceStore.set(sessionId, presence);
 
-    await this.getStreamService().publish(sessionId, {
-      id: createId(),
-      type: 'presence:cursor',
-      timestamp: Date.now(),
-      data: { userId, ...presenceUpdate },
-    });
+    await this.getStreamService().publish(
+      sessionId,
+      createSessionEventWithMetadata({
+        sessionId,
+        type: 'presence:cursor',
+        partType: 'system',
+        blockId: userId,
+        data: { userId, ...presenceUpdate },
+      })
+    );
 
     return ok(undefined);
   }
@@ -171,12 +183,17 @@ export class SessionPresenceService {
 
           // Publish timeout event (fire-and-forget, errors are logged)
           this.getStreamService()
-            .publish(sessionId, {
-              id: createId(),
-              type: 'presence:timeout',
-              timestamp: now,
-              data: { userId },
-            })
+            .publish(
+              sessionId,
+              createSessionEventWithMetadata({
+                sessionId,
+                type: 'presence:timeout',
+                partType: 'lifecycle',
+                blockId: userId,
+                timestamp: now,
+                data: { userId },
+              })
+            )
             .catch((publishErr) => {
               log.warn('Failed to publish presence:timeout event', {
                 error: publishErr,

@@ -9,6 +9,7 @@ import {
   WarningCircle,
 } from '@phosphor-icons/react';
 import { cva } from 'class-variance-authority';
+import { memo } from 'react';
 import { cn } from '@/lib/utils/cn';
 import type { StreamLine as StreamLineData, StreamLineType } from './use-stream-parser';
 
@@ -99,38 +100,65 @@ function formatTimestamp(timestamp: number): string {
   });
 }
 
-export function StreamLine({ line, showTimestamp = true }: StreamLineProps): React.JSX.Element {
-  const config = lineTypeConfig[line.type];
-  const Icon = config.icon;
+export const StreamLine = memo(
+  function StreamLine({ line, showTimestamp = true }: StreamLineProps): React.JSX.Element {
+    const config = lineTypeConfig[line.type];
+    const Icon = config.icon;
 
-  return (
-    <div
-      className={lineContainerVariants({ type: line.type })}
-      data-testid={
-        line.type === 'tool' ? 'tool-call' : line.type === 'command' ? 'file-change' : undefined
-      }
-    >
-      {showTimestamp && (
-        <span className="flex-shrink-0 w-16 text-xs text-fg-subtle font-mono tabular-nums opacity-60 group-hover:opacity-100 transition-opacity">
-          {formatTimestamp(line.timestamp)}
-        </span>
-      )}
-      <span className={cn('flex-shrink-0 mt-0.5', config.iconClass)}>
-        <Icon className="h-3.5 w-3.5" weight="bold" />
-      </span>
-      <span
-        className={cn('flex-1 font-mono text-sm whitespace-pre-wrap break-all', config.textClass)}
+    return (
+      <div
+        className={lineContainerVariants({ type: line.type })}
+        data-durability={line.durability ?? 'unknown'}
+        data-testid={
+          line.type === 'tool' ? 'tool-call' : line.type === 'command' ? 'file-change' : undefined
+        }
       >
-        {line.content}
-      </span>
-      {line.toolName && (
-        <span className="flex-shrink-0 text-xs text-done bg-done/10 px-1.5 py-0.5 rounded font-medium">
-          {line.toolName}
+        {showTimestamp && (
+          <span className="flex-shrink-0 w-16 text-xs text-fg-subtle font-mono tabular-nums opacity-60 group-hover:opacity-100 transition-opacity">
+            {formatTimestamp(line.timestamp)}
+          </span>
+        )}
+        <span className={cn('flex-shrink-0 mt-0.5', config.iconClass)}>
+          <Icon className="h-3.5 w-3.5" weight="bold" />
         </span>
-      )}
-    </div>
-  );
-}
+        <span
+          className={cn('flex-1 font-mono text-sm whitespace-pre-wrap break-all', config.textClass)}
+        >
+          {line.content}
+        </span>
+        {line.durability && (
+          <span
+            className={cn(
+              'flex-shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide',
+              line.durability === 'durable'
+                ? 'bg-success/10 text-success'
+                : 'bg-warning/10 text-warning'
+            )}
+          >
+            {line.durability}
+          </span>
+        )}
+        {line.toolName && (
+          <span className="flex-shrink-0 text-xs text-done bg-done/10 px-1.5 py-0.5 rounded font-medium">
+            {line.toolName}
+          </span>
+        )}
+      </div>
+    );
+  },
+  (prev, next) => {
+    return (
+      prev.showTimestamp === next.showTimestamp &&
+      prev.line.id === next.line.id &&
+      prev.line.type === next.line.type &&
+      prev.line.content === next.line.content &&
+      prev.line.timestamp === next.line.timestamp &&
+      prev.line.agentId === next.line.agentId &&
+      prev.line.toolName === next.line.toolName &&
+      prev.line.durability === next.line.durability
+    );
+  }
+);
 
 // Blinking cursor for active streaming
 export function StreamCursor(): React.JSX.Element {

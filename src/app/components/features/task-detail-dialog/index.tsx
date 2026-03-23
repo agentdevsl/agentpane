@@ -109,6 +109,8 @@ export interface TaskDetailDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: (data: UpdateTaskInput) => Promise<void>;
+  /** Sync local task state after a child component auto-saves directly to the API */
+  onTaskUpdated?: (data: Partial<UpdateTaskInput>) => void;
   onDelete: (id: string) => Promise<void>;
   onMoveColumn?: (taskId: string, column: TaskColumn) => Promise<void>;
   onViewSession?: (sessionId: string) => void;
@@ -167,6 +169,7 @@ export function TaskDetailDialog({
   open,
   onOpenChange,
   onSave,
+  onTaskUpdated,
   onDelete,
   onMoveColumn,
   onViewSession,
@@ -203,10 +206,19 @@ export function TaskDetailDialog({
     []
   );
 
-  // Skill change handler - updates both skillId and skillName atomically
-  const handleSkillChange = useCallback((skillId: string | null, skillName: string | null) => {
-    setPendingChanges((prev) => ({ ...prev, skillId, skillName }));
-  }, []);
+  // Skill saved handler - updates local state after TaskSkill auto-saves to the API
+  const handleSkillSaved = useCallback(
+    (newSkillId: string | null, newSkillName: string | null) => {
+      // Clear any pending skill changes since the save already happened
+      setPendingChanges((prev) => {
+        const { skillId: _s, skillName: _n, ...rest } = prev;
+        return rest;
+      });
+      // Notify parent to sync local task state (API call already done by TaskSkill)
+      onTaskUpdated?.({ skillId: newSkillId, skillName: newSkillName });
+    },
+    [onTaskUpdated]
+  );
 
   // Save handler
   const handleSave = useCallback(async () => {
@@ -377,9 +389,10 @@ export function TaskDetailDialog({
                 {/* Skill assignment */}
                 <TaskSkill
                   codespaceId={task.codespaceId}
+                  taskId={task.id}
                   skillId={displayTask.skillId ?? null}
                   skillName={displayTask.skillName ?? null}
-                  onChange={handleSkillChange}
+                  onSaved={handleSkillSaved}
                 />
 
                 {/* Collapsible details: metadata, labels, worktree */}

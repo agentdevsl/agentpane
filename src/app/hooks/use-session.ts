@@ -20,9 +20,15 @@
  */
 import { useCallback, useEffectEvent, useRef, useState } from 'react';
 import { SessionErrors } from '@/lib/errors/session-errors';
-import type { ConnectionState, SessionCallbacks } from '@/lib/streams/client';
+import type {
+  ConnectionState,
+  SessionCallbacks,
+  StreamCursor,
+  StreamEventMetadata,
+} from '@/lib/streams/client';
 import { err, ok, type Result } from '@/lib/utils/result';
 import { useInterval } from './use-interval';
+import { useMountEffect } from './use-mount-effect';
 import { useSessionSubscription } from './use-session-subscription';
 import { useWatchEffect } from './use-watch-effect';
 
@@ -36,6 +42,8 @@ export type SessionChunk = {
   text: string;
   timestamp: number;
   agentId?: string;
+  cursor?: StreamCursor;
+  meta?: StreamEventMetadata;
 };
 
 export type SessionToolCall = {
@@ -45,12 +53,16 @@ export type SessionToolCall = {
   output?: unknown;
   status: 'pending' | 'running' | 'complete' | 'error';
   timestamp: number;
+  cursor?: StreamCursor;
+  meta?: StreamEventMetadata;
 };
 
 export type SessionTerminal = {
   type: 'input' | 'output';
   data: string;
   timestamp: number;
+  cursor?: StreamCursor;
+  meta?: StreamEventMetadata;
 };
 
 export type SessionPresence = {
@@ -73,13 +85,118 @@ export type SessionState = {
   agentState: SessionAgentState;
 };
 
-const initialState: SessionState = {
-  chunks: [],
-  toolCalls: [],
-  terminal: [],
-  presence: [],
-  agentState: null,
+type PendingSessionUpdates = {
+  chunks: SessionChunk[];
+  toolCalls: SessionToolCall[];
+  terminal: SessionTerminal[];
+  presence: SessionPresence[];
+  hasAgentState: boolean;
+  agentState: SessionAgentState;
 };
+
+type StableEventIdentity = {
+  meta?: StreamEventMetadata;
+  cursor?: StreamCursor;
+};
+
+function createInitialState(): SessionState {
+  return {
+    chunks: [],
+    toolCalls: [],
+    terminal: [],
+    presence: [],
+    agentState: null,
+  };
+}
+
+function createPendingSessionUpdates(): PendingSessionUpdates {
+  return {
+    chunks: [],
+    toolCalls: [],
+    terminal: [],
+    presence: [],
+    hasAgentState: false,
+    agentState: null,
+  };
+}
+
+function getStableEventId(
+  event: StableEventIdentity,
+  fallbackParts: Array<string | number | undefined>
+): string {
+  if (event.meta?.eventId) {
+    return event.meta.eventId;
+  }
+
+  if (event.cursor) {
+    return event.cursor;
+  }
+
+  return fallbackParts.map((part) => String(part ?? 'unknown')).join(':');
+}
+
+function applyPendingSessionUpdates(
+  prev: SessionState,
+  batch: PendingSessionUpdates
+): SessionState {
+  let nextState = prev;
+
+  if (batch.chunks.length > 0) {
+    const chunks = [...prev.chunks, ...batch.chunks];
+    nextState = {
+      ...nextState,
+      chunks: chunks.length > MAX_CHUNKS ? chunks.slice(chunks.length - MAX_CHUNKS) : chunks,
+    };
+  }
+
+  if (batch.toolCalls.length > 0) {
+    const toolCalls = [...nextState.toolCalls];
+    for (const toolCall of batch.toolCalls) {
+      const existingIndex = toolCalls.findIndex((item) => item.id === toolCall.id);
+      if (existingIndex >= 0) {
+        const existing = toolCalls[existingIndex];
+        if (existing) {
+          toolCalls[existingIndex] = {
+            ...existing,
+            ...toolCall,
+          };
+        }
+      } else {
+        toolCalls.push(toolCall);
+      }
+    }
+    nextState = { ...nextState, toolCalls };
+  }
+
+  if (batch.presence.length > 0) {
+    const presence = [...nextState.presence];
+    for (const activeUser of batch.presence) {
+      const existingIndex = presence.findIndex((item) => item.userId === activeUser.userId);
+      if (existingIndex >= 0) {
+        presence[existingIndex] = activeUser;
+      } else {
+        presence.push(activeUser);
+      }
+    }
+    nextState = { ...nextState, presence };
+  }
+
+  if (batch.terminal.length > 0) {
+    nextState = {
+      ...nextState,
+      terminal: [...nextState.terminal, ...batch.terminal],
+    };
+  }
+
+  if (batch.hasAgentState) {
+    nextState = {
+      ...nextState,
+      agentState: batch.agentState,
+    };
+  }
+
+  return nextState;
+}
 
 /** Presence heartbeat interval in ms (10 seconds per spec) */
 const PRESENCE_HEARTBEAT_INTERVAL = 10000;
@@ -93,11 +210,69 @@ export function useSession(
 ): {
   state: SessionState;
   connectionState: ConnectionState;
-  lastOffset: number;
+  lastCursor: StreamCursor | null;
   join: () => Promise<Result<void, ReturnType<typeof SessionErrors.CONNECTION_FAILED>>>;
   leave: () => Promise<Result<void, ReturnType<typeof SessionErrors.CONNECTION_FAILED>>>;
 } {
-  const [state, setState] = useState<SessionState>(initialState);
+  const [state, setState] = useState<SessionState>(createInitialState);
+  const pendingUpdatesRef = useRef<PendingSessionUpdates>(createPendingSessionUpdates());
+  const flushFrameRef = useRef<number | null>(null);
+  const seenEventIdsRef = useRef<Set<string>>(new Set());
+
+  const flushPendingUpdates = useEffectEvent(() => {
+    const batch = pendingUpdatesRef.current;
+    const hasUpdates =
+      batch.chunks.length > 0 ||
+      batch.toolCalls.length > 0 ||
+      batch.terminal.length > 0 ||
+      batch.presence.length > 0 ||
+      batch.hasAgentState;
+
+    flushFrameRef.current = null;
+
+    if (!hasUpdates) {
+      return;
+    }
+
+    pendingUpdatesRef.current = createPendingSessionUpdates();
+    setState((prev) => applyPendingSessionUpdates(prev, batch));
+  });
+
+  const scheduleFlush = useEffectEvent(() => {
+    if (flushFrameRef.current !== null) {
+      return;
+    }
+
+    flushFrameRef.current = requestAnimationFrame(() => {
+      flushPendingUpdates();
+    });
+  });
+
+  const queueChunk = useEffectEvent((chunk: SessionChunk) => {
+    pendingUpdatesRef.current.chunks.push(chunk);
+    scheduleFlush();
+  });
+
+  const queueToolCall = useEffectEvent((toolCall: SessionToolCall) => {
+    pendingUpdatesRef.current.toolCalls.push(toolCall);
+    scheduleFlush();
+  });
+
+  const queuePresence = useEffectEvent((presence: SessionPresence) => {
+    pendingUpdatesRef.current.presence.push(presence);
+    scheduleFlush();
+  });
+
+  const queueTerminal = useEffectEvent((terminal: SessionTerminal) => {
+    pendingUpdatesRef.current.terminal.push(terminal);
+    scheduleFlush();
+  });
+
+  const queueAgentState = useEffectEvent((agentState: SessionAgentState) => {
+    pendingUpdatesRef.current.hasAgentState = true;
+    pendingUpdatesRef.current.agentState = agentState;
+    scheduleFlush();
+  });
 
   const join = useCallback(async () => {
     try {
@@ -141,6 +316,16 @@ export function useSession(
   const stableJoin = useEffectEvent(() => join());
   const stableLeave = useEffectEvent(() => leave());
 
+  useMountEffect(() => {
+    return () => {
+      if (flushFrameRef.current !== null) {
+        cancelAnimationFrame(flushFrameRef.current);
+        flushFrameRef.current = null;
+      }
+      seenEventIdsRef.current.clear();
+    };
+  });
+
   // Join on mount, leave on unmount — re-run when sessionId changes
   useWatchEffect(() => {
     void stableJoin();
@@ -149,124 +334,95 @@ export function useSession(
     };
   }, [sessionId]);
 
-  // Build session-specific callbacks
-  const callbacks = useRef<SessionCallbacks>({});
+  useWatchEffect(() => {
+    if (flushFrameRef.current !== null) {
+      cancelAnimationFrame(flushFrameRef.current);
+      flushFrameRef.current = null;
+    }
+    pendingUpdatesRef.current = createPendingSessionUpdates();
+    seenEventIdsRef.current.clear();
+    setState(createInitialState());
+  }, [sessionId]);
 
   const stableOnReconnect = useEffectEvent(() => {
     console.log('[useSession] Reconnected to session stream');
-    // RS-006: Fetch missed events from the REST API on reconnect.
-    // The durable streams client tracks its last offset and will resume
-    // from there, but if the gap is too large events may be lost.
-    // Fetch missed events from the database as a safety net.
-    // FC-006: subscription is now managed by useSessionSubscription;
-    // offset tracking is internal, so we always fetch from offset 0 on reconnect.
-    const lastOff = 0;
-    if (lastOff > 0) {
-      fetch(`/api/sessions/${sessionId}/events?offset=${lastOff}`)
-        .then((res) => (res.ok ? res.json() : null))
-        .then((json) => {
-          if (!json?.ok || !Array.isArray(json.data)) return;
-          // Events are already ordered by offset from the API.
-          // Re-apply any we may have missed during the disconnect gap.
-          for (const evt of json.data) {
-            if (evt.type === 'chunk' && evt.data?.text) {
-              setState((prev) => {
-                let chunks = [...prev.chunks, { text: evt.data.text, timestamp: evt.timestamp }];
-                if (chunks.length > MAX_CHUNKS) {
-                  chunks = chunks.slice(chunks.length - MAX_CHUNKS);
-                }
-                return { ...prev, chunks };
-              });
-            }
-          }
-        })
-        .catch(() => {
-          // Best-effort -- ignore fetch errors on reconnect gap detection
-        });
-    }
+    // Durable stream resume remains the authoritative reconnect mechanism.
+    // The REST gap-healing path stays disabled until opaque stream offsets are
+    // mapped to durable DB offsets without lossy conversion.
   });
 
-  useWatchEffect(() => {
-    callbacks.current = {
-      onChunk: (event) => {
-        setState((prev) => {
-          const newChunk = {
-            text: event.data.text,
-            timestamp: event.data.timestamp,
-            agentId: event.data.agentId,
-          };
-          let chunks = [...prev.chunks, newChunk];
-          // RS-011: Cap chunks array to prevent unbounded memory growth.
-          // Slice oldest entries when overflow occurs.
-          if (chunks.length > MAX_CHUNKS) {
-            chunks = chunks.slice(chunks.length - MAX_CHUNKS);
-          }
-          return { ...prev, chunks };
-        });
-      },
+  const callbacks: SessionCallbacks = {
+    onChunk: (event) => {
+      const eventId = getStableEventId(event, [
+        'chunk',
+        event.data.timestamp,
+        event.data.agentId,
+        event.data.text,
+      ]);
+      if (seenEventIdsRef.current.has(eventId)) {
+        return;
+      }
 
-      onToolCall: (event) => {
-        setState((prev) => {
-          const existingIndex = prev.toolCalls.findIndex((t) => t.id === event.data.id);
-          if (existingIndex >= 0) {
-            const updated = [...prev.toolCalls];
-            updated[existingIndex] = {
-              ...updated[existingIndex],
-              ...event.data,
-            };
-            return { ...prev, toolCalls: updated };
-          }
-          return {
-            ...prev,
-            toolCalls: [...prev.toolCalls, event.data],
-          };
-        });
-      },
+      seenEventIdsRef.current.add(eventId);
+      queueChunk({
+        text: event.data.text,
+        timestamp: event.data.timestamp,
+        agentId: event.data.agentId,
+        cursor: event.cursor,
+        meta: event.meta,
+      });
+    },
 
-      onPresence: (event) => {
-        setState((prev) => {
-          const existingIndex = prev.presence.findIndex((p) => p.userId === event.data.userId);
-          if (existingIndex >= 0) {
-            const updated = [...prev.presence];
-            updated[existingIndex] = event.data;
-            return { ...prev, presence: updated };
-          }
-          return {
-            ...prev,
-            presence: [...prev.presence, event.data],
-          };
-        });
-      },
+    onToolCall: (event) => {
+      const fallbackToolId =
+        event.meta?.blockId ??
+        event.data.id ??
+        getStableEventId(event, ['tool', event.data.tool, event.data.status, event.data.timestamp]);
 
-      onTerminal: (event) => {
-        setState((prev) => ({
-          ...prev,
-          terminal: [...prev.terminal, event.data],
-        }));
-      },
+      queueToolCall({
+        ...event.data,
+        id: fallbackToolId,
+        cursor: event.cursor,
+        meta: event.meta,
+      });
+    },
 
-      onAgentState: (event) => {
-        setState((prev) => ({
-          ...prev,
-          agentState: event.data,
-        }));
-      },
+    onPresence: (event) => {
+      queuePresence(event.data);
+    },
 
-      onError: (error) => {
-        console.error('[useSession] Stream error:', error);
-      },
+    onTerminal: (event) => {
+      const eventId = getStableEventId(event, ['terminal', event.data.type, event.data.timestamp]);
+      if (seenEventIdsRef.current.has(eventId)) {
+        return;
+      }
 
-      onReconnect: () => {
-        stableOnReconnect();
-      },
+      seenEventIdsRef.current.add(eventId);
+      queueTerminal({
+        ...event.data,
+        cursor: event.cursor,
+        meta: event.meta,
+      });
+    },
 
-      onDisconnect: () => {
-        console.log('[useSession] Disconnected from session stream');
-      },
-    };
-  }, [sessionId]);
+    onAgentState: (event) => {
+      queueAgentState(event.data);
+    },
 
-  const { connectionState } = useSessionSubscription(sessionId, callbacks.current);
+    onError: (error) => {
+      console.error('[useSession] Stream error:', error);
+    },
+
+    onReconnect: () => {
+      stableOnReconnect();
+    },
+
+    onDisconnect: () => {
+      console.log('[useSession] Disconnected from session stream');
+    },
+  };
+
+  const { connectionState, getLastCursor } = useSessionSubscription(sessionId, callbacks);
 
   // Presence heartbeat at 10s interval (per spec)
   const heartbeat = useEffectEvent(async () => {
@@ -285,9 +441,7 @@ export function useSession(
     void heartbeat();
   }, PRESENCE_HEARTBEAT_INTERVAL);
 
-  // FC-006: lastOffset is no longer directly tracked via subscriptionRef;
-  // it is managed internally by useSessionSubscription. Return 0 for compat.
-  const lastOffset = 0;
+  const lastCursor = getLastCursor();
 
-  return { state, connectionState, lastOffset, join, leave };
+  return { state, connectionState, lastCursor, join, leave };
 }

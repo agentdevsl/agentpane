@@ -101,6 +101,7 @@ export type ListSessionsWithFiltersOptions = {
 export type GetEventsBySessionOptions = {
   limit?: number;
   offset?: number;
+  afterEventId?: string;
 };
 
 export type SessionWithPresence = {

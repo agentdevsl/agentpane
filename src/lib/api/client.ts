@@ -588,10 +588,14 @@ export const apiClient = {
 
     get: (id: string) => apiServerFetch<unknown>(`/api/sessions/${id}`),
 
-    getEvents: (id: string, params?: { limit?: number; offset?: number }) => {
+    getEvents: (
+      id: string,
+      params?: { limit?: number; offset?: number; afterEventId?: string }
+    ) => {
       const searchParams = new URLSearchParams();
       if (params?.limit) searchParams.set('limit', String(params.limit));
       if (params?.offset) searchParams.set('offset', String(params.offset));
+      if (params?.afterEventId) searchParams.set('afterEventId', params.afterEventId);
       const query = searchParams.toString();
       // Use apiServerFetch to hit the Bun API server directly
       return apiServerFetch<Array<{ id: string; type: string; timestamp: number; data: unknown }>>(

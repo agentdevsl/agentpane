@@ -19,14 +19,11 @@ export interface StreamLine {
   timestamp: number;
   agentId?: string;
   toolName?: string;
+  durability?: 'transient' | 'durable';
 }
 
 // ANSI escape code regex
 const ANSI_REGEX = /\x1b\[[0-9;]*m/g;
-
-function generateId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-}
 
 function stripAnsiCodes(text: string): string {
   return text.replace(ANSI_REGEX, '');
@@ -92,19 +89,25 @@ function detectLineType(text: string): StreamLineType {
   return 'output';
 }
 
-function parseTextToLines(text: string, timestamp: number, agentId?: string): StreamLine[] {
+function parseTextToLines(
+  text: string,
+  timestamp: number,
+  baseId: string,
+  agentId?: string
+): StreamLine[] {
   const lines: StreamLine[] = [];
   const textLines = text.split('\n');
 
-  for (const line of textLines) {
+  for (const [lineIndex, line] of textLines.entries()) {
     if (line.length === 0) continue;
 
     lines.push({
-      id: generateId(),
+      id: `${baseId}:line:${lineIndex}`,
       type: detectLineType(line),
       content: stripAnsiCodes(line),
       timestamp,
       agentId,
+      durability: undefined,
     });
   }
 
@@ -127,7 +130,9 @@ function formatToolOutput(output: unknown): string {
 
 interface StreamEvent {
   _source: 'chunk' | 'tool' | 'terminal';
+  _eventId: string;
   timestamp: number;
+  durability?: 'transient' | 'durable';
   // Chunk fields
   text?: string;
   agentId?: string;
@@ -141,6 +146,114 @@ interface StreamEvent {
   data?: string;
 }
 
+type NormalizedChunkEvent = SessionChunk & {
+  _eventId: string;
+  _groupId: string;
+};
+
+type ChunkBlock = {
+  id: string;
+  text: string;
+  timestamp: number;
+  agentId?: string;
+  durability?: 'transient' | 'durable';
+};
+
+function getStableEventId(
+  baseType: 'chunk' | 'tool' | 'terminal',
+  fallbackParts: Array<string | number | undefined>,
+  meta?: { eventId?: string | undefined },
+  cursor?: string
+): string {
+  if (meta?.eventId) {
+    return meta.eventId;
+  }
+
+  if (cursor) {
+    return `${baseType}:${cursor}`;
+  }
+
+  return `${baseType}:${fallbackParts.map((part) => String(part ?? 'unknown')).join(':')}`;
+}
+
+function compareChunkSequence(a: NormalizedChunkEvent, b: NormalizedChunkEvent): number {
+  const aSequence = a.meta?.sequence;
+  const bSequence = b.meta?.sequence;
+
+  if (typeof aSequence === 'number' && typeof bSequence === 'number' && aSequence !== bSequence) {
+    return aSequence - bSequence;
+  }
+
+  if (a.timestamp !== b.timestamp) {
+    return a.timestamp - b.timestamp;
+  }
+
+  return a._eventId.localeCompare(b._eventId);
+}
+
+function normalizeChunkEvents(chunks: SessionChunk[]): NormalizedChunkEvent[] {
+  return chunks.map((chunk) => {
+    const eventId = getStableEventId(
+      'chunk',
+      [chunk.timestamp, chunk.agentId],
+      chunk.meta,
+      chunk.cursor
+    );
+    const blockId = chunk.meta?.blockId;
+
+    return {
+      ...chunk,
+      _eventId: eventId,
+      _groupId: blockId ? `chunk:block:${blockId}` : `chunk:event:${eventId}`,
+    };
+  });
+}
+
+function buildChunkBlock(events: NormalizedChunkEvent[]): ChunkBlock | null {
+  if (events.length === 0) {
+    return null;
+  }
+
+  const ordered = [...events].sort(compareChunkSequence);
+  const durableEvent = [...ordered]
+    .filter((event) => event.meta?.durability === 'durable')
+    .sort((a, b) => b.timestamp - a.timestamp)[0];
+  const canonical = durableEvent ?? ordered[0];
+  const firstEvent = ordered[0];
+
+  if (!canonical || !firstEvent) {
+    return null;
+  }
+
+  const text = durableEvent ? durableEvent.text : ordered.map((event) => event.text).join('');
+  if (text.length === 0) {
+    return null;
+  }
+
+  return {
+    id: firstEvent._groupId,
+    text,
+    timestamp: firstEvent.timestamp,
+    agentId: canonical.agentId ?? firstEvent.agentId,
+    durability: durableEvent?.meta?.durability ?? ordered[ordered.length - 1]?.meta?.durability,
+  };
+}
+
+function groupChunkBlocks(chunks: SessionChunk[]): ChunkBlock[] {
+  const blocks = new Map<string, NormalizedChunkEvent[]>();
+
+  for (const chunk of normalizeChunkEvents(chunks)) {
+    const group = blocks.get(chunk._groupId) ?? [];
+    group.push(chunk);
+    blocks.set(chunk._groupId, group);
+  }
+
+  return [...blocks.values()]
+    .map(buildChunkBlock)
+    .filter((block): block is ChunkBlock => block !== null)
+    .sort((a, b) => a.timestamp - b.timestamp);
+}
+
 export function useStreamParser(
   chunks: SessionChunk[],
   toolCalls: SessionToolCall[],
@@ -148,70 +261,98 @@ export function useStreamParser(
 ): StreamLine[] {
   return useMemo(() => {
     const lines: StreamLine[] = [];
+    const chunkBlocks = groupChunkBlocks(chunks);
 
     // Merge and sort all events by timestamp
     const allEvents: StreamEvent[] = [
-      ...chunks.map((c) => ({
-        ...c,
+      ...chunkBlocks.map((chunkBlock) => ({
+        text: chunkBlock.text,
+        timestamp: chunkBlock.timestamp,
+        agentId: chunkBlock.agentId,
         _source: 'chunk' as const,
+        durability: chunkBlock.durability,
+        _eventId: chunkBlock.id,
       })),
-      ...toolCalls.map((t) => ({
-        ...t,
+      ...toolCalls.map((toolCall) => ({
+        ...toolCall,
         _source: 'tool' as const,
+        durability: toolCall.meta?.durability,
+        _eventId: getStableEventId(
+          'tool',
+          [toolCall.id, toolCall.timestamp],
+          toolCall.meta,
+          toolCall.cursor
+        ),
       })),
-      ...terminal.map((t) => ({
-        ...t,
+      ...terminal.map((terminalEvent) => ({
+        ...terminalEvent,
         _source: 'terminal' as const,
+        durability: terminalEvent.meta?.durability,
+        _eventId: getStableEventId(
+          'terminal',
+          [terminalEvent.timestamp, terminalEvent.type],
+          terminalEvent.meta,
+          terminalEvent.cursor
+        ),
       })),
     ].sort((a, b) => a.timestamp - b.timestamp);
 
     for (const event of allEvents) {
       if (event._source === 'chunk') {
-        // Parse chunk text into lines
-        const textLines = parseTextToLines(event.text ?? '', event.timestamp, event.agentId);
+        const textLines = parseTextToLines(
+          event.text ?? '',
+          event.timestamp,
+          event._eventId,
+          event.agentId
+        ).map((line) => ({
+          ...line,
+          durability: event.durability,
+        }));
         lines.push(...textLines);
       } else if (event._source === 'tool') {
-        // Tool call start/result
         if (event.status === 'running') {
           lines.push({
-            id: `${event.id}-start`,
+            id: `${event._eventId}:start`,
             type: 'tool',
             content: `-> ${event.tool}`,
             timestamp: event.timestamp,
             agentId: event.agentId,
             toolName: event.tool,
+            durability: event.durability,
           });
         } else if (event.status === 'complete') {
           const output = formatToolOutput(event.output);
           if (output) {
             lines.push({
-              id: `${event.id}-result`,
+              id: `${event._eventId}:result`,
               type: 'output',
               content: output,
               timestamp: event.timestamp,
               agentId: event.agentId,
               toolName: event.tool,
+              durability: event.durability,
             });
           }
         } else if (event.status === 'error') {
           lines.push({
-            id: `${event.id}-error`,
+            id: `${event._eventId}:error`,
             type: 'error',
             content: formatToolOutput(event.output) || 'Tool execution failed',
             timestamp: event.timestamp,
             agentId: event.agentId,
             toolName: event.tool,
+            durability: event.durability,
           });
         }
       } else if (event._source === 'terminal') {
-        // Terminal I/O
         const terminalType: StreamLineType = event.type === 'input' ? 'command' : 'output';
         if (event.data) {
           lines.push({
-            id: generateId(),
+            id: `${event._eventId}:line`,
             type: terminalType,
             content: stripAnsiCodes(event.data),
             timestamp: event.timestamp,
+            durability: event.durability,
           });
         }
       }
