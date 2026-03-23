@@ -28,7 +28,6 @@ Recommended entry points:
 - [`opencode/17-cursor-flow-inventory.md`](opencode/17-cursor-flow-inventory.md)
 - [`opencode/18-slice-dependency-graph.md`](opencode/18-slice-dependency-graph.md)
 - [`opencode/19-slice-checklists.md`](opencode/19-slice-checklists.md)
-- [`opencode/19-slice-checklists.md`](opencode/19-slice-checklists.md)
 
 ## Reports
 

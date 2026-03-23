@@ -36,7 +36,6 @@ fits for AgentPane right now.
 | `17-cursor-flow-inventory.md` | Current reconnect-path inventory | Shows where opaque cursor identity is currently preserved or lost for `OC-006` |
 | `18-slice-dependency-graph.md` | First-tranche dependency map | Shows which `OC-005` and `OC-006` slices block or enable the others |
 | `19-slice-checklists.md` | Per-slice ready/done checklist | Gives implementation-ready checklists for each `OC-005` and `OC-006` slice |
-| `19-slice-checklists.md` | Per-slice ready/done checklist | Gives implementation-ready checklists for each `OC-005` and `OC-006` slice |
 
 ## Executive Summary
 
@@ -108,7 +107,6 @@ fits for AgentPane right now.
 17. Use `docs/research/opencode/16-event-inventory.md` to migrate current event families toward the new envelope.
 18. Use `docs/research/opencode/17-cursor-flow-inventory.md` to identify where cursor correctness is currently lost.
 19. Use `docs/research/opencode/18-slice-dependency-graph.md` to sequence `OC-005` and `OC-006` safely.
-20. Use `docs/research/opencode/19-slice-checklists.md` to track ready and done states for each slice.
 20. Use `docs/research/opencode/19-slice-checklists.md` to track ready and done states for each slice.
 
 ## Key Themes
