@@ -3,6 +3,8 @@ import { desc, eq } from 'drizzle-orm';
 import { sessionEvents } from '../db/schema';
 import { type AppError, createError } from '../lib/errors/base.js';
 import {
+  requirePayloadStreamMetadata,
+  STREAM_PROTOCOL_MIGRATION_GATE,
   type StreamEventMetadata,
   type StreamPartType,
   streamEventMetadataSchema,
@@ -509,6 +511,14 @@ export class DurableStreamsService {
     private db?: Database
   ) {}
 
+  private createProtocolMismatchError(type: string, reason: string, message: string): AppError {
+    return createError('STREAM_PROTOCOL_MISMATCH', message, 409, {
+      gate: STREAM_PROTOCOL_MIGRATION_GATE,
+      type,
+      reason,
+    });
+  }
+
   /**
    * Map event type to channel for database storage.
    * Channels group related events (e.g., all container-agent events go to 'containerAgent').
@@ -640,7 +650,26 @@ export class DurableStreamsService {
     try {
       const timestamp = Date.now();
       const payload = this.ensurePayloadMetadata(streamId, type, data, timestamp);
+      const metadataResult = requirePayloadStreamMetadata(payload, `Stream event '${type}'`);
+      if (!metadataResult.ok) {
+        return err(
+          this.createProtocolMismatchError(
+            type,
+            metadataResult.error.code,
+            metadataResult.error.message
+          )
+        );
+      }
       const payloadMeta = this.extractPayloadMeta(payload);
+      if (payloadMeta && payloadMeta.streamId !== streamId) {
+        return err(
+          this.createProtocolMismatchError(
+            type,
+            'CONFLICTING_METADATA',
+            `Stream event '${type}' targets stream '${payloadMeta.streamId}' but was published to '${streamId}'.`
+          )
+        );
+      }
       const eventId = payloadMeta?.eventId ?? createId();
 
       // Persist to database FIRST (ensures durability), then publish to Caddy
@@ -893,6 +922,29 @@ export class DurableStreamsService {
 
     try {
       const timestamp = event.timestamp || Date.now();
+      const metadataResult = requirePayloadStreamMetadata(
+        event.data,
+        `Session event '${event.type}'`
+      );
+      if (!metadataResult.ok) {
+        return err(
+          this.createProtocolMismatchError(
+            event.type,
+            metadataResult.error.code,
+            metadataResult.error.message
+          )
+        );
+      }
+
+      if (metadataResult.value.streamId !== streamId) {
+        return err(
+          this.createProtocolMismatchError(
+            event.type,
+            'CONFLICTING_METADATA',
+            `Session event '${event.type}' targets stream '${metadataResult.value.streamId}' but was published to '${streamId}'.`
+          )
+        );
+      }
 
       if (this.db) {
         await this.persistToDb(

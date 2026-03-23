@@ -151,7 +151,20 @@ describe('DurableStreamsService', () => {
       expect(result.ok).toBe(true);
 
       // Server should be called
-      expect(mockServer.publish).toHaveBeenCalledWith(sessionId, 'plan:started', data);
+      expect(mockServer.publish).toHaveBeenCalledWith(
+        sessionId,
+        'plan:started',
+        expect.objectContaining({
+          sessionId,
+          taskId: 'task-1',
+          codespaceId,
+          meta: expect.objectContaining({
+            schemaVersion: 1,
+            streamId: sessionId,
+            partType: 'lifecycle',
+          }),
+        })
+      );
 
       // Should persist to DB
       const db = getTestDb();
@@ -159,9 +172,9 @@ describe('DurableStreamsService', () => {
         where: eq(sessionEvents.sessionId, sessionId),
       });
       expect(events).toHaveLength(1);
-      expect(events[0].type).toBe('plan:started');
-      expect(events[0].channel).toBe('plan');
-      expect(events[0].offset).toBe(0);
+      expect(events[0]?.type).toBe('plan:started');
+      expect(events[0]?.channel).toBe('plan');
+      expect(events[0]?.offset).toBe(0);
       if (result.ok) expect(result.value).toBe(0);
     });
 
@@ -186,8 +199,8 @@ describe('DurableStreamsService', () => {
         where: eq(sessionEvents.sessionId, sessionId),
       });
       expect(events).toHaveLength(2);
-      expect(events[0].offset).toBe(0);
-      expect(events[1].offset).toBe(1);
+      expect(events[0]?.offset).toBe(0);
+      expect(events[1]?.offset).toBe(1);
     });
 
     it('returns error when streamId is empty', async () => {
@@ -223,7 +236,7 @@ describe('DurableStreamsService', () => {
         where: eq(sessionEvents.sessionId, sessionId),
       });
       expect(events).toHaveLength(1);
-      expect(events[0].type).toBe('sandbox:creating');
+      expect(events[0]?.type).toBe('sandbox:creating');
     });
 
     it('uses server offset when no DB is configured', async () => {
@@ -241,6 +254,30 @@ describe('DurableStreamsService', () => {
       expect(result.ok).toBe(true);
       if (result.ok) expect(result.value).toBe(42);
     });
+
+    it('blocks typed stream publishes when payload metadata conflicts with the envelope gate', async () => {
+      const result = await service.publish(sessionId, 'plan:started', {
+        sessionId,
+        taskId: 'task-1',
+        codespaceId,
+        meta: {
+          schemaVersion: 1,
+          eventId: 'evt-conflict',
+          streamId: 'other-stream',
+          blockId: null,
+          partType: 'lifecycle',
+          durability: 'durable',
+          sequence: null,
+          createdAt: '2026-03-23T00:00:00.000Z',
+        },
+      } as never);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('STREAM_PROTOCOL_MISMATCH');
+      }
+      expect(mockServer.publish).not.toHaveBeenCalled();
+    });
   });
 
   // ============================================
@@ -253,20 +290,43 @@ describe('DurableStreamsService', () => {
         id: 'evt-1',
         type: 'chunk' as const,
         timestamp: Date.now(),
-        data: { text: 'hello' },
+        data: {
+          text: 'hello',
+          meta: {
+            schemaVersion: 1,
+            eventId: 'evt-1',
+            streamId: sessionId,
+            blockId: 'block-1',
+            partType: 'chunk_end',
+            durability: 'durable',
+            sequence: null,
+            createdAt: '2026-03-23T00:00:00.000Z',
+          },
+        },
       };
 
       await service.publishSessionEvent(sessionId, event);
 
-      expect(mockServer.publish).toHaveBeenCalledWith(sessionId, 'chunk', { text: 'hello' });
+      expect(mockServer.publish).toHaveBeenCalledWith(
+        sessionId,
+        'chunk',
+        expect.objectContaining({
+          text: 'hello',
+          meta: expect.objectContaining({
+            schemaVersion: 1,
+            eventId: 'evt-1',
+            streamId: sessionId,
+          }),
+        })
+      );
 
       const db = getTestDb();
       const events = await db.query.sessionEvents.findMany({
         where: eq(sessionEvents.sessionId, sessionId),
       });
       expect(events).toHaveLength(1);
-      expect(events[0].type).toBe('chunk');
-      expect(events[0].channel).toBe('session');
+      expect(events[0]?.type).toBe('chunk');
+      expect(events[0]?.channel).toBe('session');
     });
 
     it('returns error when streamId is empty', async () => {
@@ -282,6 +342,21 @@ describe('DurableStreamsService', () => {
       }
     });
 
+    it('blocks legacy session event publishes that omit structured metadata', async () => {
+      const result = await service.publishSessionEvent(sessionId, {
+        id: 'evt-legacy',
+        type: 'chunk',
+        timestamp: Date.now(),
+        data: { text: 'legacy chunk' },
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('STREAM_PROTOCOL_MISMATCH');
+      }
+      expect(mockServer.publish).not.toHaveBeenCalled();
+    });
+
     it('survives caddy failure for session events', async () => {
       const failServer = createMockServer({
         publish: vi.fn().mockRejectedValue(new Error('timeout')),
@@ -293,7 +368,19 @@ describe('DurableStreamsService', () => {
         id: 'evt-2',
         type: 'tool:start',
         timestamp: Date.now(),
-        data: { toolName: 'Read' },
+        data: {
+          toolName: 'Read',
+          meta: {
+            schemaVersion: 1,
+            eventId: 'evt-2',
+            streamId: sessionId,
+            blockId: 'tool-1',
+            partType: 'tool_start',
+            durability: 'durable',
+            sequence: null,
+            createdAt: '2026-03-23T00:00:00.000Z',
+          },
+        },
       });
       expect(result.ok).toBe(true);
 
@@ -313,13 +400,34 @@ describe('DurableStreamsService', () => {
         id: 'evt-3',
         type: 'agent:started',
         timestamp: Date.now(),
-        data: { agentId: 'a1' },
+        data: {
+          agentId: 'a1',
+          meta: {
+            schemaVersion: 1,
+            eventId: 'evt-3',
+            streamId: sessionId,
+            blockId: 'a1',
+            partType: 'lifecycle',
+            durability: 'durable',
+            sequence: null,
+            createdAt: '2026-03-23T00:00:00.000Z',
+          },
+        },
       });
       expect(result.ok).toBe(true);
 
-      expect(serverOnly.publish).toHaveBeenCalledWith(sessionId, 'agent:started', {
-        agentId: 'a1',
-      });
+      expect(serverOnly.publish).toHaveBeenCalledWith(
+        sessionId,
+        'agent:started',
+        expect.objectContaining({
+          agentId: 'a1',
+          meta: expect.objectContaining({
+            schemaVersion: 1,
+            eventId: 'evt-3',
+            streamId: sessionId,
+          }),
+        })
+      );
     });
   });
 
@@ -337,7 +445,7 @@ describe('DurableStreamsService', () => {
       const events = await db.query.sessionEvents.findMany({
         where: eq(sessionEvents.sessionId, sessionId),
       });
-      expect(events[0].channel).toBe('plan');
+      expect(events[0]?.channel).toBe('plan');
     });
 
     it('maps sandbox: events to sandbox channel', async () => {
@@ -351,7 +459,7 @@ describe('DurableStreamsService', () => {
       const events = await db.query.sessionEvents.findMany({
         where: eq(sessionEvents.sessionId, sessionId),
       });
-      expect(events[0].channel).toBe('sandbox');
+      expect(events[0]?.channel).toBe('sandbox');
     });
 
     it('maps task-creation: events to taskCreation channel', async () => {
@@ -364,7 +472,7 @@ describe('DurableStreamsService', () => {
       const events = await db.query.sessionEvents.findMany({
         where: eq(sessionEvents.sessionId, sessionId),
       });
-      expect(events[0].channel).toBe('taskCreation');
+      expect(events[0]?.channel).toBe('taskCreation');
     });
 
     it('maps container-agent: events to containerAgent channel', async () => {
@@ -379,7 +487,7 @@ describe('DurableStreamsService', () => {
       const events = await db.query.sessionEvents.findMany({
         where: eq(sessionEvents.sessionId, sessionId),
       });
-      expect(events[0].channel).toBe('containerAgent');
+      expect(events[0]?.channel).toBe('containerAgent');
     });
 
     it('maps topology: events to topology channel', async () => {
@@ -394,7 +502,7 @@ describe('DurableStreamsService', () => {
       const events = await db.query.sessionEvents.findMany({
         where: eq(sessionEvents.sessionId, sessionId),
       });
-      expect(events[0].channel).toBe('topology');
+      expect(events[0]?.channel).toBe('topology');
     });
 
     it('maps terraform: events to terraform channel', async () => {
@@ -407,7 +515,7 @@ describe('DurableStreamsService', () => {
       const events = await db.query.sessionEvents.findMany({
         where: eq(sessionEvents.sessionId, sessionId),
       });
-      expect(events[0].channel).toBe('terraform');
+      expect(events[0]?.channel).toBe('terraform');
     });
   });
 

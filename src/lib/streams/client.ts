@@ -21,9 +21,9 @@ import type {
 } from '../../app/hooks/use-session';
 import {
   cursorToApproxOffset,
-  normalizeStreamWireEvent,
+  getPayloadStreamMetadata,
+  normalizeStructuredStreamWireEvent,
   type StreamEventMetadata,
-  streamEventMetadataSchema,
 } from './envelope';
 
 // Re-export types for convenience
@@ -66,12 +66,7 @@ const rawTerminalDataSchema = z.object({
 });
 
 function extractPayloadMeta(data: unknown): StreamEventMetadata | undefined {
-  if (!data || typeof data !== 'object' || !('meta' in data)) {
-    return undefined;
-  }
-
-  const parsed = streamEventMetadataSchema.safeParse(data.meta);
-  return parsed.success ? parsed.data : undefined;
+  return getPayloadStreamMetadata(data) ?? undefined;
 }
 
 const rawAgentStateDataSchema = z.object({
@@ -804,10 +799,12 @@ export class DurableStreamsClient {
 
           for (const item of items) {
             try {
-              const wireEvent = normalizeStreamWireEvent(item);
-              if (!wireEvent) {
+              const wireEventResult = normalizeStructuredStreamWireEvent(item);
+              if (!wireEventResult.ok) {
+                callbacks.onError?.(new Error(wireEventResult.error.message));
                 continue;
               }
+              const wireEvent = wireEventResult.value;
 
               const rawEvent: RawSessionEvent = {
                 type: wireEvent.type as SessionEventType,

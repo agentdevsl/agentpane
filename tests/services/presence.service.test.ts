@@ -71,7 +71,17 @@ describe('Presence Service', () => {
         expect(result.value.presence[0]?.lastSeen).toBeDefined();
         expect(typeof result.value.presence[0]?.lastSeen).toBe('number');
       }
-      expect(streams.publish).toHaveBeenCalledWith('s1', 'presence:joined', { userId: 'user1' });
+      expect(streams.publish).toHaveBeenCalledWith(
+        's1',
+        'presence:joined',
+        expect.objectContaining({
+          userId: 'user1',
+          meta: expect.objectContaining({
+            streamId: 's1',
+            partType: 'lifecycle',
+          }),
+        })
+      );
     });
 
     it('tracks user disconnecting from a session', async () => {
@@ -93,7 +103,17 @@ describe('Presence Service', () => {
       if (result.ok) {
         expect(result.value.presence).toHaveLength(0);
       }
-      expect(streams.publish).toHaveBeenCalledWith('s1', 'presence:left', { userId: 'user1' });
+      expect(streams.publish).toHaveBeenCalledWith(
+        's1',
+        'presence:left',
+        expect.objectContaining({
+          userId: 'user1',
+          meta: expect.objectContaining({
+            streamId: 's1',
+            partType: 'lifecycle',
+          }),
+        })
+      );
     });
 
     it('updates user presence data with cursor and active file', async () => {
@@ -115,11 +135,19 @@ describe('Presence Service', () => {
       });
 
       expect(result.ok).toBe(true);
-      expect(streams.publish).toHaveBeenCalledWith('s1', 'presence:cursor', {
-        userId: 'user1',
-        cursor: { x: 150, y: 300 },
-        activeFile: 'src/components/App.tsx',
-      });
+      expect(streams.publish).toHaveBeenCalledWith(
+        's1',
+        'presence:cursor',
+        expect.objectContaining({
+          userId: 'user1',
+          cursor: { x: 150, y: 300 },
+          activeFile: 'src/components/App.tsx',
+          meta: expect.objectContaining({
+            streamId: 's1',
+            partType: 'system',
+          }),
+        })
+      );
     });
 
     it('tracks multiple users joining the same session', async () => {
@@ -500,7 +528,17 @@ describe('Presence Service', () => {
 
       await service.join('bc-s1', 'user1');
 
-      expect(streams.publish).toHaveBeenCalledWith('bc-s1', 'presence:joined', { userId: 'user1' });
+      expect(streams.publish).toHaveBeenCalledWith(
+        'bc-s1',
+        'presence:joined',
+        expect.objectContaining({
+          userId: 'user1',
+          meta: expect.objectContaining({
+            streamId: 'bc-s1',
+            partType: 'lifecycle',
+          }),
+        })
+      );
     });
 
     it('broadcasts presence:left event when user leaves', async () => {
@@ -515,7 +553,17 @@ describe('Presence Service', () => {
       vi.clearAllMocks();
       await service.leave('bc-s2', 'user1');
 
-      expect(streams.publish).toHaveBeenCalledWith('bc-s2', 'presence:left', { userId: 'user1' });
+      expect(streams.publish).toHaveBeenCalledWith(
+        'bc-s2',
+        'presence:left',
+        expect.objectContaining({
+          userId: 'user1',
+          meta: expect.objectContaining({
+            streamId: 'bc-s2',
+            partType: 'lifecycle',
+          }),
+        })
+      );
     });
 
     it('broadcasts presence:cursor event when presence is updated', async () => {
@@ -534,11 +582,19 @@ describe('Presence Service', () => {
         activeFile: 'src/index.ts',
       });
 
-      expect(streams.publish).toHaveBeenCalledWith('bc-s3', 'presence:cursor', {
-        userId: 'user1',
-        cursor: { x: 500, y: 250 },
-        activeFile: 'src/index.ts',
-      });
+      expect(streams.publish).toHaveBeenCalledWith(
+        'bc-s3',
+        'presence:cursor',
+        expect.objectContaining({
+          userId: 'user1',
+          cursor: { x: 500, y: 250 },
+          activeFile: 'src/index.ts',
+          meta: expect.objectContaining({
+            streamId: 'bc-s3',
+            partType: 'system',
+          }),
+        })
+      );
     });
 
     it('handles stream publish failure gracefully for join', async () => {
@@ -642,9 +698,17 @@ describe('Presence Service', () => {
       await service.join('int-s1', 'user1');
 
       // The publish should be called
-      expect(streams.publish).toHaveBeenCalledWith('int-s1', 'presence:joined', {
-        userId: 'user1',
-      });
+      expect(streams.publish).toHaveBeenCalledWith(
+        'int-s1',
+        'presence:joined',
+        expect.objectContaining({
+          userId: 'user1',
+          meta: expect.objectContaining({
+            streamId: 'int-s1',
+            partType: 'lifecycle',
+          }),
+        })
+      );
     });
 
     it('includes presence in session with presence type', async () => {

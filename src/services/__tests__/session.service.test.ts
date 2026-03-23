@@ -2,6 +2,20 @@ import { describe, expect, it, vi } from 'vitest';
 import { SessionErrors } from '../../lib/errors/session-errors.js';
 import { SessionService } from '../session.service.js';
 
+const structuredChunkPayload = {
+  text: 'hi',
+  meta: {
+    schemaVersion: 1,
+    eventId: 'e1',
+    streamId: 's1',
+    blockId: 'block-1',
+    partType: 'chunk_end',
+    durability: 'durable',
+    sequence: null,
+    createdAt: '2026-03-23T00:00:00.000Z',
+  },
+} as const;
+
 const createDbMock = () => ({
   query: {
     codespaces: { findFirst: vi.fn() },
@@ -64,6 +78,7 @@ describe('SessionService', () => {
   it('publishes events via streams', async () => {
     const db = createDbMock();
     const streams = createStreamsMock();
+    db.query.sessions.findFirst.mockResolvedValue({ id: 's1' });
 
     const service = new SessionService(db as never, streams as never, {
       baseUrl: 'http://localhost:3000',
@@ -73,11 +88,33 @@ describe('SessionService', () => {
       id: 'e1',
       type: 'chunk',
       timestamp: 1,
-      data: { text: 'hi' },
+      data: structuredChunkPayload,
     });
 
     expect(result.ok).toBe(true);
     expect(streams.publish).toHaveBeenCalled();
+  });
+
+  it('blocks session events that omit structured metadata via the migration gate', async () => {
+    const db = createDbMock();
+    const streams = createStreamsMock();
+
+    const service = new SessionService(db as never, streams as never, {
+      baseUrl: 'http://localhost:3000',
+    });
+
+    const result = await service.publish('s1', {
+      id: 'e1',
+      type: 'chunk',
+      timestamp: 1,
+      data: { text: 'legacy' },
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('SESSION_STREAM_PROTOCOL_MISMATCH');
+    }
+    expect(streams.publish).not.toHaveBeenCalled();
   });
 
   it('subscribe yields events', async () => {
@@ -459,6 +496,7 @@ describe('SessionService', () => {
   it('publish succeeds even when streams fail (RS-013: DB-first, stream is best-effort)', async () => {
     const db = createDbMock();
     const streams = createStreamsMock();
+    db.query.sessions.findFirst.mockResolvedValue({ id: 's1' });
     streams.publish.mockRejectedValue(new Error('stream error'));
 
     const service = new SessionService(db as never, streams as never, {
@@ -469,7 +507,7 @@ describe('SessionService', () => {
       id: 'e1',
       type: 'chunk',
       timestamp: 1,
-      data: { text: 'hi' },
+      data: structuredChunkPayload,
     });
 
     // RS-013: With DB-first persistence, stream publish failure is best-effort.

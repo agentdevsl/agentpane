@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createStreamPayloadWithMetadata } from '../../src/services/session/event-metadata';
 import type {
   DurableStreamsServer,
   SessionEvent,
@@ -36,6 +37,23 @@ describe('SessionService', () => {
   afterEach(async () => {
     await clearTestDatabase();
   });
+
+  function withMeta(
+    sessionId: string,
+    data: Record<string, unknown>,
+    partType: Parameters<typeof createStreamPayloadWithMetadata>[0]['partType'],
+    eventId: string,
+    blockId?: string | null
+  ): Record<string, unknown> {
+    return createStreamPayloadWithMetadata({
+      streamId: sessionId,
+      data,
+      partType,
+      eventId,
+      blockId,
+      timestamp: Date.now(),
+    });
+  }
 
   // =============================================================================
   // Session Creation (5 tests)
@@ -235,7 +253,7 @@ describe('SessionService', () => {
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value.presence.length).toBe(1);
-        expect(result.value.presence[0].userId).toBe('user-1');
+        expect(result.value.presence[0]?.userId).toBe('user-1');
         expect(mockStreams.publish).toHaveBeenCalledWith(
           session.id,
           'presence:joined',
@@ -386,7 +404,7 @@ describe('SessionService', () => {
         id: 'evt-1',
         type: 'chunk',
         timestamp: Date.now(),
-        data: { text: 'Hello world' },
+        data: withMeta(sessionId, { text: 'Hello world' }, 'chunk_end', 'evt-1', 'chunk-1'),
       };
 
       const result = await sessionService.publish(sessionId, event);
@@ -408,7 +426,7 @@ describe('SessionService', () => {
         id: 'evt-1',
         type: 'chunk',
         timestamp: Date.now(),
-        data: { text: 'Hello world' },
+        data: withMeta(sessionId, { text: 'Hello world' }, 'chunk_end', 'evt-1', 'chunk-1'),
       };
 
       const result = await sessionService.publish(sessionId, event);
@@ -429,7 +447,13 @@ describe('SessionService', () => {
         id: 'evt-1',
         type: 'tool:start',
         timestamp: Date.now(),
-        data: { tool: 'Read', input: { path: '/file.ts' } },
+        data: withMeta(
+          sessionId,
+          { tool: 'Read', input: { path: '/file.ts' } },
+          'tool_start',
+          'evt-1',
+          'tool-1'
+        ),
       };
 
       const result = await sessionService.publish(sessionId, event);
@@ -449,7 +473,7 @@ describe('SessionService', () => {
         id: 'evt-1',
         type: 'terminal:output',
         timestamp: Date.now(),
-        data: { output: 'Hello from terminal' },
+        data: withMeta(sessionId, { output: 'Hello from terminal' }, 'system', 'evt-1'),
       };
 
       const result = await sessionService.publish(sessionId, event);
@@ -486,7 +510,7 @@ describe('SessionService', () => {
         id: 'hist-evt-1',
         type: 'chunk',
         timestamp: startTime,
-        data: { text: 'hello' },
+        data: withMeta(session.id, { text: 'hello' }, 'chunk_end', 'hist-evt-1', 'chunk-1'),
       };
       await sessionService.publish(session.id, event);
       // publish() persists asynchronously — wait for the fire-and-forget persist
@@ -497,7 +521,7 @@ describe('SessionService', () => {
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value.length).toBeGreaterThanOrEqual(1);
-        expect(result.value[0].type).toBe('chunk');
+        expect(result.value[0]?.type).toBe('chunk');
       }
     });
 
@@ -510,7 +534,7 @@ describe('SessionService', () => {
         id: 'sub-evt-1',
         type: 'chunk',
         timestamp: Date.now(),
-        data: { text: 'hello' },
+        data: withMeta(session.id, { text: 'hello' }, 'chunk_end', 'sub-evt-1', 'chunk-1'),
       };
       await sessionService.publish(session.id, event);
       // publish() persists asynchronously — wait for the fire-and-forget persist
@@ -526,7 +550,7 @@ describe('SessionService', () => {
 
       // Should get history events (1 persisted event)
       expect(events.length).toBeGreaterThanOrEqual(1);
-      expect(events[0].type).toBe('chunk');
+      expect(events[0]?.type).toBe('chunk');
     });
   });
 
@@ -584,7 +608,13 @@ describe('SessionService', () => {
         id: 'evt-persist-1',
         type: 'chunk',
         timestamp: Date.now(),
-        data: { text: 'Persisted event' },
+        data: withMeta(
+          sessionId,
+          { text: 'Persisted event' },
+          'chunk_end',
+          'evt-persist-1',
+          'chunk-1'
+        ),
       };
 
       const result = await sessionService.persistEvent(sessionId, event);
@@ -608,14 +638,14 @@ describe('SessionService', () => {
         id: 'evt-1',
         type: 'chunk',
         timestamp: Date.now(),
-        data: { text: 'First' },
+        data: withMeta(sessionId, { text: 'First' }, 'chunk_end', 'evt-1', 'chunk-1'),
       };
 
       const event2: SessionEvent = {
         id: 'evt-2',
         type: 'chunk',
         timestamp: Date.now(),
-        data: { text: 'Second' },
+        data: withMeta(sessionId, { text: 'Second' }, 'chunk_end', 'evt-2', 'chunk-2'),
       };
 
       const result1 = await sessionService.persistEvent(sessionId, event1);
@@ -634,7 +664,7 @@ describe('SessionService', () => {
         id: 'evt-1',
         type: 'chunk',
         timestamp: Date.now(),
-        data: { text: 'Test' },
+        data: withMeta('non-existent-id', { text: 'Test' }, 'chunk_end', 'evt-1', 'chunk-1'),
       };
 
       const result = await sessionService.persistEvent('non-existent-id', event);
@@ -658,13 +688,13 @@ describe('SessionService', () => {
         id: 'evt-1',
         type: 'chunk',
         timestamp: Date.now(),
-        data: { text: 'Event 1' },
+        data: withMeta(sessionId, { text: 'Event 1' }, 'chunk_end', 'evt-1', 'chunk-1'),
       });
       await sessionService.persistEvent(sessionId, {
         id: 'evt-2',
         type: 'tool:start',
         timestamp: Date.now(),
-        data: { tool: 'Read' },
+        data: withMeta(sessionId, { tool: 'Read' }, 'tool_start', 'evt-2', 'tool-1'),
       });
 
       const result = await sessionService.getEventsBySession(sessionId);
@@ -672,8 +702,8 @@ describe('SessionService', () => {
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value.length).toBe(2);
-        expect(result.value[0].type).toBe('chunk');
-        expect(result.value[1].type).toBe('tool:start');
+        expect(result.value[0]?.type).toBe('chunk');
+        expect(result.value[1]?.type).toBe('tool:start');
       }
     });
 
@@ -691,7 +721,7 @@ describe('SessionService', () => {
           id: `evt-${i}`,
           type: 'chunk',
           timestamp: Date.now(),
-          data: { text: `Event ${i}` },
+          data: withMeta(sessionId, { text: `Event ${i}` }, 'chunk_end', `evt-${i}`, `chunk-${i}`),
         });
       }
 
@@ -703,8 +733,8 @@ describe('SessionService', () => {
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value.length).toBe(2);
-        expect(result.value[0].id).toBe('evt-1');
-        expect(result.value[1].id).toBe('evt-2');
+        expect(result.value[0]?.id).toBe('evt-1');
+        expect(result.value[1]?.id).toBe('evt-2');
       }
     });
 
@@ -885,7 +915,7 @@ describe('SessionService', () => {
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value.sessions.length).toBe(1);
-        expect(result.value.sessions[0].title).toBe('Recent Session');
+        expect(result.value.sessions[0]?.title).toBe('Recent Session');
       }
     });
 
@@ -942,7 +972,7 @@ describe('SessionService', () => {
         id: 'evt-chunk',
         type: 'chunk',
         timestamp: Date.now(),
-        data: { text: 'test' },
+        data: withMeta(sessionId, { text: 'test' }, 'chunk_end', 'evt-chunk', 'chunk-1'),
       });
 
       const events = await sessionService.getEventsBySession(sessionId);
@@ -961,14 +991,20 @@ describe('SessionService', () => {
         id: 'evt-tool',
         type: 'tool:start',
         timestamp: Date.now(),
-        data: { tool: 'Read' },
+        data: withMeta(sessionId, { tool: 'Read' }, 'tool_start', 'evt-tool', 'tool-1'),
       });
 
       await sessionService.persistEvent(sessionId, {
         id: 'evt-tool-result',
         type: 'tool:result',
         timestamp: Date.now(),
-        data: { result: 'content' },
+        data: withMeta(
+          sessionId,
+          { result: 'content' },
+          'tool_result',
+          'evt-tool-result',
+          'tool-1'
+        ),
       });
 
       const events = await sessionService.getEventsBySession(sessionId);
@@ -990,7 +1026,7 @@ describe('SessionService', () => {
         id: 'evt-terminal',
         type: 'terminal:input',
         timestamp: Date.now(),
-        data: { input: 'ls -la' },
+        data: withMeta(sessionId, { input: 'ls -la' }, 'system', 'evt-terminal'),
       });
 
       const events = await sessionService.getEventsBySession(sessionId);
@@ -1009,7 +1045,7 @@ describe('SessionService', () => {
         id: 'evt-presence',
         type: 'presence:joined',
         timestamp: Date.now(),
-        data: { userId: 'user-1' },
+        data: withMeta(sessionId, { userId: 'user-1' }, 'lifecycle', 'evt-presence', 'user-1'),
       });
 
       const events = await sessionService.getEventsBySession(sessionId);
@@ -1028,21 +1064,39 @@ describe('SessionService', () => {
         id: 'evt-approval-req',
         type: 'approval:requested',
         timestamp: Date.now(),
-        data: { tool: 'Bash', command: 'rm -rf /' },
+        data: withMeta(
+          sessionId,
+          { tool: 'Bash', command: 'rm -rf /' },
+          'lifecycle',
+          'evt-approval-req',
+          'approval-1'
+        ),
       });
 
       await sessionService.persistEvent(sessionId, {
         id: 'evt-approval-approved',
         type: 'approval:approved',
         timestamp: Date.now(),
-        data: { approvedBy: 'user-1' },
+        data: withMeta(
+          sessionId,
+          { approvedBy: 'user-1' },
+          'lifecycle',
+          'evt-approval-approved',
+          'approval-1'
+        ),
       });
 
       await sessionService.persistEvent(sessionId, {
         id: 'evt-agent-resumed',
         type: 'agent:resumed',
         timestamp: Date.now(),
-        data: { feedback: 'Continue with changes' },
+        data: withMeta(
+          sessionId,
+          { feedback: 'Continue with changes' },
+          'lifecycle',
+          'evt-agent-resumed',
+          'agent-1'
+        ),
       });
 
       const events = await sessionService.getEventsBySession(sessionId);
@@ -1072,9 +1126,15 @@ describe('SessionService', () => {
       for (let i = 0; i < agentEventTypes.length; i++) {
         await sessionService.persistEvent(sessionId, {
           id: `evt-agent-${i}`,
-          type: agentEventTypes[i],
+          type: agentEventTypes[i]!,
           timestamp: Date.now(),
-          data: { agentId: 'agent-1' },
+          data: withMeta(
+            sessionId,
+            { agentId: 'agent-1' },
+            'lifecycle',
+            `evt-agent-${i}`,
+            'agent-1'
+          ),
         });
       }
 
@@ -1097,7 +1157,7 @@ describe('SessionService', () => {
         id: 'evt-state',
         type: 'state:update',
         timestamp: Date.now(),
-        data: { status: 'running', turn: 5 },
+        data: withMeta(sessionId, { status: 'running', turn: 5 }, 'system', 'evt-state', 'state-1'),
       });
 
       const events = await sessionService.getEventsBySession(sessionId);
@@ -1123,7 +1183,7 @@ describe('SessionService', () => {
         id: 'evt-1',
         type: 'chunk',
         timestamp: Date.now(),
-        data: { text: 'test' },
+        data: withMeta(sessionId, { text: 'test' }, 'chunk_end', 'evt-1', 'chunk-1'),
       });
 
       // Verify summary was created
@@ -1152,14 +1212,14 @@ describe('SessionService', () => {
         id: 'evt-1',
         type: 'chunk',
         timestamp: Date.now(),
-        data: { text: 'First' },
+        data: withMeta(sessionId, { text: 'First' }, 'chunk_end', 'evt-1', 'chunk-1'),
       });
 
       await sessionService.persistEvent(sessionId, {
         id: 'evt-2',
         type: 'chunk',
         timestamp: Date.now(),
-        data: { text: 'Second' },
+        data: withMeta(sessionId, { text: 'Second' }, 'chunk_end', 'evt-2', 'chunk-2'),
       });
 
       // Summary should still exist and be updated

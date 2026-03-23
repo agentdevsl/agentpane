@@ -1,5 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+function createMeta(streamId: string, eventId: string, partType: string, blockId?: string | null) {
+  return {
+    schemaVersion: 1,
+    eventId,
+    streamId,
+    blockId: blockId ?? null,
+    partType,
+    durability: 'durable',
+    sequence: null,
+    createdAt: '2026-03-23T00:00:00.000Z',
+  };
+}
+
 type StreamTextChunk = {
   offset?: string;
   text: string;
@@ -309,11 +322,91 @@ describe('DurableStreamsClient', () => {
 
     controller.emit({
       offset: '1_0',
-      items: [{ type: 'chunk', data: { text: 'Hello world' }, timestamp: Date.now() }],
+      items: [
+        {
+          type: 'chunk',
+          data: { text: 'Hello world' },
+          timestamp: Date.now(),
+          meta: createMeta('sess-chunk', 'evt-chunk-1', 'chunk_end', 'chunk-1'),
+        },
+      ],
     });
 
     expect(chunks).toHaveLength(1);
     expect((chunks[0] as { data: { text: string } }).data.text).toBe('Hello world');
+
+    sub.unsubscribe();
+  });
+
+  it('blocks legacy wire events that omit structured metadata', async () => {
+    const { DurableStreamsClient, setStreamsAvailable } = await import(
+      '../../../src/lib/streams/client'
+    );
+    setStreamsAvailable(true);
+
+    const chunks: unknown[] = [];
+    const errors: string[] = [];
+    const client = new DurableStreamsClient({ url: '/v1/stream/sessions' });
+    const sub = client.subscribeToSession('sess-legacy-blocked', {
+      onChunk: (e) => chunks.push(e),
+      onError: (error) => errors.push(error.message),
+    });
+
+    await flushPromises();
+    const controller = durableMocks.controllers[0];
+
+    controller.emit({
+      offset: '1_0',
+      items: [{ type: 'chunk', data: { text: 'legacy chunk' }, timestamp: Date.now() }],
+    });
+
+    expect(chunks).toHaveLength(0);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('structured-envelope-only migration gate');
+
+    sub.unsubscribe();
+  });
+
+  it('accepts payload-level structured metadata through the migration gate', async () => {
+    const { DurableStreamsClient, setStreamsAvailable } = await import(
+      '../../../src/lib/streams/client'
+    );
+    setStreamsAvailable(true);
+
+    const chunks: Array<{ meta?: { eventId?: string } }> = [];
+    const client = new DurableStreamsClient({ url: '/v1/stream/sessions' });
+    const sub = client.subscribeToSession('sess-payload-meta', {
+      onChunk: (e) => chunks.push(e as { meta?: { eventId?: string } }),
+    });
+
+    await flushPromises();
+    const controller = durableMocks.controllers[0];
+
+    controller.emit({
+      offset: '1_1',
+      items: [
+        {
+          type: 'chunk',
+          data: {
+            text: 'payload metadata chunk',
+            meta: {
+              schemaVersion: 1,
+              eventId: 'evt-payload-only',
+              streamId: 'sess-payload-meta',
+              blockId: 'block-payload-only',
+              partType: 'chunk_delta',
+              durability: 'transient',
+              sequence: 0,
+              createdAt: new Date().toISOString(),
+            },
+          },
+          timestamp: Date.now(),
+        },
+      ],
+    });
+
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]?.meta?.eventId).toBe('evt-payload-only');
 
     sub.unsubscribe();
   });
@@ -340,6 +433,7 @@ describe('DurableStreamsClient', () => {
           type: 'tool:start',
           data: { id: 'tool-1', tool: 'read_file', input: { path: '/x' } },
           timestamp: Date.now(),
+          meta: createMeta('sess-tool', 'evt-tool-start-1', 'tool_start', 'tool-1'),
         },
       ],
     });
@@ -373,6 +467,7 @@ describe('DurableStreamsClient', () => {
           type: 'tool:result',
           data: { id: 'tool-1', tool: 'read_file', output: 'file contents' },
           timestamp: Date.now(),
+          meta: createMeta('sess-tool-result', 'evt-tool-result-1', 'tool_result', 'tool-1'),
         },
       ],
     });
@@ -460,7 +555,14 @@ describe('DurableStreamsClient', () => {
 
     controller.emit({
       offset: '4_0',
-      items: [{ type: 'presence:joined', data: { userId: 'user-1' }, timestamp: Date.now() }],
+      items: [
+        {
+          type: 'presence:joined',
+          data: { userId: 'user-1' },
+          timestamp: Date.now(),
+          meta: createMeta('sess-presence', 'evt-presence-1', 'lifecycle', 'user-1'),
+        },
+      ],
     });
 
     expect(presences).toHaveLength(1);
@@ -490,6 +592,7 @@ describe('DurableStreamsClient', () => {
           type: 'state:update',
           data: { agentId: 'a-1', status: 'running', turn: 3 },
           timestamp: Date.now(),
+          meta: createMeta('sess-state', 'evt-state-1', 'lifecycle', 'a-1'),
         },
       ],
     });
@@ -526,6 +629,7 @@ describe('DurableStreamsClient', () => {
             message: 'Starting agent',
           },
           timestamp: Date.now(),
+          meta: createMeta('sess-ca-status', 'evt-ca-status-1', 'lifecycle', 't-1'),
         },
       ],
     });
@@ -562,6 +666,7 @@ describe('DurableStreamsClient', () => {
             delta: 'Hello',
           },
           timestamp: Date.now(),
+          meta: createMeta('sess-ca-token', 'evt-ca-token-1', 'chunk_delta', 't-1'),
         },
       ],
     });
@@ -598,6 +703,7 @@ describe('DurableStreamsClient', () => {
             turnCount: 5,
           },
           timestamp: Date.now(),
+          meta: createMeta('sess-ca-complete', 'evt-ca-complete-1', 'lifecycle', 't-1'),
         },
       ],
     });
@@ -634,6 +740,7 @@ describe('DurableStreamsClient', () => {
             turnCount: 2,
           },
           timestamp: Date.now(),
+          meta: createMeta('sess-ca-error', 'evt-ca-error-1', 'lifecycle', 't-1'),
         },
       ],
     });
@@ -670,6 +777,7 @@ describe('DurableStreamsClient', () => {
             turnCount: 3,
           },
           timestamp: Date.now(),
+          meta: createMeta('sess-ca-plan', 'evt-ca-plan-1', 'lifecycle', 't-1'),
         },
       ],
     });
@@ -706,6 +814,7 @@ describe('DurableStreamsClient', () => {
             parentId: null,
           },
           timestamp: Date.now(),
+          meta: createMeta('sess-topo', 'evt-topo-spawn-1', 'lifecycle', 'a-1'),
         },
       ],
     });
@@ -740,6 +849,7 @@ describe('DurableStreamsClient', () => {
             status: 'completed',
           },
           timestamp: Date.now(),
+          meta: createMeta('sess-topo-done', 'evt-topo-complete-1', 'lifecycle', 'a-1'),
         },
       ],
     });
@@ -768,7 +878,12 @@ describe('DurableStreamsClient', () => {
       offset: '1_0',
       items: [
         { type: 'connected', data: {}, timestamp: Date.now() },
-        { type: 'chunk', data: { text: 'after connect' }, timestamp: Date.now() },
+        {
+          type: 'chunk',
+          data: { text: 'after connect' },
+          timestamp: Date.now(),
+          meta: createMeta('sess-connected-evt', 'evt-connected-chunk-1', 'chunk_end', 'chunk-1'),
+        },
       ],
     });
 
@@ -838,6 +953,63 @@ describe('DurableStreamsClient', () => {
     sub.unsubscribe();
   });
 
+  it('blocks conflicting wire and payload metadata during event parsing', async () => {
+    const { DurableStreamsClient, setStreamsAvailable } = await import(
+      '../../../src/lib/streams/client'
+    );
+    setStreamsAvailable(true);
+
+    const chunks: unknown[] = [];
+    const errors: string[] = [];
+    const client = new DurableStreamsClient({ url: '/v1/stream/sessions' });
+    const sub = client.subscribeToSession('sess-conflicting-meta', {
+      onChunk: (e) => chunks.push(e),
+      onError: (error) => errors.push(error.message),
+    });
+
+    await flushPromises();
+    const controller = durableMocks.controllers[0];
+
+    controller.emit({
+      offset: '1_2',
+      items: [
+        {
+          type: 'chunk',
+          data: {
+            text: 'conflicting chunk',
+            meta: {
+              schemaVersion: 1,
+              eventId: 'evt-payload',
+              streamId: 'sess-conflicting-meta',
+              blockId: 'block-1',
+              partType: 'chunk_delta',
+              durability: 'transient',
+              sequence: 0,
+              createdAt: '2026-03-23T00:00:00.000Z',
+            },
+          },
+          meta: {
+            schemaVersion: 1,
+            eventId: 'evt-wire',
+            streamId: 'sess-conflicting-meta',
+            blockId: 'block-1',
+            partType: 'chunk_delta',
+            durability: 'transient',
+            sequence: 0,
+            createdAt: '2026-03-23T00:00:00.000Z',
+          },
+          timestamp: Date.now(),
+        },
+      ],
+    });
+
+    expect(chunks).toHaveLength(0);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('conflicting wire and payload metadata');
+
+    sub.unsubscribe();
+  });
+
   it('processes multiple events in a single batch', async () => {
     const { DurableStreamsClient, setStreamsAvailable } = await import(
       '../../../src/lib/streams/client'
@@ -858,9 +1030,24 @@ describe('DurableStreamsClient', () => {
     controller.emit({
       offset: '3_0',
       items: [
-        { type: 'chunk', data: { text: 'Hello' }, timestamp: Date.now() },
-        { type: 'tool:start', data: { tool: 'bash', id: 't-1' }, timestamp: Date.now() },
-        { type: 'chunk', data: { text: ' World' }, timestamp: Date.now() },
+        {
+          type: 'chunk',
+          data: { text: 'Hello' },
+          timestamp: Date.now(),
+          meta: createMeta('sess-multi', 'evt-multi-chunk-1', 'chunk_end', 'chunk-1'),
+        },
+        {
+          type: 'tool:start',
+          data: { tool: 'bash', id: 't-1' },
+          timestamp: Date.now(),
+          meta: createMeta('sess-multi', 'evt-multi-tool-1', 'tool_start', 't-1'),
+        },
+        {
+          type: 'chunk',
+          data: { text: ' World' },
+          timestamp: Date.now(),
+          meta: createMeta('sess-multi', 'evt-multi-chunk-2', 'chunk_end', 'chunk-2'),
+        },
       ],
     });
 
@@ -979,7 +1166,14 @@ describe('reconnection behavior', () => {
     // Emit data to go back to connected
     controller?.emit({
       offset: '1_0',
-      items: [{ type: 'chunk', data: { text: 'hi' }, timestamp: Date.now() }],
+      items: [
+        {
+          type: 'chunk',
+          data: { text: 'hi' },
+          timestamp: Date.now(),
+          meta: createMeta('sess-resume-cursor', 'evt-resume-1', 'chunk_end', 'chunk-1'),
+        },
+      ],
     });
 
     expect(reconnectSpy).toHaveBeenCalledTimes(1);
@@ -1092,7 +1286,12 @@ describe('reconnection behavior', () => {
     firstController?.emit({
       offset: 'opaque_100',
       items: [
-        { type: 'chunk', data: { text: 'hello' }, timestamp: Date.now() },
+        {
+          type: 'chunk',
+          data: { text: 'hello' },
+          timestamp: Date.now(),
+          meta: createMeta('sess-mixed-resume', 'evt-mixed-chunk-1', 'chunk_end', 'chunk-1'),
+        },
         {
           type: 'tool:start',
           data: { tool: 'bash', input: { command: 'pwd' } },
@@ -1137,7 +1336,12 @@ describe('reconnection behavior', () => {
             createdAt: new Date().toISOString(),
           },
         },
-        { type: 'chunk', data: { text: ' world' }, timestamp: Date.now() },
+        {
+          type: 'chunk',
+          data: { text: ' world' },
+          timestamp: Date.now(),
+          meta: createMeta('sess-mixed-resume', 'evt-mixed-chunk-2', 'chunk_end', 'chunk-2'),
+        },
       ],
     });
 
@@ -1183,7 +1387,14 @@ describe('shared subscription fan-out', () => {
     const controller = durableMocks.controllers[0];
     controller.emit({
       offset: '1_0',
-      items: [{ type: 'chunk', data: { text: 'shared!' }, timestamp: Date.now() }],
+      items: [
+        {
+          type: 'chunk',
+          data: { text: 'shared!' },
+          timestamp: Date.now(),
+          meta: createMeta('shared-session', 'evt-shared-1', 'chunk_end', 'chunk-1'),
+        },
+      ],
     });
 
     expect(chunks1).toHaveLength(1);
@@ -1227,7 +1438,14 @@ describe('shared subscription fan-out', () => {
     const controller = durableMocks.controllers[0];
     controller.emit({
       offset: '1_0',
-      items: [{ type: 'chunk', data: { text: 'still alive' }, timestamp: Date.now() }],
+      items: [
+        {
+          type: 'chunk',
+          data: { text: 'still alive' },
+          timestamp: Date.now(),
+          meta: createMeta('keep-alive', 'evt-keepalive-1', 'chunk_end', 'chunk-1'),
+        },
+      ],
     });
 
     expect(chunks).toHaveLength(1);

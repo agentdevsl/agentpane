@@ -154,7 +154,8 @@ export const StreamLine = memo(
       prev.line.content === next.line.content &&
       prev.line.timestamp === next.line.timestamp &&
       prev.line.agentId === next.line.agentId &&
-      prev.line.toolName === next.line.toolName
+      prev.line.toolName === next.line.toolName &&
+      prev.line.durability === next.line.durability
     );
   }
 );
