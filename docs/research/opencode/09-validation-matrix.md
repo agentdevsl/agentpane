@@ -35,6 +35,12 @@ The goal is simple: do not call the tranche done just because the code compiles.
 - Client-side tests that stable IDs survive parsing and mapping.
 - Regression coverage for mixed old/new event payload handling if coexistence is supported.
 
+Current tranche status:
+
+- Covered now: shared envelope parsing, durable-stream metadata propagation, task-creation tool events, agent resume metadata, stable tool identity parsing, and live-consumer replay dedupe.
+- Covered now: shared envelope parsing, durable-stream metadata propagation, task-creation tool events, agent resume metadata, stable tool identity parsing, live-consumer replay dedupe, and transcript durability label rendering in the main agent session stream.
+- Still missing or incomplete: explicit automated coverage for `blockId`/`sequence`-aware transcript grouping semantics and a hard old/new protocol migration gate.
+
 ### `OC-005` Manual verification
 
 - Start a normal agent run and confirm the transcript surfaces stable event identity.
@@ -58,6 +64,11 @@ The goal is simple: do not call the tranche done just because the code compiles.
 - Tests that reconnect no longer resets to `0`.
 - Regression coverage for duplicate and gap scenarios.
 - Tests for refresh-driven catch-up behavior where feasible.
+
+Current tranche status:
+
+- Covered now: opaque cursor preservation, clean-close reconnect resume, transient reconnect mixed chunk/tool replay, session-history refresh via `afterEventId`, and replay dedupe in major live consumers.
+- Manual verification remains required for reconnect/refresh continuity before calling the tranche fully complete.
 
 ### `OC-006` Manual verification
 

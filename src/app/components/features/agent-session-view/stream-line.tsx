@@ -108,6 +108,7 @@ export const StreamLine = memo(
     return (
       <div
         className={lineContainerVariants({ type: line.type })}
+        data-durability={line.durability ?? 'unknown'}
         data-testid={
           line.type === 'tool' ? 'tool-call' : line.type === 'command' ? 'file-change' : undefined
         }
@@ -125,6 +126,18 @@ export const StreamLine = memo(
         >
           {line.content}
         </span>
+        {line.durability && (
+          <span
+            className={cn(
+              'flex-shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide',
+              line.durability === 'durable'
+                ? 'bg-success/10 text-success'
+                : 'bg-warning/10 text-warning'
+            )}
+          >
+            {line.durability}
+          </span>
+        )}
         {line.toolName && (
           <span className="flex-shrink-0 text-xs text-done bg-done/10 px-1.5 py-0.5 rounded font-medium">
             {line.toolName}

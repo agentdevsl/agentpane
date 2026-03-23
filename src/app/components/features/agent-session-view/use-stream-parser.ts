@@ -19,6 +19,7 @@ export interface StreamLine {
   timestamp: number;
   agentId?: string;
   toolName?: string;
+  durability?: 'transient' | 'durable';
 }
 
 // ANSI escape code regex
@@ -106,6 +107,7 @@ function parseTextToLines(
       content: stripAnsiCodes(line),
       timestamp,
       agentId,
+      durability: undefined,
     });
   }
 
@@ -130,6 +132,7 @@ interface StreamEvent {
   _source: 'chunk' | 'tool' | 'terminal';
   _eventId: string;
   timestamp: number;
+  durability?: 'transient' | 'durable';
   // Chunk fields
   text?: string;
   agentId?: string;
@@ -142,6 +145,19 @@ interface StreamEvent {
   type?: 'input' | 'output';
   data?: string;
 }
+
+type NormalizedChunkEvent = SessionChunk & {
+  _eventId: string;
+  _groupId: string;
+};
+
+type ChunkBlock = {
+  id: string;
+  text: string;
+  timestamp: number;
+  agentId?: string;
+  durability?: 'transient' | 'durable';
+};
 
 function getStableEventId(
   baseType: 'chunk' | 'tool' | 'terminal',
@@ -160,6 +176,84 @@ function getStableEventId(
   return `${baseType}:${fallbackParts.map((part) => String(part ?? 'unknown')).join(':')}`;
 }
 
+function compareChunkSequence(a: NormalizedChunkEvent, b: NormalizedChunkEvent): number {
+  const aSequence = a.meta?.sequence;
+  const bSequence = b.meta?.sequence;
+
+  if (typeof aSequence === 'number' && typeof bSequence === 'number' && aSequence !== bSequence) {
+    return aSequence - bSequence;
+  }
+
+  if (a.timestamp !== b.timestamp) {
+    return a.timestamp - b.timestamp;
+  }
+
+  return a._eventId.localeCompare(b._eventId);
+}
+
+function normalizeChunkEvents(chunks: SessionChunk[]): NormalizedChunkEvent[] {
+  return chunks.map((chunk) => {
+    const eventId = getStableEventId(
+      'chunk',
+      [chunk.timestamp, chunk.agentId],
+      chunk.meta,
+      chunk.cursor
+    );
+    const blockId = chunk.meta?.blockId;
+
+    return {
+      ...chunk,
+      _eventId: eventId,
+      _groupId: blockId ? `chunk:block:${blockId}` : `chunk:event:${eventId}`,
+    };
+  });
+}
+
+function buildChunkBlock(events: NormalizedChunkEvent[]): ChunkBlock | null {
+  if (events.length === 0) {
+    return null;
+  }
+
+  const ordered = [...events].sort(compareChunkSequence);
+  const durableEvent = [...ordered]
+    .filter((event) => event.meta?.durability === 'durable')
+    .sort((a, b) => b.timestamp - a.timestamp)[0];
+  const canonical = durableEvent ?? ordered[0];
+  const firstEvent = ordered[0];
+
+  if (!canonical || !firstEvent) {
+    return null;
+  }
+
+  const text = durableEvent ? durableEvent.text : ordered.map((event) => event.text).join('');
+  if (text.length === 0) {
+    return null;
+  }
+
+  return {
+    id: firstEvent._groupId,
+    text,
+    timestamp: firstEvent.timestamp,
+    agentId: canonical.agentId ?? firstEvent.agentId,
+    durability: durableEvent?.meta?.durability ?? ordered[ordered.length - 1]?.meta?.durability,
+  };
+}
+
+function groupChunkBlocks(chunks: SessionChunk[]): ChunkBlock[] {
+  const blocks = new Map<string, NormalizedChunkEvent[]>();
+
+  for (const chunk of normalizeChunkEvents(chunks)) {
+    const group = blocks.get(chunk._groupId) ?? [];
+    group.push(chunk);
+    blocks.set(chunk._groupId, group);
+  }
+
+  return [...blocks.values()]
+    .map(buildChunkBlock)
+    .filter((block): block is ChunkBlock => block !== null)
+    .sort((a, b) => a.timestamp - b.timestamp);
+}
+
 export function useStreamParser(
   chunks: SessionChunk[],
   toolCalls: SessionToolCall[],
@@ -167,22 +261,22 @@ export function useStreamParser(
 ): StreamLine[] {
   return useMemo(() => {
     const lines: StreamLine[] = [];
+    const chunkBlocks = groupChunkBlocks(chunks);
 
     // Merge and sort all events by timestamp
     const allEvents: StreamEvent[] = [
-      ...chunks.map((chunk) => ({
-        ...chunk,
+      ...chunkBlocks.map((chunkBlock) => ({
+        text: chunkBlock.text,
+        timestamp: chunkBlock.timestamp,
+        agentId: chunkBlock.agentId,
         _source: 'chunk' as const,
-        _eventId: getStableEventId(
-          'chunk',
-          [chunk.timestamp, chunk.agentId],
-          chunk.meta,
-          chunk.cursor
-        ),
+        durability: chunkBlock.durability,
+        _eventId: chunkBlock.id,
       })),
       ...toolCalls.map((toolCall) => ({
         ...toolCall,
         _source: 'tool' as const,
+        durability: toolCall.meta?.durability,
         _eventId: getStableEventId(
           'tool',
           [toolCall.id, toolCall.timestamp],
@@ -193,6 +287,7 @@ export function useStreamParser(
       ...terminal.map((terminalEvent) => ({
         ...terminalEvent,
         _source: 'terminal' as const,
+        durability: terminalEvent.meta?.durability,
         _eventId: getStableEventId(
           'terminal',
           [terminalEvent.timestamp, terminalEvent.type],
@@ -209,7 +304,10 @@ export function useStreamParser(
           event.timestamp,
           event._eventId,
           event.agentId
-        );
+        ).map((line) => ({
+          ...line,
+          durability: event.durability,
+        }));
         lines.push(...textLines);
       } else if (event._source === 'tool') {
         if (event.status === 'running') {
@@ -220,6 +318,7 @@ export function useStreamParser(
             timestamp: event.timestamp,
             agentId: event.agentId,
             toolName: event.tool,
+            durability: event.durability,
           });
         } else if (event.status === 'complete') {
           const output = formatToolOutput(event.output);
@@ -231,6 +330,7 @@ export function useStreamParser(
               timestamp: event.timestamp,
               agentId: event.agentId,
               toolName: event.tool,
+              durability: event.durability,
             });
           }
         } else if (event.status === 'error') {
@@ -241,6 +341,7 @@ export function useStreamParser(
             timestamp: event.timestamp,
             agentId: event.agentId,
             toolName: event.tool,
+            durability: event.durability,
           });
         }
       } else if (event._source === 'terminal') {
@@ -251,6 +352,7 @@ export function useStreamParser(
             type: terminalType,
             content: stripAnsiCodes(event.data),
             timestamp: event.timestamp,
+            durability: event.durability,
           });
         }
       }

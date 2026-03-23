@@ -111,6 +111,25 @@ If implementation starts tomorrow, these are the most likely first places to cha
 4. `src/app/hooks/use-session.ts`
 5. `src/app/components/features/agent-session-view/use-stream-parser.ts`
 
+## Current Progress Notes
+
+- Landed core `OC-005`/`OC-006` work now spans:
+  - `src/lib/streams/envelope.ts`
+  - `src/services/session/event-metadata.ts`
+  - `src/services/durable-streams.service.ts`
+  - `src/lib/streams/client.ts`
+  - `src/app/hooks/use-session-subscription.ts`
+  - `src/app/hooks/use-session.ts`
+  - `src/app/hooks/use-agent-stream.ts`
+  - `src/app/hooks/use-container-agent.ts`
+  - `src/app/hooks/use-container-agent-statuses.ts`
+  - `src/app/hooks/use-topology-stream.ts`
+  - `src/app/components/features/live-task-view/audit-trail-panel.tsx`
+  - `src/app/components/features/task-detail-dialog/use-task-activity.ts`
+  - `src/app/components/features/session-history/session-history.tsx`
+- The main remaining `OC-005` target from this map is deeper parser/rendering work around `blockId`, `sequence`, and transcript trust semantics in `src/app/components/features/agent-session-view/use-stream-parser.ts` and nearby surfaces.
+- The main remaining `OC-006` target is manual reconnect/refresh verification rather than a major unimplemented code path.
+
 ## Things To Avoid
 
 - Do not spread compatibility logic across every consumer.
