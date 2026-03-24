@@ -1342,7 +1342,10 @@ describe('ContainerAgentService', () => {
 
     it('stores plan in pendingPlans map for fast retrieval', async () => {
       const project = await createTestProject();
-      const task = await createTestTask(project.id, { title: 'Plan cache test' });
+      const task = await createTestTask(project.id, {
+        title: 'Plan cache test',
+        column: 'in_progress',
+      });
 
       await service.startAgent({
         codespaceId: project.id,
@@ -1366,7 +1369,10 @@ describe('ContainerAgentService', () => {
 
     it('removes agent from runningAgents after plan ready', async () => {
       const project = await createTestProject();
-      const task = await createTestTask(project.id, { title: 'Plan cleanup' });
+      const task = await createTestTask(project.id, {
+        title: 'Plan cleanup',
+        column: 'in_progress',
+      });
 
       await service.startAgent({
         codespaceId: project.id,

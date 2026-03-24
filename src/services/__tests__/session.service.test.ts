@@ -242,6 +242,9 @@ describe('SessionService', () => {
     const db = createDbMock();
     const streams = createStreamsMock();
 
+    // The close() method first fetches the session to check if already closed
+    db.query.sessions.findFirst.mockResolvedValue({ id: 's1', status: 'active' });
+
     const updateWhere = vi.fn(() => ({
       returning: vi.fn().mockResolvedValue([{ id: 's1', status: 'closed' }]),
     }));
