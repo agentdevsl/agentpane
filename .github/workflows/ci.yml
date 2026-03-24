@@ -51,6 +51,7 @@ jobs:
     timeout-minutes: 15
     needs: install
     steps:
+      - uses: actions/checkout@v6
       - name: Setup environment
         uses: ./.github/actions/setup-bun-env
         with:
@@ -74,6 +75,7 @@ jobs:
       matrix:
         shard: [1/3, 2/3, 3/3]
     steps:
+      - uses: actions/checkout@v6
       - name: Setup environment
         uses: ./.github/actions/setup-bun-env
         with:
@@ -99,6 +101,7 @@ jobs:
     timeout-minutes: 20
     needs: install
     steps:
+      - uses: actions/checkout@v6
       - name: Setup environment
         uses: ./.github/actions/setup-bun-env
         with:
@@ -119,13 +122,14 @@ jobs:
       matrix:
         shard: [1/2, 2/2]
     steps:
+      - uses: actions/checkout@v6
       - name: Setup environment
         uses: ./.github/actions/setup-bun-env
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
       - name: Integration tests (shard ${{ matrix.shard }})
-        run: bun vitest run --project integration --shard=${{ matrix.shard }}
+        run: bun vitest run --project integration --project functional --shard=${{ matrix.shard }}
 
       - name: Upload test results on failure
         if: failure()
