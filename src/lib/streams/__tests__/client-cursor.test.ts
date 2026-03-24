@@ -8,10 +8,7 @@ vi.mock('@durable-streams/client', () => ({
   stream: vi.fn(),
 }));
 
-const durableStreamMock = vi.mocked(
-  // biome-ignore lint/style/noNonNullAssertion: mocked module export is initialized by vi.mock
-  (await import('@durable-streams/client')).stream!
-);
+const durableStreamMock = vi.mocked((await import('@durable-streams/client')).stream!);
 
 describe('DurableStreamsClient cursor handling', () => {
   beforeEach(() => {
