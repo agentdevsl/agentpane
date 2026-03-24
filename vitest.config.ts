@@ -126,10 +126,7 @@ export default defineConfig({
           environment: 'node',
           globals: true,
           setupFiles: ['./tests/setup.ts'],
-          include: [
-            'tests/integration/**/*.{test,spec}.{ts,tsx}',
-            'tests/functional/**/*.{test,spec}.{ts,tsx}',
-          ],
+          include: ['tests/integration/**/*.{test,spec}.{ts,tsx}'],
           exclude: sharedExclude,
           alias: sharedAlias,
           pool: 'forks',

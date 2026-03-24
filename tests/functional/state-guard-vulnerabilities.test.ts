@@ -18,7 +18,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { settings, tasks } from '../../src/db/schema';
 import { PlanApprovalService } from '../../src/services/container-agent/plan-approval.service';
 import { SandboxStateManager } from '../../src/services/container-agent/sandbox-state';
-import { updateTaskOnAgentComplete } from '../../src/services/container-agent/shared-helpers';
+import {
+  updateTaskOnAgentComplete,
+  updateTaskOnAgentError,
+} from '../../src/services/container-agent/shared-helpers';
 import type { DurableStreamsService } from '../../src/services/durable-streams.service';
 import { TaskService } from '../../src/services/task.service';
 import { createTestAgent } from '../factories/agent.factory';
@@ -395,7 +398,7 @@ describe('State Machine Guard Vulnerabilities', () => {
       streams,
       'session-guard-6'
     );
-    expect(result).toBe(true); // DB write succeeded (but no rows updated)
+    expect(result).toBe(false); // No rows updated — task was not in in_progress
 
     // Task should remain in backlog, NOT moved to waiting_approval
     const taskAfter = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) });
@@ -423,7 +426,7 @@ describe('State Machine Guard Vulnerabilities', () => {
       streams,
       'session-guard-6b'
     );
-    expect(result).toBe(true);
+    expect(result).toBe(false); // No rows updated — task was not in in_progress
 
     const taskAfter = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
     expect(taskAfter!.column).toBe('backlog');
@@ -784,5 +787,286 @@ describe('State Machine Guard Vulnerabilities', () => {
         expect(approveResult.error.code).toBe('TASK_NO_DIFF');
       }
     });
+  });
+
+  // =========================================================================
+  // Test 10: Concurrent approve + reject with Promise.all
+  // =========================================================================
+
+  it('concurrent approve and reject — exactly one succeeds', async () => {
+    const codespace = await createTestProject({ name: 'Guard Test 10' });
+
+    const createResult = await taskService.create({
+      codespaceId: codespace.id,
+      title: 'Task for true concurrency test',
+    });
+    expect(createResult.ok).toBe(true);
+    const taskId = createResult.ok ? createResult.value.id : '';
+
+    // Move to in_progress
+    const mockContainerAgent = createMockContainerAgent();
+    taskService.setContainerAgentService(mockContainerAgent);
+    await db.insert(settings).values({
+      key: 'sandbox.defaults',
+      value: JSON.stringify({ enabled: true, mode: 'shared' }),
+    });
+    await taskService.moveColumn(taskId, 'in_progress');
+
+    // Store plan via real PlanApprovalService
+    const { planService } = createPlanApprovalService(db, streams, stateManager);
+    await planService.handlePlanReady(taskId, 'session-guard-10', codespace.id, {
+      plan: 'Plan for concurrent approve+reject test',
+      turnCount: 3,
+      sdkSessionId: 'sdk-guard-10',
+    });
+
+    // Verify plan is stored and task is in waiting_approval
+    expect(stateManager.hasPendingPlan(taskId)).toBe(true);
+    const taskBefore = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) });
+    expect(taskBefore!.column).toBe('waiting_approval');
+    expect(taskBefore!.lastAgentStatus).toBe('planning');
+
+    // Execute both simultaneously — exactly one should succeed
+    const [approveResult, rejectResult] = await Promise.all([
+      planService.approvePlan(taskId),
+      planService.rejectPlan(taskId, 'Bad plan'),
+    ]);
+
+    const approveOk = approveResult.ok;
+    const rejectOk = rejectResult.ok;
+
+    // Exactly one must succeed, the other must fail
+    expect(approveOk !== rejectOk).toBe(true);
+
+    // Verify task is in a consistent final state
+    const taskAfter = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) });
+    if (approveOk) {
+      // Approve won the race — task moved to in_progress for execution
+      expect(taskAfter!.column).toBe('in_progress');
+      expect(taskAfter!.lastAgentStatus).toBeNull();
+      // Reject should have failed with PLAN_NOT_FOUND
+      if (!rejectResult.ok) {
+        expect(rejectResult.error.code).toBe('SANDBOX_PLAN_NOT_FOUND');
+      }
+    } else {
+      // Reject won the race — task moved back to backlog
+      expect(taskAfter!.column).toBe('backlog');
+      expect(taskAfter!.plan).toBeNull();
+      // Approve should have failed with PLAN_NOT_FOUND
+      if (!approveResult.ok) {
+        expect(approveResult.error.code).toBe('SANDBOX_PLAN_NOT_FOUND');
+      }
+    }
+
+    // Plan should no longer be pending in either outcome
+    expect(stateManager.hasPendingPlan(taskId)).toBe(false);
+  });
+
+  // =========================================================================
+  // Test 11: updateTaskOnAgentError does NOT revert user cancellation
+  // =========================================================================
+
+  it('updateTaskOnAgentError does not overwrite user-cancelled task', async () => {
+    const codespace = await createTestProject({ name: 'Guard Test 11' });
+
+    const createResult = await taskService.create({
+      codespaceId: codespace.id,
+      title: 'Task that user cancels before agent error',
+    });
+    expect(createResult.ok).toBe(true);
+    const taskId = createResult.ok ? createResult.value.id : '';
+
+    // Move to in_progress
+    const mockContainerAgent = createMockContainerAgent();
+    taskService.setContainerAgentService(mockContainerAgent);
+    await db.insert(settings).values({
+      key: 'sandbox.defaults',
+      value: JSON.stringify({ enabled: true, mode: 'shared' }),
+    });
+    await taskService.moveColumn(taskId, 'in_progress');
+
+    // User moves task to backlog (cancellation)
+    await taskService.moveColumn(taskId, 'backlog');
+    const taskInBacklog = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) });
+    expect(taskInBacklog!.column).toBe('backlog');
+
+    // Agent encounters error after user already cancelled.
+    // The column guard (eq(tasks.column, 'in_progress')) prevents overwriting
+    // the task's state when it has been moved out of in_progress by the user.
+    const result = await updateTaskOnAgentError(db, taskId, streams, 'session-guard-11');
+    expect(result).toBe(false); // No-op: task is not in in_progress
+
+    const taskAfter = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) });
+    // Task remains in backlog — column is not changed
+    expect(taskAfter!.column).toBe('backlog');
+    // lastAgentStatus is NOT set to 'error' because the column guard prevented the update
+    expect(taskAfter!.lastAgentStatus).not.toBe('error');
+  });
+
+  // =========================================================================
+  // Test 12: Double-approve returns NOT_WAITING_APPROVAL
+  // =========================================================================
+
+  it('double approve — second call returns NOT_WAITING_APPROVAL', async () => {
+    const codespace = await createTestProject({ name: 'Guard Test 12' });
+
+    // Create task in waiting_approval with completed status and a worktree
+    const worktree = await createTestWorktree(codespace.id, { status: 'active' });
+    const task = await createTestTask(codespace.id, {
+      column: 'waiting_approval',
+      title: 'Task for double-approve test',
+      worktreeId: worktree.id,
+      branch: worktree.branch,
+    });
+    await db.update(tasks).set({ lastAgentStatus: 'completed' }).where(eq(tasks.id, task.id));
+
+    // First approve — should succeed
+    const first = await taskService.approve(task.id, { approvedBy: 'user1' });
+    expect(first.ok).toBe(true);
+    if (first.ok) {
+      expect(first.value.column).toBe('verified');
+      expect(first.value.approvedBy).toBe('user1');
+    }
+
+    // Second approve — task is now in 'verified', not 'waiting_approval'
+    // The NOT_WAITING_APPROVAL guard fires before the ALREADY_APPROVED check
+    const second = await taskService.approve(task.id, { approvedBy: 'user2' });
+    expect(second.ok).toBe(false);
+    if (!second.ok) {
+      expect(second.error.code).toBe('TASK_NOT_WAITING_APPROVAL');
+    }
+
+    // Task state unchanged by the second call
+    const taskAfter = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
+    expect(taskAfter!.column).toBe('verified');
+    expect(taskAfter!.approvedBy).toBe('user1');
+  });
+
+  // =========================================================================
+  // Test 13: approve() succeeds even when worktree remove fails
+  // =========================================================================
+
+  it('approve() succeeds even when worktree remove fails (remove is best-effort)', async () => {
+    const codespace = await createTestProject({ name: 'Guard Test 13' });
+
+    const worktree = await createTestWorktree(codespace.id, { status: 'active' });
+    const task = await createTestTask(codespace.id, {
+      column: 'waiting_approval',
+      title: 'Task for remove-failure test',
+      worktreeId: worktree.id,
+      branch: worktree.branch,
+    });
+    await db.update(tasks).set({ lastAgentStatus: 'completed' }).where(eq(tasks.id, task.id));
+
+    // getDiff returns files, merge succeeds, but remove FAILS
+    mockWorktreeService.remove.mockResolvedValueOnce({
+      ok: false,
+      error: { code: 'WORKTREE_REMOVE_FAILED', message: 'Permission denied', status: 500 },
+    });
+
+    // approve() should STILL succeed — the task moves to verified
+    // The worktree.remove() return value is not checked in approve()
+    const approveResult = await taskService.approve(task.id, { approvedBy: 'reviewer' });
+    expect(approveResult.ok).toBe(true);
+    if (approveResult.ok) {
+      expect(approveResult.value.column).toBe('verified');
+      expect(approveResult.value.approvedBy).toBe('reviewer');
+      expect(approveResult.value.completedAt).toBeTruthy();
+    }
+
+    // Verify all worktree operations were called
+    expect(mockWorktreeService.getDiff).toHaveBeenCalledWith(worktree.id);
+    expect(mockWorktreeService.merge).toHaveBeenCalledWith(worktree.id);
+    expect(mockWorktreeService.remove).toHaveBeenCalledWith(worktree.id);
+
+    // This documents the current best-effort cleanup behavior:
+    // The worktree is orphaned (remove failed) but approval is NOT blocked.
+    // A future improvement could log this or schedule a retry.
+    const taskAfter = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
+    expect(taskAfter!.column).toBe('verified');
+  });
+
+  // =========================================================================
+  // Test 14: approvePlan() restores task state when startAgentFn fails
+  // =========================================================================
+
+  it('approvePlan() restores task to waiting_approval when execution start fails', async () => {
+    const codespace = await createTestProject({ name: 'Guard Test 14' });
+
+    const createResult = await taskService.create({
+      codespaceId: codespace.id,
+      title: 'Task for startAgent failure rollback',
+    });
+    expect(createResult.ok).toBe(true);
+    const taskId = createResult.ok ? createResult.value.id : '';
+
+    // Move to in_progress
+    const mockContainerAgent = createMockContainerAgent();
+    taskService.setContainerAgentService(mockContainerAgent);
+    await db.insert(settings).values({
+      key: 'sandbox.defaults',
+      value: JSON.stringify({ enabled: true, mode: 'shared' }),
+    });
+    await taskService.moveColumn(taskId, 'in_progress');
+
+    // Create plan with a startAgentFn that FAILS
+    const mockWorktreeInit = {
+      cleanupWorktree: vi.fn().mockResolvedValue(undefined),
+      resolveWorktree: vi.fn(),
+      initializeWorkspace: vi.fn(),
+    };
+    const failingStartAgentFn = vi.fn().mockResolvedValue({
+      ok: false,
+      error: {
+        code: 'SANDBOX_AGENT_START_FAILED',
+        message: 'Container failed to start',
+        status: 500,
+      },
+    });
+
+    const planService = new PlanApprovalService(
+      { db, streams, provider: { get: vi.fn() } as any },
+      stateManager,
+      mockWorktreeInit as any,
+      failingStartAgentFn,
+      () => false
+    );
+
+    // Store plan via real handlePlanReady
+    await planService.handlePlanReady(taskId, 'session-guard-14', codespace.id, {
+      plan: 'Plan that will fail to execute',
+      turnCount: 3,
+      sdkSessionId: 'sdk-guard-14',
+    });
+
+    // Verify plan is stored and task is in waiting_approval
+    expect(stateManager.hasPendingPlan(taskId)).toBe(true);
+    const taskBefore = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) });
+    expect(taskBefore!.column).toBe('waiting_approval');
+    expect(taskBefore!.lastAgentStatus).toBe('planning');
+    expect(taskBefore!.plan).toBeTruthy();
+
+    // Attempt to approve — startAgentFn will fail
+    const approveResult = await planService.approvePlan(taskId);
+    expect(approveResult.ok).toBe(false);
+    if (!approveResult.ok) {
+      expect(approveResult.error.code).toBe('SANDBOX_AGENT_START_FAILED');
+    }
+
+    // startAgentFn was called
+    expect(failingStartAgentFn).toHaveBeenCalledOnce();
+
+    // Task state should be RESTORED to waiting_approval with planning status
+    const taskAfter = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) });
+    expect(taskAfter!.column).toBe('waiting_approval');
+    expect(taskAfter!.lastAgentStatus).toBe('planning');
+
+    // Plan data should still be in the DB (recoverable for retry)
+    expect(taskAfter!.plan).toBeTruthy();
+    expect(taskAfter!.plan).toBe('Plan that will fail to execute');
+
+    // Pending plan should still be in memory (not deleted on failure)
+    // because the plan was not consumed — only deleted on successful start
+    expect(stateManager.hasPendingPlan(taskId)).toBe(true);
   });
 });

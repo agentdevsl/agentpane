@@ -48,6 +48,19 @@ export class PlanApprovalService {
       teammateCount?: number;
     }
   ): Promise<void> {
+    // Idempotency guard: if a plan is already pending, a duplicate plan_ready
+    // event arrived — skip to avoid overwriting the first plan.
+    // Synchronous in-memory check catches rapid-fire duplicates from live streams.
+    if (this.state.hasPendingPlan(taskId)) {
+      log.warn('Duplicate plan_ready event — plan already pending, ignoring', {
+        data: { taskId },
+      });
+      // Still clean up running agent maps (planning phase is done)
+      this.state.deleteRunningAgent(taskId);
+      this.state.deleteRunningAgentCoreAgent(taskId);
+      return;
+    }
+
     log.info('Storing plan data for approval', {
       data: {
         taskId,
@@ -84,9 +97,11 @@ export class PlanApprovalService {
       createdAt: new Date(),
     });
 
-    // Persist plan to the task record so it survives server restarts
+    // Persist plan to the task record so it survives server restarts.
+    // The column guard prevents overwriting if a duplicate event arrives after
+    // the plan was already persisted (DB-level idempotency).
     try {
-      await db
+      const [persisted] = await db
         .update(tasks)
         .set({
           plan: planData.plan,
@@ -98,7 +113,21 @@ export class PlanApprovalService {
           lastAgentStatus: 'planning',
           column: 'waiting_approval',
         })
-        .where(eq(tasks.id, taskId));
+        .where(and(eq(tasks.id, taskId), eq(tasks.column, 'in_progress')))
+        .returning();
+
+      if (!persisted) {
+        log.warn(
+          'Plan not persisted — task no longer in_progress (possible duplicate or user move)',
+          {
+            data: { taskId },
+          }
+        );
+        this.state.deletePendingPlan(taskId);
+        this.state.deleteRunningAgent(taskId);
+        this.state.deleteRunningAgentCoreAgent(taskId);
+        return;
+      }
     } catch (dbErr) {
       const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
       log.error('Failed to persist plan to database', {
@@ -226,9 +255,7 @@ export class PlanApprovalService {
         return err(SandboxErrors.AGENT_START_FAILED(`DB update failed: ${errorMessage}`));
       }
 
-      this.state.deletePendingPlan(taskId);
-
-      return this.startAgentFn({
+      const startResult = await this.startAgentFn({
         codespaceId: planData.codespaceId,
         taskId: planData.taskId,
         sessionId: planData.sessionId,
@@ -236,6 +263,31 @@ export class PlanApprovalService {
         phase: 'execute',
         sdkSessionId: planData.sdkSessionId || undefined,
       });
+
+      if (!startResult.ok) {
+        // Restore task state so user can retry approval
+        try {
+          await db
+            .update(tasks)
+            .set({
+              column: 'waiting_approval',
+              lastAgentStatus: 'planning',
+            })
+            .where(eq(tasks.id, taskId));
+        } catch (restoreErr) {
+          log.error('Failed to restore task state after agent start failure', {
+            data: {
+              taskId,
+              error: restoreErr instanceof Error ? restoreErr.message : String(restoreErr),
+            },
+          });
+        }
+        return startResult;
+      }
+
+      // Only delete plan from memory AFTER successful start
+      this.state.deletePendingPlan(taskId);
+      return ok(undefined);
     }
 
     // Container exec branch: detect sandbox changes, start execution
@@ -303,9 +355,7 @@ export class PlanApprovalService {
       return err(SandboxErrors.AGENT_START_FAILED(`DB update failed: ${errorMessage}`));
     }
 
-    this.state.deletePendingPlan(taskId);
-
-    return this.startAgentFn({
+    const startResult = await this.startAgentFn({
       codespaceId: planData.codespaceId,
       taskId: planData.taskId,
       sessionId: planData.sessionId,
@@ -313,6 +363,31 @@ export class PlanApprovalService {
       phase: 'execute',
       sdkSessionId: effectiveSdkSessionId,
     });
+
+    if (!startResult.ok) {
+      // Restore task state so user can retry approval
+      try {
+        await db
+          .update(tasks)
+          .set({
+            column: 'waiting_approval',
+            lastAgentStatus: 'planning',
+          })
+          .where(eq(tasks.id, taskId));
+      } catch (restoreErr) {
+        log.error('Failed to restore task state after agent start failure', {
+          data: {
+            taskId,
+            error: restoreErr instanceof Error ? restoreErr.message : String(restoreErr),
+          },
+        });
+      }
+      return startResult;
+    }
+
+    // Only delete plan from memory AFTER successful start
+    this.state.deletePendingPlan(taskId);
+    return ok(undefined);
   }
 
   /**

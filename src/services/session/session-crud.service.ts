@@ -119,6 +119,22 @@ export class SessionCrudService {
   }
 
   async close(id: string): Promise<Result<SessionWithPresence, SessionError>> {
+    const session = await this.db.query.sessions.findFirst({
+      where: eq(sessions.id, id),
+    });
+
+    if (!session) {
+      return err(SessionErrors.NOT_FOUND);
+    }
+
+    // Idempotent: if already closed, return current state without updating closedAt
+    if (session.status === 'closed') {
+      return ok({
+        ...session,
+        presence: Array.from(this.presenceStore.get(id)?.values() ?? []),
+      });
+    }
+
     const [updated] = await this.db
       .update(sessions)
       .set({ status: 'closed', closedAt: new Date().toISOString() })

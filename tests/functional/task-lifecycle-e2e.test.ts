@@ -193,7 +193,10 @@ describe('Functional E2E: Real Service Transitions', () => {
       () => false // not AgentCore
     );
 
-    // Process the plan_ready event through the real container bridge
+    // Process the plan_ready event through the real container bridge.
+    // Note: The bridge calls onPlanReady synchronously (no await), so we capture
+    // the returned promise to await it after processStream completes.
+    let planReadyPromise: Promise<void> | undefined;
     const onPlanReady = vi.fn().mockImplementation(async (planData: Record<string, unknown>) => {
       // This is what the container-agent service does when it receives plan_ready:
       // delegates to PlanApprovalService.handlePlanReady()
@@ -204,6 +207,10 @@ describe('Functional E2E: Real Service Transitions', () => {
         planData as any
       );
     });
+    // Wrap to capture the promise
+    const onPlanReadyWrapper = (data: Record<string, unknown>) => {
+      planReadyPromise = onPlanReady(data);
+    };
 
     const bridge = createContainerBridge({
       taskId: taskId,
@@ -212,7 +219,7 @@ describe('Functional E2E: Real Service Transitions', () => {
       streams,
       onComplete: vi.fn(),
       onError: vi.fn(),
-      onPlanReady,
+      onPlanReady: onPlanReadyWrapper,
     });
 
     await bridge.processStream(
@@ -231,6 +238,9 @@ describe('Functional E2E: Real Service Transitions', () => {
         },
       ])
     );
+
+    // Await the async handlePlanReady callback (bridge does not await it)
+    await planReadyPromise;
 
     // Verify handlePlanReady was called via the bridge
     expect(onPlanReady).toHaveBeenCalledOnce();
