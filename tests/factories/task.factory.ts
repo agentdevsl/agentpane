@@ -35,6 +35,8 @@ export function buildTask(codespaceId: string, options: TaskFactoryOptions = {})
     approvedBy: options.withApproval ? 'test-user' : (options.approvedBy ?? null),
     rejectionCount: options.withRejection ? 1 : (options.rejectionCount ?? 0),
     rejectionReason: options.withRejection ? 'Test rejection' : (options.rejectionReason ?? null),
+    skillId: options.skillId ?? null,
+    skillName: options.skillName ?? null,
     startedAt: options.startedAt ?? null,
     completedAt: options.completedAt ?? null,
   };
