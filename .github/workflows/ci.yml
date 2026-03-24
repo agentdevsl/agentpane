@@ -111,7 +111,7 @@ jobs:
         continue-on-error: true
 
       - name: Test (shard ${{ matrix.shard }})
-        run: bun vitest run --shard=${{ matrix.shard }}
+        run: bun vitest run --project unit --project jsdom --project db --shard=${{ matrix.shard }}
 
   build:
     runs-on: ubuntu-latest
@@ -143,3 +143,35 @@ jobs:
 
       - name: Build verification
         run: bun run build
+
+  integration-test:
+    runs-on: ubuntu-latest
+    needs: [test, lint-and-typecheck]
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1/2, 2/2]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Restore node_modules
+        uses: actions/cache@v5
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/package.json') }}
+
+      - name: Restore Bun packages
+        uses: actions/cache@v5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-packages-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/package.json') }}
+          restore-keys: |
+            bun-packages-${{ runner.os }}-
+
+      - name: Integration tests (shard ${{ matrix.shard }})
+        run: bun vitest run --project integration --shard=${{ matrix.shard }}
