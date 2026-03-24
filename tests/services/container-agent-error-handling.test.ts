@@ -152,12 +152,14 @@ describe('ContainerAgentService.handleAgentError suppression', () => {
     );
     await handleError(task.id, 'Out of memory', 5);
 
-    // Task should be updated to error status for unexpected errors
+    // Task is in waiting_approval (plan already stored), so the column guard
+    // in updateTaskOnAgentError prevents overwriting the plan state.
+    // The error is logged but the plan is preserved for user review.
     const updatedTask = await db.query.tasks.findFirst({
       where: eq(tasks.id, task.id),
     });
-    expect(updatedTask?.lastAgentStatus).toBe('error');
-    expect(updatedTask?.agentId).toBeNull();
+    expect(updatedTask?.lastAgentStatus).toBe('planning');
+    expect(updatedTask?.plan).toBe('Test plan');
   });
 
   it('updates DB for errors when no plan exists', async () => {

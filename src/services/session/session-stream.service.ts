@@ -227,6 +227,12 @@ export class SessionStreamService {
       // DB-018: Use atomic INSERT...SELECT for offset calculation instead of
       // read-then-write, eliminating the race condition between concurrent inserts.
       // The COALESCE(MAX(offset), -1) + 1 is computed atomically within the INSERT.
+      //
+      // Concurrency safety:
+      // - SQLite: Serialized writes guarantee no two inserts see the same MAX(offset).
+      // - PostgreSQL: The UNIQUE index on (session_id, offset) prevents duplicates.
+      //   If a constraint violation occurs, the error is caught below and returned
+      //   as SYNC_FAILED — the caller (publish()) can retry.
       await this.db.run(
         sql`INSERT INTO session_events (id, session_id, "offset", type, channel, data, timestamp, created_at)
             SELECT ${eventId}, ${sessionId},

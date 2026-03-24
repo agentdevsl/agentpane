@@ -191,7 +191,7 @@ export function SkillPicker({
 
   // Don't render if no skills available and nothing selected
   if (!isLoading && skills.length === 0 && !value) {
-    return <></>;
+    return null;
   }
 
   return (

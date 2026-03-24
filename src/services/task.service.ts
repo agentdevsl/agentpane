@@ -142,6 +142,24 @@ export class TaskService {
     if (isRunning && this.containerAgentService) {
       // Agent is running - stop it properly
       const result = await this.containerAgentService.stopAgent(taskId);
+
+      // Clean up task state regardless of stop result
+      // Agent process may be dead even if stop API returned error
+      const task = await this.db.query.tasks.findFirst({
+        where: (tasks, { eq }) => eq(tasks.id, taskId),
+      });
+      if (task?.agentId) {
+        await this.db
+          .update(tasks)
+          .set({
+            agentId: null,
+            sessionId: null,
+            lastAgentStatus: result.ok ? 'cancelled' : 'error',
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(tasks.id, taskId));
+      }
+
       if (!result.ok) {
         return err(TaskErrors.AGENT_STOP_FAILED);
       }
@@ -276,29 +294,34 @@ export class TaskService {
       return err(CodespaceErrors.NOT_FOUND);
     }
 
-    const lastTask = await this.db.query.tasks.findFirst({
-      where: and(eq(tasks.codespaceId, codespaceId), eq(tasks.column, 'backlog')),
-      orderBy: desc(tasks.position),
+    // Wrap position calculation + insert in a transaction to prevent
+    // concurrent creates from computing the same position value.
+    // SQLite serializes transactions, so this eliminates the race condition.
+    const [task] = await this.db.transaction(async (tx) => {
+      const lastTask = await tx.query.tasks.findFirst({
+        where: and(eq(tasks.codespaceId, codespaceId), eq(tasks.column, 'backlog')),
+        orderBy: desc(tasks.position),
+      });
+
+      const position = (lastTask?.position ?? -1) + 1;
+
+      return tx
+        .insert(tasks)
+        .values({
+          codespaceId,
+          title,
+          description,
+          labels,
+          priority,
+          column: 'backlog',
+          position,
+          skillId,
+          skillName,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        })
+        .returning();
     });
-
-    const position = (lastTask?.position ?? -1) + 1;
-
-    const [task] = await this.db
-      .insert(tasks)
-      .values({
-        codespaceId,
-        title,
-        description,
-        labels,
-        priority,
-        column: 'backlog',
-        position,
-        skillId,
-        skillName,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      })
-      .returning();
 
     if (!task) {
       return err(TaskErrors.NOT_FOUND);
@@ -399,6 +422,11 @@ export class TaskService {
       return err(TaskErrors.INVALID_TRANSITION(task.column, column));
     }
 
+    // Guard: cannot move to verified when plan is pending (would skip execution phase)
+    if (column === 'verified' && task.lastAgentStatus === 'planning') {
+      return err(TaskErrors.PLAN_NOT_EXECUTED);
+    }
+
     let newPosition = position;
     if (newPosition === undefined) {
       const lastInColumn = await this.db.query.tasks.findFirst({
@@ -436,11 +464,12 @@ export class TaskService {
             createdAt: new Date().toISOString(),
           });
         } catch (insertErr) {
-          // Ignore if session already exists (race condition or retry)
           const errorMsg = insertErr instanceof Error ? insertErr.message : String(insertErr);
           if (!errorMsg.includes('UNIQUE constraint')) {
-            log.warn('Failed to create session record', { error: errorMsg });
+            // Non-duplicate error — abort transaction
+            throw insertErr;
           }
+          // UNIQUE constraint = session already exists, safe to continue
         }
       }
 
@@ -496,6 +525,11 @@ export class TaskService {
 
   /**
    * Trigger container agent execution for a task if sandbox is enabled.
+   *
+   * Note: The session record persists even if agent start fails. This is intentional:
+   * the frontend uses the sessionId to subscribe to the SSE stream, and the agentError
+   * field on the MoveTaskResult signals that the agent didn't start. Session cleanup
+   * happens on codespace delete (CASCADE).
    *
    * @param task - The task to execute
    * @param sessionId - Pre-generated sessionId (required for frontend to subscribe immediately)
@@ -617,6 +651,10 @@ export class TaskService {
     return parts.join('\n');
   }
 
+  // Note: Position conflicts are possible under concurrent reorders.
+  // The Kanban UI re-fetches after reorder, which resolves visual conflicts.
+  // A unique constraint on (codespaceId, column, position) is not practical
+  // because positions must shift when items are reordered.
   async reorder(id: string, position: number): Promise<Result<Task, TaskError>> {
     const [updated] = await this.db
       .update(tasks)
@@ -653,6 +691,11 @@ export class TaskService {
       return err(TaskErrors.NOT_WAITING_APPROVAL(task.column));
     }
 
+    // Guard: cannot approve changes when task is pending plan approval (would skip execution)
+    if (task.lastAgentStatus === 'planning') {
+      return err(TaskErrors.PLAN_NOT_EXECUTED);
+    }
+
     if (task.approvedAt) {
       return err(TaskErrors.ALREADY_APPROVED);
     }
@@ -661,7 +704,19 @@ export class TaskService {
       return err(TaskErrors.NO_DIFF);
     }
 
-    const diff = await this.worktreeService.getDiff(task.worktreeId);
+    let diff: Result<GitDiff, TaskError>;
+    try {
+      diff = await this.worktreeService.getDiff(task.worktreeId);
+    } catch (error) {
+      log.error('getDiff threw unexpectedly', {
+        data: {
+          taskId: id,
+          worktreeId: task.worktreeId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+      return err(TaskErrors.NO_DIFF);
+    }
     if (!diff.ok) {
       return diff;
     }
@@ -671,7 +726,23 @@ export class TaskService {
     }
 
     if (input.createMergeCommit !== false) {
-      const mergeResult = await this.worktreeService.merge(task.worktreeId);
+      let mergeResult: Result<void, TaskError>;
+      try {
+        mergeResult = await this.worktreeService.merge(task.worktreeId);
+      } catch (error) {
+        log.error('merge threw unexpectedly', {
+          data: {
+            taskId: id,
+            worktreeId: task.worktreeId,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        });
+        return err({
+          code: 'WORKTREE_MERGE_FAILED',
+          message: error instanceof Error ? error.message : 'Merge failed',
+          status: 500,
+        });
+      }
       if (!mergeResult.ok) {
         return mergeResult;
       }
@@ -749,7 +820,19 @@ export class TaskService {
       return err(TaskErrors.NO_DIFF);
     }
 
-    const diff = await this.worktreeService.getDiff(task.worktreeId);
+    let diff: Result<GitDiff, TaskError>;
+    try {
+      diff = await this.worktreeService.getDiff(task.worktreeId);
+    } catch (error) {
+      log.error('getDiff threw unexpectedly', {
+        data: {
+          taskId: id,
+          worktreeId: task.worktreeId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+      return err(TaskErrors.NO_DIFF);
+    }
     if (!diff.ok) {
       return diff;
     }

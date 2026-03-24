@@ -150,6 +150,27 @@ When rendering React Flow inside a flex/absolute layout, the container must have
 
 When renaming entities (tables, fields, API params), always update ALL test files. Search with: `grep -r "oldName" src/services/__tests__/ tests/ src/server/routes/__tests__/`. Tests reference field names, API endpoints, and service methods directly — they won't fail at compile time but will fail at runtime in CI.
 
+### Functional Tests: Real Service Transitions
+
+Functional tests in `tests/functional/` must exercise **real service code** at every state transition — never simulate transitions with raw DB updates. The goal is to test the actual orchestration logic, not just data shapes.
+
+**Rules:**
+- Every state transition (task column change, plan approval, agent completion) must flow through the real service method (`TaskService.moveColumn()`, `PlanApprovalService.handlePlanReady()`, `PlanApprovalService.approvePlan()`, `updateTaskOnAgentComplete()`, `TaskService.approve()`)
+- Only mock external I/O boundaries: Claude Agent SDK, sandbox providers (Docker/K8s), git operations (CommandRunner), DurableStreams
+- Use real `SandboxStateManager` for in-memory state tracking — verify both DB and memory state
+- Verify the plan approval → execution transition passes `phase: 'execute'`, the plan text as prompt, and `sdkSessionId` for session resume
+- Verify skill/label/priority fields are preserved through the entire lifecycle (backlog → verified)
+- Run separately: `npx vitest run --project functional`
+
+**Key transitions that must use real services:**
+1. `TaskService.create()` — task with skill in backlog
+2. `TaskService.moveColumn()` — backlog → in_progress (triggers agent with skill in prompt)
+3. `PlanApprovalService.handlePlanReady()` — stores plan in DB + memory, moves to waiting_approval
+4. `PlanApprovalService.approvePlan()` — starts execution with phase:execute + sdkSessionId
+5. `PlanApprovalService.rejectPlan()` — clears all plan state, moves to backlog
+6. `updateTaskOnAgentComplete()` — moves to waiting_approval with completion status
+7. `TaskService.approve()` — getDiff → merge → verified with diffSummary
+
 ### agent-runner Lockfile
 
 After modifying `agent-runner/package.json` or its dependencies, regenerate the lockfile: `cd agent-runner && bun install && cd ..`. CI uses `--frozen-lockfile` and will fail if the lockfile is stale. The lockfile is `agent-runner/bun.lock` (not `bun.lockb`).

@@ -7,7 +7,7 @@
  * - OAuth token resolution
  */
 
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import { agents, tasks } from '../../db/schema';
 import { createLogger } from '../../lib/logging/logger.js';
@@ -31,7 +31,8 @@ export async function updateTaskOnAgentComplete(
 ): Promise<boolean> {
   try {
     if (status === 'completed') {
-      await db
+      // Only update if task is still in_progress (prevents reverting user cancellation)
+      const [updated] = await db
         .update(tasks)
         .set({
           column: 'waiting_approval',
@@ -40,9 +41,17 @@ export async function updateTaskOnAgentComplete(
           lastAgentStatus: 'completed',
           completedAt: new Date().toISOString(),
         })
-        .where(eq(tasks.id, taskId));
+        .where(and(eq(tasks.id, taskId), eq(tasks.column, 'in_progress')))
+        .returning();
+      if (!updated) {
+        log.warn('Task not updated on agent complete — task may have been moved by user', {
+          data: { taskId, status },
+        });
+        return false;
+      }
     } else if (status === 'turn_limit') {
-      await db
+      // Only update if task is still in_progress (prevents reverting user cancellation)
+      const [updated] = await db
         .update(tasks)
         .set({
           column: 'waiting_approval',
@@ -50,16 +59,30 @@ export async function updateTaskOnAgentComplete(
           sessionId: null,
           lastAgentStatus: 'turn_limit',
         })
-        .where(eq(tasks.id, taskId));
+        .where(and(eq(tasks.id, taskId), eq(tasks.column, 'in_progress')))
+        .returning();
+      if (!updated) {
+        log.warn('Task not updated on agent turn_limit — task may have been moved by user', {
+          data: { taskId, status },
+        });
+        return false;
+      }
     } else {
-      await db
+      const [updated] = await db
         .update(tasks)
         .set({
           agentId: null,
           sessionId: null,
           lastAgentStatus: 'cancelled',
         })
-        .where(eq(tasks.id, taskId));
+        .where(and(eq(tasks.id, taskId), eq(tasks.column, 'in_progress')))
+        .returning();
+      if (!updated) {
+        log.warn('Task not updated on agent cancel — task may have been moved by user', {
+          data: { taskId },
+        });
+        return false;
+      }
     }
     return true;
   } catch (error) {
@@ -98,14 +121,22 @@ export async function updateTaskOnAgentError(
   sessionId?: string
 ): Promise<boolean> {
   try {
-    await db
+    const [updated] = await db
       .update(tasks)
       .set({
         agentId: null,
         sessionId: null,
         lastAgentStatus: 'error',
       })
-      .where(eq(tasks.id, taskId));
+      .where(and(eq(tasks.id, taskId), eq(tasks.column, 'in_progress')))
+      .returning();
+
+    if (!updated) {
+      log.warn('Task not updated on agent error — task may have been moved by user', {
+        data: { taskId },
+      });
+      return false;
+    }
     return true;
   } catch (dbErr) {
     const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);

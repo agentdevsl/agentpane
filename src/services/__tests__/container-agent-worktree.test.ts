@@ -307,6 +307,18 @@ describe('ContainerAgentService — worktree integration', () => {
       lastAgentStatus: 'planning',
     } as any);
 
+    // Override db.update mock so the atomic WHERE guard with lastAgentStatus='planning'
+    // returns a row (simulating a successful update)
+    db.update.mockReturnValue({
+      set: vi.fn(() => ({
+        where: vi.fn(() => ({
+          returning: vi.fn().mockResolvedValue([{ id: 't1' }]),
+          run: vi.fn(),
+        })),
+        run: vi.fn(),
+      })),
+    });
+
     // Put a pending plan in memory
     (service as any).state.setPendingPlan('t1', {
       taskId: 't1',

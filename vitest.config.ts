@@ -92,7 +92,7 @@ export default defineConfig({
         },
         resolve: sharedResolve,
       },
-      // Project 3: DB tests — service/integration tests needing SQLite (forks for process isolation)
+      // Project 3: DB tests — service tests needing SQLite (forks for process isolation)
       {
         test: {
           name: 'db',
@@ -104,7 +104,6 @@ export default defineConfig({
           },
           include: [
             'tests/services/**/*.{test,spec}.{ts,tsx}',
-            'tests/integration/**/*.{test,spec}.{ts,tsx}',
             'tests/api/**/*.{test,spec}.{ts,tsx}',
             'tests/server/**/*.{test,spec}.{ts,tsx}',
             'tests/db/**/*.{test,spec}.{ts,tsx}',
@@ -117,6 +116,38 @@ export default defineConfig({
           pool: 'forks',
           testTimeout: 10000,
           hookTimeout: 10000,
+        },
+        resolve: sharedResolve,
+      },
+      // Project 4: Integration tests — end-to-end service workflows (separate CI job)
+      {
+        test: {
+          name: 'integration',
+          environment: 'node',
+          globals: true,
+          setupFiles: ['./tests/setup.ts'],
+          include: ['tests/integration/**/*.{test,spec}.{ts,tsx}'],
+          exclude: sharedExclude,
+          alias: sharedAlias,
+          pool: 'forks',
+          testTimeout: 30000,
+          hookTimeout: 15000,
+        },
+        resolve: sharedResolve,
+      },
+      // Project 5: Functional E2E tests — full pipeline workflows (run separately)
+      {
+        test: {
+          name: 'functional',
+          environment: 'node',
+          globals: true,
+          setupFiles: ['./tests/setup.ts'],
+          include: ['tests/functional/**/*.{test,spec}.{ts,tsx}'],
+          exclude: sharedExclude,
+          alias: sharedAlias,
+          pool: 'forks',
+          testTimeout: 60000,
+          hookTimeout: 30000,
         },
         resolve: sharedResolve,
       },
