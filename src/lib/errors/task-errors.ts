@@ -42,6 +42,11 @@ export const TaskErrors = {
     'Failed to stop agent for this task',
     500
   ),
+  PLAN_NOT_EXECUTED: createError(
+    'TASK_PLAN_NOT_EXECUTED',
+    'Cannot approve changes while plan is pending approval. Approve or reject the plan first.',
+    400
+  ),
 } as const;
 
 export type TaskError =
@@ -54,4 +59,5 @@ export type TaskError =
   | ReturnType<typeof TaskErrors.INVALID_TRANSITION>
   | typeof TaskErrors.POSITION_CONFLICT
   | typeof TaskErrors.AGENT_NOT_RUNNING
-  | typeof TaskErrors.AGENT_STOP_FAILED;
+  | typeof TaskErrors.AGENT_STOP_FAILED
+  | typeof TaskErrors.PLAN_NOT_EXECUTED;

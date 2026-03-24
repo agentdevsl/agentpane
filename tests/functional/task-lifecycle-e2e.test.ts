@@ -1,17 +1,21 @@
 /**
- * Functional E2E Test: Task Creation → Skill Association → Planning → Approval → Execution
+ * Functional E2E Test: Task Creation → Skill → Planning → Approval → Execution
  *
- * This test exercises the FULL orchestration pipeline with real database, real services,
- * and real state management. Only external dependencies (Claude SDK, Docker/sandbox providers)
- * are mocked.
+ * Every state transition uses REAL service code. Only external I/O is mocked:
+ * - Claude Agent SDK (no real API calls)
+ * - Sandbox providers (no Docker/K8s)
+ * - Git operations (no real filesystem)
+ * - DurableStreams (in-memory publish)
  *
- * Run separately: npx vitest run tests/functional/task-lifecycle-e2e.test.ts
+ * Run separately: npx vitest run --project functional
  */
 import { Readable } from 'node:stream';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { tasks } from '../../src/db/schema';
+import { settings, tasks } from '../../src/db/schema';
 import { createContainerBridge } from '../../src/lib/agents/container-bridge';
+import { PlanApprovalService } from '../../src/services/container-agent/plan-approval.service';
+import { SandboxStateManager } from '../../src/services/container-agent/sandbox-state';
 import {
   updateTaskOnAgentComplete,
   updateTaskOnAgentError,
@@ -60,31 +64,41 @@ function createMockWorktreeService() {
 
 // ---------- test suite ----------
 
-describe('Functional E2E: Task → Skill → Plan → Approve → Execute → Verify', () => {
+describe('Functional E2E: Real Service Transitions', () => {
   const CODESPACE_ID = 'func-codespace-1';
   const TASK_ID = 'func-task-1';
   const SESSION_ID = 'func-session-1';
   const AGENT_ID = 'func-agent-1';
   const WORKTREE_ID = 'func-worktree-1';
 
+  let db: ReturnType<typeof getTestDb>;
+  let streams: DurableStreamsService;
+  let mockWorktreeService: ReturnType<typeof createMockWorktreeService>;
+  let taskService: TaskService;
+  let stateManager: SandboxStateManager;
+
   beforeEach(async () => {
     await setupTestDatabase();
+    db = getTestDb();
+    streams = createMockStreams();
+    mockWorktreeService = createMockWorktreeService();
+    taskService = new TaskService(db, mockWorktreeService);
+    stateManager = new SandboxStateManager();
   });
 
   afterEach(async () => {
+    stateManager.dispose();
     await clearTestDatabase();
   });
 
-  it('complete lifecycle: create task with skill → plan → approve → execute → approve changes → verified', async () => {
-    const db = getTestDb();
-    const streams = createMockStreams();
-    const mockWorktreeService = createMockWorktreeService();
-
-    // ── Phase 1: Create codespace and task with skill ──
+  it('full lifecycle: every transition through real service code', async () => {
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 1: TaskService.create() — task with skill in backlog
+    // ═══════════════════════════════════════════════════════════════════
 
     const codespace = await createTestProject({
       id: CODESPACE_ID,
-      name: 'E2E Test Project',
+      name: 'E2E Project',
       path: '/tmp/e2e-project',
       config: {
         worktreeRoot: '.worktrees',
@@ -94,26 +108,28 @@ describe('Functional E2E: Task → Skill → Plan → Approve → Execute → Ve
       },
     });
 
-    const task = await createTestTask(codespace.id, {
-      id: TASK_ID,
+    const createResult = await taskService.create({
+      codespaceId: codespace.id,
       title: 'Implement user authentication',
       description: 'Add JWT-based authentication to the API layer',
-      column: 'backlog',
       skillId: 'auth-toolkit',
       skillName: 'Authentication Toolkit',
       labels: ['feature', 'security'],
+      priority: 'high',
     });
+    expect(createResult.ok).toBe(true);
+    const createdTask = createResult.ok ? createResult.value : null;
+    expect(createdTask).toBeTruthy();
+    expect(createdTask!.column).toBe('backlog');
+    expect(createdTask!.skillId).toBe('auth-toolkit');
+    expect(createdTask!.skillName).toBe('Authentication Toolkit');
+    const taskId = createdTask!.id;
 
-    // Verify task created with skill fields
-    expect(task.column).toBe('backlog');
-    expect(task.skillId).toBe('auth-toolkit');
-    expect(task.skillName).toBe('Authentication Toolkit');
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 2: TaskService.moveColumn() — backlog → in_progress
+    //          Triggers container agent with skill in prompt
+    // ═══════════════════════════════════════════════════════════════════
 
-    // ── Phase 2: Move task to in_progress (triggers agent) ──
-
-    const taskService = new TaskService(db, mockWorktreeService);
-
-    // Set up a mock container agent service that captures the prompt
     let capturedStartInput: Record<string, unknown> | null = null;
     const mockContainerAgent = {
       providerName: 'docker',
@@ -128,269 +144,255 @@ describe('Functional E2E: Task → Skill → Plan → Approve → Execute → Ve
     };
     taskService.setContainerAgentService(mockContainerAgent);
 
-    // Insert sandbox defaults to enable container agent triggering
-    await db.insert(sessions).values({
-      id: 'temp-settings-session',
-      codespaceId: codespace.id,
-      status: 'active',
-      title: 'temp',
-    });
-    // Clean up temp session
-    await db.delete(sessions).where(eq(sessions.id, 'temp-settings-session'));
-
-    // Enable sandbox via settings
-    const { settings } = await import('../../src/db/schema');
     await db.insert(settings).values({
       key: 'sandbox.defaults',
       value: JSON.stringify({ enabled: true, mode: 'shared' }),
     });
 
-    const moveResult = await taskService.moveColumn(TASK_ID, 'in_progress');
+    const moveResult = await taskService.moveColumn(taskId, 'in_progress');
     expect(moveResult.ok).toBe(true);
+    const movedTask = moveResult.ok ? moveResult.value.task : null;
+    expect(movedTask!.column).toBe('in_progress');
+    expect(movedTask!.startedAt).toBeTruthy();
+    expect(movedTask!.sessionId).toBeTruthy();
 
-    if (moveResult.ok) {
-      const movedTask = moveResult.value.task;
-      expect(movedTask.column).toBe('in_progress');
-      expect(movedTask.startedAt).toBeTruthy();
-      expect(movedTask.sessionId).toBeTruthy();
+    // Verify the real agent prompt includes skill, title, labels, priority
+    expect(mockContainerAgent.startAgent).toHaveBeenCalledOnce();
+    const prompt = capturedStartInput!.prompt as string;
+    expect(prompt).toContain('use skill auth-toolkit');
+    expect(prompt).toContain('Implement user authentication');
+    expect(prompt).toContain('Labels: feature, security');
+    expect(prompt).toContain('Priority: high');
 
-      // Verify skill was included in the agent prompt
-      expect(mockContainerAgent.startAgent).toHaveBeenCalledOnce();
-      expect(capturedStartInput).toBeTruthy();
-      const prompt = capturedStartInput!.prompt as string;
-      expect(prompt).toContain('use skill auth-toolkit');
-      expect(prompt).toContain('Implement user authentication');
-      expect(prompt).toContain('Labels: feature, security');
-    }
-
-    // ── Phase 3: Simulate planning phase completion (plan_ready event) ──
-
-    // Create supporting records that would exist in a real run
-    const _agent = await createTestAgent(codespace.id, {
-      id: AGENT_ID,
-      status: 'planning',
-      currentTaskId: TASK_ID,
-    });
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 3: Container bridge routes plan_ready event →
+    //          REAL PlanApprovalService.handlePlanReady() stores plan
+    //          and moves task to waiting_approval
+    // ═══════════════════════════════════════════════════════════════════
 
     const worktree = await createTestWorktree(codespace.id, {
       id: WORKTREE_ID,
-      taskId: TASK_ID,
-      branch: 'agent/implement-user-authentication',
+      taskId: taskId,
+      branch: 'agent/implement-user-auth',
       status: 'active',
     });
 
-    // Update task with agent/worktree refs
-    await db
-      .update(tasks)
-      .set({
-        agentId: AGENT_ID,
-        worktreeId: WORKTREE_ID,
-        branch: worktree.branch,
-      })
-      .where(eq(tasks.id, TASK_ID));
+    // Wire up a real PlanApprovalService
+    const mockWorktreeInit = {
+      cleanupWorktree: vi.fn().mockResolvedValue(undefined),
+      resolveWorktree: vi.fn(),
+      initializeWorkspace: vi.fn(),
+    };
+    const mockStartAgentFn = vi.fn().mockResolvedValue({ ok: true, value: undefined });
 
-    // Simulate the container bridge receiving plan_ready
-    const onPlanReady = vi.fn();
-    const onComplete = vi.fn();
-    const onError = vi.fn();
+    const planApprovalService = new PlanApprovalService(
+      { db, streams, provider: { get: vi.fn() } as any },
+      stateManager,
+      mockWorktreeInit as any,
+      mockStartAgentFn,
+      () => false // not AgentCore
+    );
+
+    // Process the plan_ready event through the real container bridge
+    const onPlanReady = vi.fn().mockImplementation(async (planData: Record<string, unknown>) => {
+      // This is what the container-agent service does when it receives plan_ready:
+      // delegates to PlanApprovalService.handlePlanReady()
+      await planApprovalService.handlePlanReady(
+        taskId,
+        movedTask!.sessionId!,
+        codespace.id,
+        planData as any
+      );
+    });
 
     const bridge = createContainerBridge({
-      taskId: TASK_ID,
-      sessionId: SESSION_ID,
+      taskId: taskId,
+      sessionId: movedTask!.sessionId!,
       codespaceId: CODESPACE_ID,
       streams,
-      onComplete,
-      onError,
+      onComplete: vi.fn(),
+      onError: vi.fn(),
       onPlanReady,
     });
 
-    const planEvents = [
-      {
-        type: 'agent:plan_ready',
-        timestamp: Date.now(),
-        taskId: TASK_ID,
-        sessionId: SESSION_ID,
-        data: {
-          plan: '## Implementation Plan\n\n1. Create JWT middleware\n2. Add login/register endpoints\n3. Write integration tests\n4. Update API documentation',
-          turnCount: 5,
-          sdkSessionId: 'sdk-session-auth-plan',
-          allowedPrompts: [{ tool: 'Bash', prompt: 'npm test' }],
+    await bridge.processStream(
+      jsonLinesToStream([
+        {
+          type: 'agent:plan_ready',
+          timestamp: Date.now(),
+          taskId: taskId,
+          sessionId: movedTask!.sessionId!,
+          data: {
+            plan: '## Plan\n\n1. Create JWT middleware\n2. Add login/register endpoints\n3. Write tests',
+            turnCount: 5,
+            sdkSessionId: 'sdk-session-auth-plan',
+            allowedPrompts: [{ tool: 'Bash', prompt: 'npm test' }],
+          },
         },
-      },
-    ];
+      ])
+    );
 
-    await bridge.processStream(jsonLinesToStream(planEvents));
-
+    // Verify handlePlanReady was called via the bridge
     expect(onPlanReady).toHaveBeenCalledOnce();
-    expect(onComplete).not.toHaveBeenCalled();
-    expect(onError).not.toHaveBeenCalled();
 
-    // Simulate what PlanApprovalService.handlePlanReady does to the DB
-    await db
-      .update(tasks)
-      .set({
-        plan: '## Implementation Plan\n\n1. Create JWT middleware\n2. Add login/register endpoints\n3. Write integration tests\n4. Update API documentation',
-        planOptions: {
-          sdkSessionId: 'sdk-session-auth-plan',
-          allowedPrompts: [{ tool: 'Bash' as const, prompt: 'npm test' }],
-          planningSandboxId: 'sandbox-123',
-        },
-        lastAgentStatus: 'planning',
-        column: 'waiting_approval',
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(tasks.id, TASK_ID));
-
-    // Verify task is now waiting for approval with plan data
-    const plannedTask = await db.query.tasks.findFirst({
-      where: eq(tasks.id, TASK_ID),
-    });
+    // Verify REAL PlanApprovalService wrote to DB
+    const plannedTask = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) });
     expect(plannedTask!.column).toBe('waiting_approval');
     expect(plannedTask!.plan).toContain('Create JWT middleware');
     expect(plannedTask!.lastAgentStatus).toBe('planning');
-    expect(plannedTask!.skillId).toBe('auth-toolkit');
+    expect(plannedTask!.skillId).toBe('auth-toolkit'); // skill preserved
 
-    const planOptions = plannedTask!.planOptions as {
-      sdkSessionId?: string;
-      allowedPrompts?: Array<{ tool: string; prompt: string }>;
-    } | null;
+    const planOptions = plannedTask!.planOptions as { sdkSessionId?: string } | null;
     expect(planOptions?.sdkSessionId).toBe('sdk-session-auth-plan');
 
-    // ── Phase 4: Approve the plan (triggers execution phase) ──
+    // Verify REAL SandboxStateManager has the pending plan
+    expect(stateManager.hasPendingPlan(taskId)).toBe(true);
+    const pendingPlan = stateManager.getPendingPlan(taskId);
+    expect(pendingPlan!.plan).toContain('Create JWT middleware');
+    expect(pendingPlan!.sdkSessionId).toBe('sdk-session-auth-plan');
 
-    // Simulate approvePlan: move task back to in_progress for execution
-    await db
-      .update(tasks)
-      .set({
-        column: 'in_progress',
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(tasks.id, TASK_ID));
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 4: REAL PlanApprovalService.approvePlan() →
+    //          moves task to in_progress, calls startAgent with
+    //          phase: 'execute' and plan as prompt
+    // ═══════════════════════════════════════════════════════════════════
 
-    const approvedTask = await db.query.tasks.findFirst({
-      where: eq(tasks.id, TASK_ID),
-    });
-    expect(approvedTask!.column).toBe('in_progress');
-    expect(approvedTask!.lastAgentStatus).toBe('planning'); // preserved until execution completes
-    expect(approvedTask!.plan).toContain('Create JWT middleware'); // plan text preserved
+    const approveResult = await planApprovalService.approvePlan(taskId);
+    expect(approveResult.ok).toBe(true);
 
-    // ── Phase 5: Simulate execution completion ──
+    // Verify startAgentFn was called with execution parameters
+    expect(mockStartAgentFn).toHaveBeenCalledOnce();
+    const executionInput = mockStartAgentFn.mock.calls[0][0];
+    expect(executionInput.phase).toBe('execute');
+    expect(executionInput.prompt).toContain('Create JWT middleware');
+    expect(executionInput.sdkSessionId).toBe('sdk-session-auth-plan');
+    expect(executionInput.codespaceId).toBe(CODESPACE_ID);
+    expect(executionInput.taskId).toBe(taskId);
 
-    // Agent executes the plan and completes
-    const completionSuccess = await updateTaskOnAgentComplete(
+    // Verify task moved to in_progress for execution
+    const executingTask = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) });
+    expect(executingTask!.column).toBe('in_progress');
+    expect(executingTask!.plan).toContain('Create JWT middleware'); // plan text preserved
+
+    // Verify pending plan was cleaned up from memory
+    expect(stateManager.hasPendingPlan(taskId)).toBe(false);
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 5: REAL updateTaskOnAgentComplete() →
+    //          moves task to waiting_approval with 'completed' status
+    // ═══════════════════════════════════════════════════════════════════
+
+    const completionOk = await updateTaskOnAgentComplete(
       db,
-      TASK_ID,
+      taskId,
       'completed',
       streams,
-      SESSION_ID
+      movedTask!.sessionId!
     );
-    expect(completionSuccess).toBe(true);
+    expect(completionOk).toBe(true);
 
-    const completedTask = await db.query.tasks.findFirst({
-      where: eq(tasks.id, TASK_ID),
-    });
+    const completedTask = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) });
     expect(completedTask!.column).toBe('waiting_approval');
     expect(completedTask!.lastAgentStatus).toBe('completed');
     expect(completedTask!.completedAt).toBeTruthy();
-    expect(completedTask!.agentId).toBeNull(); // agent reference cleared
-    expect(completedTask!.sessionId).toBeNull(); // session reference cleared
-    expect(completedTask!.skillId).toBe('auth-toolkit'); // skill preserved through entire lifecycle
+    expect(completedTask!.agentId).toBeNull();
+    expect(completedTask!.sessionId).toBeNull();
+    expect(completedTask!.skillId).toBe('auth-toolkit');
+    expect(completedTask!.plan).toContain('Create JWT middleware'); // plan still there
 
-    // ── Phase 6: User approves the changes (merge + verify) ──
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 6: REAL TaskService.approve() →
+    //          getDiff → merge → move to verified → remove worktree
+    // ═══════════════════════════════════════════════════════════════════
 
-    // Re-link worktree for approval flow
+    // Re-link worktree (cleared by updateTaskOnAgentComplete)
     await db
       .update(tasks)
       .set({ worktreeId: WORKTREE_ID, branch: worktree.branch })
-      .where(eq(tasks.id, TASK_ID));
+      .where(eq(tasks.id, taskId));
 
-    const approveResult = await taskService.approve(TASK_ID, {
+    const finalApprove = await taskService.approve(taskId, {
       approvedBy: 'test-user',
       createMergeCommit: true,
     });
-    expect(approveResult.ok).toBe(true);
+    expect(finalApprove.ok).toBe(true);
 
-    if (approveResult.ok) {
-      const verifiedTask = approveResult.value;
-      expect(verifiedTask.column).toBe('verified');
-      expect(verifiedTask.approvedAt).toBeTruthy();
-      expect(verifiedTask.approvedBy).toBe('test-user');
-      expect(verifiedTask.completedAt).toBeTruthy();
-      expect(verifiedTask.diffSummary).toEqual({
-        filesChanged: 2,
-        additions: 70,
-        deletions: 5,
-      });
-
-      // Skill fields preserved all the way to verification
-      expect(verifiedTask.skillId).toBe('auth-toolkit');
-      expect(verifiedTask.skillName).toBe('Authentication Toolkit');
+    if (finalApprove.ok) {
+      const verified = finalApprove.value;
+      expect(verified.column).toBe('verified');
+      expect(verified.approvedAt).toBeTruthy();
+      expect(verified.approvedBy).toBe('test-user');
+      expect(verified.completedAt).toBeTruthy();
+      expect(verified.diffSummary).toEqual({ filesChanged: 2, additions: 70, deletions: 5 });
+      expect(verified.skillId).toBe('auth-toolkit');
+      expect(verified.skillName).toBe('Authentication Toolkit');
     }
 
-    // Verify worktree was merged and removed
     expect(mockWorktreeService.getDiff).toHaveBeenCalledWith(WORKTREE_ID);
     expect(mockWorktreeService.merge).toHaveBeenCalledWith(WORKTREE_ID);
     expect(mockWorktreeService.remove).toHaveBeenCalledWith(WORKTREE_ID);
   });
 
-  it('plan rejection returns task to backlog with clean state', async () => {
-    const db = getTestDb();
-
+  it('plan rejection through real PlanApprovalService cleans up all state', async () => {
     const codespace = await createTestProject({ id: CODESPACE_ID });
+    await createTestWorktree(codespace.id, { id: WORKTREE_ID, status: 'active' });
+
     await createTestTask(codespace.id, {
       id: TASK_ID,
       column: 'in_progress',
       skillId: 'auth-toolkit',
     });
 
-    // Simulate plan stored
-    await db
-      .update(tasks)
-      .set({
-        plan: 'Bad plan',
-        planOptions: { sdkSessionId: 'sdk-reject' },
-        lastAgentStatus: 'planning',
-        column: 'waiting_approval',
-        worktreeId: 'wt-reject',
-        branch: 'agent/bad-plan',
-      })
-      .where(eq(tasks.id, TASK_ID));
+    // Wire up real PlanApprovalService
+    const mockWorktreeInit = {
+      cleanupWorktree: vi.fn().mockResolvedValue(undefined),
+      resolveWorktree: vi.fn(),
+      initializeWorkspace: vi.fn(),
+    };
 
-    // Simulate rejection: clear plan fields, move to backlog
-    await db
-      .update(tasks)
-      .set({
-        plan: null,
-        planOptions: null,
-        lastAgentStatus: null,
-        column: 'backlog',
-        worktreeId: null,
-        branch: null,
-        rejectionReason: 'Plan does not address security requirements',
-        rejectionCount: 1,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(tasks.id, TASK_ID));
+    const planService = new PlanApprovalService(
+      { db, streams, provider: { get: vi.fn() } as any },
+      stateManager,
+      mockWorktreeInit as any,
+      vi.fn().mockResolvedValue({ ok: true }),
+      () => false
+    );
 
-    const rejectedTask = await db.query.tasks.findFirst({
-      where: eq(tasks.id, TASK_ID),
+    // Store plan via real handlePlanReady
+    await planService.handlePlanReady(TASK_ID, SESSION_ID, CODESPACE_ID, {
+      plan: 'Bad plan that needs rejection',
+      turnCount: 3,
+      sdkSessionId: 'sdk-reject',
     });
-    expect(rejectedTask!.column).toBe('backlog');
-    expect(rejectedTask!.plan).toBeNull();
-    expect(rejectedTask!.planOptions).toBeNull();
-    expect(rejectedTask!.lastAgentStatus).toBeNull();
-    expect(rejectedTask!.worktreeId).toBeNull();
-    expect(rejectedTask!.branch).toBeNull();
-    expect(rejectedTask!.rejectionReason).toBe('Plan does not address security requirements');
-    expect(rejectedTask!.rejectionCount).toBe(1);
-    expect(rejectedTask!.skillId).toBe('auth-toolkit'); // skill preserved
+
+    // Verify plan was stored
+    const planned = await db.query.tasks.findFirst({ where: eq(tasks.id, TASK_ID) });
+    expect(planned!.column).toBe('waiting_approval');
+    expect(planned!.plan).toBe('Bad plan that needs rejection');
+    expect(stateManager.hasPendingPlan(TASK_ID)).toBe(true);
+
+    // Reject via real rejectPlan
+    const rejectResult = await planService.rejectPlan(TASK_ID, 'Does not address security');
+    expect(rejectResult.ok).toBe(true);
+
+    // Verify all state cleaned up
+    const rejected = await db.query.tasks.findFirst({ where: eq(tasks.id, TASK_ID) });
+    expect(rejected!.column).toBe('backlog');
+    expect(rejected!.plan).toBeNull();
+    expect(rejected!.planOptions).toBeNull();
+    expect(rejected!.lastAgentStatus).toBeNull();
+    expect(rejected!.worktreeId).toBeNull();
+    expect(rejected!.branch).toBeNull();
+    expect(rejected!.rejectionReason).toBe('Does not address security');
+    expect(rejected!.skillId).toBe('auth-toolkit'); // skill preserved
+
+    // Verify memory state cleaned up
+    expect(stateManager.hasPendingPlan(TASK_ID)).toBe(false);
   });
 
-  it('agent error during execution cleans up state correctly', async () => {
-    const db = getTestDb();
-    const streams = createMockStreams();
-
+  it('agent error through real shared-helpers cleans up correctly', async () => {
     const codespace = await createTestProject({ id: CODESPACE_ID });
+    await createTestAgent(codespace.id, { id: AGENT_ID, status: 'running' });
     await createTestTask(codespace.id, {
       id: TASK_ID,
       column: 'in_progress',
@@ -398,146 +400,243 @@ describe('Functional E2E: Task → Skill → Plan → Approve → Execute → Ve
       agentId: AGENT_ID,
     });
 
-    await createTestAgent(codespace.id, {
-      id: AGENT_ID,
-      status: 'running',
-      currentTaskId: TASK_ID,
-    });
+    // Real shared helper
+    const ok = await updateTaskOnAgentError(db, TASK_ID, streams, SESSION_ID);
+    expect(ok).toBe(true);
 
-    // Simulate agent error
-    const errorSuccess = await updateTaskOnAgentError(db, TASK_ID, streams, SESSION_ID);
-    expect(errorSuccess).toBe(true);
-
-    const errorTask = await db.query.tasks.findFirst({
-      where: eq(tasks.id, TASK_ID),
-    });
+    const errorTask = await db.query.tasks.findFirst({ where: eq(tasks.id, TASK_ID) });
     expect(errorTask!.lastAgentStatus).toBe('error');
     expect(errorTask!.agentId).toBeNull();
     expect(errorTask!.sessionId).toBeNull();
-    expect(errorTask!.skillId).toBe('auth-toolkit'); // skill preserved even on error
+    expect(errorTask!.skillId).toBe('auth-toolkit');
   });
 
-  it('multi-round: reject → re-plan → approve → execute → verify', async () => {
-    const db = getTestDb();
-    const mockWorktreeService = createMockWorktreeService();
-    const taskService = new TaskService(db, mockWorktreeService);
-
+  it('multi-round: reject → re-plan → approve → execute → verify (real services)', async () => {
     const codespace = await createTestProject({ id: CODESPACE_ID });
-    await createTestTask(codespace.id, {
-      id: TASK_ID,
-      title: 'Fix authentication bug',
-      column: 'backlog',
+
+    const createResult = await taskService.create({
+      codespaceId: codespace.id,
+      title: 'Fix auth bug',
       skillId: 'debug-toolkit',
       skillName: 'Debug Toolkit',
     });
+    expect(createResult.ok).toBe(true);
+    const taskId = createResult.ok ? createResult.value.id : '';
 
-    // Round 1: Move to in_progress
-    const move1 = await taskService.moveColumn(TASK_ID, 'in_progress');
+    // Wire real PlanApprovalService
+    const mockWorktreeInit = {
+      cleanupWorktree: vi.fn().mockResolvedValue(undefined),
+      resolveWorktree: vi.fn(),
+      initializeWorkspace: vi.fn(),
+    };
+    const mockStartAgentFn = vi.fn().mockResolvedValue({ ok: true, value: undefined });
+    const planService = new PlanApprovalService(
+      { db, streams, provider: { get: vi.fn() } as any },
+      stateManager,
+      mockWorktreeInit as any,
+      mockStartAgentFn,
+      () => false
+    );
+
+    // ── Round 1: Move → Plan → Reject ──
+
+    const move1 = await taskService.moveColumn(taskId, 'in_progress');
     expect(move1.ok).toBe(true);
 
-    // Round 1: Plan arrives, stored
-    await db
-      .update(tasks)
-      .set({
-        plan: 'Round 1 plan: patch the token validation',
-        planOptions: { sdkSessionId: 'sdk-r1' },
-        lastAgentStatus: 'planning',
-        column: 'waiting_approval',
-      })
-      .where(eq(tasks.id, TASK_ID));
+    await planService.handlePlanReady(taskId, 'session-r1', codespace.id, {
+      plan: 'Round 1: narrow fix',
+      turnCount: 2,
+      sdkSessionId: 'sdk-r1',
+    });
 
-    // Round 1: Reject
-    await db
-      .update(tasks)
-      .set({
-        plan: null,
-        planOptions: null,
-        lastAgentStatus: null,
-        column: 'backlog',
-        rejectionReason: 'Too narrow — also fix the refresh token flow',
-        rejectionCount: 1,
-      })
-      .where(eq(tasks.id, TASK_ID));
+    const afterPlan1 = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) });
+    expect(afterPlan1!.column).toBe('waiting_approval');
 
-    const afterReject = await db.query.tasks.findFirst({ where: eq(tasks.id, TASK_ID) });
+    const reject1 = await planService.rejectPlan(taskId, 'Too narrow');
+    expect(reject1.ok).toBe(true);
+
+    const afterReject = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) });
     expect(afterReject!.column).toBe('backlog');
-    expect(afterReject!.rejectionCount).toBe(1);
+    expect(afterReject!.plan).toBeNull();
 
-    // Round 2: Move to in_progress again
-    const move2 = await taskService.moveColumn(TASK_ID, 'in_progress');
+    // ── Round 2: Move → Plan → Approve → Execute → Complete ──
+
+    const move2 = await taskService.moveColumn(taskId, 'in_progress');
     expect(move2.ok).toBe(true);
 
-    // Round 2: Better plan arrives
-    await db
-      .update(tasks)
-      .set({
-        plan: 'Round 2 plan: fix token validation AND refresh token flow',
-        planOptions: { sdkSessionId: 'sdk-r2' },
-        lastAgentStatus: 'planning',
-        column: 'waiting_approval',
-      })
-      .where(eq(tasks.id, TASK_ID));
+    await planService.handlePlanReady(taskId, 'session-r2', codespace.id, {
+      plan: 'Round 2: comprehensive fix with refresh token',
+      turnCount: 4,
+      sdkSessionId: 'sdk-r2',
+    });
 
-    // Round 2: Approve
-    await db.update(tasks).set({ column: 'in_progress' }).where(eq(tasks.id, TASK_ID));
+    const afterPlan2 = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) });
+    expect(afterPlan2!.column).toBe('waiting_approval');
+    expect(afterPlan2!.plan).toContain('comprehensive fix');
 
-    // Round 2: Execution completes
-    await updateTaskOnAgentComplete(db, TASK_ID, 'completed');
+    // Approve via real service
+    mockStartAgentFn.mockClear();
+    const approve2 = await planService.approvePlan(taskId);
+    expect(approve2.ok).toBe(true);
+    expect(mockStartAgentFn).toHaveBeenCalledOnce();
+    expect(mockStartAgentFn.mock.calls[0][0].phase).toBe('execute');
+    expect(mockStartAgentFn.mock.calls[0][0].prompt).toContain('comprehensive fix');
 
-    const afterExec = await db.query.tasks.findFirst({ where: eq(tasks.id, TASK_ID) });
+    // Agent completes
+    await updateTaskOnAgentComplete(db, taskId, 'completed');
+
+    const afterExec = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) });
     expect(afterExec!.column).toBe('waiting_approval');
     expect(afterExec!.lastAgentStatus).toBe('completed');
 
-    // Create worktree for approval
-    const wt = await createTestWorktree(codespace.id, {
-      taskId: TASK_ID,
-      status: 'active',
-    });
+    // Final approval
+    const wt = await createTestWorktree(codespace.id, { taskId, status: 'active' });
     await db
       .update(tasks)
       .set({ worktreeId: wt.id, branch: wt.branch })
-      .where(eq(tasks.id, TASK_ID));
+      .where(eq(tasks.id, taskId));
 
-    // Final approval
-    const approveResult = await taskService.approve(TASK_ID, { approvedBy: 'lead-dev' });
-    expect(approveResult.ok).toBe(true);
-    if (approveResult.ok) {
-      expect(approveResult.value.column).toBe('verified');
-      expect(approveResult.value.approvedBy).toBe('lead-dev');
-      expect(approveResult.value.skillId).toBe('debug-toolkit');
-      expect(approveResult.value.rejectionCount).toBe(1); // rejection history preserved
+    const finalApprove = await taskService.approve(taskId, { approvedBy: 'lead-dev' });
+    expect(finalApprove.ok).toBe(true);
+    if (finalApprove.ok) {
+      expect(finalApprove.value.column).toBe('verified');
+      expect(finalApprove.value.skillId).toBe('debug-toolkit');
+      // rejectionReason preserved from round 1 rejection
+      expect(finalApprove.value.rejectionReason).toBe('Too narrow');
     }
   });
 
-  it('turn limit pauses agent without losing skill or plan context', async () => {
-    const db = getTestDb();
-    const streams = createMockStreams();
-
+  it('turn limit through real shared-helpers preserves plan context', async () => {
     const codespace = await createTestProject({ id: CODESPACE_ID });
-    await createTestTask(codespace.id, {
-      id: TASK_ID,
-      column: 'in_progress',
+    const createResult = await taskService.create({
+      codespaceId: codespace.id,
+      title: 'Large refactor',
       skillId: 'refactor-toolkit',
-      plan: 'Refactoring plan text',
-      planOptions: { sdkSessionId: 'sdk-turns' },
     });
+    expect(createResult.ok).toBe(true);
+    const taskId = createResult.ok ? createResult.value.id : '';
 
-    // Simulate turn limit hit
-    const turnLimitSuccess = await updateTaskOnAgentComplete(
-      db,
-      TASK_ID,
-      'turn_limit',
-      streams,
-      SESSION_ID
+    // Move to in_progress
+    const move = await taskService.moveColumn(taskId, 'in_progress');
+    expect(move.ok).toBe(true);
+
+    // Store plan via DB (simulating handlePlanReady → approve → executing)
+    await db
+      .update(tasks)
+      .set({ plan: 'Refactoring plan text', planOptions: { sdkSessionId: 'sdk-turns' } })
+      .where(eq(tasks.id, taskId));
+
+    // Real turn limit handler
+    const ok = await updateTaskOnAgentComplete(db, taskId, 'turn_limit', streams, SESSION_ID);
+    expect(ok).toBe(true);
+
+    const paused = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) });
+    expect(paused!.column).toBe('waiting_approval');
+    expect(paused!.lastAgentStatus).toBe('turn_limit');
+    expect(paused!.skillId).toBe('refactor-toolkit');
+    expect(paused!.plan).toBe('Refactoring plan text');
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // BUG DETECTION: Prevent skipping execution by approving during planning
+  // ═══════════════════════════════════════════════════════════════════════
+
+  it('FIXED: approve() rejects task with lastAgentStatus=planning (prevents skipping execution)', async () => {
+    const codespace = await createTestProject({ id: CODESPACE_ID });
+
+    const createResult = await taskService.create({
+      codespaceId: codespace.id,
+      title: 'Feature X',
+    });
+    const taskId = createResult.ok ? createResult.value.id : '';
+
+    await taskService.moveColumn(taskId, 'in_progress');
+
+    const worktree = await createTestWorktree(codespace.id, { taskId, status: 'active' });
+
+    const mockWorktreeInit = {
+      cleanupWorktree: vi.fn(),
+      resolveWorktree: vi.fn(),
+      initializeWorkspace: vi.fn(),
+    };
+    const planService = new PlanApprovalService(
+      { db, streams, provider: { get: vi.fn() } as any },
+      stateManager,
+      mockWorktreeInit as any,
+      vi.fn().mockResolvedValue({ ok: true }),
+      () => false
     );
-    expect(turnLimitSuccess).toBe(true);
 
-    const pausedTask = await db.query.tasks.findFirst({
-      where: eq(tasks.id, TASK_ID),
+    await planService.handlePlanReady(taskId, 'session-bug', codespace.id, {
+      plan: 'Plan that should not be merged directly',
+      turnCount: 3,
+      sdkSessionId: 'sdk-bug',
     });
-    expect(pausedTask!.column).toBe('waiting_approval');
-    expect(pausedTask!.lastAgentStatus).toBe('turn_limit');
-    expect(pausedTask!.skillId).toBe('refactor-toolkit'); // skill preserved
-    expect(pausedTask!.plan).toBe('Refactoring plan text'); // plan preserved
+
+    const planned = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) });
+    expect(planned!.column).toBe('waiting_approval');
+    expect(planned!.lastAgentStatus).toBe('planning');
+
+    await db
+      .update(tasks)
+      .set({ worktreeId: worktree.id, branch: worktree.branch })
+      .where(eq(tasks.id, taskId));
+
+    // approve() must block — task is pending plan approval, not execution completion
+    const approveResult = await taskService.approve(taskId, { approvedBy: 'user' });
+    expect(approveResult.ok).toBe(false);
+    if (!approveResult.ok) {
+      expect(approveResult.error.code).toBe('TASK_PLAN_NOT_EXECUTED');
+    }
+
+    // Task stays in waiting_approval
+    const afterAttempt = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) });
+    expect(afterAttempt!.column).toBe('waiting_approval');
+  });
+
+  it('FIXED: moveColumn to verified rejects when lastAgentStatus=planning (prevents Kanban bypass)', async () => {
+    const codespace = await createTestProject({ id: CODESPACE_ID });
+
+    const createResult = await taskService.create({
+      codespaceId: codespace.id,
+      title: 'Feature Y',
+    });
+    const taskId = createResult.ok ? createResult.value.id : '';
+
+    await taskService.moveColumn(taskId, 'in_progress');
+
+    const mockWorktreeInit = {
+      cleanupWorktree: vi.fn(),
+      resolveWorktree: vi.fn(),
+      initializeWorkspace: vi.fn(),
+    };
+    const planService = new PlanApprovalService(
+      { db, streams, provider: { get: vi.fn() } as any },
+      stateManager,
+      mockWorktreeInit as any,
+      vi.fn().mockResolvedValue({ ok: true }),
+      () => false
+    );
+
+    await planService.handlePlanReady(taskId, 'session-bug2', codespace.id, {
+      plan: 'Plan text',
+      turnCount: 2,
+      sdkSessionId: 'sdk-bug2',
+    });
+
+    const planned = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) });
+    expect(planned!.column).toBe('waiting_approval');
+    expect(planned!.lastAgentStatus).toBe('planning');
+
+    // moveColumn to verified must be blocked — plan not executed yet
+    const moveResult = await taskService.moveColumn(taskId, 'verified');
+    expect(moveResult.ok).toBe(false);
+    if (!moveResult.ok) {
+      expect(moveResult.error.code).toBe('TASK_PLAN_NOT_EXECUTED');
+    }
+
+    // Task stays in waiting_approval
+    const afterAttempt = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) });
+    expect(afterAttempt!.column).toBe('waiting_approval');
   });
 });

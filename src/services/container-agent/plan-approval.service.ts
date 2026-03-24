@@ -8,7 +8,7 @@
  * - Recover plans from database after server restart (getPendingPlan)
  */
 
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import { tasks } from '../../db/schema';
 import type { SandboxError } from '../../lib/errors/sandbox-errors.js';
@@ -204,7 +204,20 @@ export class PlanApprovalService {
       });
 
       try {
-        await db.update(tasks).set({ column: 'in_progress' }).where(eq(tasks.id, taskId));
+        // Atomic: only move to in_progress if task is still in waiting_approval
+        const [updated] = await db
+          .update(tasks)
+          .set({ column: 'in_progress', lastAgentStatus: null })
+          .where(and(eq(tasks.id, taskId), eq(tasks.column, 'waiting_approval')))
+          .returning();
+
+        if (!updated) {
+          this.state.deletePendingPlan(taskId);
+          log.warn('Plan approval failed — task already moved from waiting_approval', {
+            data: { taskId },
+          });
+          return err(SandboxErrors.PLAN_NOT_FOUND(taskId));
+        }
       } catch (dbErr) {
         const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
         log.error('Failed to move task to in_progress for execution (AgentCore)', {
@@ -268,7 +281,20 @@ export class PlanApprovalService {
     });
 
     try {
-      await db.update(tasks).set({ column: 'in_progress' }).where(eq(tasks.id, taskId));
+      // Atomic: only move to in_progress if task is still in waiting_approval
+      const [updated] = await db
+        .update(tasks)
+        .set({ column: 'in_progress', lastAgentStatus: null })
+        .where(and(eq(tasks.id, taskId), eq(tasks.column, 'waiting_approval')))
+        .returning();
+
+      if (!updated) {
+        this.state.deletePendingPlan(taskId);
+        log.warn('Plan approval failed — task already moved from waiting_approval', {
+          data: { taskId },
+        });
+        return err(SandboxErrors.PLAN_NOT_FOUND(taskId));
+      }
     } catch (dbErr) {
       const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
       log.error('Failed to move task to in_progress for execution', {
@@ -315,8 +341,9 @@ export class PlanApprovalService {
     const worktreeIdToClean = taskRecord?.worktreeId;
 
     // DB write FIRST -- only clear in-memory on success
+    // Atomic: only reject if task still has lastAgentStatus='planning' (not yet approved)
     try {
-      await db
+      const [updated] = await db
         .update(tasks)
         .set({
           column: 'backlog',
@@ -327,7 +354,17 @@ export class PlanApprovalService {
           worktreeId: null,
           branch: null,
         })
-        .where(eq(tasks.id, taskId));
+        .where(and(eq(tasks.id, taskId), eq(tasks.lastAgentStatus, 'planning')))
+        .returning();
+
+      if (!updated) {
+        this.state.deletePendingPlan(taskId);
+        log.info('Plan rejection failed — task no longer in planning state', {
+          data: { taskId },
+        });
+        return err(SandboxErrors.PLAN_NOT_FOUND(taskId));
+      }
+
       log.info('Task moved to backlog and plan cleared', { data: { taskId, reason } });
     } catch (dbErr) {
       const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);

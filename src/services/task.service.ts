@@ -399,6 +399,11 @@ export class TaskService {
       return err(TaskErrors.INVALID_TRANSITION(task.column, column));
     }
 
+    // Guard: cannot move to verified when plan is pending (would skip execution phase)
+    if (column === 'verified' && task.lastAgentStatus === 'planning') {
+      return err(TaskErrors.PLAN_NOT_EXECUTED);
+    }
+
     let newPosition = position;
     if (newPosition === undefined) {
       const lastInColumn = await this.db.query.tasks.findFirst({
@@ -651,6 +656,11 @@ export class TaskService {
 
     if (task.column !== 'waiting_approval') {
       return err(TaskErrors.NOT_WAITING_APPROVAL(task.column));
+    }
+
+    // Guard: cannot approve changes when task is pending plan approval (would skip execution)
+    if (task.lastAgentStatus === 'planning') {
+      return err(TaskErrors.PLAN_NOT_EXECUTED);
     }
 
     if (task.approvedAt) {
