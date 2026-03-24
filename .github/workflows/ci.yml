@@ -16,6 +16,7 @@ concurrency:
 jobs:
   install:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
 
@@ -30,6 +31,8 @@ jobs:
         with:
           path: node_modules
           key: node-modules-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/package.json') }}
+          restore-keys: |
+            node-modules-${{ runner.os }}-
 
       - name: Cache Bun packages
         uses: actions/cache@v5
@@ -45,28 +48,13 @@ jobs:
 
   lint-and-typecheck:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: install
     steps:
-      - uses: actions/checkout@v6
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - name: Setup environment
+        uses: ./.github/actions/setup-bun-env
         with:
           bun-version: ${{ env.BUN_VERSION }}
-
-      - name: Restore node_modules
-        uses: actions/cache@v5
-        with:
-          path: node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/package.json') }}
-
-      - name: Restore Bun packages
-        uses: actions/cache@v5
-        with:
-          path: ~/.bun/install/cache
-          key: bun-packages-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/package.json') }}
-          restore-keys: |
-            bun-packages-${{ runner.os }}-
 
       - name: Schema drift check
         run: bun run scripts/check-schema-drift.ts
@@ -79,32 +67,17 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: install
     strategy:
       fail-fast: false
       matrix:
         shard: [1/3, 2/3, 3/3]
     steps:
-      - uses: actions/checkout@v6
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - name: Setup environment
+        uses: ./.github/actions/setup-bun-env
         with:
           bun-version: ${{ env.BUN_VERSION }}
-
-      - name: Restore node_modules
-        uses: actions/cache@v5
-        with:
-          path: node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/package.json') }}
-
-      - name: Restore Bun packages
-        uses: actions/cache@v5
-        with:
-          path: ~/.bun/install/cache
-          key: bun-packages-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/package.json') }}
-          restore-keys: |
-            bun-packages-${{ runner.os }}-
 
       - name: Dependency audit
         run: bun pm audit 2>/dev/null || echo "::warning::Dependency audit found issues (non-blocking)"
@@ -113,30 +86,23 @@ jobs:
       - name: Test (shard ${{ matrix.shard }})
         run: bun vitest run --project unit --project jsdom --project db --shard=${{ matrix.shard }}
 
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-shard-${{ strategy.job-index }}
+          path: test-results/
+          retention-days: 7
+
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: install
     steps:
-      - uses: actions/checkout@v6
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - name: Setup environment
+        uses: ./.github/actions/setup-bun-env
         with:
           bun-version: ${{ env.BUN_VERSION }}
-
-      - name: Restore node_modules
-        uses: actions/cache@v5
-        with:
-          path: node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/package.json') }}
-
-      - name: Restore Bun packages
-        uses: actions/cache@v5
-        with:
-          path: ~/.bun/install/cache
-          key: bun-packages-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/package.json') }}
-          restore-keys: |
-            bun-packages-${{ runner.os }}-
 
       - name: Install agent-runner dependencies
         run: cd agent-runner && bun install --frozen-lockfile
@@ -146,32 +112,25 @@ jobs:
 
   integration-test:
     runs-on: ubuntu-latest
-    needs: [test, lint-and-typecheck]
+    timeout-minutes: 30
+    needs: [test, lint-and-typecheck, build]
     strategy:
       fail-fast: false
       matrix:
         shard: [1/2, 2/2]
     steps:
-      - uses: actions/checkout@v6
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - name: Setup environment
+        uses: ./.github/actions/setup-bun-env
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
-      - name: Restore node_modules
-        uses: actions/cache@v5
-        with:
-          path: node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/package.json') }}
-
-      - name: Restore Bun packages
-        uses: actions/cache@v5
-        with:
-          path: ~/.bun/install/cache
-          key: bun-packages-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/package.json') }}
-          restore-keys: |
-            bun-packages-${{ runner.os }}-
-
       - name: Integration tests (shard ${{ matrix.shard }})
         run: bun vitest run --project integration --shard=${{ matrix.shard }}
+
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results-shard-${{ strategy.job-index }}
+          path: test-results/
+          retention-days: 7
