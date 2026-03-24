@@ -53,6 +53,8 @@ const sampleTask: Task = {
   rejectionCount: 0,
   rejectionReason: null,
   modelOverride: null,
+  skillId: null,
+  skillName: null,
   planOptions: null,
   plan: null,
   createdAt: '2026-01-01T00:00:00Z',

@@ -99,6 +99,36 @@ describe('Migration ordering', () => {
     db.close();
   });
 
+  it('adds skill_id and skill_name columns to tasks table', () => {
+    const db = new Database(':memory:');
+    db.pragma('foreign_keys = ON');
+
+    runMigrations(db, MIGRATIONS);
+
+    const tasksCols = db.prepare("PRAGMA table_info('tasks')").all() as {
+      name: string;
+    }[];
+    const colNames = tasksCols.map((c) => c.name);
+    expect(colNames).toContain('skill_id');
+    expect(colNames).toContain('skill_name');
+
+    // Verify we can insert a task with skill columns
+    db.prepare(`INSERT INTO projects (id, name, path) VALUES ('p1', 'Test', '/test')`).run();
+    db.prepare(
+      `INSERT INTO tasks (id, project_id, title, skill_id, skill_name)
+       VALUES ('t1', 'p1', 'Skill Task', 'terraform-stacks', 'Terraform Stacks')`
+    ).run();
+
+    const task = db.prepare(`SELECT skill_id, skill_name FROM tasks WHERE id = 't1'`).get() as {
+      skill_id: string;
+      skill_name: string;
+    };
+    expect(task.skill_id).toBe('terraform-stacks');
+    expect(task.skill_name).toBe('Terraform Stacks');
+
+    db.close();
+  });
+
   it('only applies pending migrations on existing database', () => {
     const db = new Database(':memory:');
     db.pragma('foreign_keys = ON');

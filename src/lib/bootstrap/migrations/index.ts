@@ -133,4 +133,14 @@ export const MIGRATIONS: Migration[] = [
     name: 'project-folders-alter-columns',
     statements: [...PROJECT_FOLDERS_ALTER_STATEMENTS],
   },
+
+  // 21. Add skill_id and skill_name columns to tasks table
+  {
+    version: 21,
+    name: 'task-skill-columns',
+    statements: [
+      `ALTER TABLE tasks ADD COLUMN skill_id TEXT`,
+      `ALTER TABLE tasks ADD COLUMN skill_name TEXT`,
+    ],
+  },
 ];
