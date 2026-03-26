@@ -339,10 +339,14 @@ describe('TaskCreationSdkService — SDK orchestration integration tests', () =>
   it('IT-386c: SDK environment excludes sensitive variables', async () => {
     const { unstable_v2_createSession } = await import('@anthropic-ai/claude-agent-sdk');
     const mockCreateSession = vi.mocked(unstable_v2_createSession);
+    mockCreateSession.mockClear();
     mockCreateSession.mockReturnValue({ send: vi.fn(), stream: vi.fn(), close: vi.fn() } as any);
 
-    // Set sensitive env vars temporarily
-    const originalEnv = { ...process.env };
+    // Save only the keys we're about to modify
+    const savedDbUrl = process.env.DATABASE_URL;
+    const savedEncKey = process.env.ENCRYPTION_KEY;
+    const savedSessionSecret = process.env.SESSION_SECRET;
+
     process.env.DATABASE_URL = 'sqlite:///secret.db';
     process.env.ENCRYPTION_KEY = 'super-secret-key';
     process.env.SESSION_SECRET = 'session-secret';
@@ -366,10 +370,18 @@ describe('TaskCreationSdkService — SDK orchestration integration tests', () =>
       // Extra vars from createSession should be present
       expect(env.CLAUDE_CODE_ENABLE_TASKS).toBe('true');
     } finally {
-      // Restore original env
-      process.env.DATABASE_URL = originalEnv.DATABASE_URL;
-      process.env.ENCRYPTION_KEY = originalEnv.ENCRYPTION_KEY;
-      process.env.SESSION_SECRET = originalEnv.SESSION_SECRET;
+      // Restore original env — delete if originally undefined to avoid "undefined" string
+      for (const [key, saved] of [
+        ['DATABASE_URL', savedDbUrl],
+        ['ENCRYPTION_KEY', savedEncKey],
+        ['SESSION_SECRET', savedSessionSecret],
+      ] as const) {
+        if (saved === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = saved;
+        }
+      }
       delete process.env.SAFE_VAR;
     }
   });
