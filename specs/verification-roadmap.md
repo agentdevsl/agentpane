@@ -420,7 +420,8 @@ Quarter 2 -- COMPLETED 2026-03-26
 │   ├── mutation-thresholds.json (state-machines: 80%, RBAC: 90%)
 │   ├── scripts/check-mutation-thresholds.mjs for per-area enforcement
 │   ├── .github/workflows/mutation-testing.yml (PR-triggered, nightly, incremental cache)
-│   └── npm scripts: mutate, mutate:state-machines, mutate:rbac, mutate:incremental
+│   ├── npm scripts: mutate, mutate:state-machines, mutate:rbac, mutate:incremental
+│   └── Baseline: guards 92.5% (agent 100%, task 100%, session 93%, worktree 81%)
 │
 ├── Framework 5: Runtime Verification (P1) ✅
 │   ├── src/lib/utils/invariant.ts — invariant() throws dev/test, logs prod; softInvariant() never throws
