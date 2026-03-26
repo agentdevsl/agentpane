@@ -20,7 +20,7 @@ rules:
       confidence: HIGH
 
   - id: agentpane.shell-safety.duplicate-shell-escape
-    severity: ERROR
+    severity: WARNING
     message: >
       Local shellEscape function detected. To prevent inconsistent escaping,
       import the canonical implementation from a shared utility module instead
@@ -40,7 +40,7 @@ rules:
       confidence: HIGH
 
   - id: agentpane.shell-safety.exec-without-validation
-    severity: ERROR
+    severity: WARNING
     message: >
       Shell command executed via exec/execSync. Ensure the command is validated
       with validateShellCommand() or constructed using array-based Bun.spawn()

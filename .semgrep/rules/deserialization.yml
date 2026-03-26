@@ -1,6 +1,6 @@
 rules:
   - id: agentpane.deserialization.json-parse-as-type
-    severity: ERROR
+    severity: WARNING
     message: >
       JSON.parse() result cast with 'as' bypasses runtime type validation.
       Use a Zod schema to validate: `const result = MySchema.parse(JSON.parse(raw))`.

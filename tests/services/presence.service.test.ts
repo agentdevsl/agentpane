@@ -418,7 +418,11 @@ describe('Presence Service', () => {
         })),
       });
       db.update.mockReturnValue({
-        set: vi.fn(() => ({ where: vi.fn() })),
+        set: vi.fn(() => ({
+          where: vi.fn(() => ({
+            returning: vi.fn().mockResolvedValue([{ id: 'state-s1' }]),
+          })),
+        })),
       });
 
       const result = await service.create({ codespaceId: 'p1' });
