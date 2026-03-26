@@ -11,6 +11,7 @@ import { and, eq } from 'drizzle-orm';
 
 import { agents, tasks } from '../../db/schema';
 import { createLogger } from '../../lib/logging/logger.js';
+import { softInvariant } from '../../lib/utils/invariant.js';
 import type { Database } from '../../types/database.js';
 import type { ApiKeyService } from '../api-key.service.js';
 import type { DurableStreamsService } from '../durable-streams.service.js';
@@ -200,14 +201,16 @@ export async function updateAgentStatus(
 ): Promise<void> {
   const agentId = `agent-${taskId}`;
   try {
-    await db
+    const [updated] = await db
       .update(agents)
       .set({
         status,
         currentTaskId: null,
         currentSessionId: null,
       })
-      .where(eq(agents.id, agentId));
+      .where(eq(agents.id, agentId))
+      .returning({ id: agents.id });
+    softInvariant(!!updated, 'agent status update expected 1 row', { agentId });
   } catch (dbErr) {
     const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
     log.error('Failed to update agent status', { data: { agentId, error: errorMessage } });

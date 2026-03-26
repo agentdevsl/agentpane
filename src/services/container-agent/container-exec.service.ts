@@ -22,6 +22,7 @@ import { createLogger } from '../../lib/logging/logger.js';
 import type { Sandbox } from '../../lib/sandbox/providers/sandbox-provider.js';
 import { injectSkills } from '../../lib/sandbox/skill-injector.js';
 import { SANDBOX_DEFAULTS } from '../../lib/sandbox/types.js';
+import { softInvariant } from '../../lib/utils/invariant.js';
 import type { Result } from '../../lib/utils/result.js';
 import { err, ok } from '../../lib/utils/result.js';
 import { getGlobalDefaultModel } from '../settings.service.js';
@@ -361,7 +362,12 @@ export class ContainerExecService {
     // Link agent and session to task
     log.debug('Linking agent and session to task', { data: { taskId, agentId, sessionId } });
     try {
-      await db.update(tasks).set({ agentId, sessionId }).where(eq(tasks.id, taskId));
+      const [linked] = await db
+        .update(tasks)
+        .set({ agentId, sessionId })
+        .where(eq(tasks.id, taskId))
+        .returning({ id: tasks.id });
+      softInvariant(!!linked, 'task linking expected 1 row', { taskId, agentId });
       log.debug('Task linked to agent and session', { data: { taskId } });
     } catch (dbErr) {
       const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
@@ -694,12 +700,14 @@ export class ContainerExecService {
 
       // Update agent status to 'running' in database
       try {
-        await db
+        const [agentUpdated] = await db
           .update(agents)
           .set({
             status: phase === 'plan' ? 'planning' : 'running',
           })
-          .where(eq(agents.id, agentId));
+          .where(eq(agents.id, agentId))
+          .returning({ id: agents.id });
+        softInvariant(!!agentUpdated, 'agent status update expected 1 row', { agentId, phase });
         log.debug('Agent status updated to running', { data: { agentId, phase } });
       } catch (dbErr) {
         const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);

@@ -413,16 +413,25 @@ Quarter 1 (Now) -- COMPLETED 2026-03-26
 │   ├── npm scripts: semgrep, semgrep:error
 │   └── Pre-commit hook in .pre-commit-config.yaml
 │
-Quarter 2
-├── Framework 4: Mutation Testing (P1)
-│   ├── Add Stryker with Vitest plugin
-│   ├── Baseline critical paths (state machines, RBAC)
-│   └── Set minimum score thresholds
+Quarter 2 -- COMPLETED 2026-03-26
+├── Framework 4: Mutation Testing (P1) ✅
+│   ├── Added Stryker v9.6.0 (core + vitest-runner + typescript-checker)
+│   ├── stryker.config.json with vitest runner, TS checker, incremental mode
+│   ├── mutation-thresholds.json (state-machines: 80%, RBAC: 90%)
+│   ├── scripts/check-mutation-thresholds.mjs for per-area enforcement
+│   ├── .github/workflows/mutation-testing.yml (PR-triggered, nightly, incremental cache)
+│   └── npm scripts: mutate, mutate:state-machines, mutate:rbac, mutate:incremental
 │
-├── Framework 5: Runtime Verification (P1)
-│   ├── Add invariant assertions at state transitions
-│   ├── Implement state machine telemetry
-│   └── Sample-based contract monitoring
+├── Framework 5: Runtime Verification (P1) ✅
+│   ├── src/lib/utils/invariant.ts — invariant() throws dev/test, logs prod; softInvariant() never throws
+│   ├── src/lib/state-machines/instrumented-machine.ts — telemetry wrapper logging all transitions
+│   ├── .semgrep/rules/invariant-enforcement.yml — 2 rules (update-without-returning, discarded-validation)
+│   ├── Tier 3: Added .returning() + softInvariant to ~16 DB update sites across:
+│   │   ├── worktree.service.ts (11 sites)
+│   │   ├── session-crud.service.ts (1 site)
+│   │   ├── container-exec.service.ts (2 sites)
+│   │   └── shared-helpers.ts (1 site)
+│   └── Tier 4: Added column guards to 2 unguarded rollback updates in plan-approval.service.ts
 │
 Quarter 3+
 ├── Framework 6: Sandbox Escape Testing (P2)

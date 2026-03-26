@@ -1,0 +1,90 @@
+name: Mutation Testing
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/lib/state-machines/**'
+      - 'src/services/rbac.service.ts'
+      - 'src/services/rbac-token.service.ts'
+      - 'src/lib/api/auth-middleware.ts'
+      - 'src/lib/api/rbac-middleware.ts'
+      - 'tests/services/rbac*.test.ts'
+      - 'tests/lib/api/rbac-middleware.test.ts'
+      - 'tests/routes/rbac-tokens.test.ts'
+  schedule:
+    - cron: '0 4 * * 1-5'
+  workflow_dispatch:
+
+env:
+  BUN_VERSION: '1.3.10'
+
+concurrency:
+  group: mutation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mutation-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Cache node_modules
+        id: cache-modules
+        uses: actions/cache@v5
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/package.json') }}
+          restore-keys: |
+            node-modules-${{ runner.os }}-
+
+      - name: Install dependencies
+        if: steps.cache-modules.outputs.cache-hit != 'true'
+        run: bun install --frozen-lockfile
+
+      - name: Restore Stryker incremental cache
+        uses: actions/cache@v5
+        with:
+          path: reports/mutation/stryker-incremental.json
+          key: stryker-incremental-${{ github.base_ref || 'main' }}-${{ hashFiles('src/lib/state-machines/**', 'src/services/rbac*.ts', 'src/lib/api/auth-middleware.ts', 'src/lib/api/rbac-middleware.ts') }}
+          restore-keys: |
+            stryker-incremental-${{ github.base_ref || 'main' }}-
+            stryker-incremental-main-
+
+      - name: Mutation test - State machines
+        run: |
+          npx stryker run \
+            --mutate 'src/lib/state-machines/**/machine.ts,src/lib/state-machines/**/guards.ts,src/lib/state-machines/**/actions.ts' \
+            --reporters json,clear-text \
+            --jsonReporter.fileName reports/mutation/state-machines.json
+
+      - name: Mutation test - RBAC
+        run: |
+          npx stryker run \
+            --mutate 'src/services/rbac.service.ts,src/services/rbac-token.service.ts,src/lib/api/auth-middleware.ts,src/lib/api/rbac-middleware.ts' \
+            --reporters json,clear-text \
+            --jsonReporter.fileName reports/mutation/rbac.json
+
+      - name: Check mutation score thresholds
+        run: node scripts/check-mutation-thresholds.mjs
+
+      - name: Save Stryker incremental cache
+        if: always()
+        uses: actions/cache/save@v5
+        with:
+          path: reports/mutation/stryker-incremental.json
+          key: stryker-incremental-${{ github.base_ref || 'main' }}-${{ hashFiles('src/lib/state-machines/**', 'src/services/rbac*.ts', 'src/lib/api/auth-middleware.ts', 'src/lib/api/rbac-middleware.ts') }}
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report
+          path: reports/mutation/
+          retention-days: 14

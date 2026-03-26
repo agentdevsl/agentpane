@@ -20,6 +20,7 @@ import type { SessionError } from '../../lib/errors/session-errors.js';
 import { SessionErrors } from '../../lib/errors/session-errors.js';
 import { ValidationErrors } from '../../lib/errors/validation-errors.js';
 import { sessionSchema } from '../../lib/integrations/durable-streams/schema.js';
+import { softInvariant } from '../../lib/utils/invariant.js';
 import type { Result } from '../../lib/utils/result.js';
 import { err, ok } from '../../lib/utils/result.js';
 import type { Database } from '../../types/database.js';
@@ -77,7 +78,12 @@ export class SessionCrudService {
     this.presenceStore.set(sessionId, new Map());
     await this.streams.createStream(sessionId, sessionSchema);
 
-    await this.db.update(sessions).set({ status: 'active' }).where(eq(sessions.id, sessionId));
+    const [activated] = await this.db
+      .update(sessions)
+      .set({ status: 'active' })
+      .where(eq(sessions.id, sessionId))
+      .returning({ id: sessions.id });
+    softInvariant(!!activated, 'session activation expected 1 row', { sessionId });
 
     return ok({ ...session, status: 'active', presence: [] });
   }

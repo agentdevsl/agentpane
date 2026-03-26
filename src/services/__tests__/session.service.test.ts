@@ -24,7 +24,13 @@ const createDbMock = () => ({
     sessionSummaries: { findFirst: vi.fn() },
   },
   insert: vi.fn(() => ({ values: vi.fn(() => ({ returning: vi.fn() })) })),
-  update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn() })) })),
+  update: vi.fn(() => ({
+    set: vi.fn(() => ({
+      where: vi.fn(() => ({
+        returning: vi.fn().mockResolvedValue([{ id: 's1' }]),
+      })),
+    })),
+  })),
 });
 
 const createStreamsMock = () => ({

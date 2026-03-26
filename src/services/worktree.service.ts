@@ -6,6 +6,7 @@ import { agents, codespaces, worktrees } from '../db/schema';
 import { ServiceErrors } from '../lib/errors/service-errors.js';
 import type { WorktreeError } from '../lib/errors/worktree-errors.js';
 import { WorktreeErrors } from '../lib/errors/worktree-errors.js';
+import { softInvariant } from '../lib/utils/invariant.js';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
 import { slugify } from '../lib/utils/slugify.js';
@@ -245,10 +246,14 @@ export class WorktreeService {
     if (!options?.skipEnvCopy) {
       const envResult = await this.copyEnv(worktreeId);
       if (!envResult.ok) {
-        await this.db
+        const [updated] = await this.db
           .update(worktrees)
           .set({ status: 'error', updatedAt: new Date().toISOString() })
-          .where(eq(worktrees.id, worktreeId));
+          .where(eq(worktrees.id, worktreeId))
+          .returning({ id: worktrees.id });
+        softInvariant(!!updated, 'Failed to set worktree error status after env copy failure', {
+          worktreeId,
+        });
         return envResult;
       }
     }
@@ -256,10 +261,14 @@ export class WorktreeService {
     if (!options?.skipDepsInstall) {
       const depsResult = await this.installDeps(worktreeId);
       if (!depsResult.ok) {
-        await this.db
+        const [updated] = await this.db
           .update(worktrees)
           .set({ status: 'error', updatedAt: new Date().toISOString() })
-          .where(eq(worktrees.id, worktreeId));
+          .where(eq(worktrees.id, worktreeId))
+          .returning({ id: worktrees.id });
+        softInvariant(!!updated, 'Failed to set worktree error status after deps install failure', {
+          worktreeId,
+        });
         return depsResult;
       }
     }
@@ -267,10 +276,14 @@ export class WorktreeService {
     if (!options?.skipInitScript && codespace.config?.initScript) {
       const initResult = await this.runInitScript(worktreeId);
       if (!initResult.ok) {
-        await this.db
+        const [updated] = await this.db
           .update(worktrees)
           .set({ status: 'error', updatedAt: new Date().toISOString() })
-          .where(eq(worktrees.id, worktreeId));
+          .where(eq(worktrees.id, worktreeId))
+          .returning({ id: worktrees.id });
+        softInvariant(!!updated, 'Failed to set worktree error status after init script failure', {
+          worktreeId,
+        });
         return initResult;
       }
     }
@@ -298,10 +311,12 @@ export class WorktreeService {
       return err(WorktreeErrors.NOT_FOUND);
     }
 
-    await this.db
+    const [removing] = await this.db
       .update(worktrees)
       .set({ status: 'removing', updatedAt: new Date().toISOString() })
-      .where(eq(worktrees.id, worktreeId));
+      .where(eq(worktrees.id, worktreeId))
+      .returning({ id: worktrees.id });
+    softInvariant(!!removing, 'Failed to set worktree status to removing', { worktreeId });
 
     try {
       const forceFlag = force ? '--force' : '';
@@ -314,21 +329,27 @@ export class WorktreeService {
       );
       await this.runner.exec(`git branch -D "${escapedBranch}"`, worktree.codespace.path);
 
-      await this.db
+      const [removed] = await this.db
         .update(worktrees)
         .set({
           status: 'removed',
           removedAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         })
-        .where(eq(worktrees.id, worktreeId));
+        .where(eq(worktrees.id, worktreeId))
+        .returning({ id: worktrees.id });
+      softInvariant(!!removed, 'Failed to set worktree status to removed', { worktreeId });
 
       return ok(undefined);
     } catch (error) {
-      await this.db
+      const [errorUpdated] = await this.db
         .update(worktrees)
         .set({ status: 'error', updatedAt: new Date().toISOString() })
-        .where(eq(worktrees.id, worktreeId));
+        .where(eq(worktrees.id, worktreeId))
+        .returning({ id: worktrees.id });
+      softInvariant(!!errorUpdated, 'Failed to set worktree error status after removal failure', {
+        worktreeId,
+      });
 
       return err(WorktreeErrors.REMOVAL_FAILED(worktree.path, String(error)));
     }
@@ -462,10 +483,14 @@ export class WorktreeService {
       await this.runner.exec(`git commit -m "${escapedMessage}"`, worktree.path);
       const sha = await this.runner.exec('git rev-parse HEAD', worktree.path);
 
-      await this.db
+      const [committed] = await this.db
         .update(worktrees)
         .set({ updatedAt: new Date().toISOString() })
-        .where(eq(worktrees.id, worktreeId));
+        .where(eq(worktrees.id, worktreeId))
+        .returning({ id: worktrees.id });
+      softInvariant(!!committed, 'Failed to update worktree timestamp after commit', {
+        worktreeId,
+      });
 
       return ok(sha.stdout.trim());
     } catch (error) {
@@ -485,10 +510,12 @@ export class WorktreeService {
 
     const target = targetBranch ?? worktree.baseBranch;
 
-    await this.db
+    const [merging] = await this.db
       .update(worktrees)
       .set({ status: 'merging', updatedAt: new Date().toISOString() })
-      .where(eq(worktrees.id, worktreeId));
+      .where(eq(worktrees.id, worktreeId))
+      .returning({ id: worktrees.id });
+    softInvariant(!!merging, 'Failed to set worktree status to merging', { worktreeId });
 
     const commitResult = await this.commit(worktreeId, `Auto-commit before merge to ${target}`);
     if (!commitResult.ok) {
@@ -522,32 +549,44 @@ export class WorktreeService {
         }
 
         // Reset worktree status back to active (not stuck in 'merging')
-        await this.db
+        const [conflictRecovery] = await this.db
           .update(worktrees)
           .set({ status: 'active', updatedAt: new Date().toISOString() })
-          .where(eq(worktrees.id, worktreeId));
+          .where(eq(worktrees.id, worktreeId))
+          .returning({ id: worktrees.id });
+        softInvariant(!!conflictRecovery, 'Failed to reset worktree status after merge conflict', {
+          worktreeId,
+        });
 
         return err(
           WorktreeErrors.MERGE_CONFLICT(conflicts.stdout.trim().split('\n').filter(Boolean))
         );
       }
 
-      await this.db
+      const [merged] = await this.db
         .update(worktrees)
         .set({
           mergedAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           status: 'active',
         })
-        .where(eq(worktrees.id, worktreeId));
+        .where(eq(worktrees.id, worktreeId))
+        .returning({ id: worktrees.id });
+      softInvariant(!!merged, 'Failed to update worktree status after successful merge', {
+        worktreeId,
+      });
 
       return ok(undefined);
     } catch (error) {
       // Reset worktree status on merge failure
-      await this.db
+      const [errorRecovery] = await this.db
         .update(worktrees)
         .set({ status: 'active', updatedAt: new Date().toISOString() })
-        .where(eq(worktrees.id, worktreeId));
+        .where(eq(worktrees.id, worktreeId))
+        .returning({ id: worktrees.id });
+      softInvariant(!!errorRecovery, 'Failed to reset worktree status after merge error', {
+        worktreeId,
+      });
 
       return err(WorktreeErrors.CREATION_FAILED(worktree.branch, String(error)));
     }

@@ -478,7 +478,9 @@ describe('WorktreeService', () => {
       path: '/tmp/worktree',
     });
 
-    const updateWhere = vi.fn();
+    const updateWhere = vi.fn(() => ({
+      returning: vi.fn().mockResolvedValue([{ id: 'w1' }]),
+    }));
     db.update.mockReturnValue({
       set: vi.fn(() => ({ where: updateWhere })),
     });
@@ -527,7 +529,9 @@ describe('WorktreeService', () => {
       codespace: { path: '/tmp/project' },
     });
 
-    const updateWhere = vi.fn();
+    const updateWhere = vi.fn(() => ({
+      returning: vi.fn().mockResolvedValue([{ id: 'w1' }]),
+    }));
     db.update.mockReturnValue({
       set: vi.fn(() => ({ where: updateWhere })),
     });
@@ -553,7 +557,9 @@ describe('WorktreeService', () => {
       codespace: { path: '/tmp/project' },
     });
 
-    const updateWhere = vi.fn();
+    const updateWhere = vi.fn(() => ({
+      returning: vi.fn().mockResolvedValue([{ id: 'w1' }]),
+    }));
     db.update.mockReturnValue({
       set: vi.fn(() => ({ where: updateWhere })),
     });
@@ -575,7 +581,9 @@ describe('WorktreeService', () => {
       codespace: { path: '/tmp/project' },
     });
 
-    const updateWhere = vi.fn();
+    const updateWhere = vi.fn(() => ({
+      returning: vi.fn().mockResolvedValue([{ id: 'w1' }]),
+    }));
     db.update.mockReturnValue({
       set: vi.fn(() => ({ where: updateWhere })),
     });
@@ -609,7 +617,9 @@ describe('WorktreeService', () => {
       codespace: { path: '/tmp/project' },
     });
 
-    const updateWhere = vi.fn();
+    const updateWhere = vi.fn(() => ({
+      returning: vi.fn().mockResolvedValue([{ id: 'w1' }]),
+    }));
     db.update.mockReturnValue({
       set: vi.fn(() => ({ where: updateWhere })),
     });
