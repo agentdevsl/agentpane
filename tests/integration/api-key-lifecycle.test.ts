@@ -5,10 +5,11 @@ import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/data
 
 describe('ApiKeyService — integration tests', () => {
   let service: ApiKeyService;
+  let db: ReturnType<typeof getTestDb>;
 
   beforeEach(async () => {
     await setupTestDatabase();
-    const db = getTestDb();
+    db = getTestDb();
     // Clear api_keys table before each test
     await db.delete(apiKeys);
     service = new ApiKeyService(db as any);
@@ -75,6 +76,11 @@ describe('ApiKeyService — integration tests', () => {
     if (info.ok && info.value) {
       expect(info.value.service).toBe('anthropic');
     }
+
+    // Verify only one row exists in the DB (upsert, not insert)
+    const allKeys = await db.select().from(apiKeys);
+    const anthropicKeys = allKeys.filter((k) => k.service === 'anthropic');
+    expect(anthropicKeys).toHaveLength(1);
   });
 
   it('IT-310: Delete key → getKeyInfo returns null, getDecryptedKey returns null', async () => {
@@ -137,5 +143,10 @@ describe('ApiKeyService — integration tests', () => {
     if (infoResult.ok && infoResult.value) {
       expect(infoResult.value.isValid).toBe(false);
     }
+  });
+
+  it('IT-312b: deleteKey for non-existent service succeeds gracefully', async () => {
+    const result = await service.deleteKey('nonexistent-service');
+    expect(result.ok).toBe(true);
   });
 });

@@ -287,4 +287,18 @@ describe('EventSubscriptionService Integration (IT-339 to IT-345)', () => {
     // updatedAt should be a valid ISO string
     expect(getResult.value.updatedAt).toBeTruthy();
   });
+
+  it('IT-345b: delete non-existent subscription returns NOT_FOUND', async () => {
+    const result = await service.delete('nonexistent-subscription-id');
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('EVENT_SUBSCRIPTION_NOT_FOUND');
+  });
+
+  it('IT-345c: update non-existent subscription returns NOT_FOUND', async () => {
+    const result = await service.update('nonexistent-subscription-id', { name: 'New Name' });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('EVENT_SUBSCRIPTION_NOT_FOUND');
+  });
 });

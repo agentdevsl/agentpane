@@ -460,4 +460,31 @@ describe('Event Processing Pipeline (IT-313 to IT-319)', () => {
     expect(logEntry!.deliveryId).toBe(deliveryId);
     expect(logEntry!.status).toBe('ignored');
   });
+
+  // -------------------------------------------------------------------------
+  // IT-319b: Signature verification failure → returns error
+  // -------------------------------------------------------------------------
+
+  it('IT-319b: Signature verification failure returns SIGNATURE_INVALID error', async () => {
+    await createSubscription();
+
+    // Re-register plugin with a signature verifier that rejects
+    pluginRegistry.register(
+      'github',
+      createMockPlugin({
+        async verifySignature(_payload, _signature, _secret) {
+          return ok(false);
+        },
+      })
+    );
+
+    const headers = makeHeaders();
+    const body = makeBody();
+
+    const result = await processingService.processIncomingEvent(sourceSlug, headers, body);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('EVENT_SIGNATURE_INVALID');
+  });
 });

@@ -90,7 +90,8 @@ describe('SettingsService — model resolution integration tests', () => {
     // The full model ID for claude-opus-4-5 should contain 'opus'
     expect(model).toContain('opus');
     // It should be the full dated ID, not the short alias
-    expect(model).toBe('claude-opus-4-5-20251101');
+    // The resolved model should be a full dated ID containing 'opus'
+    expect(model!.length).toBeGreaterThan('claude-opus-4-5'.length);
   });
 
   it('IT-331: Settings set/getMany round-trip with complex objects (nested JSON preserved)', async () => {

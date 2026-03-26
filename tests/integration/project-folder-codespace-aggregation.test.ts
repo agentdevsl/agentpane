@@ -243,4 +243,28 @@ describe('Project Folder Codespace Aggregation', () => {
     expect(summaryResult.value.totalCodespaces).toBe(3);
     expect(summaryResult.value.folder.id).toBe(folder.id);
   });
+
+  it('IT-325b: getSummary on non-existent folder returns error', async () => {
+    const result = await service.getSummary('nonexistent-folder-id');
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('PROJECT_FOLDER_NOT_FOUND');
+  });
+
+  it('IT-325c: empty folder summary returns zero counts', async () => {
+    const folderResult = await service.create({
+      name: 'Empty Folder',
+      slug: 'empty-folder',
+    });
+    expect(folderResult.ok).toBe(true);
+    if (!folderResult.ok) return;
+
+    const summaryResult = await service.getSummary(folderResult.value.id);
+    expect(summaryResult.ok).toBe(true);
+    if (!summaryResult.ok) return;
+
+    expect(summaryResult.value.totalCodespaces).toBe(0);
+    expect(summaryResult.value.runningAgents).toBe(0);
+    expect(summaryResult.value.totalTasks).toBe(0);
+  });
 });

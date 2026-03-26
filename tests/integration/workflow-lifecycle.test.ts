@@ -15,7 +15,6 @@ describe('WorkflowService Lifecycle (IT-332 to IT-338)', () => {
   });
 
   afterEach(async () => {
-    await db.delete(workflows);
     await clearTestDatabase();
   });
 
