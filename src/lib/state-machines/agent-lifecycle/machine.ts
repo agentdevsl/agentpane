@@ -6,6 +6,13 @@ import { clearTask, incrementTurn, setError } from './actions.js';
 import { canPause, canResume, canStart, isToolAllowed, withinTurnLimit } from './guards.js';
 import type { AgentLifecycleContext, AgentLifecycleEvent, AgentLifecycleState } from './types.js';
 
+// NOTE: The `starting` state exists in AgentLifecycleState and the DB enum but is not
+// modeled in transition() below — the machine transitions idle → running directly.
+// The service layer (agent-execution.service.ts) sets `starting` via direct DB writes
+// during the agent start sequence. This is a known modeling gap: the machine is used as
+// advisory validation, not as the authoritative state manager. Future work should wire
+// the machine as authoritative and add an idle → starting transition.
+
 export type AgentMachine = {
   state: AgentLifecycleState;
   context: AgentLifecycleContext;
@@ -132,13 +139,6 @@ const transition = (
       }
       if (event.type === 'ABORT') {
         return nextState(machine, 'idle', clearTask({ ...ctx, status: 'idle' }));
-      }
-      break;
-    }
-    case 'completed':
-    case 'error': {
-      if (event.type === 'START' && canStart(ctx)) {
-        return nextState(machine, 'running', { ...ctx, status: 'running' });
       }
       break;
     }

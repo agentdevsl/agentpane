@@ -179,28 +179,26 @@ describe('state machines', () => {
       }
     });
 
-    it('rejects START from completed (status check fails)', () => {
-      // The canStart guard checks status === 'idle', which fails in 'completed' state
+    it('rejects START from completed (no transition defined)', () => {
       const machine = createAgentLifecycleMachine({ taskId: 'task-1' });
       machine.send({ type: 'START', taskId: 'task-1' });
       machine.send({ type: 'COMPLETE', result: {} });
       const result = machine.send({ type: 'START', taskId: 'task-2' });
 
-      // canStart(ctx) returns false because ctx.status is 'completed', not 'idle'
+      // completed is a terminal state — START is not a valid transition
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error.code).toBe('AGENT_INVALID_TRANSITION');
       }
     });
 
-    it('rejects START from error (status check fails)', () => {
-      // The canStart guard checks status === 'idle', which fails in 'error' state
+    it('rejects START from error (no transition defined)', () => {
       const machine = createAgentLifecycleMachine({ taskId: 'task-1' });
       machine.send({ type: 'START', taskId: 'task-1' });
       machine.send({ type: 'ERROR', error: createError('TEST', 'test', 500) });
       const result = machine.send({ type: 'START', taskId: 'task-2' });
 
-      // canStart(ctx) returns false because ctx.status is 'error', not 'idle'
+      // error is a terminal state — START is not a valid transition
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error.code).toBe('AGENT_INVALID_TRANSITION');
@@ -489,13 +487,31 @@ describe('state machines', () => {
       }
     });
 
-    it('allows ERROR from any state', () => {
+    it('allows ERROR from any non-terminal state', () => {
       const machine = createSessionLifecycleMachine();
       const error = createError('TEST_ERROR', 'Test error', 500);
       const result = machine.send({ type: 'ERROR', error });
 
       expect(result.state).toBe('error');
       expect(result.ok).toBe(false);
+    });
+
+    it('rejects ERROR from closed state', () => {
+      const machine = createSessionLifecycleMachine();
+      machine.send({ type: 'INITIALIZE' });
+      machine.send({ type: 'READY' });
+      machine.send({ type: 'CLOSE' });
+      machine.send({ type: 'CLOSE' });
+      expect(machine.state).toBe('closed');
+
+      const error = createError('TEST_ERROR', 'Test error', 500);
+      const result = machine.send({ type: 'ERROR', error });
+
+      expect(result.ok).toBe(false);
+      expect(machine.state).toBe('closed');
+      if (!result.ok) {
+        expect(result.error.code).toBe('SESSION_INVALID_TRANSITION');
+      }
     });
   });
 

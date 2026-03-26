@@ -164,7 +164,7 @@ const transition = (
       break;
   }
 
-  if (event.type === 'ERROR') {
+  if (event.type === 'ERROR' && machine.state !== 'closed') {
     return {
       ...machine,
       state: 'error',
