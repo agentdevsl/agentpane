@@ -31,8 +31,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - area: state-machines
-            mutate: 'src/lib/state-machines/**/machine.ts,src/lib/state-machines/**/guards.ts,src/lib/state-machines/**/actions.ts'
+          - area: agent-lifecycle
+            mutate: 'src/lib/state-machines/agent-lifecycle/machine.ts,src/lib/state-machines/agent-lifecycle/guards.ts,src/lib/state-machines/agent-lifecycle/actions.ts'
+          - area: task-workflow
+            mutate: 'src/lib/state-machines/task-workflow/machine.ts,src/lib/state-machines/task-workflow/guards.ts'
+          - area: session-lifecycle
+            mutate: 'src/lib/state-machines/session-lifecycle/machine.ts,src/lib/state-machines/session-lifecycle/guards.ts'
+          - area: worktree-lifecycle
+            mutate: 'src/lib/state-machines/worktree-lifecycle/machine.ts,src/lib/state-machines/worktree-lifecycle/guards.ts'
           - area: rbac
             mutate: 'src/services/rbac.service.ts,src/services/rbac-token.service.ts,src/lib/api/auth-middleware.ts,src/lib/api/rbac-middleware.ts'
     steps:
