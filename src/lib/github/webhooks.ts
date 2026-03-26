@@ -72,7 +72,7 @@ export async function verifyWebhookSignature(
   }
 }
 
-export function parseWebhookPayload(body: string): Result<WebhookPayload, Error> {
+function parseWebhookPayload(body: string): Result<WebhookPayload, Error> {
   try {
     const payload = JSON.parse(body) as WebhookPayload;
     return ok(payload);

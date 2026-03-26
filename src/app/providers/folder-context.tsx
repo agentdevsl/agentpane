@@ -55,7 +55,7 @@ const NAV_PANEL_KEY = 'agentpane:nav-panel-open';
 const FOLDER_PANEL_WIDTH_KEY = 'agentpane:folder-panel-width';
 const NAV_PANEL_WIDTH_KEY = 'agentpane:nav-panel-width';
 
-export const DEFAULT_PANEL_WIDTH = 240;
+const DEFAULT_PANEL_WIDTH = 240;
 export const MIN_PANEL_WIDTH = 160;
 export const MAX_PANEL_WIDTH = 480;
 

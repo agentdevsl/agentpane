@@ -158,37 +158,3 @@ export function mergeTemplates(
     agents: Array.from(agentsMap.values()),
   };
 }
-
-/**
- * Get counts of items by source type
- */
-export function getSourceCounts(config: MergedTemplateConfig): {
-  org: { skills: number; commands: number; agents: number };
-  project: { skills: number; commands: number; agents: number };
-  local: { skills: number; commands: number; agents: number };
-  total: { skills: number; commands: number; agents: number };
-} {
-  const counts = {
-    org: { skills: 0, commands: 0, agents: 0 },
-    project: { skills: 0, commands: 0, agents: 0 },
-    local: { skills: 0, commands: 0, agents: 0 },
-    total: { skills: 0, commands: 0, agents: 0 },
-  };
-
-  for (const skill of config.skills) {
-    counts[skill.sourceType].skills++;
-    counts.total.skills++;
-  }
-
-  for (const command of config.commands) {
-    counts[command.sourceType].commands++;
-    counts.total.commands++;
-  }
-
-  for (const agent of config.agents) {
-    counts[agent.sourceType].agents++;
-    counts.total.agents++;
-  }
-
-  return counts;
-}

@@ -325,10 +325,7 @@ export function findChainHeadAndTail(
  * rather than relying on array order (which may not match workflow order).
  * Returns a new edges array (does not mutate input).
  */
-export function ensureStartEndConnected(
-  nodes: WorkflowNode[],
-  edges: WorkflowEdge[]
-): WorkflowEdge[] {
+function ensureStartEndConnected(nodes: WorkflowNode[], edges: WorkflowEdge[]): WorkflowEdge[] {
   const startNode = nodes.find((n) => n.type === 'start');
   const endNode = nodes.find((n) => n.type === 'end');
   const middleNodes = nodes.filter((n) => n.type !== 'start' && n.type !== 'end');
@@ -462,7 +459,7 @@ export interface ToReactFlowNodesOptions {
  * @param options - Conversion options
  * @returns Array of ReactFlow-compatible nodes
  */
-export function toReactFlowNodes(
+function toReactFlowNodes(
   nodes: WorkflowNode[],
   options: ToReactFlowNodesOptions = {}
 ): ReactFlowNode[] {
@@ -497,7 +494,7 @@ export function toReactFlowNodes(
  * @param edges - Array of workflow edges
  * @returns Array of ReactFlow-compatible edges
  */
-export function toReactFlowEdges(edges: WorkflowEdge[]): ReactFlowEdge[] {
+function toReactFlowEdges(edges: WorkflowEdge[]): ReactFlowEdge[] {
   return edges.map((edge) => ({
     id: edge.id,
     source: edge.sourceNodeId,
@@ -511,36 +508,6 @@ export function toReactFlowEdges(edges: WorkflowEdge[]): ReactFlowEdge[] {
       ...extractEdgeSpecificData(edge),
     },
   }));
-}
-
-/**
- * Converts ReactFlow nodes back to WorkflowNode array.
- * Note: This requires the original node data to preserve type-specific properties.
- *
- * @param reactFlowNodes - Array of ReactFlow nodes
- * @param originalNodes - Original workflow nodes for reference
- * @returns Array of workflow nodes with updated positions
- */
-export function fromReactFlowNodes(
-  reactFlowNodes: ReactFlowNode[],
-  originalNodes: WorkflowNode[]
-): WorkflowNode[] {
-  const originalNodeMap = new Map(originalNodes.map((n) => [n.id, n]));
-
-  return reactFlowNodes.map((rfNode) => {
-    const original = originalNodeMap.get(rfNode.id);
-    if (!original) {
-      throw new Error(`Original node not found for id: ${rfNode.id}`);
-    }
-
-    return {
-      ...original,
-      position: {
-        x: rfNode.position.x,
-        y: rfNode.position.y,
-      },
-    };
-  });
 }
 
 export interface LayoutWorkflowForReactFlowOptions extends LayoutOptions {

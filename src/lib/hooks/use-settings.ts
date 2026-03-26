@@ -1,10 +1,8 @@
 /**
- * Hook for accessing application settings from the API.
+ * Settings utilities for accessing application settings from the API.
  * Provides caching and easy access to common settings like task creation model and tools.
  */
 
-import { useCallback, useState } from 'react';
-import { useMountEffect } from '@/app/hooks/use-mount-effect';
 import { apiClient } from '@/lib/api/client';
 import { DEFAULT_TASK_CREATION_MODEL, getFullModelId } from '@/lib/constants/models';
 import { DEFAULT_TASK_CREATION_TOOLS } from '@/lib/constants/tools';
@@ -35,19 +33,10 @@ function isCacheValid(): boolean {
 }
 
 /**
- * Invalidate the settings cache (call after updates)
- */
-export function invalidateSettingsCache(): void {
-  settingsCache = {};
-  cacheTimestamp = 0;
-  cachePopulated = false;
-}
-
-/**
  * Fetch settings from the API (with caching)
  * Can be used outside of React components
  */
-export async function fetchSettings(keys?: string[]): Promise<Record<string, unknown>> {
+async function fetchSettings(keys?: string[]): Promise<Record<string, unknown>> {
   // Check cache first
   if (isCacheValid()) {
     if (!keys) {
@@ -115,22 +104,6 @@ export async function fetchSettings(keys?: string[]): Promise<Record<string, unk
 }
 
 /**
- * Update settings via the API
- */
-export async function updateSettings(settings: Record<string, unknown>): Promise<boolean> {
-  const result = await apiClient.settings.update(settings);
-  if (!result.ok) {
-    return false;
-  }
-
-  // Update cache with new values
-  Object.assign(settingsCache, settings);
-  cachePopulated = true;
-
-  return true;
-}
-
-/**
  * Get the task creation model from API (async version)
  * Falls back to default if API call fails
  */
@@ -154,138 +127,4 @@ export async function getTaskCreationToolsAsync(): Promise<string[]> {
     return tools as string[];
   }
   return DEFAULT_TASK_CREATION_TOOLS;
-}
-
-/**
- * Set the task creation model via API
- */
-export async function setTaskCreationModelAsync(model: string): Promise<boolean> {
-  return updateSettings({ [SETTING_KEYS.TASK_CREATION_MODEL]: model });
-}
-
-/**
- * Set the task creation tools via API
- */
-export async function setTaskCreationToolsAsync(tools: string[]): Promise<boolean> {
-  return updateSettings({ [SETTING_KEYS.TASK_CREATION_TOOLS]: tools });
-}
-
-// ============================================================================
-// React Hook
-// ============================================================================
-
-export interface UseSettingsState {
-  /** Whether settings are being loaded */
-  isLoading: boolean;
-  /** Error message if loading failed */
-  error: string | null;
-  /** All loaded settings */
-  settings: Record<string, unknown>;
-  /** Task creation model (short ID) */
-  taskCreationModel: string;
-  /** Task creation tools */
-  taskCreationTools: string[];
-}
-
-export interface UseSettingsActions {
-  /** Refresh settings from the API */
-  refresh: () => Promise<void>;
-  /** Set the task creation model */
-  setTaskCreationModel: (model: string) => Promise<boolean>;
-  /** Set the task creation tools */
-  setTaskCreationTools: (tools: string[]) => Promise<boolean>;
-  /** Update arbitrary settings */
-  updateSettings: (settings: Record<string, unknown>) => Promise<boolean>;
-}
-
-export type UseSettingsReturn = UseSettingsState & UseSettingsActions;
-
-/**
- * React hook for accessing and updating settings
- */
-export function useSettings(): UseSettingsReturn {
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [settings, setSettings] = useState<Record<string, unknown>>({});
-
-  // Load settings on mount
-  useMountEffect(() => {
-    const loadSettings = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const result = await fetchSettings();
-        setSettings(result);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load settings');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    void loadSettings();
-  });
-
-  // Derived values
-  const taskCreationModel =
-    typeof settings[SETTING_KEYS.TASK_CREATION_MODEL] === 'string'
-      ? (settings[SETTING_KEYS.TASK_CREATION_MODEL] as string)
-      : DEFAULT_TASK_CREATION_MODEL;
-
-  const taskCreationTools = Array.isArray(settings[SETTING_KEYS.TASK_CREATION_TOOLS])
-    ? (settings[SETTING_KEYS.TASK_CREATION_TOOLS] as string[])
-    : DEFAULT_TASK_CREATION_TOOLS;
-
-  // Actions
-  const refresh = useCallback(async () => {
-    invalidateSettingsCache();
-    setIsLoading(true);
-    setError(null);
-    try {
-      const result = await fetchSettings();
-      setSettings(result);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load settings');
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  const setTaskCreationModel = useCallback(async (model: string): Promise<boolean> => {
-    const success = await setTaskCreationModelAsync(model);
-    if (success) {
-      setSettings((prev) => ({ ...prev, [SETTING_KEYS.TASK_CREATION_MODEL]: model }));
-    }
-    return success;
-  }, []);
-
-  const setTaskCreationTools = useCallback(async (tools: string[]): Promise<boolean> => {
-    const success = await setTaskCreationToolsAsync(tools);
-    if (success) {
-      setSettings((prev) => ({ ...prev, [SETTING_KEYS.TASK_CREATION_TOOLS]: tools }));
-    }
-    return success;
-  }, []);
-
-  const handleUpdateSettings = useCallback(
-    async (newSettings: Record<string, unknown>): Promise<boolean> => {
-      const success = await updateSettings(newSettings);
-      if (success) {
-        setSettings((prev) => ({ ...prev, ...newSettings }));
-      }
-      return success;
-    },
-    []
-  );
-
-  return {
-    isLoading,
-    error,
-    settings,
-    taskCreationModel,
-    taskCreationTools,
-    refresh,
-    setTaskCreationModel,
-    setTaskCreationTools,
-    updateSettings: handleUpdateSettings,
-  };
 }

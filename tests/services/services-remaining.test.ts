@@ -1,55 +1,8 @@
 import { createId } from '@paralleldrive/cuid2';
-import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { err, ok } from '../../src/lib/utils/result';
-import { createTestProject } from '../factories/project.factory';
-import { createTestTask } from '../factories/task.factory';
 import { flushPromises } from '../helpers/async';
 import { clearTestDatabase, execRawSql, getTestDb, setupTestDatabase } from '../helpers/database';
-
-// Additional migration SQL for sandbox tables (not in main MIGRATION_SQL)
-const SANDBOX_TABLES_SQL = `
-CREATE TABLE IF NOT EXISTS "sandbox_instances" (
-  "id" TEXT PRIMARY KEY NOT NULL,
-  "codespace_id" TEXT NOT NULL UNIQUE,
-  "container_id" TEXT NOT NULL,
-  "status" TEXT DEFAULT 'stopped' NOT NULL,
-  "image" TEXT NOT NULL,
-  "memory_mb" INTEGER NOT NULL,
-  "cpu_cores" INTEGER NOT NULL,
-  "idle_timeout_minutes" INTEGER NOT NULL,
-  "volume_mounts" TEXT DEFAULT '[]',
-  "env" TEXT,
-  "error_message" TEXT,
-  "created_at" TEXT DEFAULT (datetime('now')) NOT NULL,
-  "last_activity_at" TEXT DEFAULT (datetime('now')) NOT NULL,
-  "stopped_at" TEXT,
-  "updated_at" TEXT DEFAULT (datetime('now')) NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS "sandbox_tmux_sessions" (
-  "id" TEXT PRIMARY KEY NOT NULL,
-  "sandbox_id" TEXT NOT NULL,
-  "session_name" TEXT NOT NULL,
-  "task_id" TEXT,
-  "window_count" INTEGER DEFAULT 1 NOT NULL,
-  "attached" INTEGER DEFAULT 0 NOT NULL,
-  "created_at" TEXT DEFAULT (datetime('now')) NOT NULL,
-  "last_activity_at" TEXT DEFAULT (datetime('now')) NOT NULL,
-  UNIQUE("sandbox_id", "session_name")
-);
-`;
-
-// Helper to add sandbox tables to test DB
-function setupSandboxTables(): void {
-  execRawSql(SANDBOX_TABLES_SQL);
-}
-
-// Helper to clear sandbox tables
-function clearSandboxTables(): void {
-  execRawSql('DELETE FROM sandbox_tmux_sessions');
-  execRawSql('DELETE FROM sandbox_instances');
-}
 
 // ============================================================================
 // Mock Setup
@@ -113,78 +66,18 @@ vi.mock('octokit', () => {
 });
 
 import * as schema from '../../src/db/schema';
-import type { Sandbox, SandboxProvider } from '../../src/lib/sandbox/providers/sandbox-provider';
-import type { SandboxConfig } from '../../src/lib/sandbox/types';
 import { ApiKeyService } from '../../src/services/api-key.service';
 import { DurableStreamsService } from '../../src/services/durable-streams.service';
 import { GitHubTokenService } from '../../src/services/github-token.service';
-// Import services after mocks
-import { SandboxService } from '../../src/services/sandbox.service';
 import { SandboxConfigService } from '../../src/services/sandbox-config.service';
 import {
   calculateNextSyncAt,
-  getSchedulerState,
-  MIN_SYNC_INTERVAL_MINUTES,
-  startSyncScheduler,
-  stopSyncScheduler,
-  validateSyncInterval,
+  TemplateSyncScheduler,
 } from '../../src/services/template-sync-scheduler';
 
 // ============================================================================
 // Test Helpers
 // ============================================================================
-
-function createMockSandbox(overrides: Partial<Sandbox> = {}): Sandbox {
-  const defaultSandbox: Sandbox = {
-    id: createId(),
-    codespaceId: createId(),
-    containerId: 'container-123',
-    status: 'running',
-    exec: vi.fn().mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' }),
-    execAsRoot: vi.fn().mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' }),
-    createTmuxSession: vi.fn().mockResolvedValue({
-      name: 'test-session',
-      sandboxId: 'sandbox-1',
-      createdAt: new Date().toISOString(),
-      windowCount: 1,
-      attached: false,
-    }),
-    listTmuxSessions: vi.fn().mockResolvedValue([]),
-    killTmuxSession: vi.fn().mockResolvedValue(undefined),
-    sendKeysToTmux: vi.fn().mockResolvedValue(undefined),
-    captureTmuxPane: vi.fn().mockResolvedValue(''),
-    stop: vi.fn().mockResolvedValue(undefined),
-    getMetrics: vi.fn().mockResolvedValue({
-      cpuUsagePercent: 10,
-      memoryUsageMb: 512,
-      memoryLimitMb: 4096,
-      diskUsageMb: 100,
-      networkRxBytes: 1000,
-      networkTxBytes: 500,
-      uptime: 3600,
-    }),
-    touch: vi.fn(),
-    getLastActivity: vi.fn().mockReturnValue(new Date()),
-    ...overrides,
-  };
-  return defaultSandbox;
-}
-
-function createMockSandboxProvider(overrides: Partial<SandboxProvider> = {}): SandboxProvider {
-  const mockSandbox = createMockSandbox();
-  return {
-    name: 'mock-provider',
-    create: vi.fn().mockResolvedValue(mockSandbox),
-    get: vi.fn().mockResolvedValue(mockSandbox),
-    getById: vi.fn().mockResolvedValue(mockSandbox),
-    list: vi.fn().mockResolvedValue([]),
-    pullImage: vi.fn().mockResolvedValue(undefined),
-    isImageAvailable: vi.fn().mockResolvedValue(true),
-    healthCheck: vi.fn().mockResolvedValue({ healthy: true }),
-    cleanup: vi.fn().mockResolvedValue(0),
-    ...overrides,
-  };
-}
 
 function createMockDurableStreamsServer() {
   return {
@@ -196,534 +89,7 @@ function createMockDurableStreamsServer() {
   };
 }
 
-function createMockDurableStreamsService() {
-  const server = createMockDurableStreamsServer();
-  return {
-    service: new DurableStreamsService(server),
-    server,
-    createStream: vi.fn().mockResolvedValue(undefined),
-    publish: vi.fn().mockResolvedValue(1), // Returns offset
-    publishSandboxCreating: vi.fn().mockResolvedValue(undefined),
-    publishSandboxReady: vi.fn().mockResolvedValue(undefined),
-    publishSandboxStopping: vi.fn().mockResolvedValue(undefined),
-    publishSandboxStopped: vi.fn().mockResolvedValue(undefined),
-    publishSandboxError: vi.fn().mockResolvedValue(undefined),
-    publishSandboxIdle: vi.fn().mockResolvedValue(undefined),
-    publishSandboxTmuxCreated: vi.fn().mockResolvedValue(undefined),
-  };
-}
-
-// ============================================================================
-// SandboxService Tests (~25 tests)
-// ============================================================================
-
-describe('SandboxService', () => {
-  let sandboxService: SandboxService;
-  let mockProvider: SandboxProvider;
-  let mockStreams: ReturnType<typeof createMockDurableStreamsService>;
-
-  beforeEach(async () => {
-    await setupTestDatabase();
-    setupSandboxTables();
-    const db = getTestDb();
-    mockProvider = createMockSandboxProvider();
-    mockStreams = createMockDurableStreamsService();
-    sandboxService = new SandboxService(db, mockProvider, mockStreams.service);
-  });
-
-  afterEach(async () => {
-    sandboxService.stopIdleChecker();
-    try {
-      clearSandboxTables();
-    } catch {
-      // Ignore errors if tables don't exist
-    }
-    await clearTestDatabase();
-    vi.clearAllMocks();
-  });
-
-  // ---------------------------------------------------------------------------
-  // Container Creation (6 tests)
-  // ---------------------------------------------------------------------------
-
-  describe('Container Creation', () => {
-    it('creates a new sandbox with valid configuration', async () => {
-      const project = await createTestProject({
-        config: {
-          sandbox: { enabled: true, idleTimeoutMinutes: 30 },
-        },
-      });
-
-      // Create mock sandbox with matching project ID
-      const mockSandbox = createMockSandbox({ codespaceId: project.id });
-      vi.mocked(mockProvider.create).mockResolvedValueOnce(mockSandbox);
-
-      const config: SandboxConfig = {
-        codespaceId: project.id,
-        projectPath: project.path,
-        image: 'node:22-slim',
-        memoryMb: 4096,
-        cpuCores: 2,
-        idleTimeoutMinutes: 30,
-        volumeMounts: [],
-      };
-
-      const result = await sandboxService.create(config);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.codespaceId).toBe(project.id);
-        expect(result.value.status).toBe('running');
-        expect(result.value.image).toBe('node:22-slim');
-      }
-      expect(mockProvider.create).toHaveBeenCalledWith(config);
-    });
-
-    it('returns existing sandbox if already running for project', async () => {
-      const project = await createTestProject({
-        config: {
-          sandbox: { enabled: true, idleTimeoutMinutes: 30 },
-        },
-      });
-
-      // Insert a running sandbox directly
-      const db = getTestDb();
-      await db.insert(schema.sandboxInstances).values({
-        id: createId(),
-        codespaceId: project.id,
-        containerId: 'existing-container',
-        status: 'running',
-        image: 'node:22-slim',
-        memoryMb: 4096,
-        cpuCores: 2,
-        idleTimeoutMinutes: 30,
-      });
-
-      const result = await sandboxService.getOrCreateForCodespace(project.id);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value?.containerId).toBe('existing-container');
-      }
-      expect(mockProvider.create).not.toHaveBeenCalled();
-    });
-
-    it('pulls image if not available locally', async () => {
-      const project = await createTestProject({
-        config: {
-          sandbox: { enabled: true, idleTimeoutMinutes: 30 },
-        },
-      });
-
-      vi.mocked(mockProvider.isImageAvailable).mockResolvedValueOnce(false);
-
-      const config: SandboxConfig = {
-        codespaceId: project.id,
-        projectPath: project.path,
-        image: 'custom-image:latest',
-        memoryMb: 4096,
-        cpuCores: 2,
-        idleTimeoutMinutes: 30,
-        volumeMounts: [],
-      };
-
-      const result = await sandboxService.create(config);
-
-      expect(result.ok).toBe(true);
-      expect(mockProvider.pullImage).toHaveBeenCalledWith('custom-image:latest');
-    });
-
-    it('returns error when project not found for getOrCreateForProject', async () => {
-      const result = await sandboxService.getOrCreateForCodespace('non-existent-project');
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.code).toBe('SANDBOX_PROJECT_NOT_FOUND');
-      }
-    });
-
-    it('returns error when sandbox not enabled for project', async () => {
-      const project = await createTestProject({
-        config: {
-          sandbox: { enabled: false, idleTimeoutMinutes: 30 },
-        },
-      });
-
-      const result = await sandboxService.getOrCreateForCodespace(project.id);
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.code).toBe('SANDBOX_NOT_ENABLED');
-      }
-    });
-
-    it('handles container creation failure', async () => {
-      const project = await createTestProject({
-        config: {
-          sandbox: { enabled: true, idleTimeoutMinutes: 30 },
-        },
-      });
-
-      vi.mocked(mockProvider.create).mockRejectedValueOnce(
-        new Error('Docker daemon not responding')
-      );
-
-      const config: SandboxConfig = {
-        codespaceId: project.id,
-        projectPath: project.path,
-        image: 'node:22-slim',
-        memoryMb: 4096,
-        cpuCores: 2,
-        idleTimeoutMinutes: 30,
-        volumeMounts: [],
-      };
-
-      const result = await sandboxService.create(config);
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.code).toBe('SANDBOX_CONTAINER_CREATION_FAILED');
-      }
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Container Execution (5 tests)
-  // ---------------------------------------------------------------------------
-
-  describe('Container Execution', () => {
-    it('executes command in running sandbox', async () => {
-      const mockSandbox = createMockSandbox();
-      vi.mocked(mockSandbox.exec).mockResolvedValueOnce({
-        exitCode: 0,
-        stdout: 'command output',
-        stderr: '',
-      });
-      vi.mocked(mockProvider.getById).mockResolvedValueOnce(mockSandbox);
-
-      const result = await sandboxService.exec(mockSandbox.id, 'echo', ['hello']);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.stdout).toBe('command output');
-        expect(result.value.exitCode).toBe(0);
-      }
-    });
-
-    it('returns error when sandbox not found for exec', async () => {
-      vi.mocked(mockProvider.getById).mockResolvedValueOnce(null);
-
-      const result = await sandboxService.exec('non-existent', 'echo', ['hello']);
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.code).toBe('SANDBOX_CONTAINER_NOT_FOUND');
-      }
-    });
-
-    it('returns error when sandbox is not running', async () => {
-      const mockSandbox = createMockSandbox({ status: 'stopped' });
-      vi.mocked(mockProvider.getById).mockResolvedValueOnce(mockSandbox);
-
-      const result = await sandboxService.exec(mockSandbox.id, 'echo', ['hello']);
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.code).toBe('SANDBOX_CONTAINER_NOT_RUNNING');
-      }
-    });
-
-    it('handles exec failure gracefully', async () => {
-      const mockSandbox = createMockSandbox();
-      vi.mocked(mockSandbox.exec).mockRejectedValueOnce(new Error('Process timeout'));
-      vi.mocked(mockProvider.getById).mockResolvedValueOnce(mockSandbox);
-
-      const result = await sandboxService.exec(mockSandbox.id, 'long-running', []);
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.code).toBe('SANDBOX_EXEC_FAILED');
-      }
-    });
-
-    it('gets metrics for running sandbox', async () => {
-      const mockSandbox = createMockSandbox();
-      vi.mocked(mockProvider.getById).mockResolvedValueOnce(mockSandbox);
-
-      const result = await sandboxService.getMetrics(mockSandbox.id);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.cpuUsagePercent).toBe(10);
-        expect(result.value.memoryUsageMb).toBe(512);
-        expect(result.value.memoryLimitMb).toBe(4096);
-      }
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Container Stop (4 tests)
-  // ---------------------------------------------------------------------------
-
-  describe('Container Stop', () => {
-    it('stops a running sandbox', async () => {
-      const project = await createTestProject();
-      const sandboxId = createId();
-
-      // Insert sandbox in database
-      const db = getTestDb();
-      await db.insert(schema.sandboxInstances).values({
-        id: sandboxId,
-        codespaceId: project.id,
-        containerId: 'container-to-stop',
-        status: 'running',
-        image: 'node:22-slim',
-        memoryMb: 4096,
-        cpuCores: 2,
-        idleTimeoutMinutes: 30,
-      });
-
-      const mockSandbox = createMockSandbox({ id: sandboxId });
-      vi.mocked(mockProvider.getById).mockResolvedValueOnce(mockSandbox);
-
-      const result = await sandboxService.stop(sandboxId, 'manual');
-
-      expect(result.ok).toBe(true);
-      expect(mockSandbox.stop).toHaveBeenCalled();
-
-      // Verify status updated in database
-      const updated = await db.query.sandboxInstances.findFirst({
-        where: eq(schema.sandboxInstances.id, sandboxId),
-      });
-      expect(updated?.status).toBe('stopped');
-    });
-
-    it('stops sandbox due to idle timeout', async () => {
-      const project = await createTestProject();
-      const sandboxId = createId();
-
-      const db = getTestDb();
-      await db.insert(schema.sandboxInstances).values({
-        id: sandboxId,
-        codespaceId: project.id,
-        containerId: 'idle-container',
-        status: 'running',
-        image: 'node:22-slim',
-        memoryMb: 4096,
-        cpuCores: 2,
-        idleTimeoutMinutes: 30,
-      });
-
-      const mockSandbox = createMockSandbox({ id: sandboxId });
-      vi.mocked(mockProvider.getById).mockResolvedValueOnce(mockSandbox);
-
-      const result = await sandboxService.stop(sandboxId, 'idle_timeout');
-
-      expect(result.ok).toBe(true);
-    });
-
-    it('returns error when stopping non-existent sandbox', async () => {
-      const result = await sandboxService.stop('non-existent', 'manual');
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.code).toBe('SANDBOX_CONTAINER_NOT_FOUND');
-      }
-    });
-
-    it('handles stop failure and updates error status', async () => {
-      const project = await createTestProject();
-      const sandboxId = createId();
-
-      const db = getTestDb();
-      await db.insert(schema.sandboxInstances).values({
-        id: sandboxId,
-        codespaceId: project.id,
-        containerId: 'error-container',
-        status: 'running',
-        image: 'node:22-slim',
-        memoryMb: 4096,
-        cpuCores: 2,
-        idleTimeoutMinutes: 30,
-      });
-
-      const mockSandbox = createMockSandbox({ id: sandboxId });
-      vi.mocked(mockSandbox.stop).mockRejectedValueOnce(new Error('Container locked'));
-      vi.mocked(mockProvider.getById).mockResolvedValueOnce(mockSandbox);
-
-      const result = await sandboxService.stop(sandboxId, 'manual');
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.code).toBe('SANDBOX_CONTAINER_STOP_FAILED');
-      }
-
-      // Verify error status in database
-      const updated = await db.query.sandboxInstances.findFirst({
-        where: eq(schema.sandboxInstances.id, sandboxId),
-      });
-      expect(updated?.status).toBe('error');
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Health Checks (3 tests)
-  // ---------------------------------------------------------------------------
-
-  describe('Health Checks', () => {
-    it('returns healthy status when provider is healthy', async () => {
-      vi.mocked(mockProvider.healthCheck).mockResolvedValueOnce({
-        healthy: true,
-        message: 'Docker is running',
-      });
-
-      const result = await sandboxService.healthCheck();
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.healthy).toBe(true);
-      }
-    });
-
-    it('returns error when provider health check fails', async () => {
-      vi.mocked(mockProvider.healthCheck).mockResolvedValueOnce({
-        healthy: false,
-        message: 'Docker daemon not responding',
-      });
-
-      const result = await sandboxService.healthCheck();
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.code).toBe('SANDBOX_PROVIDER_HEALTH_CHECK_FAILED');
-      }
-    });
-
-    it('starts and stops idle checker', () => {
-      sandboxService.startIdleChecker();
-      sandboxService.startIdleChecker(); // Second call should be no-op
-
-      sandboxService.stopIdleChecker();
-      sandboxService.stopIdleChecker(); // Second call should be no-op
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Sandbox Retrieval (3 tests)
-  // ---------------------------------------------------------------------------
-
-  describe('Sandbox Retrieval', () => {
-    it('gets sandbox by project ID', async () => {
-      const project = await createTestProject();
-      const sandboxId = createId();
-
-      const db = getTestDb();
-      await db.insert(schema.sandboxInstances).values({
-        id: sandboxId,
-        codespaceId: project.id,
-        containerId: 'test-container',
-        status: 'running',
-        image: 'node:22-slim',
-        memoryMb: 4096,
-        cpuCores: 2,
-        idleTimeoutMinutes: 30,
-      });
-
-      const result = await sandboxService.getByCodespaceId(project.id);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value?.id).toBe(sandboxId);
-        expect(result.value?.codespaceId).toBe(project.id);
-      }
-    });
-
-    it('returns null when no sandbox for project', async () => {
-      const result = await sandboxService.getByCodespaceId('no-sandbox-project');
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value).toBeNull();
-      }
-    });
-
-    it('gets sandbox by ID', async () => {
-      const project = await createTestProject();
-      const sandboxId = createId();
-
-      const db = getTestDb();
-      await db.insert(schema.sandboxInstances).values({
-        id: sandboxId,
-        codespaceId: project.id,
-        containerId: 'test-container',
-        status: 'running',
-        image: 'node:22-slim',
-        memoryMb: 4096,
-        cpuCores: 2,
-        idleTimeoutMinutes: 30,
-      });
-
-      const result = await sandboxService.getById(sandboxId);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value?.id).toBe(sandboxId);
-      }
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Tmux Session Management (3 tests)
-  // ---------------------------------------------------------------------------
-
-  describe('Tmux Session Management', () => {
-    it('creates tmux session for task', async () => {
-      const project = await createTestProject({
-        config: {
-          sandbox: { enabled: true, idleTimeoutMinutes: 30 },
-        },
-      });
-      const task = await createTestTask(project.id);
-      const sandboxId = createId();
-
-      const db = getTestDb();
-      await db.insert(schema.sandboxInstances).values({
-        id: sandboxId,
-        codespaceId: project.id,
-        containerId: 'test-container',
-        status: 'running',
-        image: 'node:22-slim',
-        memoryMb: 4096,
-        cpuCores: 2,
-        idleTimeoutMinutes: 30,
-      });
-
-      const result = await sandboxService.createTmuxSessionForTask(project.id, task.id);
-
-      // May fail if tmux manager mock isn't set up, but tests the flow
-      expect(result).toBeDefined();
-    });
-
-    it('returns error when no sandbox exists for tmux session', async () => {
-      const result = await sandboxService.createTmuxSessionForTask('no-sandbox', 'task-1');
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.code).toBe('SANDBOX_CONTAINER_NOT_FOUND');
-      }
-    });
-
-    it('refreshes credentials in sandbox', async () => {
-      const mockSandbox = createMockSandbox();
-      vi.mocked(mockProvider.getById).mockResolvedValueOnce(mockSandbox);
-
-      const result = await sandboxService.refreshCredentials(mockSandbox.id);
-
-      // Result depends on credentials injector implementation
-      expect(result).toBeDefined();
-    });
-  });
-});
+// SandboxService tests removed — sandbox.service.ts was deleted
 
 // ============================================================================
 // SandboxConfigService Tests (~20 tests)
@@ -1515,13 +881,14 @@ describe('DurableStreamsService', () => {
 // ============================================================================
 
 describe('TemplateSyncScheduler', () => {
+  let scheduler: TemplateSyncScheduler;
+
   beforeEach(async () => {
     await setupTestDatabase();
-    stopSyncScheduler(); // Ensure clean state
   });
 
   afterEach(async () => {
-    stopSyncScheduler();
+    scheduler?.stop();
     await clearTestDatabase();
   });
 
@@ -1538,38 +905,15 @@ describe('TemplateSyncScheduler', () => {
       expect(nextSync.getTime()).toBeGreaterThanOrEqual(expectedMin.getTime() - 1000);
       expect(nextSync.getTime()).toBeLessThanOrEqual(expectedMax.getTime() + 1000);
     });
-
-    it('validates sync interval - accepts valid intervals', () => {
-      expect(validateSyncInterval(5)).toBe(true);
-      expect(validateSyncInterval(15)).toBe(true);
-      expect(validateSyncInterval(60)).toBe(true);
-      expect(validateSyncInterval(1440)).toBe(true);
-    });
-
-    it('validates sync interval - accepts null/undefined (disabled)', () => {
-      expect(validateSyncInterval(null)).toBe(true);
-      expect(validateSyncInterval(undefined)).toBe(true);
-    });
-
-    it('validates sync interval - rejects intervals below minimum', () => {
-      expect(validateSyncInterval(1)).toBe(false);
-      expect(validateSyncInterval(4)).toBe(false);
-      expect(validateSyncInterval(MIN_SYNC_INTERVAL_MINUTES - 1)).toBe(false);
-    });
-
-    it('validates sync interval - rejects non-numbers', () => {
-      expect(validateSyncInterval('15' as unknown as number)).toBe(false);
-    });
-
-    it('exports minimum sync interval constant', () => {
-      expect(MIN_SYNC_INTERVAL_MINUTES).toBe(5);
-    });
   });
 
   describe('Scheduler State', () => {
     it('returns initial state when not running', () => {
-      const state = getSchedulerState();
+      const db = getTestDb();
+      const mockTemplateService = { sync: vi.fn() };
+      scheduler = new TemplateSyncScheduler(db, mockTemplateService as any);
 
+      const state = scheduler.getState();
       expect(state.isRunning).toBe(false);
       expect(state.syncInProgressCount).toBe(0);
     });
@@ -1580,9 +924,10 @@ describe('TemplateSyncScheduler', () => {
         sync: vi.fn().mockResolvedValue(ok({ skillCount: 0, commandCount: 0, agentCount: 0 })),
       };
 
-      const cleanup = startSyncScheduler(db, mockTemplateService as any);
+      scheduler = new TemplateSyncScheduler(db, mockTemplateService as any);
+      const cleanup = scheduler.start();
 
-      const state = getSchedulerState();
+      const state = scheduler.getState();
       expect(state.isRunning).toBe(true);
 
       cleanup();
@@ -1594,10 +939,11 @@ describe('TemplateSyncScheduler', () => {
         sync: vi.fn().mockResolvedValue(ok({ skillCount: 0, commandCount: 0, agentCount: 0 })),
       };
 
-      startSyncScheduler(db, mockTemplateService as any);
-      stopSyncScheduler();
+      scheduler = new TemplateSyncScheduler(db, mockTemplateService as any);
+      scheduler.start();
+      scheduler.stop();
 
-      const state = getSchedulerState();
+      const state = scheduler.getState();
       expect(state.isRunning).toBe(false);
     });
 
@@ -1607,31 +953,31 @@ describe('TemplateSyncScheduler', () => {
         sync: vi.fn().mockResolvedValue(ok({ skillCount: 0, commandCount: 0, agentCount: 0 })),
       };
 
-      startSyncScheduler(db, mockTemplateService as any);
-      const cleanup2 = startSyncScheduler(db, mockTemplateService as any); // Second call - silently returns cleanup
+      scheduler = new TemplateSyncScheduler(db, mockTemplateService as any);
+      scheduler.start();
+      const cleanup2 = scheduler.start(); // Second call
 
-      // Second call should still return a valid cleanup function (delegates to existing instance)
       expect(typeof cleanup2).toBe('function');
 
-      // Scheduler should still be running (not duplicated)
-      const state = getSchedulerState();
+      const state = scheduler.getState();
       expect(state.isRunning).toBe(true);
 
       cleanup2();
     });
 
-    it('returns cleanup function from startSyncScheduler', () => {
+    it('returns cleanup function from start', () => {
       const db = getTestDb();
       const mockTemplateService = {
         sync: vi.fn().mockResolvedValue(ok({ skillCount: 0, commandCount: 0, agentCount: 0 })),
       };
 
-      const cleanup = startSyncScheduler(db, mockTemplateService as any);
+      scheduler = new TemplateSyncScheduler(db, mockTemplateService as any);
+      const cleanup = scheduler.start();
 
       expect(typeof cleanup).toBe('function');
 
       cleanup();
-      expect(getSchedulerState().isRunning).toBe(false);
+      expect(scheduler.getState().isRunning).toBe(false);
     });
   });
 
@@ -1639,7 +985,6 @@ describe('TemplateSyncScheduler', () => {
     it('syncs templates due for sync on startup', async () => {
       const db = getTestDb();
 
-      // Create a template due for sync
       const pastDate = new Date(Date.now() - 60000).toISOString();
       await db.insert(schema.templates).values({
         id: createId(),
@@ -1656,24 +1001,18 @@ describe('TemplateSyncScheduler', () => {
         sync: vi.fn().mockResolvedValue(ok({ skillCount: 1, commandCount: 2, agentCount: 0 })),
       };
 
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      scheduler = new TemplateSyncScheduler(db, mockTemplateService as any);
+      scheduler.start();
 
-      startSyncScheduler(db, mockTemplateService as any);
-
-      // Flush microtasks so the initial sync fires
       await flushPromises();
+      scheduler.stop();
 
-      stopSyncScheduler();
-      consoleSpy.mockRestore();
-
-      // Template service should have been called
       expect(mockTemplateService.sync).toHaveBeenCalled();
     });
 
     it('skips templates with disabled sync', async () => {
       const db = getTestDb();
 
-      // Create template with sync disabled
       await db.insert(schema.templates).values({
         id: createId(),
         name: 'No Sync Template',
@@ -1689,21 +1028,17 @@ describe('TemplateSyncScheduler', () => {
         sync: vi.fn().mockResolvedValue(ok({ skillCount: 0, commandCount: 0, agentCount: 0 })),
       };
 
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-
-      startSyncScheduler(db, mockTemplateService as any);
+      scheduler = new TemplateSyncScheduler(db, mockTemplateService as any);
+      scheduler.start();
       await flushPromises();
-      stopSyncScheduler();
-      consoleSpy.mockRestore();
+      scheduler.stop();
 
-      // Should not sync templates with null interval
       expect(mockTemplateService.sync).not.toHaveBeenCalled();
     });
 
     it('skips templates not yet due for sync', async () => {
       const db = getTestDb();
 
-      // Create template due in the future
       const futureDate = new Date(Date.now() + 3600000).toISOString();
       await db.insert(schema.templates).values({
         id: createId(),
@@ -1720,12 +1055,10 @@ describe('TemplateSyncScheduler', () => {
         sync: vi.fn().mockResolvedValue(ok({ skillCount: 0, commandCount: 0, agentCount: 0 })),
       };
 
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-
-      startSyncScheduler(db, mockTemplateService as any);
+      scheduler = new TemplateSyncScheduler(db, mockTemplateService as any);
+      scheduler.start();
       await flushPromises();
-      stopSyncScheduler();
-      consoleSpy.mockRestore();
+      scheduler.stop();
 
       expect(mockTemplateService.sync).not.toHaveBeenCalled();
     });
@@ -1749,15 +1082,10 @@ describe('TemplateSyncScheduler', () => {
         sync: vi.fn().mockResolvedValue(err({ code: 'SYNC_FAILED', message: 'Network error' })),
       };
 
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-
-      startSyncScheduler(db, mockTemplateService as any);
+      scheduler = new TemplateSyncScheduler(db, mockTemplateService as any);
+      scheduler.start();
       await flushPromises();
-      stopSyncScheduler();
-
-      consoleErrorSpy.mockRestore();
-      consoleLogSpy.mockRestore();
+      scheduler.stop();
 
       expect(mockTemplateService.sync).toHaveBeenCalled();
     });

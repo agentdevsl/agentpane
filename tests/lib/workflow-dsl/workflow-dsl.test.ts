@@ -1,4 +1,3 @@
-import type { Node as ReactFlowNode } from '@xyflow/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   ConditionalEdge,
@@ -658,53 +657,7 @@ describe('Workflow DSL Module', () => {
       });
     });
 
-    describe('fromReactFlowNodes', () => {
-      it('converts ReactFlow nodes back to workflow nodes with updated positions', async () => {
-        const { fromReactFlowNodes } = await import('@/lib/workflow-dsl/layout');
-
-        const originalNodes: WorkflowNode[] = [
-          { id: 'start', type: 'start', label: 'Start', position: { x: 0, y: 0 } },
-          {
-            id: 'task1',
-            type: 'skill',
-            label: 'Task 1',
-            position: { x: 0, y: 100 },
-            skillId: 'npm-test',
-            skillName: 'Npm Test',
-            description: 'Run tests',
-          },
-        ];
-
-        const reactFlowNodes: ReactFlowNode[] = [
-          { id: 'start', type: 'compactStart', position: { x: 50, y: 25 }, data: {} },
-          { id: 'task1', type: 'compactSkill', position: { x: 50, y: 150 }, data: {} },
-        ];
-
-        const result = fromReactFlowNodes(reactFlowNodes, originalNodes);
-
-        expect(result[0].position).toEqual({ x: 50, y: 25 });
-        expect(result[0].type).toBe('start'); // Original type preserved
-        expect(result[1].position).toEqual({ x: 50, y: 150 });
-        expect(result[1].skillId).toBe('npm-test'); // Original properties preserved
-        expect(result[1].description).toBe('Run tests');
-      });
-
-      it('throws error when original node is not found', async () => {
-        const { fromReactFlowNodes } = await import('@/lib/workflow-dsl/layout');
-
-        const originalNodes: WorkflowNode[] = [
-          { id: 'start', type: 'start', label: 'Start', position: { x: 0, y: 0 } },
-        ];
-
-        const reactFlowNodes: ReactFlowNode[] = [
-          { id: 'nonexistent', type: 'compactStart', position: { x: 50, y: 25 }, data: {} },
-        ];
-
-        expect(() => fromReactFlowNodes(reactFlowNodes, originalNodes)).toThrow(
-          'Original node not found for id: nonexistent'
-        );
-      });
-    });
+    // fromReactFlowNodes tests removed — function was deleted from layout.ts
 
     describe('layoutWorkflowForReactFlow', () => {
       it('applies layout and converts to ReactFlow format in one call', async () => {

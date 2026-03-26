@@ -349,14 +349,3 @@ export function useCodespaceData(): CodespaceDataContextValue {
   }
   return context;
 }
-
-/**
- * Access only picker/modal UI state (avoids re-renders from data changes).
- */
-export function useCodespacePicker(): CodespacePickerContextValue {
-  const context = useContext(CodespacePickerContext);
-  if (!context) {
-    throw new Error('useCodespacePicker must be used within a CodespaceContextProvider');
-  }
-  return context;
-}

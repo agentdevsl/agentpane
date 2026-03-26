@@ -119,7 +119,7 @@ function extractAttribute(body: string, attr: string): string | null {
   return bareMatch?.[1] ?? null;
 }
 
-export function normalizeVariableType(raw: string): VariableType {
+function normalizeVariableType(raw: string): VariableType {
   const trimmed = raw.trim().toLowerCase();
   if (trimmed === 'string') return 'string';
   if (trimmed === 'number') return 'number';

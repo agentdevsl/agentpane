@@ -401,11 +401,16 @@ async function shouldStop(): Promise<boolean> {
 // SC-023: ExitPlanModeOptions and ExitPlanModeInput are now imported from shared-session.ts
 
 /**
- * Run the agent in planning mode.
- * The agent explores the codebase and creates a plan.
- * When ExitPlanMode is called, emits plan_ready event and exits.
+ * Run the agent in the given phase (plan or execute).
+ *
+ * Planning phase: agent explores the codebase, creates a plan, and emits plan_ready when done.
+ * Execution phase: agent executes the approved plan with full permissions, tracks topology.
+ * Can optionally resume from a previous SDK session (execute phase only).
  */
-async function runPlanningPhase(): Promise<void> {
+async function runPhase(phase: AgentPhase): Promise<void> {
+  const isPlan = phase === 'plan';
+  const phaseLabel = isPlan ? 'PLANNING' : 'EXECUTION';
+
   const events = createEventEmitter(config.taskId as string, config.sessionId as string);
 
   // Emit started event with phase info
@@ -414,15 +419,31 @@ async function runPlanningPhase(): Promise<void> {
     maxTurns: config.maxTurns,
   });
 
-  console.error('[agent-runner] Starting PLANNING phase...');
+  // Topology tracking: only for execution phase
+  let topology: TopologyTracker | undefined;
+  let rootAgentId: string | undefined;
+  if (!isPlan) {
+    topology = { taskToNodeId: new Map(), rootEmitted: true };
+    rootAgentId = `agent-${config.taskId}`;
 
-  // Track ExitPlanMode options - captured by canUseTool callback
+    // Always emit root agent node in topology
+    events.topologySpawned({
+      agentId: rootAgentId,
+      name: 'Agent',
+      role: 'orchestrator',
+      parentId: null,
+    });
+  }
+
+  console.error(`[agent-runner] Starting ${phaseLabel} phase...`);
+  if (!isPlan && config.sdkSessionId) {
+    console.error(`[agent-runner] Resuming SDK session: ${config.sdkSessionId}`);
+  }
+
+  // ExitPlanMode tracking: only for plan phase
   let exitPlanModeOptions: ExitPlanModeOptions | undefined;
-  // Flag set when ExitPlanMode is detected via canUseTool - checked in stream loop
   let exitPlanModeDetected = false;
-  // Plan content captured from canUseTool input (ExitPlanModeInput.plan)
   let exitPlanModePlan: string | undefined;
-  // Timestamp when ExitPlanMode was detected (for timeout handling)
   let exitPlanModeTimestamp: number | undefined;
   const EXIT_PLAN_MODE_TIMEOUT_MS = 60_000;
 
@@ -452,55 +473,93 @@ async function runPlanningPhase(): Promise<void> {
     }
   };
 
-  // Create Claude Agent SDK session in PLAN mode
-  let session: SDKSession | undefined;
-  try {
-    console.error('[agent-runner] Creating SDK session in plan mode...');
-
-    // Create canUseTool callback to capture ExitPlanMode options
-    // This is the official SDK mechanism for intercepting tool calls
-    const canUseTool: CanUseTool = async (toolName, input, options) => {
+  // canUseTool callback — tracks tool executions and intercepts ExitPlanMode in plan phase
+  const canUseTool: CanUseTool = async (toolName, input, options) => {
+    if (isPlan) {
       console.error(`[agent-runner] canUseTool: ${toolName}`);
+    }
 
-      // Track tool start
-      activeTools.set(options.toolUseID, { toolName, startTime: Date.now() });
+    // Track tool start
+    activeTools.set(options.toolUseID, { toolName, startTime: Date.now() });
 
-      // Emit tool start event for all tools
-      events.toolStart({
-        toolName,
-        toolId: options.toolUseID,
-        input: (input as Record<string, unknown>) ?? {},
-      });
+    // Emit tool start event for all tools
+    events.toolStart({
+      toolName,
+      toolId: options.toolUseID,
+      input: (input as Record<string, unknown>) ?? {},
+    });
 
-      // Detect file-modifying tools and emit file_changed event
-      emitFileChangeIfApplicable(toolName, input, events);
+    // Detect file-modifying tools and emit file_changed event
+    emitFileChangeIfApplicable(toolName, input, events);
 
-      // Capture ExitPlanMode options when the tool is called
-      if (toolName === 'ExitPlanMode') {
-        const planInput = input as ExitPlanModeInput | undefined;
-        exitPlanModeOptions = planInput;
-        exitPlanModeDetected = true;
-        exitPlanModeTimestamp = Date.now();
-        exitPlanModePlan = typeof planInput?.plan === 'string' ? planInput.plan : undefined;
+    // Capture ExitPlanMode options when the tool is called (plan phase only)
+    if (isPlan && toolName === 'ExitPlanMode') {
+      const planInput = input as ExitPlanModeInput | undefined;
+      exitPlanModeOptions = planInput;
+      exitPlanModeDetected = true;
+      exitPlanModeTimestamp = Date.now();
+      exitPlanModePlan = typeof planInput?.plan === 'string' ? planInput.plan : undefined;
 
-        console.error(
-          `[agent-runner] ExitPlanMode captured via canUseTool — plan from input: ${exitPlanModePlan ? `${exitPlanModePlan.length} chars` : 'none'}`
-        );
-      }
+      console.error(
+        `[agent-runner] ExitPlanMode captured via canUseTool — plan from input: ${exitPlanModePlan ? `${exitPlanModePlan.length} chars` : 'none'}`
+      );
+    }
 
-      // Allow all tools to proceed (we're in plan mode)
-      return { behavior: 'allow' as const, toolUseID: options.toolUseID };
-    };
+    // Allow all tools to proceed
+    return { behavior: 'allow' as const, toolUseID: options.toolUseID };
+  };
+
+  // Create or resume Claude Agent SDK session
+  let session: SDKSession | undefined;
+  let sessionResumed = false;
+  try {
+    const permissionMode = isPlan ? 'plan' : 'bypassPermissions';
+    console.error(
+      `[agent-runner] Creating SDK session with ${isPlan ? 'plan' : 'bypass'} permissions...`
+    );
 
     // Note: executableArgs with --add-dir causes EPIPE errors in SDK 0.2.x
     // The SDK/CLI handles directory access via cwd and environment
-    session = unstable_v2_createSession({
-      model: config.model,
-      env: { ...process.env }, // Teams GA: env passed through for agent swarm support
-      permissionMode: 'plan', // Planning mode - read-only exploration
-      canUseTool, // Use official SDK callback for tool interception
-    });
-    console.error('[agent-runner] SDK session created successfully');
+
+    // Session resumption: only for execute phase with an existing sdkSessionId
+    if (!isPlan && config.sdkSessionId) {
+      // Try to resume existing session — may fail if session state is corrupted or stale
+      // (primary container-change detection is in approvePlan; this is defense-in-depth)
+      try {
+        session = unstable_v2_resumeSession(config.sdkSessionId, {
+          model: config.model,
+          env: { ...process.env }, // Teams GA: env passed through for agent swarm support
+          permissionMode,
+          canUseTool,
+        });
+        sessionResumed = true;
+        console.error('[agent-runner] SDK session resumed successfully');
+      } catch (resumeError) {
+        const resumeMsg = resumeError instanceof Error ? resumeError.message : String(resumeError);
+        console.warn(
+          `[agent-runner] SDK session resume failed (${config.sdkSessionId}), falling back to fresh session: ${resumeMsg}`
+        );
+        // Notify the user via structured event so the host process can relay to UI
+        events.message({
+          role: 'assistant',
+          content: `⚠️ Previous session could not be resumed (${resumeMsg}). Starting fresh execution with full plan context.`,
+        });
+        // Fall through to create a fresh session
+      }
+    }
+
+    if (!session) {
+      // Create new session (plan phase, no sdkSessionId provided, or resume failed)
+      session = unstable_v2_createSession({
+        model: config.model,
+        env: { ...process.env }, // Teams GA: env passed through for agent swarm support
+        permissionMode,
+        canUseTool,
+      });
+    }
+    console.error(
+      `[agent-runner] SDK session ${sessionResumed ? 'resumed' : 'created'} successfully`
+    );
   } catch (sessionError) {
     const errMsg = sessionError instanceof Error ? sessionError.message : String(sessionError);
     console.error('[agent-runner] Failed to create SDK session:', errMsg);
@@ -518,13 +577,20 @@ async function runPlanningPhase(): Promise<void> {
 
   let turn = 0;
   let accumulatedText = '';
+  // sdkSessionId capture: only relevant for plan phase (sent back with plan_ready)
   let sdkSessionId: string | undefined;
 
   try {
-    // Send the initial prompt
-    await session.send(config.prompt as string);
+    // Determine prompt: if we successfully resumed the session (execute phase),
+    // the agent already has the plan in its conversation history.
+    const prompt =
+      !isPlan && sessionResumed
+        ? 'The plan has been approved. Please proceed with the implementation.'
+        : (config.prompt as string);
 
-    console.error('[agent-runner] Processing SDK stream (planning)...');
+    await session.send(prompt);
+
+    console.error(`[agent-runner] Processing SDK stream (${phaseLabel.toLowerCase()})...`);
     let messageCount = 0;
 
     for await (const msg of session.stream()) {
@@ -540,7 +606,8 @@ async function runPlanningPhase(): Promise<void> {
       }
 
       // Check for ExitPlanMode timeout — if stream hangs after ExitPlanMode, force emit planReady
-      if (exitPlanModeDetected && exitPlanModeTimestamp) {
+      // Only applicable in plan phase
+      if (isPlan && exitPlanModeDetected && exitPlanModeTimestamp) {
         const elapsed = Date.now() - exitPlanModeTimestamp;
         if (elapsed > EXIT_PLAN_MODE_TIMEOUT_MS) {
           console.error(`[agent-runner] ExitPlanMode timeout (${elapsed}ms) — forcing plan_ready`);
@@ -557,8 +624,8 @@ async function runPlanningPhase(): Promise<void> {
         }
       }
 
-      // Capture SDK session ID from init message
-      if (msg.type === 'system') {
+      // Capture SDK session ID from init message (plan phase only — needed for plan_ready event)
+      if (isPlan && msg.type === 'system') {
         const sysMsg = msg as { subtype?: string };
         if (sysMsg.subtype === 'init') {
           sdkSessionId = session.sessionId;
@@ -586,11 +653,13 @@ async function runPlanningPhase(): Promise<void> {
 
           // Check turn limit
           if (turn >= config.maxTurns) {
-            console.error('[agent-runner] Turn limit reached during planning');
+            console.error(`[agent-runner] Turn limit reached${isPlan ? ' during planning' : ''}`);
             events.complete({
               status: 'turn_limit',
               turnCount: turn,
-              result: `Turn limit reached (${config.maxTurns}) during planning.`,
+              result: isPlan
+                ? `Turn limit reached (${config.maxTurns}) during planning.`
+                : `Turn limit reached (${config.maxTurns}). Task may need manual completion.`,
             });
             session.close();
             return;
@@ -612,367 +681,6 @@ async function runPlanningPhase(): Promise<void> {
       }
 
       // Handle tool progress events (for UI feedback on long-running tools)
-      if (msg.type === 'tool_progress') {
-        const toolMsg = msg as {
-          tool_use_id: string;
-          tool_name: string;
-          elapsed_time_seconds: number;
-        };
-        console.error(
-          `[agent-runner] Tool progress: ${toolMsg.tool_name} (${toolMsg.elapsed_time_seconds}s)`
-        );
-        events.toolStart({
-          toolName: toolMsg.tool_name,
-          toolId: toolMsg.tool_use_id,
-          input: {},
-        });
-      }
-
-      // Handle rate_limit_event (SDK v0.2.76+)
-      if (msg.type === 'rate_limit_event') {
-        const rateLimitMsg = msg as {
-          rate_limit_info: { status: string; resetsAt?: number };
-        };
-        console.error(`[agent-runner] Rate limit: ${rateLimitMsg.rate_limit_info.status}`);
-      }
-
-      // Handle tool_use_summary events (actual tool completion with results from SDK)
-      if (msg.type === 'tool_use_summary') {
-        const toolSummary = msg as {
-          summary: string;
-          preceding_tool_use_ids: string[];
-        };
-
-        console.error(
-          `[agent-runner] Tool summary: ids=${toolSummary.preceding_tool_use_ids.join(',')}`
-        );
-
-        // Emit tool results for each preceding tool using tracked activeTools
-        for (const toolId of toolSummary.preceding_tool_use_ids) {
-          const startInfo = activeTools.get(toolId);
-          if (startInfo) {
-            activeTools.delete(toolId);
-            const durationMs = Date.now() - startInfo.startTime;
-            events.toolResult({
-              toolName: startInfo.toolName,
-              toolId,
-              result: toolSummary.summary ?? '',
-              isError: false,
-              durationMs,
-            });
-
-            // ExitPlanMode tool completed — do NOT close session here.
-            // The stream will naturally flow to a 'result' message, which is the safe exit point.
-            // Closing mid-iteration causes "Operation aborted" unhandled rejections.
-            if (startInfo.toolName === 'ExitPlanMode') {
-              console.error(
-                '[agent-runner] ExitPlanMode tool completed — waiting for result message'
-              );
-            }
-          }
-        }
-      }
-
-      // Handle assistant messages
-      if (msg.type === 'assistant') {
-        // Assistant message means all previous tools have completed
-        emitAllToolResults();
-
-        // ExitPlanMode was detected — do NOT close session here.
-        // Continue consuming messages until the stream naturally yields 'result'.
-        if (exitPlanModeDetected) {
-          console.error('[agent-runner] ExitPlanMode detected — continuing to result message');
-        }
-
-        const text = getAssistantText(msg);
-        if (text) {
-          accumulatedText = text;
-          events.message({
-            role: 'assistant',
-            content: text,
-          });
-        }
-      }
-
-      // Handle result (planning session finished)
-      // This is the ONLY safe place to close the session — the stream iterator is done.
-      if (msg.type === 'result') {
-        // Emit results for any remaining active tools
-        emitAllToolResults();
-        session.close(); // Clean close — stream is done, iterator complete
-
-        // If ExitPlanMode was called, emit plan_ready
-        if (exitPlanModeDetected || exitPlanModeOptions !== undefined || accumulatedText) {
-          // Prefer plan from canUseTool input (ExitPlanModeInput.plan), fall back to accumulated text
-          const planContent = exitPlanModePlan || accumulatedText;
-          console.error(
-            `[agent-runner] Emitting plan_ready (source: ${exitPlanModePlan ? 'ExitPlanModeInput.plan' : 'accumulated text'}, length: ${planContent.length})`
-          );
-          events.planReady({
-            plan: planContent,
-            turnCount: turn,
-            sdkSessionId: sdkSessionId ?? '',
-            allowedPrompts: exitPlanModeOptions?.allowedPrompts,
-          });
-        } else {
-          // No plan was created - treat as completion
-          events.complete({
-            status: 'completed',
-            turnCount: turn,
-            result: accumulatedText || 'Planning completed without explicit plan',
-          });
-        }
-        return;
-      }
-    }
-
-    console.error(
-      `[agent-runner] Planning stream ended. Messages: ${messageCount}, turns: ${turn}`
-    );
-
-    // Emit results for any remaining active tools
-    emitAllToolResults();
-
-    // Stream ended - emit plan_ready if we have content
-    session.close();
-    if (accumulatedText) {
-      events.planReady({
-        plan: accumulatedText,
-        turnCount: turn,
-        sdkSessionId: sdkSessionId ?? '',
-        allowedPrompts: exitPlanModeOptions?.allowedPrompts,
-      });
-    } else {
-      events.complete({
-        status: 'completed',
-        turnCount: turn,
-        result: 'Planning completed',
-      });
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const errorCode = (error as { code?: string }).code;
-    console.error('[agent-runner] Planning error:', message);
-
-    events.error({
-      error: message,
-      code: errorCode || 'PLANNING_ERROR',
-      turnCount: turn,
-    });
-
-    session.close();
-    await flushAndExit(1);
-  }
-}
-
-/**
- * Run the agent in execution mode.
- * The agent executes the approved plan with full permissions.
- * Can optionally resume from a previous SDK session.
- */
-async function runExecutionPhase(): Promise<void> {
-  const events = createEventEmitter(config.taskId as string, config.sessionId as string);
-
-  // Emit started event
-  events.started({
-    model: config.model,
-    maxTurns: config.maxTurns,
-  });
-
-  // Topology tracker for subagent lifecycle events
-  const topology: TopologyTracker = { taskToNodeId: new Map(), rootEmitted: true };
-  const rootAgentId = `agent-${config.taskId}`;
-
-  // Always emit root agent node in topology
-  events.topologySpawned({
-    agentId: rootAgentId,
-    name: 'Agent',
-    role: 'orchestrator',
-    parentId: null,
-  });
-
-  console.error('[agent-runner] Starting EXECUTION phase...');
-  if (config.sdkSessionId) {
-    console.error(`[agent-runner] Resuming SDK session: ${config.sdkSessionId}`);
-  }
-
-  // Track active tool executions for emitting toolResult events
-  const activeTools = new Map<string, { toolName: string; startTime: number }>();
-
-  // Helper to emit tool result for a completed tool
-  const emitToolResult = (toolId: string, isError = false, result = '') => {
-    const tool = activeTools.get(toolId);
-    if (tool) {
-      const durationMs = Date.now() - tool.startTime;
-      events.toolResult({
-        toolName: tool.toolName,
-        toolId,
-        result,
-        isError,
-        durationMs,
-      });
-      activeTools.delete(toolId);
-    }
-  };
-
-  // Helper to emit results for all active tools (called on completion/error)
-  const emitAllToolResults = () => {
-    for (const [toolId] of activeTools) {
-      emitToolResult(toolId, false, 'completed');
-    }
-  };
-
-  // canUseTool callback to track tool executions (even in bypass mode)
-  const canUseTool: CanUseTool = async (toolName, input, options) => {
-    // Track tool start
-    activeTools.set(options.toolUseID, { toolName, startTime: Date.now() });
-
-    // Emit tool start event
-    events.toolStart({
-      toolName,
-      toolId: options.toolUseID,
-      input: (input as Record<string, unknown>) ?? {},
-    });
-
-    // Detect file-modifying tools and emit file_changed event
-    emitFileChangeIfApplicable(toolName, input, events);
-
-    // Allow all tools in execution mode
-    return { behavior: 'allow' as const, toolUseID: options.toolUseID };
-  };
-
-  // Create or resume Claude Agent SDK session
-  let session: SDKSession | undefined;
-  let sessionResumed = false;
-  try {
-    console.error('[agent-runner] Creating SDK session with bypass permissions...');
-
-    // Note: executableArgs with --add-dir causes EPIPE errors in SDK 0.2.x
-    // The SDK/CLI handles directory access via cwd and environment
-    if (config.sdkSessionId) {
-      // Try to resume existing session — may fail if session state is corrupted or stale
-      // (primary container-change detection is in approvePlan; this is defense-in-depth)
-      try {
-        session = unstable_v2_resumeSession(config.sdkSessionId, {
-          model: config.model,
-          env: { ...process.env }, // Teams GA: env passed through for agent swarm support
-          permissionMode: 'bypassPermissions',
-          canUseTool, // Track tools even in bypass mode
-        });
-        sessionResumed = true;
-        console.error('[agent-runner] SDK session resumed successfully');
-      } catch (resumeError) {
-        const resumeMsg = resumeError instanceof Error ? resumeError.message : String(resumeError);
-        console.warn(
-          `[agent-runner] SDK session resume failed (${config.sdkSessionId}), falling back to fresh session: ${resumeMsg}`
-        );
-        // Notify the user via structured event so the host process can relay to UI
-        events.message({
-          role: 'assistant',
-          content: `⚠️ Previous session could not be resumed (${resumeMsg}). Starting fresh execution with full plan context.`,
-        });
-        // Fall through to create a fresh session
-      }
-    }
-
-    if (!session) {
-      // Create new session (either no sdkSessionId provided, or resume failed)
-      session = unstable_v2_createSession({
-        model: config.model,
-        env: { ...process.env }, // Teams GA: env passed through for agent swarm support
-        permissionMode: 'bypassPermissions',
-        canUseTool, // Track tools even in bypass mode
-      });
-    }
-    console.error('[agent-runner] SDK session ready');
-  } catch (sessionError) {
-    const errMsg = sessionError instanceof Error ? sessionError.message : String(sessionError);
-    console.error('[agent-runner] Failed to create SDK session:', errMsg);
-    events.error({
-      error: `SDK session creation failed: ${errMsg}`,
-      code: 'SDK_SESSION_FAILED',
-      turnCount: 0,
-    });
-    await flushAndExit(1);
-  }
-
-  if (!session) {
-    throw new Error('Session not initialized');
-  }
-
-  let turn = 0;
-  let accumulatedText = '';
-
-  try {
-    // Send the prompt — if we successfully resumed the session, the agent already
-    // has the plan in its conversation history. Otherwise send the full plan text.
-    const executionPrompt = sessionResumed
-      ? 'The plan has been approved. Please proceed with the implementation.'
-      : (config.prompt as string);
-
-    await session.send(executionPrompt);
-
-    console.error('[agent-runner] Processing SDK stream (execution)...');
-    let messageCount = 0;
-
-    for await (const msg of session.stream()) {
-      messageCount++;
-      console.error(`[agent-runner] Message ${messageCount}: type=${msg.type}`);
-
-      // Check for cancellation
-      if (await shouldStop()) {
-        console.error('[agent-runner] Stop file detected, cancelling...');
-        events.cancelled(turn);
-        session.close();
-        return;
-      }
-
-      // Handle streaming events (token deltas)
-      if (msg.type === 'stream_event') {
-        const event = msg.event as {
-          type: string;
-          delta?: { type: string; text?: string };
-          message?: { model?: string };
-        };
-
-        // Track turns on message_start
-        if (event.type === 'message_start') {
-          turn++;
-          console.error(`[agent-runner] Turn ${turn}/${config.maxTurns}`);
-          events.turn({
-            turn,
-            maxTurns: config.maxTurns,
-            remaining: config.maxTurns - turn,
-          });
-
-          // Check turn limit
-          if (turn >= config.maxTurns) {
-            console.error('[agent-runner] Turn limit reached');
-            events.complete({
-              status: 'turn_limit',
-              turnCount: turn,
-              result: `Turn limit reached (${config.maxTurns}). Task may need manual completion.`,
-            });
-            session.close();
-            return;
-          }
-        }
-
-        // Capture text deltas for streaming output
-        if (
-          event.type === 'content_block_delta' &&
-          event.delta?.type === 'text_delta' &&
-          event.delta.text
-        ) {
-          const delta = event.delta.text;
-          accumulatedText += delta;
-          events.token({
-            delta,
-          });
-        }
-      }
-
-      // Handle tool progress events (fallback for tools not caught by canUseTool)
       if (msg.type === 'tool_progress') {
         const toolMsg = msg as {
           tool_use_id: string;
@@ -1004,8 +712,8 @@ async function runExecutionPhase(): Promise<void> {
         console.error(`[agent-runner] Rate limit: ${rateLimitMsg.rate_limit_info.status}`);
       }
 
-      // Handle system messages for subagent topology (task_started, task_progress, task_notification)
-      if (msg.type === 'system') {
+      // Handle system messages for subagent topology (execute phase only)
+      if (!isPlan && msg.type === 'system') {
         const sysMsg = msg as Record<string, unknown>;
         const sysSubtype = sysMsg.subtype as string | undefined;
         if (
@@ -1013,7 +721,9 @@ async function runExecutionPhase(): Promise<void> {
           sysSubtype === 'task_progress' ||
           sysSubtype === 'task_notification'
         ) {
-          handleTopologySystemMsg(sysMsg, topology, events, rootAgentId);
+          if (topology && rootAgentId) {
+            handleTopologySystemMsg(sysMsg, topology, events, rootAgentId);
+          }
         }
       }
 
@@ -1028,6 +738,7 @@ async function runExecutionPhase(): Promise<void> {
           `[agent-runner] Tool summary: ids=${toolSummary.preceding_tool_use_ids.join(',')}`
         );
 
+        // Emit tool results for each preceding tool using tracked activeTools
         for (const toolId of toolSummary.preceding_tool_use_ids) {
           const startInfo = activeTools.get(toolId);
           if (startInfo) {
@@ -1040,6 +751,15 @@ async function runExecutionPhase(): Promise<void> {
               isError: false,
               durationMs,
             });
+
+            // ExitPlanMode tool completed — do NOT close session here (plan phase only).
+            // The stream will naturally flow to a 'result' message, which is the safe exit point.
+            // Closing mid-iteration causes "Operation aborted" unhandled rejections.
+            if (isPlan && startInfo.toolName === 'ExitPlanMode') {
+              console.error(
+                '[agent-runner] ExitPlanMode tool completed — waiting for result message'
+              );
+            }
           }
         }
       }
@@ -1049,9 +769,19 @@ async function runExecutionPhase(): Promise<void> {
         // Assistant message means all previous tools have completed
         emitAllToolResults();
 
+        // ExitPlanMode was detected — do NOT close session here (plan phase only).
+        // Continue consuming messages until the stream naturally yields 'result'.
+        if (isPlan && exitPlanModeDetected) {
+          console.error('[agent-runner] ExitPlanMode detected — continuing to result message');
+        }
+
         const text = getAssistantText(msg);
         if (text) {
-          console.error(`[agent-runner] Assistant message: ${text.slice(0, 100)}...`);
+          if (isPlan) {
+            accumulatedText = text;
+          } else {
+            console.error(`[agent-runner] Assistant message: ${text.slice(0, 100)}...`);
+          }
           events.message({
             role: 'assistant',
             content: text,
@@ -1059,58 +789,105 @@ async function runExecutionPhase(): Promise<void> {
         }
       }
 
-      // Handle result (completion)
+      // Handle result (session finished)
+      // This is the ONLY safe place to close the session — the stream iterator is done.
       if (msg.type === 'result') {
         // Emit results for any remaining active tools
         emitAllToolResults();
-        const result = msg as { text?: string; subtype?: string; is_error?: boolean };
-        console.error(
-          `[agent-runner] Result: subtype=${result.subtype}, is_error=${result.is_error}`
-        );
+        session.close(); // Clean close — stream is done, iterator complete
 
-        if (result.is_error) {
-          events.complete({
-            status: 'turn_limit',
-            turnCount: turn,
-            result: result.text ?? 'Task ended with error',
-          });
+        if (isPlan) {
+          // Plan phase: emit plan_ready if ExitPlanMode was called or we have content
+          if (exitPlanModeDetected || exitPlanModeOptions !== undefined || accumulatedText) {
+            // Prefer plan from canUseTool input (ExitPlanModeInput.plan), fall back to accumulated text
+            const planContent = exitPlanModePlan || accumulatedText;
+            console.error(
+              `[agent-runner] Emitting plan_ready (source: ${exitPlanModePlan ? 'ExitPlanModeInput.plan' : 'accumulated text'}, length: ${planContent.length})`
+            );
+            events.planReady({
+              plan: planContent,
+              turnCount: turn,
+              sdkSessionId: sdkSessionId ?? '',
+              allowedPrompts: exitPlanModeOptions?.allowedPrompts,
+            });
+          } else {
+            // No plan was created - treat as completion
+            events.complete({
+              status: 'completed',
+              turnCount: turn,
+              result: accumulatedText || 'Planning completed without explicit plan',
+            });
+          }
         } else {
-          events.complete({
-            status: 'completed',
-            turnCount: turn,
-            result: result.text ?? (accumulatedText || 'Task completed'),
-          });
+          // Execute phase: emit complete with result details
+          const result = msg as { text?: string; subtype?: string; is_error?: boolean };
+          console.error(
+            `[agent-runner] Result: subtype=${result.subtype}, is_error=${result.is_error}`
+          );
+
+          if (result.is_error) {
+            events.complete({
+              status: 'turn_limit',
+              turnCount: turn,
+              result: result.text ?? 'Task ended with error',
+            });
+          } else {
+            events.complete({
+              status: 'completed',
+              turnCount: turn,
+              result: result.text ?? (accumulatedText || 'Task completed'),
+            });
+          }
         }
-        session.close();
         return;
       }
     }
 
-    console.error(`[agent-runner] Stream ended. Total messages: ${messageCount}, turns: ${turn}`);
+    console.error(
+      `[agent-runner] ${phaseLabel} stream ended. Messages: ${messageCount}, turns: ${turn}`
+    );
 
     // Emit results for any remaining active tools
     emitAllToolResults();
 
     // Stream ended without explicit result
-    events.complete({
-      status: 'completed',
-      turnCount: turn,
-      result: accumulatedText || 'Task completed',
-    });
+    if (isPlan) {
+      session.close();
+      if (accumulatedText) {
+        events.planReady({
+          plan: accumulatedText,
+          turnCount: turn,
+          sdkSessionId: sdkSessionId ?? '',
+          allowedPrompts: exitPlanModeOptions?.allowedPrompts,
+        });
+      } else {
+        events.complete({
+          status: 'completed',
+          turnCount: turn,
+          result: 'Planning completed',
+        });
+      }
+    } else {
+      events.complete({
+        status: 'completed',
+        turnCount: turn,
+        result: accumulatedText || 'Task completed',
+      });
+    }
   } catch (error) {
     // Emit results for any remaining active tools before reporting error
     emitAllToolResults();
 
     const message = error instanceof Error ? error.message : String(error);
     const errorCode = (error as { code?: string }).code;
-    console.error('[agent-runner] Stream error:', message);
-    if (error instanceof Error && error.stack) {
+    console.error(`[agent-runner] ${phaseLabel} error:`, message);
+    if (!isPlan && error instanceof Error && error.stack) {
       console.error('[agent-runner] Stack:', error.stack);
     }
 
     events.error({
       error: message,
-      code: errorCode || 'STREAM_ERROR',
+      code: errorCode || (isPlan ? 'PLANNING_ERROR' : 'STREAM_ERROR'),
       turnCount: turn,
     });
 
@@ -1122,7 +899,7 @@ async function runExecutionPhase(): Promise<void> {
 }
 
 /**
- * Main agent entry point - routes to planning or execution phase.
+ * Main agent entry point - runs the configured phase.
  */
 async function runAgent(): Promise<void> {
   validateConfig();
@@ -1133,11 +910,7 @@ async function runAgent(): Promise<void> {
 
   console.error(`[agent-runner] Phase: ${config.phase}`);
 
-  if (config.phase === 'plan') {
-    await runPlanningPhase();
-  } else {
-    await runExecutionPhase();
-  }
+  await runPhase(config.phase);
 }
 
 // SC-023: getAssistantText is now imported from shared-session.ts as sharedGetAssistantText

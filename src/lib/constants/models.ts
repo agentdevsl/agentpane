@@ -5,18 +5,6 @@
 export const DEFAULT_ANTHROPIC_BASE_URL = 'https://api.anthropic.com';
 
 /**
- * Get the Anthropic API base URL from environment or localStorage.
- */
-export function getAnthropicBaseUrl(): string {
-  // Server-side: check environment variable
-  if (typeof window === 'undefined') {
-    return process.env.ANTHROPIC_BASE_URL ?? DEFAULT_ANTHROPIC_BASE_URL;
-  }
-  // Client-side: check localStorage
-  return localStorage.getItem('anthropic_base_url') ?? DEFAULT_ANTHROPIC_BASE_URL;
-}
-
-/**
  * Available AI models for agent execution and AI features.
  */
 export const AVAILABLE_MODELS = [

@@ -113,21 +113,3 @@ export async function syncConfigFromGitHub(
     return err(GitHubErrors.CONFIG_INVALID([String(error)]));
   }
 }
-
-export async function checkConfigExists(
-  octokit: Octokit,
-  owner: string,
-  repo: string,
-  configPath = '.claude'
-): Promise<boolean> {
-  try {
-    await octokit.rest.repos.getContent({
-      owner,
-      repo,
-      path: `${configPath}/config.json`,
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}

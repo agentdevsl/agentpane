@@ -1,12 +1,3 @@
-// Types
-
-export type { CreateAgentHooksInput } from './hooks/index.js';
-// Hooks
-export {
-  createAuditHook,
-  createStreamingHooks,
-  createToolWhitelistHook,
-} from './hooks/index.js';
 export type { AgentExecutionContext, RecoveryAction, RecoveryResult } from './recovery.js';
 // Recovery
 export { handleAgentError } from './recovery.js';

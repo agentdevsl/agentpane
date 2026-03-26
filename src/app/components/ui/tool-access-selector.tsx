@@ -193,39 +193,3 @@ export function ToolAccessSelector({
     </div>
   );
 }
-
-/**
- * Compact inline tool badge display (read-only).
- * Empty array = "All tools allowed"
- */
-export function ToolAccessBadges({
-  tools,
-  className,
-}: {
-  tools: string[];
-  className?: string;
-}): React.JSX.Element {
-  // Empty array means "allow all"
-  if (tools.length === 0) {
-    return <span className={cn('text-xs text-success', className)}>All tools allowed</span>;
-  }
-
-  if (tools.length === ALL_TOOLS.length) {
-    return <span className={cn('text-xs text-fg-muted', className)}>All tools selected</span>;
-  }
-
-  return (
-    <div className={cn('flex flex-wrap gap-1', className)}>
-      {tools.slice(0, 4).map((tool) => (
-        <span key={tool} className="rounded bg-surface-subtle px-1.5 py-0.5 text-xs text-fg-muted">
-          {tool}
-        </span>
-      ))}
-      {tools.length > 4 && (
-        <span className="rounded bg-surface-subtle px-1.5 py-0.5 text-xs text-fg-muted">
-          +{tools.length - 4} more
-        </span>
-      )}
-    </div>
-  );
-}

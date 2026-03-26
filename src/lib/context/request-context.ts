@@ -13,11 +13,6 @@ export interface RequestContext {
 
 export const requestContextStorage = new AsyncLocalStorage<RequestContext>();
 
-/** Return the current request context, or undefined outside a request. */
-export function getRequestContext(): RequestContext | undefined {
-  return requestContextStorage.getStore();
-}
-
 /** Return the current requestId, or undefined outside a request. */
 export function getRequestId(): string | undefined {
   return requestContextStorage.getStore()?.requestId;

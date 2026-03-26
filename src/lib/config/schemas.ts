@@ -12,16 +12,3 @@ export const codespaceConfigSchema = z.object({
   systemPrompt: z.string().optional(),
   temperature: z.number().min(0).max(1).optional(),
 });
-
-/**
- * CB-016: Global config schema for environment variable validation.
- * Used by `validateEnv()` in `api.ts` to validate server-level configuration.
- * anthropicApiKey is optional because non-agent operations (codespace listing,
- * settings, etc.) do not require it — it is validated at agent execution time.
- */
-export const globalConfigSchema = z.object({
-  anthropicApiKey: z.string().optional(),
-  githubToken: z.string().optional(),
-  databaseUrl: z.string().optional(),
-  appUrl: z.string().optional(),
-});

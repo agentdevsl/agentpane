@@ -9,7 +9,7 @@ export {
 } from './client.js';
 export type { SyncConfigOptions, SyncConfigResult } from './config-sync.js';
 // Config Sync
-export { checkConfigExists, syncConfigFromGitHub } from './config-sync.js';
+export { syncConfigFromGitHub } from './config-sync.js';
 // Issue Creator
 export type { GitHubIssueInput, GitHubIssueResult } from './issue-creator.js';
 export {
@@ -24,13 +24,6 @@ export type {
   MarketplaceSyncResult,
 } from './marketplace-sync.js';
 export { parseGitHubMarketplaceUrl, syncMarketplaceFromGitHub } from './marketplace-sync.js';
-export type { RateLimitInfo, RateLimitStatus } from './rate-limit.js';
-// Rate Limit
-export {
-  checkRateLimit,
-  getRateLimitStatus,
-  withRateLimitRetry,
-} from './rate-limit.js';
 // Template Sync
 export type { TemplateSyncOptions, TemplateSyncResult } from './template-sync.js';
 export { parseGitHubUrl, syncTemplateFromGitHub } from './template-sync.js';
@@ -43,6 +36,5 @@ export type {
 // Webhooks
 export {
   parseWebhookEvent,
-  parseWebhookPayload,
   verifyWebhookSignature,
 } from './webhooks.js';

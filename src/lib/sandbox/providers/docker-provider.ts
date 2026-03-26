@@ -21,6 +21,7 @@ import type {
   SandboxProviderEvent,
   SandboxProviderEventListener,
 } from './sandbox-provider.js';
+import { createTmuxOperations, type TmuxErrors } from './tmux-mixin.js';
 
 /**
  * Docker-based sandbox implementation
@@ -111,106 +112,34 @@ class DockerSandbox implements Sandbox {
     });
   }
 
-  // SC-037: Tmux session operations are duplicated across DockerSandbox,
-  // AgentSandboxInstance, and NomadSandboxInstance. Extracting into a shared
-  // mixin/utility is deferred — tracked as SC-037 in the architecture review.
-  async createTmuxSession(sessionName: string, taskId?: string): Promise<TmuxSession> {
-    this.touch();
-
-    // Check if session already exists
-    const listResult = await this.exec('tmux', ['list-sessions', '-F', '#{session_name}']);
-    if (listResult.stdout.split('\n').includes(sessionName)) {
-      throw SandboxErrors.TMUX_SESSION_ALREADY_EXISTS(sessionName);
-    }
-
-    // Create new tmux session
-    const result = await this.exec('tmux', ['new-session', '-d', '-s', sessionName]);
-    if (result.exitCode !== 0) {
-      throw SandboxErrors.TMUX_CREATION_FAILED(sessionName, result.stderr);
-    }
-
-    return {
-      name: sessionName,
-      sandboxId: this.id,
-      taskId,
-      createdAt: new Date().toISOString(),
-      windowCount: 1,
-      attached: false,
+  // SC-037: tmux operations delegated to shared mixin
+  private get _tmux() {
+    const tmuxErrors: TmuxErrors = {
+      sessionAlreadyExists: SandboxErrors.TMUX_SESSION_ALREADY_EXISTS,
+      creationFailed: SandboxErrors.TMUX_CREATION_FAILED,
+      execFailed: SandboxErrors.EXEC_FAILED,
     };
+    return createTmuxOperations(this, tmuxErrors);
+  }
+
+  async createTmuxSession(sessionName: string, taskId?: string): Promise<TmuxSession> {
+    return this._tmux.createTmuxSession(sessionName, taskId);
   }
 
   async listTmuxSessions(): Promise<TmuxSession[]> {
-    this.touch();
-
-    const result = await this.exec('tmux', [
-      'list-sessions',
-      '-F',
-      '#{session_name}:#{session_windows}:#{session_attached}',
-    ]);
-
-    if (result.exitCode !== 0) {
-      // Expected: no tmux server running = no sessions
-      if (result.stderr.includes('no server running') || result.stderr.includes('no sessions')) {
-        return [];
-      }
-      // Unexpected error - throw to surface the issue
-      throw SandboxErrors.EXEC_FAILED('tmux list-sessions', result.stderr);
-    }
-
-    return result.stdout
-      .split('\n')
-      .filter(Boolean)
-      .map((line) => {
-        const parts = line.split(':');
-        const name = parts[0] ?? '';
-        const windows = parts[1] ?? '1';
-        const attached = parts[2] ?? '0';
-        return {
-          name,
-          sandboxId: this.id,
-          createdAt: new Date().toISOString(),
-          windowCount: parseInt(windows, 10) || 1,
-          attached: attached === '1',
-        };
-      })
-      .filter((session) => session.name !== '');
+    return this._tmux.listTmuxSessions();
   }
 
   async killTmuxSession(sessionName: string): Promise<void> {
-    this.touch();
-
-    const result = await this.exec('tmux', ['kill-session', '-t', sessionName]);
-    if (result.exitCode !== 0 && !result.stderr.includes('session not found')) {
-      throw SandboxErrors.TMUX_SESSION_NOT_FOUND(sessionName);
-    }
+    return this._tmux.killTmuxSession(sessionName);
   }
 
   async sendKeysToTmux(sessionName: string, keys: string): Promise<void> {
-    this.touch();
-
-    const result = await this.exec('tmux', ['send-keys', '-t', sessionName, keys, 'Enter']);
-    if (result.exitCode !== 0) {
-      throw SandboxErrors.EXEC_FAILED(`tmux send-keys -t ${sessionName}`, result.stderr);
-    }
+    return this._tmux.sendKeysToTmux(sessionName, keys);
   }
 
   async captureTmuxPane(sessionName: string, lines = 100): Promise<string> {
-    this.touch();
-
-    const result = await this.exec('tmux', [
-      'capture-pane',
-      '-t',
-      sessionName,
-      '-p',
-      '-S',
-      `-${lines}`,
-    ]);
-
-    if (result.exitCode !== 0) {
-      throw SandboxErrors.EXEC_FAILED(`tmux capture-pane -t ${sessionName}`, result.stderr);
-    }
-
-    return result.stdout;
+    return this._tmux.captureTmuxPane(sessionName, lines);
   }
 
   async stop(): Promise<void> {

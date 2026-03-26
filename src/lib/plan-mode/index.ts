@@ -1,5 +1,3 @@
-// Types
-
 // Claude Client
 export type {
   ClaudeClientConfig,
@@ -7,7 +5,7 @@ export type {
   TokenCallback,
   ToolCallResult,
 } from './claude-client.js';
-export { ClaudeClient, createClaudeClient, loadCredentials } from './claude-client.js';
+export { ClaudeClient, createClaudeClient } from './claude-client.js';
 // Interaction Handler
 export { createInteractionHandler, InteractionHandler } from './interaction-handler.js';
 export type {
@@ -27,13 +25,7 @@ export type {
   UserInteraction,
 } from './types.js';
 export {
-  askUserQuestionTool,
-  createGitHubIssueTool,
   createPlanSessionInputSchema,
-  interactionOptionSchema,
-  interactionQuestionSchema,
   planSessionSchema,
-  planTurnSchema,
   respondToInteractionInputSchema,
-  userInteractionSchema,
 } from './types.js';

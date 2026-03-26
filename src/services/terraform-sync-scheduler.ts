@@ -18,9 +18,6 @@ const log = createLogger('TerraformSyncScheduler');
 /** Scheduler check interval: how often to check for registries needing sync (1 minute) */
 const SCHEDULER_INTERVAL_MS = 60 * 1000;
 
-/** Minimum sync interval allowed (5 minutes) to prevent abuse */
-export const MIN_SYNC_INTERVAL_MINUTES = 5;
-
 /**
  * Extract error message from unknown error type
  */
@@ -207,20 +204,4 @@ export function startTerraformSyncScheduler(
   }
   _instance = new TerraformSyncScheduler(db, registryService);
   return _instance.start();
-}
-
-export function stopTerraformSyncScheduler(): void {
-  _instance?.stop();
-  _instance = null;
-}
-
-export function getTerraformSchedulerState(): Readonly<{
-  isRunning: boolean;
-  lastCheckAt: string | null;
-  syncInProgressCount: number;
-}> {
-  if (!_instance) {
-    return { isRunning: false, lastCheckAt: null, syncInProgressCount: 0 };
-  }
-  return _instance.getState();
 }

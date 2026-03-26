@@ -15,9 +15,6 @@ import type { TemplateService } from './template.service.js';
 /** Scheduler check interval: how often to check for templates needing sync (1 minute) */
 const SCHEDULER_INTERVAL_MS = 60 * 1000;
 
-/** Minimum sync interval allowed (5 minutes) to prevent abuse */
-export const MIN_SYNC_INTERVAL_MINUTES = 5;
-
 /**
  * Calculate the next sync time based on an interval in minutes
  */
@@ -31,13 +28,6 @@ export function calculateNextSyncAt(intervalMinutes: number): string {
  * Validate sync interval value
  * Must be >= 5 minutes or null (disabled)
  */
-export function validateSyncInterval(interval: number | null | undefined): boolean {
-  if (interval === null || interval === undefined) {
-    return true; // Disabled is valid
-  }
-  return typeof interval === 'number' && interval >= MIN_SYNC_INTERVAL_MINUTES;
-}
-
 /**
  * Class-based template sync scheduler with instance state.
  */
@@ -183,20 +173,4 @@ export function startSyncScheduler(db: Database, templateService: TemplateServic
   }
   _instance = new TemplateSyncScheduler(db, templateService);
   return _instance.start();
-}
-
-export function stopSyncScheduler(): void {
-  _instance?.stop();
-  _instance = null;
-}
-
-export function getSchedulerState(): Readonly<{
-  isRunning: boolean;
-  lastCheckAt: string | null;
-  syncInProgressCount: number;
-}> {
-  if (!_instance) {
-    return { isRunning: false, lastCheckAt: null, syncInProgressCount: 0 };
-  }
-  return _instance.getState();
 }

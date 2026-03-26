@@ -104,5 +104,3 @@ export function validatePathForDeletion(inputPath: string): PathSafetyResult {
 export function getNormalizedPath(inputPath: string): string {
   return path.normalize(path.resolve(inputPath));
 }
-
-export { DANGEROUS_PREFIXES };

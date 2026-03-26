@@ -5,6 +5,7 @@
 
 import type { PlanSession } from '@/lib/plan-mode/types';
 import type { GitHubOrg, GitHubRepo, TokenInfo } from '@/services/github-token.service';
+import type { ApiResponse } from '../../server/shared.js';
 import type {
   CreateEventSourceInput,
   CreateSubscriptionInput,
@@ -14,7 +15,6 @@ import type {
   UpdateEventSourceInput,
   UpdateSubscriptionInput,
 } from '../events/types';
-import type { ApiResponse } from './response';
 import { API_ERROR_CODES } from './types';
 
 // API server base URL — use relative URLs in the browser so requests go through

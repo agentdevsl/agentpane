@@ -92,42 +92,6 @@ function isInputElement(element: EventTarget | null): boolean {
 }
 
 /**
- * Get the modifier key label based on platform
- */
-export function getModifierKey(): string {
-  return isMac() ? '⌘' : 'Ctrl';
-}
-
-/**
- * Format a shortcut for display
- */
-export function formatShortcut(shortcut: Shortcut): string {
-  const parts: string[] = [];
-
-  if (shortcut.meta) {
-    parts.push(isMac() ? '⌘' : 'Ctrl');
-  }
-  if (shortcut.shift) {
-    parts.push(isMac() ? '⇧' : 'Shift');
-  }
-  if (shortcut.alt) {
-    parts.push(isMac() ? '⌥' : 'Alt');
-  }
-
-  // Normalize key display
-  let keyDisplay = shortcut.key.toUpperCase();
-  if (shortcut.key === 'Enter') keyDisplay = '↵';
-  if (shortcut.key === 'Escape') keyDisplay = 'Esc';
-  if (shortcut.key === '.') keyDisplay = '.';
-  if (shortcut.key === '/') keyDisplay = '/';
-  if (shortcut.key === '?') keyDisplay = '?';
-
-  parts.push(keyDisplay);
-
-  return parts.join(isMac() ? '' : '+');
-}
-
-/**
  * Get individual key parts for rendering
  */
 export function getShortcutParts(shortcut: Shortcut): string[] {

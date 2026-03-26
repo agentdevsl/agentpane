@@ -23,7 +23,7 @@ export interface StreamPayloadMetadataOptions {
   timestamp?: number;
 }
 
-export function createSessionEventMetadata(params: {
+function createSessionEventMetadata(params: {
   eventId: string;
   sessionId: string;
   partType: StreamPartType;

@@ -5,13 +5,7 @@
  * sandbox mode and container status per project.
  */
 
-export {
-  clearSandboxStatus,
-  getSandboxStatus,
-  getSandboxStatusCollectionStats,
-  sandboxStatusCollection,
-  updateSandboxStatus,
-} from './collections.js';
+export { sandboxStatusCollection } from './collections.js';
 
 export { type SandboxStatus, sandboxStatusSchema } from './schema.js';
 
