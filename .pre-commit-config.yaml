@@ -50,7 +50,7 @@ repos:
       - id: semgrep-security
         name: Semgrep Security Scan
         description: Scans for security anti-patterns (blocking rules only)
-        entry: semgrep scan --config .semgrep/rules/ --severity ERROR --error
+        entry: ./scripts/semgrep-check.sh
         language: system
         types_or:
           - ts
