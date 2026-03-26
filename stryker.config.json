@@ -27,6 +27,7 @@
   },
   "incremental": true,
   "incrementalFile": "reports/mutation/stryker-incremental.json",
+  "concurrency": 2,
   "timeoutMS": 30000,
   "timeoutFactor": 1.5,
   "thresholds": {
