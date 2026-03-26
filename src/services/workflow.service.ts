@@ -222,4 +222,47 @@ export class WorkflowService {
       return err(WorkflowErrors.DATABASE_ERROR('Failed to delete workflow'));
     }
   }
+
+  async duplicate(id: string): Promise<Result<Workflow, WorkflowError>> {
+    try {
+      const existing = await this.db.query.workflows.findFirst({
+        where: eq(workflows.id, id),
+      });
+
+      if (!existing) {
+        return err(WorkflowErrors.NOT_FOUND(id));
+      }
+
+      const now = new Date().toISOString();
+
+      const [created] = await this.db
+        .insert(workflows)
+        .values({
+          name: `${existing.name} (copy)`,
+          description: existing.description,
+          nodes: existing.nodes as typeof workflows.$inferInsert.nodes,
+          edges: existing.edges as typeof workflows.$inferInsert.edges,
+          viewport: existing.viewport as { x: number; y: number; zoom: number } | undefined,
+          status: existing.status as 'draft' | 'published' | 'archived',
+          tags: existing.tags as string[] | undefined,
+          sourceTemplateId: existing.sourceTemplateId,
+          sourceTemplateName: existing.sourceTemplateName,
+          thumbnail: existing.thumbnail,
+          aiGenerated: existing.aiGenerated ?? undefined,
+          aiModel: existing.aiModel,
+          aiConfidence: existing.aiConfidence ?? undefined,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning();
+
+      if (!created) {
+        return err(WorkflowErrors.CREATE_FAILED);
+      }
+
+      return ok(created);
+    } catch (_error) {
+      return err(WorkflowErrors.DATABASE_ERROR('Failed to duplicate workflow'));
+    }
+  }
 }
