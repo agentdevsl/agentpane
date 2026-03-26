@@ -1,6 +1,5 @@
 export type WorktreeLifecycleState =
   | 'creating'
-  | 'initializing'
   | 'active'
   | 'dirty'
   | 'committing'
@@ -22,7 +21,6 @@ export type WorktreeLifecycleContext = {
 };
 
 export type WorktreeLifecycleEvent =
-  | { type: 'CREATE' }
   | { type: 'INIT_COMPLETE' }
   | { type: 'MODIFY' }
   | { type: 'COMMIT' }

@@ -1,0 +1,33 @@
+rules:
+  - id: agentpane.container-security.docker-no-cap-drop
+    severity: WARNING
+    message: >
+      Docker container created without dropping Linux capabilities. Add
+      'CapDrop: ["ALL"]' to HostConfig to follow the principle of least
+      privilege. Only add back specific capabilities that are needed.
+    languages: [typescript]
+    patterns:
+      - pattern: |
+          $DOCKER.createContainer({..., HostConfig: {...}, ...})
+      - pattern-not: |
+          $DOCKER.createContainer({..., HostConfig: {..., CapDrop: $CD, ...}, ...})
+    metadata:
+      category: security
+      cwe: "CWE-250"
+      confidence: HIGH
+
+  - id: agentpane.container-security.docker-no-security-opt
+    severity: WARNING
+    message: >
+      Docker container created without SecurityOpt. Consider adding
+      'SecurityOpt: ["no-new-privileges"]' to prevent privilege escalation
+      within the container.
+    languages: [typescript]
+    patterns:
+      - pattern: |
+          $DOCKER.createContainer({..., HostConfig: {...}, ...})
+      - pattern-not: |
+          $DOCKER.createContainer({..., HostConfig: {..., SecurityOpt: $SO, ...}, ...})
+    metadata:
+      category: security
+      confidence: MEDIUM

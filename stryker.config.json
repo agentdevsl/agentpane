@@ -1,0 +1,52 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker/master/packages/core/schema/stryker-core.schema.json",
+  "testRunner": "vitest",
+  "vitest": {
+    "configFile": "vitest.config.ts"
+  },
+  "checkers": ["typescript"],
+  "tsconfigFile": "tsconfig.json",
+  "mutate": [
+    "src/lib/state-machines/**/machine.ts",
+    "src/lib/state-machines/**/guards.ts",
+    "src/lib/state-machines/**/actions.ts",
+    "src/services/rbac.service.ts",
+    "src/services/rbac-token.service.ts",
+    "src/lib/api/auth-middleware.ts",
+    "src/lib/api/rbac-middleware.ts",
+    "!src/**/*.test.ts",
+    "!src/**/*.spec.ts",
+    "!src/**/types.ts"
+  ],
+  "reporters": ["clear-text", "progress", "html", "json"],
+  "htmlReporter": {
+    "fileName": "reports/mutation/index.html"
+  },
+  "jsonReporter": {
+    "fileName": "reports/mutation/mutation.json"
+  },
+  "incremental": true,
+  "incrementalFile": "reports/mutation/stryker-incremental.json",
+  "concurrency": 2,
+  "timeoutMS": 30000,
+  "timeoutFactor": 1.5,
+  "thresholds": {
+    "high": 90,
+    "low": 80,
+    "break": 75
+  },
+  "ignorePatterns": [
+    "node_modules",
+    "dist",
+    ".worktrees",
+    ".claude",
+    "coverage",
+    "reports",
+    "specs",
+    "docker",
+    "charts",
+    ".devcontainer",
+    "packages"
+  ],
+  "tempDirName": ".stryker-tmp"
+}

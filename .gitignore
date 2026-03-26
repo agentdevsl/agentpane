@@ -133,3 +133,7 @@ submodule/*
 
 # Bun build artifacts
 *.bun-build
+
+# Mutation testing
+.stryker-tmp/
+reports/mutation/

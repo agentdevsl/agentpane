@@ -1,0 +1,50 @@
+rules:
+  - id: agentpane.path-safety.file-op-without-boundary-check
+    severity: ERROR
+    message: >
+      File operation on a path without workspace boundary validation. Call
+      resolvePath() to validate the path stays within WORKSPACE_ROOT before
+      performing filesystem operations.
+    languages: [typescript]
+    patterns:
+      - pattern-either:
+          - pattern: fs.readFile($PATH, ...)
+          - pattern: fs.writeFile($PATH, ...)
+          - pattern: fs.readFileSync($PATH, ...)
+          - pattern: fs.writeFileSync($PATH, ...)
+          - pattern: Bun.file($PATH)
+      - pattern-not-inside: |
+          const $SAFE = resolvePath(...);
+          ...
+      - pattern-not-inside: |
+          const $SAFE = await validateRealPath(...);
+          ...
+    paths:
+      include:
+        - "**/agent-runner/src/**"
+    metadata:
+      category: security
+      cwe: "CWE-22"
+      confidence: MEDIUM
+
+  - id: agentpane.path-safety.missing-realpath-validation
+    severity: WARNING
+    message: >
+      Path validated with resolvePath() but validateRealPath() was not called.
+      Symlinks can bypass string-based path validation. Call validateRealPath()
+      to follow symlinks and verify the resolved path stays within the workspace.
+    languages: [typescript]
+    patterns:
+      - pattern: |
+          const $PATH = resolvePath(...);
+      - pattern-not-inside: |
+          ...
+          await validateRealPath($PATH);
+          ...
+    paths:
+      include:
+        - "**/agent-runner/src/**"
+    metadata:
+      category: security
+      cwe: "CWE-59"
+      confidence: LOW

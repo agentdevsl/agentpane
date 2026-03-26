@@ -1,0 +1,76 @@
+rules:
+  - id: agentpane.shell-safety.sh-c-with-interpolation
+    severity: ERROR
+    message: >
+      Shell command passed to 'sh -c' uses string interpolation which may be
+      vulnerable to command injection. Ensure all interpolated values are escaped
+      with shellEscape(). If already safe, add a nosemgrep comment with justification.
+    languages: [typescript]
+    patterns:
+      - pattern-either:
+          - pattern: Bun.spawn(["sh", "-c", $CMD], ...)
+          - pattern: Bun.spawn(['sh', '-c', $CMD], ...)
+      - metavariable-pattern:
+          metavariable: $CMD
+          language: generic
+          pattern-regex: '\$\{'
+    metadata:
+      category: security
+      cwe: "CWE-78"
+      confidence: HIGH
+
+  - id: agentpane.shell-safety.duplicate-shell-escape
+    severity: WARNING
+    message: >
+      Local shellEscape function detected. To prevent inconsistent escaping,
+      import the canonical implementation from a shared utility module instead
+      of defining it locally.
+    languages: [typescript]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              function shellEscape($X: $T): string { ... }
+          - pattern: |
+              const shellEscape = ($X: $T): string => ...
+    paths:
+      exclude:
+        - "src/lib/utils/shell-escape*"
+    metadata:
+      category: security
+      confidence: HIGH
+
+  - id: agentpane.shell-safety.exec-without-validation
+    severity: WARNING
+    message: >
+      Shell command executed via exec/execSync. Ensure the command is validated
+      with validateShellCommand() or constructed using array-based Bun.spawn()
+      to prevent injection.
+    languages: [typescript]
+    pattern-either:
+      - pattern: exec($CMD, ...)
+      - pattern: execSync($CMD, ...)
+      - pattern: execAsync($CMD, ...)
+    paths:
+      exclude:
+        - "tests/**"
+        - "**/__tests__/**"
+        - "**/*.test.ts"
+        - "scripts/**"
+    metadata:
+      category: security
+      cwe: "CWE-78"
+      confidence: MEDIUM
+
+  - id: agentpane.shell-safety.prefer-array-spawn
+    severity: WARNING
+    message: >
+      Using 'sh -c' with Bun.spawn passes commands through shell interpretation.
+      Prefer array-based arguments (e.g., Bun.spawn(['git', 'clone', url]))
+      when shell features (pipes, redirects) are not needed.
+    languages: [typescript]
+    pattern-either:
+      - pattern: Bun.spawn(["sh", "-c", ...], ...)
+      - pattern: Bun.spawn(['sh', '-c', ...], ...)
+    metadata:
+      category: security
+      confidence: LOW

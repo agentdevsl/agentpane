@@ -1,0 +1,18 @@
+rules:
+  - id: agentpane.type-safety.double-cast
+    severity: WARNING
+    message: >
+      Double type cast 'as unknown as T' completely bypasses TypeScript's type
+      system. Consider using a type guard, Zod schema, or restructuring the
+      types to make this unnecessary.
+    languages: [typescript]
+    pattern: $EXPR as unknown as $TYPE
+    paths:
+      exclude:
+        - "tests/**"
+        - "**/__tests__/**"
+        - "**/*.test.ts"
+        - "**/*.spec.ts"
+    metadata:
+      category: correctness
+      confidence: HIGH

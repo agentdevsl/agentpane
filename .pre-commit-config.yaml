@@ -45,6 +45,18 @@ repos:
         always_run: true
         stages:
           - pre-push
+  - repo: local
+    hooks:
+      - id: semgrep-security
+        name: Semgrep Security Scan
+        description: Scans for security anti-patterns (blocking rules only)
+        entry: ./scripts/semgrep-check.sh
+        language: system
+        types_or:
+          - ts
+          - tsx
+        stages:
+          - pre-commit
   - repo: https://github.com/igorshubovych/markdownlint-cli
     rev: v0.43.0
     hooks:

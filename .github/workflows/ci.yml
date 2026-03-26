@@ -113,10 +113,51 @@ jobs:
       - name: Build verification
         run: bun run build
 
+  semgrep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: install
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Semgrep
+        run: pip install semgrep
+
+      - name: Semgrep scan (blocking - ERROR severity)
+        run: |
+          semgrep scan \
+            --config .semgrep/rules/ \
+            --severity ERROR \
+            --error \
+            --exclude 'tests/**' \
+            --exclude '**/__tests__/**' \
+            --exclude '**/*.test.ts' \
+            --exclude '**/*.spec.ts' \
+            --exclude 'node_modules/**' \
+            --exclude 'dist/**' \
+            --exclude '.worktrees/**' \
+            src/ agent-runner/src/ packages/
+
+      - name: Semgrep scan (non-blocking - WARNING severity)
+        if: always()
+        continue-on-error: true
+        run: |
+          semgrep scan \
+            --config .semgrep/rules/ \
+            --severity WARNING \
+            --exclude 'tests/**' \
+            --exclude '**/__tests__/**' \
+            --exclude '**/*.test.ts' \
+            --exclude '**/*.spec.ts' \
+            --exclude 'node_modules/**' \
+            --exclude 'dist/**' \
+            --exclude '.worktrees/**' \
+            src/ agent-runner/src/ packages/
+
   integration-test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: [test, lint-and-typecheck, build]
+    needs: [test, lint-and-typecheck, build, semgrep]
     strategy:
       fail-fast: false
       matrix:

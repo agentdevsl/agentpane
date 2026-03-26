@@ -14,6 +14,7 @@ import { tasks } from '../../db/schema';
 import type { SandboxError } from '../../lib/errors/sandbox-errors.js';
 import { SandboxErrors } from '../../lib/errors/sandbox-errors.js';
 import { createLogger } from '../../lib/logging/logger.js';
+import { softInvariant } from '../../lib/utils/invariant.js';
 import type { Result } from '../../lib/utils/result.js';
 import { err, ok } from '../../lib/utils/result.js';
 import type { SandboxStateManager } from './sandbox-state.js';
@@ -267,13 +268,15 @@ export class PlanApprovalService {
       if (!startResult.ok) {
         // Restore task state so user can retry approval
         try {
-          await db
+          const [restored] = await db
             .update(tasks)
             .set({
               column: 'waiting_approval',
               lastAgentStatus: 'planning',
             })
-            .where(eq(tasks.id, taskId));
+            .where(and(eq(tasks.id, taskId), eq(tasks.column, 'in_progress')))
+            .returning({ id: tasks.id });
+          softInvariant(!!restored, 'task restore expected column in_progress', { taskId });
         } catch (restoreErr) {
           log.error('Failed to restore task state after agent start failure', {
             data: {
@@ -367,13 +370,15 @@ export class PlanApprovalService {
     if (!startResult.ok) {
       // Restore task state so user can retry approval
       try {
-        await db
+        const [restored] = await db
           .update(tasks)
           .set({
             column: 'waiting_approval',
             lastAgentStatus: 'planning',
           })
-          .where(eq(tasks.id, taskId));
+          .where(and(eq(tasks.id, taskId), eq(tasks.column, 'in_progress')))
+          .returning({ id: tasks.id });
+        softInvariant(!!restored, 'task restore expected column in_progress', { taskId });
       } catch (restoreErr) {
         log.error('Failed to restore task state after agent start failure', {
           data: {

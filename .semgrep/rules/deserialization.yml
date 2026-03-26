@@ -1,0 +1,39 @@
+rules:
+  - id: agentpane.deserialization.json-parse-as-type
+    severity: WARNING
+    message: >
+      JSON.parse() result cast with 'as' bypasses runtime type validation.
+      Use a Zod schema to validate: `const result = MySchema.parse(JSON.parse(raw))`.
+      For trusted internal data, add a nosemgrep comment with justification.
+    languages: [typescript]
+    pattern: JSON.parse(...) as $TYPE
+    paths:
+      exclude:
+        - "tests/**"
+        - "**/__tests__/**"
+        - "**/*.test.ts"
+        - "**/*.spec.ts"
+    metadata:
+      category: security
+      cwe: "CWE-502"
+      confidence: MEDIUM
+
+  - id: agentpane.deserialization.json-parse-no-try-catch
+    severity: WARNING
+    message: >
+      JSON.parse() called outside try/catch block. Malformed input will throw
+      an unhandled exception. Wrap in try/catch or use a safe parsing utility.
+    languages: [typescript]
+    patterns:
+      - pattern: JSON.parse(...)
+      - pattern-not-inside: |
+          try { ... } catch (...) { ... }
+    paths:
+      exclude:
+        - "tests/**"
+        - "**/__tests__/**"
+        - "**/*.test.ts"
+        - "**/*.spec.ts"
+    metadata:
+      category: security
+      confidence: LOW

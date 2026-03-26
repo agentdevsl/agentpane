@@ -1,0 +1,53 @@
+rules:
+  - id: agentpane.invariant.update-without-returning
+    severity: WARNING
+    message: >
+      Database update/delete without .returning() — the result is not verified.
+      Add .returning() and check the result to detect silent failures from
+      race conditions or stale data. Use invariant() or softInvariant() to
+      verify the expected row count.
+    languages: [typescript]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $DB.update($TABLE).set($DATA).where($COND)
+          - pattern: |
+              $DB.delete($TABLE).where($COND)
+      - pattern-not: |
+          $DB.update($TABLE).set($DATA).where($COND).returning(...)
+      - pattern-not: |
+          $DB.delete($TABLE).where($COND).returning(...)
+    paths:
+      include:
+        - "src/services/**"
+      exclude:
+        - "tests/**"
+        - "**/__tests__/**"
+        - "**/*.test.ts"
+    metadata:
+      category: correctness
+      confidence: MEDIUM
+
+  - id: agentpane.invariant.discarded-validation-result
+    severity: WARNING
+    message: >
+      validateTransition() called but the return value is not used.
+      The validation result should be checked with invariant() or used
+      in a conditional to enforce state machine transitions.
+    languages: [typescript]
+    patterns:
+      - pattern: validateTransition(...)
+      - pattern-not-inside: |
+          const $VAR = validateTransition(...);
+          ...
+      - pattern-not-inside: |
+          if (validateTransition(...)) { ... }
+      - pattern-not-inside: |
+          invariant(validateTransition(...), ...);
+    paths:
+      exclude:
+        - "tests/**"
+        - "**/__tests__/**"
+    metadata:
+      category: correctness
+      confidence: HIGH

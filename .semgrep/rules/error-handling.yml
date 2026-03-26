@@ -1,0 +1,48 @@
+rules:
+  - id: agentpane.error-handling.empty-catch-block
+    severity: WARNING
+    message: >
+      Empty catch block silently swallows errors. At minimum, log the error:
+      `catch (error) { logger.warn('operation failed', { error }); }`.
+      If intentionally suppressing, add a comment explaining why.
+    languages: [typescript]
+    pattern: |
+      catch ($ERR) {
+      }
+    paths:
+      exclude:
+        - "tests/**"
+        - "**/__tests__/**"
+        - "**/*.test.ts"
+        - "**/*.spec.ts"
+    metadata:
+      category: correctness
+      confidence: HIGH
+
+  - id: agentpane.error-handling.error-context-lost
+    severity: WARNING
+    message: >
+      Catch block discards original error context. Preserve the error chain:
+      `throw new Error('message', { cause: originalError })` or use the
+      project's AppError/createError pattern.
+    languages: [typescript]
+    patterns:
+      - pattern: |
+          catch ($ERR) {
+            ...
+            throw new Error($MSG);
+          }
+      - pattern-not: |
+          catch ($ERR) {
+            ...
+            throw new Error($MSG, { cause: ... });
+          }
+    paths:
+      exclude:
+        - "tests/**"
+        - "**/__tests__/**"
+        - "**/*.test.ts"
+        - "**/*.spec.ts"
+    metadata:
+      category: correctness
+      confidence: MEDIUM
