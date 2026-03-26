@@ -36,7 +36,7 @@ export interface EventSubscription {
   id: string;
   name: string;
   eventSourceId: string;
-  targetProjectId: string;
+  targetCodespaceId: string;
   isEnabled: boolean;
   eventTypes: string[];
   filters: SubscriptionFilter[];
@@ -84,7 +84,7 @@ export interface UpdateEventSourceInput {
 export interface CreateSubscriptionInput {
   name: string;
   eventSourceId: string;
-  targetProjectId: string;
+  targetCodespaceId: string;
   eventTypes?: string[];
   filters?: SubscriptionFilter[];
   promptTemplate: string;

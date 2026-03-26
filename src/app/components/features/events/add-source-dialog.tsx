@@ -1,7 +1,9 @@
 import { Check, Copy, Eye, EyeSlash, Plugs, Plus, X } from '@phosphor-icons/react';
 import { useState } from 'react';
 import { Button } from '@/app/components/ui/button';
+import { useWatchEffect } from '@/app/hooks/use-effect-factories';
 import { EVENT_SOURCE_TYPES } from '@/db/schema/shared/enums';
+import { apiClient } from '@/lib/api/client';
 import type { CreateEventSourceInput } from '@/lib/events/types';
 
 interface AddSourceDialogProps {
@@ -38,6 +40,29 @@ export function AddSourceDialog({
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [copiedSecret, setCopiedSecret] = useState(false);
   const [showSecret, setShowSecret] = useState(false);
+  const [copiedAll, setCopiedAll] = useState(false);
+  const [githubConnected, setGithubConnected] = useState(false);
+
+  useWatchEffect(() => {
+    if (type !== 'github') {
+      setGithubConnected(false);
+      return;
+    }
+    let cancelled = false;
+    apiClient.github
+      .getTokenInfo()
+      .then((result) => {
+        if (!cancelled) {
+          setGithubConnected(result.ok === true && result.data.tokenInfo?.isValid === true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setGithubConnected(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [type]);
 
   if (!open) return null;
 
@@ -73,6 +98,7 @@ export function AddSourceDialog({
     setSuccessData(null);
     setCopiedUrl(false);
     setCopiedSecret(false);
+    setCopiedAll(false);
     setShowSecret(false);
     onClose();
   };
@@ -169,7 +195,43 @@ export function AddSourceDialog({
               </p>
             </div>
 
-            <div className="flex justify-end pt-2">
+            <div className="rounded-md bg-surface-subtle p-3 text-xs text-fg-muted space-y-1">
+              <p className="font-medium text-fg">Setup Instructions</p>
+              <ol className="list-decimal list-inside space-y-0.5">
+                <li>Go to your repository's Settings &rarr; Webhooks &rarr; Add webhook</li>
+                <li>Paste the Webhook URL above into the "Payload URL" field</li>
+                <li>
+                  Set "Content type" to <code className="text-fg">application/json</code>
+                </li>
+                <li>Paste the Webhook Secret into the "Secret" field</li>
+                <li>Select the events you want to receive</li>
+              </ol>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={async () => {
+                  await navigator.clipboard.writeText(
+                    `Webhook URL: ${successData.webhookUrl}\nWebhook Secret: ${successData.webhookSecret}`
+                  );
+                  setCopiedAll(true);
+                  setTimeout(() => setCopiedAll(false), 2000);
+                }}
+              >
+                {copiedAll ? (
+                  <>
+                    <Check className="mr-1 h-4 w-4 text-success-fg" />
+                    Copied
+                  </>
+                ) : (
+                  <>
+                    <Copy className="mr-1 h-4 w-4" />
+                    Copy All
+                  </>
+                )}
+              </Button>
               <Button type="button" onClick={handleClose}>
                 Done
               </Button>
@@ -210,6 +272,11 @@ export function AddSourceDialog({
                   </option>
                 ))}
               </select>
+              {type === 'github' && githubConnected && (
+                <span className="ml-2 inline-flex items-center rounded-full bg-success-muted px-2 py-0.5 text-xs font-medium text-success">
+                  GitHub Connected
+                </span>
+              )}
             </div>
 
             {teams.length > 1 && (

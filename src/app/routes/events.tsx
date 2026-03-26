@@ -1,5 +1,6 @@
 import { createFileRoute, Outlet, useMatches } from '@tanstack/react-router';
 import { LayoutShell } from '@/app/components/features/layout-shell';
+import { EventsViewSwitcher } from '@/app/components/features/events/events-view-switcher';
 
 export const Route = createFileRoute('/events')({
   component: EventsLayout,
@@ -19,6 +20,9 @@ function EventsLayout(): React.JSX.Element {
       ]}
     >
       <div className="flex min-h-0 flex-1 flex-col">
+        <div className="px-6 pt-4">
+          <EventsViewSwitcher />
+        </div>
         <Outlet />
       </div>
     </LayoutShell>

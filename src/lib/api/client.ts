@@ -1403,10 +1403,10 @@ export const apiClient = {
         ),
     },
     subscriptions: {
-      list: (params?: { eventSourceId?: string; targetProjectId?: string }) => {
+      list: (params?: { eventSourceId?: string; targetCodespaceId?: string }) => {
         const sp = new URLSearchParams();
         if (params?.eventSourceId) sp.set('eventSourceId', params.eventSourceId);
-        if (params?.targetProjectId) sp.set('targetProjectId', params.targetProjectId);
+        if (params?.targetCodespaceId) sp.set('targetCodespaceId', params.targetCodespaceId);
         const qs = sp.toString();
         return apiServerFetch<{ items: EventSubscription[] }>(
           `/api/events/subscriptions${qs ? `?${qs}` : ''}`

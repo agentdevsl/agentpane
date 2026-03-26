@@ -28,9 +28,9 @@ function createMockEventSubscriptionService() {
 
 function createMockRbacService() {
   return {
-    resolveTeamRole: vi.fn().mockResolvedValue('admin'),
+    resolveTeamRole: vi.fn().mockResolvedValue('agent_operator'),
     hasMinimumRole: vi.fn().mockReturnValue(true),
-    resolveUserRole: vi.fn().mockResolvedValue('admin'),
+    resolveUserRole: vi.fn().mockResolvedValue('agent_operator'),
   };
 }
 
@@ -72,7 +72,7 @@ function createMockDb() {
 const devAuth = {
   authMethod: 'dev' as const,
   userId: 'user-1',
-  teamMemberships: [{ teamId: 'team-1', role: 'admin' }],
+  teamMemberships: [{ teamId: 'team-1', role: 'agent_operator' }],
 };
 
 // ── Test App Factory ──
