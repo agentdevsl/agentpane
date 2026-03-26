@@ -26,7 +26,15 @@ concurrency:
 jobs:
   mutation-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - area: state-machines
+            mutate: 'src/lib/state-machines/**/machine.ts,src/lib/state-machines/**/guards.ts,src/lib/state-machines/**/actions.ts'
+          - area: rbac
+            mutate: 'src/services/rbac.service.ts,src/services/rbac-token.service.ts,src/lib/api/auth-middleware.ts,src/lib/api/rbac-middleware.ts'
     steps:
       - uses: actions/checkout@v6
 
@@ -52,23 +60,13 @@ jobs:
         uses: actions/cache@v5
         with:
           path: reports/mutation/stryker-incremental.json
-          key: stryker-incremental-${{ github.base_ref || 'main' }}-${{ hashFiles('src/lib/state-machines/**', 'src/services/rbac*.ts', 'src/lib/api/auth-middleware.ts', 'src/lib/api/rbac-middleware.ts') }}
+          key: stryker-incremental-${{ matrix.area }}-${{ github.base_ref || 'main' }}-${{ hashFiles('src/lib/state-machines/**', 'src/services/rbac*.ts', 'src/lib/api/auth-middleware.ts', 'src/lib/api/rbac-middleware.ts') }}
           restore-keys: |
-            stryker-incremental-${{ github.base_ref || 'main' }}-
-            stryker-incremental-main-
+            stryker-incremental-${{ matrix.area }}-${{ github.base_ref || 'main' }}-
+            stryker-incremental-${{ matrix.area }}-main-
 
-      - name: Mutation test - State machines
-        run: |
-          npx stryker run \
-            --mutate 'src/lib/state-machines/**/machine.ts,src/lib/state-machines/**/guards.ts,src/lib/state-machines/**/actions.ts' \
-            --reporters clear-text
-        continue-on-error: true
-
-      - name: Mutation test - RBAC
-        run: |
-          npx stryker run \
-            --mutate 'src/services/rbac.service.ts,src/services/rbac-token.service.ts,src/lib/api/auth-middleware.ts,src/lib/api/rbac-middleware.ts' \
-            --reporters clear-text
+      - name: Mutation test (${{ matrix.area }})
+        run: npx stryker run --mutate '${{ matrix.mutate }}' --reporters clear-text
         continue-on-error: true
 
       - name: Save Stryker incremental cache
@@ -76,12 +74,12 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: reports/mutation/stryker-incremental.json
-          key: stryker-incremental-${{ github.base_ref || 'main' }}-${{ hashFiles('src/lib/state-machines/**', 'src/services/rbac*.ts', 'src/lib/api/auth-middleware.ts', 'src/lib/api/rbac-middleware.ts') }}
+          key: stryker-incremental-${{ matrix.area }}-${{ github.base_ref || 'main' }}-${{ hashFiles('src/lib/state-machines/**', 'src/services/rbac*.ts', 'src/lib/api/auth-middleware.ts', 'src/lib/api/rbac-middleware.ts') }}
 
       - name: Upload mutation report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mutation-report
+          name: mutation-report-${{ matrix.area }}
           path: reports/mutation/
           retention-days: 14
