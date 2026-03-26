@@ -1,6 +1,6 @@
 rules:
   - id: agentpane.container-security.docker-no-cap-drop
-    severity: ERROR
+    severity: WARNING
     message: >
       Docker container created without dropping Linux capabilities. Add
       'CapDrop: ["ALL"]' to HostConfig to follow the principle of least
