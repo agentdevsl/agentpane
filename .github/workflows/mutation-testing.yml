@@ -66,7 +66,7 @@ jobs:
             stryker-incremental-${{ matrix.area }}-main-
 
       - name: Mutation test (${{ matrix.area }})
-        run: npx stryker run --mutate '${{ matrix.mutate }}' --reporters clear-text
+        run: npx stryker run --mutate '${{ matrix.mutate }}' --reporters clear-text --ignoreStatic
         continue-on-error: true
 
       - name: Save Stryker incremental cache
