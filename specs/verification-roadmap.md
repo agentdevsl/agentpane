@@ -421,7 +421,12 @@ Quarter 2 -- COMPLETED 2026-03-26
 │   ├── scripts/check-mutation-thresholds.mjs for per-area enforcement
 │   ├── .github/workflows/mutation-testing.yml (PR-triggered, nightly, incremental cache)
 │   ├── npm scripts: mutate, mutate:state-machines, mutate:rbac, mutate:incremental
-│   └── Baseline: guards 92.5% (agent 100%, task 100%, session 93%, worktree 81%)
+│   ├── Baseline after mutant-killing tests: 94.74% overall
+│   │   ├── agent-lifecycle 98.55% (guards 100%, actions 100%, machine 98%)
+│   │   ├── task-workflow 86.30% (guards 100%, machine 81%)
+│   │   ├── session-lifecycle 94.38% (guards 100%, machine 93%)
+│   │   └── worktree-lifecycle 98.20% (guards 100%, machine 98%)
+│   └── 56 targeted mutant-killing tests added to state-machines.test.ts
 │
 ├── Framework 5: Runtime Verification (P1) ✅
 │   ├── src/lib/utils/invariant.ts — invariant() throws dev/test, logs prod; softInvariant() never throws
