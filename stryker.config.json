@@ -34,6 +34,18 @@
     "low": 80,
     "break": 75
   },
-  "ignorePatterns": ["node_modules", "dist", ".worktrees", "coverage", "reports"],
+  "ignorePatterns": [
+    "node_modules",
+    "dist",
+    ".worktrees",
+    ".claude",
+    "coverage",
+    "reports",
+    "specs",
+    "docker",
+    "charts",
+    ".devcontainer",
+    "packages"
+  ],
   "tempDirName": ".stryker-tmp"
 }
