@@ -237,6 +237,153 @@ describe('state machines', () => {
       // Empty taskId should fail canStart
       expect(result.ok).toBe(false);
     });
+
+    describe('mutation testing coverage', () => {
+      it('default context has exact allowedTools values', () => {
+        const machine = createAgentLifecycleMachine();
+        expect(machine.context.allowedTools).toEqual(['Read', 'Edit', 'Bash', 'Glob', 'Grep']);
+      });
+
+      it('each default allowedTools entry is the correct string', () => {
+        const machine = createAgentLifecycleMachine();
+        expect(machine.context.allowedTools[0]).toBe('Read');
+        expect(machine.context.allowedTools[1]).toBe('Edit');
+        expect(machine.context.allowedTools[2]).toBe('Bash');
+        expect(machine.context.allowedTools[3]).toBe('Glob');
+        expect(machine.context.allowedTools[4]).toBe('Grep');
+        expect(machine.context.allowedTools).toHaveLength(5);
+      });
+
+      it('AGENT_TOOL_NOT_ALLOWED error has exact code string', () => {
+        const machine = createAgentLifecycleMachine({ allowedTools: ['Read'] });
+        const result = machine.send({ type: 'TOOL', tool: 'Bash' });
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('AGENT_TOOL_NOT_ALLOWED');
+          expect(result.error.message).toBe('Tool not allowed');
+          expect(result.error.status).toBe(403);
+        }
+      });
+
+      it('AGENT_TURN_LIMIT_EXCEEDED error has exact code string', () => {
+        const machine = createAgentLifecycleMachine({ maxTurns: 1, currentTurn: 0 });
+        machine.send({ type: 'START', taskId: 'task-1' });
+        const result = machine.send({ type: 'STEP', turn: 1 });
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('AGENT_TURN_LIMIT_EXCEEDED');
+          expect(result.error.message).toBe('Turn limit exceeded');
+          expect(result.error.status).toBe(200);
+        }
+      });
+
+      it('AGENT_INVALID_TRANSITION from completed has exact error code and details', () => {
+        const machine = createAgentLifecycleMachine();
+        machine.send({ type: 'START', taskId: 'task-1' });
+        machine.send({ type: 'COMPLETE', result: {} });
+        const result = machine.send({ type: 'START', taskId: 'task-2' });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('AGENT_INVALID_TRANSITION');
+          expect(result.error.message).toBe('Invalid agent transition');
+          expect(result.error.status).toBe(400);
+          expect(result.error.details).toBeDefined();
+          expect(result.error.details).toEqual({ state: 'completed', event: 'START' });
+        }
+      });
+
+      it('AGENT_INVALID_TRANSITION from error has exact error code and details', () => {
+        const machine = createAgentLifecycleMachine();
+        machine.send({ type: 'START', taskId: 'task-1' });
+        machine.send({ type: 'ERROR', error: createError('TEST', 'test', 500) });
+        const result = machine.send({ type: 'RESUME', feedback: 'go' });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('AGENT_INVALID_TRANSITION');
+          expect(result.error.message).toBe('Invalid agent transition');
+          expect(result.error.status).toBe(400);
+          expect(result.error.details).toBeDefined();
+          expect(result.error.details).toEqual({ state: 'error', event: 'RESUME' });
+        }
+      });
+
+      it('AGENT_INVALID_TRANSITION from idle has details with state and event', () => {
+        const machine = createAgentLifecycleMachine();
+        const result = machine.send({ type: 'COMPLETE', result: {} });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('AGENT_INVALID_TRANSITION');
+          expect(result.error.details).toEqual({ state: 'idle', event: 'COMPLETE' });
+        }
+      });
+
+      it('AGENT_INVALID_TRANSITION from running has details with state and event', () => {
+        const machine = createAgentLifecycleMachine();
+        machine.send({ type: 'START', taskId: 'task-1' });
+        const result = machine.send({ type: 'START', taskId: 'task-2' });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('AGENT_INVALID_TRANSITION');
+          expect(result.error.details).toEqual({ state: 'running', event: 'START' });
+        }
+      });
+
+      it('AGENT_INVALID_TRANSITION from paused has details with state and event', () => {
+        const machine = createAgentLifecycleMachine();
+        machine.send({ type: 'START', taskId: 'task-1' });
+        machine.send({ type: 'PAUSE', reason: 'test' });
+        const result = machine.send({ type: 'STEP', turn: 1 });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('AGENT_INVALID_TRANSITION');
+          expect(result.error.details).toEqual({ state: 'paused', event: 'STEP' });
+        }
+      });
+
+      it('rejects STEP from completed terminal state with exact error', () => {
+        const machine = createAgentLifecycleMachine();
+        machine.send({ type: 'START', taskId: 'task-1' });
+        machine.send({ type: 'COMPLETE', result: {} });
+        const result = machine.send({ type: 'STEP', turn: 1 });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('AGENT_INVALID_TRANSITION');
+          expect(result.error.details).toEqual({ state: 'completed', event: 'STEP' });
+        }
+      });
+
+      it('rejects ABORT from completed terminal state with exact error', () => {
+        const machine = createAgentLifecycleMachine();
+        machine.send({ type: 'START', taskId: 'task-1' });
+        machine.send({ type: 'COMPLETE', result: {} });
+        const result = machine.send({ type: 'ABORT' });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('AGENT_INVALID_TRANSITION');
+          expect(result.error.details).toEqual({ state: 'completed', event: 'ABORT' });
+        }
+      });
+
+      it('rejects ABORT from error terminal state with exact error', () => {
+        const machine = createAgentLifecycleMachine();
+        machine.send({ type: 'START', taskId: 'task-1' });
+        machine.send({ type: 'ERROR', error: createError('TEST', 'test', 500) });
+        const result = machine.send({ type: 'ABORT' });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('AGENT_INVALID_TRANSITION');
+          expect(result.error.details).toEqual({ state: 'error', event: 'ABORT' });
+        }
+      });
+    });
   });
 
   describe('session lifecycle', () => {
@@ -513,6 +660,211 @@ describe('state machines', () => {
         expect(result.error.code).toBe('SESSION_INVALID_TRANSITION');
       }
     });
+
+    describe('mutation testing coverage', () => {
+      it('default context has empty participants array', () => {
+        const machine = createSessionLifecycleMachine();
+        expect(machine.context.participants).toEqual([]);
+        expect(machine.context.participants).toHaveLength(0);
+      });
+
+      it('SESSION_CAPACITY_REACHED error has exact code string', () => {
+        const machine = createSessionLifecycleMachine({
+          maxParticipants: 1,
+          participants: ['user-1'],
+        });
+        machine.send({ type: 'INITIALIZE' });
+        machine.send({ type: 'READY' });
+        const result = machine.send({ type: 'JOIN', userId: 'user-2' });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('SESSION_CAPACITY_REACHED');
+          expect(result.error.message).toBe('Session full');
+          expect(result.error.status).toBe(409);
+        }
+      });
+
+      it('SESSION_NOT_PARTICIPANT error has exact code string', () => {
+        const machine = createSessionLifecycleMachine();
+        machine.send({ type: 'INITIALIZE' });
+        machine.send({ type: 'READY' });
+        const result = machine.send({ type: 'LEAVE', userId: 'nonexistent' });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('SESSION_NOT_PARTICIPANT');
+          expect(result.error.message).toBe('User not in session');
+          expect(result.error.status).toBe(400);
+        }
+      });
+
+      it('TIMEOUT with isStale guard: rejects when lastActivity is exactly 60000ms ago', () => {
+        const machine = createSessionLifecycleMachine({
+          lastActivity: Date.now() - 60000,
+        });
+        machine.send({ type: 'INITIALIZE' });
+        machine.send({ type: 'READY' });
+        const result = machine.send({ type: 'TIMEOUT' });
+
+        // isStale uses > 60000, so exactly 60000ms should NOT be stale
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('SESSION_INVALID_TRANSITION');
+        }
+      });
+
+      it('TIMEOUT with isStale guard: accepts when lastActivity is 60001ms ago', () => {
+        const machine = createSessionLifecycleMachine({
+          lastActivity: Date.now() - 60001,
+        });
+        machine.send({ type: 'INITIALIZE' });
+        machine.send({ type: 'READY' });
+        const result = machine.send({ type: 'TIMEOUT' });
+
+        // isStale uses > 60000, so 60001ms should be stale
+        expect(result.ok).toBe(true);
+        expect(result.state).toBe('closing');
+      });
+
+      it('CLOSE from active requires canClose guard to pass', () => {
+        const machine = createSessionLifecycleMachine();
+        machine.send({ type: 'INITIALIZE' });
+        machine.send({ type: 'READY' });
+        expect(machine.state).toBe('active');
+
+        const result = machine.send({ type: 'CLOSE' });
+        expect(result.ok).toBe(true);
+        expect(result.state).toBe('closing');
+      });
+
+      it('CLOSE from closing transitions to closed', () => {
+        const machine = createSessionLifecycleMachine();
+        machine.send({ type: 'INITIALIZE' });
+        machine.send({ type: 'READY' });
+        machine.send({ type: 'CLOSE' });
+        expect(machine.state).toBe('closing');
+
+        const result = machine.send({ type: 'CLOSE' });
+        expect(result.ok).toBe(true);
+        expect(result.state).toBe('closed');
+      });
+
+      it('rejects non-CLOSE/non-ERROR events from closing with exact error', () => {
+        const machine = createSessionLifecycleMachine();
+        machine.send({ type: 'INITIALIZE' });
+        machine.send({ type: 'READY' });
+        machine.send({ type: 'CLOSE' });
+        expect(machine.state).toBe('closing');
+
+        const result = machine.send({ type: 'HEARTBEAT' });
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('SESSION_INVALID_TRANSITION');
+          expect(result.error.details).toEqual({ state: 'closing', event: 'HEARTBEAT' });
+        }
+      });
+
+      it('SESSION_INVALID_TRANSITION from closed has exact error details', () => {
+        const machine = createSessionLifecycleMachine();
+        machine.send({ type: 'INITIALIZE' });
+        machine.send({ type: 'READY' });
+        machine.send({ type: 'CLOSE' });
+        machine.send({ type: 'CLOSE' });
+        expect(machine.state).toBe('closed');
+
+        const result = machine.send({ type: 'INITIALIZE' });
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('SESSION_INVALID_TRANSITION');
+          expect(result.error.message).toBe('Invalid session transition');
+          expect(result.error.status).toBe(400);
+          expect(result.error.details).toBeDefined();
+          expect(result.error.details).toEqual({ state: 'closed', event: 'INITIALIZE' });
+        }
+      });
+
+      it('SESSION_INVALID_TRANSITION from idle has exact error details', () => {
+        const machine = createSessionLifecycleMachine();
+        const result = machine.send({ type: 'CLOSE' });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('SESSION_INVALID_TRANSITION');
+          expect(result.error.details).toEqual({ state: 'idle', event: 'CLOSE' });
+        }
+      });
+
+      it('SESSION_INVALID_TRANSITION from initializing has exact error details', () => {
+        const machine = createSessionLifecycleMachine();
+        machine.send({ type: 'INITIALIZE' });
+        const result = machine.send({ type: 'CLOSE' });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('SESSION_INVALID_TRANSITION');
+          expect(result.error.details).toEqual({ state: 'initializing', event: 'CLOSE' });
+        }
+      });
+
+      it('CLOSE from paused requires canClose guard', () => {
+        const machine = createSessionLifecycleMachine();
+        machine.send({ type: 'INITIALIZE' });
+        machine.send({ type: 'READY' });
+        machine.send({ type: 'PAUSE' });
+        expect(machine.state).toBe('paused');
+
+        const result = machine.send({ type: 'CLOSE' });
+        expect(result.ok).toBe(true);
+        expect(result.state).toBe('closing');
+      });
+
+      it('rejects RESUME from closing (falls through to default)', () => {
+        const machine = createSessionLifecycleMachine();
+        machine.send({ type: 'INITIALIZE' });
+        machine.send({ type: 'READY' });
+        machine.send({ type: 'CLOSE' });
+        expect(machine.state).toBe('closing');
+
+        const result = machine.send({ type: 'RESUME' });
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('SESSION_INVALID_TRANSITION');
+          expect(result.error.details).toEqual({ state: 'closing', event: 'RESUME' });
+        }
+      });
+
+      it('rejects JOIN from closed (default case)', () => {
+        const machine = createSessionLifecycleMachine();
+        machine.send({ type: 'INITIALIZE' });
+        machine.send({ type: 'READY' });
+        machine.send({ type: 'CLOSE' });
+        machine.send({ type: 'CLOSE' });
+        expect(machine.state).toBe('closed');
+
+        const result = machine.send({ type: 'JOIN', userId: 'user-1' });
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('SESSION_INVALID_TRANSITION');
+          expect(result.error.details).toEqual({ state: 'closed', event: 'JOIN' });
+        }
+      });
+
+      it('ERROR from error state transitions to error (not blocked)', () => {
+        const machine = createSessionLifecycleMachine();
+        machine.send({ type: 'INITIALIZE' });
+        machine.send({ type: 'READY' });
+        const firstError = createError('FIRST', 'first error', 500);
+        machine.send({ type: 'ERROR', error: firstError });
+        expect(machine.state).toBe('error');
+
+        const secondError = createError('SECOND', 'second error', 500);
+        const result = machine.send({ type: 'ERROR', error: secondError });
+        // ERROR from error state: error is not 'closed', so the ERROR catch-all applies
+        expect(result.state).toBe('error');
+        expect(result.ok).toBe(false);
+      });
+    });
   });
 
   describe('task workflow', () => {
@@ -690,6 +1042,234 @@ describe('state machines', () => {
 
       expect(machine.state).toBe('in_progress');
       expect(machine.context.agentId).toBe('agent-1');
+    });
+
+    describe('mutation testing coverage', () => {
+      it('APPROVE without diff fails with exact TASK_NO_DIFF code and message', () => {
+        const machine = createTaskWorkflowMachine({
+          taskId: 'task-1',
+          column: 'waiting_approval',
+          diffSummary: null,
+        });
+        const result = machine.send({ type: 'APPROVE' });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('TASK_NO_DIFF');
+          expect(result.error.message).toBe('No changes to approve');
+          expect(result.error.status).toBe(400);
+        }
+      });
+
+      it('APPROVE with diffSummary having zero filesChanged fails with TASK_NO_DIFF', () => {
+        const machine = createTaskWorkflowMachine({
+          taskId: 'task-1',
+          column: 'waiting_approval',
+          diffSummary: { filesChanged: 0 },
+        });
+        const result = machine.send({ type: 'APPROVE' });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('TASK_NO_DIFF');
+          expect(result.error.message).toBe('No changes to approve');
+        }
+      });
+
+      it('REJECT from backlog fails with TASK_INVALID_TRANSITION', () => {
+        const machine = createTaskWorkflowMachine({
+          taskId: 'task-1',
+          column: 'backlog',
+        });
+        const result = machine.send({ type: 'REJECT' });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('TASK_INVALID_TRANSITION');
+          expect(result.error.message).toBe('Invalid task transition');
+          expect(result.error.status).toBe(400);
+          expect(result.error.details).toEqual({
+            state: 'backlog',
+            event: 'REJECT',
+          });
+        }
+      });
+
+      it('REJECT from in_progress fails with TASK_INVALID_TRANSITION', () => {
+        const machine = createTaskWorkflowMachine({
+          taskId: 'task-1',
+          column: 'in_progress',
+          agentId: 'agent-1',
+        });
+        const result = machine.send({ type: 'REJECT' });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('TASK_INVALID_TRANSITION');
+          expect(result.error.details).toEqual({
+            state: 'in_progress',
+            event: 'REJECT',
+          });
+        }
+      });
+
+      it('verified state rejects ASSIGN with TASK_INVALID_TRANSITION', () => {
+        const machine = createTaskWorkflowMachine({
+          taskId: 'task-1',
+          column: 'waiting_approval',
+          diffSummary: { filesChanged: 2 },
+        });
+        machine.send({ type: 'APPROVE' });
+        expect(machine.state).toBe('verified');
+
+        const result = machine.send({ type: 'ASSIGN', agentId: 'agent-1' });
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('TASK_INVALID_TRANSITION');
+          expect(result.error.message).toBe('Invalid task transition');
+          expect(result.error.details).toEqual({
+            state: 'verified',
+            event: 'ASSIGN',
+          });
+        }
+      });
+
+      it('verified state rejects COMPLETE with TASK_INVALID_TRANSITION', () => {
+        const machine = createTaskWorkflowMachine({
+          taskId: 'task-1',
+          column: 'waiting_approval',
+          diffSummary: { filesChanged: 2 },
+        });
+        machine.send({ type: 'APPROVE' });
+
+        const result = machine.send({ type: 'COMPLETE' });
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('TASK_INVALID_TRANSITION');
+          expect(result.error.details).toEqual({
+            state: 'verified',
+            event: 'COMPLETE',
+          });
+        }
+      });
+
+      it('verified state rejects APPROVE with TASK_INVALID_TRANSITION', () => {
+        const machine = createTaskWorkflowMachine({
+          taskId: 'task-1',
+          column: 'waiting_approval',
+          diffSummary: { filesChanged: 2 },
+        });
+        machine.send({ type: 'APPROVE' });
+
+        const result = machine.send({ type: 'APPROVE' });
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('TASK_INVALID_TRANSITION');
+          expect(result.error.details).toEqual({
+            state: 'verified',
+            event: 'APPROVE',
+          });
+        }
+      });
+
+      it('verified state rejects REJECT with TASK_INVALID_TRANSITION', () => {
+        const machine = createTaskWorkflowMachine({
+          taskId: 'task-1',
+          column: 'waiting_approval',
+          diffSummary: { filesChanged: 2 },
+        });
+        machine.send({ type: 'APPROVE' });
+
+        const result = machine.send({ type: 'REJECT' });
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('TASK_INVALID_TRANSITION');
+          expect(result.error.details).toEqual({
+            state: 'verified',
+            event: 'REJECT',
+          });
+        }
+      });
+
+      it('verified state rejects CANCEL with TASK_INVALID_TRANSITION', () => {
+        const machine = createTaskWorkflowMachine({
+          taskId: 'task-1',
+          column: 'waiting_approval',
+          diffSummary: { filesChanged: 2 },
+        });
+        machine.send({ type: 'APPROVE' });
+
+        const result = machine.send({ type: 'CANCEL' });
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('TASK_INVALID_TRANSITION');
+          expect(result.error.details).toEqual({
+            state: 'verified',
+            event: 'CANCEL',
+          });
+        }
+      });
+
+      it('ASSIGN when already assigned returns exact error message', () => {
+        const machine = createTaskWorkflowMachine({
+          taskId: 'task-1',
+          agentId: 'agent-1',
+        });
+        const result = machine.send({ type: 'ASSIGN', agentId: 'agent-2' });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('TASK_ALREADY_ASSIGNED');
+          expect(result.error.message).toBe('Task already assigned');
+          expect(result.error.status).toBe(409);
+        }
+      });
+
+      it('ASSIGN when concurrency limit exceeded returns exact error message', () => {
+        const machine = createTaskWorkflowMachine({
+          taskId: 'task-1',
+          runningAgents: 3,
+          maxConcurrentAgents: 3,
+        });
+        const result = machine.send({ type: 'ASSIGN', agentId: 'agent-1' });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('CONCURRENCY_LIMIT_EXCEEDED');
+          expect(result.error.message).toBe('Concurrency limit exceeded');
+          expect(result.error.status).toBe(429);
+        }
+      });
+
+      it('TASK_INVALID_TRANSITION error includes state and event details', () => {
+        const machine = createTaskWorkflowMachine({
+          taskId: 'task-1',
+          column: 'backlog',
+        });
+        const result = machine.send({ type: 'COMPLETE' });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('TASK_INVALID_TRANSITION');
+          expect(result.error.message).toBe('Invalid task transition');
+          expect(result.error.status).toBe(400);
+          expect(result.error.details).toEqual({
+            state: 'backlog',
+            event: 'COMPLETE',
+          });
+        }
+      });
+
+      it('default initial context has expected values', () => {
+        const machine = createTaskWorkflowMachine({ taskId: 'task-1' });
+
+        expect(machine.context.taskId).toBe('task-1');
+        expect(machine.context.column).toBe('backlog');
+        expect(machine.context.runningAgents).toBe(0);
+        expect(machine.context.maxConcurrentAgents).toBe(3);
+        expect(machine.context.diffSummary).toBeNull();
+        expect(machine.context.agentId).toBeUndefined();
+      });
     });
   });
 
@@ -1021,6 +1601,249 @@ describe('state machines', () => {
       expect(result.state).toBe('merging');
       expect(result.ok).toBe(true);
     });
+
+    describe('mutation testing coverage', () => {
+      it('isStale returns false at exactly the 7-day boundary (kills > vs >= mutant)', () => {
+        const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+        const ctx: WorktreeLifecycleContext = {
+          status: 'active',
+          branch: 'feature',
+          lastActivity: Date.now() - SEVEN_DAYS_MS,
+          branchExists: false,
+          pathAvailable: true,
+          hasUncommittedChanges: false,
+          conflictFiles: [],
+        };
+        expect(isWorktreeStale(ctx)).toBe(false);
+      });
+
+      it('isStale returns true at 1ms past the 7-day boundary', () => {
+        const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+        const ctx: WorktreeLifecycleContext = {
+          status: 'active',
+          branch: 'feature',
+          lastActivity: Date.now() - SEVEN_DAYS_MS - 1,
+          branchExists: false,
+          pathAvailable: true,
+          hasUncommittedChanges: false,
+          conflictFiles: [],
+        };
+        expect(isWorktreeStale(ctx)).toBe(true);
+      });
+
+      it('isStale returns false for 1-day-old worktree (kills ArithmeticOperator * to / mutants)', () => {
+        const ONE_DAY_MS = 86400000;
+        const ctx: WorktreeLifecycleContext = {
+          status: 'active',
+          branch: 'feature',
+          lastActivity: Date.now() - ONE_DAY_MS,
+          branchExists: false,
+          pathAvailable: true,
+          hasUncommittedChanges: false,
+          conflictFiles: [],
+        };
+        expect(isWorktreeStale(ctx)).toBe(false);
+      });
+
+      it('isStale returns false for 1-second-old worktree (kills sub-second threshold mutants)', () => {
+        const ctx: WorktreeLifecycleContext = {
+          status: 'active',
+          branch: 'feature',
+          lastActivity: Date.now() - 1000,
+          branchExists: false,
+          pathAvailable: true,
+          hasUncommittedChanges: false,
+          conflictFiles: [],
+        };
+        expect(isWorktreeStale(ctx)).toBe(false);
+      });
+
+      it('MERGE from active with dirty worktree returns WORKTREE_DIRTY with message and status', () => {
+        const machine = createWorktreeLifecycleMachine({
+          branch: 'feature',
+          hasUncommittedChanges: true,
+        });
+        machine.send({ type: 'INIT_COMPLETE' });
+        const result = machine.send({ type: 'MERGE' });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('WORKTREE_DIRTY');
+          expect(result.error.message).toBe('Worktree dirty');
+          expect(result.error.status).toBe(400);
+        }
+      });
+
+      it('MERGE from dirty with uncommitted changes returns WORKTREE_DIRTY with message and status', () => {
+        const machine = createWorktreeLifecycleMachine({ branch: 'feature' });
+        machine.send({ type: 'INIT_COMPLETE' });
+        machine.send({ type: 'MODIFY' });
+        const result = machine.send({ type: 'MERGE' });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('WORKTREE_DIRTY');
+          expect(result.error.message).toBe('Worktree dirty');
+          expect(result.error.status).toBe(400);
+        }
+      });
+
+      it('MERGE from active with conflicts returns WORKTREE_DIRTY error code', () => {
+        const machine = createWorktreeLifecycleMachine({
+          branch: 'feature',
+          conflictFiles: ['conflict.ts'],
+        });
+        machine.send({ type: 'INIT_COMPLETE' });
+        const result = machine.send({ type: 'MERGE' });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('WORKTREE_DIRTY');
+        }
+      });
+
+      it('ERROR event returns WORKTREE_ERROR with correct message and status', () => {
+        const machine = createWorktreeLifecycleMachine({ branch: 'feature' });
+        machine.send({ type: 'INIT_COMPLETE' });
+        const result = machine.send({ type: 'ERROR' });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('WORKTREE_ERROR');
+          expect(result.error.message).toBe('Worktree error');
+          expect(result.error.status).toBe(500);
+        }
+      });
+
+      it('ERROR event from creating state returns WORKTREE_ERROR with correct message and status', () => {
+        const machine = createWorktreeLifecycleMachine({ branch: 'feature' });
+        const result = machine.send({ type: 'ERROR' });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('WORKTREE_ERROR');
+          expect(result.error.message).toBe('Worktree error');
+          expect(result.error.status).toBe(500);
+        }
+      });
+
+      it('invalid transition returns WORKTREE_INVALID_TRANSITION with state and event details', () => {
+        const machine = createWorktreeLifecycleMachine({ branch: 'feature' });
+        machine.send({ type: 'INIT_COMPLETE' });
+        const result = machine.send({ type: 'COMMIT' });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('WORKTREE_INVALID_TRANSITION');
+          expect(result.error.message).toBe('Invalid worktree transition');
+          expect(result.error.status).toBe(400);
+          expect(result.error.details).toBeDefined();
+          expect(result.error.details).toEqual({ state: 'active', event: 'COMMIT' });
+        }
+      });
+
+      it('MERGE from committing succeeds without canMerge guard check', () => {
+        const machine = createWorktreeLifecycleMachine({
+          branch: 'feature',
+          status: 'committing',
+          hasUncommittedChanges: false,
+          conflictFiles: ['some-conflict.ts'],
+        });
+        const result = machine.send({ type: 'MERGE' });
+
+        expect(result.ok).toBe(true);
+        expect(result.state).toBe('merging');
+      });
+
+      it('removed state rejects all non-ERROR event types with WORKTREE_INVALID_TRANSITION', () => {
+        const events: Array<{
+          type: 'INIT_COMPLETE' | 'MODIFY' | 'COMMIT' | 'MERGE' | 'RESOLVE_CONFLICT' | 'REMOVE';
+        }> = [
+          { type: 'INIT_COMPLETE' },
+          { type: 'MODIFY' },
+          { type: 'COMMIT' },
+          { type: 'MERGE' },
+          { type: 'RESOLVE_CONFLICT' },
+          { type: 'REMOVE' },
+        ];
+
+        for (const event of events) {
+          const machine = createWorktreeLifecycleMachine({
+            branch: 'feature',
+            status: 'removed',
+          });
+          const result = machine.send(event);
+
+          expect(result.ok).toBe(false);
+          if (!result.ok) {
+            expect(result.error.code).toBe('WORKTREE_INVALID_TRANSITION');
+            expect(result.error.details).toEqual({ state: 'removed', event: event.type });
+          }
+        }
+      });
+
+      it('error state rejects all non-ERROR event types with WORKTREE_INVALID_TRANSITION', () => {
+        const events: Array<{
+          type: 'INIT_COMPLETE' | 'MODIFY' | 'COMMIT' | 'MERGE' | 'RESOLVE_CONFLICT' | 'REMOVE';
+        }> = [
+          { type: 'INIT_COMPLETE' },
+          { type: 'MODIFY' },
+          { type: 'COMMIT' },
+          { type: 'MERGE' },
+          { type: 'RESOLVE_CONFLICT' },
+          { type: 'REMOVE' },
+        ];
+
+        for (const event of events) {
+          const machine = createWorktreeLifecycleMachine({
+            branch: 'feature',
+            status: 'error',
+          });
+          const result = machine.send(event);
+
+          expect(result.ok).toBe(false);
+          if (!result.ok) {
+            expect(result.error.code).toBe('WORKTREE_INVALID_TRANSITION');
+            expect(result.error.details).toEqual({ state: 'error', event: event.type });
+          }
+        }
+      });
+
+      it('removed state handles ERROR event with WORKTREE_ERROR not INVALID_TRANSITION', () => {
+        const machine = createWorktreeLifecycleMachine({
+          branch: 'feature',
+          status: 'removed',
+        });
+        const result = machine.send({ type: 'ERROR' });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('WORKTREE_ERROR');
+        }
+      });
+
+      it('error state handles ERROR event with WORKTREE_ERROR', () => {
+        const machine = createWorktreeLifecycleMachine({
+          branch: 'feature',
+          status: 'error',
+        });
+        const result = machine.send({ type: 'ERROR' });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('WORKTREE_ERROR');
+        }
+      });
+
+      it('error context status is set when ERROR event transitions to error state', () => {
+        const machine = createWorktreeLifecycleMachine({ branch: 'feature' });
+        machine.send({ type: 'INIT_COMPLETE' });
+        machine.send({ type: 'ERROR' });
+
+        expect(machine.state).toBe('error');
+        expect(machine.context.status).toBe('error');
+      });
+    });
   });
 
   describe('agent lifecycle actions', () => {
@@ -1317,6 +2140,43 @@ describe('state machines', () => {
       };
 
       expect(canClose(ctx)).toBe(false);
+    });
+
+    describe('mutation testing coverage', () => {
+      it('isStale returns false at exactly 60000ms boundary (uses > not >=)', () => {
+        const ctx: SessionLifecycleContext = {
+          status: 'active',
+          participants: [],
+          maxParticipants: 4,
+          lastActivity: Date.now() - 60000,
+        };
+
+        // The guard uses `>` so exactly 60000ms difference should NOT be stale
+        expect(isSessionStale(ctx)).toBe(false);
+      });
+
+      it('isStale returns true at 60001ms (just past boundary)', () => {
+        const ctx: SessionLifecycleContext = {
+          status: 'active',
+          participants: [],
+          maxParticipants: 4,
+          lastActivity: Date.now() - 60001,
+        };
+
+        // The guard uses `>` so 60001ms difference should be stale
+        expect(isSessionStale(ctx)).toBe(true);
+      });
+
+      it('isStale returns false at 59999ms (just before boundary)', () => {
+        const ctx: SessionLifecycleContext = {
+          status: 'active',
+          participants: [],
+          maxParticipants: 4,
+          lastActivity: Date.now() - 59999,
+        };
+
+        expect(isSessionStale(ctx)).toBe(false);
+      });
     });
   });
 

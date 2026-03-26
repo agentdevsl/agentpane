@@ -2,7 +2,8 @@
   "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker/master/packages/core/schema/stryker-core.schema.json",
   "testRunner": "vitest",
   "vitest": {
-    "configFile": "vitest.config.ts"
+    "configFile": "vitest.config.ts",
+    "project": ["unit", "db"]
   },
   "checkers": ["typescript"],
   "tsconfigFile": "tsconfig.json",
