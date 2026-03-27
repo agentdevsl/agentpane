@@ -149,7 +149,7 @@ export class AgentExecutionService {
       .then((result) => {
         if (result.ok) {
           // Also refresh aggregated metrics
-          svc.refreshMetrics(params.codespaceId, params.skillId!).catch((refreshErr) => {
+          svc.refreshMetrics(params.codespaceId, params.skillId ?? '').catch((refreshErr) => {
             log.warn('Failed to refresh skill metrics after recording', {
               error: refreshErr instanceof Error ? refreshErr : new Error(String(refreshErr)),
               data: { skillId: params.skillId, taskId: params.taskId },

@@ -113,7 +113,7 @@ export async function updateTaskOnAgentComplete(
             .then((result) => {
               if (result.ok) {
                 skillTrackingService
-                  .refreshMetrics(taskRecord.codespaceId, taskRecord.skillId!)
+                  .refreshMetrics(taskRecord.codespaceId, taskRecord.skillId ?? '')
                   .catch((refreshErr) => {
                     log.warn('Failed to refresh skill metrics', {
                       data: {

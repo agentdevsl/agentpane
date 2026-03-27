@@ -74,9 +74,10 @@ export function MemoryDreamTab(): React.JSX.Element {
       {/* Description */}
       <div className="rounded-lg border border-border bg-surface p-4">
         <p className="text-xs text-fg-muted">
-          <span className="font-medium text-fg">Dream cycles</span> analyze your skill execution
-          history to generate improvement suggestions — better prompts, new examples, pattern fixes,
-          and new skill ideas. Run a cycle to get AI-powered recommendations for your skills.
+          <span className="font-medium text-fg">Dream cycles</span> use a Claude agent (Haiku 4.5 by
+          default, configurable in Settings) to analyze your skill execution history and generate
+          improvement suggestions — better prompts, new examples, pattern fixes, and new skill
+          ideas. Cycles are triggered on-demand and can also be scheduled via the settings.
         </p>
       </div>
 
