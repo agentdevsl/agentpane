@@ -1617,4 +1617,115 @@ describe('Memory API Routes', () => {
       expect(json.error.code).toBe('INTERNAL_ERROR');
     });
   });
+
+  // ── GET /api/memory/dream-config/skills ──
+
+  describe('GET /api/memory/dream-config/skills', () => {
+    it('returns skill overrides map', async () => {
+      const { app, dreamService } = createTestApp();
+
+      const res = await request(app, 'GET', '/api/memory/dream-config/skills');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.ok).toBe(true);
+      expect(json.data['skill-terraform']).toEqual({ model: 'claude-opus-4-6', minRuns: 5 });
+      expect(dreamService.getSkillOverrides).toHaveBeenCalled();
+    });
+
+    it('returns 500 when service throws', async () => {
+      const { app, dreamService } = createTestApp();
+      dreamService.getSkillOverrides.mockRejectedValue(new Error('Unexpected'));
+
+      const res = await request(app, 'GET', '/api/memory/dream-config/skills');
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('INTERNAL_ERROR');
+    });
+  });
+
+  // ── PUT /api/memory/dream-config/skills/:skillId ──
+
+  describe('PUT /api/memory/dream-config/skills/:skillId', () => {
+    it('sets skill override', async () => {
+      const { app, dreamService } = createTestApp();
+
+      const res = await request(app, 'PUT', '/api/memory/dream-config/skills/skill-terraform', {
+        model: 'claude-opus-4-6',
+        minRuns: 5,
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.ok).toBe(true);
+      expect(dreamService.setSkillOverride).toHaveBeenCalledWith('skill-terraform', {
+        model: 'claude-opus-4-6',
+        minRuns: 5,
+      });
+    });
+
+    it('clears skill override with null body', async () => {
+      const { app, dreamService } = createTestApp();
+
+      const res = await request(
+        app,
+        'PUT',
+        '/api/memory/dream-config/skills/skill-terraform',
+        null
+      );
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.ok).toBe(true);
+      expect(dreamService.setSkillOverride).toHaveBeenCalledWith('skill-terraform', null);
+    });
+
+    it('returns error when service returns err', async () => {
+      const { app, dreamService } = createTestApp();
+      dreamService.setSkillOverride.mockResolvedValue({
+        ok: false,
+        error: { code: 'MEMORY_SERVICE_ERROR', message: 'Failed to save', status: 500 },
+      });
+
+      const res = await request(app, 'PUT', '/api/memory/dream-config/skills/skill-terraform', {
+        enabled: false,
+      });
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('MEMORY_SERVICE_ERROR');
+    });
+
+    it('returns 400 for invalid JSON', async () => {
+      const { app } = createTestApp();
+
+      const res = await app.request('/api/memory/dream-config/skills/skill-terraform', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{bad json',
+      });
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('INVALID_JSON');
+    });
+
+    it('returns 500 when service throws', async () => {
+      const { app, dreamService } = createTestApp();
+      dreamService.setSkillOverride.mockRejectedValue(new Error('Unexpected'));
+
+      const res = await request(app, 'PUT', '/api/memory/dream-config/skills/skill-terraform', {
+        enabled: true,
+      });
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('INTERNAL_ERROR');
+    });
+  });
 });

@@ -2,11 +2,12 @@ import { CaretDown, CaretUp, CircleNotch, Gear, SunHorizon, Users } from '@phosp
 import type React from 'react';
 import { useCallback, useMemo, useState } from 'react';
 import { Button } from '@/app/components/ui/button';
+import { Switch } from '@/app/components/ui/switch';
 import { toast } from '@/app/components/ui/toast';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { apiClient } from '@/lib/api/client';
 import { DreamSessionCard } from './dream-session-card';
-import { INPUT_CLASS } from './formatters';
+import { DEFAULT_DREAM_MODEL, DREAM_MODEL_OPTIONS, INPUT_CLASS } from './formatters';
 import { useMemory } from './memory-context';
 import { SuggestionCard } from './suggestion-card';
 import { SuggestionModifyDialog } from './suggestion-modify-dialog';
@@ -40,7 +41,7 @@ function DreamConfig(): React.JSX.Element {
   const [saving, setSaving] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [intervalDays, setIntervalDays] = useState('1');
-  const [model, setModel] = useState('claude-haiku-4-5-20251001');
+  const [model, setModel] = useState(DEFAULT_DREAM_MODEL);
   const [minRuns, setMinRuns] = useState('3');
 
   useWatchEffect(() => {
@@ -66,7 +67,7 @@ function DreamConfig(): React.JSX.Element {
         setEnabled(parse('memory.dreaming.enabled', 'false') === 'true');
         const hours = Number(parse('memory.dreaming.intervalHours', '24'));
         setIntervalDays(String(Math.max(1, Math.round(hours / 24))));
-        setModel(parse('memory.dreaming.model', 'claude-haiku-4-5-20251001'));
+        setModel(parse('memory.dreaming.model', DEFAULT_DREAM_MODEL));
         setMinRuns(parse('memory.dreaming.minRunsForAnalysis', '3'));
       })
       .catch(() => {
@@ -81,7 +82,7 @@ function DreamConfig(): React.JSX.Element {
       const result = await apiClient.settings.update({
         'memory.dreaming.enabled': enabled,
         'memory.dreaming.intervalHours': (Number(intervalDays) || 1) * 24,
-        'memory.dreaming.model': model.trim() || 'claude-haiku-4-5-20251001',
+        'memory.dreaming.model': model.trim() || DEFAULT_DREAM_MODEL,
         'memory.dreaming.minRunsForAnalysis': Number(minRuns) || 3,
       });
       if (result.ok) {
@@ -133,29 +134,18 @@ function DreamConfig(): React.JSX.Element {
               </p>
 
               {/* Enabled toggle */}
-              <label className="flex items-center justify-between">
+              <div className="flex items-center justify-between">
                 <div>
                   <div className="text-sm font-medium text-fg">Auto-schedule</div>
                   <div className="text-xs text-fg-muted">
                     Automatically run dream cycles at a set interval
                   </div>
                 </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={enabled}
-                  onClick={() => setEnabled((prev) => !prev)}
-                  className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition ${
-                    enabled ? 'bg-accent' : 'bg-surface-muted'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 translate-y-0.5 rounded-full bg-white shadow transition ${
-                      enabled ? 'translate-x-4' : 'translate-x-0.5'
-                    }`}
-                  />
-                </button>
-              </label>
+                <Switch
+                  checked={enabled}
+                  onCheckedChange={(checked: boolean) => setEnabled(checked)}
+                />
+              </div>
 
               {/* Interval */}
               <div className="flex flex-col gap-1.5">
@@ -190,11 +180,11 @@ function DreamConfig(): React.JSX.Element {
                   value={model}
                   onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setModel(e.target.value)}
                 >
-                  <option value="claude-haiku-4-5-20251001">
-                    Claude Haiku 4.5 (cost-efficient)
-                  </option>
-                  <option value="claude-sonnet-4-6">Claude Sonnet 4.6 (balanced)</option>
-                  <option value="claude-opus-4-6">Claude Opus 4.6 (highest quality)</option>
+                  {DREAM_MODEL_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
                 </select>
               </div>
 

@@ -1,8 +1,15 @@
 import { ArrowCounterClockwise, CaretRight, Cube, Gear, Lightning } from '@phosphor-icons/react';
 import type React from 'react';
 import { useCallback, useMemo, useState } from 'react';
+import { Switch } from '@/app/components/ui/switch';
 import { cn } from '@/lib/utils/cn';
-import { formatCost, formatDuration, formatRelativeDate, INPUT_CLASS } from './formatters';
+import {
+  DREAM_MODEL_OPTIONS,
+  formatCost,
+  formatDuration,
+  formatRelativeDate,
+  INPUT_CLASS,
+} from './formatters';
 import { useMemory } from './memory-context';
 import type { SkillDreamOverride, SkillMetrics, SyncedSkill } from './types';
 
@@ -53,11 +60,9 @@ const SOURCE_STYLES: Record<string, { bg: string; text: string; label: string }>
 // Per-skill dream configuration (inline in expanded row)
 // =============================================================================
 
-const MODEL_OPTIONS = [
+const SKILL_MODEL_OPTIONS = [
   { value: '', label: 'Global default (Haiku 4.5)' },
-  { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
-  { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
-  { value: 'claude-opus-4-6', label: 'Opus 4.6' },
+  ...DREAM_MODEL_OPTIONS,
 ];
 
 function SkillDreamConfig({
@@ -81,9 +86,12 @@ function SkillDreamConfig({
   const model = override?.model ?? '';
   const minRuns = override?.minRuns;
 
-  const handleEnabledToggle = useCallback(() => {
-    onSave(skillId, { ...override, enabled: !enabled });
-  }, [skillId, override, enabled, onSave]);
+  const handleEnabledToggle = useCallback(
+    (checked: boolean) => {
+      onSave(skillId, { ...override, enabled: checked });
+    },
+    [skillId, override, onSave]
+  );
 
   const handleModelChange = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -128,29 +136,15 @@ function SkillDreamConfig({
 
       <div className="mt-3 flex flex-col gap-3">
         {/* Enabled toggle */}
-        <label className="flex items-center justify-between">
+        <div className="flex items-center justify-between">
           <div>
             <div className="text-xs font-medium text-fg">Include in dream cycles</div>
             <div className="text-[11px] text-fg-subtle">
               {override?.enabled !== undefined ? 'Custom override' : 'Using global setting'}
             </div>
           </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={enabled}
-            onClick={handleEnabledToggle}
-            className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition ${
-              enabled ? 'bg-accent' : 'bg-surface-muted'
-            }`}
-          >
-            <span
-              className={`inline-block h-4 w-4 translate-y-0.5 rounded-full bg-white shadow transition ${
-                enabled ? 'translate-x-4' : 'translate-x-0.5'
-              }`}
-            />
-          </button>
-        </label>
+          <Switch checked={enabled} onCheckedChange={handleEnabledToggle} />
+        </div>
 
         {/* Model selector */}
         <div className="flex flex-col gap-1">
@@ -163,7 +157,7 @@ function SkillDreamConfig({
             value={model}
             onChange={handleModelChange}
           >
-            {MODEL_OPTIONS.map((opt) => (
+            {SKILL_MODEL_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
                 {opt.label}
               </option>

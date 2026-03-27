@@ -49,3 +49,11 @@ export function formatTimestamp(iso: string): string {
 
 export const INPUT_CLASS =
   'rounded-md border border-border bg-surface-subtle px-3 text-sm text-fg h-9 focus:border-accent focus:ring-2 focus:ring-accent-muted focus:outline-none';
+
+export const DEFAULT_DREAM_MODEL = 'claude-haiku-4-5-20251001';
+
+export const DREAM_MODEL_OPTIONS = [
+  { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5 (cost-efficient)' },
+  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (balanced)' },
+  { value: 'claude-opus-4-6', label: 'Claude Opus 4.6 (highest quality)' },
+];
