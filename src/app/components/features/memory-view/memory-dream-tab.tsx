@@ -71,6 +71,15 @@ export function MemoryDreamTab(): React.JSX.Element {
 
   return (
     <div className="flex flex-col gap-6">
+      {/* Description */}
+      <div className="rounded-lg border border-border bg-surface p-4">
+        <p className="text-xs text-fg-muted">
+          <span className="font-medium text-fg">Dream cycles</span> analyze your skill execution
+          history to generate improvement suggestions — better prompts, new examples, pattern fixes,
+          and new skill ideas. Run a cycle to get AI-powered recommendations for your skills.
+        </p>
+      </div>
+
       {/* Header actions */}
       <div className="flex flex-wrap items-center gap-2">
         <Button

@@ -31,7 +31,12 @@ function EmptyState({ isSearch }: { isSearch: boolean }): React.JSX.Element {
       <p className="mt-3 text-sm font-medium text-fg-muted">
         {isSearch ? 'No matching insights' : 'No insights yet'}
       </p>
-      {!isSearch && <p className="mt-1 text-xs text-fg-subtle">Create one to get started.</p>}
+      {!isSearch && (
+        <p className="mt-1 max-w-xs text-xs text-fg-subtle">
+          Insights are observations captured from agent sessions — patterns, learnings, and context
+          that help agents work more effectively over time.
+        </p>
+      )}
     </div>
   );
 }
@@ -76,6 +81,11 @@ export function MemoryInsightsTab(): React.JSX.Element {
 
   return (
     <div className="flex flex-col gap-4">
+      <p className="text-xs text-fg-subtle">
+        Insights are observations derived from agent sessions — patterns, debugging context, and
+        learnings that persist across conversations and help agents make better decisions.
+      </p>
+
       <div className="flex items-center gap-3">
         <div className="relative flex-1">
           <MagnifyingGlass className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-muted" />
