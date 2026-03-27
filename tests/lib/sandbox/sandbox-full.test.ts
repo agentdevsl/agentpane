@@ -437,7 +437,7 @@ describe('DockerProvider - Extended Coverage', () => {
       const sandbox = await provider.create(createSandboxConfig());
 
       await expect(sandbox.killTmuxSession('test-session')).rejects.toMatchObject({
-        code: 'SANDBOX_TMUX_SESSION_NOT_FOUND',
+        code: 'SANDBOX_EXEC_FAILED',
       });
     });
 

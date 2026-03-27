@@ -3,7 +3,7 @@ import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CaretDown, Plus } from '@phosphor-icons/react';
 import type { Task, TaskColumn } from '@/db/schema';
 import { cn } from '@/lib/utils/cn';
-import { COLUMN_HEADER_STYLES, COLUMN_WIDTH } from './constants';
+import { COLUMN_HEADER_STYLES } from './constants';
 import { COLUMN_ICONS } from './icons';
 import { columnIconVariants, columnVariants } from './styles';
 
@@ -48,11 +48,11 @@ export function KanbanColumn({
   return (
     <section
       ref={setNodeRef}
-      className={cn(columnVariants({ state: columnState }), 'h-full shrink-0')}
-      style={{
-        width: isCollapsed ? undefined : COLUMN_WIDTH,
-        minWidth: isCollapsed ? undefined : COLUMN_WIDTH,
-      }}
+      className={cn(
+        columnVariants({ state: columnState }),
+        'h-full',
+        isCollapsed ? 'shrink-0' : 'flex-1 min-w-[200px]'
+      )}
       aria-label={`${title} column with ${tasks.length} tasks`}
     >
       {/* Header */}

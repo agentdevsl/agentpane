@@ -7,6 +7,7 @@ export type CodespaceConfig = {
   defaultBranch: string;
   allowedTools: string[];
   maxTurns: number;
+  maxConcurrentAgents?: number;
   model?: string;
   systemPrompt?: string;
   temperature?: number;
@@ -28,4 +29,5 @@ export const DEFAULT_CODESPACE_CONFIG: CodespaceConfig = {
   defaultBranch: 'main',
   allowedTools: ['Read', 'Edit', 'Bash', 'Glob', 'Grep'],
   maxTurns: 50,
+  maxConcurrentAgents: 3,
 };

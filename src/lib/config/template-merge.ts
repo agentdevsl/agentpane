@@ -158,3 +158,41 @@ export function mergeTemplates(
     agents: Array.from(agentsMap.values()),
   };
 }
+
+export interface SourceCounts {
+  org: { skills: number; commands: number; agents: number };
+  project: { skills: number; commands: number; agents: number };
+  local: { skills: number; commands: number; agents: number };
+  total: { skills: number; commands: number; agents: number };
+}
+
+/**
+ * Count items by source type from a merged template config.
+ */
+export function getSourceCounts(config: MergedTemplateConfig): SourceCounts {
+  const count = (items: Array<{ sourceType: string }>, type: string) =>
+    items.filter((i) => i.sourceType === type).length;
+
+  return {
+    org: {
+      skills: count(config.skills, 'org'),
+      commands: count(config.commands, 'org'),
+      agents: count(config.agents, 'org'),
+    },
+    project: {
+      skills: count(config.skills, 'project'),
+      commands: count(config.commands, 'project'),
+      agents: count(config.agents, 'project'),
+    },
+    local: {
+      skills: count(config.skills, 'local'),
+      commands: count(config.commands, 'local'),
+      agents: count(config.agents, 'local'),
+    },
+    total: {
+      skills: config.skills.length,
+      commands: config.commands.length,
+      agents: config.agents.length,
+    },
+  };
+}

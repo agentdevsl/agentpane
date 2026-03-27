@@ -18,7 +18,7 @@ export type PathSafetyCode =
  * System directories that should never be deleted.
  * Includes both exact matches and prefix matching for child paths.
  */
-const DANGEROUS_PREFIXES = [
+export const DANGEROUS_PREFIXES = [
   '/',
   '/bin',
   '/sbin',

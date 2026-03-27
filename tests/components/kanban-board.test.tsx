@@ -58,7 +58,7 @@ describe('KanbanBoard', () => {
       <KanbanBoard tasks={tasks} onTaskMove={vi.fn()} onTaskClick={onTaskClick} isLoading={false} />
     );
 
-    fireEvent.click(screen.getByText('Click me'));
+    fireEvent.dblClick(screen.getByText('Click me'));
     expect(onTaskClick).toHaveBeenCalledWith(tasks[0]);
   });
 });

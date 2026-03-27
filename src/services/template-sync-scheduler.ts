@@ -24,10 +24,18 @@ export function calculateNextSyncAt(intervalMinutes: number): string {
   return now.toISOString();
 }
 
+/** Minimum sync interval in minutes */
+export const MIN_SYNC_INTERVAL_MINUTES = 5;
+
 /**
- * Validate sync interval value
- * Must be >= 5 minutes or null (disabled)
+ * Validate sync interval value.
+ * Must be >= MIN_SYNC_INTERVAL_MINUTES or null/undefined (disabled).
  */
+export function validateSyncInterval(interval: number | null | undefined): boolean {
+  if (interval === null || interval === undefined) return true;
+  return interval >= MIN_SYNC_INTERVAL_MINUTES;
+}
+
 /**
  * Class-based template sync scheduler with instance state.
  */
@@ -173,4 +181,22 @@ export function startSyncScheduler(db: Database, templateService: TemplateServic
   }
   _instance = new TemplateSyncScheduler(db, templateService);
   return _instance.start();
+}
+
+export function stopSyncScheduler(): void {
+  if (_instance) {
+    _instance.stop();
+    _instance = null;
+  }
+}
+
+export function getSchedulerState(): Readonly<{
+  isRunning: boolean;
+  lastCheckAt: string | null;
+  syncInProgressCount: number;
+}> {
+  if (!_instance) {
+    return { isRunning: false, lastCheckAt: null, syncInProgressCount: 0 };
+  }
+  return _instance.getState();
 }

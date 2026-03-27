@@ -325,7 +325,10 @@ export function findChainHeadAndTail(
  * rather than relying on array order (which may not match workflow order).
  * Returns a new edges array (does not mutate input).
  */
-function ensureStartEndConnected(nodes: WorkflowNode[], edges: WorkflowEdge[]): WorkflowEdge[] {
+export function ensureStartEndConnected(
+  nodes: WorkflowNode[],
+  edges: WorkflowEdge[]
+): WorkflowEdge[] {
   const startNode = nodes.find((n) => n.type === 'start');
   const endNode = nodes.find((n) => n.type === 'end');
   const middleNodes = nodes.filter((n) => n.type !== 'start' && n.type !== 'end');
@@ -459,7 +462,7 @@ export interface ToReactFlowNodesOptions {
  * @param options - Conversion options
  * @returns Array of ReactFlow-compatible nodes
  */
-function toReactFlowNodes(
+export function toReactFlowNodes(
   nodes: WorkflowNode[],
   options: ToReactFlowNodesOptions = {}
 ): ReactFlowNode[] {
@@ -494,7 +497,7 @@ function toReactFlowNodes(
  * @param edges - Array of workflow edges
  * @returns Array of ReactFlow-compatible edges
  */
-function toReactFlowEdges(edges: WorkflowEdge[]): ReactFlowEdge[] {
+export function toReactFlowEdges(edges: WorkflowEdge[]): ReactFlowEdge[] {
   return edges.map((edge) => ({
     id: edge.id,
     source: edge.sourceNodeId,
@@ -508,6 +511,29 @@ function toReactFlowEdges(edges: WorkflowEdge[]): ReactFlowEdge[] {
       ...extractEdgeSpecificData(edge),
     },
   }));
+}
+
+/**
+ * Converts ReactFlow nodes back to WorkflowNode array by updating positions.
+ *
+ * @param rfNodes - Array of ReactFlow nodes with updated positions
+ * @param originals - Original WorkflowNode array to merge positions into
+ * @returns Array of WorkflowNodes with updated positions
+ */
+export function fromReactFlowNodes(
+  rfNodes: ReactFlowNode[],
+  originals: WorkflowNode[]
+): WorkflowNode[] {
+  return rfNodes.map((rfNode) => {
+    const original = originals.find((n) => n.id === rfNode.id);
+    if (!original) {
+      throw new Error(`Original node not found for id: ${rfNode.id}`);
+    }
+    return {
+      ...original,
+      position: rfNode.position,
+    };
+  });
 }
 
 export interface LayoutWorkflowForReactFlowOptions extends LayoutOptions {

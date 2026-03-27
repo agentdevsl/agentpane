@@ -31,6 +31,27 @@ const configFileSchema = z.object({
   temperature: z.number().optional(),
 });
 
+/**
+ * Check if a config file exists in a GitHub repository.
+ */
+export async function checkConfigExists(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  configPath = '.agentpane/config.json'
+): Promise<boolean> {
+  try {
+    await octokit.rest.repos.getContent({
+      owner,
+      repo,
+      path: configPath,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function syncConfigFromGitHub(
   options: SyncConfigOptions
 ): Promise<Result<SyncConfigResult, ReturnType<typeof GitHubErrors.CONFIG_INVALID>>> {

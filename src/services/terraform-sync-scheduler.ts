@@ -25,6 +25,9 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** Minimum sync interval in minutes */
+export const MIN_SYNC_INTERVAL_MINUTES = 5;
+
 /**
  * Calculate the next sync time based on an interval in minutes
  */
@@ -204,4 +207,22 @@ export function startTerraformSyncScheduler(
   }
   _instance = new TerraformSyncScheduler(db, registryService);
   return _instance.start();
+}
+
+export function stopTerraformSyncScheduler(): void {
+  if (_instance) {
+    _instance.stop();
+    _instance = null;
+  }
+}
+
+export function getTerraformSchedulerState(): Readonly<{
+  isRunning: boolean;
+  lastCheckAt: string | null;
+  syncInProgressCount: number;
+}> {
+  if (!_instance) {
+    return { isRunning: false, lastCheckAt: null, syncInProgressCount: 0 };
+  }
+  return _instance.getState();
 }

@@ -122,7 +122,7 @@ async function apiRequest<T>(
  * List all registry modules for an organization.
  * Handles JSONAPI pagination to retrieve all pages.
  */
-async function listRegistryModules(config: RegistryConfig): Promise<RawModule[]> {
+export async function listRegistryModules(config: RegistryConfig): Promise<RawModule[]> {
   const allModules: RawModule[] = [];
   let page = 1;
   let totalPages = 1;
@@ -149,7 +149,7 @@ async function listRegistryModules(config: RegistryConfig): Promise<RawModule[]>
  * Get full detail for a specific module version, including inputs and outputs.
  * Uses the Registry v1 API which works with team tokens.
  */
-async function getModuleDetail(
+export async function getModuleDetail(
   config: RegistryConfig,
   namespace: string,
   name: string,

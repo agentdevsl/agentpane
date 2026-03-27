@@ -79,7 +79,7 @@ export const NODE_COLORS: Record<
 /**
  * Default fallback colors for unknown node types
  */
-const DEFAULT_NODE_COLOR = {
+export const DEFAULT_NODE_COLOR = {
   fill: '#8b949e',
   fillMuted: 'rgba(139, 148, 158, 0.15)',
   stroke: 'rgba(139, 148, 158, 0.35)',

@@ -262,7 +262,7 @@ export function KanbanBoard({
       onDragEnd={handleDragEnd}
     >
       <div
-        className="flex gap-4 p-5 overflow-x-auto h-full"
+        className="flex flex-1 min-h-0 gap-4 p-5 overflow-y-hidden"
         onClick={handleBoardClick}
         onKeyDown={handleBoardKeyDown}
         role="application"
