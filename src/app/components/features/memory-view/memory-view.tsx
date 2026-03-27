@@ -72,7 +72,7 @@ function MemoryViewInner(): React.JSX.Element {
   const { activeTab, setActiveTab } = useMemory();
 
   return (
-    <div className="flex h-full w-full flex-col gap-4 p-4">
+    <div className="flex h-full w-full flex-col gap-4 overflow-y-auto p-4">
       <Tabs value={activeTab} onValueChange={(value: string) => setActiveTab(value as MemoryTab)}>
         <TabsList>
           <TabsTrigger value="overview" className="gap-1.5">
