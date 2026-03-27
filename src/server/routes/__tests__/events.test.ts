@@ -885,10 +885,10 @@ describe('Events API Routes', () => {
       expect(json.data.items).toEqual([]);
     });
 
-    it('passes through status filter without validation', async () => {
+    it('returns empty list when no sources exist (status filter not reached)', async () => {
       const { app } = createTestApp();
 
-      // The event log list endpoint does not validate status enum
+      // Mock DB returns no sources, so handler returns early before status validation
       const res = await request(app, 'GET', '/api/events/log?status=bogus');
 
       expect(res.status).toBe(200);
