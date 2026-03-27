@@ -274,8 +274,8 @@ describe('Memory Service Integration', () => {
       expect(result.ok).toBe(true);
       if (!result.ok) return;
 
-      expect(result.value.insights.length).toBeGreaterThan(0);
-      expect(result.value.insights.length).toBeLessThan(10);
+      expect(result.value.sources.insights).toBeGreaterThan(0);
+      expect(result.value.sources.insights).toBeLessThan(10);
     });
 
     it('deletes an insight', async () => {
@@ -439,7 +439,7 @@ describe('Memory Service Integration', () => {
       const result = await service.getContext('cs-test-1', 'database');
       expect(result.ok).toBe(true);
       if (!result.ok) return;
-      expect(result.value.insights.length).toBeGreaterThan(0);
+      expect(result.value.sources.insights).toBeGreaterThan(0);
     });
 
     it('healthCheck returns real counts', async () => {
