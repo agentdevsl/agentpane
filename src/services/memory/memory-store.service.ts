@@ -154,7 +154,7 @@ export class MemoryStoreService {
         .where(
           and(
             eq(memoryInsights.codespaceId, codespaceId),
-            sql`${memoryInsights.content} LIKE ${'%' + escapeLikeQuery(query) + '%'} ESCAPE '\\'`
+            sql`${memoryInsights.content} LIKE ${`%${escapeLikeQuery(query)}%`} ESCAPE '\\'`
           )
         )
         .orderBy(desc(memoryInsights.createdAt))
@@ -195,7 +195,7 @@ export class MemoryStoreService {
         .where(
           and(
             eq(memoryInsights.codespaceId, codespaceId),
-            sql`${memoryInsights.content} LIKE ${'%' + escapeLikeQuery(query) + '%'} ESCAPE '\\'`
+            sql`${memoryInsights.content} LIKE ${`%${escapeLikeQuery(query)}%`} ESCAPE '\\'`
           )
         )
         .orderBy(desc(memoryInsights.createdAt))

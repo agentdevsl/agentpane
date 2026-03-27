@@ -26,6 +26,7 @@ export function formatRelativeDate(dateStr: string | null): string {
   if (Number.isNaN(date.getTime())) return '\u2014';
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
+  if (diffMs < 0) return date.toLocaleDateString();
   const diffMins = Math.floor(diffMs / 60_000);
 
   if (diffMins < 1) return 'Just now';

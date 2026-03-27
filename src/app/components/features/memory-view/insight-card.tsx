@@ -3,6 +3,7 @@ import type React from 'react';
 import { useState } from 'react';
 import { Button } from '@/app/components/ui/button';
 import { cn } from '@/lib/utils/cn';
+import { formatRelativeDate } from './formatters';
 import { InsightSourceBadge } from './insight-source-badge';
 
 interface InsightCardProps {
@@ -14,7 +15,7 @@ interface InsightCardProps {
     createdAt: string;
     skillId: string | null;
   };
-  onDelete: (id: string) => void | Promise<boolean>;
+  onDelete: (id: string) => undefined | Promise<boolean>;
 }
 
 export function InsightCard({ insight, onDelete }: InsightCardProps): React.JSX.Element {
@@ -26,9 +27,7 @@ export function InsightCard({ insight, onDelete }: InsightCardProps): React.JSX.
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <InsightSourceBadge source={insight.source} />
-          <span className="text-xs text-fg-muted">
-            {new Date(insight.createdAt).toLocaleDateString()}
-          </span>
+          <span className="text-xs text-fg-muted">{formatRelativeDate(insight.createdAt)}</span>
         </div>
         <Button
           variant="ghost"
