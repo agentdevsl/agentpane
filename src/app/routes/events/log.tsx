@@ -59,13 +59,25 @@ function EventLogPage(): React.JSX.Element {
 
   // Initial load: fetch events + sources
   useMountEffect(() => {
+    let cancelled = false;
     async function load() {
-      const [, sourcesRes] = await Promise.all([fetchEvents(), apiClient.events.sources.list()]);
-      if (sourcesRes.ok) setSources(sourcesRes.data.items);
-      setIsLoading(false);
-      initialLoadDone.current = true;
+      try {
+        const [, sourcesRes] = await Promise.all([fetchEvents(), apiClient.events.sources.list()]);
+        if (cancelled) return;
+        if (sourcesRes.ok) setSources(sourcesRes.data.items);
+      } catch {
+        // Network errors handled gracefully — empty state shown
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+          initialLoadDone.current = true;
+        }
+      }
     }
     load();
+    return () => {
+      cancelled = true;
+    };
   });
 
   // Refetch when dropdown filters change (after initial load)
@@ -85,12 +97,14 @@ function EventLogPage(): React.JSX.Element {
     fetchEvents().finally(() => setIsLoading(false));
   }, [fetchEvents]);
 
-  // SSE: prepend new events in real-time
+  // SSE: prepend new events in real-time (debounced)
+  const sseDebounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEventStream({
     onEvent: useCallback(
       (event: EventStreamEvent) => {
         if (event.type === 'event:processed' && event.data?.eventLogId) {
-          fetchEvents();
+          clearTimeout(sseDebounceRef.current);
+          sseDebounceRef.current = setTimeout(() => fetchEvents(), 500);
         }
       },
       [fetchEvents]
@@ -117,6 +131,7 @@ function EventLogPage(): React.JSX.Element {
       <div className="flex items-center gap-3">
         <Funnel className="h-4 w-4 text-fg-muted" />
         <select
+          aria-label="Filter by source"
           value={sourceFilter}
           onChange={(e) => setSourceFilter(e.target.value)}
           className="rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-fg focus:outline-none focus:ring-2 focus:ring-accent"
@@ -129,6 +144,7 @@ function EventLogPage(): React.JSX.Element {
           ))}
         </select>
         <select
+          aria-label="Filter by status"
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
           className="rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-fg focus:outline-none focus:ring-2 focus:ring-accent"
@@ -136,11 +152,12 @@ function EventLogPage(): React.JSX.Element {
           <option value="">All Statuses</option>
           {EVENT_LOG_STATUS.map((s) => (
             <option key={s} value={s}>
-              {s.replace('_', ' ')}
+              {s.replaceAll('_', ' ')}
             </option>
           ))}
         </select>
         <input
+          aria-label="Filter by event type"
           type="text"
           value={eventTypeFilter}
           onChange={(e) => setEventTypeFilter(e.target.value)}

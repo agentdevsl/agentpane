@@ -54,8 +54,8 @@ export function useEventStream(options: UseEventStreamOptions = {}): { connected
       try {
         const data = JSON.parse(event.data) as EventStreamEvent;
         onEventRef.current?.(data);
-      } catch {
-        // Ignore malformed events
+      } catch (err) {
+        console.warn('[useEventStream] Failed to parse SSE event:', event.data, err);
       }
     };
 
@@ -64,7 +64,8 @@ export function useEventStream(options: UseEventStreamOptions = {}): { connected
       source.close();
       eventSourceRef.current = null;
 
-      // Reconnect with exponential backoff (max 30s)
+      // Reconnect with exponential backoff (max 30s, max 10 retries)
+      if (retryCountRef.current >= 10) return;
       const delay = Math.min(1000 * 2 ** retryCountRef.current, 30_000);
       retryCountRef.current += 1;
       retryTimeoutRef.current = setTimeout(connect, delay);

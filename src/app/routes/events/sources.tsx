@@ -1,6 +1,6 @@
 import { Plugs, Plus } from '@phosphor-icons/react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { EmptyState } from '@/app/components/features/empty-state';
 import { AddSourceDialog } from '@/app/components/features/events/add-source-dialog';
 import { EditSourceDialog } from '@/app/components/features/events/edit-source-dialog';
@@ -32,18 +32,28 @@ function EventSourcesPage(): React.JSX.Element {
   }, []);
 
   useMountEffect(() => {
+    let cancelled = false;
     async function load() {
-      const [sourcesRes, teamsRes, subsRes] = await Promise.all([
-        apiClient.events.sources.list(),
-        apiClient.teams.list(),
-        apiClient.events.subscriptions.list(),
-      ]);
-      if (sourcesRes.ok) setSources(sourcesRes.data.items);
-      if (teamsRes.ok) setTeams(teamsRes.data.items);
-      if (subsRes.ok) setSubscriptions(subsRes.data.items);
-      setIsLoading(false);
+      try {
+        const [sourcesRes, teamsRes, subsRes] = await Promise.all([
+          apiClient.events.sources.list(),
+          apiClient.teams.list(),
+          apiClient.events.subscriptions.list(),
+        ]);
+        if (cancelled) return;
+        if (sourcesRes.ok) setSources(sourcesRes.data.items);
+        if (teamsRes.ok) setTeams(teamsRes.data.items);
+        if (subsRes.ok) setSubscriptions(subsRes.data.items);
+      } catch {
+        // Network errors handled gracefully — empty state shown
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
     }
     load();
+    return () => {
+      cancelled = true;
+    };
   });
 
   const handleAdd = useCallback(
@@ -80,11 +90,13 @@ function EventSourcesPage(): React.JSX.Element {
 
   const handleToggle = useCallback(
     async (source: EventSource, enabled: boolean) => {
-      const res = await apiClient.events.sources.update(source.id, { isEnabled: enabled });
-      if (!res.ok) {
-        throw new Error(res.error.message ?? 'Failed to update source');
+      try {
+        const res = await apiClient.events.sources.update(source.id, { isEnabled: enabled });
+        if (!res.ok) throw new Error(res.error.message ?? 'Failed to update source');
+        await fetchSources();
+      } catch (err) {
+        window.alert(err instanceof Error ? err.message : 'Failed to toggle source');
       }
-      await fetchSources();
     },
     [fetchSources]
   );
@@ -96,11 +108,13 @@ function EventSourcesPage(): React.JSX.Element {
       ) {
         return;
       }
-      const res = await apiClient.events.sources.delete(id);
-      if (!res.ok) {
-        throw new Error(res.error.message ?? 'Failed to delete source');
+      try {
+        const res = await apiClient.events.sources.delete(id);
+        if (!res.ok) throw new Error(res.error.message ?? 'Failed to delete source');
+        await fetchSources();
+      } catch (err) {
+        window.alert(err instanceof Error ? err.message : 'Failed to delete source');
       }
-      await fetchSources();
     },
     [fetchSources]
   );
@@ -113,21 +127,25 @@ function EventSourcesPage(): React.JSX.Element {
     ) {
       return;
     }
-    const res = await apiClient.events.sources.rotateSecret(id);
-    if (!res.ok) {
-      throw new Error(res.error.message ?? 'Failed to rotate secret');
+    try {
+      const res = await apiClient.events.sources.rotateSecret(id);
+      if (!res.ok) throw new Error(res.error.message ?? 'Failed to rotate secret');
+      window.alert(
+        `New webhook secret:\n\n${res.data.secret}\n\nSave this secret — it won't be shown again.`
+      );
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Failed to rotate secret');
     }
-    window.alert(
-      `New webhook secret:\n\n${res.data.secret}\n\nSave this secret — it won't be shown again.`
-    );
   }, []);
 
-  // SSE: refresh source event counts when new events arrive
+  // SSE: refresh source event counts when new events arrive (debounced)
+  const sseDebounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEventStream({
     onEvent: useCallback(
       (event: EventStreamEvent) => {
         if (event.type === 'event:processed') {
-          fetchSources();
+          clearTimeout(sseDebounceRef.current);
+          sseDebounceRef.current = setTimeout(() => fetchSources(), 500);
         }
       },
       [fetchSources]

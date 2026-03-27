@@ -32,19 +32,29 @@ function SubscriptionsPage(): React.JSX.Element {
   }, []);
 
   useMountEffect(() => {
+    let cancelled = false;
     async function load() {
-      const [subsRes, sourcesRes, codespacesRes] = await Promise.all([
-        apiClient.events.subscriptions.list(),
-        apiClient.events.sources.list(),
-        apiClient.codespaces.list(),
-      ]);
-      if (subsRes.ok) setSubscriptions(subsRes.data.items);
-      if (sourcesRes.ok) setSources(sourcesRes.data.items);
-      if (codespacesRes.ok)
-        setCodespaces(codespacesRes.data.items.map((c) => ({ id: c.id, name: c.name })));
-      setIsLoading(false);
+      try {
+        const [subsRes, sourcesRes, codespacesRes] = await Promise.all([
+          apiClient.events.subscriptions.list(),
+          apiClient.events.sources.list(),
+          apiClient.codespaces.list(),
+        ]);
+        if (cancelled) return;
+        if (subsRes.ok) setSubscriptions(subsRes.data.items);
+        if (sourcesRes.ok) setSources(sourcesRes.data.items);
+        if (codespacesRes.ok)
+          setCodespaces(codespacesRes.data.items.map((c) => ({ id: c.id, name: c.name })));
+      } catch {
+        // Network errors handled gracefully — empty state shown
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
     }
     load();
+    return () => {
+      cancelled = true;
+    };
   });
 
   const handleSave = useCallback(
@@ -66,8 +76,13 @@ function SubscriptionsPage(): React.JSX.Element {
 
   const handleToggle = useCallback(
     async (id: string, enabled: boolean) => {
-      await apiClient.events.subscriptions.update(id, { isEnabled: enabled });
-      await fetchSubscriptions();
+      try {
+        const res = await apiClient.events.subscriptions.update(id, { isEnabled: enabled });
+        if (!res.ok) throw new Error(res.error?.message ?? 'Failed to toggle');
+        await fetchSubscriptions();
+      } catch (err) {
+        window.alert(err instanceof Error ? err.message : 'Failed to toggle subscription');
+      }
     },
     [fetchSubscriptions]
   );
@@ -75,8 +90,13 @@ function SubscriptionsPage(): React.JSX.Element {
   const handleDelete = useCallback(
     async (id: string) => {
       if (!window.confirm('Delete this subscription? Events will no longer create tasks.')) return;
-      await apiClient.events.subscriptions.delete(id);
-      await fetchSubscriptions();
+      try {
+        const res = await apiClient.events.subscriptions.delete(id);
+        if (!res.ok) throw new Error(res.error?.message ?? 'Failed to delete');
+        await fetchSubscriptions();
+      } catch (err) {
+        window.alert(err instanceof Error ? err.message : 'Failed to delete subscription');
+      }
     },
     [fetchSubscriptions]
   );
@@ -140,6 +160,7 @@ function SubscriptionsPage(): React.JSX.Element {
       )}
 
       <AddSubscriptionDialog
+        key={editSubscription?.id ?? 'new'}
         open={showDialog}
         onClose={() => {
           setShowDialog(false);

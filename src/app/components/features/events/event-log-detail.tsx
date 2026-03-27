@@ -50,12 +50,12 @@ export function EventLogDetail({ event, sourceName }: EventLogDetailProps): Reac
         </div>
         <div>
           <span className="text-fg-subtle">Matched Subscriptions</span>
-          <p className="text-fg">{event.matchedSubscriptions.length}</p>
+          <p className="text-fg">{event.matchedSubscriptions?.length ?? 0}</p>
         </div>
       </div>
 
       {/* Matched subscription details */}
-      {event.matchedSubscriptions.length > 0 && (
+      {(event.matchedSubscriptions?.length ?? 0) > 0 && (
         <div className="space-y-1">
           <span className="text-xs font-medium text-fg-muted">Matched Subscriptions</span>
           {event.matchedSubscriptions.map((ms) => (
@@ -76,6 +76,7 @@ export function EventLogDetail({ event, sourceName }: EventLogDetailProps): Reac
       <div>
         <button
           type="button"
+          aria-expanded={showPayload}
           onClick={() => setShowPayload(!showPayload)}
           className="flex items-center gap-1 text-xs font-medium text-fg-muted hover:text-fg"
         >

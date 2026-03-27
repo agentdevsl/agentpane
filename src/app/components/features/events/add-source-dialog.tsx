@@ -104,7 +104,11 @@ export function AddSourceDialog({
   };
 
   const copyToClipboard = async (text: string, field: 'url' | 'secret') => {
-    await navigator.clipboard.writeText(text);
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Clipboard API unavailable in insecure contexts — ignore gracefully
+    }
     if (field === 'url') {
       setCopiedUrl(true);
       setTimeout(() => setCopiedUrl(false), 2000);
@@ -136,6 +140,7 @@ export function AddSourceDialog({
           <button
             type="button"
             onClick={handleClose}
+            aria-label="Close dialog"
             className="rounded p-1 text-fg-muted hover:bg-surface-subtle hover:text-fg"
           >
             <X className="h-4 w-4" />
@@ -190,7 +195,7 @@ export function AddSourceDialog({
                   )}
                 </button>
               </div>
-              <p className="mt-2 text-xs text-warning-fg">
+              <p className="mt-2 text-xs text-attention">
                 Save this secret — it won't be shown again.
               </p>
             </div>
@@ -213,9 +218,13 @@ export function AddSourceDialog({
                 type="button"
                 variant="outline"
                 onClick={async () => {
-                  await navigator.clipboard.writeText(
-                    `Webhook URL: ${successData.webhookUrl}\nWebhook Secret: ${successData.webhookSecret}`
-                  );
+                  try {
+                    await navigator.clipboard.writeText(
+                      `Webhook URL: ${successData.webhookUrl}\nWebhook Secret: ${successData.webhookSecret}`
+                    );
+                  } catch {
+                    // Clipboard API unavailable in insecure contexts
+                  }
                   setCopiedAll(true);
                   setTimeout(() => setCopiedAll(false), 2000);
                 }}
@@ -268,7 +277,7 @@ export function AddSourceDialog({
               >
                 {EVENT_SOURCE_TYPES.map((t) => (
                   <option key={t} value={t}>
-                    {t.replace('_', ' ')}
+                    {t.replaceAll('_', ' ')}
                   </option>
                 ))}
               </select>

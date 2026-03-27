@@ -63,6 +63,7 @@ export function SubscriptionCard({
         <DropdownMenuTrigger asChild>
           <button
             type="button"
+            aria-label={`Actions for ${subscription.name}`}
             className="rounded p-1 text-fg-muted transition-colors hover:bg-surface-subtle hover:text-fg"
           >
             <DotsThree className="h-4 w-4" weight="bold" />

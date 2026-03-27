@@ -318,7 +318,7 @@ export function AddSubscriptionDialog({
                   >
                     {FILTER_OPERATORS.map((o) => (
                       <option key={o} value={o}>
-                        {o.replace('_', ' ')}
+                        {o.replaceAll('_', ' ')}
                       </option>
                     ))}
                   </select>
@@ -376,6 +376,9 @@ export function AddSubscriptionDialog({
               </div>
               <button
                 type="button"
+                role="switch"
+                aria-checked={autoStartAgent}
+                aria-label="Auto-start Agent"
                 onClick={() => setAutoStartAgent(!autoStartAgent)}
                 disabled={isSaving}
                 className={`relative h-5 w-9 rounded-full transition-colors ${autoStartAgent ? 'bg-accent' : 'bg-border'}`}
@@ -402,7 +405,7 @@ export function AddSubscriptionDialog({
                 >
                   {TASK_COLUMNS.map((c) => (
                     <option key={c} value={c}>
-                      {c.replace('_', ' ')}
+                      {c.replaceAll('_', ' ')}
                     </option>
                   ))}
                 </select>
