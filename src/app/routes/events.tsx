@@ -1,6 +1,6 @@
 import { createFileRoute, Outlet, useMatches } from '@tanstack/react-router';
-import { LayoutShell } from '@/app/components/features/layout-shell';
 import { EventsViewSwitcher } from '@/app/components/features/events/events-view-switcher';
+import { LayoutShell } from '@/app/components/features/layout-shell';
 
 export const Route = createFileRoute('/events')({
   component: EventsLayout,
