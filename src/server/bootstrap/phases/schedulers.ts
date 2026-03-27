@@ -7,6 +7,7 @@
 
 import { createLogger } from '../../../lib/logging/logger.js';
 import { EventCleanupService } from '../../../services/event-cleanup.service.js';
+import { startDreamScheduler } from '../../../services/memory/dream-scheduler.service.js';
 import { startSyncScheduler } from '../../../services/template-sync-scheduler.js';
 import { startTerraformSyncScheduler } from '../../../services/terraform-sync-scheduler.js';
 import type { Database } from '../../../types/database.js';
@@ -38,6 +39,13 @@ export async function startSchedulers(
   const stopEventCleanup = eventCleanup.start();
   shutdown.register('eventCleanupScheduler', stopEventCleanup);
   log.info('Event cleanup scheduler started');
+
+  // Dream scheduler (skill improvement via Claude analysis)
+  if (services.dreamService) {
+    const stopDreamScheduler = startDreamScheduler(services.dreamService, services.settingsService);
+    shutdown.register('dreamScheduler', stopDreamScheduler);
+    log.info('Dream scheduler started');
+  }
 
   // Task scheduler
   try {

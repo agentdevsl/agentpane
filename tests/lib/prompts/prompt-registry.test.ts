@@ -64,7 +64,7 @@ describe('Prompt Registry', () => {
         expect(cat.id).toBeTruthy();
         expect(cat.label).toBeTruthy();
         expect(cat.description).toBeTruthy();
-        expect(['claude', 'accent', 'success', 'attention']).toContain(cat.color);
+        expect(['claude', 'accent', 'success', 'attention', 'done']).toContain(cat.color);
       }
     });
   });

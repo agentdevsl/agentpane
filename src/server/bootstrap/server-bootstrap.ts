@@ -65,9 +65,9 @@ export async function run(): Promise<void> {
     try {
       await services.memoryService.initialize();
       if (services.memoryService.isAvailable()) {
-        log.info('Memory service initialized (Honcho connected)');
+        log.info('Internal memory service initialized');
       } else {
-        log.info('Memory service disabled or Honcho unreachable');
+        log.info('Memory service disabled via settings');
       }
     } catch (memErr) {
       log.warn('Memory service initialization failed, continuing without memory', {

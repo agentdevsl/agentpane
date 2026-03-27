@@ -1,18 +1,18 @@
-export type {
-  MemoryAdminServiceInterface,
-  MemoryCaptureServiceInterface,
-  MemoryQueryServiceInterface,
-} from './memory.service.js';
+export { InsightDeriverService } from './insight-deriver.service.js';
+export type { InsightDeriverInterface, MemoryStoreInterface } from './memory.service.js';
 export { MemoryService } from './memory.service.js';
-export { MemoryClientService } from './memory-client.service.js';
-export { MemoryQueryService } from './memory-query.service.js';
+export { MemoryStoreService } from './memory-store.service.js';
 export type {
+  DreamSession,
   HealthStatus,
-  HonchoSessionRef,
-  MemoryConclusion,
+  Insight,
   MemoryContext,
-  MemorySession,
+  MemoryMessage,
+  MemorySessionRef,
   PaginationOptions,
   SearchResult,
+  SkillExecution,
+  SkillMetrics,
+  SkillSuggestion,
 } from './types.js';
 export { EMPTY_CONTEXT } from './types.js';

@@ -1,0 +1,47 @@
+import { createId } from '@paralleldrive/cuid2';
+import { sql } from 'drizzle-orm';
+import { index, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { codespaces } from './codespaces';
+import { dreamSessions } from './dream-sessions';
+
+export const skillSuggestions = sqliteTable(
+  'skill_suggestions',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => createId()),
+    dreamSessionId: text('dream_session_id')
+      .notNull()
+      .references(() => dreamSessions.id, { onDelete: 'cascade' }),
+    codespaceId: text('codespace_id')
+      .notNull()
+      .references(() => codespaces.id, { onDelete: 'cascade' }),
+    skillId: text('skill_id').notNull(),
+    skillName: text('skill_name').notNull(),
+    suggestionType: text('suggestion_type')
+      .$type<'improve_prompt' | 'add_example' | 'fix_pattern' | 'new_skill'>()
+      .notNull(),
+    title: text('title').notNull(),
+    reasoning: text('reasoning').notNull(),
+    currentContent: text('current_content'),
+    suggestedContent: text('suggested_content').notNull(),
+    diff: text('diff'),
+    status: text('status')
+      .$type<'pending' | 'accepted' | 'rejected' | 'modified'>()
+      .default('pending')
+      .notNull(),
+    userNotes: text('user_notes'),
+    appliedAt: text('applied_at'),
+    appliedBy: text('applied_by'),
+    createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
+  },
+  (table) => [
+    index('idx_skill_suggestions_dream_session_id').on(table.dreamSessionId),
+    index('idx_skill_suggestions_codespace_id').on(table.codespaceId),
+    index('idx_skill_suggestions_skill_id').on(table.skillId),
+    index('idx_skill_suggestions_status').on(table.status),
+  ]
+);
+
+export type SkillSuggestion = typeof skillSuggestions.$inferSelect;
+export type NewSkillSuggestion = typeof skillSuggestions.$inferInsert;

@@ -384,6 +384,54 @@ Return a JSON object with:
 }
 \`\`\``;
 
+const DREAM_ANALYZE_SKILL_TEXT = `You are analyzing the execution history of a Claude Code skill to suggest improvements.
+
+## Skill Information
+- **Skill ID:** {{skillId}}
+- **Skill Name:** {{skillName}}
+
+## Current Skill Content
+{{skillContent}}
+
+## Execution Metrics
+- Total Runs: {{totalRuns}}
+- Success Rate: {{successRate}}%
+- Avg Tokens: {{avgTokens}}
+- Avg Turns: {{avgTurns}}
+- Avg Duration: {{avgDuration}}ms
+- Error Count: {{errorCount}}
+
+## Error Patterns
+{{errorPatterns}}
+
+## Successful Execution Examples
+{{successExamples}}
+
+## Failed Execution Examples
+{{failedExamples}}
+
+Given the skill's current content and its execution history above, identify concrete improvements to make the skill more effective.
+
+For each suggestion, provide:
+1. A short title
+2. The type: "improve_prompt" | "add_example" | "fix_pattern" | "new_skill"
+3. Reasoning based on the execution data
+4. Complete suggested content for the skill
+
+Return suggestions as a JSON array:
+\`\`\`json
+[
+  {
+    "type": "improve_prompt",
+    "title": "Short title of the improvement",
+    "reasoning": "Why this improvement is suggested",
+    "suggestedContent": "The complete new skill content"
+  }
+]
+\`\`\`
+
+Focus on: reducing failure rates, reducing token usage, adding examples from successful runs, fixing error-causing patterns. Return \`[]\` if the skill performs well (>90% success rate).`;
+
 const WORKFLOW_FROM_DESCRIPTION_TEXT = `## Workflow Description
 
 {{description}}
@@ -456,6 +504,13 @@ export const PROMPT_CATEGORIES: PromptCategoryInfo[] = [
     label: 'Workflow Designer',
     description: 'Prompts for AI-powered workflow generation and analysis',
     color: 'attention',
+  },
+  {
+    id: 'skill-improvement',
+    label: 'Skill Improvement',
+    description:
+      'Prompts for the dreaming engine that analyzes skill performance and suggests improvements',
+    color: 'done',
   },
 ];
 
@@ -552,6 +607,30 @@ export const PROMPT_REGISTRY: Record<string, PromptDefinition> = {
     settingsKey: 'prompt.workflow-from-description',
     dynamicVariables: ['description'],
     wordCount: wordCount(WORKFLOW_FROM_DESCRIPTION_TEXT),
+  },
+  'dream-analyze-skill': {
+    id: 'dream-analyze-skill',
+    category: 'skill-improvement',
+    name: 'Skill Analysis',
+    description:
+      'Prompt for the dreaming engine to analyze skill execution history and suggest improvements.',
+    defaultText: DREAM_ANALYZE_SKILL_TEXT,
+    settingsKey: 'prompt.dream-analyze-skill',
+    dynamicVariables: [
+      'skillId',
+      'skillName',
+      'skillContent',
+      'totalRuns',
+      'successRate',
+      'avgTokens',
+      'avgTurns',
+      'avgDuration',
+      'errorCount',
+      'errorPatterns',
+      'successExamples',
+      'failedExamples',
+    ],
+    wordCount: wordCount(DREAM_ANALYZE_SKILL_TEXT),
   },
 };
 
