@@ -17,6 +17,7 @@ import type { EventProcessingService } from '../../services/event-processing.ser
 import type { EventSourceService } from '../../services/event-source.service.js';
 import type { EventSubscriptionService } from '../../services/event-subscription.service.js';
 import type { GitService } from '../../services/git.service.js';
+import type { GitHubAppService } from '../../services/github-app.service.js';
 import type { GitHubTokenService } from '../../services/github-token.service.js';
 import type { MarketplaceService } from '../../services/marketplace.service.js';
 import type { DreamService } from '../../services/memory/dream.service.js';
@@ -79,6 +80,7 @@ export interface ServiceContainer {
   terraformRegistryService: TerraformRegistryService;
   terraformComposeService: TerraformComposeService;
   settingsService: SettingsService;
+  githubAppService: GitHubAppService;
   eventSourceService: EventSourceService;
   eventSubscriptionService: EventSubscriptionService;
   eventProcessingService: EventProcessingService;

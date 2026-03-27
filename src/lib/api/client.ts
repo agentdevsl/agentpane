@@ -828,6 +828,77 @@ export const apiClient = {
         '/api/github/create-from-template',
         { method: 'POST', body: params }
       ),
+
+    app: {
+      status: () =>
+        apiServerFetch<{
+          configured: boolean;
+          installUrl: string | null;
+          appSlug: string | null;
+          appId: string | null;
+        }>('/api/github/app/status'),
+
+      getManifest: (externalUrl: string, appName?: string) =>
+        apiServerFetch<{ manifest: string; state: string; githubUrl: string }>(
+          '/api/github/app/manifest',
+          { method: 'POST', body: { externalUrl, ...(appName ? { appName } : {}) } }
+        ),
+
+      setupCallback: (code: string) =>
+        apiServerFetch<{ appId: string; appSlug: string; installUrl: string }>(
+          '/api/github/app/setup-callback',
+          { method: 'POST', body: { code } }
+        ),
+
+      deleteCredentials: () =>
+        apiServerFetch<{ deleted: boolean }>('/api/github/app/credentials', { method: 'DELETE' }),
+
+      listInstallations: (teamId?: string) =>
+        apiServerFetch<{
+          items: Array<{
+            id: string;
+            installationId: string;
+            accountLogin: string;
+            accountType: string;
+            teamId: string | null;
+            status: string;
+            createdAt: string;
+          }>;
+        }>(`/api/github/app/installations${teamId ? `?teamId=${encodeURIComponent(teamId)}` : ''}`),
+
+      registerInstallation: (installationId: number, teamId: string) =>
+        apiServerFetch<{
+          id: string;
+          installationId: string;
+          accountLogin: string;
+          accountType: string;
+          status: string;
+        }>('/api/github/app/installations', {
+          method: 'POST',
+          body: { installationId, teamId },
+        }),
+
+      removeInstallation: (id: string) =>
+        apiServerFetch<{ deleted: boolean }>(
+          `/api/github/app/installations/${encodeURIComponent(id)}`,
+          {
+            method: 'DELETE',
+          }
+        ),
+
+      configureCodespace: (installationId: string, codespaceId: string) =>
+        apiServerFetch<{
+          eventSourceId: string | null;
+          subscriptionId: string | null;
+          installationId: string | null;
+        }>(
+          `/api/github/app/installations/${encodeURIComponent(installationId)}/configure-codespace`,
+          {
+            method: 'POST',
+            body: { codespaceId },
+          }
+        ),
+    },
   },
 
   system: {

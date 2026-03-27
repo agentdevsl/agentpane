@@ -10,6 +10,7 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import type { EventSourceStatus, EventSourceType } from '../shared/enums';
+import { githubInstallations } from './github';
 import { teams } from './teams';
 
 export type { EventSourceStatus, EventSourceType } from '../shared/enums';
@@ -31,6 +32,9 @@ export const eventSources = pgTable(
     config: jsonb('config').$type<Record<string, unknown>>().default({}),
     eventCount: integer('event_count').default(0).notNull(),
     lastEventAt: timestamp('last_event_at', { mode: 'string' }),
+    githubInstallationId: text('github_installation_id').references(() => githubInstallations.id, {
+      onDelete: 'set null',
+    }),
     status: text('status').$type<EventSourceStatus>().default('active').notNull(),
     createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { mode: 'string' })

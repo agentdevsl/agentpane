@@ -26,6 +26,7 @@ const ALLOWED_SETTINGS_KEYS = new Set([
   'anthropic.model',
   'github.token',
   'github.appId',
+  'github.app.credentials',
   'theme',
   'general.agentModel',
   'memory.enabled',
