@@ -43,19 +43,18 @@ function createMockSchedulerService() {
   };
 }
 
-function createMockDb() {
-  // Create a thenable query builder that resolves to [] when awaited at any point in the chain
-  function createQueryBuilder(): Record<string, unknown> {
-    const builder: Record<string, unknown> = {};
-    const methods = ['from', 'where', 'orderBy', 'limit'];
-    for (const method of methods) {
-      builder[method] = vi.fn().mockReturnValue(builder);
-    }
-    // biome-ignore lint/suspicious/noThenProperty: intentional thenable mock for Drizzle query chain
-    builder.then = (resolve: (v: unknown) => unknown) => Promise.resolve([]).then(resolve);
-    return builder;
+function createQueryBuilder(resolveWith: unknown[] = []): Record<string, unknown> {
+  const builder: Record<string, unknown> = {};
+  const methods = ['from', 'where', 'orderBy', 'limit'];
+  for (const method of methods) {
+    builder[method] = vi.fn().mockReturnValue(builder);
   }
+  // biome-ignore lint/suspicious/noThenProperty: intentional thenable mock for Drizzle query chain
+  builder.then = (resolve: (v: unknown) => unknown) => Promise.resolve(resolveWith).then(resolve);
+  return builder;
+}
 
+function createMockDb() {
   const selectResult = createQueryBuilder();
 
   return {
@@ -1116,6 +1115,139 @@ describe('Events API Routes', () => {
       const json = await res.json();
       expect(json.ok).toBe(true);
     });
+
+    it('denies subscription creation when user has viewer role', async () => {
+      const { app, rbacService, eventSourceService } = createSessionApp();
+      eventSourceService.getById.mockResolvedValue({
+        ok: true,
+        value: { id: 'src-1', teamId: 'team-1' },
+      });
+      rbacService.resolveTeamRole.mockResolvedValue('viewer');
+      rbacService.hasMinimumRole.mockReturnValue(false);
+
+      const res = await request(app, 'POST', '/api/events/subscriptions', {
+        name: 'Test Sub',
+        eventSourceId: 'src-1',
+        targetCodespaceId: 'cs-1',
+        eventTypes: ['push'],
+        promptTemplate: 'Handle this event',
+      });
+
+      expect(res.status).toBe(403);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+    });
+
+    it('denies subscription update when user has viewer role', async () => {
+      const { app, rbacService, eventSourceService, eventSubscriptionService } = createSessionApp();
+      eventSubscriptionService.getById.mockResolvedValue({
+        ok: true,
+        value: { id: 'sub-1', eventSourceId: 'src-1' },
+      });
+      eventSourceService.getById.mockResolvedValue({
+        ok: true,
+        value: { id: 'src-1', teamId: 'team-1' },
+      });
+      rbacService.resolveTeamRole.mockResolvedValue('viewer');
+      rbacService.hasMinimumRole.mockReturnValue(false);
+
+      const res = await request(app, 'PATCH', '/api/events/subscriptions/sub-1', {
+        name: 'Updated',
+      });
+
+      expect(res.status).toBe(403);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+    });
+
+    it('denies subscription deletion when user has viewer role', async () => {
+      const { app, rbacService, eventSourceService, eventSubscriptionService } = createSessionApp();
+      eventSubscriptionService.getById.mockResolvedValue({
+        ok: true,
+        value: { id: 'sub-1', eventSourceId: 'src-1' },
+      });
+      eventSourceService.getById.mockResolvedValue({
+        ok: true,
+        value: { id: 'src-1', teamId: 'team-1' },
+      });
+      rbacService.resolveTeamRole.mockResolvedValue('viewer');
+      rbacService.hasMinimumRole.mockReturnValue(false);
+
+      const res = await request(app, 'DELETE', '/api/events/subscriptions/sub-1');
+
+      expect(res.status).toBe(403);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+    });
+  });
+
+  // =========================================================================
+  // Event Log Detail Access Control
+  // =========================================================================
+
+  describe('GET /api/events/log/:id', () => {
+    it('returns 404 when entry does not exist', async () => {
+      const { app } = createTestApp();
+
+      const res = await request(app, 'GET', '/api/events/log/evt-nonexistent');
+
+      expect(res.status).toBe(404);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('NOT_FOUND');
+    });
+
+    it('returns 403 for orphaned entry (null eventSourceId)', async () => {
+      const { app, db } = createTestApp();
+      const mockEntry = { id: 'evt-1', eventSourceId: null, eventType: 'push' };
+      db.select.mockReturnValue(createQueryBuilder([mockEntry]) as never);
+
+      const res = await request(app, 'GET', '/api/events/log/evt-1');
+
+      expect(res.status).toBe(403);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('FORBIDDEN');
+    });
+
+    it('returns 403 when source has been deleted', async () => {
+      const { app, db, eventSourceService } = createTestApp();
+      const mockEntry = { id: 'evt-1', eventSourceId: 'src-deleted', eventType: 'push' };
+      db.select.mockReturnValue(createQueryBuilder([mockEntry]) as never);
+      eventSourceService.getById.mockResolvedValue({
+        ok: false,
+        error: { code: 'NOT_FOUND', message: 'Not found' },
+      });
+
+      const res = await request(app, 'GET', '/api/events/log/evt-1');
+
+      expect(res.status).toBe(403);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('FORBIDDEN');
+    });
+
+    it('returns event log entry when access is granted', async () => {
+      const { app, db, eventSourceService } = createTestApp();
+      const mockEntry = {
+        id: 'evt-1',
+        eventSourceId: 'src-1',
+        eventType: 'push',
+        status: 'processed',
+      };
+      db.select.mockReturnValue(createQueryBuilder([mockEntry]) as never);
+      eventSourceService.getById.mockResolvedValue({
+        ok: true,
+        value: { id: 'src-1', teamId: 'team-1' },
+      });
+
+      const res = await request(app, 'GET', '/api/events/log/evt-1');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.ok).toBe(true);
+      expect(json.data.id).toBe('evt-1');
+    });
   });
 
   // =========================================================================
@@ -1131,6 +1263,37 @@ describe('Events API Routes', () => {
       expect(res.status).toBe(200);
       expect(res.headers.get('Content-Type')).toBe('text/event-stream');
       expect(res.headers.get('Cache-Control')).toBe('no-cache');
+    });
+
+    it('returns 401 when user is not authenticated', async () => {
+      const eventSourceService = createMockEventSourceService();
+      const eventSubscriptionService = createMockEventSubscriptionService();
+      const rbacService = createMockRbacService();
+      const schedulerService = createMockSchedulerService();
+      const db = createMockDb();
+
+      const deps: EventsRouteDependencies = {
+        eventSourceService: eventSourceService as never,
+        eventSubscriptionService: eventSubscriptionService as never,
+        db: db as never,
+        rbacService: rbacService as never,
+        schedulerService: schedulerService as never,
+      };
+
+      const routes = createEventsRoutes(deps);
+      const app = new Hono();
+      // Inject empty auth (no userId)
+      app.use('/api/events/*', async (c, next) => {
+        c.set('auth' as never, {} as never);
+        await next();
+      });
+      app.route('/api/events', routes);
+
+      const res = await request(app, 'GET', '/api/events/stream');
+
+      expect(res.status).toBe(401);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
     });
   });
 });
