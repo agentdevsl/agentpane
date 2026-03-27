@@ -184,13 +184,24 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
   }, []);
 
   const fetchSyncedSkills = useCallback(async (csId: string | null) => {
-    if (!csId) {
-      setSyncedSkills([]);
-      return;
-    }
     setSyncedSkillsLoading(true);
     try {
-      const result = await apiClient.codespaces.getSkills(csId);
+      let targetId = csId;
+      if (!targetId) {
+        // Global mode — skills are org-scoped, so fetch from any codespace
+        const listResult = await apiClient.codespaces.list();
+        if (currentCodespaceRef.current !== csId) return;
+        if (!listResult.ok) return;
+        const codespaces = Array.isArray(listResult.data)
+          ? listResult.data
+          : ((listResult.data as { items?: Array<{ id: string }> }).items ?? []);
+        targetId = codespaces[0]?.id ?? null;
+      }
+      if (!targetId) {
+        setSyncedSkills([]);
+        return;
+      }
+      const result = await apiClient.codespaces.getSkills(targetId);
       if (currentCodespaceRef.current !== csId) return;
       if (result.ok) {
         setSyncedSkills(result.data);
