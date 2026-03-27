@@ -248,9 +248,12 @@ export function createMemoryRoutes({
 
     const skillId = c.req.param('skillId');
 
-    // null body means clear the override
+    // null body OR empty object means clear the override (client sends {} when null
+    // cannot be serialized via JSON, e.g. `override ?? {}`)
     const override =
-      body === null ? null : (body as { enabled?: boolean; model?: string; minRuns?: number });
+      body === null || (typeof body === 'object' && Object.keys(body as object).length === 0)
+        ? null
+        : (body as { enabled?: boolean; model?: string; minRuns?: number });
 
     return wrapHandler('Failed to set dream skill override', async () => {
       const result = await dreamService.setSkillOverride(skillId, override);

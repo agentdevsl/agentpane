@@ -1,6 +1,6 @@
 /**
  * Internal memory service types.
- * Replaces external Honcho SDK types with local DB-backed equivalents.
+ * Internal memory service types backed by local SQLite storage.
  */
 
 /**

@@ -5,10 +5,11 @@
  * Suggestions are stored as pending for human review (accept/reject/modify).
  *
  * Dream cycle:
- * 1. Find skills with enough execution data (>= minRuns)
- * 2. For each skill, gather performance summary + recent executions
- * 3. Send to Claude for analysis → get improvement suggestions
- * 4. Store suggestions in skill_suggestions table as 'pending'
+ * 1. Iterate all skills, applying per-skill config overrides (enabled, model, minRuns)
+ * 2. Skip disabled skills and those with fewer runs than their minRuns threshold
+ * 3. For each eligible skill, gather performance summary + recent executions
+ * 4. Send to Claude for analysis using the skill's configured model
+ * 5. Store suggestions in skill_suggestions table as 'pending'
  */
 
 import { createId } from '@paralleldrive/cuid2';
@@ -119,7 +120,9 @@ export class DreamService {
         const parsed = JSON.parse(minRunsResult.value.value);
         if (typeof parsed === 'number') return parsed;
       } catch {
-        // keep default
+        log.warn('Invalid memory.dreaming.minRunsForAnalysis setting, using default', {
+          data: { rawValue: minRunsResult.value.value },
+        });
       }
     }
     return DEFAULT_MIN_RUNS;
@@ -204,7 +207,9 @@ export class DreamService {
   }
 
   /**
-   * Run a full dream cycle — analyzes all eligible skills across codespaces.
+   * Run a full dream cycle. When codespaceId is provided, analyzes eligible
+   * skills in that codespace; otherwise analyzes all skills globally.
+   * Per-skill config overrides (enabled, model, minRuns) are applied for each skill.
    */
   async runDreamCycle(codespaceId?: string): Promise<Result<DreamSession, MemoryError>> {
     const startedAt = new Date().toISOString();
@@ -447,7 +452,6 @@ export class DreamService {
         .replace('{{successExamples}}', successExamples)
         .replace('{{failedExamples}}', failedExamples);
 
-      // Call Claude via Agent SDK
       const effectiveModel = model ?? (await this.getModel());
 
       const response = await agentPrompt(prompt, { model: effectiveModel });
@@ -748,7 +752,9 @@ export class DreamService {
         const parsed = JSON.parse(result.value.value);
         if (typeof parsed === 'number') return parsed;
       } catch {
-        // keep default
+        log.warn('Invalid memory.dreaming.maxTokensPerCycle setting, using default', {
+          data: { rawValue: result.value.value },
+        });
       }
     }
     return DEFAULT_MAX_TOKENS_PER_CYCLE;

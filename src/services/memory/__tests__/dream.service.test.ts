@@ -1,6 +1,7 @@
 // @ts-nocheck — test mocks use loose types
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ok } from '../../../lib/utils/result.js';
+import { MemoryErrors } from '../../../lib/errors/memory-errors.js';
+import { err, ok } from '../../../lib/utils/result.js';
 import type { SettingsService } from '../../settings.service.js';
 import { DreamService } from '../dream.service.js';
 import type { SkillTrackingService } from '../skill-tracking.service.js';
@@ -589,6 +590,154 @@ describe('DreamService', () => {
       if (!result.ok) {
         expect(result.error.code).toBe('MEMORY_QUERY_ERROR');
       }
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // getSkillOverrides
+  // -------------------------------------------------------------------------
+
+  describe('getSkillOverrides()', () => {
+    it('returns empty object when no setting exists', async () => {
+      const result = await service.getSkillOverrides();
+
+      expect(result).toEqual({});
+    });
+
+    it('returns parsed overrides when setting exists', async () => {
+      const overrides = { 'skill-deploy': { enabled: false, minRuns: 10 } };
+      (settings.get as ReturnType<typeof vi.fn>).mockImplementation(async (key: string) => {
+        if (key === 'memory.dreaming.skillOverrides') {
+          return ok({ key, value: JSON.stringify(overrides), updatedAt: '' });
+        }
+        return ok(null);
+      });
+
+      const result = await service.getSkillOverrides();
+
+      expect(result).toEqual(overrides);
+    });
+
+    it('returns empty object on JSON parse error', async () => {
+      (settings.get as ReturnType<typeof vi.fn>).mockImplementation(async (key: string) => {
+        if (key === 'memory.dreaming.skillOverrides') {
+          return ok({ key, value: '{not valid json', updatedAt: '' });
+        }
+        return ok(null);
+      });
+
+      const result = await service.getSkillOverrides();
+
+      expect(result).toEqual({});
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // setSkillOverride
+  // -------------------------------------------------------------------------
+
+  describe('setSkillOverride()', () => {
+    it('sets a new override when none exist', async () => {
+      const mockSet = vi.fn().mockResolvedValue(ok(undefined));
+      (settings as unknown as { set: ReturnType<typeof vi.fn> }).set = mockSet;
+
+      const result = await service.setSkillOverride('skill-deploy', {
+        enabled: false,
+        minRuns: 10,
+      });
+
+      expect(result.ok).toBe(true);
+      expect(mockSet).toHaveBeenCalledWith('memory.dreaming.skillOverrides', expect.any(String));
+      const savedValue = JSON.parse(mockSet.mock.calls[0][1]);
+      expect(savedValue['skill-deploy']).toEqual({ enabled: false, minRuns: 10 });
+    });
+
+    it('clears an override with null', async () => {
+      // Pre-populate with an existing override
+      (settings.get as ReturnType<typeof vi.fn>).mockImplementation(async (key: string) => {
+        if (key === 'memory.dreaming.skillOverrides') {
+          return ok({
+            key,
+            value: JSON.stringify({ 'skill-deploy': { enabled: false } }),
+            updatedAt: '',
+          });
+        }
+        return ok(null);
+      });
+      const mockSet = vi.fn().mockResolvedValue(ok(undefined));
+      (settings as unknown as { set: ReturnType<typeof vi.fn> }).set = mockSet;
+
+      const result = await service.setSkillOverride('skill-deploy', null);
+
+      expect(result.ok).toBe(true);
+      const savedValue = JSON.parse(mockSet.mock.calls[0][1]);
+      expect(savedValue['skill-deploy']).toBeUndefined();
+    });
+
+    it('returns error when settings write fails', async () => {
+      const mockSet = vi
+        .fn()
+        .mockResolvedValue(err(MemoryErrors.QUERY_ERROR('Failed to save skill override')));
+      (settings as unknown as { set: ReturnType<typeof vi.fn> }).set = mockSet;
+
+      const result = await service.setSkillOverride('skill-deploy', { enabled: true });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('MEMORY_QUERY_ERROR');
+      }
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // getSkillConfig
+  // -------------------------------------------------------------------------
+
+  describe('getSkillConfig()', () => {
+    it('returns global defaults when no override exists', async () => {
+      const result = await service.getSkillConfig('skill-deploy');
+
+      expect(result).toEqual({
+        enabled: true,
+        model: 'claude-haiku-4-5-20251001',
+        minRuns: 3,
+      });
+    });
+
+    it('returns per-skill override values, falling back to globals for unset fields', async () => {
+      (settings.get as ReturnType<typeof vi.fn>).mockImplementation(async (key: string) => {
+        if (key === 'memory.dreaming.skillOverrides') {
+          return ok({
+            key,
+            value: JSON.stringify({ 'skill-deploy': { minRuns: 10 } }),
+            updatedAt: '',
+          });
+        }
+        return ok(null);
+      });
+
+      const result = await service.getSkillConfig('skill-deploy');
+
+      expect(result.enabled).toBe(true); // falls back to global default
+      expect(result.model).toBe('claude-haiku-4-5-20251001'); // falls back to global default
+      expect(result.minRuns).toBe(10); // overridden
+    });
+
+    it('returns enabled: false when override says so', async () => {
+      (settings.get as ReturnType<typeof vi.fn>).mockImplementation(async (key: string) => {
+        if (key === 'memory.dreaming.skillOverrides') {
+          return ok({
+            key,
+            value: JSON.stringify({ 'skill-deploy': { enabled: false } }),
+            updatedAt: '',
+          });
+        }
+        return ok(null);
+      });
+
+      const result = await service.getSkillConfig('skill-deploy');
+
+      expect(result.enabled).toBe(false);
     });
   });
 

@@ -1682,6 +1682,17 @@ describe('Memory API Routes', () => {
       expect(dreamService.setSkillOverride).toHaveBeenCalledWith('skill-terraform', null);
     });
 
+    it('clears skill override with empty object body (client null-coalesce fallback)', async () => {
+      const { app, dreamService } = createTestApp();
+
+      const res = await request(app, 'PUT', '/api/memory/dream-config/skills/skill-terraform', {});
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.ok).toBe(true);
+      expect(dreamService.setSkillOverride).toHaveBeenCalledWith('skill-terraform', null);
+    });
+
     it('returns error when service returns err', async () => {
       const { app, dreamService } = createTestApp();
       dreamService.setSkillOverride.mockResolvedValue({

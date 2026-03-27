@@ -285,10 +285,13 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
       if (currentCodespaceRef.current !== csId) return;
       if (result.ok) {
         setDreamSkillOverrides(result.data);
+      } else {
+        toast.error('Failed to load dream skill overrides');
       }
-      // Silently ignore errors — overrides are optional
     } catch {
-      // Transient — non-critical
+      if (currentCodespaceRef.current === csId) {
+        toast.error('Failed to load dream skill overrides');
+      }
     } finally {
       if (currentCodespaceRef.current === csId) setDreamSkillOverridesLoading(false);
     }
@@ -561,7 +564,7 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
       try {
         const result = await apiClient.memory.setDreamSkillOverride(skillId, override);
         if (result.ok) {
-          // Optimistically update local state
+          // Update local state on success
           setDreamSkillOverrides((prev) => {
             const next = { ...prev };
             if (override === null) {
