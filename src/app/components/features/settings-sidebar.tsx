@@ -8,6 +8,7 @@ import {
   Heartbeat,
   Hexagon,
   Key,
+  Lightning,
   Robot,
   Swatches,
   Terminal,
@@ -107,7 +108,10 @@ function useSettingsSections(): SettingsSection[] {
     {
       id: 'integrations',
       title: 'Integrations',
-      items: [{ id: 'terraform', label: 'Terraform', to: '/terraform/settings', icon: Hexagon }],
+      items: [
+        { id: 'events', label: 'Events', to: '/events/sources', icon: Lightning },
+        { id: 'terraform', label: 'Terraform', to: '/terraform/settings', icon: Hexagon },
+      ],
     },
     {
       id: 'navigation',

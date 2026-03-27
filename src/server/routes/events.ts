@@ -304,7 +304,7 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
     }
   });
 
-  // POST /sources - Create event source (requires admin)
+  // POST /sources - Create event source (requires member)
   app.post('/sources', async (c) => {
     const auth = c.get('auth');
     const parsed = await parseJsonBody(c, createEventSourceSchema);
@@ -314,8 +314,8 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
       auth,
       rbacService,
       parsed.data.teamId,
-      'admin',
-      'Requires admin role in team'
+      'agent_operator',
+      'Requires agent_operator role in team'
     );
     if (denied) return denied;
 
@@ -351,7 +351,7 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
     }
   });
 
-  // PATCH /sources/:id - Update event source (requires admin)
+  // PATCH /sources/:id - Update event source (requires member)
   app.patch('/sources/:id', async (c) => {
     const id = c.req.param('id');
 
@@ -371,8 +371,8 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
         auth,
         rbacService,
         existing.value.teamId,
-        'admin',
-        'Requires admin role in team'
+        'agent_operator',
+        'Requires agent_operator role in team'
       );
       if (denied) return denied;
 
@@ -389,7 +389,7 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
     }
   });
 
-  // DELETE /sources/:id - Delete event source (requires admin)
+  // DELETE /sources/:id - Delete event source (requires member)
   app.delete('/sources/:id', async (c) => {
     const id = c.req.param('id');
 
@@ -407,8 +407,8 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
         auth,
         rbacService,
         existing.value.teamId,
-        'admin',
-        'Requires admin role in team'
+        'agent_operator',
+        'Requires agent_operator role in team'
       );
       if (denied) return denied;
 
@@ -425,7 +425,7 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
     }
   });
 
-  // POST /sources/:id/rotate-secret - Rotate webhook secret (requires admin)
+  // POST /sources/:id/rotate-secret - Rotate webhook secret (requires member)
   app.post('/sources/:id/rotate-secret', async (c) => {
     const id = c.req.param('id');
 
@@ -443,8 +443,8 @@ export function createEventsRoutes(deps: EventsRouteDependencies) {
         auth,
         rbacService,
         existing.value.teamId,
-        'admin',
-        'Requires admin role in team'
+        'agent_operator',
+        'Requires agent_operator role in team'
       );
       if (denied) return denied;
 

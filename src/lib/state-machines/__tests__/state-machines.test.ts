@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createError } from '../../errors/base.js';
 import { clearTask, incrementTurn, setError } from '../agent-lifecycle/actions.js';
 import {
@@ -1604,31 +1604,43 @@ describe('state machines', () => {
 
     describe('mutation testing coverage', () => {
       it('isStale returns false at exactly the 7-day boundary (kills > vs >= mutant)', () => {
-        const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
-        const ctx: WorktreeLifecycleContext = {
-          status: 'active',
-          branch: 'feature',
-          lastActivity: Date.now() - SEVEN_DAYS_MS,
-          branchExists: false,
-          pathAvailable: true,
-          hasUncommittedChanges: false,
-          conflictFiles: [],
-        };
-        expect(isWorktreeStale(ctx)).toBe(false);
+        vi.useFakeTimers();
+        try {
+          const now = Date.now();
+          const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+          const ctx: WorktreeLifecycleContext = {
+            status: 'active',
+            branch: 'feature',
+            lastActivity: now - SEVEN_DAYS_MS,
+            branchExists: false,
+            pathAvailable: true,
+            hasUncommittedChanges: false,
+            conflictFiles: [],
+          };
+          expect(isWorktreeStale(ctx)).toBe(false);
+        } finally {
+          vi.useRealTimers();
+        }
       });
 
       it('isStale returns true at 1ms past the 7-day boundary', () => {
-        const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
-        const ctx: WorktreeLifecycleContext = {
-          status: 'active',
-          branch: 'feature',
-          lastActivity: Date.now() - SEVEN_DAYS_MS - 1,
-          branchExists: false,
-          pathAvailable: true,
-          hasUncommittedChanges: false,
-          conflictFiles: [],
-        };
-        expect(isWorktreeStale(ctx)).toBe(true);
+        vi.useFakeTimers();
+        try {
+          const now = Date.now();
+          const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+          const ctx: WorktreeLifecycleContext = {
+            status: 'active',
+            branch: 'feature',
+            lastActivity: now - SEVEN_DAYS_MS - 1,
+            branchExists: false,
+            pathAvailable: true,
+            hasUncommittedChanges: false,
+            conflictFiles: [],
+          };
+          expect(isWorktreeStale(ctx)).toBe(true);
+        } finally {
+          vi.useRealTimers();
+        }
       });
 
       it('isStale returns false for 1-day-old worktree (kills ArithmeticOperator * to / mutants)', () => {
