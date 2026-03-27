@@ -2,6 +2,7 @@ import { createId } from '@paralleldrive/cuid2';
 import { sql } from 'drizzle-orm';
 import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import type { EventSourceStatus, EventSourceType } from '../shared/enums';
+import { githubInstallations } from './github';
 import { teams } from './teams';
 
 export type { EventSourceStatus, EventSourceType } from '../shared/enums';
@@ -23,6 +24,10 @@ export const eventSources = sqliteTable(
     config: text('config', { mode: 'json' }).$type<Record<string, unknown>>().default({}),
     eventCount: integer('event_count').default(0).notNull(),
     lastEventAt: text('last_event_at'),
+    /** Links to a GitHub App installation (auto-created sources only) */
+    githubInstallationId: text('github_installation_id').references(() => githubInstallations.id, {
+      onDelete: 'set null',
+    }),
     status: text('status').$type<EventSourceStatus>().default('active').notNull(),
     createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
     updatedAt: text('updated_at')

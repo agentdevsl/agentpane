@@ -27,6 +27,7 @@ import type { EventProcessingService } from '../services/event-processing.servic
 import type { EventSourceService } from '../services/event-source.service.js';
 import type { EventSubscriptionService } from '../services/event-subscription.service.js';
 import type { GitService } from '../services/git.service.js';
+import type { GitHubAppService } from '../services/github-app.service.js';
 import type { GitHubTokenService } from '../services/github-token.service.js';
 import type { MarketplaceService } from '../services/marketplace.service.js';
 import type { MemoryService } from '../services/memory/index.js';
@@ -53,6 +54,8 @@ import { createEventsRoutes } from './routes/events.js';
 import { createFilesystemRoutes } from './routes/filesystem.js';
 import { createGitRoutes } from './routes/git.js';
 import { createGitHubRoutes } from './routes/github.js';
+import { createGitHubAppRoutes } from './routes/github-app.js';
+import { createGitHubAppWebhooksRoutes } from './routes/github-app-webhooks.js';
 import { createHealthRoutes } from './routes/health.js';
 import { createInvitationAcceptRoutes } from './routes/invitation-accept.js';
 import { createMarketplacesRoutes } from './routes/marketplaces.js';
@@ -193,6 +196,7 @@ export interface RouterDependencies {
   terraformComposeService?: TerraformComposeService;
   settingsService: SettingsService;
   rbacService?: RbacService;
+  githubAppService?: GitHubAppService;
   eventSourceService?: EventSourceService;
   eventSubscriptionService?: EventSubscriptionService;
   eventProcessingService?: EventProcessingService;
@@ -292,6 +296,19 @@ export function createRouter(deps: RouterDependencies) {
         );
       }
     });
+  }
+
+  // Public GitHub App webhook endpoint — no auth required (signature-verified)
+  if (deps.githubAppService && deps.eventProcessingService) {
+    app.use('/hooks/github-app', rateLimiter({ max: 60, windowMs: 60_000 }));
+    app.route(
+      '/hooks/github-app',
+      createGitHubAppWebhooksRoutes({
+        githubAppService: deps.githubAppService,
+        eventProcessingService: deps.eventProcessingService,
+        db: deps.db,
+      })
+    );
   }
 
   app.use('/api/*', rateLimiter({ max: 200, windowMs: 60_000 }));
@@ -437,6 +454,12 @@ export function createRouter(deps: RouterDependencies) {
   );
   app.route('/api/worktrees', createWorktreesRoutes({ worktreeService: deps.worktreeService }));
   app.route('/api/github', createGitHubRoutes({ githubService: deps.githubService }));
+  if (deps.githubAppService) {
+    app.route(
+      '/api/github/app',
+      createGitHubAppRoutes({ githubAppService: deps.githubAppService })
+    );
+  }
   app.route('/api/git', createGitRoutes({ gitService: deps.gitService }));
   app.route(
     '/api/sandbox-configs',

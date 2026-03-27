@@ -20,6 +20,7 @@ import { EventProcessingService } from '../../services/event-processing.service.
 import { EventSourceService } from '../../services/event-source.service.js';
 import { EventSubscriptionService } from '../../services/event-subscription.service.js';
 import { GitService } from '../../services/git.service.js';
+import { GitHubAppService } from '../../services/github-app.service.js';
 import { GitHubTokenService } from '../../services/github-token.service.js';
 import { MarketplaceService } from '../../services/marketplace.service.js';
 import { DreamService } from '../../services/memory/dream.service.js';
@@ -155,7 +156,10 @@ export function createServiceContainer(db: Database, config: ServerConfig): Serv
   const codespaceService = new CodespaceService(db, worktreeService, commandRunner);
   const projectFolderService = new ProjectFolderService(db);
 
-  // 9. Event system
+  // 9. GitHub App service
+  const githubAppService = new GitHubAppService(db);
+
+  // 10. Event system
   const pluginRegistry = new PluginRegistry();
   pluginRegistry.register('github', new GitHubEventSourcePlugin());
   pluginRegistry.register('cron', new CronEventSourcePlugin());
@@ -207,6 +211,7 @@ export function createServiceContainer(db: Database, config: ServerConfig): Serv
     terraformRegistryService,
     terraformComposeService,
     settingsService,
+    githubAppService,
     eventSourceService,
     eventSubscriptionService,
     eventProcessingService,

@@ -1,0 +1,332 @@
+import { createId } from '@paralleldrive/cuid2';
+import { and, eq } from 'drizzle-orm';
+import {
+  codespaces,
+  eventSources,
+  eventSubscriptions,
+  githubInstallations,
+  projectFolders,
+} from '../db/schema/index.js';
+import type { GitHubInstallation } from '../db/schema/sqlite/github.js';
+import type { AppError } from '../lib/errors/base.js';
+import { EventErrors } from '../lib/errors/event-errors.js';
+import { getInstallationOctokit } from '../lib/github/client.js';
+import { createLogger } from '../lib/logging/logger.js';
+import type { Result } from '../lib/utils/result.js';
+import { err, ok } from '../lib/utils/result.js';
+import { slugify } from '../lib/utils/slugify.js';
+import type { Database } from '../types/database.js';
+
+const log = createLogger('GitHubAppService');
+
+export class GitHubAppService {
+  constructor(private db: Database) {}
+
+  isConfigured(): boolean {
+    return !!(process.env.GITHUB_APP_ID && process.env.GITHUB_PRIVATE_KEY);
+  }
+
+  getInstallUrl(): string | null {
+    const appName = process.env.GITHUB_APP_NAME;
+    if (!appName) return null;
+    return `https://github.com/apps/${appName}/installations/new`;
+  }
+
+  async handleInstallation(
+    installationId: number,
+    accountLogin: string,
+    accountType: string,
+    teamId?: string
+  ): Promise<Result<GitHubInstallation, AppError>> {
+    const installationIdStr = String(installationId);
+    const now = new Date().toISOString();
+
+    const existing = await this.db.query.githubInstallations.findFirst({
+      where: eq(githubInstallations.installationId, installationIdStr),
+    });
+
+    if (existing) {
+      const [updated] = await this.db
+        .update(githubInstallations)
+        .set({
+          accountLogin,
+          accountType,
+          status: 'active',
+          ...(teamId ? { teamId } : {}),
+          updatedAt: now,
+        })
+        .where(eq(githubInstallations.id, existing.id))
+        .returning();
+
+      if (!updated) {
+        return err(EventErrors.PROCESSING_FAILED('Failed to update installation'));
+      }
+
+      log.info('Updated GitHub App installation', {
+        data: { installationId, accountLogin, id: updated.id },
+      });
+      return ok(updated);
+    }
+
+    const [created] = await this.db
+      .insert(githubInstallations)
+      .values({
+        id: createId(),
+        installationId: installationIdStr,
+        accountLogin,
+        accountType,
+        teamId: teamId ?? null,
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+
+    if (!created) {
+      return err(EventErrors.PROCESSING_FAILED('Failed to create installation record'));
+    }
+
+    log.info('Stored GitHub App installation', {
+      data: { installationId, accountLogin, id: created.id },
+    });
+    return ok(created);
+  }
+
+  async handleUninstall(installationId: number): Promise<Result<void, AppError>> {
+    const installationIdStr = String(installationId);
+    const now = new Date().toISOString();
+
+    const installation = await this.db.query.githubInstallations.findFirst({
+      where: eq(githubInstallations.installationId, installationIdStr),
+    });
+
+    if (!installation) {
+      log.warn('Uninstall event for unknown installation', { data: { installationId } });
+      return ok(undefined);
+    }
+
+    await this.db
+      .update(githubInstallations)
+      .set({ status: 'removed', updatedAt: now })
+      .where(eq(githubInstallations.id, installation.id));
+
+    await this.db
+      .update(eventSources)
+      .set({ isEnabled: false, status: 'disabled', updatedAt: now })
+      .where(eq(eventSources.githubInstallationId, installation.id));
+
+    log.info('Handled GitHub App uninstall', {
+      data: { installationId, id: installation.id },
+    });
+    return ok(undefined);
+  }
+
+  async listInstallations(teamId?: string): Promise<Result<GitHubInstallation[], AppError>> {
+    const whereClause = teamId
+      ? and(eq(githubInstallations.teamId, teamId), eq(githubInstallations.status, 'active'))
+      : eq(githubInstallations.status, 'active');
+
+    const items = await this.db.query.githubInstallations.findMany({
+      where: whereClause,
+    });
+    return ok(items);
+  }
+
+  async getInstallationByAccount(
+    accountLogin: string
+  ): Promise<Result<GitHubInstallation | null, AppError>> {
+    const installation = await this.db.query.githubInstallations.findFirst({
+      where: and(
+        eq(githubInstallations.accountLogin, accountLogin),
+        eq(githubInstallations.status, 'active')
+      ),
+    });
+    return ok(installation ?? null);
+  }
+
+  async autoConfigureEventsForCodespace(codespaceId: string): Promise<
+    Result<
+      {
+        eventSourceId: string | null;
+        subscriptionId: string | null;
+        installationId: string | null;
+      },
+      AppError
+    >
+  > {
+    const codespace = await this.db.query.codespaces.findFirst({
+      where: eq(codespaces.id, codespaceId),
+    });
+
+    if (!codespace) {
+      return err(EventErrors.PROCESSING_FAILED('Codespace not found'));
+    }
+
+    if (!codespace.githubOwner) {
+      return ok({ eventSourceId: null, subscriptionId: null, installationId: null });
+    }
+
+    const installation = await this.db.query.githubInstallations.findFirst({
+      where: and(
+        eq(githubInstallations.accountLogin, codespace.githubOwner),
+        eq(githubInstallations.status, 'active')
+      ),
+    });
+
+    if (!installation) {
+      return ok({ eventSourceId: null, subscriptionId: null, installationId: null });
+    }
+
+    const teamId = installation.teamId ?? (await this.resolveTeamId(codespace.projectFolderId));
+    if (!teamId) {
+      log.warn('Cannot determine teamId for auto-configure', {
+        data: { codespaceId, installationId: installation.id },
+      });
+      return ok({ eventSourceId: null, subscriptionId: null, installationId: installation.id });
+    }
+
+    // Find or create event source
+    let source = await this.db.query.eventSources.findFirst({
+      where: and(
+        eq(eventSources.githubInstallationId, installation.id),
+        eq(eventSources.teamId, teamId)
+      ),
+    });
+
+    if (!source) {
+      const name = `GitHub (${installation.accountLogin})`;
+      const slug = `${slugify(name)}-${createId().slice(0, 6)}`;
+      const now = new Date().toISOString();
+
+      const [created] = await this.db
+        .insert(eventSources)
+        .values({
+          id: createId(),
+          teamId,
+          name,
+          type: 'github',
+          slug,
+          webhookSecret: null,
+          isEnabled: true,
+          config: { installationId: Number(installation.installationId) },
+          eventCount: 0,
+          githubInstallationId: installation.id,
+          status: 'active',
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning();
+
+      if (!created) {
+        return err(EventErrors.PROCESSING_FAILED('Failed to create event source'));
+      }
+      source = created;
+      log.info('Auto-created event source', {
+        data: { sourceId: source.id, accountLogin: installation.accountLogin },
+      });
+    }
+
+    // Find or create subscription
+    const existingSub = await this.db.query.eventSubscriptions.findFirst({
+      where: and(
+        eq(eventSubscriptions.eventSourceId, source.id),
+        eq(eventSubscriptions.targetCodespaceId, codespaceId)
+      ),
+    });
+
+    let subscriptionId: string | null = existingSub?.id ?? null;
+
+    if (!existingSub) {
+      const repoName = codespace.githubRepo
+        ? `${codespace.githubOwner}/${codespace.githubRepo}`
+        : codespace.githubOwner;
+      const now = new Date().toISOString();
+
+      const [sub] = await this.db
+        .insert(eventSubscriptions)
+        .values({
+          id: createId(),
+          name: `Auto: ${codespace.name}`,
+          eventSourceId: source.id,
+          targetCodespaceId: codespaceId,
+          isEnabled: true,
+          eventTypes: ['issues', 'pull_request', 'push'],
+          filters: codespace.githubRepo
+            ? [{ field: 'repo' as const, operator: 'equals' as const, value: repoName }]
+            : [],
+          promptTemplate:
+            '{{event.type}} {{event.action}} on {{repo.full_name}}: {{data.title}}\n\n{{data.body}}',
+          autoStartAgent: false,
+          taskColumn: 'backlog',
+          taskPriority: 'medium',
+          taskLabels: [],
+          matchedCount: 0,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning();
+
+      if (sub) {
+        subscriptionId = sub.id;
+        log.info('Auto-created subscription', {
+          data: { subscriptionId: sub.id, codespaceId, sourceId: source.id },
+        });
+      }
+    }
+
+    if (codespace.githubInstallationId !== installation.id) {
+      await this.db
+        .update(codespaces)
+        .set({ githubInstallationId: installation.id, updatedAt: new Date().toISOString() })
+        .where(eq(codespaces.id, codespaceId));
+    }
+
+    return ok({ eventSourceId: source.id, subscriptionId, installationId: installation.id });
+  }
+
+  async removeInstallation(id: string): Promise<Result<void, AppError>> {
+    const [deleted] = await this.db
+      .delete(githubInstallations)
+      .where(eq(githubInstallations.id, id))
+      .returning({ id: githubInstallations.id });
+
+    if (!deleted) {
+      return err(EventErrors.SOURCE_NOT_FOUND());
+    }
+
+    log.info('Removed GitHub App installation', { data: { id } });
+    return ok(undefined);
+  }
+
+  async getInstallationToken(installationId: number): Promise<Result<string, AppError>> {
+    if (!this.isConfigured()) {
+      return err(
+        EventErrors.PROCESSING_FAILED(
+          'GitHub App credentials not configured (GITHUB_APP_ID, GITHUB_PRIVATE_KEY)'
+        )
+      );
+    }
+
+    try {
+      const octokit = await getInstallationOctokit(installationId);
+      const { data } = await octokit.rest.apps.createInstallationAccessToken({
+        installation_id: installationId,
+      });
+      return ok(data.token);
+    } catch (error) {
+      log.error('Failed to get installation token', { data: { installationId }, error });
+      return err(
+        EventErrors.PROCESSING_FAILED(
+          `Failed to get installation token: ${error instanceof Error ? error.message : String(error)}`
+        )
+      );
+    }
+  }
+
+  private async resolveTeamId(projectFolderId: string): Promise<string | null> {
+    const folder = await this.db.query.projectFolders.findFirst({
+      where: eq(projectFolders.id, projectFolderId),
+    });
+    return folder?.teamId ?? null;
+  }
+}
