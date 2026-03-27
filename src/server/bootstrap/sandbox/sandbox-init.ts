@@ -132,7 +132,8 @@ async function initSandboxProviderCore(
         services.durableStreamsService,
         services.apiKeyService,
         services.worktreeService,
-        services.githubService
+        services.githubService,
+        services.skillTrackingService
       );
 
       services.taskService.setContainerAgentService(sandboxState.containerAgentService);

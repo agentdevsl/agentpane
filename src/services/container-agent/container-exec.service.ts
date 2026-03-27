@@ -990,7 +990,14 @@ export class ContainerExecService {
     }
 
     // Update task status based on completion (using shared helper)
-    await updateTaskOnAgentComplete(db, taskId, status, streams, agent.sessionId);
+    await updateTaskOnAgentComplete(
+      db,
+      taskId,
+      status,
+      streams,
+      agent.sessionId,
+      this.deps.skillTrackingService
+    );
 
     // Handle worktree cleanup on cancellation
     if (status === 'cancelled' && agent.worktreeId) {

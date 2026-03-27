@@ -60,21 +60,8 @@ export async function run(): Promise<void> {
   // Phase 4: Services
   const services = createServiceContainer(database.db, config);
 
-  // Phase 4.5: Memory service initialization (non-blocking)
-  if (services.memoryService) {
-    try {
-      await services.memoryService.initialize();
-      if (services.memoryService.isAvailable()) {
-        log.info('Internal memory service initialized');
-      } else {
-        log.info('Memory service disabled via settings');
-      }
-    } catch (memErr) {
-      log.warn('Memory service initialization failed, continuing without memory', {
-        error: memErr instanceof Error ? memErr : new Error(String(memErr)),
-      });
-    }
-  }
+  // Phase 4.5: Memory service initialization (always available — backed by local SQLite)
+  await services.memoryService.initialize();
 
   // Phase 5: API Key Resolution
   await resolveApiKey(services.apiKeyService);

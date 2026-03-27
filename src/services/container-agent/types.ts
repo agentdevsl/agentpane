@@ -114,6 +114,7 @@ export interface ContainerAgentDeps {
   apiKeyService: import('./../../services/api-key.service.js').ApiKeyService;
   worktreeService?: import('./../../services/worktree.service.js').WorktreeService;
   githubTokenService?: import('./../../services/github-token.service.js').GitHubTokenService;
+  skillTrackingService?: import('../memory/skill-tracking.service.js').SkillTrackingService | null;
 }
 
 /** TTL for pending plans in milliseconds (1 hour) */

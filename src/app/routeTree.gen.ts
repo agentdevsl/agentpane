@@ -739,18 +739,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof QueueIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/marketplace/': {
-      id: '/marketplace/'
-      path: '/marketplace'
-      fullPath: '/marketplace/'
-      preLoaderRoute: typeof MarketplaceIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/memory/': {
       id: '/memory/'
       path: '/memory'
       fullPath: '/memory/'
       preLoaderRoute: typeof MemoryIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/marketplace/': {
+      id: '/marketplace/'
+      path: '/marketplace'
+      fullPath: '/marketplace/'
+      preLoaderRoute: typeof MarketplaceIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/events/': {

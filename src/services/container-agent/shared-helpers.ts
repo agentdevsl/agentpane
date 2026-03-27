@@ -15,6 +15,7 @@ import { softInvariant } from '../../lib/utils/invariant.js';
 import type { Database } from '../../types/database.js';
 import type { ApiKeyService } from '../api-key.service.js';
 import type { DurableStreamsService } from '../durable-streams.service.js';
+import type { SkillTrackingService } from '../memory/skill-tracking.service.js';
 
 const log = createLogger('ContainerAgentHelpers');
 
@@ -28,7 +29,8 @@ export async function updateTaskOnAgentComplete(
   taskId: string,
   status: 'completed' | 'turn_limit' | 'cancelled',
   streams?: DurableStreamsService,
-  sessionId?: string
+  sessionId?: string,
+  skillTrackingService?: SkillTrackingService | null
 ): Promise<boolean> {
   try {
     if (status === 'completed') {
@@ -85,6 +87,63 @@ export async function updateTaskOnAgentComplete(
         return false;
       }
     }
+
+    // Record skill execution metrics (fire-and-forget)
+    if (skillTrackingService && status !== 'cancelled') {
+      try {
+        const taskRecord = await db.query.tasks.findFirst({
+          where: eq(tasks.id, taskId),
+          columns: { skillId: true, skillName: true, codespaceId: true, startedAt: true },
+        });
+        if (taskRecord?.skillId) {
+          const trackingStatus = status === 'completed' ? 'success' : 'turn_limit';
+          const now = new Date().toISOString();
+          skillTrackingService
+            .recordExecution({
+              codespaceId: taskRecord.codespaceId,
+              skillId: taskRecord.skillId,
+              skillName: taskRecord.skillName ?? null,
+              taskId,
+              agentRunId: null,
+              sessionId: sessionId ?? null,
+              status: trackingStatus,
+              startedAt: taskRecord.startedAt ?? null,
+              completedAt: now,
+            })
+            .then((result) => {
+              if (result.ok) {
+                skillTrackingService
+                  .refreshMetrics(taskRecord.codespaceId, taskRecord.skillId!)
+                  .catch((refreshErr) => {
+                    log.warn('Failed to refresh skill metrics', {
+                      data: {
+                        taskId,
+                        error:
+                          refreshErr instanceof Error ? refreshErr.message : String(refreshErr),
+                      },
+                    });
+                  });
+              }
+            })
+            .catch((recordErr) => {
+              log.warn('Failed to record container agent skill execution', {
+                data: {
+                  taskId,
+                  error: recordErr instanceof Error ? recordErr.message : String(recordErr),
+                },
+              });
+            });
+        }
+      } catch (lookupErr) {
+        log.warn('Failed to look up task for skill tracking', {
+          data: {
+            taskId,
+            error: lookupErr instanceof Error ? lookupErr.message : String(lookupErr),
+          },
+        });
+      }
+    }
+
     return true;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);

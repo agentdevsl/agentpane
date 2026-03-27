@@ -1,5 +1,6 @@
 import {
   BookOpen,
+  Brain,
   Cube,
   Gear,
   Monitor,
@@ -29,6 +30,7 @@ interface RailNavItem {
 const railNavItems: readonly RailNavItem[] = [
   { label: 'Sessions', to: '/sessions', icon: Monitor, matchPrefix: '/sessions' },
   { label: 'Agents', to: '/agents', icon: Robot, matchPrefix: '/agents' },
+  { label: 'Memory', to: '/memory', icon: Brain, matchPrefix: '/memory' },
   { label: 'Designer', to: '/designer', icon: TreeStructure, matchPrefix: '/designer' },
   { label: 'Terraform', to: '/terraform', icon: Cube, matchPrefix: '/terraform' },
   { label: 'Marketplace', to: '/marketplace', icon: PuzzlePiece, matchPrefix: '/marketplace' },

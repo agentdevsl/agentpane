@@ -53,8 +53,8 @@ function parsePagination(
 
 interface MemoryDeps {
   memoryService: MemoryService;
-  skillTrackingService: SkillTrackingService | null;
-  dreamService: DreamService | null;
+  skillTrackingService: SkillTrackingService;
+  dreamService: DreamService;
 }
 
 export function createMemoryRoutes({
@@ -91,16 +91,6 @@ export function createMemoryRoutes({
 
   // GET /api/memory/codespaces/:codespaceId/insights
   app.get('/codespaces/:codespaceId/insights', async (c) => {
-    if (!memoryService.isAvailable()) {
-      return json(
-        {
-          ok: false,
-          error: { code: 'MEMORY_UNAVAILABLE', message: 'Memory service is not available' },
-        },
-        503
-      );
-    }
-
     try {
       const codespaceId = c.req.param('codespaceId');
       const { page, size } = parsePagination(c, { page: 1, size: 50 });
@@ -132,16 +122,6 @@ export function createMemoryRoutes({
 
   // POST /api/memory/codespaces/:codespaceId/insights
   app.post('/codespaces/:codespaceId/insights', async (c) => {
-    if (!memoryService.isAvailable()) {
-      return json(
-        {
-          ok: false,
-          error: { code: 'MEMORY_UNAVAILABLE', message: 'Memory service is not available' },
-        },
-        503
-      );
-    }
-
     let body: unknown;
     try {
       body = await c.req.json();
@@ -198,16 +178,6 @@ export function createMemoryRoutes({
 
   // DELETE /api/memory/insights/:insightId
   app.delete('/insights/:insightId', async (c) => {
-    if (!memoryService.isAvailable()) {
-      return json(
-        {
-          ok: false,
-          error: { code: 'MEMORY_UNAVAILABLE', message: 'Memory service is not available' },
-        },
-        503
-      );
-    }
-
     try {
       const insightId = c.req.param('insightId');
       const result = await memoryService.deleteInsight(insightId);
@@ -233,16 +203,6 @@ export function createMemoryRoutes({
 
   // POST /api/memory/codespaces/:codespaceId/search
   app.post('/codespaces/:codespaceId/search', async (c) => {
-    if (!memoryService.isAvailable()) {
-      return json(
-        {
-          ok: false,
-          error: { code: 'MEMORY_UNAVAILABLE', message: 'Memory service is not available' },
-        },
-        503
-      );
-    }
-
     let body: unknown;
     try {
       body = await c.req.json();
@@ -294,13 +254,6 @@ export function createMemoryRoutes({
 
   // GET /api/memory/codespaces/:codespaceId/skill-metrics
   app.get('/codespaces/:codespaceId/skill-metrics', async (c) => {
-    if (!skillTrackingService) {
-      return json(
-        { ok: false, error: { code: 'NOT_AVAILABLE', message: 'Skill tracking not available' } },
-        503
-      );
-    }
-
     try {
       const codespaceId = c.req.param('codespaceId');
       const result = await skillTrackingService.getMetrics(codespaceId);
@@ -326,13 +279,6 @@ export function createMemoryRoutes({
 
   // GET /api/memory/codespaces/:codespaceId/skill-metrics/:skillId
   app.get('/codespaces/:codespaceId/skill-metrics/:skillId', async (c) => {
-    if (!skillTrackingService) {
-      return json(
-        { ok: false, error: { code: 'NOT_AVAILABLE', message: 'Skill tracking not available' } },
-        503
-      );
-    }
-
     try {
       const codespaceId = c.req.param('codespaceId');
       const skillId = c.req.param('skillId');
@@ -359,13 +305,6 @@ export function createMemoryRoutes({
 
   // GET /api/memory/codespaces/:codespaceId/skill-metrics/:skillId/executions
   app.get('/codespaces/:codespaceId/skill-metrics/:skillId/executions', async (c) => {
-    if (!skillTrackingService) {
-      return json(
-        { ok: false, error: { code: 'NOT_AVAILABLE', message: 'Skill tracking not available' } },
-        503
-      );
-    }
-
     try {
       const codespaceId = c.req.param('codespaceId');
       const skillId = c.req.param('skillId');
@@ -403,13 +342,6 @@ export function createMemoryRoutes({
 
   // GET /api/memory/codespaces/:codespaceId/dream-sessions
   app.get('/codespaces/:codespaceId/dream-sessions', async (c) => {
-    if (!dreamService) {
-      return json(
-        { ok: false, error: { code: 'NOT_AVAILABLE', message: 'Dream service not available' } },
-        503
-      );
-    }
-
     try {
       const codespaceId = c.req.param('codespaceId');
       const { page, size } = parsePagination(c);
@@ -441,13 +373,6 @@ export function createMemoryRoutes({
 
   // POST /api/memory/codespaces/:codespaceId/dream — trigger manual dream cycle
   app.post('/codespaces/:codespaceId/dream', async (c) => {
-    if (!dreamService) {
-      return json(
-        { ok: false, error: { code: 'NOT_AVAILABLE', message: 'Dream service not available' } },
-        503
-      );
-    }
-
     try {
       const codespaceId = c.req.param('codespaceId');
       const result = await dreamService.runDreamCycle(codespaceId);
@@ -475,13 +400,6 @@ export function createMemoryRoutes({
 
   // GET /api/memory/codespaces/:codespaceId/suggestions
   app.get('/codespaces/:codespaceId/suggestions', async (c) => {
-    if (!dreamService) {
-      return json(
-        { ok: false, error: { code: 'NOT_AVAILABLE', message: 'Dream service not available' } },
-        503
-      );
-    }
-
     try {
       const codespaceId = c.req.param('codespaceId');
       const statusParam = c.req.query('status');
@@ -524,13 +442,6 @@ export function createMemoryRoutes({
 
   // PATCH /api/memory/suggestions/:id/accept
   app.patch('/suggestions/:id/accept', async (c) => {
-    if (!dreamService) {
-      return json(
-        { ok: false, error: { code: 'NOT_AVAILABLE', message: 'Dream service not available' } },
-        503
-      );
-    }
-
     let body: Record<string, unknown> = {};
     try {
       body = (await c.req.json()) as Record<string, unknown>;
@@ -568,13 +479,6 @@ export function createMemoryRoutes({
 
   // PATCH /api/memory/suggestions/:id/reject
   app.patch('/suggestions/:id/reject', async (c) => {
-    if (!dreamService) {
-      return json(
-        { ok: false, error: { code: 'NOT_AVAILABLE', message: 'Dream service not available' } },
-        503
-      );
-    }
-
     let body: Record<string, unknown> = {};
     try {
       body = (await c.req.json()) as Record<string, unknown>;
@@ -612,13 +516,6 @@ export function createMemoryRoutes({
 
   // PATCH /api/memory/suggestions/:id/modify
   app.patch('/suggestions/:id/modify', async (c) => {
-    if (!dreamService) {
-      return json(
-        { ok: false, error: { code: 'NOT_AVAILABLE', message: 'Dream service not available' } },
-        503
-      );
-    }
-
     let body: unknown;
     try {
       body = await c.req.json();

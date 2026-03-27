@@ -17,6 +17,7 @@ import type { Result } from '../../lib/utils/result.js';
 import { err, ok } from '../../lib/utils/result.js';
 import type { Database } from '../../types/database.js';
 import type { MemoryService, MemorySessionRef } from '../memory/index.js';
+import type { SkillTrackingService } from '../memory/skill-tracking.service.js';
 import { createSessionEventWithMetadata } from '../session/event-metadata.js';
 import { getGlobalDefaultModel } from '../settings.service.js';
 import type { AgentQueueService } from './agent-queue.service.js';
@@ -68,15 +69,18 @@ export class AgentExecutionService {
   private postToolHooks = new Map<string, PostToolUseHook[]>();
   private queueService: AgentQueueService | null = null;
   private memoryService: MemoryService | null = null;
+  private skillTrackingService: SkillTrackingService | null = null;
 
   constructor(
     private db: Database,
     private worktreeService: WorktreeService,
     _taskService: TaskService,
     private sessionService: SessionServiceInterface,
-    memoryService?: MemoryService | null
+    memoryService?: MemoryService | null,
+    skillTrackingService?: SkillTrackingService | null
   ) {
     this.memoryService = memoryService ?? null;
+    this.skillTrackingService = skillTrackingService ?? null;
   }
 
   /**
@@ -85,6 +89,84 @@ export class AgentExecutionService {
    */
   setQueueService(queueService: AgentQueueService): void {
     this.queueService = queueService;
+  }
+
+  /**
+   * Record a skill execution after an agent run completes (fire-and-forget).
+   * Only records if the task has a skillId and the skill tracking service is available.
+   */
+  private recordSkillExecution(params: {
+    codespaceId: string;
+    taskId: string;
+    agentRunId: string;
+    sessionId: string;
+    skillId: string | null;
+    skillName: string | null;
+    status: 'completed' | 'error' | 'turn_limit' | 'paused' | 'planning';
+    turnCount: number;
+    metrics?: {
+      totalCostUsd?: number;
+      durationMs?: number;
+      numTurns?: number;
+    };
+    errorMessage?: string;
+    startedAt?: string | null;
+  }): void {
+    if (!this.skillTrackingService || !params.skillId) return;
+
+    const trackingStatus =
+      params.status === 'completed'
+        ? 'success'
+        : params.status === 'turn_limit'
+          ? 'turn_limit'
+          : params.status === 'error'
+            ? 'failed'
+            : null;
+
+    // Only record for terminal states (completed, error, turn_limit)
+    if (!trackingStatus) return;
+
+    const svc = this.skillTrackingService;
+    const now = new Date().toISOString();
+
+    svc
+      .recordExecution({
+        codespaceId: params.codespaceId,
+        skillId: params.skillId,
+        skillName: params.skillName,
+        taskId: params.taskId,
+        agentRunId: params.agentRunId,
+        sessionId: params.sessionId,
+        status: trackingStatus,
+        turnsUsed: params.metrics?.numTurns ?? params.turnCount,
+        tokensUsed: null,
+        durationMs: params.metrics?.durationMs ?? null,
+        costUsd: params.metrics?.totalCostUsd ?? null,
+        errorMessage: params.errorMessage ?? null,
+        startedAt: params.startedAt ?? null,
+        completedAt: now,
+      })
+      .then((result) => {
+        if (result.ok) {
+          // Also refresh aggregated metrics
+          svc.refreshMetrics(params.codespaceId, params.skillId!).catch((refreshErr) => {
+            log.warn('Failed to refresh skill metrics after recording', {
+              error: refreshErr instanceof Error ? refreshErr : new Error(String(refreshErr)),
+              data: { skillId: params.skillId, taskId: params.taskId },
+            });
+          });
+        } else {
+          log.warn('Failed to record skill execution', {
+            data: { skillId: params.skillId, taskId: params.taskId, error: result.error },
+          });
+        }
+      })
+      .catch((recordErr) => {
+        log.warn('Skill execution recording threw', {
+          error: recordErr instanceof Error ? recordErr : new Error(String(recordErr)),
+          data: { skillId: params.skillId, taskId: params.taskId },
+        });
+      });
   }
 
   /**
@@ -528,6 +610,29 @@ export class AgentExecutionService {
           .where(eq(agents.id, agentId));
       }
 
+      // Record skill execution metrics (fire-and-forget)
+      if (this.skillTrackingService) {
+        const taskForSkill = await this.db.query.tasks.findFirst({
+          where: eq(tasks.id, taskId),
+          columns: { skillId: true, skillName: true, codespaceId: true, startedAt: true },
+        });
+        if (taskForSkill?.skillId) {
+          this.recordSkillExecution({
+            codespaceId: taskForSkill.codespaceId,
+            taskId,
+            agentRunId: runId,
+            sessionId,
+            skillId: taskForSkill.skillId,
+            skillName: taskForSkill.skillName ?? null,
+            status: result.status,
+            turnCount: result.turnCount,
+            metrics: result.metrics,
+            errorMessage: result.error,
+            startedAt: taskForSkill.startedAt,
+          });
+        }
+      }
+
       // Remove from running agents
       this.runningAgents.delete(agentId);
 
@@ -579,6 +684,28 @@ export class AgentExecutionService {
           updatedAt: new Date().toISOString(),
         })
         .where(eq(agents.id, agentId));
+
+      // Record skill execution as error (fire-and-forget)
+      if (this.skillTrackingService) {
+        const taskForSkill = await this.db.query.tasks.findFirst({
+          where: eq(tasks.id, taskId),
+          columns: { skillId: true, skillName: true, codespaceId: true, startedAt: true },
+        });
+        if (taskForSkill?.skillId) {
+          this.recordSkillExecution({
+            codespaceId: taskForSkill.codespaceId,
+            taskId,
+            agentRunId: runId,
+            sessionId,
+            skillId: taskForSkill.skillId,
+            skillName: taskForSkill.skillName ?? null,
+            status: 'error',
+            turnCount: 0,
+            errorMessage: errMsg,
+            startedAt: taskForSkill.startedAt,
+          });
+        }
+      }
 
       // Publish error event
       await this.sessionService.publish(
@@ -980,6 +1107,29 @@ export class AgentExecutionService {
           .where(eq(agents.id, agentId));
       }
 
+      // Record skill execution metrics (fire-and-forget)
+      if (this.skillTrackingService) {
+        const taskForSkill = await this.db.query.tasks.findFirst({
+          where: eq(tasks.id, task.id),
+          columns: { skillId: true, skillName: true, codespaceId: true, startedAt: true },
+        });
+        if (taskForSkill?.skillId) {
+          this.recordSkillExecution({
+            codespaceId: taskForSkill.codespaceId,
+            taskId: task.id,
+            agentRunId: runId,
+            sessionId,
+            skillId: taskForSkill.skillId,
+            skillName: taskForSkill.skillName ?? null,
+            status: result.status,
+            turnCount: result.turnCount,
+            metrics: result.metrics,
+            errorMessage: result.error,
+            startedAt: taskForSkill.startedAt,
+          });
+        }
+      }
+
       this.runningAgents.delete(agentId);
 
       // Auto-dequeue: when agent completes execution, check for queued tasks
@@ -1030,6 +1180,28 @@ export class AgentExecutionService {
           updatedAt: new Date().toISOString(),
         })
         .where(eq(agents.id, agentId));
+
+      // Record skill execution as error (fire-and-forget)
+      if (this.skillTrackingService) {
+        const taskForSkill = await this.db.query.tasks.findFirst({
+          where: eq(tasks.id, task.id),
+          columns: { skillId: true, skillName: true, codespaceId: true, startedAt: true },
+        });
+        if (taskForSkill?.skillId) {
+          this.recordSkillExecution({
+            codespaceId: taskForSkill.codespaceId,
+            taskId: task.id,
+            agentRunId: runId,
+            sessionId,
+            skillId: taskForSkill.skillId,
+            skillName: taskForSkill.skillName ?? null,
+            status: 'error',
+            turnCount: 0,
+            errorMessage: errMsg,
+            startedAt: taskForSkill.startedAt,
+          });
+        }
+      }
 
       await this.sessionService.publish(
         sessionId,

@@ -31,6 +31,7 @@ import type {
   WorktreeService,
 } from './agent/types.js';
 import type { MemoryService } from './memory/index.js';
+import type { SkillTrackingService } from './memory/skill-tracking.service.js';
 
 // Re-export types for backward compatibility
 export type {
@@ -56,7 +57,8 @@ export class AgentService {
     worktreeService: WorktreeService,
     taskService: TaskService,
     sessionService: SessionServiceInterface,
-    memoryService?: MemoryService | null
+    memoryService?: MemoryService | null,
+    skillTrackingService?: SkillTrackingService | null
   ) {
     this.crudService = new AgentCrudService(db);
     this.executionService = new AgentExecutionService(
@@ -64,7 +66,8 @@ export class AgentService {
       worktreeService,
       taskService,
       sessionService,
-      memoryService
+      memoryService,
+      skillTrackingService
     );
     this.queueService = new AgentQueueService(db);
 

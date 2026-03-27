@@ -92,39 +92,27 @@ export interface InsightDeriverInterface {
 export class MemoryService {
   private store: MemoryStoreInterface;
   private deriver: InsightDeriverInterface;
-  private available = false;
+  /**
+   * Memory is always available because it is backed by local SQLite
+   * with no external dependencies. There is no scenario where it should
+   * be unavailable at runtime.
+   */
+  private readonly available = true;
 
-  constructor(
-    private settingsService: SettingsService,
-    db: Database
-  ) {
+  constructor(_settingsService: SettingsService, db: Database) {
     const storeService = new MemoryStoreService(db);
     this.store = storeService;
     this.deriver = new InsightDeriverService(storeService);
   }
 
-  /** Initialize the memory system. Non-fatal on failure. */
+  /**
+   * Initialize the memory system.
+   *
+   * Memory is always available since it uses local SQLite — this method
+   * exists for interface compatibility and logs the ready state.
+   */
   async initialize(): Promise<void> {
-    try {
-      const settingResult = await this.settingsService.get('memory.enabled');
-      if (settingResult.ok && settingResult.value) {
-        const raw = settingResult.value.value;
-        // Setting value is JSON-encoded, so "true" or true
-        try {
-          this.available = JSON.parse(raw) === true;
-        } catch {
-          this.available = raw === 'true';
-        }
-      } else {
-        this.available = false;
-      }
-      log.info('Memory service initialized', { data: { available: this.available } });
-    } catch (error) {
-      log.warn('Memory initialization failed (non-fatal)', {
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-      this.available = false;
-    }
+    log.info('Memory service initialized', { data: { available: true } });
   }
 
   /** Whether the memory system is available. */

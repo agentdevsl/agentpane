@@ -85,9 +85,9 @@ export interface ServiceContainer {
   schedulerService: SchedulerService;
   commandRunner: CommandRunner;
   containerAgentService: ReturnType<typeof createContainerAgentService> | null;
-  memoryService: MemoryService | null;
-  skillTrackingService: SkillTrackingService | null;
-  dreamService: DreamService | null;
+  memoryService: MemoryService;
+  skillTrackingService: SkillTrackingService;
+  dreamService: DreamService;
 }
 
 /** Mutable sandbox state shared across bootstrap phases and runtime. */
