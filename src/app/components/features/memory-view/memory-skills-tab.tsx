@@ -136,7 +136,9 @@ function SyncedSkillRow({
                 <span className="font-medium text-fg">{metrics.totalRuns}</span> runs
               </span>
               <span className="tabular-nums">
-                <span className="font-medium text-fg">{Math.round(metrics.successRate ?? 0)}%</span>{' '}
+                <span className="font-medium text-fg">
+                  {Math.round((metrics.successRate ?? 0) * 100)}%
+                </span>{' '}
                 success
               </span>
               <span className="tabular-nums">{formatCost(metrics.avgCostUsd)}/run</span>
@@ -173,11 +175,11 @@ function SyncedSkillRow({
                 <div className="h-1.5 flex-1 rounded-full bg-surface-muted">
                   <div
                     className="h-1.5 rounded-full bg-success transition-all"
-                    style={{ width: `${metrics.successRate ?? 0}%` }}
+                    style={{ width: `${(metrics.successRate ?? 0) * 100}%` }}
                   />
                 </div>
                 <span className="text-sm font-medium tabular-nums text-fg">
-                  {Math.round(metrics.successRate ?? 0)}%
+                  {Math.round((metrics.successRate ?? 0) * 100)}%
                 </span>
               </div>
             </div>

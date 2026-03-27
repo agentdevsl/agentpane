@@ -84,6 +84,107 @@ export class AgentExecutionService {
   }
 
   /**
+   * Build an onMessage callback for memory capture if both the service and session ref are available.
+   */
+  private buildOnMessageCallback(
+    memoryRef: MemorySessionRef | null,
+    memSvc: MemoryService | null
+  ):
+    | ((params: {
+        role: 'user' | 'assistant';
+        content: string;
+        turn: number;
+        metadata?: Record<string, unknown>;
+      }) => Promise<void>)
+    | undefined {
+    if (!memoryRef || !memSvc) return undefined;
+    return async (params) => {
+      await memSvc.captureMessage(memoryRef, {
+        role: params.role,
+        content: params.content,
+        turnNumber: params.turn,
+        metadata: params.metadata,
+      });
+    };
+  }
+
+  /**
+   * Map SDK agent result status to the database enum value.
+   */
+  private mapStatusToDb(
+    status: 'completed' | 'error' | 'turn_limit' | 'paused' | 'planning'
+  ): 'completed' | 'error' | 'paused' | 'running' {
+    switch (status) {
+      case 'turn_limit':
+        return 'paused';
+      case 'planning':
+        return 'running';
+      case 'completed':
+      case 'error':
+      case 'paused':
+        return status;
+      default: {
+        const _exhaustiveCheck: never = status;
+        void _exhaustiveCheck;
+        log.error('Unknown agent status, defaulting to error', {
+          data: { status },
+        });
+        return 'error';
+      }
+    }
+  }
+
+  /**
+   * Finalize a memory session (fire-and-forget), logging warnings on failure.
+   */
+  private finalizeMemorySession(
+    memoryRef: MemorySessionRef | null,
+    agentId: string,
+    phase: string
+  ): void {
+    if (!memoryRef || !this.memoryService) return;
+    this.memoryService.finalizeSession(memoryRef).catch((finalizeErr) => {
+      log.warn(`Failed to finalize memory session after ${phase}`, {
+        error: finalizeErr instanceof Error ? finalizeErr : new Error(String(finalizeErr)),
+        data: { agentId },
+      });
+    });
+  }
+
+  /**
+   * Record skill execution for a task if it has a skillId (fire-and-forget).
+   */
+  private async recordSkillExecutionForTask(params: {
+    taskId: string;
+    agentRunId: string;
+    sessionId: string;
+    status: 'completed' | 'error' | 'turn_limit' | 'paused' | 'planning';
+    turnCount: number;
+    metrics?: { totalCostUsd?: number; durationMs?: number; numTurns?: number };
+    errorMessage?: string;
+  }): Promise<void> {
+    if (!this.skillTrackingService) return;
+    const taskForSkill = await this.db.query.tasks.findFirst({
+      where: eq(tasks.id, params.taskId),
+      columns: { skillId: true, skillName: true, codespaceId: true, startedAt: true },
+    });
+    if (!taskForSkill?.skillId) return;
+    this.recordSkillExecution({
+      codespaceId: taskForSkill.codespaceId,
+      taskId: params.taskId,
+      agentRunId: params.agentRunId,
+      sessionId: params.sessionId,
+      skillId: taskForSkill.skillId,
+      skillName: taskForSkill.skillName ?? null,
+      status: params.status,
+      turnCount: params.turnCount,
+      metrics: params.metrics,
+      errorMessage: params.errorMessage,
+      startedAt: taskForSkill.startedAt,
+    });
+  }
+
+  /**
    * Set the queue service for auto-dequeue on agent completion.
    * This avoids circular dependency between execution and queue services.
    */
@@ -114,14 +215,20 @@ export class AgentExecutionService {
   }): void {
     if (!this.skillTrackingService || !params.skillId) return;
 
-    const trackingStatus =
-      params.status === 'completed'
-        ? 'success'
-        : params.status === 'turn_limit'
-          ? 'turn_limit'
-          : params.status === 'error'
-            ? 'failed'
-            : null;
+    let trackingStatus: 'success' | 'turn_limit' | 'failed' | null;
+    switch (params.status) {
+      case 'completed':
+        trackingStatus = 'success';
+        break;
+      case 'turn_limit':
+        trackingStatus = 'turn_limit';
+        break;
+      case 'error':
+        trackingStatus = 'failed';
+        break;
+      default:
+        trackingStatus = null;
+    }
 
     // Only record for terminal states (completed, error, turn_limit)
     if (!trackingStatus) return;
@@ -461,25 +568,7 @@ export class AgentExecutionService {
       }
     }
 
-    // Build onMessage callback for memory capture — capture refs as const to avoid non-null assertions
-    const memSvc = this.memoryService;
-    const memRef = memoryRef;
-    const onMessage =
-      memRef && memSvc
-        ? async (params: {
-            role: 'user' | 'assistant';
-            content: string;
-            turn: number;
-            metadata?: Record<string, unknown>;
-          }) => {
-            await memSvc.captureMessage(memRef, {
-              role: params.role,
-              content: params.content,
-              turnNumber: params.turn,
-              metadata: params.metadata,
-            });
-          }
-        : undefined;
+    const onMessage = this.buildOnMessageCallback(memoryRef, this.memoryService);
 
     try {
       const result = await runAgentPlanning({
@@ -495,44 +584,9 @@ export class AgentExecutionService {
         onMessage,
       });
 
-      // Finalize memory session after planning completes
-      if (memoryRef && this.memoryService) {
-        this.memoryService.finalizeSession(memoryRef).catch((finalizeErr) => {
-          log.warn('Failed to finalize memory session after planning', {
-            error: finalizeErr instanceof Error ? finalizeErr : new Error(String(finalizeErr)),
-            data: { agentId },
-          });
-        });
-      }
+      this.finalizeMemorySession(memoryRef, agentId, 'planning');
 
-      // Update agent run with result
-      // Map SDK statuses to database enum values:
-      // - 'turn_limit' (SDK) -> 'paused' (DB) - agent hit iteration limit
-      // - 'planning' (SDK) -> 'running' (DB) - agent is in planning phase awaiting approval
-      // Note: DB schema uses 'running' for planning since 'planning' isn't a DB enum value
-      let dbStatus: 'completed' | 'error' | 'paused' | 'running';
-      switch (result.status) {
-        case 'turn_limit':
-          dbStatus = 'paused';
-          break;
-        case 'planning':
-          dbStatus = 'running';
-          break;
-        case 'completed':
-        case 'error':
-        case 'paused':
-          dbStatus = result.status;
-          break;
-        default: {
-          // Exhaustive check - TypeScript will error if a new status is added
-          const _exhaustiveCheck: never = result.status;
-          void _exhaustiveCheck;
-          log.error('Unknown agent status, defaulting to error', {
-            data: { status: result.status },
-          });
-          dbStatus = 'error';
-        }
-      }
+      const dbStatus = this.mapStatusToDb(result.status);
       await this.db
         .update(agentRuns)
         .set({
@@ -610,30 +664,16 @@ export class AgentExecutionService {
           .where(eq(agents.id, agentId));
       }
 
-      // Record skill execution metrics (fire-and-forget)
-      if (this.skillTrackingService) {
-        const taskForSkill = await this.db.query.tasks.findFirst({
-          where: eq(tasks.id, taskId),
-          columns: { skillId: true, skillName: true, codespaceId: true, startedAt: true },
-        });
-        if (taskForSkill?.skillId) {
-          this.recordSkillExecution({
-            codespaceId: taskForSkill.codespaceId,
-            taskId,
-            agentRunId: runId,
-            sessionId,
-            skillId: taskForSkill.skillId,
-            skillName: taskForSkill.skillName ?? null,
-            status: result.status,
-            turnCount: result.turnCount,
-            metrics: result.metrics,
-            errorMessage: result.error,
-            startedAt: taskForSkill.startedAt,
-          });
-        }
-      }
+      void this.recordSkillExecutionForTask({
+        taskId,
+        agentRunId: runId,
+        sessionId,
+        status: result.status,
+        turnCount: result.turnCount,
+        metrics: result.metrics,
+        errorMessage: result.error,
+      });
 
-      // Remove from running agents
       this.runningAgents.delete(agentId);
 
       // Auto-dequeue: when an agent completes, check if there's a queued task to pick up
@@ -647,16 +687,7 @@ export class AgentExecutionService {
       }
     } catch (error) {
       log.error('Agent execution failed', { error, data: { agentId } });
-
-      // Finalize memory session even on error (fire-and-forget)
-      if (memoryRef && this.memoryService) {
-        this.memoryService.finalizeSession(memoryRef).catch((finalizeErr) => {
-          log.warn('Failed to finalize memory session after planning error', {
-            error: finalizeErr instanceof Error ? finalizeErr : new Error(String(finalizeErr)),
-            data: { agentId },
-          });
-        });
-      }
+      this.finalizeMemorySession(memoryRef, agentId, 'planning error');
 
       const errMsg = errorMessage(error);
       const recovery = handleAgentError(error instanceof Error ? error : new Error(errMsg), {
@@ -666,7 +697,6 @@ export class AgentExecutionService {
         currentTurn: 0,
       });
 
-      // Update run with error
       await this.db
         .update(agentRuns)
         .set({
@@ -676,7 +706,6 @@ export class AgentExecutionService {
         })
         .where(eq(agentRuns.id, runId));
 
-      // Update agent status
       await this.db
         .update(agents)
         .set({
@@ -685,29 +714,15 @@ export class AgentExecutionService {
         })
         .where(eq(agents.id, agentId));
 
-      // Record skill execution as error (fire-and-forget)
-      if (this.skillTrackingService) {
-        const taskForSkill = await this.db.query.tasks.findFirst({
-          where: eq(tasks.id, taskId),
-          columns: { skillId: true, skillName: true, codespaceId: true, startedAt: true },
-        });
-        if (taskForSkill?.skillId) {
-          this.recordSkillExecution({
-            codespaceId: taskForSkill.codespaceId,
-            taskId,
-            agentRunId: runId,
-            sessionId,
-            skillId: taskForSkill.skillId,
-            skillName: taskForSkill.skillName ?? null,
-            status: 'error',
-            turnCount: 0,
-            errorMessage: errMsg,
-            startedAt: taskForSkill.startedAt,
-          });
-        }
-      }
+      void this.recordSkillExecutionForTask({
+        taskId,
+        agentRunId: runId,
+        sessionId,
+        status: 'error',
+        turnCount: 0,
+        errorMessage: errMsg,
+      });
 
-      // Publish error event
       await this.sessionService.publish(
         sessionId,
         createSessionEventWithMetadata({
@@ -988,26 +1003,6 @@ export class AgentExecutionService {
         }
       }
 
-      // Build onMessage callback for memory capture (execution phase) — capture refs as const
-      const execMemSvc = this.memoryService;
-      const execMemRef = memoryRef;
-      const execOnMessage =
-        execMemRef && execMemSvc
-          ? async (params: {
-              role: 'user' | 'assistant';
-              content: string;
-              turn: number;
-              metadata?: Record<string, unknown>;
-            }) => {
-              await execMemSvc.captureMessage(execMemRef, {
-                role: params.role,
-                content: params.content,
-                turnNumber: params.turn,
-                metadata: params.metadata,
-              });
-            }
-          : undefined;
-
       const result = await runAgentExecution({
         agentId,
         sessionId,
@@ -1018,40 +1013,12 @@ export class AgentExecutionService {
         cwd,
         signal,
         sessionService: this.sessionService,
-        onMessage: execOnMessage,
+        onMessage: this.buildOnMessageCallback(memoryRef, this.memoryService),
       });
 
-      // Finalize memory session after execution completes
-      if (memoryRef && this.memoryService) {
-        this.memoryService.finalizeSession(memoryRef).catch((finalizeErr) => {
-          log.warn('Failed to finalize memory session after execution', {
-            error: finalizeErr instanceof Error ? finalizeErr : new Error(String(finalizeErr)),
-            data: { agentId },
-          });
-        });
-      }
+      this.finalizeMemorySession(memoryRef, agentId, 'execution');
 
-      // Update agent run with result
-      let dbStatus: 'completed' | 'error' | 'paused' | 'running';
-      switch (result.status) {
-        case 'turn_limit':
-          dbStatus = 'paused';
-          break;
-        case 'planning':
-          dbStatus = 'running';
-          break;
-        case 'completed':
-        case 'error':
-        case 'paused':
-          dbStatus = result.status;
-          break;
-        default: {
-          const _exhaustiveCheck: never = result.status;
-          void _exhaustiveCheck;
-          dbStatus = 'error';
-        }
-      }
-
+      const dbStatus = this.mapStatusToDb(result.status);
       await this.db
         .update(agentRuns)
         .set({
@@ -1107,28 +1074,15 @@ export class AgentExecutionService {
           .where(eq(agents.id, agentId));
       }
 
-      // Record skill execution metrics (fire-and-forget)
-      if (this.skillTrackingService) {
-        const taskForSkill = await this.db.query.tasks.findFirst({
-          where: eq(tasks.id, task.id),
-          columns: { skillId: true, skillName: true, codespaceId: true, startedAt: true },
-        });
-        if (taskForSkill?.skillId) {
-          this.recordSkillExecution({
-            codespaceId: taskForSkill.codespaceId,
-            taskId: task.id,
-            agentRunId: runId,
-            sessionId,
-            skillId: taskForSkill.skillId,
-            skillName: taskForSkill.skillName ?? null,
-            status: result.status,
-            turnCount: result.turnCount,
-            metrics: result.metrics,
-            errorMessage: result.error,
-            startedAt: taskForSkill.startedAt,
-          });
-        }
-      }
+      void this.recordSkillExecutionForTask({
+        taskId: task.id,
+        agentRunId: runId,
+        sessionId,
+        status: result.status,
+        turnCount: result.turnCount,
+        metrics: result.metrics,
+        errorMessage: result.error,
+      });
 
       this.runningAgents.delete(agentId);
 
@@ -1143,20 +1097,10 @@ export class AgentExecutionService {
       }
     } catch (error) {
       log.error('Agent execution failed', { error, data: { agentId } });
-
-      // Finalize memory session even on error (fire-and-forget)
-      if (memoryRef && this.memoryService) {
-        this.memoryService.finalizeSession(memoryRef).catch((finalizeErr) => {
-          log.warn('Failed to finalize memory session after execution error', {
-            error: finalizeErr instanceof Error ? finalizeErr : new Error(String(finalizeErr)),
-            data: { agentId },
-          });
-        });
-      }
+      this.finalizeMemorySession(memoryRef, agentId, 'execution error');
 
       const errMsg = errorMessage(error);
 
-      // Update agent run with error
       await this.db
         .update(agentRuns)
         .set({
@@ -1181,27 +1125,14 @@ export class AgentExecutionService {
         })
         .where(eq(agents.id, agentId));
 
-      // Record skill execution as error (fire-and-forget)
-      if (this.skillTrackingService) {
-        const taskForSkill = await this.db.query.tasks.findFirst({
-          where: eq(tasks.id, task.id),
-          columns: { skillId: true, skillName: true, codespaceId: true, startedAt: true },
-        });
-        if (taskForSkill?.skillId) {
-          this.recordSkillExecution({
-            codespaceId: taskForSkill.codespaceId,
-            taskId: task.id,
-            agentRunId: runId,
-            sessionId,
-            skillId: taskForSkill.skillId,
-            skillName: taskForSkill.skillName ?? null,
-            status: 'error',
-            turnCount: 0,
-            errorMessage: errMsg,
-            startedAt: taskForSkill.startedAt,
-          });
-        }
-      }
+      void this.recordSkillExecutionForTask({
+        taskId: task.id,
+        agentRunId: runId,
+        sessionId,
+        status: 'error',
+        turnCount: 0,
+        errorMessage: errMsg,
+      });
 
       await this.sessionService.publish(
         sessionId,

@@ -13,10 +13,9 @@
 
 import { createId } from '@paralleldrive/cuid2';
 import type { MemoryError } from '../../lib/errors/memory-errors.js';
-import { MemoryErrors } from '../../lib/errors/memory-errors.js';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { Result } from '../../lib/utils/result.js';
-import { err, ok } from '../../lib/utils/result.js';
+import { ok } from '../../lib/utils/result.js';
 import type { Database } from '../../types/database.js';
 import type { SettingsService } from '../settings.service.js';
 import { InsightDeriverService } from './insight-deriver.service.js';
@@ -129,9 +128,6 @@ export class MemoryService {
     codespaceId: string,
     query: string
   ): Promise<Result<MemoryContext, MemoryError>> {
-    if (!this.available) {
-      return ok(EMPTY_CONTEXT);
-    }
     try {
       return await this.store.assembleContext(codespaceId, query);
     } catch (error) {
@@ -148,9 +144,6 @@ export class MemoryService {
     agentId: string;
     taskId: string;
   }): Promise<MemorySessionRef | null> {
-    if (!this.available) {
-      return null;
-    }
     try {
       const memorySessionId = createId();
       const ref: MemorySessionRef = {
@@ -181,7 +174,6 @@ export class MemoryService {
       metadata?: Record<string, unknown>;
     }
   ): Promise<void> {
-    if (!this.available) return;
     try {
       await this.store.insertMessage({
         codespaceId: ref.codespaceId,
@@ -207,7 +199,6 @@ export class MemoryService {
 
   /** Finalize a memory session (triggers insight derivation). Fire-and-forget. */
   async finalizeSession(ref: MemorySessionRef): Promise<void> {
-    if (!this.available) return;
     try {
       const result = await this.deriver.deriveInsights(ref.memorySessionId, ref.codespaceId);
       if (!result.ok) {
@@ -232,7 +223,6 @@ export class MemoryService {
     codespaceId: string | null,
     options?: PaginationOptions
   ): Promise<Result<Insight[], MemoryError>> {
-    if (!this.available) return ok([]);
     return this.store.getInsights(codespaceId, options);
   }
 
@@ -244,9 +234,6 @@ export class MemoryService {
     tags?: string[],
     skillId?: string
   ): Promise<Result<Insight, MemoryError>> {
-    if (!this.available) {
-      return err(MemoryErrors.UNAVAILABLE);
-    }
     return this.store.insertInsight({
       codespaceId,
       content,
@@ -258,9 +245,6 @@ export class MemoryService {
   }
 
   async deleteInsight(id: string): Promise<Result<void, MemoryError>> {
-    if (!this.available) {
-      return err(MemoryErrors.UNAVAILABLE);
-    }
     return this.store.deleteInsight(id);
   }
 
@@ -269,8 +253,6 @@ export class MemoryService {
     query: string,
     limit?: number
   ): Promise<Result<SearchResult[], MemoryError>> {
-    if (!this.available) return ok([]);
-
     const result = await this.store.searchInsights(codespaceId, query, limit);
     if (!result.ok) return result;
 
@@ -287,14 +269,6 @@ export class MemoryService {
   }
 
   async healthCheck(): Promise<Result<HealthStatus, MemoryError>> {
-    if (!this.available) {
-      return ok({
-        available: false,
-        insightCount: 0,
-        messageCount: 0,
-      });
-    }
-
     try {
       const [insightResult, messageResult] = await Promise.all([
         this.store.getInsightCount(),
@@ -306,9 +280,12 @@ export class MemoryService {
         insightCount: insightResult.ok ? insightResult.value : 0,
         messageCount: messageResult.ok ? messageResult.value : 0,
       });
-    } catch {
+    } catch (error) {
+      log.error('Health check failed', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
       return ok({
-        available: true,
+        available: false,
         insightCount: 0,
         messageCount: 0,
       });

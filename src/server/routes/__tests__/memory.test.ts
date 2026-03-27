@@ -1252,4 +1252,365 @@ describe('Memory API Routes', () => {
       expect(json.error.code).toBe('INTERNAL_ERROR');
     });
   });
+
+  // ===========================================================================
+  // Global (non-codespace-scoped) endpoints — pass null as codespaceId
+  // ===========================================================================
+
+  // ── GET /api/memory/insights (global) ──
+
+  describe('GET /api/memory/insights (global)', () => {
+    it('returns insights with null codespaceId', async () => {
+      const { app, memoryService } = createTestApp();
+
+      const res = await request(app, 'GET', '/api/memory/insights?page=2&size=10');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.ok).toBe(true);
+      expect(json.data).toHaveLength(1);
+      expect(json.data[0].id).toBe('ins-1');
+      expect(json.pagination).toEqual({ page: 2, size: 10, hasMore: false });
+
+      expect(memoryService.getInsights).toHaveBeenCalledWith(null, { page: 2, size: 10 });
+    });
+
+    it('defaults page=1 size=50 when not specified', async () => {
+      const { app, memoryService } = createTestApp();
+
+      await request(app, 'GET', '/api/memory/insights');
+
+      expect(memoryService.getInsights).toHaveBeenCalledWith(null, { page: 1, size: 50 });
+    });
+
+    it('returns error when service returns err', async () => {
+      const { app, memoryService } = createTestApp();
+      memoryService.getInsights.mockResolvedValue({
+        ok: false,
+        error: { code: 'MEMORY_QUERY_ERROR', message: 'Query failed', status: 500 },
+      });
+
+      const res = await request(app, 'GET', '/api/memory/insights');
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('MEMORY_QUERY_ERROR');
+    });
+
+    it('returns 500 when service throws', async () => {
+      const { app, memoryService } = createTestApp();
+      memoryService.getInsights.mockRejectedValue(new Error('Unexpected'));
+
+      const res = await request(app, 'GET', '/api/memory/insights');
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('INTERNAL_ERROR');
+    });
+  });
+
+  // ── POST /api/memory/search (global) ──
+
+  describe('POST /api/memory/search (global)', () => {
+    it('returns search results with null codespaceId', async () => {
+      const { app, memoryService } = createTestApp();
+
+      const res = await request(app, 'POST', '/api/memory/search', {
+        query: 'drizzle database',
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.ok).toBe(true);
+      expect(json.data).toHaveLength(1);
+      expect(json.data[0].id).toBe('ins-1');
+      expect(json.data[0].type).toBe('insight');
+
+      expect(memoryService.search).toHaveBeenCalledWith(null, 'drizzle database', undefined);
+    });
+
+    it('passes limit option when provided', async () => {
+      const { app, memoryService } = createTestApp();
+
+      await request(app, 'POST', '/api/memory/search', {
+        query: 'typescript',
+        limit: 5,
+      });
+
+      expect(memoryService.search).toHaveBeenCalledWith(null, 'typescript', 5);
+    });
+
+    it('returns error when service returns err', async () => {
+      const { app, memoryService } = createTestApp();
+      memoryService.search.mockResolvedValue({
+        ok: false,
+        error: { code: 'MEMORY_QUERY_ERROR', message: 'Query failed', status: 500 },
+      });
+
+      const res = await request(app, 'POST', '/api/memory/search', {
+        query: 'test',
+      });
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('MEMORY_QUERY_ERROR');
+    });
+
+    it('returns 500 when service throws', async () => {
+      const { app, memoryService } = createTestApp();
+      memoryService.search.mockRejectedValue(new Error('Unexpected'));
+
+      const res = await request(app, 'POST', '/api/memory/search', {
+        query: 'test',
+      });
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('INTERNAL_ERROR');
+    });
+  });
+
+  // ── GET /api/memory/skill-metrics (global) ──
+
+  describe('GET /api/memory/skill-metrics (global)', () => {
+    it('returns all skill metrics with null codespaceId', async () => {
+      const { app, skillTrackingService } = createTestApp();
+
+      const res = await request(app, 'GET', '/api/memory/skill-metrics');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.ok).toBe(true);
+      expect(json.data).toHaveLength(1);
+      expect(json.data[0].skillId).toBe('skill-terraform');
+
+      expect(skillTrackingService.getMetrics).toHaveBeenCalledWith(null);
+    });
+
+    it('returns error when service returns err', async () => {
+      const { app, skillTrackingService } = createTestApp();
+      skillTrackingService.getMetrics.mockResolvedValue({
+        ok: false,
+        error: { code: 'MEMORY_QUERY_ERROR', message: 'Query failed', status: 500 },
+      });
+
+      const res = await request(app, 'GET', '/api/memory/skill-metrics');
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('MEMORY_QUERY_ERROR');
+    });
+
+    it('returns 500 when service throws', async () => {
+      const { app, skillTrackingService } = createTestApp();
+      skillTrackingService.getMetrics.mockRejectedValue(new Error('Unexpected'));
+
+      const res = await request(app, 'GET', '/api/memory/skill-metrics');
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('INTERNAL_ERROR');
+    });
+  });
+
+  // ── GET /api/memory/dream-sessions (global) ──
+
+  describe('GET /api/memory/dream-sessions (global)', () => {
+    it('returns dream sessions with null codespaceId', async () => {
+      const { app, dreamService } = createTestApp();
+
+      const res = await request(app, 'GET', '/api/memory/dream-sessions?page=1&size=10');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.ok).toBe(true);
+      expect(json.data).toHaveLength(1);
+      expect(json.data[0].id).toBe('dream-1');
+      expect(json.data[0].status).toBe('completed');
+      expect(json.pagination).toEqual({ page: 1, size: 10, hasMore: false });
+
+      expect(dreamService.getDreamSessions).toHaveBeenCalledWith(null, { page: 1, size: 10 });
+    });
+
+    it('defaults page=1 size=20 when not specified', async () => {
+      const { app, dreamService } = createTestApp();
+
+      await request(app, 'GET', '/api/memory/dream-sessions');
+
+      expect(dreamService.getDreamSessions).toHaveBeenCalledWith(null, { page: 1, size: 20 });
+    });
+
+    it('returns error when service returns err', async () => {
+      const { app, dreamService } = createTestApp();
+      dreamService.getDreamSessions.mockResolvedValue({
+        ok: false,
+        error: { code: 'MEMORY_QUERY_ERROR', message: 'Query failed', status: 500 },
+      });
+
+      const res = await request(app, 'GET', '/api/memory/dream-sessions');
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('MEMORY_QUERY_ERROR');
+    });
+
+    it('returns 500 when service throws', async () => {
+      const { app, dreamService } = createTestApp();
+      dreamService.getDreamSessions.mockRejectedValue(new Error('Unexpected'));
+
+      const res = await request(app, 'GET', '/api/memory/dream-sessions');
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('INTERNAL_ERROR');
+    });
+  });
+
+  // ── GET /api/memory/suggestions (global) ──
+
+  describe('GET /api/memory/suggestions (global)', () => {
+    it('returns suggestions with null codespaceId', async () => {
+      const { app, dreamService } = createTestApp();
+
+      const res = await request(app, 'GET', '/api/memory/suggestions?page=1&size=10');
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.ok).toBe(true);
+      expect(json.data).toHaveLength(1);
+      expect(json.data[0].id).toBe('sug-1');
+      expect(json.pagination).toEqual({ page: 1, size: 10, hasMore: false });
+
+      expect(dreamService.getSkillSuggestions).toHaveBeenCalledWith(
+        null,
+        { status: undefined, skillId: undefined },
+        { page: 1, size: 10 }
+      );
+    });
+
+    it('defaults page=1 size=20 when not specified', async () => {
+      const { app, dreamService } = createTestApp();
+
+      await request(app, 'GET', '/api/memory/suggestions');
+
+      expect(dreamService.getSkillSuggestions).toHaveBeenCalledWith(
+        null,
+        { status: undefined, skillId: undefined },
+        { page: 1, size: 20 }
+      );
+    });
+
+    it('passes status and skillId filter params', async () => {
+      const { app, dreamService } = createTestApp();
+
+      await request(app, 'GET', '/api/memory/suggestions?status=pending&skillId=skill-terraform');
+
+      expect(dreamService.getSkillSuggestions).toHaveBeenCalledWith(
+        null,
+        { status: 'pending', skillId: 'skill-terraform' },
+        { page: 1, size: 20 }
+      );
+    });
+
+    it('returns error when service returns err', async () => {
+      const { app, dreamService } = createTestApp();
+      dreamService.getSkillSuggestions.mockResolvedValue({
+        ok: false,
+        error: { code: 'MEMORY_QUERY_ERROR', message: 'Query failed', status: 500 },
+      });
+
+      const res = await request(app, 'GET', '/api/memory/suggestions');
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('MEMORY_QUERY_ERROR');
+    });
+
+    it('returns 500 when service throws', async () => {
+      const { app, dreamService } = createTestApp();
+      dreamService.getSkillSuggestions.mockRejectedValue(new Error('Unexpected'));
+
+      const res = await request(app, 'GET', '/api/memory/suggestions');
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('INTERNAL_ERROR');
+    });
+  });
+
+  // ── GET /api/memory/skill-metrics/:skillId/executions (global) ──
+
+  describe('GET /api/memory/skill-metrics/:skillId/executions (global)', () => {
+    it('returns execution history with null codespaceId', async () => {
+      const { app, skillTrackingService } = createTestApp();
+
+      const res = await request(
+        app,
+        'GET',
+        '/api/memory/skill-metrics/skill-terraform/executions?page=2&size=10'
+      );
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.ok).toBe(true);
+      expect(json.data).toHaveLength(1);
+      expect(json.data[0].id).toBe('exec-1');
+      expect(json.pagination).toEqual({ page: 2, size: 10, hasMore: false });
+
+      expect(skillTrackingService.getExecutionHistory).toHaveBeenCalledWith(
+        null,
+        'skill-terraform',
+        { page: 2, size: 10 }
+      );
+    });
+
+    it('defaults page=1 size=20 when not specified', async () => {
+      const { app, skillTrackingService } = createTestApp();
+
+      await request(app, 'GET', '/api/memory/skill-metrics/skill-terraform/executions');
+
+      expect(skillTrackingService.getExecutionHistory).toHaveBeenCalledWith(
+        null,
+        'skill-terraform',
+        { page: 1, size: 20 }
+      );
+    });
+
+    it('returns error when service returns err', async () => {
+      const { app, skillTrackingService } = createTestApp();
+      skillTrackingService.getExecutionHistory.mockResolvedValue({
+        ok: false,
+        error: { code: 'MEMORY_QUERY_ERROR', message: 'Query failed', status: 500 },
+      });
+
+      const res = await request(app, 'GET', '/api/memory/skill-metrics/skill-terraform/executions');
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('MEMORY_QUERY_ERROR');
+    });
+
+    it('returns 500 when service throws', async () => {
+      const { app, skillTrackingService } = createTestApp();
+      skillTrackingService.getExecutionHistory.mockRejectedValue(new Error('Unexpected'));
+
+      const res = await request(app, 'GET', '/api/memory/skill-metrics/skill-terraform/executions');
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('INTERNAL_ERROR');
+    });
+  });
 });

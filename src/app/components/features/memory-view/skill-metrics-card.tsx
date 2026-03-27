@@ -28,7 +28,7 @@ export function SkillMetricsCard({
     }
   }, [expanded, executions, onLoadExecutions]);
 
-  const successRate = metric.successRate ?? 0;
+  const successRate = (metric.successRate ?? 0) * 100;
   const CaretIcon = expanded ? CaretUp : CaretDown;
 
   return (

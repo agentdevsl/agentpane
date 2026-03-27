@@ -141,11 +141,9 @@ export function MemoryOverview(): React.JSX.Element {
           <span
             className={cn(
               'inline-block h-2 w-2 rounded-full',
-              healthLoading
-                ? 'bg-fg-subtle animate-pulse'
-                : isAvailable
-                  ? 'bg-success'
-                  : 'bg-danger'
+              healthLoading && 'bg-fg-subtle animate-pulse',
+              !healthLoading && isAvailable && 'bg-success',
+              !healthLoading && !isAvailable && 'bg-danger'
             )}
           />
           <span className="text-sm text-fg-muted">

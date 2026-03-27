@@ -245,8 +245,14 @@ export class DreamService {
             completedAt: new Date().toISOString(),
           })
           .where(eq(dreamSessions.id, dreamId));
-      } catch (_) {
-        // Best effort
+      } catch (updateError) {
+        log.error('Failed to update dream session status to error', {
+          error: updateError instanceof Error ? updateError : new Error(String(updateError)),
+          data: {
+            dreamId,
+            originalError: error instanceof Error ? error.message : String(error),
+          },
+        });
       }
 
       return err(MemoryErrors.DERIVATION_ERROR('Dream cycle failed'));

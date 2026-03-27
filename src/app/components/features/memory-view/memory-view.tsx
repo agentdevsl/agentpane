@@ -63,9 +63,9 @@ export function MemoryView({ codespaceId }: MemoryViewProps): React.JSX.Element 
 }
 
 const TAB_LOADING_FALLBACK = (
-  <output className="flex items-center justify-center py-12">
+  <div className="flex items-center justify-center py-12">
     <div className="text-fg-muted text-sm">Loading...</div>
-  </output>
+  </div>
 );
 
 function MemoryViewInner(): React.JSX.Element {

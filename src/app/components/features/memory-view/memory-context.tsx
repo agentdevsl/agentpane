@@ -99,6 +99,31 @@ export function useMemory(): MemoryContextValue {
 
 const SEARCH_DEBOUNCE_MS = 300;
 
+/**
+ * Perform an API mutation, show a toast, and refresh a list on success.
+ * Centralizes the try/catch + toast + refresh pattern used by all mutation actions.
+ */
+async function mutateAndRefresh(opts: {
+  action: () => Promise<{ ok: boolean; error?: { message?: string } }>;
+  successMessage: string;
+  errorMessage: string;
+  refresh: () => Promise<void>;
+}): Promise<boolean> {
+  try {
+    const result = await opts.action();
+    if (result.ok) {
+      toast.success(opts.successMessage);
+      await opts.refresh();
+      return true;
+    }
+    toast.error(result.error?.message ?? opts.errorMessage);
+    return false;
+  } catch {
+    toast.error(opts.errorMessage);
+    return false;
+  }
+}
+
 export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): React.JSX.Element {
   // Tab
   const [activeTab, setActiveTab] = useState<MemoryTab>('overview');
@@ -206,8 +231,8 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
       if (result.ok) {
         setSyncedSkills(result.data);
       }
-    } catch {
-      // Non-fatal — synced skills are supplementary
+    } catch (error) {
+      console.error('[MemoryView] Failed to fetch synced skills:', error);
     } finally {
       if (currentCodespaceRef.current === csId) setSyncedSkillsLoading(false);
     }
@@ -418,39 +443,24 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
       metadata?: Record<string, unknown>;
     }): Promise<boolean> => {
       if (!codespaceId) return false;
-
-      try {
-        const result = await apiClient.memory.createInsight(codespaceId, data);
-        if (result.ok) {
-          toast.success('Insight created');
-          await fetchInsights(codespaceId);
-          return true;
-        }
-        toast.error(result.error?.message ?? 'Failed to create insight');
-        return false;
-      } catch {
-        toast.error('Failed to create insight');
-        return false;
-      }
+      return mutateAndRefresh({
+        action: () => apiClient.memory.createInsight(codespaceId, data),
+        successMessage: 'Insight created',
+        errorMessage: 'Failed to create insight',
+        refresh: () => fetchInsights(codespaceId),
+      });
     },
     [codespaceId, fetchInsights]
   );
 
   const deleteInsight = useCallback(
     async (id: string): Promise<boolean> => {
-      try {
-        const result = await apiClient.memory.deleteInsight(id);
-        if (result.ok) {
-          toast.success('Insight deleted');
-          await fetchInsights(codespaceId);
-          return true;
-        }
-        toast.error(result.error?.message ?? 'Failed to delete insight');
-        return false;
-      } catch {
-        toast.error('Failed to delete insight');
-        return false;
-      }
+      return mutateAndRefresh({
+        action: () => apiClient.memory.deleteInsight(id),
+        successMessage: 'Insight deleted',
+        errorMessage: 'Failed to delete insight',
+        refresh: () => fetchInsights(codespaceId),
+      });
     },
     [codespaceId, fetchInsights]
   );
@@ -519,59 +529,35 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
   }, [codespaceId, fetchSuggestions]);
 
   const acceptSuggestion = useCallback(
-    async (id: string, notes?: string): Promise<boolean> => {
-      try {
-        const result = await apiClient.memory.acceptSuggestion(id, notes);
-        if (result.ok) {
-          toast.success('Suggestion accepted');
-          await fetchSuggestions(codespaceId);
-          return true;
-        }
-        toast.error(result.error?.message ?? 'Failed to accept suggestion');
-        return false;
-      } catch {
-        toast.error('Failed to accept suggestion');
-        return false;
-      }
-    },
+    async (id: string, notes?: string): Promise<boolean> =>
+      mutateAndRefresh({
+        action: () => apiClient.memory.acceptSuggestion(id, notes),
+        successMessage: 'Suggestion accepted',
+        errorMessage: 'Failed to accept suggestion',
+        refresh: () => fetchSuggestions(codespaceId),
+      }),
     [codespaceId, fetchSuggestions]
   );
 
   const rejectSuggestion = useCallback(
-    async (id: string, notes?: string): Promise<boolean> => {
-      try {
-        const result = await apiClient.memory.rejectSuggestion(id, notes);
-        if (result.ok) {
-          toast.success('Suggestion rejected');
-          await fetchSuggestions(codespaceId);
-          return true;
-        }
-        toast.error(result.error?.message ?? 'Failed to reject suggestion');
-        return false;
-      } catch {
-        toast.error('Failed to reject suggestion');
-        return false;
-      }
-    },
+    async (id: string, notes?: string): Promise<boolean> =>
+      mutateAndRefresh({
+        action: () => apiClient.memory.rejectSuggestion(id, notes),
+        successMessage: 'Suggestion rejected',
+        errorMessage: 'Failed to reject suggestion',
+        refresh: () => fetchSuggestions(codespaceId),
+      }),
     [codespaceId, fetchSuggestions]
   );
 
   const modifySuggestion = useCallback(
-    async (id: string, content: string, notes?: string): Promise<boolean> => {
-      try {
-        const result = await apiClient.memory.modifySuggestion(id, content, notes);
-        if (result.ok) {
-          toast.success('Suggestion modified');
-          await fetchSuggestions(codespaceId);
-          return true;
-        }
-        toast.error(result.error?.message ?? 'Failed to modify suggestion');
-        return false;
-      } catch {
-        toast.error('Failed to modify suggestion');
-        return false;
-      }
-    },
+    async (id: string, content: string, notes?: string): Promise<boolean> =>
+      mutateAndRefresh({
+        action: () => apiClient.memory.modifySuggestion(id, content, notes),
+        successMessage: 'Suggestion modified',
+        errorMessage: 'Failed to modify suggestion',
+        refresh: () => fetchSuggestions(codespaceId),
+      }),
     [codespaceId, fetchSuggestions]
   );
 
