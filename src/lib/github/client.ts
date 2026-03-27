@@ -6,26 +6,40 @@ export interface GitHubClientOptions {
   installationId?: number;
 }
 
+export interface GitHubAppCredentials {
+  appId: string;
+  privateKey: string;
+}
+
 let appOctokit: Octokit | null = null;
+let cachedAppId: string | null = null;
 
-export function getAppOctokit(): Octokit {
+export function getAppOctokit(credentials?: GitHubAppCredentials): Octokit {
+  const appId = credentials?.appId ?? process.env.GITHUB_APP_ID;
+  const privateKey = credentials?.privateKey ?? process.env.GITHUB_PRIVATE_KEY;
+
+  // Invalidate cache if credentials changed
+  if (cachedAppId && cachedAppId !== appId) {
+    appOctokit = null;
+  }
+
   if (!appOctokit) {
-    const appId = process.env.GITHUB_APP_ID;
-    const privateKey = process.env.GITHUB_PRIVATE_KEY;
-
     if (!appId || !privateKey) {
       throw new Error('GitHub App credentials not configured (GITHUB_APP_ID, GITHUB_PRIVATE_KEY)');
     }
 
     appOctokit = new Octokit({
-      auth: {
-        appId,
-        privateKey,
-      },
+      auth: { appId, privateKey },
     });
+    cachedAppId = appId;
   }
 
   return appOctokit;
+}
+
+export function clearAppOctokitCache(): void {
+  appOctokit = null;
+  cachedAppId = null;
 }
 
 export async function getInstallationOctokit(installationId: number): Promise<Octokit> {

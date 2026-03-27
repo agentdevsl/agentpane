@@ -157,7 +157,7 @@ export function createServiceContainer(db: Database, config: ServerConfig): Serv
   const projectFolderService = new ProjectFolderService(db);
 
   // 9. GitHub App service
-  const githubAppService = new GitHubAppService(db);
+  const githubAppService = new GitHubAppService(db, settingsService);
 
   // 10. Event system
   const pluginRegistry = new PluginRegistry();

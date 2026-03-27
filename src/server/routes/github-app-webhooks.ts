@@ -36,8 +36,12 @@ export function createGitHubAppWebhooksRoutes({
       );
     }
 
-    // Verify webhook signature
-    const secret = process.env.GITHUB_WEBHOOK_SECRET ?? '';
+    // Verify webhook signature (env var or DB-stored credentials)
+    let secret = process.env.GITHUB_WEBHOOK_SECRET ?? '';
+    if (!secret) {
+      const creds = await githubAppService.getCredentials();
+      secret = creds?.webhookSecret ?? '';
+    }
     if (!secret && process.env.NODE_ENV === 'production') {
       return json(
         {

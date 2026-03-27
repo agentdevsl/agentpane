@@ -8,28 +8,140 @@ import {
   projectFolders,
 } from '../db/schema/index.js';
 import type { GitHubInstallation } from '../db/schema/sqlite/github.js';
+import { decryptToken, encryptToken } from '../lib/crypto/server-encryption.js';
 import type { AppError } from '../lib/errors/base.js';
 import { EventErrors } from '../lib/errors/event-errors.js';
-import { getAppOctokit } from '../lib/github/client.js';
+import { clearAppOctokitCache, getAppOctokit } from '../lib/github/client.js';
 import { createLogger } from '../lib/logging/logger.js';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
 import { slugify } from '../lib/utils/slugify.js';
 import type { Database } from '../types/database.js';
+import type { SettingsService } from './settings.service.js';
 
 const log = createLogger('GitHubAppService');
 
+const CREDENTIALS_KEY = 'github.app.credentials';
+
+export interface StoredAppCredentials {
+  appId: string;
+  appSlug: string;
+  privateKey: string;
+  webhookSecret: string;
+  clientId: string;
+  clientSecret: string;
+}
+
 export class GitHubAppService {
-  constructor(private db: Database) {}
+  constructor(
+    private db: Database,
+    private settingsService: SettingsService
+  ) {}
 
   isConfigured(): boolean {
     return !!(process.env.GITHUB_APP_ID && process.env.GITHUB_PRIVATE_KEY);
+  }
+
+  async isConfiguredAsync(): Promise<boolean> {
+    if (this.isConfigured()) return true;
+    const creds = await this.getCredentials();
+    return creds !== null;
+  }
+
+  async getCredentials(): Promise<StoredAppCredentials | null> {
+    // 1. Check env vars first (backward compat)
+    if (process.env.GITHUB_APP_ID && process.env.GITHUB_PRIVATE_KEY) {
+      return {
+        appId: process.env.GITHUB_APP_ID,
+        appSlug: process.env.GITHUB_APP_NAME ?? '',
+        privateKey: process.env.GITHUB_PRIVATE_KEY,
+        webhookSecret: process.env.GITHUB_WEBHOOK_SECRET ?? '',
+        clientId: process.env.GITHUB_CLIENT_ID ?? '',
+        clientSecret: process.env.GITHUB_CLIENT_SECRET ?? '',
+      };
+    }
+
+    // 2. Check settings table
+    const result = await this.settingsService.get(CREDENTIALS_KEY);
+    if (!result.ok || !result.value) return null;
+
+    try {
+      const stored = JSON.parse(result.value.value) as Record<string, string>;
+      if (!stored.appId || !stored.privateKey) return null;
+
+      return {
+        appId: stored.appId,
+        appSlug: stored.appSlug ?? '',
+        privateKey: decryptToken(stored.privateKey),
+        webhookSecret: stored.webhookSecret ? decryptToken(stored.webhookSecret) : '',
+        clientId: stored.clientId ?? '',
+        clientSecret: stored.clientSecret ? decryptToken(stored.clientSecret) : '',
+      };
+    } catch (error) {
+      log.error('Failed to parse GitHub App credentials from settings', { error });
+      return null;
+    }
+  }
+
+  async saveCredentials(creds: StoredAppCredentials): Promise<Result<void, AppError>> {
+    const encrypted = {
+      appId: creds.appId,
+      appSlug: creds.appSlug,
+      privateKey: encryptToken(creds.privateKey),
+      webhookSecret: creds.webhookSecret ? encryptToken(creds.webhookSecret) : '',
+      clientId: creds.clientId,
+      clientSecret: creds.clientSecret ? encryptToken(creds.clientSecret) : '',
+    };
+
+    const result = await this.settingsService.set(CREDENTIALS_KEY, encrypted);
+    if (!result.ok) {
+      return err(EventErrors.PROCESSING_FAILED('Failed to save GitHub App credentials'));
+    }
+
+    // Clear cached Octokit so it picks up new credentials
+    clearAppOctokitCache();
+
+    log.info('Saved GitHub App credentials', {
+      data: { appId: creds.appId, appSlug: creds.appSlug },
+    });
+    return ok(undefined);
+  }
+
+  async deleteCredentials(): Promise<Result<void, AppError>> {
+    // Set to null to clear credentials (SettingsService has no delete method)
+    const result = await this.settingsService.set(CREDENTIALS_KEY, null);
+    if (!result.ok) {
+      return err(EventErrors.PROCESSING_FAILED('Failed to delete GitHub App credentials'));
+    }
+    clearAppOctokitCache();
+    return ok(undefined);
+  }
+
+  async getAppOctokitFromCredentials(): Promise<ReturnType<typeof getAppOctokit>> {
+    const creds = await this.getCredentials();
+    if (!creds) {
+      throw new Error('GitHub App credentials not configured');
+    }
+    return getAppOctokit({ appId: creds.appId, privateKey: creds.privateKey });
   }
 
   getInstallUrl(): string | null {
     const appName = process.env.GITHUB_APP_NAME;
     if (!appName) return null;
     return `https://github.com/apps/${encodeURIComponent(appName)}/installations/new`;
+  }
+
+  async getInstallUrlAsync(): Promise<string | null> {
+    // Check env var first
+    const envName = process.env.GITHUB_APP_NAME;
+    if (envName) return `https://github.com/apps/${encodeURIComponent(envName)}/installations/new`;
+
+    // Check DB credentials
+    const creds = await this.getCredentials();
+    if (creds?.appSlug) {
+      return `https://github.com/apps/${encodeURIComponent(creds.appSlug)}/installations/new`;
+    }
+    return null;
   }
 
   async handleInstallation(
@@ -313,16 +425,13 @@ export class GitHubAppService {
   }
 
   async getInstallationToken(installationId: number): Promise<Result<string, AppError>> {
-    if (!this.isConfigured()) {
-      return err(
-        EventErrors.PROCESSING_FAILED(
-          'GitHub App credentials not configured (GITHUB_APP_ID, GITHUB_PRIVATE_KEY)'
-        )
-      );
+    const configured = await this.isConfiguredAsync();
+    if (!configured) {
+      return err(EventErrors.PROCESSING_FAILED('GitHub App credentials not configured'));
     }
 
     try {
-      const appOctokit = getAppOctokit();
+      const appOctokit = await this.getAppOctokitFromCredentials();
       const { data } = await appOctokit.rest.apps.createInstallationAccessToken({
         installation_id: installationId,
       });

@@ -1,7 +1,7 @@
+import * as crypto from 'node:crypto';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { AuthContext } from '../../lib/api/auth-middleware.js';
-import { getAppOctokit } from '../../lib/github/client.js';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { GitHubAppService } from '../../services/github-app.service.js';
 import { isValidId, json } from '../shared.js';
@@ -22,14 +22,183 @@ const configureCodespaceSchema = z.object({
   codespaceId: z.string().min(1),
 });
 
+const manifestRequestSchema = z.object({
+  externalUrl: z.string().url(),
+  appName: z.string().min(1).max(100).optional(),
+});
+
+const setupCallbackSchema = z.object({
+  code: z.string().min(1),
+});
+
 export function createGitHubAppRoutes({ githubAppService }: GitHubAppRoutesDeps) {
   const app = new Hono<{ Variables: { auth: AuthContext } }>();
 
-  // GET /status — check if GitHub App is configured
-  app.get('/status', (_c) => {
-    const configured = githubAppService.isConfigured();
-    const installUrl = githubAppService.getInstallUrl();
-    return json({ ok: true, data: { configured, installUrl } });
+  // GET /status — check if GitHub App is configured (async version checks DB too)
+  app.get('/status', async (_c) => {
+    const configured = await githubAppService.isConfiguredAsync();
+    const installUrl = await githubAppService.getInstallUrlAsync();
+    const creds = await githubAppService.getCredentials();
+    return json({
+      ok: true,
+      data: {
+        configured,
+        installUrl,
+        appSlug: creds?.appSlug ?? null,
+        appId: creds?.appId ?? null,
+      },
+    });
+  });
+
+  // POST /manifest — generate manifest JSON + CSRF state for GitHub App creation
+  app.post('/manifest', async (c) => {
+    const parsed = await parseJsonBody(c, manifestRequestSchema);
+    if (!parsed.ok) {
+      return parsed.response;
+    }
+
+    const { externalUrl, appName } = parsed.data;
+    const name = appName ?? 'AgentPane';
+
+    // Generate CSRF state token
+    const state = crypto.randomBytes(16).toString('hex');
+
+    // Set state in cookie for verification on callback
+    c.header(
+      'Set-Cookie',
+      `github_app_state=${state}; HttpOnly; SameSite=Lax; Path=/; Max-Age=600; Secure`
+    );
+
+    const manifest = {
+      name,
+      url: externalUrl,
+      hook_attributes: {
+        url: `${externalUrl}/hooks/github-app`,
+        active: true,
+      },
+      redirect_url: `${externalUrl}/settings/github`,
+      setup_url: `${externalUrl}/settings/github`,
+      callback_urls: [`${externalUrl}/api/auth/github/callback`],
+      public: false,
+      default_permissions: {
+        contents: 'write',
+        pull_requests: 'write',
+        issues: 'write',
+        metadata: 'read',
+      },
+      default_events: [
+        'push',
+        'pull_request',
+        'issues',
+        'installation',
+        'installation_repositories',
+      ],
+    };
+
+    return json({
+      ok: true,
+      data: {
+        manifest: JSON.stringify(manifest),
+        state,
+        githubUrl: `https://github.com/settings/apps/new?state=${state}`,
+      },
+    });
+  });
+
+  // POST /setup-callback — exchange code for credentials after GitHub App creation
+  app.post('/setup-callback', async (c) => {
+    const parsed = await parseJsonBody(c, setupCallbackSchema);
+    if (!parsed.ok) {
+      return parsed.response;
+    }
+
+    const { code } = parsed.data;
+
+    // Exchange code for App credentials via GitHub API
+    let conversionData: {
+      id: number;
+      slug: string;
+      pem: string;
+      webhook_secret: string;
+      client_id: string;
+      client_secret: string;
+    };
+
+    try {
+      const response = await fetch(
+        `https://api.github.com/app-manifests/${encodeURIComponent(code)}/conversions`,
+        {
+          method: 'POST',
+          headers: {
+            Accept: 'application/vnd.github+json',
+            'User-Agent': 'AgentPane',
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        log.error('GitHub manifest conversion failed', {
+          data: { status: response.status, body: errorBody },
+        });
+        return json(
+          {
+            ok: false,
+            error: {
+              code: 'GITHUB_CONVERSION_FAILED',
+              message: `GitHub returned ${response.status}: ${errorBody}`,
+            },
+          },
+          502
+        );
+      }
+
+      conversionData = (await response.json()) as typeof conversionData;
+    } catch (error) {
+      log.error('Failed to exchange code for GitHub App credentials', { error });
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'GITHUB_CONVERSION_ERROR',
+            message: `Failed to contact GitHub: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        },
+        502
+      );
+    }
+
+    // Store credentials encrypted
+    const saveResult = await githubAppService.saveCredentials({
+      appId: String(conversionData.id),
+      appSlug: conversionData.slug,
+      privateKey: conversionData.pem,
+      webhookSecret: conversionData.webhook_secret,
+      clientId: conversionData.client_id,
+      clientSecret: conversionData.client_secret,
+    });
+
+    if (!saveResult.ok) {
+      return json(
+        { ok: false, error: { code: saveResult.error.code, message: saveResult.error.message } },
+        500
+      );
+    }
+
+    const installUrl = `https://github.com/apps/${encodeURIComponent(conversionData.slug)}/installations/new`;
+
+    log.info('GitHub App created via manifest flow', {
+      data: { appId: conversionData.id, appSlug: conversionData.slug },
+    });
+
+    return json({
+      ok: true,
+      data: {
+        appId: String(conversionData.id),
+        appSlug: conversionData.slug,
+        installUrl,
+      },
+    });
   });
 
   // GET /installations — list GitHub App installations
@@ -56,11 +225,11 @@ export function createGitHubAppRoutes({ githubAppService }: GitHubAppRoutesDeps)
 
     const { installationId, teamId } = parsed.data;
 
-    // Fetch installation details from GitHub
+    // Fetch installation details from GitHub using DB or env credentials
     let accountLogin: string;
     let accountType: string;
     try {
-      const appOctokit = getAppOctokit();
+      const appOctokit = await githubAppService.getAppOctokitFromCredentials();
       const { data: ghInstallation } = await appOctokit.rest.apps.getInstallation({
         installation_id: installationId,
       });
@@ -68,17 +237,18 @@ export function createGitHubAppRoutes({ githubAppService }: GitHubAppRoutesDeps)
       accountType = ghInstallation.account?.type ?? 'User';
     } catch (error) {
       log.error('Failed to fetch installation from GitHub', { data: { installationId }, error });
+      const configured = await githubAppService.isConfiguredAsync();
       return json(
         {
           ok: false,
           error: {
             code: 'GITHUB_APP_ERROR',
-            message: githubAppService.isConfigured()
+            message: configured
               ? `Failed to fetch installation details: ${error instanceof Error ? error.message : String(error)}`
-              : 'GitHub App is not configured. Set GITHUB_APP_ID and GITHUB_PRIVATE_KEY environment variables.',
+              : 'GitHub App is not configured. Create the app first via Settings > GitHub.',
           },
         },
-        githubAppService.isConfigured() ? 502 : 503
+        configured ? 502 : 503
       );
     }
 
@@ -146,6 +316,18 @@ export function createGitHubAppRoutes({ githubAppService }: GitHubAppRoutesDeps)
     }
 
     return json({ ok: true, data: result.value });
+  });
+
+  // DELETE /credentials — delete stored GitHub App credentials
+  app.delete('/credentials', async (_c) => {
+    const result = await githubAppService.deleteCredentials();
+    if (!result.ok) {
+      return json(
+        { ok: false, error: { code: result.error.code, message: result.error.message } },
+        500
+      );
+    }
+    return json({ ok: true, data: { deleted: true } });
   });
 
   return app;
