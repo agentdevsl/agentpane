@@ -103,9 +103,12 @@ function SubscriptionsPage(): React.JSX.Element {
 
   if (isLoading) {
     return (
-      <div className="flex flex-1 items-center justify-center">
+      <output
+        className="flex flex-1 items-center justify-center"
+        aria-label="Loading subscriptions"
+      >
         <div className="h-6 w-6 animate-spin rounded-full border-2 border-accent border-t-transparent" />
-      </div>
+      </output>
     );
   }
 

@@ -147,6 +147,7 @@ export function AddSourceDialog({
                 <button
                   type="button"
                   onClick={() => copyToClipboard(successData.webhookUrl, 'url')}
+                  aria-label={copiedUrl ? 'Copied webhook URL' : 'Copy webhook URL'}
                   className="shrink-0 rounded p-1.5 text-fg-muted hover:bg-surface-subtle hover:text-fg"
                 >
                   {copiedUrl ? (
@@ -167,6 +168,7 @@ export function AddSourceDialog({
                 <button
                   type="button"
                   onClick={() => setShowSecret(!showSecret)}
+                  aria-label={showSecret ? 'Hide webhook secret' : 'Show webhook secret'}
                   className="shrink-0 rounded p-1.5 text-fg-muted hover:bg-surface-subtle hover:text-fg"
                 >
                   {showSecret ? <EyeSlash className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -174,6 +176,7 @@ export function AddSourceDialog({
                 <button
                   type="button"
                   onClick={() => copyToClipboard(successData.webhookSecret, 'secret')}
+                  aria-label={copiedSecret ? 'Copied webhook secret' : 'Copy webhook secret'}
                   className="shrink-0 rounded p-1.5 text-fg-muted hover:bg-surface-subtle hover:text-fg"
                 >
                   {copiedSecret ? (

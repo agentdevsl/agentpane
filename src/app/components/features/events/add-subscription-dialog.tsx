@@ -301,6 +301,7 @@ export function AddSubscriptionDialog({
                   <select
                     value={filter.field}
                     onChange={(e) => handleFilterChange(i, 'field', e.target.value)}
+                    aria-label={`Filter ${i + 1} field`}
                     disabled={isSaving}
                     className="rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-fg focus:outline-none focus:ring-1 focus:ring-accent"
                   >
@@ -313,6 +314,7 @@ export function AddSubscriptionDialog({
                   <select
                     value={filter.operator}
                     onChange={(e) => handleFilterChange(i, 'operator', e.target.value)}
+                    aria-label={`Filter ${i + 1} operator`}
                     disabled={isSaving}
                     className="rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-fg focus:outline-none focus:ring-1 focus:ring-accent"
                   >
@@ -326,6 +328,7 @@ export function AddSubscriptionDialog({
                     type="text"
                     value={filter.value}
                     onChange={(e) => handleFilterChange(i, 'value', e.target.value)}
+                    aria-label={`Filter ${i + 1} value`}
                     placeholder="Value"
                     disabled={isSaving}
                     className="flex-1 rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-fg placeholder:text-fg-subtle focus:outline-none focus:ring-1 focus:ring-accent"
@@ -333,6 +336,7 @@ export function AddSubscriptionDialog({
                   <button
                     type="button"
                     onClick={() => handleRemoveFilter(i)}
+                    aria-label={`Remove filter ${i + 1}`}
                     disabled={isSaving}
                     className="rounded p-1 text-fg-muted hover:bg-surface-subtle hover:text-danger"
                   >
