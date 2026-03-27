@@ -38,7 +38,7 @@ export class MemoryStoreService {
   async insertInsight(params: {
     codespaceId: string;
     content: string;
-    source: string;
+    source: 'agent_derived' | 'manual' | 'dream';
     sourceSessionId?: string;
     skillId?: string;
     tags?: string[];
@@ -52,7 +52,7 @@ export class MemoryStoreService {
         id,
         codespaceId: params.codespaceId,
         content: params.content,
-        source: params.source as 'agent_derived' | 'manual' | 'dream',
+        source: params.source,
         sourceSessionId: params.sourceSessionId ?? null,
         skillId: params.skillId ?? null,
         tags: params.tags ?? [],
@@ -64,7 +64,7 @@ export class MemoryStoreService {
         id,
         codespaceId: params.codespaceId,
         content: params.content,
-        source: params.source as 'agent_derived' | 'manual' | 'dream',
+        source: params.source,
         sourceSessionId: params.sourceSessionId ?? null,
         skillId: params.skillId ?? null,
         tags: params.tags ?? [],
@@ -255,7 +255,7 @@ export class MemoryStoreService {
     memorySessionId: string;
     agentId: string;
     taskId: string;
-    role: string;
+    role: 'user' | 'assistant';
     content: string;
     turnNumber: number;
     metadata?: Record<string, unknown>;
@@ -270,7 +270,7 @@ export class MemoryStoreService {
         memorySessionId: params.memorySessionId,
         agentId: params.agentId,
         taskId: params.taskId,
-        role: params.role as 'user' | 'assistant',
+        role: params.role,
         content: params.content,
         turnNumber: params.turnNumber,
         metadata: params.metadata ?? null,
@@ -283,7 +283,7 @@ export class MemoryStoreService {
         memorySessionId: params.memorySessionId,
         agentId: params.agentId,
         taskId: params.taskId,
-        role: params.role as 'user' | 'assistant',
+        role: params.role,
         content: params.content,
         turnNumber: params.turnNumber,
         metadata: params.metadata ?? null,

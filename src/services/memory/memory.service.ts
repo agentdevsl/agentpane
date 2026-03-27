@@ -42,7 +42,7 @@ export interface MemoryStoreInterface {
   insertInsight(params: {
     codespaceId: string;
     content: string;
-    source: string;
+    source: 'agent_derived' | 'manual' | 'dream';
     sourceSessionId?: string;
     skillId?: string;
     tags?: string[];
@@ -68,7 +68,7 @@ export interface MemoryStoreInterface {
     memorySessionId: string;
     agentId: string;
     taskId: string;
-    role: string;
+    role: 'user' | 'assistant';
     content: string;
     turnNumber: number;
     metadata?: Record<string, unknown>;
@@ -251,7 +251,7 @@ export class MemoryService {
   async createInsight(
     codespaceId: string,
     content: string,
-    source: string = 'manual',
+    source: 'agent_derived' | 'manual' | 'dream' = 'manual',
     metadata?: Record<string, unknown>,
     tags?: string[],
     skillId?: string
