@@ -339,16 +339,26 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
     const requestId = ++searchRequestIdRef.current;
 
     searchTimeoutRef.current = setTimeout(async () => {
-      const result = await apiClient.memory.search(csId, searchQuery.trim());
-      // Only apply results if this is still the latest request
-      if (requestId !== searchRequestIdRef.current) return;
-      if (result.ok) {
-        setSearchResults(result.data);
-      } else {
-        setSearchResults(null);
-        toast.error(result.error?.message ?? 'Search failed');
+      try {
+        const result = await apiClient.memory.search(csId, searchQuery.trim());
+        // Only apply results if this is still the latest request
+        if (requestId !== searchRequestIdRef.current) return;
+        if (result.ok) {
+          setSearchResults(result.data);
+        } else {
+          setSearchResults(null);
+          toast.error(result.error?.message ?? 'Search failed');
+        }
+      } catch {
+        if (requestId === searchRequestIdRef.current) {
+          setSearchResults(null);
+          toast.error('Search failed');
+        }
+      } finally {
+        if (requestId === searchRequestIdRef.current) {
+          setIsSearching(false);
+        }
       }
-      setIsSearching(false);
     }, SEARCH_DEBOUNCE_MS);
 
     return () => {
@@ -377,14 +387,19 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
     }): Promise<boolean> => {
       if (!codespaceId) return false;
 
-      const result = await apiClient.memory.createInsight(codespaceId, data);
-      if (result.ok) {
-        toast.success('Insight created');
-        await fetchInsights(codespaceId);
-        return true;
+      try {
+        const result = await apiClient.memory.createInsight(codespaceId, data);
+        if (result.ok) {
+          toast.success('Insight created');
+          await fetchInsights(codespaceId);
+          return true;
+        }
+        toast.error(result.error?.message ?? 'Failed to create insight');
+        return false;
+      } catch {
+        toast.error('Failed to create insight');
+        return false;
       }
-      toast.error(result.error?.message ?? 'Failed to create insight');
-      return false;
     },
     [codespaceId, fetchInsights]
   );
@@ -393,14 +408,19 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
     async (id: string): Promise<boolean> => {
       if (!codespaceId) return false;
 
-      const result = await apiClient.memory.deleteInsight(id);
-      if (result.ok) {
-        toast.success('Insight deleted');
-        await fetchInsights(codespaceId);
-        return true;
+      try {
+        const result = await apiClient.memory.deleteInsight(id);
+        if (result.ok) {
+          toast.success('Insight deleted');
+          await fetchInsights(codespaceId);
+          return true;
+        }
+        toast.error(result.error?.message ?? 'Failed to delete insight');
+        return false;
+      } catch {
+        toast.error('Failed to delete insight');
+        return false;
       }
-      toast.error(result.error?.message ?? 'Failed to delete insight');
-      return false;
     },
     [codespaceId, fetchInsights]
   );
@@ -414,18 +434,26 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
       skillExecutionsCacheRef.current.add(skillId);
 
       const csId = codespaceId;
-      const result = await apiClient.memory.getSkillExecutions(csId, skillId);
-      if (currentCodespaceRef.current !== csId) return;
-      if (result.ok) {
-        setSkillExecutions((prev: Map<string, Array<SkillExecution>>) => {
-          const next = new Map(prev);
-          next.set(skillId, result.data);
-          return next;
-        });
-      } else {
+      try {
+        const result = await apiClient.memory.getSkillExecutions(csId, skillId);
+        if (currentCodespaceRef.current !== csId) return;
+        if (result.ok) {
+          setSkillExecutions((prev: Map<string, Array<SkillExecution>>) => {
+            const next = new Map(prev);
+            next.set(skillId, result.data);
+            return next;
+          });
+        } else {
+          // Remove from cache so retry is possible
+          skillExecutionsCacheRef.current.delete(skillId);
+          toast.error(result.error?.message ?? 'Failed to load executions');
+        }
+      } catch {
         // Remove from cache so retry is possible
         skillExecutionsCacheRef.current.delete(skillId);
-        toast.error(result.error?.message ?? 'Failed to load executions');
+        if (currentCodespaceRef.current === csId) {
+          toast.error('Failed to load executions');
+        }
       }
     },
     [codespaceId]
@@ -466,42 +494,57 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
 
   const acceptSuggestion = useCallback(
     async (id: string, notes?: string): Promise<boolean> => {
-      const result = await apiClient.memory.acceptSuggestion(id, notes);
-      if (result.ok) {
-        toast.success('Suggestion accepted');
-        if (codespaceId) await fetchSuggestions(codespaceId);
-        return true;
+      try {
+        const result = await apiClient.memory.acceptSuggestion(id, notes);
+        if (result.ok) {
+          toast.success('Suggestion accepted');
+          if (codespaceId) await fetchSuggestions(codespaceId);
+          return true;
+        }
+        toast.error(result.error?.message ?? 'Failed to accept suggestion');
+        return false;
+      } catch {
+        toast.error('Failed to accept suggestion');
+        return false;
       }
-      toast.error(result.error?.message ?? 'Failed to accept suggestion');
-      return false;
     },
     [codespaceId, fetchSuggestions]
   );
 
   const rejectSuggestion = useCallback(
     async (id: string, notes?: string): Promise<boolean> => {
-      const result = await apiClient.memory.rejectSuggestion(id, notes);
-      if (result.ok) {
-        toast.success('Suggestion rejected');
-        if (codespaceId) await fetchSuggestions(codespaceId);
-        return true;
+      try {
+        const result = await apiClient.memory.rejectSuggestion(id, notes);
+        if (result.ok) {
+          toast.success('Suggestion rejected');
+          if (codespaceId) await fetchSuggestions(codespaceId);
+          return true;
+        }
+        toast.error(result.error?.message ?? 'Failed to reject suggestion');
+        return false;
+      } catch {
+        toast.error('Failed to reject suggestion');
+        return false;
       }
-      toast.error(result.error?.message ?? 'Failed to reject suggestion');
-      return false;
     },
     [codespaceId, fetchSuggestions]
   );
 
   const modifySuggestion = useCallback(
     async (id: string, content: string, notes?: string): Promise<boolean> => {
-      const result = await apiClient.memory.modifySuggestion(id, content, notes);
-      if (result.ok) {
-        toast.success('Suggestion modified');
-        if (codespaceId) await fetchSuggestions(codespaceId);
-        return true;
+      try {
+        const result = await apiClient.memory.modifySuggestion(id, content, notes);
+        if (result.ok) {
+          toast.success('Suggestion modified');
+          if (codespaceId) await fetchSuggestions(codespaceId);
+          return true;
+        }
+        toast.error(result.error?.message ?? 'Failed to modify suggestion');
+        return false;
+      } catch {
+        toast.error('Failed to modify suggestion');
+        return false;
       }
-      toast.error(result.error?.message ?? 'Failed to modify suggestion');
-      return false;
     },
     [codespaceId, fetchSuggestions]
   );

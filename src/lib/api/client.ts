@@ -1518,7 +1518,7 @@ export const apiClient = {
       codespaceId: string,
       data: {
         content: string;
-        source?: string;
+        source?: MemoryInsight['source'];
         tags?: string[];
         metadata?: Record<string, unknown>;
         skillId?: string;
