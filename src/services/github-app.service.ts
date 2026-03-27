@@ -13,6 +13,7 @@ import type { AppError } from '../lib/errors/base.js';
 import { EventErrors } from '../lib/errors/event-errors.js';
 import { clearAppOctokitCache, getAppOctokit } from '../lib/github/client.js';
 import { createLogger } from '../lib/logging/logger.js';
+import { errorMessage } from '../lib/utils/error-message.js';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
 import { slugify } from '../lib/utils/slugify.js';
@@ -397,9 +398,7 @@ export class GitHubAppService {
     } catch (error) {
       log.error('Failed to get installation token', { data: { installationId }, error });
       return err(
-        EventErrors.PROCESSING_FAILED(
-          `Failed to get installation token: ${error instanceof Error ? error.message : String(error)}`
-        )
+        EventErrors.PROCESSING_FAILED(`Failed to get installation token: ${errorMessage(error)}`)
       );
     }
   }
