@@ -452,7 +452,7 @@ export class AgentExecutionService {
     // Build task prompt
     let taskPrompt = `Work on the following task:\n\nTitle: ${task.title}\n\nDescription: ${task.description ?? 'No description provided'}\n\nThe task is in the worktree at: ${worktree.value.path}`;
 
-    // Inject memory context if available (Phase 3)
+    // Inject memory context if available
     if (this.memoryService) {
       try {
         const memoryResult = await this.memoryService.getContext(
@@ -542,7 +542,7 @@ export class AgentExecutionService {
   ): Promise<void> {
     // Abort signal handling is managed by stream-handler.ts which publishes agent:stopped
 
-    // Start memory session for tracking (Phase 3 — capture wired in Phase 4)
+    // Start memory session for tracking
     let memoryRef: MemorySessionRef | null = null;
     if (this.memoryService) {
       try {
@@ -913,7 +913,7 @@ export class AgentExecutionService {
 
     let runId = createId();
 
-    // Start memory session for execution phase tracking (Phase 3)
+    // Start memory session for execution phase tracking
     let memoryRef: MemorySessionRef | null = null;
 
     try {
@@ -984,7 +984,7 @@ export class AgentExecutionService {
 
       runId = agentRun?.id ?? runId;
 
-      // Start memory session for execution phase (Phase 3)
+      // Start memory session for execution phase
       if (this.memoryService) {
         try {
           const memSessionResult = await this.memoryService.startSession({

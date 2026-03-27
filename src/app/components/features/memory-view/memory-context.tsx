@@ -216,7 +216,10 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
         // Global mode — skills are org-scoped, so fetch from any codespace
         const listResult = await apiClient.codespaces.list();
         if (currentCodespaceRef.current !== csId) return;
-        if (!listResult.ok) return;
+        if (!listResult.ok) {
+          toast.error('Failed to load synced skills');
+          return;
+        }
         const codespaces = Array.isArray(listResult.data)
           ? listResult.data
           : ((listResult.data as { items?: Array<{ id: string }> }).items ?? []);
@@ -230,9 +233,13 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
       if (currentCodespaceRef.current !== csId) return;
       if (result.ok) {
         setSyncedSkills(result.data);
+      } else {
+        toast.error('Failed to load synced skills');
       }
-    } catch (error) {
-      console.error('[MemoryView] Failed to fetch synced skills:', error);
+    } catch {
+      if (currentCodespaceRef.current === csId) {
+        toast.error('Failed to load synced skills');
+      }
     } finally {
       if (currentCodespaceRef.current === csId) setSyncedSkillsLoading(false);
     }
@@ -442,7 +449,10 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
       tags?: string[];
       metadata?: Record<string, unknown>;
     }): Promise<boolean> => {
-      if (!codespaceId) return false;
+      if (!codespaceId) {
+        toast.error('Select a codespace to create insights');
+        return false;
+      }
       return mutateAndRefresh({
         action: () => apiClient.memory.createInsight(codespaceId, data),
         successMessage: 'Insight created',
@@ -504,7 +514,10 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
   }, [codespaceId, fetchSkillMetrics]);
 
   const triggerDream = useCallback(async (): Promise<boolean> => {
-    if (!codespaceId) return false;
+    if (!codespaceId) {
+      toast.error('Select a codespace to run a dream cycle');
+      return false;
+    }
 
     setIsDreamRunning(true);
     try {
