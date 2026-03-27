@@ -149,6 +149,22 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
     // Column may already exist
   }
 
+  // GitHub App columns (migration 23)
+  try {
+    testSqlite.exec(
+      'ALTER TABLE github_installations ADD COLUMN team_id TEXT REFERENCES teams(id) ON DELETE SET NULL'
+    );
+  } catch {
+    // Column may already exist
+  }
+  try {
+    testSqlite.exec(
+      'ALTER TABLE event_sources ADD COLUMN github_installation_id TEXT REFERENCES github_installations(id) ON DELETE SET NULL'
+    );
+  } catch {
+    // Column may already exist
+  }
+
   return testDb;
 }
 

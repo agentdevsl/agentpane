@@ -147,4 +147,14 @@ export const MIGRATIONS: Migration[] = [
 
   // 22. Memory service tables (insights, messages, skill tracking, dreaming)
   { version: 22, name: 'memory-tables', sql: MEMORY_TABLES_MIGRATION_SQL },
+
+  // 23. GitHub App columns: teamId on installations, githubInstallationId on event_sources
+  {
+    version: 23,
+    name: 'github-app-columns',
+    statements: [
+      `ALTER TABLE github_installations ADD COLUMN team_id TEXT REFERENCES teams(id) ON DELETE SET NULL`,
+      `ALTER TABLE event_sources ADD COLUMN github_installation_id TEXT REFERENCES github_installations(id) ON DELETE SET NULL`,
+    ],
+  },
 ];
