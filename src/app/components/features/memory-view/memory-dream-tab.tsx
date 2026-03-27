@@ -39,7 +39,7 @@ function DreamConfig(): React.JSX.Element {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [enabled, setEnabled] = useState(false);
-  const [intervalHours, setIntervalHours] = useState('24');
+  const [intervalDays, setIntervalDays] = useState('1');
   const [model, setModel] = useState('claude-haiku-4-5-20251001');
   const [minRuns, setMinRuns] = useState('3');
 
@@ -64,7 +64,8 @@ function DreamConfig(): React.JSX.Element {
           }
         };
         setEnabled(parse('memory.dreaming.enabled', 'false') === 'true');
-        setIntervalHours(parse('memory.dreaming.intervalHours', '24'));
+        const hours = Number(parse('memory.dreaming.intervalHours', '24'));
+        setIntervalDays(String(Math.max(1, Math.round(hours / 24))));
         setModel(parse('memory.dreaming.model', 'claude-haiku-4-5-20251001'));
         setMinRuns(parse('memory.dreaming.minRunsForAnalysis', '3'));
       })
@@ -79,7 +80,7 @@ function DreamConfig(): React.JSX.Element {
     try {
       const result = await apiClient.settings.update({
         'memory.dreaming.enabled': enabled,
-        'memory.dreaming.intervalHours': Number(intervalHours) || 24,
+        'memory.dreaming.intervalHours': (Number(intervalDays) || 1) * 24,
         'memory.dreaming.model': model.trim() || 'claude-haiku-4-5-20251001',
         'memory.dreaming.minRunsForAnalysis': Number(minRuns) || 3,
       });
@@ -93,7 +94,7 @@ function DreamConfig(): React.JSX.Element {
     } finally {
       setSaving(false);
     }
-  }, [enabled, intervalHours, model, minRuns]);
+  }, [enabled, intervalDays, model, minRuns]);
 
   return (
     <div className="rounded-lg border border-border bg-surface">
@@ -159,22 +160,22 @@ function DreamConfig(): React.JSX.Element {
               {/* Interval */}
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="dream-interval" className="text-sm font-medium text-fg">
-                  Interval (hours)
+                  Interval (days)
                 </label>
                 <input
                   id="dream-interval"
                   type="number"
                   min="1"
-                  max="168"
+                  max="30"
                   className={`${INPUT_CLASS} w-32`}
-                  value={intervalHours}
+                  value={intervalDays}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    setIntervalHours(e.target.value)
+                    setIntervalDays(e.target.value)
                   }
                   disabled={!enabled}
                 />
                 <span className="text-[11px] text-fg-subtle">
-                  Minimum 1 hour. Default: every 24 hours.
+                  Default: every day. Maximum: 30 days.
                 </span>
               </div>
 
