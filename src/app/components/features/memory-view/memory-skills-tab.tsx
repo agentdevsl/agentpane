@@ -1,6 +1,7 @@
 import { ChartBar } from '@phosphor-icons/react';
 import type React from 'react';
 import { useMemo } from 'react';
+import { formatCost } from './formatters';
 import { useMemory } from './memory-context';
 import { SkillMetricsCard } from './skill-metrics-card';
 
@@ -52,10 +53,6 @@ function EmptyState(): React.JSX.Element {
 // =============================================================================
 // Aggregate stats
 // =============================================================================
-
-function formatCost(cost: number): string {
-  return `$${cost.toFixed(2)}`;
-}
 
 function AggregateBanner({
   totalRuns,

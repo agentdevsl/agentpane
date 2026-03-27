@@ -2,6 +2,7 @@ import type React from 'react';
 import { useState } from 'react';
 import { Button } from '@/app/components/ui/button';
 import { cn } from '@/lib/utils/cn';
+import { formatCost, formatDuration, formatRelativeDate, formatTokens } from './formatters';
 import type { SkillExecution } from './types';
 
 interface SkillExecutionTimelineProps {
@@ -16,43 +17,6 @@ const STATUS_CONFIG: Record<string, { color: string; label: string }> = {
   cancelled: { color: 'bg-fg-subtle', label: 'Cancelled' },
   turn_limit: { color: 'bg-attention', label: 'Turn Limit' },
 };
-
-function formatDuration(ms: number | null): string {
-  if (ms === null) return '\u2014';
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
-  const minutes = Math.floor(ms / 60_000);
-  const seconds = Math.round((ms % 60_000) / 1000);
-  if (seconds === 0) return `${minutes}m`;
-  return `${minutes}m ${seconds}s`;
-}
-
-function formatTokens(tokens: number | null): string {
-  if (tokens === null) return '\u2014';
-  if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}k`;
-  return String(tokens);
-}
-
-function formatCost(cost: number | null): string {
-  if (cost === null) return '\u2014';
-  return `$${cost.toFixed(2)}`;
-}
-
-function formatDate(dateStr: string | null): string {
-  if (!dateStr) return '\u2014';
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60_000);
-
-  if (diffMins < 1) return 'Just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString();
-}
 
 export function SkillExecutionTimeline({
   executions,
@@ -80,7 +44,9 @@ export function SkillExecutionTimeline({
               <span className="text-fg-muted">{formatDuration(exec.durationMs)}</span>
               <span className="text-fg-muted">{formatTokens(exec.tokensUsed)} tokens</span>
               <span className="text-fg-muted">{formatCost(exec.costUsd)}</span>
-              <span className="text-fg-subtle">{formatDate(exec.startedAt ?? exec.createdAt)}</span>
+              <span className="text-fg-subtle">
+                {formatRelativeDate(exec.startedAt ?? exec.createdAt)}
+              </span>
             </div>
             {exec.status === 'failed' && exec.errorMessage && (
               <div className="mt-1 text-xs text-danger">{exec.errorMessage}</div>

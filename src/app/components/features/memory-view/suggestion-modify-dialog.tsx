@@ -26,15 +26,6 @@ export function SuggestionModifyDialog({
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Reset form state when suggestion changes
-  const prevSuggestionId = suggestion?.id;
-  const [lastId, setLastId] = useState<string | undefined>(undefined);
-  if (prevSuggestionId !== lastId) {
-    setLastId(prevSuggestionId);
-    setContent(suggestion?.suggestedContent ?? '');
-    setNotes('');
-  }
-
   const handleSubmit = useCallback(async () => {
     if (!suggestion || !content.trim()) return;
 

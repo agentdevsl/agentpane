@@ -1,6 +1,7 @@
 import { CheckCircle, CircleNotch, WarningCircle } from '@phosphor-icons/react';
 import type React from 'react';
 import { cn } from '@/lib/utils/cn';
+import { formatCost, formatTimestamp } from './formatters';
 
 import type { DreamSession } from './types';
 
@@ -20,31 +21,15 @@ const TYPE_BADGE_STYLES: Record<string, string> = {
   metrics_rollup: 'bg-success-subtle text-success',
 };
 
-function formatTimestamp(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
-function formatCost(costUsd: number | null): string {
-  if (costUsd === null) return '--';
-  return `$${costUsd.toFixed(4)}`;
-}
-
-function StatusIndicator({ status }: { status: string }): React.JSX.Element {
-  if (status === 'running') {
-    return <CircleNotch size={16} className="animate-spin text-accent" />;
+function StatusIndicator({ status }: { status: DreamSession['status'] }): React.JSX.Element {
+  switch (status) {
+    case 'running':
+      return <CircleNotch size={16} className="animate-spin text-accent" />;
+    case 'completed':
+      return <CheckCircle size={16} weight="fill" className="text-success" />;
+    case 'error':
+      return <WarningCircle size={16} weight="fill" className="text-danger" />;
   }
-  if (status === 'completed') {
-    return <CheckCircle size={16} weight="fill" className="text-success" />;
-  }
-  if (status === 'error') {
-    return <WarningCircle size={16} weight="fill" className="text-danger" />;
-  }
-  return <CircleNotch size={16} className="text-fg-subtle" />;
 }
 
 export function DreamSessionCard({ session }: DreamSessionCardProps): React.JSX.Element {
@@ -75,7 +60,7 @@ export function DreamSessionCard({ session }: DreamSessionCardProps): React.JSX.
         <span>
           <span className="font-medium text-fg">{session.tokensUsed.toLocaleString()}</span> tokens
         </span>
-        <span>Cost: {formatCost(session.costUsd)}</span>
+        <span>Cost: {formatCost(session.costUsd, 4)}</span>
       </div>
 
       <div className="mt-2 flex items-center gap-3 text-[11px] text-fg-subtle">

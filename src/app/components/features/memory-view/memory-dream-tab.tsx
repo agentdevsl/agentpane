@@ -8,7 +8,7 @@ import { useMemory } from './memory-context';
 import { SuggestionCard } from './suggestion-card';
 import { SuggestionModifyDialog } from './suggestion-modify-dialog';
 import { SuggestionStatusFilter } from './suggestion-status-filter';
-import type { SkillSuggestion } from './types';
+import type { SkillSuggestion, SuggestionFilter } from './types';
 
 function SkeletonBlock(): React.JSX.Element {
   return (
@@ -55,20 +55,6 @@ export function MemoryDreamTab(): React.JSX.Element {
     return suggestions.filter((s) => s.status === suggestionFilter);
   }, [suggestions, suggestionFilter]);
 
-  const handleAccept = useCallback(
-    (id: string) => {
-      void acceptSuggestion(id);
-    },
-    [acceptSuggestion]
-  );
-
-  const handleReject = useCallback(
-    (id: string) => {
-      void rejectSuggestion(id);
-    },
-    [rejectSuggestion]
-  );
-
   const handleModify = useCallback(
     (id: string) => {
       const suggestion = suggestions.find((s) => s.id === id);
@@ -82,10 +68,6 @@ export function MemoryDreamTab(): React.JSX.Element {
     },
     [suggestions]
   );
-
-  const handleDelegateReview = useCallback(() => {
-    toast.info('Agent review delegation coming soon');
-  }, []);
 
   return (
     <div className="flex flex-col gap-6">
@@ -110,7 +92,12 @@ export function MemoryDreamTab(): React.JSX.Element {
             </>
           )}
         </Button>
-        <Button variant="outline" size="sm" onClick={handleDelegateReview} className="gap-1.5">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => toast.info('Agent review delegation coming soon')}
+          className="gap-1.5"
+        >
           <Users size={14} />
           Delegate Review
         </Button>
@@ -119,7 +106,7 @@ export function MemoryDreamTab(): React.JSX.Element {
       {/* Suggestion filter */}
       <SuggestionStatusFilter
         value={suggestionFilter}
-        onChange={(value) => setSuggestionFilter(value as typeof suggestionFilter)}
+        onChange={(value: SuggestionFilter) => setSuggestionFilter(value)}
         counts={counts}
       />
 
@@ -145,8 +132,8 @@ export function MemoryDreamTab(): React.JSX.Element {
               <SuggestionCard
                 key={suggestion.id}
                 suggestion={suggestion}
-                onAccept={handleAccept}
-                onReject={handleReject}
+                onAccept={(id: string) => void acceptSuggestion(id)}
+                onReject={(id: string) => void rejectSuggestion(id)}
                 onModify={handleModify}
               />
             ))}
@@ -176,8 +163,9 @@ export function MemoryDreamTab(): React.JSX.Element {
         )}
       </div>
 
-      {/* Modify dialog */}
+      {/* Modify dialog — key forces remount to reset form state */}
       <SuggestionModifyDialog
+        key={modifyTarget?.id}
         open={modifyTarget !== null}
         onOpenChange={(open: boolean) => {
           if (!open) setModifyTarget(null);

@@ -1,9 +1,10 @@
 import type React from 'react';
 import { cn } from '@/lib/utils/cn';
+import type { SuggestionFilter } from './types';
 
 interface SuggestionStatusFilterProps {
-  value: string;
-  onChange: (value: string) => void;
+  value: SuggestionFilter;
+  onChange: (value: SuggestionFilter) => void;
   counts: { all: number; pending: number; accepted: number; rejected: number; modified: number };
 }
 
@@ -30,7 +31,7 @@ export function SuggestionStatusFilter({
           <button
             key={key}
             type="button"
-            onClick={() => onChange(key)}
+            onClick={() => onChange(key as SuggestionFilter)}
             className={cn(
               'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors',
               isActive

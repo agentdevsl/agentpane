@@ -24,7 +24,7 @@ export const Route = createFileRoute('/memory/')({
   loader: async () => {
     const result = await apiClient.codespaces.list();
     if (!result.ok) {
-      return { codespaces: [] as Codespace[] };
+      throw new Error(result.error?.message ?? 'Failed to load codespaces');
     }
     const codespaces = Array.isArray(result.data)
       ? result.data
@@ -75,7 +75,7 @@ function MemoryPage(): React.JSX.Element {
           </div>
         }
       >
-        <MemoryView codespaceId={selectedCodespaceId} codespaces={codespaces} />
+        <MemoryView codespaceId={selectedCodespaceId} />
       </Suspense>
     </LayoutShell>
   );

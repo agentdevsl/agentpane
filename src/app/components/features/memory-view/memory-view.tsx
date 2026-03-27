@@ -19,7 +19,6 @@ const MemoryDreamTab = React.lazy(() =>
 
 interface MemoryViewProps {
   codespaceId: string | null;
-  codespaces: Array<{ id: string; name: string }>;
 }
 
 export function MemoryView({ codespaceId }: MemoryViewProps): React.JSX.Element {

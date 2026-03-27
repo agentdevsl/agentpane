@@ -111,6 +111,7 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
   const [searchResults, setSearchResults] = useState<Array<SearchResult> | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchRequestIdRef = useRef(0);
 
   // Skills
   const [skillMetrics, setSkillMetrics] = useState<Array<SkillMetrics>>([]);
@@ -120,6 +121,7 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
     () => new Map<string, Array<SkillExecution>>()
   );
   const skillsLoadedRef = useRef(false);
+  const skillExecutionsCacheRef = useRef<Set<string>>(new Set());
 
   // Dream
   const [dreamSessions, setDreamSessions] = useState<Array<DreamSession>>([]);
@@ -129,9 +131,14 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [suggestionFilter, setSuggestionFilter] = useState<SuggestionFilter>('all');
   const dreamLoadedRef = useRef(false);
+  const dreamFilterInitialRef = useRef(false);
+
+  // Track current codespace to guard against stale responses
+  const currentCodespaceRef = useRef<string | null>(codespaceId);
+  currentCodespaceRef.current = codespaceId;
 
   // ---------------------------------------------------------------------------
-  // Data fetchers
+  // Data fetchers (with error handling)
   // ---------------------------------------------------------------------------
 
   const fetchHealth = useCallback(async () => {
@@ -139,6 +146,8 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
     const result = await apiClient.memory.health();
     if (result.ok) {
       setHealth(result.data);
+    } else {
+      toast.error(result.error?.message ?? 'Failed to check memory health');
     }
     setHealthLoading(false);
   }, []);
@@ -146,8 +155,11 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
   const fetchInsights = useCallback(async (csId: string) => {
     setInsightsLoading(true);
     const result = await apiClient.memory.getInsights(csId);
+    if (currentCodespaceRef.current !== csId) return;
     if (result.ok) {
-      setInsights(result.data as unknown as Insight[]);
+      setInsights(result.data);
+    } else {
+      toast.error(result.error?.message ?? 'Failed to load insights');
     }
     setInsightsLoading(false);
   }, []);
@@ -155,8 +167,11 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
   const fetchSkillMetrics = useCallback(async (csId: string) => {
     setSkillMetricsLoading(true);
     const result = await apiClient.memory.getSkillMetrics(csId);
+    if (currentCodespaceRef.current !== csId) return;
     if (result.ok) {
-      setSkillMetrics(result.data as unknown as SkillMetrics[]);
+      setSkillMetrics(result.data);
+    } else {
+      toast.error(result.error?.message ?? 'Failed to load skill metrics');
     }
     setSkillMetricsLoading(false);
   }, []);
@@ -164,11 +179,14 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
   const fetchDreamSessions = useCallback(async (csId: string) => {
     setDreamSessionsLoading(true);
     const result = await apiClient.memory.getDreamSessions(csId);
+    if (currentCodespaceRef.current !== csId) return;
     if (result.ok) {
-      const data = result.data as unknown as DreamSession[];
+      const data = result.data;
       setDreamSessions(data);
       const running = data.some((s) => s.status === 'running');
       setIsDreamRunning(running);
+    } else {
+      toast.error(result.error?.message ?? 'Failed to load dream sessions');
     }
     setDreamSessionsLoading(false);
   }, []);
@@ -178,8 +196,11 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
       setSuggestionsLoading(true);
       const params = suggestionFilter === 'all' ? undefined : { status: suggestionFilter };
       const result = await apiClient.memory.getSuggestions(csId, params);
+      if (currentCodespaceRef.current !== csId) return;
       if (result.ok) {
-        setSuggestions(result.data as unknown as SkillSuggestion[]);
+        setSuggestions(result.data);
+      } else {
+        toast.error(result.error?.message ?? 'Failed to load suggestions');
       }
       setSuggestionsLoading(false);
     },
@@ -204,7 +225,9 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
     setSuggestions([]);
     setSuggestionFilter('all');
     skillsLoadedRef.current = false;
+    skillExecutionsCacheRef.current = new Set();
     dreamLoadedRef.current = false;
+    dreamFilterInitialRef.current = false;
 
     if (!codespaceId) return;
 
@@ -234,16 +257,20 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
   }, [activeTab, codespaceId, fetchDreamSessions, fetchSuggestions]);
 
   // ---------------------------------------------------------------------------
-  // Re-fetch suggestions when filter changes (only if dream tab already loaded)
+  // Re-fetch suggestions when filter changes (skip initial load)
   // ---------------------------------------------------------------------------
 
   useWatchEffect(() => {
     if (!dreamLoadedRef.current || !codespaceId) return;
+    if (!dreamFilterInitialRef.current) {
+      dreamFilterInitialRef.current = true;
+      return;
+    }
     void fetchSuggestions(codespaceId);
   }, [suggestionFilter, codespaceId, fetchSuggestions]);
 
   // ---------------------------------------------------------------------------
-  // Debounced search
+  // Debounced search (with race condition protection)
   // ---------------------------------------------------------------------------
 
   useWatchEffect(() => {
@@ -262,12 +289,17 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
 
     setIsSearching(true);
     const csId = codespaceId;
-    const query = searchQuery.trim();
+    const requestId = ++searchRequestIdRef.current;
 
     searchTimeoutRef.current = setTimeout(async () => {
-      const result = await apiClient.memory.search(csId, query);
+      const result = await apiClient.memory.search(csId, searchQuery.trim());
+      // Only apply results if this is still the latest request
+      if (requestId !== searchRequestIdRef.current) return;
       if (result.ok) {
-        setSearchResults(result.data as unknown as SearchResult[]);
+        setSearchResults(result.data);
+      } else {
+        setSearchResults(null);
+        toast.error(result.error?.message ?? 'Search failed');
       }
       setIsSearching(false);
     }, SEARCH_DEBOUNCE_MS);
@@ -330,24 +362,30 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
     async (skillId: string) => {
       if (!codespaceId) return;
 
-      // Return cached data if available
-      if (skillExecutions.has(skillId)) return;
+      // Use ref-based cache to avoid stale closure issues
+      if (skillExecutionsCacheRef.current.has(skillId)) return;
+      skillExecutionsCacheRef.current.add(skillId);
 
       const result = await apiClient.memory.getSkillExecutions(codespaceId, skillId);
       if (result.ok) {
         setSkillExecutions((prev: Map<string, Array<SkillExecution>>) => {
           const next = new Map(prev);
-          next.set(skillId, result.data as unknown as SkillExecution[]);
+          next.set(skillId, result.data);
           return next;
         });
+      } else {
+        // Remove from cache so retry is possible
+        skillExecutionsCacheRef.current.delete(skillId);
+        toast.error(result.error?.message ?? 'Failed to load executions');
       }
     },
-    [codespaceId, skillExecutions]
+    [codespaceId]
   );
 
   const refreshSkillMetrics = useCallback(async () => {
     if (!codespaceId) return;
     setSkillExecutions(new Map());
+    skillExecutionsCacheRef.current = new Set();
     await fetchSkillMetrics(codespaceId);
   }, [codespaceId, fetchSkillMetrics]);
 

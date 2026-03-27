@@ -1,8 +1,8 @@
 import { CaretDown, CaretUp } from '@phosphor-icons/react';
 import type React from 'react';
-import { useRef } from 'react';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { cn } from '@/lib/utils/cn';
+import { formatCost, formatDuration, formatRelativeDate, formatTokens } from './formatters';
 import { SkillExecutionTimeline } from './skill-execution-timeline';
 import type { SkillExecution, SkillMetrics } from './types';
 
@@ -14,43 +14,6 @@ interface SkillMetricsCardProps {
   onLoadExecutions: () => void;
 }
 
-function formatTokens(tokens: number | null): string {
-  if (tokens === null) return '\u2014';
-  if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}k`;
-  return String(tokens);
-}
-
-function formatCost(cost: number | null): string {
-  if (cost === null) return '\u2014';
-  return `$${cost.toFixed(2)}`;
-}
-
-function formatDuration(ms: number | null): string {
-  if (ms === null) return '\u2014';
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
-  const minutes = Math.floor(ms / 60_000);
-  const seconds = Math.round((ms % 60_000) / 1000);
-  if (seconds === 0) return `${minutes}m`;
-  return `${minutes}m ${seconds}s`;
-}
-
-function formatRelativeDate(dateStr: string | null): string {
-  if (!dateStr) return 'Never';
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60_000);
-
-  if (diffMins < 1) return 'Just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString();
-}
-
 export function SkillMetricsCard({
   metric,
   expanded,
@@ -58,14 +21,12 @@ export function SkillMetricsCard({
   executions,
   onLoadExecutions,
 }: SkillMetricsCardProps): React.JSX.Element {
-  const loadedRef = useRef(false);
-
+  // Load executions on first expand; re-load if executions were cleared (e.g. after refresh)
   useWatchEffect(() => {
-    if (expanded && !loadedRef.current) {
-      loadedRef.current = true;
+    if (expanded && !executions) {
       onLoadExecutions();
     }
-  }, [expanded, onLoadExecutions]);
+  }, [expanded, executions, onLoadExecutions]);
 
   const successRate = metric.successRate ?? 0;
   const CaretIcon = expanded ? CaretUp : CaretDown;
