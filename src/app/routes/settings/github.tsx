@@ -482,7 +482,7 @@ function GitHubSettingsPage(): React.JSX.Element {
               ))}
 
               {appStatus?.installUrl && (
-                <a href={installUrl} rel="noopener noreferrer" className="block">
+                <a href={appStatus.installUrl} rel="noopener noreferrer" className="block">
                   <Button variant="outline" size="sm" className="w-full">
                     <GithubLogo className="h-4 w-4" />
                     Add Another Account

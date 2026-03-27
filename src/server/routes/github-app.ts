@@ -201,8 +201,10 @@ export function createGitHubAppRoutes({ githubAppService }: GitHubAppRoutesDeps)
       const { data: ghInstallation } = await appOctokit.rest.apps.getInstallation({
         installation_id: installationId,
       });
-      accountLogin = ghInstallation.account?.login ?? `installation-${installationId}`;
-      accountType = ghInstallation.account?.type ?? 'User';
+      const account = ghInstallation.account;
+      accountLogin =
+        account && 'login' in account ? account.login : `installation-${installationId}`;
+      accountType = account && 'type' in account ? account.type : 'User';
     } catch (error) {
       log.error('Failed to fetch installation from GitHub', { data: { installationId }, error });
       const configured = await githubAppService.isConfigured();

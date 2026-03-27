@@ -5,7 +5,7 @@ import {
   eventSources,
   eventSubscriptions,
   githubInstallations,
-  projectFolders,
+  teamProjectFolders,
 } from '../db/schema/index.js';
 import type { GitHubInstallation } from '../db/schema/sqlite/github.js';
 import { decryptToken, encryptToken } from '../lib/crypto/server-encryption.js';
@@ -409,9 +409,9 @@ export class GitHubAppService {
   }
 
   private async resolveTeamId(projectFolderId: string): Promise<string | null> {
-    const folder = await this.db.query.projectFolders.findFirst({
-      where: eq(projectFolders.id, projectFolderId),
+    const teamFolder = await this.db.query.teamProjectFolders.findFirst({
+      where: eq(teamProjectFolders.projectFolderId, projectFolderId),
     });
-    return folder?.teamId ?? null;
+    return teamFolder?.teamId ?? null;
   }
 }
