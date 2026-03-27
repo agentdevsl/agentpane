@@ -6,7 +6,7 @@
  */
 
 import { createId } from '@paralleldrive/cuid2';
-import { and, count, desc, eq, like } from 'drizzle-orm';
+import { and, count, desc, eq, sql } from 'drizzle-orm';
 import { memoryInsights, memoryMessages } from '../../db/schema/index.js';
 import type { MemoryError } from '../../lib/errors/memory-errors.js';
 import { MemoryErrors } from '../../lib/errors/memory-errors.js';
@@ -154,7 +154,7 @@ export class MemoryStoreService {
         .where(
           and(
             eq(memoryInsights.codespaceId, codespaceId),
-            like(memoryInsights.content, `%${escapeLikeQuery(query)}%`)
+            sql`${memoryInsights.content} LIKE ${'%' + escapeLikeQuery(query) + '%'} ESCAPE '\\'`
           )
         )
         .orderBy(desc(memoryInsights.createdAt))
@@ -195,7 +195,7 @@ export class MemoryStoreService {
         .where(
           and(
             eq(memoryInsights.codespaceId, codespaceId),
-            like(memoryInsights.content, `%${escapeLikeQuery(query)}%`)
+            sql`${memoryInsights.content} LIKE ${'%' + escapeLikeQuery(query) + '%'} ESCAPE '\\'`
           )
         )
         .orderBy(desc(memoryInsights.createdAt))
