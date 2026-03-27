@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { AuthContext } from '../../lib/api/auth-middleware.js';
 import { createLogger } from '../../lib/logging/logger.js';
-import type { GitHubAppService } from '../../services/github-app.service.js';
+import { buildInstallUrl, type GitHubAppService } from '../../services/github-app.service.js';
 import { isValidId, json } from '../shared.js';
 import { parseJsonBody } from '../validation.js';
 
@@ -36,14 +36,12 @@ export function createGitHubAppRoutes({ githubAppService }: GitHubAppRoutesDeps)
 
   // GET /status — check if GitHub App is configured (async version checks DB too)
   app.get('/status', async (_c) => {
-    const configured = await githubAppService.isConfiguredAsync();
-    const installUrl = await githubAppService.getInstallUrlAsync();
     const creds = await githubAppService.getCredentials();
     return json({
       ok: true,
       data: {
-        configured,
-        installUrl,
+        configured: creds !== null,
+        installUrl: creds?.appSlug ? buildInstallUrl(creds.appSlug) : null,
         appSlug: creds?.appSlug ?? null,
         appId: creds?.appId ?? null,
       },
@@ -185,7 +183,7 @@ export function createGitHubAppRoutes({ githubAppService }: GitHubAppRoutesDeps)
       );
     }
 
-    const installUrl = `https://github.com/apps/${encodeURIComponent(conversionData.slug)}/installations/new`;
+    const installUrl = buildInstallUrl(conversionData.slug);
 
     log.info('GitHub App created via manifest flow', {
       data: { appId: conversionData.id, appSlug: conversionData.slug },
@@ -237,7 +235,7 @@ export function createGitHubAppRoutes({ githubAppService }: GitHubAppRoutesDeps)
       accountType = ghInstallation.account?.type ?? 'User';
     } catch (error) {
       log.error('Failed to fetch installation from GitHub', { data: { installationId }, error });
-      const configured = await githubAppService.isConfiguredAsync();
+      const configured = await githubAppService.isConfigured();
       return json(
         {
           ok: false,

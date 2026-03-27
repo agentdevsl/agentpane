@@ -32,44 +32,40 @@ export interface StoredAppCredentials {
   clientSecret: string;
 }
 
+export function buildInstallUrl(appSlug: string): string {
+  return `https://github.com/apps/${encodeURIComponent(appSlug)}/installations/new`;
+}
+
 export class GitHubAppService {
+  private cachedCredentials: StoredAppCredentials | null | undefined = undefined;
+
   constructor(
     private db: Database,
     private settingsService: SettingsService
   ) {}
 
-  isConfigured(): boolean {
-    return !!(process.env.GITHUB_APP_ID && process.env.GITHUB_PRIVATE_KEY);
-  }
-
-  async isConfiguredAsync(): Promise<boolean> {
-    if (this.isConfigured()) return true;
+  async isConfigured(): Promise<boolean> {
     const creds = await this.getCredentials();
     return creds !== null;
   }
 
   async getCredentials(): Promise<StoredAppCredentials | null> {
-    // 1. Check env vars first (backward compat)
-    if (process.env.GITHUB_APP_ID && process.env.GITHUB_PRIVATE_KEY) {
-      return {
-        appId: process.env.GITHUB_APP_ID,
-        appSlug: process.env.GITHUB_APP_NAME ?? '',
-        privateKey: process.env.GITHUB_PRIVATE_KEY,
-        webhookSecret: process.env.GITHUB_WEBHOOK_SECRET ?? '',
-        clientId: process.env.GITHUB_CLIENT_ID ?? '',
-        clientSecret: process.env.GITHUB_CLIENT_SECRET ?? '',
-      };
-    }
+    if (this.cachedCredentials !== undefined) return this.cachedCredentials;
 
-    // 2. Check settings table
     const result = await this.settingsService.get(CREDENTIALS_KEY);
-    if (!result.ok || !result.value) return null;
+    if (!result.ok || !result.value) {
+      this.cachedCredentials = null;
+      return null;
+    }
 
     try {
       const stored = JSON.parse(result.value.value) as Record<string, string>;
-      if (!stored.appId || !stored.privateKey) return null;
+      if (!stored.appId || !stored.privateKey) {
+        this.cachedCredentials = null;
+        return null;
+      }
 
-      return {
+      const creds: StoredAppCredentials = {
         appId: stored.appId,
         appSlug: stored.appSlug ?? '',
         privateKey: decryptToken(stored.privateKey),
@@ -77,8 +73,11 @@ export class GitHubAppService {
         clientId: stored.clientId ?? '',
         clientSecret: stored.clientSecret ? decryptToken(stored.clientSecret) : '',
       };
+      this.cachedCredentials = creds;
+      return creds;
     } catch (error) {
       log.error('Failed to parse GitHub App credentials from settings', { error });
+      this.cachedCredentials = null;
       return null;
     }
   }
@@ -98,9 +97,7 @@ export class GitHubAppService {
       return err(EventErrors.PROCESSING_FAILED('Failed to save GitHub App credentials'));
     }
 
-    // Clear cached Octokit so it picks up new credentials
-    clearAppOctokitCache();
-
+    this.invalidateCache();
     log.info('Saved GitHub App credentials', {
       data: { appId: creds.appId, appSlug: creds.appSlug },
     });
@@ -108,12 +105,11 @@ export class GitHubAppService {
   }
 
   async deleteCredentials(): Promise<Result<void, AppError>> {
-    // Set to null to clear credentials (SettingsService has no delete method)
     const result = await this.settingsService.set(CREDENTIALS_KEY, null);
     if (!result.ok) {
       return err(EventErrors.PROCESSING_FAILED('Failed to delete GitHub App credentials'));
     }
-    clearAppOctokitCache();
+    this.invalidateCache();
     return ok(undefined);
   }
 
@@ -123,25 +119,6 @@ export class GitHubAppService {
       throw new Error('GitHub App credentials not configured');
     }
     return getAppOctokit({ appId: creds.appId, privateKey: creds.privateKey });
-  }
-
-  getInstallUrl(): string | null {
-    const appName = process.env.GITHUB_APP_NAME;
-    if (!appName) return null;
-    return `https://github.com/apps/${encodeURIComponent(appName)}/installations/new`;
-  }
-
-  async getInstallUrlAsync(): Promise<string | null> {
-    // Check env var first
-    const envName = process.env.GITHUB_APP_NAME;
-    if (envName) return `https://github.com/apps/${encodeURIComponent(envName)}/installations/new`;
-
-    // Check DB credentials
-    const creds = await this.getCredentials();
-    if (creds?.appSlug) {
-      return `https://github.com/apps/${encodeURIComponent(creds.appSlug)}/installations/new`;
-    }
-    return null;
   }
 
   async handleInstallation(
@@ -217,15 +194,16 @@ export class GitHubAppService {
       return ok(undefined);
     }
 
-    await this.db
-      .update(githubInstallations)
-      .set({ status: 'removed', updatedAt: now })
-      .where(eq(githubInstallations.id, installation.id));
-
-    await this.db
-      .update(eventSources)
-      .set({ isEnabled: false, status: 'disabled', updatedAt: now })
-      .where(eq(eventSources.githubInstallationId, installation.id));
+    await Promise.all([
+      this.db
+        .update(githubInstallations)
+        .set({ status: 'removed', updatedAt: now })
+        .where(eq(githubInstallations.id, installation.id)),
+      this.db
+        .update(eventSources)
+        .set({ isEnabled: false, status: 'disabled', updatedAt: now })
+        .where(eq(eventSources.githubInstallationId, installation.id)),
+    ]);
 
     log.info('Handled GitHub App uninstall', {
       data: { installationId, id: installation.id },
@@ -242,18 +220,6 @@ export class GitHubAppService {
       where: whereClause,
     });
     return ok(items);
-  }
-
-  async getInstallationByAccount(
-    accountLogin: string
-  ): Promise<Result<GitHubInstallation | null, AppError>> {
-    const installation = await this.db.query.githubInstallations.findFirst({
-      where: and(
-        eq(githubInstallations.accountLogin, accountLogin),
-        eq(githubInstallations.status, 'active')
-      ),
-    });
-    return ok(installation ?? null);
   }
 
   async autoConfigureEventsForCodespace(codespaceId: string): Promise<
@@ -297,7 +263,6 @@ export class GitHubAppService {
       return ok({ eventSourceId: null, subscriptionId: null, installationId: installation.id });
     }
 
-    // Find or create event source
     let source = await this.db.query.eventSources.findFirst({
       where: and(
         eq(eventSources.githubInstallationId, installation.id),
@@ -338,7 +303,6 @@ export class GitHubAppService {
       });
     }
 
-    // Find or create subscription
     const existingSub = await this.db.query.eventSubscriptions.findFirst({
       where: and(
         eq(eventSubscriptions.eventSourceId, source.id),
@@ -399,17 +363,16 @@ export class GitHubAppService {
   async removeInstallation(id: string): Promise<Result<void, AppError>> {
     const now = new Date().toISOString();
 
-    // Disable linked event sources before deleting (prevents orphaned references)
-    await this.db
-      .update(eventSources)
-      .set({ isEnabled: false, status: 'disabled', githubInstallationId: null, updatedAt: now })
-      .where(eq(eventSources.githubInstallationId, id));
-
-    // Clear codespace references
-    await this.db
-      .update(codespaces)
-      .set({ githubInstallationId: null, updatedAt: now })
-      .where(eq(codespaces.githubInstallationId, id));
+    await Promise.all([
+      this.db
+        .update(eventSources)
+        .set({ isEnabled: false, status: 'disabled', githubInstallationId: null, updatedAt: now })
+        .where(eq(eventSources.githubInstallationId, id)),
+      this.db
+        .update(codespaces)
+        .set({ githubInstallationId: null, updatedAt: now })
+        .where(eq(codespaces.githubInstallationId, id)),
+    ]);
 
     const [deleted] = await this.db
       .delete(githubInstallations)
@@ -425,11 +388,6 @@ export class GitHubAppService {
   }
 
   async getInstallationToken(installationId: number): Promise<Result<string, AppError>> {
-    const configured = await this.isConfiguredAsync();
-    if (!configured) {
-      return err(EventErrors.PROCESSING_FAILED('GitHub App credentials not configured'));
-    }
-
     try {
       const appOctokit = await this.getAppOctokitFromCredentials();
       const { data } = await appOctokit.rest.apps.createInstallationAccessToken({
@@ -444,6 +402,11 @@ export class GitHubAppService {
         )
       );
     }
+  }
+
+  private invalidateCache(): void {
+    this.cachedCredentials = undefined;
+    clearAppOctokitCache();
   }
 
   private async resolveTeamId(projectFolderId: string): Promise<string | null> {

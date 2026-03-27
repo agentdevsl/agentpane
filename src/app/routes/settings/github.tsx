@@ -60,10 +60,14 @@ function FeatureCard({
   );
 }
 
+interface AppStatus {
+  configured: boolean;
+  installUrl: string | null;
+  appSlug: string | null;
+}
+
 function GitHubSettingsPage(): React.JSX.Element {
-  const [appConfigured, setAppConfigured] = useState<boolean | null>(null);
-  const [installUrl, setInstallUrl] = useState<string | null>(null);
-  const [appSlug, setAppSlug] = useState<string | null>(null);
+  const [appStatus, setAppStatus] = useState<AppStatus | null>(null);
   const [installations, setInstallations] = useState<Installation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -87,9 +91,11 @@ function GitHubSettingsPage(): React.JSX.Element {
       ]);
 
       if (statusRes.ok) {
-        setAppConfigured(statusRes.data.configured);
-        setInstallUrl(statusRes.data.installUrl);
-        setAppSlug(statusRes.data.appSlug);
+        setAppStatus({
+          configured: statusRes.data.configured,
+          installUrl: statusRes.data.installUrl,
+          appSlug: statusRes.data.appSlug,
+        });
       }
 
       if (installRes.ok) {
@@ -135,14 +141,12 @@ function GitHubSettingsPage(): React.JSX.Element {
     setError(null);
     try {
       const res = await apiClient.github.app.setupCallback(code);
-      if (res.ok) {
-        await loadData();
-      } else {
+      if (!res.ok) {
         setError('Failed to complete GitHub App setup');
-        await loadData();
       }
     } catch {
       setError('Failed to complete GitHub App setup');
+    } finally {
       await loadData();
     }
   };
@@ -217,7 +221,7 @@ function GitHubSettingsPage(): React.JSX.Element {
     }
   };
 
-  if (isLoading && appConfigured === null) {
+  if (isLoading && appStatus === null) {
     return (
       <div data-testid="github-settings" className="mx-auto max-w-4xl px-6 py-8 sm:px-8">
         <div className="flex items-center justify-center py-12">
@@ -228,8 +232,7 @@ function GitHubSettingsPage(): React.JSX.Element {
   }
 
   const isConnected = installations.length > 0;
-  // Three states: not created, created (not installed), installed
-  const appState = isConnected ? 'installed' : appConfigured ? 'created' : 'not_created';
+  const appState = isConnected ? 'installed' : appStatus?.configured ? 'created' : 'not_created';
 
   return (
     <div data-testid="github-settings" className="mx-auto max-w-4xl px-6 py-8 sm:px-8">
@@ -287,10 +290,10 @@ function GitHubSettingsPage(): React.JSX.Element {
                 </span>
               </span>
             </div>
-            {appSlug && (
+            {appStatus?.appSlug && (
               <div className="flex items-center gap-2">
                 <GithubLogo className="h-4 w-4 text-fg-subtle" />
-                <span className="text-xs text-fg-muted">{appSlug}</span>
+                <span className="text-xs text-fg-muted">{appStatus.appSlug}</span>
               </div>
             )}
             {isConnected && (
@@ -404,7 +407,7 @@ function GitHubSettingsPage(): React.JSX.Element {
           <ConfigSection
             icon={Check}
             title="GitHub App Created"
-            description={`App "${appSlug ?? 'AgentPane'}" is ready to install`}
+            description={`App "${appStatus?.appSlug ?? 'AgentPane'}" is ready to install`}
             badge="Ready"
             badgeColor="accent"
           >
@@ -418,8 +421,8 @@ function GitHubSettingsPage(): React.JSX.Element {
                 receiving events.
               </p>
 
-              {installUrl ? (
-                <a href={installUrl} rel="noopener noreferrer">
+              {appStatus?.installUrl ? (
+                <a href={appStatus?.installUrl ?? '#'} rel="noopener noreferrer">
                   <Button className="mt-4">
                     <GithubLogo className="h-4 w-4" weight="fill" />
                     Install GitHub App
@@ -478,7 +481,7 @@ function GitHubSettingsPage(): React.JSX.Element {
                 </div>
               ))}
 
-              {installUrl && (
+              {appStatus?.installUrl && (
                 <a href={installUrl} rel="noopener noreferrer" className="block">
                   <Button variant="outline" size="sm" className="w-full">
                     <GithubLogo className="h-4 w-4" />
