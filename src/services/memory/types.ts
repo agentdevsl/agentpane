@@ -1,76 +1,154 @@
-import type { Conclusion as HonchoConclusion } from '@honcho-ai/sdk';
+/**
+ * Internal memory service types.
+ * Replaces external Honcho SDK types with local DB-backed equivalents.
+ */
 
 /**
- * Opaque reference to a Honcho session, used to track message capture context.
+ * Reference to an internal memory session, used to track message capture context.
  */
-export interface HonchoSessionRef {
-  workspaceId: string;
-  sessionId: string;
-  agentPeerId: string;
-  userPeerId: string;
+export interface MemorySessionRef {
+  memorySessionId: string;
+  codespaceId: string;
+  agentId: string;
+  taskId: string;
 }
 
 /**
  * Assembled memory context for agent prompt injection.
  */
 export interface MemoryContext {
-  /** Assembled text block to append to agent prompt. */
   text: string;
-  /** Approximate token count of the assembled context. */
   tokenCount: number;
-  /** Breakdown of what was included. */
   sources: {
-    conclusions: number;
-    platformConclusions: number;
+    insights: number;
   };
 }
 
 /**
- * A conclusion derived by Honcho or created manually.
+ * An insight derived from agent sessions or created manually.
  */
-export interface MemoryConclusion {
+export interface Insight {
   id: string;
+  codespaceId: string;
   content: string;
-  observerId: string;
-  observedId: string;
-  sessionId: string | null;
+  source: 'agent_derived' | 'manual' | 'dream';
+  sourceSessionId: string | null;
+  skillId: string | null;
+  tags: string[];
+  metadata: Record<string, unknown> | null;
   createdAt: string;
 }
 
 /**
- * Convert a Honcho SDK Conclusion to our domain type.
+ * A captured agent message for memory derivation.
  */
-export function toMemoryConclusion(c: HonchoConclusion): MemoryConclusion {
-  return {
-    id: c.id,
-    content: c.content,
-    observerId: c.observerId,
-    observedId: c.observedId,
-    sessionId: c.sessionId,
-    createdAt: c.createdAt,
-  };
-}
-
-/**
- * A Honcho session as exposed through the admin API.
- */
-export interface MemorySession {
+export interface MemoryMessage {
   id: string;
-  metadata: Record<string, unknown>;
-  createdAt?: string;
+  codespaceId: string;
+  memorySessionId: string;
+  agentId: string;
+  taskId: string | null;
+  role: 'user' | 'assistant';
+  content: string;
+  turnNumber: number;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
 }
 
 /**
- * Search result from semantic query.
+ * A skill execution record.
+ */
+export interface SkillExecution {
+  id: string;
+  codespaceId: string;
+  skillId: string;
+  skillName: string | null;
+  taskId: string | null;
+  agentRunId: string | null;
+  sessionId: string | null;
+  status: 'success' | 'failed' | 'cancelled' | 'turn_limit';
+  turnsUsed: number | null;
+  tokensUsed: number | null;
+  durationMs: number | null;
+  filesModified: number | null;
+  linesAdded: number | null;
+  linesRemoved: number | null;
+  costUsd: number | null;
+  errorMessage: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+}
+
+/**
+ * Aggregated skill metrics.
+ */
+export interface SkillMetrics {
+  id: string;
+  codespaceId: string;
+  skillId: string;
+  skillName: string;
+  totalRuns: number;
+  successCount: number;
+  errorCount: number;
+  avgTokensUsed: number | null;
+  avgTurnsUsed: number | null;
+  avgDurationMs: number | null;
+  avgCostUsd: number | null;
+  successRate: number | null;
+  lastRunAt: string | null;
+  updatedAt: string;
+}
+
+/**
+ * A dream session record.
+ */
+export interface DreamSession {
+  id: string;
+  codespaceId: string | null;
+  type: 'conclusion_derivation' | 'skill_improvement' | 'metrics_rollup';
+  status: 'running' | 'completed' | 'error';
+  skillsAnalyzed: number;
+  suggestionsGenerated: number;
+  tokensUsed: number;
+  costUsd: number | null;
+  startedAt: string;
+  completedAt: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+}
+
+/**
+ * A skill improvement suggestion from dreaming.
+ */
+export interface SkillSuggestion {
+  id: string;
+  dreamSessionId: string;
+  codespaceId: string;
+  skillId: string;
+  skillName: string;
+  suggestionType: 'improve_prompt' | 'add_example' | 'fix_pattern' | 'new_skill';
+  title: string;
+  reasoning: string;
+  currentContent: string | null;
+  suggestedContent: string;
+  diff: string | null;
+  status: 'pending' | 'accepted' | 'rejected' | 'modified';
+  userNotes: string | null;
+  appliedAt: string | null;
+  appliedBy: string | null;
+  createdAt: string;
+}
+
+/**
+ * Search result from memory query.
  */
 export interface SearchResult {
   id: string;
   content: string;
   score?: number;
-  type: 'conclusion';
-  observerId: string;
-  observedId: string;
-  sessionId: string | null;
+  type: 'insight';
+  skillId: string | null;
   createdAt: string;
 }
 
@@ -79,9 +157,8 @@ export interface SearchResult {
  */
 export interface HealthStatus {
   available: boolean;
-  version: string | null;
-  latencyMs: number;
-  workspaceCount: number;
+  insightCount: number;
+  messageCount: number;
 }
 
 /**
@@ -98,5 +175,5 @@ export interface PaginationOptions {
 export const EMPTY_CONTEXT: MemoryContext = {
   text: '',
   tokenCount: 0,
-  sources: { conclusions: 0, platformConclusions: 0 },
+  sources: { insights: 0 },
 };

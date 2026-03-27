@@ -16,7 +16,7 @@ import { resolveModel } from '../../lib/utils/resolve-model.js';
 import type { Result } from '../../lib/utils/result.js';
 import { err, ok } from '../../lib/utils/result.js';
 import type { Database } from '../../types/database.js';
-import type { HonchoSessionRef, MemoryService } from '../memory/index.js';
+import type { MemoryService, MemorySessionRef } from '../memory/index.js';
 import { createSessionEventWithMetadata } from '../session/event-metadata.js';
 import { getGlobalDefaultModel } from '../settings.service.js';
 import type { AgentQueueService } from './agent-queue.service.js';
@@ -266,12 +266,10 @@ export class AgentExecutionService {
     // Inject memory context if available (Phase 3)
     if (this.memoryService) {
       try {
-        const memoryResult = await this.memoryService.getContext({
-          codespaceId: agent.codespaceId,
-          agentId: agent.id,
-          taskTitle: task.title,
-          taskDescription: task.description,
-        });
+        const memoryResult = await this.memoryService.getContext(
+          agent.codespaceId,
+          task.title ?? ''
+        );
         if (memoryResult.ok && memoryResult.value.text) {
           taskPrompt = `${taskPrompt}\n\n---\n\n${memoryResult.value.text}`;
           log.info('Memory context injected into agent prompt', {
@@ -356,7 +354,7 @@ export class AgentExecutionService {
     // Abort signal handling is managed by stream-handler.ts which publishes agent:stopped
 
     // Start memory session for tracking (Phase 3 — capture wired in Phase 4)
-    let honchoRef: HonchoSessionRef | null = null;
+    let memoryRef: MemorySessionRef | null = null;
     if (this.memoryService) {
       try {
         // Resolve codespaceId from the agent record
@@ -368,12 +366,9 @@ export class AgentExecutionService {
             codespaceId: agentRecord.codespaceId,
             agentId,
             taskId,
-            sessionId,
-            phase: 'planning',
-            model: options.model,
           });
-          if (sessionResult?.ok) {
-            honchoRef = sessionResult.value;
+          if (sessionResult) {
+            memoryRef = sessionResult;
           }
         }
       } catch (error) {
@@ -386,7 +381,7 @@ export class AgentExecutionService {
 
     // Build onMessage callback for memory capture — capture refs as const to avoid non-null assertions
     const memSvc = this.memoryService;
-    const memRef = honchoRef;
+    const memRef = memoryRef;
     const onMessage =
       memRef && memSvc
         ? async (params: {
@@ -395,10 +390,10 @@ export class AgentExecutionService {
             turn: number;
             metadata?: Record<string, unknown>;
           }) => {
-            await memSvc.captureMessage({
-              honchoSessionRef: memRef,
+            await memSvc.captureMessage(memRef, {
               role: params.role,
               content: params.content,
+              turnNumber: params.turn,
               metadata: params.metadata,
             });
           }
@@ -419,8 +414,8 @@ export class AgentExecutionService {
       });
 
       // Finalize memory session after planning completes
-      if (honchoRef && this.memoryService) {
-        this.memoryService.finalizeSession(honchoRef).catch((finalizeErr) => {
+      if (memoryRef && this.memoryService) {
+        this.memoryService.finalizeSession(memoryRef).catch((finalizeErr) => {
           log.warn('Failed to finalize memory session after planning', {
             error: finalizeErr instanceof Error ? finalizeErr : new Error(String(finalizeErr)),
             data: { agentId },
@@ -549,8 +544,8 @@ export class AgentExecutionService {
       log.error('Agent execution failed', { error, data: { agentId } });
 
       // Finalize memory session even on error (fire-and-forget)
-      if (honchoRef && this.memoryService) {
-        this.memoryService.finalizeSession(honchoRef).catch((finalizeErr) => {
+      if (memoryRef && this.memoryService) {
+        this.memoryService.finalizeSession(memoryRef).catch((finalizeErr) => {
           log.warn('Failed to finalize memory session after planning error', {
             error: finalizeErr instanceof Error ? finalizeErr : new Error(String(finalizeErr)),
             data: { agentId },
@@ -777,7 +772,7 @@ export class AgentExecutionService {
     let runId = createId();
 
     // Start memory session for execution phase tracking (Phase 3)
-    let honchoRef: HonchoSessionRef | null = null;
+    let memoryRef: MemorySessionRef | null = null;
 
     try {
       // Get agent config for model/tools/maxTurns
@@ -854,12 +849,9 @@ export class AgentExecutionService {
             codespaceId: agent.codespaceId,
             agentId,
             taskId: task.id,
-            sessionId,
-            phase: 'execution',
-            model: resolvedModel,
           });
-          if (memSessionResult?.ok) {
-            honchoRef = memSessionResult.value;
+          if (memSessionResult) {
+            memoryRef = memSessionResult;
           }
         } catch (error) {
           log.warn('Failed to start memory session for execution, continuing without it', {
@@ -871,7 +863,7 @@ export class AgentExecutionService {
 
       // Build onMessage callback for memory capture (execution phase) — capture refs as const
       const execMemSvc = this.memoryService;
-      const execMemRef = honchoRef;
+      const execMemRef = memoryRef;
       const execOnMessage =
         execMemRef && execMemSvc
           ? async (params: {
@@ -880,10 +872,10 @@ export class AgentExecutionService {
               turn: number;
               metadata?: Record<string, unknown>;
             }) => {
-              await execMemSvc.captureMessage({
-                honchoSessionRef: execMemRef,
+              await execMemSvc.captureMessage(execMemRef, {
                 role: params.role,
                 content: params.content,
+                turnNumber: params.turn,
                 metadata: params.metadata,
               });
             }
@@ -903,8 +895,8 @@ export class AgentExecutionService {
       });
 
       // Finalize memory session after execution completes
-      if (honchoRef && this.memoryService) {
-        this.memoryService.finalizeSession(honchoRef).catch((finalizeErr) => {
+      if (memoryRef && this.memoryService) {
+        this.memoryService.finalizeSession(memoryRef).catch((finalizeErr) => {
           log.warn('Failed to finalize memory session after execution', {
             error: finalizeErr instanceof Error ? finalizeErr : new Error(String(finalizeErr)),
             data: { agentId },
@@ -1003,8 +995,8 @@ export class AgentExecutionService {
       log.error('Agent execution failed', { error, data: { agentId } });
 
       // Finalize memory session even on error (fire-and-forget)
-      if (honchoRef && this.memoryService) {
-        this.memoryService.finalizeSession(honchoRef).catch((finalizeErr) => {
+      if (memoryRef && this.memoryService) {
+        this.memoryService.finalizeSession(memoryRef).catch((finalizeErr) => {
           log.warn('Failed to finalize memory session after execution error', {
             error: finalizeErr instanceof Error ? finalizeErr : new Error(String(finalizeErr)),
             data: { agentId },

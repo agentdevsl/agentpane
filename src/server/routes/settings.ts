@@ -29,10 +29,14 @@ const ALLOWED_SETTINGS_KEYS = new Set([
   'theme',
   'general.agentModel',
   'memory.enabled',
-  'memory.honcho',
   'memory.contextMaxTokens',
   'memory.captureEnabled',
   'memory.captureMinTurnLength',
+  'memory.dreaming.enabled',
+  'memory.dreaming.intervalHours',
+  'memory.dreaming.maxTokensPerCycle',
+  'memory.dreaming.minRunsForAnalysis',
+  'memory.dreaming.model',
   'retention.sessionEventsDays',
   'retention.eventLogDays',
 ]);
@@ -40,7 +44,6 @@ const ALLOWED_SETTINGS_KEYS = new Set([
 const SENSITIVE_FIELDS: Record<string, { secretKey: string; flagKey: string }> = {
   'sandbox.nomad': { secretKey: 'token', flagKey: 'hasToken' },
   'sandbox.agentcore': { secretKey: 'secretAccessKey', flagKey: 'hasSecretAccessKey' },
-  'memory.honcho': { secretKey: 'apiKey', flagKey: 'hasApiKey' },
 };
 
 // Validation schemas

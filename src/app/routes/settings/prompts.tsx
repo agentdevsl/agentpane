@@ -59,6 +59,7 @@ const CATEGORY_ICON: Record<PromptCategory, Icon> = {
   'task-creation': Lightning,
   'terraform-compose': Hexagon,
   'workflow-designer': TreeStructure,
+  'skill-improvement': Lightning,
 };
 
 const CATEGORY_COLOR: Record<PromptCategory, string> = {
@@ -66,6 +67,7 @@ const CATEGORY_COLOR: Record<PromptCategory, string> = {
   'task-creation': 'accent',
   'terraform-compose': 'success',
   'workflow-designer': 'attention',
+  'skill-improvement': 'done',
 };
 
 const BADGE_CLASSES: Record<string, string> = {

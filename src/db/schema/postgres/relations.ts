@@ -6,11 +6,14 @@ import { auditLogs } from './audit-logs';
 import { codespaceMembers } from './codespace-members';
 import { codespaceTags } from './codespace-tags';
 import { codespaces } from './codespaces';
+import { dreamSessions } from './dream-sessions';
 import { eventLog } from './event-log';
 import { eventSources } from './event-sources';
 import { eventSubscriptions } from './event-subscriptions';
 import { folderMembers } from './folder-members';
 import { githubInstallations, repositoryConfigs } from './github';
+import { memoryInsights } from './memory-insights';
+import { memoryMessages } from './memory-messages';
 import { planSessions } from './plan-sessions';
 import { projectFolders } from './project-folders';
 import { sandboxConfigs } from './sandbox-configs';
@@ -18,6 +21,9 @@ import { sandboxInstances, sandboxTmuxSessions } from './sandboxes';
 import { sessionEvents } from './session-events';
 import { sessionSummaries } from './session-summaries';
 import { sessions } from './sessions';
+import { skillExecutions } from './skill-executions';
+import { skillMetrics } from './skill-metrics';
+import { skillSuggestions } from './skill-suggestions';
 import { tags } from './tags';
 import { taskTags } from './task-tags';
 import { tasks } from './tasks';
@@ -409,5 +415,70 @@ export const eventLogRelations = relations(eventLog, ({ one }) => ({
   eventSource: one(eventSources, {
     fields: [eventLog.eventSourceId],
     references: [eventSources.id],
+  }),
+}));
+
+// Memory system relations
+
+export const memoryInsightsRelations = relations(memoryInsights, ({ one }) => ({
+  codespace: one(codespaces, {
+    fields: [memoryInsights.codespaceId],
+    references: [codespaces.id],
+  }),
+  sourceSession: one(sessions, {
+    fields: [memoryInsights.sourceSessionId],
+    references: [sessions.id],
+  }),
+}));
+
+export const memoryMessagesRelations = relations(memoryMessages, ({ one }) => ({
+  codespace: one(codespaces, {
+    fields: [memoryMessages.codespaceId],
+    references: [codespaces.id],
+  }),
+}));
+
+export const skillExecutionsRelations = relations(skillExecutions, ({ one }) => ({
+  codespace: one(codespaces, {
+    fields: [skillExecutions.codespaceId],
+    references: [codespaces.id],
+  }),
+  task: one(tasks, {
+    fields: [skillExecutions.taskId],
+    references: [tasks.id],
+  }),
+  agentRun: one(agentRuns, {
+    fields: [skillExecutions.agentRunId],
+    references: [agentRuns.id],
+  }),
+  session: one(sessions, {
+    fields: [skillExecutions.sessionId],
+    references: [sessions.id],
+  }),
+}));
+
+export const skillMetricsRelations = relations(skillMetrics, ({ one }) => ({
+  codespace: one(codespaces, {
+    fields: [skillMetrics.codespaceId],
+    references: [codespaces.id],
+  }),
+}));
+
+export const dreamSessionsRelations = relations(dreamSessions, ({ one, many }) => ({
+  codespace: one(codespaces, {
+    fields: [dreamSessions.codespaceId],
+    references: [codespaces.id],
+  }),
+  suggestions: many(skillSuggestions),
+}));
+
+export const skillSuggestionsRelations = relations(skillSuggestions, ({ one }) => ({
+  dreamSession: one(dreamSessions, {
+    fields: [skillSuggestions.dreamSessionId],
+    references: [dreamSessions.id],
+  }),
+  codespace: one(codespaces, {
+    fields: [skillSuggestions.codespaceId],
+    references: [codespaces.id],
   }),
 }));

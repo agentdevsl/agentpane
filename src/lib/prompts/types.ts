@@ -6,13 +6,14 @@ export type PromptCategory =
   | 'agent-execution'
   | 'task-creation'
   | 'terraform-compose'
-  | 'workflow-designer';
+  | 'workflow-designer'
+  | 'skill-improvement';
 
 export interface PromptCategoryInfo {
   id: PromptCategory;
   label: string;
   description: string;
-  color: 'claude' | 'accent' | 'success' | 'attention';
+  color: 'claude' | 'accent' | 'success' | 'attention' | 'done';
 }
 
 export interface PromptDefinition {
