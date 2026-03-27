@@ -16,6 +16,8 @@ interface Codespace {
   name: string;
 }
 
+const ALL_CODESPACES = '__all__';
+
 const MemoryView = React.lazy(() =>
   import('@/app/components/features/memory-view').then((m) => ({ default: m.MemoryView }))
 );
@@ -45,19 +47,22 @@ function MemoryPage(): React.JSX.Element {
 
   const { currentCodespaceId } = useCodespaceData();
 
-  const defaultId = urlCodespaceId ?? currentCodespaceId ?? codespaces[0]?.id ?? null;
-  const [selectedCodespaceId, setSelectedCodespaceId] = useState<string | null>(defaultId);
+  // Default to global view (ALL_CODESPACES) unless a specific codespace is requested via URL or context
+  const defaultSelected = urlCodespaceId ?? currentCodespaceId ?? ALL_CODESPACES;
+  const [selected, setSelected] = useState<string>(defaultSelected);
+  const codespaceId = selected === ALL_CODESPACES ? null : selected;
 
   return (
     <LayoutShell
       breadcrumbs={[{ label: 'Memory' }]}
       actions={
         codespaces.length > 0 ? (
-          <Select value={selectedCodespaceId ?? undefined} onValueChange={setSelectedCodespaceId}>
+          <Select value={selected} onValueChange={setSelected}>
             <SelectTrigger className="w-[200px]">
               <SelectValue placeholder="Select codespace" />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value={ALL_CODESPACES}>All Codespaces</SelectItem>
               {codespaces.map((cs) => (
                 <SelectItem key={cs.id} value={cs.id}>
                   {cs.name}
@@ -75,7 +80,7 @@ function MemoryPage(): React.JSX.Element {
           </div>
         }
       >
-        <MemoryView codespaceId={selectedCodespaceId} />
+        <MemoryView codespaceId={codespaceId} />
       </Suspense>
     </LayoutShell>
   );

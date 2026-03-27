@@ -1504,14 +1504,15 @@ export const apiClient = {
   memory: {
     health: () => apiServerFetch<MemoryHealthStatus>('/api/memory/health'),
 
-    getInsights: (codespaceId: string, params?: { page?: number; size?: number }) => {
+    getInsights: (codespaceId?: string | null, params?: { page?: number; size?: number }) => {
       const sp = new URLSearchParams();
       if (params?.page !== undefined) sp.set('page', String(params.page));
       if (params?.size !== undefined) sp.set('size', String(params.size));
       const qs = sp.toString();
-      return apiServerFetch<Array<MemoryInsight>>(
-        `/api/memory/codespaces/${codespaceId}/insights${qs ? `?${qs}` : ''}`
-      );
+      const base = codespaceId
+        ? `/api/memory/codespaces/${codespaceId}/insights`
+        : '/api/memory/insights';
+      return apiServerFetch<Array<MemoryInsight>>(`${base}${qs ? `?${qs}` : ''}`);
     },
 
     createInsight: (
@@ -1532,19 +1533,25 @@ export const apiClient = {
     deleteInsight: (insightId: string) =>
       apiServerFetch<null>(`/api/memory/insights/${insightId}`, { method: 'DELETE' }),
 
-    search: (codespaceId: string, query: string, limit?: number) =>
-      apiServerFetch<Array<MemorySearchResult>>(`/api/memory/codespaces/${codespaceId}/search`, {
+    search: (codespaceId: string | null | undefined, query: string, limit?: number) => {
+      const base = codespaceId
+        ? `/api/memory/codespaces/${codespaceId}/search`
+        : '/api/memory/search';
+      return apiServerFetch<Array<MemorySearchResult>>(base, {
         method: 'POST',
         body: { query, limit },
-      }),
+      });
+    },
 
-    getSkillMetrics: (codespaceId: string) =>
-      apiServerFetch<Array<MemorySkillMetrics>>(
-        `/api/memory/codespaces/${codespaceId}/skill-metrics`
-      ),
+    getSkillMetrics: (codespaceId?: string | null) => {
+      const base = codespaceId
+        ? `/api/memory/codespaces/${codespaceId}/skill-metrics`
+        : '/api/memory/skill-metrics';
+      return apiServerFetch<Array<MemorySkillMetrics>>(base);
+    },
 
     getSkillExecutions: (
-      codespaceId: string,
+      codespaceId: string | null | undefined,
       skillId: string,
       params?: { page?: number; size?: number }
     ) => {
@@ -1552,19 +1559,21 @@ export const apiClient = {
       if (params?.page !== undefined) sp.set('page', String(params.page));
       if (params?.size !== undefined) sp.set('size', String(params.size));
       const qs = sp.toString();
-      return apiServerFetch<Array<MemorySkillExecution>>(
-        `/api/memory/codespaces/${codespaceId}/skill-metrics/${skillId}/executions${qs ? `?${qs}` : ''}`
-      );
+      const base = codespaceId
+        ? `/api/memory/codespaces/${codespaceId}/skill-metrics/${skillId}/executions`
+        : `/api/memory/skill-metrics/${skillId}/executions`;
+      return apiServerFetch<Array<MemorySkillExecution>>(`${base}${qs ? `?${qs}` : ''}`);
     },
 
-    getDreamSessions: (codespaceId: string, params?: { page?: number; size?: number }) => {
+    getDreamSessions: (codespaceId?: string | null, params?: { page?: number; size?: number }) => {
       const sp = new URLSearchParams();
       if (params?.page !== undefined) sp.set('page', String(params.page));
       if (params?.size !== undefined) sp.set('size', String(params.size));
       const qs = sp.toString();
-      return apiServerFetch<Array<MemoryDreamSession>>(
-        `/api/memory/codespaces/${codespaceId}/dream-sessions${qs ? `?${qs}` : ''}`
-      );
+      const base = codespaceId
+        ? `/api/memory/codespaces/${codespaceId}/dream-sessions`
+        : '/api/memory/dream-sessions';
+      return apiServerFetch<Array<MemoryDreamSession>>(`${base}${qs ? `?${qs}` : ''}`);
     },
 
     triggerDream: (codespaceId: string) =>
@@ -1573,7 +1582,7 @@ export const apiClient = {
       }),
 
     getSuggestions: (
-      codespaceId: string,
+      codespaceId?: string | null,
       params?: { status?: string; skillId?: string; page?: number; size?: number }
     ) => {
       const sp = new URLSearchParams();
@@ -1582,9 +1591,10 @@ export const apiClient = {
       if (params?.page !== undefined) sp.set('page', String(params.page));
       if (params?.size !== undefined) sp.set('size', String(params.size));
       const qs = sp.toString();
-      return apiServerFetch<Array<MemorySkillSuggestion>>(
-        `/api/memory/codespaces/${codespaceId}/suggestions${qs ? `?${qs}` : ''}`
-      );
+      const base = codespaceId
+        ? `/api/memory/codespaces/${codespaceId}/suggestions`
+        : '/api/memory/suggestions';
+      return apiServerFetch<Array<MemorySkillSuggestion>>(`${base}${qs ? `?${qs}` : ''}`);
     },
 
     acceptSuggestion: (id: string, userNotes?: string) =>

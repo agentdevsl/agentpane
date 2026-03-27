@@ -55,14 +55,6 @@ interface MemoryViewProps {
 }
 
 export function MemoryView({ codespaceId }: MemoryViewProps): React.JSX.Element {
-  if (!codespaceId) {
-    return (
-      <div className="flex items-center justify-center min-h-[40vh]">
-        <p className="text-fg-muted text-sm">Select a codespace to view memory data</p>
-      </div>
-    );
-  }
-
   return (
     <MemoryProvider codespaceId={codespaceId}>
       <MemoryViewInner />

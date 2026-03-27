@@ -441,7 +441,7 @@ export class DreamService {
    * List dream sessions.
    */
   async getDreamSessions(
-    codespaceId?: string,
+    codespaceId: string | null,
     options?: PaginationOptions
   ): Promise<Result<DreamSession[], MemoryError>> {
     try {
@@ -474,7 +474,7 @@ export class DreamService {
    * List skill suggestions with optional filtering.
    */
   async getSkillSuggestions(
-    codespaceId: string,
+    codespaceId: string | null,
     filters?: { status?: 'pending' | 'accepted' | 'rejected' | 'modified'; skillId?: string },
     options?: PaginationOptions
   ): Promise<Result<SkillSuggestion[], MemoryError>> {
@@ -485,7 +485,10 @@ export class DreamService {
       const size = options?.size ?? 20;
       const offset = (page - 1) * size;
 
-      const conditions = [eq(skillSuggestions.codespaceId, codespaceId)];
+      const conditions: ReturnType<typeof eq>[] = [];
+      if (codespaceId) {
+        conditions.push(eq(skillSuggestions.codespaceId, codespaceId));
+      }
       if (filters?.status) {
         conditions.push(eq(skillSuggestions.status, filters.status));
       }
@@ -496,7 +499,7 @@ export class DreamService {
       const results = await this.db
         .select()
         .from(skillSuggestions)
-        .where(and(...conditions))
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
         .orderBy(desc(skillSuggestions.createdAt))
         .limit(size)
         .offset(offset);

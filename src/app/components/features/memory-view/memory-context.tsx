@@ -13,6 +13,7 @@ import type {
   SkillMetrics,
   SkillSuggestion,
   SuggestionFilter,
+  SyncedSkill,
 } from './types';
 
 // =============================================================================
@@ -48,6 +49,8 @@ interface MemoryContextValue {
   deleteInsight: (id: string) => Promise<boolean>;
 
   // Skills
+  syncedSkills: Array<SyncedSkill>;
+  syncedSkillsLoading: boolean;
   skillMetrics: Array<SkillMetrics>;
   skillMetricsLoading: boolean;
   expandedSkillId: string | null;
@@ -114,6 +117,8 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
   const searchRequestIdRef = useRef(0);
 
   // Skills
+  const [syncedSkills, setSyncedSkills] = useState<Array<SyncedSkill>>([]);
+  const [syncedSkillsLoading, setSyncedSkillsLoading] = useState(false);
   const [skillMetrics, setSkillMetrics] = useState<Array<SkillMetrics>>([]);
   const [skillMetricsLoading, setSkillMetricsLoading] = useState(false);
   const [expandedSkillId, setExpandedSkillId] = useState<string | null>(null);
@@ -140,7 +145,7 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
   // Data fetchers (with error handling)
   // ---------------------------------------------------------------------------
 
-  const fetchHealth = useCallback(async (csId: string) => {
+  const fetchHealth = useCallback(async (csId: string | null) => {
     setHealthLoading(true);
     try {
       const result = await apiClient.memory.health();
@@ -159,7 +164,7 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
     }
   }, []);
 
-  const fetchInsights = useCallback(async (csId: string) => {
+  const fetchInsights = useCallback(async (csId: string | null) => {
     setInsightsLoading(true);
     try {
       const result = await apiClient.memory.getInsights(csId);
@@ -178,7 +183,26 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
     }
   }, []);
 
-  const fetchSkillMetrics = useCallback(async (csId: string) => {
+  const fetchSyncedSkills = useCallback(async (csId: string | null) => {
+    if (!csId) {
+      setSyncedSkills([]);
+      return;
+    }
+    setSyncedSkillsLoading(true);
+    try {
+      const result = await apiClient.codespaces.getSkills(csId);
+      if (currentCodespaceRef.current !== csId) return;
+      if (result.ok) {
+        setSyncedSkills(result.data);
+      }
+    } catch {
+      // Non-fatal — synced skills are supplementary
+    } finally {
+      if (currentCodespaceRef.current === csId) setSyncedSkillsLoading(false);
+    }
+  }, []);
+
+  const fetchSkillMetrics = useCallback(async (csId: string | null) => {
     setSkillMetricsLoading(true);
     try {
       const result = await apiClient.memory.getSkillMetrics(csId);
@@ -197,7 +221,7 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
     }
   }, []);
 
-  const fetchDreamSessions = useCallback(async (csId: string) => {
+  const fetchDreamSessions = useCallback(async (csId: string | null) => {
     setDreamSessionsLoading(true);
     try {
       const result = await apiClient.memory.getDreamSessions(csId);
@@ -219,7 +243,7 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
     }
   }, []);
 
-  const fetchSuggestions = useCallback(async (csId: string) => {
+  const fetchSuggestions = useCallback(async (csId: string | null) => {
     setSuggestionsLoading(true);
     try {
       // Always fetch all suggestions — client-side filtering preserves accurate counts
@@ -249,6 +273,7 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
     setInsights([]);
     setSearchQuery('');
     setSearchResults(null);
+    setSyncedSkills([]);
     setSkillMetrics([]);
     setExpandedSkillId(null);
     setSkillExecutions(new Map());
@@ -260,8 +285,6 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
     skillExecutionsCacheRef.current = new Set();
     dreamLoadedRef.current = false;
 
-    if (!codespaceId) return;
-
     void fetchHealth(codespaceId);
     void fetchInsights(codespaceId);
   }, [codespaceId, fetchHealth, fetchInsights]);
@@ -271,17 +294,18 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
   // ---------------------------------------------------------------------------
 
   useWatchEffect(() => {
-    if (activeTab !== 'skills' || skillsLoadedRef.current || !codespaceId) return;
+    if (activeTab !== 'skills' || skillsLoadedRef.current) return;
     skillsLoadedRef.current = true;
+    void fetchSyncedSkills(codespaceId);
     void fetchSkillMetrics(codespaceId);
-  }, [activeTab, codespaceId, fetchSkillMetrics]);
+  }, [activeTab, codespaceId, fetchSyncedSkills, fetchSkillMetrics]);
 
   // ---------------------------------------------------------------------------
   // Lazy-load dream tab data
   // ---------------------------------------------------------------------------
 
   useWatchEffect(() => {
-    if (activeTab !== 'dream' || dreamLoadedRef.current || !codespaceId) return;
+    if (activeTab !== 'dream' || dreamLoadedRef.current) return;
     dreamLoadedRef.current = true;
     void fetchDreamSessions(codespaceId);
     void fetchSuggestions(codespaceId);
@@ -292,7 +316,7 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
   // ---------------------------------------------------------------------------
 
   useWatchEffect(() => {
-    if (!isDreamRunning || !codespaceId) return;
+    if (!isDreamRunning) return;
 
     const csId = codespaceId;
     const interval = setInterval(async () => {
@@ -331,8 +355,6 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
       setIsSearching(false);
       return;
     }
-
-    if (!codespaceId) return;
 
     setIsSearching(true);
     const csId = codespaceId;
@@ -374,7 +396,6 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
   // ---------------------------------------------------------------------------
 
   const refreshInsights = useCallback(async () => {
-    if (!codespaceId) return;
     await fetchInsights(codespaceId);
   }, [codespaceId, fetchInsights]);
 
@@ -406,8 +427,6 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
 
   const deleteInsight = useCallback(
     async (id: string): Promise<boolean> => {
-      if (!codespaceId) return false;
-
       try {
         const result = await apiClient.memory.deleteInsight(id);
         if (result.ok) {
@@ -427,8 +446,6 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
 
   const loadExecutions = useCallback(
     async (skillId: string) => {
-      if (!codespaceId) return;
-
       // Use ref-based cache to avoid stale closure issues
       if (skillExecutionsCacheRef.current.has(skillId)) return;
       skillExecutionsCacheRef.current.add(skillId);
@@ -460,7 +477,6 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
   );
 
   const refreshSkillMetrics = useCallback(async () => {
-    if (!codespaceId) return;
     setSkillExecutions(new Map());
     skillExecutionsCacheRef.current = new Set();
     await fetchSkillMetrics(codespaceId);
@@ -488,7 +504,6 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
   }, [codespaceId, fetchDreamSessions]);
 
   const refreshSuggestions = useCallback(async () => {
-    if (!codespaceId) return;
     await fetchSuggestions(codespaceId);
   }, [codespaceId, fetchSuggestions]);
 
@@ -498,7 +513,7 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
         const result = await apiClient.memory.acceptSuggestion(id, notes);
         if (result.ok) {
           toast.success('Suggestion accepted');
-          if (codespaceId) await fetchSuggestions(codespaceId);
+          await fetchSuggestions(codespaceId);
           return true;
         }
         toast.error(result.error?.message ?? 'Failed to accept suggestion');
@@ -517,7 +532,7 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
         const result = await apiClient.memory.rejectSuggestion(id, notes);
         if (result.ok) {
           toast.success('Suggestion rejected');
-          if (codespaceId) await fetchSuggestions(codespaceId);
+          await fetchSuggestions(codespaceId);
           return true;
         }
         toast.error(result.error?.message ?? 'Failed to reject suggestion');
@@ -536,7 +551,7 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
         const result = await apiClient.memory.modifySuggestion(id, content, notes);
         if (result.ok) {
           toast.success('Suggestion modified');
-          if (codespaceId) await fetchSuggestions(codespaceId);
+          await fetchSuggestions(codespaceId);
           return true;
         }
         toast.error(result.error?.message ?? 'Failed to modify suggestion');
@@ -569,6 +584,8 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
       refreshInsights,
       createInsight,
       deleteInsight,
+      syncedSkills,
+      syncedSkillsLoading,
       skillMetrics,
       skillMetricsLoading,
       expandedSkillId,
@@ -602,6 +619,8 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
       refreshInsights,
       createInsight,
       deleteInsight,
+      syncedSkills,
+      syncedSkillsLoading,
       skillMetrics,
       skillMetricsLoading,
       expandedSkillId,

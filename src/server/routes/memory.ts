@@ -87,6 +87,188 @@ export function createMemoryRoutes({
     }
   });
 
+  // ===========================================================================
+  // Global (non-codespace-scoped) endpoints — must be registered BEFORE
+  // the codespace-scoped routes to avoid Hono path conflicts.
+  // ===========================================================================
+
+  // GET /api/memory/insights — global insights (all codespaces)
+  app.get('/insights', async (c) => {
+    try {
+      const { page, size } = parsePagination(c, { page: 1, size: 50 });
+
+      const result = await memoryService.getInsights(null, { page, size });
+
+      if (!result.ok) {
+        return json(
+          { ok: false, error: { code: result.error.code, message: result.error.message } },
+          result.error.status
+        );
+      }
+
+      return json({
+        ok: true,
+        data: result.value,
+        pagination: { page, size, hasMore: result.value.length === size },
+      });
+    } catch (error) {
+      log.error('Failed to get global insights', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
+      return json(
+        { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to get insights' } },
+        500
+      );
+    }
+  });
+
+  // POST /api/memory/search — global search (all codespaces)
+  app.post('/search', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return json(
+        { ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON in request body' } },
+        400
+      );
+    }
+
+    const parsed = searchSchema.safeParse(body);
+    if (!parsed.success) {
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: parsed.error.issues[0]?.message ?? 'query is required',
+          },
+        },
+        400
+      );
+    }
+
+    try {
+      const result = await memoryService.search(null, parsed.data.query, parsed.data.limit);
+
+      if (!result.ok) {
+        return json(
+          { ok: false, error: { code: result.error.code, message: result.error.message } },
+          result.error.status
+        );
+      }
+
+      return json({ ok: true, data: result.value });
+    } catch (error) {
+      log.error('Failed to search globally', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
+      return json(
+        { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to search' } },
+        500
+      );
+    }
+  });
+
+  // GET /api/memory/skill-metrics — global skill metrics (all codespaces)
+  app.get('/skill-metrics', async (_c) => {
+    try {
+      const result = await skillTrackingService.getMetrics(null);
+
+      if (!result.ok) {
+        return json(
+          { ok: false, error: { code: result.error.code, message: result.error.message } },
+          result.error.status
+        );
+      }
+
+      return json({ ok: true, data: result.value });
+    } catch (error) {
+      log.error('Failed to get global skill metrics', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
+      return json(
+        { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to get skill metrics' } },
+        500
+      );
+    }
+  });
+
+  // GET /api/memory/dream-sessions — global dream sessions (all codespaces)
+  app.get('/dream-sessions', async (c) => {
+    try {
+      const { page, size } = parsePagination(c);
+
+      const result = await dreamService.getDreamSessions(null, { page, size });
+
+      if (!result.ok) {
+        return json(
+          { ok: false, error: { code: result.error.code, message: result.error.message } },
+          result.error.status
+        );
+      }
+
+      return json({
+        ok: true,
+        data: result.value,
+        pagination: { page, size, hasMore: result.value.length === size },
+      });
+    } catch (error) {
+      log.error('Failed to get global dream sessions', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
+      return json(
+        { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to get dream sessions' } },
+        500
+      );
+    }
+  });
+
+  // GET /api/memory/suggestions — global suggestions (all codespaces)
+  app.get('/suggestions', async (c) => {
+    try {
+      const statusParam = c.req.query('status');
+      const validStatuses = ['pending', 'accepted', 'rejected', 'modified'] as const;
+      const status =
+        statusParam && validStatuses.includes(statusParam as (typeof validStatuses)[number])
+          ? (statusParam as (typeof validStatuses)[number])
+          : undefined;
+      const skillId = c.req.query('skillId');
+      const { page, size } = parsePagination(c);
+
+      const result = await dreamService.getSkillSuggestions(
+        null,
+        { status, skillId },
+        { page, size }
+      );
+
+      if (!result.ok) {
+        return json(
+          { ok: false, error: { code: result.error.code, message: result.error.message } },
+          result.error.status
+        );
+      }
+
+      return json({
+        ok: true,
+        data: result.value,
+        pagination: { page, size, hasMore: result.value.length === size },
+      });
+    } catch (error) {
+      log.error('Failed to get global suggestions', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
+      return json(
+        { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to get suggestions' } },
+        500
+      );
+    }
+  });
+
+  // ===========================================================================
+  // Codespace-scoped endpoints
+  // ===========================================================================
+
   // --- Insight endpoints ---
 
   // GET /api/memory/codespaces/:codespaceId/insights

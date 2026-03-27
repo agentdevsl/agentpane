@@ -49,17 +49,17 @@ export interface MemoryStoreInterface {
     metadata?: Record<string, unknown>;
   }): Promise<Result<Insight, MemoryError>>;
   getInsights(
-    codespaceId: string,
+    codespaceId: string | null,
     options?: PaginationOptions
   ): Promise<Result<Insight[], MemoryError>>;
   deleteInsight(id: string): Promise<Result<void, MemoryError>>;
   searchInsights(
-    codespaceId: string,
+    codespaceId: string | null,
     query: string,
     limit?: number
   ): Promise<Result<Insight[], MemoryError>>;
   assembleContext(
-    codespaceId: string,
+    codespaceId: string | null,
     query: string,
     maxTokens?: number
   ): Promise<Result<MemoryContext, MemoryError>>;
@@ -229,7 +229,7 @@ export class MemoryService {
   // ---------------------------------------------------------------------------
 
   async getInsights(
-    codespaceId: string,
+    codespaceId: string | null,
     options?: PaginationOptions
   ): Promise<Result<Insight[], MemoryError>> {
     if (!this.available) return ok([]);
@@ -265,7 +265,7 @@ export class MemoryService {
   }
 
   async search(
-    codespaceId: string,
+    codespaceId: string | null,
     query: string,
     limit?: number
   ): Promise<Result<SearchResult[], MemoryError>> {
