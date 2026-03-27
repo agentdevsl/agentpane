@@ -513,7 +513,14 @@ export class AgentCoreBridgeService {
     const { db, streams } = this.deps;
 
     // Update task status (using shared helper)
-    await updateTaskOnAgentComplete(db, taskId, status, streams, agent.sessionId);
+    await updateTaskOnAgentComplete(
+      db,
+      taskId,
+      status,
+      streams,
+      agent.sessionId,
+      this.deps.skillTrackingService
+    );
 
     await this.cleanupAgentCoreRunState(taskId, agent, 'completed', 'handleAgentCoreComplete');
 

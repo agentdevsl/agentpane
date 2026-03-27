@@ -13,10 +13,9 @@
 
 import { createId } from '@paralleldrive/cuid2';
 import type { MemoryError } from '../../lib/errors/memory-errors.js';
-import { MemoryErrors } from '../../lib/errors/memory-errors.js';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { Result } from '../../lib/utils/result.js';
-import { err, ok } from '../../lib/utils/result.js';
+import { ok } from '../../lib/utils/result.js';
 import type { Database } from '../../types/database.js';
 import type { SettingsService } from '../settings.service.js';
 import { InsightDeriverService } from './insight-deriver.service.js';
@@ -49,17 +48,17 @@ export interface MemoryStoreInterface {
     metadata?: Record<string, unknown>;
   }): Promise<Result<Insight, MemoryError>>;
   getInsights(
-    codespaceId: string,
+    codespaceId: string | null,
     options?: PaginationOptions
   ): Promise<Result<Insight[], MemoryError>>;
   deleteInsight(id: string): Promise<Result<void, MemoryError>>;
   searchInsights(
-    codespaceId: string,
+    codespaceId: string | null,
     query: string,
     limit?: number
   ): Promise<Result<Insight[], MemoryError>>;
   assembleContext(
-    codespaceId: string,
+    codespaceId: string | null,
     query: string,
     maxTokens?: number
   ): Promise<Result<MemoryContext, MemoryError>>;
@@ -92,39 +91,27 @@ export interface InsightDeriverInterface {
 export class MemoryService {
   private store: MemoryStoreInterface;
   private deriver: InsightDeriverInterface;
-  private available = false;
+  /**
+   * Memory is always available because it is backed by local SQLite
+   * with no external dependencies. There is no scenario where it should
+   * be unavailable at runtime.
+   */
+  private readonly available = true;
 
-  constructor(
-    private settingsService: SettingsService,
-    db: Database
-  ) {
+  constructor(_settingsService: SettingsService, db: Database) {
     const storeService = new MemoryStoreService(db);
     this.store = storeService;
     this.deriver = new InsightDeriverService(storeService);
   }
 
-  /** Initialize the memory system. Non-fatal on failure. */
+  /**
+   * Initialize the memory system.
+   *
+   * Memory is always available since it uses local SQLite — this method
+   * exists for interface compatibility and logs the ready state.
+   */
   async initialize(): Promise<void> {
-    try {
-      const settingResult = await this.settingsService.get('memory.enabled');
-      if (settingResult.ok && settingResult.value) {
-        const raw = settingResult.value.value;
-        // Setting value is JSON-encoded, so "true" or true
-        try {
-          this.available = JSON.parse(raw) === true;
-        } catch {
-          this.available = raw === 'true';
-        }
-      } else {
-        this.available = false;
-      }
-      log.info('Memory service initialized', { data: { available: this.available } });
-    } catch (error) {
-      log.warn('Memory initialization failed (non-fatal)', {
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-      this.available = false;
-    }
+    log.info('Memory service initialized', { data: { available: true } });
   }
 
   /** Whether the memory system is available. */
@@ -141,9 +128,6 @@ export class MemoryService {
     codespaceId: string,
     query: string
   ): Promise<Result<MemoryContext, MemoryError>> {
-    if (!this.available) {
-      return ok(EMPTY_CONTEXT);
-    }
     try {
       return await this.store.assembleContext(codespaceId, query);
     } catch (error) {
@@ -160,9 +144,6 @@ export class MemoryService {
     agentId: string;
     taskId: string;
   }): Promise<MemorySessionRef | null> {
-    if (!this.available) {
-      return null;
-    }
     try {
       const memorySessionId = createId();
       const ref: MemorySessionRef = {
@@ -193,7 +174,6 @@ export class MemoryService {
       metadata?: Record<string, unknown>;
     }
   ): Promise<void> {
-    if (!this.available) return;
     try {
       await this.store.insertMessage({
         codespaceId: ref.codespaceId,
@@ -219,7 +199,6 @@ export class MemoryService {
 
   /** Finalize a memory session (triggers insight derivation). Fire-and-forget. */
   async finalizeSession(ref: MemorySessionRef): Promise<void> {
-    if (!this.available) return;
     try {
       const result = await this.deriver.deriveInsights(ref.memorySessionId, ref.codespaceId);
       if (!result.ok) {
@@ -241,10 +220,9 @@ export class MemoryService {
   // ---------------------------------------------------------------------------
 
   async getInsights(
-    codespaceId: string,
+    codespaceId: string | null,
     options?: PaginationOptions
   ): Promise<Result<Insight[], MemoryError>> {
-    if (!this.available) return ok([]);
     return this.store.getInsights(codespaceId, options);
   }
 
@@ -256,9 +234,6 @@ export class MemoryService {
     tags?: string[],
     skillId?: string
   ): Promise<Result<Insight, MemoryError>> {
-    if (!this.available) {
-      return err(MemoryErrors.UNAVAILABLE);
-    }
     return this.store.insertInsight({
       codespaceId,
       content,
@@ -270,19 +245,14 @@ export class MemoryService {
   }
 
   async deleteInsight(id: string): Promise<Result<void, MemoryError>> {
-    if (!this.available) {
-      return err(MemoryErrors.UNAVAILABLE);
-    }
     return this.store.deleteInsight(id);
   }
 
   async search(
-    codespaceId: string,
+    codespaceId: string | null,
     query: string,
     limit?: number
   ): Promise<Result<SearchResult[], MemoryError>> {
-    if (!this.available) return ok([]);
-
     const result = await this.store.searchInsights(codespaceId, query, limit);
     if (!result.ok) return result;
 
@@ -299,14 +269,6 @@ export class MemoryService {
   }
 
   async healthCheck(): Promise<Result<HealthStatus, MemoryError>> {
-    if (!this.available) {
-      return ok({
-        available: false,
-        insightCount: 0,
-        messageCount: 0,
-      });
-    }
-
     try {
       const [insightResult, messageResult] = await Promise.all([
         this.store.getInsightCount(),
@@ -318,9 +280,12 @@ export class MemoryService {
         insightCount: insightResult.ok ? insightResult.value : 0,
         messageCount: messageResult.ok ? messageResult.value : 0,
       });
-    } catch {
+    } catch (error) {
+      log.error('Health check failed', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
       return ok({
-        available: true,
+        available: false,
         insightCount: 0,
         messageCount: 0,
       });

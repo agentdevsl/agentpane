@@ -31,6 +31,7 @@ import type { Database } from '../../types/database.js';
 import type { ApiKeyService } from '../api-key.service.js';
 import type { DurableStreamsService } from '../durable-streams.service.js';
 import type { GitHubTokenService } from '../github-token.service.js';
+import type { SkillTrackingService } from '../memory/skill-tracking.service.js';
 import type { WorktreeService } from '../worktree.service.js';
 
 import { AgentCoreBridgeService } from './agentcore-bridge.service.js';
@@ -68,13 +69,22 @@ export class ContainerAgentService {
     streams: DurableStreamsService,
     apiKeyService: ApiKeyService,
     worktreeService?: WorktreeService,
-    githubTokenService?: GitHubTokenService
+    githubTokenService?: GitHubTokenService,
+    skillTrackingService?: SkillTrackingService | null
   ) {
     if (!worktreeService) {
       log.info('WorktreeService not injected -- agents will share workspace');
     }
 
-    this.deps = { db, provider, streams, apiKeyService, worktreeService, githubTokenService };
+    this.deps = {
+      db,
+      provider,
+      streams,
+      apiKeyService,
+      worktreeService,
+      githubTokenService,
+      skillTrackingService,
+    };
 
     // Initialize sub-services
     this.state = new SandboxStateManager();
@@ -313,7 +323,8 @@ export function createContainerAgentService(
   streams: DurableStreamsService,
   apiKeyService: ApiKeyService,
   worktreeService?: WorktreeService,
-  githubTokenService?: GitHubTokenService
+  githubTokenService?: GitHubTokenService,
+  skillTrackingService?: SkillTrackingService | null
 ): ContainerAgentService {
   return new ContainerAgentService(
     db,
@@ -321,6 +332,7 @@ export function createContainerAgentService(
     streams,
     apiKeyService,
     worktreeService,
-    githubTokenService
+    githubTokenService,
+    skillTrackingService
   );
 }

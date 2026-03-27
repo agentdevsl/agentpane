@@ -201,11 +201,9 @@ export interface RouterDependencies {
   eventSubscriptionService?: EventSubscriptionService;
   eventProcessingService?: EventProcessingService;
   schedulerService?: SchedulerService;
-  memoryService?: MemoryService | null;
-  skillTrackingService?:
-    | import('../services/memory/skill-tracking.service.js').SkillTrackingService
-    | null;
-  dreamService?: import('../services/memory/dream.service.js').DreamService | null;
+  memoryService: MemoryService;
+  skillTrackingService: import('../services/memory/skill-tracking.service.js').SkillTrackingService;
+  dreamService: import('../services/memory/dream.service.js').DreamService;
 }
 
 /**
@@ -494,16 +492,14 @@ export function createRouter(deps: RouterDependencies) {
     );
   }
 
-  if (deps.memoryService) {
-    app.route(
-      '/api/memory',
-      createMemoryRoutes({
-        memoryService: deps.memoryService,
-        skillTrackingService: deps.skillTrackingService ?? null,
-        dreamService: deps.dreamService ?? null,
-      })
-    );
-  }
+  app.route(
+    '/api/memory',
+    createMemoryRoutes({
+      memoryService: deps.memoryService,
+      skillTrackingService: deps.skillTrackingService,
+      dreamService: deps.dreamService,
+    })
+  );
 
   if (deps.eventSourceService && deps.eventSubscriptionService) {
     app.route(

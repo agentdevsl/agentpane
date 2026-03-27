@@ -195,19 +195,22 @@ export class SkillTrackingService {
    * Get aggregated metrics for all skills in a codespace (or a single skill).
    */
   async getMetrics(
-    codespaceId: string,
+    codespaceId: string | null,
     skillId?: string
   ): Promise<Result<SkillMetrics[], MemoryError>> {
     try {
       const { skillMetrics } = await import('../../db/schema/index.js');
 
-      const conditions = [eq(skillMetrics.codespaceId, codespaceId)];
+      const conditions: ReturnType<typeof eq>[] = [];
+      if (codespaceId) {
+        conditions.push(eq(skillMetrics.codespaceId, codespaceId));
+      }
       if (skillId) {
         conditions.push(eq(skillMetrics.skillId, skillId));
       }
 
       const results = await this.db.query.skillMetrics?.findMany({
-        where: and(...conditions),
+        where: conditions.length > 0 ? and(...conditions) : undefined,
         orderBy: [desc(skillMetrics.lastRunAt)],
       });
 
@@ -224,7 +227,7 @@ export class SkillTrackingService {
    * Get execution history for a specific skill.
    */
   async getExecutionHistory(
-    codespaceId: string,
+    codespaceId: string | null,
     skillId: string,
     options?: PaginationOptions
   ): Promise<Result<SkillExecution[], MemoryError>> {
@@ -235,12 +238,15 @@ export class SkillTrackingService {
       const size = options?.size ?? 20;
       const offset = (page - 1) * size;
 
+      const conditions = [eq(skillExecutions.skillId, skillId)];
+      if (codespaceId) {
+        conditions.push(eq(skillExecutions.codespaceId, codespaceId));
+      }
+
       const results = await this.db
         .select()
         .from(skillExecutions)
-        .where(
-          and(eq(skillExecutions.codespaceId, codespaceId), eq(skillExecutions.skillId, skillId))
-        )
+        .where(and(...conditions))
         .orderBy(desc(skillExecutions.createdAt))
         .limit(size)
         .offset(offset);

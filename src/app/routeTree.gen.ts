@@ -19,6 +19,7 @@ import { Route as TerraformIndexRouteImport } from './routes/terraform/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as SessionsIndexRouteImport } from './routes/sessions/index'
 import { Route as QueueIndexRouteImport } from './routes/queue/index'
+import { Route as MemoryIndexRouteImport } from './routes/memory/index'
 import { Route as MarketplaceIndexRouteImport } from './routes/marketplace/index'
 import { Route as EventsIndexRouteImport } from './routes/events/index'
 import { Route as DesignerIndexRouteImport } from './routes/designer/index'
@@ -108,6 +109,11 @@ const SessionsIndexRoute = SessionsIndexRouteImport.update({
 const QueueIndexRoute = QueueIndexRouteImport.update({
   id: '/queue/',
   path: '/queue/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MemoryIndexRoute = MemoryIndexRouteImport.update({
+  id: '/memory/',
+  path: '/memory/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MarketplaceIndexRoute = MarketplaceIndexRouteImport.update({
@@ -356,6 +362,7 @@ export interface FileRoutesByFullPath {
   '/designer/': typeof DesignerIndexRoute
   '/events/': typeof EventsIndexRoute
   '/marketplace/': typeof MarketplaceIndexRoute
+  '/memory/': typeof MemoryIndexRoute
   '/queue/': typeof QueueIndexRoute
   '/sessions/': typeof SessionsIndexRoute
   '/settings/': typeof SettingsIndexRoute
@@ -404,6 +411,7 @@ export interface FileRoutesByTo {
   '/designer': typeof DesignerIndexRoute
   '/events': typeof EventsIndexRoute
   '/marketplace': typeof MarketplaceIndexRoute
+  '/memory': typeof MemoryIndexRoute
   '/queue': typeof QueueIndexRoute
   '/sessions': typeof SessionsIndexRoute
   '/settings': typeof SettingsIndexRoute
@@ -457,6 +465,7 @@ export interface FileRoutesById {
   '/designer/': typeof DesignerIndexRoute
   '/events/': typeof EventsIndexRoute
   '/marketplace/': typeof MarketplaceIndexRoute
+  '/memory/': typeof MemoryIndexRoute
   '/queue/': typeof QueueIndexRoute
   '/sessions/': typeof SessionsIndexRoute
   '/settings/': typeof SettingsIndexRoute
@@ -511,6 +520,7 @@ export interface FileRouteTypes {
     | '/designer/'
     | '/events/'
     | '/marketplace/'
+    | '/memory/'
     | '/queue/'
     | '/sessions/'
     | '/settings/'
@@ -559,6 +569,7 @@ export interface FileRouteTypes {
     | '/designer'
     | '/events'
     | '/marketplace'
+    | '/memory'
     | '/queue'
     | '/sessions'
     | '/settings'
@@ -611,6 +622,7 @@ export interface FileRouteTypes {
     | '/designer/'
     | '/events/'
     | '/marketplace/'
+    | '/memory/'
     | '/queue/'
     | '/sessions/'
     | '/settings/'
@@ -642,6 +654,7 @@ export interface RootRouteChildren {
   CodespacesIndexRoute: typeof CodespacesIndexRoute
   DesignerIndexRoute: typeof DesignerIndexRoute
   MarketplaceIndexRoute: typeof MarketplaceIndexRoute
+  MemoryIndexRoute: typeof MemoryIndexRoute
   QueueIndexRoute: typeof QueueIndexRoute
   SessionsIndexRoute: typeof SessionsIndexRoute
   WorktreesIndexRoute: typeof WorktreesIndexRoute
@@ -724,6 +737,13 @@ declare module '@tanstack/react-router' {
       path: '/queue'
       fullPath: '/queue/'
       preLoaderRoute: typeof QueueIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/memory/': {
+      id: '/memory/'
+      path: '/memory'
+      fullPath: '/memory/'
+      preLoaderRoute: typeof MemoryIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/marketplace/': {
@@ -1123,6 +1143,7 @@ const rootRouteChildren: RootRouteChildren = {
   CodespacesIndexRoute: CodespacesIndexRoute,
   DesignerIndexRoute: DesignerIndexRoute,
   MarketplaceIndexRoute: MarketplaceIndexRoute,
+  MemoryIndexRoute: MemoryIndexRoute,
   QueueIndexRoute: QueueIndexRoute,
   SessionsIndexRoute: SessionsIndexRoute,
   WorktreesIndexRoute: WorktreesIndexRoute,

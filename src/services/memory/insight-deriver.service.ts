@@ -1,7 +1,7 @@
 /**
  * InsightDeriverService - Claude-powered insight derivation from agent conversations.
  *
- * Replaces the external Honcho deriver with the Claude Agent SDK.
+ * Uses the Claude Agent SDK for cost-efficient insight extraction.
  * Uses Haiku model for cost efficiency. Reads captured messages from the DB,
  * sends them to Claude via Agent SDK for summarization, and stores the resulting insights.
  */

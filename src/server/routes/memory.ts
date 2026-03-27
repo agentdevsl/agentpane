@@ -53,8 +53,8 @@ function parsePagination(
 
 interface MemoryDeps {
   memoryService: MemoryService;
-  skillTrackingService: SkillTrackingService | null;
-  dreamService: DreamService | null;
+  skillTrackingService: SkillTrackingService;
+  dreamService: DreamService;
 }
 
 export function createMemoryRoutes({
@@ -64,185 +64,49 @@ export function createMemoryRoutes({
 }: MemoryDeps) {
   const app = new Hono();
 
-  // --- Health endpoint ---
+  // ---------------------------------------------------------------------------
+  // Shared handler helpers — global and codespace-scoped routes share logic,
+  // differing only in whether codespaceId is null or extracted from the path.
+  // ---------------------------------------------------------------------------
 
-  app.get('/health', async () => {
-    try {
-      const result = await memoryService.healthCheck();
-      if (!result.ok) {
-        return json(
-          { ok: false, error: { code: result.error.code, message: result.error.message } },
-          result.error.status
-        );
-      }
-      return json({ ok: true, data: result.value });
-    } catch (error) {
-      log.error('Health check failed', {
+  /** Wrap a service call with standard error logging and JSON error response. */
+  function wrapHandler(label: string, handler: () => Promise<Response>): Promise<Response> {
+    return handler().catch((error) => {
+      log.error(label, {
         error: error instanceof Error ? error : new Error(String(error)),
       });
-      return json(
-        { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Health check failed' } },
-        500
-      );
-    }
-  });
+      return json({ ok: false, error: { code: 'INTERNAL_ERROR', message: label } }, 500);
+    });
+  }
 
-  // --- Insight endpoints ---
+  /** Return a Result error as a JSON response. */
+  function resultError(result: { error: { code: string; message: string; status: number } }) {
+    return json(
+      { ok: false, error: { code: result.error.code, message: result.error.message } },
+      result.error.status
+    );
+  }
 
-  // GET /api/memory/codespaces/:codespaceId/insights
-  app.get('/codespaces/:codespaceId/insights', async (c) => {
-    if (!memoryService.isAvailable()) {
-      return json(
-        {
-          ok: false,
-          error: { code: 'MEMORY_UNAVAILABLE', message: 'Memory service is not available' },
-        },
-        503
-      );
-    }
-
-    try {
-      const codespaceId = c.req.param('codespaceId');
+  async function handleGetInsights(
+    c: { req: { query: (k: string) => string | undefined } },
+    codespaceId: string | null
+  ): Promise<Response> {
+    return wrapHandler('Failed to get insights', async () => {
       const { page, size } = parsePagination(c, { page: 1, size: 50 });
-
       const result = await memoryService.getInsights(codespaceId, { page, size });
-
-      if (!result.ok) {
-        return json(
-          { ok: false, error: { code: result.error.code, message: result.error.message } },
-          result.error.status
-        );
-      }
-
+      if (!result.ok) return resultError(result);
       return json({
         ok: true,
         data: result.value,
         pagination: { page, size, hasMore: result.value.length === size },
       });
-    } catch (error) {
-      log.error('Failed to get insights', {
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-      return json(
-        { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to get insights' } },
-        500
-      );
-    }
-  });
+    });
+  }
 
-  // POST /api/memory/codespaces/:codespaceId/insights
-  app.post('/codespaces/:codespaceId/insights', async (c) => {
-    if (!memoryService.isAvailable()) {
-      return json(
-        {
-          ok: false,
-          error: { code: 'MEMORY_UNAVAILABLE', message: 'Memory service is not available' },
-        },
-        503
-      );
-    }
-
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return json(
-        { ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON in request body' } },
-        400
-      );
-    }
-
-    const parsed = createInsightSchema.safeParse(body);
-    if (!parsed.success) {
-      return json(
-        {
-          ok: false,
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: parsed.error.issues[0]?.message ?? 'content is required',
-          },
-        },
-        400
-      );
-    }
-
-    try {
-      const codespaceId = c.req.param('codespaceId');
-      const result = await memoryService.createInsight(
-        codespaceId,
-        parsed.data.content,
-        parsed.data.source,
-        parsed.data.metadata,
-        parsed.data.tags,
-        parsed.data.skillId
-      );
-
-      if (!result.ok) {
-        return json(
-          { ok: false, error: { code: result.error.code, message: result.error.message } },
-          result.error.status
-        );
-      }
-
-      return json({ ok: true, data: result.value }, 201);
-    } catch (error) {
-      log.error('Failed to create insight', {
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-      return json(
-        { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to create insight' } },
-        500
-      );
-    }
-  });
-
-  // DELETE /api/memory/insights/:insightId
-  app.delete('/insights/:insightId', async (c) => {
-    if (!memoryService.isAvailable()) {
-      return json(
-        {
-          ok: false,
-          error: { code: 'MEMORY_UNAVAILABLE', message: 'Memory service is not available' },
-        },
-        503
-      );
-    }
-
-    try {
-      const insightId = c.req.param('insightId');
-      const result = await memoryService.deleteInsight(insightId);
-
-      if (!result.ok) {
-        return json(
-          { ok: false, error: { code: result.error.code, message: result.error.message } },
-          result.error.status
-        );
-      }
-
-      return json({ ok: true, data: null });
-    } catch (error) {
-      log.error('Failed to delete insight', {
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-      return json(
-        { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to delete insight' } },
-        500
-      );
-    }
-  });
-
-  // POST /api/memory/codespaces/:codespaceId/search
-  app.post('/codespaces/:codespaceId/search', async (c) => {
-    if (!memoryService.isAvailable()) {
-      return json(
-        {
-          ok: false,
-          error: { code: 'MEMORY_UNAVAILABLE', message: 'Memory service is not available' },
-        },
-        503
-      );
-    }
-
+  async function handleSearch(
+    c: { req: { json: () => Promise<unknown> } },
+    codespaceId: string | null
+  ): Promise<Response> {
     let body: unknown;
     try {
       body = await c.req.json();
@@ -267,223 +131,42 @@ export function createMemoryRoutes({
       );
     }
 
-    try {
-      const codespaceId = c.req.param('codespaceId');
+    return wrapHandler('Failed to search', async () => {
       const result = await memoryService.search(codespaceId, parsed.data.query, parsed.data.limit);
-
-      if (!result.ok) {
-        return json(
-          { ok: false, error: { code: result.error.code, message: result.error.message } },
-          result.error.status
-        );
-      }
-
+      if (!result.ok) return resultError(result);
       return json({ ok: true, data: result.value });
-    } catch (error) {
-      log.error('Failed to search', {
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-      return json(
-        { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to search' } },
-        500
-      );
-    }
-  });
+    });
+  }
 
-  // --- Skill Metrics endpoints ---
-
-  // GET /api/memory/codespaces/:codespaceId/skill-metrics
-  app.get('/codespaces/:codespaceId/skill-metrics', async (c) => {
-    if (!skillTrackingService) {
-      return json(
-        { ok: false, error: { code: 'NOT_AVAILABLE', message: 'Skill tracking not available' } },
-        503
-      );
-    }
-
-    try {
-      const codespaceId = c.req.param('codespaceId');
+  async function handleGetSkillMetrics(codespaceId: string | null): Promise<Response> {
+    return wrapHandler('Failed to get skill metrics', async () => {
       const result = await skillTrackingService.getMetrics(codespaceId);
-
-      if (!result.ok) {
-        return json(
-          { ok: false, error: { code: result.error.code, message: result.error.message } },
-          result.error.status
-        );
-      }
-
+      if (!result.ok) return resultError(result);
       return json({ ok: true, data: result.value });
-    } catch (error) {
-      log.error('Failed to get skill metrics', {
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-      return json(
-        { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to get skill metrics' } },
-        500
-      );
-    }
-  });
+    });
+  }
 
-  // GET /api/memory/codespaces/:codespaceId/skill-metrics/:skillId
-  app.get('/codespaces/:codespaceId/skill-metrics/:skillId', async (c) => {
-    if (!skillTrackingService) {
-      return json(
-        { ok: false, error: { code: 'NOT_AVAILABLE', message: 'Skill tracking not available' } },
-        503
-      );
-    }
-
-    try {
-      const codespaceId = c.req.param('codespaceId');
-      const skillId = c.req.param('skillId');
-      const result = await skillTrackingService.getMetrics(codespaceId, skillId);
-
-      if (!result.ok) {
-        return json(
-          { ok: false, error: { code: result.error.code, message: result.error.message } },
-          result.error.status
-        );
-      }
-
-      return json({ ok: true, data: result.value[0] ?? null });
-    } catch (error) {
-      log.error('Failed to get skill metric', {
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-      return json(
-        { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to get skill metric' } },
-        500
-      );
-    }
-  });
-
-  // GET /api/memory/codespaces/:codespaceId/skill-metrics/:skillId/executions
-  app.get('/codespaces/:codespaceId/skill-metrics/:skillId/executions', async (c) => {
-    if (!skillTrackingService) {
-      return json(
-        { ok: false, error: { code: 'NOT_AVAILABLE', message: 'Skill tracking not available' } },
-        503
-      );
-    }
-
-    try {
-      const codespaceId = c.req.param('codespaceId');
-      const skillId = c.req.param('skillId');
+  async function handleGetDreamSessions(
+    c: { req: { query: (k: string) => string | undefined } },
+    codespaceId: string | null
+  ): Promise<Response> {
+    return wrapHandler('Failed to get dream sessions', async () => {
       const { page, size } = parsePagination(c);
-
-      const result = await skillTrackingService.getExecutionHistory(codespaceId, skillId, {
-        page,
-        size,
-      });
-
-      if (!result.ok) {
-        return json(
-          { ok: false, error: { code: result.error.code, message: result.error.message } },
-          result.error.status
-        );
-      }
-
-      return json({
-        ok: true,
-        data: result.value,
-        pagination: { page, size, hasMore: result.value.length === size },
-      });
-    } catch (error) {
-      log.error('Failed to get skill executions', {
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-      return json(
-        { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to get skill executions' } },
-        500
-      );
-    }
-  });
-
-  // --- Dream endpoints ---
-
-  // GET /api/memory/codespaces/:codespaceId/dream-sessions
-  app.get('/codespaces/:codespaceId/dream-sessions', async (c) => {
-    if (!dreamService) {
-      return json(
-        { ok: false, error: { code: 'NOT_AVAILABLE', message: 'Dream service not available' } },
-        503
-      );
-    }
-
-    try {
-      const codespaceId = c.req.param('codespaceId');
-      const { page, size } = parsePagination(c);
-
       const result = await dreamService.getDreamSessions(codespaceId, { page, size });
-
-      if (!result.ok) {
-        return json(
-          { ok: false, error: { code: result.error.code, message: result.error.message } },
-          result.error.status
-        );
-      }
-
+      if (!result.ok) return resultError(result);
       return json({
         ok: true,
         data: result.value,
         pagination: { page, size, hasMore: result.value.length === size },
       });
-    } catch (error) {
-      log.error('Failed to get dream sessions', {
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-      return json(
-        { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to get dream sessions' } },
-        500
-      );
-    }
-  });
+    });
+  }
 
-  // POST /api/memory/codespaces/:codespaceId/dream — trigger manual dream cycle
-  app.post('/codespaces/:codespaceId/dream', async (c) => {
-    if (!dreamService) {
-      return json(
-        { ok: false, error: { code: 'NOT_AVAILABLE', message: 'Dream service not available' } },
-        503
-      );
-    }
-
-    try {
-      const codespaceId = c.req.param('codespaceId');
-      const result = await dreamService.runDreamCycle(codespaceId);
-
-      if (!result.ok) {
-        return json(
-          { ok: false, error: { code: result.error.code, message: result.error.message } },
-          result.error.status
-        );
-      }
-
-      return json({ ok: true, data: result.value }, 201);
-    } catch (error) {
-      log.error('Failed to trigger dream cycle', {
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-      return json(
-        { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to trigger dream cycle' } },
-        500
-      );
-    }
-  });
-
-  // --- Skill Suggestion endpoints ---
-
-  // GET /api/memory/codespaces/:codespaceId/suggestions
-  app.get('/codespaces/:codespaceId/suggestions', async (c) => {
-    if (!dreamService) {
-      return json(
-        { ok: false, error: { code: 'NOT_AVAILABLE', message: 'Dream service not available' } },
-        503
-      );
-    }
-
-    try {
-      const codespaceId = c.req.param('codespaceId');
+  async function handleGetSuggestions(
+    c: { req: { query: (k: string) => string | undefined } },
+    codespaceId: string | null
+  ): Promise<Response> {
+    return wrapHandler('Failed to get suggestions', async () => {
       const statusParam = c.req.query('status');
       const validStatuses = ['pending', 'accepted', 'rejected', 'modified'] as const;
       const status =
@@ -498,39 +181,205 @@ export function createMemoryRoutes({
         { status, skillId },
         { page, size }
       );
-
-      if (!result.ok) {
-        return json(
-          { ok: false, error: { code: result.error.code, message: result.error.message } },
-          result.error.status
-        );
-      }
-
+      if (!result.ok) return resultError(result);
       return json({
         ok: true,
         data: result.value,
         pagination: { page, size, hasMore: result.value.length === size },
       });
-    } catch (error) {
-      log.error('Failed to get suggestions', {
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-      return json(
-        { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to get suggestions' } },
-        500
-      );
-    }
+    });
+  }
+
+  // --- Health endpoint ---
+
+  app.get('/health', async () => {
+    return wrapHandler('Health check failed', async () => {
+      const result = await memoryService.healthCheck();
+      if (!result.ok) return resultError(result);
+      return json({ ok: true, data: result.value });
+    });
   });
 
-  // PATCH /api/memory/suggestions/:id/accept
-  app.patch('/suggestions/:id/accept', async (c) => {
-    if (!dreamService) {
+  // ===========================================================================
+  // Global (non-codespace-scoped) endpoints — must be registered BEFORE
+  // the codespace-scoped routes to avoid Hono path conflicts.
+  // ===========================================================================
+
+  app.get('/insights', (c) => handleGetInsights(c, null));
+  app.post('/search', (c) => handleSearch(c, null));
+  app.get('/skill-metrics', () => handleGetSkillMetrics(null));
+  app.get('/skill-metrics/:skillId/executions', (c) =>
+    wrapHandler('Failed to get skill executions', async () => {
+      const { page, size } = parsePagination(c);
+      const result = await skillTrackingService.getExecutionHistory(null, c.req.param('skillId'), {
+        page,
+        size,
+      });
+      if (!result.ok) return resultError(result);
+      return json({
+        ok: true,
+        data: result.value,
+        pagination: { page, size, hasMore: result.value.length === size },
+      });
+    })
+  );
+  app.get('/dream-sessions', (c) => handleGetDreamSessions(c, null));
+  app.get('/suggestions', (c) => handleGetSuggestions(c, null));
+
+  // --- Per-skill dream config override endpoints ---
+
+  app.get('/dream-config/skills', () =>
+    wrapHandler('Failed to get dream skill overrides', async () => {
+      const data = await dreamService.getSkillOverrides();
+      return json({ ok: true, data });
+    })
+  );
+
+  app.put('/dream-config/skills/:skillId', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
       return json(
-        { ok: false, error: { code: 'NOT_AVAILABLE', message: 'Dream service not available' } },
-        503
+        { ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON in request body' } },
+        400
       );
     }
 
+    const skillId = c.req.param('skillId');
+
+    // null body OR empty object means clear the override (client sends {} when null
+    // cannot be serialized via JSON, e.g. `override ?? {}`)
+    const override =
+      body === null || (typeof body === 'object' && Object.keys(body as object).length === 0)
+        ? null
+        : (body as { enabled?: boolean; model?: string; minRuns?: number });
+
+    return wrapHandler('Failed to set dream skill override', async () => {
+      const result = await dreamService.setSkillOverride(skillId, override);
+      if (!result.ok) return resultError(result);
+      return json({ ok: true, data: null });
+    });
+  });
+
+  // ===========================================================================
+  // Codespace-scoped endpoints
+  // ===========================================================================
+
+  app.get('/codespaces/:codespaceId/insights', (c) =>
+    handleGetInsights(c, c.req.param('codespaceId'))
+  );
+
+  // POST /api/memory/codespaces/:codespaceId/insights
+  app.post('/codespaces/:codespaceId/insights', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return json(
+        { ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON in request body' } },
+        400
+      );
+    }
+
+    const parsed = createInsightSchema.safeParse(body);
+    if (!parsed.success) {
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: parsed.error.issues[0]?.message ?? 'content is required',
+          },
+        },
+        400
+      );
+    }
+
+    return wrapHandler('Failed to create insight', async () => {
+      const codespaceId = c.req.param('codespaceId');
+      const result = await memoryService.createInsight(
+        codespaceId,
+        parsed.data.content,
+        parsed.data.source,
+        parsed.data.metadata,
+        parsed.data.tags,
+        parsed.data.skillId
+      );
+      if (!result.ok) return resultError(result);
+      return json({ ok: true, data: result.value }, 201);
+    });
+  });
+
+  app.delete('/insights/:insightId', (c) =>
+    wrapHandler('Failed to delete insight', async () => {
+      const result = await memoryService.deleteInsight(c.req.param('insightId'));
+      if (!result.ok) return resultError(result);
+      return json({ ok: true, data: null });
+    })
+  );
+
+  app.post('/codespaces/:codespaceId/search', (c) => handleSearch(c, c.req.param('codespaceId')));
+
+  // --- Skill Metrics endpoints ---
+
+  app.get('/codespaces/:codespaceId/skill-metrics', (c) =>
+    handleGetSkillMetrics(c.req.param('codespaceId'))
+  );
+
+  app.get('/codespaces/:codespaceId/skill-metrics/:skillId', (c) =>
+    wrapHandler('Failed to get skill metric', async () => {
+      const result = await skillTrackingService.getMetrics(
+        c.req.param('codespaceId'),
+        c.req.param('skillId')
+      );
+      if (!result.ok) return resultError(result);
+      return json({ ok: true, data: result.value[0] ?? null });
+    })
+  );
+
+  app.get('/codespaces/:codespaceId/skill-metrics/:skillId/executions', (c) =>
+    wrapHandler('Failed to get skill executions', async () => {
+      const { page, size } = parsePagination(c);
+      const result = await skillTrackingService.getExecutionHistory(
+        c.req.param('codespaceId'),
+        c.req.param('skillId'),
+        { page, size }
+      );
+      if (!result.ok) return resultError(result);
+      return json({
+        ok: true,
+        data: result.value,
+        pagination: { page, size, hasMore: result.value.length === size },
+      });
+    })
+  );
+
+  // --- Dream endpoints ---
+
+  app.get('/codespaces/:codespaceId/dream-sessions', (c) =>
+    handleGetDreamSessions(c, c.req.param('codespaceId'))
+  );
+
+  app.post('/codespaces/:codespaceId/dream', (c) =>
+    wrapHandler('Failed to trigger dream cycle', async () => {
+      const result = await dreamService.runDreamCycle(c.req.param('codespaceId'));
+      if (!result.ok) return resultError(result);
+      return json({ ok: true, data: result.value }, 201);
+    })
+  );
+
+  // --- Skill Suggestion endpoints ---
+
+  app.get('/codespaces/:codespaceId/suggestions', (c) =>
+    handleGetSuggestions(c, c.req.param('codespaceId'))
+  );
+
+  // Accept and reject share identical structure — only the service method differs
+  async function handleSuggestionAction(
+    c: { req: { param: (k: string) => string; json: () => Promise<unknown> } },
+    action: 'accept' | 'reject'
+  ): Promise<Response> {
     let body: Record<string, unknown> = {};
     try {
       body = (await c.req.json()) as Record<string, unknown>;
@@ -539,86 +388,23 @@ export function createMemoryRoutes({
     }
 
     const parsed = suggestionActionSchema.safeParse(body);
+    const userNotes = parsed.success ? parsed.data.userNotes : undefined;
+    const serviceFn =
+      action === 'accept'
+        ? dreamService.acceptSuggestion.bind(dreamService)
+        : dreamService.rejectSuggestion.bind(dreamService);
 
-    try {
-      const id = c.req.param('id');
-      const result = await dreamService.acceptSuggestion(
-        id,
-        parsed.success ? parsed.data.userNotes : undefined
-      );
-
-      if (!result.ok) {
-        return json(
-          { ok: false, error: { code: result.error.code, message: result.error.message } },
-          result.error.status
-        );
-      }
-
+    return wrapHandler(`Failed to ${action} suggestion`, async () => {
+      const result = await serviceFn(c.req.param('id'), userNotes);
+      if (!result.ok) return resultError(result);
       return json({ ok: true, data: result.value });
-    } catch (error) {
-      log.error('Failed to accept suggestion', {
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-      return json(
-        { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to accept suggestion' } },
-        500
-      );
-    }
-  });
+    });
+  }
 
-  // PATCH /api/memory/suggestions/:id/reject
-  app.patch('/suggestions/:id/reject', async (c) => {
-    if (!dreamService) {
-      return json(
-        { ok: false, error: { code: 'NOT_AVAILABLE', message: 'Dream service not available' } },
-        503
-      );
-    }
+  app.patch('/suggestions/:id/accept', (c) => handleSuggestionAction(c, 'accept'));
+  app.patch('/suggestions/:id/reject', (c) => handleSuggestionAction(c, 'reject'));
 
-    let body: Record<string, unknown> = {};
-    try {
-      body = (await c.req.json()) as Record<string, unknown>;
-    } catch {
-      // body is optional
-    }
-
-    const parsed = suggestionActionSchema.safeParse(body);
-
-    try {
-      const id = c.req.param('id');
-      const result = await dreamService.rejectSuggestion(
-        id,
-        parsed.success ? parsed.data.userNotes : undefined
-      );
-
-      if (!result.ok) {
-        return json(
-          { ok: false, error: { code: result.error.code, message: result.error.message } },
-          result.error.status
-        );
-      }
-
-      return json({ ok: true, data: result.value });
-    } catch (error) {
-      log.error('Failed to reject suggestion', {
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-      return json(
-        { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to reject suggestion' } },
-        500
-      );
-    }
-  });
-
-  // PATCH /api/memory/suggestions/:id/modify
   app.patch('/suggestions/:id/modify', async (c) => {
-    if (!dreamService) {
-      return json(
-        { ok: false, error: { code: 'NOT_AVAILABLE', message: 'Dream service not available' } },
-        503
-      );
-    }
-
     let body: unknown;
     try {
       body = await c.req.json();
@@ -643,31 +429,15 @@ export function createMemoryRoutes({
       );
     }
 
-    try {
-      const id = c.req.param('id');
+    return wrapHandler('Failed to modify suggestion', async () => {
       const result = await dreamService.modifySuggestion(
-        id,
+        c.req.param('id'),
         parsed.data.modifiedContent,
         parsed.data.userNotes
       );
-
-      if (!result.ok) {
-        return json(
-          { ok: false, error: { code: result.error.code, message: result.error.message } },
-          result.error.status
-        );
-      }
-
+      if (!result.ok) return resultError(result);
       return json({ ok: true, data: result.value });
-    } catch (error) {
-      log.error('Failed to modify suggestion', {
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-      return json(
-        { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to modify suggestion' } },
-        500
-      );
-    }
+    });
   });
 
   // --- Legacy compatibility routes (redirect old endpoints) ---

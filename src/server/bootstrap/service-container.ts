@@ -142,7 +142,8 @@ export function createServiceContainer(db: Database, config: ServerConfig): Serv
     worktreeService,
     taskService,
     sessionService,
-    memoryService
+    memoryService,
+    skillTrackingService
   );
 
   // Wire agent execution service into task service for host-mode plan approval (AE-002)

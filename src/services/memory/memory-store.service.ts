@@ -83,7 +83,7 @@ export class MemoryStoreService {
   }
 
   async getInsights(
-    codespaceId: string,
+    codespaceId: string | null,
     options?: PaginationOptions
   ): Promise<Result<Insight[], MemoryError>> {
     try {
@@ -91,13 +91,16 @@ export class MemoryStoreService {
       const size = options?.size ?? 50;
       const offset = (page - 1) * size;
 
-      const rows = await this.db
+      const query = this.db
         .select()
         .from(memoryInsights)
-        .where(eq(memoryInsights.codespaceId, codespaceId))
         .orderBy(desc(memoryInsights.createdAt))
         .limit(size)
         .offset(offset);
+
+      const rows = codespaceId
+        ? await query.where(eq(memoryInsights.codespaceId, codespaceId))
+        : await query;
 
       const insights: Insight[] = rows.map((row) => ({
         id: row.id,
@@ -143,20 +146,20 @@ export class MemoryStoreService {
   }
 
   async searchInsights(
-    codespaceId: string,
+    codespaceId: string | null,
     query: string,
     limit = 20
   ): Promise<Result<Insight[], MemoryError>> {
     try {
+      const likeCondition = sql`${memoryInsights.content} LIKE ${`%${escapeLikeQuery(query)}%`} ESCAPE '\\'`;
+      const whereClause = codespaceId
+        ? and(eq(memoryInsights.codespaceId, codespaceId), likeCondition)
+        : likeCondition;
+
       const rows = await this.db
         .select()
         .from(memoryInsights)
-        .where(
-          and(
-            eq(memoryInsights.codespaceId, codespaceId),
-            sql`${memoryInsights.content} LIKE ${'%' + escapeLikeQuery(query) + '%'} ESCAPE '\\'`
-          )
-        )
+        .where(whereClause)
         .orderBy(desc(memoryInsights.createdAt))
         .limit(limit);
 
@@ -183,30 +186,32 @@ export class MemoryStoreService {
   }
 
   async assembleContext(
-    codespaceId: string,
+    codespaceId: string | null,
     query: string,
     maxTokens = 2000
   ): Promise<Result<MemoryContext, MemoryError>> {
     try {
+      const likeCondition = sql`${memoryInsights.content} LIKE ${`%${escapeLikeQuery(query)}%`} ESCAPE '\\'`;
+      const searchWhere = codespaceId
+        ? and(eq(memoryInsights.codespaceId, codespaceId), likeCondition)
+        : likeCondition;
+
       // First try search-relevant insights, then fall back to recent
       let rows = await this.db
         .select()
         .from(memoryInsights)
-        .where(
-          and(
-            eq(memoryInsights.codespaceId, codespaceId),
-            sql`${memoryInsights.content} LIKE ${'%' + escapeLikeQuery(query) + '%'} ESCAPE '\\'`
-          )
-        )
+        .where(searchWhere)
         .orderBy(desc(memoryInsights.createdAt))
         .limit(50);
 
       // If no search matches, get recent insights
       if (rows.length === 0) {
+        const recentWhere = codespaceId ? eq(memoryInsights.codespaceId, codespaceId) : sql`1=1`;
+
         rows = await this.db
           .select()
           .from(memoryInsights)
-          .where(eq(memoryInsights.codespaceId, codespaceId))
+          .where(recentWhere)
           .orderBy(desc(memoryInsights.createdAt))
           .limit(50);
       }

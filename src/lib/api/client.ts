@@ -6,6 +6,15 @@
 import type { PlanSession } from '@/lib/plan-mode/types';
 import type { GitHubOrg, GitHubRepo, TokenInfo } from '@/services/github-token.service';
 import type {
+  DreamSession as MemoryDreamSession,
+  HealthStatus as MemoryHealthStatus,
+  Insight as MemoryInsight,
+  SearchResult as MemorySearchResult,
+  SkillExecution as MemorySkillExecution,
+  SkillMetrics as MemorySkillMetrics,
+  SkillSuggestion as MemorySkillSuggestion,
+} from '@/services/memory/types';
+import type {
   CreateEventSourceInput,
   CreateSubscriptionInput,
   EventLogEntry,
@@ -1561,5 +1570,134 @@ export const apiClient = {
         connected: boolean;
       }>('/api/cli-monitor/sessions'),
     getStreamUrl: () => `${API_BASE}/api/cli-monitor/stream`,
+  },
+
+  memory: {
+    health: () => apiServerFetch<MemoryHealthStatus>('/api/memory/health'),
+
+    getInsights: (codespaceId?: string | null, params?: { page?: number; size?: number }) => {
+      const sp = new URLSearchParams();
+      if (params?.page !== undefined) sp.set('page', String(params.page));
+      if (params?.size !== undefined) sp.set('size', String(params.size));
+      const qs = sp.toString();
+      const base = codespaceId
+        ? `/api/memory/codespaces/${codespaceId}/insights`
+        : '/api/memory/insights';
+      return apiServerFetch<Array<MemoryInsight>>(`${base}${qs ? `?${qs}` : ''}`);
+    },
+
+    createInsight: (
+      codespaceId: string,
+      data: {
+        content: string;
+        source?: MemoryInsight['source'];
+        tags?: string[];
+        metadata?: Record<string, unknown>;
+        skillId?: string;
+      }
+    ) =>
+      apiServerFetch<MemoryInsight>(`/api/memory/codespaces/${codespaceId}/insights`, {
+        method: 'POST',
+        body: data,
+      }),
+
+    deleteInsight: (insightId: string) =>
+      apiServerFetch<null>(`/api/memory/insights/${insightId}`, { method: 'DELETE' }),
+
+    search: (codespaceId: string | null | undefined, query: string, limit?: number) => {
+      const base = codespaceId
+        ? `/api/memory/codespaces/${codespaceId}/search`
+        : '/api/memory/search';
+      return apiServerFetch<Array<MemorySearchResult>>(base, {
+        method: 'POST',
+        body: { query, limit },
+      });
+    },
+
+    getSkillMetrics: (codespaceId?: string | null) => {
+      const base = codespaceId
+        ? `/api/memory/codespaces/${codespaceId}/skill-metrics`
+        : '/api/memory/skill-metrics';
+      return apiServerFetch<Array<MemorySkillMetrics>>(base);
+    },
+
+    getSkillExecutions: (
+      codespaceId: string | null | undefined,
+      skillId: string,
+      params?: { page?: number; size?: number }
+    ) => {
+      const sp = new URLSearchParams();
+      if (params?.page !== undefined) sp.set('page', String(params.page));
+      if (params?.size !== undefined) sp.set('size', String(params.size));
+      const qs = sp.toString();
+      const base = codespaceId
+        ? `/api/memory/codespaces/${codespaceId}/skill-metrics/${skillId}/executions`
+        : `/api/memory/skill-metrics/${skillId}/executions`;
+      return apiServerFetch<Array<MemorySkillExecution>>(`${base}${qs ? `?${qs}` : ''}`);
+    },
+
+    getDreamSessions: (codespaceId?: string | null, params?: { page?: number; size?: number }) => {
+      const sp = new URLSearchParams();
+      if (params?.page !== undefined) sp.set('page', String(params.page));
+      if (params?.size !== undefined) sp.set('size', String(params.size));
+      const qs = sp.toString();
+      const base = codespaceId
+        ? `/api/memory/codespaces/${codespaceId}/dream-sessions`
+        : '/api/memory/dream-sessions';
+      return apiServerFetch<Array<MemoryDreamSession>>(`${base}${qs ? `?${qs}` : ''}`);
+    },
+
+    triggerDream: (codespaceId: string) =>
+      apiServerFetch<MemoryDreamSession>(`/api/memory/codespaces/${codespaceId}/dream`, {
+        method: 'POST',
+      }),
+
+    getSuggestions: (
+      codespaceId?: string | null,
+      params?: { status?: string; skillId?: string; page?: number; size?: number }
+    ) => {
+      const sp = new URLSearchParams();
+      if (params?.status) sp.set('status', params.status);
+      if (params?.skillId) sp.set('skillId', params.skillId);
+      if (params?.page !== undefined) sp.set('page', String(params.page));
+      if (params?.size !== undefined) sp.set('size', String(params.size));
+      const qs = sp.toString();
+      const base = codespaceId
+        ? `/api/memory/codespaces/${codespaceId}/suggestions`
+        : '/api/memory/suggestions';
+      return apiServerFetch<Array<MemorySkillSuggestion>>(`${base}${qs ? `?${qs}` : ''}`);
+    },
+
+    acceptSuggestion: (id: string, userNotes?: string) =>
+      apiServerFetch<MemorySkillSuggestion>(`/api/memory/suggestions/${id}/accept`, {
+        method: 'PATCH',
+        body: userNotes ? { userNotes } : {},
+      }),
+
+    rejectSuggestion: (id: string, userNotes?: string) =>
+      apiServerFetch<MemorySkillSuggestion>(`/api/memory/suggestions/${id}/reject`, {
+        method: 'PATCH',
+        body: userNotes ? { userNotes } : {},
+      }),
+
+    modifySuggestion: (id: string, modifiedContent: string, userNotes?: string) =>
+      apiServerFetch<MemorySkillSuggestion>(`/api/memory/suggestions/${id}/modify`, {
+        method: 'PATCH',
+        body: { modifiedContent, userNotes },
+      }),
+
+    getDreamSkillOverrides: () =>
+      apiServerFetch<Record<string, { enabled?: boolean; model?: string; minRuns?: number }>>(
+        '/api/memory/dream-config/skills'
+      ),
+
+    setDreamSkillOverride: (
+      skillId: string,
+      override: { enabled?: boolean; model?: string; minRuns?: number } | null
+    ) =>
+      apiServerFetch<void>(`/api/memory/dream-config/skills/${encodeURIComponent(skillId)}`, {
+        method: 'PUT',
+        body: override ?? {},
+      }),
   },
 };

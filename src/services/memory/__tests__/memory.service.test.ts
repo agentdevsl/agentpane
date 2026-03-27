@@ -101,29 +101,23 @@ describe('MemoryService', () => {
   // -------------------------------------------------------------------------
 
   describe('initialize()', () => {
-    it('sets available=true when memory.enabled setting is true', async () => {
+    it('is always available (backed by local SQLite)', async () => {
       const { service } = createTestService({ enabled: true });
       await service.initialize();
       expect(service.isAvailable()).toBe(true);
     });
 
-    it('sets available=false when memory.enabled setting is false', async () => {
-      const { service } = createTestService({ enabled: false });
-      await service.initialize();
-      expect(service.isAvailable()).toBe(false);
-    });
-
-    it('sets available=false when settings.get returns null', async () => {
+    it('is available even without explicit memory.enabled setting', async () => {
       const settings = {
         get: vi.fn().mockResolvedValue(ok(null)),
       } as unknown as SettingsService;
 
       const service = new MemoryService(settings, {} as never);
       await service.initialize();
-      expect(service.isAvailable()).toBe(false);
+      expect(service.isAvailable()).toBe(true);
     });
 
-    it('sets available=false when settings.get returns err result', async () => {
+    it('is available even when settings.get returns err', async () => {
       const settings = {
         get: vi
           .fn()
@@ -132,39 +126,17 @@ describe('MemoryService', () => {
 
       const service = new MemoryService(settings, {} as never);
       await service.initialize();
-      expect(service.isAvailable()).toBe(false);
+      expect(service.isAvailable()).toBe(true);
     });
 
-    it('sets available=false when settings.get throws', async () => {
+    it('is available even when settings.get throws', async () => {
       const settings = {
         get: vi.fn().mockRejectedValue(new Error('db error')),
       } as unknown as SettingsService;
 
       const service = new MemoryService(settings, {} as never);
       await service.initialize();
-      expect(service.isAvailable()).toBe(false);
-    });
-
-    it('handles string "true" value without JSON.parse', async () => {
-      const settings = {
-        get: vi.fn().mockResolvedValue(ok({ key: 'memory.enabled', value: 'true', updatedAt: '' })),
-      } as unknown as SettingsService;
-
-      const service = new MemoryService(settings, {} as never);
-      await service.initialize();
       expect(service.isAvailable()).toBe(true);
-    });
-
-    it('handles non-boolean JSON values as false', async () => {
-      const settings = {
-        get: vi
-          .fn()
-          .mockResolvedValue(ok({ key: 'memory.enabled', value: '"yes"', updatedAt: '' })),
-      } as unknown as SettingsService;
-
-      const service = new MemoryService(settings, {} as never);
-      await service.initialize();
-      expect(service.isAvailable()).toBe(false);
     });
   });
 
@@ -173,12 +145,12 @@ describe('MemoryService', () => {
   // -------------------------------------------------------------------------
 
   describe('isAvailable()', () => {
-    it('returns false before initialization', () => {
+    it('returns true always (backed by local SQLite)', () => {
       const { service } = createTestService();
-      expect(service.isAvailable()).toBe(false);
+      expect(service.isAvailable()).toBe(true);
     });
 
-    it('returns true after successful initialization with enabled=true', async () => {
+    it('returns true after initialization', async () => {
       const { service } = createTestService({ enabled: true });
       await service.initialize();
       expect(service.isAvailable()).toBe(true);
@@ -190,18 +162,8 @@ describe('MemoryService', () => {
   // -------------------------------------------------------------------------
 
   describe('getContext()', () => {
-    it('returns EMPTY_CONTEXT when not available', async () => {
-      const { service } = createTestService({ enabled: false });
-      const result = await service.getContext('cs-1', 'test query');
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value).toEqual(EMPTY_CONTEXT);
-      }
-    });
-
-    it('delegates to store.assembleContext when available', async () => {
+    it('delegates to store.assembleContext', async () => {
       const { service, store } = createTestService();
-      (service as any).available = true;
 
       const result = await service.getContext('cs-1', 'test query');
 
@@ -214,7 +176,6 @@ describe('MemoryService', () => {
 
     it('returns EMPTY_CONTEXT on error (fire-and-forget)', async () => {
       const { service, store } = createTestService();
-      (service as any).available = true;
       (store.assembleContext as ReturnType<typeof vi.fn>).mockRejectedValue(
         new Error('DB failure')
       );
@@ -233,19 +194,8 @@ describe('MemoryService', () => {
   // -------------------------------------------------------------------------
 
   describe('startSession()', () => {
-    it('returns null when not available', async () => {
+    it('returns MemorySessionRef with generated ID', async () => {
       const { service } = createTestService();
-      const ref = await service.startSession({
-        codespaceId: 'cs-1',
-        agentId: 'agent-1',
-        taskId: 'task-1',
-      });
-      expect(ref).toBeNull();
-    });
-
-    it('returns MemorySessionRef with generated ID when available', async () => {
-      const { service } = createTestService();
-      (service as any).available = true;
 
       const ref = await service.startSession({
         codespaceId: 'cs-1',
@@ -263,7 +213,6 @@ describe('MemoryService', () => {
 
     it('generates unique session IDs', async () => {
       const { service } = createTestService();
-      (service as any).available = true;
 
       const ref1 = await service.startSession({
         codespaceId: 'cs-1',
@@ -292,19 +241,8 @@ describe('MemoryService', () => {
       taskId: 'task-1',
     };
 
-    it('does nothing when not available', async () => {
+    it('delegates to store.insertMessage', async () => {
       const { service, store } = createTestService();
-      await service.captureMessage(ref, {
-        role: 'assistant',
-        content: 'hello',
-        turnNumber: 1,
-      });
-      expect(store.insertMessage).not.toHaveBeenCalled();
-    });
-
-    it('delegates to store.insertMessage when available', async () => {
-      const { service, store } = createTestService();
-      (service as any).available = true;
 
       await service.captureMessage(ref, {
         role: 'assistant',
@@ -327,7 +265,6 @@ describe('MemoryService', () => {
 
     it('swallows errors (fire-and-forget)', async () => {
       const { service, store } = createTestService();
-      (service as any).available = true;
       (store.insertMessage as ReturnType<typeof vi.fn>).mockRejectedValue(
         new Error('Insert failed')
       );
@@ -355,15 +292,8 @@ describe('MemoryService', () => {
       taskId: 'task-1',
     };
 
-    it('does nothing when not available', async () => {
+    it('triggers insight derivation', async () => {
       const { service, deriver } = createTestService();
-      await service.finalizeSession(ref);
-      expect(deriver.deriveInsights).not.toHaveBeenCalled();
-    });
-
-    it('triggers insight derivation when available', async () => {
-      const { service, deriver } = createTestService();
-      (service as any).available = true;
 
       await service.finalizeSession(ref);
 
@@ -372,7 +302,6 @@ describe('MemoryService', () => {
 
     it('swallows derivation errors', async () => {
       const { service, deriver } = createTestService();
-      (service as any).available = true;
       (deriver.deriveInsights as ReturnType<typeof vi.fn>).mockRejectedValue(
         new Error('Claude API error')
       );
@@ -382,7 +311,6 @@ describe('MemoryService', () => {
 
     it('handles deriver returning err result (logs but does not throw)', async () => {
       const { service, deriver } = createTestService();
-      (service as any).available = true;
       (deriver.deriveInsights as ReturnType<typeof vi.fn>).mockResolvedValue(
         err(MemoryErrors.DERIVATION_ERROR('Claude timeout'))
       );
@@ -396,18 +324,8 @@ describe('MemoryService', () => {
   // -------------------------------------------------------------------------
 
   describe('getInsights()', () => {
-    it('returns empty array when not available', async () => {
-      const { service } = createTestService();
-      const result = await service.getInsights('cs-1');
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value).toEqual([]);
-      }
-    });
-
-    it('delegates to store.getInsights when available', async () => {
+    it('delegates to store.getInsights', async () => {
       const { service, store } = createTestService();
-      (service as any).available = true;
 
       const result = await service.getInsights('cs-1', { page: 2, size: 10 });
 
@@ -420,7 +338,6 @@ describe('MemoryService', () => {
 
     it('propagates errors from store', async () => {
       const { service, store } = createTestService();
-      (service as any).available = true;
       (store.getInsights as ReturnType<typeof vi.fn>).mockResolvedValue(
         err(MemoryErrors.QUERY_ERROR('DB error'))
       );
@@ -438,18 +355,8 @@ describe('MemoryService', () => {
   // -------------------------------------------------------------------------
 
   describe('createInsight()', () => {
-    it('returns UNAVAILABLE error when not available', async () => {
-      const { service } = createTestService();
-      const result = await service.createInsight('cs-1', 'some insight');
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.code).toBe('MEMORY_UNAVAILABLE');
-      }
-    });
-
-    it('delegates to store.insertInsight when available', async () => {
+    it('delegates to store.insertInsight', async () => {
       const { service, store } = createTestService();
-      (service as any).available = true;
 
       const result = await service.createInsight('cs-1', 'Use Result types', 'manual', {
         author: 'user-1',
@@ -466,7 +373,6 @@ describe('MemoryService', () => {
 
     it('defaults source to manual', async () => {
       const { service, store } = createTestService();
-      (service as any).available = true;
 
       await service.createInsight('cs-1', 'insight content');
 
@@ -481,18 +387,8 @@ describe('MemoryService', () => {
   // -------------------------------------------------------------------------
 
   describe('deleteInsight()', () => {
-    it('returns UNAVAILABLE error when not available', async () => {
-      const { service } = createTestService();
-      const result = await service.deleteInsight('ins-1');
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.code).toBe('MEMORY_UNAVAILABLE');
-      }
-    });
-
-    it('delegates to store.deleteInsight when available', async () => {
+    it('delegates to store.deleteInsight', async () => {
       const { service, store } = createTestService();
-      (service as any).available = true;
 
       const result = await service.deleteInsight('ins-1');
 
@@ -506,18 +402,8 @@ describe('MemoryService', () => {
   // -------------------------------------------------------------------------
 
   describe('search()', () => {
-    it('returns empty array when not available', async () => {
-      const { service } = createTestService();
-      const result = await service.search('cs-1', 'drizzle');
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value).toEqual([]);
-      }
-    });
-
     it('delegates to store.searchInsights and maps to SearchResult', async () => {
       const { service, store } = createTestService();
-      (service as any).available = true;
 
       const result = await service.search('cs-1', 'Result types', 10);
 
@@ -533,7 +419,6 @@ describe('MemoryService', () => {
 
     it('includes skillId and createdAt in SearchResult', async () => {
       const { service, store } = createTestService();
-      (service as any).available = true;
 
       const insightWithSkill: Insight = {
         ...mockInsight,
@@ -551,7 +436,6 @@ describe('MemoryService', () => {
 
     it('propagates errors from store', async () => {
       const { service, store } = createTestService();
-      (service as any).available = true;
       (store.searchInsights as ReturnType<typeof vi.fn>).mockResolvedValue(
         err(MemoryErrors.QUERY_ERROR('Search failed'))
       );
@@ -566,27 +450,16 @@ describe('MemoryService', () => {
   // -------------------------------------------------------------------------
 
   describe('healthCheck()', () => {
-    it('returns unavailable health when not available', async () => {
+    it('returns available health with counts', async () => {
       const { service } = createTestService();
-      const result = await service.healthCheck();
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.available).toBe(false);
-        expect(result.value.insightCount).toBe(0);
-        expect(result.value.messageCount).toBe(0);
-      }
-    });
-
-    it('returns available health when available', async () => {
-      const { service } = createTestService();
-      (service as any).available = true;
 
       const result = await service.healthCheck();
 
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value.available).toBe(true);
+        expect(result.value.insightCount).toBe(5);
+        expect(result.value.messageCount).toBe(10);
       }
     });
   });
