@@ -3,6 +3,7 @@ import {
   CLI_SESSIONS_PERF_METRICS_MIGRATION_SQL,
   DB_REVIEW_INDEXES_MIGRATION_SQL,
   EVENT_SYSTEM_MIGRATION_SQL,
+  MEMORY_TABLES_MIGRATION_SQL,
   MIGRATION_SQL,
   PERFORMANCE_INDEXES_MIGRATION_SQL,
   RBAC_GITHUB_TOKEN_MIGRATION_SQL,
@@ -143,4 +144,7 @@ export const MIGRATIONS: Migration[] = [
       `ALTER TABLE tasks ADD COLUMN skill_name TEXT`,
     ],
   },
+
+  // 22. Memory service tables (insights, messages, skill tracking, dreaming)
+  { version: 22, name: 'memory-tables', sql: MEMORY_TABLES_MIGRATION_SQL },
 ];

@@ -699,6 +699,133 @@ export const RBAC_SCHEMA_ADDITIONS = [
 // GitHub token team_id column migration (extracted for reuse)
 export const RBAC_GITHUB_TOKEN_MIGRATION_SQL = `ALTER TABLE github_tokens ADD COLUMN team_id TEXT REFERENCES "teams"("id") ON DELETE SET NULL`;
 
+// ---------------------------------------------------------------------------
+// Memory service tables (v22)
+// ---------------------------------------------------------------------------
+
+export const MEMORY_TABLES_MIGRATION_SQL = `
+-- Memory insights (replaces Honcho conclusions)
+CREATE TABLE IF NOT EXISTS "memory_insights" (
+  "id" TEXT PRIMARY KEY NOT NULL,
+  "codespace_id" TEXT NOT NULL REFERENCES "codespaces"("id") ON DELETE CASCADE,
+  "content" TEXT NOT NULL,
+  "source" TEXT NOT NULL,
+  "source_session_id" TEXT REFERENCES "sessions"("id") ON DELETE SET NULL,
+  "skill_id" TEXT,
+  "tags" TEXT DEFAULT '[]',
+  "metadata" TEXT,
+  "created_at" TEXT DEFAULT (datetime('now')) NOT NULL
+);
+CREATE INDEX IF NOT EXISTS "idx_memory_insights_codespace_id" ON "memory_insights"("codespace_id");
+CREATE INDEX IF NOT EXISTS "idx_memory_insights_skill_id" ON "memory_insights"("skill_id");
+CREATE INDEX IF NOT EXISTS "idx_memory_insights_source_session_id" ON "memory_insights"("source_session_id");
+
+-- Memory messages (captured agent turns)
+CREATE TABLE IF NOT EXISTS "memory_messages" (
+  "id" TEXT PRIMARY KEY NOT NULL,
+  "codespace_id" TEXT NOT NULL REFERENCES "codespaces"("id") ON DELETE CASCADE,
+  "memory_session_id" TEXT NOT NULL,
+  "agent_id" TEXT NOT NULL,
+  "task_id" TEXT REFERENCES "tasks"("id") ON DELETE SET NULL,
+  "role" TEXT NOT NULL,
+  "content" TEXT NOT NULL,
+  "turn_number" INTEGER NOT NULL,
+  "metadata" TEXT,
+  "created_at" TEXT DEFAULT (datetime('now')) NOT NULL
+);
+CREATE INDEX IF NOT EXISTS "idx_memory_messages_codespace_id" ON "memory_messages"("codespace_id");
+CREATE INDEX IF NOT EXISTS "idx_memory_messages_memory_session_id" ON "memory_messages"("memory_session_id");
+CREATE INDEX IF NOT EXISTS "idx_memory_messages_task_id" ON "memory_messages"("task_id");
+
+-- Skill executions (per-run skill tracking)
+CREATE TABLE IF NOT EXISTS "skill_executions" (
+  "id" TEXT PRIMARY KEY NOT NULL,
+  "codespace_id" TEXT NOT NULL REFERENCES "codespaces"("id") ON DELETE CASCADE,
+  "skill_id" TEXT NOT NULL,
+  "skill_name" TEXT,
+  "task_id" TEXT REFERENCES "tasks"("id") ON DELETE SET NULL,
+  "agent_run_id" TEXT REFERENCES "agent_runs"("id") ON DELETE SET NULL,
+  "session_id" TEXT REFERENCES "sessions"("id") ON DELETE SET NULL,
+  "status" TEXT NOT NULL,
+  "turns_used" INTEGER,
+  "tokens_used" INTEGER,
+  "duration_ms" INTEGER,
+  "files_modified" INTEGER,
+  "lines_added" INTEGER,
+  "lines_removed" INTEGER,
+  "cost_usd" REAL,
+  "error_message" TEXT,
+  "started_at" TEXT,
+  "completed_at" TEXT,
+  "created_at" TEXT DEFAULT (datetime('now')) NOT NULL
+);
+CREATE INDEX IF NOT EXISTS "idx_skill_executions_codespace_id" ON "skill_executions"("codespace_id");
+CREATE INDEX IF NOT EXISTS "idx_skill_executions_skill_id" ON "skill_executions"("skill_id");
+CREATE INDEX IF NOT EXISTS "idx_skill_executions_task_id" ON "skill_executions"("task_id");
+CREATE INDEX IF NOT EXISTS "idx_skill_executions_agent_run_id" ON "skill_executions"("agent_run_id");
+
+-- Skill metrics (aggregated, materialized view)
+CREATE TABLE IF NOT EXISTS "skill_metrics" (
+  "id" TEXT PRIMARY KEY NOT NULL,
+  "codespace_id" TEXT NOT NULL REFERENCES "codespaces"("id") ON DELETE CASCADE,
+  "skill_id" TEXT NOT NULL,
+  "skill_name" TEXT NOT NULL,
+  "total_runs" INTEGER DEFAULT 0 NOT NULL,
+  "success_count" INTEGER DEFAULT 0 NOT NULL,
+  "error_count" INTEGER DEFAULT 0 NOT NULL,
+  "avg_tokens_used" REAL,
+  "avg_turns_used" REAL,
+  "avg_duration_ms" REAL,
+  "avg_cost_usd" REAL,
+  "success_rate" REAL,
+  "last_run_at" TEXT,
+  "updated_at" TEXT DEFAULT (datetime('now')) NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "skill_metrics_codespace_skill_unique" ON "skill_metrics"("codespace_id", "skill_id");
+
+-- Dream sessions (dreaming execution log)
+CREATE TABLE IF NOT EXISTS "dream_sessions" (
+  "id" TEXT PRIMARY KEY NOT NULL,
+  "codespace_id" TEXT REFERENCES "codespaces"("id") ON DELETE CASCADE,
+  "type" TEXT NOT NULL,
+  "status" TEXT NOT NULL,
+  "skills_analyzed" INTEGER DEFAULT 0 NOT NULL,
+  "suggestions_generated" INTEGER DEFAULT 0 NOT NULL,
+  "tokens_used" INTEGER DEFAULT 0 NOT NULL,
+  "cost_usd" REAL,
+  "started_at" TEXT DEFAULT (datetime('now')) NOT NULL,
+  "completed_at" TEXT,
+  "error_message" TEXT,
+  "created_at" TEXT DEFAULT (datetime('now')) NOT NULL
+);
+CREATE INDEX IF NOT EXISTS "idx_dream_sessions_codespace_id" ON "dream_sessions"("codespace_id");
+CREATE INDEX IF NOT EXISTS "idx_dream_sessions_status" ON "dream_sessions"("status");
+
+-- Skill suggestions (human-in-the-loop dreaming output)
+CREATE TABLE IF NOT EXISTS "skill_suggestions" (
+  "id" TEXT PRIMARY KEY NOT NULL,
+  "dream_session_id" TEXT NOT NULL REFERENCES "dream_sessions"("id") ON DELETE CASCADE,
+  "codespace_id" TEXT NOT NULL REFERENCES "codespaces"("id") ON DELETE CASCADE,
+  "skill_id" TEXT NOT NULL,
+  "skill_name" TEXT NOT NULL,
+  "suggestion_type" TEXT NOT NULL,
+  "title" TEXT NOT NULL,
+  "reasoning" TEXT NOT NULL,
+  "current_content" TEXT,
+  "suggested_content" TEXT NOT NULL,
+  "diff" TEXT,
+  "status" TEXT DEFAULT 'pending' NOT NULL,
+  "user_notes" TEXT,
+  "applied_at" TEXT,
+  "applied_by" TEXT,
+  "created_at" TEXT DEFAULT (datetime('now')) NOT NULL
+);
+CREATE INDEX IF NOT EXISTS "idx_skill_suggestions_dream_session_id" ON "skill_suggestions"("dream_session_id");
+CREATE INDEX IF NOT EXISTS "idx_skill_suggestions_codespace_id" ON "skill_suggestions"("codespace_id");
+CREATE INDEX IF NOT EXISTS "idx_skill_suggestions_skill_id" ON "skill_suggestions"("skill_id");
+CREATE INDEX IF NOT EXISTS "idx_skill_suggestions_status" ON "skill_suggestions"("status");
+`;
+
 /**
  * Interface for raw SQLite database objects that support prepare/exec.
  * Compatible with both better-sqlite3 (bootstrap) and bun:sqlite (api.ts).
