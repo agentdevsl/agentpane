@@ -38,6 +38,16 @@ const modifySuggestionSchema = z.object({
   userNotes: z.string().optional(),
 });
 
+/** Parse and clamp pagination query params. */
+function parsePagination(c: { req: { query: (k: string) => string | undefined } }, defaults = { page: 1, size: 20 }) {
+  const rawPage = Number.parseInt(c.req.query('page') ?? String(defaults.page), 10);
+  const rawSize = Number.parseInt(c.req.query('size') ?? String(defaults.size), 10);
+  return {
+    page: Math.max(1, Number.isNaN(rawPage) ? defaults.page : rawPage),
+    size: Math.min(100, Math.max(1, Number.isNaN(rawSize) ? defaults.size : rawSize)),
+  };
+}
+
 interface MemoryDeps {
   memoryService: MemoryService;
   skillTrackingService: SkillTrackingService | null;
@@ -90,13 +100,9 @@ export function createMemoryRoutes({
 
     try {
       const codespaceId = c.req.param('codespaceId');
-      const page = Number.parseInt(c.req.query('page') ?? '1', 10);
-      const size = Number.parseInt(c.req.query('size') ?? '50', 10);
+      const { page, size } = parsePagination(c, { page: 1, size: 50 });
 
-      const result = await memoryService.getInsights(codespaceId, {
-        page: Number.isNaN(page) ? 1 : page,
-        size: Number.isNaN(size) ? 50 : size,
-      });
+      const result = await memoryService.getInsights(codespaceId, { page, size });
 
       if (!result.ok) {
         return json(
@@ -360,12 +366,11 @@ export function createMemoryRoutes({
     try {
       const codespaceId = c.req.param('codespaceId');
       const skillId = c.req.param('skillId');
-      const page = Number.parseInt(c.req.query('page') ?? '1', 10);
-      const size = Number.parseInt(c.req.query('size') ?? '20', 10);
+      const { page, size } = parsePagination(c);
 
       const result = await skillTrackingService.getExecutionHistory(codespaceId, skillId, {
-        page: Number.isNaN(page) ? 1 : page,
-        size: Number.isNaN(size) ? 20 : size,
+        page,
+        size,
       });
 
       if (!result.ok) {
@@ -404,13 +409,9 @@ export function createMemoryRoutes({
 
     try {
       const codespaceId = c.req.param('codespaceId');
-      const page = Number.parseInt(c.req.query('page') ?? '1', 10);
-      const size = Number.parseInt(c.req.query('size') ?? '20', 10);
+      const { page, size } = parsePagination(c);
 
-      const result = await dreamService.getDreamSessions(codespaceId, {
-        page: Number.isNaN(page) ? 1 : page,
-        size: Number.isNaN(size) ? 20 : size,
-      });
+      const result = await dreamService.getDreamSessions(codespaceId, { page, size });
 
       if (!result.ok) {
         return json(
@@ -487,13 +488,12 @@ export function createMemoryRoutes({
           ? (statusParam as (typeof validStatuses)[number])
           : undefined;
       const skillId = c.req.query('skillId');
-      const page = Number.parseInt(c.req.query('page') ?? '1', 10);
-      const size = Number.parseInt(c.req.query('size') ?? '20', 10);
+      const { page, size } = parsePagination(c);
 
       const result = await dreamService.getSkillSuggestions(
         codespaceId,
         { status, skillId },
-        { page: Number.isNaN(page) ? 1 : page, size: Number.isNaN(size) ? 20 : size }
+        { page, size }
       );
 
       if (!result.ok) {

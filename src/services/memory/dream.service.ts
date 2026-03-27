@@ -377,6 +377,8 @@ export class DreamService {
 
       if (!Array.isArray(parsed)) return [];
 
+      const validTypes = new Set(['improve_prompt', 'add_example', 'fix_pattern', 'new_skill']);
+
       return parsed
         .filter(
           (s: unknown): s is ParsedSuggestion =>
@@ -385,7 +387,8 @@ export class DreamService {
             'type' in s &&
             'title' in s &&
             'reasoning' in s &&
-            'suggestedContent' in s
+            'suggestedContent' in s &&
+            validTypes.has((s as Record<string, unknown>).type as string)
         )
         .map((s) => ({
           type: s.type,

@@ -55,13 +55,15 @@ export class InsightDeriverService {
         return ok({ insightsCreated: 0 });
       }
 
-      // 2. Format conversation for Claude
-      const conversationText = messages
-        .map((m) => {
-          const role = m.role === 'user' ? 'User' : 'Assistant';
-          return `${role}: ${m.content}`;
-        })
-        .join('\n\n');
+      // 2. Format conversation for Claude (limit to ~100k chars to stay within context window)
+      const MAX_CONVERSATION_CHARS = 100_000;
+      let conversationText = '';
+      for (const m of messages) {
+        const role = m.role === 'user' ? 'User' : 'Assistant';
+        const line = `${role}: ${m.content}\n\n`;
+        if (conversationText.length + line.length > MAX_CONVERSATION_CHARS) break;
+        conversationText += line;
+      }
 
       const prompt = `${DERIVATION_PROMPT}${conversationText}`;
 
