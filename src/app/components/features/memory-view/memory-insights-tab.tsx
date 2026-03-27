@@ -24,12 +24,14 @@ function SkeletonCard(): React.JSX.Element {
   );
 }
 
-function EmptyState(): React.JSX.Element {
+function EmptyState({ isSearch }: { isSearch: boolean }): React.JSX.Element {
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center">
       <Lightbulb className="h-10 w-10 text-fg-subtle" />
-      <p className="mt-3 text-sm font-medium text-fg-muted">No insights yet</p>
-      <p className="mt-1 text-xs text-fg-subtle">Create one to get started.</p>
+      <p className="mt-3 text-sm font-medium text-fg-muted">
+        {isSearch ? 'No matching insights' : 'No insights yet'}
+      </p>
+      {!isSearch && <p className="mt-1 text-xs text-fg-subtle">Create one to get started.</p>}
     </div>
   );
 }
@@ -112,7 +114,7 @@ export function MemoryInsightsTab(): React.JSX.Element {
         </div>
       )}
 
-      {!isLoading && !hasResults && <EmptyState />}
+      {!isLoading && !hasResults && <EmptyState isSearch={searchResults !== null} />}
 
       <InsightCreateDialog open={dialogOpen} onOpenChange={setDialogOpen} />
     </div>

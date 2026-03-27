@@ -1568,10 +1568,9 @@ export const apiClient = {
     },
 
     triggerDream: (codespaceId: string) =>
-      apiServerFetch<{ id: string; status: string }>(
-        `/api/memory/codespaces/${codespaceId}/dream`,
-        { method: 'POST' }
-      ),
+      apiServerFetch<MemoryDreamSession>(`/api/memory/codespaces/${codespaceId}/dream`, {
+        method: 'POST',
+      }),
 
     getSuggestions: (
       codespaceId: string,
@@ -1589,19 +1588,19 @@ export const apiClient = {
     },
 
     acceptSuggestion: (id: string, userNotes?: string) =>
-      apiServerFetch<{ id: string; status: string }>(`/api/memory/suggestions/${id}/accept`, {
+      apiServerFetch<MemorySkillSuggestion>(`/api/memory/suggestions/${id}/accept`, {
         method: 'PATCH',
         body: userNotes ? { userNotes } : {},
       }),
 
     rejectSuggestion: (id: string, userNotes?: string) =>
-      apiServerFetch<{ id: string; status: string }>(`/api/memory/suggestions/${id}/reject`, {
+      apiServerFetch<MemorySkillSuggestion>(`/api/memory/suggestions/${id}/reject`, {
         method: 'PATCH',
         body: userNotes ? { userNotes } : {},
       }),
 
     modifySuggestion: (id: string, modifiedContent: string, userNotes?: string) =>
-      apiServerFetch<{ id: string; status: string }>(`/api/memory/suggestions/${id}/modify`, {
+      apiServerFetch<MemorySkillSuggestion>(`/api/memory/suggestions/${id}/modify`, {
         method: 'PATCH',
         body: { modifiedContent, userNotes },
       }),

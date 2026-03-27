@@ -12,24 +12,29 @@ function DiffBlock({ diff }: { diff: string }): React.JSX.Element {
   return (
     <pre className="overflow-x-auto rounded-md bg-surface-muted p-3 text-xs font-mono">
       {lines.map((line, index) => {
-        const key = `${index}-${line.slice(0, 20)}`;
-
+        if (line.startsWith('---') || line.startsWith('+++') || line.startsWith('@@')) {
+          return (
+            <div key={index} className="text-fg-subtle font-semibold">
+              {line}
+            </div>
+          );
+        }
         if (line.startsWith('-')) {
           return (
-            <div key={key} className="bg-danger-subtle text-danger">
+            <div key={index} className="bg-danger-subtle text-danger">
               {line}
             </div>
           );
         }
         if (line.startsWith('+')) {
           return (
-            <div key={key} className="bg-success-subtle text-success">
+            <div key={index} className="bg-success-subtle text-success">
               {line}
             </div>
           );
         }
         return (
-          <div key={key} className="text-fg-muted">
+          <div key={index} className="text-fg-muted">
             {line}
           </div>
         );

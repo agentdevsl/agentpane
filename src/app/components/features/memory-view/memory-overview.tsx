@@ -26,6 +26,7 @@ function StatCard({
 export function MemoryOverview(): React.JSX.Element {
   const {
     health,
+    healthLoading,
     insights,
     skillMetrics,
     dreamSessions,
@@ -45,11 +46,16 @@ export function MemoryOverview(): React.JSX.Element {
         <span
           className={cn(
             'inline-block h-2.5 w-2.5 rounded-full',
-            isAvailable ? 'bg-success' : 'bg-danger'
+            healthLoading ? 'bg-fg-subtle animate-pulse' : isAvailable ? 'bg-success' : 'bg-danger'
           )}
+          aria-hidden="true"
         />
         <span className="text-sm font-medium text-fg">
-          {isAvailable ? 'Memory Available' : 'Memory Unavailable'}
+          {healthLoading
+            ? 'Checking memory...'
+            : isAvailable
+              ? 'Memory Available'
+              : 'Memory Unavailable'}
         </span>
       </div>
 

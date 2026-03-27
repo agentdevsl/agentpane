@@ -81,6 +81,7 @@ export function SuggestionCard({
           type="button"
           onClick={() => setShowChanges((prev: boolean) => !prev)}
           className="text-xs font-medium text-accent hover:underline"
+          aria-expanded={showChanges}
         >
           {showChanges ? 'Hide changes' : 'Show changes'}
         </button>

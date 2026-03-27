@@ -1,20 +1,21 @@
 export function formatTokens(tokens: number | null): string {
-  if (tokens === null) return '\u2014';
+  if (tokens === null || !Number.isFinite(tokens) || tokens < 0) return '\u2014';
   if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}k`;
   return String(tokens);
 }
 
 export function formatCost(cost: number | null, precision = 2): string {
-  if (cost === null) return '\u2014';
+  if (cost === null || !Number.isFinite(cost) || cost < 0) return '\u2014';
   return `$${cost.toFixed(precision)}`;
 }
 
 export function formatDuration(ms: number | null): string {
-  if (ms === null) return '\u2014';
+  if (ms === null || !Number.isFinite(ms) || ms < 0) return '\u2014';
   if (ms < 1000) return `${ms}ms`;
-  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
-  const minutes = Math.floor(ms / 60_000);
-  const seconds = Math.round((ms % 60_000) / 1000);
+  const totalSeconds = Math.round(ms / 1000);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
   if (seconds === 0) return `${minutes}m`;
   return `${minutes}m ${seconds}s`;
 }
@@ -22,6 +23,7 @@ export function formatDuration(ms: number | null): string {
 export function formatRelativeDate(dateStr: string | null): string {
   if (!dateStr) return 'Never';
   const date = new Date(dateStr);
+  if (Number.isNaN(date.getTime())) return '\u2014';
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffMins = Math.floor(diffMs / 60_000);

@@ -22,7 +22,10 @@ export function SuggestionStatusFilter({
   counts,
 }: SuggestionStatusFilterProps): React.JSX.Element {
   return (
-    <div className="flex flex-wrap gap-2">
+    <fieldset
+      className="flex flex-wrap gap-2 border-0 p-0 m-0"
+      aria-label="Filter suggestions by status"
+    >
       {FILTER_OPTIONS.map(({ key, label }) => {
         const isActive = value === key;
         const count = counts[key];
@@ -31,6 +34,7 @@ export function SuggestionStatusFilter({
           <button
             key={key}
             type="button"
+            aria-pressed={isActive}
             onClick={() => onChange(key as SuggestionFilter)}
             className={cn(
               'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors',
@@ -51,6 +55,6 @@ export function SuggestionStatusFilter({
           </button>
         );
       })}
-    </div>
+    </fieldset>
   );
 }

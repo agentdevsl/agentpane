@@ -24,11 +24,17 @@ const TYPE_BADGE_STYLES: Record<string, string> = {
 function StatusIndicator({ status }: { status: DreamSession['status'] }): React.JSX.Element {
   switch (status) {
     case 'running':
-      return <CircleNotch size={16} className="animate-spin text-accent" />;
+      return <CircleNotch size={16} className="animate-spin text-accent" aria-label="Running" />;
     case 'completed':
-      return <CheckCircle size={16} weight="fill" className="text-success" />;
+      return (
+        <CheckCircle size={16} weight="fill" className="text-success" aria-label="Completed" />
+      );
     case 'error':
-      return <WarningCircle size={16} weight="fill" className="text-danger" />;
+      return <WarningCircle size={16} weight="fill" className="text-danger" aria-label="Error" />;
+    default: {
+      const _exhaustive: never = status;
+      return <span>{String(_exhaustive)}</span>;
+    }
   }
 }
 

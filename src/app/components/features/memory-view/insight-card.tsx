@@ -38,8 +38,11 @@ export function InsightCard({ insight, onDelete }: InsightCardProps): React.JSX.
           aria-label="Delete insight"
           onClick={async () => {
             setDeleting(true);
-            await onDelete(insight.id);
-            setDeleting(false);
+            try {
+              await onDelete(insight.id);
+            } finally {
+              setDeleting(false);
+            }
           }}
         >
           <Trash className="h-3.5 w-3.5" />

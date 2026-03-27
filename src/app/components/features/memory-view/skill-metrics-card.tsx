@@ -60,7 +60,14 @@ export function SkillMetricsCard({
       </div>
 
       <div className="mt-3 flex items-center gap-2">
-        <div className="flex-1 rounded-full bg-surface-muted h-2">
+        <div
+          className="flex-1 rounded-full bg-surface-muted h-2"
+          role="progressbar"
+          aria-valuenow={Math.round(successRate)}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label={`${Math.round(successRate)}% success rate`}
+        >
           <div
             className="rounded-full bg-success h-2 transition-all"
             style={{ width: `${successRate}%` }}

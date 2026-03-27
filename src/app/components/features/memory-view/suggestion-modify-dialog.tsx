@@ -4,6 +4,7 @@ import { Button } from '@/app/components/ui/button';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -30,11 +31,13 @@ export function SuggestionModifyDialog({
     if (!suggestion || !content.trim()) return;
 
     setIsSubmitting(true);
-    const success = await modifySuggestion(suggestion.id, content, notes || undefined);
-    setIsSubmitting(false);
-
-    if (success) {
-      onOpenChange(false);
+    try {
+      const success = await modifySuggestion(suggestion.id, content, notes || undefined);
+      if (success) {
+        onOpenChange(false);
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   }, [suggestion, content, notes, modifySuggestion, onOpenChange]);
 
@@ -43,7 +46,9 @@ export function SuggestionModifyDialog({
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Modify Suggestion</DialogTitle>
-          {suggestion && <p className="text-sm text-fg-muted">{suggestion.title}</p>}
+          <DialogDescription>
+            {suggestion ? suggestion.title : 'Edit the suggested content before applying.'}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="mt-4 flex flex-col gap-4">

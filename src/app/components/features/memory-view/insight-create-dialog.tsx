@@ -11,6 +11,7 @@ import {
 } from '@/app/components/ui/dialog';
 import { INPUT_CLASS } from './formatters';
 import { useMemory } from './memory-context';
+import type { Insight } from './types';
 
 interface InsightCreateDialogProps {
   open: boolean;
@@ -24,7 +25,7 @@ export function InsightCreateDialog({
   const { createInsight } = useMemory();
   const [content, setContent] = useState('');
   const [tagsInput, setTagsInput] = useState('');
-  const [source, setSource] = useState('manual');
+  const [source, setSource] = useState<Insight['source']>('manual');
   const [submitting, setSubmitting] = useState(false);
 
   function resetForm(): void {
@@ -38,17 +39,20 @@ export function InsightCreateDialog({
     if (content.trim().length === 0 || submitting) return;
 
     setSubmitting(true);
-    const tags = tagsInput
-      .split(',')
-      .map((t: string) => t.trim())
-      .filter(Boolean);
+    try {
+      const tags = tagsInput
+        .split(',')
+        .map((t: string) => t.trim())
+        .filter(Boolean);
 
-    const success = await createInsight({ content: content.trim(), source, tags });
-    setSubmitting(false);
+      const success = await createInsight({ content: content.trim(), source, tags });
 
-    if (success) {
-      resetForm();
-      onOpenChange(false);
+      if (success) {
+        resetForm();
+        onOpenChange(false);
+      }
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -109,7 +113,9 @@ export function InsightCreateDialog({
               id="insight-source"
               className={INPUT_CLASS}
               value={source}
-              onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSource(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                setSource(e.target.value as Insight['source'])
+              }
             >
               <option value="manual">Manual</option>
               <option value="agent_derived">Agent Derived</option>

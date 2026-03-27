@@ -41,7 +41,7 @@ interface MemoryContextValue {
   refreshInsights: () => Promise<void>;
   createInsight: (data: {
     content: string;
-    source?: string;
+    source?: Insight['source'];
     tags?: string[];
     metadata?: Record<string, unknown>;
   }) => Promise<boolean>;
@@ -131,7 +131,6 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [suggestionFilter, setSuggestionFilter] = useState<SuggestionFilter>('all');
   const dreamLoadedRef = useRef(false);
-  const dreamFilterInitialRef = useRef(false);
 
   // Track current codespace to guard against stale responses
   const currentCodespaceRef = useRef<string | null>(codespaceId);
@@ -143,70 +142,102 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
 
   const fetchHealth = useCallback(async (csId: string) => {
     setHealthLoading(true);
-    const result = await apiClient.memory.health();
-    if (currentCodespaceRef.current !== csId) return;
-    if (result.ok) {
-      setHealth(result.data);
-    } else {
-      toast.error(result.error?.message ?? 'Failed to check memory health');
+    try {
+      const result = await apiClient.memory.health();
+      if (currentCodespaceRef.current !== csId) return;
+      if (result.ok) {
+        setHealth(result.data);
+      } else {
+        toast.error(result.error?.message ?? 'Failed to check memory health');
+      }
+    } catch {
+      if (currentCodespaceRef.current === csId) {
+        toast.error('Failed to check memory health');
+      }
+    } finally {
+      if (currentCodespaceRef.current === csId) setHealthLoading(false);
     }
-    setHealthLoading(false);
   }, []);
 
   const fetchInsights = useCallback(async (csId: string) => {
     setInsightsLoading(true);
-    const result = await apiClient.memory.getInsights(csId);
-    if (currentCodespaceRef.current !== csId) return;
-    if (result.ok) {
-      setInsights(result.data);
-    } else {
-      toast.error(result.error?.message ?? 'Failed to load insights');
+    try {
+      const result = await apiClient.memory.getInsights(csId);
+      if (currentCodespaceRef.current !== csId) return;
+      if (result.ok) {
+        setInsights(result.data);
+      } else {
+        toast.error(result.error?.message ?? 'Failed to load insights');
+      }
+    } catch {
+      if (currentCodespaceRef.current === csId) {
+        toast.error('Failed to load insights');
+      }
+    } finally {
+      if (currentCodespaceRef.current === csId) setInsightsLoading(false);
     }
-    setInsightsLoading(false);
   }, []);
 
   const fetchSkillMetrics = useCallback(async (csId: string) => {
     setSkillMetricsLoading(true);
-    const result = await apiClient.memory.getSkillMetrics(csId);
-    if (currentCodespaceRef.current !== csId) return;
-    if (result.ok) {
-      setSkillMetrics(result.data);
-    } else {
-      toast.error(result.error?.message ?? 'Failed to load skill metrics');
+    try {
+      const result = await apiClient.memory.getSkillMetrics(csId);
+      if (currentCodespaceRef.current !== csId) return;
+      if (result.ok) {
+        setSkillMetrics(result.data);
+      } else {
+        toast.error(result.error?.message ?? 'Failed to load skill metrics');
+      }
+    } catch {
+      if (currentCodespaceRef.current === csId) {
+        toast.error('Failed to load skill metrics');
+      }
+    } finally {
+      if (currentCodespaceRef.current === csId) setSkillMetricsLoading(false);
     }
-    setSkillMetricsLoading(false);
   }, []);
 
   const fetchDreamSessions = useCallback(async (csId: string) => {
     setDreamSessionsLoading(true);
-    const result = await apiClient.memory.getDreamSessions(csId);
-    if (currentCodespaceRef.current !== csId) return;
-    if (result.ok) {
-      const data = result.data;
-      setDreamSessions(data);
-      const running = data.some((s) => s.status === 'running');
-      setIsDreamRunning(running);
-    } else {
-      toast.error(result.error?.message ?? 'Failed to load dream sessions');
+    try {
+      const result = await apiClient.memory.getDreamSessions(csId);
+      if (currentCodespaceRef.current !== csId) return;
+      if (result.ok) {
+        const data = result.data;
+        setDreamSessions(data);
+        const running = data.some((s) => s.status === 'running');
+        setIsDreamRunning(running);
+      } else {
+        toast.error(result.error?.message ?? 'Failed to load dream sessions');
+      }
+    } catch {
+      if (currentCodespaceRef.current === csId) {
+        toast.error('Failed to load dream sessions');
+      }
+    } finally {
+      if (currentCodespaceRef.current === csId) setDreamSessionsLoading(false);
     }
-    setDreamSessionsLoading(false);
   }, []);
 
-  const fetchSuggestions = useCallback(
-    async (csId: string) => {
-      setSuggestionsLoading(true);
-      const params = suggestionFilter === 'all' ? undefined : { status: suggestionFilter };
-      const result = await apiClient.memory.getSuggestions(csId, params);
+  const fetchSuggestions = useCallback(async (csId: string) => {
+    setSuggestionsLoading(true);
+    try {
+      // Always fetch all suggestions — client-side filtering preserves accurate counts
+      const result = await apiClient.memory.getSuggestions(csId);
       if (currentCodespaceRef.current !== csId) return;
       if (result.ok) {
         setSuggestions(result.data);
       } else {
         toast.error(result.error?.message ?? 'Failed to load suggestions');
       }
-      setSuggestionsLoading(false);
-    },
-    [suggestionFilter]
-  );
+    } catch {
+      if (currentCodespaceRef.current === csId) {
+        toast.error('Failed to load suggestions');
+      }
+    } finally {
+      if (currentCodespaceRef.current === csId) setSuggestionsLoading(false);
+    }
+  }, []);
 
   // ---------------------------------------------------------------------------
   // Fetch health + insights when codespaceId changes
@@ -228,7 +259,6 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
     skillsLoadedRef.current = false;
     skillExecutionsCacheRef.current = new Set();
     dreamLoadedRef.current = false;
-    dreamFilterInitialRef.current = false;
 
     if (!codespaceId) return;
 
@@ -258,19 +288,6 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
   }, [activeTab, codespaceId, fetchDreamSessions, fetchSuggestions]);
 
   // ---------------------------------------------------------------------------
-  // Re-fetch suggestions when filter changes (skip initial load)
-  // ---------------------------------------------------------------------------
-
-  useWatchEffect(() => {
-    if (!dreamLoadedRef.current || !codespaceId) return;
-    if (!dreamFilterInitialRef.current) {
-      dreamFilterInitialRef.current = true;
-      return;
-    }
-    void fetchSuggestions(codespaceId);
-  }, [suggestionFilter, codespaceId, fetchSuggestions]);
-
-  // ---------------------------------------------------------------------------
   // Poll dream status while running (every 5s)
   // ---------------------------------------------------------------------------
 
@@ -279,17 +296,20 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
 
     const csId = codespaceId;
     const interval = setInterval(async () => {
-      const result = await apiClient.memory.getDreamSessions(csId);
-      if (currentCodespaceRef.current !== csId) return;
-      if (result.ok) {
-        const data = result.data;
-        setDreamSessions(data);
-        const stillRunning = data.some((s) => s.status === 'running');
-        if (!stillRunning) {
-          setIsDreamRunning(false);
-          // Refresh suggestions since dream may have generated new ones
-          void fetchSuggestions(csId);
+      try {
+        const result = await apiClient.memory.getDreamSessions(csId);
+        if (currentCodespaceRef.current !== csId) return;
+        if (result.ok) {
+          const data = result.data;
+          setDreamSessions(data);
+          const stillRunning = data.some((s) => s.status === 'running');
+          if (!stillRunning) {
+            setIsDreamRunning(false);
+            void fetchSuggestions(csId);
+          }
         }
+      } catch {
+        // Transient error — polling will retry on next interval
       }
     }, 5000);
 
@@ -351,7 +371,7 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
   const createInsight = useCallback(
     async (data: {
       content: string;
-      source?: string;
+      source?: Insight['source'];
       tags?: string[];
       metadata?: Record<string, unknown>;
     }): Promise<boolean> => {
@@ -393,7 +413,9 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
       if (skillExecutionsCacheRef.current.has(skillId)) return;
       skillExecutionsCacheRef.current.add(skillId);
 
-      const result = await apiClient.memory.getSkillExecutions(codespaceId, skillId);
+      const csId = codespaceId;
+      const result = await apiClient.memory.getSkillExecutions(csId, skillId);
+      if (currentCodespaceRef.current !== csId) return;
       if (result.ok) {
         setSkillExecutions((prev: Map<string, Array<SkillExecution>>) => {
           const next = new Map(prev);
@@ -420,15 +442,21 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
     if (!codespaceId) return false;
 
     setIsDreamRunning(true);
-    const result = await apiClient.memory.triggerDream(codespaceId);
-    if (result.ok) {
-      toast.success('Dream session started');
-      await fetchDreamSessions(codespaceId);
-      return true;
+    try {
+      const result = await apiClient.memory.triggerDream(codespaceId);
+      if (result.ok) {
+        toast.success('Dream session started');
+        await fetchDreamSessions(codespaceId);
+        return true;
+      }
+      setIsDreamRunning(false);
+      toast.error(result.error?.message ?? 'Failed to start dream session');
+      return false;
+    } catch {
+      setIsDreamRunning(false);
+      toast.error('Failed to start dream session');
+      return false;
     }
-    setIsDreamRunning(false);
-    toast.error(result.error?.message ?? 'Failed to start dream session');
-    return false;
   }, [codespaceId, fetchDreamSessions]);
 
   const refreshSuggestions = useCallback(async () => {
