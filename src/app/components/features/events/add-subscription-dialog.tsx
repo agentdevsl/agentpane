@@ -449,7 +449,9 @@ export function AddSubscriptionDialog({
           </div>
 
           {error && (
-            <div className="rounded bg-danger-muted px-3 py-2 text-xs text-danger">{error}</div>
+            <div role="alert" className="rounded bg-danger-muted px-3 py-2 text-xs text-danger">
+              {error}
+            </div>
           )}
 
           <DialogFooter>

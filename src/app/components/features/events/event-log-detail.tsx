@@ -27,7 +27,7 @@ export function EventLogDetail({ event, sourceName }: EventLogDetailProps): Reac
 
       {/* Error banner */}
       {event.error && (
-        <div className="rounded-md bg-danger-muted px-3 py-2 text-xs text-danger">
+        <div role="alert" className="rounded-md bg-danger-muted px-3 py-2 text-xs text-danger">
           {event.error}
         </div>
       )}
@@ -58,7 +58,7 @@ export function EventLogDetail({ event, sourceName }: EventLogDetailProps): Reac
       {(event.matchedSubscriptions?.length ?? 0) > 0 && (
         <div className="space-y-1">
           <span className="text-xs font-medium text-fg-muted">Matched Subscriptions</span>
-          {event.matchedSubscriptions.map((ms) => (
+          {event.matchedSubscriptions?.map((ms) => (
             <div
               key={ms.subscriptionId}
               className="flex items-center gap-2 rounded bg-surface-subtle px-2 py-1 text-xs"

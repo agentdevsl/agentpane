@@ -36,6 +36,7 @@ export function useEventStream(options: UseEventStreamOptions = {}): { connected
   onEventRef.current = onEvent;
 
   const connect = useCallback(() => {
+    retryCountRef.current = 0;
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;

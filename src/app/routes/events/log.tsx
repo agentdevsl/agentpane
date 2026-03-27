@@ -87,7 +87,7 @@ function EventLogPage(): React.JSX.Element {
     setNextCursor(null);
     setIsLoading(true);
     fetchEvents().finally(() => setIsLoading(false));
-  }, [sourceFilter, statusFilter]);
+  }, [sourceFilter, statusFilter, fetchEvents]);
 
   const handleEventTypeSearch = useCallback(() => {
     if (!initialLoadDone.current) return;
@@ -109,6 +109,11 @@ function EventLogPage(): React.JSX.Element {
       },
       [fetchEvents]
     ),
+  });
+
+  // Clean up debounce timer on unmount
+  useMountEffect(() => {
+    return () => clearTimeout(sseDebounceRef.current);
   });
 
   const selectedEvent = events.find((e) => e.id === selectedId) ?? null;

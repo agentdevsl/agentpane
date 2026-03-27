@@ -152,6 +152,11 @@ function EventSourcesPage(): React.JSX.Element {
     ),
   });
 
+  // Clean up debounce timer on unmount
+  useMountEffect(() => {
+    return () => clearTimeout(sseDebounceRef.current);
+  });
+
   if (isLoading) {
     return (
       <div className="flex flex-1 items-center justify-center">
