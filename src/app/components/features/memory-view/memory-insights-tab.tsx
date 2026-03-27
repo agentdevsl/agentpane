@@ -2,6 +2,7 @@ import { Lightbulb, MagnifyingGlass, Plus } from '@phosphor-icons/react';
 import type React from 'react';
 import { useState } from 'react';
 import { Button } from '@/app/components/ui/button';
+import { INPUT_CLASS } from './formatters';
 import { InsightCard } from './insight-card';
 import { InsightCreateDialog } from './insight-create-dialog';
 import { useMemory } from './memory-context';
@@ -54,9 +55,6 @@ function toInsightCardProps(item: Insight | SearchResult): {
   };
 }
 
-const INPUT_CLASS =
-  'rounded-md border border-border bg-surface-subtle px-3 text-sm text-fg h-9 focus:border-accent focus:ring-2 focus:ring-accent-muted focus:outline-none';
-
 export function MemoryInsightsTab(): React.JSX.Element {
   const {
     insights,
@@ -83,6 +81,7 @@ export function MemoryInsightsTab(): React.JSX.Element {
             type="text"
             className={`${INPUT_CLASS} w-full pl-9`}
             placeholder="Search insights..."
+            aria-label="Search insights"
             value={searchQuery}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
           />

@@ -19,6 +19,7 @@ interface InsightCardProps {
 
 export function InsightCard({ insight, onDelete }: InsightCardProps): React.JSX.Element {
   const [expanded, setExpanded] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   return (
     <div className="relative rounded-lg border border-border bg-surface p-4">
@@ -33,7 +34,13 @@ export function InsightCard({ insight, onDelete }: InsightCardProps): React.JSX.
           variant="ghost"
           size="sm"
           className="h-7 w-7 p-0 text-fg-muted hover:text-danger"
-          onClick={() => onDelete(insight.id)}
+          disabled={deleting}
+          aria-label="Delete insight"
+          onClick={async () => {
+            setDeleting(true);
+            await onDelete(insight.id);
+            setDeleting(false);
+          }}
         >
           <Trash className="h-3.5 w-3.5" />
         </Button>
@@ -46,6 +53,7 @@ export function InsightCard({ insight, onDelete }: InsightCardProps): React.JSX.
           !expanded && 'line-clamp-4'
         )}
         onClick={() => setExpanded((prev: boolean) => !prev)}
+        aria-expanded={expanded}
       >
         {insight.content}
       </button>

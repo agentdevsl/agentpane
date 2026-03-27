@@ -1,8 +1,41 @@
 import { Brain, ChartBar, Lightbulb, SunHorizon } from '@phosphor-icons/react';
-import React, { Suspense } from 'react';
+import React, { Component, type ErrorInfo, type ReactNode, Suspense } from 'react';
+import { Button } from '@/app/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/app/components/ui/tabs';
 import { MemoryProvider, useMemory } from './memory-context';
 import type { MemoryTab } from './types';
+
+class MemoryTabErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('[MemoryView] Tab render error:', error, info.componentStack);
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex flex-col items-center justify-center py-12 text-center">
+          <p className="text-sm text-danger font-medium">Failed to load tab</p>
+          <p className="mt-1 text-xs text-fg-muted">{this.state.error.message}</p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-3"
+            onClick={() => this.setState({ error: null })}
+          >
+            Retry
+          </Button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const MemoryOverview = React.lazy(() =>
   import('./memory-overview').then((m) => ({ default: m.MemoryOverview }))
@@ -69,27 +102,35 @@ function MemoryViewInner(): React.JSX.Element {
         </TabsList>
 
         <TabsContent value="overview">
-          <Suspense fallback={TAB_LOADING_FALLBACK}>
-            <MemoryOverview />
-          </Suspense>
+          <MemoryTabErrorBoundary>
+            <Suspense fallback={TAB_LOADING_FALLBACK}>
+              <MemoryOverview />
+            </Suspense>
+          </MemoryTabErrorBoundary>
         </TabsContent>
 
         <TabsContent value="insights">
-          <Suspense fallback={TAB_LOADING_FALLBACK}>
-            <MemoryInsightsTab />
-          </Suspense>
+          <MemoryTabErrorBoundary>
+            <Suspense fallback={TAB_LOADING_FALLBACK}>
+              <MemoryInsightsTab />
+            </Suspense>
+          </MemoryTabErrorBoundary>
         </TabsContent>
 
         <TabsContent value="skills">
-          <Suspense fallback={TAB_LOADING_FALLBACK}>
-            <MemorySkillsTab />
-          </Suspense>
+          <MemoryTabErrorBoundary>
+            <Suspense fallback={TAB_LOADING_FALLBACK}>
+              <MemorySkillsTab />
+            </Suspense>
+          </MemoryTabErrorBoundary>
         </TabsContent>
 
         <TabsContent value="dream">
-          <Suspense fallback={TAB_LOADING_FALLBACK}>
-            <MemoryDreamTab />
-          </Suspense>
+          <MemoryTabErrorBoundary>
+            <Suspense fallback={TAB_LOADING_FALLBACK}>
+              <MemoryDreamTab />
+            </Suspense>
+          </MemoryTabErrorBoundary>
         </TabsContent>
       </Tabs>
     </div>

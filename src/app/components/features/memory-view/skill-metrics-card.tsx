@@ -47,6 +47,7 @@ export function SkillMetricsCard({
       }}
       role="button"
       tabIndex={0}
+      aria-expanded={expanded}
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">

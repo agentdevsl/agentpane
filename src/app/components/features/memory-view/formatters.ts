@@ -43,3 +43,6 @@ export function formatTimestamp(iso: string): string {
     minute: '2-digit',
   });
 }
+
+export const INPUT_CLASS =
+  'rounded-md border border-border bg-surface-subtle px-3 text-sm text-fg h-9 focus:border-accent focus:ring-2 focus:ring-accent-muted focus:outline-none';

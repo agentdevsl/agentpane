@@ -9,15 +9,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/app/components/ui/dialog';
+import { INPUT_CLASS } from './formatters';
 import { useMemory } from './memory-context';
 
 interface InsightCreateDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
-
-const INPUT_CLASS =
-  'rounded-md border border-border bg-surface-subtle px-3 text-sm text-fg h-9 focus:border-accent focus:ring-2 focus:ring-accent-muted focus:outline-none';
 
 export function InsightCreateDialog({
   open,
@@ -55,7 +53,13 @@ export function InsightCreateDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(isOpen: boolean) => {
+        if (!isOpen) resetForm();
+        onOpenChange(isOpen);
+      }}
+    >
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Create Insight</DialogTitle>

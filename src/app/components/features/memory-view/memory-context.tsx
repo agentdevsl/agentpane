@@ -141,9 +141,10 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
   // Data fetchers (with error handling)
   // ---------------------------------------------------------------------------
 
-  const fetchHealth = useCallback(async () => {
+  const fetchHealth = useCallback(async (csId: string) => {
     setHealthLoading(true);
     const result = await apiClient.memory.health();
+    if (currentCodespaceRef.current !== csId) return;
     if (result.ok) {
       setHealth(result.data);
     } else {
@@ -231,7 +232,7 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
 
     if (!codespaceId) return;
 
-    void fetchHealth();
+    void fetchHealth(codespaceId);
     void fetchInsights(codespaceId);
   }, [codespaceId, fetchHealth, fetchInsights]);
 
@@ -268,6 +269,32 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
     }
     void fetchSuggestions(codespaceId);
   }, [suggestionFilter, codespaceId, fetchSuggestions]);
+
+  // ---------------------------------------------------------------------------
+  // Poll dream status while running (every 5s)
+  // ---------------------------------------------------------------------------
+
+  useWatchEffect(() => {
+    if (!isDreamRunning || !codespaceId) return;
+
+    const csId = codespaceId;
+    const interval = setInterval(async () => {
+      const result = await apiClient.memory.getDreamSessions(csId);
+      if (currentCodespaceRef.current !== csId) return;
+      if (result.ok) {
+        const data = result.data;
+        setDreamSessions(data);
+        const stillRunning = data.some((s) => s.status === 'running');
+        if (!stillRunning) {
+          setIsDreamRunning(false);
+          // Refresh suggestions since dream may have generated new ones
+          void fetchSuggestions(csId);
+        }
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [isDreamRunning, codespaceId, fetchSuggestions]);
 
   // ---------------------------------------------------------------------------
   // Debounced search (with race condition protection)
