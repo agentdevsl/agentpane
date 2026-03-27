@@ -12,7 +12,7 @@
  */
 
 import { createId } from '@paralleldrive/cuid2';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, or } from 'drizzle-orm';
 import { agentPrompt } from '../../lib/agents/agent-sdk-utils.js';
 import type { MemoryError } from '../../lib/errors/memory-errors.js';
 import { MemoryErrors } from '../../lib/errors/memory-errors.js';
@@ -254,6 +254,34 @@ export class DreamService {
   }
 
   /**
+   * Load skill content from cached templates for a given codespace.
+   */
+  private async loadSkillContent(codespaceId: string, skillId: string): Promise<string> {
+    try {
+      const { templates } = await import('../../db/schema/index.js');
+
+      const allTemplates = await this.db.query.templates.findMany({
+        where: and(
+          or(eq(templates.codespaceId, codespaceId), eq(templates.scope, 'org')),
+          eq(templates.status, 'active')
+        ),
+      });
+
+      for (const tpl of allTemplates) {
+        const skills = (tpl.cachedSkills ?? []) as Array<{ id: string; content: string }>;
+        const match = skills.find((s) => s.id === skillId);
+        if (match?.content) return match.content;
+      }
+    } catch (loadError) {
+      log.warn('Failed to load skill content', {
+        data: { codespaceId, skillId },
+        error: loadError instanceof Error ? loadError : new Error(String(loadError)),
+      });
+    }
+    return '[Skill content not available]';
+  }
+
+  /**
    * Analyze a single skill and generate improvement suggestions.
    */
   private async analyzeSkill(
@@ -300,9 +328,11 @@ export class DreamService {
         errorPatterns.map((e) => `- "${e.message}" (occurred ${e.count} times)`).join('\n') ||
         'No recurring error patterns';
 
+      const skillContent = await this.loadSkillContent(codespaceId, skillId);
+
       const prompt = DREAM_ANALYZE_SKILL_PROMPT.replace('{{skillId}}', skillId)
         .replace('{{skillName}}', skillName)
-        .replace('{{skillContent}}', '[Skill content not yet loaded from filesystem]')
+        .replace('{{skillContent}}', skillContent)
         .replace('{{totalRuns}}', String(metrics.totalRuns))
         .replace(
           '{{successRate}}',

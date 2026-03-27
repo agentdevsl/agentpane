@@ -39,7 +39,10 @@ const modifySuggestionSchema = z.object({
 });
 
 /** Parse and clamp pagination query params. */
-function parsePagination(c: { req: { query: (k: string) => string | undefined } }, defaults = { page: 1, size: 20 }) {
+function parsePagination(
+  c: { req: { query: (k: string) => string | undefined } },
+  defaults = { page: 1, size: 20 }
+) {
   const rawPage = Number.parseInt(c.req.query('page') ?? String(defaults.page), 10);
   const rawSize = Number.parseInt(c.req.query('size') ?? String(defaults.size), 10);
   return {

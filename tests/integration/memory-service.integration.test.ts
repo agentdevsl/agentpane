@@ -168,7 +168,6 @@ describe('Memory Service Integration', () => {
     let store: MemoryStoreService;
 
     beforeEach(() => {
-      // biome-ignore lint: test mock
       store = new MemoryStoreService(db as any);
     });
 
@@ -363,7 +362,7 @@ describe('Memory Service Integration', () => {
 
     beforeEach(async () => {
       const settings = createMockSettings();
-      // biome-ignore lint: test mock
+
       service = new MemoryService(settings, db as any);
       await service.initialize();
     });
@@ -476,7 +475,6 @@ describe('Memory Service Integration', () => {
     let tracking: SkillTrackingService;
 
     beforeEach(() => {
-      // biome-ignore lint: test mock
       tracking = new SkillTrackingService(db as any);
     });
 
