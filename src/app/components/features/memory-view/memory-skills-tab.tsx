@@ -1,10 +1,10 @@
-import { CaretRight, Cube, Lightning } from '@phosphor-icons/react';
+import { ArrowCounterClockwise, CaretRight, Cube, Gear, Lightning } from '@phosphor-icons/react';
 import type React from 'react';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils/cn';
-import { formatCost, formatDuration, formatRelativeDate } from './formatters';
+import { formatCost, formatDuration, formatRelativeDate, INPUT_CLASS } from './formatters';
 import { useMemory } from './memory-context';
-import type { SkillMetrics, SyncedSkill } from './types';
+import type { SkillDreamOverride, SkillMetrics, SyncedSkill } from './types';
 
 // =============================================================================
 // Skeleton
@@ -50,6 +50,155 @@ const SOURCE_STYLES: Record<string, { bg: string; text: string; label: string }>
 };
 
 // =============================================================================
+// Per-skill dream configuration (inline in expanded row)
+// =============================================================================
+
+const MODEL_OPTIONS = [
+  { value: '', label: 'Global default (Haiku 4.5)' },
+  { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
+  { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
+  { value: 'claude-opus-4-6', label: 'Opus 4.6' },
+];
+
+function SkillDreamConfig({
+  skillId,
+  override,
+  onSave,
+  onReset,
+}: {
+  skillId: string;
+  override: SkillDreamOverride | undefined;
+  onSave: (skillId: string, override: SkillDreamOverride) => void;
+  onReset: (skillId: string) => void;
+}): React.JSX.Element {
+  const hasOverride =
+    override !== undefined &&
+    (override.enabled !== undefined ||
+      override.model !== undefined ||
+      override.minRuns !== undefined);
+
+  const enabled = override?.enabled ?? true;
+  const model = override?.model ?? '';
+  const minRuns = override?.minRuns;
+
+  const handleEnabledToggle = useCallback(() => {
+    onSave(skillId, { ...override, enabled: !enabled });
+  }, [skillId, override, enabled, onSave]);
+
+  const handleModelChange = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const value = e.target.value;
+      const next = { ...override, model: value || undefined };
+      // Clean up undefined keys
+      if (!next.model) delete next.model;
+      onSave(skillId, next);
+    },
+    [skillId, override, onSave]
+  );
+
+  const handleMinRunsBlur = useCallback(
+    (e: React.FocusEvent<HTMLInputElement>) => {
+      const raw = e.target.value.trim();
+      const num = raw ? Number.parseInt(raw, 10) : undefined;
+      const next = { ...override, minRuns: num && num > 0 ? num : undefined };
+      if (!next.minRuns) delete next.minRuns;
+      onSave(skillId, next);
+    },
+    [skillId, override, onSave]
+  );
+
+  return (
+    <div className="mt-4 border-t border-border/50 pt-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <Gear size={12} className="text-fg-muted" />
+          <span className="text-xs font-medium text-fg">Dream Analysis</span>
+        </div>
+        {hasOverride && (
+          <button
+            type="button"
+            onClick={() => onReset(skillId)}
+            className="flex items-center gap-1 text-[11px] text-accent hover:underline"
+          >
+            <ArrowCounterClockwise size={10} />
+            Reset to defaults
+          </button>
+        )}
+      </div>
+
+      <div className="mt-3 flex flex-col gap-3">
+        {/* Enabled toggle */}
+        <label className="flex items-center justify-between">
+          <div>
+            <div className="text-xs font-medium text-fg">Include in dream cycles</div>
+            <div className="text-[11px] text-fg-subtle">
+              {override?.enabled !== undefined ? 'Custom override' : 'Using global setting'}
+            </div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={enabled}
+            onClick={handleEnabledToggle}
+            className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition ${
+              enabled ? 'bg-accent' : 'bg-surface-muted'
+            }`}
+          >
+            <span
+              className={`inline-block h-4 w-4 translate-y-0.5 rounded-full bg-white shadow transition ${
+                enabled ? 'translate-x-4' : 'translate-x-0.5'
+              }`}
+            />
+          </button>
+        </label>
+
+        {/* Model selector */}
+        <div className="flex flex-col gap-1">
+          <label htmlFor={`dream-model-${skillId}`} className="text-xs font-medium text-fg">
+            Model
+          </label>
+          <select
+            id={`dream-model-${skillId}`}
+            className={INPUT_CLASS}
+            value={model}
+            onChange={handleModelChange}
+          >
+            {MODEL_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <span className="text-[11px] text-fg-subtle">
+            {override?.model ? 'Custom override' : 'Using global default'}
+          </span>
+        </div>
+
+        {/* Min runs */}
+        <div className="flex flex-col gap-1">
+          <label htmlFor={`dream-min-runs-${skillId}`} className="text-xs font-medium text-fg">
+            Min runs for analysis
+          </label>
+          <input
+            id={`dream-min-runs-${skillId}`}
+            type="number"
+            min="1"
+            max="100"
+            className={`${INPUT_CLASS} w-32`}
+            defaultValue={minRuns ?? ''}
+            placeholder="3"
+            onBlur={handleMinRunsBlur}
+          />
+          <span className="text-[11px] text-fg-subtle">
+            {override?.minRuns !== undefined ? 'Custom override' : 'Using global default'}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
 // Synced skill row (compact, informational)
 // =============================================================================
 
@@ -58,11 +207,17 @@ function SyncedSkillRow({
   metrics,
   expanded,
   onToggle,
+  dreamOverride,
+  onDreamSave,
+  onDreamReset,
 }: {
   skill: SyncedSkill;
   metrics: SkillMetrics | null;
   expanded: boolean;
   onToggle: () => void;
+  dreamOverride: SkillDreamOverride | undefined;
+  onDreamSave: (skillId: string, override: SkillDreamOverride) => void;
+  onDreamReset: (skillId: string) => void;
 }): React.JSX.Element {
   const source = SOURCE_STYLES[skill.sourceType] ?? {
     bg: 'bg-surface-muted',
@@ -75,25 +230,21 @@ function SyncedSkillRow({
     <div
       className={cn(
         'border-b border-border last:border-b-0 transition',
-        hasData && 'cursor-pointer hover:bg-surface-subtle/50'
+        'cursor-pointer hover:bg-surface-subtle/50'
       )}
     >
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: role is conditionally set based on hasData */}
+      {/* biome-ignore lint/a11y/useSemanticElements: div wraps nested interactive elements (toggle, select, input) that cannot be inside a button */}
       <div
         className="flex items-center gap-3 px-4 py-3"
-        onClick={hasData ? onToggle : undefined}
-        onKeyDown={
-          hasData
-            ? (e: React.KeyboardEvent) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  onToggle();
-                }
-              }
-            : undefined
-        }
-        role={hasData ? 'button' : undefined}
-        tabIndex={hasData ? 0 : undefined}
+        onClick={onToggle}
+        onKeyDown={(e: React.KeyboardEvent) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onToggle();
+          }
+        }}
+        role="button"
+        tabIndex={0}
       >
         {/* Icon */}
         <div
@@ -152,50 +303,69 @@ function SyncedSkillRow({
             />
           </div>
         ) : (
-          <span className="flex-shrink-0 text-[11px] text-fg-subtle">No runs</span>
+          <div className="flex flex-shrink-0 items-center gap-2">
+            <span className="text-[11px] text-fg-subtle">No runs</span>
+            <CaretRight
+              size={14}
+              className={cn('text-fg-subtle transition', expanded && 'rotate-90')}
+            />
+          </div>
         )}
       </div>
 
-      {/* Expanded metrics */}
-      {expanded && hasData && (
-        // biome-ignore lint/a11y/noStaticElementInteractions: stops click from toggling parent when interacting with timeline
+      {/* Expanded content */}
+      {expanded && (
+        // biome-ignore lint/a11y/noStaticElementInteractions: stops click from toggling parent when interacting with controls
         <div
           className="border-t border-border bg-surface-subtle/30 px-4 py-3"
           onClick={(e: React.MouseEvent) => e.stopPropagation()}
           onKeyDown={(e: React.KeyboardEvent) => e.stopPropagation()}
         >
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <div>
-              <div className="text-[11px] text-fg-subtle">Total Runs</div>
-              <div className="text-sm font-medium tabular-nums text-fg">{metrics.totalRuns}</div>
-            </div>
-            <div>
-              <div className="text-[11px] text-fg-subtle">Success Rate</div>
-              <div className="flex items-center gap-2">
-                <div className="h-1.5 flex-1 rounded-full bg-surface-muted">
-                  <div
-                    className="h-1.5 rounded-full bg-success transition-all"
-                    style={{ width: `${(metrics.successRate ?? 0) * 100}%` }}
-                  />
+          {/* Metrics grid (only when data exists) */}
+          {hasData ? (
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <div>
+                <div className="text-[11px] text-fg-subtle">Total Runs</div>
+                <div className="text-sm font-medium tabular-nums text-fg">{metrics.totalRuns}</div>
+              </div>
+              <div>
+                <div className="text-[11px] text-fg-subtle">Success Rate</div>
+                <div className="flex items-center gap-2">
+                  <div className="h-1.5 flex-1 rounded-full bg-surface-muted">
+                    <div
+                      className="h-1.5 rounded-full bg-success transition-all"
+                      style={{ width: `${(metrics.successRate ?? 0) * 100}%` }}
+                    />
+                  </div>
+                  <span className="text-sm font-medium tabular-nums text-fg">
+                    {Math.round((metrics.successRate ?? 0) * 100)}%
+                  </span>
                 </div>
-                <span className="text-sm font-medium tabular-nums text-fg">
-                  {Math.round((metrics.successRate ?? 0) * 100)}%
-                </span>
+              </div>
+              <div>
+                <div className="text-[11px] text-fg-subtle">Avg Cost</div>
+                <div className="text-sm font-medium tabular-nums text-fg">
+                  {formatCost(metrics.avgCostUsd)}
+                </div>
+              </div>
+              <div>
+                <div className="text-[11px] text-fg-subtle">Avg Duration</div>
+                <div className="text-sm font-medium tabular-nums text-fg">
+                  {formatDuration(metrics.avgDurationMs)}
+                </div>
               </div>
             </div>
-            <div>
-              <div className="text-[11px] text-fg-subtle">Avg Cost</div>
-              <div className="text-sm font-medium tabular-nums text-fg">
-                {formatCost(metrics.avgCostUsd)}
-              </div>
-            </div>
-            <div>
-              <div className="text-[11px] text-fg-subtle">Avg Duration</div>
-              <div className="text-sm font-medium tabular-nums text-fg">
-                {formatDuration(metrics.avgDurationMs)}
-              </div>
-            </div>
-          </div>
+          ) : (
+            <p className="text-xs text-fg-subtle">No execution data yet</p>
+          )}
+
+          {/* Dream analysis config */}
+          <SkillDreamConfig
+            skillId={skill.id}
+            override={dreamOverride}
+            onSave={onDreamSave}
+            onReset={onDreamReset}
+          />
         </div>
       )}
     </div>
@@ -250,7 +420,23 @@ export function MemorySkillsTab(): React.JSX.Element {
     skillMetricsLoading,
     expandedSkillId,
     setExpandedSkillId,
+    dreamSkillOverrides,
+    setDreamSkillOverride,
   } = useMemory();
+
+  const handleDreamSave = useCallback(
+    (skillId: string, override: SkillDreamOverride) => {
+      void setDreamSkillOverride(skillId, override);
+    },
+    [setDreamSkillOverride]
+  );
+
+  const handleDreamReset = useCallback(
+    (skillId: string) => {
+      void setDreamSkillOverride(skillId, null);
+    },
+    [setDreamSkillOverride]
+  );
 
   const [showTrackedOnly, setShowTrackedOnly] = useState(false);
 
@@ -367,6 +553,9 @@ export function MemorySkillsTab(): React.JSX.Element {
             metrics={metrics}
             expanded={expandedSkillId === skill.id}
             onToggle={() => setExpandedSkillId(expandedSkillId === skill.id ? null : skill.id)}
+            dreamOverride={dreamSkillOverrides[skill.id]}
+            onDreamSave={handleDreamSave}
+            onDreamReset={handleDreamReset}
           />
         ))}
       </div>

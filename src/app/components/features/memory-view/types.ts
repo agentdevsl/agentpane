@@ -19,6 +19,12 @@ export interface SyncedSkill {
   sourceName: string;
 }
 
+export interface SkillDreamOverride {
+  enabled?: boolean;
+  model?: string;
+  minRuns?: number;
+}
+
 export type MemoryTab = 'overview' | 'insights' | 'skills' | 'dream';
 
 export type SuggestionFilter = SkillSuggestion['status'] | 'all';

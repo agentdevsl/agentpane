@@ -1614,5 +1614,19 @@ export const apiClient = {
         method: 'PATCH',
         body: { modifiedContent, userNotes },
       }),
+
+    getDreamSkillOverrides: () =>
+      apiServerFetch<Record<string, { enabled?: boolean; model?: string; minRuns?: number }>>(
+        '/api/memory/dream-config/skills'
+      ),
+
+    setDreamSkillOverride: (
+      skillId: string,
+      override: { enabled?: boolean; model?: string; minRuns?: number } | null
+    ) =>
+      apiServerFetch<void>(`/api/memory/dream-config/skills/${encodeURIComponent(skillId)}`, {
+        method: 'PUT',
+        body: override ?? {},
+      }),
   },
 };

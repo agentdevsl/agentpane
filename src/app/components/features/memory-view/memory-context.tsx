@@ -9,6 +9,7 @@ import type {
   Insight,
   MemoryTab,
   SearchResult,
+  SkillDreamOverride,
   SkillExecution,
   SkillMetrics,
   SkillSuggestion,
@@ -58,6 +59,12 @@ interface MemoryContextValue {
   skillExecutions: Map<string, Array<SkillExecution>>;
   loadExecutions: (skillId: string) => Promise<void>;
   refreshSkillMetrics: () => Promise<void>;
+
+  // Dream skill overrides
+  dreamSkillOverrides: Record<string, SkillDreamOverride>;
+  dreamSkillOverridesLoading: boolean;
+  fetchDreamSkillOverrides: () => Promise<void>;
+  setDreamSkillOverride: (skillId: string, override: SkillDreamOverride | null) => Promise<boolean>;
 
   // Dream
   dreamSessions: Array<DreamSession>;
@@ -152,6 +159,13 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
   );
   const skillsLoadedRef = useRef(false);
   const skillExecutionsCacheRef = useRef<Set<string>>(new Set());
+
+  // Dream skill overrides
+  const [dreamSkillOverrides, setDreamSkillOverrides] = useState<
+    Record<string, SkillDreamOverride>
+  >({});
+  const [dreamSkillOverridesLoading, setDreamSkillOverridesLoading] = useState(false);
+  const dreamSkillOverridesLoadedRef = useRef(false);
 
   // Dream
   const [dreamSessions, setDreamSessions] = useState<Array<DreamSession>>([]);
@@ -264,6 +278,22 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
     }
   }, []);
 
+  const fetchDreamSkillOverridesInternal = useCallback(async (csId: string | null) => {
+    setDreamSkillOverridesLoading(true);
+    try {
+      const result = await apiClient.memory.getDreamSkillOverrides();
+      if (currentCodespaceRef.current !== csId) return;
+      if (result.ok) {
+        setDreamSkillOverrides(result.data);
+      }
+      // Silently ignore errors — overrides are optional
+    } catch {
+      // Transient — non-critical
+    } finally {
+      if (currentCodespaceRef.current === csId) setDreamSkillOverridesLoading(false);
+    }
+  }, []);
+
   const fetchDreamSessions = useCallback(async (csId: string | null) => {
     setDreamSessionsLoading(true);
     try {
@@ -324,8 +354,10 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
     setIsDreamRunning(false);
     setSuggestions([]);
     setSuggestionFilter('all');
+    setDreamSkillOverrides({});
     skillsLoadedRef.current = false;
     skillExecutionsCacheRef.current = new Set();
+    dreamSkillOverridesLoadedRef.current = false;
     dreamLoadedRef.current = false;
 
     void fetchHealth(codespaceId);
@@ -341,7 +373,17 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
     skillsLoadedRef.current = true;
     void fetchSyncedSkills(codespaceId);
     void fetchSkillMetrics(codespaceId);
-  }, [activeTab, codespaceId, fetchSyncedSkills, fetchSkillMetrics]);
+    if (!dreamSkillOverridesLoadedRef.current) {
+      dreamSkillOverridesLoadedRef.current = true;
+      void fetchDreamSkillOverridesInternal(codespaceId);
+    }
+  }, [
+    activeTab,
+    codespaceId,
+    fetchSyncedSkills,
+    fetchSkillMetrics,
+    fetchDreamSkillOverridesInternal,
+  ]);
 
   // ---------------------------------------------------------------------------
   // Lazy-load dream tab data
@@ -449,10 +491,7 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
       tags?: string[];
       metadata?: Record<string, unknown>;
     }): Promise<boolean> => {
-      if (!codespaceId) {
-        toast.error('Select a codespace to create insights');
-        return false;
-      }
+      if (!codespaceId) return false;
       return mutateAndRefresh({
         action: () => apiClient.memory.createInsight(codespaceId, data),
         successMessage: 'Insight created',
@@ -513,11 +552,40 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
     await fetchSkillMetrics(codespaceId);
   }, [codespaceId, fetchSkillMetrics]);
 
+  const fetchDreamSkillOverrides = useCallback(async () => {
+    await fetchDreamSkillOverridesInternal(codespaceId);
+  }, [codespaceId, fetchDreamSkillOverridesInternal]);
+
+  const setDreamSkillOverride = useCallback(
+    async (skillId: string, override: SkillDreamOverride | null): Promise<boolean> => {
+      try {
+        const result = await apiClient.memory.setDreamSkillOverride(skillId, override);
+        if (result.ok) {
+          // Optimistically update local state
+          setDreamSkillOverrides((prev) => {
+            const next = { ...prev };
+            if (override === null) {
+              delete next[skillId];
+            } else {
+              next[skillId] = override;
+            }
+            return next;
+          });
+          toast.success(override ? 'Skill dream override saved' : 'Skill dream override cleared');
+          return true;
+        }
+        toast.error('Failed to save skill dream override');
+        return false;
+      } catch {
+        toast.error('Failed to save skill dream override');
+        return false;
+      }
+    },
+    []
+  );
+
   const triggerDream = useCallback(async (): Promise<boolean> => {
-    if (!codespaceId) {
-      toast.error('Select a codespace to run a dream cycle');
-      return false;
-    }
+    if (!codespaceId) return false;
 
     setIsDreamRunning(true);
     try {
@@ -603,6 +671,10 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
       skillExecutions,
       loadExecutions,
       refreshSkillMetrics,
+      dreamSkillOverrides,
+      dreamSkillOverridesLoading,
+      fetchDreamSkillOverrides,
+      setDreamSkillOverride,
       dreamSessions,
       dreamSessionsLoading,
       isDreamRunning,
@@ -637,6 +709,10 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
       skillExecutions,
       loadExecutions,
       refreshSkillMetrics,
+      dreamSkillOverrides,
+      dreamSkillOverridesLoading,
+      fetchDreamSkillOverrides,
+      setDreamSkillOverride,
       dreamSessions,
       dreamSessionsLoading,
       isDreamRunning,

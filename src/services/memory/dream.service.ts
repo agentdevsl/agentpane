@@ -112,6 +112,97 @@ export class DreamService {
     return DEFAULT_DREAM_MODEL;
   }
 
+  private async getMinRuns(): Promise<number> {
+    const minRunsResult = await this.settingsService.get('memory.dreaming.minRunsForAnalysis');
+    if (minRunsResult.ok && minRunsResult.value) {
+      try {
+        const parsed = JSON.parse(minRunsResult.value.value);
+        if (typeof parsed === 'number') return parsed;
+      } catch {
+        // keep default
+      }
+    }
+    return DEFAULT_MIN_RUNS;
+  }
+
+  /**
+   * Get all per-skill dream config overrides.
+   * Returns an empty object if none are set or on error.
+   */
+  async getSkillOverrides(): Promise<
+    Record<string, { enabled?: boolean; model?: string; minRuns?: number }>
+  > {
+    const result = await this.settingsService.get('memory.dreaming.skillOverrides');
+    if (result.ok && result.value) {
+      try {
+        const parsed = JSON.parse(result.value.value);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          return parsed as Record<string, { enabled?: boolean; model?: string; minRuns?: number }>;
+        }
+      } catch {
+        // return empty on parse error
+      }
+    }
+    return {};
+  }
+
+  /**
+   * Set or clear a per-skill dream config override.
+   * Pass null to remove the override for that skill.
+   */
+  async setSkillOverride(
+    skillId: string,
+    override: { enabled?: boolean; model?: string; minRuns?: number } | null
+  ): Promise<Result<void, MemoryError>> {
+    try {
+      const current = await this.getSkillOverrides();
+
+      if (override === null) {
+        delete current[skillId];
+      } else {
+        current[skillId] = override;
+      }
+
+      const setResult = await this.settingsService.set(
+        'memory.dreaming.skillOverrides',
+        JSON.stringify(current)
+      );
+      if (!setResult.ok) {
+        return err(MemoryErrors.QUERY_ERROR('Failed to save skill override'));
+      }
+
+      return ok(undefined);
+    } catch (error) {
+      log.error('Failed to set skill override', {
+        error: error instanceof Error ? error : new Error(String(error)),
+        data: { skillId },
+      });
+      return err(MemoryErrors.QUERY_ERROR('Failed to set skill override'));
+    }
+  }
+
+  /**
+   * Get the effective dream config for a specific skill by merging global
+   * defaults with any per-skill overrides.
+   */
+  async getSkillConfig(
+    skillId: string
+  ): Promise<{ enabled: boolean; model: string; minRuns: number }> {
+    const [globalModel, globalMinRuns, overrides] = await Promise.all([
+      this.getModel(),
+      this.getMinRuns(),
+      this.getSkillOverrides(),
+    ]);
+
+    const skillOverride = overrides[skillId];
+
+    return {
+      enabled: skillOverride?.enabled ?? true,
+      model: skillOverride?.model ?? globalModel,
+      minRuns: skillOverride?.minRuns ?? globalMinRuns,
+    };
+  }
+
   /**
    * Run a full dream cycle — analyzes all eligible skills across codespaces.
    */
@@ -121,18 +212,6 @@ export class DreamService {
 
     try {
       const { dreamSessions, skillMetrics } = await import('../../db/schema/index.js');
-
-      // Get minimum runs setting
-      const minRunsResult = await this.settingsService.get('memory.dreaming.minRunsForAnalysis');
-      let minRuns = DEFAULT_MIN_RUNS;
-      if (minRunsResult.ok && minRunsResult.value) {
-        try {
-          const parsed = JSON.parse(minRunsResult.value.value);
-          if (typeof parsed === 'number') minRuns = parsed;
-        } catch {
-          // keep default
-        }
-      }
 
       // Create dream session record
       await this.db.insert(dreamSessions).values({
@@ -158,13 +237,12 @@ export class DreamService {
         orderBy: [desc(skillMetrics.lastRunAt)],
       });
 
-      const eligibleSkills = (allMetrics ?? []).filter((m) => Number(m.totalRuns) >= minRuns);
-
       let totalTokensUsed = 0;
       let totalSuggestions = 0;
+      let skillsAnalyzedCount = 0;
       const maxTokens = await this.getMaxTokensPerCycle();
 
-      for (const skill of eligibleSkills) {
+      for (const skill of allMetrics ?? []) {
         if (totalTokensUsed >= maxTokens) {
           log.info('Dream cycle token budget exhausted', {
             data: { tokensUsed: totalTokensUsed, maxTokens },
@@ -172,18 +250,34 @@ export class DreamService {
           break;
         }
 
+        // Get per-skill config (merges global defaults with overrides)
+        const skillConfig = await this.getSkillConfig(skill.skillId);
+
+        // Skip disabled skills
+        if (!skillConfig.enabled) {
+          log.debug('Skipping disabled skill', { data: { skillId: skill.skillId } });
+          continue;
+        }
+
+        // Skip skills without enough runs
+        if (Number(skill.totalRuns) < skillConfig.minRuns) {
+          continue;
+        }
+
         try {
           const result = await this.analyzeSkill(
             dreamId,
             skill.codespaceId,
             skill.skillId,
-            skill.skillName
+            skill.skillName,
+            skillConfig.model
           );
 
           if (result.ok) {
             totalTokensUsed += result.value.tokensUsed;
             totalSuggestions += result.value.suggestionsCreated;
           }
+          skillsAnalyzedCount++;
         } catch (skillError) {
           log.warn('Failed to analyze skill', {
             data: { skillId: skill.skillId },
@@ -198,7 +292,7 @@ export class DreamService {
         .update(dreamSessions)
         .set({
           status: 'completed',
-          skillsAnalyzed: eligibleSkills.length,
+          skillsAnalyzed: skillsAnalyzedCount,
           suggestionsGenerated: totalSuggestions,
           tokensUsed: totalTokensUsed,
           completedAt,
@@ -210,7 +304,7 @@ export class DreamService {
         codespaceId: codespaceId ?? null,
         type: 'skill_improvement',
         status: 'completed',
-        skillsAnalyzed: eligibleSkills.length,
+        skillsAnalyzed: skillsAnalyzedCount,
         suggestionsGenerated: totalSuggestions,
         tokensUsed: totalTokensUsed,
         costUsd: null,
@@ -223,7 +317,7 @@ export class DreamService {
       log.info('Dream cycle completed', {
         data: {
           dreamId,
-          skillsAnalyzed: eligibleSkills.length,
+          skillsAnalyzed: skillsAnalyzedCount,
           suggestionsGenerated: totalSuggestions,
           tokensUsed: totalTokensUsed,
         },
@@ -294,7 +388,8 @@ export class DreamService {
     dreamSessionId: string,
     codespaceId: string,
     skillId: string,
-    skillName: string
+    skillName: string,
+    model?: string
   ): Promise<Result<{ suggestionsCreated: number; tokensUsed: number }, MemoryError>> {
     try {
       // Get performance summary
@@ -353,9 +448,9 @@ export class DreamService {
         .replace('{{failedExamples}}', failedExamples);
 
       // Call Claude via Agent SDK
-      const model = await this.getModel();
+      const effectiveModel = model ?? (await this.getModel());
 
-      const response = await agentPrompt(prompt, { model });
+      const response = await agentPrompt(prompt, { model: effectiveModel });
 
       const tokensUsed = (response.usage?.inputTokens ?? 0) + (response.usage?.outputTokens ?? 0);
 

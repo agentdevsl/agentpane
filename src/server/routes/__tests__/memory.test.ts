@@ -142,6 +142,10 @@ function createMockDreamService() {
       ok: true,
       value: { ...mockSuggestion, status: 'modified', suggestedContent: 'Modified content' },
     }),
+    getSkillOverrides: vi.fn().mockResolvedValue({
+      'skill-terraform': { model: 'claude-opus-4-6', minRuns: 5 },
+    }),
+    setSkillOverride: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
   };
 }
 

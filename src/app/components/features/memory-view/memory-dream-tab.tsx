@@ -236,6 +236,7 @@ function DreamConfig(): React.JSX.Element {
 
 export function MemoryDreamTab(): React.JSX.Element {
   const {
+    codespaceId,
     dreamSessions,
     dreamSessionsLoading,
     isDreamRunning,
@@ -247,6 +248,8 @@ export function MemoryDreamTab(): React.JSX.Element {
     acceptSuggestion,
     rejectSuggestion,
   } = useMemory();
+
+  const isGlobalMode = codespaceId === null;
 
   const [modifyTarget, setModifyTarget] = useState<{
     id: string;
@@ -293,9 +296,10 @@ export function MemoryDreamTab(): React.JSX.Element {
         <Button
           variant="default"
           size="sm"
-          disabled={isDreamRunning}
+          disabled={isDreamRunning || isGlobalMode}
           onClick={() => void triggerDream()}
           className="gap-1.5"
+          title={isGlobalMode ? 'Select a codespace to run a dream cycle' : undefined}
         >
           {isDreamRunning ? (
             <>

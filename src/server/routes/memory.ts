@@ -226,6 +226,39 @@ export function createMemoryRoutes({
   app.get('/dream-sessions', (c) => handleGetDreamSessions(c, null));
   app.get('/suggestions', (c) => handleGetSuggestions(c, null));
 
+  // --- Per-skill dream config override endpoints ---
+
+  app.get('/dream-config/skills', () =>
+    wrapHandler('Failed to get dream skill overrides', async () => {
+      const data = await dreamService.getSkillOverrides();
+      return json({ ok: true, data });
+    })
+  );
+
+  app.put('/dream-config/skills/:skillId', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return json(
+        { ok: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON in request body' } },
+        400
+      );
+    }
+
+    const skillId = c.req.param('skillId');
+
+    // null body means clear the override
+    const override =
+      body === null ? null : (body as { enabled?: boolean; model?: string; minRuns?: number });
+
+    return wrapHandler('Failed to set dream skill override', async () => {
+      const result = await dreamService.setSkillOverride(skillId, override);
+      if (!result.ok) return resultError(result);
+      return json({ ok: true, data: null });
+    });
+  });
+
   // ===========================================================================
   // Codespace-scoped endpoints
   // ===========================================================================
