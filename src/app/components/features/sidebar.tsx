@@ -1,4 +1,5 @@
 import {
+  Brain,
   CaretLeft,
   CaretRight,
   CaretUpDown,
@@ -53,6 +54,7 @@ interface NavItem {
 const organizationNavItems: readonly NavItem[] = [
   { label: 'Codespaces', to: '/codespaces', icon: Kanban, testId: 'nav-projects' },
   { label: 'Sessions', to: '/sessions', icon: Clock, testId: 'nav-sessions' },
+  { label: 'Memory', to: '/memory', icon: Brain, testId: 'nav-memory' },
   { label: 'CLI Monitor', to: '/cli-monitor', icon: Terminal, testId: 'nav-cli-monitor' },
 ] as const;
 
