@@ -10,7 +10,7 @@ import {
 import type { GitHubInstallation } from '../db/schema/sqlite/github.js';
 import type { AppError } from '../lib/errors/base.js';
 import { EventErrors } from '../lib/errors/event-errors.js';
-import { getInstallationOctokit } from '../lib/github/client.js';
+import { getAppOctokit } from '../lib/github/client.js';
 import { createLogger } from '../lib/logging/logger.js';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
@@ -308,8 +308,8 @@ export class GitHubAppService {
     }
 
     try {
-      const octokit = await getInstallationOctokit(installationId);
-      const { data } = await octokit.rest.apps.createInstallationAccessToken({
+      const appOctokit = getAppOctokit();
+      const { data } = await appOctokit.rest.apps.createInstallationAccessToken({
         installation_id: installationId,
       });
       return ok(data.token);

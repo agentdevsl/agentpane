@@ -148,9 +148,15 @@ function GitHubSettingsPage(): React.JSX.Element {
   };
 
   const handleRemoveInstallation = async (id: string) => {
-    const res = await apiClient.github.app.removeInstallation(id);
-    if (res.ok) {
-      setInstallations((prev) => prev.filter((i) => i.id !== id));
+    try {
+      const res = await apiClient.github.app.removeInstallation(id);
+      if (res.ok) {
+        setInstallations((prev) => prev.filter((i) => i.id !== id));
+      } else {
+        setError('Failed to remove installation');
+      }
+    } catch {
+      setError('Failed to remove installation');
     }
   };
 

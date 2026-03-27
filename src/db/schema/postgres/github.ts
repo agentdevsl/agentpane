@@ -1,5 +1,6 @@
 import { createId } from '@paralleldrive/cuid2';
 import { boolean, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import { teams } from './teams';
 
 export const githubTokens = pgTable('github_tokens', {
   id: text('id')
@@ -26,6 +27,7 @@ export const githubInstallations = pgTable('github_installations', {
   installationId: text('installation_id').notNull().unique(),
   accountLogin: text('account_login').notNull(),
   accountType: text('account_type').notNull(),
+  teamId: text('team_id').references(() => teams.id, { onDelete: 'set null' }),
   status: text('status').default('active').notNull(),
   createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { mode: 'string' })
