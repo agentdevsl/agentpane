@@ -107,10 +107,33 @@ export function createGitHubAppWebhooksRoutes({
 
       if (action === 'created') {
         // Store installation without teamId — user associates it via setup UI
-        await githubAppService.handleInstallation(numericId, accountLogin, accountType);
+        const installResult = await githubAppService.handleInstallation(
+          numericId,
+          accountLogin,
+          accountType
+        );
+        if (!installResult.ok) {
+          log.error('Failed to handle installation', {
+            data: { installationId: numericId },
+            error: installResult.error.message,
+          });
+          return json(
+            {
+              ok: false,
+              error: { code: installResult.error.code, message: installResult.error.message },
+            },
+            500
+          );
+        }
         log.info('GitHub App installed', { data: { installationId: numericId, accountLogin } });
       } else if (action === 'deleted') {
-        await githubAppService.handleUninstall(numericId);
+        const uninstallResult = await githubAppService.handleUninstall(numericId);
+        if (!uninstallResult.ok) {
+          log.error('Failed to handle uninstall', {
+            data: { installationId: numericId },
+            error: uninstallResult.error.message,
+          });
+        }
         log.info('GitHub App uninstalled', { data: { installationId: numericId, accountLogin } });
       }
 

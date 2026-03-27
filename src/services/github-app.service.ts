@@ -29,7 +29,7 @@ export class GitHubAppService {
   getInstallUrl(): string | null {
     const appName = process.env.GITHUB_APP_NAME;
     if (!appName) return null;
-    return `https://github.com/apps/${appName}/installations/new`;
+    return `https://github.com/apps/${encodeURIComponent(appName)}/installations/new`;
   }
 
   async handleInstallation(
@@ -285,6 +285,20 @@ export class GitHubAppService {
   }
 
   async removeInstallation(id: string): Promise<Result<void, AppError>> {
+    const now = new Date().toISOString();
+
+    // Disable linked event sources before deleting (prevents orphaned references)
+    await this.db
+      .update(eventSources)
+      .set({ isEnabled: false, status: 'disabled', githubInstallationId: null, updatedAt: now })
+      .where(eq(eventSources.githubInstallationId, id));
+
+    // Clear codespace references
+    await this.db
+      .update(codespaces)
+      .set({ githubInstallationId: null, updatedAt: now })
+      .where(eq(codespaces.githubInstallationId, id));
+
     const [deleted] = await this.db
       .delete(githubInstallations)
       .where(eq(githubInstallations.id, id))
