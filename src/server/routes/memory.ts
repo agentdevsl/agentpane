@@ -306,6 +306,7 @@ export function createMemoryRoutes({
             sessionId: row.sessionId,
             agentId: data.agentId as string,
             taskId: data.taskId as string,
+            codespaceId: (data.codespaceId as string) ?? null,
             insightCount: data.insightCount as number,
             tokenCount: data.tokenCount as number,
             timestamp: row.timestamp,
