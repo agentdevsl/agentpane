@@ -24,6 +24,9 @@ function createTestApp() {
   const routes = createCliMonitorRoutes({ cliMonitorService: service });
   const app = new Hono();
   app.route('/api/cli-monitor', routes);
+  app.onError((err, c) => {
+    return c.json({ ok: false, error: { code: 'INTERNAL_ERROR', message: err.message } }, 500);
+  });
   return { app, service, streamsServer };
 }
 
@@ -602,7 +605,7 @@ describe('CLI Monitor API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('MISSING_PARAM');
+      expect(json.error.code).toBe('MISSING_PARAMS');
     });
 
     it('returns 404 when rootSessionId does not match any session', async () => {

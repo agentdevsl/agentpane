@@ -14,7 +14,13 @@ import type { AuthContext } from '../../lib/api/auth-middleware';
 import { createLogger } from '../../lib/logging/logger';
 import type { RbacService } from '../../services/rbac.service';
 import type { Database } from '../../types/database';
-import { isValidId, json, requireCodespaceRole, requireTeamRole } from '../shared';
+import {
+  json,
+  requireCodespaceRole,
+  requireQueryId,
+  requireTeamRole,
+  validateIdParam,
+} from '../shared';
 import { assignTagSchema, createTagSchema, parseJsonBody } from '../validation';
 
 const log = createLogger('TagsRoutes');
@@ -83,18 +89,9 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
 
   // GET /api/tags?teamId=xxx - List tags for a team
   app.get('/', async (c) => {
-    const teamId = c.req.query('teamId');
+    const { id: teamId, error: teamIdError } = requireQueryId(c, 'teamId');
+    if (teamIdError) return teamIdError;
     const auth = c.get('auth');
-
-    if (!teamId || !isValidId(teamId)) {
-      return json(
-        {
-          ok: false,
-          error: { code: 'VALIDATION_ERROR', message: 'teamId query parameter required' },
-        },
-        400
-      );
-    }
 
     const denied = await requireTeamRole(
       auth,
@@ -105,105 +102,92 @@ export function createTagsRoutes({ db, rbacService }: TagsDeps) {
     );
     if (denied) return denied;
 
-    try {
-      // Tags are now per-folder; find all folders for this team, then their tags
-      const folderIds = (
-        await db
-          .select({ projectFolderId: teamProjectFolders.projectFolderId })
-          .from(teamProjectFolders)
-          .where(eq(teamProjectFolders.teamId, teamId))
-      ).map((f) => f.projectFolderId);
+    // Tags are now per-folder; find all folders for this team, then their tags
+    const folderIds = (
+      await db
+        .select({ projectFolderId: teamProjectFolders.projectFolderId })
+        .from(teamProjectFolders)
+        .where(eq(teamProjectFolders.teamId, teamId))
+    ).map((f) => f.projectFolderId);
 
-      const teamTags =
-        folderIds.length > 0
-          ? await db.select().from(tags).where(inArray(tags.projectFolderId, folderIds))
-          : [];
+    const teamTags =
+      folderIds.length > 0
+        ? await db.select().from(tags).where(inArray(tags.projectFolderId, folderIds))
+        : [];
 
-      // Batch-fetch project and task counts to avoid N+1 queries
-      const tagIds = teamTags.map((t) => t.id);
+    // Batch-fetch project and task counts to avoid N+1 queries
+    const tagIds = teamTags.map((t) => t.id);
 
-      let projectCountMap = new Map<string, number>();
-      let taskCountMap = new Map<string, number>();
+    let projectCountMap = new Map<string, number>();
+    let taskCountMap = new Map<string, number>();
 
-      if (tagIds.length > 0) {
-        const [projectCounts, taskCounts] = await Promise.all([
-          db
-            .select({ tagId: codespaceTags.tagId, total: count() })
-            .from(codespaceTags)
-            .where(inArray(codespaceTags.tagId, tagIds))
-            .groupBy(codespaceTags.tagId),
-          db
-            .select({ tagId: taskTags.tagId, total: count() })
-            .from(taskTags)
-            .where(inArray(taskTags.tagId, tagIds))
-            .groupBy(taskTags.tagId),
-        ]);
+    if (tagIds.length > 0) {
+      const [projectCounts, taskCounts] = await Promise.all([
+        db
+          .select({ tagId: codespaceTags.tagId, total: count() })
+          .from(codespaceTags)
+          .where(inArray(codespaceTags.tagId, tagIds))
+          .groupBy(codespaceTags.tagId),
+        db
+          .select({ tagId: taskTags.tagId, total: count() })
+          .from(taskTags)
+          .where(inArray(taskTags.tagId, tagIds))
+          .groupBy(taskTags.tagId),
+      ]);
 
-        projectCountMap = new Map(projectCounts.map((r) => [r.tagId, r.total]));
-        taskCountMap = new Map(taskCounts.map((r) => [r.tagId, r.total]));
-      }
-
-      const enrichedTags = teamTags.map((tag) => ({
-        ...tag,
-        projectCount: projectCountMap.get(tag.id) ?? 0,
-        taskCount: taskCountMap.get(tag.id) ?? 0,
-      }));
-
-      return json({ ok: true, data: { items: enrichedTags } });
-    } catch (error) {
-      log.error('Failed to list tags', { error });
-      return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to list tags' } }, 500);
+      projectCountMap = new Map(projectCounts.map((r) => [r.tagId, r.total]));
+      taskCountMap = new Map(taskCounts.map((r) => [r.tagId, r.total]));
     }
+
+    const enrichedTags = teamTags.map((tag) => ({
+      ...tag,
+      projectCount: projectCountMap.get(tag.id) ?? 0,
+      taskCount: taskCountMap.get(tag.id) ?? 0,
+    }));
+
+    return json({ ok: true, data: { items: enrichedTags } });
   });
 
   // DELETE /api/tags/:id - Delete tag
   app.delete('/:id', async (c) => {
-    const id = c.req.param('id');
-
-    if (!isValidId(id)) {
-      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID' } }, 400);
-    }
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
 
     const auth = c.get('auth');
 
-    try {
-      // Check tag existence and resolve team via project folder
-      const tagRows = await db
-        .select({ projectFolderId: tags.projectFolderId })
-        .from(tags)
-        .where(eq(tags.id, id));
-      const foundTag = tagRows[0];
-      if (!foundTag) {
-        return json({ ok: false, error: { code: 'TAG_NOT_FOUND', message: 'Tag not found' } }, 404);
-      }
-
-      const folderTeams = await db
-        .select({ teamId: teamProjectFolders.teamId })
-        .from(teamProjectFolders)
-        .where(eq(teamProjectFolders.projectFolderId, foundTag.projectFolderId));
-      const ownerTeamId = folderTeams[0]?.teamId;
-      if (!ownerTeamId) {
-        return json(
-          { ok: false, error: { code: 'NOT_FOUND', message: 'Tag folder has no team' } },
-          404
-        );
-      }
-
-      const denied = await requireTeamRole(
-        auth,
-        rbacService,
-        ownerTeamId,
-        'admin',
-        'Requires admin role in team'
-      );
-      if (denied) return denied;
-
-      await db.delete(tags).where(eq(tags.id, id));
-      return json({ ok: true, data: { deleted: true } });
-    } catch (error) {
-      log.error('Failed to delete tag', { error });
-      return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to delete tag' } }, 500);
+    // Check tag existence and resolve team via project folder
+    const tagRows = await db
+      .select({ projectFolderId: tags.projectFolderId })
+      .from(tags)
+      .where(eq(tags.id, id));
+    const foundTag = tagRows[0];
+    if (!foundTag) {
+      return json({ ok: false, error: { code: 'TAG_NOT_FOUND', message: 'Tag not found' } }, 404);
     }
+
+    const folderTeams = await db
+      .select({ teamId: teamProjectFolders.teamId })
+      .from(teamProjectFolders)
+      .where(eq(teamProjectFolders.projectFolderId, foundTag.projectFolderId));
+    const ownerTeamId = folderTeams[0]?.teamId;
+    if (!ownerTeamId) {
+      return json(
+        { ok: false, error: { code: 'NOT_FOUND', message: 'Tag folder has no team' } },
+        404
+      );
+    }
+
+    const denied = await requireTeamRole(
+      auth,
+      rbacService,
+      ownerTeamId,
+      'admin',
+      'Requires admin role in team'
+    );
+    if (denied) return denied;
+
+    await db.delete(tags).where(eq(tags.id, id));
+    return json({ ok: true, data: { deleted: true } });
   });
 
   return app;
@@ -224,14 +208,8 @@ export function createProjectTagRoutes({
 
   // POST /api/codespaces/:id/tags - Assign tag to codespace
   app.post('/', async (c) => {
-    const codespaceId = c.req.param('id') as string;
-
-    if (!isValidId(codespaceId)) {
-      return json(
-        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid codespace ID' } },
-        400
-      );
-    }
+    const { id: codespaceId, error } = validateIdParam(c, 'id');
+    if (error) return error;
 
     const auth = c.get('auth');
     const denied = await requireCodespaceRole(
@@ -276,37 +254,30 @@ export function createProjectTagRoutes({
       );
     }
 
-    try {
-      await db
-        .insert(codespaceTags)
-        .values({ codespaceId, tagId: parsed.data.tagId })
-        .onConflictDoNothing();
+    await db
+      .insert(codespaceTags)
+      .values({ codespaceId, tagId: parsed.data.tagId })
+      .onConflictDoNothing();
 
-      return json(
-        {
-          ok: true,
-          data: {
-            codespaceId,
-            tagId: parsed.data.tagId,
-            assignedAt: new Date().toISOString(),
-          },
+    return json(
+      {
+        ok: true,
+        data: {
+          codespaceId,
+          tagId: parsed.data.tagId,
+          assignedAt: new Date().toISOString(),
         },
-        201
-      );
-    } catch (error) {
-      log.error('Failed to assign tag to codespace', { error });
-      return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to assign tag' } }, 500);
-    }
+      },
+      201
+    );
   });
 
   // DELETE /api/codespaces/:id/tags/:tagId - Remove tag from codespace
   app.delete('/:tagId', async (c) => {
-    const codespaceId = c.req.param('id') as string;
-    const tagId = c.req.param('tagId') as string;
-
-    if (!isValidId(codespaceId) || !isValidId(tagId)) {
-      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID' } }, 400);
-    }
+    const { id: codespaceId, error: csError } = validateIdParam(c, 'id');
+    if (csError) return csError;
+    const { id: tagId, error: tagIdError } = validateIdParam(c, 'tagId');
+    if (tagIdError) return tagIdError;
 
     const auth = c.get('auth');
     const denied = await requireCodespaceRole(
@@ -318,15 +289,10 @@ export function createProjectTagRoutes({
     );
     if (denied) return denied;
 
-    try {
-      await db
-        .delete(codespaceTags)
-        .where(and(eq(codespaceTags.codespaceId, codespaceId), eq(codespaceTags.tagId, tagId)));
-      return json({ ok: true, data: { removed: true } });
-    } catch (error) {
-      log.error('Failed to remove tag from codespace', { error });
-      return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to remove tag' } }, 500);
-    }
+    await db
+      .delete(codespaceTags)
+      .where(and(eq(codespaceTags.codespaceId, codespaceId), eq(codespaceTags.tagId, tagId)));
+    return json({ ok: true, data: { removed: true } });
   });
 
   return app;
@@ -347,11 +313,8 @@ export function createTaskTagRoutes({
 
   // POST /api/tasks/:id/tags - Assign tag to task
   app.post('/', async (c) => {
-    const taskId = c.req.param('id') as string;
-
-    if (!isValidId(taskId)) {
-      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid task ID' } }, 400);
-    }
+    const { id: taskId, error: taskIdError } = validateIdParam(c, 'id');
+    if (taskIdError) return taskIdError;
 
     // Look up the task's codespaceId (needed for both auth and cross-team validation)
     const taskRows = await db
@@ -406,30 +369,23 @@ export function createTaskTagRoutes({
       );
     }
 
-    try {
-      await db.insert(taskTags).values({ taskId, tagId: parsed.data.tagId }).onConflictDoNothing();
+    await db.insert(taskTags).values({ taskId, tagId: parsed.data.tagId }).onConflictDoNothing();
 
-      return json(
-        {
-          ok: true,
-          data: { taskId, tagId: parsed.data.tagId, assignedAt: new Date().toISOString() },
-        },
-        201
-      );
-    } catch (error) {
-      log.error('Failed to assign tag to task', { error });
-      return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to assign tag' } }, 500);
-    }
+    return json(
+      {
+        ok: true,
+        data: { taskId, tagId: parsed.data.tagId, assignedAt: new Date().toISOString() },
+      },
+      201
+    );
   });
 
   // DELETE /api/tasks/:id/tags/:tagId - Remove tag from task
   app.delete('/:tagId', async (c) => {
-    const taskId = c.req.param('id') as string;
-    const tagId = c.req.param('tagId') as string;
-
-    if (!isValidId(taskId) || !isValidId(tagId)) {
-      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID' } }, 400);
-    }
+    const { id: taskId, error: taskIdError } = validateIdParam(c, 'id');
+    if (taskIdError) return taskIdError;
+    const { id: tagId, error: tagIdError2 } = validateIdParam(c, 'tagId');
+    if (tagIdError2) return tagIdError2;
 
     const auth = c.get('auth');
     const taskRows = await db
@@ -449,13 +405,8 @@ export function createTaskTagRoutes({
     );
     if (denied) return denied;
 
-    try {
-      await db.delete(taskTags).where(and(eq(taskTags.taskId, taskId), eq(taskTags.tagId, tagId)));
-      return json({ ok: true, data: { removed: true } });
-    } catch (error) {
-      log.error('Failed to remove tag from task', { error });
-      return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to remove tag' } }, 500);
-    }
+    await db.delete(taskTags).where(and(eq(taskTags.taskId, taskId), eq(taskTags.tagId, tagId)));
+    return json({ ok: true, data: { removed: true } });
   });
 
   return app;

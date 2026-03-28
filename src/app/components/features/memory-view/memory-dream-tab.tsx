@@ -1,4 +1,4 @@
-import { CaretDown, CaretUp, CircleNotch, Gear, SunHorizon, Users } from '@phosphor-icons/react';
+import { CaretRight, CircleNotch, Gear, Sparkle, Users } from '@phosphor-icons/react';
 import type React from 'react';
 import { useCallback, useMemo, useState } from 'react';
 import { Button } from '@/app/components/ui/button';
@@ -6,6 +6,7 @@ import { Switch } from '@/app/components/ui/switch';
 import { toast } from '@/app/components/ui/toast';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { apiClient } from '@/lib/api/client';
+import { cn } from '@/lib/utils/cn';
 import { DreamSessionCard } from './dream-session-card';
 import { DEFAULT_DREAM_MODEL, DREAM_MODEL_OPTIONS, INPUT_CLASS } from './formatters';
 import { useMemory } from './memory-context';
@@ -18,7 +19,7 @@ function SkeletonBlock(): React.JSX.Element {
   return (
     <div className="flex flex-col gap-3">
       {Array.from({ length: 3 }, (_, i) => (
-        <div key={i} className="h-24 animate-pulse rounded-lg bg-surface-muted" />
+        <div key={i} className="h-24 animate-pulse rounded-xl bg-surface-muted" />
       ))}
     </div>
   );
@@ -98,125 +99,139 @@ function DreamConfig(): React.JSX.Element {
   }, [enabled, intervalDays, model, minRuns]);
 
   return (
-    <div className="rounded-lg border border-border bg-surface">
+    <div className="rounded-xl border border-border bg-surface transition-all duration-200 hover:border-fg-subtle hover:shadow-sm">
       <button
         type="button"
-        className="flex w-full items-center justify-between px-4 py-3 text-left"
+        className="flex w-full items-center justify-between px-4 py-3.5 text-left"
         onClick={() => setOpen((prev) => !prev)}
       >
-        <div className="flex items-center gap-2">
-          <Gear size={14} className="text-fg-muted" />
-          <span className="text-xs font-medium text-fg">Dream Configuration</span>
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-7 w-7 items-center justify-center rounded-[6px] bg-[rgba(139,148,158,0.12)] text-[#8b949e]">
+            <Gear size={14} />
+          </div>
+          <span className="text-sm font-medium text-fg">Upskill Configuration</span>
           {enabled && (
-            <span className="rounded-full bg-success-subtle px-2 py-0.5 text-[10px] font-medium text-success">
+            <span className="rounded-full bg-success-subtle px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-success">
               Auto-scheduled
             </span>
           )}
         </div>
-        {open ? (
-          <CaretUp size={14} className="text-fg-subtle" />
-        ) : (
-          <CaretDown size={14} className="text-fg-subtle" />
-        )}
+        <CaretRight
+          size={14}
+          className={cn(
+            'text-fg-subtle transition-transform duration-200 ease-out',
+            open && 'rotate-90'
+          )}
+        />
       </button>
 
-      {open && (
-        <div className="border-t border-border px-4 py-4">
-          {loading ? (
-            <div className="flex items-center justify-center py-4">
-              <CircleNotch size={16} className="animate-spin text-fg-muted" />
-            </div>
-          ) : (
-            <div className="flex flex-col gap-4">
-              <p className="text-xs text-fg-subtle">
-                Dream cycles use a Claude agent to analyze skill execution history and suggest
-                improvements. Configure automatic scheduling and model preferences below.
-              </p>
+      {/* Smooth expand/collapse */}
+      <div
+        className={cn(
+          'grid transition-all duration-200 ease-out',
+          open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+        )}
+      >
+        <div className="overflow-hidden">
+          <div className="border-t border-border-muted/50 px-4 py-4">
+            {loading ? (
+              <div className="flex items-center justify-center py-4">
+                <CircleNotch size={16} className="animate-spin text-fg-muted" />
+              </div>
+            ) : (
+              <div className="flex flex-col gap-4">
+                <p className="text-xs text-fg-subtle">
+                  Upskill uses a Claude agent to analyze skill execution history and suggest
+                  improvements. Configure automatic scheduling and model preferences below.
+                </p>
 
-              {/* Enabled toggle */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-medium text-fg">Auto-schedule</div>
-                  <div className="text-xs text-fg-muted">
-                    Automatically run dream cycles at a set interval
+                {/* Enabled toggle */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-medium text-fg">Auto-schedule</div>
+                    <div className="text-xs text-fg-muted">
+                      Automatically run upskill cycles at a set interval
+                    </div>
                   </div>
+                  <Switch
+                    checked={enabled}
+                    onCheckedChange={(checked: boolean) => setEnabled(checked)}
+                  />
                 </div>
-                <Switch
-                  checked={enabled}
-                  onCheckedChange={(checked: boolean) => setEnabled(checked)}
-                />
-              </div>
 
-              {/* Interval */}
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor="dream-interval" className="text-sm font-medium text-fg">
-                  Interval (days)
-                </label>
-                <input
-                  id="dream-interval"
-                  type="number"
-                  min="1"
-                  max="30"
-                  className={`${INPUT_CLASS} w-32`}
-                  value={intervalDays}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    setIntervalDays(e.target.value)
-                  }
-                  disabled={!enabled}
-                />
-                <span className="text-[11px] text-fg-subtle">
-                  Default: every day. Maximum: 30 days.
-                </span>
-              </div>
+                {/* Interval */}
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="dream-interval" className="text-sm font-medium text-fg">
+                    Interval (days)
+                  </label>
+                  <input
+                    id="dream-interval"
+                    type="number"
+                    min="1"
+                    max="30"
+                    className={`${INPUT_CLASS} w-32`}
+                    value={intervalDays}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      setIntervalDays(e.target.value)
+                    }
+                    disabled={!enabled}
+                  />
+                  <span className="text-[11px] text-fg-subtle">
+                    Default: every day. Maximum: 30 days.
+                  </span>
+                </div>
 
-              {/* Model */}
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor="dream-model" className="text-sm font-medium text-fg">
-                  Model
-                </label>
-                <select
-                  id="dream-model"
-                  className={INPUT_CLASS}
-                  value={model}
-                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setModel(e.target.value)}
-                >
-                  {DREAM_MODEL_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+                {/* Model */}
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="dream-model" className="text-sm font-medium text-fg">
+                    Model
+                  </label>
+                  <select
+                    id="dream-model"
+                    className={INPUT_CLASS}
+                    value={model}
+                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setModel(e.target.value)}
+                  >
+                    {DREAM_MODEL_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-              {/* Min runs */}
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor="dream-min-runs" className="text-sm font-medium text-fg">
-                  Min runs for analysis
-                </label>
-                <input
-                  id="dream-min-runs"
-                  type="number"
-                  min="1"
-                  max="100"
-                  className={`${INPUT_CLASS} w-32`}
-                  value={minRuns}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMinRuns(e.target.value)}
-                />
-                <span className="text-[11px] text-fg-subtle">
-                  Skills need at least this many runs before dream analysis.
-                </span>
-              </div>
+                {/* Min runs */}
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="dream-min-runs" className="text-sm font-medium text-fg">
+                    Min runs for analysis
+                  </label>
+                  <input
+                    id="dream-min-runs"
+                    type="number"
+                    min="1"
+                    max="100"
+                    className={`${INPUT_CLASS} w-32`}
+                    value={minRuns}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      setMinRuns(e.target.value)
+                    }
+                  />
+                  <span className="text-[11px] text-fg-subtle">
+                    Skills need at least this many runs before dream analysis.
+                  </span>
+                </div>
 
-              {/* Save */}
-              <div className="flex justify-end pt-2">
-                <Button size="sm" disabled={saving} onClick={() => void handleSave()}>
-                  {saving ? 'Saving...' : 'Save Settings'}
-                </Button>
+                {/* Save */}
+                <div className="flex justify-end pt-2">
+                  <Button size="sm" disabled={saving} onClick={() => void handleSave()}>
+                    {saving ? 'Saving...' : 'Save Settings'}
+                  </Button>
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -290,17 +305,17 @@ export function MemoryDreamTab(): React.JSX.Element {
           disabled={isDreamRunning || isGlobalMode}
           onClick={() => void triggerDream()}
           className="gap-1.5"
-          title={isGlobalMode ? 'Select a codespace to run a dream cycle' : undefined}
+          title={isGlobalMode ? 'Select a codespace to run an upskill cycle' : undefined}
         >
           {isDreamRunning ? (
             <>
               <CircleNotch size={14} className="animate-spin" />
-              Dream Running...
+              Analyzing...
             </>
           ) : (
             <>
-              <SunHorizon size={14} />
-              Run Dream Cycle Now
+              <Sparkle size={14} />
+              Analyze Skills
             </>
           )}
         </Button>
@@ -323,20 +338,28 @@ export function MemoryDreamTab(): React.JSX.Element {
       />
 
       {/* Suggestions list */}
-      <div className="flex flex-col gap-2">
-        <h3 className="text-sm font-medium text-fg">
-          Suggestions <span className="text-fg-muted">({filteredSuggestions.length})</span>
+      <div className="flex flex-col gap-3">
+        <h3 className="text-xs font-medium uppercase tracking-wider text-fg-subtle">
+          Suggestions <span className="text-fg-subtle">({filteredSuggestions.length})</span>
         </h3>
 
         {suggestionsLoading ? (
           <SkeletonBlock />
         ) : filteredSuggestions.length === 0 ? (
-          <div className="flex items-center justify-center rounded-lg border border-dashed border-border py-8">
-            <p className="text-sm text-fg-muted">
+          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-surface py-12 text-center">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[rgba(210,153,34,0.12)]">
+              <Sparkle className="h-5 w-5 text-[#d29922]" />
+            </div>
+            <p className="mt-3 text-sm font-medium text-fg-muted">
               {suggestionFilter === 'all'
-                ? 'No suggestions yet. Run a dream cycle to generate skill improvement suggestions.'
-                : `No ${suggestionFilter} suggestions.`}
+                ? 'No suggestions yet'
+                : `No ${suggestionFilter} suggestions`}
             </p>
+            {suggestionFilter === 'all' && (
+              <p className="mt-1 text-xs text-fg-subtle">
+                Run an upskill analysis to generate improvement suggestions.
+              </p>
+            )}
           </div>
         ) : (
           <div className="flex flex-col gap-3">
@@ -354,28 +377,37 @@ export function MemoryDreamTab(): React.JSX.Element {
       </div>
 
       {/* Divider */}
-      <div className="border-t border-border" />
+      <div className="border-t border-border-muted/50" />
 
       {/* Dream sessions history */}
-      <div className="flex flex-col gap-2">
-        <h3 className="text-sm font-medium text-fg">Dream Session History</h3>
+      <div className="flex flex-col gap-3">
+        <h3 className="text-xs font-medium uppercase tracking-wider text-fg-subtle">
+          Upskill History
+        </h3>
 
         {dreamSessionsLoading ? (
           <SkeletonBlock />
         ) : dreamSessions.length === 0 ? (
-          <div className="flex items-center justify-center rounded-lg border border-dashed border-border py-8">
-            <p className="text-sm text-fg-muted">No dream sessions yet.</p>
+          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-surface py-12 text-center">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[rgba(163,113,247,0.12)]">
+              <Sparkle className="h-5 w-5 text-[#a371f7]" />
+            </div>
+            <p className="mt-3 text-sm font-medium text-fg-muted">No upskill sessions yet</p>
           </div>
         ) : (
-          <div className="flex flex-col gap-3">
-            {dreamSessions.map((session) => (
-              <DreamSessionCard key={session.id} session={session} />
+          <div className="flex flex-col rounded-xl border border-border bg-surface px-4 pt-3">
+            {dreamSessions.map((session, i) => (
+              <DreamSessionCard
+                key={session.id}
+                session={session}
+                isLast={i === dreamSessions.length - 1}
+              />
             ))}
           </div>
         )}
       </div>
 
-      {/* Modify dialog — key forces remount to reset form state */}
+      {/* Modify dialog -- key forces remount to reset form state */}
       <SuggestionModifyDialog
         key={modifyTarget?.id}
         open={modifyTarget !== null}

@@ -179,235 +179,187 @@ export function createTaskCreationRoutes({ taskCreationService }: TaskCreationDe
 
   // POST /api/tasks/create-with-ai/start
   app.post('/start', async (c) => {
-    try {
-      const parsed = await parseJsonBody(c, startSchema);
-      if (!parsed.ok) return parsed.response;
-      const { codespaceId } = parsed.data;
+    const parsed = await parseJsonBody(c, startSchema);
+    if (!parsed.ok) return parsed.response;
+    const { codespaceId } = parsed.data;
 
-      const result = await taskCreationService.startConversation(codespaceId);
+    const result = await taskCreationService.startConversation(codespaceId);
 
-      if (!result.ok) {
-        return json({ ok: false, error: result.error }, 400);
-      }
-
-      return json({ ok: true, data: { sessionId: result.value.id } });
-    } catch (error) {
-      log.error('Start error', { error });
-      return json(
-        { ok: false, error: { code: 'SERVER_ERROR', message: 'Failed to start conversation' } },
-        500
-      );
+    if (!result.ok) {
+      return json({ ok: false, error: result.error }, 400);
     }
+
+    return json({ ok: true, data: { sessionId: result.value.id } });
   });
 
   // POST /api/tasks/create-with-ai/message
   app.post('/message', async (c) => {
-    try {
-      const parsed = await parseJsonBody(c, messageSchema);
-      if (!parsed.ok) return parsed.response;
-      const { sessionId, message } = parsed.data;
+    const parsed = await parseJsonBody(c, messageSchema);
+    if (!parsed.ok) return parsed.response;
+    const { sessionId, message } = parsed.data;
 
-      // Send message with token streaming to SSE
-      const onToken = (delta: string) => {
-        broadcastTaskCreationEvent(sessionId, {
-          type: 'task-creation:token',
-          data: { sessionId, delta },
-        });
-      };
-
-      // Callback for when background processor publishes an assistant message (sends SSE event)
-      const onMessage = (messageId: string, role: 'user' | 'assistant', content: string) => {
-        log.debug('onMessage callback - sending SSE event');
-        broadcastTaskCreationEvent(sessionId, {
-          type: 'task-creation:message',
-          data: { sessionId, messageId, role, content },
-        });
-      };
-
-      // Callback for when background processor finds a suggestion (sends SSE event)
-      const onSuggestion = (suggestion: {
-        title: string;
-        description: string;
-        labels: string[];
-        priority: string;
-      }) => {
-        log.debug('onSuggestion callback - sending SSE event');
-        broadcastTaskCreationEvent(sessionId, {
-          type: 'task-creation:suggestion',
-          data: { sessionId, suggestion },
-        });
-      };
-
-      const result = await taskCreationService.sendMessage(
-        sessionId,
-        message,
-        onToken,
-        onSuggestion,
-        onMessage
-      );
-
-      if (!result.ok) {
-        // Send error to SSE if connected
-        broadcastTaskCreationEvent(sessionId, {
-          type: 'task-creation:error',
-          data: { sessionId, error: result.error.message },
-        });
-        return json({ ok: false, error: result.error }, 400);
-      }
-
-      // Send events to SSE based on session state
-      log.debug('About to send SSE update', {
-        data: {
-          sessionId,
-          hasController: sseConnections.has(sessionId),
-          sseConnectionsSize: sseConnections.size,
-          hasPendingQuestions: !!result.value?.pendingQuestions,
-        },
+    // Send message with token streaming to SSE
+    const onToken = (delta: string) => {
+      broadcastTaskCreationEvent(sessionId, {
+        type: 'task-creation:token',
+        data: { sessionId, delta },
       });
-      if (sseConnections.has(sessionId)) {
-        sendTaskCreationSSEUpdate(sessionId, result.value);
-      } else {
-        log.debug('No SSE controller found for session', { data: { sessionId } });
-      }
+    };
 
-      return json({ ok: true, data: { messageId: 'msg-sent' } });
-    } catch (error) {
-      log.error('Message error', { error });
-      return json(
-        { ok: false, error: { code: 'SERVER_ERROR', message: 'Failed to send message' } },
-        500
-      );
+    // Callback for when background processor publishes an assistant message (sends SSE event)
+    const onMessage = (messageId: string, role: 'user' | 'assistant', content: string) => {
+      log.debug('onMessage callback - sending SSE event');
+      broadcastTaskCreationEvent(sessionId, {
+        type: 'task-creation:message',
+        data: { sessionId, messageId, role, content },
+      });
+    };
+
+    // Callback for when background processor finds a suggestion (sends SSE event)
+    const onSuggestion = (suggestion: {
+      title: string;
+      description: string;
+      labels: string[];
+      priority: string;
+    }) => {
+      log.debug('onSuggestion callback - sending SSE event');
+      broadcastTaskCreationEvent(sessionId, {
+        type: 'task-creation:suggestion',
+        data: { sessionId, suggestion },
+      });
+    };
+
+    const result = await taskCreationService.sendMessage(
+      sessionId,
+      message,
+      onToken,
+      onSuggestion,
+      onMessage
+    );
+
+    if (!result.ok) {
+      // Send error to SSE if connected
+      broadcastTaskCreationEvent(sessionId, {
+        type: 'task-creation:error',
+        data: { sessionId, error: result.error.message },
+      });
+      return json({ ok: false, error: result.error }, 400);
     }
+
+    // Send events to SSE based on session state
+    log.debug('About to send SSE update', {
+      data: {
+        sessionId,
+        hasController: sseConnections.has(sessionId),
+        sseConnectionsSize: sseConnections.size,
+        hasPendingQuestions: !!result.value?.pendingQuestions,
+      },
+    });
+    if (sseConnections.has(sessionId)) {
+      sendTaskCreationSSEUpdate(sessionId, result.value);
+    } else {
+      log.debug('No SSE controller found for session', { data: { sessionId } });
+    }
+
+    return json({ ok: true, data: { messageId: 'msg-sent' } });
   });
 
   // POST /api/tasks/create-with-ai/accept
   app.post('/accept', async (c) => {
-    try {
-      const parsed = await parseJsonBody(c, acceptSchema);
-      if (!parsed.ok) return parsed.response;
-      const { sessionId, overrides } = parsed.data;
+    const parsed = await parseJsonBody(c, acceptSchema);
+    if (!parsed.ok) return parsed.response;
+    const { sessionId, overrides } = parsed.data;
 
-      const result = await taskCreationService.acceptSuggestion(sessionId, overrides);
+    const result = await taskCreationService.acceptSuggestion(sessionId, overrides);
 
-      if (!result.ok) {
-        return json({ ok: false, error: result.error }, 400);
-      }
-
-      // Send completion to SSE
-      broadcastTaskCreationEvent(sessionId, {
-        type: 'task-creation:completed',
-        data: { sessionId, taskId: result.value.taskId },
-      });
-
-      return json({
-        ok: true,
-        data: { taskId: result.value.taskId, sessionId, status: 'completed' },
-      });
-    } catch (error) {
-      log.error('Accept error', { error });
-      return json(
-        { ok: false, error: { code: 'SERVER_ERROR', message: 'Failed to accept suggestion' } },
-        500
-      );
+    if (!result.ok) {
+      return json({ ok: false, error: result.error }, 400);
     }
+
+    // Send completion to SSE
+    broadcastTaskCreationEvent(sessionId, {
+      type: 'task-creation:completed',
+      data: { sessionId, taskId: result.value.taskId },
+    });
+
+    return json({
+      ok: true,
+      data: { taskId: result.value.taskId, sessionId, status: 'completed' },
+    });
   });
 
   // POST /api/tasks/create-with-ai/cancel
   app.post('/cancel', async (c) => {
-    try {
-      const parsed = await parseJsonBody(c, cancelSchema);
-      if (!parsed.ok) return parsed.response;
-      const { sessionId } = parsed.data;
+    const parsed = await parseJsonBody(c, cancelSchema);
+    if (!parsed.ok) return parsed.response;
+    const { sessionId } = parsed.data;
 
-      const result = await taskCreationService.cancel(sessionId);
+    const result = await taskCreationService.cancel(sessionId);
 
-      if (!result.ok) {
-        return json({ ok: false, error: result.error }, 400);
-      }
-
-      // Close SSE connection
-      broadcastTaskCreationEvent(sessionId, {
-        type: 'task-creation:cancelled',
-        data: { sessionId },
-      });
-      closeTaskCreationConnections(sessionId);
-
-      return json({ ok: true, data: { sessionId, status: 'cancelled' } });
-    } catch (error) {
-      log.error('Cancel error', { error });
-      return json(
-        { ok: false, error: { code: 'SERVER_ERROR', message: 'Failed to cancel session' } },
-        500
-      );
+    if (!result.ok) {
+      return json({ ok: false, error: result.error }, 400);
     }
+
+    // Close SSE connection
+    broadcastTaskCreationEvent(sessionId, {
+      type: 'task-creation:cancelled',
+      data: { sessionId },
+    });
+    closeTaskCreationConnections(sessionId);
+
+    return json({ ok: true, data: { sessionId, status: 'cancelled' } });
   });
 
   // POST /api/tasks/create-with-ai/answer
   app.post('/answer', async (c) => {
-    try {
-      const parsed = await parseJsonBody(c, answerSchema);
-      if (!parsed.ok) return parsed.response;
-      const { sessionId, questionsId, answers } = parsed.data;
+    const parsed = await parseJsonBody(c, answerSchema);
+    if (!parsed.ok) return parsed.response;
+    const { sessionId, questionsId, answers } = parsed.data;
 
-      // The service publishes SSE processing/update events internally
-      const result = await taskCreationService.answerQuestions(sessionId, questionsId, answers);
+    // The service publishes SSE processing/update events internally
+    const result = await taskCreationService.answerQuestions(sessionId, questionsId, answers);
 
-      if (!result.ok) {
-        broadcastTaskCreationEvent(sessionId, {
-          type: 'task-creation:error',
-          data: { sessionId, error: result.error.message },
-        });
-        return json({ ok: false, error: result.error }, 400);
-      }
-
-      // Send SSE update based on session state, but skip for duplicate submissions
-      // since the session has already advanced past this question round
-      const alreadyProcessed = 'alreadyProcessed' in result.value && result.value.alreadyProcessed;
-      if (!alreadyProcessed) {
-        sendTaskCreationSSEUpdate(sessionId, result.value);
-      }
-
-      return json({
-        ok: true,
-        data: { sessionId, status: result.value.status, duplicate: !!alreadyProcessed },
+    if (!result.ok) {
+      broadcastTaskCreationEvent(sessionId, {
+        type: 'task-creation:error',
+        data: { sessionId, error: result.error.message },
       });
-    } catch (error) {
-      log.error('Answer error', { error });
-      return json(
-        { ok: false, error: { code: 'SERVER_ERROR', message: 'Failed to answer questions' } },
-        500
-      );
+      return json({ ok: false, error: result.error }, 400);
     }
+
+    // Send SSE update based on session state, but skip for duplicate submissions
+    // since the session has already advanced past this question round
+    const alreadyProcessed = 'alreadyProcessed' in result.value && result.value.alreadyProcessed;
+    if (!alreadyProcessed) {
+      sendTaskCreationSSEUpdate(sessionId, result.value);
+    }
+
+    return json({
+      ok: true,
+      data: { sessionId, status: result.value.status, duplicate: !!alreadyProcessed },
+    });
   });
 
   // POST /api/tasks/create-with-ai/skip
   app.post('/skip', async (c) => {
-    try {
-      const parsed = await parseJsonBody(c, skipSchema);
-      if (!parsed.ok) return parsed.response;
-      const { sessionId } = parsed.data;
+    const parsed = await parseJsonBody(c, skipSchema);
+    if (!parsed.ok) return parsed.response;
+    const { sessionId } = parsed.data;
 
-      const result = await taskCreationService.skipQuestions(sessionId);
+    const result = await taskCreationService.skipQuestions(sessionId);
 
-      if (!result.ok) {
-        broadcastTaskCreationEvent(sessionId, {
-          type: 'task-creation:error',
-          data: { sessionId, error: result.error.message },
-        });
-        return json({ ok: false, error: result.error }, 400);
-      }
-
-      // Send events to SSE based on session state
-      sendTaskCreationSSEUpdate(sessionId, result.value);
-
-      return json({ ok: true, data: { sessionId, status: result.value.status } });
-    } catch (error) {
-      log.error('Skip error', { error });
-      return json(
-        { ok: false, error: { code: 'SERVER_ERROR', message: 'Failed to skip questions' } },
-        500
-      );
+    if (!result.ok) {
+      broadcastTaskCreationEvent(sessionId, {
+        type: 'task-creation:error',
+        data: { sessionId, error: result.error.message },
+      });
+      return json({ ok: false, error: result.error }, 400);
     }
+
+    // Send events to SSE based on session state
+    sendTaskCreationSSEUpdate(sessionId, result.value);
+
+    return json({ ok: true, data: { sessionId, status: result.value.status } });
   });
 
   // GET /api/tasks/create-with-ai/stream

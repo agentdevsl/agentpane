@@ -1,24 +1,27 @@
-import { Lightbulb, MagnifyingGlass, Plus } from '@phosphor-icons/react';
+import { Lightbulb, MagnifyingGlass } from '@phosphor-icons/react';
 import type React from 'react';
-import { useState } from 'react';
-import { Button } from '@/app/components/ui/button';
+import { useCallback } from 'react';
 import { INPUT_CLASS } from './formatters';
 import { InsightCard } from './insight-card';
-import { InsightCreateDialog } from './insight-create-dialog';
 import { useMemory } from './memory-context';
 import type { Insight, SearchResult } from './types';
 
 function SkeletonCard(): React.JSX.Element {
   return (
-    <div className="animate-pulse rounded-lg border border-border bg-surface p-4">
+    <div className="animate-pulse rounded-xl border border-border bg-surface p-4">
       <div className="flex items-center gap-2">
         <div className="h-5 w-16 rounded-full bg-surface-muted" />
-        <div className="h-4 w-24 rounded bg-surface-muted" />
+        <div className="h-4 w-20 rounded bg-surface-muted" />
+        <div className="h-5 w-24 rounded-full bg-surface-muted" />
       </div>
       <div className="mt-3 space-y-2">
         <div className="h-4 w-full rounded bg-surface-muted" />
         <div className="h-4 w-3/4 rounded bg-surface-muted" />
         <div className="h-4 w-1/2 rounded bg-surface-muted" />
+      </div>
+      <div className="mt-3 flex gap-1.5">
+        <div className="h-5 w-14 rounded-full bg-surface-muted" />
+        <div className="h-5 w-18 rounded-full bg-surface-muted" />
       </div>
     </div>
   );
@@ -26,15 +29,17 @@ function SkeletonCard(): React.JSX.Element {
 
 function EmptyState({ isSearch }: { isSearch: boolean }): React.JSX.Element {
   return (
-    <div className="flex flex-col items-center justify-center py-16 text-center">
-      <Lightbulb className="h-10 w-10 text-fg-subtle" />
-      <p className="mt-3 text-sm font-medium text-fg-muted">
+    <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-surface py-20 text-center">
+      <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-[rgba(88,166,255,0.12)]">
+        <Lightbulb className="h-7 w-7 text-[#58a6ff]" />
+      </div>
+      <p className="mt-4 text-sm font-semibold text-fg">
         {isSearch ? 'No matching insights' : 'No insights yet'}
       </p>
       {!isSearch && (
-        <p className="mt-1 max-w-xs text-xs text-fg-subtle">
-          Insights are observations captured from agent sessions — patterns, learnings, and context
-          that help agents work more effectively over time.
+        <p className="mt-1.5 max-w-xs text-xs leading-relaxed text-fg-subtle">
+          Insights are automatically extracted from agent sessions. As agents complete tasks, key
+          patterns, learnings, and context are captured here and fed back into future agent prompts.
         </p>
       )}
     </div>
@@ -71,9 +76,16 @@ export function MemoryInsightsTab(): React.JSX.Element {
     searchResults,
     isSearching,
     deleteInsight,
+    insightInjections,
+    loadInsightInjections,
   } = useMemory();
 
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const handleExpand = useCallback(
+    (insightId: string) => {
+      void loadInsightInjections(insightId);
+    },
+    [loadInsightInjections]
+  );
 
   const displayedItems: Array<Insight | SearchResult> = searchResults ?? insights;
   const isLoading = insightsLoading || isSearching;
@@ -82,26 +94,20 @@ export function MemoryInsightsTab(): React.JSX.Element {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-xs text-fg-subtle">
-        Insights are observations derived from agent sessions — patterns, debugging context, and
-        learnings that persist across conversations and help agents make better decisions.
+        Insights are automatically extracted from agent sessions. Key patterns, debugging context,
+        and learnings persist across conversations and are injected into future agent prompts.
       </p>
 
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1">
-          <MagnifyingGlass className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-muted" />
-          <input
-            type="text"
-            className={`${INPUT_CLASS} w-full pl-9`}
-            placeholder="Search insights..."
-            aria-label="Search insights"
-            value={searchQuery}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
-          />
-        </div>
-        <Button size="sm" className="gap-1.5" onClick={() => setDialogOpen(true)}>
-          <Plus size={14} weight="bold" />
-          Create Insight
-        </Button>
+      <div className="relative">
+        <MagnifyingGlass className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-muted" />
+        <input
+          type="text"
+          className={`${INPUT_CLASS} w-full pl-9`}
+          placeholder="Search insights..."
+          aria-label="Search insights"
+          value={searchQuery}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
+        />
       </div>
 
       {isLoading && (
@@ -118,15 +124,15 @@ export function MemoryInsightsTab(): React.JSX.Element {
             <InsightCard
               key={item.id}
               insight={toInsightCardProps(item)}
+              injections={insightInjections.get(item.id)}
               onDelete={deleteInsight}
+              onExpand={handleExpand}
             />
           ))}
         </div>
       )}
 
       {!isLoading && !hasResults && <EmptyState isSearch={searchResults !== null} />}
-
-      <InsightCreateDialog open={dialogOpen} onOpenChange={setDialogOpen} />
     </div>
   );
 }
