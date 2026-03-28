@@ -29,6 +29,7 @@ export interface InsightInjection {
   sessionId: string;
   agentId: string;
   taskId: string;
+  codespaceId?: string;
   insightCount: number;
   tokenCount: number;
   timestamp: number;

@@ -480,6 +480,7 @@ export class AgentExecutionService {
                 data: {
                   agentId,
                   taskId: task.id,
+                  codespaceId: agent.codespaceId,
                   insightIds: memoryResult.value.sources.insightIds,
                   insightCount: memoryResult.value.sources.insights,
                   tokenCount: memoryResult.value.tokenCount,
