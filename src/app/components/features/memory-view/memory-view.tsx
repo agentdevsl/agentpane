@@ -1,4 +1,4 @@
-import { Brain, ChartBar, Lightbulb, SunHorizon } from '@phosphor-icons/react';
+import { Brain, ChartBar, Lightbulb, Sparkle } from '@phosphor-icons/react';
 import React, { Component, type ErrorInfo, type ReactNode, Suspense } from 'react';
 import { Button } from '@/app/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/app/components/ui/tabs';
@@ -88,8 +88,8 @@ function MemoryViewInner(): React.JSX.Element {
             Skills
           </TabsTrigger>
           <TabsTrigger value="dream" className="gap-1.5">
-            <SunHorizon size={14} />
-            Dreams
+            <Sparkle size={14} />
+            Improve
           </TabsTrigger>
         </TabsList>
 

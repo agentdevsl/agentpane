@@ -5,7 +5,6 @@ import {
   CircleNotch,
   Lightbulb,
   Sparkle,
-  SunHorizon,
 } from '@phosphor-icons/react';
 import type React from 'react';
 import { useMemo } from 'react';
@@ -125,7 +124,7 @@ export function MemoryOverview(): React.JSX.Element {
       items.push({
         label: `Dream cycle: ${session.suggestionsGenerated} suggestions from ${session.skillsAnalyzed} skills`,
         time: formatRelativeDate(session.startedAt),
-        icon: <SunHorizon size={14} />,
+        icon: <Sparkle size={14} />,
         date: new Date(session.startedAt),
       });
     }
@@ -171,8 +170,8 @@ export function MemoryOverview(): React.JSX.Element {
               </>
             ) : (
               <>
-                <SunHorizon size={14} />
-                Dream Cycle
+                <Sparkle size={14} />
+                Analyze Skills
               </>
             )}
           </Button>

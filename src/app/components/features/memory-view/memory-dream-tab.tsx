@@ -1,4 +1,4 @@
-import { CaretDown, CaretUp, CircleNotch, Gear, SunHorizon, Users } from '@phosphor-icons/react';
+import { CaretDown, CaretUp, CircleNotch, Gear, Sparkle, Users } from '@phosphor-icons/react';
 import type React from 'react';
 import { useCallback, useMemo, useState } from 'react';
 import { Button } from '@/app/components/ui/button';
@@ -299,8 +299,8 @@ export function MemoryDreamTab(): React.JSX.Element {
             </>
           ) : (
             <>
-              <SunHorizon size={14} />
-              Run Dream Cycle Now
+              <Sparkle size={14} />
+              Analyze Skills
             </>
           )}
         </Button>
