@@ -40,7 +40,7 @@ const mockMessage: MemoryMessage = {
 const mockContext: MemoryContext = {
   text: '## Memory Context\n\n### Codebase Insights\n- Use Result types\n',
   tokenCount: 15,
-  sources: { insights: 1 },
+  sources: { insights: 1, insightIds: ['ins-1'] },
 };
 
 function createMockStore(): MemoryStoreInterface {

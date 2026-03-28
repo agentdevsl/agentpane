@@ -7,6 +7,7 @@ import type {
   DreamSession,
   HealthStatus,
   Insight,
+  InsightInjection,
   MemoryTab,
   SearchResult,
   SkillDreamOverride,
@@ -41,13 +42,9 @@ interface MemoryContextValue {
   searchResults: Array<SearchResult> | null;
   isSearching: boolean;
   refreshInsights: () => Promise<void>;
-  createInsight: (data: {
-    content: string;
-    source?: Insight['source'];
-    tags?: string[];
-    metadata?: Record<string, unknown>;
-  }) => Promise<boolean>;
   deleteInsight: (id: string) => Promise<boolean>;
+  insightInjections: Map<string, Array<InsightInjection>>;
+  loadInsightInjections: (insightId: string) => Promise<void>;
 
   // Skills
   syncedSkills: Array<SyncedSkill>;
@@ -147,6 +144,12 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
   const [isSearching, setIsSearching] = useState(false);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchRequestIdRef = useRef(0);
+
+  // Insight injections (lazy-loaded per insight)
+  const [insightInjections, setInsightInjections] = useState(
+    () => new Map<string, Array<InsightInjection>>()
+  );
+  const insightInjectionsCacheRef = useRef<Set<string>>(new Set());
 
   // Skills
   const [syncedSkills, setSyncedSkills] = useState<Array<SyncedSkill>>([]);
@@ -352,6 +355,8 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
     setSyncedSkills([]);
     setSkillMetrics([]);
     setExpandedSkillId(null);
+    setInsightInjections(new Map());
+    insightInjectionsCacheRef.current = new Set();
     setSkillExecutions(new Map());
     setDreamSessions([]);
     setIsDreamRunning(false);
@@ -487,24 +492,6 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
     await fetchInsights(codespaceId);
   }, [codespaceId, fetchInsights]);
 
-  const createInsight = useCallback(
-    async (data: {
-      content: string;
-      source?: Insight['source'];
-      tags?: string[];
-      metadata?: Record<string, unknown>;
-    }): Promise<boolean> => {
-      if (!codespaceId) return false;
-      return mutateAndRefresh({
-        action: () => apiClient.memory.createInsight(codespaceId, data),
-        successMessage: 'Insight created',
-        errorMessage: 'Failed to create insight',
-        refresh: () => fetchInsights(codespaceId),
-      });
-    },
-    [codespaceId, fetchInsights]
-  );
-
   const deleteInsight = useCallback(
     async (id: string): Promise<boolean> => {
       return mutateAndRefresh({
@@ -515,6 +502,38 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
       });
     },
     [codespaceId, fetchInsights]
+  );
+
+  const loadInsightInjections = useCallback(
+    async (insightId: string) => {
+      // Use ref-based cache to avoid duplicate fetches
+      if (insightInjectionsCacheRef.current.has(insightId)) return;
+      insightInjectionsCacheRef.current.add(insightId);
+
+      const csId = codespaceId;
+      try {
+        const result = await apiClient.memory.getInsightInjections(insightId);
+        if (currentCodespaceRef.current !== csId) return;
+        if (result.ok) {
+          setInsightInjections((prev: Map<string, Array<InsightInjection>>) => {
+            const next = new Map(prev);
+            next.set(insightId, result.data);
+            return next;
+          });
+        } else {
+          // Remove from cache so retry is possible
+          insightInjectionsCacheRef.current.delete(insightId);
+          toast.error(result.error?.message ?? 'Failed to load injection history');
+        }
+      } catch {
+        // Remove from cache so retry is possible
+        insightInjectionsCacheRef.current.delete(insightId);
+        if (currentCodespaceRef.current === csId) {
+          toast.error('Failed to load injection history');
+        }
+      }
+    },
+    [codespaceId]
   );
 
   const loadExecutions = useCallback(
@@ -663,8 +682,9 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
       searchResults,
       isSearching,
       refreshInsights,
-      createInsight,
       deleteInsight,
+      insightInjections,
+      loadInsightInjections,
       syncedSkills,
       syncedSkillsLoading,
       skillMetrics,
@@ -702,8 +722,9 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
       searchResults,
       isSearching,
       refreshInsights,
-      createInsight,
       deleteInsight,
+      insightInjections,
+      loadInsightInjections,
       syncedSkills,
       syncedSkillsLoading,
       skillMetrics,

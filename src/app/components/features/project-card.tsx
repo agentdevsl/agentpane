@@ -373,7 +373,7 @@ export function AddProjectCard({ onClick }: AddProjectCardProps): React.JSX.Elem
             role="img"
             aria-labelledby="add-project-icon-title"
           >
-            <title id="add-project-icon-title">Add new project</title>
+            <title id="add-project-icon-title">Add new codespace</title>
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -382,8 +382,8 @@ export function AddProjectCard({ onClick }: AddProjectCardProps): React.JSX.Elem
             />
           </svg>
         </div>
-        <div className="font-medium text-fg mb-1">Add New Project</div>
-        <div className="text-sm">Import or create a project</div>
+        <div className="font-medium text-fg mb-1">Add New Codespace</div>
+        <div className="text-sm">Import or create a codespace</div>
       </div>
     </button>
   );

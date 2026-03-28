@@ -37,16 +37,16 @@ export function SuggestionStatusFilter({
             aria-pressed={isActive}
             onClick={() => onChange(key as SuggestionFilter)}
             className={cn(
-              'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors',
+              'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-all duration-150',
               isActive
-                ? 'bg-accent text-white'
-                : 'bg-surface-muted text-fg-muted hover:bg-surface-subtle'
+                ? 'bg-accent text-white shadow-sm'
+                : 'bg-surface-muted text-fg-muted hover:bg-surface-subtle hover:text-fg'
             )}
           >
             {label}
             <span
               className={cn(
-                'rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none',
+                'rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none tabular-nums',
                 isActive ? 'bg-white/20 text-white' : 'bg-surface-subtle text-fg-subtle'
               )}
             >

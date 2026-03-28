@@ -37,6 +37,9 @@ function createTestApp(authOverrides: Partial<AuthContext> = {}) {
   });
 
   app.route('/api/me', routes);
+  app.onError((err, c) => {
+    return c.json({ ok: false, error: { code: 'INTERNAL_ERROR', message: err.message } }, 500);
+  });
   return { app, db };
 }
 
@@ -136,7 +139,7 @@ describe('Me API Routes', () => {
       expect(res.status).toBe(500);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('DB_ERROR');
+      expect(json.error.code).toBe('INTERNAL_ERROR');
     });
   });
 
@@ -272,7 +275,7 @@ describe('Me API Routes', () => {
       expect(res.status).toBe(500);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('DB_ERROR');
+      expect(json.error.code).toBe('INTERNAL_ERROR');
     });
   });
 });

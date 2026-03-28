@@ -49,6 +49,9 @@ function buildApp(db: ReturnType<typeof buildMockDb>, authContext: Partial<AuthC
     await next();
   });
   app.route('/api/invitations', routes);
+  app.onError((err, c) =>
+    c.json({ ok: false, error: { code: 'INTERNAL_ERROR', message: err.message } }, 500)
+  );
 
   return app;
 }
@@ -119,7 +122,7 @@ describe('POST /api/invitations/:token/accept - Accept invitation', () => {
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.ok).toBe(false);
-    expect(body.error.code).toBe('INVALID_TOKEN');
+    expect(body.error.code).toBe('INVALID_ID');
   });
 
   it('returns 404 when invitation not found (expired/used/invalid)', async () => {
@@ -306,6 +309,6 @@ describe('POST /api/invitations/:token/accept - Accept invitation', () => {
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.ok).toBe(false);
-    expect(body.error.code).toBe('DB_ERROR');
+    expect(body.error.code).toBe('INTERNAL_ERROR');
   });
 });

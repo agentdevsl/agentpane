@@ -11,7 +11,7 @@ import { users } from '../../db/schema/sqlite/users';
 import { type AuthContext, SESSION_COOKIE_NAME } from '../../lib/api/auth-middleware.js';
 import { createLogger } from '../../lib/logging/logger';
 import type { Database } from '../../types/database';
-import { hashToken, json } from '../shared';
+import { hashToken, json, requireQueryParam } from '../shared';
 
 const log = createLogger('AuthRoutes');
 const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60; // 30 days
@@ -55,18 +55,10 @@ export function createAuthRoutes({ db }: AuthDeps) {
 
   // GET /api/auth/github/callback — Handle OAuth callback
   app.get('/github/callback', async (c) => {
-    const code = c.req.query('code');
-    const state = c.req.query('state');
-
-    if (!code || !state) {
-      return json(
-        {
-          ok: false,
-          error: { code: 'INVALID_CALLBACK', message: 'Missing code or state parameter' },
-        },
-        400
-      );
-    }
+    const { value: code, error: codeError } = requireQueryParam(c, 'code');
+    if (codeError) return codeError;
+    const { value: state, error: stateError } = requireQueryParam(c, 'state');
+    if (stateError) return stateError;
 
     // Verify state parameter (CSRF protection)
     const cookies = c.req.header('Cookie') ?? '';
@@ -87,6 +79,8 @@ export function createAuthRoutes({ db }: AuthDeps) {
       );
     }
 
+    // The entire OAuth flow (external HTTP + DB operations) needs error handling
+    // because failures should return OAUTH_FAILED and clear the state cookie
     try {
       // Exchange code for access token
       const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
@@ -143,7 +137,6 @@ export function createAuthRoutes({ db }: AuthDeps) {
           400
         );
       }
-
       // Upsert user
       let user = await db.query.users.findFirst({
         where: eq(users.githubId, githubUser.id),
@@ -214,10 +207,14 @@ export function createAuthRoutes({ db }: AuthDeps) {
       const redirectUrl = process.env.APP_URL ?? 'http://localhost:3000';
       return c.redirect(redirectUrl);
     } catch (error) {
-      log.error('OAuth callback failed', { error });
+      log.error('OAuth callback failed during user/session creation', { error });
+      // Clear OAuth state cookie even on failure
+      c.header('Set-Cookie', 'oauth_state=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0', {
+        append: true,
+      });
       return json(
         { ok: false, error: { code: 'OAUTH_FAILED', message: 'Authentication failed' } },
-        500
+        400
       );
     }
   });

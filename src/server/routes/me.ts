@@ -8,12 +8,9 @@ import { teamMembers } from '../../db/schema/sqlite/team-members';
 import { teams } from '../../db/schema/sqlite/teams';
 import { users } from '../../db/schema/sqlite/users';
 import type { AuthContext } from '../../lib/api/auth-middleware';
-import { createLogger } from '../../lib/logging/logger';
 import type { Database } from '../../types/database';
 import { json } from '../shared';
 import { parseJsonBody, updateProfileSchema } from '../validation';
-
-const log = createLogger('MeRoutes');
 
 interface MeDeps {
   db: Database;
@@ -42,56 +39,48 @@ export function createMeRoutes({ db }: MeDeps) {
       });
     }
 
-    try {
-      const user = await db.query.users.findFirst({
-        where: eq(users.id, auth.userId),
-      });
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, auth.userId),
+    });
 
-      if (!user) {
-        return json({ ok: false, error: { code: 'NOT_FOUND', message: 'User not found' } }, 404);
-      }
-
-      // Get team memberships with team details
-      const memberships = await db
-        .select({
-          teamId: teamMembers.teamId,
-          role: teamMembers.role,
-          joinedAt: teamMembers.joinedAt,
-          teamName: teams.name,
-          teamSlug: teams.slug,
-        })
-        .from(teamMembers)
-        .leftJoin(teams, eq(teamMembers.teamId, teams.id))
-        .where(eq(teamMembers.userId, auth.userId));
-
-      return json({
-        ok: true,
-        data: {
-          id: user.id,
-          githubId: user.githubId,
-          githubLogin: user.githubLogin,
-          name: user.name,
-          email: user.email,
-          avatarUrl: user.avatarUrl,
-          authMethod: auth.authMethod,
-          createdAt: user.createdAt,
-          updatedAt: user.updatedAt,
-          teams: memberships.map((m) => ({
-            teamId: m.teamId,
-            role: m.role,
-            joinedAt: m.joinedAt,
-            name: m.teamName,
-            slug: m.teamSlug,
-          })),
-        },
-      });
-    } catch (error) {
-      log.error('Failed to get profile', { error });
-      return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to get profile' } },
-        500
-      );
+    if (!user) {
+      return json({ ok: false, error: { code: 'NOT_FOUND', message: 'User not found' } }, 404);
     }
+
+    // Get team memberships with team details
+    const memberships = await db
+      .select({
+        teamId: teamMembers.teamId,
+        role: teamMembers.role,
+        joinedAt: teamMembers.joinedAt,
+        teamName: teams.name,
+        teamSlug: teams.slug,
+      })
+      .from(teamMembers)
+      .leftJoin(teams, eq(teamMembers.teamId, teams.id))
+      .where(eq(teamMembers.userId, auth.userId));
+
+    return json({
+      ok: true,
+      data: {
+        id: user.id,
+        githubId: user.githubId,
+        githubLogin: user.githubLogin,
+        name: user.name,
+        email: user.email,
+        avatarUrl: user.avatarUrl,
+        authMethod: auth.authMethod,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+        teams: memberships.map((m) => ({
+          teamId: m.teamId,
+          role: m.role,
+          joinedAt: m.joinedAt,
+          name: m.teamName,
+          slug: m.teamSlug,
+        })),
+      },
+    });
   });
 
   // PATCH /api/me - Update current user profile
@@ -108,54 +97,46 @@ export function createMeRoutes({ db }: MeDeps) {
     const parsed = await parseJsonBody(c, updateProfileSchema);
     if (!parsed.ok) return parsed.response;
 
-    try {
-      // H9: Check email uniqueness before update (in transaction to avoid TOCTOU race)
-      const [updated, txError] = await db.transaction(async (tx) => {
-        if (parsed.data.email) {
-          const existingEmail = await tx
-            .select({ id: users.id })
-            .from(users)
-            .where(and(eq(users.email, parsed.data.email), ne(users.id, auth.userId)));
-          if (existingEmail.length > 0) {
-            return [null, 'EMAIL_ALREADY_EXISTS'] as const;
-          }
+    // H9: Check email uniqueness before update (in transaction to avoid TOCTOU race)
+    const [updated, txError] = await db.transaction(async (tx) => {
+      if (parsed.data.email) {
+        const existingEmail = await tx
+          .select({ id: users.id })
+          .from(users)
+          .where(and(eq(users.email, parsed.data.email), ne(users.id, auth.userId)));
+        if (existingEmail.length > 0) {
+          return [null, 'EMAIL_ALREADY_EXISTS'] as const;
         }
-        const result = await tx
-          .update(users)
-          .set({ ...parsed.data, updatedAt: new Date().toISOString() })
-          .where(eq(users.id, auth.userId))
-          .returning();
-        return [result[0], null] as const;
-      });
-
-      if (txError === 'EMAIL_ALREADY_EXISTS') {
-        return json(
-          { ok: false, error: { code: 'EMAIL_ALREADY_EXISTS', message: 'Email already in use' } },
-          409
-        );
       }
+      const result = await tx
+        .update(users)
+        .set({ ...parsed.data, updatedAt: new Date().toISOString() })
+        .where(eq(users.id, auth.userId))
+        .returning();
+      return [result[0], null] as const;
+    });
 
-      if (!updated) {
-        return json({ ok: false, error: { code: 'NOT_FOUND', message: 'User not found' } }, 404);
-      }
-
-      return json({
-        ok: true,
-        data: {
-          id: updated.id,
-          githubLogin: updated.githubLogin,
-          name: updated.name,
-          email: updated.email,
-          avatarUrl: updated.avatarUrl,
-        },
-      });
-    } catch (error) {
-      log.error('Failed to update profile', { error });
+    if (txError === 'EMAIL_ALREADY_EXISTS') {
       return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to update profile' } },
-        500
+        { ok: false, error: { code: 'EMAIL_ALREADY_EXISTS', message: 'Email already in use' } },
+        409
       );
     }
+
+    if (!updated) {
+      return json({ ok: false, error: { code: 'NOT_FOUND', message: 'User not found' } }, 404);
+    }
+
+    return json({
+      ok: true,
+      data: {
+        id: updated.id,
+        githubLogin: updated.githubLogin,
+        name: updated.name,
+        email: updated.email,
+        avatarUrl: updated.avatarUrl,
+      },
+    });
   });
 
   return app;
