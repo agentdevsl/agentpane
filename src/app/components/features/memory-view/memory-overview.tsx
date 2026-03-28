@@ -5,7 +5,6 @@ import {
   CircleNotch,
   Lightbulb,
   Sparkle,
-  SunHorizon,
 } from '@phosphor-icons/react';
 import type React from 'react';
 import { useMemo } from 'react';
@@ -14,19 +13,63 @@ import { cn } from '@/lib/utils/cn';
 import { formatCost, formatRelativeDate } from './formatters';
 import { useMemory } from './memory-context';
 
+// =============================================================================
+// Constants
+// =============================================================================
+
+const TILE_STYLES = {
+  insights: {
+    badge: 'bg-[rgba(88,166,255,0.12)] text-[#58a6ff]',
+    gradient: {
+      background: 'linear-gradient(135deg, rgba(88,166,255,0.06) 0%, transparent 60%)',
+    },
+  },
+  skills: {
+    badge: 'bg-[rgba(63,185,80,0.12)] text-[#3fb950]',
+    gradient: {
+      background: 'linear-gradient(135deg, rgba(63,185,80,0.06) 0%, transparent 60%)',
+    },
+  },
+  runs: {
+    badge: 'bg-[rgba(163,113,247,0.12)] text-[#a371f7]',
+    gradient: {
+      background: 'linear-gradient(135deg, rgba(163,113,247,0.06) 0%, transparent 60%)',
+    },
+  },
+  suggestions: {
+    badge: 'bg-[rgba(210,153,34,0.12)] text-[#d29922]',
+    gradient: {
+      background: 'linear-gradient(135deg, rgba(210,153,34,0.06) 0%, transparent 60%)',
+    },
+  },
+  suggestionsInactive: {
+    badge: 'bg-[rgba(139,148,158,0.12)] text-[#8b949e]',
+    gradient: {},
+  },
+} as const;
+
+const ACTIVITY_ICON_STYLES = {
+  insight: 'bg-[rgba(88,166,255,0.12)] text-[#58a6ff]',
+  dream: 'bg-[rgba(163,113,247,0.12)] text-[#a371f7]',
+} as const;
+
+// =============================================================================
+// Metric tile
+// =============================================================================
+
 function MetricTile({
   icon: Icon,
   label,
   value,
   sublabel,
-  accent,
+  tileStyle,
   onClick,
 }: {
   icon: React.ComponentType<{ size?: number; className?: string }>;
   label: string;
   value: string | number;
   sublabel?: string;
-  accent?: string;
+  tileStyle: { badge: string; gradient: React.CSSProperties };
   onClick?: () => void;
 }): React.JSX.Element {
   const Wrapper = onClick ? 'button' : 'div';
@@ -34,20 +77,23 @@ function MetricTile({
   return (
     <Wrapper
       className={cn(
-        'group relative flex flex-col gap-1 rounded-lg border border-border bg-surface p-4 text-left transition',
-        onClick && 'cursor-pointer hover:border-accent/40 hover:shadow-sm'
+        'group relative flex flex-col gap-1 rounded-xl border bg-surface p-4 text-left transition-all duration-200',
+        onClick
+          ? 'cursor-pointer border-border hover:border-fg-subtle hover:shadow-md'
+          : 'border-border'
       )}
+      style={tileStyle.gradient}
       onClick={onClick}
       type={onClick ? 'button' : undefined}
     >
       <div className="flex items-center justify-between">
-        <div className={cn('rounded-md p-1.5', accent ?? 'bg-surface-muted')}>
-          <Icon size={16} className="text-fg-muted" />
+        <div className={cn('flex h-8 w-8 items-center justify-center rounded-lg', tileStyle.badge)}>
+          <Icon size={18} />
         </div>
         {onClick && (
           <ArrowRight
             size={14}
-            className="text-fg-subtle opacity-0 transition group-hover:opacity-100"
+            className="text-fg-subtle opacity-0 transition-opacity duration-150 group-hover:opacity-100"
           />
         )}
       </div>
@@ -58,31 +104,55 @@ function MetricTile({
   );
 }
 
+// =============================================================================
+// Activity feed
+// =============================================================================
+
 function ActivityFeed({
   items,
 }: {
-  items: Array<{ label: string; time: string; icon: React.ReactNode }>;
+  items: Array<{ label: string; time: string; icon: React.ReactNode; iconStyle: string }>;
 }): React.JSX.Element {
   if (items.length === 0) {
     return (
-      <div className="flex items-center justify-center rounded-lg border border-dashed border-border py-8">
-        <p className="text-xs text-fg-subtle">No recent activity</p>
+      <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-surface py-12 text-center">
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[rgba(139,148,158,0.12)]">
+          <ChartBar className="h-5 w-5 text-[#8b949e]" />
+        </div>
+        <p className="mt-3 text-sm font-medium text-fg-muted">No recent activity</p>
+        <p className="mt-1 text-xs text-fg-subtle">
+          Activity from insights and upskill cycles will appear here
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col divide-y divide-border rounded-lg border border-border bg-surface">
+    <div className="flex flex-col gap-1.5">
       {items.map((item, i) => (
-        <div key={i} className="flex items-center gap-3 px-4 py-2.5">
-          <div className="flex-shrink-0 text-fg-subtle">{item.icon}</div>
-          <span className="flex-1 truncate text-sm text-fg">{item.label}</span>
+        <div
+          key={i}
+          className="flex items-center gap-3 rounded-lg border border-border bg-surface px-4 py-3 transition-all duration-200 hover:border-fg-subtle hover:shadow-sm"
+        >
+          <div
+            className={cn(
+              'flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-[6px]',
+              item.iconStyle
+            )}
+          >
+            {item.icon}
+          </div>
+          <span className="flex-1 text-sm text-fg line-clamp-2">{item.label}</span>
           <span className="flex-shrink-0 text-[11px] tabular-nums text-fg-subtle">{item.time}</span>
         </div>
       ))}
     </div>
   );
 }
+
+// =============================================================================
+// Main overview
+// =============================================================================
 
 export function MemoryOverview(): React.JSX.Element {
   const {
@@ -110,22 +180,30 @@ export function MemoryOverview(): React.JSX.Element {
   const totalCost = skillMetrics.reduce((sum, m) => sum + (m.avgCostUsd ?? 0) * m.totalRuns, 0);
 
   const recentActivity = useMemo(() => {
-    const items: Array<{ label: string; time: string; icon: React.ReactNode; date: Date }> = [];
+    const items: Array<{
+      label: string;
+      time: string;
+      icon: React.ReactNode;
+      iconStyle: string;
+      date: Date;
+    }> = [];
 
     for (const insight of insights.slice(0, 3)) {
       items.push({
-        label: insight.content.slice(0, 80) + (insight.content.length > 80 ? '...' : ''),
+        label: insight.content,
         time: formatRelativeDate(insight.createdAt),
-        icon: <Lightbulb size={14} />,
+        icon: <Lightbulb size={14} weight="fill" />,
+        iconStyle: ACTIVITY_ICON_STYLES.insight,
         date: new Date(insight.createdAt),
       });
     }
 
     for (const session of dreamSessions.slice(0, 2)) {
       items.push({
-        label: `Dream cycle: ${session.suggestionsGenerated} suggestions from ${session.skillsAnalyzed} skills`,
+        label: `Upskill cycle: ${session.suggestionsGenerated} suggestions from ${session.skillsAnalyzed} skills`,
         time: formatRelativeDate(session.startedAt),
-        icon: <SunHorizon size={14} />,
+        icon: <Sparkle size={14} weight="fill" />,
+        iconStyle: ACTIVITY_ICON_STYLES.dream,
         date: new Date(session.startedAt),
       });
     }
@@ -136,7 +214,7 @@ export function MemoryOverview(): React.JSX.Element {
   return (
     <div className="flex flex-col gap-6">
       {/* Status bar */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between rounded-lg border border-border bg-surface px-4 py-3">
         <div className="flex items-center gap-2.5">
           <span
             className={cn(
@@ -150,7 +228,7 @@ export function MemoryOverview(): React.JSX.Element {
             {healthLoading ? 'Connecting...' : isAvailable ? 'Memory Online' : 'Memory Offline'}
           </span>
           {codespaceId === null && (
-            <span className="rounded-full bg-accent-subtle px-2 py-0.5 text-[10px] font-medium text-accent">
+            <span className="rounded-full bg-accent-subtle px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-accent">
               Global
             </span>
           )}
@@ -171,8 +249,8 @@ export function MemoryOverview(): React.JSX.Element {
               </>
             ) : (
               <>
-                <SunHorizon size={14} />
-                Dream Cycle
+                <Sparkle size={14} />
+                Analyze Skills
               </>
             )}
           </Button>
@@ -186,7 +264,7 @@ export function MemoryOverview(): React.JSX.Element {
           label="Insights"
           value={insightCount}
           sublabel={insightCount > 0 ? 'Stored observations' : 'None captured yet'}
-          accent="bg-accent-subtle"
+          tileStyle={TILE_STYLES.insights}
           onClick={() => setActiveTab('insights')}
         />
         <MetricTile
@@ -198,7 +276,7 @@ export function MemoryOverview(): React.JSX.Element {
               ? `${skillMetrics.length} with execution data`
               : 'Synced from templates'
           }
-          accent="bg-success-subtle"
+          tileStyle={TILE_STYLES.skills}
           onClick={() => setActiveTab('skills')}
         />
         <MetricTile
@@ -206,7 +284,7 @@ export function MemoryOverview(): React.JSX.Element {
           label="Total Runs"
           value={totalRuns}
           sublabel={totalCost > 0 ? `${formatCost(totalCost)} total cost` : 'No executions yet'}
-          accent="bg-done-subtle"
+          tileStyle={TILE_STYLES.runs}
           onClick={() => setActiveTab('skills')}
         />
         <MetricTile
@@ -214,18 +292,16 @@ export function MemoryOverview(): React.JSX.Element {
           label="Suggestions"
           value={pendingCount}
           sublabel={pendingCount > 0 ? 'Pending review' : 'None pending'}
-          accent={pendingCount > 0 ? 'bg-attention-subtle' : 'bg-surface-muted'}
+          tileStyle={pendingCount > 0 ? TILE_STYLES.suggestions : TILE_STYLES.suggestionsInactive}
           onClick={pendingCount > 0 ? () => setActiveTab('dream') : undefined}
         />
       </div>
 
       {/* Recent activity */}
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-medium uppercase tracking-wider text-fg-subtle">
-            Recent Activity
-          </h3>
-        </div>
+      <div className="flex flex-col gap-3">
+        <h3 className="text-xs font-medium uppercase tracking-wider text-fg-subtle">
+          Recent Activity
+        </h3>
         <ActivityFeed items={recentActivity} />
       </div>
     </div>

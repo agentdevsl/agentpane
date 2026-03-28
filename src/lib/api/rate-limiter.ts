@@ -34,6 +34,26 @@ export interface RateLimitOptions {
   keyOnToken?: boolean;
 }
 
+// Module-level shared state: a single cleanup interval iterates all stores
+const allStores: Map<string, RateLimitEntry>[] = [];
+let cleanupStarted = false;
+
+function ensureCleanup() {
+  if (cleanupStarted) return;
+  cleanupStarted = true;
+  const interval = setInterval(() => {
+    const now = Date.now();
+    for (const store of allStores) {
+      for (const [key, entry] of store) {
+        if (entry.resetAt <= now) {
+          store.delete(key);
+        }
+      }
+    }
+  }, 60_000);
+  interval.unref();
+}
+
 /**
  * Create a rate limiting middleware.
  *
@@ -50,17 +70,8 @@ export function rateLimiter(opts?: RateLimitOptions) {
   const keyOnToken = opts?.keyOnToken ?? false;
 
   const store = new Map<string, RateLimitEntry>();
-
-  // Cleanup stale entries every 60s
-  const cleanupInterval = setInterval(() => {
-    const now = Date.now();
-    for (const [key, entry] of store) {
-      if (entry.resetAt <= now) {
-        store.delete(key);
-      }
-    }
-  }, 60_000);
-  cleanupInterval.unref();
+  allStores.push(store);
+  ensureCleanup();
 
   return async (c: Context, next: Next) => {
     let rateLimitKey: string | null = null;

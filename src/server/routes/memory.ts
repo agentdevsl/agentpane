@@ -5,12 +5,15 @@
  * and skill improvement suggestions.
  */
 
+import { and, eq, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { codespaces, sessionEvents, tasks } from '../../db/schema/index.js';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { DreamService } from '../../services/memory/dream.service.js';
 import type { MemoryService } from '../../services/memory/index.js';
 import type { SkillTrackingService } from '../../services/memory/skill-tracking.service.js';
+import type { Database } from '../../types/database.js';
 import { json } from '../shared.js';
 
 const log = createLogger('MemoryRoutes');
@@ -55,12 +58,14 @@ interface MemoryDeps {
   memoryService: MemoryService;
   skillTrackingService: SkillTrackingService;
   dreamService: DreamService;
+  db: Database;
 }
 
 export function createMemoryRoutes({
   memoryService,
   skillTrackingService,
   dreamService,
+  db,
 }: MemoryDeps) {
   const app = new Hono();
 
@@ -261,6 +266,115 @@ export function createMemoryRoutes({
       return json({ ok: true, data: null });
     });
   });
+
+  // --- Insight injection history endpoint ---
+
+  app.get('/insights/:insightId/injections', (c) =>
+    wrapHandler('Failed to get insight injections', async () => {
+      const insightId = c.req.param('insightId');
+      if (!insightId || !/^[a-z0-9]{20,30}$/.test(insightId)) {
+        return json(
+          { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid insightId' } },
+          400
+        );
+      }
+      const { page, size } = parsePagination(c);
+      const offset = (page - 1) * size;
+
+      const rows = await db
+        .select({
+          id: sessionEvents.id,
+          sessionId: sessionEvents.sessionId,
+          data: sessionEvents.data,
+          timestamp: sessionEvents.timestamp,
+        })
+        .from(sessionEvents)
+        .where(
+          and(
+            eq(sessionEvents.type, 'memory:insights_injected'),
+            sql`json_extract(${sessionEvents.data}, '$.insightIds') LIKE ${`%${insightId}%`}`
+          )
+        )
+        .orderBy(sql`${sessionEvents.timestamp} DESC`)
+        .limit(size)
+        .offset(offset);
+
+      // Filter to rows that actually contain the insightId in the array
+      const filtered = rows.filter((row) => {
+        const data = row.data as Record<string, unknown> | null;
+        const ids = data?.insightIds;
+        return Array.isArray(ids) && ids.includes(insightId);
+      });
+
+      // Resolve codespace names and task titles
+      const codespaceIds = new Set<string>();
+      const taskIds = new Set<string>();
+      for (const row of filtered) {
+        const data = row.data as Record<string, unknown>;
+        if (typeof data.codespaceId === 'string') codespaceIds.add(data.codespaceId);
+        if (typeof data.taskId === 'string') taskIds.add(data.taskId);
+      }
+
+      const codespaceNames = new Map<string, string>();
+      if (codespaceIds.size > 0) {
+        try {
+          const csRows = await db
+            .select({ id: codespaces.id, name: codespaces.name })
+            .from(codespaces)
+            .where(
+              sql`${codespaces.id} IN (${sql.join(
+                [...codespaceIds].map((id) => sql`${id}`),
+                sql`, `
+              )})`
+            );
+          for (const cs of csRows) codespaceNames.set(cs.id, cs.name);
+        } catch (err) {
+          log.warn('Failed to resolve codespace names for injection history', { error: err });
+        }
+      }
+
+      const taskTitles = new Map<string, string>();
+      if (taskIds.size > 0) {
+        try {
+          const taskRows = await db
+            .select({ id: tasks.id, title: tasks.title })
+            .from(tasks)
+            .where(
+              sql`${tasks.id} IN (${sql.join(
+                [...taskIds].map((id) => sql`${id}`),
+                sql`, `
+              )})`
+            );
+          for (const t of taskRows) taskTitles.set(t.id, t.title);
+        } catch (err) {
+          log.warn('Failed to resolve task titles for injection history', { error: err });
+        }
+      }
+
+      const injections = filtered.map((row) => {
+        const data = row.data as Record<string, unknown>;
+        const csId = typeof data.codespaceId === 'string' ? data.codespaceId : null;
+        const tId = typeof data.taskId === 'string' ? data.taskId : null;
+        return {
+          sessionId: row.sessionId,
+          agentId: typeof data.agentId === 'string' ? data.agentId : '',
+          taskId: tId,
+          taskTitle: tId ? (taskTitles.get(tId) ?? null) : null,
+          codespaceId: csId,
+          codespaceName: csId ? (codespaceNames.get(csId) ?? null) : null,
+          insightCount: typeof data.insightCount === 'number' ? data.insightCount : 0,
+          tokenCount: typeof data.tokenCount === 'number' ? data.tokenCount : 0,
+          timestamp: row.timestamp,
+        };
+      });
+
+      return json({
+        ok: true,
+        data: injections,
+        pagination: { page, size, hasMore: filtered.length === size },
+      });
+    })
+  );
 
   // ===========================================================================
   // Codespace-scoped endpoints

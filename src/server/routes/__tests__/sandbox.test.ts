@@ -23,6 +23,9 @@ function createTestApp() {
   });
   const app = new Hono();
   app.route('/api/sandbox-configs', routes);
+  app.onError((err, c) => {
+    return c.json({ ok: false, error: { code: 'INTERNAL_ERROR', message: err.message } }, 500);
+  });
   return { app, sandboxConfigService };
 }
 
@@ -87,7 +90,7 @@ describe('Sandbox Config API Routes', () => {
       expect(sandboxConfigService.list).toHaveBeenCalledWith({ limit: 100, offset: 0 });
     });
 
-    it('defaults limit to 50 when 0 is passed (falsy)', async () => {
+    it('clamps limit to 1 when 0 is passed', async () => {
       const { app, sandboxConfigService } = createTestApp();
       sandboxConfigService.list.mockResolvedValue({
         ok: true,
@@ -96,8 +99,8 @@ describe('Sandbox Config API Routes', () => {
 
       await request(app, 'GET', '/api/sandbox-configs?limit=0');
 
-      // parseInt('0') || 50 evaluates to 50 because 0 is falsy
-      expect(sandboxConfigService.list).toHaveBeenCalledWith({ limit: 50, offset: 0 });
+      // parseLimit clamps to Math.max(1, ...) so 0 becomes 1
+      expect(sandboxConfigService.list).toHaveBeenCalledWith({ limit: 1, offset: 0 });
     });
 
     it('clamps limit to min 1', async () => {
@@ -137,7 +140,7 @@ describe('Sandbox Config API Routes', () => {
       expect(res.status).toBe(500);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('DB_ERROR');
+      expect(json.error.code).toBe('INTERNAL_ERROR');
     });
 
     it('redacts sensitive fields from returned configs', async () => {
@@ -313,7 +316,7 @@ describe('Sandbox Config API Routes', () => {
       expect(res.status).toBe(500);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('DB_ERROR');
+      expect(json.error.code).toBe('INTERNAL_ERROR');
     });
 
     it('redacts sensitive fields in create response', async () => {
@@ -501,7 +504,7 @@ describe('Sandbox Config API Routes', () => {
       expect(res.status).toBe(500);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('DB_ERROR');
+      expect(json.error.code).toBe('INTERNAL_ERROR');
     });
 
     it('redacts sensitive fields in get response', async () => {
@@ -626,7 +629,7 @@ describe('Sandbox Config API Routes', () => {
       expect(res.status).toBe(500);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('DB_ERROR');
+      expect(json.error.code).toBe('INTERNAL_ERROR');
     });
 
     it('redacts sensitive fields in update response', async () => {
@@ -748,7 +751,7 @@ describe('Sandbox Config API Routes', () => {
       expect(res.status).toBe(500);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('DB_ERROR');
+      expect(json.error.code).toBe('INTERNAL_ERROR');
     });
   });
 });

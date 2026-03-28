@@ -97,6 +97,9 @@ function buildApp(
     await next();
   });
   app.route('/api/teams/:id/github-token', routes);
+  app.onError((err, c) =>
+    c.json({ ok: false, error: { code: 'INTERNAL_ERROR', message: err.message } }, 500)
+  );
 
   return app;
 }
@@ -382,7 +385,7 @@ describe('PUT /api/teams/:id/github-token - Set token', () => {
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.ok).toBe(false);
-    expect(body.error.code).toBe('DB_ERROR');
+    expect(body.error.code).toBe('INTERNAL_ERROR');
   });
 
   it('returns 403 when user lacks admin role (non-dev mode)', async () => {
@@ -475,7 +478,7 @@ describe('DELETE /api/teams/:id/github-token - Remove token', () => {
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.ok).toBe(false);
-    expect(body.error.code).toBe('DB_ERROR');
+    expect(body.error.code).toBe('INTERNAL_ERROR');
   });
 
   it('returns 403 when user lacks admin role (non-dev mode)', async () => {

@@ -217,13 +217,14 @@ export class MemoryStoreService {
       }
 
       if (rows.length === 0) {
-        return ok({ text: '', tokenCount: 0, sources: { insights: 0 } });
+        return ok({ text: '', tokenCount: 0, sources: { insights: 0, insightIds: [] } });
       }
 
       // Build markdown context, trimming to fit within maxTokens
       const header = '## Memory Context\n\n### Codebase Insights\n';
       let text = header;
       let insightCount = 0;
+      const insightIds: string[] = [];
 
       for (const row of rows) {
         const line = `- ${row.content}\n`;
@@ -233,6 +234,7 @@ export class MemoryStoreService {
         }
         text += line;
         insightCount++;
+        insightIds.push(row.id);
       }
 
       const tokenCount = estimateTokens(text);
@@ -240,7 +242,7 @@ export class MemoryStoreService {
       return ok({
         text,
         tokenCount,
-        sources: { insights: insightCount },
+        sources: { insights: insightCount, insightIds },
       });
     } catch (error) {
       log.error('Failed to assemble context', {

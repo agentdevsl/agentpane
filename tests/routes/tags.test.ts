@@ -73,6 +73,9 @@ function createApp(routes: Hono, mountPath: string, auth: AuthContext = DEV_AUTH
     return next();
   });
   app.route(mountPath, routes);
+  app.onError((err, c) =>
+    c.json({ ok: false, error: { code: 'INTERNAL_ERROR', message: err.message } }, 500)
+  );
   return app;
 }
 
@@ -427,7 +430,7 @@ describe('GET /tags?teamId - List tags with usage counts (H3 batch)', () => {
 
     const res = await app.request('/tags');
     expect(res.status).toBe(400);
-    expect((await res.json()).error.code).toBe('VALIDATION_ERROR');
+    expect((await res.json()).error.code).toBe('MISSING_PARAMS');
   });
 
   it('returns 400 when teamId contains invalid characters', async () => {
@@ -436,7 +439,7 @@ describe('GET /tags?teamId - List tags with usage counts (H3 batch)', () => {
 
     const res = await app.request('/tags?teamId=!!!invalid!!!');
     expect(res.status).toBe(400);
-    expect((await res.json()).error.code).toBe('VALIDATION_ERROR');
+    expect((await res.json()).error.code).toBe('INVALID_ID');
   });
 
   it('requires at minimum viewer role — non-member gets forbidden/not-found', async () => {
@@ -600,7 +603,7 @@ describe('DELETE /tags/:id - Delete tag', () => {
 
     const res = await app.request('/tags/tag-1', { method: 'DELETE' });
     expect(res.status).toBe(500);
-    expect((await res.json()).error.code).toBe('DB_ERROR');
+    expect((await res.json()).error.code).toBe('INTERNAL_ERROR');
   });
 });
 

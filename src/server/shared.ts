@@ -69,6 +69,20 @@ export function parseLimit(c: Context, defaultLimit = 50, maxLimit = 100): numbe
   return Math.max(1, Math.min(maxLimit, parsed));
 }
 
+/**
+ * Parse and validate the `offset` query parameter.
+ * @param c - Hono context
+ * @param defaultOffset - Default value when param is missing (default: 0)
+ * @returns Parsed offset, minimum 0
+ */
+export function parseOffset(c: Context, defaultOffset = 0): number {
+  const raw = c.req.query('offset');
+  if (!raw) return defaultOffset;
+  const parsed = Number.parseInt(raw, 10);
+  if (Number.isNaN(parsed)) return defaultOffset;
+  return Math.max(0, parsed);
+}
+
 // CORS headers for SSE endpoints that bypass Hono middleware
 export const corsHeaders = {
   'Access-Control-Allow-Origin': 'http://localhost:3000',
@@ -205,19 +219,14 @@ export async function requireTeamRoleResolved(
 }
 
 /**
- * Require that the authenticated user has at least the given project role.
- * Dev-mode users always pass. Returns null if authorized, or a 403 Response if the user lacks the required role (or has no project access).
- */
-/**
  * Validate a route ID parameter and return an error response if invalid.
  *
- * Eliminates the repeated `isValidId` + `json(400)` boilerplate found in 85+
- * route handlers. Returns `null` when the ID is valid, or a 400 JSON Response
- * when it is not.
+ * Eliminates the repeated `isValidId` + `json(400)` boilerplate found in
+ * many route handlers.
  *
  * @example
- *   const bad = validateIdParam(c, 'projectId');
- *   if (bad) return bad;
+ *   const { id, error } = validateIdParam(c, 'id');
+ *   if (error) return error;
  *
  * @see CQ-003 in specs/reviews/2026-03-architecture/FINDINGS-MATRIX.md
  */
@@ -251,7 +260,58 @@ export function validateIdParam(
 export function errorResponse(result: {
   error: { code: string; message: string; status: number };
 }): Response {
-  return json({ ok: false, error: result.error }, result.error.status);
+  return json({ ok: false, error: result.error }, result.error.status || 500);
+}
+
+/**
+ * Require a query parameter to be present.
+ * Returns the value if present, or a 400 error response if missing.
+ */
+export function requireQueryParam(
+  c: Context,
+  paramName: string
+): { value: string; error: null } | { value: null; error: Response } {
+  const value = c.req.query(paramName);
+  if (!value) {
+    return {
+      value: null,
+      error: json(
+        { ok: false, error: { code: 'MISSING_PARAMS', message: `${paramName} is required` } },
+        400
+      ),
+    };
+  }
+  return { value, error: null };
+}
+
+/**
+ * Require a query parameter that must also be a valid ID.
+ * Combines presence check + isValidId format validation.
+ */
+export function requireQueryId(
+  c: Context,
+  paramName: string
+): { id: string; error: null } | { id: null; error: Response } {
+  const value = c.req.query(paramName);
+  if (!value) {
+    return {
+      id: null,
+      error: json(
+        { ok: false, error: { code: 'MISSING_PARAMS', message: `${paramName} is required` } },
+        400
+      ),
+    };
+  }
+  if (!isValidId(value)) {
+    return {
+      id: null,
+      error: json(
+        { ok: false, error: { code: 'INVALID_ID', message: `Invalid ${paramName} format` } },
+        400
+      ),
+    };
+  }
+  return { id: value, error: null };
 }
 
 export function requireCodespaceRole(

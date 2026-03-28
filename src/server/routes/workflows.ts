@@ -7,7 +7,7 @@
 import { Hono } from 'hono';
 import { createWorkflowSchema } from '../../lib/api/schemas.js';
 import type { WorkflowService } from '../../services/workflow.service.js';
-import { isValidId, json } from '../shared.js';
+import { json, parseLimit, parseOffset, validateIdParam } from '../shared.js';
 import { parseJsonBody } from '../validation.js';
 
 interface WorkflowsDeps {
@@ -19,8 +19,8 @@ export function createWorkflowsRoutes({ workflowService }: WorkflowsDeps) {
 
   // GET /api/workflows
   app.get('/', async (c) => {
-    const limit = parseInt(c.req.query('limit') ?? '50', 10);
-    const offset = parseInt(c.req.query('offset') ?? '0', 10);
+    const limit = parseLimit(c);
+    const offset = parseOffset(c);
     const status = c.req.query('status') as 'draft' | 'published' | 'archived' | undefined;
     const search = c.req.query('search');
 
@@ -74,14 +74,8 @@ export function createWorkflowsRoutes({ workflowService }: WorkflowsDeps) {
 
   // GET /api/workflows/:id
   app.get('/:id', async (c) => {
-    const id = c.req.param('id');
-
-    if (!isValidId(id)) {
-      return json(
-        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid workflow ID format' } },
-        400
-      );
-    }
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
 
     const result = await workflowService.getById(id);
 
@@ -97,14 +91,8 @@ export function createWorkflowsRoutes({ workflowService }: WorkflowsDeps) {
 
   // PATCH /api/workflows/:id
   app.patch('/:id', async (c) => {
-    const id = c.req.param('id');
-
-    if (!isValidId(id)) {
-      return json(
-        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid workflow ID format' } },
-        400
-      );
-    }
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
 
     let body: {
       name?: string;
@@ -158,14 +146,8 @@ export function createWorkflowsRoutes({ workflowService }: WorkflowsDeps) {
 
   // DELETE /api/workflows/:id
   app.delete('/:id', async (c) => {
-    const id = c.req.param('id');
-
-    if (!isValidId(id)) {
-      return json(
-        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid workflow ID format' } },
-        400
-      );
-    }
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
 
     const result = await workflowService.delete(id);
 
