@@ -129,7 +129,7 @@ function DreamConfig(): React.JSX.Element {
           ) : (
             <div className="flex flex-col gap-4">
               <p className="text-xs text-fg-subtle">
-                Dream cycles use a Claude agent to analyze skill execution history and suggest
+                Upskill uses a Claude agent to analyze skill execution history and suggest
                 improvements. Configure automatic scheduling and model preferences below.
               </p>
 
@@ -295,7 +295,7 @@ export function MemoryDreamTab(): React.JSX.Element {
           {isDreamRunning ? (
             <>
               <CircleNotch size={14} className="animate-spin" />
-              Dream Running...
+              Analyzing...
             </>
           ) : (
             <>
@@ -334,7 +334,7 @@ export function MemoryDreamTab(): React.JSX.Element {
           <div className="flex items-center justify-center rounded-lg border border-dashed border-border py-8">
             <p className="text-sm text-fg-muted">
               {suggestionFilter === 'all'
-                ? 'No suggestions yet. Run a dream cycle to generate skill improvement suggestions.'
+                ? 'No suggestions yet. Run an upskill analysis to generate improvement suggestions.'
                 : `No ${suggestionFilter} suggestions.`}
             </p>
           </div>
@@ -358,13 +358,13 @@ export function MemoryDreamTab(): React.JSX.Element {
 
       {/* Dream sessions history */}
       <div className="flex flex-col gap-2">
-        <h3 className="text-sm font-medium text-fg">Dream Session History</h3>
+        <h3 className="text-sm font-medium text-fg">Upskill History</h3>
 
         {dreamSessionsLoading ? (
           <SkeletonBlock />
         ) : dreamSessions.length === 0 ? (
           <div className="flex items-center justify-center rounded-lg border border-dashed border-border py-8">
-            <p className="text-sm text-fg-muted">No dream sessions yet.</p>
+            <p className="text-sm text-fg-muted">No upskill sessions yet.</p>
           </div>
         ) : (
           <div className="flex flex-col gap-3">
