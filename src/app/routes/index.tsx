@@ -18,7 +18,7 @@ import { AgentPaneLogo } from '@/app/components/ui/agentpane-logo';
 import { Button } from '@/app/components/ui/button';
 import {
   apiClient,
-  type ProjectListItem,
+  type CodespaceListItem,
   type ProjectSummaryItem,
   type SandboxConfigItem,
   type SandboxType,
@@ -28,7 +28,7 @@ import type { GitHubOrg, GitHubRepo } from '@/services/github-token.service';
 
 // Simplified project summary for client-side rendering
 type ClientProjectSummary = {
-  project: ProjectListItem;
+  project: CodespaceListItem;
   status: ProjectStatus;
   taskCounts: TaskCounts;
   runningAgents: { id: string; name: string; currentTaskId?: string; currentTaskTitle?: string }[];

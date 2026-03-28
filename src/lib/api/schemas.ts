@@ -1,25 +1,22 @@
 /**
  * Schemas for client-side and shared API validation.
  *
- * Where schemas overlap with `src/server/validation.ts` (the canonical server-side
- * schemas), prefer importing from there. This file extends the canonical schemas
- * with client-specific schemas (e.g., codespace creation, sandbox configs, workflows)
- * that are not used in server route handlers.
+ * Shared enum schemas (taskColumnSchema, agentTypeSchema) are imported from the
+ * canonical source in `src/server/validation.ts` to avoid duplication and drift.
  *
- * Canonical server schemas: taskColumnSchema, createTaskSchema, moveTaskSchema, etc.
- * are defined in `src/server/validation.ts`. The schemas here use a CUID-based ID
- * validator and may have different constraints (e.g., max lengths) -- the server
- * schemas are authoritative for request validation.
+ * This file extends those canonical schemas with client-specific schemas
+ * (e.g., codespace creation, sandbox configs, workflows, agent status)
+ * that are not used in server route handlers.
  */
 import { isCuid } from '@paralleldrive/cuid2';
 import { z } from 'zod';
 import { workflowEdgeSchema, workflowNodeSchema } from '@/lib/workflow-dsl/types.js';
+import { agentTypeSchema, taskColumnSchema } from '@/server/validation.js';
 import { codespaceConfigSchema } from '../config/schemas.js';
 
 const cuidSchema = z.string().refine(isCuid, { message: 'Invalid ID format' });
-const taskColumnSchema = z.enum(['backlog', 'in_progress', 'waiting_approval', 'verified']);
+/** Agent status enum -- client-only, not used in server route validation */
 const agentStatusSchema = z.enum(['idle', 'starting', 'running', 'paused', 'error', 'completed']);
-const agentTypeSchema = z.enum(['task', 'conversational', 'background']);
 
 export const listProjectsSchema = z.object({
   cursor: z.string().optional(),

@@ -41,6 +41,8 @@ export type SessionEventType =
   | 'container-agent:error'
   | 'container-agent:cancelled'
   | 'container-agent:plan_ready'
+  // Memory event types
+  | 'memory:insights_injected'
   // Topology event types
   | 'topology:agent_spawned'
   | 'topology:agent_progress'

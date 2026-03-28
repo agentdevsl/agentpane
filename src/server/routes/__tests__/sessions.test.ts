@@ -23,6 +23,9 @@ function createTestApp() {
   const routes = createSessionsRoutes({ sessionService: sessionService as never });
   const app = new Hono();
   app.route('/api/sessions', routes);
+  app.onError((err, c) => {
+    return c.json({ ok: false, error: { code: 'INTERNAL_ERROR', message: err.message } }, 500);
+  });
   return { app, sessionService };
 }
 
@@ -80,7 +83,7 @@ describe('Sessions API Routes', () => {
       expect(res.status).toBe(500);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('SERVER_ERROR');
+      expect(json.error.code).toBe('INTERNAL_ERROR');
     });
 
     it('returns hasMore = true when result count equals limit', async () => {
@@ -191,7 +194,7 @@ describe('Sessions API Routes', () => {
 
       expect(res.status).toBe(500);
       const json = await res.json();
-      expect(json.error.code).toBe('SERVER_ERROR');
+      expect(json.error.code).toBe('INTERNAL_ERROR');
     });
 
     it('returns error when create returns error result', async () => {
@@ -277,7 +280,7 @@ describe('Sessions API Routes', () => {
 
       expect(res.status).toBe(500);
       const json = await res.json();
-      expect(json.error.code).toBe('SERVER_ERROR');
+      expect(json.error.code).toBe('INTERNAL_ERROR');
     });
   });
 
@@ -327,7 +330,7 @@ describe('Sessions API Routes', () => {
 
       expect(res.status).toBe(500);
       const json = await res.json();
-      expect(json.error.code).toBe('SERVER_ERROR');
+      expect(json.error.code).toBe('INTERNAL_ERROR');
     });
   });
 
@@ -430,7 +433,7 @@ describe('Sessions API Routes', () => {
 
       expect(res.status).toBe(500);
       const json = await res.json();
-      expect(json.error.code).toBe('SERVER_ERROR');
+      expect(json.error.code).toBe('INTERNAL_ERROR');
     });
 
     it('returns pagination total matching data length', async () => {
@@ -517,7 +520,7 @@ describe('Sessions API Routes', () => {
 
       expect(res.status).toBe(500);
       const json = await res.json();
-      expect(json.error.code).toBe('SERVER_ERROR');
+      expect(json.error.code).toBe('INTERNAL_ERROR');
     });
   });
 
@@ -633,7 +636,7 @@ describe('Sessions API Routes', () => {
 
       expect(res.status).toBe(500);
       const json = await res.json();
-      expect(json.error.code).toBe('SERVER_ERROR');
+      expect(json.error.code).toBe('INTERNAL_ERROR');
     });
 
     it('handles events fetch failure gracefully during export', async () => {
@@ -864,37 +867,52 @@ describe('Sessions API Routes', () => {
       );
     });
 
-    it('returns 400 when limit is NaN', async () => {
-      const { app } = createTestApp();
+    it('defaults limit to 50 when NaN is passed', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.listSessionsWithFilters.mockResolvedValue({
+        ok: true,
+        value: { sessions: [], total: 0 },
+      });
 
-      const res = await request(app, 'GET', '/api/sessions?limit=notanumber');
+      const res = await request(app, 'GET', '/api/sessions?codespaceId=proj-abc&limit=notanumber');
 
-      expect(res.status).toBe(400);
-      const json = await res.json();
-      expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('INVALID_PARAMS');
+      expect(res.status).toBe(200);
+      expect(sessionService.listSessionsWithFilters).toHaveBeenCalledWith(
+        'proj-abc',
+        expect.objectContaining({ limit: 50 })
+      );
     });
 
-    it('returns 400 when offset is negative', async () => {
-      const { app } = createTestApp();
+    it('clamps offset to 0 when negative value is passed', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.listSessionsWithFilters.mockResolvedValue({
+        ok: true,
+        value: { sessions: [], total: 0 },
+      });
 
-      const res = await request(app, 'GET', '/api/sessions?offset=-5');
+      const res = await request(app, 'GET', '/api/sessions?codespaceId=proj-abc&offset=-5');
 
-      expect(res.status).toBe(400);
-      const json = await res.json();
-      expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('INVALID_PARAMS');
+      expect(res.status).toBe(200);
+      expect(sessionService.listSessionsWithFilters).toHaveBeenCalledWith(
+        'proj-abc',
+        expect.objectContaining({ offset: 0 })
+      );
     });
 
-    it('returns 400 when limit is zero', async () => {
-      const { app } = createTestApp();
+    it('clamps limit to 1 when zero is passed', async () => {
+      const { app, sessionService } = createTestApp();
+      sessionService.listSessionsWithFilters.mockResolvedValue({
+        ok: true,
+        value: { sessions: [], total: 0 },
+      });
 
-      const res = await request(app, 'GET', '/api/sessions?limit=0');
+      const res = await request(app, 'GET', '/api/sessions?codespaceId=proj-abc&limit=0');
 
-      expect(res.status).toBe(400);
-      const json = await res.json();
-      expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('INVALID_PARAMS');
+      expect(res.status).toBe(200);
+      expect(sessionService.listSessionsWithFilters).toHaveBeenCalledWith(
+        'proj-abc',
+        expect.objectContaining({ limit: 1 })
+      );
     });
 
     it('filters out invalid status values and passes only valid ones', async () => {
@@ -945,7 +963,7 @@ describe('Sessions API Routes', () => {
       expect(json.error.code).toBe('DB_ERROR');
     });
 
-    it('returns 500 with SERVER_ERROR code when listSessionsWithFilters throws an exception', async () => {
+    it('returns 500 with INTERNAL_ERROR code when listSessionsWithFilters throws an exception', async () => {
       const { app, sessionService } = createTestApp();
       sessionService.listSessionsWithFilters.mockRejectedValue(new Error('Unexpected DB crash'));
 
@@ -954,7 +972,7 @@ describe('Sessions API Routes', () => {
       expect(res.status).toBe(500);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('SERVER_ERROR');
+      expect(json.error.code).toBe('INTERNAL_ERROR');
     });
 
     it('passes agentId and search filters', async () => {

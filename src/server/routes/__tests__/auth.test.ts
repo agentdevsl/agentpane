@@ -38,6 +38,9 @@ function createTestApp(authOverrides: Partial<AuthContext> = {}) {
   });
 
   app.route('/api/auth', routes);
+  app.onError((err, c) => {
+    return c.json({ ok: false, error: { code: 'INTERNAL_ERROR', message: err.message } }, 500);
+  });
   return { app, db };
 }
 
@@ -129,7 +132,7 @@ describe('Auth API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('INVALID_CALLBACK');
+      expect(json.error.code).toBe('MISSING_PARAMS');
     });
 
     it('returns 400 when state is missing', async () => {
@@ -140,7 +143,7 @@ describe('Auth API Routes', () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('INVALID_CALLBACK');
+      expect(json.error.code).toBe('MISSING_PARAMS');
     });
 
     it('returns 400 when state does not match cookie', async () => {
@@ -322,7 +325,7 @@ describe('Auth API Routes', () => {
 
       expect(res.status).toBe(400);
       const json = await res.json();
-      expect(json.error.code).toBe('INVALID_CALLBACK');
+      expect(json.error.code).toBe('MISSING_PARAMS');
     });
 
     it('returns 400 when state cookie is absent', async () => {

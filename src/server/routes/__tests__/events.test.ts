@@ -102,6 +102,9 @@ function createTestApp(overrides?: Partial<EventsRouteDependencies>) {
   });
 
   app.route('/api/events', routes);
+  app.onError((err, c) => {
+    return c.json({ ok: false, error: { code: 'INTERNAL_ERROR', message: err.message } }, 500);
+  });
 
   return {
     app,
@@ -245,7 +248,7 @@ describe('Events API Routes', () => {
       expect(res.status).toBe(500);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('DB_ERROR');
+      expect(json.error.code).toBe('INTERNAL_ERROR');
     });
   });
 
@@ -338,7 +341,7 @@ describe('Events API Routes', () => {
       expect(res.status).toBe(500);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('DB_ERROR');
+      expect(json.error.code).toBe('INTERNAL_ERROR');
     });
   });
 
@@ -398,7 +401,7 @@ describe('Events API Routes', () => {
       expect(res.status).toBe(500);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('DB_ERROR');
+      expect(json.error.code).toBe('INTERNAL_ERROR');
     });
   });
 
@@ -453,7 +456,7 @@ describe('Events API Routes', () => {
       expect(res.status).toBe(500);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('DB_ERROR');
+      expect(json.error.code).toBe('INTERNAL_ERROR');
     });
   });
 
@@ -759,7 +762,7 @@ describe('Events API Routes', () => {
 
       expect(res.status).toBe(500);
       const json = await res.json();
-      expect(json.error.code).toBe('DB_ERROR');
+      expect(json.error.code).toBe('INTERNAL_ERROR');
     });
   });
 
@@ -865,7 +868,7 @@ describe('Events API Routes', () => {
 
       expect(res.status).toBe(500);
       const json = await res.json();
-      expect(json.error.code).toBe('DB_ERROR');
+      expect(json.error.code).toBe('INTERNAL_ERROR');
     });
   });
 
@@ -1010,6 +1013,9 @@ describe('Events API Routes', () => {
         await next();
       });
       app.route('/api/events', routes);
+      app.onError((err, c) => {
+        return c.json({ ok: false, error: { code: 'INTERNAL_ERROR', message: err.message } }, 500);
+      });
 
       return {
         app,

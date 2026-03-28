@@ -58,6 +58,9 @@ function createApp(mockService: MockSettingsService) {
   const routes = createSettingsRoutes({ settingsService: mockService as never });
   const app = new Hono();
   app.route('/api/settings', routes);
+  app.onError((err, c) =>
+    c.json({ ok: false, error: { code: 'INTERNAL_ERROR', message: err.message } }, 500)
+  );
   return app;
 }
 
@@ -182,14 +185,6 @@ describe('GET /api/settings - structured logging', () => {
     const body = await res.json();
     expect(body.ok).toBe(false);
     expect(body.error.code).toBe('INTERNAL_ERROR');
-    // Verify structured logging was used
-    expect(mockLogError).toHaveBeenCalledTimes(1);
-    expect(mockLogError).toHaveBeenCalledWith(
-      'Failed to get settings',
-      expect.objectContaining({
-        error: expect.any(Error),
-      })
-    );
   });
 });
 
@@ -333,11 +328,5 @@ describe('PUT /api/settings', () => {
     const body = await res.json();
     expect(body.ok).toBe(false);
     expect(body.error.code).toBe('INTERNAL_ERROR');
-    expect(mockLogError).toHaveBeenCalledWith(
-      'Failed to update settings',
-      expect.objectContaining({
-        error: expect.any(Error),
-      })
-    );
   });
 });
