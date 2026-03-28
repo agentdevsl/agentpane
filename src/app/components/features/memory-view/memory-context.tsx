@@ -41,12 +41,6 @@ interface MemoryContextValue {
   searchResults: Array<SearchResult> | null;
   isSearching: boolean;
   refreshInsights: () => Promise<void>;
-  createInsight: (data: {
-    content: string;
-    source?: Insight['source'];
-    tags?: string[];
-    metadata?: Record<string, unknown>;
-  }) => Promise<boolean>;
   deleteInsight: (id: string) => Promise<boolean>;
 
   // Skills
@@ -487,24 +481,6 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
     await fetchInsights(codespaceId);
   }, [codespaceId, fetchInsights]);
 
-  const createInsight = useCallback(
-    async (data: {
-      content: string;
-      source?: Insight['source'];
-      tags?: string[];
-      metadata?: Record<string, unknown>;
-    }): Promise<boolean> => {
-      if (!codespaceId) return false;
-      return mutateAndRefresh({
-        action: () => apiClient.memory.createInsight(codespaceId, data),
-        successMessage: 'Insight created',
-        errorMessage: 'Failed to create insight',
-        refresh: () => fetchInsights(codespaceId),
-      });
-    },
-    [codespaceId, fetchInsights]
-  );
-
   const deleteInsight = useCallback(
     async (id: string): Promise<boolean> => {
       return mutateAndRefresh({
@@ -663,7 +639,6 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
       searchResults,
       isSearching,
       refreshInsights,
-      createInsight,
       deleteInsight,
       syncedSkills,
       syncedSkillsLoading,
@@ -702,7 +677,6 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
       searchResults,
       isSearching,
       refreshInsights,
-      createInsight,
       deleteInsight,
       syncedSkills,
       syncedSkillsLoading,

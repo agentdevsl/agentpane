@@ -1,10 +1,7 @@
-import { Lightbulb, MagnifyingGlass, Plus } from '@phosphor-icons/react';
+import { Lightbulb, MagnifyingGlass } from '@phosphor-icons/react';
 import type React from 'react';
-import { useState } from 'react';
-import { Button } from '@/app/components/ui/button';
 import { INPUT_CLASS } from './formatters';
 import { InsightCard } from './insight-card';
-import { InsightCreateDialog } from './insight-create-dialog';
 import { useMemory } from './memory-context';
 import type { Insight, SearchResult } from './types';
 
@@ -33,8 +30,8 @@ function EmptyState({ isSearch }: { isSearch: boolean }): React.JSX.Element {
       </p>
       {!isSearch && (
         <p className="mt-1 max-w-xs text-xs text-fg-subtle">
-          Insights are observations captured from agent sessions — patterns, learnings, and context
-          that help agents work more effectively over time.
+          Insights are automatically extracted from agent sessions. As agents complete tasks, key
+          patterns, learnings, and context are captured here and fed back into future agent prompts.
         </p>
       )}
     </div>
@@ -73,8 +70,6 @@ export function MemoryInsightsTab(): React.JSX.Element {
     deleteInsight,
   } = useMemory();
 
-  const [dialogOpen, setDialogOpen] = useState(false);
-
   const displayedItems: Array<Insight | SearchResult> = searchResults ?? insights;
   const isLoading = insightsLoading || isSearching;
   const hasResults = displayedItems.length > 0;
@@ -82,26 +77,20 @@ export function MemoryInsightsTab(): React.JSX.Element {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-xs text-fg-subtle">
-        Insights are observations derived from agent sessions — patterns, debugging context, and
-        learnings that persist across conversations and help agents make better decisions.
+        Insights are automatically extracted from agent sessions. Key patterns, debugging context,
+        and learnings persist across conversations and are injected into future agent prompts.
       </p>
 
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1">
-          <MagnifyingGlass className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-muted" />
-          <input
-            type="text"
-            className={`${INPUT_CLASS} w-full pl-9`}
-            placeholder="Search insights..."
-            aria-label="Search insights"
-            value={searchQuery}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
-          />
-        </div>
-        <Button size="sm" className="gap-1.5" onClick={() => setDialogOpen(true)}>
-          <Plus size={14} weight="bold" />
-          Create Insight
-        </Button>
+      <div className="relative">
+        <MagnifyingGlass className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-muted" />
+        <input
+          type="text"
+          className={`${INPUT_CLASS} w-full pl-9`}
+          placeholder="Search insights..."
+          aria-label="Search insights"
+          value={searchQuery}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
+        />
       </div>
 
       {isLoading && (
@@ -125,8 +114,6 @@ export function MemoryInsightsTab(): React.JSX.Element {
       )}
 
       {!isLoading && !hasResults && <EmptyState isSearch={searchResults !== null} />}
-
-      <InsightCreateDialog open={dialogOpen} onOpenChange={setDialogOpen} />
     </div>
   );
 }
