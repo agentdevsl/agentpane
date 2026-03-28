@@ -15,7 +15,7 @@ import { createLogger } from '../../lib/logging/logger.js';
 import type { EventEmittingSandboxProvider } from '../../lib/sandbox/index.js';
 import { SANDBOX_DEFAULTS } from '../../lib/sandbox/types.js';
 import type { Database } from '../../types/database.js';
-import { isValidId, json } from '../shared.js';
+import { json, validateIdParam } from '../shared.js';
 
 const log = createLogger('SandboxStatus');
 
@@ -199,11 +199,8 @@ export function createSandboxStatusRoutes({
 
   // GET /api/sandbox/status/:codespaceId - Get sandbox mode and container status
   app.get('/:codespaceId', async (c) => {
-    const codespaceId = c.req.param('codespaceId');
-
-    if (!isValidId(codespaceId)) {
-      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid project ID' } }, 400);
-    }
+    const { id: codespaceId, error: csError } = validateIdParam(c, 'codespaceId');
+    if (csError) return csError;
 
     try {
       // Get sandbox mode from settings
@@ -379,11 +376,8 @@ export function createSandboxStatusRoutes({
 
   // POST /api/sandbox/status/:codespaceId/restart - Restart the sandbox container
   app.post('/:codespaceId/restart', async (c) => {
-    const codespaceId = c.req.param('codespaceId');
-
-    if (!isValidId(codespaceId)) {
-      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid project ID' } }, 400);
-    }
+    const { id: codespaceId, error: csError } = validateIdParam(c, 'codespaceId');
+    if (csError) return csError;
 
     const dockerProviderForRestart = getDockerProvider();
     if (!dockerProviderForRestart) {

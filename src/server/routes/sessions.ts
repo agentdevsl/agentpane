@@ -5,12 +5,9 @@
 import { Hono } from 'hono';
 import type { SessionStatus } from '../../db/schema/shared/enums.js';
 import { SESSION_STATUS } from '../../db/schema/shared/enums.js';
-import { createLogger } from '../../lib/logging/logger.js';
 import type { SessionService } from '../../services/session.service.js';
-import { isValidId, json, validateIdParam } from '../shared.js';
-import { createSessionSchema, exportSessionSchema, parseBody } from '../validation.js';
-
-const logger = createLogger('routes:sessions');
+import { errorResponse, json, parseLimit, parseOffset, validateIdParam } from '../shared.js';
+import { createSessionSchema, exportSessionSchema, parseJsonBody } from '../validation.js';
 
 // Helper to format session as markdown
 function formatSessionAsMarkdown(
@@ -137,105 +134,75 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
   // GET /api/sessions
   app.get('/', async (c) => {
     const codespaceId = c.req.query('codespaceId');
-    const limit = parseInt(c.req.query('limit') ?? '50', 10);
-    const offset = parseInt(c.req.query('offset') ?? '0', 10);
+    const limit = parseLimit(c);
+    const offset = parseOffset(c);
 
-    if (Number.isNaN(limit) || Number.isNaN(offset) || limit < 1 || offset < 0) {
-      return c.json(
-        {
-          ok: false,
-          error: {
-            code: 'INVALID_PARAMS',
-            message: 'limit and offset must be non-negative integers',
-          },
-        },
-        400
+    if (codespaceId) {
+      // Use filtered query when codespaceId is provided
+      const rawStatuses = c.req.query('status')?.split(',');
+      const status = rawStatuses?.filter((s): s is SessionStatus =>
+        (SESSION_STATUS as readonly string[]).includes(s)
       );
-    }
+      const agentId = c.req.query('agentId');
+      const search = c.req.query('search');
+      const dateFrom = c.req.query('dateFrom');
+      const dateTo = c.req.query('dateTo');
 
-    try {
-      if (codespaceId) {
-        // Use filtered query when codespaceId is provided
-        const rawStatuses = c.req.query('status')?.split(',');
-        const status = rawStatuses?.filter((s): s is SessionStatus =>
-          (SESSION_STATUS as readonly string[]).includes(s)
-        );
-        const agentId = c.req.query('agentId');
-        const search = c.req.query('search');
-        const dateFrom = c.req.query('dateFrom');
-        const dateTo = c.req.query('dateTo');
+      const result = await sessionService.listSessionsWithFilters(codespaceId, {
+        status,
+        agentId,
+        search,
+        dateFrom,
+        dateTo,
+        limit,
+        offset,
+      });
 
-        const result = await sessionService.listSessionsWithFilters(codespaceId, {
-          status,
-          agentId,
-          search,
-          dateFrom,
-          dateTo,
-          limit,
-          offset,
-        });
-
-        if (!result.ok) {
-          return json({ ok: false, error: result.error }, result.error.status ?? 400);
-        }
-
-        return json({
-          ok: true,
-          data: result.value.sessions,
-          pagination: {
-            limit,
-            offset,
-            total: result.value.total,
-            hasMore: result.value.sessions.length === limit,
-          },
-        });
-      }
-
-      // Fallback: no codespaceId filter (existing behavior)
-      const result = await sessionService.list({ limit, offset });
       if (!result.ok) {
-        return json({ ok: false, error: result.error }, result.error.status ?? 400);
+        return errorResponse(result);
       }
 
       return json({
         ok: true,
-        data: result.value,
+        data: result.value.sessions,
         pagination: {
           limit,
           offset,
-          hasMore: result.value.length === limit,
+          total: result.value.total,
+          hasMore: result.value.sessions.length === limit,
         },
       });
-    } catch (error) {
-      logger.error('List error', { error });
-      return json(
-        { ok: false, error: { code: 'SERVER_ERROR', message: 'Failed to list sessions' } },
-        500
-      );
     }
+
+    // Fallback: no codespaceId filter (existing behavior)
+    const result = await sessionService.list({ limit, offset });
+    if (!result.ok) {
+      return errorResponse(result);
+    }
+
+    return json({
+      ok: true,
+      data: result.value,
+      pagination: {
+        limit,
+        offset,
+        hasMore: result.value.length === limit,
+      },
+    });
   });
 
   // POST /api/sessions
   app.post('/', async (c) => {
-    try {
-      const rawBody = await c.req.json();
-      const parsed = parseBody(createSessionSchema, rawBody);
-      if (!parsed.ok) return parsed.response;
-      const { codespaceId, taskId, agentId, title } = parsed.data;
+    const parsed = await parseJsonBody(c, createSessionSchema);
+    if (!parsed.ok) return parsed.response;
+    const { codespaceId, taskId, agentId, title } = parsed.data;
 
-      const result = await sessionService.create({ codespaceId, taskId, agentId, title });
-      if (!result.ok) {
-        return json({ ok: false, error: result.error }, result.error.status ?? 400);
-      }
-
-      return json({ ok: true, data: result.value }, 201);
-    } catch (error) {
-      logger.error('Create error', { error });
-      return json(
-        { ok: false, error: { code: 'SERVER_ERROR', message: 'Failed to create session' } },
-        500
-      );
+    const result = await sessionService.create({ codespaceId, taskId, agentId, title });
+    if (!result.ok) {
+      return errorResponse(result);
     }
+
+    return json({ ok: true, data: result.value }, 201);
   });
 
   // GET /api/sessions/:id/events
@@ -243,8 +210,8 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
     const { id, error: idError } = validateIdParam(c, 'id');
     if (idError) return idError;
 
-    const limit = parseInt(c.req.query('limit') ?? '100', 10);
-    const offset = parseInt(c.req.query('offset') ?? '0', 10);
+    const limit = parseLimit(c, 100);
+    const offset = parseOffset(c);
     const afterEventId = c.req.query('afterEventId') ?? undefined;
 
     if (afterEventId && c.req.query('offset') !== undefined) {
@@ -260,138 +227,101 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
       );
     }
 
-    try {
-      const result = await sessionService.getEventsBySession(
-        id,
-        afterEventId ? { limit, afterEventId } : { limit, offset }
-      );
-      if (!result.ok) {
-        return json({ ok: false, error: result.error }, result.error.status ?? 404);
-      }
-
-      return json({
-        ok: true,
-        data: result.value,
-        pagination: {
-          total: result.value.length,
-          limit,
-          offset,
-          afterEventId: afterEventId ?? null,
-        },
-      });
-    } catch (error) {
-      logger.error('Get events error', { error });
-      return json(
-        { ok: false, error: { code: 'SERVER_ERROR', message: 'Failed to get session events' } },
-        500
-      );
+    const result = await sessionService.getEventsBySession(
+      id,
+      afterEventId ? { limit, afterEventId } : { limit, offset }
+    );
+    if (!result.ok) {
+      return errorResponse(result);
     }
+
+    return json({
+      ok: true,
+      data: result.value,
+      pagination: {
+        total: result.value.length,
+        limit,
+        offset,
+        afterEventId: afterEventId ?? null,
+      },
+    });
   });
 
   // GET /api/sessions/:id/summary
   app.get('/:id/summary', async (c) => {
-    const id = c.req.param('id');
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
 
-    if (!isValidId(id)) {
-      return json(
-        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid session ID format' } },
-        400
-      );
+    const result = await sessionService.getSessionSummary(id);
+    if (!result.ok) {
+      return errorResponse(result);
     }
 
-    try {
-      const result = await sessionService.getSessionSummary(id);
-      if (!result.ok) {
-        return json({ ok: false, error: result.error }, result.error.status ?? 404);
-      }
+    // Return default values if no summary exists yet
+    const summary = result.value ?? {
+      sessionId: id,
+      durationMs: null,
+      turnsCount: 0,
+      tokensUsed: 0,
+      filesModified: 0,
+      linesAdded: 0,
+      linesRemoved: 0,
+      finalStatus: null,
+    };
 
-      // Return default values if no summary exists yet
-      const summary = result.value ?? {
-        sessionId: id,
-        durationMs: null,
-        turnsCount: 0,
-        tokensUsed: 0,
-        filesModified: 0,
-        linesAdded: 0,
-        linesRemoved: 0,
-        finalStatus: null,
-      };
-
-      return json({ ok: true, data: summary });
-    } catch (error) {
-      logger.error('Get summary error', { error });
-      return json(
-        { ok: false, error: { code: 'SERVER_ERROR', message: 'Failed to get session summary' } },
-        500
-      );
-    }
+    return json({ ok: true, data: summary });
   });
 
   // POST /api/sessions/:id/export - Export session in various formats
   app.post('/:id/export', async (c) => {
-    const id = c.req.param('id');
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
 
-    if (!isValidId(id)) {
-      return json(
-        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid session ID format' } },
-        400
-      );
+    const parsed = await parseJsonBody(c, exportSessionSchema);
+    if (!parsed.ok) return parsed.response;
+    const { format } = parsed.data;
+
+    // Get session details
+    const sessionResult = await sessionService.getById(id);
+    if (!sessionResult.ok) {
+      return json({ ok: false, error: sessionResult.error }, sessionResult.error.status ?? 404);
+    }
+    const session = sessionResult.value;
+
+    // Get all events
+    const eventsResult = await sessionService.getEventsBySession(id, { limit: 10000, offset: 0 });
+    const events = eventsResult.ok ? eventsResult.value : [];
+
+    // Generate export content based on format
+    let content: string;
+    let contentType: string;
+    let filename: string;
+
+    const timestamp = new Date().toISOString().slice(0, 10);
+    const sessionTitle = session.title || 'session';
+    const safeTitle = sessionTitle.replace(/[^a-zA-Z0-9-_]/g, '_').slice(0, 50);
+
+    switch (format) {
+      case 'json':
+        content = JSON.stringify({ session, events }, null, 2);
+        contentType = 'application/json';
+        filename = `${safeTitle}_${timestamp}.json`;
+        break;
+
+      case 'markdown':
+        content = formatSessionAsMarkdown(session, events);
+        contentType = 'text/markdown';
+        filename = `${safeTitle}_${timestamp}.md`;
+        break;
+
+      case 'csv':
+        content = formatEventsAsCsv(events);
+        contentType = 'text/csv';
+        filename = `${safeTitle}_events_${timestamp}.csv`;
+        break;
     }
 
-    try {
-      const rawBody = await c.req.json();
-      const parsed = parseBody(exportSessionSchema, rawBody);
-      if (!parsed.ok) return parsed.response;
-      const { format } = parsed.data;
-
-      // Get session details
-      const sessionResult = await sessionService.getById(id);
-      if (!sessionResult.ok) {
-        return json({ ok: false, error: sessionResult.error }, sessionResult.error.status ?? 404);
-      }
-      const session = sessionResult.value;
-
-      // Get all events
-      const eventsResult = await sessionService.getEventsBySession(id, { limit: 10000, offset: 0 });
-      const events = eventsResult.ok ? eventsResult.value : [];
-
-      // Generate export content based on format
-      let content: string;
-      let contentType: string;
-      let filename: string;
-
-      const timestamp = new Date().toISOString().slice(0, 10);
-      const sessionTitle = session.title || 'session';
-      const safeTitle = sessionTitle.replace(/[^a-zA-Z0-9-_]/g, '_').slice(0, 50);
-
-      switch (format) {
-        case 'json':
-          content = JSON.stringify({ session, events }, null, 2);
-          contentType = 'application/json';
-          filename = `${safeTitle}_${timestamp}.json`;
-          break;
-
-        case 'markdown':
-          content = formatSessionAsMarkdown(session, events);
-          contentType = 'text/markdown';
-          filename = `${safeTitle}_${timestamp}.md`;
-          break;
-
-        case 'csv':
-          content = formatEventsAsCsv(events);
-          contentType = 'text/csv';
-          filename = `${safeTitle}_events_${timestamp}.csv`;
-          break;
-      }
-
-      return json({ ok: true, data: { content, contentType, filename } });
-    } catch (error) {
-      logger.error('Export error', { error });
-      return json(
-        { ok: false, error: { code: 'SERVER_ERROR', message: 'Failed to export session' } },
-        500
-      );
-    }
+    return json({ ok: true, data: { content, contentType, filename } });
   });
 
   // NOTE: SSE endpoint removed — clients subscribe to Caddy durable streams
@@ -399,56 +329,28 @@ export function createSessionsRoutes({ sessionService }: SessionsDeps) {
 
   // GET /api/sessions/:id
   app.get('/:id', async (c) => {
-    const id = c.req.param('id');
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
 
-    if (!isValidId(id)) {
-      return json(
-        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid session ID format' } },
-        400
-      );
+    const result = await sessionService.getById(id);
+    if (!result.ok) {
+      return errorResponse(result);
     }
 
-    try {
-      const result = await sessionService.getById(id);
-      if (!result.ok) {
-        return json({ ok: false, error: result.error }, result.error.status ?? 404);
-      }
-
-      return json({ ok: true, data: result.value });
-    } catch (error) {
-      logger.error('Get error', { error });
-      return json(
-        { ok: false, error: { code: 'SERVER_ERROR', message: 'Failed to get session' } },
-        500
-      );
-    }
+    return json({ ok: true, data: result.value });
   });
 
   // DELETE /api/sessions/:id
   app.delete('/:id', async (c) => {
-    const id = c.req.param('id');
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
 
-    if (!isValidId(id)) {
-      return json(
-        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid session ID format' } },
-        400
-      );
+    const result = await sessionService.delete(id);
+    if (!result.ok) {
+      return errorResponse(result);
     }
 
-    try {
-      const result = await sessionService.delete(id);
-      if (!result.ok) {
-        return json({ ok: false, error: result.error }, result.error.status ?? 404);
-      }
-
-      return json({ ok: true, data: result.value });
-    } catch (error) {
-      logger.error('Delete error', { error });
-      return json(
-        { ok: false, error: { code: 'SERVER_ERROR', message: 'Failed to delete session' } },
-        500
-      );
-    }
+    return json({ ok: true, data: result.value });
   });
 
   return app;

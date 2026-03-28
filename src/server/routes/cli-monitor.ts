@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { CliMonitorService } from '../../services/cli-monitor/cli-monitor.service.js';
 import type { CliSession } from '../../services/cli-monitor/types.js';
+import { parseLimit, parseOffset, requireQueryParam } from '../shared.js';
 
 const logger = createLogger('routes:cli-monitor');
 
@@ -340,18 +341,16 @@ export function createCliMonitorRoutes({ cliMonitorService }: CliMonitorDeps) {
 
   // GET /sessions — List sessions with optional pagination
   app.get('/sessions', (c) => {
-    const limitParam = c.req.query('limit');
-    const offsetParam = c.req.query('offset');
-
     const allSessions = cliMonitorService
       .getSessions()
       .sort((a, b) => b.lastActivityAt - a.lastActivityAt);
     const total = allSessions.length;
 
+    const hasPagination = c.req.query('limit') !== undefined || c.req.query('offset') !== undefined;
     let sessions = allSessions;
-    if (limitParam !== undefined || offsetParam !== undefined) {
-      const limit = Math.min(Math.max(parseInt(limitParam || '100', 10) || 100, 1), 500);
-      const offset = Math.max(parseInt(offsetParam || '0', 10) || 0, 0);
+    if (hasPagination) {
+      const limit = parseLimit(c, 100, 500);
+      const offset = parseOffset(c);
       sessions = allSessions.slice(offset, offset + limit);
     }
 
@@ -369,16 +368,15 @@ export function createCliMonitorRoutes({ cliMonitorService }: CliMonitorDeps) {
   app.get('/history', (c) => {
     const projectHash = c.req.query('projectHash');
     const sinceParam = c.req.query('since');
-    const limitParam = c.req.query('limit');
 
-    const since = sinceParam ? parseInt(sinceParam, 10) : undefined;
-    const limit = limitParam ? parseInt(limitParam, 10) : undefined;
+    const since = sinceParam ? Number.parseInt(sinceParam, 10) : undefined;
+    const limit = c.req.query('limit') !== undefined ? parseLimit(c, 50, 500) : undefined;
 
     try {
       const sessions = cliMonitorService.getHistoricalSessions({
         projectHash: projectHash || undefined,
         since: since && !Number.isNaN(since) ? since : undefined,
-        limit: limit && !Number.isNaN(limit) ? limit : undefined,
+        limit,
       });
 
       return c.json({
@@ -500,16 +498,11 @@ export function createCliMonitorRoutes({ cliMonitorService }: CliMonitorDeps) {
 
   // GET /topology — Get topology graph for a root session
   app.get('/topology', (c) => {
-    const rootSessionId = c.req.query('rootSessionId');
-    if (!rootSessionId) {
-      return c.json(
-        {
-          ok: false,
-          error: { code: 'MISSING_PARAM', message: 'rootSessionId query parameter is required' },
-        },
-        400
-      );
-    }
+    const { value: rootSessionId, error: rootSessionIdError } = requireQueryParam(
+      c,
+      'rootSessionId'
+    );
+    if (rootSessionIdError) return rootSessionIdError;
 
     const nodes = cliMonitorService.getTopologyGraph(rootSessionId);
     if (!nodes) {

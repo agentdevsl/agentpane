@@ -63,57 +63,47 @@ export function createSettingsRoutes({ settingsService }: SettingsDeps) {
   app.get('/', async (c) => {
     const keysParam = c.req.query('keys');
 
-    try {
-      // Build query based on whether specific keys are requested
-      const keys = keysParam
-        ? keysParam
-            .split(',')
-            .map((k) => k.trim())
-            .filter(Boolean)
-        : [];
+    // Build query based on whether specific keys are requested
+    const keys = keysParam
+      ? keysParam
+          .split(',')
+          .map((k) => k.trim())
+          .filter(Boolean)
+      : [];
 
-      if (keysParam && keys.length === 0) {
-        return json({ ok: true, data: { settings: {} } });
-      }
+    if (keysParam && keys.length === 0) {
+      return json({ ok: true, data: { settings: {} } });
+    }
 
-      // Use service to get settings
-      const result =
-        keys.length > 0 ? await settingsService.getMany(keys) : await settingsService.getAll();
+    // Use service to get settings
+    const result =
+      keys.length > 0 ? await settingsService.getMany(keys) : await settingsService.getAll();
 
-      if (!result.ok) {
-        log.error('Failed to get settings', {
-          error: new Error(result.error.message),
-        });
-        return json(
-          { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to get settings' } },
-          500
-        );
-      }
-
-      const settingsMap = result.value;
-
-      // Redact sensitive fields
-      for (const [key, value] of Object.entries(settingsMap)) {
-        const sensitive = SENSITIVE_FIELDS[key];
-        if (sensitive && typeof value === 'object' && value !== null) {
-          const copy = value as Record<string, unknown>;
-          if (copy[sensitive.secretKey]) {
-            copy[sensitive.flagKey] = true;
-            delete copy[sensitive.secretKey];
-          }
-        }
-      }
-
-      return json({ ok: true, data: { settings: settingsMap } });
-    } catch (error) {
+    if (!result.ok) {
       log.error('Failed to get settings', {
-        error: error instanceof Error ? error : new Error(String(error)),
+        error: new Error(result.error.message),
       });
       return json(
         { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to get settings' } },
         500
       );
     }
+
+    const settingsMap = result.value;
+
+    // Redact sensitive fields
+    for (const [key, value] of Object.entries(settingsMap)) {
+      const sensitive = SENSITIVE_FIELDS[key];
+      if (sensitive && typeof value === 'object' && value !== null) {
+        const copy = value as Record<string, unknown>;
+        if (copy[sensitive.secretKey]) {
+          copy[sensitive.flagKey] = true;
+          delete copy[sensitive.secretKey];
+        }
+      }
+    }
+
+    return json({ ok: true, data: { settings: settingsMap } });
   });
 
   // PUT /api/settings
@@ -142,54 +132,44 @@ export function createSettingsRoutes({ settingsService }: SettingsDeps) {
       );
     }
 
-    try {
-      const settingsToUpdate = parsed.data.settings;
+    const settingsToUpdate = parsed.data.settings;
 
-      // Filter to allowed keys and handle sensitive field encryption
-      const filteredSettings: Record<string, unknown> = {};
+    // Filter to allowed keys and handle sensitive field encryption
+    const filteredSettings: Record<string, unknown> = {};
 
-      for (const [key, value] of Object.entries(settingsToUpdate)) {
-        if (!ALLOWED_SETTINGS_KEYS.has(key)) {
-          continue; // Silently skip unknown keys
-        }
-
-        let dbValue = value;
-        const sensitive = SENSITIVE_FIELDS[key];
-        if (sensitive && typeof value === 'object' && value !== null) {
-          const copy = { ...(value as Record<string, unknown>) };
-          if (copy[sensitive.secretKey] && typeof copy[sensitive.secretKey] === 'string') {
-            const { encryptToken } = await import('../../lib/crypto/server-encryption.js');
-            copy[sensitive.secretKey] = encryptToken(copy[sensitive.secretKey] as string);
-          }
-          dbValue = copy;
-        }
-
-        filteredSettings[key] = dbValue;
+    for (const [key, value] of Object.entries(settingsToUpdate)) {
+      if (!ALLOWED_SETTINGS_KEYS.has(key)) {
+        continue; // Silently skip unknown keys
       }
 
-      // Use service to set all filtered settings
-      const result = await settingsService.setMany(filteredSettings);
-
-      if (!result.ok) {
-        log.error('Failed to update settings', {
-          error: new Error(result.error.message),
-        });
-        return json(
-          { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to update settings' } },
-          500
-        );
+      let dbValue = value;
+      const sensitive = SENSITIVE_FIELDS[key];
+      if (sensitive && typeof value === 'object' && value !== null) {
+        const copy = { ...(value as Record<string, unknown>) };
+        if (copy[sensitive.secretKey] && typeof copy[sensitive.secretKey] === 'string') {
+          const { encryptToken } = await import('../../lib/crypto/server-encryption.js');
+          copy[sensitive.secretKey] = encryptToken(copy[sensitive.secretKey] as string);
+        }
+        dbValue = copy;
       }
 
-      return json({ ok: true });
-    } catch (error) {
+      filteredSettings[key] = dbValue;
+    }
+
+    // Use service to set all filtered settings
+    const result = await settingsService.setMany(filteredSettings);
+
+    if (!result.ok) {
       log.error('Failed to update settings', {
-        error: error instanceof Error ? error : new Error(String(error)),
+        error: new Error(result.error.message),
       });
       return json(
         { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to update settings' } },
         500
       );
     }
+
+    return json({ ok: true });
   });
 
   return app;

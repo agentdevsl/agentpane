@@ -3,11 +3,8 @@
  */
 
 import { Hono } from 'hono';
-import { createLogger } from '../../lib/logging/logger.js';
 import type { TemplateService } from '../../services/template.service.js';
-import { isValidId, json } from '../shared.js';
-
-const logger = createLogger('routes:templates');
+import { errorResponse, json, parseLimit, validateIdParam } from '../shared.js';
 
 interface TemplatesDeps {
   templateService: TemplateService;
@@ -20,31 +17,23 @@ export function createTemplatesRoutes({ templateService }: TemplatesDeps) {
   app.get('/', async (c) => {
     const scope = c.req.query('scope') as 'org' | 'codespace' | undefined;
     const codespaceId = c.req.query('codespaceId') ?? undefined;
-    const limit = parseInt(c.req.query('limit') ?? '50', 10);
+    const limit = parseLimit(c);
 
-    try {
-      const result = await templateService.list({ scope, codespaceId, limit });
+    const result = await templateService.list({ scope, codespaceId, limit });
 
-      if (!result.ok) {
-        return json({ ok: false, error: result.error }, result.error.status);
-      }
-
-      return json({
-        ok: true,
-        data: {
-          items: result.value,
-          nextCursor: null,
-          hasMore: false,
-          totalCount: result.value.length,
-        },
-      });
-    } catch (error) {
-      logger.error('List error', { error: error });
-      return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to list templates' } },
-        500
-      );
+    if (!result.ok) {
+      return errorResponse(result);
     }
+
+    return json({
+      ok: true,
+      data: {
+        items: result.value,
+        nextCursor: null,
+        hasMore: false,
+        totalCount: result.value.length,
+      },
+    });
   });
 
   // POST /api/templates
@@ -91,97 +80,55 @@ export function createTemplatesRoutes({ templateService }: TemplatesDeps) {
       );
     }
 
-    try {
-      const result = await templateService.create({
-        name: body.name,
-        description: body.description,
-        scope: body.scope as 'org' | 'codespace',
-        githubUrl: body.githubUrl,
-        branch: body.branch,
-        configPath: body.configPath,
-        codespaceIds: body.codespaceIds ?? (body.codespaceId ? [body.codespaceId] : undefined),
-      });
+    const result = await templateService.create({
+      name: body.name,
+      description: body.description,
+      scope: body.scope as 'org' | 'codespace',
+      githubUrl: body.githubUrl,
+      branch: body.branch,
+      configPath: body.configPath,
+      codespaceIds: body.codespaceIds ?? (body.codespaceId ? [body.codespaceId] : undefined),
+    });
 
-      if (!result.ok) {
-        return json({ ok: false, error: result.error }, result.error.status);
-      }
-
-      return json({ ok: true, data: result.value }, 201);
-    } catch (error) {
-      logger.error('Create error', { error: error });
-      return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to create template' } },
-        500
-      );
+    if (!result.ok) {
+      return errorResponse(result);
     }
+
+    return json({ ok: true, data: result.value }, 201);
   });
 
   // POST /api/templates/:id/sync
   app.post('/:id/sync', async (c) => {
-    const id = c.req.param('id');
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
 
-    if (!isValidId(id)) {
-      return json(
-        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid template ID format' } },
-        400
-      );
+    const result = await templateService.sync(id);
+
+    if (!result.ok) {
+      return errorResponse(result);
     }
 
-    try {
-      const result = await templateService.sync(id);
-
-      if (!result.ok) {
-        return json({ ok: false, error: result.error }, result.error.status);
-      }
-
-      return json({ ok: true, data: result.value });
-    } catch (error) {
-      logger.error('Sync error', { error: error });
-      return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to sync template' } },
-        500
-      );
-    }
+    return json({ ok: true, data: result.value });
   });
 
   // GET /api/templates/:id
   app.get('/:id', async (c) => {
-    const id = c.req.param('id');
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
 
-    if (!isValidId(id)) {
-      return json(
-        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid template ID format' } },
-        400
-      );
+    const result = await templateService.getById(id);
+
+    if (!result.ok) {
+      return errorResponse(result);
     }
 
-    try {
-      const result = await templateService.getById(id);
-
-      if (!result.ok) {
-        return json({ ok: false, error: result.error }, result.error.status);
-      }
-
-      return json({ ok: true, data: result.value });
-    } catch (error) {
-      logger.error('Get error', { error: error });
-      return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to get template' } },
-        500
-      );
-    }
+    return json({ ok: true, data: result.value });
   });
 
   // PATCH /api/templates/:id
   app.patch('/:id', async (c) => {
-    const id = c.req.param('id');
-
-    if (!isValidId(id)) {
-      return json(
-        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid template ID format' } },
-        400
-      );
-    }
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
 
     let body: {
       name?: string;
@@ -199,55 +146,33 @@ export function createTemplatesRoutes({ templateService }: TemplatesDeps) {
       );
     }
 
-    try {
-      const result = await templateService.update(id, {
-        name: body.name,
-        description: body.description,
-        branch: body.branch,
-        configPath: body.configPath,
-        codespaceIds: body.codespaceIds,
-      });
+    const result = await templateService.update(id, {
+      name: body.name,
+      description: body.description,
+      branch: body.branch,
+      configPath: body.configPath,
+      codespaceIds: body.codespaceIds,
+    });
 
-      if (!result.ok) {
-        return json({ ok: false, error: result.error }, result.error.status);
-      }
-
-      return json({ ok: true, data: result.value });
-    } catch (error) {
-      logger.error('Update error', { error: error });
-      return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to update template' } },
-        500
-      );
+    if (!result.ok) {
+      return errorResponse(result);
     }
+
+    return json({ ok: true, data: result.value });
   });
 
   // DELETE /api/templates/:id
   app.delete('/:id', async (c) => {
-    const id = c.req.param('id');
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
 
-    if (!isValidId(id)) {
-      return json(
-        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid template ID format' } },
-        400
-      );
+    const result = await templateService.delete(id);
+
+    if (!result.ok) {
+      return errorResponse(result);
     }
 
-    try {
-      const result = await templateService.delete(id);
-
-      if (!result.ok) {
-        return json({ ok: false, error: result.error }, result.error.status);
-      }
-
-      return json({ ok: true, data: null });
-    } catch (error) {
-      logger.error('Delete error', { error: error });
-      return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to delete template' } },
-        500
-      );
-    }
+    return json({ ok: true, data: null });
   });
 
   return app;

@@ -48,6 +48,9 @@ function createApp(role: Role, authMethod: 'session' | 'dev' = 'session') {
       terraformComposeService: terraformComposeService as never,
     })
   );
+  app.onError((err, c) =>
+    c.json({ ok: false, error: { code: 'INTERNAL_ERROR', message: err.message } }, 500)
+  );
 
   return { app, terraformRegistryService, terraformComposeService };
 }
@@ -142,7 +145,7 @@ describe('terraform routes', () => {
 
       expect(res.status).toBe(500);
       expect(body.ok).toBe(false);
-      expect(body.error.code).toBe('DB_ERROR');
+      expect(body.error.code).toBe('INTERNAL_ERROR');
     });
   });
 
@@ -334,7 +337,7 @@ describe('terraform routes', () => {
 
       expect(res.status).toBe(500);
       const body = await res.json();
-      expect(body.error.code).toBe('DB_ERROR');
+      expect(body.error.code).toBe('INTERNAL_ERROR');
     });
   });
 
@@ -386,7 +389,7 @@ describe('terraform routes', () => {
       const body = await res.json();
 
       expect(res.status).toBe(500);
-      expect(body.error.code).toBe('DB_ERROR');
+      expect(body.error.code).toBe('INTERNAL_ERROR');
     });
   });
 
@@ -453,7 +456,7 @@ describe('terraform routes', () => {
       const body = await res.json();
 
       expect(res.status).toBe(500);
-      expect(body.error.code).toBe('DB_ERROR');
+      expect(body.error.code).toBe('INTERNAL_ERROR');
     });
 
     it('allows dev auth to bypass admin check for delete', async () => {
@@ -592,7 +595,7 @@ describe('terraform routes', () => {
       const body = await res.json();
 
       expect(res.status).toBe(500);
-      expect(body.error.code).toBe('DB_ERROR');
+      expect(body.error.code).toBe('INTERNAL_ERROR');
     });
   });
 
@@ -662,7 +665,7 @@ describe('terraform routes', () => {
       const body = await res.json();
 
       expect(res.status).toBe(500);
-      expect(body.error.code).toBe('SYNC_ERROR');
+      expect(body.error.code).toBe('INTERNAL_ERROR');
     });
   });
 
@@ -764,7 +767,7 @@ describe('terraform routes', () => {
       const body = await res.json();
 
       expect(res.status).toBe(500);
-      expect(body.error.code).toBe('DB_ERROR');
+      expect(body.error.code).toBe('INTERNAL_ERROR');
     });
   });
 
@@ -813,7 +816,7 @@ describe('terraform routes', () => {
       const body = await res.json();
 
       expect(res.status).toBe(500);
-      expect(body.error.code).toBe('DB_ERROR');
+      expect(body.error.code).toBe('INTERNAL_ERROR');
     });
   });
 
@@ -1085,7 +1088,7 @@ describe('terraform routes', () => {
       const body = await res.json();
 
       expect(res.status).toBe(500);
-      expect(body.error.code).toBe('COMPOSE_ERROR');
+      expect(body.error.code).toBe('INTERNAL_ERROR');
     });
   });
 });

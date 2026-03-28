@@ -20,7 +20,7 @@ import {
 import { createLogger } from '../../lib/logging/logger.js';
 import type { RbacService } from '../../services/rbac.service.js';
 import type { Database } from '../../types/database.js';
-import { isValidId, json, requireTeamRole } from '../shared.js';
+import { json, requireTeamRole, validateIdParam } from '../shared.js';
 import { parseJsonBody } from '../validation.js';
 
 const log = createLogger('TeamGitHubTokenRoutes');
@@ -35,12 +35,10 @@ export function createTeamGitHubTokenRoutes({ db, rbacService }: TeamGitHubToken
 
   // GET / - Get team's GitHub token info (metadata only, never the actual token)
   app.get('/', async (c) => {
-    const teamId = c.req.param('id');
     const auth = c.get('auth');
 
-    if (!teamId || !isValidId(teamId)) {
-      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid team ID' } }, 400);
-    }
+    const { id: teamId, error: teamIdError } = validateIdParam(c, 'id');
+    if (teamIdError) return teamIdError;
 
     const denied = await requireTeamRole(auth, rbacService, teamId, 'admin');
     if (denied) return denied;
@@ -101,12 +99,10 @@ export function createTeamGitHubTokenRoutes({ db, rbacService }: TeamGitHubToken
 
   // PUT / - Set/replace the team's GitHub token
   app.put('/', async (c) => {
-    const teamId = c.req.param('id');
     const auth = c.get('auth');
 
-    if (!teamId || !isValidId(teamId)) {
-      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid team ID' } }, 400);
-    }
+    const { id: teamId, error: teamIdError } = validateIdParam(c, 'id');
+    if (teamIdError) return teamIdError;
 
     const denied = await requireTeamRole(auth, rbacService, teamId, 'admin');
     if (denied) return denied;
@@ -168,95 +164,69 @@ export function createTeamGitHubTokenRoutes({ db, rbacService }: TeamGitHubToken
       );
     }
 
-    try {
-      // Delete existing team token if any
-      await db.delete(githubTokens).where(eq(githubTokens.teamId, teamId));
+    // Delete existing team token if any
+    await db.delete(githubTokens).where(eq(githubTokens.teamId, teamId));
 
-      // Encrypt and store
-      const encrypted = encryptToken(token);
+    // Encrypt and store
+    const encrypted = encryptToken(token);
 
-      const [saved] = await db
-        .insert(githubTokens)
-        .values({
-          encryptedToken: encrypted,
-          tokenType: 'pat',
-          githubLogin,
-          githubId,
-          teamId,
-          isValid: true,
-          lastValidatedAt: new Date().toISOString(),
-        })
-        .returning();
+    const [saved] = await db
+      .insert(githubTokens)
+      .values({
+        encryptedToken: encrypted,
+        tokenType: 'pat',
+        githubLogin,
+        githubId,
+        teamId,
+        isValid: true,
+        lastValidatedAt: new Date().toISOString(),
+      })
+      .returning();
 
-      if (!saved) {
-        return json(
-          { ok: false, error: { code: 'DB_ERROR', message: 'Failed to save token' } },
-          500
-        );
-      }
-
-      return json({
-        ok: true,
-        data: {
-          tokenInfo: {
-            id: saved.id,
-            maskedToken: maskToken(token),
-            githubLogin: saved.githubLogin,
-            isValid: saved.isValid ?? true,
-            lastValidatedAt: saved.lastValidatedAt,
-            createdAt: saved.createdAt,
-          },
-        },
-      });
-    } catch (error) {
-      log.error('Failed to set team GitHub token', { error });
+    if (!saved) {
       return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to save token' } }, 500);
     }
+
+    return json({
+      ok: true,
+      data: {
+        tokenInfo: {
+          id: saved.id,
+          maskedToken: maskToken(token),
+          githubLogin: saved.githubLogin,
+          isValid: saved.isValid ?? true,
+          lastValidatedAt: saved.lastValidatedAt,
+          createdAt: saved.createdAt,
+        },
+      },
+    });
   });
 
   // DELETE / - Remove the team's GitHub token
   app.delete('/', async (c) => {
-    const teamId = c.req.param('id');
     const auth = c.get('auth');
 
-    if (!teamId || !isValidId(teamId)) {
-      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid team ID' } }, 400);
-    }
+    const { id: teamId, error: teamIdError } = validateIdParam(c, 'id');
+    if (teamIdError) return teamIdError;
 
     const denied = await requireTeamRole(auth, rbacService, teamId, 'admin');
     if (denied) return denied;
 
-    try {
-      const result = await db
-        .delete(githubTokens)
-        .where(eq(githubTokens.teamId, teamId))
-        .returning();
+    const result = await db.delete(githubTokens).where(eq(githubTokens.teamId, teamId)).returning();
 
-      if (result.length === 0) {
-        return json(
-          { ok: false, error: { code: 'NOT_FOUND', message: 'No token to delete' } },
-          404
-        );
-      }
-
-      return json({ ok: true, data: null });
-    } catch (error) {
-      log.error('Failed to delete team GitHub token', { error });
-      return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to delete token' } },
-        500
-      );
+    if (result.length === 0) {
+      return json({ ok: false, error: { code: 'NOT_FOUND', message: 'No token to delete' } }, 404);
     }
+
+    return json({ ok: true, data: null });
   });
 
   // POST /validate - Validate the team's token against GitHub API
   app.post('/validate', async (c) => {
-    const teamId = c.req.param('id');
     const auth = c.get('auth');
 
-    if (!teamId || !isValidId(teamId)) {
-      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid team ID' } }, 400);
-    }
+    const { id: teamId, error: teamIdError } = validateIdParam(c, 'id');
+    if (teamIdError) return teamIdError;
 
     const denied = await requireTeamRole(auth, rbacService, teamId, 'admin');
     if (denied) return denied;

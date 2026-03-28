@@ -221,15 +221,31 @@ export class TemplateService {
       });
     }
 
-    // Get associated codespace IDs for each template
-    const result: TemplateWithProjects[] = await Promise.all(
-      items.map(async (template) => {
-        const associations = await this.db.query.templateCodespaces.findMany({
-          where: eq(templateCodespaces.templateId, template.id),
-        });
-        return { ...template, codespaceIds: associations.map((a) => a.codespaceId) };
-      })
-    );
+    // Batch-load all codespace associations in a single query
+    const templateIds = items.map((t) => t.id);
+    const allAssociations =
+      templateIds.length > 0
+        ? await this.db.query.templateCodespaces.findMany({
+            where: inArray(templateCodespaces.templateId, templateIds),
+          })
+        : [];
+
+    // Build lookup map
+    const assocMap = new Map<string, string[]>();
+    for (const a of allAssociations) {
+      const arr = assocMap.get(a.templateId);
+      if (arr) {
+        arr.push(a.codespaceId);
+      } else {
+        assocMap.set(a.templateId, [a.codespaceId]);
+      }
+    }
+
+    // Attach in single pass
+    const result: TemplateWithProjects[] = items.map((t) => ({
+      ...t,
+      codespaceIds: assocMap.get(t.id) ?? [],
+    }));
 
     return ok(result);
   }

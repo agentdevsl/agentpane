@@ -25,6 +25,9 @@ function createTestApp() {
   });
   const app = new Hono();
   app.route('/api/tasks/create-with-ai', routes);
+  app.onError((err, c) => {
+    return c.json({ ok: false, error: { code: 'INTERNAL_ERROR', message: err.message } }, 500);
+  });
   return { app, taskCreationService };
 }
 
@@ -101,7 +104,7 @@ describe('Task Creation API Routes', () => {
       expect(res.status).toBe(500);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('SERVER_ERROR');
+      expect(json.error.code).toBe('INTERNAL_ERROR');
     });
   });
 
@@ -184,7 +187,7 @@ describe('Task Creation API Routes', () => {
       expect(res.status).toBe(500);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('SERVER_ERROR');
+      expect(json.error.code).toBe('INTERNAL_ERROR');
     });
   });
 
@@ -263,7 +266,7 @@ describe('Task Creation API Routes', () => {
       expect(res.status).toBe(500);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('SERVER_ERROR');
+      expect(json.error.code).toBe('INTERNAL_ERROR');
     });
   });
 
@@ -322,7 +325,7 @@ describe('Task Creation API Routes', () => {
       expect(res.status).toBe(500);
       const json = await res.json();
       expect(json.ok).toBe(false);
-      expect(json.error.code).toBe('SERVER_ERROR');
+      expect(json.error.code).toBe('INTERNAL_ERROR');
     });
   });
 
@@ -430,7 +433,7 @@ describe('Task Creation API Routes', () => {
 
       expect(res.status).toBe(500);
       const json = await res.json();
-      expect(json.error.code).toBe('SERVER_ERROR');
+      expect(json.error.code).toBe('INTERNAL_ERROR');
     });
   });
 
@@ -494,7 +497,7 @@ describe('Task Creation API Routes', () => {
 
       expect(res.status).toBe(500);
       const json = await res.json();
-      expect(json.error.code).toBe('SERVER_ERROR');
+      expect(json.error.code).toBe('INTERNAL_ERROR');
     });
   });
 
