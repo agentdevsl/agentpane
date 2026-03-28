@@ -151,18 +151,34 @@ function createMockDreamService() {
 
 // ── Test App Factory ──
 
+function createMockDb() {
+  const chainable = {
+    from: vi.fn().mockReturnThis(),
+    where: vi.fn().mockReturnThis(),
+    orderBy: vi.fn().mockReturnThis(),
+    limit: vi.fn().mockReturnThis(),
+    offset: vi.fn().mockReturnThis(),
+  };
+  const selectChain = Object.assign(Promise.resolve([]), chainable);
+  return {
+    select: vi.fn().mockReturnValue(selectChain),
+  };
+}
+
 function createTestApp(opts?: { available?: boolean }) {
   const memoryService = createMockMemoryService(opts);
   const skillTrackingService = createMockSkillTrackingService();
   const dreamService = createMockDreamService();
+  const mockDb = createMockDb();
   const routes = createMemoryRoutes({
     memoryService: memoryService as never,
     skillTrackingService: skillTrackingService as never,
     dreamService: dreamService as never,
+    db: mockDb as never,
   });
   const app = new Hono();
   app.route('/api/memory', routes);
-  return { app, memoryService, skillTrackingService, dreamService };
+  return { app, memoryService, skillTrackingService, dreamService, mockDb };
 }
 
 // ── Request Helper ──

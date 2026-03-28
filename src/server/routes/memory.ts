@@ -5,12 +5,15 @@
  * and skill improvement suggestions.
  */
 
+import { and, eq, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { sessionEvents } from '../../db/schema/index.js';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { DreamService } from '../../services/memory/dream.service.js';
 import type { MemoryService } from '../../services/memory/index.js';
 import type { SkillTrackingService } from '../../services/memory/skill-tracking.service.js';
+import type { Database } from '../../types/database.js';
 import { json } from '../shared.js';
 
 const log = createLogger('MemoryRoutes');
@@ -55,12 +58,14 @@ interface MemoryDeps {
   memoryService: MemoryService;
   skillTrackingService: SkillTrackingService;
   dreamService: DreamService;
+  db: Database;
 }
 
 export function createMemoryRoutes({
   memoryService,
   skillTrackingService,
   dreamService,
+  db,
 }: MemoryDeps) {
   const app = new Hono();
 
@@ -261,6 +266,59 @@ export function createMemoryRoutes({
       return json({ ok: true, data: null });
     });
   });
+
+  // --- Insight injection history endpoint ---
+
+  app.get('/insights/:insightId/injections', (c) =>
+    wrapHandler('Failed to get insight injections', async () => {
+      const insightId = c.req.param('insightId');
+      const { page, size } = parsePagination(c);
+      const offset = (page - 1) * size;
+
+      const rows = await db
+        .select({
+          id: sessionEvents.id,
+          sessionId: sessionEvents.sessionId,
+          data: sessionEvents.data,
+          timestamp: sessionEvents.timestamp,
+        })
+        .from(sessionEvents)
+        .where(
+          and(
+            eq(sessionEvents.type, 'memory:insights_injected'),
+            sql`json_extract(${sessionEvents.data}, '$.insightIds') LIKE ${'%' + insightId + '%'}`
+          )
+        )
+        .orderBy(sql`${sessionEvents.timestamp} DESC`)
+        .limit(size)
+        .offset(offset);
+
+      // Filter to rows that actually contain the insightId in the array
+      const injections = rows
+        .filter((row) => {
+          const data = row.data as Record<string, unknown> | null;
+          const ids = data?.insightIds;
+          return Array.isArray(ids) && ids.includes(insightId);
+        })
+        .map((row) => {
+          const data = row.data as Record<string, unknown>;
+          return {
+            sessionId: row.sessionId,
+            agentId: data.agentId as string,
+            taskId: data.taskId as string,
+            insightCount: data.insightCount as number,
+            tokenCount: data.tokenCount as number,
+            timestamp: row.timestamp,
+          };
+        });
+
+      return json({
+        ok: true,
+        data: injections,
+        pagination: { page, size, hasMore: rows.length === size },
+      });
+    })
+  );
 
   // ===========================================================================
   // Codespace-scoped endpoints

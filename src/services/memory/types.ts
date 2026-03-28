@@ -21,6 +21,7 @@ export interface MemoryContext {
   tokenCount: number;
   sources: {
     insights: number;
+    insightIds: string[];
   };
 }
 
@@ -175,5 +176,5 @@ export interface PaginationOptions {
 export const EMPTY_CONTEXT: MemoryContext = {
   text: '',
   tokenCount: 0,
-  sources: { insights: 0 },
+  sources: { insights: 0, insightIds: [] },
 };

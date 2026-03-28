@@ -468,6 +468,25 @@ export class AgentExecutionService {
               sources: memoryResult.value.sources,
             },
           });
+
+          if (memoryResult.value.sources.insightIds.length > 0) {
+            await this.sessionService.publish(
+              session.value.id,
+              createSessionEventWithMetadata({
+                sessionId: session.value.id,
+                type: 'memory:insights_injected',
+                partType: 'lifecycle',
+                blockId: agentId,
+                data: {
+                  agentId,
+                  taskId: task.id,
+                  insightIds: memoryResult.value.sources.insightIds,
+                  insightCount: memoryResult.value.sources.insights,
+                  tokenCount: memoryResult.value.tokenCount,
+                },
+              })
+            );
+          }
         }
       } catch (error) {
         log.warn('Failed to inject memory context, continuing without it', {

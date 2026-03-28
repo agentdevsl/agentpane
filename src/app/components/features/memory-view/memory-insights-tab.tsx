@@ -1,5 +1,6 @@
 import { Lightbulb, MagnifyingGlass } from '@phosphor-icons/react';
 import type React from 'react';
+import { useCallback } from 'react';
 import { INPUT_CLASS } from './formatters';
 import { InsightCard } from './insight-card';
 import { useMemory } from './memory-context';
@@ -68,7 +69,16 @@ export function MemoryInsightsTab(): React.JSX.Element {
     searchResults,
     isSearching,
     deleteInsight,
+    insightInjections,
+    loadInsightInjections,
   } = useMemory();
+
+  const handleExpand = useCallback(
+    (insightId: string) => {
+      void loadInsightInjections(insightId);
+    },
+    [loadInsightInjections]
+  );
 
   const displayedItems: Array<Insight | SearchResult> = searchResults ?? insights;
   const isLoading = insightsLoading || isSearching;
@@ -107,7 +117,9 @@ export function MemoryInsightsTab(): React.JSX.Element {
             <InsightCard
               key={item.id}
               insight={toInsightCardProps(item)}
+              injections={insightInjections.get(item.id)}
               onDelete={deleteInsight}
+              onExpand={handleExpand}
             />
           ))}
         </div>

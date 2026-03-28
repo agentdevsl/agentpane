@@ -1699,5 +1699,22 @@ export const apiClient = {
         method: 'PUT',
         body: override ?? {},
       }),
+
+    getInsightInjections: (insightId: string, params?: { page?: number; size?: number }) => {
+      const sp = new URLSearchParams();
+      if (params?.page !== undefined) sp.set('page', String(params.page));
+      if (params?.size !== undefined) sp.set('size', String(params.size));
+      const qs = sp.toString();
+      return apiServerFetch<
+        Array<{
+          sessionId: string;
+          agentId: string;
+          taskId: string;
+          insightCount: number;
+          tokenCount: number;
+          timestamp: number;
+        }>
+      >(`/api/memory/insights/${encodeURIComponent(insightId)}/injections${qs ? `?${qs}` : ''}`);
+    },
   },
 };

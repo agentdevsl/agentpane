@@ -25,6 +25,15 @@ export interface SkillDreamOverride {
   minRuns?: number;
 }
 
+export interface InsightInjection {
+  sessionId: string;
+  agentId: string;
+  taskId: string;
+  insightCount: number;
+  tokenCount: number;
+  timestamp: number;
+}
+
 export type MemoryTab = 'overview' | 'insights' | 'skills' | 'dream';
 
 export type SuggestionFilter = SkillSuggestion['status'] | 'all';
