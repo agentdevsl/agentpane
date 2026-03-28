@@ -10,7 +10,7 @@ svg { display: block; }
 </style>
 </head>
 <body>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1580" width="1920" height="1580">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 2200" width="1920" height="2200">
 <defs>
   <marker id="arrow-gray" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
     <path d="M0,0 L8,3 L0,6" fill="none" stroke="#484f58" stroke-width="1.5"/>
@@ -39,14 +39,14 @@ svg { display: block; }
 </defs>
 
 <!-- Background -->
-<rect width="1920" height="1580" fill="#0d1117"/>
+<rect width="1920" height="2200" fill="#0d1117"/>
 
 <!-- ==================== TITLE ==================== -->
 <text x="960" y="38" text-anchor="middle" fill="#e6edf3" font-size="22" font-weight="700">AgentPane — OpenShift Deployment with Cloudflare Tunnel</text>
 <text x="960" y="58" text-anchor="middle" fill="#8b949e" font-size="13">GitHub.com connectivity via egress proxy (outbound) and Cloudflare Tunnel (webhooks via agentpane.teams)</text>
 
 <!-- ==================== LEFT: CORPORATE NETWORK ==================== -->
-<rect x="40" y="80" width="1130" height="1130" rx="14" fill="none" stroke="#3fb950" stroke-width="2.5" stroke-dasharray="10,5"/>
+<rect x="40" y="80" width="1130" height="1400" rx="14" fill="none" stroke="#3fb950" stroke-width="2.5" stroke-dasharray="10,5"/>
 <text x="60" y="100" fill="#3fb950" font-size="14" font-weight="700">Private Network / Corporate LAN</text>
 
 <!-- ==================== USER BROWSER ==================== -->
@@ -65,7 +65,7 @@ svg { display: block; }
 <text x="465" y="196" text-anchor="middle" fill="#8b949e" font-size="10">HTTPS</text>
 
 <!-- ==================== OPENSHIFT CLUSTER ==================== -->
-<rect x="60" y="210" width="1090" height="820" rx="12" fill="none" stroke="#f85149" stroke-width="2" stroke-dasharray="8,4"/>
+<rect x="60" y="210" width="1090" height="830" rx="12" fill="none" stroke="#f85149" stroke-width="2" stroke-dasharray="8,4"/>
 <text x="80" y="232" fill="#f85149" font-size="14" font-weight="700">OpenShift Cluster</text>
 
 <!-- ====== OCP ROUTER / HAProxy ====== -->
@@ -87,7 +87,7 @@ svg { display: block; }
 <text x="295" y="196" text-anchor="middle" fill="#8b949e" font-size="10">HTTPS</text>
 
 <!-- ====== AGENTPANE NAMESPACE ====== -->
-<rect x="80" y="400" width="570" height="450" rx="10" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-dasharray="8,4"/>
+<rect x="80" y="400" width="570" height="540" rx="10" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-dasharray="8,4"/>
 <text x="100" y="420" fill="#58a6ff" font-size="13" font-weight="600">Namespace: agentpane</text>
 
 <!-- ClusterIP Service -->
@@ -99,154 +99,155 @@ svg { display: block; }
 <line x1="270" y1="378" x2="270" y2="438" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
 
 <!-- AgentPane Pod -->
-<rect x="120" y="498" width="500" height="165" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="2"/>
+<rect x="120" y="498" width="500" height="210" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="2"/>
 <text x="370" y="522" text-anchor="middle" fill="#3fb950" font-size="15" font-weight="600">AgentPane Pod (start.sh)</text>
 
 <!-- Caddy front door container -->
-<rect x="145" y="538" width="220" height="50" rx="6" fill="#1c2333" stroke="#bc8cff" stroke-width="1"/>
-<text x="255" y="558" text-anchor="middle" fill="#bc8cff" font-size="12" font-weight="600">Caddy (Durable Streams)</text>
-<text x="255" y="576" text-anchor="middle" fill="#8b949e" font-size="10">:3000 · front door · SSE + SPA</text>
+<rect x="145" y="540" width="220" height="55" rx="6" fill="#1c2333" stroke="#bc8cff" stroke-width="1"/>
+<text x="255" y="562" text-anchor="middle" fill="#bc8cff" font-size="12" font-weight="600">Caddy (Durable Streams)</text>
+<text x="255" y="580" text-anchor="middle" fill="#8b949e" font-size="10">:3000 · front door · SSE + SPA</text>
 
 <!-- Bun API container -->
-<rect x="385" y="538" width="220" height="50" rx="6" fill="#1c2333" stroke="#58a6ff" stroke-width="1"/>
-<text x="495" y="558" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="600">Bun API Server</text>
-<text x="495" y="576" text-anchor="middle" fill="#8b949e" font-size="10">:3001 · Hono · 5 schedulers</text>
+<rect x="385" y="540" width="220" height="55" rx="6" fill="#1c2333" stroke="#58a6ff" stroke-width="1"/>
+<text x="495" y="562" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="600">Bun API Server</text>
+<text x="495" y="580" text-anchor="middle" fill="#8b949e" font-size="10">:3001 · Hono · 5 schedulers</text>
 
 <!-- Connection: Caddy -> Bun (reverse proxy) -->
-<line x1="365" y1="563" x2="385" y2="563" stroke="#58a6ff" stroke-width="1" stroke-dasharray="4,2"/>
+<line x1="365" y1="567" x2="385" y2="567" stroke="#58a6ff" stroke-width="1" stroke-dasharray="4,2"/>
 
 <!-- Key endpoints inside pod -->
-<rect x="145" y="600" width="80" height="28" rx="5" fill="#1c2333" stroke="#d29922" stroke-width="1"/>
-<text x="185" y="618" text-anchor="middle" fill="#d29922" font-size="9">/hooks/events/*</text>
+<rect x="145" y="610" width="110" height="28" rx="5" fill="#1c2333" stroke="#d29922" stroke-width="1"/>
+<text x="200" y="628" text-anchor="middle" fill="#d29922" font-size="9">/hooks/events/*</text>
 
-<rect x="230" y="600" width="95" height="28" rx="5" fill="#1c2333" stroke="#d29922" stroke-width="1"/>
-<text x="277" y="618" text-anchor="middle" fill="#d29922" font-size="9">/hooks/github-app</text>
+<rect x="265" y="610" width="110" height="28" rx="5" fill="#1c2333" stroke="#d29922" stroke-width="1"/>
+<text x="320" y="628" text-anchor="middle" fill="#d29922" font-size="9">/hooks/github-app</text>
 
-<rect x="330" y="600" width="90" height="28" rx="5" fill="#1c2333" stroke="#bc8cff" stroke-width="1"/>
-<text x="375" y="618" text-anchor="middle" fill="#bc8cff" font-size="9">/api/auth/github/*</text>
+<rect x="385" y="610" width="110" height="28" rx="5" fill="#1c2333" stroke="#bc8cff" stroke-width="1"/>
+<text x="440" y="628" text-anchor="middle" fill="#bc8cff" font-size="9">/api/auth/github/*</text>
 
-<rect x="425" y="600" width="90" height="28" rx="5" fill="#1c2333" stroke="#7ee787" stroke-width="1"/>
-<text x="470" y="618" text-anchor="middle" fill="#7ee787" font-size="9">/api/* · /v1/stream/*</text>
+<rect x="145" y="648" width="110" height="28" rx="5" fill="#1c2333" stroke="#7ee787" stroke-width="1"/>
+<text x="200" y="666" text-anchor="middle" fill="#7ee787" font-size="9">/api/* · /v1/stream/*</text>
 
-<rect x="145" y="636" width="130" height="24" rx="5" fill="#1c2333" stroke="#8b949e" stroke-width="1"/>
-<text x="210" y="652" text-anchor="middle" fill="#8b949e" font-size="9">HMAC-SHA256 verification</text>
+<rect x="265" y="648" width="140" height="28" rx="5" fill="#1c2333" stroke="#8b949e" stroke-width="1"/>
+<text x="335" y="666" text-anchor="middle" fill="#8b949e" font-size="9">HMAC-SHA256 verification</text>
 
-<rect x="285" y="636" width="100" height="24" rx="5" fill="#1c2333" stroke="#8b949e" stroke-width="1"/>
-<text x="335" y="652" text-anchor="middle" fill="#8b949e" font-size="9">60 req/min webhooks</text>
+<rect x="415" y="648" width="100" height="28" rx="5" fill="#1c2333" stroke="#8b949e" stroke-width="1"/>
+<text x="465" y="666" text-anchor="middle" fill="#8b949e" font-size="9">60 req/min webhooks</text>
 
-<rect x="395" y="636" width="110" height="24" rx="5" fill="#1c2333" stroke="#8b949e" stroke-width="1"/>
-<text x="450" y="652" text-anchor="middle" fill="#8b949e" font-size="9">200 req/min API</text>
+<rect x="145" y="686" width="110" height="24" rx="5" fill="#1c2333" stroke="#8b949e" stroke-width="1"/>
+<text x="200" y="702" text-anchor="middle" fill="#8b949e" font-size="9">200 req/min API</text>
 
 <!-- Connection: Service -> Pod -->
 <line x1="370" y1="480" x2="370" y2="498" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
 
 <!-- Memory Service (internal DB-backed) -->
-<rect x="120" y="680" width="320" height="70" rx="8" fill="#161b22" stroke="#bc8cff" stroke-width="2.5" stroke-dasharray="6,3"/>
-<text x="280" y="702" text-anchor="middle" fill="#bc8cff" font-size="15" font-weight="700">Memory Service</text>
-<text x="280" y="720" text-anchor="middle" fill="#bc8cff" font-size="11">Internal DB-backed · MemoryStore + DreamService</text>
-<text x="280" y="738" text-anchor="middle" fill="#8b949e" font-size="10">InsightDeriver · SkillTracking · 24h dream cycle</text>
+<rect x="120" y="740" width="360" height="90" rx="8" fill="#161b22" stroke="#bc8cff" stroke-width="2.5" stroke-dasharray="6,3"/>
+<text x="300" y="764" text-anchor="middle" fill="#bc8cff" font-size="15" font-weight="700">Memory Service</text>
+<text x="300" y="786" text-anchor="middle" fill="#bc8cff" font-size="11">Internal DB-backed · MemoryStore + DreamService</text>
+<text x="300" y="806" text-anchor="middle" fill="#8b949e" font-size="10">InsightDeriver · SkillTracking</text>
+<text x="300" y="822" text-anchor="middle" fill="#8b949e" font-size="10">24h dream cycle</text>
 
 <!-- Connection: AgentPane Pod -> Memory Service (internal) -->
-<path d="M 280 663 L 280 680" fill="none" stroke="#bc8cff" stroke-width="2" stroke-dasharray="4,2" marker-end="url(#arrow-purple)"/>
-<rect x="290" y="664" width="100" height="14" rx="3" fill="#0d1117" stroke="#bc8cff" stroke-width="0.5"/>
-<text x="340" y="674" text-anchor="middle" fill="#bc8cff" font-size="9">internal memory</text>
+<path d="M 280 708 L 280 740" fill="none" stroke="#bc8cff" stroke-width="2" stroke-dasharray="4,2" marker-end="url(#arrow-purple)"/>
+<rect x="290" y="714" width="100" height="14" rx="3" fill="#0d1117" stroke="#bc8cff" stroke-width="0.5"/>
+<text x="340" y="724" text-anchor="middle" fill="#bc8cff" font-size="9">internal memory</text>
 
 <!-- Database (SQLite or PostgreSQL) -->
-<rect x="120" y="768" width="170" height="55" rx="8" fill="#161b22" stroke="#7ee787" stroke-width="1.5"/>
-<text x="205" y="790" text-anchor="middle" fill="#7ee787" font-size="13" font-weight="600">Database</text>
-<text x="205" y="808" text-anchor="middle" fill="#8b949e" font-size="10">SQLite (default) or PostgreSQL :5432</text>
+<rect x="120" y="852" width="170" height="55" rx="8" fill="#161b22" stroke="#7ee787" stroke-width="1.5"/>
+<text x="205" y="874" text-anchor="middle" fill="#7ee787" font-size="13" font-weight="600">Database</text>
+<text x="205" y="892" text-anchor="middle" fill="#8b949e" font-size="10">SQLite (default) or PostgreSQL :5432</text>
 
 <!-- cloudflared Deployment (Cloudflare Tunnel) -->
-<rect x="300" y="768" width="170" height="55" rx="8" fill="#161b22" stroke="#d29922" stroke-width="2"/>
-<text x="385" y="790" text-anchor="middle" fill="#d29922" font-size="13" font-weight="600">cloudflared</text>
-<text x="385" y="808" text-anchor="middle" fill="#8b949e" font-size="10">Tunnel to Cloudflare Edge</text>
+<rect x="300" y="852" width="170" height="55" rx="8" fill="#161b22" stroke="#d29922" stroke-width="2"/>
+<text x="385" y="874" text-anchor="middle" fill="#d29922" font-size="13" font-weight="600">cloudflared</text>
+<text x="385" y="892" text-anchor="middle" fill="#8b949e" font-size="10">Tunnel to Cloudflare Edge</text>
 
 <!-- PVC -->
-<rect x="480" y="768" width="140" height="55" rx="8" fill="#161b22" stroke="#8b949e" stroke-width="1"/>
-<text x="550" y="790" text-anchor="middle" fill="#8b949e" font-size="13" font-weight="600">PVC: data</text>
-<text x="550" y="808" text-anchor="middle" fill="#8b949e" font-size="10">SQLite DB · LMDB streams</text>
+<rect x="500" y="852" width="140" height="55" rx="8" fill="#161b22" stroke="#8b949e" stroke-width="1"/>
+<text x="570" y="874" text-anchor="middle" fill="#8b949e" font-size="13" font-weight="600">PVC: data</text>
+<text x="570" y="892" text-anchor="middle" fill="#8b949e" font-size="10">SQLite DB · LMDB streams</text>
 
 <!-- Connections: Pod -> DB, cloudflared, PVC (routed around Memory Service) -->
-<path d="M 160 663 L 160 672 L 108 672 L 108 758 L 160 758 L 160 768" fill="none" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
-<line x1="550" y1="663" x2="550" y2="768" stroke="#484f58" stroke-width="1" stroke-dasharray="4,2"/>
+<path d="M 160 708 L 160 718 L 108 718 L 108 842 L 160 842 L 160 852" fill="none" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="570" y1="708" x2="570" y2="852" stroke="#484f58" stroke-width="1" stroke-dasharray="4,2"/>
 
 <!-- Connection: cloudflared -> Service (internal webhook forwarding) -->
-<path d="M 300 795 L 92 795 L 92 460 L 120 460" fill="none" stroke="#d29922" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
-<rect x="93" y="570" width="16" height="90" rx="3" fill="#0d1117" stroke="none"/>
-<g transform="rotate(-90 101 615)">
-<rect x="50" y="603" width="102" height="16" rx="3" fill="#0d1117" stroke="#d29922" stroke-width="0.5"/>
-<text x="101" y="615" text-anchor="middle" fill="#d29922" font-size="9">forwarded webhooks</text>
+<path d="M 300 880 L 92 880 L 92 460 L 120 460" fill="none" stroke="#d29922" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
+<rect x="93" y="620" width="16" height="90" rx="3" fill="#0d1117" stroke="none"/>
+<g transform="rotate(-90 101 665)">
+<rect x="50" y="653" width="102" height="16" rx="3" fill="#0d1117" stroke="#d29922" stroke-width="0.5"/>
+<text x="101" y="665" text-anchor="middle" fill="#d29922" font-size="9">forwarded webhooks</text>
 </g>
 
 <!-- ====== SANDBOX NAMESPACE ====== -->
-<rect x="690" y="400" width="440" height="390" rx="10" fill="none" stroke="#f0883e" stroke-width="1.5" stroke-dasharray="8,4"/>
+<rect x="690" y="400" width="440" height="510" rx="10" fill="none" stroke="#f0883e" stroke-width="1.5" stroke-dasharray="8,4"/>
 <text x="710" y="420" fill="#f0883e" font-size="13" font-weight="600">Namespace: agentpane-sandboxes</text>
 
 <!-- Sandbox SCC -->
-<rect x="720" y="438" width="390" height="35" rx="6" fill="#161b22" stroke="#f85149" stroke-width="1"/>
-<text x="915" y="460" text-anchor="middle" fill="#f85149" font-size="12" font-weight="600">SCC: restricted-v2 · gVisor RuntimeClass</text>
+<rect x="720" y="438" width="390" height="40" rx="6" fill="#161b22" stroke="#f85149" stroke-width="1"/>
+<text x="915" y="463" text-anchor="middle" fill="#f85149" font-size="12" font-weight="600">SCC: restricted-v2 · gVisor RuntimeClass</text>
 
 <!-- Network Policy -->
-<rect x="720" y="486" width="390" height="92" rx="8" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
-<text x="915" y="508" text-anchor="middle" fill="#d29922" font-size="13" font-weight="600">NetworkPolicy: sandbox-egress</text>
-<text x="740" y="528" fill="#3fb950" font-size="11">ALLOW</text>
-<text x="785" y="528" fill="#8b949e" font-size="11">DNS :53 · HTTPS :443 · HTTP :80</text>
-<text x="740" y="546" fill="#f85149" font-size="11">DENY</text>
-<text x="780" y="546" fill="#8b949e" font-size="11">RFC1918 (10.0/8, 172.16/12, 192.168/16)</text>
-<text x="740" y="564" fill="#8b949e" font-size="10">Sandbox pods can reach github.com + anthropic API, not cluster internals</text>
+<rect x="720" y="496" width="390" height="110" rx="8" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+<text x="915" y="520" text-anchor="middle" fill="#d29922" font-size="13" font-weight="600">NetworkPolicy: sandbox-egress</text>
+<text x="740" y="544" fill="#3fb950" font-size="11">ALLOW</text>
+<text x="785" y="544" fill="#8b949e" font-size="11">DNS :53 · HTTPS :443 · HTTP :80</text>
+<text x="740" y="566" fill="#f85149" font-size="11">DENY</text>
+<text x="780" y="566" fill="#8b949e" font-size="11">RFC1918 (10.0/8, 172.16/12, 192.168/16)</text>
+<text x="740" y="590" fill="#8b949e" font-size="10">Sandbox pods can reach github.com + anthropic API, not cluster internals</text>
 
 <!-- Sandbox Pod 1 -->
-<rect x="720" y="596" width="185" height="85" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
-<text x="812" y="618" text-anchor="middle" fill="#f0883e" font-size="13" font-weight="600">Sandbox Pod</text>
-<text x="812" y="636" text-anchor="middle" fill="#8b949e" font-size="10">Claude Agent SDK</text>
-<text x="812" y="654" text-anchor="middle" fill="#8b949e" font-size="10">agent-sandbox image</text>
-<text x="812" y="670" text-anchor="middle" fill="#8b949e" font-size="10">/workspace mount</text>
+<rect x="720" y="624" width="185" height="95" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
+<text x="812" y="648" text-anchor="middle" fill="#f0883e" font-size="13" font-weight="600">Sandbox Pod</text>
+<text x="812" y="668" text-anchor="middle" fill="#8b949e" font-size="10">Claude Agent SDK</text>
+<text x="812" y="688" text-anchor="middle" fill="#8b949e" font-size="10">agent-sandbox image</text>
+<text x="812" y="708" text-anchor="middle" fill="#8b949e" font-size="10">/workspace mount</text>
 
 <!-- Sandbox Pod 2 -->
-<rect x="925" y="596" width="185" height="85" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
-<text x="1017" y="618" text-anchor="middle" fill="#f0883e" font-size="13" font-weight="600">Sandbox Pod</text>
-<text x="1017" y="636" text-anchor="middle" fill="#8b949e" font-size="10">Claude Agent SDK</text>
-<text x="1017" y="654" text-anchor="middle" fill="#8b949e" font-size="10">agent-sandbox image</text>
-<text x="1017" y="670" text-anchor="middle" fill="#8b949e" font-size="10">/workspace mount</text>
+<rect x="925" y="624" width="185" height="95" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
+<text x="1017" y="648" text-anchor="middle" fill="#f0883e" font-size="13" font-weight="600">Sandbox Pod</text>
+<text x="1017" y="668" text-anchor="middle" fill="#8b949e" font-size="10">Claude Agent SDK</text>
+<text x="1017" y="688" text-anchor="middle" fill="#8b949e" font-size="10">agent-sandbox image</text>
+<text x="1017" y="708" text-anchor="middle" fill="#8b949e" font-size="10">/workspace mount</text>
 
 <!-- Warm Pool + CRDs -->
-<rect x="720" y="700" width="390" height="55" rx="6" fill="#161b22" stroke="#f0883e" stroke-width="1"/>
-<text x="915" y="719" text-anchor="middle" fill="#f0883e" font-size="12" font-weight="600">agents.x-k8s.io/v1alpha1 CRDs</text>
-<text x="915" y="735" text-anchor="middle" fill="#8b949e" font-size="10">Sandbox · SandboxTemplate · SandboxClaim · SandboxWarmPool</text>
-<text x="915" y="748" text-anchor="middle" fill="#8b949e" font-size="9">desiredReady: 2 · maxSize: 5 · LimitRange: 2-4Gi / 1-2 CPU</text>
+<rect x="720" y="740" width="390" height="70" rx="6" fill="#161b22" stroke="#f0883e" stroke-width="1"/>
+<text x="915" y="762" text-anchor="middle" fill="#f0883e" font-size="12" font-weight="600">agents.x-k8s.io/v1alpha1 CRDs</text>
+<text x="915" y="782" text-anchor="middle" fill="#8b949e" font-size="10">Sandbox · SandboxTemplate · SandboxClaim · SandboxWarmPool</text>
+<text x="915" y="800" text-anchor="middle" fill="#8b949e" font-size="9">desiredReady: 2 · maxSize: 5 · LimitRange: 2-4Gi / 1-2 CPU</text>
 
 <!-- Connection: AgentPane -> Sandbox Pods -->
-<path d="M 620 560 L 660 560 L 660 640 L 720 640" fill="none" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrow-coral)"/>
-<rect x="661" y="543" width="50" height="16" rx="3" fill="#0d1117" stroke="#f0883e" stroke-width="0.5"/>
-<text x="686" y="555" text-anchor="middle" fill="#f0883e" font-size="10">creates</text>
+<path d="M 620 567 L 660 567 L 660 670 L 720 670" fill="none" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrow-coral)"/>
+<rect x="661" y="550" width="50" height="16" rx="3" fill="#0d1117" stroke="#f0883e" stroke-width="0.5"/>
+<text x="686" y="562" text-anchor="middle" fill="#f0883e" font-size="10">creates</text>
 
 <!-- ====== EGRESS PROXY ====== -->
-<rect x="80" y="870" width="400" height="55" rx="8" fill="#161b22" stroke="#bc8cff" stroke-width="2"/>
-<text x="280" y="892" text-anchor="middle" fill="#bc8cff" font-size="15" font-weight="600">Egress Proxy</text>
-<text x="280" y="910" text-anchor="middle" fill="#8b949e" font-size="11">HTTPS_PROXY · forward to internet</text>
+<rect x="80" y="960" width="400" height="55" rx="8" fill="#161b22" stroke="#bc8cff" stroke-width="2"/>
+<text x="280" y="982" text-anchor="middle" fill="#bc8cff" font-size="15" font-weight="600">Egress Proxy</text>
+<text x="280" y="1000" text-anchor="middle" fill="#8b949e" font-size="11">HTTPS_PROXY · forward to internet</text>
 
 <!-- Connection: Pod -> Egress Proxy -->
-<path d="M 145 663 L 145 672 L 70 672 L 70 890" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3"/>
-<rect x="76" y="776" width="82" height="16" rx="3" fill="#0d1117" stroke="#bc8cff" stroke-width="0.5"/>
-<text x="117" y="788" text-anchor="middle" fill="#bc8cff" font-size="10">HTTPS_PROXY</text>
+<path d="M 145 708 L 145 718 L 70 718 L 70 980" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3"/>
+<rect x="76" y="830" width="82" height="16" rx="3" fill="#0d1117" stroke="#bc8cff" stroke-width="0.5"/>
+<text x="117" y="842" text-anchor="middle" fill="#bc8cff" font-size="10">HTTPS_PROXY</text>
 
 <!-- Connection: Sandbox -> Egress Proxy (via network policy) -->
-<path d="M 812 681 L 812 830 L 280 830 L 280 870" fill="none" stroke="#f0883e" stroke-width="1.5" stroke-dasharray="6,3"/>
-<rect x="430" y="813" width="240" height="16" rx="3" fill="#0d1117" stroke="#f0883e" stroke-width="0.5"/>
-<text x="550" y="825" text-anchor="middle" fill="#f0883e" font-size="10">sandbox egress (HTTPS only, no RFC1918)</text>
+<path d="M 812 719 L 812 926 L 280 926 L 280 960" fill="none" stroke="#f0883e" stroke-width="1.5" stroke-dasharray="6,3"/>
+<rect x="430" y="909" width="240" height="16" rx="3" fill="#0d1117" stroke="#f0883e" stroke-width="0.5"/>
+<text x="550" y="921" text-anchor="middle" fill="#f0883e" font-size="10">sandbox egress (HTTPS only, no RFC1918)</text>
 
 <!-- Connection: cloudflared -> Egress Proxy (tunnel outbound) -->
-<path d="M 385 823 L 385 870" fill="none" stroke="#d29922" stroke-width="2" stroke-dasharray="6,3"/>
-<rect x="390" y="838" width="90" height="16" rx="3" fill="#0d1117" stroke="#d29922" stroke-width="0.5"/>
-<text x="435" y="850" text-anchor="middle" fill="#d29922" font-size="10">tunnel via proxy</text>
+<path d="M 385 907 L 385 960" fill="none" stroke="#d29922" stroke-width="2" stroke-dasharray="6,3"/>
+<rect x="390" y="926" width="90" height="16" rx="3" fill="#0d1117" stroke="#d29922" stroke-width="0.5"/>
+<text x="435" y="938" text-anchor="middle" fill="#d29922" font-size="10">tunnel via proxy</text>
 
 <!-- ==================== FIREWALL ==================== -->
-<rect x="60" y="960" width="1090" height="50" rx="8" fill="#161b22" stroke="#f85149" stroke-width="2"/>
-<text x="605" y="982" text-anchor="middle" fill="#f85149" font-size="15" font-weight="700">Corporate Firewall</text>
-<text x="605" y="1000" text-anchor="middle" fill="#8b949e" font-size="11">Outbound: all HTTPS allowed via proxy · No inbound rules needed (Cloudflare Tunnel is outbound-only)</text>
+<rect x="60" y="1060" width="1090" height="50" rx="8" fill="#161b22" stroke="#f85149" stroke-width="2"/>
+<text x="605" y="1082" text-anchor="middle" fill="#f85149" font-size="15" font-weight="700">Corporate Firewall</text>
+<text x="605" y="1100" text-anchor="middle" fill="#8b949e" font-size="11">Outbound: all HTTPS allowed via proxy · No inbound rules needed (Cloudflare Tunnel is outbound-only)</text>
 
 <!-- ==================== RIGHT: PUBLIC INTERNET ==================== -->
-<rect x="1230" y="80" width="650" height="1190" rx="14" fill="none" stroke="#8b949e" stroke-width="2" stroke-dasharray="10,5"/>
+<rect x="1230" y="80" width="650" height="1470" rx="14" fill="none" stroke="#8b949e" stroke-width="2" stroke-dasharray="10,5"/>
 <text x="1250" y="100" fill="#8b949e" font-size="14" font-weight="700">Public Internet</text>
 
 <!-- GitHub.com -->
@@ -303,26 +304,26 @@ svg { display: block; }
 <!-- ==================== FLOW ARROWS ==================== -->
 
 <!-- Outbound: Proxy -> GitHub API (via firewall) -->
-<path d="M 480 897 L 1170 897 L 1170 985 L 1230 985" fill="none" stroke="#bc8cff" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
-<rect x="746" y="878" width="148" height="16" rx="3" fill="#0d1117" stroke="#bc8cff" stroke-width="0.5"/>
-<text x="820" y="890" text-anchor="middle" fill="#bc8cff" font-size="10">outbound HTTPS via proxy</text>
+<path d="M 480 987 L 1170 987 L 1170 1085 L 1230 1085" fill="none" stroke="#bc8cff" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+<rect x="746" y="968" width="148" height="16" rx="3" fill="#0d1117" stroke="#bc8cff" stroke-width="0.5"/>
+<text x="820" y="980" text-anchor="middle" fill="#bc8cff" font-size="10">outbound HTTPS via proxy</text>
 
 <!-- Outbound continues up to GitHub API -->
-<path d="M 1230 985 L 1200 985 L 1200 252 L 1300 252" fill="none" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
-<g transform="rotate(-90 1205 600)">
-<rect x="1201" y="588" width="88" height="16" rx="3" fill="#0d1117" stroke="#58a6ff" stroke-width="0.5"/>
-<text x="1245" y="600" text-anchor="middle" fill="#58a6ff" font-size="10">api.github.com</text>
+<path d="M 1230 1085 L 1200 1085 L 1200 252 L 1300 252" fill="none" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+<g transform="rotate(-90 1205 650)">
+<rect x="1201" y="638" width="88" height="16" rx="3" fill="#0d1117" stroke="#58a6ff" stroke-width="0.5"/>
+<text x="1245" y="650" text-anchor="middle" fill="#58a6ff" font-size="10">api.github.com</text>
 </g>
 
 <!-- Outbound: Proxy -> Anthropic -->
-<path d="M 1230 985 L 1200 985 L 1200 587 L 1270 587" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-purple)"/>
+<path d="M 1230 1085 L 1200 1085 L 1200 587 L 1270 587" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-purple)"/>
 
 <!-- Cloudflare Tunnel: cloudflared -> firewall -> Cloudflare Edge (outbound-initiated) -->
-<path d="M 470 795 L 655 795 L 655 985 L 1190 985" fill="none" stroke="#d29922" stroke-width="2" stroke-dasharray="8,4"/>
-<path d="M 1190 985 L 1190 500 L 1270 500" fill="none" stroke="#d29922" stroke-width="2" marker-end="url(#arrow-orange)"/>
-<g transform="rotate(-90 1195 745)">
-<rect x="1128" y="733" width="134" height="16" rx="3" fill="#0d1117" stroke="#d29922" stroke-width="0.5"/>
-<text x="1195" y="745" text-anchor="middle" fill="#d29922" font-size="10">Cloudflare Tunnel</text>
+<path d="M 470 880 L 655 880 L 655 1085 L 1190 1085" fill="none" stroke="#d29922" stroke-width="2" stroke-dasharray="8,4"/>
+<path d="M 1190 1085 L 1190 500 L 1270 500" fill="none" stroke="#d29922" stroke-width="2" marker-end="url(#arrow-orange)"/>
+<g transform="rotate(-90 1195 795)">
+<rect x="1128" y="783" width="134" height="16" rx="3" fill="#0d1117" stroke="#d29922" stroke-width="0.5"/>
+<text x="1195" y="795" text-anchor="middle" fill="#d29922" font-size="10">Cloudflare Tunnel</text>
 </g>
 
 <!-- GitHub Webhooks -> Cloudflare Edge -->
@@ -337,67 +338,67 @@ svg { display: block; }
 <text x="702" y="108" text-anchor="middle" fill="#bc8cff" font-size="10">browser redirect (OAuth login)</text>
 
 <!-- ==================== ALTERNATIVE SANDBOX PROVIDERS (below cluster) ==================== -->
-<rect x="60" y="1040" width="1090" height="115" rx="10" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
-<text x="605" y="1066" text-anchor="middle" fill="#f0883e" font-size="14" font-weight="700">Alternative Sandbox Providers (configurable per codespace)</text>
+<rect x="60" y="1150" width="1090" height="140" rx="10" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
+<text x="605" y="1178" text-anchor="middle" fill="#f0883e" font-size="14" font-weight="700">Alternative Sandbox Providers (configurable per codespace)</text>
 
-<rect x="80" y="1080" width="200" height="58" rx="6" fill="#1c2333" stroke="#f0883e" stroke-width="1"/>
-<text x="180" y="1098" text-anchor="middle" fill="#f0883e" font-size="11" font-weight="600">Docker Provider</text>
-<text x="180" y="1114" text-anchor="middle" fill="#8b949e" font-size="9">Dockerfile.agent-sandbox</text>
-<text x="180" y="1128" text-anchor="middle" fill="#8b949e" font-size="9">Shared or per-project container</text>
+<rect x="80" y="1196" width="200" height="72" rx="6" fill="#1c2333" stroke="#f0883e" stroke-width="1"/>
+<text x="180" y="1218" text-anchor="middle" fill="#f0883e" font-size="11" font-weight="600">Docker Provider</text>
+<text x="180" y="1238" text-anchor="middle" fill="#8b949e" font-size="9">Dockerfile.agent-sandbox</text>
+<text x="180" y="1256" text-anchor="middle" fill="#8b949e" font-size="9">Shared or per-project container</text>
 
-<rect x="295" y="1080" width="200" height="58" rx="6" fill="#1c2333" stroke="#f0883e" stroke-width="1"/>
-<text x="395" y="1098" text-anchor="middle" fill="#f0883e" font-size="11" font-weight="600">Kubernetes CRD</text>
-<text x="395" y="1114" text-anchor="middle" fill="#8b949e" font-size="9">agents.x-k8s.io/v1alpha1</text>
-<text x="395" y="1128" text-anchor="middle" fill="#8b949e" font-size="9">gVisor · warm pool · namespace isolation</text>
+<rect x="295" y="1196" width="200" height="72" rx="6" fill="#1c2333" stroke="#f0883e" stroke-width="1"/>
+<text x="395" y="1218" text-anchor="middle" fill="#f0883e" font-size="11" font-weight="600">Kubernetes CRD</text>
+<text x="395" y="1238" text-anchor="middle" fill="#8b949e" font-size="9">agents.x-k8s.io/v1alpha1</text>
+<text x="395" y="1256" text-anchor="middle" fill="#8b949e" font-size="9">gVisor · warm pool · namespace isolation</text>
 
-<rect x="510" y="1080" width="200" height="58" rx="6" fill="#1c2333" stroke="#f0883e" stroke-width="1"/>
-<text x="610" y="1098" text-anchor="middle" fill="#f0883e" font-size="11" font-weight="600">Nomad Provider</text>
-<text x="610" y="1114" text-anchor="middle" fill="#8b949e" font-size="9">@agentpane/nomad-sandbox-sdk</text>
-<text x="610" y="1128" text-anchor="middle" fill="#8b949e" font-size="9">HashiCorp Nomad jobs</text>
+<rect x="510" y="1196" width="200" height="72" rx="6" fill="#1c2333" stroke="#f0883e" stroke-width="1"/>
+<text x="610" y="1218" text-anchor="middle" fill="#f0883e" font-size="11" font-weight="600">Nomad Provider</text>
+<text x="610" y="1238" text-anchor="middle" fill="#8b949e" font-size="9">@agentpane/nomad-sandbox-sdk</text>
+<text x="610" y="1256" text-anchor="middle" fill="#8b949e" font-size="9">HashiCorp Nomad jobs</text>
 
-<rect x="725" y="1080" width="200" height="58" rx="6" fill="#1c2333" stroke="#39d0d8" stroke-width="1"/>
-<text x="825" y="1098" text-anchor="middle" fill="#39d0d8" font-size="11" font-weight="600">AWS AgentCore</text>
-<text x="825" y="1114" text-anchor="middle" fill="#8b949e" font-size="9">Dockerfile.agentcore · ARM64</text>
-<text x="825" y="1128" text-anchor="middle" fill="#8b949e" font-size="9">Bedrock Firecracker microVM :8080</text>
+<rect x="725" y="1196" width="200" height="72" rx="6" fill="#1c2333" stroke="#39d0d8" stroke-width="1"/>
+<text x="825" y="1218" text-anchor="middle" fill="#39d0d8" font-size="11" font-weight="600">AWS AgentCore</text>
+<text x="825" y="1238" text-anchor="middle" fill="#8b949e" font-size="9">Dockerfile.agentcore · ARM64</text>
+<text x="825" y="1256" text-anchor="middle" fill="#8b949e" font-size="9">Bedrock Firecracker microVM :8080</text>
 
-<rect x="940" y="1080" width="200" height="58" rx="6" fill="#1c2333" stroke="#8b949e" stroke-width="1" stroke-dasharray="4,2"/>
-<text x="1040" y="1098" text-anchor="middle" fill="#8b949e" font-size="11" font-weight="600">Devcontainer</text>
-<text x="1040" y="1114" text-anchor="middle" fill="#8b949e" font-size="9">(reserved in schema)</text>
-<text x="1040" y="1128" text-anchor="middle" fill="#8b949e" font-size="9">Not yet implemented</text>
+<rect x="940" y="1196" width="200" height="72" rx="6" fill="#1c2333" stroke="#8b949e" stroke-width="1" stroke-dasharray="4,2"/>
+<text x="1040" y="1218" text-anchor="middle" fill="#8b949e" font-size="11" font-weight="600">Devcontainer</text>
+<text x="1040" y="1238" text-anchor="middle" fill="#8b949e" font-size="9">(reserved in schema)</text>
+<text x="1040" y="1256" text-anchor="middle" fill="#8b949e" font-size="9">Not yet implemented</text>
 
 <!-- ==================== OAUTH FLOW ==================== -->
-<rect x="60" y="1180" width="1090" height="115" rx="10" fill="#161b22" stroke="#bc8cff" stroke-width="1.5"/>
-<text x="605" y="1206" text-anchor="middle" fill="#bc8cff" font-size="14" font-weight="700">GitHub OAuth Flow (works through proxy — browser-initiated)</text>
+<rect x="60" y="1330" width="1090" height="130" rx="10" fill="#161b22" stroke="#bc8cff" stroke-width="1.5"/>
+<text x="605" y="1358" text-anchor="middle" fill="#bc8cff" font-size="14" font-weight="700">GitHub OAuth Flow (works through proxy — browser-initiated)</text>
 
-<rect x="70" y="1222" width="140" height="28" rx="5" fill="#1c2333" stroke="#58a6ff" stroke-width="1"/>
-<text x="140" y="1240" text-anchor="middle" fill="#58a6ff" font-size="10">1. Browser → App</text>
+<rect x="80" y="1378" width="150" height="32" rx="5" fill="#1c2333" stroke="#58a6ff" stroke-width="1"/>
+<text x="155" y="1398" text-anchor="middle" fill="#58a6ff" font-size="10">1. Browser → App</text>
 
-<line x1="210" y1="1236" x2="230" y2="1236" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="230" y1="1394" x2="250" y2="1394" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
 
-<rect x="230" y="1222" width="170" height="28" rx="5" fill="#1c2333" stroke="#bc8cff" stroke-width="1"/>
-<text x="315" y="1240" text-anchor="middle" fill="#bc8cff" font-size="10">2. Redirect → github.com</text>
+<rect x="250" y="1378" width="170" height="32" rx="5" fill="#1c2333" stroke="#bc8cff" stroke-width="1"/>
+<text x="335" y="1398" text-anchor="middle" fill="#bc8cff" font-size="10">2. Redirect → github.com</text>
 
-<line x1="400" y1="1236" x2="420" y2="1236" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="420" y1="1394" x2="440" y2="1394" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
 
-<rect x="420" y="1222" width="170" height="28" rx="5" fill="#1c2333" stroke="#bc8cff" stroke-width="1"/>
-<text x="505" y="1240" text-anchor="middle" fill="#bc8cff" font-size="10">3. GitHub → callback</text>
+<rect x="440" y="1378" width="170" height="32" rx="5" fill="#1c2333" stroke="#bc8cff" stroke-width="1"/>
+<text x="525" y="1398" text-anchor="middle" fill="#bc8cff" font-size="10">3. GitHub → callback</text>
 
-<line x1="590" y1="1236" x2="610" y2="1236" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="610" y1="1394" x2="630" y2="1394" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
 
-<rect x="610" y="1222" width="170" height="28" rx="5" fill="#1c2333" stroke="#3fb950" stroke-width="1"/>
-<text x="695" y="1240" text-anchor="middle" fill="#3fb950" font-size="10">4. Server → token (proxy)</text>
+<rect x="630" y="1378" width="170" height="32" rx="5" fill="#1c2333" stroke="#3fb950" stroke-width="1"/>
+<text x="715" y="1398" text-anchor="middle" fill="#3fb950" font-size="10">4. Server → token (proxy)</text>
 
-<line x1="780" y1="1236" x2="800" y2="1236" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="800" y1="1394" x2="820" y2="1394" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
 
-<rect x="800" y="1222" width="170" height="28" rx="5" fill="#1c2333" stroke="#3fb950" stroke-width="1"/>
-<text x="885" y="1240" text-anchor="middle" fill="#3fb950" font-size="10">5. Server → user (proxy)</text>
+<rect x="820" y="1378" width="150" height="32" rx="5" fill="#1c2333" stroke="#3fb950" stroke-width="1"/>
+<text x="895" y="1398" text-anchor="middle" fill="#3fb950" font-size="10">5. Server → user (proxy)</text>
 
-<line x1="970" y1="1236" x2="990" y2="1236" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="970" y1="1394" x2="990" y2="1394" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
 
-<rect x="990" y="1222" width="150" height="28" rx="5" fill="#1c2333" stroke="#58a6ff" stroke-width="1"/>
-<text x="1065" y="1240" text-anchor="middle" fill="#58a6ff" font-size="10">6. Set session cookie</text>
+<rect x="990" y="1378" width="150" height="32" rx="5" fill="#1c2333" stroke="#58a6ff" stroke-width="1"/>
+<text x="1065" y="1398" text-anchor="middle" fill="#58a6ff" font-size="10">6. Set session cookie</text>
 
-<text x="70" y="1280" fill="#8b949e" font-size="10">Steps 1-3: browser redirects (user has internet access). Steps 4-5: server outbound via HTTPS_PROXY. Step 6: internal.</text>
+<text x="80" y="1440" fill="#8b949e" font-size="10">Steps 1-3: browser redirects (user has internet access). Steps 4-5: server outbound via HTTPS_PROXY. Step 6: internal.</text>
 
 <!-- ==================== LEGEND ==================== -->
 <rect x="1270" y="710" width="590" height="280" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
@@ -440,50 +441,52 @@ svg { display: block; }
 <text x="1319" y="980" fill="#8b949e" font-size="12">cloudflared tunnel pod</text>
 
 <!-- ==================== KEY CONFIG ==================== -->
-<rect x="1270" y="1020" width="590" height="250" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
-<text x="1565" y="1046" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="600">Key Configuration</text>
+<rect x="1270" y="1020" width="590" height="320" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+<text x="1565" y="1048" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="600">Key Configuration</text>
 
-<text x="1295" y="1070" fill="#d29922" font-size="12" font-weight="600">Multi-Stage Docker Build (4 stages)</text>
-<text x="1295" y="1088" fill="#8b949e" font-size="11">deps (bun:1.3.10-alpine) → build → caddy (durable-streams-server) → runtime</text>
-<text x="1295" y="1104" fill="#8b949e" font-size="11">start.sh: Caddy first (:3000), then Bun API (:3001) · tini PID 1</text>
+<text x="1295" y="1078" fill="#d29922" font-size="12" font-weight="600">Multi-Stage Docker Build (4 stages)</text>
+<text x="1295" y="1098" fill="#8b949e" font-size="11">deps (bun:1.3.10-alpine) → build → caddy (durable-streams-server) → runtime</text>
+<text x="1295" y="1116" fill="#8b949e" font-size="11">start.sh: Caddy first (:3000), then Bun API (:3001) · tini PID 1</text>
 
-<text x="1295" y="1128" fill="#d29922" font-size="12" font-weight="600">Caddy Routing (Caddyfile)</text>
-<text x="1295" y="1146" fill="#8b949e" font-size="11">/v1/stream/* → durable_streams (LMDB) · /api/* → reverse_proxy :3001</text>
-<text x="1295" y="1162" fill="#8b949e" font-size="11">/* → static SPA (gzip/br) · /healthz → 200 OK</text>
+<text x="1295" y="1148" fill="#d29922" font-size="12" font-weight="600">Caddy Routing (Caddyfile)</text>
+<text x="1295" y="1168" fill="#8b949e" font-size="11">/v1/stream/* → durable_streams (LMDB) · /api/* → reverse_proxy :3001</text>
+<text x="1295" y="1186" fill="#8b949e" font-size="11">/* → static SPA (gzip/br) · /healthz → 200 OK</text>
 
-<text x="1295" y="1186" fill="#d29922" font-size="12" font-weight="600">Environment Variables</text>
-<text x="1295" y="1204" fill="#8b949e" font-size="11">DB_MODE=sqlite|postgres · DATABASE_URL (when postgres)</text>
-<text x="1295" y="1220" fill="#8b949e" font-size="11">GITHUB_CLIENT_ID/SECRET · GITHUB_WEBHOOK_SECRET · ANTHROPIC_API_KEY</text>
-<text x="1295" y="1236" fill="#8b949e" font-size="11">CORS_ORIGIN=https://agentpane.teams · CLAUDE_OAUTH_TOKEN</text>
+<text x="1295" y="1218" fill="#d29922" font-size="12" font-weight="600">Environment Variables</text>
+<text x="1295" y="1238" fill="#8b949e" font-size="11">DB_MODE=sqlite|postgres · DATABASE_URL (when postgres)</text>
+<text x="1295" y="1258" fill="#8b949e" font-size="11">GITHUB_CLIENT_ID/SECRET · GITHUB_WEBHOOK_SECRET</text>
+<text x="1295" y="1278" fill="#8b949e" font-size="11">ANTHROPIC_API_KEY · CORS_ORIGIN=https://agentpane.teams</text>
+<text x="1295" y="1298" fill="#8b949e" font-size="11">CLAUDE_OAUTH_TOKEN</text>
 
-<text x="1295" y="1260" fill="#d29922" font-size="12" font-weight="600">Cloudflare Tunnel</text>
-<text x="1295" y="1278" fill="#8b949e" font-size="11">cloudflared deployment · tunnel token secret · ingress: agentpane.teams → service:3000</text>
+<text x="1295" y="1322" fill="#d29922" font-size="12" font-weight="600">Cloudflare Tunnel</text>
+<text x="1295" y="1342" fill="#8b949e" font-size="11">cloudflared deployment · tunnel token secret</text>
+<text x="1295" y="1360" fill="#8b949e" font-size="11">ingress: agentpane.teams → service:3000</text>
 
 <!-- ==================== SCHEDULERS (bottom right) ==================== -->
-<rect x="1270" y="1300" width="590" height="110" rx="10" fill="#161b22" stroke="#39d0d8" stroke-width="1.5"/>
-<text x="1565" y="1326" text-anchor="middle" fill="#39d0d8" font-size="14" font-weight="600">Background Schedulers (Bun API process)</text>
+<rect x="1270" y="1380" width="590" height="140" rx="10" fill="#161b22" stroke="#39d0d8" stroke-width="1.5"/>
+<text x="1565" y="1408" text-anchor="middle" fill="#39d0d8" font-size="14" font-weight="600">Background Schedulers (Bun API process)</text>
 
-<rect x="1290" y="1340" width="100" height="28" rx="5" fill="#1c2333" stroke="#39d0d8" stroke-width="1"/>
-<text x="1340" y="1358" text-anchor="middle" fill="#39d0d8" font-size="9">Template Sync</text>
-<text x="1340" y="1370" text-anchor="middle" fill="#8b949e" font-size="8">GitHub · 1min tick</text>
+<rect x="1290" y="1428" width="104" height="40" rx="5" fill="#1c2333" stroke="#39d0d8" stroke-width="1"/>
+<text x="1342" y="1448" text-anchor="middle" fill="#39d0d8" font-size="10">Template Sync</text>
+<text x="1342" y="1462" text-anchor="middle" fill="#8b949e" font-size="9">GitHub · 1min tick</text>
 
-<rect x="1398" y="1340" width="100" height="28" rx="5" fill="#1c2333" stroke="#39d0d8" stroke-width="1"/>
-<text x="1448" y="1358" text-anchor="middle" fill="#39d0d8" font-size="9">Terraform Sync</text>
-<text x="1448" y="1370" text-anchor="middle" fill="#8b949e" font-size="8">Registry · 1min tick</text>
+<rect x="1406" y="1428" width="104" height="40" rx="5" fill="#1c2333" stroke="#39d0d8" stroke-width="1"/>
+<text x="1458" y="1448" text-anchor="middle" fill="#39d0d8" font-size="10">Terraform Sync</text>
+<text x="1458" y="1462" text-anchor="middle" fill="#8b949e" font-size="9">Registry · 1min tick</text>
 
-<rect x="1506" y="1340" width="100" height="28" rx="5" fill="#1c2333" stroke="#39d0d8" stroke-width="1"/>
-<text x="1556" y="1358" text-anchor="middle" fill="#39d0d8" font-size="9">Task Scheduler</text>
-<text x="1556" y="1370" text-anchor="middle" fill="#8b949e" font-size="8">Cron · 30s tick</text>
+<rect x="1522" y="1428" width="104" height="40" rx="5" fill="#1c2333" stroke="#39d0d8" stroke-width="1"/>
+<text x="1574" y="1448" text-anchor="middle" fill="#39d0d8" font-size="10">Task Scheduler</text>
+<text x="1574" y="1462" text-anchor="middle" fill="#8b949e" font-size="9">Cron · 30s tick</text>
 
-<rect x="1614" y="1340" width="110" height="28" rx="5" fill="#1c2333" stroke="#39d0d8" stroke-width="1"/>
-<text x="1669" y="1358" text-anchor="middle" fill="#39d0d8" font-size="9">Dream Scheduler</text>
-<text x="1669" y="1370" text-anchor="middle" fill="#8b949e" font-size="8">Skill analysis · 24hr</text>
+<rect x="1638" y="1428" width="104" height="40" rx="5" fill="#1c2333" stroke="#39d0d8" stroke-width="1"/>
+<text x="1690" y="1448" text-anchor="middle" fill="#39d0d8" font-size="10">Dream Scheduler</text>
+<text x="1690" y="1462" text-anchor="middle" fill="#8b949e" font-size="9">Skill analysis · 24hr</text>
 
-<rect x="1732" y="1340" width="110" height="28" rx="5" fill="#1c2333" stroke="#39d0d8" stroke-width="1"/>
-<text x="1787" y="1358" text-anchor="middle" fill="#39d0d8" font-size="9">Event Cleanup</text>
-<text x="1787" y="1370" text-anchor="middle" fill="#8b949e" font-size="8">Log retention</text>
+<rect x="1754" y="1428" width="90" height="40" rx="5" fill="#1c2333" stroke="#39d0d8" stroke-width="1"/>
+<text x="1799" y="1448" text-anchor="middle" fill="#39d0d8" font-size="10">Event Cleanup</text>
+<text x="1799" y="1462" text-anchor="middle" fill="#8b949e" font-size="9">Log retention</text>
 
-<text x="1290" y="1398" fill="#8b949e" font-size="10">All schedulers run inside the Bun API server process. Registered with GracefulShutdown for clean teardown.</text>
+<text x="1290" y="1498" fill="#8b949e" font-size="10">All schedulers run inside the Bun API server process. Registered with GracefulShutdown for clean teardown.</text>
 
 </svg>
 </body>

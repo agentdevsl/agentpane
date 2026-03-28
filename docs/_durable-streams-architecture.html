@@ -10,7 +10,7 @@ svg { display: block; }
 </style>
 </head>
 <body>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1480" width="1920" height="1480">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1780" width="1920" height="1780">
 <defs>
   <marker id="arrow-gray" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
     <path d="M0,0 L8,3 L0,6" fill="none" stroke="#484f58" stroke-width="1.5"/>
@@ -36,347 +36,350 @@ svg { display: block; }
 </defs>
 
 <!-- Background -->
-<rect width="1920" height="1480" fill="#0d1117"/>
+<rect width="1920" height="1780" fill="#0d1117"/>
 
 <!-- ==================== TITLE ==================== -->
 <text x="960" y="38" text-anchor="middle" fill="#e6edf3" font-size="22" font-weight="700">AgentPane -- Durable Streams Architecture</text>
 <text x="960" y="58" text-anchor="middle" fill="#8b949e" font-size="13">Type-safe event streaming with structured envelopes, dual-write persistence (SQLite + Caddy/LMDB), and offset-based resume</text>
 
 <!-- ==================== SERVER-SIDE ZONE ==================== -->
-<rect x="30" y="80" width="1860" height="730" rx="14" fill="none" stroke="#58a6ff" stroke-width="2" stroke-dasharray="10,5"/>
+<rect x="30" y="80" width="1860" height="910" rx="14" fill="none" stroke="#58a6ff" stroke-width="2" stroke-dasharray="10,5"/>
 <text x="50" y="100" fill="#58a6ff" font-size="14" font-weight="700">Server-Side (Bun API Process)</text>
 
 <!-- ==================== COL 1: EVENT SOURCES ==================== -->
-<rect x="50" y="120" width="260" height="670" rx="10" fill="none" stroke="#f0883e" stroke-width="1.5" stroke-dasharray="8,4"/>
+<rect x="50" y="120" width="260" height="850" rx="10" fill="none" stroke="#f0883e" stroke-width="1.5" stroke-dasharray="8,4"/>
 <text x="180" y="142" text-anchor="middle" fill="#f0883e" font-size="13" font-weight="600">Event Sources</text>
 
 <!-- Container Agent Service -->
-<rect x="65" y="158" width="230" height="100" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
+<rect x="65" y="158" width="230" height="108" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
 <text x="180" y="178" text-anchor="middle" fill="#f0883e" font-size="12" font-weight="600">Container Agent Service</text>
-<text x="75" y="196" fill="#8b949e" font-size="9">container-agent:status · started · token</text>
-<text x="75" y="208" fill="#8b949e" font-size="9">container-agent:turn · tool:start · tool:result</text>
-<text x="75" y="220" fill="#8b949e" font-size="9">container-agent:message · complete · error</text>
-<text x="75" y="232" fill="#8b949e" font-size="9">container-agent:cancelled · plan_ready</text>
-<text x="75" y="244" fill="#8b949e" font-size="9">container-agent:file_changed · worktree</text>
-<text x="75" y="256" fill="#8b949e" font-size="9">container-agent:task-update-failed (14 types)</text>
+<text x="75" y="198" fill="#8b949e" font-size="9">container-agent:status · started · token</text>
+<text x="75" y="212" fill="#8b949e" font-size="9">container-agent:turn · tool:start · tool:result</text>
+<text x="75" y="226" fill="#8b949e" font-size="9">container-agent:message · complete · error</text>
+<text x="75" y="240" fill="#8b949e" font-size="9">container-agent:cancelled · plan_ready</text>
+<text x="75" y="254" fill="#8b949e" font-size="9">container-agent:file_changed · worktree</text>
 
 <!-- Agent Execution Service / Stream Handler -->
-<rect x="65" y="272" width="230" height="90" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
-<text x="180" y="292" text-anchor="middle" fill="#f0883e" font-size="12" font-weight="600">Agent Execution + Stream Handler</text>
-<text x="75" y="310" fill="#8b949e" font-size="9">plan:started · turn · token · interaction</text>
-<text x="75" y="322" fill="#8b949e" font-size="9">plan:completed · error · cancelled (7 types)</text>
-<text x="75" y="334" fill="#8b949e" font-size="9">sandbox:creating · ready · idle · stopping</text>
-<text x="75" y="346" fill="#8b949e" font-size="9">sandbox:stopped · error · tmux:* (8 types)</text>
+<rect x="65" y="282" width="230" height="105" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
+<text x="180" y="302" text-anchor="middle" fill="#f0883e" font-size="12" font-weight="600">Agent Execution + Stream Handler</text>
+<text x="75" y="322" fill="#8b949e" font-size="9">plan:started · turn · token · interaction</text>
+<text x="75" y="336" fill="#8b949e" font-size="9">plan:completed · error · cancelled (7 types)</text>
+<text x="75" y="350" fill="#8b949e" font-size="9">sandbox:creating · ready · idle · stopping</text>
+<text x="75" y="364" fill="#8b949e" font-size="9">sandbox:stopped · error · tmux:* (8 types)</text>
+<text x="75" y="378" fill="#8b949e" font-size="9">container-agent:task-update-failed (14 types)</text>
 
 <!-- Terraform Compose Service -->
-<rect x="65" y="376" width="230" height="75" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
-<text x="180" y="396" text-anchor="middle" fill="#f0883e" font-size="12" font-weight="600">Terraform Compose Service</text>
-<text x="75" y="414" fill="#8b949e" font-size="9">terraform:status · text · modules</text>
-<text x="75" y="426" fill="#8b949e" font-size="9">terraform:questions · code · done · error</text>
-<text x="75" y="438" fill="#8b949e" font-size="9">Stream ID: terraform:{jobId} (7 types)</text>
+<rect x="65" y="403" width="230" height="85" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
+<text x="180" y="423" text-anchor="middle" fill="#f0883e" font-size="12" font-weight="600">Terraform Compose Service</text>
+<text x="75" y="443" fill="#8b949e" font-size="9">terraform:status · text · modules</text>
+<text x="75" y="457" fill="#8b949e" font-size="9">terraform:questions · code · done · error</text>
+<text x="75" y="471" fill="#8b949e" font-size="9">Stream ID: terraform:{jobId} (7 types)</text>
 
 <!-- Task Creation Service -->
-<rect x="65" y="465" width="230" height="80" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
-<text x="180" y="485" text-anchor="middle" fill="#f0883e" font-size="12" font-weight="600">Task Creation Service</text>
-<text x="75" y="503" fill="#8b949e" font-size="9">task-creation:started · message · token</text>
-<text x="75" y="515" fill="#8b949e" font-size="9">task-creation:suggestion · questions · processing</text>
-<text x="75" y="527" fill="#8b949e" font-size="9">task-creation:completed · cancelled · error (9 types)</text>
+<rect x="65" y="504" width="230" height="90" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
+<text x="180" y="524" text-anchor="middle" fill="#f0883e" font-size="12" font-weight="600">Task Creation Service</text>
+<text x="75" y="544" fill="#8b949e" font-size="9">task-creation:started · message · token</text>
+<text x="75" y="558" fill="#8b949e" font-size="9">task-creation:suggestion · questions · processing</text>
+<text x="75" y="572" fill="#8b949e" font-size="9">task-creation:completed · cancelled · error</text>
+<text x="75" y="586" fill="#8b949e" font-size="9">(9 event types total)</text>
 
 <!-- Topology Events -->
-<rect x="65" y="559" width="230" height="65" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
-<text x="180" y="579" text-anchor="middle" fill="#f0883e" font-size="12" font-weight="600">Topology Events (Team Mode)</text>
-<text x="75" y="597" fill="#8b949e" font-size="9">topology:agent_spawned · agent_progress</text>
-<text x="75" y="609" fill="#8b949e" font-size="9">topology:agent_completed (3 types)</text>
+<rect x="65" y="610" width="230" height="72" rx="7" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
+<text x="180" y="630" text-anchor="middle" fill="#f0883e" font-size="12" font-weight="600">Topology Events (Team Mode)</text>
+<text x="75" y="650" fill="#8b949e" font-size="9">topology:agent_spawned · agent_progress</text>
+<text x="75" y="664" fill="#8b949e" font-size="9">topology:agent_completed (3 types)</text>
 
 <!-- Session Events (chunk, tool, etc.) -->
-<rect x="65" y="638" width="230" height="65" rx="7" fill="#161b22" stroke="#d29922" stroke-width="1"/>
-<text x="180" y="658" text-anchor="middle" fill="#d29922" font-size="12" font-weight="600">Session Events</text>
-<text x="75" y="676" fill="#8b949e" font-size="9">chunk · tool:start · tool:result · state:update</text>
-<text x="75" y="688" fill="#8b949e" font-size="9">presence:joined/left/cursor/timeout · terminal:*</text>
-<text x="75" y="700" fill="#8b949e" font-size="9">agent:started/planning/plan_ready/turn/completed</text>
+<rect x="65" y="698" width="230" height="80" rx="7" fill="#161b22" stroke="#d29922" stroke-width="1"/>
+<text x="180" y="718" text-anchor="middle" fill="#d29922" font-size="12" font-weight="600">Session Events</text>
+<text x="75" y="738" fill="#8b949e" font-size="9">chunk · tool:start · tool:result · state:update</text>
+<text x="75" y="752" fill="#8b949e" font-size="9">presence:joined/left/cursor/timeout · terminal:*</text>
+<text x="75" y="766" fill="#8b949e" font-size="9">agent:started/planning/plan_ready/turn/completed</text>
 
 <!-- Memory + Approval Events -->
-<rect x="65" y="717" width="230" height="55" rx="7" fill="#161b22" stroke="#d29922" stroke-width="1"/>
-<text x="180" y="737" text-anchor="middle" fill="#d29922" font-size="12" font-weight="600">Memory + Approval Events</text>
-<text x="75" y="755" fill="#8b949e" font-size="9">memory:insights_injected (DB-backed)</text>
-<text x="75" y="767" fill="#8b949e" font-size="9">approval:requested · approved · agent:resumed</text>
+<rect x="65" y="794" width="230" height="65" rx="7" fill="#161b22" stroke="#d29922" stroke-width="1"/>
+<text x="180" y="814" text-anchor="middle" fill="#d29922" font-size="12" font-weight="600">Memory + Approval Events</text>
+<text x="75" y="834" fill="#8b949e" font-size="9">memory:insights_injected (DB-backed)</text>
+<text x="75" y="848" fill="#8b949e" font-size="9">approval:requested · approved · agent:resumed</text>
 
 <!-- ==================== COL 2: DURABLE STREAMS SERVICE ==================== -->
-<rect x="340" y="120" width="310" height="430" rx="10" fill="#161b22" stroke="#58a6ff" stroke-width="2"/>
+<rect x="340" y="120" width="310" height="510" rx="10" fill="#161b22" stroke="#58a6ff" stroke-width="2"/>
 <text x="495" y="145" text-anchor="middle" fill="#58a6ff" font-size="15" font-weight="600">DurableStreamsService</text>
 <text x="495" y="163" text-anchor="middle" fill="#8b949e" font-size="10">durable-streams.service.ts</text>
 
 <!-- StreamEventMap -->
-<rect x="360" y="178" width="270" height="55" rx="6" fill="#1c2333" stroke="#58a6ff" stroke-width="1"/>
+<rect x="360" y="178" width="270" height="58" rx="6" fill="#1c2333" stroke="#58a6ff" stroke-width="1"/>
 <text x="495" y="198" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="600">StreamEventMap (48 typed events)</text>
-<text x="370" y="214" fill="#8b949e" font-size="9">Type-safe map: event type string -> data interface</text>
-<text x="370" y="226" fill="#8b949e" font-size="9">Compile-time enforcement of correct data shapes</text>
+<text x="370" y="216" fill="#8b949e" font-size="9">Type-safe map: event type string -> data interface</text>
+<text x="370" y="230" fill="#8b949e" font-size="9">Compile-time enforcement of correct data shapes</text>
 
 <!-- publish<T>() -->
-<rect x="360" y="245" width="270" height="55" rx="6" fill="#1c2333" stroke="#58a6ff" stroke-width="1"/>
-<text x="495" y="265" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="600">publish&lt;T extends TypedEventType&gt;()</text>
-<text x="370" y="281" fill="#8b949e" font-size="9">Generic publish with type constraint</text>
-<text x="370" y="293" fill="#8b949e" font-size="9">streamId + type + data -> persist + stream</text>
+<rect x="360" y="248" width="270" height="58" rx="6" fill="#1c2333" stroke="#58a6ff" stroke-width="1"/>
+<text x="495" y="268" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="600">publish&lt;T extends TypedEventType&gt;()</text>
+<text x="370" y="286" fill="#8b949e" font-size="9">Generic publish with type constraint</text>
+<text x="370" y="300" fill="#8b949e" font-size="9">streamId + type + data -> persist + stream</text>
 
 <!-- Structured Envelope -->
-<rect x="360" y="312" width="270" height="48" rx="6" fill="#1c2333" stroke="#f85149" stroke-width="1"/>
-<text x="495" y="332" text-anchor="middle" fill="#f85149" font-size="11" font-weight="600">Structured Envelope (OC-005d)</text>
-<text x="370" y="348" fill="#8b949e" font-size="9">StreamEventMetadata: eventId, streamId, blockId</text>
-<text x="370" y="356" fill="#8b949e" font-size="8">partType, durability, sequence, createdAt (Zod-validated)</text>
+<rect x="360" y="318" width="270" height="58" rx="6" fill="#1c2333" stroke="#f85149" stroke-width="1"/>
+<text x="495" y="338" text-anchor="middle" fill="#f85149" font-size="11" font-weight="600">Structured Envelope (OC-005d)</text>
+<text x="370" y="356" fill="#8b949e" font-size="9">StreamEventMetadata: eventId, streamId, blockId</text>
+<text x="370" y="370" fill="#8b949e" font-size="9">partType, durability, sequence, createdAt (Zod-validated)</text>
 
 <!-- Channel routing -->
-<rect x="360" y="372" width="270" height="48" rx="6" fill="#1c2333" stroke="#d29922" stroke-width="1"/>
-<text x="495" y="392" text-anchor="middle" fill="#d29922" font-size="11" font-weight="600">Channel Routing</text>
-<text x="370" y="408" fill="#8b949e" font-size="9">plan · sandbox · taskCreation · containerAgent</text>
-<text x="370" y="416" fill="#8b949e" font-size="8">topology · terraform · session · default</text>
+<rect x="360" y="388" width="270" height="55" rx="6" fill="#1c2333" stroke="#d29922" stroke-width="1"/>
+<text x="495" y="408" text-anchor="middle" fill="#d29922" font-size="11" font-weight="600">Channel Routing</text>
+<text x="370" y="426" fill="#8b949e" font-size="9">plan · sandbox · taskCreation · containerAgent</text>
+<text x="370" y="440" fill="#8b949e" font-size="9">topology · terraform · session · default</text>
 
 <!-- Dual-write strategy -->
-<rect x="360" y="432" width="270" height="68" rx="6" fill="#1c2333" stroke="#7ee787" stroke-width="1.5"/>
-<text x="495" y="452" text-anchor="middle" fill="#7ee787" font-size="11" font-weight="600">Dual-Write Strategy</text>
-<text x="370" y="468" fill="#3fb950" font-size="9" font-weight="600">1. SQLite FIRST</text>
-<text x="450" y="468" fill="#8b949e" font-size="9">-> persistToDb() (durable source of truth)</text>
-<text x="370" y="482" fill="#bc8cff" font-size="9" font-weight="600">2. Caddy/LMDB</text>
-<text x="455" y="482" fill="#8b949e" font-size="9">-> server.publish() (real-time delivery)</text>
-<text x="370" y="496" fill="#8b949e" font-size="8">LMDB persists events on disk for offset-based SSE resume</text>
+<rect x="360" y="455" width="270" height="78" rx="6" fill="#1c2333" stroke="#7ee787" stroke-width="1.5"/>
+<text x="495" y="475" text-anchor="middle" fill="#7ee787" font-size="11" font-weight="600">Dual-Write Strategy</text>
+<text x="370" y="495" fill="#3fb950" font-size="9" font-weight="600">1. SQLite FIRST</text>
+<text x="450" y="495" fill="#8b949e" font-size="9">-> persistToDb() (durable source of truth)</text>
+<text x="370" y="511" fill="#bc8cff" font-size="9" font-weight="600">2. Caddy/LMDB</text>
+<text x="455" y="511" fill="#8b949e" font-size="9">-> server.publish() (real-time delivery)</text>
+<text x="370" y="527" fill="#8b949e" font-size="9">LMDB persists events on disk for offset-based SSE resume</text>
 
 <!-- Offset collision retry -->
-<rect x="360" y="510" width="270" height="30" rx="6" fill="#1c2333" stroke="#8b949e" stroke-width="1"/>
-<text x="495" y="530" text-anchor="middle" fill="#8b949e" font-size="10" font-weight="600">Offset Collision Retry: MAX_OFFSET_RETRIES = 5</text>
+<rect x="360" y="545" width="270" height="30" rx="6" fill="#1c2333" stroke="#8b949e" stroke-width="1"/>
+<text x="495" y="565" text-anchor="middle" fill="#8b949e" font-size="10" font-weight="600">Offset Collision Retry: MAX_OFFSET_RETRIES = 5</text>
+
+<!-- Dedicated labels for sub-sections below the service box -->
 
 <!-- ==================== Chunk Batcher (between service and SQLite) ==================== -->
-<rect x="340" y="570" width="310" height="80" rx="10" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
-<text x="495" y="595" text-anchor="middle" fill="#d29922" font-size="14" font-weight="600">ChunkBatcher</text>
-<text x="495" y="613" text-anchor="middle" fill="#8b949e" font-size="10">chunk-batcher.ts</text>
-<text x="360" y="633" fill="#8b949e" font-size="9">Splits chunk persistence: deltas -> SSE only (transient)</text>
-<text x="360" y="643" fill="#8b949e" font-size="9">Batched text -> SQLite (durable) · 100ms flush / 10 max</text>
+<rect x="340" y="655" width="310" height="90" rx="10" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+<text x="495" y="680" text-anchor="middle" fill="#d29922" font-size="14" font-weight="600">ChunkBatcher</text>
+<text x="495" y="698" text-anchor="middle" fill="#8b949e" font-size="10">chunk-batcher.ts</text>
+<text x="360" y="720" fill="#8b949e" font-size="9">Splits chunk persistence: deltas -> SSE only (transient)</text>
+<text x="360" y="734" fill="#8b949e" font-size="9">Batched text -> SQLite (durable) · 100ms flush / 10 max</text>
 
 <!-- ==================== SQLite DB (below batcher) ==================== -->
-<rect x="340" y="670" width="310" height="120" rx="10" fill="#161b22" stroke="#7ee787" stroke-width="2"/>
-<text x="495" y="695" text-anchor="middle" fill="#7ee787" font-size="14" font-weight="600">SQLite: sessionEvents</text>
-<text x="495" y="713" text-anchor="middle" fill="#8b949e" font-size="10">session-events.ts (Drizzle ORM)</text>
+<rect x="340" y="770" width="310" height="130" rx="10" fill="#161b22" stroke="#7ee787" stroke-width="2"/>
+<text x="495" y="795" text-anchor="middle" fill="#7ee787" font-size="14" font-weight="600">SQLite: sessionEvents</text>
+<text x="495" y="813" text-anchor="middle" fill="#8b949e" font-size="10">session-events.ts (Drizzle ORM)</text>
 
-<text x="360" y="733" fill="#8b949e" font-size="9">id: text (cuid2) | PK</text>
-<text x="360" y="745" fill="#8b949e" font-size="9">sessionId: text | FK -> sessions.id</text>
-<text x="360" y="757" fill="#8b949e" font-size="9">offset: integer | UNIQUE(sessionId, offset)</text>
-<text x="360" y="769" fill="#8b949e" font-size="9">type: text | channel: text | data: JSON</text>
-<text x="360" y="781" fill="#8b949e" font-size="9">timestamp: integer | userId: text</text>
+<text x="360" y="836" fill="#8b949e" font-size="9">id: text (cuid2) | PK</text>
+<text x="360" y="850" fill="#8b949e" font-size="9">sessionId: text | FK -> sessions.id</text>
+<text x="360" y="864" fill="#8b949e" font-size="9">offset: integer | UNIQUE(sessionId, offset)</text>
+<text x="360" y="878" fill="#8b949e" font-size="9">type: text | channel: text | data: JSON</text>
+<text x="360" y="892" fill="#8b949e" font-size="9">timestamp: integer | userId: text</text>
 
 <!-- Connection: Service -> Batcher -->
-<line x1="495" y1="550" x2="495" y2="570" stroke="#d29922" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
+<line x1="495" y1="630" x2="495" y2="655" stroke="#d29922" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
 <!-- Connection: Batcher -> SQLite -->
-<line x1="495" y1="650" x2="495" y2="670" stroke="#7ee787" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+<line x1="495" y1="745" x2="495" y2="770" stroke="#7ee787" stroke-width="1.5" marker-end="url(#arrow-green)"/>
 
 <!-- ==================== COL 3: CADDY STREAMING ==================== -->
-<rect x="690" y="120" width="310" height="280" rx="10" fill="#161b22" stroke="#bc8cff" stroke-width="2"/>
+<rect x="690" y="120" width="310" height="310" rx="10" fill="#161b22" stroke="#bc8cff" stroke-width="2"/>
 <text x="845" y="145" text-anchor="middle" fill="#bc8cff" font-size="15" font-weight="600">CaddyDurableStreamsServer</text>
 <text x="845" y="163" text-anchor="middle" fill="#8b949e" font-size="10">caddy-producer.ts</text>
 
 <!-- IdempotentProducer -->
-<rect x="710" y="178" width="270" height="55" rx="6" fill="#1c2333" stroke="#bc8cff" stroke-width="1"/>
+<rect x="710" y="178" width="270" height="58" rx="6" fill="#1c2333" stroke="#bc8cff" stroke-width="1"/>
 <text x="845" y="198" text-anchor="middle" fill="#bc8cff" font-size="11" font-weight="600">IdempotentProducer</text>
-<text x="720" y="214" fill="#8b949e" font-size="9">@durable-streams/client · autoClaim: true</text>
-<text x="720" y="226" fill="#8b949e" font-size="9">lingerMs: 5 · maxBatchBytes: 1MB · maxInFlight: 5</text>
+<text x="720" y="216" fill="#8b949e" font-size="9">@durable-streams/client · autoClaim: true</text>
+<text x="720" y="230" fill="#8b949e" font-size="9">lingerMs: 5 · maxBatchBytes: 1MB · maxInFlight: 5</text>
 
 <!-- NDJSON append -->
-<rect x="710" y="245" width="270" height="42" rx="6" fill="#1c2333" stroke="#bc8cff" stroke-width="1"/>
-<text x="845" y="265" text-anchor="middle" fill="#bc8cff" font-size="11" font-weight="600">NDJSON Append</text>
-<text x="720" y="281" fill="#8b949e" font-size="9">JSON.stringify({type, data, timestamp}) + \n</text>
+<rect x="710" y="248" width="270" height="45" rx="6" fill="#1c2333" stroke="#bc8cff" stroke-width="1"/>
+<text x="845" y="268" text-anchor="middle" fill="#bc8cff" font-size="11" font-weight="600">NDJSON Append</text>
+<text x="720" y="286" fill="#8b949e" font-size="9">JSON.stringify({type, data, timestamp}) + \n</text>
 
 <!-- Producer lifecycle -->
-<rect x="710" y="299" width="270" height="60" rx="6" fill="#1c2333" stroke="#8b949e" stroke-width="1"/>
-<text x="845" y="319" text-anchor="middle" fill="#8b949e" font-size="11" font-weight="600">Producer Pool + LRU Eviction (RS-001)</text>
-<text x="720" y="335" fill="#8b949e" font-size="9">Lazy init per stream · re-init on ALREADY_CLOSED</text>
-<text x="720" y="347" fill="#8b949e" font-size="9">MAX_PRODUCERS: 200 · IDLE_TIMEOUT: 5min · LRU evict</text>
-<text x="720" y="355" fill="#8b949e" font-size="8">Dedup concurrent init · 60s cleanup sweep</text>
+<rect x="710" y="305" width="270" height="70" rx="6" fill="#1c2333" stroke="#8b949e" stroke-width="1"/>
+<text x="845" y="325" text-anchor="middle" fill="#8b949e" font-size="11" font-weight="600">Producer Pool + LRU Eviction (RS-001)</text>
+<text x="720" y="343" fill="#8b949e" font-size="9">Lazy init per stream · re-init on ALREADY_CLOSED</text>
+<text x="720" y="357" fill="#8b949e" font-size="9">MAX_PRODUCERS: 200 · IDLE_TIMEOUT: 5min · LRU evict</text>
+<text x="720" y="371" fill="#8b949e" font-size="9">Dedup concurrent init · 60s cleanup sweep</text>
 
 <!-- Caddy Server -->
-<rect x="690" y="420" width="310" height="260" rx="10" fill="#161b22" stroke="#bc8cff" stroke-width="1.5"/>
-<text x="845" y="445" text-anchor="middle" fill="#bc8cff" font-size="14" font-weight="600">Caddy Server :3000</text>
-<text x="845" y="463" text-anchor="middle" fill="#8b949e" font-size="10">durable_streams plugin (custom binary)</text>
+<rect x="690" y="455" width="310" height="310" rx="10" fill="#161b22" stroke="#bc8cff" stroke-width="1.5"/>
+<text x="845" y="480" text-anchor="middle" fill="#bc8cff" font-size="14" font-weight="600">Caddy Server :3000</text>
+<text x="845" y="498" text-anchor="middle" fill="#8b949e" font-size="10">durable_streams plugin (custom binary)</text>
 
 <!-- LMDB -->
-<rect x="710" y="478" width="130" height="55" rx="5" fill="#1c2333" stroke="#7ee787" stroke-width="2"/>
-<text x="775" y="498" text-anchor="middle" fill="#7ee787" font-size="12" font-weight="700">LMDB</text>
-<text x="775" y="512" text-anchor="middle" fill="#8b949e" font-size="9">Persistent on-disk store</text>
-<text x="775" y="524" text-anchor="middle" fill="#8b949e" font-size="9">{$STREAMS_DATA_DIR}</text>
+<rect x="710" y="515" width="130" height="58" rx="5" fill="#1c2333" stroke="#7ee787" stroke-width="2"/>
+<text x="775" y="538" text-anchor="middle" fill="#7ee787" font-size="12" font-weight="700">LMDB</text>
+<text x="775" y="554" text-anchor="middle" fill="#8b949e" font-size="9">Persistent on-disk store</text>
+<text x="775" y="566" text-anchor="middle" fill="#8b949e" font-size="9">{$STREAMS_DATA_DIR}</text>
 
 <!-- SSE + Long-Poll -->
-<rect x="850" y="478" width="130" height="55" rx="5" fill="#1c2333" stroke="#3fb950" stroke-width="2"/>
-<text x="915" y="498" text-anchor="middle" fill="#3fb950" font-size="12" font-weight="700">SSE + Long-Poll</text>
-<text x="915" y="512" text-anchor="middle" fill="#8b949e" font-size="9">Live event delivery</text>
-<text x="915" y="524" text-anchor="middle" fill="#8b949e" font-size="9">Offset-based resume</text>
+<rect x="850" y="515" width="130" height="58" rx="5" fill="#1c2333" stroke="#3fb950" stroke-width="2"/>
+<text x="915" y="538" text-anchor="middle" fill="#3fb950" font-size="12" font-weight="700">SSE + Long-Poll</text>
+<text x="915" y="554" text-anchor="middle" fill="#8b949e" font-size="9">Live event delivery</text>
+<text x="915" y="566" text-anchor="middle" fill="#8b949e" font-size="9">Offset-based resume</text>
 
 <!-- Stream URL routing -->
-<rect x="710" y="545" width="270" height="115" rx="6" fill="#1c2333" stroke="#d29922" stroke-width="1"/>
-<text x="845" y="565" text-anchor="middle" fill="#d29922" font-size="11" font-weight="600">Stream URL Routing</text>
-<text x="720" y="583" fill="#8b949e" font-size="9">/v1/stream/sessions/{sessionId}</text>
-<text x="720" y="595" fill="#8b949e" font-size="9">/v1/stream/plans/{sessionId}</text>
-<text x="720" y="607" fill="#8b949e" font-size="9">/v1/stream/terraform/{jobId}</text>
-<text x="720" y="619" fill="#8b949e" font-size="9">/v1/stream/cli-monitor</text>
-<text x="720" y="633" fill="#7ee787" font-size="8">Events survive restarts -- LMDB is the durable layer</text>
-<text x="720" y="645" fill="#8b949e" font-size="8">long_poll_timeout: 30s · sse_reconnect_interval: 120s</text>
-<text x="720" y="655" fill="#8b949e" font-size="8">No Caddy-level auth -- network-level isolation (RS-019)</text>
+<rect x="710" y="590" width="270" height="155" rx="6" fill="#1c2333" stroke="#d29922" stroke-width="1"/>
+<text x="845" y="612" text-anchor="middle" fill="#d29922" font-size="11" font-weight="600">Stream URL Routing</text>
+<text x="720" y="634" fill="#8b949e" font-size="9">/v1/stream/sessions/{sessionId}</text>
+<text x="720" y="650" fill="#8b949e" font-size="9">/v1/stream/plans/{sessionId}</text>
+<text x="720" y="666" fill="#8b949e" font-size="9">/v1/stream/terraform/{jobId}</text>
+<text x="720" y="682" fill="#8b949e" font-size="9">/v1/stream/cli-monitor</text>
+<text x="720" y="706" fill="#7ee787" font-size="9">Events survive restarts -- LMDB is the durable layer</text>
+<text x="720" y="722" fill="#8b949e" font-size="9">long_poll_timeout: 30s · sse_reconnect_interval: 120s</text>
+<text x="720" y="738" fill="#8b949e" font-size="9">No Caddy-level auth -- network-level isolation (RS-019)</text>
 
 <!-- Connection: CaddyServer -> Producer -->
-<line x1="845" y1="400" x2="845" y2="420" stroke="#bc8cff" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+<line x1="845" y1="430" x2="845" y2="455" stroke="#bc8cff" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
 
 <!-- ==================== COL 4: BROWSER CLIENT ==================== -->
-<rect x="1040" y="120" width="330" height="570" rx="10" fill="none" stroke="#3fb950" stroke-width="2" stroke-dasharray="8,4"/>
+<rect x="1040" y="120" width="330" height="650" rx="10" fill="none" stroke="#3fb950" stroke-width="2" stroke-dasharray="8,4"/>
 <text x="1205" y="142" text-anchor="middle" fill="#3fb950" font-size="14" font-weight="600">Client-Side (Browser)</text>
 
 <!-- DurableStreamsClient -->
-<rect x="1060" y="158" width="290" height="150" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="2"/>
+<rect x="1060" y="158" width="290" height="165" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="2"/>
 <text x="1205" y="180" text-anchor="middle" fill="#3fb950" font-size="14" font-weight="600">DurableStreamsClient</text>
 <text x="1205" y="198" text-anchor="middle" fill="#8b949e" font-size="10">lib/streams/client.ts</text>
 
-<rect x="1080" y="210" width="250" height="28" rx="5" fill="#1c2333" stroke="#3fb950" stroke-width="1"/>
-<text x="1205" y="228" text-anchor="middle" fill="#3fb950" font-size="10">@durable-streams/client SSE</text>
+<rect x="1080" y="212" width="250" height="28" rx="5" fill="#1c2333" stroke="#3fb950" stroke-width="1"/>
+<text x="1205" y="230" text-anchor="middle" fill="#3fb950" font-size="10">@durable-streams/client SSE</text>
 
-<rect x="1080" y="248" width="250" height="28" rx="5" fill="#1c2333" stroke="#8b949e" stroke-width="1"/>
-<text x="1205" y="266" text-anchor="middle" fill="#8b949e" font-size="10">Offset-based resume (opaque string cursors)</text>
+<rect x="1080" y="252" width="250" height="28" rx="5" fill="#1c2333" stroke="#8b949e" stroke-width="1"/>
+<text x="1205" y="270" text-anchor="middle" fill="#8b949e" font-size="10">Offset-based resume (opaque string cursors)</text>
 
-<rect x="1080" y="286" width="250" height="28" rx="5" fill="#1c2333" stroke="#8b949e" stroke-width="1"/>
-<text x="1205" y="304" text-anchor="middle" fill="#8b949e" font-size="10">subscribeToSession() · subscribeToAgent()</text>
+<rect x="1080" y="292" width="250" height="28" rx="5" fill="#1c2333" stroke="#8b949e" stroke-width="1"/>
+<text x="1205" y="310" text-anchor="middle" fill="#8b949e" font-size="10">subscribeToSession() · subscribeToAgent()</text>
 
 <!-- Streams Availability Gate -->
-<rect x="1060" y="318" width="290" height="32" rx="8" fill="#161b22" stroke="#d29922" stroke-width="1"/>
-<text x="1205" y="339" text-anchor="middle" fill="#d29922" font-size="10" font-weight="600">streamsAvailable gate (set by bootstrap)</text>
+<rect x="1060" y="340" width="290" height="32" rx="8" fill="#161b22" stroke="#d29922" stroke-width="1"/>
+<text x="1205" y="361" text-anchor="middle" fill="#d29922" font-size="10" font-weight="600">streamsAvailable gate (set by bootstrap)</text>
 
 <!-- Connection States -->
-<rect x="1060" y="362" width="290" height="72" rx="8" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
-<text x="1205" y="382" text-anchor="middle" fill="#d29922" font-size="12" font-weight="600">Connection States</text>
+<rect x="1060" y="390" width="290" height="82" rx="8" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+<text x="1205" y="412" text-anchor="middle" fill="#d29922" font-size="12" font-weight="600">Connection States</text>
 
 <!-- State machine -->
-<rect x="1080" y="394" width="80" height="22" rx="4" fill="#1c2333" stroke="#8b949e" stroke-width="1"/>
-<text x="1120" y="409" text-anchor="middle" fill="#8b949e" font-size="9">disconnected</text>
+<rect x="1080" y="426" width="80" height="22" rx="4" fill="#1c2333" stroke="#8b949e" stroke-width="1"/>
+<text x="1120" y="441" text-anchor="middle" fill="#8b949e" font-size="9">disconnected</text>
 
-<line x1="1160" y1="405" x2="1175" y2="405" stroke="#484f58" stroke-width="1" marker-end="url(#arrow-gray)"/>
+<line x1="1160" y1="437" x2="1175" y2="437" stroke="#484f58" stroke-width="1" marker-end="url(#arrow-gray)"/>
 
-<rect x="1175" y="394" width="70" height="22" rx="4" fill="#1c2333" stroke="#d29922" stroke-width="1"/>
-<text x="1210" y="409" text-anchor="middle" fill="#d29922" font-size="9">connecting</text>
+<rect x="1175" y="426" width="70" height="22" rx="4" fill="#1c2333" stroke="#d29922" stroke-width="1"/>
+<text x="1210" y="441" text-anchor="middle" fill="#d29922" font-size="9">connecting</text>
 
-<line x1="1245" y1="405" x2="1260" y2="405" stroke="#484f58" stroke-width="1" marker-end="url(#arrow-gray)"/>
+<line x1="1245" y1="437" x2="1260" y2="437" stroke="#484f58" stroke-width="1" marker-end="url(#arrow-gray)"/>
 
-<rect x="1260" y="394" width="70" height="22" rx="4" fill="#1c2333" stroke="#3fb950" stroke-width="1"/>
-<text x="1295" y="409" text-anchor="middle" fill="#3fb950" font-size="9">connected</text>
+<rect x="1260" y="426" width="70" height="22" rx="4" fill="#1c2333" stroke="#3fb950" stroke-width="1"/>
+<text x="1295" y="441" text-anchor="middle" fill="#3fb950" font-size="9">connected</text>
 
 <!-- Reconnecting arrow back -->
-<path d="M 1295 416 L 1295 426 L 1120 426 L 1120 416" fill="none" stroke="#f85149" stroke-width="1" stroke-dasharray="3,2"/>
-<text x="1205" y="424" text-anchor="middle" fill="#f85149" font-size="8">reconnecting (backoff)</text>
+<path d="M 1295 448 L 1295 460 L 1120 460 L 1120 448" fill="none" stroke="#f85149" stroke-width="1" stroke-dasharray="3,2"/>
+<text x="1205" y="458" text-anchor="middle" fill="#f85149" font-size="8">reconnecting (backoff)</text>
 
 <!-- Reconnection config -->
-<rect x="1060" y="448" width="290" height="62" rx="8" fill="#161b22" stroke="#f85149" stroke-width="1"/>
-<text x="1205" y="468" text-anchor="middle" fill="#f85149" font-size="11" font-weight="600">Exponential Backoff</text>
-<text x="1080" y="486" fill="#8b949e" font-size="9">Initial: 1s · Max: 30s · Multiplier: 2x</text>
-<text x="1080" y="498" fill="#8b949e" font-size="9">Max attempts: 8 · Fatal: NOT_FOUND, UNAUTHORIZED, etc.</text>
+<rect x="1060" y="490" width="290" height="68" rx="8" fill="#161b22" stroke="#f85149" stroke-width="1"/>
+<text x="1205" y="512" text-anchor="middle" fill="#f85149" font-size="11" font-weight="600">Exponential Backoff</text>
+<text x="1080" y="532" fill="#8b949e" font-size="9">Initial: 1s · Max: 30s · Multiplier: 2x</text>
+<text x="1080" y="548" fill="#8b949e" font-size="9">Max attempts: 8 · Fatal: NOT_FOUND, UNAUTHORIZED, etc.</text>
 
 <!-- Zod Validation -->
-<rect x="1060" y="524" width="290" height="80" rx="8" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
-<text x="1205" y="544" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="600">Zod Validation + Envelope Gate</text>
+<rect x="1060" y="576" width="290" height="90" rx="8" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="1205" y="598" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="600">Zod Validation + Envelope Gate</text>
 
-<rect x="1080" y="556" width="130" height="25" rx="4" fill="#1c2333" stroke="#58a6ff" stroke-width="1"/>
-<text x="1145" y="573" text-anchor="middle" fill="#58a6ff" font-size="9">mapRawEventToTyped()</text>
+<rect x="1080" y="612" width="130" height="25" rx="4" fill="#1c2333" stroke="#58a6ff" stroke-width="1"/>
+<text x="1145" y="629" text-anchor="middle" fill="#58a6ff" font-size="9">mapRawEventToTyped()</text>
 
-<rect x="1220" y="556" width="130" height="25" rx="4" fill="#1c2333" stroke="#d29922" stroke-width="1"/>
-<text x="1285" y="573" text-anchor="middle" fill="#d29922" font-size="9">routeEventToCallback()</text>
+<rect x="1220" y="612" width="130" height="25" rx="4" fill="#1c2333" stroke="#d29922" stroke-width="1"/>
+<text x="1285" y="629" text-anchor="middle" fill="#d29922" font-size="9">routeEventToCallback()</text>
 
-<text x="1080" y="599" fill="#8b949e" font-size="9">Per-type Zod schema · normalizeStructuredStreamWireEvent()</text>
-<text x="1080" y="611" fill="#8b949e" font-size="9">Invalid events logged + skipped · envelope metadata validated</text>
+<text x="1080" y="654" fill="#8b949e" font-size="9">Per-type Zod schema · normalizeStructuredStreamWireEvent()</text>
 
 <!-- Connection: Caddy SSE -> Client -->
-<path d="M 980 498 L 1020 498 L 1020 240 L 1060 240" fill="none" stroke="#3fb950" stroke-width="2" marker-end="url(#arrow-green)"/>
-<rect x="1013" y="340" width="38" height="16" rx="3" fill="#0d1117" stroke="#3fb950" stroke-width="0.5"/>
-<text x="1032" y="352" text-anchor="middle" fill="#3fb950" font-size="10">SSE</text>
+<path d="M 980 540 L 1020 540 L 1020 240 L 1060 240" fill="none" stroke="#3fb950" stroke-width="2" marker-end="url(#arrow-green)"/>
+<rect x="1013" y="370" width="38" height="16" rx="3" fill="#0d1117" stroke="#3fb950" stroke-width="0.5"/>
+<text x="1032" y="382" text-anchor="middle" fill="#3fb950" font-size="10">SSE</text>
 
 <!-- ==================== COL 5: UI APPLICATION ==================== -->
-<rect x="1410" y="120" width="460" height="570" rx="10" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-dasharray="8,4"/>
+<rect x="1410" y="120" width="460" height="650" rx="10" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-dasharray="8,4"/>
 <text x="1640" y="142" text-anchor="middle" fill="#58a6ff" font-size="14" font-weight="600">Application Layer</text>
 
 <!-- syncSessionToCollections -->
-<rect x="1430" y="158" width="420" height="95" rx="8" fill="#161b22" stroke="#58a6ff" stroke-width="2"/>
+<rect x="1430" y="158" width="420" height="100" rx="8" fill="#161b22" stroke="#58a6ff" stroke-width="2"/>
 <text x="1640" y="180" text-anchor="middle" fill="#58a6ff" font-size="14" font-weight="600">syncSessionToCollections()</text>
 <text x="1640" y="198" text-anchor="middle" fill="#8b949e" font-size="10">lib/sessions/sync.ts</text>
 
-<text x="1445" y="220" fill="#8b949e" font-size="9">Maps typed events to TanStack DB collections</text>
-<text x="1445" y="234" fill="#8b949e" font-size="9">Message accumulation from chunks (per agentId + turn)</text>
-<text x="1445" y="248" fill="#8b949e" font-size="9">Active sync tracking: Map&lt;sessionId, Subscription&gt;</text>
+<text x="1445" y="222" fill="#8b949e" font-size="9">Maps typed events to TanStack DB collections</text>
+<text x="1445" y="238" fill="#8b949e" font-size="9">Message accumulation from chunks (per agentId + turn)</text>
+<text x="1445" y="254" fill="#8b949e" font-size="9">Active sync tracking: Map&lt;sessionId, Subscription&gt;</text>
 
 <!-- TanStack DB Collections -->
-<rect x="1430" y="270" width="420" height="210" rx="8" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
-<text x="1640" y="292" text-anchor="middle" fill="#58a6ff" font-size="14" font-weight="600">TanStack DB Collections</text>
-<text x="1640" y="310" text-anchor="middle" fill="#8b949e" font-size="10">lib/sessions/collections.ts + domain-specific collections</text>
+<rect x="1430" y="278" width="420" height="230" rx="8" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="1640" y="300" text-anchor="middle" fill="#58a6ff" font-size="14" font-weight="600">TanStack DB Collections</text>
+<text x="1640" y="318" text-anchor="middle" fill="#8b949e" font-size="10">lib/sessions/collections.ts + domain-specific collections</text>
 
-<!-- Session Collection boxes (grid) -->
-<rect x="1445" y="322" width="95" height="28" rx="4" fill="#1c2333" stroke="#d29922" stroke-width="1"/>
-<text x="1492" y="340" text-anchor="middle" fill="#d29922" font-size="10">chunks</text>
+<!-- Session Collection boxes (grid) - row 1 -->
+<rect x="1445" y="334" width="95" height="28" rx="4" fill="#1c2333" stroke="#d29922" stroke-width="1"/>
+<text x="1492" y="352" text-anchor="middle" fill="#d29922" font-size="10">chunks</text>
 
-<rect x="1548" y="322" width="95" height="28" rx="4" fill="#1c2333" stroke="#d29922" stroke-width="1"/>
-<text x="1595" y="340" text-anchor="middle" fill="#d29922" font-size="10">toolCalls</text>
+<rect x="1548" y="334" width="95" height="28" rx="4" fill="#1c2333" stroke="#d29922" stroke-width="1"/>
+<text x="1595" y="352" text-anchor="middle" fill="#d29922" font-size="10">toolCalls</text>
 
-<rect x="1651" y="322" width="95" height="28" rx="4" fill="#1c2333" stroke="#bc8cff" stroke-width="1"/>
-<text x="1698" y="340" text-anchor="middle" fill="#bc8cff" font-size="10">presence</text>
+<rect x="1651" y="334" width="95" height="28" rx="4" fill="#1c2333" stroke="#bc8cff" stroke-width="1"/>
+<text x="1698" y="352" text-anchor="middle" fill="#bc8cff" font-size="10">presence</text>
 
-<rect x="1754" y="322" width="85" height="28" rx="4" fill="#1c2333" stroke="#3fb950" stroke-width="1"/>
-<text x="1796" y="340" text-anchor="middle" fill="#3fb950" font-size="10">terminal</text>
+<rect x="1754" y="334" width="85" height="28" rx="4" fill="#1c2333" stroke="#3fb950" stroke-width="1"/>
+<text x="1796" y="352" text-anchor="middle" fill="#3fb950" font-size="10">terminal</text>
 
-<rect x="1445" y="360" width="95" height="28" rx="4" fill="#1c2333" stroke="#f0883e" stroke-width="1"/>
-<text x="1492" y="378" text-anchor="middle" fill="#f0883e" font-size="10">agentState</text>
+<!-- row 2 -->
+<rect x="1445" y="376" width="95" height="28" rx="4" fill="#1c2333" stroke="#f0883e" stroke-width="1"/>
+<text x="1492" y="394" text-anchor="middle" fill="#f0883e" font-size="10">agentState</text>
 
-<rect x="1548" y="360" width="95" height="28" rx="4" fill="#1c2333" stroke="#58a6ff" stroke-width="1"/>
-<text x="1595" y="378" text-anchor="middle" fill="#58a6ff" font-size="10">messages</text>
+<rect x="1548" y="376" width="95" height="28" rx="4" fill="#1c2333" stroke="#58a6ff" stroke-width="1"/>
+<text x="1595" y="394" text-anchor="middle" fill="#58a6ff" font-size="10">messages</text>
 
-<rect x="1651" y="360" width="95" height="28" rx="4" fill="#1c2333" stroke="#8b949e" stroke-width="1"/>
-<text x="1698" y="378" text-anchor="middle" fill="#8b949e" font-size="10">workflow</text>
+<rect x="1651" y="376" width="95" height="28" rx="4" fill="#1c2333" stroke="#8b949e" stroke-width="1"/>
+<text x="1698" y="394" text-anchor="middle" fill="#8b949e" font-size="10">workflow</text>
 
-<!-- Domain-specific collections -->
-<rect x="1445" y="398" width="95" height="28" rx="4" fill="#1c2333" stroke="#f85149" stroke-width="1"/>
-<text x="1492" y="416" text-anchor="middle" fill="#f85149" font-size="9">cliSessions</text>
+<!-- Domain-specific collections - row 3 -->
+<rect x="1445" y="418" width="95" height="28" rx="4" fill="#1c2333" stroke="#f85149" stroke-width="1"/>
+<text x="1492" y="436" text-anchor="middle" fill="#f85149" font-size="9">cliSessions</text>
 
-<rect x="1548" y="398" width="95" height="28" rx="4" fill="#1c2333" stroke="#f85149" stroke-width="1"/>
-<text x="1595" y="416" text-anchor="middle" fill="#f85149" font-size="9">taskCreation</text>
+<rect x="1548" y="418" width="95" height="28" rx="4" fill="#1c2333" stroke="#f85149" stroke-width="1"/>
+<text x="1595" y="436" text-anchor="middle" fill="#f85149" font-size="9">taskCreation</text>
 
-<rect x="1651" y="398" width="95" height="28" rx="4" fill="#1c2333" stroke="#f85149" stroke-width="1"/>
-<text x="1698" y="416" text-anchor="middle" fill="#f85149" font-size="9">sandboxStatus</text>
+<rect x="1651" y="418" width="95" height="28" rx="4" fill="#1c2333" stroke="#f85149" stroke-width="1"/>
+<text x="1698" y="436" text-anchor="middle" fill="#f85149" font-size="9">sandboxStatus</text>
 
-<text x="1445" y="444" fill="#8b949e" font-size="9">createCollection(localOnlyCollectionOptions(...))</text>
-<text x="1445" y="456" fill="#8b949e" font-size="9">Zod schema validation · Primary key per collection</text>
-<text x="1445" y="468" fill="#8b949e" font-size="9">Live queries: useQuery() on collections -> reactive updates</text>
-<text x="1445" y="476" fill="#8b949e" font-size="8">@tanstack/db + @tanstack/react-db</text>
+<text x="1445" y="464" fill="#8b949e" font-size="9">createCollection(localOnlyCollectionOptions(...))</text>
+<text x="1445" y="478" fill="#8b949e" font-size="9">Zod schema validation · Primary key per collection</text>
+<text x="1445" y="492" fill="#8b949e" font-size="9">Live queries: useQuery() on collections -> reactive updates</text>
+<text x="1445" y="504" fill="#8b949e" font-size="9">@tanstack/db + @tanstack/react-db</text>
 
 <!-- React Hooks -->
-<rect x="1430" y="495" width="200" height="85" rx="8" fill="#161b22" stroke="#58a6ff" stroke-width="2"/>
-<text x="1530" y="517" text-anchor="middle" fill="#58a6ff" font-size="13" font-weight="600">useSession()</text>
-<text x="1530" y="535" text-anchor="middle" fill="#8b949e" font-size="10">hooks/use-session.ts</text>
-<text x="1445" y="555" fill="#8b949e" font-size="9">useSessionSubscription()</text>
-<text x="1445" y="567" fill="#8b949e" font-size="9">Ref-counted SSE (FC-006)</text>
-<text x="1445" y="579" fill="#8b949e" font-size="9">Returns reactive UI state</text>
+<rect x="1430" y="530" width="200" height="100" rx="8" fill="#161b22" stroke="#58a6ff" stroke-width="2"/>
+<text x="1530" y="554" text-anchor="middle" fill="#58a6ff" font-size="13" font-weight="600">useSession()</text>
+<text x="1530" y="572" text-anchor="middle" fill="#8b949e" font-size="10">hooks/use-session.ts</text>
+<text x="1445" y="594" fill="#8b949e" font-size="9">useSessionSubscription()</text>
+<text x="1445" y="608" fill="#8b949e" font-size="9">Ref-counted SSE (FC-006)</text>
+<text x="1445" y="622" fill="#8b949e" font-size="9">Returns reactive UI state</text>
 
 <!-- Reactive UI -->
-<rect x="1650" y="495" width="200" height="85" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
-<text x="1750" y="517" text-anchor="middle" fill="#3fb950" font-size="13" font-weight="600">Reactive UI</text>
-<text x="1750" y="535" text-anchor="middle" fill="#8b949e" font-size="10">React components</text>
-<text x="1660" y="555" fill="#8b949e" font-size="9">Agent session panel</text>
-<text x="1660" y="567" fill="#8b949e" font-size="9">Streaming output / Tool calls</text>
-<text x="1660" y="579" fill="#8b949e" font-size="9">Container agent / Terraform</text>
+<rect x="1650" y="530" width="200" height="100" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
+<text x="1750" y="554" text-anchor="middle" fill="#3fb950" font-size="13" font-weight="600">Reactive UI</text>
+<text x="1750" y="572" text-anchor="middle" fill="#8b949e" font-size="10">React components</text>
+<text x="1660" y="594" fill="#8b949e" font-size="9">Agent session panel</text>
+<text x="1660" y="608" fill="#8b949e" font-size="9">Streaming output / Tool calls</text>
+<text x="1660" y="622" fill="#8b949e" font-size="9">Container agent / Terraform</text>
 
 <!-- Connections: sync -> collections -> hooks -> UI -->
-<line x1="1640" y1="253" x2="1640" y2="270" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
-<line x1="1530" y1="480" x2="1530" y2="495" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
-<line x1="1630" y1="537" x2="1650" y2="537" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="1640" y1="258" x2="1640" y2="278" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="1530" y1="508" x2="1530" y2="530" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="1630" y1="580" x2="1650" y2="580" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
 
 <!-- ==================== FLOW ARROWS: Event Sources -> Service ==================== -->
 <path d="M 295 210 L 340 210" fill="none" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrow-coral)"/>
-<path d="M 295 315 L 330 315 L 330 270 L 340 270" fill="none" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrow-coral)"/>
-<path d="M 295 413 L 330 413 L 330 330 L 340 330" fill="none" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrow-coral)"/>
-<path d="M 295 505 L 330 505 L 330 390 L 340 390" fill="none" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrow-coral)"/>
-<path d="M 295 590 L 325 590 L 325 450 L 340 450" fill="none" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrow-coral)"/>
-<path d="M 295 665 L 325 665 L 325 480 L 340 480" fill="none" stroke="#d29922" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
-<path d="M 295 745 L 320 745 L 320 510 L 340 510" fill="none" stroke="#d29922" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
+<path d="M 295 335 L 330 335 L 330 275 L 340 275" fill="none" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrow-coral)"/>
+<path d="M 295 445 L 330 445 L 330 340 L 340 340" fill="none" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrow-coral)"/>
+<path d="M 295 550 L 330 550 L 330 405 L 340 405" fill="none" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrow-coral)"/>
+<path d="M 295 645 L 325 645 L 325 470 L 340 470" fill="none" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrow-coral)"/>
+<path d="M 295 738 L 325 738 L 325 520 L 340 520" fill="none" stroke="#d29922" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
+<path d="M 295 826 L 320 826 L 320 555 L 340 555" fill="none" stroke="#d29922" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
 
 <!-- ==================== FLOW ARROWS: Service -> Caddy ==================== -->
-<path d="M 650 260 L 690 260" fill="none" stroke="#bc8cff" stroke-width="2" marker-end="url(#arrow-purple)"/>
-<rect x="651" y="240" width="38" height="16" rx="3" fill="#0d1117" stroke="#bc8cff" stroke-width="0.5"/>
-<text x="670" y="252" text-anchor="middle" fill="#bc8cff" font-size="9">NDJSON</text>
+<path d="M 650 265 L 690 265" fill="none" stroke="#bc8cff" stroke-width="2" marker-end="url(#arrow-purple)"/>
+<rect x="651" y="245" width="38" height="16" rx="3" fill="#0d1117" stroke="#bc8cff" stroke-width="0.5"/>
+<text x="670" y="257" text-anchor="middle" fill="#bc8cff" font-size="9">NDJSON</text>
 
 <!-- ==================== FLOW ARROWS: Client -> sync ==================== -->
 <path d="M 1350 240 L 1430 240" fill="none" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
@@ -384,152 +387,152 @@ svg { display: block; }
 <text x="1397" y="234" text-anchor="middle" fill="#58a6ff" font-size="9">callbacks</text>
 
 <!-- ==================== BOTTOM: DURABILITY & RESILIENCE ==================== -->
-<rect x="30" y="830" width="1860" height="140" rx="14" fill="none" stroke="#7ee787" stroke-width="2" stroke-dasharray="10,5"/>
-<text x="50" y="852" fill="#7ee787" font-size="14" font-weight="700">Durability &amp; Resilience Guarantees</text>
+<rect x="30" y="1020" width="1860" height="150" rx="14" fill="none" stroke="#7ee787" stroke-width="2" stroke-dasharray="10,5"/>
+<text x="50" y="1044" fill="#7ee787" font-size="14" font-weight="700">Durability &amp; Resilience Guarantees</text>
 
 <!-- Dual-write box -->
-<rect x="50" y="868" width="350" height="85" rx="8" fill="#161b22" stroke="#7ee787" stroke-width="1.5"/>
-<text x="225" y="888" text-anchor="middle" fill="#7ee787" font-size="12" font-weight="600">Dual-Write Pattern</text>
-<text x="65" y="908" fill="#3fb950" font-size="10" font-weight="600">1. SQLite (source of truth)</text>
-<text x="240" y="908" fill="#8b949e" font-size="10">-> persisted first, always available</text>
-<text x="65" y="924" fill="#bc8cff" font-size="10" font-weight="600">2. Caddy/LMDB (real-time)</text>
-<text x="260" y="924" fill="#8b949e" font-size="10">-> on-disk SSE stream delivery</text>
-<text x="65" y="940" fill="#8b949e" font-size="10">LMDB enables offset-based resume after reconnect</text>
+<rect x="50" y="1062" width="350" height="92" rx="8" fill="#161b22" stroke="#7ee787" stroke-width="1.5"/>
+<text x="225" y="1084" text-anchor="middle" fill="#7ee787" font-size="12" font-weight="600">Dual-Write Pattern</text>
+<text x="65" y="1104" fill="#3fb950" font-size="10" font-weight="600">1. SQLite (source of truth)</text>
+<text x="240" y="1104" fill="#8b949e" font-size="10">-> persisted first, always available</text>
+<text x="65" y="1122" fill="#bc8cff" font-size="10" font-weight="600">2. Caddy/LMDB (real-time)</text>
+<text x="260" y="1122" fill="#8b949e" font-size="10">-> on-disk SSE stream delivery</text>
+<text x="65" y="1140" fill="#8b949e" font-size="10">LMDB enables offset-based resume after reconnect</text>
 
 <!-- Replay box -->
-<rect x="420" y="868" width="320" height="85" rx="8" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
-<text x="580" y="888" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="600">Historical Replay</text>
-<text x="435" y="908" fill="#8b949e" font-size="10">Page refresh -> hydrate from SQLite</text>
-<text x="435" y="924" fill="#8b949e" font-size="10">API: GET /api/sessions/:id/events</text>
-<text x="435" y="940" fill="#8b949e" font-size="10">Ordered by offset ASC, paginated</text>
+<rect x="420" y="1062" width="320" height="92" rx="8" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="580" y="1084" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="600">Historical Replay</text>
+<text x="435" y="1104" fill="#8b949e" font-size="10">Page refresh -> hydrate from SQLite</text>
+<text x="435" y="1122" fill="#8b949e" font-size="10">API: GET /api/sessions/:id/events</text>
+<text x="435" y="1140" fill="#8b949e" font-size="10">Ordered by offset ASC, paginated</text>
 
 <!-- Resume box -->
-<rect x="760" y="868" width="340" height="85" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
-<text x="930" y="888" text-anchor="middle" fill="#3fb950" font-size="12" font-weight="600">Offset-Based Resume</text>
-<text x="775" y="908" fill="#8b949e" font-size="10">Client tracks lastCursor (opaque string offset)</text>
-<text x="775" y="924" fill="#8b949e" font-size="10">On reconnect: pass offset to Caddy SSE</text>
-<text x="775" y="940" fill="#8b949e" font-size="10">No duplicate events, no gaps</text>
+<rect x="760" y="1062" width="340" height="92" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
+<text x="930" y="1084" text-anchor="middle" fill="#3fb950" font-size="12" font-weight="600">Offset-Based Resume</text>
+<text x="775" y="1104" fill="#8b949e" font-size="10">Client tracks lastCursor (opaque string offset)</text>
+<text x="775" y="1122" fill="#8b949e" font-size="10">On reconnect: pass offset to Caddy SSE</text>
+<text x="775" y="1140" fill="#8b949e" font-size="10">No duplicate events, no gaps</text>
 
 <!-- Exactly-once box -->
-<rect x="1120" y="868" width="340" height="85" rx="8" fill="#161b22" stroke="#bc8cff" stroke-width="1.5"/>
-<text x="1290" y="888" text-anchor="middle" fill="#bc8cff" font-size="12" font-weight="600">Exactly-Once Semantics</text>
-<text x="1135" y="908" fill="#8b949e" font-size="10">IdempotentProducer: dedup on server side</text>
-<text x="1135" y="924" fill="#8b949e" font-size="10">UNIQUE(sessionId, offset) in SQLite</text>
-<text x="1135" y="940" fill="#8b949e" font-size="10">Offset collision retry (5 attempts)</text>
+<rect x="1120" y="1062" width="340" height="92" rx="8" fill="#161b22" stroke="#bc8cff" stroke-width="1.5"/>
+<text x="1290" y="1084" text-anchor="middle" fill="#bc8cff" font-size="12" font-weight="600">Exactly-Once Semantics</text>
+<text x="1135" y="1104" fill="#8b949e" font-size="10">IdempotentProducer: dedup on server side</text>
+<text x="1135" y="1122" fill="#8b949e" font-size="10">UNIQUE(sessionId, offset) in SQLite</text>
+<text x="1135" y="1140" fill="#8b949e" font-size="10">Offset collision retry (5 attempts)</text>
 
 <!-- Reconnection box -->
-<rect x="1480" y="868" width="390" height="85" rx="8" fill="#161b22" stroke="#f85149" stroke-width="1.5"/>
-<text x="1675" y="888" text-anchor="middle" fill="#f85149" font-size="12" font-weight="600">Auto-Reconnection</text>
-<text x="1495" y="908" fill="#8b949e" font-size="10">Exponential backoff: 1s -> 2s -> 4s -> ... -> 30s max</text>
-<text x="1495" y="924" fill="#8b949e" font-size="10">Max 8 attempts on clean closure</text>
-<text x="1495" y="940" fill="#8b949e" font-size="10">NOT_FOUND, UNAUTHORIZED, FORBIDDEN -> no retry</text>
+<rect x="1480" y="1062" width="390" height="92" rx="8" fill="#161b22" stroke="#f85149" stroke-width="1.5"/>
+<text x="1675" y="1084" text-anchor="middle" fill="#f85149" font-size="12" font-weight="600">Auto-Reconnection</text>
+<text x="1495" y="1104" fill="#8b949e" font-size="10">Exponential backoff: 1s -> 2s -> 4s -> ... -> 30s max</text>
+<text x="1495" y="1122" fill="#8b949e" font-size="10">Max 8 attempts on clean closure</text>
+<text x="1495" y="1140" fill="#8b949e" font-size="10">NOT_FOUND, UNAUTHORIZED, FORBIDDEN -> no retry</text>
 
 <!-- ==================== LEGEND ==================== -->
-<rect x="30" y="990" width="1860" height="175" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
-<text x="960" y="1018" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="600">Legend &amp; Key Files</text>
+<rect x="30" y="1195" width="1860" height="190" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+<text x="960" y="1223" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="600">Legend &amp; Key Files</text>
 
 <!-- Legend items - row 1 -->
-<line x1="60" y1="1046" x2="108" y2="1046" stroke="#f0883e" stroke-width="2"/>
-<text x="118" y="1050" fill="#8b949e" font-size="12">Event sources (services that emit events)</text>
+<line x1="60" y1="1253" x2="108" y2="1253" stroke="#f0883e" stroke-width="2"/>
+<text x="118" y="1257" fill="#8b949e" font-size="12">Event sources (services that emit events)</text>
 
-<line x1="420" y1="1046" x2="468" y2="1046" stroke="#58a6ff" stroke-width="2"/>
-<text x="478" y="1050" fill="#8b949e" font-size="12">Application layer (service, sync, UI)</text>
+<line x1="420" y1="1253" x2="468" y2="1253" stroke="#58a6ff" stroke-width="2"/>
+<text x="478" y="1257" fill="#8b949e" font-size="12">Application layer (service, sync, UI)</text>
 
-<line x1="780" y1="1046" x2="828" y2="1046" stroke="#bc8cff" stroke-width="2"/>
-<text x="838" y="1050" fill="#8b949e" font-size="12">Streaming infrastructure (Caddy, producer)</text>
+<line x1="780" y1="1253" x2="828" y2="1253" stroke="#bc8cff" stroke-width="2"/>
+<text x="838" y="1257" fill="#8b949e" font-size="12">Streaming infrastructure (Caddy, producer)</text>
 
-<line x1="1140" y1="1046" x2="1188" y2="1046" stroke="#3fb950" stroke-width="2"/>
-<text x="1198" y="1050" fill="#8b949e" font-size="12">Client / browser (SSE, reconnection)</text>
+<line x1="1140" y1="1253" x2="1188" y2="1253" stroke="#3fb950" stroke-width="2"/>
+<text x="1198" y="1257" fill="#8b949e" font-size="12">Client / browser (SSE, reconnection)</text>
 
-<line x1="1480" y1="1046" x2="1528" y2="1046" stroke="#7ee787" stroke-width="2"/>
-<text x="1538" y="1050" fill="#8b949e" font-size="12">Persistence (SQLite source-of-truth, Caddy/LMDB real-time)</text>
+<line x1="1480" y1="1253" x2="1528" y2="1253" stroke="#7ee787" stroke-width="2"/>
+<text x="1538" y="1257" fill="#8b949e" font-size="12">Persistence (SQLite source-of-truth, Caddy/LMDB real-time)</text>
 
 <!-- Key files - row 2 -->
-<text x="60" y="1086" fill="#d29922" font-size="12" font-weight="600">Key Files</text>
+<text x="60" y="1290" fill="#d29922" font-size="12" font-weight="600">Key Files</text>
 
-<text x="60" y="1108" fill="#8b949e" font-size="11">durable-streams.service.ts</text>
-<text x="280" y="1108" fill="#484f58" font-size="11">Type-safe event publisher (StreamEventMap, dual-write, envelope)</text>
+<text x="60" y="1314" fill="#8b949e" font-size="11">durable-streams.service.ts</text>
+<text x="280" y="1314" fill="#484f58" font-size="11">Type-safe event publisher (StreamEventMap, dual-write, envelope)</text>
 
-<text x="60" y="1126" fill="#8b949e" font-size="11">caddy-producer.ts</text>
-<text x="280" y="1126" fill="#484f58" font-size="11">CaddyDurableStreamsServer, IdempotentProducer, LRU pool</text>
+<text x="60" y="1334" fill="#8b949e" font-size="11">caddy-producer.ts</text>
+<text x="280" y="1334" fill="#484f58" font-size="11">CaddyDurableStreamsServer, IdempotentProducer, LRU pool</text>
 
-<text x="60" y="1144" fill="#8b949e" font-size="11">client.ts + envelope.ts</text>
-<text x="280" y="1144" fill="#484f58" font-size="11">DurableStreamsClient, SSE subscription, Zod + envelope validation</text>
+<text x="60" y="1354" fill="#8b949e" font-size="11">client.ts + envelope.ts</text>
+<text x="280" y="1354" fill="#484f58" font-size="11">DurableStreamsClient, SSE subscription, Zod + envelope validation</text>
 
-<text x="700" y="1108" fill="#8b949e" font-size="11">sync.ts</text>
-<text x="920" y="1108" fill="#484f58" font-size="11">syncSessionToCollections, maps events -> TanStack DB</text>
+<text x="700" y="1314" fill="#8b949e" font-size="11">sync.ts</text>
+<text x="920" y="1314" fill="#484f58" font-size="11">syncSessionToCollections, maps events -> TanStack DB</text>
 
-<text x="700" y="1126" fill="#8b949e" font-size="11">collections.ts (x4)</text>
-<text x="920" y="1126" fill="#484f58" font-size="11">sessions(7) + cli-monitor + task-creation + sandbox-status</text>
+<text x="700" y="1334" fill="#8b949e" font-size="11">collections.ts (x4)</text>
+<text x="920" y="1334" fill="#484f58" font-size="11">sessions(7) + cli-monitor + task-creation + sandbox-status</text>
 
-<text x="700" y="1144" fill="#8b949e" font-size="11">session-stream.service.ts</text>
-<text x="920" y="1144" fill="#484f58" font-size="11">DB-first persist, Caddy publish, channel routing</text>
+<text x="700" y="1354" fill="#8b949e" font-size="11">session-stream.service.ts</text>
+<text x="920" y="1354" fill="#484f58" font-size="11">DB-first persist, Caddy publish, channel routing</text>
 
-<text x="1340" y="1108" fill="#8b949e" font-size="11">use-session.ts</text>
-<text x="1560" y="1108" fill="#484f58" font-size="11">React hook: subscribe, sync, reactive UI state</text>
+<text x="1340" y="1314" fill="#8b949e" font-size="11">use-session.ts</text>
+<text x="1560" y="1314" fill="#484f58" font-size="11">React hook: subscribe, sync, reactive UI state</text>
 
-<text x="1340" y="1126" fill="#8b949e" font-size="11">chunk-batcher.ts</text>
-<text x="1560" y="1126" fill="#484f58" font-size="11">Split deltas (SSE) vs batched text (SQLite)</text>
+<text x="1340" y="1334" fill="#8b949e" font-size="11">chunk-batcher.ts</text>
+<text x="1560" y="1334" fill="#484f58" font-size="11">Split deltas (SSE) vs batched text (SQLite)</text>
 
-<text x="1340" y="1144" fill="#8b949e" font-size="11">event-metadata.ts</text>
-<text x="1560" y="1144" fill="#484f58" font-size="11">Structured envelope factory (OC-005d)</text>
+<text x="1340" y="1354" fill="#8b949e" font-size="11">event-metadata.ts</text>
+<text x="1560" y="1354" fill="#484f58" font-size="11">Structured envelope factory (OC-005d)</text>
 
 <!-- ==================== DATA FLOW SUMMARY ==================== -->
-<rect x="30" y="1185" width="1860" height="150" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
-<text x="960" y="1213" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="600">End-to-End Data Flow</text>
+<rect x="30" y="1410" width="1860" height="170" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+<text x="960" y="1438" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="600">End-to-End Data Flow</text>
 
 <!-- Flow steps -->
-<rect x="50" y="1230" width="200" height="35" rx="6" fill="#1c2333" stroke="#f0883e" stroke-width="1.5"/>
-<text x="150" y="1252" text-anchor="middle" fill="#f0883e" font-size="11" font-weight="600">1. Service emits event</text>
+<rect x="50" y="1458" width="200" height="35" rx="6" fill="#1c2333" stroke="#f0883e" stroke-width="1.5"/>
+<text x="150" y="1480" text-anchor="middle" fill="#f0883e" font-size="11" font-weight="600">1. Service emits event</text>
 
-<line x1="250" y1="1247" x2="270" y2="1247" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="250" y1="1475" x2="270" y2="1475" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
 
-<rect x="270" y="1230" width="240" height="35" rx="6" fill="#1c2333" stroke="#58a6ff" stroke-width="1.5"/>
-<text x="390" y="1252" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="600">2. publish() -> SQLite FIRST</text>
+<rect x="270" y="1458" width="240" height="35" rx="6" fill="#1c2333" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="390" y="1480" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="600">2. publish() -> SQLite FIRST</text>
 
-<line x1="510" y1="1247" x2="530" y2="1247" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="510" y1="1475" x2="530" y2="1475" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
 
-<rect x="530" y="1230" width="230" height="35" rx="6" fill="#1c2333" stroke="#bc8cff" stroke-width="1.5"/>
-<text x="645" y="1252" text-anchor="middle" fill="#bc8cff" font-size="11" font-weight="600">3. Caddy/LMDB persist + stream</text>
+<rect x="530" y="1458" width="230" height="35" rx="6" fill="#1c2333" stroke="#bc8cff" stroke-width="1.5"/>
+<text x="645" y="1480" text-anchor="middle" fill="#bc8cff" font-size="11" font-weight="600">3. Caddy/LMDB persist + stream</text>
 
-<line x1="760" y1="1247" x2="780" y2="1247" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="760" y1="1475" x2="780" y2="1475" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
 
-<rect x="780" y="1230" width="200" height="35" rx="6" fill="#1c2333" stroke="#3fb950" stroke-width="1.5"/>
-<text x="880" y="1252" text-anchor="middle" fill="#3fb950" font-size="11" font-weight="600">4. SSE -> Browser client</text>
+<rect x="780" y="1458" width="200" height="35" rx="6" fill="#1c2333" stroke="#3fb950" stroke-width="1.5"/>
+<text x="880" y="1480" text-anchor="middle" fill="#3fb950" font-size="11" font-weight="600">4. SSE -> Browser client</text>
 
-<line x1="980" y1="1247" x2="1000" y2="1247" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="980" y1="1475" x2="1000" y2="1475" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
 
-<rect x="1000" y="1230" width="230" height="35" rx="6" fill="#1c2333" stroke="#58a6ff" stroke-width="1.5"/>
-<text x="1115" y="1252" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="600">5. Zod validate -> callbacks</text>
+<rect x="1000" y="1458" width="230" height="35" rx="6" fill="#1c2333" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="1115" y="1480" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="600">5. Zod validate -> callbacks</text>
 
-<line x1="1230" y1="1247" x2="1250" y2="1247" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="1230" y1="1475" x2="1250" y2="1475" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
 
-<rect x="1250" y="1230" width="250" height="35" rx="6" fill="#1c2333" stroke="#58a6ff" stroke-width="1.5"/>
-<text x="1375" y="1252" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="600">6. sync -> TanStack DB collection</text>
+<rect x="1250" y="1458" width="250" height="35" rx="6" fill="#1c2333" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="1375" y="1480" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="600">6. sync -> TanStack DB collection</text>
 
-<line x1="1500" y1="1247" x2="1520" y2="1247" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+<line x1="1500" y1="1475" x2="1520" y2="1475" stroke="#484f58" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
 
-<rect x="1520" y="1230" width="230" height="35" rx="6" fill="#1c2333" stroke="#3fb950" stroke-width="1.5"/>
-<text x="1635" y="1252" text-anchor="middle" fill="#3fb950" font-size="11" font-weight="600">7. React re-render (live)</text>
+<rect x="1520" y="1458" width="230" height="35" rx="6" fill="#1c2333" stroke="#3fb950" stroke-width="1.5"/>
+<text x="1635" y="1480" text-anchor="middle" fill="#3fb950" font-size="11" font-weight="600">7. React re-render (live)</text>
 
 <!-- Event counts -->
-<text x="50" y="1290" fill="#d29922" font-size="12" font-weight="600">Event Types (StreamEventMap)</text>
-<text x="270" y="1290" fill="#8b949e" font-size="11">container-agent: 14 | plan: 7 | sandbox: 8 | task-creation: 9 | terraform: 7 | topology: 3</text>
-<text x="50" y="1310" fill="#d29922" font-size="12" font-weight="600">Session Events</text>
-<text x="175" y="1310" fill="#8b949e" font-size="11">chunk:1 | tool:2 | presence:4 | terminal:2 | approval:2 | agent:14 | memory:1 | state:1 | container-agent:10 | topology:3</text>
-<text x="50" y="1330" fill="#d29922" font-size="12" font-weight="600">Totals</text>
-<text x="110" y="1330" fill="#8b949e" font-size="11">48 typed StreamEventMap events + 40 session event types | 10 TanStack DB collections | 4 connection states</text>
+<text x="50" y="1520" fill="#d29922" font-size="12" font-weight="600">Event Types (StreamEventMap)</text>
+<text x="290" y="1520" fill="#8b949e" font-size="11">container-agent: 14 | plan: 7 | sandbox: 8 | task-creation: 9 | terraform: 7 | topology: 3</text>
+<text x="50" y="1542" fill="#d29922" font-size="12" font-weight="600">Session Events</text>
+<text x="175" y="1542" fill="#8b949e" font-size="11">chunk:1 | tool:2 | presence:4 | terminal:2 | approval:2 | agent:14 | memory:1 | state:1 | container-agent:10 | topology:3</text>
+<text x="50" y="1564" fill="#d29922" font-size="12" font-weight="600">Totals</text>
+<text x="110" y="1564" fill="#8b949e" font-size="11">48 typed StreamEventMap events + 40 session event types | 10 TanStack DB collections | 4 connection states</text>
 
 <!-- ==================== STRUCTURED ENVELOPE DETAIL ==================== -->
-<rect x="30" y="1355" width="1860" height="110" rx="10" fill="#161b22" stroke="#f85149" stroke-width="1.5"/>
-<text x="960" y="1383" text-anchor="middle" fill="#f85149" font-size="14" font-weight="600">Structured Envelope Protocol (OC-005d Migration Gate)</text>
+<rect x="30" y="1600" width="1860" height="155" rx="10" fill="#161b22" stroke="#f85149" stroke-width="1.5"/>
+<text x="960" y="1630" text-anchor="middle" fill="#f85149" font-size="14" font-weight="600">Structured Envelope Protocol (OC-005d Migration Gate)</text>
 
-<text x="50" y="1408" fill="#8b949e" font-size="11">Every event carries a <tspan fill="#f85149" font-weight="600">StreamEventMetadata</tspan> object in its <tspan fill="#58a6ff">data.meta</tspan> field. Events without valid metadata are rejected by the migration gate.</text>
-<text x="50" y="1428" fill="#8b949e" font-size="11">Fields: <tspan fill="#d29922">schemaVersion</tspan>(1) | <tspan fill="#d29922">eventId</tspan>(cuid2) | <tspan fill="#d29922">streamId</tspan>(target session) | <tspan fill="#d29922">blockId</tspan>(grouping key) | <tspan fill="#d29922">partType</tspan>(chunk_start/delta/end, tool_start/result/error, system, lifecycle, diff)</text>
-<text x="50" y="1448" fill="#8b949e" font-size="11">Fields: <tspan fill="#d29922">durability</tspan>(transient|durable) | <tspan fill="#d29922">sequence</tspan>(ordering within block) | <tspan fill="#d29922">createdAt</tspan>(ISO timestamp) | Validated by Zod on both server and client</text>
+<text x="50" y="1660" fill="#8b949e" font-size="11">Every event carries a <tspan fill="#f85149" font-weight="600">StreamEventMetadata</tspan> object in its <tspan fill="#58a6ff">data.meta</tspan> field. Events without valid metadata are rejected by the migration gate.</text>
+<text x="50" y="1686" fill="#8b949e" font-size="11">Fields: <tspan fill="#d29922">schemaVersion</tspan>(1) | <tspan fill="#d29922">eventId</tspan>(cuid2) | <tspan fill="#d29922">streamId</tspan>(target session) | <tspan fill="#d29922">blockId</tspan>(grouping key) | <tspan fill="#d29922">partType</tspan>(chunk_start/delta/end, tool_start/result/error, system, lifecycle, diff)</text>
+<text x="50" y="1712" fill="#8b949e" font-size="11">Fields: <tspan fill="#d29922">durability</tspan>(transient|durable) | <tspan fill="#d29922">sequence</tspan>(ordering within block) | <tspan fill="#d29922">createdAt</tspan>(ISO timestamp) | Validated by Zod on both server and client</text>
 
-<text x="50" y="1462" fill="#d29922" font-size="12" font-weight="600">Packages</text>
-<text x="130" y="1462" fill="#8b949e" font-size="11">@durable-streams/client | @tanstack/db | @tanstack/react-db | drizzle-orm | zod | @paralleldrive/cuid2</text>
+<text x="50" y="1738" fill="#d29922" font-size="12" font-weight="600">Packages</text>
+<text x="130" y="1738" fill="#8b949e" font-size="11">@durable-streams/client | @tanstack/db | @tanstack/react-db | drizzle-orm | zod | @paralleldrive/cuid2</text>
 
 </svg>
 </body>
