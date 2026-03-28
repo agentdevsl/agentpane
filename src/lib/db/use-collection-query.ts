@@ -17,5 +17,5 @@ export function useCollectionQuery<T>(
   deps?: unknown[]
 ): { data: T[] | undefined } {
   // biome-ignore lint/suspicious/noExplicitAny: TanStack DB v0.5.29 type regression
-  return useLiveQuery(queryFn as any, deps as any) as { data: T[] | undefined };
+  return useLiveQuery(queryFn as any, deps as any) as unknown as { data: T[] | undefined };
 }
