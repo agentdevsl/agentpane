@@ -20,12 +20,12 @@ func (c *SessionDeleteCommand) Run(args []string) int {
 		return 1
 	}
 
-	posArgs := flags.Args()
-	if len(posArgs) != 1 {
+	remaining := flags.Args()
+	if len(remaining) != 1 {
 		fmt.Fprintf(os.Stderr, "Error: session ID is required\nUsage: agentpane session delete <session-id>\n")
 		return 1
 	}
-	sessionID := posArgs[0]
+	sessionID := remaining[0]
 
 	client, err := c.Client()
 	if err != nil {

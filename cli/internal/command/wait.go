@@ -13,22 +13,28 @@ import (
 const (
 	DefaultWaitTimeout  = 5 * time.Minute
 	DefaultWaitInterval = 2 * time.Second
+	minWaitInterval     = 100 * time.Millisecond
 )
 
-// WaitForTask polls the task until it reaches a terminal state or the timeout expires.
-// Terminal conditions: column changes to waiting_approval or verified,
-// or agent status becomes completed or error.
+// WaitForTask polls the task until it reaches a terminal state, the timeout
+// expires, or the context is cancelled.
+// Terminal columns: waiting_approval, verified.
+// Terminal agent statuses: completed (returns nil error), error (returns error).
 // Progress updates are printed to stderr.
 func WaitForTask(ctx context.Context, client *sdk.Client, taskID string, timeout, interval time.Duration) (*sdk.Task, error) {
-	deadline := time.Now().Add(timeout)
+	if interval < minWaitInterval {
+		interval = DefaultWaitInterval
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 
 	for {
-		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("timed out after %s waiting for task %s", timeout, taskID)
-		}
-
 		task, err := client.Tasks.Get(ctx, taskID)
 		if err != nil {
+			if ctx.Err() != nil {
+				return nil, fmt.Errorf("timed out after %s waiting for task %s", timeout, taskID)
+			}
 			return nil, fmt.Errorf("failed to poll task: %w", err)
 		}
 
@@ -39,23 +45,23 @@ func WaitForTask(ctx context.Context, client *sdk.Client, taskID string, timeout
 		}
 
 		// Check terminal agent statuses.
-		if task.LastAgentStatus != nil {
-			switch *task.LastAgentStatus {
-			case sdk.AgentStatusCompleted, sdk.AgentStatusError:
-				return task, nil
-			}
-		}
-
-		// Print progress to stderr.
 		agentStatus := "none"
 		if task.LastAgentStatus != nil {
 			agentStatus = *task.LastAgentStatus
 		}
+
+		switch agentStatus {
+		case sdk.AgentStatusCompleted:
+			return task, nil
+		case sdk.AgentStatusError:
+			return task, fmt.Errorf("agent terminated with error status for task %s", taskID)
+		}
+
 		fmt.Fprintf(os.Stderr, "Waiting... column: %s, agent: %s\n", task.Column, agentStatus)
 
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, fmt.Errorf("timed out after %s waiting for task %s", timeout, taskID)
 		case <-time.After(interval):
 		}
 	}

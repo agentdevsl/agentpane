@@ -107,12 +107,6 @@ func (s *SessionService) Delete(ctx context.Context, id string) error {
 	return s.client.del(ctx, fmt.Sprintf("/api/sessions/%s", url.PathEscape(id)))
 }
 
-// ExportResponse contains the exported session data.
-type ExportResponse struct {
-	Format  string `json:"format"`
-	Content string `json:"content"`
-}
-
 // Export exports a session in the specified format (json, markdown, csv).
 func (s *SessionService) Export(ctx context.Context, id string, format string) (*ExportResponse, error) {
 	var result ExportResponse

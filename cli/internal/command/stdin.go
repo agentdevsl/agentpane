@@ -8,17 +8,18 @@ import (
 )
 
 // ReadStdin reads JSON from stdin and decodes it into the target.
-// Returns true if stdin was piped (not a terminal) and data was read.
-// Returns false if stdin is a terminal or empty.
-func ReadStdin(target interface{}) (bool, error) {
+// Returns true if stdin appeared to be piped (not a terminal), regardless of
+// whether data was successfully decoded. The error value should be checked
+// when true is returned. Returns false if stdin is a terminal or empty.
+func ReadStdin(target any) (bool, error) {
 	stat, err := os.Stdin.Stat()
 	if err != nil {
-		return false, nil
+		return false, fmt.Errorf("failed to stat stdin: %w", err)
 	}
 	if (stat.Mode() & os.ModeCharDevice) != 0 {
 		return false, nil // stdin is a terminal, not piped
 	}
-	data, err := io.ReadAll(os.Stdin)
+	data, err := io.ReadAll(io.LimitReader(os.Stdin, 1<<20)) // 1 MB limit
 	if err != nil {
 		return true, fmt.Errorf("failed to read stdin: %w", err)
 	}

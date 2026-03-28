@@ -23,14 +23,13 @@ func (c *SessionExportCommand) Run(args []string) int {
 		return 1
 	}
 
-	posArgs := flags.Args()
-	if len(posArgs) != 1 {
-		fmt.Fprintf(os.Stderr, "Error: session ID is required\nUsage: agentpane session export <session-id> [flags]\n")
+	remaining := flags.Args()
+	if len(remaining) != 1 {
+		fmt.Fprintf(os.Stderr, "Error: session ID is required\nUsage: agentpane session export <session-id> [options]\n")
 		return 1
 	}
-	sessionID := posArgs[0]
+	sessionID := remaining[0]
 
-	// Validate export format.
 	switch exportFormat {
 	case "json", "markdown", "csv":
 		// valid
@@ -58,7 +57,6 @@ func (c *SessionExportCommand) Run(args []string) int {
 			"content":    result.Content,
 		})
 	} else {
-		// Print the exported content directly.
 		fmt.Print(result.Content)
 	}
 
