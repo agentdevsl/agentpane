@@ -111,9 +111,9 @@ export function InsightCard({
           <InjectionBadge count={injectionCount} />
         </div>
         <Button
-          variant="ghost"
+          variant="outline"
           size="sm"
-          className="h-7 w-7 p-0 text-fg-muted hover:text-danger"
+          className="gap-1.5 text-fg-muted hover:border-danger hover:text-danger"
           disabled={deleting}
           aria-label="Delete insight"
           onClick={async () => {
@@ -125,7 +125,8 @@ export function InsightCard({
             }
           }}
         >
-          <Trash className="h-3.5 w-3.5" />
+          <Trash size={14} />
+          Delete
         </Button>
       </div>
 
