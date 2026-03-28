@@ -28,10 +28,10 @@ export interface SkillDreamOverride {
 export interface InsightInjection {
   sessionId: string;
   agentId: string;
-  taskId: string;
-  taskTitle?: string | null;
-  codespaceId?: string | null;
-  codespaceName?: string | null;
+  taskId: string | null;
+  taskTitle: string | null;
+  codespaceId: string | null;
+  codespaceName: string | null;
   insightCount: number;
   tokenCount: number;
   timestamp: number;

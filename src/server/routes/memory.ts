@@ -272,6 +272,12 @@ export function createMemoryRoutes({
   app.get('/insights/:insightId/injections', (c) =>
     wrapHandler('Failed to get insight injections', async () => {
       const insightId = c.req.param('insightId');
+      if (!insightId || !/^[a-z0-9]{20,30}$/.test(insightId)) {
+        return json(
+          { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid insightId' } },
+          400
+        );
+      }
       const { page, size } = parsePagination(c);
       const offset = (page - 1) * size;
 
@@ -305,51 +311,59 @@ export function createMemoryRoutes({
       const taskIds = new Set<string>();
       for (const row of filtered) {
         const data = row.data as Record<string, unknown>;
-        if (data.codespaceId) codespaceIds.add(data.codespaceId as string);
-        if (data.taskId) taskIds.add(data.taskId as string);
+        if (typeof data.codespaceId === 'string') codespaceIds.add(data.codespaceId);
+        if (typeof data.taskId === 'string') taskIds.add(data.taskId);
       }
 
       const codespaceNames = new Map<string, string>();
       if (codespaceIds.size > 0) {
-        const csRows = await db
-          .select({ id: codespaces.id, name: codespaces.name })
-          .from(codespaces)
-          .where(
-            sql`${codespaces.id} IN (${sql.join(
-              [...codespaceIds].map((id) => sql`${id}`),
-              sql`, `
-            )})`
-          );
-        for (const cs of csRows) codespaceNames.set(cs.id, cs.name);
+        try {
+          const csRows = await db
+            .select({ id: codespaces.id, name: codespaces.name })
+            .from(codespaces)
+            .where(
+              sql`${codespaces.id} IN (${sql.join(
+                [...codespaceIds].map((id) => sql`${id}`),
+                sql`, `
+              )})`
+            );
+          for (const cs of csRows) codespaceNames.set(cs.id, cs.name);
+        } catch (err) {
+          log.warn('Failed to resolve codespace names for injection history', { error: err });
+        }
       }
 
       const taskTitles = new Map<string, string>();
       if (taskIds.size > 0) {
-        const taskRows = await db
-          .select({ id: tasks.id, title: tasks.title })
-          .from(tasks)
-          .where(
-            sql`${tasks.id} IN (${sql.join(
-              [...taskIds].map((id) => sql`${id}`),
-              sql`, `
-            )})`
-          );
-        for (const t of taskRows) taskTitles.set(t.id, t.title);
+        try {
+          const taskRows = await db
+            .select({ id: tasks.id, title: tasks.title })
+            .from(tasks)
+            .where(
+              sql`${tasks.id} IN (${sql.join(
+                [...taskIds].map((id) => sql`${id}`),
+                sql`, `
+              )})`
+            );
+          for (const t of taskRows) taskTitles.set(t.id, t.title);
+        } catch (err) {
+          log.warn('Failed to resolve task titles for injection history', { error: err });
+        }
       }
 
       const injections = filtered.map((row) => {
         const data = row.data as Record<string, unknown>;
-        const csId = (data.codespaceId as string) ?? null;
-        const tId = (data.taskId as string) ?? null;
+        const csId = typeof data.codespaceId === 'string' ? data.codespaceId : null;
+        const tId = typeof data.taskId === 'string' ? data.taskId : null;
         return {
           sessionId: row.sessionId,
-          agentId: data.agentId as string,
+          agentId: typeof data.agentId === 'string' ? data.agentId : '',
           taskId: tId,
           taskTitle: tId ? (taskTitles.get(tId) ?? null) : null,
           codespaceId: csId,
           codespaceName: csId ? (codespaceNames.get(csId) ?? null) : null,
-          insightCount: data.insightCount as number,
-          tokenCount: data.tokenCount as number,
+          insightCount: typeof data.insightCount === 'number' ? data.insightCount : 0,
+          tokenCount: typeof data.tokenCount === 'number' ? data.tokenCount : 0,
           timestamp: row.timestamp,
         };
       });
@@ -357,7 +371,7 @@ export function createMemoryRoutes({
       return json({
         ok: true,
         data: injections,
-        pagination: { page, size, hasMore: rows.length === size },
+        pagination: { page, size, hasMore: filtered.length === size },
       });
     })
   );

@@ -1694,7 +1694,10 @@ export const apiClient = {
         Array<{
           sessionId: string;
           agentId: string;
-          taskId: string;
+          taskId: string | null;
+          taskTitle: string | null;
+          codespaceId: string | null;
+          codespaceName: string | null;
           insightCount: number;
           tokenCount: number;
           timestamp: number;
