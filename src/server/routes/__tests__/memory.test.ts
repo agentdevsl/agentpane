@@ -178,6 +178,9 @@ function createTestApp(opts?: { available?: boolean }) {
   });
   const app = new Hono();
   app.route('/api/memory', routes);
+  app.onError((err, c) => {
+    return c.json({ ok: false, error: { code: 'INTERNAL_ERROR', message: err.message } }, 500);
+  });
   return { app, memoryService, skillTrackingService, dreamService, mockDb };
 }
 

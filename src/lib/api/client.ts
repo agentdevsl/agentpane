@@ -107,8 +107,6 @@ const apiFetch = createApiFetch();
 // Fetch from API server (port 3001)
 const apiServerFetch = createApiFetch(API_BASE);
 
-// Re-export shared types for convenience
-export type { TaskCreationStatus, TaskSuggestion } from './types';
 export { API_ERROR_CODES } from './types';
 // Export factory for custom base URLs
 export { createApiFetch };
@@ -124,18 +122,12 @@ export type CodespaceListItem = {
   updatedAt: Date | null;
 };
 
-/** @deprecated Use CodespaceListItem instead */
-export type ProjectListItem = CodespaceListItem;
-
 export type CodespaceListResponse = {
   items: CodespaceListItem[];
   nextCursor: string | null;
   hasMore: boolean;
   totalCount: number;
 };
-
-/** @deprecated Use CodespaceListResponse instead */
-export type ProjectListResponse = CodespaceListResponse;
 
 export type ProjectSummaryItem = {
   codespace: CodespaceListItem;

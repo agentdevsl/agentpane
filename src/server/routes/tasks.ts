@@ -5,11 +5,18 @@
 import { Hono } from 'hono';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { TaskService } from '../../services/task.service.js';
-import { isValidId, json } from '../shared.js';
+import {
+  errorResponse,
+  json,
+  parseLimit,
+  parseOffset,
+  requireQueryId,
+  validateIdParam,
+} from '../shared.js';
 import {
   createTaskSchema,
   moveTaskSchema,
-  parseBody,
+  parseJsonBody,
   taskColumnSchema,
   updateTaskSchema,
 } from '../validation.js';
@@ -25,7 +32,8 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
 
   // GET /api/tasks
   app.get('/', async (c) => {
-    const codespaceId = c.req.query('codespaceId');
+    const { id: codespaceId, error: csError } = requireQueryId(c, 'codespaceId');
+    if (csError) return csError;
     const rawColumn = c.req.query('column');
     // EH-014: Validate column query param against taskColumnSchema instead of bare cast
     let column: 'backlog' | 'queued' | 'in_progress' | 'waiting_approval' | 'verified' | undefined;
@@ -45,264 +53,164 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
       }
       column = parsed.data;
     }
-    const limit = parseInt(c.req.query('limit') ?? '50', 10);
-    const offset = parseInt(c.req.query('offset') ?? '0', 10);
+    const limit = parseLimit(c);
+    const offset = parseOffset(c);
 
-    if (!codespaceId) {
-      return json(
-        { ok: false, error: { code: 'MISSING_PARAMS', message: 'codespaceId is required' } },
-        400
-      );
+    const result = await taskService.list(codespaceId, { column, limit, offset });
+
+    if (!result.ok) {
+      return errorResponse(result);
     }
 
-    if (!isValidId(codespaceId)) {
-      return json(
-        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid codespaceId format' } },
-        400
-      );
-    }
-
-    try {
-      const result = await taskService.list(codespaceId, { column, limit, offset });
-
-      if (!result.ok) {
-        return json({ ok: false, error: result.error }, result.error.status);
-      }
-
-      return json({
-        ok: true,
-        data: {
-          items: result.value,
-          nextCursor: null,
-          hasMore: false,
-          totalCount: result.value.length,
-        },
-      });
-    } catch (error) {
-      logger.error('List error', { error });
-      return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to list tasks' } }, 500);
-    }
+    return json({
+      ok: true,
+      data: {
+        items: result.value,
+        nextCursor: null,
+        hasMore: false,
+        totalCount: result.value.length,
+      },
+    });
   });
 
   // POST /api/tasks
   app.post('/', async (c) => {
-    try {
-      const rawBody = await c.req.json();
-      const parsed = parseBody(createTaskSchema, rawBody);
-      if (!parsed.ok) return parsed.response;
-      const body = parsed.data;
+    const parsed = await parseJsonBody(c, createTaskSchema);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
 
-      const result = await taskService.create({
-        codespaceId: body.codespaceId,
-        title: body.title,
-        description: body.description,
-        labels: body.labels,
-        priority: body.priority,
-        skillId: body.skillId,
-        skillName: body.skillName,
-      });
+    const result = await taskService.create({
+      codespaceId: body.codespaceId,
+      title: body.title,
+      description: body.description,
+      labels: body.labels,
+      priority: body.priority,
+      skillId: body.skillId,
+      skillName: body.skillName,
+    });
 
-      if (!result.ok) {
-        return json({ ok: false, error: result.error }, result.error.status);
-      }
-
-      return json({ ok: true, data: result.value }, 201);
-    } catch (error) {
-      logger.error('Create error', { error });
-      return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to create task' } },
-        500
-      );
+    if (!result.ok) {
+      return errorResponse(result);
     }
+
+    return json({ ok: true, data: result.value }, 201);
   });
 
   // GET /api/tasks/:id
   app.get('/:id', async (c) => {
-    const id = c.req.param('id');
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
 
-    if (!isValidId(id)) {
-      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID format' } }, 400);
+    const result = await taskService.getById(id);
+
+    if (!result.ok) {
+      return errorResponse(result);
     }
 
-    try {
-      const result = await taskService.getById(id);
-
-      if (!result.ok) {
-        return json({ ok: false, error: result.error }, result.error.status);
-      }
-
-      return json({ ok: true, data: result.value });
-    } catch (error) {
-      logger.error('Get error', { error });
-      return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to get task' } }, 500);
-    }
+    return json({ ok: true, data: result.value });
   });
 
   // PUT /api/tasks/:id
   app.put('/:id', async (c) => {
-    const id = c.req.param('id');
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
 
-    if (!isValidId(id)) {
-      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID format' } }, 400);
+    const parsed = await parseJsonBody(c, updateTaskSchema);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
+
+    const result = await taskService.update(id, {
+      title: body.title,
+      description: body.description,
+      labels: body.labels,
+      priority: body.priority,
+      skillId: body.skillId,
+      skillName: body.skillName,
+    });
+
+    if (!result.ok) {
+      return errorResponse(result);
     }
 
-    try {
-      const rawBody = await c.req.json();
-      const parsed = parseBody(updateTaskSchema, rawBody);
-      if (!parsed.ok) return parsed.response;
-      const body = parsed.data;
-
-      const result = await taskService.update(id, {
-        title: body.title,
-        description: body.description,
-        labels: body.labels,
-        priority: body.priority,
-        skillId: body.skillId,
-        skillName: body.skillName,
-      });
-
-      if (!result.ok) {
-        return json({ ok: false, error: result.error }, result.error.status);
-      }
-
-      return json({ ok: true, data: result.value });
-    } catch (error) {
-      logger.error('Update error', { error });
-      return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to update task' } },
-        500
-      );
-    }
+    return json({ ok: true, data: result.value });
   });
 
   // DELETE /api/tasks/:id
   app.delete('/:id', async (c) => {
-    const id = c.req.param('id');
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
 
-    if (!isValidId(id)) {
-      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID format' } }, 400);
+    const result = await taskService.delete(id);
+
+    if (!result.ok) {
+      return errorResponse(result);
     }
 
-    try {
-      const result = await taskService.delete(id);
-
-      if (!result.ok) {
-        return json({ ok: false, error: result.error }, result.error.status);
-      }
-
-      return json({ ok: true, data: null });
-    } catch (error) {
-      logger.error('Delete error', { error });
-      return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to delete task' } },
-        500
-      );
-    }
+    return json({ ok: true, data: null });
   });
 
   // GET /api/tasks/:id/diff - Get diff for a task
   app.get('/:id/diff', async (c) => {
-    const id = c.req.param('id');
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
 
-    if (!isValidId(id)) {
-      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID format' } }, 400);
+    const result = await taskService.getDiff(id);
+
+    if (!result.ok) {
+      return errorResponse(result);
     }
 
-    try {
-      const result = await taskService.getDiff(id);
-
-      if (!result.ok) {
-        return json({ ok: false, error: result.error }, result.error.status);
-      }
-
-      return json({ ok: true, data: result.value });
-    } catch (error) {
-      logger.error('GetDiff error', { error });
-      return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to get task diff' } },
-        500
-      );
-    }
+    return json({ ok: true, data: result.value });
   });
 
   // PATCH /api/tasks/:id/move - Move task to different column
   // When moving to in_progress, optionally auto-start an agent
   app.patch('/:id/move', async (c) => {
-    const id = c.req.param('id');
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
 
-    if (!isValidId(id)) {
-      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID format' } }, 400);
+    const parsed = await parseJsonBody(c, moveTaskSchema);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
+
+    // Move the task - this will trigger container agent if sandbox is enabled for the project
+    const result = await taskService.moveColumn(id, body.column, body.position);
+    if (!result.ok) {
+      return errorResponse(result);
     }
 
-    try {
-      const rawBody = await c.req.json();
-      const parsed = parseBody(moveTaskSchema, rawBody);
-      if (!parsed.ok) return parsed.response;
-      const body = parsed.data;
+    const { task: updatedTask, agentError } = result.value;
 
-      // Move the task - this will trigger container agent if sandbox is enabled for the project
-      const result = await taskService.moveColumn(id, body.column, body.position);
-      if (!result.ok) {
-        return json({ ok: false, error: result.error }, result.error.status);
-      }
-
-      const { task: updatedTask, agentError } = result.value;
-
-      // If moving to in_progress, check if we need to start host-side agent as fallback
-      // (container agent is auto-triggered by taskService.moveColumn if sandbox is enabled)
-      const shouldStartHostAgent = body.column === 'in_progress' && body.startAgent !== false;
-
-      if (shouldStartHostAgent) {
-      }
-
-      // Return success for the move, but include agent error info if present
-      if (agentError) {
-        logger.error(`Failed to start agent for task ${id}`, { data: { agentError } });
-        return json({
-          ok: true,
-          data: { task: updatedTask, agentError },
-        });
-      }
-
-      return json({ ok: true, data: { task: updatedTask } });
-    } catch (error) {
-      logger.error('Move error', { error });
-      return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to move task' } }, 500);
+    // Return success for the move, but include agent error info if present
+    if (agentError) {
+      logger.error(`Failed to start agent for task ${id}`, { data: { agentError } });
+      return json({
+        ok: true,
+        data: { task: updatedTask, agentError },
+      });
     }
+
+    return json({ ok: true, data: { task: updatedTask } });
   });
 
   // POST /api/tasks/:id/approve-plan - Approve a pending plan and start execution
   app.post('/:id/approve-plan', async (c) => {
-    const id = c.req.param('id');
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
 
-    if (!isValidId(id)) {
-      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID format' } }, 400);
+    const result = await taskService.approvePlan(id);
+
+    if (!result.ok) {
+      return errorResponse(result);
     }
 
-    try {
-      const result = await taskService.approvePlan(id);
-
-      if (!result.ok) {
-        return json({ ok: false, error: result.error }, result.error.status);
-      }
-
-      return json({ ok: true, data: { approved: true } });
-    } catch (error) {
-      logger.error('ApprovePlan error', { error });
-      return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to approve plan' } },
-        500
-      );
-    }
+    return json({ ok: true, data: { approved: true } });
   });
 
   // POST /api/tasks/:id/reject-plan - Reject a pending plan
   app.post('/:id/reject-plan', async (c) => {
-    const id = c.req.param('id');
-
-    if (!isValidId(id)) {
-      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID format' } }, 400);
-    }
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
 
     try {
       // Parse optional rejection reason from body
@@ -317,7 +225,7 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
       const result = await taskService.rejectPlan(id, reason);
 
       if (!result.ok) {
-        return json({ ok: false, error: result.error }, result.error.status);
+        return errorResponse(result);
       }
 
       return json({ ok: true, data: { rejected: true } });
@@ -332,24 +240,16 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
 
   // POST /api/tasks/:id/stop-agent - Stop a running container agent for a task
   app.post('/:id/stop-agent', async (c) => {
-    const id = c.req.param('id');
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
 
-    if (!isValidId(id)) {
-      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID format' } }, 400);
+    const result = await taskService.stopAgent(id);
+
+    if (!result.ok) {
+      return errorResponse(result);
     }
 
-    try {
-      const result = await taskService.stopAgent(id);
-
-      if (!result.ok) {
-        return json({ ok: false, error: result.error }, result.error.status);
-      }
-
-      return json({ ok: true, data: { stopped: true } });
-    } catch (error) {
-      logger.error('StopAgent error', { error });
-      return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to stop agent' } }, 500);
-    }
+    return json({ ok: true, data: { stopped: true } });
   });
 
   return app;
