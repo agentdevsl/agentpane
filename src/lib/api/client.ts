@@ -107,8 +107,6 @@ const apiFetch = createApiFetch();
 // Fetch from API server (port 3001)
 const apiServerFetch = createApiFetch(API_BASE);
 
-// Re-export shared types for convenience
-export type { TaskCreationStatus, TaskSuggestion } from './types';
 export { API_ERROR_CODES } from './types';
 // Export factory for custom base URLs
 export { createApiFetch };
@@ -124,18 +122,12 @@ export type CodespaceListItem = {
   updatedAt: Date | null;
 };
 
-/** @deprecated Use CodespaceListItem instead */
-export type ProjectListItem = CodespaceListItem;
-
 export type CodespaceListResponse = {
   items: CodespaceListItem[];
   nextCursor: string | null;
   hasMore: boolean;
   totalCount: number;
 };
-
-/** @deprecated Use CodespaceListResponse instead */
-export type ProjectListResponse = CodespaceListResponse;
 
 export type ProjectSummaryItem = {
   codespace: CodespaceListItem;
@@ -1586,21 +1578,6 @@ export const apiClient = {
       return apiServerFetch<Array<MemoryInsight>>(`${base}${qs ? `?${qs}` : ''}`);
     },
 
-    createInsight: (
-      codespaceId: string,
-      data: {
-        content: string;
-        source?: MemoryInsight['source'];
-        tags?: string[];
-        metadata?: Record<string, unknown>;
-        skillId?: string;
-      }
-    ) =>
-      apiServerFetch<MemoryInsight>(`/api/memory/codespaces/${codespaceId}/insights`, {
-        method: 'POST',
-        body: data,
-      }),
-
     deleteInsight: (insightId: string) =>
       apiServerFetch<null>(`/api/memory/insights/${insightId}`, { method: 'DELETE' }),
 
@@ -1699,5 +1676,25 @@ export const apiClient = {
         method: 'PUT',
         body: override ?? {},
       }),
+
+    getInsightInjections: (insightId: string, params?: { page?: number; size?: number }) => {
+      const sp = new URLSearchParams();
+      if (params?.page !== undefined) sp.set('page', String(params.page));
+      if (params?.size !== undefined) sp.set('size', String(params.size));
+      const qs = sp.toString();
+      return apiServerFetch<
+        Array<{
+          sessionId: string;
+          agentId: string;
+          taskId: string | null;
+          taskTitle: string | null;
+          codespaceId: string | null;
+          codespaceName: string | null;
+          insightCount: number;
+          tokenCount: number;
+          timestamp: number;
+        }>
+      >(`/api/memory/insights/${encodeURIComponent(insightId)}/injections${qs ? `?${qs}` : ''}`);
+    },
   },
 };

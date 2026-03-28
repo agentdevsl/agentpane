@@ -15,7 +15,7 @@ import { SANDBOX_TYPES } from '../../db/schema/shared/enums.js';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { SandboxConfigService } from '../../services/sandbox-config.service.js';
 import type { Database } from '../../types/database.js';
-import { isValidId, json } from '../shared.js';
+import { errorResponse, json, parseLimit, parseOffset, validateIdParam } from '../shared.js';
 
 const sandboxConfigBodySchema = z.object({
   name: z.string().min(1).max(200).optional(),
@@ -89,32 +89,22 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
 
   // GET /api/sandbox-configs
   app.get('/', async (c) => {
-    const limit = Math.min(Math.max(parseInt(c.req.query('limit') ?? '50', 10) || 50, 1), 100);
-    const offset = Math.max(parseInt(c.req.query('offset') ?? '0', 10) || 0, 0);
+    const limit = parseLimit(c);
+    const offset = parseOffset(c);
 
-    try {
-      const result = await sandboxConfigService.list({ limit, offset });
+    const result = await sandboxConfigService.list({ limit, offset });
 
-      if (!result.ok) {
-        return json({ ok: false, error: result.error }, result.error.status);
-      }
-
-      return json({
-        ok: true,
-        data: {
-          items: result.value.items.map((item) => redactConfig(item)),
-          totalCount: result.value.totalCount,
-        },
-      });
-    } catch (error) {
-      log.error('SandboxConfigs list error', {
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-      return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to list sandbox configs' } },
-        500
-      );
+    if (!result.ok) {
+      return errorResponse(result);
     }
+
+    return json({
+      ok: true,
+      data: {
+        items: result.value.items.map((item) => redactConfig(item)),
+        totalCount: result.value.totalCount,
+      },
+    });
   });
 
   // POST /api/sandbox-configs
@@ -142,74 +132,50 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
       );
     }
     const body = parsed.data;
-    try {
-      if (body.nomadAddress) {
-        const addrValidation = await validateNomadAddress(body.nomadAddress);
-        if (!addrValidation.valid) {
-          return json(
-            {
-              ok: false,
-              error: {
-                code: 'INVALID_ADDRESS',
-                message: addrValidation.error,
-              },
+    if (body.nomadAddress) {
+      const addrValidation = await validateNomadAddress(body.nomadAddress);
+      if (!addrValidation.valid) {
+        return json(
+          {
+            ok: false,
+            error: {
+              code: 'INVALID_ADDRESS',
+              message: addrValidation.error,
             },
-            400
-          );
-        }
+          },
+          400
+        );
       }
-
-      const encryptedBody = await encryptSensitiveFields(body);
-      const result = await sandboxConfigService.create(encryptedBody);
-
-      if (!result.ok) {
-        return json({ ok: false, error: result.error }, result.error.status);
-      }
-
-      return json({ ok: true, data: redactConfig(result.value) }, 201);
-    } catch (error) {
-      log.error('SandboxConfigs create error', {
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-      return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to create sandbox config' } },
-        500
-      );
     }
+
+    const encryptedBody = await encryptSensitiveFields(body);
+    const result = await sandboxConfigService.create(encryptedBody);
+
+    if (!result.ok) {
+      return errorResponse(result);
+    }
+
+    return json({ ok: true, data: redactConfig(result.value) }, 201);
   });
 
   // GET /api/sandbox-configs/:id
   app.get('/:id', async (c) => {
-    const id = c.req.param('id');
-    if (!isValidId(id)) {
-      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID format' } }, 400);
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
+
+    const result = await sandboxConfigService.getById(id);
+
+    if (!result.ok) {
+      return errorResponse(result);
     }
 
-    try {
-      const result = await sandboxConfigService.getById(id);
-
-      if (!result.ok) {
-        return json({ ok: false, error: result.error }, result.error.status);
-      }
-
-      return json({ ok: true, data: redactConfig(result.value) });
-    } catch (error) {
-      log.error('SandboxConfigs get error', {
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-      return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to get sandbox config' } },
-        500
-      );
-    }
+    return json({ ok: true, data: redactConfig(result.value) });
   });
 
   // PATCH /api/sandbox-configs/:id
   app.patch('/:id', async (c) => {
-    const id = c.req.param('id');
-    if (!isValidId(id)) {
-      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID format' } }, 400);
-    }
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
 
     let rawBody: unknown;
     try {
@@ -234,66 +200,44 @@ export function createSandboxRoutes({ sandboxConfigService }: SandboxDeps) {
       );
     }
     const body = parsed.data;
-    try {
-      if (body.nomadAddress) {
-        const addrValidation = await validateNomadAddress(body.nomadAddress);
-        if (!addrValidation.valid) {
-          return json(
-            {
-              ok: false,
-              error: {
-                code: 'INVALID_ADDRESS',
-                message: addrValidation.error,
-              },
+    if (body.nomadAddress) {
+      const addrValidation = await validateNomadAddress(body.nomadAddress);
+      if (!addrValidation.valid) {
+        return json(
+          {
+            ok: false,
+            error: {
+              code: 'INVALID_ADDRESS',
+              message: addrValidation.error,
             },
-            400
-          );
-        }
+          },
+          400
+        );
       }
-
-      const encryptedBody = await encryptSensitiveFields(body);
-      const result = await sandboxConfigService.update(id, encryptedBody);
-
-      if (!result.ok) {
-        return json({ ok: false, error: result.error }, result.error.status);
-      }
-
-      return json({ ok: true, data: redactConfig(result.value) });
-    } catch (error) {
-      log.error('SandboxConfigs update error', {
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-      return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to update sandbox config' } },
-        500
-      );
     }
+
+    const encryptedBody = await encryptSensitiveFields(body);
+    const result = await sandboxConfigService.update(id, encryptedBody);
+
+    if (!result.ok) {
+      return errorResponse(result);
+    }
+
+    return json({ ok: true, data: redactConfig(result.value) });
   });
 
   // DELETE /api/sandbox-configs/:id
   app.delete('/:id', async (c) => {
-    const id = c.req.param('id');
-    if (!isValidId(id)) {
-      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID format' } }, 400);
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
+
+    const result = await sandboxConfigService.delete(id);
+
+    if (!result.ok) {
+      return errorResponse(result);
     }
 
-    try {
-      const result = await sandboxConfigService.delete(id);
-
-      if (!result.ok) {
-        return json({ ok: false, error: result.error }, result.error.status);
-      }
-
-      return json({ ok: true, data: null });
-    } catch (error) {
-      log.error('SandboxConfigs delete error', {
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-      return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to delete sandbox config' } },
-        500
-      );
-    }
+    return json({ ok: true, data: null });
   });
 
   return app;
@@ -661,7 +605,7 @@ export function createK8sRoutes(deps?: { db?: Database }) {
     const kubeconfigPath = kcResult.path;
 
     const context = c.req.query('context') ?? undefined;
-    const limit = parseInt(c.req.query('limit') ?? '50', 10);
+    const limit = parseLimit(c);
     const skipTLSVerify = c.req.query('skipTLSVerify') === 'true';
 
     try {

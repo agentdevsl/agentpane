@@ -13,7 +13,7 @@ import { createLogger } from '../../lib/logging/logger.js';
 import type { CodespaceService } from '../../services/codespace.service.js';
 import type { TemplateService } from '../../services/template.service.js';
 import type { Database } from '../../types/database.js';
-import { isValidId, json } from '../shared.js';
+import { json, parseLimit, validateIdParam } from '../shared.js';
 
 const logger = createLogger('routes:codespaces');
 
@@ -44,42 +44,34 @@ export function createCodespacesRoutes({ codespaceService, templateService, db }
 
   // GET /api/codespaces
   app.get('/', async (c) => {
-    const limit = parseInt(c.req.query('limit') ?? '24', 10);
+    const limit = parseLimit(c, 24);
 
-    try {
-      const result = await codespaceService.list({ limit });
+    const result = await codespaceService.list({ limit });
 
-      if (!result.ok) {
-        return json(
-          { ok: false, error: { code: result.error.code, message: result.error.message } },
-          result.error.status
-        );
-      }
-
-      return json({
-        ok: true,
-        data: {
-          items: result.value.map((p) => ({
-            id: p.id,
-            name: p.name,
-            path: p.path,
-            description: p.description,
-            projectFolderId: p.projectFolderId,
-            createdAt: p.createdAt,
-            updatedAt: p.updatedAt,
-          })),
-          nextCursor: null,
-          hasMore: false,
-          totalCount: result.value.length,
-        },
-      });
-    } catch (error) {
-      logger.error('List error', { error: error });
+    if (!result.ok) {
       return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to list codespaces' } },
-        500
+        { ok: false, error: { code: result.error.code, message: result.error.message } },
+        result.error.status
       );
     }
+
+    return json({
+      ok: true,
+      data: {
+        items: result.value.map((p) => ({
+          id: p.id,
+          name: p.name,
+          path: p.path,
+          description: p.description,
+          projectFolderId: p.projectFolderId,
+          createdAt: p.createdAt,
+          updatedAt: p.updatedAt,
+        })),
+        nextCursor: null,
+        hasMore: false,
+        totalCount: result.value.length,
+      },
+    });
   });
 
   // POST /api/codespaces
@@ -130,47 +122,38 @@ export function createCodespacesRoutes({ codespaceService, templateService, db }
       );
     }
 
-    try {
-      const result = await codespaceService.create({
-        path: parsed.data.path,
-        name: parsed.data.name,
-        description: parsed.data.description,
-        projectFolderId: parsed.data.projectFolderId,
-      });
+    const result = await codespaceService.create({
+      path: parsed.data.path,
+      name: parsed.data.name,
+      description: parsed.data.description,
+      projectFolderId: parsed.data.projectFolderId,
+    });
 
-      if (!result.ok) {
-        // Map service errors to API-compatible error codes
-        const statusCode = result.error.status;
-        const code =
-          result.error.code === 'CODESPACE_PATH_EXISTS' ? 'DUPLICATE' : result.error.code;
-        return json({ ok: false, error: { code, message: result.error.message } }, statusCode);
-      }
-
-      const created = result.value;
-      return json({
-        ok: true,
-        data: {
-          id: created.id,
-          name: created.name,
-          path: created.path,
-          description: created.description,
-          projectFolderId: created.projectFolderId,
-          createdAt: created.createdAt,
-          updatedAt: created.updatedAt,
-        },
-      });
-    } catch (error) {
-      logger.error('Create error', { error: error });
-      return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to create codespace' } },
-        500
-      );
+    if (!result.ok) {
+      // Map service errors to API-compatible error codes
+      const statusCode = result.error.status;
+      const code = result.error.code === 'CODESPACE_PATH_EXISTS' ? 'DUPLICATE' : result.error.code;
+      return json({ ok: false, error: { code, message: result.error.message } }, statusCode);
     }
+
+    const created = result.value;
+    return json({
+      ok: true,
+      data: {
+        id: created.id,
+        name: created.name,
+        path: created.path,
+        description: created.description,
+        projectFolderId: created.projectFolderId,
+        createdAt: created.createdAt,
+        updatedAt: created.updatedAt,
+      },
+    });
   });
 
   // GET /api/codespaces/summaries
   app.get('/summaries', async (c) => {
-    const limit = parseInt(c.req.query('limit') ?? '24', 10);
+    const limit = parseLimit(c, 24);
 
     try {
       const result = await codespaceService.listWithSummaries({ limit });
@@ -228,53 +211,36 @@ export function createCodespacesRoutes({ codespaceService, templateService, db }
 
   // GET /api/codespaces/:id
   app.get('/:id', async (c) => {
-    const id = c.req.param('id');
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
 
-    if (!isValidId(id)) {
-      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID format' } }, 400);
+    const result = await codespaceService.getById(id);
+
+    if (!result.ok) {
+      return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Codespace not found' } }, 404);
     }
 
-    try {
-      const result = await codespaceService.getById(id);
-
-      if (!result.ok) {
-        return json(
-          { ok: false, error: { code: 'NOT_FOUND', message: 'Codespace not found' } },
-          404
-        );
-      }
-
-      const codespace = result.value;
-      return json({
-        ok: true,
-        data: {
-          id: codespace.id,
-          name: codespace.name,
-          path: codespace.path,
-          description: codespace.description,
-          projectFolderId: codespace.projectFolderId,
-          maxConcurrentAgents: codespace.maxConcurrentAgents,
-          config: codespace.config,
-          createdAt: codespace.createdAt,
-          updatedAt: codespace.updatedAt,
-        },
-      });
-    } catch (error) {
-      logger.error('Get error', { error: error });
-      return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to get codespace' } },
-        500
-      );
-    }
+    const codespace = result.value;
+    return json({
+      ok: true,
+      data: {
+        id: codespace.id,
+        name: codespace.name,
+        path: codespace.path,
+        description: codespace.description,
+        projectFolderId: codespace.projectFolderId,
+        maxConcurrentAgents: codespace.maxConcurrentAgents,
+        config: codespace.config,
+        createdAt: codespace.createdAt,
+        updatedAt: codespace.updatedAt,
+      },
+    });
   });
 
   // PATCH /api/codespaces/:id
   app.patch('/:id', async (c) => {
-    const id = c.req.param('id');
-
-    if (!isValidId(id)) {
-      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID format' } }, 400);
-    }
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
 
     let body: unknown;
     try {
@@ -300,55 +266,44 @@ export function createCodespacesRoutes({ codespaceService, templateService, db }
       );
     }
 
-    try {
-      const result = await codespaceService.update(id, {
-        name: parsed.data.name,
-        description: parsed.data.description,
-        maxConcurrentAgents: parsed.data.maxConcurrentAgents,
-        config: parsed.data.config,
-        projectFolderId: parsed.data.projectFolderId,
-      });
+    const result = await codespaceService.update(id, {
+      name: parsed.data.name,
+      description: parsed.data.description,
+      maxConcurrentAgents: parsed.data.maxConcurrentAgents,
+      config: parsed.data.config,
+      projectFolderId: parsed.data.projectFolderId,
+    });
 
-      if (!result.ok) {
-        const statusCode = result.error.status;
-        return json(
-          { ok: false, error: { code: result.error.code, message: result.error.message } },
-          statusCode
-        );
-      }
-
-      const updated = result.value;
-      return json({
-        ok: true,
-        data: {
-          id: updated.id,
-          name: updated.name,
-          path: updated.path,
-          description: updated.description,
-          projectFolderId: updated.projectFolderId,
-          maxConcurrentAgents: updated.maxConcurrentAgents,
-          config: updated.config,
-          createdAt: updated.createdAt,
-          updatedAt: updated.updatedAt,
-        },
-      });
-    } catch (error) {
-      logger.error('Update error', { error: error });
+    if (!result.ok) {
+      const statusCode = result.error.status;
       return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to update codespace' } },
-        500
+        { ok: false, error: { code: result.error.code, message: result.error.message } },
+        statusCode
       );
     }
+
+    const updated = result.value;
+    return json({
+      ok: true,
+      data: {
+        id: updated.id,
+        name: updated.name,
+        path: updated.path,
+        description: updated.description,
+        projectFolderId: updated.projectFolderId,
+        maxConcurrentAgents: updated.maxConcurrentAgents,
+        config: updated.config,
+        createdAt: updated.createdAt,
+        updatedAt: updated.updatedAt,
+      },
+    });
   });
 
   // DELETE /api/codespaces/:id
   app.delete('/:id', async (c) => {
-    const id = c.req.param('id');
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
     const deleteFiles = c.req.query('deleteFiles') === 'true';
-
-    if (!isValidId(id)) {
-      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID format' } }, 400);
-    }
 
     try {
       // Get the codespace first (needed for file deletion path)
@@ -450,55 +405,38 @@ export function createCodespacesRoutes({ codespaceService, templateService, db }
 
   // GET /api/codespaces/:id/skills - List available skills for a codespace
   app.get('/:id/skills', async (c) => {
-    const codespaceId = c.req.param('id');
+    const { id: codespaceId, error } = validateIdParam(c, 'id');
+    if (error) return error;
 
-    if (!isValidId(codespaceId)) {
-      return json({ ok: false, error: { code: 'INVALID_ID', message: 'Invalid ID format' } }, 400);
+    const result = await templateService.getMergedConfig(codespaceId);
+
+    if (!result.ok) {
+      // No templates configured for this codespace — return empty skills list
+      // This is expected when a codespace has no template associations
+      return json({ ok: true, data: [] });
     }
 
-    try {
-      const result = await templateService.getMergedConfig(codespaceId);
-
-      if (!result.ok) {
-        // No templates configured for this codespace — return empty skills list
-        // This is expected when a codespace has no template associations
-        return json({ ok: true, data: [] });
-      }
-
-      if (result.value.skills.length === 0) {
-        return json({ ok: true, data: [] });
-      }
-
-      const skills = result.value.skills.map((skill) => ({
-        id: skill.id,
-        name: skill.name,
-        description: skill.description,
-        tags: skill.tags,
-        sourceType: skill.sourceType,
-        sourceName: skill.sourceName,
-      }));
-
-      return json({ ok: true, data: skills });
-    } catch (error) {
-      logger.error('List skills error', { error });
-      return json(
-        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to list skills' } },
-        500
-      );
+    if (result.value.skills.length === 0) {
+      return json({ ok: true, data: [] });
     }
+
+    const skills = result.value.skills.map((skill) => ({
+      id: skill.id,
+      name: skill.name,
+      description: skill.description,
+      tags: skill.tags,
+      sourceType: skill.sourceType,
+      sourceName: skill.sourceName,
+    }));
+
+    return json({ ok: true, data: skills });
   });
 
   // GET /api/codespaces/:id/skills/:skillId - Get full skill content
   app.get('/:id/skills/:skillId', async (c) => {
-    const codespaceId = c.req.param('id');
+    const { id: codespaceId, error: csError } = validateIdParam(c, 'id');
+    if (csError) return csError;
     const skillId = c.req.param('skillId');
-
-    if (!isValidId(codespaceId)) {
-      return json(
-        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid codespace ID format' } },
-        400
-      );
-    }
 
     if (!skillId || !/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(skillId)) {
       return json(
@@ -507,47 +445,42 @@ export function createCodespacesRoutes({ codespaceService, templateService, db }
       );
     }
 
-    try {
-      const result = await templateService.getMergedConfig(codespaceId);
+    const result = await templateService.getMergedConfig(codespaceId);
 
-      if (!result.ok) {
-        return json(
-          {
-            ok: false,
-            error: { code: 'SKILL_NOT_FOUND', message: 'Skill not found' },
-          },
-          404
-        );
-      }
-
-      const skill = result.value.skills.find((s) => s.id === skillId);
-
-      if (!skill) {
-        return json(
-          {
-            ok: false,
-            error: { code: 'SKILL_NOT_FOUND', message: 'Skill not found' },
-          },
-          404
-        );
-      }
-
-      return json({
-        ok: true,
-        data: {
-          id: skill.id,
-          name: skill.name,
-          description: skill.description,
-          tags: skill.tags,
-          content: skill.content,
-          sourceType: skill.sourceType,
-          sourceName: skill.sourceName,
+    if (!result.ok) {
+      return json(
+        {
+          ok: false,
+          error: { code: 'SKILL_NOT_FOUND', message: 'Skill not found' },
         },
-      });
-    } catch (error) {
-      logger.error('Get skill error', { error });
-      return json({ ok: false, error: { code: 'DB_ERROR', message: 'Failed to get skill' } }, 500);
+        404
+      );
     }
+
+    const skill = result.value.skills.find((s) => s.id === skillId);
+
+    if (!skill) {
+      return json(
+        {
+          ok: false,
+          error: { code: 'SKILL_NOT_FOUND', message: 'Skill not found' },
+        },
+        404
+      );
+    }
+
+    return json({
+      ok: true,
+      data: {
+        id: skill.id,
+        name: skill.name,
+        description: skill.description,
+        tags: skill.tags,
+        content: skill.content,
+        sourceType: skill.sourceType,
+        sourceName: skill.sourceName,
+      },
+    });
   });
 
   return app;

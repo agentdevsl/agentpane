@@ -1586,9 +1586,8 @@ describe('API Client', () => {
   // TYPE EXPORTS
   // ============================================================================
   describe('Type Exports', () => {
-    it('exports TaskCreationStatus type', async () => {
+    it('exports API_ERROR_CODES', async () => {
       const { API_ERROR_CODES } = await import('@/lib/api/client');
-      // Type exports are tested at compile time, this just verifies the module loads
       expect(API_ERROR_CODES).toBeDefined();
     });
   });

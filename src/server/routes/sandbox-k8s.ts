@@ -15,7 +15,7 @@ import {
 import { Hono } from 'hono';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { Database } from '../../types/database.js';
-import { json } from '../shared.js';
+import { json, parseLimit } from '../shared.js';
 
 const log = createLogger('SandboxK8sRoutes');
 
@@ -381,7 +381,7 @@ export function createK8sRoutes(deps?: { db?: Database }) {
     const kubeconfigPath = kcResult.path;
 
     const context = c.req.query('context') ?? undefined;
-    const limit = parseInt(c.req.query('limit') ?? '50', 10);
+    const limit = parseLimit(c);
     const skipTLSVerify = c.req.query('skipTLSVerify') === 'true';
 
     try {
