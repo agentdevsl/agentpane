@@ -89,7 +89,7 @@ function MemoryViewInner(): React.JSX.Element {
           </TabsTrigger>
           <TabsTrigger value="dream" className="gap-1.5">
             <Sparkle size={14} />
-            Improve
+            Upskill
           </TabsTrigger>
         </TabsList>
 
