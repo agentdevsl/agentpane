@@ -8,7 +8,7 @@ Visual architecture diagrams for AgentPane. Each diagram is authored as an SVG-e
 
 ![Architecture Diagram](_architecture-diagram.png)
 
-Static overview of the AgentPane system showing the browser client, Go CLI, TanStack DB collections, Caddy durable streams server, Bun API with skill injector, Honcho memory service, SQLite database, and sandbox infrastructure. Covers the core request/response and real-time streaming data paths.
+Comprehensive system architecture showing the browser client, Go CLI + SDK, published packages, TanStack DB collections, 15 frontend view modules, Caddy durable streams, Hono API (40 route modules, 60+ endpoints), 17+ service layer, Drizzle ORM (44 tables, SQLite + PostgreSQL), prompt registry, credential injector, skill injector, memory layer (MemoryStore, DreamService, InsightDeriver, SkillTracking), container agent orchestration with 5 sandbox providers (Docker, K8s CRD, Nomad, AWS Bedrock AgentCore, Devcontainer), agent execution pipeline (stream-handler, hooks, turn-limiter, chunk-batcher), 7-phase bootstrap service, 4 background schedulers, and complete database schema inventory.
 
 - **HTML**: [`_architecture-diagram.html`](_architecture-diagram.html)
 - **PNG**: [`_architecture-diagram.png`](_architecture-diagram.png)
@@ -28,7 +28,7 @@ Interactive pan-and-zoom architecture explorer with preset views for different s
 
 ![Tenancy Model](tenancy-model.png)
 
-Authentication, ownership hierarchy, and role-based access control. Shows the GitHub OAuth flow, workspace/folder/codespace/task ownership chain, and how RBAC policies are enforced across the application.
+Authentication, ownership hierarchy, and role-based access control. Shows the GitHub OAuth flow, workspace/folder/codespace/task ownership chain, folder-level RBAC with role cascade (team → folder → codespace), 35 permission actions by role, event system scoping (team-scoped sources, codespace-scoped subscriptions), template + marketplace scoping, 10 codespace-scoped resource types (agent runs, plan sessions, skill executions, skill metrics, sandbox instances, session events/summaries, memory insights/messages, dream sessions), GitHub Tokens + Installations split, tag scoping (folder-level), and global resources.
 
 - **HTML**: [`_tenancy-model.html`](_tenancy-model.html)
 - **PNG**: [`tenancy-model.png`](tenancy-model.png)
@@ -39,7 +39,7 @@ Authentication, ownership hierarchy, and role-based access control. Shows the Gi
 
 ![OpenShift Deployment](_openshift-deployment.png)
 
-Private network deployment on OpenShift with Cloudflare Tunnel for inbound webhook delivery. GitHub webhooks are received at `agentpane.teams` via Cloudflare Edge, forwarded through an outbound-only tunnel to a `cloudflared` pod inside the cluster — no inbound firewall rules needed. Also shows the egress proxy for outbound API calls (GitHub, Anthropic), sandbox namespace with NetworkPolicy isolation, the optional Honcho memory sidecar (pgvector + redis), Go CLI as an external access point, and the GitHub OAuth browser flow.
+Private network deployment on OpenShift with Cloudflare Tunnel for inbound webhook delivery. GitHub webhooks are received at `agentpane.teams` via Cloudflare Edge, forwarded through an outbound-only tunnel to a `cloudflared` pod inside the cluster — no inbound firewall rules needed. Caddy front door on :3000 reverse-proxying to Bun API on :3001. Shows dual webhook endpoints (`/hooks/events/:slug` + `/hooks/github-app`), rate limiting (60 req/min webhooks, 200 req/min API), egress proxy for outbound API calls, sandbox namespace with 4 K8s CRD types and gVisor RuntimeClass, internal DB-backed Memory Service (MemoryStore + DreamService + InsightDeriver), 5 alternative sandbox providers (Docker, K8s CRD, Nomad, AWS AgentCore, Devcontainer), 5 background schedulers, multi-stage Docker build (4 stages), and Go CLI + GitHub OAuth flow.
 
 - **HTML**: [`_openshift-deployment.html`](_openshift-deployment.html)
 - **PNG**: [`_openshift-deployment.png`](_openshift-deployment.png)
@@ -50,7 +50,7 @@ Private network deployment on OpenShift with Cloudflare Tunnel for inbound webho
 
 ![Durable Streams](_durable-streams-architecture.png)
 
-End-to-end event streaming pipeline from service-side event emission to reactive UI updates. Shows the six-stage flow: event sources (Container Agent, Agent Execution, Terraform Compose, Task Creation, Memory Service) publish through the type-safe `DurableStreamsService` with dual-write persistence (SQLite first, Caddy best-effort), streamed to the browser via SSE with Zod validation, synced into TanStack DB collections, and consumed by React hooks for live UI updates. Includes durability guarantees, offset-based resume, and exponential backoff reconnection.
+End-to-end event streaming pipeline from service-side event emission to reactive UI updates. Shows event sources (Container Agent 14 types, Agent Execution, Terraform Compose, Task Creation, Memory Service, Topology 3 types, Approval events) publishing through `DurableStreamsService` with structured envelope protocol (OC-005d), ChunkBatcher (100ms flush, max 10 batch), dual-write persistence (SQLite first, Caddy best-effort with LRU producer pool of 200), SSE delivery with Zod validation, 10 TanStack DB collections, and reactive React hooks with ref-counted SSE sharing. Includes corrected reconnection config (1s initial, 30s max, 8 attempts), 8 stream channels, and 48 StreamEventMap event types.
 
 - **HTML**: [`_durable-streams-architecture.html`](_durable-streams-architecture.html)
 - **PNG**: [`_durable-streams-architecture.png`](_durable-streams-architecture.png)
@@ -61,7 +61,7 @@ End-to-end event streaming pipeline from service-side event emission to reactive
 
 ![Events System](_events-system-architecture.png)
 
-Webhook ingestion, plugin-based normalization, subscription matching, and automated task creation. Shows the full event pipeline from external sources (GitHub, Linear, Jira, generic webhooks, cron scheduler) through HMAC verification, plugin-based parsing into `NormalizedEvent`, deduplication via unique constraints, subscription matching with field filters, `{{variable}}` template interpolation, skill-based task creation with optional agent auto-start, and codespace-scoped event routing. Includes the database schema (4 tables), scheduler detail (CAS locking, budget enforcement, timezone-aware cron), real-time SSE broadcasting, and event log audit trail.
+Webhook ingestion, plugin-based normalization, subscription matching, and automated task creation. Shows 5 source types (2 implemented: GitHubEventSourcePlugin + CronEventSourcePlugin; 3 reserved: Linear, Jira, Generic), dual webhook endpoints (`/hooks/events/:slug` + `/hooks/github-app`), HMAC verification with 5 signature header fallbacks, PluginRegistry (DI-based Map), NormalizedEvent parsing, deduplication, subscription matching with field filters, `{{variable}}` template interpolation, task creation with `targetCodespaceId` and `autoStartAgent`, and team-scoped event routing. Includes 4-table database schema (event_sources team-scoped, event_subscriptions bridging to codespace, event_log with 90-day retention, schedule_executions), EventCleanupService (24h batch cleanup), scheduler with CAS locking and `MAX_CONSECUTIVE_ERRORS: 5`, and 35 error catalog codes.
 
 - **HTML**: [`_events-system-architecture.html`](_events-system-architecture.html)
 - **PNG**: [`_events-system-architecture.png`](_events-system-architecture.png)

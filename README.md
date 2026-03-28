@@ -10,31 +10,31 @@ Running AI agents in the background creates hard problems: agents need filesyste
 
 ## Architecture
 
-System-level view of the AgentPane platform showing the browser client, Go CLI, TanStack DB, Caddy durable streams, Bun API server, persistent memory layer (Honcho + pgvector + Redis), skill injection pipeline, SQLite/PostgreSQL database, and multi-provider sandbox infrastructure.
+System-level view of the AgentPane platform showing the browser client, Go CLI + SDK, published packages, 15 frontend view modules, Caddy durable streams, Hono API (40 route modules, 60+ endpoints), 17+ services, Drizzle ORM (44 tables, SQLite + PostgreSQL), prompt registry, credential/skill injectors, memory layer (MemoryStore, DreamService, InsightDeriver), 5 sandbox providers (Docker, K8s CRD, Nomad, AWS Bedrock AgentCore, Devcontainer), agent execution pipeline, 7-phase bootstrap, and 4 background schedulers.
 
 ![AgentPane Architecture](docs/_architecture-diagram.png)
 
 ### Tenancy Model
 
-Authentication, ownership hierarchy, and role-based access control. Shows the GitHub OAuth flow, workspace/folder/codespace/task ownership chain, folder-level membership with role inheritance, and how RBAC policies cascade from team → folder → codespace level.
+Authentication, ownership hierarchy, and role-based access control. Shows the GitHub OAuth flow, workspace/folder/codespace/task ownership chain, folder-level RBAC with role cascade, 35 permission actions, event system scoping (team → codespace), 10 codespace-scoped resources, template/marketplace scoping, and global resources.
 
 ![Tenancy Model](docs/tenancy-model.png)
 
 ### OpenShift Deployment
 
-Private network deployment on OpenShift with Cloudflare Tunnel for inbound webhook delivery via `agentpane.teams`. No inbound firewall rules needed — the `cloudflared` pod initiates an outbound-only tunnel to Cloudflare Edge.
+Private network deployment on OpenShift with Cloudflare Tunnel for inbound webhook delivery via `agentpane.teams`. Caddy front door on :3000, dual webhook endpoints, 5 sandbox providers, 5 background schedulers, 4 K8s CRD types with gVisor, and multi-stage Docker build. No inbound firewall rules needed — the `cloudflared` pod initiates an outbound-only tunnel to Cloudflare Edge.
 
 ![OpenShift Deployment](docs/_openshift-deployment.png)
 
 ### Durable Streams
 
-End-to-end event streaming pipeline: service-side emission through the type-safe `DurableStreamsService` (dual-write to SQLite + Caddy), SSE delivery to the browser, Zod validation, TanStack DB collection sync, and reactive UI updates.
+End-to-end event streaming pipeline: 48 event types across 8 channels, structured envelope protocol (OC-005d), ChunkBatcher, dual-write `DurableStreamsService` (SQLite + Caddy with LRU producer pool), SSE delivery, Zod validation, 10 TanStack DB collections, and reactive UI with ref-counted SSE sharing.
 
 ![Durable Streams](docs/_durable-streams-architecture.png)
 
 ### Events System
 
-Webhook ingestion pipeline: external sources (GitHub, Linear, Jira, cron) through HMAC verification, plugin-based normalization, subscription matching with field filters, template interpolation, and automated task creation with agent auto-start.
+Webhook ingestion pipeline: 5 source types (2 implemented: GitHub + Cron), dual endpoints (`/hooks/events/:slug` + `/hooks/github-app`), HMAC verification with 5 signature headers, DI-based PluginRegistry, subscription matching with field filters, template interpolation, team-scoped routing to codespace tasks with auto-start, 4-table schema with 90-day retention cleanup.
 
 ![Events System](docs/_events-system-architecture.png)
 
@@ -49,7 +49,7 @@ Webhook ingestion pipeline: external sources (GitHub, Linear, Jira, cron) throug
 - **Session Replay** — Full session history with timeline, event filtering, and play/pause/seek controls
 - **Agent Topology** — Real-time React Flow graph showing live agent activity with ELK auto-layout
 - **AI-Assisted Planning** — Interactive planning sessions where Claude asks clarifying questions before execution
-- **Persistent Memory** — Agent memory powered by [Honcho](https://github.com/plastic-labs/honcho) with automatic context injection from previous sessions. The memory service derives conclusions from agent interactions, stores them in pgvector for semantic search, and injects relevant context into new agent prompts. Memory is scoped per-codespace and persists across agent sessions.
+- **Persistent Memory** — Internal DB-backed agent memory with automatic context injection from previous sessions. The memory service derives insights from agent interactions via Claude analysis, stores them in SQLite/PostgreSQL, and injects relevant context into new agent prompts. Includes DreamService (24h skill improvement cycle), InsightDeriver, and SkillTracking. Memory is scoped per-codespace and persists across agent sessions.
 
 ### Task Management
 
@@ -99,7 +99,7 @@ Webhook ingestion pipeline: external sources (GitHub, Linear, Jira, cron) throug
 - **Durable Streams** — Real-time event streaming via Caddy front door (LMDB-backed SSE + long-poll)
 - **Encrypted API Keys** — UI-managed per-service API key storage with masked display
 - **Factory Hook Architecture** — `useEffect` is banned via Biome lint rules. All side effects use purpose-built factory hooks: `useMountEffect()` for mount/unmount, `useWatchEffect()` for value changes, `useInterval()`, `useTimeout()`, `useEventListener()`, and `useAutoScroll()`. This eliminates exhaustive dependency lint suppressions and makes intent explicit.
-- **Memory Service** — Optional [Honcho](https://github.com/plastic-labs/honcho) sidecar for persistent agent memory. Deploys via `docker/docker-compose.memory.yml` with pgvector PostgreSQL and Redis. Agents automatically receive relevant context from prior sessions. Supports conclusions (derived facts), document indexing (RAG), and semantic search. Conditional — if Honcho isn't configured, memory endpoints don't exist.
+- **Memory Service** — Internal DB-backed persistent agent memory. Stores memory messages, insights, skill executions, and skill metrics in SQLite/PostgreSQL. Agents automatically receive relevant context from prior sessions via the InsightDeriver. Includes DreamService for periodic skill analysis and improvement suggestions. Memory is scoped per-codespace.
 
 ### Organization
 
@@ -126,7 +126,7 @@ Webhook ingestion pipeline: external sources (GitHub, Linear, Jira, cron) throug
 | Real-time | Durable Streams | @durable-streams/* | 0.2.x |
 | AI / Agents | Claude Agent SDK | @anthropic-ai/claude-agent-sdk | 0.2.76 |
 | AI / API | Anthropic SDK | @anthropic-ai/sdk | 0.78.0 |
-| Memory | Honcho | @honcho-ai/sdk | 2.0.1 |
+| Memory | Internal DB | MemoryService + DreamService | Built-in |
 | UI | React + Radix + Tailwind | react + @radix-ui/* + tailwindcss | 19.2.4 / 4.1.18 |
 | Flow Editor | React Flow | @xyflow/react | 12.10.1 |
 | Graph Layout | ELK | elkjs | 0.11.0 |
@@ -263,7 +263,7 @@ bun run build
 │       ├── agent/               # Agent CRUD, execution, queueing
 │       ├── session/             # Session CRUD, streaming, presence
 │       ├── cli-monitor/         # CLI monitoring infrastructure
-│       ├── memory/               # Honcho-backed persistent agent memory
+│       ├── memory/               # DB-backed persistent agent memory
 │       ├── terraform-compose.service.ts
 │       ├── container-agent.service.ts
 │       ├── marketplace.service.ts
@@ -287,7 +287,7 @@ bun run build
 │   ├── start.sh                 # Entrypoint: starts Caddy + Bun
 │   ├── docker-compose.yml       # Development (SQLite)
 │   ├── docker-compose.postgres.yml # Production (PostgreSQL)
-│   └── docker-compose.memory.yml # Honcho memory sidecar (PostgreSQL + Redis)
+│   └── docker-compose.memory.yml # Memory service (PostgreSQL + Redis, legacy)
 ├── k8s/                         # Kubernetes manifests
 ├── specs/
 │   └── application/             # Complete application specifications
