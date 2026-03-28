@@ -6,7 +6,7 @@
 
 import { Hono } from 'hono';
 import type { GitService } from '../../services/git.service.js';
-import { isValidId, json } from '../shared.js';
+import { json, parseLimit, requireQueryId } from '../shared.js';
 
 interface GitDeps {
   gitService: GitService;
@@ -17,21 +17,8 @@ export function createGitRoutes({ gitService }: GitDeps) {
 
   // GET /api/git/status
   app.get('/status', async (c) => {
-    const codespaceId = c.req.query('codespaceId');
-
-    if (!codespaceId) {
-      return json(
-        { ok: false, error: { code: 'MISSING_PARAMS', message: 'codespaceId is required' } },
-        400
-      );
-    }
-
-    if (!isValidId(codespaceId)) {
-      return json(
-        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid codespaceId format' } },
-        400
-      );
-    }
+    const { id: codespaceId, error: csError } = requireQueryId(c, 'codespaceId');
+    if (csError) return csError;
 
     const result = await gitService.getStatus(codespaceId);
 
@@ -47,21 +34,8 @@ export function createGitRoutes({ gitService }: GitDeps) {
 
   // GET /api/git/branches
   app.get('/branches', async (c) => {
-    const codespaceId = c.req.query('codespaceId');
-
-    if (!codespaceId) {
-      return json(
-        { ok: false, error: { code: 'MISSING_PARAMS', message: 'codespaceId is required' } },
-        400
-      );
-    }
-
-    if (!isValidId(codespaceId)) {
-      return json(
-        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid codespaceId format' } },
-        400
-      );
-    }
+    const { id: codespaceId, error: csError } = requireQueryId(c, 'codespaceId');
+    if (csError) return csError;
 
     const result = await gitService.listBranches(codespaceId);
 
@@ -77,23 +51,10 @@ export function createGitRoutes({ gitService }: GitDeps) {
 
   // GET /api/git/commits
   app.get('/commits', async (c) => {
-    const codespaceId = c.req.query('codespaceId');
+    const { id: codespaceId, error: csError } = requireQueryId(c, 'codespaceId');
+    if (csError) return csError;
     const branch = c.req.query('branch');
-    const limit = parseInt(c.req.query('limit') ?? '50', 10);
-
-    if (!codespaceId) {
-      return json(
-        { ok: false, error: { code: 'MISSING_PARAMS', message: 'codespaceId is required' } },
-        400
-      );
-    }
-
-    if (!isValidId(codespaceId)) {
-      return json(
-        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid codespaceId format' } },
-        400
-      );
-    }
+    const limit = parseLimit(c);
 
     const result = await gitService.listCommits(codespaceId, {
       branch: branch || undefined,
@@ -112,21 +73,8 @@ export function createGitRoutes({ gitService }: GitDeps) {
 
   // GET /api/git/remote-branches
   app.get('/remote-branches', async (c) => {
-    const codespaceId = c.req.query('codespaceId');
-
-    if (!codespaceId) {
-      return json(
-        { ok: false, error: { code: 'MISSING_PARAMS', message: 'codespaceId is required' } },
-        400
-      );
-    }
-
-    if (!isValidId(codespaceId)) {
-      return json(
-        { ok: false, error: { code: 'INVALID_ID', message: 'Invalid codespaceId format' } },
-        400
-      );
-    }
+    const { id: codespaceId, error: csError } = requireQueryId(c, 'codespaceId');
+    if (csError) return csError;
 
     const result = await gitService.listRemoteBranches(codespaceId);
 

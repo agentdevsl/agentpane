@@ -295,8 +295,8 @@ describe('AddProjectCard', () => {
   it('renders add project text', () => {
     const onClick = vi.fn();
     render(<AddProjectCard onClick={onClick} />);
-    expect(screen.getByText('Add New Project')).toBeInTheDocument();
-    expect(screen.getByText('Import or create a project')).toBeInTheDocument();
+    expect(screen.getByText('Add New Codespace')).toBeInTheDocument();
+    expect(screen.getByText('Import or create a codespace')).toBeInTheDocument();
   });
 
   it('calls onClick when clicked', () => {
@@ -309,6 +309,6 @@ describe('AddProjectCard', () => {
   it('renders accessible icon title', () => {
     const onClick = vi.fn();
     render(<AddProjectCard onClick={onClick} />);
-    expect(screen.getByTitle('Add new project')).toBeInTheDocument();
+    expect(screen.getByTitle('Add new codespace')).toBeInTheDocument();
   });
 });

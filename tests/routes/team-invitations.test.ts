@@ -734,7 +734,7 @@ describe('POST /api/invitations/:token/accept - Accept invitation', () => {
       method: 'POST',
     });
     expect(res.status).toBe(400);
-    expect((await res.json()).error.code).toBe('INVALID_TOKEN');
+    expect((await res.json()).error.code).toBe('INVALID_ID');
   });
 
   it('returns 403 when user has no email and invitation requires email verification', async () => {

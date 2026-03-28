@@ -498,6 +498,7 @@ export function createRouter(deps: RouterDependencies) {
       memoryService: deps.memoryService,
       skillTrackingService: deps.skillTrackingService,
       dreamService: deps.dreamService,
+      db: deps.db,
     })
   );
 

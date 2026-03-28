@@ -326,6 +326,7 @@ describe('MemoryStoreService', () => {
         expect(result.value.text).toContain('- Insight A');
         expect(result.value.text).toContain('- Insight B');
         expect(result.value.sources.insights).toBe(2);
+        expect(result.value.sources.insightIds).toEqual(['ins-1', 'ins-2']);
         expect(result.value.tokenCount).toBeGreaterThan(0);
       }
     });
@@ -356,6 +357,7 @@ describe('MemoryStoreService', () => {
         expect(result.value.text).toBe('');
         expect(result.value.tokenCount).toBe(0);
         expect(result.value.sources.insights).toBe(0);
+        expect(result.value.sources.insightIds).toEqual([]);
       }
     });
 
