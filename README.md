@@ -14,6 +14,7 @@ System-level view of the AgentPane platform showing the browser client, Go CLI +
 
 ![AgentPane Architecture](docs/_architecture-diagram.png)
 
+
 ### Tenancy Model
 
 Authentication, ownership hierarchy, and role-based access control. Shows the GitHub OAuth flow, workspace/folder/codespace/task ownership chain, folder-level RBAC with role cascade, 35 permission actions, event system scoping (team → codespace), 10 codespace-scoped resources, template/marketplace scoping, and global resources.
