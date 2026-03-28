@@ -74,9 +74,9 @@ function ActivityFeed({
   return (
     <div className="flex flex-col divide-y divide-border rounded-lg border border-border bg-surface">
       {items.map((item, i) => (
-        <div key={i} className="flex items-center gap-3 px-4 py-2.5">
-          <div className="flex-shrink-0 text-fg-subtle">{item.icon}</div>
-          <span className="flex-1 truncate text-sm text-fg">{item.label}</span>
+        <div key={i} className="flex items-start gap-3 px-4 py-2.5">
+          <div className="mt-0.5 flex-shrink-0 text-fg-subtle">{item.icon}</div>
+          <span className="flex-1 text-sm text-fg">{item.label}</span>
           <span className="flex-shrink-0 text-[11px] tabular-nums text-fg-subtle">{item.time}</span>
         </div>
       ))}
@@ -114,7 +114,7 @@ export function MemoryOverview(): React.JSX.Element {
 
     for (const insight of insights.slice(0, 3)) {
       items.push({
-        label: insight.content.slice(0, 80) + (insight.content.length > 80 ? '...' : ''),
+        label: insight.content,
         time: formatRelativeDate(insight.createdAt),
         icon: <Lightbulb size={14} />,
         date: new Date(insight.createdAt),
