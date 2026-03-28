@@ -14,7 +14,7 @@
         "@dnd-kit/utilities": "^3.2.2",
         "@durable-streams/client": "^0.2.1",
         "@durable-streams/server": "^0.2.2",
-        "@durable-streams/state": "^0.2.0",
+        "@durable-streams/state": "^0.2.3",
         "@kubernetes/client-node": "^1.4.0",
         "@paralleldrive/cuid2": "^3.3.0",
         "@phosphor-icons/react": "^2.1.10",
@@ -268,7 +268,7 @@
 
     "@durable-streams/server": ["@durable-streams/server@0.2.2", "", { "dependencies": { "@durable-streams/client": "0.2.2", "@durable-streams/state": "0.2.2", "@neophi/sieve-cache": "^1.0.0", "lmdb": "^3.3.0" } }, "sha512-L0hwZ4uh7KH5JKbta2YQfKJ1cGLBrHefoF0qrsGwXPdwvMaffX6UNPiv9IUvYrVmNsC0u8L1SAzTjlgATvLtAw=="],
 
-    "@durable-streams/state": ["@durable-streams/state@0.2.0", "", { "dependencies": { "@durable-streams/client": "0.2.0", "@standard-schema/spec": "^1.0.0" }, "peerDependencies": { "@tanstack/db": ">=0.5.0" } }, "sha512-9XKSKkubcCbbRgUHJCENTw3351uJ4hfi8GLmYWD8l5OCEjvhVegUF06utFKehIRy3xTr57t5MC78weBfVlD2Dg=="],
+    "@durable-streams/state": ["@durable-streams/state@0.2.3", "", { "dependencies": { "@durable-streams/client": "0.2.3", "@standard-schema/spec": "^1.0.0" }, "peerDependencies": { "@tanstack/db": ">=0.5.0" }, "bin": { "intent": "bin/intent.js" } }, "sha512-zUKXKr4bKX+ajqfX30JvIRmmWfDWbXvAkVU7pq60r00ySxOIN8P3KtuoE2rAS1UlPpfy3yxCuw+ikWJ7SCu7/g=="],
 
     "@electric-sql/pglite": ["@electric-sql/pglite@0.3.15", "", {}, "sha512-Cj++n1Mekf9ETfdc16TlDi+cDDQF0W7EcbyRHYOAeZdsAe8M/FJg18itDTSwyHfar2WIezawM9o0EKaRGVKygQ=="],
 
@@ -2016,7 +2016,7 @@
 
     "@durable-streams/server/@durable-streams/state": ["@durable-streams/state@0.2.2", "", { "dependencies": { "@durable-streams/client": "0.2.2", "@standard-schema/spec": "^1.0.0" }, "peerDependencies": { "@tanstack/db": ">=0.5.0" }, "bin": { "intent": "bin/intent.js" } }, "sha512-dTYNUjtn6sgYoA/dtbBgbdHlKrrjOPaycXQZndruX2oDicZX71Qry760cLYAbRkqwM7dHyDzDk5WTlnIXYOoyA=="],
 
-    "@durable-streams/state/@durable-streams/client": ["@durable-streams/client@0.2.0", "", { "dependencies": { "@microsoft/fetch-event-source": "^2.0.1", "fastq": "^1.19.1" } }, "sha512-nlrbXDjQDqOsFbVFplg0OHkXwy4EAtztARg4zvaTn53WHzMCUwuiIY+V+u3AGvUWA9GJnnjRrbPKIXGkvak1CQ=="],
+    "@durable-streams/state/@durable-streams/client": ["@durable-streams/client@0.2.3", "", { "dependencies": { "@microsoft/fetch-event-source": "^2.0.1", "fastq": "^1.19.1" }, "bin": { "intent": "bin/intent.js" } }, "sha512-609hWTqe8/OXzIFnv+oDdlT57QsCAc3F2c/nAQBcYhSLmmbXk5rHx7rnQSmk9MeGGQ8dsg9UCZf47dTJG3q3ig=="],
 
     "@esbuild-kit/core-utils/esbuild": ["esbuild@0.18.20", "", { "optionalDependencies": { "@esbuild/android-arm": "0.18.20", "@esbuild/android-arm64": "0.18.20", "@esbuild/android-x64": "0.18.20", "@esbuild/darwin-arm64": "0.18.20", "@esbuild/darwin-x64": "0.18.20", "@esbuild/freebsd-arm64": "0.18.20", "@esbuild/freebsd-x64": "0.18.20", "@esbuild/linux-arm": "0.18.20", "@esbuild/linux-arm64": "0.18.20", "@esbuild/linux-ia32": "0.18.20", "@esbuild/linux-loong64": "0.18.20", "@esbuild/linux-mips64el": "0.18.20", "@esbuild/linux-ppc64": "0.18.20", "@esbuild/linux-riscv64": "0.18.20", "@esbuild/linux-s390x": "0.18.20", "@esbuild/linux-x64": "0.18.20", "@esbuild/netbsd-x64": "0.18.20", "@esbuild/openbsd-x64": "0.18.20", "@esbuild/sunos-x64": "0.18.20", "@esbuild/win32-arm64": "0.18.20", "@esbuild/win32-ia32": "0.18.20", "@esbuild/win32-x64": "0.18.20" }, "bin": "bin/esbuild" }, "sha512-ceqxoedUrcayh7Y7ZX6NdbbDzGROiyVBgC4PriJThBKSVPWnnFHZAkfI1lJT8QFkOwH4qOS2SJkS4wvpGl8BpA=="],
 
