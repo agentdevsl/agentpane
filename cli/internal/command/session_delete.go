@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+
+	"github.com/agentdevsl/agentpane/cli/internal/output"
 )
 
 // SessionDeleteCommand deletes a session by ID.
@@ -37,7 +39,10 @@ func (c *SessionDeleteCommand) Run(args []string) int {
 	}
 
 	if c.JSONOutput() {
-		fmt.Fprintf(os.Stdout, "{\"id\":%q,\"deleted\":true}\n", sessionID)
+		output.PrintJSON(map[string]interface{}{
+			"id":      sessionID,
+			"deleted": true,
+		})
 	} else {
 		fmt.Fprintf(os.Stdout, "Deleted session %s\n", sessionID)
 	}
