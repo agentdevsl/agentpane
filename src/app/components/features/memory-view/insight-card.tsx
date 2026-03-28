@@ -1,4 +1,4 @@
-import { Syringe, Trash } from '@phosphor-icons/react';
+import { ArrowsClockwise, Trash } from '@phosphor-icons/react';
 import type React from 'react';
 import { useState } from 'react';
 import { Button } from '@/app/components/ui/button';
@@ -26,7 +26,7 @@ function InjectionBadge({ count }: { count: number | undefined }): React.JSX.Ele
   if (count === undefined) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-surface-muted px-2 py-0.5 text-xs text-fg-subtle">
-        <Syringe className="h-3 w-3" />
+        <ArrowsClockwise className="h-3 w-3" />
         ...
       </span>
     );
@@ -35,7 +35,7 @@ function InjectionBadge({ count }: { count: number | undefined }): React.JSX.Ele
   if (count === 0) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-surface-muted px-2 py-0.5 text-xs text-fg-subtle">
-        <Syringe className="h-3 w-3" />
+        <ArrowsClockwise className="h-3 w-3" />
         Not yet used
       </span>
     );
@@ -43,7 +43,7 @@ function InjectionBadge({ count }: { count: number | undefined }): React.JSX.Ele
 
   return (
     <span className="inline-flex items-center gap-1 rounded-full bg-accent-subtle px-2 py-0.5 text-xs text-accent">
-      <Syringe className="h-3 w-3" />
+      <ArrowsClockwise className="h-3 w-3" />
       {count} {count === 1 ? 'injection' : 'injections'}
     </span>
   );
