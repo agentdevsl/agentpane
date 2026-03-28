@@ -1578,21 +1578,6 @@ export const apiClient = {
       return apiServerFetch<Array<MemoryInsight>>(`${base}${qs ? `?${qs}` : ''}`);
     },
 
-    createInsight: (
-      codespaceId: string,
-      data: {
-        content: string;
-        source?: MemoryInsight['source'];
-        tags?: string[];
-        metadata?: Record<string, unknown>;
-        skillId?: string;
-      }
-    ) =>
-      apiServerFetch<MemoryInsight>(`/api/memory/codespaces/${codespaceId}/insights`, {
-        method: 'POST',
-        body: data,
-      }),
-
     deleteInsight: (insightId: string) =>
       apiServerFetch<null>(`/api/memory/insights/${insightId}`, { method: 'DELETE' }),
 
@@ -1691,5 +1676,25 @@ export const apiClient = {
         method: 'PUT',
         body: override ?? {},
       }),
+
+    getInsightInjections: (insightId: string, params?: { page?: number; size?: number }) => {
+      const sp = new URLSearchParams();
+      if (params?.page !== undefined) sp.set('page', String(params.page));
+      if (params?.size !== undefined) sp.set('size', String(params.size));
+      const qs = sp.toString();
+      return apiServerFetch<
+        Array<{
+          sessionId: string;
+          agentId: string;
+          taskId: string | null;
+          taskTitle: string | null;
+          codespaceId: string | null;
+          codespaceName: string | null;
+          insightCount: number;
+          tokenCount: number;
+          timestamp: number;
+        }>
+      >(`/api/memory/insights/${encodeURIComponent(insightId)}/injections${qs ? `?${qs}` : ''}`);
+    },
   },
 };
