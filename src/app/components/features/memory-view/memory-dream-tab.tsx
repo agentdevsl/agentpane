@@ -106,7 +106,7 @@ function DreamConfig(): React.JSX.Element {
       >
         <div className="flex items-center gap-2">
           <Gear size={14} className="text-fg-muted" />
-          <span className="text-xs font-medium text-fg">Dream Configuration</span>
+          <span className="text-xs font-medium text-fg">Upskill Configuration</span>
           {enabled && (
             <span className="rounded-full bg-success-subtle px-2 py-0.5 text-[10px] font-medium text-success">
               Auto-scheduled
