@@ -286,7 +286,7 @@ export function createMemoryRoutes({
         .where(
           and(
             eq(sessionEvents.type, 'memory:insights_injected'),
-            sql`json_extract(${sessionEvents.data}, '$.insightIds') LIKE ${'%' + insightId + '%'}`
+            sql`json_extract(${sessionEvents.data}, '$.insightIds') LIKE ${`%${insightId}%`}`
           )
         )
         .orderBy(sql`${sessionEvents.timestamp} DESC`)

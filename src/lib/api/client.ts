@@ -1586,21 +1586,6 @@ export const apiClient = {
       return apiServerFetch<Array<MemoryInsight>>(`${base}${qs ? `?${qs}` : ''}`);
     },
 
-    createInsight: (
-      codespaceId: string,
-      data: {
-        content: string;
-        source?: MemoryInsight['source'];
-        tags?: string[];
-        metadata?: Record<string, unknown>;
-        skillId?: string;
-      }
-    ) =>
-      apiServerFetch<MemoryInsight>(`/api/memory/codespaces/${codespaceId}/insights`, {
-        method: 'POST',
-        body: data,
-      }),
-
     deleteInsight: (insightId: string) =>
       apiServerFetch<null>(`/api/memory/insights/${insightId}`, { method: 'DELETE' }),
 
