@@ -267,24 +267,6 @@ e2e('Global Settings E2E', () => {
     });
   });
 
-  describe('Agents Page', () => {
-    it('renders agents page', async () => {
-      await goto('/agents');
-      await waitForSelector('[data-testid="agents-page"]', { timeout: 10000 }).catch(() => {});
-
-      const agentsPage = await exists('[data-testid="agents-page"]');
-      expect(agentsPage).toBe(true);
-    });
-
-    it('shows agent list', async () => {
-      await goto('/agents');
-      await waitForSelector('[data-testid="agents-list"]', { timeout: 10000 }).catch(() => {});
-
-      const agentList = await exists('[data-testid="agents-list"]');
-      expect(agentList).toBe(true);
-    });
-  });
-
   describe('Screenshots', () => {
     it('captures API keys settings screenshot', async () => {
       await goto('/settings/api-keys');

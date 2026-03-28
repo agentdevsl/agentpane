@@ -44,20 +44,20 @@ func (s *AgentService) Start(ctx context.Context, id string, taskID string) erro
 	body := map[string]string{
 		"taskId": taskID,
 	}
-	return s.client.post(ctx, fmt.Sprintf("/api/agents/%s/start", id), body, nil)
+	return s.client.post(ctx, fmt.Sprintf("/api/agents/%s/start", url.PathEscape(id)), body, nil)
 }
 
 // Stop halts agent execution.
 func (s *AgentService) Stop(ctx context.Context, id string) error {
-	return s.client.post(ctx, fmt.Sprintf("/api/agents/%s/stop", id), nil, nil)
+	return s.client.post(ctx, fmt.Sprintf("/api/agents/%s/stop", url.PathEscape(id)), nil, nil)
 }
 
 // Pause temporarily suspends agent execution.
 func (s *AgentService) Pause(ctx context.Context, id string) error {
-	return s.client.post(ctx, fmt.Sprintf("/api/agents/%s/pause", id), nil, nil)
+	return s.client.post(ctx, fmt.Sprintf("/api/agents/%s/pause", url.PathEscape(id)), nil, nil)
 }
 
 // Resume continues a paused agent's execution.
 func (s *AgentService) Resume(ctx context.Context, id string) error {
-	return s.client.post(ctx, fmt.Sprintf("/api/agents/%s/resume", id), nil, nil)
+	return s.client.post(ctx, fmt.Sprintf("/api/agents/%s/resume", url.PathEscape(id)), nil, nil)
 }

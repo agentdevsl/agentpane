@@ -39,6 +39,19 @@ const (
 	SessionStatusError        = "error"
 )
 
+// Export format constants.
+const (
+	ExportFormatJSON     = "json"
+	ExportFormatMarkdown = "markdown"
+	ExportFormatCSV      = "csv"
+)
+
+// ExportResponse contains the exported session data.
+type ExportResponse struct {
+	Format  string `json:"format"`
+	Content string `json:"content"`
+}
+
 // Codespace represents a development workspace (formerly called Project).
 type Codespace struct {
 	ID                  string  `json:"id"`

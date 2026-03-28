@@ -182,13 +182,5 @@ e2e('Sidebar Navigation E2E', () => {
       const buffer = await screenshot('sidebar-navigation');
       expect(buffer).toBeTruthy();
     });
-
-    it('captures sidebar on agents page', async () => {
-      await goto('/agents');
-      await waitForSelector('[data-testid="sidebar"]', { timeout: 15000 });
-
-      const buffer = await screenshot('sidebar-agents-page');
-      expect(buffer).toBeTruthy();
-    });
   });
 });

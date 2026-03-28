@@ -52,7 +52,7 @@ func (s *WorktreeService) Delete(ctx context.Context, id string, force bool) err
 // Diff returns the diff of changes in a worktree relative to its base branch.
 func (s *WorktreeService) Diff(ctx context.Context, id string) (interface{}, error) {
 	var result interface{}
-	if err := s.client.get(ctx, fmt.Sprintf("/api/worktrees/%s/diff", id), &result); err != nil {
+	if err := s.client.get(ctx, fmt.Sprintf("/api/worktrees/%s/diff", url.PathEscape(id)), &result); err != nil {
 		return nil, err
 	}
 	return result, nil
@@ -60,5 +60,5 @@ func (s *WorktreeService) Diff(ctx context.Context, id string) (interface{}, err
 
 // Merge merges a worktree's branch into the target branch.
 func (s *WorktreeService) Merge(ctx context.Context, id string, opts WorktreeMergeOptions) error {
-	return s.client.post(ctx, fmt.Sprintf("/api/worktrees/%s/merge", id), opts, nil)
+	return s.client.post(ctx, fmt.Sprintf("/api/worktrees/%s/merge", url.PathEscape(id)), opts, nil)
 }

@@ -6,7 +6,6 @@ import {
   Gear,
   Monitor,
   PuzzlePiece,
-  Robot,
   TreeStructure,
 } from '@phosphor-icons/react';
 import { Link, useRouterState } from '@tanstack/react-router';
@@ -30,7 +29,6 @@ interface RailNavItem {
 
 const railNavItems: readonly RailNavItem[] = [
   { label: 'Sessions', to: '/sessions', icon: Monitor, matchPrefix: '/sessions' },
-  { label: 'Agents', to: '/agents', icon: Robot, matchPrefix: '/agents' },
   { label: 'Memory', to: '/memory', icon: Brain, matchPrefix: '/memory' },
   { label: 'Org Templates', to: '/templates/org', icon: Files, matchPrefix: '/templates/org' },
   { label: 'Designer', to: '/designer', icon: TreeStructure, matchPrefix: '/designer' },

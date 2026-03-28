@@ -131,7 +131,7 @@ func (c *Client) do(ctx context.Context, method, path string, body interface{}, 
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20)) // 10 MB limit
 	if err != nil {
 		return fmt.Errorf("sdk: failed to read response body: %w", err)
 	}
