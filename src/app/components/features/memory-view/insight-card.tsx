@@ -132,14 +132,16 @@ export function InsightCard({
 
       <button
         type="button"
-        className={cn(
-          'mt-2 w-full cursor-pointer text-left text-sm text-fg',
-          !expanded && 'line-clamp-4'
-        )}
+        className="mt-2 w-full cursor-pointer text-left"
         onClick={() => setExpanded((prev: boolean) => !prev)}
         aria-expanded={expanded}
       >
-        {insight.content}
+        <span className={cn('block text-sm text-fg', !expanded && 'line-clamp-3')}>
+          {insight.content}
+        </span>
+        <span className="mt-1 block text-xs font-medium text-accent">
+          {expanded ? 'Show less' : 'Show more'}
+        </span>
       </button>
 
       {insight.tags.length > 0 && (
