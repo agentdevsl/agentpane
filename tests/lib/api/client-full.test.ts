@@ -45,7 +45,6 @@ describe('API Client', () => {
 
       expect(apiClient).toBeDefined();
       expect(apiClient.projects).toBeDefined();
-      expect(apiClient.agents).toBeDefined();
       expect(apiClient.tasks).toBeDefined();
       expect(apiClient.sessions).toBeDefined();
       expect(apiClient.worktrees).toBeDefined();
@@ -645,34 +644,6 @@ describe('API Client', () => {
           }),
         })
       );
-    });
-  });
-
-  // ============================================================================
-  // API METHODS - Agents
-  // ============================================================================
-  describe('API Methods - Agents', () => {
-    it('agents.list calls endpoint with optional filters', async () => {
-      const mockResponse = createMockResponse(successResponse({ items: [], totalCount: 0 }));
-      global.fetch = vi.fn().mockResolvedValue(mockResponse);
-
-      const { apiClient } = await import('@/lib/api/client');
-      await apiClient.agents.list({ codespaceId: 'proj-1', status: 'running' });
-
-      const calledUrl = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
-      expect(calledUrl).toContain('/api/agents');
-      expect(calledUrl).toContain('codespaceId=proj-1');
-      expect(calledUrl).toContain('status=running');
-    });
-
-    it('agents.getRunningCount calls endpoint with status=running', async () => {
-      const mockResponse = createMockResponse(successResponse({ items: [], totalCount: 3 }));
-      global.fetch = vi.fn().mockResolvedValue(mockResponse);
-
-      const { apiClient } = await import('@/lib/api/client');
-      await apiClient.agents.getRunningCount();
-
-      expect(global.fetch).toHaveBeenCalledWith('/api/agents?status=running', expect.any(Object));
     });
   });
 

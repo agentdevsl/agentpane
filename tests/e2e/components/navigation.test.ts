@@ -56,14 +56,6 @@ e2e('Navigation Components E2E', () => {
       const breadcrumbs = await exists('[data-testid="breadcrumbs"]');
       expect(breadcrumbs).toBe(true);
     });
-
-    it('shows breadcrumbs on agents page', async () => {
-      await goto('/agents');
-      await waitForSelector('[data-testid="breadcrumbs"]', { timeout: 15000 });
-
-      const breadcrumbs = await exists('[data-testid="breadcrumbs"]');
-      expect(breadcrumbs).toBe(true);
-    });
   });
 
   describe('LayoutShell', () => {

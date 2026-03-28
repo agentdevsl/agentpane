@@ -434,21 +434,6 @@ export const apiClient = {
       apiServerFetch<FolderSummary>(`/api/project-folders/${encodeURIComponent(folderId)}/summary`),
   },
 
-  agents: {
-    list: (params?: { codespaceId?: string; status?: string }) => {
-      const searchParams = new URLSearchParams();
-      if (params?.codespaceId) searchParams.set('codespaceId', params.codespaceId);
-      if (params?.status) searchParams.set('status', params.status);
-      const query = searchParams.toString();
-      return apiFetch<{ items: unknown[]; totalCount: number }>(
-        `/api/agents${query ? `?${query}` : ''}`
-      );
-    },
-
-    getRunningCount: () =>
-      apiFetch<{ items: unknown[]; totalCount: number }>('/api/agents?status=running'),
-  },
-
   tasks: {
     list: (codespaceId: string, params?: { status?: string; limit?: number }) => {
       const searchParams = new URLSearchParams();

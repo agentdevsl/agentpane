@@ -9,7 +9,6 @@ import {
   Hexagon,
   Key,
   Lightning,
-  Robot,
   Swatches,
   Terminal,
 } from '@phosphor-icons/react';
@@ -116,10 +115,7 @@ function useSettingsSections(): SettingsSection[] {
     {
       id: 'navigation',
       title: 'Navigation',
-      items: [
-        { id: 'codespaces', label: 'Codespaces', to: '/settings/projects', icon: Folder },
-        { id: 'agents', label: 'Agents', to: '/settings/agents', icon: Robot },
-      ],
+      items: [{ id: 'codespaces', label: 'Codespaces', to: '/settings/projects', icon: Folder }],
     },
   ];
 }

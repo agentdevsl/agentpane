@@ -294,13 +294,5 @@ e2e('Dialog Components E2E', () => {
       const buffer = await screenshot('projects-page');
       expect(buffer).toBeTruthy();
     });
-
-    it('captures agents page screenshot', async () => {
-      await goto('/agents');
-      await waitForSelector('[data-testid="agents-page"]', { timeout: 10000 }).catch(() => {});
-
-      const buffer = await screenshot('agents-page');
-      expect(buffer).toBeTruthy();
-    });
   });
 });

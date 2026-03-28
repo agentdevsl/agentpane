@@ -26,7 +26,6 @@ import { Route as DesignerIndexRouteImport } from './routes/designer/index'
 import { Route as CodespacesIndexRouteImport } from './routes/codespaces/index'
 import { Route as CliMonitorIndexRouteImport } from './routes/cli-monitor/index'
 import { Route as CatalogIndexRouteImport } from './routes/catalog/index'
-import { Route as AgentsIndexRouteImport } from './routes/agents/index'
 import { Route as TerraformSettingsRouteImport } from './routes/terraform/settings'
 import { Route as TerraformModulesRouteImport } from './routes/terraform/modules'
 import { Route as TerraformHistoryRouteImport } from './routes/terraform/history'
@@ -43,7 +42,6 @@ import { Route as SettingsGithubRouteImport } from './routes/settings/github'
 import { Route as SettingsCliMonitorRouteImport } from './routes/settings/cli-monitor'
 import { Route as SettingsAppearanceRouteImport } from './routes/settings/appearance'
 import { Route as SettingsApiKeysRouteImport } from './routes/settings/api-keys'
-import { Route as SettingsAgentsRouteImport } from './routes/settings/agents'
 import { Route as SessionsSessionIdRouteImport } from './routes/sessions/$sessionId'
 import { Route as EventsSubscriptionsRouteImport } from './routes/events/subscriptions'
 import { Route as EventsSourcesRouteImport } from './routes/events/sources'
@@ -51,7 +49,6 @@ import { Route as EventsLogRouteImport } from './routes/events/log'
 import { Route as CliMonitorTimelineRouteImport } from './routes/cli-monitor/timeline'
 import { Route as CliMonitorTerminalRouteImport } from './routes/cli-monitor/terminal'
 import { Route as CatalogWorkflowIdRouteImport } from './routes/catalog/$workflowId'
-import { Route as AgentsAgentIdRouteImport } from './routes/agents/$agentId'
 import { Route as FoldersFolderIdIndexRouteImport } from './routes/folders/$folderId/index'
 import { Route as CodespacesCodespaceIdIndexRouteImport } from './routes/codespaces/$codespaceId/index'
 import { Route as TerraformModulesModuleIdRouteImport } from './routes/terraform/modules.$moduleId'
@@ -146,11 +143,6 @@ const CatalogIndexRoute = CatalogIndexRouteImport.update({
   path: '/catalog/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AgentsIndexRoute = AgentsIndexRouteImport.update({
-  id: '/agents/',
-  path: '/agents/',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const TerraformSettingsRoute = TerraformSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -232,11 +224,6 @@ const SettingsApiKeysRoute = SettingsApiKeysRouteImport.update({
   path: '/api-keys',
   getParentRoute: () => SettingsRoute,
 } as any)
-const SettingsAgentsRoute = SettingsAgentsRouteImport.update({
-  id: '/agents',
-  path: '/agents',
-  getParentRoute: () => SettingsRoute,
-} as any)
 const SessionsSessionIdRoute = SessionsSessionIdRouteImport.update({
   id: '/sessions/$sessionId',
   path: '/sessions/$sessionId',
@@ -270,11 +257,6 @@ const CliMonitorTerminalRoute = CliMonitorTerminalRouteImport.update({
 const CatalogWorkflowIdRoute = CatalogWorkflowIdRouteImport.update({
   id: '/catalog/$workflowId',
   path: '/catalog/$workflowId',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AgentsAgentIdRoute = AgentsAgentIdRouteImport.update({
-  id: '/agents/$agentId',
-  path: '/agents/$agentId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const FoldersFolderIdIndexRoute = FoldersFolderIdIndexRouteImport.update({
@@ -330,7 +312,6 @@ export interface FileRoutesByFullPath {
   '/events': typeof EventsRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
   '/terraform': typeof TerraformRouteWithChildren
-  '/agents/$agentId': typeof AgentsAgentIdRoute
   '/catalog/$workflowId': typeof CatalogWorkflowIdRoute
   '/cli-monitor/terminal': typeof CliMonitorTerminalRoute
   '/cli-monitor/timeline': typeof CliMonitorTimelineRoute
@@ -338,7 +319,6 @@ export interface FileRoutesByFullPath {
   '/events/sources': typeof EventsSourcesRoute
   '/events/subscriptions': typeof EventsSubscriptionsRoute
   '/sessions/$sessionId': typeof SessionsSessionIdRoute
-  '/settings/agents': typeof SettingsAgentsRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/cli-monitor': typeof SettingsCliMonitorRoute
@@ -355,7 +335,6 @@ export interface FileRoutesByFullPath {
   '/terraform/history': typeof TerraformHistoryRoute
   '/terraform/modules': typeof TerraformModulesRouteWithChildren
   '/terraform/settings': typeof TerraformSettingsRoute
-  '/agents/': typeof AgentsIndexRoute
   '/catalog/': typeof CatalogIndexRoute
   '/cli-monitor/': typeof CliMonitorIndexRoute
   '/codespaces/': typeof CodespacesIndexRoute
@@ -379,7 +358,6 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/agents/$agentId': typeof AgentsAgentIdRoute
   '/catalog/$workflowId': typeof CatalogWorkflowIdRoute
   '/cli-monitor/terminal': typeof CliMonitorTerminalRoute
   '/cli-monitor/timeline': typeof CliMonitorTimelineRoute
@@ -387,7 +365,6 @@ export interface FileRoutesByTo {
   '/events/sources': typeof EventsSourcesRoute
   '/events/subscriptions': typeof EventsSubscriptionsRoute
   '/sessions/$sessionId': typeof SessionsSessionIdRoute
-  '/settings/agents': typeof SettingsAgentsRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/cli-monitor': typeof SettingsCliMonitorRoute
@@ -404,7 +381,6 @@ export interface FileRoutesByTo {
   '/terraform/history': typeof TerraformHistoryRoute
   '/terraform/modules': typeof TerraformModulesRouteWithChildren
   '/terraform/settings': typeof TerraformSettingsRoute
-  '/agents': typeof AgentsIndexRoute
   '/catalog': typeof CatalogIndexRoute
   '/cli-monitor': typeof CliMonitorIndexRoute
   '/codespaces': typeof CodespacesIndexRoute
@@ -433,7 +409,6 @@ export interface FileRoutesById {
   '/events': typeof EventsRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
   '/terraform': typeof TerraformRouteWithChildren
-  '/agents/$agentId': typeof AgentsAgentIdRoute
   '/catalog/$workflowId': typeof CatalogWorkflowIdRoute
   '/cli-monitor/terminal': typeof CliMonitorTerminalRoute
   '/cli-monitor/timeline': typeof CliMonitorTimelineRoute
@@ -441,7 +416,6 @@ export interface FileRoutesById {
   '/events/sources': typeof EventsSourcesRoute
   '/events/subscriptions': typeof EventsSubscriptionsRoute
   '/sessions/$sessionId': typeof SessionsSessionIdRoute
-  '/settings/agents': typeof SettingsAgentsRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/cli-monitor': typeof SettingsCliMonitorRoute
@@ -458,7 +432,6 @@ export interface FileRoutesById {
   '/terraform/history': typeof TerraformHistoryRoute
   '/terraform/modules': typeof TerraformModulesRouteWithChildren
   '/terraform/settings': typeof TerraformSettingsRoute
-  '/agents/': typeof AgentsIndexRoute
   '/catalog/': typeof CatalogIndexRoute
   '/cli-monitor/': typeof CliMonitorIndexRoute
   '/codespaces/': typeof CodespacesIndexRoute
@@ -488,7 +461,6 @@ export interface FileRouteTypes {
     | '/events'
     | '/settings'
     | '/terraform'
-    | '/agents/$agentId'
     | '/catalog/$workflowId'
     | '/cli-monitor/terminal'
     | '/cli-monitor/timeline'
@@ -496,7 +468,6 @@ export interface FileRouteTypes {
     | '/events/sources'
     | '/events/subscriptions'
     | '/sessions/$sessionId'
-    | '/settings/agents'
     | '/settings/api-keys'
     | '/settings/appearance'
     | '/settings/cli-monitor'
@@ -513,7 +484,6 @@ export interface FileRouteTypes {
     | '/terraform/history'
     | '/terraform/modules'
     | '/terraform/settings'
-    | '/agents/'
     | '/catalog/'
     | '/cli-monitor/'
     | '/codespaces/'
@@ -537,7 +507,6 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/agents/$agentId'
     | '/catalog/$workflowId'
     | '/cli-monitor/terminal'
     | '/cli-monitor/timeline'
@@ -545,7 +514,6 @@ export interface FileRouteTypes {
     | '/events/sources'
     | '/events/subscriptions'
     | '/sessions/$sessionId'
-    | '/settings/agents'
     | '/settings/api-keys'
     | '/settings/appearance'
     | '/settings/cli-monitor'
@@ -562,7 +530,6 @@ export interface FileRouteTypes {
     | '/terraform/history'
     | '/terraform/modules'
     | '/terraform/settings'
-    | '/agents'
     | '/catalog'
     | '/cli-monitor'
     | '/codespaces'
@@ -590,7 +557,6 @@ export interface FileRouteTypes {
     | '/events'
     | '/settings'
     | '/terraform'
-    | '/agents/$agentId'
     | '/catalog/$workflowId'
     | '/cli-monitor/terminal'
     | '/cli-monitor/timeline'
@@ -598,7 +564,6 @@ export interface FileRouteTypes {
     | '/events/sources'
     | '/events/subscriptions'
     | '/sessions/$sessionId'
-    | '/settings/agents'
     | '/settings/api-keys'
     | '/settings/appearance'
     | '/settings/cli-monitor'
@@ -615,7 +580,6 @@ export interface FileRouteTypes {
     | '/terraform/history'
     | '/terraform/modules'
     | '/terraform/settings'
-    | '/agents/'
     | '/catalog/'
     | '/cli-monitor/'
     | '/codespaces/'
@@ -644,12 +608,10 @@ export interface RootRouteChildren {
   EventsRoute: typeof EventsRouteWithChildren
   SettingsRoute: typeof SettingsRouteWithChildren
   TerraformRoute: typeof TerraformRouteWithChildren
-  AgentsAgentIdRoute: typeof AgentsAgentIdRoute
   CatalogWorkflowIdRoute: typeof CatalogWorkflowIdRoute
   SessionsSessionIdRoute: typeof SessionsSessionIdRoute
   TemplatesOrgRoute: typeof TemplatesOrgRoute
   TemplatesProjectRoute: typeof TemplatesProjectRoute
-  AgentsIndexRoute: typeof AgentsIndexRoute
   CatalogIndexRoute: typeof CatalogIndexRoute
   CodespacesIndexRoute: typeof CodespacesIndexRoute
   DesignerIndexRoute: typeof DesignerIndexRoute
@@ -788,13 +750,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CatalogIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/agents/': {
-      id: '/agents/'
-      path: '/agents'
-      fullPath: '/agents/'
-      preLoaderRoute: typeof AgentsIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/terraform/settings': {
       id: '/terraform/settings'
       path: '/settings'
@@ -907,13 +862,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsApiKeysRouteImport
       parentRoute: typeof SettingsRoute
     }
-    '/settings/agents': {
-      id: '/settings/agents'
-      path: '/agents'
-      fullPath: '/settings/agents'
-      preLoaderRoute: typeof SettingsAgentsRouteImport
-      parentRoute: typeof SettingsRoute
-    }
     '/sessions/$sessionId': {
       id: '/sessions/$sessionId'
       path: '/sessions/$sessionId'
@@ -961,13 +909,6 @@ declare module '@tanstack/react-router' {
       path: '/catalog/$workflowId'
       fullPath: '/catalog/$workflowId'
       preLoaderRoute: typeof CatalogWorkflowIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/agents/$agentId': {
-      id: '/agents/$agentId'
-      path: '/agents/$agentId'
-      fullPath: '/agents/$agentId'
-      preLoaderRoute: typeof AgentsAgentIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/folders/$folderId/': {
@@ -1063,7 +1004,6 @@ const EventsRouteWithChildren =
   EventsRoute._addFileChildren(EventsRouteChildren)
 
 interface SettingsRouteChildren {
-  SettingsAgentsRoute: typeof SettingsAgentsRoute
   SettingsApiKeysRoute: typeof SettingsApiKeysRoute
   SettingsAppearanceRoute: typeof SettingsAppearanceRoute
   SettingsCliMonitorRoute: typeof SettingsCliMonitorRoute
@@ -1079,7 +1019,6 @@ interface SettingsRouteChildren {
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
-  SettingsAgentsRoute: SettingsAgentsRoute,
   SettingsApiKeysRoute: SettingsApiKeysRoute,
   SettingsAppearanceRoute: SettingsAppearanceRoute,
   SettingsCliMonitorRoute: SettingsCliMonitorRoute,
@@ -1133,12 +1072,10 @@ const rootRouteChildren: RootRouteChildren = {
   EventsRoute: EventsRouteWithChildren,
   SettingsRoute: SettingsRouteWithChildren,
   TerraformRoute: TerraformRouteWithChildren,
-  AgentsAgentIdRoute: AgentsAgentIdRoute,
   CatalogWorkflowIdRoute: CatalogWorkflowIdRoute,
   SessionsSessionIdRoute: SessionsSessionIdRoute,
   TemplatesOrgRoute: TemplatesOrgRoute,
   TemplatesProjectRoute: TemplatesProjectRoute,
-  AgentsIndexRoute: AgentsIndexRoute,
   CatalogIndexRoute: CatalogIndexRoute,
   CodespacesIndexRoute: CodespacesIndexRoute,
   DesignerIndexRoute: DesignerIndexRoute,

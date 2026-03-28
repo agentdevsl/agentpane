@@ -75,20 +75,9 @@ export function useGlobalShortcuts(props: GlobalShortcutsProps = {}): void {
     result.push({
       key: '1',
       meta: true,
-      description: 'Go to Agents view',
-      category: 'views',
-      action: () => {
-        navigate({ to: '/agents' });
-      },
-    });
-
-    result.push({
-      key: '2',
-      meta: true,
       description: 'Go to Tasks/Kanban',
       category: 'views',
       action: () => {
-        // Navigate to the first project's tasks or just /projects
         navigate({ to: '/codespaces' });
       },
     });
@@ -225,13 +214,6 @@ export function GlobalShortcuts(): React.JSX.Element {
       {
         key: '1',
         meta: true,
-        description: 'Go to Agents view',
-        category: 'views',
-        action: () => navigate({ to: '/agents' }),
-      },
-      {
-        key: '2',
-        meta: true,
         description: 'Go to Tasks/Kanban',
         category: 'views',
         action: () => navigate({ to: '/codespaces' }),
@@ -355,13 +337,6 @@ export function GlobalShortcutsWithPicker(): React.JSX.Element {
     () => [
       {
         key: '1',
-        meta: true,
-        description: 'Go to Agents view',
-        category: 'views',
-        action: () => navigate({ to: '/agents' }),
-      },
-      {
-        key: '2',
         meta: true,
         description: 'Go to Tasks/Kanban',
         category: 'views',
