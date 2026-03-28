@@ -106,7 +106,7 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "@tailwindcss/vite": "^4.2.2",
     "@tanstack/db": "0.5.33",
-    "@tanstack/react-db": "^0.1.77",
+    "@tanstack/react-db": "^0.1.79",
     "@tanstack/react-router": "^1.168.1",
     "@tanstack/react-start": "^1.163.3",
     "@tanstack/router-plugin": "^1.157.17",
