@@ -8,7 +8,7 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { sessionEvents } from '../../db/schema/index.js';
+import { codespaces, sessionEvents, tasks } from '../../db/schema/index.js';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { DreamService } from '../../services/memory/dream.service.js';
 import type { MemoryService } from '../../services/memory/index.js';
@@ -294,24 +294,65 @@ export function createMemoryRoutes({
         .offset(offset);
 
       // Filter to rows that actually contain the insightId in the array
-      const injections = rows
-        .filter((row) => {
-          const data = row.data as Record<string, unknown> | null;
-          const ids = data?.insightIds;
-          return Array.isArray(ids) && ids.includes(insightId);
-        })
-        .map((row) => {
-          const data = row.data as Record<string, unknown>;
-          return {
-            sessionId: row.sessionId,
-            agentId: data.agentId as string,
-            taskId: data.taskId as string,
-            codespaceId: (data.codespaceId as string) ?? null,
-            insightCount: data.insightCount as number,
-            tokenCount: data.tokenCount as number,
-            timestamp: row.timestamp,
-          };
-        });
+      const filtered = rows.filter((row) => {
+        const data = row.data as Record<string, unknown> | null;
+        const ids = data?.insightIds;
+        return Array.isArray(ids) && ids.includes(insightId);
+      });
+
+      // Resolve codespace names and task titles
+      const codespaceIds = new Set<string>();
+      const taskIds = new Set<string>();
+      for (const row of filtered) {
+        const data = row.data as Record<string, unknown>;
+        if (data.codespaceId) codespaceIds.add(data.codespaceId as string);
+        if (data.taskId) taskIds.add(data.taskId as string);
+      }
+
+      const codespaceNames = new Map<string, string>();
+      if (codespaceIds.size > 0) {
+        const csRows = await db
+          .select({ id: codespaces.id, name: codespaces.name })
+          .from(codespaces)
+          .where(
+            sql`${codespaces.id} IN (${sql.join(
+              [...codespaceIds].map((id) => sql`${id}`),
+              sql`, `
+            )})`
+          );
+        for (const cs of csRows) codespaceNames.set(cs.id, cs.name);
+      }
+
+      const taskTitles = new Map<string, string>();
+      if (taskIds.size > 0) {
+        const taskRows = await db
+          .select({ id: tasks.id, title: tasks.title })
+          .from(tasks)
+          .where(
+            sql`${tasks.id} IN (${sql.join(
+              [...taskIds].map((id) => sql`${id}`),
+              sql`, `
+            )})`
+          );
+        for (const t of taskRows) taskTitles.set(t.id, t.title);
+      }
+
+      const injections = filtered.map((row) => {
+        const data = row.data as Record<string, unknown>;
+        const csId = (data.codespaceId as string) ?? null;
+        const tId = (data.taskId as string) ?? null;
+        return {
+          sessionId: row.sessionId,
+          agentId: data.agentId as string,
+          taskId: tId,
+          taskTitle: tId ? (taskTitles.get(tId) ?? null) : null,
+          codespaceId: csId,
+          codespaceName: csId ? (codespaceNames.get(csId) ?? null) : null,
+          insightCount: data.insightCount as number,
+          tokenCount: data.tokenCount as number,
+          timestamp: row.timestamp,
+        };
+      });
 
       return json({
         ok: true,

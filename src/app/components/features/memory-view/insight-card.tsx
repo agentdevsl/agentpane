@@ -69,19 +69,17 @@ function InjectionHistory({
         {injections.map((inj) => (
           <div
             key={`${inj.sessionId}-${inj.timestamp}`}
-            className="flex items-center justify-between rounded px-2 py-1 text-xs text-fg-muted hover:bg-surface-muted"
+            className="flex items-center justify-between rounded px-2 py-1.5 text-xs hover:bg-surface-muted"
           >
-            <div className="flex items-center gap-2 truncate">
-              <span className="font-mono text-fg-subtle" title={inj.sessionId}>
-                {inj.sessionId.slice(0, 8)}
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span className="truncate text-fg">
+                {inj.taskTitle ?? `Task ${inj.taskId.slice(0, 8)}`}
               </span>
-              {inj.codespaceId && (
-                <span className="rounded bg-surface-muted px-1.5 py-0.5 text-[10px] text-fg-muted">
-                  {inj.codespaceId.slice(0, 8)}
-                </span>
+              {inj.codespaceName && (
+                <span className="text-[11px] text-fg-subtle">{inj.codespaceName}</span>
               )}
             </div>
-            <span className="ml-2 shrink-0 text-fg-subtle">
+            <span className="ml-3 shrink-0 text-[11px] text-fg-subtle">
               {formatRelativeDate(new Date(inj.timestamp).toISOString())}
             </span>
           </div>
