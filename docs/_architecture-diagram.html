@@ -207,7 +207,7 @@ svg { display: block; }
 <text x="794" y="248" fill="#bc8cff" font-size="10">SSE</text>
 
 <!-- ==================== SERVICE LAYER ==================== -->
-<rect x="70" y="335" width="700" height="58" rx="8" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+<rect x="70" y="335" width="700" height="66" rx="8" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
 <text x="420" y="355" text-anchor="middle" fill="#58a6ff" font-size="13" font-weight="600">Service Layer</text>
 <text x="420" y="372" text-anchor="middle" fill="#8b949e" font-size="10">Agent · Task · Session · Codespace · Workflow · Template · Marketplace · RBAC · Git · GitHubApp</text>
 <text x="420" y="386" text-anchor="middle" fill="#8b949e" font-size="9">CLIMonitor · ContainerAgent · PlanApproval · AgentQueue · SandboxConfig · TerraformCompose · TerraformRegistry</text>
@@ -294,7 +294,7 @@ svg { display: block; }
 <line x1="162" y1="768" x2="162" y2="1030" stroke="#484f58" stroke-width="1.5" stroke-dasharray="6,3" opacity="0.3" marker-end="url(#arrow-gray)"/>
 <line x1="362" y1="768" x2="520" y2="1030" stroke="#484f58" stroke-width="1.5" stroke-dasharray="6,3" opacity="0.3" marker-end="url(#arrow-gray)"/>
 <line x1="562" y1="768" x2="830" y2="1030" stroke="#484f58" stroke-width="1.5" stroke-dasharray="6,3" opacity="0.3" marker-end="url(#arrow-gray)"/>
-<path d="M 770 768 L 770 770 L 1160 770 L 1160 1030" fill="none" stroke="#f69d50" stroke-width="1.5" stroke-dasharray="6,3" opacity="0.4" marker-end="url(#arrow-aws)"/>
+<path d="M 770 768 L 770 770 L 960 770 L 960 1005 L 1185 1005 L 1185 1030" fill="none" stroke="#f69d50" stroke-width="1.5" stroke-dasharray="6,3" opacity="0.4" marker-end="url(#arrow-aws)"/>
 
 <!-- ==================== LEGEND ==================== -->
 <rect x="1250" y="400" width="420" height="220" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
@@ -340,58 +340,61 @@ svg { display: block; }
 <text x="792" y="521" text-anchor="middle" fill="#8b949e" font-size="9">→ PostgreSQL (Remote)</text>
 
 <!-- ==================== Event System Tables ==================== -->
-<rect x="1250" y="780" width="420" height="140" rx="10" fill="#161b22" stroke="#d29922" stroke-width="1.5" stroke-dasharray="6,3"/>
-<text x="1460" y="722" text-anchor="middle" fill="#d29922" font-size="13" font-weight="600">Event System Tables</text>
+<rect x="1250" y="770" width="420" height="150" rx="10" fill="#161b22" stroke="#d29922" stroke-width="1.5" stroke-dasharray="6,3"/>
+<text x="1460" y="795" text-anchor="middle" fill="#d29922" font-size="13" font-weight="600">Event System Tables</text>
 
-<text x="1280" y="748" fill="#8b949e" font-size="12">eventSources</text>
-<text x="1280" y="770" fill="#8b949e" font-size="12">eventSubscriptions</text>
-<text x="1280" y="792" fill="#8b949e" font-size="12">eventLog</text>
-<text x="1280" y="814" fill="#8b949e" font-size="12">scheduleExecutions</text>
+<text x="1280" y="820" fill="#8b949e" font-size="12">eventSources</text>
+<text x="1280" y="842" fill="#8b949e" font-size="12">eventSubscriptions</text>
+<text x="1280" y="864" fill="#8b949e" font-size="12">eventLog</text>
+<text x="1280" y="886" fill="#8b949e" font-size="12">scheduleExecutions</text>
 
-<text x="1470" y="748" fill="#484f58" font-size="11">sources + secrets</text>
-<text x="1470" y="770" fill="#484f58" font-size="11">event → task maps</text>
-<text x="1470" y="792" fill="#484f58" font-size="11">processing history</text>
-<text x="1470" y="814" fill="#484f58" font-size="11">cron execution audit</text>
+<text x="1470" y="820" fill="#484f58" font-size="11">sources + secrets</text>
+<text x="1470" y="842" fill="#484f58" font-size="11">event → task maps</text>
+<text x="1470" y="864" fill="#484f58" font-size="11">processing history</text>
+<text x="1470" y="886" fill="#484f58" font-size="11">cron execution audit</text>
 
 <!-- Connection: Event tables -> Drizzle ORM — annotation badge -->
-<rect x="1250" y="830" width="120" height="16" rx="3" fill="#161b22" stroke="#d29922" stroke-width="0.5"/>
-<text x="1310" y="841" text-anchor="middle" fill="#d29922" font-size="9">← Drizzle ORM</text>
+<rect x="1250" y="900" width="120" height="16" rx="3" fill="#161b22" stroke="#d29922" stroke-width="0.5"/>
+<text x="1310" y="911" text-anchor="middle" fill="#d29922" font-size="9">← Drizzle ORM</text>
 
-<!-- ==================== MEMORY LAYER ==================== -->
-<rect x="1340" y="880" width="370" height="240" rx="10" fill="none" stroke="#a855f7" stroke-width="2" stroke-dasharray="8,4"/>
-<text x="1360" y="905" fill="#a855f7" font-size="13" font-weight="600">Agentic Self-Improving Memory</text>
+<!-- ==================== MEMORY LAYER (vertical layout inside Host) ==================== -->
+<rect x="985" y="585" width="190" height="420" rx="10" fill="none" stroke="#a855f7" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="1080" y="607" text-anchor="middle" fill="#a855f7" font-size="12" font-weight="600">Agentic Self-Improving</text>
+<text x="1080" y="622" text-anchor="middle" fill="#a855f7" font-size="12" font-weight="600">Memory</text>
 
-<!-- MemoryStore (DB-backed) -->
-<rect x="1360" y="920" width="165" height="58" rx="8" fill="#161b22" stroke="#a855f7" stroke-width="1.5"/>
-<text x="1442" y="944" text-anchor="middle" fill="#a855f7" font-size="13" font-weight="600">MemoryStore</text>
-<text x="1442" y="964" text-anchor="middle" fill="#8b949e" font-size="10">observations · insights · recall</text>
+<!-- MemoryStore -->
+<rect x="995" y="635" width="170" height="52" rx="8" fill="#161b22" stroke="#a855f7" stroke-width="1.5"/>
+<text x="1080" y="657" text-anchor="middle" fill="#a855f7" font-size="12" font-weight="600">MemoryStore</text>
+<text x="1080" y="674" text-anchor="middle" fill="#8b949e" font-size="9">observations · insights · recall</text>
 
 <!-- DreamService -->
-<rect x="1540" y="920" width="155" height="58" rx="8" fill="#161b22" stroke="#a855f7" stroke-width="1.5"/>
-<text x="1617" y="944" text-anchor="middle" fill="#a855f7" font-size="13" font-weight="600">DreamService</text>
-<text x="1617" y="964" text-anchor="middle" fill="#8b949e" font-size="10">self-improving · Claude</text>
+<rect x="995" y="697" width="170" height="52" rx="8" fill="#161b22" stroke="#a855f7" stroke-width="1.5"/>
+<text x="1080" y="719" text-anchor="middle" fill="#a855f7" font-size="12" font-weight="600">DreamService</text>
+<text x="1080" y="736" text-anchor="middle" fill="#8b949e" font-size="9">self-improving · Claude</text>
 
 <!-- InsightDeriver -->
-<rect x="1360" y="994" width="165" height="44" rx="7" fill="#161b22" stroke="#a855f7" stroke-width="1"/>
-<text x="1442" y="1014" text-anchor="middle" fill="#a855f7" font-size="12" font-weight="600">InsightDeriver</text>
-<text x="1442" y="1030" text-anchor="middle" fill="#8b949e" font-size="9">derives recommendations</text>
+<rect x="995" y="759" width="170" height="42" rx="7" fill="#161b22" stroke="#a855f7" stroke-width="1"/>
+<text x="1080" y="779" text-anchor="middle" fill="#a855f7" font-size="11" font-weight="600">InsightDeriver</text>
+<text x="1080" y="794" text-anchor="middle" fill="#8b949e" font-size="9">derives recommendations</text>
 
 <!-- SkillTracking -->
-<rect x="1540" y="994" width="155" height="44" rx="7" fill="#161b22" stroke="#a855f7" stroke-width="1"/>
-<text x="1617" y="1014" text-anchor="middle" fill="#a855f7" font-size="12" font-weight="600">SkillTracking</text>
-<text x="1617" y="1030" text-anchor="middle" fill="#8b949e" font-size="9">execution metrics · scoring</text>
+<rect x="995" y="811" width="170" height="42" rx="7" fill="#161b22" stroke="#a855f7" stroke-width="1"/>
+<text x="1080" y="831" text-anchor="middle" fill="#a855f7" font-size="11" font-weight="600">SkillTracking</text>
+<text x="1080" y="846" text-anchor="middle" fill="#8b949e" font-size="9">execution metrics · scoring</text>
 
-<!-- DreamScheduler (thin bar below) -->
-<rect x="1360" y="1054" width="335" height="24" rx="4" fill="#161b22" stroke="#a855f7" stroke-width="1"/>
-<text x="1527" y="1070" text-anchor="middle" fill="#8b949e" font-size="10">DreamScheduler · 24h self-improvement cycle</text>
+<!-- DreamScheduler -->
+<rect x="995" y="863" width="170" height="32" rx="4" fill="#161b22" stroke="#a855f7" stroke-width="1"/>
+<text x="1080" y="880" text-anchor="middle" fill="#a855f7" font-size="10" font-weight="600">DreamScheduler</text>
+<text x="1080" y="892" text-anchor="middle" fill="#8b949e" font-size="8">24h self-improvement cycle</text>
 
-<!-- Connection: MemoryStore -> InsightDeriver -->
-<line x1="1442" y1="978" x2="1442" y2="994" stroke="#a855f7" stroke-width="1" stroke-dasharray="4,2"/>
-<line x1="1617" y1="978" x2="1617" y2="994" stroke="#a855f7" stroke-width="1" stroke-dasharray="4,2"/>
+<!-- Vertical connectors inside Memory column -->
+<line x1="1080" y1="687" x2="1080" y2="697" stroke="#a855f7" stroke-width="1" stroke-dasharray="4,2"/>
+<line x1="1080" y1="749" x2="1080" y2="759" stroke="#a855f7" stroke-width="1" stroke-dasharray="4,2"/>
+<line x1="1080" y1="801" x2="1080" y2="811" stroke="#a855f7" stroke-width="1" stroke-dasharray="4,2"/>
+<line x1="1080" y1="853" x2="1080" y2="863" stroke="#a855f7" stroke-width="1" stroke-dasharray="4,2"/>
 
-<!-- Connection: MemoryService -> Memory Layer (routed through right corridor x=1230) -->
-<path d="M 152 619 L 152 632 L 1230 632 L 1230 920 L 1340 920" fill="none" stroke="#a855f7" stroke-width="2" marker-end="url(#arrow-memory)"/>
-<text x="1235" y="740" fill="#a855f7" font-size="10" font-weight="600" writing-mode="tb">memory queries</text>
+<!-- Connection: MemoryService -> Memory column (routed below injector row) -->
+<path d="M 152 619 L 152 632 L 985 632" fill="none" stroke="#a855f7" stroke-width="2" marker-end="url(#arrow-memory)"/>
 
 <!-- ==================== RUNTIME / CLUSTER SECTIONS ==================== -->
 
@@ -600,8 +603,8 @@ svg { display: block; }
 <rect x="1182" y="264" width="85" height="18" rx="4" fill="#161b22" stroke="#d29922" stroke-width="1"/>
 <text x="1224" y="277" text-anchor="middle" fill="#d29922" font-size="9">← GitHub webhooks</text>
 <!-- Badge on GitHub Webhooks: targets Event System -->
-<rect x="895" y="1690" width="195" height="14" rx="3" fill="#161b22" stroke="#d29922" stroke-width="0.5"/>
-<text x="992" y="1700" text-anchor="middle" fill="#d29922" font-size="8">→ Event System (Event Processing)</text>
+<rect x="895" y="1674" width="195" height="14" rx="3" fill="#161b22" stroke="#d29922" stroke-width="0.5"/>
+<text x="992" y="1684" text-anchor="middle" fill="#d29922" font-size="8">→ Event System (Event Processing)</text>
 
 <!-- Connections: containers -> Anthropic API -->
 <line x1="190" y1="1206" x2="190" y2="1638" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-purple)"/>
