@@ -47,13 +47,13 @@ describe('AgentRetryQueue', () => {
 
       const state = queue.getQueueState();
       expect(state).toHaveLength(1);
-      expect(state[0].taskId).toBe('task-1');
-      expect(state[0].agentId).toBe('agent-1');
-      expect(state[0].codespaceId).toBe('cs-1');
-      expect(state[0].attempt).toBe(1);
-      expect(state[0].maxAttempts).toBe(3);
+      expect(state[0]!.taskId).toBe('task-1');
+      expect(state[0]!.agentId).toBe('agent-1');
+      expect(state[0]!.codespaceId).toBe('cs-1');
+      expect(state[0]!.attempt).toBe(1);
+      expect(state[0]!.maxAttempts).toBe(3);
       // First attempt: initialBackoffMs * 2^0 = 30000
-      expect(state[0].nextRetryAt).toBe(Date.now() + 30_000);
+      expect(state[0]!.nextRetryAt).toBe(Date.now() + 30_000);
     });
 
     // 2. enqueue exceeds maxAttempts returns false and deletes from queue
@@ -67,12 +67,12 @@ describe('AgentRetryQueue', () => {
     // 3. enqueue existing task increments attempt from existing entry
     it('increments attempt from existing entry when task already queued', () => {
       queue.enqueue(makeParams());
-      expect(queue.getQueueState()[0].attempt).toBe(1);
+      expect(queue.getQueueState()[0]!.attempt).toBe(1);
 
       const result = queue.enqueue(makeParams());
       expect(result).toBe(true);
       expect(queue.size).toBe(1);
-      expect(queue.getQueueState()[0].attempt).toBe(2);
+      expect(queue.getQueueState()[0]!.attempt).toBe(2);
     });
   });
 
@@ -117,7 +117,7 @@ describe('AgentRetryQueue', () => {
       queue.setRestartFn(restartFn);
       queue.enqueue(makeParams());
 
-      const originalTask = queue.getQueueState()[0];
+      const originalTask = queue.getQueueState()[0]!;
 
       // Advance past backoff so task is ready
       vi.advanceTimersByTime(30_000);
@@ -128,7 +128,7 @@ describe('AgentRetryQueue', () => {
       expect(restartFn).toHaveBeenCalledWith('task-1');
       expect(queue.size).toBe(1);
 
-      const updatedTask = queue.getQueueState()[0];
+      const updatedTask = queue.getQueueState()[0]!;
       // Should be a new object (not in-place mutation)
       expect(updatedTask).not.toBe(originalTask);
       expect(updatedTask.attempt).toBe(2);
@@ -150,7 +150,7 @@ describe('AgentRetryQueue', () => {
 
       // Enqueue at attempt 1
       queue.enqueue(makeParams());
-      expect(queue.getQueueState()[0].attempt).toBe(1);
+      expect(queue.getQueueState()[0]!.attempt).toBe(1);
 
       // First retry: advance past backoff, trigger processQueue
       vi.advanceTimersByTime(1_000);
@@ -159,7 +159,7 @@ describe('AgentRetryQueue', () => {
 
       // After failure, attempt becomes 2 (which equals maxAttempts)
       expect(queue.size).toBe(1);
-      expect(queue.getQueueState()[0].attempt).toBe(2);
+      expect(queue.getQueueState()[0]!.attempt).toBe(2);
 
       // Second retry: advance past new backoff (1000 * 2^1 = 2000)
       await vi.advanceTimersByTimeAsync(2_000);
@@ -256,15 +256,15 @@ describe('AgentRetryQueue', () => {
 
       // Attempt 1: 30000 * 2^0 = 30000
       queue.enqueue(makeParams({ taskId: 'task-exp' }));
-      expect(queue.getQueueState()[0].nextRetryAt).toBe(now + 30_000);
+      expect(queue.getQueueState()[0]!.nextRetryAt).toBe(now + 30_000);
 
       // Attempt 2: 30000 * 2^1 = 60000
       queue.enqueue(makeParams({ taskId: 'task-exp' }));
-      expect(queue.getQueueState()[0].nextRetryAt).toBe(now + 60_000);
+      expect(queue.getQueueState()[0]!.nextRetryAt).toBe(now + 60_000);
 
       // Attempt 3: 30000 * 2^2 = 120000
       queue.enqueue(makeParams({ taskId: 'task-exp' }));
-      expect(queue.getQueueState()[0].nextRetryAt).toBe(now + 120_000);
+      expect(queue.getQueueState()[0]!.nextRetryAt).toBe(now + 120_000);
     });
 
     it('caps backoff at maxBackoffMs', () => {
@@ -280,11 +280,11 @@ describe('AgentRetryQueue', () => {
 
       // Attempt 1: 100000 * 10^0 = 100000
       smallMaxQueue.enqueue(makeParams());
-      expect(smallMaxQueue.getQueueState()[0].nextRetryAt).toBe(now + 100_000);
+      expect(smallMaxQueue.getQueueState()[0]!.nextRetryAt).toBe(now + 100_000);
 
       // Attempt 2: 100000 * 10^1 = 1000000, capped at 300000
       smallMaxQueue.enqueue(makeParams());
-      expect(smallMaxQueue.getQueueState()[0].nextRetryAt).toBe(now + 300_000);
+      expect(smallMaxQueue.getQueueState()[0]!.nextRetryAt).toBe(now + 300_000);
     });
   });
 });

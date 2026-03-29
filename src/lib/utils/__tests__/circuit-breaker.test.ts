@@ -225,7 +225,7 @@ describe('CircuitBreaker', () => {
         // The remaining time should never be negative
         const match = message.match(/after (\d+)s/);
         expect(match).not.toBeNull();
-        const seconds = Number.parseInt(match![1], 10);
+        const seconds = Number.parseInt(match![1]!, 10);
         expect(seconds).toBeGreaterThanOrEqual(0);
       }
     });

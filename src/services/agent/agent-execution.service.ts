@@ -419,27 +419,16 @@ export class AgentExecutionService {
       });
 
       // Clean up externally created resources on transaction failure
-      // 1. Remove physical worktree (git directory on disk)
-      await this.worktreeService.remove(worktree.value.id, true).catch((cleanupErr) => {
-        log.error('Failed to clean up physical worktree after transaction failure', {
+      // 1. Remove worktree (physical git directory + DB record)
+      await this.worktreeService.remove(worktree.value.id, true).catch((cleanupErr: unknown) => {
+        log.error('Failed to clean up worktree after transaction failure', {
           error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
           data: { worktreeId: worktree.value.id, agentId },
         });
       });
 
-      // 2. Remove worktree DB record
-      await this.db
-        .delete(worktrees)
-        .where(eq(worktrees.id, worktree.value.id))
-        .catch((cleanupErr) => {
-          log.error('Failed to clean up orphaned worktree record after transaction failure', {
-            error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
-            data: { worktreeId: worktree.value.id, agentId },
-          });
-        });
-
-      // 3. Remove orphaned session record
-      await this.sessionService.delete(session.value.id).catch((cleanupErr) => {
+      // 2. Remove orphaned session record
+      await this.sessionService.delete(session.value.id).catch((cleanupErr: unknown) => {
         log.error('Failed to clean up orphaned session after transaction failure', {
           error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
           data: { sessionId: session.value.id, agentId },

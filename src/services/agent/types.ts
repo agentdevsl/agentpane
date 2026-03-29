@@ -57,6 +57,7 @@ export type WorktreeService = {
     taskTitle: string;
     baseBranch?: string;
   }) => Promise<Result<Worktree, AgentError>>;
+  remove: (worktreeId: string, force?: boolean) => Promise<Result<void, unknown>>;
 };
 
 export type TaskService = {

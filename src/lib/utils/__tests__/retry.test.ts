@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isTransientError, withRetry } from '../retry.js';
 
 describe('isTransientError', () => {
@@ -105,7 +105,7 @@ describe('withRetry', () => {
     const fn = vi.fn().mockRejectedValue(transientError);
 
     const promise = withRetry(fn, { maxRetries: 2, initialDelayMs: 50, jitterFactor: 0 }).catch(
-      (e: unknown) => e,
+      (e: unknown) => e
     );
 
     // Advance through all retry delays
