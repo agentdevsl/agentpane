@@ -11,6 +11,7 @@ export const githubTokens = pgTable('github_tokens', {
   scopes: text('scopes'),
   githubLogin: text('github_login'),
   githubId: text('github_id'),
+  teamId: text('team_id').references(() => teams.id, { onDelete: 'set null' }),
   isValid: boolean('is_valid').default(true),
   lastValidatedAt: timestamp('last_validated_at', { mode: 'string' }),
   createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),

@@ -526,7 +526,34 @@ CREATE TABLE IF NOT EXISTS "skill_suggestions" (
     "created_at" timestamp DEFAULT now() NOT NULL
 );
 
--- SECTION 11: Add missing indexes from Drizzle schema
+-- SECTION 11: Add github_tokens.team_id (matches SQLite migration v11-v12)
+ALTER TABLE "github_tokens" ADD COLUMN IF NOT EXISTS "team_id" text
+    REFERENCES "teams"("id") ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS "idx_github_tokens_team" ON "github_tokens" ("team_id");
+
+-- SECTION 12: Add missing indexes from Drizzle schema
 CREATE INDEX IF NOT EXISTS "session_events_created_at_idx" ON "session_events" ("created_at");
+
+-- Memory indexes
+CREATE INDEX IF NOT EXISTS "idx_memory_insights_codespace_id" ON "memory_insights" ("codespace_id");
+CREATE INDEX IF NOT EXISTS "idx_memory_insights_skill_id" ON "memory_insights" ("skill_id");
+CREATE INDEX IF NOT EXISTS "idx_memory_insights_source_session_id" ON "memory_insights" ("source_session_id");
+CREATE INDEX IF NOT EXISTS "idx_memory_messages_codespace_id" ON "memory_messages" ("codespace_id");
+CREATE INDEX IF NOT EXISTS "idx_memory_messages_memory_session_id" ON "memory_messages" ("memory_session_id");
+CREATE INDEX IF NOT EXISTS "idx_memory_messages_task_id" ON "memory_messages" ("task_id");
+
+-- Skill indexes
+CREATE INDEX IF NOT EXISTS "idx_skill_executions_codespace_id" ON "skill_executions" ("codespace_id");
+CREATE INDEX IF NOT EXISTS "idx_skill_executions_skill_id" ON "skill_executions" ("skill_id");
+CREATE INDEX IF NOT EXISTS "idx_skill_executions_task_id" ON "skill_executions" ("task_id");
+CREATE INDEX IF NOT EXISTS "idx_skill_executions_agent_run_id" ON "skill_executions" ("agent_run_id");
+CREATE INDEX IF NOT EXISTS "idx_skill_suggestions_dream_session_id" ON "skill_suggestions" ("dream_session_id");
+CREATE INDEX IF NOT EXISTS "idx_skill_suggestions_codespace_id" ON "skill_suggestions" ("codespace_id");
+CREATE INDEX IF NOT EXISTS "idx_skill_suggestions_skill_id" ON "skill_suggestions" ("skill_id");
+CREATE INDEX IF NOT EXISTS "idx_skill_suggestions_status" ON "skill_suggestions" ("status");
+
+-- Dream indexes
+CREATE INDEX IF NOT EXISTS "idx_dream_sessions_codespace_id" ON "dream_sessions" ("codespace_id");
+CREATE INDEX IF NOT EXISTS "idx_dream_sessions_status" ON "dream_sessions" ("status");
 
 COMMIT;
