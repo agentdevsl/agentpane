@@ -21,7 +21,7 @@ describe('maskSensitiveData', () => {
       const result = maskSensitiveData(input);
 
       for (const field of Object.keys(input)) {
-        expect(result[field]).toBe('[REDACTED]');
+        expect((result as Record<string, unknown>)[field]).toBe('[REDACTED]');
       }
     });
 
@@ -117,10 +117,11 @@ describe('maskSensitiveData', () => {
 
       const result = maskSensitiveData(input);
 
-      expect(result[0].name).toBe('safe');
-      expect(result[0].token).toBe('[REDACTED]');
-      expect(result[1].name).toBe('also-safe');
-      expect(result[1].password).toBe('[REDACTED]');
+      const r = result as Array<Record<string, unknown>>;
+      expect(r[0]!.name).toBe('safe');
+      expect(r[0]!.token).toBe('[REDACTED]');
+      expect(r[1]!.name).toBe('also-safe');
+      expect(r[1]!.password).toBe('[REDACTED]');
     });
 
     it('handles nested arrays', () => {
