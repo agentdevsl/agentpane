@@ -43,7 +43,7 @@ import type { TemplateService } from '../services/template.service.js';
 import type { TerraformComposeService } from '../services/terraform-compose.service.js';
 import type { TerraformRegistryService } from '../services/terraform-registry.service.js';
 import type { WorkflowService } from '../services/workflow.service.js';
-import type { CommandRunner, WorktreeService } from '../services/worktree.service.js';
+import type { CommandRunner } from '../services/worktree.service.js';
 import type { Database } from '../types/database.js';
 import { createAgentsRoutes } from './routes/agents.js';
 import { createApiKeysRoutes } from './routes/api-keys.js';
@@ -83,7 +83,6 @@ import { createTerraformRoutes } from './routes/terraform.js';
 import { createWebhooksRoutes } from './routes/webhooks.js';
 import { createWorkflowDesignerRoutes } from './routes/workflow-designer.js';
 import { createWorkflowsRoutes } from './routes/workflows.js';
-import { createWorktreesRoutes } from './routes/worktrees.js';
 import { hashToken } from './shared.js';
 
 const routerLog = createLogger('Router');
@@ -180,7 +179,6 @@ export interface RouterDependencies {
   taskService: TaskService;
   sessionService: SessionService;
   taskCreationService: TaskCreationService;
-  worktreeService: WorktreeService;
   marketplaceService: MarketplaceService;
   agentService: AgentService;
   commandRunner: CommandRunner;
@@ -340,9 +338,6 @@ export function createRouter(deps: RouterDependencies) {
   useRoleGuard(app, '/api/agents', 'viewer', rbacService);
   // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
   useRoleGuard(app, '/api/sessions', 'viewer', rbacService);
-  // biome-ignore lint/correctness/useHookAtTopLevel: useRoleGuard is a Hono middleware helper, not a React hook
-  useRoleGuard(app, '/api/worktrees', 'viewer', rbacService);
-
   // GitHub integration: viewer minimum (read repos/branches)
   app.use('/api/github', requireRole('viewer', rbacService));
   app.use('/api/github/*', requireRole('viewer', rbacService));
@@ -450,7 +445,6 @@ export function createRouter(deps: RouterDependencies) {
       sessionService: deps.sessionService,
     })
   );
-  app.route('/api/worktrees', createWorktreesRoutes({ worktreeService: deps.worktreeService }));
   app.route('/api/github', createGitHubRoutes({ githubService: deps.githubService }));
   if (deps.githubAppService) {
     app.route(

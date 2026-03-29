@@ -29,7 +29,6 @@ export function createAppRouter(
     taskService: services.taskService,
     sessionService: services.sessionService,
     taskCreationService: services.taskCreationService,
-    worktreeService: services.worktreeService,
     marketplaceService: services.marketplaceService,
     agentService: services.agentService,
     commandRunner: services.commandRunner,

@@ -47,7 +47,6 @@ describe('API Client', () => {
       expect(apiClient.projects).toBeDefined();
       expect(apiClient.tasks).toBeDefined();
       expect(apiClient.sessions).toBeDefined();
-      expect(apiClient.worktrees).toBeDefined();
       expect(apiClient.git).toBeDefined();
       expect(apiClient.filesystem).toBeDefined();
       expect(apiClient.github).toBeDefined();
@@ -372,7 +371,7 @@ describe('API Client', () => {
       global.fetch = vi.fn().mockResolvedValue(mockResponse);
 
       const { apiClient } = await import('@/lib/api/client');
-      await apiClient.worktrees.list({ codespaceId: 'proj-1' });
+      await apiClient.git.status('proj-1');
 
       // Since the client doesn't expose signal parameter directly for all methods,
       // we verify it handles abort errors properly when they occur
@@ -730,139 +729,6 @@ describe('API Client', () => {
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({ format: 'markdown' }),
-        })
-      );
-    });
-  });
-
-  // ============================================================================
-  // API METHODS - Worktrees
-  // ============================================================================
-  describe('API Methods - Worktrees', () => {
-    it('worktrees.list calls endpoint with codespaceId', async () => {
-      const mockResponse = createMockResponse(successResponse({ items: [], totalCount: 0 }));
-      global.fetch = vi.fn().mockResolvedValue(mockResponse);
-
-      const { apiClient } = await import('@/lib/api/client');
-      await apiClient.worktrees.list({ codespaceId: 'proj-1' });
-
-      expect(global.fetch).toHaveBeenCalledWith(
-        '/api/worktrees?codespaceId=proj-1',
-        expect.any(Object)
-      );
-    });
-
-    it('worktrees.get calls endpoint with encoded id', async () => {
-      const mockResponse = createMockResponse(successResponse({ id: 'wt-1' }));
-      global.fetch = vi.fn().mockResolvedValue(mockResponse);
-
-      const { apiClient } = await import('@/lib/api/client');
-      await apiClient.worktrees.get('wt-1');
-
-      expect(global.fetch).toHaveBeenCalledWith('/api/worktrees/wt-1', expect.any(Object));
-    });
-
-    it('worktrees.create sends POST with data', async () => {
-      const mockResponse = createMockResponse(
-        successResponse({ id: 'wt-new', branch: 'feature', path: '/path', status: 'active' })
-      );
-      global.fetch = vi.fn().mockResolvedValue(mockResponse);
-
-      const { apiClient } = await import('@/lib/api/client');
-      await apiClient.worktrees.create({
-        codespaceId: 'proj-1',
-        taskId: 'task-1',
-        baseBranch: 'main',
-      });
-
-      expect(global.fetch).toHaveBeenCalledWith(
-        '/api/worktrees',
-        expect.objectContaining({
-          method: 'POST',
-          body: JSON.stringify({ codespaceId: 'proj-1', taskId: 'task-1', baseBranch: 'main' }),
-        })
-      );
-    });
-
-    it('worktrees.remove sends DELETE with force option', async () => {
-      const mockResponse = createMockResponse(successResponse({ success: true }));
-      global.fetch = vi.fn().mockResolvedValue(mockResponse);
-
-      const { apiClient } = await import('@/lib/api/client');
-      await apiClient.worktrees.remove('wt-1', true);
-
-      expect(global.fetch).toHaveBeenCalledWith(
-        '/api/worktrees/wt-1?force=true',
-        expect.objectContaining({ method: 'DELETE' })
-      );
-    });
-
-    it('worktrees.commit sends POST with message', async () => {
-      const mockResponse = createMockResponse(successResponse({ sha: 'abc123' }));
-      global.fetch = vi.fn().mockResolvedValue(mockResponse);
-
-      const { apiClient } = await import('@/lib/api/client');
-      await apiClient.worktrees.commit('wt-1', 'Fix bug');
-
-      expect(global.fetch).toHaveBeenCalledWith(
-        '/api/worktrees/wt-1/commit',
-        expect.objectContaining({
-          method: 'POST',
-          body: JSON.stringify({ message: 'Fix bug' }),
-        })
-      );
-    });
-
-    it('worktrees.merge sends POST with options', async () => {
-      const mockResponse = createMockResponse(successResponse({ merged: true }));
-      global.fetch = vi.fn().mockResolvedValue(mockResponse);
-
-      const { apiClient } = await import('@/lib/api/client');
-      await apiClient.worktrees.merge('wt-1', {
-        targetBranch: 'main',
-        deleteAfterMerge: true,
-        squash: true,
-        commitMessage: 'Merge feature',
-      });
-
-      expect(global.fetch).toHaveBeenCalledWith(
-        '/api/worktrees/wt-1/merge',
-        expect.objectContaining({
-          method: 'POST',
-          body: JSON.stringify({
-            targetBranch: 'main',
-            deleteAfterMerge: true,
-            squash: true,
-            commitMessage: 'Merge feature',
-          }),
-        })
-      );
-    });
-
-    it('worktrees.getDiff calls diff endpoint', async () => {
-      const mockResponse = createMockResponse(
-        successResponse({ files: [], stats: { filesChanged: 0, additions: 0, deletions: 0 } })
-      );
-      global.fetch = vi.fn().mockResolvedValue(mockResponse);
-
-      const { apiClient } = await import('@/lib/api/client');
-      await apiClient.worktrees.getDiff('wt-1');
-
-      expect(global.fetch).toHaveBeenCalledWith('/api/worktrees/wt-1/diff', expect.any(Object));
-    });
-
-    it('worktrees.prune sends POST with codespaceId', async () => {
-      const mockResponse = createMockResponse(successResponse({ pruned: 3, failed: [] }));
-      global.fetch = vi.fn().mockResolvedValue(mockResponse);
-
-      const { apiClient } = await import('@/lib/api/client');
-      await apiClient.worktrees.prune('proj-1');
-
-      expect(global.fetch).toHaveBeenCalledWith(
-        '/api/worktrees/prune',
-        expect.objectContaining({
-          method: 'POST',
-          body: JSON.stringify({ codespaceId: 'proj-1' }),
         })
       );
     });
@@ -1524,19 +1390,6 @@ describe('API Client', () => {
       await apiClient.projects.update('proj/1', { name: 'Test' });
 
       expect(global.fetch).toHaveBeenCalledWith('/api/codespaces/proj%2F1', expect.any(Object));
-    });
-
-    it('encodes special characters in worktree id', async () => {
-      const mockResponse = createMockResponse(successResponse({ id: 'wt-1' }));
-      global.fetch = vi.fn().mockResolvedValue(mockResponse);
-
-      const { apiClient } = await import('@/lib/api/client');
-      await apiClient.worktrees.get('wt/special&chars');
-
-      expect(global.fetch).toHaveBeenCalledWith(
-        '/api/worktrees/wt%2Fspecial%26chars',
-        expect.any(Object)
-      );
     });
 
     it('encodes special characters in session id for events', async () => {

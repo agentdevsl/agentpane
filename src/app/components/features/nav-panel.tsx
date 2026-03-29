@@ -8,7 +8,6 @@ import {
   Lightning,
   Monitor,
   Plus,
-  Users,
 } from '@phosphor-icons/react';
 import { Link, useRouterState } from '@tanstack/react-router';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/app/components/ui/tooltip';
@@ -245,14 +244,6 @@ export function NavPanel(): React.JSX.Element {
               params={{ codespaceId: currentCodespace.codespace.id }}
               icon={GitFork}
               label="Git"
-              currentPath={currentPath}
-              collapsed={!expanded}
-            />
-            <NavLink
-              to="/codespaces/$codespaceId/worktrees"
-              params={{ codespaceId: currentCodespace.codespace.id }}
-              icon={Users}
-              label="Worktrees"
               currentPath={currentPath}
               collapsed={!expanded}
             />
