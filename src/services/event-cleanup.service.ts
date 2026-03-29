@@ -10,8 +10,16 @@
  * Backup behavior is configurable via admin settings (backup.enabled,
  * backup.intervalHours, backup.maxBackups).
  */
-import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  statSync,
+  unlinkSync,
+} from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { sql } from 'drizzle-orm';
 import { createLogger } from '../lib/logging/logger.js';
 import type { Database } from '../types/database.js';
@@ -45,9 +53,6 @@ const DEFAULT_BACKUP_MAX_BACKUPS = 7;
 
 /** Default database path */
 const DEFAULT_DB_PATH = './data/agentpane.db';
-
-/** Default backup directory */
-const DEFAULT_BACKUP_DIR = './data/backups';
 
 export interface BackupResult {
   performed: boolean;
@@ -180,13 +185,11 @@ export class EventCleanupService {
     }
 
     const dbPath = resolve(process.env.DB_PATH || DEFAULT_DB_PATH);
-    const backupDir = resolve(
-      dirname(dbPath),
-      basename(DEFAULT_BACKUP_DIR) === 'backups' ? 'backups' : DEFAULT_BACKUP_DIR
-    );
+    const backupDir = resolve(dirname(dbPath), 'backups');
 
     if (!existsSync(dbPath)) {
-      return { performed: false, skipped: true, reason: `DB file not found: ${dbPath}` };
+      log.warn('Database file not found for backup', { data: { dbPath } });
+      return { performed: false, skipped: true, reason: 'Database file not found' };
     }
 
     // Ensure backup directory exists
@@ -210,7 +213,7 @@ export class EventCleanupService {
         return {
           performed: false,
           skipped: false,
-          reason: `Integrity check failed: ${details}`,
+          reason: 'Integrity check failed',
         };
       }
     } catch (err) {
@@ -242,6 +245,8 @@ export class EventCleanupService {
 
     try {
       copyFileSync(dbPath, backupPath);
+      // Restrict backup file to owner-only read/write
+      chmodSync(backupPath, 0o600);
       log.info('Database backup created', { data: { backupPath } });
     } catch (err) {
       log.error('Failed to copy database file', {
