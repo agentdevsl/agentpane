@@ -541,7 +541,13 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
             type: 'agent:stopped',
             partType: 'lifecycle',
             blockId: runId,
-            data: { agentId, runId, reason, phase: 'planning', ...(isTimeout ? { maxRuntimeMs: AGENT_MAX_RUNTIME_MS } : {}) },
+            data: {
+              agentId,
+              runId,
+              reason,
+              phase: 'planning',
+              ...(isTimeout ? { maxRuntimeMs: AGENT_MAX_RUNTIME_MS } : {}),
+            },
           })
         );
         return {
@@ -959,7 +965,13 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
             type: 'agent:stopped',
             partType: 'lifecycle',
             blockId: runId,
-            data: { agentId, runId, reason, phase: 'execution', ...(isTimeout ? { maxRuntimeMs: AGENT_MAX_RUNTIME_MS } : {}) },
+            data: {
+              agentId,
+              runId,
+              reason,
+              phase: 'execution',
+              ...(isTimeout ? { maxRuntimeMs: AGENT_MAX_RUNTIME_MS } : {}),
+            },
           })
         );
         return {
@@ -1258,6 +1270,8 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
       result: accumulated || 'Task completed successfully',
     };
   } catch (error) {
+    clearTimeout(timeoutId);
+    signal?.removeEventListener('abort', onExternalAbort);
     const errorMessage = error instanceof Error ? error.message : String(error);
     log.error('Agent execution error', { error, data: { agentId } });
 
