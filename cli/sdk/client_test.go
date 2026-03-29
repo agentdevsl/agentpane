@@ -34,9 +34,6 @@ func TestNewClient_ValidConfig(t *testing.T) {
 	if client.Sessions == nil {
 		t.Error("expected Sessions service to be initialized")
 	}
-	if client.Worktrees == nil {
-		t.Error("expected Worktrees service to be initialized")
-	}
 	if client.Projects == nil {
 		t.Error("expected Projects service to be initialized")
 	}

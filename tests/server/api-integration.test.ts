@@ -73,15 +73,6 @@ describe('API Route Matching', () => {
     { pattern: '/api/sessions/:id', method: 'GET', handler: 'getSession' },
     { pattern: '/api/sessions/:id/events', method: 'GET', handler: 'getSessionEvents' },
     { pattern: '/api/sessions/:id/summary', method: 'GET', handler: 'getSessionSummary' },
-    // Worktree routes
-    { pattern: '/api/worktrees', method: 'GET', handler: 'listWorktrees' },
-    { pattern: '/api/worktrees', method: 'POST', handler: 'createWorktree' },
-    { pattern: '/api/worktrees/prune', method: 'POST', handler: 'pruneWorktrees' },
-    { pattern: '/api/worktrees/:id', method: 'GET', handler: 'getWorktree' },
-    { pattern: '/api/worktrees/:id', method: 'DELETE', handler: 'deleteWorktree' },
-    { pattern: '/api/worktrees/:id/commit', method: 'POST', handler: 'commitWorktree' },
-    { pattern: '/api/worktrees/:id/merge', method: 'POST', handler: 'mergeWorktree' },
-    { pattern: '/api/worktrees/:id/diff', method: 'GET', handler: 'getWorktreeDiff' },
     // Template routes
     { pattern: '/api/templates', method: 'GET', handler: 'listTemplates' },
     { pattern: '/api/templates', method: 'POST', handler: 'createTemplate' },
@@ -281,56 +272,6 @@ describe('API Route Matching', () => {
       const result = matchRoute('/api/sessions/sess-123/summary', 'GET', routes);
       expect(result.matched).toBe(true);
       expect(result.handler).toBe('getSessionSummary');
-    });
-  });
-
-  describe('Worktree Routes', () => {
-    it('matches GET /api/worktrees', () => {
-      const result = matchRoute('/api/worktrees', 'GET', routes);
-      expect(result.matched).toBe(true);
-      expect(result.handler).toBe('listWorktrees');
-    });
-
-    it('matches POST /api/worktrees', () => {
-      const result = matchRoute('/api/worktrees', 'POST', routes);
-      expect(result.matched).toBe(true);
-      expect(result.handler).toBe('createWorktree');
-    });
-
-    it('matches POST /api/worktrees/prune', () => {
-      const result = matchRoute('/api/worktrees/prune', 'POST', routes);
-      expect(result.matched).toBe(true);
-      expect(result.handler).toBe('pruneWorktrees');
-    });
-
-    it('matches GET /api/worktrees/:id', () => {
-      const result = matchRoute('/api/worktrees/wt-123', 'GET', routes);
-      expect(result.matched).toBe(true);
-      expect(result.handler).toBe('getWorktree');
-    });
-
-    it('matches DELETE /api/worktrees/:id', () => {
-      const result = matchRoute('/api/worktrees/wt-123', 'DELETE', routes);
-      expect(result.matched).toBe(true);
-      expect(result.handler).toBe('deleteWorktree');
-    });
-
-    it('matches POST /api/worktrees/:id/commit', () => {
-      const result = matchRoute('/api/worktrees/wt-123/commit', 'POST', routes);
-      expect(result.matched).toBe(true);
-      expect(result.handler).toBe('commitWorktree');
-    });
-
-    it('matches POST /api/worktrees/:id/merge', () => {
-      const result = matchRoute('/api/worktrees/wt-123/merge', 'POST', routes);
-      expect(result.matched).toBe(true);
-      expect(result.handler).toBe('mergeWorktree');
-    });
-
-    it('matches GET /api/worktrees/:id/diff', () => {
-      const result = matchRoute('/api/worktrees/wt-123/diff', 'GET', routes);
-      expect(result.matched).toBe(true);
-      expect(result.handler).toBe('getWorktreeDiff');
     });
   });
 
@@ -967,10 +908,6 @@ describe('Query Parameter Parsing', () => {
       expect(params.get('includeDisabled')).toBe('true');
     });
 
-    it('extracts force parameter', () => {
-      const params = parseQueryParams('/api/worktrees/wt-123?force=true');
-      expect(params.get('force')).toBe('true');
-    });
   });
 
   describe('Multiple Parameters', () => {

@@ -31,7 +31,6 @@ export function createAppRouter(
     taskCreationService: services.taskCreationService,
     marketplaceService: services.marketplaceService,
     agentService: services.agentService,
-    commandRunner: services.commandRunner,
     workflowService: services.workflowService,
     gitService: services.gitService,
     codespaceService: services.codespaceService,

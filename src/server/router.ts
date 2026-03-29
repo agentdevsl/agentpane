@@ -43,7 +43,6 @@ import type { TemplateService } from '../services/template.service.js';
 import type { TerraformComposeService } from '../services/terraform-compose.service.js';
 import type { TerraformRegistryService } from '../services/terraform-registry.service.js';
 import type { WorkflowService } from '../services/workflow.service.js';
-import type { CommandRunner } from '../services/worktree.service.js';
 import type { Database } from '../types/database.js';
 import { createAgentsRoutes } from './routes/agents.js';
 import { createApiKeysRoutes } from './routes/api-keys.js';
@@ -181,7 +180,6 @@ export interface RouterDependencies {
   taskCreationService: TaskCreationService;
   marketplaceService: MarketplaceService;
   agentService: AgentService;
-  commandRunner: CommandRunner;
   workflowService: WorkflowService;
   gitService: GitService;
   codespaceService: CodespaceService;

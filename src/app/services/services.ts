@@ -34,7 +34,6 @@ export type Services = {
   taskService: TaskService;
   sessionService: SessionService;
   templateService: TemplateService;
-  worktreeService: WorktreeService;
 };
 
 export type ServicesResult = Result<Services, ReturnType<typeof createError>>;
@@ -123,7 +122,6 @@ export function createServices(context: {
       taskService,
       sessionService,
       templateService,
-      worktreeService,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

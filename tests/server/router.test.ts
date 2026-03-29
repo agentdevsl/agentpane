@@ -283,7 +283,6 @@ describe('createRouter', () => {
       '/api/tasks',
       '/api/agents',
       '/api/sessions',
-      '/api/worktrees',
       '/api/settings',
       '/api/keys',
       '/api/github',

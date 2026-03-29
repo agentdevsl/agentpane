@@ -39,8 +39,6 @@ type Client struct {
 	Agents *AgentService
 	// Sessions provides operations on session resources.
 	Sessions *SessionService
-	// Worktrees provides operations on worktree resources.
-	Worktrees *WorktreeService
 	// Projects provides operations on project resources.
 	Projects *ProjectService
 	// Teams provides operations on team resources.
@@ -76,7 +74,6 @@ func NewClient(cfg Config) (*Client, error) {
 	c.Tasks = &TaskService{client: c}
 	c.Agents = &AgentService{client: c}
 	c.Sessions = &SessionService{client: c}
-	c.Worktrees = &WorktreeService{client: c}
 	c.Projects = &ProjectService{client: c}
 	c.Teams = &TeamService{client: c}
 	c.Git = &GitService{client: c}

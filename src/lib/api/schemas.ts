@@ -127,29 +127,6 @@ export const updatePresenceSchema = z.object({
   activeFile: z.string().optional(),
 });
 
-// Worktree schemas
-export const listWorktreesSchema = z.object({
-  codespaceId: cuidSchema,
-});
-
-export const createWorktreeSchema = z.object({
-  codespaceId: cuidSchema,
-  taskId: cuidSchema,
-  baseBranch: z.string().optional(),
-});
-
-export const commitWorktreeSchema = z.object({
-  message: z.string().min(1).max(500),
-});
-
-export const mergeWorktreeSchema = z.object({
-  targetBranch: z.string().optional(),
-});
-
-export const pruneWorktreesSchema = z.object({
-  codespaceId: cuidSchema,
-});
-
 // Agent lifecycle schemas
 export const pauseAgentSchema = z.object({});
 
