@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { access } from 'node:fs/promises';
 import path from 'node:path';
 import { and, eq, inArray, lt } from 'drizzle-orm';
 import type { Worktree, WorktreeStatus } from '../db/schema';
@@ -683,8 +683,20 @@ export class WorktreeService {
     const staleIds: string[] = [];
     const validWorktrees: Worktree[] = [];
 
-    for (const wt of list) {
-      if (existsSync(wt.path)) {
+    // Check filesystem in parallel (non-blocking)
+    const checks = await Promise.all(
+      list.map(async (wt) => {
+        try {
+          await access(wt.path);
+          return { wt, exists: true };
+        } catch {
+          return { wt, exists: false };
+        }
+      })
+    );
+
+    for (const { wt, exists } of checks) {
+      if (exists) {
         validWorktrees.push(wt);
       } else if (!this.cleaningUpStaleIds.has(wt.id)) {
         // SL-011: Only add if not already being cleaned up to prevent re-deletion attempts

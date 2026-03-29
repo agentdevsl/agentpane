@@ -1,5 +1,5 @@
 import { createId } from '@paralleldrive/cuid2';
-import { desc, eq } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { sessionEvents } from '../db/schema';
 import { type AppError, createError } from '../lib/errors/base.js';
 import { createLogger } from '../lib/logging/logger.js';
@@ -589,38 +589,38 @@ export class DurableStreamsService {
   ): Promise<number> {
     if (!this.db) return 0;
 
-    const MAX_OFFSET_RETRIES = 5;
-    let offset = 0;
-    for (let attempt = 0; attempt < MAX_OFFSET_RETRIES; attempt++) {
-      const lastEvent = await this.db.query.sessionEvents.findFirst({
-        where: eq(sessionEvents.sessionId, streamId),
-        orderBy: [desc(sessionEvents.offset)],
-      });
-      offset = (lastEvent?.offset ?? -1) + 1;
-
+    // QW-2: Atomic offset computation — single INSERT with subquery eliminates
+    // the read-then-write retry loop and reduces contention from O(retries) to O(1).
+    // Retry up to 3 times on unique constraint violations (concurrent inserts).
+    const MAX_RETRIES = 3;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
-        await this.db.insert(sessionEvents).values({
-          id: eventId,
-          sessionId: streamId,
-          offset,
-          type,
-          channel,
-          data,
-          timestamp,
-        });
-        return offset;
+        const result = await this.db
+          .insert(sessionEvents)
+          .values({
+            id: attempt === 0 ? eventId : `${eventId}-r${attempt}`,
+            sessionId: streamId,
+            offset: sql`(SELECT COALESCE(MAX(${sessionEvents.offset}), -1) + 1 FROM ${sessionEvents} WHERE ${sessionEvents.sessionId} = ${streamId})`,
+            type,
+            channel,
+            data,
+            timestamp,
+          })
+          .returning({ offset: sessionEvents.offset });
+
+        return result[0]?.offset ?? 0;
       } catch (insertErr) {
         const isConstraintViolation =
           insertErr instanceof Error &&
           (insertErr.message.includes('UNIQUE constraint') ||
             insertErr.message.includes('duplicate key'));
-        if (isConstraintViolation && attempt < MAX_OFFSET_RETRIES - 1) {
+        if (isConstraintViolation && attempt < MAX_RETRIES - 1) {
           continue;
         }
         throw insertErr;
       }
     }
-    return offset;
+    return 0;
   }
 
   /**

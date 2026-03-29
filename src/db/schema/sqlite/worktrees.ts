@@ -35,7 +35,11 @@ export const worktrees = sqliteTable(
     mergedAt: text('merged_at'),
     removedAt: text('removed_at'),
   },
-  (table) => [index('idx_worktrees_codespace_id').on(table.codespaceId)]
+  (table) => [
+    index('idx_worktrees_codespace_id').on(table.codespaceId),
+    index('idx_worktrees_branch').on(table.codespaceId, table.branch),
+    index('idx_worktrees_status').on(table.status),
+  ]
 );
 
 export type Worktree = typeof worktrees.$inferSelect;

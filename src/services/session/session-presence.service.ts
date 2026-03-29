@@ -28,6 +28,9 @@ const STALE_THRESHOLD_MS = 30 * 60 * 1000;
 /** Cleanup sweep interval: 5 minutes */
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 
+/** Maximum tracked sessions before LRU eviction */
+const MAX_PRESENCE_SESSIONS = 5_000;
+
 /**
  * SessionPresenceService handles user presence management
  */
@@ -72,6 +75,11 @@ export class SessionPresenceService {
     const presence = this.presenceStore.get(sessionId) ?? new Map();
     presence.set(userId, { userId, lastSeen: Date.now() });
     this.presenceStore.set(sessionId, presence);
+
+    // QW-4: Evict oldest sessions when cap is exceeded
+    if (this.presenceStore.size > MAX_PRESENCE_SESSIONS) {
+      this.evictOldestSessions();
+    }
 
     await this.getStreamService().publish(
       sessionId,
@@ -228,6 +236,34 @@ export class SessionPresenceService {
     }, CLEANUP_INTERVAL_MS);
     log.info('Presence cleanup timer started', {
       data: { intervalMs: CLEANUP_INTERVAL_MS },
+    });
+  }
+
+  /**
+   * Evict sessions with the oldest lastSeen timestamps to stay under MAX_PRESENCE_SESSIONS.
+   * Removes 10% of sessions to avoid frequent evictions.
+   */
+  private evictOldestSessions(): void {
+    const entries: Array<{ sessionId: string; oldestSeen: number }> = [];
+    for (const [sessionId, users] of this.presenceStore) {
+      let oldest = Infinity;
+      for (const user of users.values()) {
+        if (user.lastSeen < oldest) oldest = user.lastSeen;
+      }
+      entries.push({ sessionId, oldestSeen: oldest });
+    }
+    // Sort oldest first
+    entries.sort((a, b) => a.oldestSeen - b.oldestSeen);
+    // Remove 10% of total to avoid thrashing
+    const removeCount = Math.max(1, Math.floor(MAX_PRESENCE_SESSIONS * 0.1));
+    for (let i = 0; i < removeCount && i < entries.length; i++) {
+      const entry = entries[i];
+      if (entry) {
+        this.presenceStore.delete(entry.sessionId);
+      }
+    }
+    log.info('Evicted stale presence sessions', {
+      data: { evicted: Math.min(removeCount, entries.length) },
     });
   }
 
