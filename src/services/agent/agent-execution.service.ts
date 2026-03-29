@@ -1229,6 +1229,16 @@ export class AgentExecutionService {
   }
 
   /**
+   * Stop all running agents. Used for graceful shutdown and test cleanup.
+   */
+  stopAll(): void {
+    for (const [, controller] of this.runningAgents) {
+      controller.abort();
+    }
+    this.runningAgents.clear();
+  }
+
+  /**
    * Try to dequeue the next queued task and auto-start the agent on it.
    * Called after an agent completes a task. Failures are logged but not propagated.
    */

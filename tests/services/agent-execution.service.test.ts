@@ -101,6 +101,9 @@ describe('AgentExecutionService', () => {
   });
 
   afterEach(async () => {
+    service.stopAll();
+    // Allow pending async operations to settle after abort
+    await new Promise((resolve) => setTimeout(resolve, 50));
     await clearTestDatabase();
   });
 
