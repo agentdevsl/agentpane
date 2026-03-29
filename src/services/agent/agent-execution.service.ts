@@ -710,6 +710,8 @@ export class AgentExecutionService {
 
       this.runningAgents.delete(agentId);
       this.agentStartTimes.delete(agentId);
+      this.preToolHooks.delete(agentId);
+      this.postToolHooks.delete(agentId);
 
       // Auto-dequeue: when an agent completes, check if there's a queued task to pick up
       if (result.status === 'completed' && this.queueService) {
@@ -771,6 +773,8 @@ export class AgentExecutionService {
 
       this.runningAgents.delete(agentId);
       this.agentStartTimes.delete(agentId);
+      this.preToolHooks.delete(agentId);
+      this.postToolHooks.delete(agentId);
     }
   }
 
@@ -794,6 +798,8 @@ export class AgentExecutionService {
     controller.abort();
     this.runningAgents.delete(agentId);
     this.agentStartTimes.delete(agentId);
+    this.preToolHooks.delete(agentId);
+    this.postToolHooks.delete(agentId);
 
     await this.db
       .update(agents)
@@ -892,6 +898,8 @@ export class AgentExecutionService {
           .where(eq(agents.id, agentId));
         this.runningAgents.delete(agentId);
         this.agentStartTimes.delete(agentId);
+        this.preToolHooks.delete(agentId);
+        this.postToolHooks.delete(agentId);
       });
 
       return ok({
@@ -979,6 +987,8 @@ export class AgentExecutionService {
         );
         this.runningAgents.delete(agentId);
         this.agentStartTimes.delete(agentId);
+        this.preToolHooks.delete(agentId);
+        this.postToolHooks.delete(agentId);
         return;
       }
 
@@ -1126,6 +1136,8 @@ export class AgentExecutionService {
 
       this.runningAgents.delete(agentId);
       this.agentStartTimes.delete(agentId);
+      this.preToolHooks.delete(agentId);
+      this.postToolHooks.delete(agentId);
 
       // Auto-dequeue: when agent completes execution, check for queued tasks
       if (result.status === 'completed' && this.queueService) {
@@ -1188,6 +1200,8 @@ export class AgentExecutionService {
 
       this.runningAgents.delete(agentId);
       this.agentStartTimes.delete(agentId);
+      this.preToolHooks.delete(agentId);
+      this.postToolHooks.delete(agentId);
     }
   }
 
@@ -1314,6 +1328,9 @@ export class AgentExecutionService {
       controller.abort();
     }
     this.runningAgents.clear();
+    this.agentStartTimes.clear();
+    this.preToolHooks.clear();
+    this.postToolHooks.clear();
   }
 
   /**
