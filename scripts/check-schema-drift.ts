@@ -59,7 +59,7 @@ if (missingSqlite.length > 0) {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2: Column-level comparison for shared modules
+// Phase 2 & 3: Column-level and index-level comparison for shared modules
 // ---------------------------------------------------------------------------
 
 interface ColumnInfo {
@@ -73,44 +73,67 @@ interface TableInfo {
   columns: Map<string, ColumnInfo>;
 }
 
-/**
- * Extract table definitions from a schema file.
- *
- * Matches patterns like:
- *   export const tableName = sqliteTable('db_table_name', { ... })
- *   export const tableName = pgTable('db_table_name', { ... })
- *
- * Then extracts columns from the object body.
- */
-function extractTables(filePath: string): TableInfo[] {
-  const content = readFileSync(filePath, 'utf-8');
-  const tables: TableInfo[] = [];
+interface IndexInfo {
+  name: string;
+  columns: string;
+}
 
-  // Match table declarations — capture table variable name, db name, and body
-  // The body is everything in the first { ... } after the table name string
+/**
+ * Track delimiter depth to find the matching close character.
+ * Starts just past the opening delimiter and returns the index just past the close.
+ */
+function findMatchingClose(content: string, startIdx: number, open: string, close: string): number {
+  let depth = 1;
+  let i = startIdx;
+  while (i < content.length && depth > 0) {
+    if (content[i] === open) depth++;
+    else if (content[i] === close) depth--;
+    i++;
+  }
+  return i;
+}
+
+/**
+ * Parse a schema file and extract both table/column info and index info in a single pass.
+ * Avoids reading the same file twice (once for columns, once for indexes).
+ */
+function parseSchemaFile(filePath: string): {
+  tables: Map<string, TableInfo>;
+  indexes: Map<string, IndexInfo[]>;
+} {
+  const content = readFileSync(filePath, 'utf-8');
+  const tables = new Map<string, TableInfo>();
+  const indexes = new Map<string, IndexInfo[]>();
+
   const tableRe =
     /export\s+const\s+\w+\s*=\s*(?:sqliteTable|pgTable)\(\s*['"]([^'"]+)['"]\s*,\s*\{/g;
 
   for (const tableMatch of content.matchAll(tableRe)) {
     const tableName = tableMatch[1];
-    const startIdx = tableMatch.index + tableMatch[0].length;
+    const bodyStart = tableMatch.index + tableMatch[0].length;
 
-    // Find the matching closing brace by counting braces
-    let depth = 1;
-    let i = startIdx;
-    while (i < content.length && depth > 0) {
-      if (content[i] === '{') depth++;
-      else if (content[i] === '}') depth--;
-      i++;
+    // Extract column body (inside the first { ... })
+    const bodyEnd = findMatchingClose(content, bodyStart, '{', '}');
+    const body = content.slice(bodyStart, bodyEnd - 1);
+    tables.set(tableName, { tableName, columns: extractColumns(body) });
+
+    // Extract indexes from the full table call
+    const callStart = content.lastIndexOf('(', bodyStart);
+    const callEnd = findMatchingClose(content, callStart + 1, '(', ')');
+    const fullCall = content.slice(callStart, callEnd);
+
+    const indexRe = /(?:unique)?[Ii]ndex\(\s*['"]([^'"]+)['"]\s*\)\.on\(([^)]+)\)/g;
+    const tableIndexes: IndexInfo[] = [];
+    for (const idxMatch of fullCall.matchAll(indexRe)) {
+      const colRefs = [...idxMatch[2].matchAll(/(?:table|t)\.(\w+)/g)].map((m) => m[1]);
+      tableIndexes.push({ name: idxMatch[1], columns: colRefs.join(', ') });
     }
-
-    const body = content.slice(startIdx, i - 1);
-    const columns = extractColumns(body);
-
-    tables.push({ tableName, columns });
+    if (tableIndexes.length > 0) {
+      indexes.set(tableName, tableIndexes);
+    }
   }
 
-  return tables;
+  return { tables, indexes };
 }
 
 /**
@@ -193,7 +216,7 @@ function extractColumns(body: string): Map<string, ColumnInfo> {
   return columns;
 }
 
-// Compare tables across shared modules
+// Compare tables, columns, and indexes across shared modules (single pass per file pair)
 const sharedModules = [...sqliteModules].filter((m) => postgresModules.has(m));
 let columnDrift = false;
 const warnings: string[] = [];
@@ -206,36 +229,32 @@ for (const mod of sharedModules.sort()) {
     continue;
   }
 
-  const sqliteTables = extractTables(sqlitePath);
-  const postgresTables = extractTables(postgresPath);
+  // Parse both files once (extracts tables + indexes together)
+  const sqlite = parseSchemaFile(sqlitePath);
+  const postgres = parseSchemaFile(postgresPath);
 
-  // Build lookup by table name
-  const sqliteByName = new Map(sqliteTables.map((t) => [t.tableName, t]));
-  const postgresByName = new Map(postgresTables.map((t) => [t.tableName, t]));
-
-  // Check for tables present in one but not the other
-  for (const name of sqliteByName.keys()) {
-    if (!postgresByName.has(name)) {
+  // --- Table-level drift ---
+  for (const name of sqlite.tables.keys()) {
+    if (!postgres.tables.has(name)) {
       warnings.push(`[${mod}] Table '${name}' exists in SQLite but not in PostgreSQL`);
       columnDrift = true;
     }
   }
-  for (const name of postgresByName.keys()) {
-    if (!sqliteByName.has(name)) {
+  for (const name of postgres.tables.keys()) {
+    if (!sqlite.tables.has(name)) {
       warnings.push(`[${mod}] Table '${name}' exists in PostgreSQL but not in SQLite`);
       columnDrift = true;
     }
   }
 
-  // Compare columns for shared tables
-  for (const [tableName, sqliteTable] of sqliteByName) {
-    const pgTable = postgresByName.get(tableName);
+  // --- Column-level drift for shared tables ---
+  for (const [tableName, sqliteTable] of sqlite.tables) {
+    const pgTable = postgres.tables.get(tableName);
     if (!pgTable) continue;
 
     const sqliteCols = sqliteTable.columns;
     const pgCols = pgTable.columns;
 
-    // Columns in SQLite but missing from PostgreSQL
     for (const colName of sqliteCols.keys()) {
       if (!pgCols.has(colName)) {
         warnings.push(
@@ -245,7 +264,6 @@ for (const mod of sharedModules.sort()) {
       }
     }
 
-    // Columns in PostgreSQL but missing from SQLite
     for (const colName of pgCols.keys()) {
       if (!sqliteCols.has(colName)) {
         warnings.push(
@@ -255,120 +273,36 @@ for (const mod of sharedModules.sort()) {
       }
     }
 
-    // Compare onDelete behavior for shared columns with references
+    // Compare onDelete behavior for shared columns
     for (const [colName, sqliteCol] of sqliteCols) {
       const pgCol = pgCols.get(colName);
       if (!pgCol) continue;
 
-      // Compare onDelete — only flag if both have references but differ,
-      // or one has a reference and the other doesn't
-      if (sqliteCol.onDelete && pgCol.onDelete) {
-        if (sqliteCol.onDelete !== pgCol.onDelete) {
-          warnings.push(
-            `[${mod}] Table '${tableName}', column '${colName}': onDelete mismatch — SQLite='${sqliteCol.onDelete}', PostgreSQL='${pgCol.onDelete}'`
-          );
-          columnDrift = true;
-        }
-      } else if (sqliteCol.onDelete && !pgCol.onDelete) {
-        warnings.push(
-          `[${mod}] Table '${tableName}', column '${colName}': SQLite has onDelete='${sqliteCol.onDelete}' but PostgreSQL has no reference/onDelete`
-        );
-        columnDrift = true;
-      } else if (!sqliteCol.onDelete && pgCol.onDelete) {
-        warnings.push(
-          `[${mod}] Table '${tableName}', column '${colName}': PostgreSQL has onDelete='${pgCol.onDelete}' but SQLite has no reference/onDelete`
-        );
-        columnDrift = true;
-      }
-    }
-  }
-}
+      const sqlDel = sqliteCol.onDelete;
+      const pgDel = pgCol.onDelete;
+      if (sqlDel === pgDel) continue;
 
-// ---------------------------------------------------------------------------
-// Phase 3: Index comparison for shared modules
-// ---------------------------------------------------------------------------
-
-interface IndexInfo {
-  name: string;
-  columns: string;
-}
-
-/**
- * Extract index definitions from the table's second argument (the arrow function).
- *
- * Matches patterns like:
- *   index('idx_name').on(table.col1, table.col2)
- *   uniqueIndex('idx_name').on(table.col1)
- */
-function extractIndexes(filePath: string): Map<string, IndexInfo[]> {
-  const content = readFileSync(filePath, 'utf-8');
-  const result = new Map<string, IndexInfo[]>();
-
-  // Find table declarations with their index callbacks
-  // Pattern: sqliteTable/pgTable('name', { columns }, (table) => [ ... ])
-  const tableRe = /export\s+const\s+\w+\s*=\s*(?:sqliteTable|pgTable)\(\s*['"]([^'"]+)['"]/g;
-
-  for (const tableMatch of content.matchAll(tableRe)) {
-    const tableName = tableMatch[1];
-    const startIdx = tableMatch.index + tableMatch[0].length;
-
-    // Find the end of the entire table call by tracking parens from the opening paren
-    // We need to go back to find the opening paren of sqliteTable( / pgTable(
-    const callStart = content.lastIndexOf('(', startIdx);
-    let depth = 1;
-    let i = callStart + 1;
-    while (i < content.length && depth > 0) {
-      if (content[i] === '(') depth++;
-      else if (content[i] === ')') depth--;
-      i++;
-    }
-
-    const fullCall = content.slice(callStart, i);
-
-    // Extract indexes from the callback — match index('name').on(table.col, ...)
-    const indexRe = /(?:unique)?[Ii]ndex\(\s*['"]([^'"]+)['"]\s*\)\.on\(([^)]+)\)/g;
-    const indexes: IndexInfo[] = [];
-
-    for (const idxMatch of fullCall.matchAll(indexRe)) {
-      const name = idxMatch[1];
-      // Normalize columns: extract table.xxx references, sort for comparison
-      const colsRaw = idxMatch[2];
-      const colRefs = [...colsRaw.matchAll(/(?:table|t)\.(\w+)/g)].map((m) => m[1]);
-      indexes.push({ name, columns: colRefs.join(', ') });
-    }
-
-    if (indexes.length > 0) {
-      result.set(tableName, indexes);
+      const sqlLabel = sqlDel ? `'${sqlDel}'` : 'no reference/onDelete';
+      const pgLabel = pgDel ? `'${pgDel}'` : 'no reference/onDelete';
+      warnings.push(
+        `[${mod}] Table '${tableName}', column '${colName}': onDelete mismatch — SQLite=${sqlLabel}, PostgreSQL=${pgLabel}`
+      );
+      columnDrift = true;
     }
   }
 
-  return result;
-}
+  // --- Index-level drift ---
+  const allIndexedTables = new Set([...sqlite.indexes.keys(), ...postgres.indexes.keys()]);
 
-for (const mod of sharedModules.sort()) {
-  const sqlitePath = resolve(root, `sqlite/${mod}.ts`);
-  const postgresPath = resolve(root, `postgres/${mod}.ts`);
+  for (const tableName of allIndexedTables) {
+    const sqliteIdxs = sqlite.indexes.get(tableName) || [];
+    const postgresIdxs = postgres.indexes.get(tableName) || [];
 
-  if (!existsSync(sqlitePath) || !existsSync(postgresPath)) {
-    continue;
-  }
+    const sqliteIdxMap = new Map(sqliteIdxs.map((idx) => [idx.name, idx]));
+    const postgresIdxMap = new Map(postgresIdxs.map((idx) => [idx.name, idx]));
 
-  const sqliteIndexes = extractIndexes(sqlitePath);
-  const postgresIndexes = extractIndexes(postgresPath);
-
-  // Collect all table names that have indexes in either schema
-  const allTables = new Set([...sqliteIndexes.keys(), ...postgresIndexes.keys()]);
-
-  for (const tableName of allTables) {
-    const sqliteIdxs = sqliteIndexes.get(tableName) || [];
-    const postgresIdxs = postgresIndexes.get(tableName) || [];
-
-    const sqliteIdxNames = new Set(sqliteIdxs.map((idx) => idx.name));
-    const postgresIdxNames = new Set(postgresIdxs.map((idx) => idx.name));
-
-    // Indexes in SQLite but missing from PostgreSQL
     for (const idx of sqliteIdxs) {
-      if (!postgresIdxNames.has(idx.name)) {
+      if (!postgresIdxMap.has(idx.name)) {
         warnings.push(
           `[${mod}] Table '${tableName}': index '${idx.name}' (${idx.columns}) exists in SQLite but missing from PostgreSQL`
         );
@@ -376,9 +310,8 @@ for (const mod of sharedModules.sort()) {
       }
     }
 
-    // Indexes in PostgreSQL but missing from SQLite
     for (const idx of postgresIdxs) {
-      if (!sqliteIdxNames.has(idx.name)) {
+      if (!sqliteIdxMap.has(idx.name)) {
         warnings.push(
           `[${mod}] Table '${tableName}': index '${idx.name}' (${idx.columns}) exists in PostgreSQL but missing from SQLite`
         );
@@ -387,19 +320,14 @@ for (const mod of sharedModules.sort()) {
     }
 
     // Compare columns for shared indexes
-    const sqliteIdxMap = new Map(sqliteIdxs.map((idx) => [idx.name, idx]));
-    const postgresIdxMap = new Map(postgresIdxs.map((idx) => [idx.name, idx]));
-
     for (const [idxName, sqliteIdx] of sqliteIdxMap) {
       const pgIdx = postgresIdxMap.get(idxName);
-      if (!pgIdx) continue;
+      if (!pgIdx || sqliteIdx.columns === pgIdx.columns) continue;
 
-      if (sqliteIdx.columns !== pgIdx.columns) {
-        warnings.push(
-          `[${mod}] Table '${tableName}': index '${idxName}' column mismatch — SQLite=(${sqliteIdx.columns}), PostgreSQL=(${pgIdx.columns})`
-        );
-        columnDrift = true;
-      }
+      warnings.push(
+        `[${mod}] Table '${tableName}': index '${idxName}' column mismatch — SQLite=(${sqliteIdx.columns}), PostgreSQL=(${pgIdx.columns})`
+      );
+      columnDrift = true;
     }
   }
 }
