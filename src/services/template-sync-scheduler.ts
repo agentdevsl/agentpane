@@ -100,18 +100,26 @@ export class TemplateSyncScheduler {
                 .set({ nextSyncAt })
                 .where(eq(templates.id, template.id));
             } catch (updateError) {
-              log.warn('Failed to update next sync time', { error: updateError });
+              log.warn('Failed to update next sync time for template', {
+                error: updateError instanceof Error ? updateError.message : String(updateError),
+                data: { templateId: template.id },
+              });
             }
           }
-        } catch (error) {
-          log.warn('Template sync failed', { error });
+        } catch (syncError) {
+          log.warn('Template sync failed', {
+            error: syncError instanceof Error ? syncError.message : String(syncError),
+            data: { templateId: template.id },
+          });
           errors++;
         } finally {
           this.syncInProgress.delete(template.id);
         }
       }
-    } catch (error) {
-      log.warn('Failed to query templates for sync', { error });
+    } catch (queryError) {
+      log.warn('Failed to query templates for sync', {
+        error: queryError instanceof Error ? queryError.message : String(queryError),
+      });
     }
 
     this.lastCheckAt = now;
@@ -131,10 +139,13 @@ export class TemplateSyncScheduler {
     this.checkAndSyncTemplates()
       .then(({ synced, errors }) => {
         if (synced > 0 || errors > 0) {
+          log.info('Initial template sync completed', { data: { synced, errors } });
         }
       })
       .catch((error) => {
-        log.warn('Initial template sync check failed', { error });
+        log.warn('Initial template sync check failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
       });
 
     // Set up periodic checking
@@ -142,9 +153,12 @@ export class TemplateSyncScheduler {
       try {
         const { synced, errors } = await this.checkAndSyncTemplates();
         if (synced > 0 || errors > 0) {
+          log.info('Periodic template sync completed', { data: { synced, errors } });
         }
       } catch (error) {
-        log.warn('Periodic template sync check failed', { error });
+        log.warn('Periodic template sync check failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     }, SCHEDULER_INTERVAL_MS);
 

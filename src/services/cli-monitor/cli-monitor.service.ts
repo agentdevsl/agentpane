@@ -148,7 +148,9 @@ export class CliMonitorService {
     // Persist to DB asynchronously (fire-and-forget)
     if (this.db) {
       this.persistSessions(sessions, removedIds).catch((persistErr) => {
-        log.warn('Failed to persist CLI sessions to DB', { error: persistErr });
+        log.warn('Failed to persist CLI sessions to DB', {
+          error: persistErr instanceof Error ? persistErr.message : String(persistErr),
+        });
       });
     }
 
@@ -298,8 +300,10 @@ export class CliMonitorService {
             retentionDays = parsed;
           }
         }
-      } catch {
-        // Use default retention
+      } catch (settingsErr) {
+        log.warn('Failed to read cliMonitor.retentionDays setting, using default', {
+          error: settingsErr instanceof Error ? settingsErr.message : String(settingsErr),
+        });
       }
 
       const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
@@ -311,8 +315,10 @@ export class CliMonitorService {
       if (changes > 0) {
       }
       return changes;
-    } catch (err) {
-      log.warn('CLI session maintenance failed', { error: err });
+    } catch (maintenanceErr) {
+      log.warn('CLI session maintenance failed', {
+        error: maintenanceErr instanceof Error ? maintenanceErr.message : String(maintenanceErr),
+      });
       return 0;
     }
   }
@@ -381,7 +387,10 @@ export class CliMonitorService {
             set: values,
           });
       } catch (upsertErr) {
-        log.warn('Failed to upsert CLI session', { error: upsertErr });
+        log.warn('Failed to upsert CLI session', {
+          error: upsertErr instanceof Error ? upsertErr.message : String(upsertErr),
+          data: { sessionId: session.sessionId },
+        });
       }
     }
 
@@ -390,21 +399,27 @@ export class CliMonitorService {
       try {
         await this.db.delete(cliSessions).where(eq(cliSessions.sessionId, id));
       } catch (deleteErr) {
-        log.warn('Failed to delete CLI session from DB', { error: deleteErr });
+        log.warn('Failed to delete CLI session from DB', {
+          error: deleteErr instanceof Error ? deleteErr.message : String(deleteErr),
+          data: { sessionId: id },
+        });
       }
     }
   }
 
   private safeJsonParse<T>(
     value: string | null | undefined,
-    _field: string,
-    _sessionId: string
+    field: string,
+    sessionId: string
   ): T | undefined {
     if (!value) return undefined;
     try {
       return JSON.parse(value) as T;
-    } catch (err) {
-      log.debug('Failed to parse JSON field', { error: err });
+    } catch (parseErr) {
+      log.debug('Failed to parse JSON field from CLI session', {
+        error: parseErr instanceof Error ? parseErr.message : String(parseErr),
+        data: { field, sessionId },
+      });
       return undefined;
     }
   }
@@ -458,7 +473,10 @@ export class CliMonitorService {
   private publish(type: string, data: unknown): void {
     // Publish to Caddy/durable streams server
     this.streamsServer.publish(CLI_MONITOR_STREAM_ID, type, data).catch((publishErr) => {
-      log.debug('Failed to publish CLI monitor event', { error: publishErr });
+      log.debug('Failed to publish CLI monitor event to streams server', {
+        error: publishErr instanceof Error ? publishErr.message : String(publishErr),
+        data: { type },
+      });
     });
 
     // Also notify local in-process SSE subscribers
@@ -466,8 +484,10 @@ export class CliMonitorService {
     for (const callback of this.localSubscribers) {
       try {
         callback({ type, data, offset });
-      } catch (err) {
-        log.debug('Local subscriber callback failed', { error: err });
+      } catch (callbackErr) {
+        log.debug('CLI monitor subscriber callback threw', {
+          error: callbackErr instanceof Error ? callbackErr.message : String(callbackErr),
+        });
       }
     }
   }
@@ -495,7 +515,9 @@ export class CliMonitorService {
   private startMaintenance(): void {
     this.stopMaintenance();
     const logMaintenanceError = (err: unknown): void => {
-      log.warn('CLI session maintenance failed', { error: err });
+      log.warn('CLI session maintenance error', {
+        error: err instanceof Error ? err.message : String(err),
+      });
     };
     // Run maintenance on startup
     this.runMaintenance().catch(logMaintenanceError);

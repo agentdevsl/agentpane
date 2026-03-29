@@ -408,23 +408,42 @@ export class AgentExecutionService {
 
         return run;
       });
-    } catch {
+    } catch (txErr) {
+      log.error('Transaction failed during agent start', {
+        error: txErr instanceof Error ? txErr.message : String(txErr),
+        data: { agentId, taskId: task.id },
+      });
+
       // Clean up externally created resources on transaction failure
-      await this.db
-        .delete(worktrees)
-        .where(eq(worktrees.id, worktree.value.id))
+      // 1. Remove physical worktree (git directory on disk)
+      await this.worktreeService
+        .remove(worktree.value.id, true)
         .catch((cleanupErr) => {
-          log.error('Failed to clean up orphaned worktree after transaction failure', {
+          log.error('Failed to clean up physical worktree after transaction failure', {
             error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
             data: { worktreeId: worktree.value.id, agentId },
           });
         });
+
+      // 2. Remove worktree DB record
+      await this.db
+        .delete(worktrees)
+        .where(eq(worktrees.id, worktree.value.id))
+        .catch((cleanupErr) => {
+          log.error('Failed to clean up orphaned worktree record after transaction failure', {
+            error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+            data: { worktreeId: worktree.value.id, agentId },
+          });
+        });
+
+      // 3. Remove orphaned session record
       await this.sessionService.delete(session.value.id).catch((cleanupErr) => {
         log.error('Failed to clean up orphaned session after transaction failure', {
           error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
           data: { sessionId: session.value.id, agentId },
         });
       });
+
       return err(AgentErrors.EXECUTION_ERROR('Failed to start agent: transaction error'));
     }
 
@@ -698,7 +717,7 @@ export class AgentExecutionService {
           .where(eq(agents.id, agentId));
       }
 
-      void this.recordSkillExecutionForTask({
+      this.recordSkillExecutionForTask({
         taskId,
         agentRunId: runId,
         sessionId,
@@ -706,6 +725,10 @@ export class AgentExecutionService {
         turnCount: result.turnCount,
         metrics: result.metrics,
         errorMessage: result.error,
+      }).catch((err) => {
+        log.warn('Failed to record skill execution', {
+          error: err instanceof Error ? err.message : String(err),
+        });
       });
 
       this.runningAgents.delete(agentId);
@@ -751,13 +774,17 @@ export class AgentExecutionService {
         })
         .where(eq(agents.id, agentId));
 
-      void this.recordSkillExecutionForTask({
+      this.recordSkillExecutionForTask({
         taskId,
         agentRunId: runId,
         sessionId,
         status: 'error',
         turnCount: 0,
         errorMessage: errMsg,
+      }).catch((err) => {
+        log.warn('Failed to record skill execution', {
+          error: err instanceof Error ? err.message : String(err),
+        });
       });
 
       await this.sessionService.publish(
@@ -792,7 +819,17 @@ export class AgentExecutionService {
       where: eq(agents.id, agentId),
     });
     if (agent) {
-      validateTransition(agent.status, { type: 'ABORT' });
+      const isValid = validateTransition(agent.status, { type: 'ABORT' });
+      if (!isValid) {
+        log.warn('Invalid state transition for agent abort', {
+          data: { agentId, currentStatus: agent.status },
+        });
+        return err(
+          AgentErrors.EXECUTION_ERROR(
+            `Cannot abort agent in '${agent.status}' state`
+          )
+        );
+      }
     }
 
     controller.abort();
@@ -1124,7 +1161,7 @@ export class AgentExecutionService {
           .where(eq(agents.id, agentId));
       }
 
-      void this.recordSkillExecutionForTask({
+      this.recordSkillExecutionForTask({
         taskId: task.id,
         agentRunId: runId,
         sessionId,
@@ -1132,6 +1169,10 @@ export class AgentExecutionService {
         turnCount: result.turnCount,
         metrics: result.metrics,
         errorMessage: result.error,
+      }).catch((err) => {
+        log.warn('Failed to record skill execution', {
+          error: err instanceof Error ? err.message : String(err),
+        });
       });
 
       this.runningAgents.delete(agentId);
@@ -1178,13 +1219,17 @@ export class AgentExecutionService {
         })
         .where(eq(agents.id, agentId));
 
-      void this.recordSkillExecutionForTask({
+      this.recordSkillExecutionForTask({
         taskId: task.id,
         agentRunId: runId,
         sessionId,
         status: 'error',
         turnCount: 0,
         errorMessage: errMsg,
+      }).catch((err) => {
+        log.warn('Failed to record skill execution', {
+          error: err instanceof Error ? err.message : String(err),
+        });
       });
 
       await this.sessionService.publish(

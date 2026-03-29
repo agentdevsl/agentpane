@@ -166,7 +166,10 @@ export class ApiKeyService {
         .set({ isValid: false, updatedAt: new Date().toISOString() })
         .where(eq(apiKeys.service, service));
     } catch (error) {
-      log.warn('Failed to mark API key as invalid', { error });
+      log.warn('Failed to mark API key as invalid', {
+        error: error instanceof Error ? error.message : String(error),
+        data: { service },
+      });
     }
   }
 }
