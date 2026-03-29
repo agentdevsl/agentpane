@@ -112,6 +112,9 @@ export function json<T>(data: T, status = 200): Response {
 export function isValidClonePath(destination: string): boolean {
   if (!destination || typeof destination !== 'string') return false;
 
+  // Reject null bytes and other dangerous characters early, before any path processing
+  if (/[\0\n\r]/.test(destination)) return false;
+
   // Expand ~ to home directory
   const homeDir = process.env.HOME || process.env.USERPROFILE || '';
   if (!homeDir) return false;
@@ -126,9 +129,6 @@ export function isValidClonePath(destination: string): boolean {
     (base) => resolved === base || resolved.startsWith(`${base}/`)
   );
   if (!isUnderAllowed) return false;
-
-  // Reject null bytes and other dangerous characters
-  if (/[\0\n\r]/.test(destination)) return false;
 
   return true;
 }

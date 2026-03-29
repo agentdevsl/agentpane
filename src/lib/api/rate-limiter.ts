@@ -27,7 +27,8 @@ interface RateLimitEntry {
  * list of proxy IPs. The rate limiter will use the last non-trusted IP from the
  * X-Forwarded-For chain, preventing IP spoofing attacks.
  *
- * Example: TRUSTED_PROXIES=127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+ * Example: TRUSTED_PROXIES=127.0.0.1,10.0.0.1,172.16.0.1
+ * Note: Only exact IP addresses are supported (no CIDR notation).
  */
 const TRUSTED_PROXY_SET = new Set(
   (process.env.TRUSTED_PROXIES ?? '')
@@ -57,13 +58,9 @@ function extractClientIp(c: Context): string {
     return ips[0];
   }
 
-  // No trusted proxies configured: prefer the socket remote address
+  // No trusted proxies configured or no XFF header:
   // X-Forwarded-For can be spoofed, so only use X-Real-IP (typically set by the proxy)
   // or fall back to 'unknown'
-  if (TRUSTED_PROXY_SET.size === 0) {
-    return c.req.header('x-real-ip') ?? 'unknown';
-  }
-
   return c.req.header('x-real-ip') ?? 'unknown';
 }
 

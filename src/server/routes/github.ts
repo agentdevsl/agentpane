@@ -138,7 +138,11 @@ export function createGitHubRoutes({ githubService }: GitHubDeps) {
     }
 
     // Get the repo name from URL for the final path
-    const repoName = body.url.split('/').pop()?.replace('.git', '') || 'repo';
+    const repoName =
+      body.url
+        .split('/')
+        .pop()
+        ?.replace(/\.git$/, '') || 'repo';
     const fullPath = `${destination}/${repoName}`;
 
     try {
