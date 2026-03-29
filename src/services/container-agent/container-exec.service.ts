@@ -320,7 +320,7 @@ export class ContainerExecService {
     } catch (dbErr) {
       const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
       log.error('Failed to create agent record', { data: { agentId, error: errorMessage } });
-      return err(SandboxErrors.AGENT_RECORD_FAILED(errorMessage));
+      return err(SandboxErrors.AGENT_RECORD_FAILED(errorMessage, dbErr));
     }
 
     // Create database session record
@@ -356,7 +356,7 @@ export class ContainerExecService {
       log.error('Failed to create session record', {
         data: { sessionId, taskId, error: errorMessage },
       });
-      return err(SandboxErrors.SESSION_CREATE_FAILED(errorMessage));
+      return err(SandboxErrors.SESSION_CREATE_FAILED(errorMessage, dbErr));
     }
 
     // Link agent and session to task

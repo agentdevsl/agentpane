@@ -25,8 +25,6 @@ import type {
 
 const log = createLogger('DockerProvider');
 
-const log = createLogger('DockerProvider');
-
 /**
  * Docker-based sandbox implementation
  */

@@ -21,14 +21,32 @@ export const SandboxErrors = {
       }
     ),
 
-  CONTAINER_CREATION_FAILED: (message: string) =>
-    createError('SANDBOX_CONTAINER_CREATION_FAILED', `Failed to create container: ${message}`, 500),
+  CONTAINER_CREATION_FAILED: (message: string, cause?: unknown) =>
+    createError(
+      'SANDBOX_CONTAINER_CREATION_FAILED',
+      `Failed to create container: ${message}`,
+      500,
+      undefined,
+      cause
+    ),
 
-  CONTAINER_START_FAILED: (message: string) =>
-    createError('SANDBOX_CONTAINER_START_FAILED', `Failed to start container: ${message}`, 500),
+  CONTAINER_START_FAILED: (message: string, cause?: unknown) =>
+    createError(
+      'SANDBOX_CONTAINER_START_FAILED',
+      `Failed to start container: ${message}`,
+      500,
+      undefined,
+      cause
+    ),
 
-  CONTAINER_STOP_FAILED: (message: string) =>
-    createError('SANDBOX_CONTAINER_STOP_FAILED', `Failed to stop container: ${message}`, 500),
+  CONTAINER_STOP_FAILED: (message: string, cause?: unknown) =>
+    createError(
+      'SANDBOX_CONTAINER_STOP_FAILED',
+      `Failed to stop container: ${message}`,
+      500,
+      undefined,
+      cause
+    ),
 
   CONTAINER_NOT_RUNNING: createError(
     'SANDBOX_CONTAINER_NOT_RUNNING',
@@ -46,8 +64,14 @@ export const SandboxErrors = {
     }),
 
   // Execution errors
-  EXEC_FAILED: (command: string, message: string) =>
-    createError('SANDBOX_EXEC_FAILED', `Command execution failed: ${message}`, 500, { command }),
+  EXEC_FAILED: (command: string, message: string, cause?: unknown) =>
+    createError(
+      'SANDBOX_EXEC_FAILED',
+      `Command execution failed: ${message}`,
+      500,
+      { command },
+      cause
+    ),
 
   EXEC_TIMEOUT: (command: string, timeoutMs: number) =>
     createError('SANDBOX_EXEC_TIMEOUT', `Command timed out after ${timeoutMs}ms`, 408, {
@@ -72,11 +96,13 @@ export const SandboxErrors = {
     }),
 
   // Credentials errors
-  CREDENTIALS_INJECTION_FAILED: (message: string) =>
+  CREDENTIALS_INJECTION_FAILED: (message: string, cause?: unknown) =>
     createError(
       'SANDBOX_CREDENTIALS_INJECTION_FAILED',
       `Failed to inject credentials: ${message}`,
-      500
+      500,
+      undefined,
+      cause
     ),
 
   CREDENTIALS_NOT_FOUND: createError(
@@ -169,11 +195,23 @@ export const SandboxErrors = {
       taskId,
     }),
 
-  AGENT_START_FAILED: (message: string) =>
-    createError('SANDBOX_AGENT_START_FAILED', `Failed to start agent: ${message}`, 500),
+  AGENT_START_FAILED: (message: string, cause?: unknown) =>
+    createError(
+      'SANDBOX_AGENT_START_FAILED',
+      `Failed to start agent: ${message}`,
+      500,
+      undefined,
+      cause
+    ),
 
-  AGENT_STOP_FAILED: (message: string) =>
-    createError('SANDBOX_AGENT_STOP_FAILED', `Failed to stop agent: ${message}`, 500),
+  AGENT_STOP_FAILED: (message: string, cause?: unknown) =>
+    createError(
+      'SANDBOX_AGENT_STOP_FAILED',
+      `Failed to stop agent: ${message}`,
+      500,
+      undefined,
+      cause
+    ),
 
   STREAMING_EXEC_NOT_SUPPORTED: createError(
     'SANDBOX_STREAMING_EXEC_NOT_SUPPORTED',
@@ -187,24 +225,40 @@ export const SandboxErrors = {
     401
   ),
 
-  SESSION_CREATE_FAILED: (message: string) =>
-    createError('SANDBOX_SESSION_CREATE_FAILED', `Failed to create agent session: ${message}`, 500),
+  SESSION_CREATE_FAILED: (message: string, cause?: unknown) =>
+    createError(
+      'SANDBOX_SESSION_CREATE_FAILED',
+      `Failed to create agent session: ${message}`,
+      500,
+      undefined,
+      cause
+    ),
 
-  STREAM_CREATE_FAILED: (message: string) =>
-    createError('SANDBOX_STREAM_CREATE_FAILED', `Failed to create event stream: ${message}`, 500),
+  STREAM_CREATE_FAILED: (message: string, cause?: unknown) =>
+    createError(
+      'SANDBOX_STREAM_CREATE_FAILED',
+      `Failed to create event stream: ${message}`,
+      500,
+      undefined,
+      cause
+    ),
 
-  STREAM_PUBLISH_FAILED: (message: string) =>
+  STREAM_PUBLISH_FAILED: (message: string, cause?: unknown) =>
     createError(
       'SANDBOX_STREAM_PUBLISH_FAILED',
       `Failed to publish event to stream: ${message}`,
-      500
+      500,
+      undefined,
+      cause
     ),
 
-  AGENT_RECORD_FAILED: (message: string) =>
+  AGENT_RECORD_FAILED: (message: string, cause?: unknown) =>
     createError(
       'SANDBOX_AGENT_RECORD_FAILED',
       `Failed to create agent database record: ${message}`,
-      500
+      500,
+      undefined,
+      cause
     ),
 
   // Plan errors
@@ -213,26 +267,31 @@ export const SandboxErrors = {
       taskId,
     }),
 
-  PLAN_REJECTION_FAILED: (taskId: string, message: string) =>
+  PLAN_REJECTION_FAILED: (taskId: string, message: string, cause?: unknown) =>
     createError(
       'SANDBOX_PLAN_REJECTION_FAILED',
       `Failed to reject plan for task ${taskId}: ${message}`,
       500,
-      { taskId }
+      { taskId },
+      cause
     ),
 
   // Worktree errors (container flow)
-  WORKTREE_CREATION_FAILED: (message: string) =>
+  WORKTREE_CREATION_FAILED: (message: string, cause?: unknown) =>
     createError(
       'SANDBOX_WORKTREE_CREATION_FAILED',
       `Failed to create worktree in sandbox: ${message}`,
-      500
+      500,
+      undefined,
+      cause
     ),
 
-  WORKTREE_COMMIT_FAILED: (message: string) =>
+  WORKTREE_COMMIT_FAILED: (message: string, cause?: unknown) =>
     createError(
       'SANDBOX_WORKTREE_COMMIT_FAILED',
       `Failed to commit worktree changes: ${message}`,
-      500
+      500,
+      undefined,
+      cause
     ),
 };
