@@ -11,7 +11,7 @@ vi.mock('../../logging/logger.js', () => ({
   createLogger: () => mockLogger,
 }));
 
-import { InvariantViolation, invariant, softInvariant } from '../invariant.js';
+import { InvariantViolation, invariant, softInvariant, strictInvariant } from '../invariant.js';
 
 describe('invariant', () => {
   it('does not throw when condition is truthy', () => {
@@ -73,6 +73,70 @@ describe('invariant', () => {
       expect(mockLogger.error).toHaveBeenCalledWith('Invariant violation: prod violation', {
         data: context,
       });
+    });
+  });
+});
+
+describe('strictInvariant', () => {
+  it('does not throw when condition is truthy', () => {
+    expect(() => strictInvariant(true, 'msg')).not.toThrow();
+    expect(() => strictInvariant('non-empty', 'msg')).not.toThrow();
+    expect(() => strictInvariant({ key: 'value' }, 'msg')).not.toThrow();
+    expect(() => strictInvariant(1, 'msg')).not.toThrow();
+    expect(() => strictInvariant([1, 2, 3], 'msg')).not.toThrow();
+  });
+
+  it('throws InvariantViolation when condition is falsy', () => {
+    expect(() => strictInvariant(false, 'failed')).toThrow(InvariantViolation);
+    expect(() => strictInvariant(null, 'failed')).toThrow(InvariantViolation);
+    expect(() => strictInvariant(undefined, 'failed')).toThrow(InvariantViolation);
+    expect(() => strictInvariant(0, 'failed')).toThrow(InvariantViolation);
+    expect(() => strictInvariant('', 'failed')).toThrow(InvariantViolation);
+  });
+
+  it('includes context in thrown error', () => {
+    const context = { userId: 'u1', action: 'delete' };
+
+    try {
+      strictInvariant(false, 'auth check failed', context);
+    } catch (e) {
+      expect(e).toBeInstanceOf(InvariantViolation);
+      expect((e as InvariantViolation).context).toEqual(context);
+    }
+  });
+
+  it('logs with critical prefix on violation', () => {
+    const context = { paymentId: 'p1' };
+
+    expect(() => strictInvariant(false, 'amount mismatch', context)).toThrow(InvariantViolation);
+    expect(mockLogger.error).toHaveBeenCalledWith('Critical invariant violation: amount mismatch', {
+      data: context,
+    });
+  });
+
+  describe('production mode', () => {
+    beforeEach(() => {
+      vi.stubEnv('NODE_ENV', 'production');
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it('throws InvariantViolation even in production', () => {
+      expect(() => strictInvariant(false, 'critical failure')).toThrow(InvariantViolation);
+    });
+
+    it('logs with critical prefix in production', () => {
+      const context = { agentId: 'a1' };
+
+      expect(() => strictInvariant(false, 'security violation', context)).toThrow(
+        InvariantViolation
+      );
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Critical invariant violation: security violation',
+        { data: context }
+      );
     });
   });
 });

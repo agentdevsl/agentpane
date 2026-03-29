@@ -92,7 +92,7 @@ const createRunner = (): CommandRunner => {
         const stderr = decodeOutput(details.stderr);
         const message =
           stderr || stdout || (error instanceof Error ? error.message : String(error));
-        throw new Error(`[CommandRunner] ${command} failed: ${message}`);
+        throw new Error(`[CommandRunner] ${command} failed: ${message}`, { cause: error });
       }
     },
   };

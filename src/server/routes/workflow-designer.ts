@@ -151,7 +151,9 @@ function parseAIResponse(responseText: string): {
   try {
     parsed = JSON.parse(jsonStr);
   } catch (e) {
-    throw new Error(`Invalid JSON in AI response: ${e instanceof Error ? e.message : String(e)}`);
+    throw new Error(`Invalid JSON in AI response: ${e instanceof Error ? e.message : String(e)}`, {
+      cause: e,
+    });
   }
 
   // Validate basic structure

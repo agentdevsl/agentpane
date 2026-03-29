@@ -87,7 +87,8 @@ async function writeOAuthCredentials(token: string): Promise<void> {
     });
   } catch (writeErr) {
     throw new Error(
-      `Failed to write OAuth credentials: ${writeErr instanceof Error ? writeErr.message : String(writeErr)}`
+      `Failed to write OAuth credentials: ${writeErr instanceof Error ? writeErr.message : String(writeErr)}`,
+      { cause: writeErr }
     );
   }
 }

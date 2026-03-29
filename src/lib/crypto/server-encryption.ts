@@ -39,7 +39,8 @@ function getOrCreateKey(): Buffer {
     }
   } catch (error) {
     throw new Error(
-      `Cannot create data directory "${dataDir}". Please check permissions. ${errorMessage(error)}`
+      `Cannot create data directory "${dataDir}". Please check permissions. ${errorMessage(error)}`,
+      { cause: error }
     );
   }
 
@@ -60,7 +61,8 @@ function getOrCreateKey(): Buffer {
       }
       throw new Error(
         `Cannot read encryption key from "${keyPath}". Please check file permissions. ` +
-          errorMessage(error)
+          errorMessage(error),
+        { cause: error }
       );
     }
   }
@@ -74,7 +76,8 @@ function getOrCreateKey(): Buffer {
   } catch (error) {
     throw new Error(
       `Cannot write encryption key to "${keyPath}". Please check disk space and permissions. ` +
-        errorMessage(error)
+        errorMessage(error),
+      { cause: error }
     );
   }
 }
@@ -130,7 +133,8 @@ export function decryptToken(encryptedToken: string): string {
     // Authentication tag mismatch or other crypto errors
     throw new Error(
       'Decryption failed. The encryption key may have changed or the data is corrupted. ' +
-        errorMessage(error)
+        errorMessage(error),
+      { cause: error }
     );
   }
 }

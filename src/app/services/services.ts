@@ -76,7 +76,10 @@ export function createServices(context: {
 
     const agentService = new AgentService(
       context.db,
-      { create: (input) => worktreeService.create(input) },
+      {
+        create: (input) => worktreeService.create(input),
+        remove: (id, force) => worktreeService.remove(id, force),
+      },
       { moveColumn: (id, column) => taskService.moveColumn(id, column) },
       sessionService
     );

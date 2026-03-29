@@ -365,8 +365,10 @@ class DockerSandbox implements Sandbox {
           });
           await killer.start({ Detach: true });
         }
-      } catch (error) {
-        log.debug('Failed to terminate exec process', { error });
+      } catch (termErr) {
+        log.debug('Failed to terminate exec process', {
+          error: termErr instanceof Error ? termErr.message : String(termErr),
+        });
       }
     };
 
@@ -436,7 +438,11 @@ export class DockerProvider implements EventEmittingSandboxProvider {
     try {
       const imageInfo = await this.docker.getImage(SANDBOX_DEFAULTS.image).inspect();
       expectedImageId = imageInfo.Id;
-    } catch {}
+    } catch (imageErr) {
+      log.warn('Failed to inspect sandbox image for recovery', {
+        error: imageErr instanceof Error ? imageErr.message : String(imageErr),
+      });
+    }
 
     try {
       // List all containers (including stopped ones) with agentpane prefix
@@ -467,8 +473,11 @@ export class DockerProvider implements EventEmittingSandboxProvider {
             const container = this.docker.getContainer(containerId);
             await container.remove({ force: true });
             removed++;
-          } catch (err) {
-            log.debug('Failed to remove stopped container during recovery', { error: err });
+          } catch (removeErr) {
+            log.debug('Failed to remove stopped container during recovery', {
+              error: removeErr instanceof Error ? removeErr.message : String(removeErr),
+              data: { containerId, containerName },
+            });
           }
           continue;
         }
@@ -483,8 +492,11 @@ export class DockerProvider implements EventEmittingSandboxProvider {
             await container.stop();
             await container.remove({ force: true });
             removed++;
-          } catch (err) {
-            log.debug('Failed to remove stale-image container during recovery', { error: err });
+          } catch (staleErr) {
+            log.debug('Failed to remove stale-image container during recovery', {
+              error: staleErr instanceof Error ? staleErr.message : String(staleErr),
+              data: { containerId, containerName },
+            });
           }
           continue;
         }
@@ -505,8 +517,10 @@ export class DockerProvider implements EventEmittingSandboxProvider {
         this.codespaceToSandbox.set(codespaceId, sandboxId);
         recovered++;
       }
-    } catch (error) {
-      log.warn('Docker container recovery failed', { error });
+    } catch (recoverErr) {
+      log.warn('Docker container recovery failed', {
+        error: recoverErr instanceof Error ? recoverErr.message : String(recoverErr),
+      });
     }
 
     return { recovered, removed };
@@ -756,8 +770,11 @@ export class DockerProvider implements EventEmittingSandboxProvider {
           this.sandboxes.delete(sandboxId);
           this.codespaceToSandbox.delete(sandbox.codespaceId);
           cleaned++;
-        } catch (error) {
-          log.debug('Failed to clean up sandbox during maintenance', { error });
+        } catch (cleanupErr) {
+          log.debug('Failed to clean up sandbox during maintenance', {
+            error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+            data: { sandboxId },
+          });
         }
       }
     }
@@ -820,8 +837,11 @@ export class DockerProvider implements EventEmittingSandboxProvider {
     for (const listener of this.listeners) {
       try {
         listener(event);
-      } catch (error) {
-        log.debug('Sandbox event listener threw', { error });
+      } catch (listenerErr) {
+        log.debug('Sandbox provider event listener threw', {
+          error: listenerErr instanceof Error ? listenerErr.message : String(listenerErr),
+          data: { eventType: event.type },
+        });
       }
     }
   }

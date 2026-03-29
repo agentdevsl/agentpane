@@ -136,7 +136,7 @@ export class AgentCoreBridgeService {
     } catch (dbErr) {
       const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
       log.error('Failed to create agent record', { data: { agentId, error: errorMessage } });
-      return err(SandboxErrors.AGENT_RECORD_FAILED(errorMessage));
+      return err(SandboxErrors.AGENT_RECORD_FAILED(errorMessage, dbErr));
     }
 
     // Create session record
@@ -167,7 +167,7 @@ export class AgentCoreBridgeService {
     } catch (dbErr) {
       const errorMessage = dbErr instanceof Error ? dbErr.message : String(dbErr);
       log.error('Failed to create session record', { data: { sessionId, error: errorMessage } });
-      return err(SandboxErrors.SESSION_CREATE_FAILED(errorMessage));
+      return err(SandboxErrors.SESSION_CREATE_FAILED(errorMessage, dbErr));
     }
 
     // Link agent and session to task
@@ -185,7 +185,7 @@ export class AgentCoreBridgeService {
       const errorMessage = streamErr instanceof Error ? streamErr.message : String(streamErr);
       if (!errorMessage.includes('already exists') && !errorMessage.includes('duplicate')) {
         log.error('Failed to create durable stream', { data: { sessionId, error: errorMessage } });
-        return err(SandboxErrors.STREAM_CREATE_FAILED(errorMessage));
+        return err(SandboxErrors.STREAM_CREATE_FAILED(errorMessage, streamErr));
       }
     }
 
@@ -200,7 +200,7 @@ export class AgentCoreBridgeService {
     } catch (publishErr) {
       const errorMessage = publishErr instanceof Error ? publishErr.message : String(publishErr);
       log.error('Failed to publish initial status', { data: { sessionId, error: errorMessage } });
-      return err(SandboxErrors.STREAM_PUBLISH_FAILED(errorMessage));
+      return err(SandboxErrors.STREAM_PUBLISH_FAILED(errorMessage, publishErr));
     }
 
     // Resolve agent configuration
@@ -365,7 +365,7 @@ export class AgentCoreBridgeService {
       const message = error instanceof Error ? error.message : String(error);
       log.error('Failed to start agent', { data: { taskId, error: message } });
       provider.removeSession(taskId);
-      return err(SandboxErrors.AGENT_START_FAILED(message));
+      return err(SandboxErrors.AGENT_START_FAILED(message, error));
     }
   }
 
@@ -463,7 +463,7 @@ export class AgentCoreBridgeService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       log.error('Failed to stop agent', { data: { taskId, error: message } });
-      return err(SandboxErrors.AGENT_STOP_FAILED(message));
+      return err(SandboxErrors.AGENT_STOP_FAILED(message, error));
     } finally {
       // Explicit cleanup in case stream handler doesn't fire
       if (agent.timeoutHandle) clearTimeout(agent.timeoutHandle);

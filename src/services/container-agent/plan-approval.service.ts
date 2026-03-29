@@ -154,7 +154,12 @@ export class PlanApprovalService {
       // Clean up worktree since the plan failed to persist (Gap 4)
       const orphanedAgent = this.state.getRunningAgent(taskId);
       if (orphanedAgent?.worktreeId) {
-        void this.worktreeInit.cleanupWorktree(taskId, orphanedAgent.worktreeId);
+        this.worktreeInit.cleanupWorktree(taskId, orphanedAgent.worktreeId).catch((err) => {
+          log.warn('Failed to clean up worktree', {
+            error: err instanceof Error ? err.message : String(err),
+            data: { taskId },
+          });
+        });
       }
 
       // Clean up running agent (both maps)
@@ -459,7 +464,12 @@ export class PlanApprovalService {
 
     // Clean up the worktree (async, best-effort)
     if (worktreeIdToClean) {
-      void this.worktreeInit.cleanupWorktree(taskId, worktreeIdToClean);
+      this.worktreeInit.cleanupWorktree(taskId, worktreeIdToClean).catch((err) => {
+        log.warn('Failed to clean up worktree', {
+          error: err instanceof Error ? err.message : String(err),
+          data: { taskId },
+        });
+      });
     }
 
     log.info('Plan rejected successfully', { data: { taskId } });

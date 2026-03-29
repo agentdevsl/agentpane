@@ -220,7 +220,7 @@ export class WorktreeService {
         codespace.path
       );
     } catch (error) {
-      return err(WorktreeErrors.CREATION_FAILED(branch, String(error)));
+      return err(WorktreeErrors.CREATION_FAILED(branch, String(error), error));
     }
 
     const [insertedWorktree] = await this.db
@@ -351,7 +351,7 @@ export class WorktreeService {
         worktreeId,
       });
 
-      return err(WorktreeErrors.REMOVAL_FAILED(worktree.path, String(error)));
+      return err(WorktreeErrors.REMOVAL_FAILED(worktree.path, String(error), error));
     }
   }
 
@@ -405,7 +405,7 @@ export class WorktreeService {
       await this.runner.exec(`cp "${escapedSource}" "${escapedTarget}"`, worktree.codespace.path);
       return ok(undefined);
     } catch (error) {
-      return err(WorktreeErrors.ENV_COPY_FAILED(String(error)));
+      return err(WorktreeErrors.ENV_COPY_FAILED(String(error), error));
     }
   }
 
@@ -422,7 +422,7 @@ export class WorktreeService {
       await this.runner.exec('bun install', worktree.path);
       return ok(undefined);
     } catch (error) {
-      return err(WorktreeErrors.INIT_SCRIPT_FAILED('bun install', String(error)));
+      return err(WorktreeErrors.INIT_SCRIPT_FAILED('bun install', String(error), error));
     }
   }
 
@@ -457,7 +457,7 @@ export class WorktreeService {
       await this.runner.exec(sanitizedScript, worktree.path);
       return ok(undefined);
     } catch (error) {
-      return err(WorktreeErrors.INIT_SCRIPT_FAILED(sanitizedScript, String(error)));
+      return err(WorktreeErrors.INIT_SCRIPT_FAILED(sanitizedScript, String(error), error));
     }
   }
 
@@ -494,7 +494,7 @@ export class WorktreeService {
 
       return ok(sha.stdout.trim());
     } catch (error) {
-      return err(WorktreeErrors.CREATION_FAILED(worktree.branch, String(error)));
+      return err(WorktreeErrors.CREATION_FAILED(worktree.branch, String(error), error));
     }
   }
 
@@ -588,7 +588,7 @@ export class WorktreeService {
         worktreeId,
       });
 
-      return err(WorktreeErrors.CREATION_FAILED(worktree.branch, String(error)));
+      return err(WorktreeErrors.CREATION_FAILED(worktree.branch, String(error), error));
     }
   }
 
@@ -652,7 +652,7 @@ export class WorktreeService {
         },
       });
     } catch (error) {
-      return err(WorktreeErrors.CREATION_FAILED(worktree.branch, String(error)));
+      return err(WorktreeErrors.CREATION_FAILED(worktree.branch, String(error), error));
     }
   }
 

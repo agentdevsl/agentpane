@@ -1,12 +1,13 @@
 import { createError } from './base.js';
 
 export const WorktreeErrors = {
-  CREATION_FAILED: (branch: string, error: string) =>
+  CREATION_FAILED: (branch: string, error: string, cause?: unknown) =>
     createError(
       'WORKTREE_CREATION_FAILED',
       `Failed to create worktree for branch "${branch}"`,
       500,
-      { branch, error }
+      { branch, error },
+      cause
     ),
   NOT_FOUND: createError('WORKTREE_NOT_FOUND', 'Worktree not found', 404),
   BRANCH_EXISTS: (branch: string) =>
@@ -21,20 +22,30 @@ export const WorktreeErrors = {
     createError('WORKTREE_DIRTY', 'Worktree has uncommitted changes', 400, {
       uncommittedFiles: files,
     }),
-  REMOVAL_FAILED: (path: string, error: string) =>
-    createError('WORKTREE_REMOVAL_FAILED', `Failed to remove worktree at "${path}"`, 500, {
-      path,
-      error,
-    }),
-  ENV_COPY_FAILED: (error: string) =>
-    createError('WORKTREE_ENV_COPY_FAILED', 'Failed to copy environment file', 500, {
-      error,
-    }),
-  INIT_SCRIPT_FAILED: (script: string, error: string) =>
-    createError('WORKTREE_INIT_SCRIPT_FAILED', `Init script failed: ${script}`, 500, {
-      script,
-      error,
-    }),
+  REMOVAL_FAILED: (path: string, error: string, cause?: unknown) =>
+    createError(
+      'WORKTREE_REMOVAL_FAILED',
+      `Failed to remove worktree at "${path}"`,
+      500,
+      { path, error },
+      cause
+    ),
+  ENV_COPY_FAILED: (error: string, cause?: unknown) =>
+    createError(
+      'WORKTREE_ENV_COPY_FAILED',
+      'Failed to copy environment file',
+      500,
+      { error },
+      cause
+    ),
+  INIT_SCRIPT_FAILED: (script: string, error: string, cause?: unknown) =>
+    createError(
+      'WORKTREE_INIT_SCRIPT_FAILED',
+      `Init script failed: ${script}`,
+      500,
+      { script, error },
+      cause
+    ),
 } as const;
 
 export type WorktreeError =
