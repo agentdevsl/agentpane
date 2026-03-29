@@ -9,6 +9,70 @@ import { getRequestId } from '../context/request-context.js';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
+// --- Sensitive data masking ---
+
+const SENSITIVE_FIELD_NAMES = new Set([
+  'token',
+  'key',
+  'secret',
+  'password',
+  'credential',
+  'authorization',
+  'cookie',
+  'apikey',
+  'api_key',
+  'privatekey',
+  'private_key',
+]);
+
+const SENSITIVE_VALUE_PATTERNS: RegExp[] = [
+  /^sk-ant-.*/,
+  /^ghp_.*/,
+  /^ghs_.*/,
+  /^gho_.*/,
+  /^github_pat_.*/,
+];
+
+function isSensitiveFieldName(name: string): boolean {
+  return SENSITIVE_FIELD_NAMES.has(name.toLowerCase());
+}
+
+function isSensitiveValue(value: string): boolean {
+  return SENSITIVE_VALUE_PATTERNS.some((pattern) => pattern.test(value));
+}
+
+/**
+ * Recursively masks sensitive data in objects and arrays.
+ * Returns a new object — does not mutate the input.
+ */
+export function maskSensitiveData<T>(obj: T): T {
+  if (obj === null || obj === undefined) {
+    return obj;
+  }
+
+  if (typeof obj === 'string') {
+    return (isSensitiveValue(obj) ? '[REDACTED]' : obj) as T;
+  }
+
+  if (Array.isArray(obj)) {
+    return obj.map((item) => maskSensitiveData(item)) as T;
+  }
+
+  if (typeof obj === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [fieldName, value] of Object.entries(obj as Record<string, unknown>)) {
+      if (isSensitiveFieldName(fieldName)) {
+        result[fieldName] = '[REDACTED]';
+      } else {
+        result[fieldName] = maskSensitiveData(value);
+      }
+    }
+    return result as T;
+  }
+
+  return obj;
+}
+
 const LOG_LEVELS: Record<LogLevel, number> = {
   debug: 0,
   info: 1,
@@ -18,6 +82,8 @@ const LOG_LEVELS: Record<LogLevel, number> = {
 
 interface LogEntry {
   level: LogLevel;
+  service: string;
+  environment: string;
   message: string;
   timestamp: string;
   context?: string;
@@ -29,6 +95,10 @@ interface LogEntry {
     code?: string;
   };
 }
+
+// Computed once at module load for performance
+const serviceName = process.env.SERVICE_NAME || 'agentpane';
+const environment = process.env.NODE_ENV || 'development';
 
 const VALID_LOG_LEVELS = new Set<string>(['debug', 'info', 'warn', 'error']);
 
@@ -87,12 +157,14 @@ function log(
 
   const entry: LogEntry = {
     level,
+    service: serviceName,
+    environment,
     message,
     timestamp: new Date().toISOString(),
     context: opts?.context,
     requestId,
-    data: opts?.data,
-    error: serializeError(opts?.error),
+    data: opts?.data ? maskSensitiveData(opts.data) : undefined,
+    error: maskSensitiveData(serializeError(opts?.error)),
   };
 
   const formatted = formatEntry(entry);
