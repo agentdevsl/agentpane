@@ -139,6 +139,7 @@ UPDATE "codespaces" SET "project_folder_id" = 'default_folder' WHERE "project_fo
 ALTER TABLE "codespaces" ALTER COLUMN "project_folder_id" SET NOT NULL;
 
 -- 2e. Re-add unique constraint on codespaces.path
+ALTER TABLE "codespaces" DROP CONSTRAINT IF EXISTS "codespaces_path_unique";
 ALTER TABLE "codespaces" ADD CONSTRAINT "codespaces_path_unique" UNIQUE ("path");
 
 -- 2f. Rename project_id -> codespace_id in all referencing tables
@@ -153,65 +154,92 @@ ALTER TABLE "worktrees" RENAME COLUMN "project_id" TO "codespace_id";
 
 -- Also rename unique constraint on sandbox_instances
 ALTER TABLE "sandbox_instances" DROP CONSTRAINT IF EXISTS "sandbox_instances_project_id_unique";
+ALTER TABLE "sandbox_instances" DROP CONSTRAINT IF EXISTS "sandbox_instances_codespace_id_unique";
 ALTER TABLE "sandbox_instances" ADD CONSTRAINT "sandbox_instances_codespace_id_unique" UNIQUE ("codespace_id");
 
 -- 2g. Re-create all FK constraints pointing to "codespaces"
+-- Drop before add for idempotency (safe to run multiple times)
+ALTER TABLE "codespaces" DROP CONSTRAINT IF EXISTS "codespaces_project_folder_id_project_folders_id_fk";
 ALTER TABLE "codespaces" ADD CONSTRAINT "codespaces_project_folder_id_project_folders_id_fk"
     FOREIGN KEY ("project_folder_id") REFERENCES "project_folders"("id") ON DELETE CASCADE;
+ALTER TABLE "codespaces" DROP CONSTRAINT IF EXISTS "codespaces_github_installation_id_github_installations_id_fk";
 ALTER TABLE "codespaces" ADD CONSTRAINT "codespaces_github_installation_id_github_installations_id_fk"
     FOREIGN KEY ("github_installation_id") REFERENCES "github_installations"("id") ON DELETE SET NULL;
+ALTER TABLE "codespaces" DROP CONSTRAINT IF EXISTS "codespaces_sandbox_config_id_sandbox_configs_id_fk";
 ALTER TABLE "codespaces" ADD CONSTRAINT "codespaces_sandbox_config_id_sandbox_configs_id_fk"
     FOREIGN KEY ("sandbox_config_id") REFERENCES "sandbox_configs"("id") ON DELETE SET NULL;
 
+ALTER TABLE "agent_runs" DROP CONSTRAINT IF EXISTS "agent_runs_codespace_id_codespaces_id_fk";
 ALTER TABLE "agent_runs" ADD CONSTRAINT "agent_runs_codespace_id_codespaces_id_fk"
     FOREIGN KEY ("codespace_id") REFERENCES "codespaces"("id") ON DELETE CASCADE;
+ALTER TABLE "agents" DROP CONSTRAINT IF EXISTS "agents_codespace_id_codespaces_id_fk";
 ALTER TABLE "agents" ADD CONSTRAINT "agents_codespace_id_codespaces_id_fk"
     FOREIGN KEY ("codespace_id") REFERENCES "codespaces"("id") ON DELETE CASCADE;
+ALTER TABLE "audit_logs" DROP CONSTRAINT IF EXISTS "audit_logs_codespace_id_codespaces_id_fk";
 ALTER TABLE "audit_logs" ADD CONSTRAINT "audit_logs_codespace_id_codespaces_id_fk"
     FOREIGN KEY ("codespace_id") REFERENCES "codespaces"("id") ON DELETE CASCADE;
+ALTER TABLE "plan_sessions" DROP CONSTRAINT IF EXISTS "plan_sessions_codespace_id_codespaces_id_fk";
 ALTER TABLE "plan_sessions" ADD CONSTRAINT "plan_sessions_codespace_id_codespaces_id_fk"
     FOREIGN KEY ("codespace_id") REFERENCES "codespaces"("id") ON DELETE CASCADE;
+ALTER TABLE "sandbox_instances" DROP CONSTRAINT IF EXISTS "sandbox_instances_codespace_id_codespaces_id_fk";
 ALTER TABLE "sandbox_instances" ADD CONSTRAINT "sandbox_instances_codespace_id_codespaces_id_fk"
     FOREIGN KEY ("codespace_id") REFERENCES "codespaces"("id") ON DELETE CASCADE;
+ALTER TABLE "sessions" DROP CONSTRAINT IF EXISTS "sessions_codespace_id_codespaces_id_fk";
 ALTER TABLE "sessions" ADD CONSTRAINT "sessions_codespace_id_codespaces_id_fk"
     FOREIGN KEY ("codespace_id") REFERENCES "codespaces"("id") ON DELETE CASCADE;
+ALTER TABLE "tasks" DROP CONSTRAINT IF EXISTS "tasks_codespace_id_codespaces_id_fk";
 ALTER TABLE "tasks" ADD CONSTRAINT "tasks_codespace_id_codespaces_id_fk"
     FOREIGN KEY ("codespace_id") REFERENCES "codespaces"("id") ON DELETE CASCADE;
+ALTER TABLE "worktrees" DROP CONSTRAINT IF EXISTS "worktrees_codespace_id_codespaces_id_fk";
 ALTER TABLE "worktrees" ADD CONSTRAINT "worktrees_codespace_id_codespaces_id_fk"
     FOREIGN KEY ("codespace_id") REFERENCES "codespaces"("id") ON DELETE CASCADE;
 
 -- Re-add non-project FK constraints that were dropped
+ALTER TABLE "agent_runs" DROP CONSTRAINT IF EXISTS "agent_runs_agent_id_agents_id_fk";
 ALTER TABLE "agent_runs" ADD CONSTRAINT "agent_runs_agent_id_agents_id_fk"
     FOREIGN KEY ("agent_id") REFERENCES "agents"("id") ON DELETE CASCADE;
+ALTER TABLE "agent_runs" DROP CONSTRAINT IF EXISTS "agent_runs_task_id_tasks_id_fk";
 ALTER TABLE "agent_runs" ADD CONSTRAINT "agent_runs_task_id_tasks_id_fk"
     FOREIGN KEY ("task_id") REFERENCES "tasks"("id") ON DELETE CASCADE;
+ALTER TABLE "agent_runs" DROP CONSTRAINT IF EXISTS "agent_runs_session_id_sessions_id_fk";
 ALTER TABLE "agent_runs" ADD CONSTRAINT "agent_runs_session_id_sessions_id_fk"
     FOREIGN KEY ("session_id") REFERENCES "sessions"("id") ON DELETE SET NULL;
 
+ALTER TABLE "audit_logs" DROP CONSTRAINT IF EXISTS "audit_logs_agent_id_agents_id_fk";
 ALTER TABLE "audit_logs" ADD CONSTRAINT "audit_logs_agent_id_agents_id_fk"
     FOREIGN KEY ("agent_id") REFERENCES "agents"("id") ON DELETE SET NULL;
+ALTER TABLE "audit_logs" DROP CONSTRAINT IF EXISTS "audit_logs_agent_run_id_agent_runs_id_fk";
 ALTER TABLE "audit_logs" ADD CONSTRAINT "audit_logs_agent_run_id_agent_runs_id_fk"
     FOREIGN KEY ("agent_run_id") REFERENCES "agent_runs"("id") ON DELETE SET NULL;
+ALTER TABLE "audit_logs" DROP CONSTRAINT IF EXISTS "audit_logs_task_id_tasks_id_fk";
 ALTER TABLE "audit_logs" ADD CONSTRAINT "audit_logs_task_id_tasks_id_fk"
     FOREIGN KEY ("task_id") REFERENCES "tasks"("id") ON DELETE SET NULL;
 
+ALTER TABLE "plan_sessions" DROP CONSTRAINT IF EXISTS "plan_sessions_task_id_tasks_id_fk";
 ALTER TABLE "plan_sessions" ADD CONSTRAINT "plan_sessions_task_id_tasks_id_fk"
     FOREIGN KEY ("task_id") REFERENCES "tasks"("id") ON DELETE CASCADE;
 
+ALTER TABLE "sessions" DROP CONSTRAINT IF EXISTS "sessions_task_id_tasks_id_fk";
 ALTER TABLE "sessions" ADD CONSTRAINT "sessions_task_id_tasks_id_fk"
     FOREIGN KEY ("task_id") REFERENCES "tasks"("id") ON DELETE SET NULL;
+ALTER TABLE "sessions" DROP CONSTRAINT IF EXISTS "sessions_agent_id_agents_id_fk";
 ALTER TABLE "sessions" ADD CONSTRAINT "sessions_agent_id_agents_id_fk"
     FOREIGN KEY ("agent_id") REFERENCES "agents"("id") ON DELETE SET NULL;
 
+ALTER TABLE "tasks" DROP CONSTRAINT IF EXISTS "tasks_agent_id_agents_id_fk";
 ALTER TABLE "tasks" ADD CONSTRAINT "tasks_agent_id_agents_id_fk"
     FOREIGN KEY ("agent_id") REFERENCES "agents"("id") ON DELETE SET NULL;
+ALTER TABLE "tasks" DROP CONSTRAINT IF EXISTS "tasks_session_id_sessions_id_fk";
 ALTER TABLE "tasks" ADD CONSTRAINT "tasks_session_id_sessions_id_fk"
     FOREIGN KEY ("session_id") REFERENCES "sessions"("id") ON DELETE SET NULL;
+ALTER TABLE "tasks" DROP CONSTRAINT IF EXISTS "tasks_worktree_id_worktrees_id_fk";
 ALTER TABLE "tasks" ADD CONSTRAINT "tasks_worktree_id_worktrees_id_fk"
     FOREIGN KEY ("worktree_id") REFERENCES "worktrees"("id") ON DELETE SET NULL;
 
+ALTER TABLE "worktrees" DROP CONSTRAINT IF EXISTS "worktrees_agent_id_agents_id_fk";
 ALTER TABLE "worktrees" ADD CONSTRAINT "worktrees_agent_id_agents_id_fk"
     FOREIGN KEY ("agent_id") REFERENCES "agents"("id") ON DELETE SET NULL;
+ALTER TABLE "worktrees" DROP CONSTRAINT IF EXISTS "worktrees_task_id_tasks_id_fk";
 ALTER TABLE "worktrees" ADD CONSTRAINT "worktrees_task_id_tasks_id_fk"
     FOREIGN KEY ("task_id") REFERENCES "tasks"("id") ON DELETE SET NULL;
 
@@ -228,9 +256,11 @@ ALTER TABLE "template_codespaces" RENAME COLUMN "project_id" TO "codespace_id";
 ALTER TABLE "template_codespaces" DROP CONSTRAINT IF EXISTS "template_projects_template_id_project_id_pk";
 ALTER TABLE "template_codespaces" ADD PRIMARY KEY ("template_id", "codespace_id");
 
--- Re-add FK constraints
+-- Re-add FK constraints (drop first for idempotency)
+ALTER TABLE "template_codespaces" DROP CONSTRAINT IF EXISTS "template_codespaces_template_id_templates_id_fk";
 ALTER TABLE "template_codespaces" ADD CONSTRAINT "template_codespaces_template_id_templates_id_fk"
     FOREIGN KEY ("template_id") REFERENCES "templates"("id") ON DELETE CASCADE;
+ALTER TABLE "template_codespaces" DROP CONSTRAINT IF EXISTS "template_codespaces_codespace_id_codespaces_id_fk";
 ALTER TABLE "template_codespaces" ADD CONSTRAINT "template_codespaces_codespace_id_codespaces_id_fk"
     FOREIGN KEY ("codespace_id") REFERENCES "codespaces"("id") ON DELETE CASCADE;
 
@@ -239,6 +269,7 @@ ALTER TABLE "template_codespaces" ADD CONSTRAINT "template_codespaces_codespace_
 -- ============================================================================
 
 ALTER TABLE "templates" RENAME COLUMN "project_id" TO "codespace_id";
+ALTER TABLE "templates" DROP CONSTRAINT IF EXISTS "templates_codespace_id_codespaces_id_fk";
 ALTER TABLE "templates" ADD CONSTRAINT "templates_codespace_id_codespaces_id_fk"
     FOREIGN KEY ("codespace_id") REFERENCES "codespaces"("id") ON DELETE CASCADE;
 
