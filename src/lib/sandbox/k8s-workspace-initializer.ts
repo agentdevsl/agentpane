@@ -7,13 +7,14 @@
  *  - Worktree failure (after successful clone): falls back to /workspace root
  *    (has code from clone, but no branch isolation)
  */
+
 import { CONTAINER_WORKSPACE_PATH } from '../constants/sandbox.js';
 import { createLogger } from '../logging/logger.js';
 import { slugify } from '../utils/slugify.js';
-
-const log = createLogger('K8sWorkspaceInitializer');
 import type { GitTokenResult } from './git-token-resolver.js';
 import type { ExecResult } from './types.js';
+
+const log = createLogger('K8sWorkspaceInitializer');
 
 const WORKTREES_DIR = `${CONTAINER_WORKSPACE_PATH}/.worktrees`;
 

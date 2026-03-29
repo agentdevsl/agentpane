@@ -8,6 +8,7 @@ import { ok } from '../../lib/utils/result.js';
 import type { Database } from '../../types/database.js';
 
 const log = createLogger('CliMonitorService');
+
 import type { AgentTopologyNode, CliSession, DaemonInfo, DaemonRegisterPayload } from './types.js';
 import { DAEMON_TIMEOUT_MS } from './types.js';
 
@@ -146,7 +147,9 @@ export class CliMonitorService {
 
     // Persist to DB asynchronously (fire-and-forget)
     if (this.db) {
-      this.persistSessions(sessions, removedIds).catch((persistErr) => { log.warn('Failed to persist CLI sessions to DB', { error: persistErr }); });
+      this.persistSessions(sessions, removedIds).catch((persistErr) => {
+        log.warn('Failed to persist CLI sessions to DB', { error: persistErr });
+      });
     }
 
     return true;
@@ -377,14 +380,18 @@ export class CliMonitorService {
             target: cliSessions.sessionId,
             set: values,
           });
-      } catch (upsertErr) { log.warn('Failed to upsert CLI session', { error: upsertErr }); }
+      } catch (upsertErr) {
+        log.warn('Failed to upsert CLI session', { error: upsertErr });
+      }
     }
 
     // Remove deleted sessions from DB
     for (const id of removedIds) {
       try {
         await this.db.delete(cliSessions).where(eq(cliSessions.sessionId, id));
-      } catch (deleteErr) { log.warn('Failed to delete CLI session from DB', { error: deleteErr }); }
+      } catch (deleteErr) {
+        log.warn('Failed to delete CLI session from DB', { error: deleteErr });
+      }
     }
   }
 
@@ -450,14 +457,18 @@ export class CliMonitorService {
 
   private publish(type: string, data: unknown): void {
     // Publish to Caddy/durable streams server
-    this.streamsServer.publish(CLI_MONITOR_STREAM_ID, type, data).catch((publishErr) => { log.debug('Failed to publish CLI monitor event', { error: publishErr }); });
+    this.streamsServer.publish(CLI_MONITOR_STREAM_ID, type, data).catch((publishErr) => {
+      log.debug('Failed to publish CLI monitor event', { error: publishErr });
+    });
 
     // Also notify local in-process SSE subscribers
     const offset = this.localOffset++;
     for (const callback of this.localSubscribers) {
       try {
         callback({ type, data, offset });
-      } catch (err) { log.debug('Local subscriber callback failed', { error: err }); }
+      } catch (err) {
+        log.debug('Local subscriber callback failed', { error: err });
+      }
     }
   }
 
@@ -483,7 +494,9 @@ export class CliMonitorService {
 
   private startMaintenance(): void {
     this.stopMaintenance();
-    const logMaintenanceError = (err: unknown): void => { log.warn('CLI session maintenance failed', { error: err }); };
+    const logMaintenanceError = (err: unknown): void => {
+      log.warn('CLI session maintenance failed', { error: err });
+    };
     // Run maintenance on startup
     this.runMaintenance().catch(logMaintenanceError);
     // Then periodically

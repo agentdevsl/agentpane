@@ -27,8 +27,14 @@ import {
 } from './envelope';
 
 // Re-export types for convenience
-export type { SessionAgentState, SessionChunk, SessionPresence, SessionTerminal, SessionToolCall };
-export type { StreamEventMetadata };
+export type {
+  SessionAgentState,
+  SessionChunk,
+  SessionPresence,
+  SessionTerminal,
+  SessionToolCall,
+  StreamEventMetadata,
+};
 
 export type StreamCursor = string;
 

@@ -4,8 +4,6 @@ import Docker from 'dockerode';
 import { SandboxErrors } from '../../errors/sandbox-errors.js';
 import { createLogger } from '../../logging/logger.js';
 import { errorMessage } from '../../utils/error-message';
-
-const log = createLogger('DockerProvider');
 import type {
   ExecResult,
   SandboxConfig,
@@ -24,6 +22,8 @@ import type {
   SandboxProviderEvent,
   SandboxProviderEventListener,
 } from './sandbox-provider.js';
+
+const log = createLogger('DockerProvider');
 
 /**
  * Docker-based sandbox implementation

@@ -15,11 +15,11 @@
 
 import { createId } from '@paralleldrive/cuid2';
 import { and, eq, gt, sql } from 'drizzle-orm';
-import { createLogger } from '../../lib/logging/logger.js';
 import type { NewSessionSummary, SessionSummary } from '../../db/schema';
 import { sessionEvents, sessionSummaries, sessions } from '../../db/schema';
 import type { SessionError } from '../../lib/errors/session-errors.js';
 import { SessionErrors } from '../../lib/errors/session-errors.js';
+import { createLogger } from '../../lib/logging/logger.js';
 import {
   requirePayloadStreamMetadata,
   STREAM_PROTOCOL_MIGRATION_GATE,

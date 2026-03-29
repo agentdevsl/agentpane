@@ -99,7 +99,9 @@ export class TemplateSyncScheduler {
                 .update(templates)
                 .set({ nextSyncAt })
                 .where(eq(templates.id, template.id));
-            } catch (updateError) { log.warn('Failed to update next sync time', { error: updateError }); }
+            } catch (updateError) {
+              log.warn('Failed to update next sync time', { error: updateError });
+            }
           }
         } catch (error) {
           log.warn('Template sync failed', { error });
@@ -108,7 +110,9 @@ export class TemplateSyncScheduler {
           this.syncInProgress.delete(template.id);
         }
       }
-    } catch (error) { log.warn('Failed to query templates for sync', { error }); }
+    } catch (error) {
+      log.warn('Failed to query templates for sync', { error });
+    }
 
     this.lastCheckAt = now;
     return { synced, errors };
@@ -129,7 +133,9 @@ export class TemplateSyncScheduler {
         if (synced > 0 || errors > 0) {
         }
       })
-      .catch((error) => { log.warn('Initial template sync check failed', { error }); });
+      .catch((error) => {
+        log.warn('Initial template sync check failed', { error });
+      });
 
     // Set up periodic checking
     this.intervalId = setInterval(async () => {
@@ -137,7 +143,9 @@ export class TemplateSyncScheduler {
         const { synced, errors } = await this.checkAndSyncTemplates();
         if (synced > 0 || errors > 0) {
         }
-      } catch (error) { log.warn('Periodic template sync check failed', { error }); }
+      } catch (error) {
+        log.warn('Periodic template sync check failed', { error });
+      }
     }, SCHEDULER_INTERVAL_MS);
 
     return () => this.stop();

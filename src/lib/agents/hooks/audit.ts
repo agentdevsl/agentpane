@@ -1,5 +1,5 @@
-import { createLogger } from '../../logging/logger.js';
 import type { Database } from '../../../types/database.js';
+import { createLogger } from '../../logging/logger.js';
 import type { PostToolUseHook, PostToolUseInput } from '../types.js';
 
 const log = createLogger('AuditHook');

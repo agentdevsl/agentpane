@@ -33,11 +33,11 @@ const SENSITIVE_FIELD_NAMES = new Set([
 ]);
 
 const SENSITIVE_VALUE_PATTERNS: RegExp[] = [
-  /sk-ant-\S+/,
-  /ghp_\S+/,
-  /ghs_\S+/,
-  /gho_\S+/,
-  /github_pat_\S+/,
+  /sk-ant-\S+/g,
+  /ghp_\S+/g,
+  /ghs_\S+/g,
+  /gho_\S+/g,
+  /github_pat_\S+/g,
 ];
 
 function isSensitiveFieldName(name: string): boolean {

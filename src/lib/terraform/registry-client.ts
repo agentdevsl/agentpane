@@ -1,5 +1,5 @@
-import { createLogger } from '../logging/logger.js';
 import type { NewTerraformModule, TerraformOutput, TerraformVariable } from '../../db/schema';
+import { createLogger } from '../logging/logger.js';
 
 const log = createLogger('TerraformRegistryClient');
 

@@ -5,6 +5,7 @@ import { codespaces, planSessions, tasks } from '../db/schema';
 import type { PlanModeError } from '../lib/errors/plan-mode-errors.js';
 import { PlanModeErrors } from '../lib/errors/plan-mode-errors.js';
 import type { GitHubIssueCreator } from '../lib/github/issue-creator.js';
+import { createLogger } from '../lib/logging/logger.js';
 import type { ClaudeClient, ToolCallResult } from '../lib/plan-mode/claude-client.js';
 import { createClaudeClient } from '../lib/plan-mode/claude-client.js';
 import type { InteractionHandler } from '../lib/plan-mode/interaction-handler.js';
@@ -15,7 +16,6 @@ import type {
   PlanTurn,
   RespondToInteractionInput,
 } from '../lib/plan-mode/types.js';
-import { createLogger } from '../lib/logging/logger.js';
 import { errorMessage } from '../lib/utils/error-message.js';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';

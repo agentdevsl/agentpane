@@ -183,19 +183,19 @@ describe('maskSensitiveData', () => {
   describe('substring token masking', () => {
     it('masks tokens embedded in longer strings', () => {
       expect(maskSensitiveData('Auth failed with key sk-ant-api03-xyz')).toBe(
-        'Auth failed with key [REDACTED]',
+        'Auth failed with key [REDACTED]'
       );
     });
 
     it('masks tokens in URLs', () => {
       expect(maskSensitiveData('https://api.example.com?token=ghp_abc123')).toBe(
-        'https://api.example.com?token=[REDACTED]',
+        'https://api.example.com?token=[REDACTED]'
       );
     });
 
     it('masks multiple tokens in one string', () => {
       expect(maskSensitiveData('tokens: ghp_abc and ghs_def')).toBe(
-        'tokens: [REDACTED] and [REDACTED]',
+        'tokens: [REDACTED] and [REDACTED]'
       );
     });
   });
