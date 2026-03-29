@@ -23,18 +23,19 @@ import {
 /**
  * A single migration step in the ordered migration sequence.
  *
- * - `sql`: SQL string to execute via db.exec()
+ * Exactly one of `sql` or `statements` must be provided:
+ * - `sql`: SQL string to execute via db.exec() (multi-statement blocks)
  * - `statements`: Array of individual SQL strings, each executed separately
  *                 with try/catch for ALTER TABLE idempotency
- *
- * Exactly one of `sql` or `statements` must be provided.
  */
-export interface Migration {
+interface MigrationBase {
   version: number;
   name: string;
-  sql?: string;
-  statements?: string[];
 }
+
+export type Migration =
+  | (MigrationBase & { sql: string; statements?: never })
+  | (MigrationBase & { statements: string[]; sql?: never });
 
 /**
  * Ordered list of all SQLite migrations.

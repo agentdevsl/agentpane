@@ -49,7 +49,7 @@ function applyMigration(db: RawSQLiteDatabase, migration: Migration): void {
   } else if (migration.sql) {
     try {
       // Use exec for multi-statement SQL blocks (CREATE TABLE, CREATE INDEX, etc.)
-      (db as RawSQLiteDatabase & { exec: (sql: string) => void }).exec(migration.sql);
+      db.exec(migration.sql);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       // ALTER TABLE migrations may fail with "duplicate column" on re-runs

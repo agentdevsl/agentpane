@@ -836,6 +836,7 @@ export interface RawSQLiteDatabase {
     all(...params: unknown[]): unknown[];
     run(...params: unknown[]): unknown;
   };
+  exec(sql: string): void;
 }
 
 /**
