@@ -416,14 +416,12 @@ export class AgentExecutionService {
 
       // Clean up externally created resources on transaction failure
       // 1. Remove physical worktree (git directory on disk)
-      await this.worktreeService
-        .remove(worktree.value.id, true)
-        .catch((cleanupErr) => {
-          log.error('Failed to clean up physical worktree after transaction failure', {
-            error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
-            data: { worktreeId: worktree.value.id, agentId },
-          });
+      await this.worktreeService.remove(worktree.value.id, true).catch((cleanupErr) => {
+        log.error('Failed to clean up physical worktree after transaction failure', {
+          error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+          data: { worktreeId: worktree.value.id, agentId },
         });
+      });
 
       // 2. Remove worktree DB record
       await this.db
@@ -824,11 +822,7 @@ export class AgentExecutionService {
         log.warn('Invalid state transition for agent abort', {
           data: { agentId, currentStatus: agent.status },
         });
-        return err(
-          AgentErrors.EXECUTION_ERROR(
-            `Cannot abort agent in '${agent.status}' state`
-          )
-        );
+        return err(AgentErrors.EXECUTION_ERROR(`Cannot abort agent in '${agent.status}' state`));
       }
     }
 
