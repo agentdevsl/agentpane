@@ -15,6 +15,7 @@ import type {
   PlanTurn,
   RespondToInteractionInput,
 } from '../lib/plan-mode/types.js';
+import { createLogger } from '../lib/logging/logger.js';
 import { errorMessage } from '../lib/utils/error-message.js';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
@@ -24,6 +25,8 @@ import type { DurableStreamsService } from './durable-streams.service.js';
 /**
  * Token streaming callback
  */
+const log = createLogger('PlanModeService');
+
 export type PlanTokenCallback = (delta: string) => void;
 
 /**
@@ -180,7 +183,8 @@ export class PlanModeService {
         taskId: input.taskId,
         codespaceId: input.codespaceId,
       });
-    } catch (_streamError) {
+    } catch (streamError) {
+      log.debug('Stream event publish failed', { error: streamError });
       this.droppedEventCount++;
     }
 
@@ -191,7 +195,8 @@ export class PlanModeService {
         taskId: session.taskId,
         codespaceId: session.codespaceId,
       });
-    } catch (_streamError) {
+    } catch (streamError) {
+      log.debug('Stream event publish failed', { error: streamError });
       this.droppedEventCount++;
     }
 
@@ -247,7 +252,8 @@ export class PlanModeService {
         role: responseTurn.role,
         content: responseTurn.content,
       });
-    } catch (_streamError) {
+    } catch (streamError) {
+      log.debug('Stream event publish failed', { error: streamError });
       this.droppedEventCount++;
     }
 
@@ -369,7 +375,8 @@ export class PlanModeService {
               sessionId: session.id,
               delta,
             })
-            .catch((_streamError: unknown) => {
+            .catch((streamError: unknown) => {
+              log.debug('Stream event publish failed', { error: streamError });
               this.droppedEventCount++;
             });
         }
@@ -434,7 +441,8 @@ export class PlanModeService {
         role: assistantTurn.role,
         content: assistantTurn.content,
       });
-    } catch (_streamError) {
+    } catch (streamError) {
+      log.debug('Stream event publish failed', { error: streamError });
       this.droppedEventCount++;
     }
 
@@ -512,7 +520,8 @@ export class PlanModeService {
         interactionId: interaction.id,
         questions: interaction.questions,
       });
-    } catch (_streamError) {
+    } catch (streamError) {
+      log.debug('Stream event publish failed', { error: streamError });
       this.droppedEventCount++;
     }
 
@@ -524,7 +533,8 @@ export class PlanModeService {
         role: assistantTurn.role,
         content: assistantTurn.content,
       });
-    } catch (_streamError) {
+    } catch (streamError) {
+      log.debug('Stream event publish failed', { error: streamError });
       this.droppedEventCount++;
     }
 
@@ -643,7 +653,8 @@ export class PlanModeService {
         role: assistantTurn.role,
         content: assistantTurn.content,
       });
-    } catch (_streamError) {
+    } catch (streamError) {
+      log.debug('Stream event publish failed', { error: streamError });
       this.droppedEventCount++;
     }
 
@@ -654,7 +665,8 @@ export class PlanModeService {
         issueUrl: issueInfo?.issueUrl,
         issueNumber: issueInfo?.issueNumber,
       });
-    } catch (_streamError) {
+    } catch (streamError) {
+      log.debug('Stream event publish failed', { error: streamError });
       this.droppedEventCount++;
     }
 

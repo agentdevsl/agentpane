@@ -1,4 +1,7 @@
+import { createLogger } from '../logging/logger.js';
 import type { NewTerraformModule, TerraformOutput, TerraformVariable } from '../../db/schema';
+
+const log = createLogger('TerraformRegistryClient');
 
 export interface RegistryConfig {
   baseUrl: string;
@@ -237,7 +240,9 @@ export async function syncAllModules(config: RegistryConfig): Promise<NewTerrafo
 
         try {
           detail = await getModuleDetail(config, namespace, name, provider, latestVersion);
-        } catch (_error) {}
+        } catch (error) {
+          log.debug('Failed to fetch module detail', { error });
+        }
 
         // Private registry module source format: app.terraform.io/<org>/<name>/<provider>
         const registrySource = `app.terraform.io/${config.orgName}/${name}/${provider}`;

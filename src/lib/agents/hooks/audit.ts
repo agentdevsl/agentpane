@@ -1,5 +1,8 @@
+import { createLogger } from '../../logging/logger.js';
 import type { Database } from '../../../types/database.js';
 import type { PostToolUseHook, PostToolUseInput } from '../types.js';
+
+const log = createLogger('AuditHook');
 
 export function createAuditHook(
   db: Database,
@@ -34,7 +37,9 @@ export function createAuditHook(
             durationMs: input.duration_ms,
             turnNumber,
           });
-        } catch (_error) {}
+        } catch (error) {
+          log.warn('Failed to insert audit log', { error });
+        }
 
         return {};
       },

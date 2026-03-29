@@ -7,7 +7,10 @@
  * @module lib/sessions/router
  */
 
+import { createLogger } from '../logging/logger.js';
 import type { SessionEvent } from './schema.js';
+
+const log = createLogger('SessionEventRouter');
 
 /**
  * Handler function for a specific channel type
@@ -84,7 +87,9 @@ export class SessionEventRouter {
       for (const handler of channelHandlers) {
         try {
           handler(event);
-        } catch (_error) {}
+        } catch (error) {
+          log.debug('Session event handler threw', { error });
+        }
       }
     }
   }

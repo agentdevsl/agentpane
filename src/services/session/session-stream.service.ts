@@ -15,6 +15,7 @@
 
 import { createId } from '@paralleldrive/cuid2';
 import { and, eq, gt, sql } from 'drizzle-orm';
+import { createLogger } from '../../lib/logging/logger.js';
 import type { NewSessionSummary, SessionSummary } from '../../db/schema';
 import { sessionEvents, sessionSummaries, sessions } from '../../db/schema';
 import type { SessionError } from '../../lib/errors/session-errors.js';
@@ -34,6 +35,8 @@ import type {
   SessionEventType,
   SubscribeOptions,
 } from './types.js';
+
+const log = createLogger('SessionStreamService');
 
 /**
  * SessionStreamService handles event streaming and persistence
@@ -164,7 +167,9 @@ export class SessionStreamService {
       let offset = persistResult.ok ? persistResult.value.offset : 0;
       try {
         offset = await this.streams.publish(sessionId, event.type, event.data);
-      } catch (_streamErr) {}
+      } catch (streamErr) {
+        log.debug('Stream publish failed (event persisted in DB)', { error: streamErr });
+      }
 
       return ok({ offset });
     } catch (error) {

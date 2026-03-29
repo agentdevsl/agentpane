@@ -9,8 +9,11 @@
  */
 import { and, eq, isNotNull, lte } from 'drizzle-orm';
 import { templates } from '../db/schema';
+import { createLogger } from '../lib/logging/logger.js';
 import type { Database } from '../types/database.js';
 import type { TemplateService } from './template.service.js';
+
+const log = createLogger('TemplateSyncScheduler');
 
 /** Scheduler check interval: how often to check for templates needing sync (1 minute) */
 const SCHEDULER_INTERVAL_MS = 60 * 1000;
@@ -96,15 +99,16 @@ export class TemplateSyncScheduler {
                 .update(templates)
                 .set({ nextSyncAt })
                 .where(eq(templates.id, template.id));
-            } catch (_updateError) {}
+            } catch (updateError) { log.warn('Failed to update next sync time', { error: updateError }); }
           }
-        } catch (_error) {
+        } catch (error) {
+          log.warn('Template sync failed', { error });
           errors++;
         } finally {
           this.syncInProgress.delete(template.id);
         }
       }
-    } catch (_error) {}
+    } catch (error) { log.warn('Failed to query templates for sync', { error }); }
 
     this.lastCheckAt = now;
     return { synced, errors };
@@ -125,7 +129,7 @@ export class TemplateSyncScheduler {
         if (synced > 0 || errors > 0) {
         }
       })
-      .catch((_error) => {});
+      .catch((error) => { log.warn('Initial template sync check failed', { error }); });
 
     // Set up periodic checking
     this.intervalId = setInterval(async () => {
@@ -133,7 +137,7 @@ export class TemplateSyncScheduler {
         const { synced, errors } = await this.checkAndSyncTemplates();
         if (synced > 0 || errors > 0) {
         }
-      } catch (_error) {}
+      } catch (error) { log.warn('Periodic template sync check failed', { error }); }
     }, SCHEDULER_INTERVAL_MS);
 
     return () => this.stop();

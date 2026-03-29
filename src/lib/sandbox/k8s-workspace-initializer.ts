@@ -8,7 +8,10 @@
  *    (has code from clone, but no branch isolation)
  */
 import { CONTAINER_WORKSPACE_PATH } from '../constants/sandbox.js';
+import { createLogger } from '../logging/logger.js';
 import { slugify } from '../utils/slugify.js';
+
+const log = createLogger('K8sWorkspaceInitializer');
 import type { GitTokenResult } from './git-token-resolver.js';
 import type { ExecResult } from './types.js';
 
@@ -163,12 +166,15 @@ async function createWorktree(
     if (result.exitCode === 0) {
       return worktreePath;
     }
-  } catch (_err) {}
+  } catch (err) {
+    log.debug('Worktree path check failed', { error: err });
+  }
 
   // Ensure the worktrees parent directory exists
   try {
     await sandbox.exec('mkdir', ['-p', WORKTREES_DIR]);
-  } catch (_err) {
+  } catch (err) {
+    log.warn('Failed to create worktrees directory', { error: err });
     return null;
   }
 
@@ -178,7 +184,9 @@ async function createWorktree(
     if (result.exitCode === 0) {
       return worktreePath;
     }
-  } catch (_err) {}
+  } catch (err) {
+    log.debug('Worktree add with new branch failed, will retry', { error: err });
+  }
 
   // Retry without -b (branch already exists from a prior planning phase, or existingBranch was provided)
   try {
