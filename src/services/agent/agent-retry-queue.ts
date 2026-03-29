@@ -146,7 +146,14 @@ export class AgentRetryQueue {
   }
 
   private async processQueue(): Promise<void> {
-    if (!this.restartFn) return;
+    if (!this.restartFn) {
+      if (this.queue.size > 0) {
+        log.warn('Retry queue has tasks but no restartFn is set — tasks will not be processed', {
+          data: { queueSize: this.queue.size },
+        });
+      }
+      return;
+    }
 
     const now = Date.now();
     const readyTasks = Array.from(this.queue.values()).filter((t) => t.nextRetryAt <= now);
@@ -163,7 +170,7 @@ export class AgentRetryQueue {
           error: retryErr instanceof Error ? retryErr.message : String(retryErr),
           data: { taskId: task.taskId, attempt: task.attempt },
         });
-        // Re-enqueue with incremented attempt
+        // Create a new task object to avoid in-place mutation
         const nextAttempt = task.attempt + 1;
         if (nextAttempt > this.maxAttempts) {
           log.error('Task permanently failed after all retry attempts', {
@@ -171,13 +178,16 @@ export class AgentRetryQueue {
           });
           this.queue.delete(task.taskId);
         } else {
-          task.attempt = nextAttempt;
-          task.nextRetryAt =
-            Date.now() +
-            Math.min(
-              this.initialBackoffMs * this.backoffMultiplier ** (nextAttempt - 1),
-              this.maxBackoffMs
-            );
+          this.queue.set(task.taskId, {
+            ...task,
+            attempt: nextAttempt,
+            nextRetryAt:
+              Date.now() +
+              Math.min(
+                this.initialBackoffMs * this.backoffMultiplier ** (nextAttempt - 1),
+                this.maxBackoffMs
+              ),
+          });
         }
       }
     }

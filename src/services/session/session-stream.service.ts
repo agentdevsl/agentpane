@@ -168,7 +168,10 @@ export class SessionStreamService {
       try {
         offset = await this.streams.publish(sessionId, event.type, event.data);
       } catch (streamErr) {
-        log.debug('Stream publish failed (event persisted in DB)', { error: streamErr });
+        log.debug('Stream publish failed (event persisted in DB)', {
+          error: streamErr instanceof Error ? streamErr.message : String(streamErr),
+          data: { sessionId, eventType: event.type },
+        });
       }
 
       return ok({ offset });

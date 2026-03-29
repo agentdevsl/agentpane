@@ -30,10 +30,18 @@ export class StreamsHealthCheck {
     if (this.intervalId) return;
 
     // Run immediately
-    this.check().catch(() => {});
+    this.check().catch((err) => {
+      log.warn('Unexpected error in streams health check', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
 
     this.intervalId = setInterval(() => {
-      this.check().catch(() => {});
+      this.check().catch((err) => {
+        log.warn('Unexpected error in streams health check', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
     }, this.intervalMs);
   }
 

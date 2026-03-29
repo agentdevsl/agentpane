@@ -21,33 +21,34 @@ export interface RetryOptions {
   signal?: AbortSignal;
 }
 
-/** Default check for transient/retryable errors (429, 500, 502, 503, 504, network errors) */
+/** Default check for transient/retryable errors (429, 5xx, network errors, Anthropic overloaded) */
 export function isTransientError(error: unknown): boolean {
   if (error instanceof Error) {
+    // Check for status property first (most reliable)
+    const statusError = error as Error & {
+      status?: number;
+      statusCode?: number;
+      type?: string;
+    };
+    const status = statusError.status ?? statusError.statusCode;
+    if (status && (status === 429 || status >= 500)) {
+      return true;
+    }
+    // Check for Anthropic SDK error types
+    if (statusError.type === 'overloaded_error' || statusError.type === 'api_error') {
+      return true;
+    }
+    // Check for network-level errors by known error codes/patterns
     const msg = error.message.toLowerCase();
     if (
       msg.includes('rate limit') ||
-      msg.includes('429') ||
-      msg.includes('500') ||
-      msg.includes('502') ||
-      msg.includes('503') ||
-      msg.includes('504') ||
+      msg.includes('overloaded') ||
       msg.includes('econnreset') ||
       msg.includes('econnrefused') ||
       msg.includes('etimedout') ||
       msg.includes('socket hang up') ||
-      msg.includes('network') ||
       msg.includes('fetch failed')
     ) {
-      return true;
-    }
-    // Check for status property on error objects
-    const statusError = error as Error & {
-      status?: number;
-      statusCode?: number;
-    };
-    const status = statusError.status ?? statusError.statusCode;
-    if (status && (status === 429 || status >= 500)) {
       return true;
     }
   }
@@ -96,9 +97,13 @@ export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions =
       });
 
       await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(resolve, delay);
+        let onAbort: (() => void) | undefined;
+        const timer = setTimeout(() => {
+          if (onAbort) signal?.removeEventListener('abort', onAbort);
+          resolve();
+        }, delay);
         if (signal) {
-          const onAbort = () => {
+          onAbort = () => {
             clearTimeout(timer);
             reject(new Error(`Retry aborted for '${label}'`));
           };
@@ -108,5 +113,6 @@ export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions =
     }
   }
 
-  throw lastError;
+  // Unreachable: the loop always throws in the catch block on the final attempt
+  throw lastError ?? new Error(`withRetry exhausted all attempts for '${label}'`);
 }

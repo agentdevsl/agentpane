@@ -46,9 +46,10 @@ export class CircuitBreaker {
     const currentState = this.getState();
 
     if (currentState === 'open') {
+      const remainingMs = Math.max(0, this.resetTimeoutMs - (Date.now() - this.lastFailureTime));
       throw new Error(
         `Circuit breaker '${this.name}' is open — service unavailable. ` +
-          `Will retry after ${Math.ceil((this.resetTimeoutMs - (Date.now() - this.lastFailureTime)) / 1000)}s.`
+          `Will retry after ${Math.ceil(remainingMs / 1000)}s.`
       );
     }
 

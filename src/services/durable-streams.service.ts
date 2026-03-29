@@ -692,7 +692,9 @@ export class DurableStreamsService {
       try {
         memoryOffset = await this.server.publish(streamId, type, payload);
       } catch (caddyErr) {
-        log.debug('Caddy publish failed (event persisted in DB)', { error: caddyErr });
+        log.debug('Caddy publish failed (event persisted in DB)', {
+          error: caddyErr instanceof Error ? caddyErr.message : String(caddyErr),
+        });
       }
 
       return ok(this.db ? offset : memoryOffset);
@@ -966,7 +968,9 @@ export class DurableStreamsService {
       try {
         await this.server.publish(streamId, event.type, event.data);
       } catch (caddyErr) {
-        log.debug('Caddy publish failed for session event', { error: caddyErr });
+        log.debug('Caddy publish failed for session event', {
+          error: caddyErr instanceof Error ? caddyErr.message : String(caddyErr),
+        });
       }
 
       return ok(undefined);
