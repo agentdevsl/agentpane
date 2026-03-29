@@ -10,6 +10,9 @@ import { ChunkBatcher } from './chunk-batcher.js';
 
 const log = createLogger('StreamHandler');
 
+/** Maximum wall-clock runtime for a single agent phase (planning or execution). Matches container agent's AGENT_MAX_RUNTIME_MS. */
+const AGENT_MAX_RUNTIME_MS = 2 * 60 * 60 * 1000; // 2 hours
+
 function createStreamMetadata(params: {
   eventId: string;
   streamId: string;
@@ -433,6 +436,19 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
   let planContent = '';
   let exitPlanModeOptions: ExitPlanModeOptions | undefined;
 
+  // Runtime timeout — abort the agent if it exceeds the max wall-clock limit
+  const timeoutController = new AbortController();
+  const timeoutId = setTimeout(() => {
+    log.warn('Agent planning timed out', {
+      data: { agentId, sessionId, maxRuntimeMs: AGENT_MAX_RUNTIME_MS },
+    });
+    timeoutController.abort();
+  }, AGENT_MAX_RUNTIME_MS);
+
+  // Also abort timeout controller if the external signal fires
+  const onExternalAbort = () => timeoutController.abort();
+  signal?.addEventListener('abort', onExternalAbort, { once: true });
+
   // Publish planning started event
   await sessionService.publish(
     sessionId,
@@ -510,8 +526,12 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
 
     // Stream the planning response
     for await (const msg of session.stream()) {
-      // Check if abort signal has been triggered
-      if (signal?.aborted) {
+      // Check if abort signal or runtime timeout has been triggered
+      if (signal?.aborted || timeoutController.signal.aborted) {
+        clearTimeout(timeoutId);
+        signal?.removeEventListener('abort', onExternalAbort);
+        const isTimeout = !signal?.aborted && timeoutController.signal.aborted;
+        const reason = isTimeout ? 'timeout' : 'aborted';
         await batcher.destroy();
         session.close();
         await sessionService.publish(
@@ -521,14 +541,16 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
             type: 'agent:stopped',
             partType: 'lifecycle',
             blockId: runId,
-            data: { agentId, runId, reason: 'aborted', phase: 'planning' },
+            data: { agentId, runId, reason, phase: 'planning', ...(isTimeout ? { maxRuntimeMs: AGENT_MAX_RUNTIME_MS } : {}) },
           })
         );
         return {
           runId,
           status: 'paused',
           turnCount: turn,
-          result: 'Agent stopped by user during planning',
+          result: isTimeout
+            ? `Agent planning timed out after ${AGENT_MAX_RUNTIME_MS / 1000}s`
+            : 'Agent stopped by user during planning',
         };
       }
 
@@ -716,6 +738,8 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
       if (msg.type === 'result') {
         const result = msg as Record<string, unknown>;
 
+        clearTimeout(timeoutId);
+        signal?.removeEventListener('abort', onExternalAbort);
         await batcher.destroy();
         session.close(); // Always close first — before any potentially-failing publishes
 
@@ -752,6 +776,8 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
     }
 
     // If we exit the loop, planning completed
+    clearTimeout(timeoutId);
+    signal?.removeEventListener('abort', onExternalAbort);
     await batcher.destroy();
     session.close();
 
@@ -779,6 +805,8 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
       planOptions: exitPlanModeOptions,
     };
   } catch (error) {
+    clearTimeout(timeoutId);
+    signal?.removeEventListener('abort', onExternalAbort);
     const errorMessage = error instanceof Error ? error.message : String(error);
     log.error('Agent planning error', { error, data: { agentId } });
 
@@ -815,6 +843,19 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
   const runId = createId();
   let turn = 0;
   let accumulated = '';
+
+  // Runtime timeout — abort the agent if it exceeds the max wall-clock limit
+  const timeoutController = new AbortController();
+  const timeoutId = setTimeout(() => {
+    log.warn('Agent execution timed out', {
+      data: { agentId, sessionId, maxRuntimeMs: AGENT_MAX_RUNTIME_MS },
+    });
+    timeoutController.abort();
+  }, AGENT_MAX_RUNTIME_MS);
+
+  // Also abort timeout controller if the external signal fires
+  const onExternalAbort = () => timeoutController.abort();
+  signal?.addEventListener('abort', onExternalAbort, { once: true });
 
   // Topology tracker for subagent lifecycle events
   const topology = createTopologyTracker();
@@ -903,8 +944,12 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
 
     // Stream responses from the SDK
     for await (const msg of session.stream()) {
-      // Check if abort signal has been triggered
-      if (signal?.aborted) {
+      // Check if abort signal or runtime timeout has been triggered
+      if (signal?.aborted || timeoutController.signal.aborted) {
+        clearTimeout(timeoutId);
+        signal?.removeEventListener('abort', onExternalAbort);
+        const isTimeout = !signal?.aborted && timeoutController.signal.aborted;
+        const reason = isTimeout ? 'timeout' : 'aborted';
         await batcher.destroy();
         session.close();
         await sessionService.publish(
@@ -914,14 +959,16 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
             type: 'agent:stopped',
             partType: 'lifecycle',
             blockId: runId,
-            data: { agentId, runId, reason: 'aborted', phase: 'execution' },
+            data: { agentId, runId, reason, phase: 'execution', ...(isTimeout ? { maxRuntimeMs: AGENT_MAX_RUNTIME_MS } : {}) },
           })
         );
         return {
           runId,
           status: 'paused',
           turnCount: turn,
-          result: 'Agent stopped by user during execution',
+          result: isTimeout
+            ? `Agent execution timed out after ${AGENT_MAX_RUNTIME_MS / 1000}s`
+            : 'Agent stopped by user during execution',
         };
       }
 
@@ -1141,6 +1188,8 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
       if (msg.type === 'result') {
         const result = msg as Record<string, unknown>;
 
+        clearTimeout(timeoutId);
+        signal?.removeEventListener('abort', onExternalAbort);
         await batcher.destroy();
         session.close(); // Always close first — before any potentially-failing publishes
 
@@ -1186,6 +1235,8 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
       }
     }
 
+    clearTimeout(timeoutId);
+    signal?.removeEventListener('abort', onExternalAbort);
     await batcher.destroy();
     session.close();
 
