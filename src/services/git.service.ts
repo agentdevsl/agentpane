@@ -70,6 +70,11 @@ export type GitRemoteBranch = {
 };
 
 export class GitService {
+  private pathCache = new Map<string, { path: string; name: string; expiresAt: number }>();
+  private lastFetchTime = new Map<string, number>();
+  private static readonly FETCH_THROTTLE_MS = 30_000;
+  private static readonly PATH_CACHE_TTL_MS = 60_000;
+
   constructor(
     private db: Database,
     private commandRunner: CommandRunner
@@ -82,6 +87,12 @@ export class GitService {
   private async resolveCodespacePath(
     codespaceId: string
   ): Promise<Result<{ path: string; name: string }, GitError>> {
+    const now = Date.now();
+    const cached = this.pathCache.get(codespaceId);
+    if (cached && cached.expiresAt > now) {
+      return ok({ path: cached.path, name: cached.name });
+    }
+
     try {
       const codespace = await this.db.query.codespaces.findFirst({
         where: eq(codespaces.id, codespaceId),
@@ -90,6 +101,12 @@ export class GitService {
       if (!codespace) {
         return err(GitErrors.PROJECT_NOT_FOUND);
       }
+
+      this.pathCache.set(codespaceId, {
+        path: codespace.path,
+        name: codespace.name,
+        expiresAt: now + GitService.PATH_CACHE_TTL_MS,
+      });
 
       return ok({ path: codespace.path, name: codespace.name });
     } catch (error) {
@@ -189,56 +206,69 @@ export class GitService {
         codespacePath
       );
 
-      const branches = await Promise.all(
-        branchOutput
+      // Detect default branch once
+      let defaultBranch = 'main';
+      try {
+        const { stdout: defaultRef } = await this.commandRunner.exec(
+          'git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null || echo "refs/remotes/origin/main"',
+          codespacePath
+        );
+        defaultBranch = defaultRef.trim().replace('refs/remotes/origin/', '') || 'main';
+      } catch {
+        /* keep main as default */
+      }
+
+      // Batch: get commit counts for all branches in one command
+      const commitCounts = new Map<string, number>();
+      try {
+        const { stdout: countsOutput } = await this.commandRunner.exec(
+          `git for-each-ref --format="%(refname:short)" refs/heads/ | while read branch; do count=$(git rev-list --count ${shellEscape(defaultBranch)}.."$branch" 2>/dev/null || echo "0"); echo "$branch|$count"; done`,
+          codespacePath
+        );
+        for (const line of countsOutput
           .trim()
           .split('\n')
-          .filter((line) => line.trim())
-          .map(async (line) => {
-            const [name, commitHash, shortHash, trackInfo] = line.split('|');
-            if (!name || !commitHash) return null;
+          .filter((l) => l.trim())) {
+          const [name, count] = line.split('|');
+          if (name) commitCounts.set(name, parseInt(count || '0', 10));
+        }
+      } catch (_error) {
+        /* counts default to 0 */
+      }
 
-            // Get commit count (commits ahead of main/master)
-            let commitCount = 0;
-            try {
-              if (!isValidBranchName(name)) {
-              } else {
-                // Use shellEscape for safe interpolation
-                const escapedName = shellEscape(name);
-                const { stdout: countOutput } = await this.commandRunner.exec(
-                  `git rev-list --count main..${escapedName} 2>/dev/null || git rev-list --count master..${escapedName} 2>/dev/null || echo "0"`,
-                  codespacePath
-                );
-                commitCount = parseInt(countOutput.trim(), 10) || 0;
-              }
-            } catch (error) {
-              log.debug('Failed to get branch commit count', { error });
+      const branches = branchOutput
+        .trim()
+        .split('\n')
+        .filter((line) => line.trim())
+        .map((line) => {
+          const [name, commitHash, shortHash, trackInfo] = line.split('|');
+          if (!name || !commitHash) return null;
+
+          const commitCount = commitCounts.get(name) ?? 0;
+
+          // Parse tracking status
+          let status: GitBranch['status'] = 'no-upstream';
+          if (trackInfo) {
+            if (trackInfo.includes('ahead') && trackInfo.includes('behind')) {
+              status = 'diverged';
+            } else if (trackInfo.includes('ahead')) {
+              status = 'ahead';
+            } else if (trackInfo.includes('behind')) {
+              status = 'behind';
+            } else if (trackInfo === '') {
+              status = 'up-to-date';
             }
+          }
 
-            // Parse tracking status
-            let status: GitBranch['status'] = 'no-upstream';
-            if (trackInfo) {
-              if (trackInfo.includes('ahead') && trackInfo.includes('behind')) {
-                status = 'diverged';
-              } else if (trackInfo.includes('ahead')) {
-                status = 'ahead';
-              } else if (trackInfo.includes('behind')) {
-                status = 'behind';
-              } else if (trackInfo === '') {
-                status = 'up-to-date';
-              }
-            }
-
-            return {
-              name: name || '',
-              commitHash: commitHash || '',
-              shortHash: shortHash || '',
-              commitCount,
-              isHead: name === currentBranch,
-              status,
-            };
-          })
-      );
+          return {
+            name: name || '',
+            commitHash: commitHash || '',
+            shortHash: shortHash || '',
+            commitCount,
+            isHead: name === currentBranch,
+            status,
+          };
+        });
 
       // Filter out nulls and sort by isHead first, then by name
       const validBranches = branches
@@ -278,36 +308,34 @@ export class GitService {
       // Use shellEscape for the branch name; default to HEAD
       const targetBranch = branch ? shellEscape(branch) : 'HEAD';
 
-      // Get commit log with format: hash|short|subject|author|date
+      // Get commit log with stats inline in a single command
       const { stdout: logOutput } = await this.commandRunner.exec(
-        `git log ${targetBranch} --format="%H|%h|%s|%an|%aI" -n ${Number(limit)}`,
+        `git log ${targetBranch} --format="COMMIT_START%H|%h|%s|%an|%aI" --stat -n ${Number(limit)}`,
         codespacePath
       );
 
-      const commits = await Promise.all(
-        logOutput
-          .trim()
-          .split('\n')
-          .filter((line) => line.trim())
-          .map(async (line) => {
-            const parts = line.split('|');
-            const hash = parts[0] || '';
-            const shortHash = parts[1] || '';
-            const message = parts[2] || '';
-            const author = parts[3] || '';
-            const date = parts[4] || '';
+      const commits = logOutput
+        .split('COMMIT_START')
+        .filter((block) => block.trim())
+        .map((block) => {
+          const lines = block.split('\n');
+          const headerLine = lines[0] || '';
+          const parts = headerLine.split('|');
+          const hash = parts[0] || '';
+          const shortHash = parts[1] || '';
+          const message = parts[2] || '';
+          const author = parts[3] || '';
+          const date = parts[4] || '';
 
-            // Get file stats for each commit — hash is from git output, safe to interpolate
-            let additions: number | undefined;
-            let deletions: number | undefined;
-            let filesChanged: number | undefined;
+          // Parse stats from the last non-empty line of the block
+          let additions: number | undefined;
+          let deletions: number | undefined;
+          let filesChanged: number | undefined;
 
-            try {
-              const { stdout: statsOutput } = await this.commandRunner.exec(
-                `git show ${shellEscape(hash)} --stat --format="" | tail -1`,
-                codespacePath
-              );
-              const statsLine = statsOutput.trim();
+          // Find the summary stats line (e.g. "3 files changed, 10 insertions(+), 5 deletions(-)")
+          for (let i = lines.length - 1; i >= 1; i--) {
+            const statsLine = lines[i]?.trim() || '';
+            if (statsLine.includes('changed')) {
               const filesMatch = statsLine.match(/(\d+) files? changed/);
               const insertionsMatch = statsLine.match(/(\d+) insertions?\(\+\)/);
               const deletionsMatch = statsLine.match(/(\d+) deletions?\(-\)/);
@@ -315,22 +343,21 @@ export class GitService {
               if (filesMatch) filesChanged = parseInt(filesMatch[1] || '0', 10);
               if (insertionsMatch) additions = parseInt(insertionsMatch[1] || '0', 10);
               if (deletionsMatch) deletions = parseInt(deletionsMatch[1] || '0', 10);
-            } catch (error) {
-              log.debug('Failed to get commit stats', { error });
+              break;
             }
+          }
 
-            return {
-              hash,
-              shortHash,
-              message,
-              author,
-              date,
-              ...(additions !== undefined && { additions }),
-              ...(deletions !== undefined && { deletions }),
-              ...(filesChanged !== undefined && { filesChanged }),
-            };
-          })
-      );
+          return {
+            hash,
+            shortHash,
+            message,
+            author,
+            date,
+            ...(additions !== undefined && { additions }),
+            ...(deletions !== undefined && { deletions }),
+            ...(filesChanged !== undefined && { filesChanged }),
+          };
+        });
 
       return ok({ items: commits });
     } catch (error) {
@@ -350,11 +377,14 @@ export class GitService {
     const codespacePath = codespaceResult.value.path;
 
     try {
-      // Fetch latest from remote (don't fail if offline)
-      try {
-        await this.commandRunner.exec('git fetch --prune 2>/dev/null || true', codespacePath);
-      } catch (error) {
-        log.debug('Failed to fetch remote branches', { error });
+      // Fetch latest from remote (throttled, don't fail if offline)
+      const now = Date.now();
+      const lastFetch = this.lastFetchTime.get(codespaceId) ?? 0;
+      if (now - lastFetch >= GitService.FETCH_THROTTLE_MS) {
+        try {
+          await this.commandRunner.exec('git fetch --prune 2>/dev/null || true', codespacePath);
+          this.lastFetchTime.set(codespaceId, Date.now());
+        } catch (_error) {}
       }
 
       // Get all remote branches with their commit info
@@ -363,49 +393,63 @@ export class GitService {
         codespacePath
       );
 
-      const branches = await Promise.all(
-        branchOutput
+      // Detect default branch once
+      let defaultBranch = 'main';
+      try {
+        const { stdout: defaultRef } = await this.commandRunner.exec(
+          'git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null || echo "refs/remotes/origin/main"',
+          codespacePath
+        );
+        defaultBranch = defaultRef.trim().replace('refs/remotes/origin/', '') || 'main';
+      } catch {
+        /* keep main as default */
+      }
+
+      // Batch: get commit counts for all remote branches in one command
+      const commitCounts = new Map<string, number>();
+      try {
+        const { stdout: countsOutput } = await this.commandRunner.exec(
+          `git for-each-ref --format="%(refname:short)" refs/remotes/ | grep -v HEAD | while read branch; do count=$(git rev-list --count ${shellEscape(defaultBranch)}.."$branch" 2>/dev/null || echo "0"); echo "$branch|$count"; done`,
+          codespacePath
+        );
+        for (const line of countsOutput
           .trim()
           .split('\n')
-          .filter((line) => line.trim())
-          .map(async (line) => {
-            const [fullName, commitHash, shortHash] = line.split('|');
-            if (!fullName || !commitHash) return null;
+          .filter((l) => l.trim())) {
+          const [name, count] = line.split('|');
+          if (name) commitCounts.set(name, parseInt(count || '0', 10));
+        }
+      } catch (_error) {
+        /* counts default to 0 */
+      }
 
-            // Skip HEAD pointer
-            if (fullName.endsWith('/HEAD')) return null;
+      const branches = branchOutput
+        .trim()
+        .split('\n')
+        .filter((line) => line.trim())
+        .map((line) => {
+          const [fullName, commitHash, shortHash] = line.split('|');
+          if (!fullName || !commitHash) return null;
 
-            // Skip entries without a slash
-            if (!fullName.includes('/')) return null;
+          // Skip HEAD pointer
+          if (fullName.endsWith('/HEAD')) return null;
 
-            // Remove remote prefix
-            const name = fullName.replace(/^[^/]+\//, '');
+          // Skip entries without a slash
+          if (!fullName.includes('/')) return null;
 
-            // Get commit count from main/master
-            let commitCount = 0;
-            try {
-              if (!isValidBranchName(fullName)) {
-              } else {
-                const escapedFullName = shellEscape(fullName);
-                const { stdout: countOutput } = await this.commandRunner.exec(
-                  `git rev-list --count main..${escapedFullName} 2>/dev/null || git rev-list --count master..${escapedFullName} 2>/dev/null || echo "0"`,
-                  codespacePath
-                );
-                commitCount = parseInt(countOutput.trim(), 10) || 0;
-              }
-            } catch (error) {
-              log.debug('Failed to get remote branch commit count', { error });
-            }
+          // Remove remote prefix
+          const name = fullName.replace(/^[^/]+\//, '');
 
-            return {
-              name,
-              fullName: fullName || '',
-              commitHash: commitHash || '',
-              shortHash: shortHash || '',
-              commitCount,
-            };
-          })
-      );
+          const commitCount = commitCounts.get(fullName) ?? 0;
+
+          return {
+            name,
+            fullName: fullName || '',
+            commitHash: commitHash || '',
+            shortHash: shortHash || '',
+            commitCount,
+          };
+        });
 
       // Filter out nulls and sort by name
       const validBranches = branches

@@ -41,6 +41,7 @@ export const initializeSQLite = async (): Promise<Result<SQLiteDatabase, AppErro
     const sqlite = new Database(dbPath);
     sqlite.pragma('journal_mode = WAL'); // Better concurrency
     sqlite.pragma('foreign_keys = ON'); // Enforce FK constraints
+    sqlite.pragma('busy_timeout = 5000'); // Wait up to 5s for write lock (QW-1)
 
     // Verify connection works
     const result = sqlite.prepare('SELECT 1 as test').get() as { test: number };

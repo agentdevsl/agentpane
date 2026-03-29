@@ -64,12 +64,19 @@ function validateTransition(
  * - Check codespace availability for new agents
  */
 export class AgentExecutionService {
+  /** Maximum agent runtime before considered orphaned (2 hours) */
+  private static readonly MAX_AGENT_RUNTIME_MS = 2 * 60 * 60 * 1000;
+  /** Sweep interval for orphaned agents (10 minutes) */
+  private static readonly ORPHAN_SWEEP_INTERVAL_MS = 10 * 60 * 1000;
+
   private runningAgents = new Map<string, AbortController>();
+  private agentStartTimes = new Map<string, number>();
   private preToolHooks = new Map<string, PreToolUseHook[]>();
   private postToolHooks = new Map<string, PostToolUseHook[]>();
   private queueService: AgentQueueService | null = null;
   private memoryService: MemoryService | null = null;
   private skillTrackingService: SkillTrackingService | null = null;
+  private orphanSweepTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private db: Database,
@@ -434,6 +441,7 @@ export class AgentExecutionService {
 
     const controller = new AbortController();
     this.runningAgents.set(agentId, controller);
+    this.agentStartTimes.set(agentId, Date.now());
 
     // Get codespace for model configuration
     const codespace = await this.db.query.codespaces.findFirst({
@@ -701,6 +709,7 @@ export class AgentExecutionService {
       });
 
       this.runningAgents.delete(agentId);
+      this.agentStartTimes.delete(agentId);
 
       // Auto-dequeue: when an agent completes, check if there's a queued task to pick up
       if (result.status === 'completed' && this.queueService) {
@@ -761,6 +770,7 @@ export class AgentExecutionService {
       );
 
       this.runningAgents.delete(agentId);
+      this.agentStartTimes.delete(agentId);
     }
   }
 
@@ -783,6 +793,7 @@ export class AgentExecutionService {
 
     controller.abort();
     this.runningAgents.delete(agentId);
+    this.agentStartTimes.delete(agentId);
 
     await this.db
       .update(agents)
@@ -856,6 +867,7 @@ export class AgentExecutionService {
       // Create new AbortController for execution phase
       const controller = new AbortController();
       this.runningAgents.set(agentId, controller);
+      this.agentStartTimes.set(agentId, Date.now());
 
       // Build execution prompt from the approved plan
       const executionPrompt = task.plan
@@ -879,6 +891,7 @@ export class AgentExecutionService {
           .set({ status: 'error', updatedAt: new Date().toISOString() })
           .where(eq(agents.id, agentId));
         this.runningAgents.delete(agentId);
+        this.agentStartTimes.delete(agentId);
       });
 
       return ok({
@@ -965,6 +978,7 @@ export class AgentExecutionService {
           })
         );
         this.runningAgents.delete(agentId);
+        this.agentStartTimes.delete(agentId);
         return;
       }
 
@@ -1111,6 +1125,7 @@ export class AgentExecutionService {
       });
 
       this.runningAgents.delete(agentId);
+      this.agentStartTimes.delete(agentId);
 
       // Auto-dequeue: when agent completes execution, check for queued tasks
       if (result.status === 'completed' && this.queueService) {
@@ -1172,6 +1187,7 @@ export class AgentExecutionService {
       );
 
       this.runningAgents.delete(agentId);
+      this.agentStartTimes.delete(agentId);
     }
   }
 
@@ -1225,6 +1241,51 @@ export class AgentExecutionService {
     const hooks = this.postToolHooks.get(agentId) ?? [];
     hooks.push(hook);
     this.postToolHooks.set(agentId, hooks);
+  }
+
+  /**
+   * Start the periodic sweep for orphaned agents.
+   * Safe to call multiple times — only one timer will be created.
+   */
+  startOrphanSweep(): void {
+    if (this.orphanSweepTimer) return;
+    this.orphanSweepTimer = setInterval(() => {
+      this.sweepOrphanedAgents();
+    }, AgentExecutionService.ORPHAN_SWEEP_INTERVAL_MS);
+  }
+
+  /**
+   * Stop the orphaned agent sweep timer for clean shutdown.
+   */
+  stopOrphanSweep(): void {
+    if (this.orphanSweepTimer) {
+      clearInterval(this.orphanSweepTimer);
+      this.orphanSweepTimer = null;
+    }
+  }
+
+  /**
+   * Sweep agents that have been running longer than MAX_AGENT_RUNTIME_MS.
+   * Safety net for agents that crash without calling the completion handler.
+   */
+  private sweepOrphanedAgents(): void {
+    const now = Date.now();
+    for (const [agentId, startTime] of this.agentStartTimes) {
+      if (now - startTime > AgentExecutionService.MAX_AGENT_RUNTIME_MS) {
+        log.warn('Sweeping orphaned agent', {
+          data: { agentId, runtimeMs: now - startTime },
+        });
+        const controller = this.runningAgents.get(agentId);
+        if (controller) {
+          controller.abort();
+          this.runningAgents.delete(agentId);
+          this.agentStartTimes.delete(agentId);
+        }
+        this.agentStartTimes.delete(agentId);
+        this.preToolHooks.delete(agentId);
+        this.postToolHooks.delete(agentId);
+      }
+    }
   }
 
   /**

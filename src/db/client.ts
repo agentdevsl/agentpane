@@ -75,6 +75,7 @@ const createSqliteDatabase = (): SQLiteDatabase | null => {
   const sqlite = new Database(dbPath);
   sqlite.pragma('journal_mode = WAL'); // Better concurrency
   sqlite.pragma('foreign_keys = ON'); // Enforce FK constraints
+  sqlite.pragma('busy_timeout = 5000'); // Wait up to 5s for write lock (QW-1)
 
   // Run schema migration on startup (CREATE TABLE IF NOT EXISTS is idempotent)
   runMigration(sqlite);
@@ -110,6 +111,7 @@ export const createServerDb = (dataDir: string = './data') => {
   const serverSqlite = new Database(dbPath);
   serverSqlite.pragma('journal_mode = WAL');
   serverSqlite.pragma('foreign_keys = ON');
+  serverSqlite.pragma('busy_timeout = 5000'); // Wait up to 5s for write lock (QW-1)
   runMigration(serverSqlite); // Run migration on startup
   return drizzleSqlite(serverSqlite, { schema: sqliteSchema });
 };

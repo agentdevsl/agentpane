@@ -151,6 +151,10 @@ export async function run(): Promise<void> {
     services.cliMonitorService.destroy();
   });
 
+  shutdown.register('taskCreationService', () => {
+    services.taskCreationService.destroy();
+  });
+
   shutdown.register('sandboxController', () => {
     sandboxState.controller?.stop();
   });

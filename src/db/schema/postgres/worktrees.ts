@@ -32,7 +32,10 @@ export const worktrees = pgTable(
     mergedAt: timestamp('merged_at', { mode: 'string' }),
     removedAt: timestamp('removed_at', { mode: 'string' }),
   },
-  (table) => [index('idx_worktrees_codespace_id').on(table.codespaceId)]
+  (table) => [
+    index('idx_pg_worktrees_branch').on(table.codespaceId, table.branch),
+    index('idx_pg_worktrees_status').on(table.status),
+  ]
 );
 
 export type Worktree = typeof worktrees.$inferSelect;
