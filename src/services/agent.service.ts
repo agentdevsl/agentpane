@@ -216,4 +216,23 @@ export class AgentService {
   async getQueuedTasks(codespaceId?: string): Promise<Result<QueuePosition[], never>> {
     return this.queueService.getQueuedTasks(codespaceId);
   }
+
+  // =========================================================================
+  // Lifecycle Operations
+  // =========================================================================
+
+  /**
+   * Start the periodic sweep for orphaned agents.
+   * Safe to call multiple times — only one timer will be created.
+   */
+  startOrphanSweep(): void {
+    this.executionService.startOrphanSweep();
+  }
+
+  /**
+   * Stop the orphaned agent sweep timer for clean shutdown.
+   */
+  stopOrphanSweep(): void {
+    this.executionService.stopOrphanSweep();
+  }
 }

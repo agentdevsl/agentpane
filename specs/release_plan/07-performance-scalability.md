@@ -193,7 +193,7 @@ The dual-path architecture is well-optimized:
 
 ## Quick Wins
 
-### QW-1: Add `busy_timeout` pragma to SQLite (Effort: 1 hour)
+### QW-1: Add `busy_timeout` pragma to SQLite (Effort: 1 hour) -- ✅ DONE
 
 SQLite returns `SQLITE_BUSY` immediately when it cannot acquire the write lock. Adding `sqlite.pragma('busy_timeout = 5000')` makes it wait up to 5 seconds before failing, dramatically reducing write contention errors under concurrent agent load.
 
@@ -205,7 +205,7 @@ sqlite.pragma('foreign_keys = ON');
 sqlite.pragma('busy_timeout = 5000'); // Wait up to 5s for write lock
 ```
 
-### QW-2: Atomic offset computation in DurableStreamsService (Effort: 2 hours)
+### QW-2: Atomic offset computation in DurableStreamsService (Effort: 2 hours) -- ✅ DONE
 
 Replace the read-then-write retry loop with a single atomic INSERT:
 
@@ -218,7 +218,7 @@ This eliminates the retry loop and reduces write contention from O(retries) to O
 
 **File**: `src/services/durable-streams.service.ts:579-621`
 
-### QW-3: Add TaskCreationService destroy method (Effort: 30 minutes)
+### QW-3: Add TaskCreationService destroy method (Effort: 30 minutes) -- ✅ DONE (already existed, now registered with shutdown)
 
 Add a `destroy()` method to clear the cleanup interval and register it with the shutdown handler:
 
@@ -235,13 +235,13 @@ Register in `server-bootstrap.ts` alongside other service cleanup registrations.
 
 **Files**: `src/services/task-creation.service.ts`, `src/server/bootstrap/server-bootstrap.ts`
 
-### QW-4: Cap presence store sessions (Effort: 1 hour)
+### QW-4: Cap presence store sessions (Effort: 1 hour) -- ✅ DONE
 
 Add a maximum tracked session count (e.g., 5,000) to `SessionPresenceService`. When exceeded, evict sessions with the oldest `lastSeen` timestamps.
 
 **File**: `src/services/session/session-presence.service.ts`
 
-### QW-5: Add composite index on session_events(session_id, type) (Effort: 30 minutes)
+### QW-5: Add composite index on session_events(session_id, type) (Effort: 30 minutes) -- ✅ DONE
 
 If event queries filter by type within a session, this composite index avoids scanning all events for the session.
 
@@ -270,22 +270,22 @@ handle /api/* {
 
 Ordered by priority (impact vs effort):
 
-| # | Recommendation | Effort | Impact | Priority |
-|---|---|---|---|---|
-| 1 | **Add `busy_timeout` pragma** -- prevents SQLITE_BUSY errors under concurrent writes | 1h | High | P0 -- do before any multi-agent testing |
-| 2 | **Atomic offset insert** -- eliminates retry loop and contention in hot path | 2h | High | P0 -- required for concurrent agents |
-| 3 | **Add TaskCreationService.destroy()** -- clean shutdown hygiene | 30m | Low | P1 -- quick fix |
-| 4 | **Cap presence store** -- prevent unbounded Map growth | 1h | Medium | P1 -- production hygiene |
-| 5 | **Add session_events(session_id, type) index** | 30m | Medium | P1 -- query optimization |
-| 6 | **Compress API responses** via Caddy or Hono middleware | 1h | Medium | P1 -- bandwidth savings |
-| 7 | **Add orphaned agent sweep** to AgentExecutionService | 2h | Medium | P2 -- safety net |
-| 8 | **Replace in-memory rate limiter** with Redis for multi-instance | 4h | High | P2 -- required for horizontal scaling |
-| 9 | **Externalize agent state** (runningAgents, pendingPlans) to Redis | 2-3d | High | P2 -- required for horizontal scaling |
-| 10 | **Externalize presence** to Redis Pub/Sub | 1d | Medium | P2 -- required for horizontal scaling |
-| 11 | **Configure PostgreSQL connection pool size** for production | 1h | Medium | P2 -- needed when using PG mode |
-| 12 | **Add SSE connection limit** to CLI monitor endpoint | 1h | Low | P3 -- hardening |
-| 13 | **Add backpressure** to container bridge readline loop | 4h | Low | P3 -- edge case protection |
-| 14 | **Add IP-diversity cap** to rate limiter | 2h | Low | P3 -- DDoS mitigation |
+| # | Recommendation | Effort | Impact | Priority | Status |
+|---|---|---|---|---|---|
+| 1 | **Add `busy_timeout` pragma** -- prevents SQLITE_BUSY errors under concurrent writes | 1h | High | P0 -- do before any multi-agent testing | ✅ Done |
+| 2 | **Atomic offset insert** -- eliminates retry loop and contention in hot path | 2h | High | P0 -- required for concurrent agents | ✅ Done |
+| 3 | **Add TaskCreationService.destroy()** -- clean shutdown hygiene | 30m | Low | P1 -- quick fix | ✅ Done |
+| 4 | **Cap presence store** -- prevent unbounded Map growth | 1h | Medium | P1 -- production hygiene | ✅ Done |
+| 5 | **Add session_events(session_id, type) index** | 30m | Medium | P1 -- query optimization | ✅ Done |
+| 6 | **Compress API responses** via Caddy or Hono middleware | 1h | Medium | P1 -- bandwidth savings | |
+| 7 | **Add orphaned agent sweep** to AgentExecutionService | 2h | Medium | P2 -- safety net | ✅ Done |
+| 8 | **Replace in-memory rate limiter** with Redis for multi-instance | 4h | High | P2 -- required for horizontal scaling | |
+| 9 | **Externalize agent state** (runningAgents, pendingPlans) to Redis | 2-3d | High | P2 -- required for horizontal scaling | |
+| 10 | **Externalize presence** to Redis Pub/Sub | 1d | Medium | P2 -- required for horizontal scaling | |
+| 11 | **Configure PostgreSQL connection pool size** for production | 1h | Medium | P2 -- needed when using PG mode | |
+| 12 | **Add SSE connection limit** to CLI monitor endpoint | 1h | Low | P3 -- hardening | |
+| 13 | **Add backpressure** to container bridge readline loop | 4h | Low | P3 -- edge case protection | |
+| 14 | **Add IP-diversity cap** to rate limiter | 2h | Low | P3 -- DDoS mitigation | |
 
 ### Architecture Notes
 

@@ -60,6 +60,9 @@ export async function run(): Promise<void> {
   // Phase 4: Services
   const services = createServiceContainer(database.db, config);
 
+  // Start orphaned agent sweep (safety net for agents that crash without cleanup)
+  services.agentService.startOrphanSweep();
+
   // Phase 4.5: Memory service initialization (always available — backed by local SQLite)
   await services.memoryService.initialize();
 
@@ -178,6 +181,10 @@ export async function run(): Promise<void> {
       clearInterval(sandboxState.nomadHealInterval);
       sandboxState.nomadHealInterval = null;
     }
+  });
+
+  shutdown.register('agentOrphanSweep', () => {
+    services.agentService.stopOrphanSweep();
   });
 
   shutdown.register('containerAgentService', async () => {

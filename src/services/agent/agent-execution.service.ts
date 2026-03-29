@@ -1279,7 +1279,6 @@ export class AgentExecutionService {
         if (controller) {
           controller.abort();
           this.runningAgents.delete(agentId);
-          this.agentStartTimes.delete(agentId);
         }
         this.agentStartTimes.delete(agentId);
         this.preToolHooks.delete(agentId);
