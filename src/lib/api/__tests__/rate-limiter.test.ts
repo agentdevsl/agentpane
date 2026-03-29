@@ -129,35 +129,52 @@ describe('rateLimiter', () => {
     expect(b1.status).toBe(200);
   });
 
-  it('tracks different IPs separately', async () => {
+  it('tracks different IPs separately via x-real-ip', async () => {
     const app = createApp({ max: 1, windowMs: 60_000 });
 
-    const res1 = await req(app, { 'x-forwarded-for': '1.1.1.1' });
+    const res1 = await req(app, { 'x-real-ip': '1.1.1.1' });
     expect(res1.status).toBe(200);
 
     // Same IP should be blocked
-    const res2 = await req(app, { 'x-forwarded-for': '1.1.1.1' });
+    const res2 = await req(app, { 'x-real-ip': '1.1.1.1' });
     expect(res2.status).toBe(429);
 
     // Different IP should pass
-    const res3 = await req(app, { 'x-forwarded-for': '2.2.2.2' });
+    const res3 = await req(app, { 'x-real-ip': '2.2.2.2' });
     expect(res3.status).toBe(200);
   });
 
-  it('uses the first IP from x-forwarded-for header', async () => {
-    const app = createApp({ max: 1, windowMs: 60_000 });
+  it('uses x-forwarded-for when trusted proxies are configured', async () => {
+    // Set trusted proxies for this test
+    const original = process.env.TRUSTED_PROXIES;
+    process.env.TRUSTED_PROXIES = '192.168.1.1,172.16.0.1';
 
-    // First request from client IP 10.0.0.1 (via proxies)
-    const res1 = await req(app, { 'x-forwarded-for': '10.0.0.1, 192.168.1.1, 172.16.0.1' });
+    // Re-import to pick up the new env var
+    vi.resetModules();
+    const { rateLimiter: freshLimiter } = await import('../rate-limiter.js');
+
+    const app = new Hono();
+    app.use('/*', freshLimiter({ max: 1, windowMs: 60_000 }));
+    app.get('/test', (c) => c.json({ ok: true }));
+
+    // First request from client IP 10.0.0.1 (via trusted proxy 192.168.1.1)
+    const res1 = await req(app, { 'x-forwarded-for': '10.0.0.1, 192.168.1.1' });
     expect(res1.status).toBe(200);
 
-    // Same client IP should be blocked regardless of proxy chain
-    const res2 = await req(app, { 'x-forwarded-for': '10.0.0.1, 10.10.10.10' });
+    // Same client IP should be blocked
+    const res2 = await req(app, { 'x-forwarded-for': '10.0.0.1, 172.16.0.1' });
     expect(res2.status).toBe(429);
 
-    // Different client IP should pass even with same proxies
+    // Different client IP should pass
     const res3 = await req(app, { 'x-forwarded-for': '10.0.0.2, 192.168.1.1' });
     expect(res3.status).toBe(200);
+
+    // Restore env
+    if (original === undefined) {
+      delete process.env.TRUSTED_PROXIES;
+    } else {
+      process.env.TRUSTED_PROXIES = original;
+    }
   });
 
   it('falls back to x-real-ip when x-forwarded-for is absent', async () => {
