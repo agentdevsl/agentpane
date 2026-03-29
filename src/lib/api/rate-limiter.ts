@@ -48,14 +48,22 @@ function extractClientIp(c: Context): string {
 
   if (TRUSTED_PROXY_SET.size > 0 && xff) {
     // Walk from right (closest proxy) to left (original client)
-    const ips = xff.split(',').map((s) => s.trim());
-    for (let i = ips.length - 1; i >= 0; i--) {
-      if (!TRUSTED_PROXY_SET.has(ips[i])) {
-        return ips[i];
+    // filter(Boolean) removes empty strings from trailing commas/whitespace
+    // which would otherwise cause unrelated requests to share a rate-limit bucket
+    const ips = xff
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (ips.length > 0) {
+      for (let i = ips.length - 1; i >= 0; i--) {
+        const ip = ips[i];
+        if (ip && !TRUSTED_PROXY_SET.has(ip)) {
+          return ip;
+        }
       }
+      // All IPs are trusted proxies -- use the leftmost as fallback
+      return ips[0] as string;
     }
-    // All IPs are trusted proxies -- use the leftmost as fallback
-    return ips[0];
   }
 
   // No trusted proxies configured or no XFF header:
