@@ -194,13 +194,25 @@ export class EventCleanupService {
       mkdirSync(backupDir, { recursive: true });
     }
 
-    // Run integrity check
+    // Run integrity check — query the result and verify it returns 'ok'
     let integrityOk = false;
     try {
-      this.db.run(sql`PRAGMA integrity_check`);
-      // integrity_check returns 'ok' on success; if it doesn't throw, the check passed
-      integrityOk = true;
-      log.info('Database integrity check passed');
+      const rows = this.db.all<{ integrity_check: string }>(sql`PRAGMA integrity_check`);
+      const firstRow = rows[0];
+      if (firstRow && firstRow.integrity_check === 'ok') {
+        integrityOk = true;
+        log.info('Database integrity check passed');
+      } else {
+        const details = rows.map((r) => r.integrity_check).join('; ');
+        log.error('Database integrity check found issues', {
+          data: { details },
+        });
+        return {
+          performed: false,
+          skipped: false,
+          reason: `Integrity check failed: ${details}`,
+        };
+      }
     } catch (err) {
       log.error('Database integrity check failed', {
         error: err instanceof Error ? err : new Error(String(err)),

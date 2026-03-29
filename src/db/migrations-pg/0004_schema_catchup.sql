@@ -124,8 +124,19 @@ ALTER TABLE "projects" DROP CONSTRAINT IF EXISTS "projects_path_unique";
 -- 2c. Rename the table
 ALTER TABLE "projects" RENAME TO "codespaces";
 
--- 2d. Add project_folder_id column to codespaces (required FK, default to placeholder)
+-- 2d. Add project_folder_id column to codespaces (nullable first for backfill)
 ALTER TABLE "codespaces" ADD COLUMN IF NOT EXISTS "project_folder_id" text;
+
+-- 2d-i. Create a default project folder for existing codespaces
+INSERT INTO "project_folders" ("id", "name", "slug", "description")
+SELECT 'default_folder', 'Default', 'default', 'Auto-created for existing codespaces'
+WHERE NOT EXISTS (SELECT 1 FROM "project_folders" WHERE "id" = 'default_folder');
+
+-- 2d-ii. Backfill project_folder_id for existing codespaces
+UPDATE "codespaces" SET "project_folder_id" = 'default_folder' WHERE "project_folder_id" IS NULL;
+
+-- 2d-iii. Set NOT NULL constraint to match Drizzle schema
+ALTER TABLE "codespaces" ALTER COLUMN "project_folder_id" SET NOT NULL;
 
 -- 2e. Re-add unique constraint on codespaces.path
 ALTER TABLE "codespaces" ADD CONSTRAINT "codespaces_path_unique" UNIQUE ("path");
@@ -514,5 +525,8 @@ CREATE TABLE IF NOT EXISTS "skill_suggestions" (
     "applied_by" text,
     "created_at" timestamp DEFAULT now() NOT NULL
 );
+
+-- SECTION 11: Add missing indexes from Drizzle schema
+CREATE INDEX IF NOT EXISTS "session_events_created_at_idx" ON "session_events" ("created_at");
 
 COMMIT;

@@ -16,6 +16,9 @@ MAX_BACKUPS="${MAX_BACKUPS:-7}"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 BACKUP_FILE="${BACKUP_DIR}/agentpane_pg_${TIMESTAMP}.dump"
 
+# Clean up partial backup on failure
+trap 'rm -f "$BACKUP_FILE"' ERR
+
 # Ensure backup directory exists
 mkdir -p "$BACKUP_DIR"
 
@@ -29,7 +32,7 @@ echo "Backup complete: $BACKUP_FILE ($SIZE bytes)"
 
 # Verify backup integrity
 echo "Verifying backup integrity..."
-pg_restore --list "$BACKUP_FILE" > /dev/null 2>&1
+pg_restore --list "$BACKUP_FILE" > /dev/null
 echo "Backup verification passed."
 
 # Clean up old backups (keep last MAX_BACKUPS)

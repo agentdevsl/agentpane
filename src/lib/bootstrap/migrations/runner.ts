@@ -40,8 +40,9 @@ function applyMigration(db: RawSQLiteDatabase, migration: Migration): void {
         db.prepare(stmt).run();
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
+        // Duplicate column errors are expected on re-runs (idempotency)
         if (!msg.includes('duplicate column')) {
-          log.warn(`Migration v${migration.version} (${migration.name}) statement note: ${msg}`);
+          throw e;
         }
       }
     }
