@@ -33,6 +33,7 @@ export const sessionEvents = pgTable(
     // DB-008: Removed redundant session_events_offset_idx — covered by unique_offset below
     uniqueIndex('session_events_unique_offset').on(table.sessionId, table.offset),
     index('session_events_created_at_idx').on(table.createdAt),
+    index('session_events_session_type_idx').on(table.sessionId, table.type),
   ]
 );
 

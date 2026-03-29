@@ -33,8 +33,9 @@ export const worktrees = pgTable(
     removedAt: timestamp('removed_at', { mode: 'string' }),
   },
   (table) => [
-    index('idx_pg_worktrees_branch').on(table.codespaceId, table.branch),
-    index('idx_pg_worktrees_status').on(table.status),
+    index('idx_worktrees_codespace_id').on(table.codespaceId),
+    index('idx_worktrees_branch').on(table.codespaceId, table.branch),
+    index('idx_worktrees_status').on(table.status),
   ]
 );
 
