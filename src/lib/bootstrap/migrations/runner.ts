@@ -86,8 +86,18 @@ export function runMigrations(db: RawSQLiteDatabase, migrations: Migration[]): v
   const recordMigration = db.prepare('INSERT INTO schema_migrations (version, name) VALUES (?, ?)');
 
   for (const migration of pending) {
-    applyMigration(db, migration);
-    recordMigration.run(migration.version, migration.name);
-    log.info(`Applied migration v${migration.version}: ${migration.name}`);
+    db.prepare('BEGIN').run();
+    try {
+      applyMigration(db, migration);
+      recordMigration.run(migration.version, migration.name);
+      db.prepare('COMMIT').run();
+      log.info(`Applied migration v${migration.version}: ${migration.name}`);
+    } catch (e) {
+      db.prepare('ROLLBACK').run();
+      log.error(`Migration v${migration.version} (${migration.name}) failed, rolled back`, {
+        data: { error: e instanceof Error ? e.message : String(e) },
+      });
+      throw e;
+    }
   }
 }

@@ -88,10 +88,11 @@ describe('EventCleanupService', () => {
     const service = new EventCleanupService(db as never, settings as never);
 
     // Should not throw
-    await expect(service.runCleanup()).resolves.toEqual({
-      sessionEventsDeleted: 0,
-      eventLogDeleted: 0,
-    });
+    const result = await service.runCleanup();
+    expect(result.sessionEventsDeleted).toBe(0);
+    expect(result.eventLogDeleted).toBe(0);
+    expect(result.backup).toBeDefined();
+    expect(result.backup.skipped).toBe(true);
   });
 
   it('batch-processes when more than BATCH_SIZE rows exist', async () => {
