@@ -10,8 +10,6 @@ const sessionServiceMocks = vi.hoisted(() => ({
   getById: vi.fn(),
   close: vi.fn(),
   delete: vi.fn(),
-  updatePresence: vi.fn(),
-  getActiveUsers: vi.fn(),
   getHistory: vi.fn(),
   getEventsBySession: vi.fn(),
   getSessionSummary: vi.fn(),
@@ -121,42 +119,6 @@ describe('Session API', () => {
     expect(response?.status).toBe(200);
     const data = await parseJson<{ ok: true; data: { deleted: boolean } }>(response as Response);
     expect(data.data.deleted).toBe(true);
-  });
-
-  it.skip('updates presence', async () => {
-    sessionServiceMocks.updatePresence.mockResolvedValue(ok(undefined));
-    sessionServiceMocks.getById.mockResolvedValue(ok(sampleSession));
-
-    const response = await app.request(
-      `http://localhost/${sampleSession.id}/presence`,
-      jsonRequest(`http://localhost/${sampleSession.id}/presence`, {
-        userId: 'user-1',
-        cursor: { x: 1, y: 2 },
-      })
-    );
-
-    expect(response?.status).toBe(200);
-    const data = await parseJson<{ ok: true; data: { updated: boolean } }>(response as Response);
-    expect(data.data.updated).toBe(true);
-  });
-
-  it.skip('returns presence', async () => {
-    sessionServiceMocks.getActiveUsers.mockResolvedValue(
-      ok([
-        {
-          userId: 'user-1',
-          lastSeen: 123,
-          cursor: { x: 1, y: 2 },
-        },
-      ])
-    );
-    sessionServiceMocks.getById.mockResolvedValue(ok(sampleSession));
-
-    const response = await app.request(`http://localhost/${sampleSession.id}/presence`);
-
-    expect(response?.status).toBe(200);
-    const data = await parseJson<{ ok: true; data: { userId: string }[] }>(response as Response);
-    expect(data.data).toHaveLength(1);
   });
 
   it('returns history events', async () => {

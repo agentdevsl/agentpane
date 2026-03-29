@@ -2,6 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { WorktreeErrors } from '../../lib/errors/worktree-errors.js';
 import { WorktreeService } from '../worktree.service.js';
 
+vi.mock('node:fs', async () => {
+  const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
+  return { ...actual, existsSync: vi.fn(() => true) };
+});
+
 const mockAgent = { id: 'a1', name: 'Agent 1', codespaceId: 'p1' };
 
 const createDbMock = () => ({
@@ -144,8 +149,7 @@ describe('WorktreeService', () => {
     }
   });
 
-  // TODO: Fix this test - existsSync check filters out mock paths
-  it.skip('list returns worktree info', async () => {
+  it('list returns worktree info', async () => {
     const db = createDbMock();
     db.query.worktrees.findMany.mockResolvedValue([
       {
