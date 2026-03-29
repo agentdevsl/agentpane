@@ -700,31 +700,41 @@ describe('state machines', () => {
       });
 
       it('TIMEOUT with isStale guard: rejects when lastActivity is exactly 60000ms ago', () => {
-        const machine = createSessionLifecycleMachine({
-          lastActivity: Date.now() - 60000,
-        });
-        machine.send({ type: 'INITIALIZE' });
-        machine.send({ type: 'READY' });
-        const result = machine.send({ type: 'TIMEOUT' });
+        vi.useFakeTimers();
+        try {
+          const machine = createSessionLifecycleMachine({
+            lastActivity: Date.now() - 60000,
+          });
+          machine.send({ type: 'INITIALIZE' });
+          machine.send({ type: 'READY' });
+          const result = machine.send({ type: 'TIMEOUT' });
 
-        // isStale uses > 60000, so exactly 60000ms should NOT be stale
-        expect(result.ok).toBe(false);
-        if (!result.ok) {
-          expect(result.error.code).toBe('SESSION_INVALID_TRANSITION');
+          // isStale uses > 60000, so exactly 60000ms should NOT be stale
+          expect(result.ok).toBe(false);
+          if (!result.ok) {
+            expect(result.error.code).toBe('SESSION_INVALID_TRANSITION');
+          }
+        } finally {
+          vi.useRealTimers();
         }
       });
 
       it('TIMEOUT with isStale guard: accepts when lastActivity is 60001ms ago', () => {
-        const machine = createSessionLifecycleMachine({
-          lastActivity: Date.now() - 60001,
-        });
-        machine.send({ type: 'INITIALIZE' });
-        machine.send({ type: 'READY' });
-        const result = machine.send({ type: 'TIMEOUT' });
+        vi.useFakeTimers();
+        try {
+          const machine = createSessionLifecycleMachine({
+            lastActivity: Date.now() - 60001,
+          });
+          machine.send({ type: 'INITIALIZE' });
+          machine.send({ type: 'READY' });
+          const result = machine.send({ type: 'TIMEOUT' });
 
-        // isStale uses > 60000, so 60001ms should be stale
-        expect(result.ok).toBe(true);
-        expect(result.state).toBe('closing');
+          // isStale uses > 60000, so 60001ms should be stale
+          expect(result.ok).toBe(true);
+          expect(result.state).toBe('closing');
+        } finally {
+          vi.useRealTimers();
+        }
       });
 
       it('CLOSE from active requires canClose guard to pass', () => {
@@ -2156,38 +2166,53 @@ describe('state machines', () => {
 
     describe('mutation testing coverage', () => {
       it('isStale returns false at exactly 60000ms boundary (uses > not >=)', () => {
-        const ctx: SessionLifecycleContext = {
-          status: 'active',
-          participants: [],
-          maxParticipants: 4,
-          lastActivity: Date.now() - 60000,
-        };
+        vi.useFakeTimers();
+        try {
+          const ctx: SessionLifecycleContext = {
+            status: 'active',
+            participants: [],
+            maxParticipants: 4,
+            lastActivity: Date.now() - 60000,
+          };
 
-        // The guard uses `>` so exactly 60000ms difference should NOT be stale
-        expect(isSessionStale(ctx)).toBe(false);
+          // The guard uses `>` so exactly 60000ms difference should NOT be stale
+          expect(isSessionStale(ctx)).toBe(false);
+        } finally {
+          vi.useRealTimers();
+        }
       });
 
       it('isStale returns true at 60001ms (just past boundary)', () => {
-        const ctx: SessionLifecycleContext = {
-          status: 'active',
-          participants: [],
-          maxParticipants: 4,
-          lastActivity: Date.now() - 60001,
-        };
+        vi.useFakeTimers();
+        try {
+          const ctx: SessionLifecycleContext = {
+            status: 'active',
+            participants: [],
+            maxParticipants: 4,
+            lastActivity: Date.now() - 60001,
+          };
 
-        // The guard uses `>` so 60001ms difference should be stale
-        expect(isSessionStale(ctx)).toBe(true);
+          // The guard uses `>` so 60001ms difference should be stale
+          expect(isSessionStale(ctx)).toBe(true);
+        } finally {
+          vi.useRealTimers();
+        }
       });
 
       it('isStale returns false at 59999ms (just before boundary)', () => {
-        const ctx: SessionLifecycleContext = {
-          status: 'active',
-          participants: [],
-          maxParticipants: 4,
-          lastActivity: Date.now() - 59999,
-        };
+        vi.useFakeTimers();
+        try {
+          const ctx: SessionLifecycleContext = {
+            status: 'active',
+            participants: [],
+            maxParticipants: 4,
+            lastActivity: Date.now() - 59999,
+          };
 
-        expect(isSessionStale(ctx)).toBe(false);
+          expect(isSessionStale(ctx)).toBe(false);
+        } finally {
+          vi.useRealTimers();
+        }
       });
     });
   });
