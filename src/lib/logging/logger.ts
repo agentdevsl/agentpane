@@ -193,10 +193,14 @@ function log(
  */
 export function createLogger(context: string) {
   return {
-    debug: (message: string, opts?: { requestId?: string; data?: Record<string, unknown> }) =>
-      log('debug', message, { ...opts, context }),
-    info: (message: string, opts?: { requestId?: string; data?: Record<string, unknown> }) =>
-      log('info', message, { ...opts, context }),
+    debug: (
+      message: string,
+      opts?: { requestId?: string; data?: Record<string, unknown>; error?: unknown }
+    ) => log('debug', message, { ...opts, context }),
+    info: (
+      message: string,
+      opts?: { requestId?: string; data?: Record<string, unknown>; error?: unknown }
+    ) => log('info', message, { ...opts, context }),
     warn: (
       message: string,
       opts?: { requestId?: string; data?: Record<string, unknown>; error?: unknown }
