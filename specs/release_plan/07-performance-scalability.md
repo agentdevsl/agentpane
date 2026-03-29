@@ -266,6 +266,41 @@ handle /api/* {
 
 ---
 
+## Additional Optimizations Implemented
+
+Beyond the quick wins listed above, the following performance optimizations were implemented:
+
+### Git Service N+1 Fixes
+
+The git service had several N+1 query patterns where per-branch or per-codespace operations were executed sequentially. These were batched:
+
+- **Branch counts**: Consolidated into a single `git branch --list` call instead of per-branch existence checks
+- **Commit stats**: Batched commit count and last-commit-date queries across branches
+- **Remote branch counts**: Single `git ls-remote --heads` call instead of per-branch remote lookups
+
+### Codespace Path Cache (60s TTL)
+
+Codespace filesystem path lookups (resolving codespace ID to disk path) are now cached with a 60-second TTL. This eliminates repeated database queries during rapid successive API calls for the same codespace (e.g., when loading the Kanban board, which fetches tasks, agents, and worktrees for the same codespace).
+
+### Git Fetch Throttle (30s per Codespace)
+
+Git fetch operations are throttled to at most once every 30 seconds per codespace. Previously, multiple UI components could trigger concurrent `git fetch` calls for the same repository, causing redundant network I/O and potential lock contention on the git index.
+
+### Worktree DB Indexes
+
+Added database indexes on the `worktrees` table to speed up common query patterns:
+
+- **`branch` column index** -- used when looking up worktrees by branch name
+- **`status` column index** -- used when filtering active/stale worktrees
+
+Indexes were added for both SQLite and PostgreSQL schemas.
+
+### Async Filesystem Checks in `worktree.list()`
+
+The `worktree.list()` method previously performed synchronous filesystem existence checks (`fs.existsSync`) for each worktree path when validating state. These were converted to async `fs.promises.access()` calls executed in parallel via `Promise.all()`, preventing the event loop from blocking during directory scans on slow or networked filesystems.
+
+---
+
 ## Recommendations
 
 Ordered by priority (impact vs effort):
