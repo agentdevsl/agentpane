@@ -40,15 +40,16 @@ function applyMigration(db: RawSQLiteDatabase, migration: Migration): void {
         db.prepare(stmt).run();
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
+        // Duplicate column errors are expected on re-runs (idempotency)
         if (!msg.includes('duplicate column')) {
-          log.warn(`Migration v${migration.version} (${migration.name}) statement note: ${msg}`);
+          throw e;
         }
       }
     }
   } else if (migration.sql) {
     try {
       // Use exec for multi-statement SQL blocks (CREATE TABLE, CREATE INDEX, etc.)
-      (db as RawSQLiteDatabase & { exec: (sql: string) => void }).exec(migration.sql);
+      db.exec(migration.sql);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       // ALTER TABLE migrations may fail with "duplicate column" on re-runs
@@ -86,8 +87,18 @@ export function runMigrations(db: RawSQLiteDatabase, migrations: Migration[]): v
   const recordMigration = db.prepare('INSERT INTO schema_migrations (version, name) VALUES (?, ?)');
 
   for (const migration of pending) {
-    applyMigration(db, migration);
-    recordMigration.run(migration.version, migration.name);
-    log.info(`Applied migration v${migration.version}: ${migration.name}`);
+    db.prepare('BEGIN').run();
+    try {
+      applyMigration(db, migration);
+      recordMigration.run(migration.version, migration.name);
+      db.prepare('COMMIT').run();
+      log.info(`Applied migration v${migration.version}: ${migration.name}`);
+    } catch (e) {
+      db.prepare('ROLLBACK').run();
+      log.error(`Migration v${migration.version} (${migration.name}) failed, rolled back`, {
+        data: { error: e instanceof Error ? e.message : String(e) },
+      });
+      throw e;
+    }
   }
 }

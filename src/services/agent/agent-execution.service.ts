@@ -412,6 +412,12 @@ export class AgentExecutionService {
             data: { worktreeId: worktree.value.id, agentId },
           });
         });
+      await this.sessionService.delete(session.value.id).catch((cleanupErr) => {
+        log.error('Failed to clean up orphaned session after transaction failure', {
+          error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+          data: { sessionId: session.value.id, agentId },
+        });
+      });
       return err(AgentErrors.EXECUTION_ERROR('Failed to start agent: transaction error'));
     }
 

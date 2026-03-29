@@ -27,7 +27,9 @@ export const codespaces = sqliteTable('codespaces', {
     onDelete: 'set null',
   }),
   configPath: text('config_path').default('.claude'),
-  sandboxConfigId: text('sandbox_config_id').references(() => sandboxConfigs.id),
+  sandboxConfigId: text('sandbox_config_id').references(() => sandboxConfigs.id, {
+    onDelete: 'set null',
+  }),
   createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
   updatedAt: text('updated_at')
     .default(sql`(datetime('now'))`)

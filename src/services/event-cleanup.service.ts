@@ -5,7 +5,21 @@
  * and event_log tables to bound storage growth. Retention periods are
  * configurable via admin settings (retention.sessionEventsDays,
  * retention.eventLogDays) and take effect without restart.
+ *
+ * Also performs automated SQLite database backups alongside cleanup cycles.
+ * Backup behavior is configurable via admin settings (backup.enabled,
+ * backup.intervalHours, backup.maxBackups).
  */
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  statSync,
+  unlinkSync,
+} from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { sql } from 'drizzle-orm';
 import { createLogger } from '../lib/logging/logger.js';
 import type { Database } from '../types/database.js';
@@ -28,11 +42,33 @@ const INITIAL_DELAY_MS = 60 * 1000;
 /** Number of rows to delete per batch to avoid long-held locks */
 const BATCH_SIZE = 1000;
 
+/** Default: backups are enabled */
+const DEFAULT_BACKUP_ENABLED = true;
+
+/** Default: backup every 24 hours (runs every cleanup cycle) */
+const DEFAULT_BACKUP_INTERVAL_HOURS = 24;
+
+/** Default: keep 7 most recent backups */
+const DEFAULT_BACKUP_MAX_BACKUPS = 7;
+
+/** Default database path */
+const DEFAULT_DB_PATH = './data/agentpane.db';
+
+export interface BackupResult {
+  performed: boolean;
+  skipped: boolean;
+  reason?: string;
+  backupPath?: string;
+  integrityOk?: boolean;
+  oldBackupsRemoved?: number;
+}
+
 export class EventCleanupService {
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private initialTimeoutId: ReturnType<typeof setTimeout> | null = null;
   private isRunning = false;
   private lastRunAt: string | null = null;
+  private lastBackupAt: string | null = null;
 
   constructor(
     private db: Database,
@@ -90,11 +126,186 @@ export class EventCleanupService {
   }
 
   /**
+   * Read a boolean or numeric backup setting, falling back to the provided default.
+   */
+  private async getBackupSetting<T extends boolean | number>(
+    key: string,
+    defaultValue: T
+  ): Promise<T> {
+    try {
+      const result = await this.settingsService.get(key);
+      if (result.ok && result.value) {
+        const parsed = JSON.parse(result.value.value);
+        if (typeof parsed === typeof defaultValue) {
+          return parsed as T;
+        }
+      }
+    } catch (err) {
+      log.warn('Failed to read backup setting, using default', {
+        error: err instanceof Error ? err : new Error(String(err)),
+      });
+    }
+    return defaultValue;
+  }
+
+  /**
+   * Run an automated SQLite database backup.
+   *
+   * Steps:
+   * 1. Check if backup is enabled via settings
+   * 2. Check if enough time has elapsed since last backup
+   * 3. Run PRAGMA integrity_check
+   * 4. Run PRAGMA wal_checkpoint(TRUNCATE)
+   * 5. Copy the DB file with a timestamp suffix
+   * 6. Clean up old backups beyond maxBackups
+   */
+  async runBackup(): Promise<BackupResult> {
+    const enabled = await this.getBackupSetting('backup.enabled', DEFAULT_BACKUP_ENABLED);
+    if (!enabled) {
+      return { performed: false, skipped: true, reason: 'Backup disabled via settings' };
+    }
+
+    const intervalHours = await this.getBackupSetting(
+      'backup.intervalHours',
+      DEFAULT_BACKUP_INTERVAL_HOURS
+    );
+    const maxBackups = await this.getBackupSetting('backup.maxBackups', DEFAULT_BACKUP_MAX_BACKUPS);
+
+    // Check if enough time has elapsed since the last backup
+    if (this.lastBackupAt) {
+      const elapsedMs = Date.now() - new Date(this.lastBackupAt).getTime();
+      const intervalMs = intervalHours * 60 * 60 * 1000;
+      if (elapsedMs < intervalMs) {
+        return {
+          performed: false,
+          skipped: true,
+          reason: `Only ${Math.round(elapsedMs / 60000)}m since last backup (interval: ${intervalHours}h)`,
+        };
+      }
+    }
+
+    const dbPath = resolve(process.env.DB_PATH || DEFAULT_DB_PATH);
+    const backupDir = resolve(dirname(dbPath), 'backups');
+
+    if (!existsSync(dbPath)) {
+      log.warn('Database file not found for backup', { data: { dbPath } });
+      return { performed: false, skipped: true, reason: 'Database file not found' };
+    }
+
+    // Ensure backup directory exists
+    if (!existsSync(backupDir)) {
+      mkdirSync(backupDir, { recursive: true });
+    }
+
+    // Run integrity check — query the result and verify it returns 'ok'
+    let integrityOk = false;
+    try {
+      const rows = this.db.all<{ integrity_check: string }>(sql`PRAGMA integrity_check`);
+      const firstRow = rows[0];
+      if (firstRow && firstRow.integrity_check === 'ok') {
+        integrityOk = true;
+        log.info('Database integrity check passed');
+      } else {
+        const details = rows.map((r) => r.integrity_check).join('; ');
+        log.error('Database integrity check found issues', {
+          data: { details },
+        });
+        return {
+          performed: false,
+          skipped: false,
+          reason: 'Integrity check failed',
+        };
+      }
+    } catch (err) {
+      log.error('Database integrity check failed', {
+        error: err instanceof Error ? err : new Error(String(err)),
+      });
+      return {
+        performed: false,
+        skipped: false,
+        reason: 'Integrity check failed',
+        integrityOk: false,
+      };
+    }
+
+    // WAL checkpoint to flush pending writes
+    try {
+      this.db.run(sql`PRAGMA wal_checkpoint(TRUNCATE)`);
+      log.info('WAL checkpoint completed');
+    } catch (err) {
+      log.warn('WAL checkpoint failed, proceeding with backup anyway', {
+        error: err instanceof Error ? err : new Error(String(err)),
+      });
+    }
+
+    // Copy DB file with timestamp
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupFileName = `agentpane_${timestamp}.db`;
+    const backupPath = join(backupDir, backupFileName);
+
+    try {
+      copyFileSync(dbPath, backupPath);
+      // Restrict backup file to owner-only read/write
+      chmodSync(backupPath, 0o600);
+      log.info('Database backup created', { data: { backupPath } });
+    } catch (err) {
+      log.error('Failed to copy database file', {
+        error: err instanceof Error ? err : new Error(String(err)),
+        data: { dbPath, backupPath },
+      });
+      return {
+        performed: false,
+        skipped: false,
+        reason: 'File copy failed',
+        integrityOk,
+      };
+    }
+
+    // Clean up old backups
+    let oldBackupsRemoved = 0;
+    try {
+      const backupFiles = readdirSync(backupDir)
+        .filter((f) => f.startsWith('agentpane_') && f.endsWith('.db'))
+        .map((f) => ({
+          name: f,
+          path: join(backupDir, f),
+          mtime: statSync(join(backupDir, f)).mtimeMs,
+        }))
+        .sort((a, b) => b.mtime - a.mtime); // newest first
+
+      if (backupFiles.length > maxBackups) {
+        const toRemove = backupFiles.slice(maxBackups);
+        for (const file of toRemove) {
+          unlinkSync(file.path);
+          oldBackupsRemoved++;
+        }
+        log.info(`Removed ${oldBackupsRemoved} old backup(s)`);
+      }
+    } catch (err) {
+      log.warn('Failed to clean up old backups', {
+        error: err instanceof Error ? err : new Error(String(err)),
+      });
+    }
+
+    this.lastBackupAt = new Date().toISOString();
+
+    return {
+      performed: true,
+      skipped: false,
+      backupPath,
+      integrityOk,
+      oldBackupsRemoved,
+    };
+  }
+
+  /**
    * Run a single cleanup cycle: read config, compute cutoffs, batch-delete.
+   * Also runs a database backup at the end of each cycle.
    */
   async runCleanup(): Promise<{
     sessionEventsDeleted: number;
     eventLogDeleted: number;
+    backup: BackupResult;
   }> {
     const sessionEventsDays = await this.getRetentionDays(
       'retention.sessionEventsDays',
@@ -141,7 +352,17 @@ export class EventCleanupService {
       log.info('Event cleanup completed — no rows to delete');
     }
 
-    return { sessionEventsDeleted, eventLogDeleted };
+    // Run database backup after cleanup
+    const backup = await this.runBackup();
+    if (backup.performed) {
+      log.info('Database backup completed after cleanup', {
+        data: { backupPath: backup.backupPath, oldBackupsRemoved: backup.oldBackupsRemoved },
+      });
+    } else if (backup.skipped) {
+      log.info('Database backup skipped', { data: { reason: backup.reason } });
+    }
+
+    return { sessionEventsDeleted, eventLogDeleted, backup };
   }
 
   /**
@@ -199,10 +420,15 @@ export class EventCleanupService {
   /**
    * Get the current service state (for debugging/monitoring).
    */
-  getState(): Readonly<{ isRunning: boolean; lastRunAt: string | null }> {
+  getState(): Readonly<{
+    isRunning: boolean;
+    lastRunAt: string | null;
+    lastBackupAt: string | null;
+  }> {
     return {
       isRunning: this.isRunning,
       lastRunAt: this.lastRunAt,
+      lastBackupAt: this.lastBackupAt,
     };
   }
 }

@@ -25,7 +25,9 @@ export const codespaces = pgTable('codespaces', {
     onDelete: 'set null',
   }),
   configPath: text('config_path').default('.claude'),
-  sandboxConfigId: text('sandbox_config_id').references(() => sandboxConfigs.id),
+  sandboxConfigId: text('sandbox_config_id').references(() => sandboxConfigs.id, {
+    onDelete: 'set null',
+  }),
   createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { mode: 'string' })
     .defaultNow()

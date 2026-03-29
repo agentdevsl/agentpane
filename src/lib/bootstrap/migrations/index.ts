@@ -23,18 +23,19 @@ import {
 /**
  * A single migration step in the ordered migration sequence.
  *
- * - `sql`: SQL string to execute via db.exec()
+ * Exactly one of `sql` or `statements` must be provided:
+ * - `sql`: SQL string to execute via db.exec() (multi-statement blocks)
  * - `statements`: Array of individual SQL strings, each executed separately
  *                 with try/catch for ALTER TABLE idempotency
- *
- * Exactly one of `sql` or `statements` must be provided.
  */
-export interface Migration {
+interface MigrationBase {
   version: number;
   name: string;
-  sql?: string;
-  statements?: string[];
 }
+
+export type Migration =
+  | (MigrationBase & { sql: string; statements?: never })
+  | (MigrationBase & { statements: string[]; sql?: never });
 
 /**
  * Ordered list of all SQLite migrations.
@@ -156,5 +157,106 @@ export const MIGRATIONS: Migration[] = [
       `ALTER TABLE github_installations ADD COLUMN team_id TEXT REFERENCES teams(id) ON DELETE SET NULL`,
       `ALTER TABLE event_sources ADD COLUMN github_installation_id TEXT REFERENCES github_installations(id) ON DELETE SET NULL`,
     ],
+  },
+
+  // 24. Fix missing onDelete on codespaces.sandboxConfigId — recreate FK with SET NULL
+  // SQLite does not support ALTER TABLE ... ALTER CONSTRAINT, so this is a schema-level fix
+  // that takes effect on new databases. Existing databases will continue to work (the FK
+  // constraint just defaults to NO ACTION). The Drizzle schema now specifies onDelete: 'set null'.
+  {
+    version: 24,
+    name: 'sandbox-config-fk-on-delete',
+    sql: `-- Schema-level fix: onDelete 'set null' is now defined in Drizzle schema.
+-- For existing databases, the FK behavior defaults to NO ACTION which is safe.
+-- A full table rebuild would be needed to change FK behavior in SQLite,
+-- which is not worth the risk for an existing production database.
+SELECT 1;`,
+  },
+
+  // 25. Add CHECK constraints for critical enum columns on new databases.
+  // Uses CREATE TABLE IF NOT EXISTS with CHECK constraints for validation tables,
+  // then creates triggers to validate enum values on INSERT/UPDATE.
+  {
+    version: 25,
+    name: 'enum-check-triggers',
+    sql: `
+-- Trigger-based enum validation for critical columns.
+-- SQLite does not support ALTER TABLE ADD CONSTRAINT, so we use BEFORE triggers.
+
+-- tasks.column validation
+CREATE TRIGGER IF NOT EXISTS trg_tasks_column_insert
+BEFORE INSERT ON tasks
+WHEN NEW."column" NOT IN ('backlog', 'queued', 'in_progress', 'waiting_approval', 'verified')
+BEGIN
+  SELECT RAISE(ABORT, 'Invalid task column value');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_tasks_column_update
+BEFORE UPDATE OF "column" ON tasks
+WHEN NEW."column" NOT IN ('backlog', 'queued', 'in_progress', 'waiting_approval', 'verified')
+BEGIN
+  SELECT RAISE(ABORT, 'Invalid task column value');
+END;
+
+-- agents.status validation
+CREATE TRIGGER IF NOT EXISTS trg_agents_status_insert
+BEFORE INSERT ON agents
+WHEN NEW.status NOT IN ('idle', 'starting', 'planning', 'running', 'paused', 'error', 'completed')
+BEGIN
+  SELECT RAISE(ABORT, 'Invalid agent status value');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_agents_status_update
+BEFORE UPDATE OF status ON agents
+WHEN NEW.status NOT IN ('idle', 'starting', 'planning', 'running', 'paused', 'error', 'completed')
+BEGIN
+  SELECT RAISE(ABORT, 'Invalid agent status value');
+END;
+
+-- worktrees.status validation
+CREATE TRIGGER IF NOT EXISTS trg_worktrees_status_insert
+BEFORE INSERT ON worktrees
+WHEN NEW.status NOT IN ('creating', 'active', 'merging', 'removing', 'removed', 'error')
+BEGIN
+  SELECT RAISE(ABORT, 'Invalid worktree status value');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_worktrees_status_update
+BEFORE UPDATE OF status ON worktrees
+WHEN NEW.status NOT IN ('creating', 'active', 'merging', 'removing', 'removed', 'error')
+BEGIN
+  SELECT RAISE(ABORT, 'Invalid worktree status value');
+END;
+
+-- agents.type validation
+CREATE TRIGGER IF NOT EXISTS trg_agents_type_insert
+BEFORE INSERT ON agents
+WHEN NEW.type NOT IN ('task', 'conversational', 'background')
+BEGIN
+  SELECT RAISE(ABORT, 'Invalid agent type value');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_agents_type_update
+BEFORE UPDATE OF type ON agents
+WHEN NEW.type NOT IN ('task', 'conversational', 'background')
+BEGIN
+  SELECT RAISE(ABORT, 'Invalid agent type value');
+END;
+
+-- tasks.priority validation (nullable, so allow NULL)
+CREATE TRIGGER IF NOT EXISTS trg_tasks_priority_insert
+BEFORE INSERT ON tasks
+WHEN NEW.priority IS NOT NULL AND NEW.priority NOT IN ('high', 'medium', 'low')
+BEGIN
+  SELECT RAISE(ABORT, 'Invalid task priority value');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_tasks_priority_update
+BEFORE UPDATE OF priority ON tasks
+WHEN NEW.priority IS NOT NULL AND NEW.priority NOT IN ('high', 'medium', 'low')
+BEGIN
+  SELECT RAISE(ABORT, 'Invalid task priority value');
+END;
+`,
   },
 ];

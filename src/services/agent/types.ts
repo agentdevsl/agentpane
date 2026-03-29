@@ -73,6 +73,7 @@ export type SessionServiceInterface = {
     agentId?: string;
     title?: string;
   }) => Promise<Result<SessionWithPresence, unknown>>;
+  delete: (id: string) => Promise<Result<{ deleted: boolean }, unknown>>;
   publish: (sessionId: string, event: SessionEvent) => Promise<Result<{ offset: number }, unknown>>;
 };
 

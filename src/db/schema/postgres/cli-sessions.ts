@@ -27,6 +27,12 @@ export const cliSessions = pgTable(
     lastActivityAt: bigint('last_activity_at', { mode: 'number' }).notNull(),
     isSubagent: boolean('is_subagent').notNull().default(false),
     parentSessionId: text('parent_session_id'),
+    slug: text('slug'),
+    cliVersion: text('cli_version'),
+    permissionMode: text('permission_mode'),
+    topology: text('topology'), // JSON
+    queueOperations: text('queue_operations'), // JSON
+    toolInvocations: text('tool_invocations'), // JSON
     createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { mode: 'string' })
       .defaultNow()
