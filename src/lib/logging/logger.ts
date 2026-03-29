@@ -23,54 +23,86 @@ const SENSITIVE_FIELD_NAMES = new Set([
   'api_key',
   'privatekey',
   'private_key',
+  'accesstoken',
+  'access_token',
+  'refreshtoken',
+  'refresh_token',
+  'oauthtoken',
+  'oauth_token',
+  'bearer',
 ]);
 
 const SENSITIVE_VALUE_PATTERNS: RegExp[] = [
-  /^sk-ant-.*/,
-  /^ghp_.*/,
-  /^ghs_.*/,
-  /^gho_.*/,
-  /^github_pat_.*/,
+  /sk-ant-\S+/,
+  /ghp_\S+/,
+  /ghs_\S+/,
+  /gho_\S+/,
+  /github_pat_\S+/,
 ];
 
 function isSensitiveFieldName(name: string): boolean {
   return SENSITIVE_FIELD_NAMES.has(name.toLowerCase());
 }
 
-function isSensitiveValue(value: string): boolean {
-  return SENSITIVE_VALUE_PATTERNS.some((pattern) => pattern.test(value));
+function maskSensitiveValue(value: string): string {
+  let masked = value;
+  for (const pattern of SENSITIVE_VALUE_PATTERNS) {
+    masked = masked.replace(pattern, '[REDACTED]');
+  }
+  return masked;
 }
+
+const MAX_MASK_DEPTH = 10;
 
 /**
  * Recursively masks sensitive data in objects and arrays.
  * Returns a new object — does not mutate the input.
+ * Handles circular references and limits recursion depth.
  */
-export function maskSensitiveData<T>(obj: T): T {
+export function maskSensitiveData<T>(obj: T, seen?: WeakSet<object>, depth?: number): T {
   if (obj === null || obj === undefined) {
     return obj;
   }
 
   if (typeof obj === 'string') {
-    return (isSensitiveValue(obj) ? '[REDACTED]' : obj) as T;
+    return maskSensitiveValue(obj) as T;
+  }
+
+  if (typeof obj !== 'object') {
+    return obj;
+  }
+
+  const currentDepth = depth ?? 0;
+  if (currentDepth >= MAX_MASK_DEPTH) {
+    return '[max depth]' as T;
+  }
+
+  const visitedSet = seen ?? new WeakSet<object>();
+  const objRef = obj as object;
+
+  if (visitedSet.has(objRef)) {
+    return '[Circular]' as T;
+  }
+  visitedSet.add(objRef);
+
+  // Preserve non-plain types
+  if (obj instanceof Date || obj instanceof RegExp) {
+    return obj;
   }
 
   if (Array.isArray(obj)) {
-    return obj.map((item) => maskSensitiveData(item)) as T;
+    return obj.map((item) => maskSensitiveData(item, visitedSet, currentDepth + 1)) as T;
   }
 
-  if (typeof obj === 'object') {
-    const result: Record<string, unknown> = {};
-    for (const [fieldName, value] of Object.entries(obj as Record<string, unknown>)) {
-      if (isSensitiveFieldName(fieldName)) {
-        result[fieldName] = '[REDACTED]';
-      } else {
-        result[fieldName] = maskSensitiveData(value);
-      }
+  const result: Record<string, unknown> = {};
+  for (const [fieldName, value] of Object.entries(obj as Record<string, unknown>)) {
+    if (isSensitiveFieldName(fieldName)) {
+      result[fieldName] = '[REDACTED]';
+    } else {
+      result[fieldName] = maskSensitiveData(value, visitedSet, currentDepth + 1);
     }
-    return result as T;
   }
-
-  return obj;
+  return result as T;
 }
 
 const LOG_LEVELS: Record<LogLevel, number> = {

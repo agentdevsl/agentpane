@@ -162,6 +162,80 @@ describe('maskSensitiveData', () => {
     });
   });
 
+  describe('additional sensitive field names', () => {
+    it('masks accessToken, refreshToken, oauthToken, bearer fields', () => {
+      const input = {
+        accessToken: 'at-123',
+        access_token: 'at-456',
+        refreshToken: 'rt-123',
+        refresh_token: 'rt-456',
+        oauthToken: 'ot-123',
+        oauth_token: 'ot-456',
+        bearer: 'b-123',
+      };
+      const result = maskSensitiveData(input);
+      for (const field of Object.keys(input)) {
+        expect((result as Record<string, unknown>)[field]).toBe('[REDACTED]');
+      }
+    });
+  });
+
+  describe('substring token masking', () => {
+    it('masks tokens embedded in longer strings', () => {
+      expect(maskSensitiveData('Auth failed with key sk-ant-api03-xyz')).toBe(
+        'Auth failed with key [REDACTED]',
+      );
+    });
+
+    it('masks tokens in URLs', () => {
+      expect(maskSensitiveData('https://api.example.com?token=ghp_abc123')).toBe(
+        'https://api.example.com?token=[REDACTED]',
+      );
+    });
+
+    it('masks multiple tokens in one string', () => {
+      expect(maskSensitiveData('tokens: ghp_abc and ghs_def')).toBe(
+        'tokens: [REDACTED] and [REDACTED]',
+      );
+    });
+  });
+
+  describe('circular reference handling', () => {
+    it('handles circular references without crashing', () => {
+      const obj: Record<string, unknown> = { name: 'test' };
+      obj.self = obj;
+      const result = maskSensitiveData(obj);
+      expect(result.name).toBe('test');
+      expect(result.self).toBe('[Circular]');
+    });
+
+    it('handles deeply nested objects with depth limit', () => {
+      let obj: Record<string, unknown> = { value: 'leaf' };
+      for (let i = 0; i < 15; i++) {
+        obj = { nested: obj };
+      }
+      const result = maskSensitiveData(obj) as Record<string, unknown>;
+      expect(result).toBeDefined();
+      // At depth 10, it stops recursing
+    });
+  });
+
+  describe('special types', () => {
+    it('preserves Date objects', () => {
+      const date = new Date('2025-01-01');
+      const input = { created: date, name: 'test' };
+      const result = maskSensitiveData(input);
+      expect(result.created).toBe(date);
+    });
+
+    it('preserves RegExp objects', () => {
+      const regex = /test/i;
+      const input = { pattern: regex };
+      const result = maskSensitiveData(input);
+      expect(result.pattern).toBe(regex);
+    });
+  });
+
   describe('error object masking', () => {
     it('masks sensitive data in error-shaped objects', () => {
       const input = {
@@ -172,9 +246,8 @@ describe('maskSensitiveData', () => {
 
       const result = maskSensitiveData(input);
 
-      // message is a string value - pattern check applies to the full string
-      // "Auth failed with token sk-ant-api03-xyz" does NOT start with sk-ant-, so not masked
-      expect(result.message).toBe('Auth failed with token sk-ant-api03-xyz');
+      // Tokens embedded in longer strings are now masked via substring matching
+      expect(result.message).toBe('Auth failed with token [REDACTED]');
       expect(result.stack).toBe('Error: ...');
       expect(result.code).toBe('AUTH_FAILED');
     });
