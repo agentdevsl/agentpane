@@ -50,10 +50,8 @@ function createMinimalDeps(overrides: Partial<RouterDependencies> = {}): RouterD
     taskService: stubService(),
     sessionService: stubService(),
     taskCreationService: stubService(),
-    worktreeService: stubService(),
     marketplaceService: stubService(),
     agentService: stubService(),
-    commandRunner: { exec: vi.fn().mockResolvedValue({ stdout: '', stderr: '' }) },
     ...overrides,
   };
 }

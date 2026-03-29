@@ -977,40 +977,6 @@ describe('Request Body Validation', () => {
     });
   });
 
-  describe('Worktree Creation', () => {
-    it('validates required codespaceId field', () => {
-      const body = { taskId: 'task-123' };
-      const hasProjectId = body && 'codespaceId' in body && body.codespaceId;
-      expect(hasProjectId).toBeFalsy();
-    });
-
-    it('validates required taskId field', () => {
-      const body = { codespaceId: 'proj-123' };
-      const hasTaskId = body && 'taskId' in body && body.taskId;
-      expect(hasTaskId).toBeFalsy();
-    });
-
-    it('accepts valid worktree data', () => {
-      const body = { codespaceId: 'proj-123', taskId: 'task-123' };
-      const isValid = body?.codespaceId && body.taskId;
-      expect(isValid).toBeTruthy();
-    });
-  });
-
-  describe('Worktree Commit', () => {
-    it('validates required message field', () => {
-      const body = {};
-      const hasMessage = body && 'message' in body && body.message;
-      expect(hasMessage).toBeFalsy();
-    });
-
-    it('accepts valid commit data', () => {
-      const body = { message: 'Commit message' };
-      const isValid = body?.message;
-      expect(isValid).toBeTruthy();
-    });
-  });
-
   describe('API Key', () => {
     it('validates required key field', () => {
       const body = {};
