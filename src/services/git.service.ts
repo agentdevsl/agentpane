@@ -308,9 +308,12 @@ export class GitService {
       // Use shellEscape for the branch name; default to HEAD
       const targetBranch = branch ? shellEscape(branch) : 'HEAD';
 
-      // Get commit log with stats inline in a single command
+      // Get commit log with stats inline in a single command.
+      // Use record separator (\x1e) as field delimiter to avoid conflicts with
+      // pipe characters that may appear in commit subjects.
+      const SEP = '\x1e';
       const { stdout: logOutput } = await this.commandRunner.exec(
-        `git log ${targetBranch} --format="COMMIT_START%H|%h|%s|%an|%aI" --stat -n ${Number(limit)}`,
+        `git log ${targetBranch} --format="COMMIT_START%H${SEP}%h${SEP}%s${SEP}%an${SEP}%aI" --stat -n ${Number(limit)}`,
         codespacePath
       );
 
@@ -320,7 +323,7 @@ export class GitService {
         .map((block) => {
           const lines = block.split('\n');
           const headerLine = lines[0] || '';
-          const parts = headerLine.split('|');
+          const parts = headerLine.split(SEP);
           const hash = parts[0] || '';
           const shortHash = parts[1] || '';
           const message = parts[2] || '';
