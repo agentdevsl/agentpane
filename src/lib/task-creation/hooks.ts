@@ -4,6 +4,10 @@ import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { apiClient } from '@/lib/api/client';
 import { getTaskCreationToolsAsync } from '@/lib/constants/tools';
 import { useCollectionQuery } from '@/lib/db/use-collection-query';
+import { createLogger } from '@/lib/logging/logger';
+
+const log = createLogger('TaskCreation');
+
 import { taskCreationMessagesCollection, taskCreationSessionsCollection } from './collections';
 import type {
   PendingQuestions,
@@ -202,8 +206,7 @@ export function useTaskCreation(codespaceId: string): UseTaskCreationReturn {
       // Update local state
       setSessionId(newSessionId);
     } catch (err) {
-      // biome-ignore lint/suspicious/noConsole: client-side error logging
-      console.error('[TaskCreation] Failed to start conversation:', err);
+      log.error('Failed to start conversation', { error: err });
       setLocalError(err instanceof Error ? err.message : 'Failed to start conversation');
     }
   }, [codespaceId]);

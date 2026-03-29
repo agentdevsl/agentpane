@@ -4,6 +4,9 @@ import { githubInstallations } from '../../db/schema/index.js';
 import type { GitHubTokenService } from '../../services/github-token.service.js';
 import type { Database } from '../../types/database.js';
 import { getAppOctokit } from '../github/client.js';
+import { createLogger } from '../logging/logger.js';
+
+const log = createLogger('GitTokenResolver');
 
 export interface GitTokenResult {
   readonly token: string;
@@ -78,7 +81,9 @@ export async function resolveGitToken(
       if (token) {
         return { token, owner, repo };
       }
-    } catch (_error) {}
+    } catch (error) {
+      log.debug('Failed to get GitHub PAT token', { error });
+    }
   }
   return null;
 }

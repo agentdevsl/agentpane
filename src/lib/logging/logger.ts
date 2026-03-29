@@ -9,6 +9,102 @@ import { getRequestId } from '../context/request-context.js';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
+// --- Sensitive data masking ---
+
+const SENSITIVE_FIELD_NAMES = new Set([
+  'token',
+  'key',
+  'secret',
+  'password',
+  'credential',
+  'authorization',
+  'cookie',
+  'apikey',
+  'api_key',
+  'privatekey',
+  'private_key',
+  'accesstoken',
+  'access_token',
+  'refreshtoken',
+  'refresh_token',
+  'oauthtoken',
+  'oauth_token',
+  'bearer',
+]);
+
+const SENSITIVE_VALUE_PATTERNS: RegExp[] = [
+  /sk-ant-\S+/g,
+  /ghp_\S+/g,
+  /ghs_\S+/g,
+  /gho_\S+/g,
+  /github_pat_\S+/g,
+];
+
+function isSensitiveFieldName(name: string): boolean {
+  return SENSITIVE_FIELD_NAMES.has(name.toLowerCase());
+}
+
+function maskSensitiveValue(value: string): string {
+  let masked = value;
+  for (const pattern of SENSITIVE_VALUE_PATTERNS) {
+    masked = masked.replace(pattern, '[REDACTED]');
+  }
+  return masked;
+}
+
+const MAX_MASK_DEPTH = 10;
+
+/**
+ * Recursively masks sensitive data in objects and arrays.
+ * Returns a new object — does not mutate the input.
+ * Handles circular references and limits recursion depth.
+ */
+export function maskSensitiveData<T>(obj: T, seen?: WeakSet<object>, depth?: number): T {
+  if (obj === null || obj === undefined) {
+    return obj;
+  }
+
+  if (typeof obj === 'string') {
+    return maskSensitiveValue(obj) as T;
+  }
+
+  if (typeof obj !== 'object') {
+    return obj;
+  }
+
+  const currentDepth = depth ?? 0;
+  if (currentDepth >= MAX_MASK_DEPTH) {
+    return '[max depth]' as T;
+  }
+
+  const visitedSet = seen ?? new WeakSet<object>();
+  const objRef = obj as object;
+
+  if (visitedSet.has(objRef)) {
+    return '[Circular]' as T;
+  }
+  visitedSet.add(objRef);
+
+  // Preserve non-plain types
+  if (obj instanceof Date || obj instanceof RegExp) {
+    return obj;
+  }
+
+  if (Array.isArray(obj)) {
+    return obj.map((item) => maskSensitiveData(item, visitedSet, currentDepth + 1)) as T;
+  }
+
+  const result: Record<string, unknown> = {};
+  for (const [fieldName, value] of Object.entries(obj as Record<string, unknown>)) {
+    if (isSensitiveFieldName(fieldName)) {
+      result[fieldName] = '[REDACTED]';
+    } else {
+      result[fieldName] = maskSensitiveData(value, visitedSet, currentDepth + 1);
+    }
+  }
+  return result as T;
+}
+
 const LOG_LEVELS: Record<LogLevel, number> = {
   debug: 0,
   info: 1,
@@ -18,6 +114,8 @@ const LOG_LEVELS: Record<LogLevel, number> = {
 
 interface LogEntry {
   level: LogLevel;
+  service: string;
+  environment: string;
   message: string;
   timestamp: string;
   context?: string;
@@ -29,6 +127,10 @@ interface LogEntry {
     code?: string;
   };
 }
+
+// Computed once at module load for performance
+const serviceName = process.env.SERVICE_NAME || 'agentpane';
+const environment = process.env.NODE_ENV || 'development';
 
 const VALID_LOG_LEVELS = new Set<string>(['debug', 'info', 'warn', 'error']);
 
@@ -87,12 +189,14 @@ function log(
 
   const entry: LogEntry = {
     level,
+    service: serviceName,
+    environment,
     message,
     timestamp: new Date().toISOString(),
     context: opts?.context,
     requestId,
-    data: opts?.data,
-    error: serializeError(opts?.error),
+    data: opts?.data ? maskSensitiveData(opts.data) : undefined,
+    error: maskSensitiveData(serializeError(opts?.error)),
   };
 
   const formatted = formatEntry(entry);
@@ -121,10 +225,14 @@ function log(
  */
 export function createLogger(context: string) {
   return {
-    debug: (message: string, opts?: { requestId?: string; data?: Record<string, unknown> }) =>
-      log('debug', message, { ...opts, context }),
-    info: (message: string, opts?: { requestId?: string; data?: Record<string, unknown> }) =>
-      log('info', message, { ...opts, context }),
+    debug: (
+      message: string,
+      opts?: { requestId?: string; data?: Record<string, unknown>; error?: unknown }
+    ) => log('debug', message, { ...opts, context }),
+    info: (
+      message: string,
+      opts?: { requestId?: string; data?: Record<string, unknown>; error?: unknown }
+    ) => log('info', message, { ...opts, context }),
     warn: (
       message: string,
       opts?: { requestId?: string; data?: Record<string, unknown>; error?: unknown }

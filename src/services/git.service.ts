@@ -2,10 +2,13 @@ import { eq } from 'drizzle-orm';
 import { codespaces } from '../db/schema';
 import type { GitError } from '../lib/errors/git-errors.js';
 import { GitErrors } from '../lib/errors/git-errors.js';
+import { createLogger } from '../lib/logging/logger.js';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
 import type { Database } from '../types/database.js';
 import type { CommandRunner } from './worktree.service.js';
+
+const log = createLogger('GitService');
 
 /**
  * Escape a string for safe use in a shell command argument.
@@ -89,7 +92,8 @@ export class GitService {
       }
 
       return ok({ path: codespace.path, name: codespace.name });
-    } catch (_error) {
+    } catch (error) {
+      log.warn('Failed to lookup codespace', { error });
       return err(GitErrors.DATABASE_ERROR('Failed to lookup codespace'));
     }
   }
@@ -157,7 +161,8 @@ export class GitService {
         ahead,
         behind,
       });
-    } catch (_error) {
+    } catch (error) {
+      log.warn('Failed to get git status', { error });
       return err(GitErrors.COMMAND_FAILED('Failed to get git status'));
     }
   }
@@ -206,7 +211,9 @@ export class GitService {
                 );
                 commitCount = parseInt(countOutput.trim(), 10) || 0;
               }
-            } catch (_error) {}
+            } catch (error) {
+              log.debug('Failed to get branch commit count', { error });
+            }
 
             // Parse tracking status
             let status: GitBranch['status'] = 'no-upstream';
@@ -243,7 +250,8 @@ export class GitService {
         });
 
       return ok({ items: validBranches });
-    } catch (_error) {
+    } catch (error) {
+      log.warn('Failed to list branches', { error });
       return err(GitErrors.COMMAND_FAILED('Failed to list branches'));
     }
   }
@@ -307,7 +315,9 @@ export class GitService {
               if (filesMatch) filesChanged = parseInt(filesMatch[1] || '0', 10);
               if (insertionsMatch) additions = parseInt(insertionsMatch[1] || '0', 10);
               if (deletionsMatch) deletions = parseInt(deletionsMatch[1] || '0', 10);
-            } catch (_error) {}
+            } catch (error) {
+              log.debug('Failed to get commit stats', { error });
+            }
 
             return {
               hash,
@@ -323,7 +333,8 @@ export class GitService {
       );
 
       return ok({ items: commits });
-    } catch (_error) {
+    } catch (error) {
+      log.warn('Failed to list commits', { error });
       return err(GitErrors.COMMAND_FAILED('Failed to list commits'));
     }
   }
@@ -342,7 +353,9 @@ export class GitService {
       // Fetch latest from remote (don't fail if offline)
       try {
         await this.commandRunner.exec('git fetch --prune 2>/dev/null || true', codespacePath);
-      } catch (_error) {}
+      } catch (error) {
+        log.debug('Failed to fetch remote branches', { error });
+      }
 
       // Get all remote branches with their commit info
       const { stdout: branchOutput } = await this.commandRunner.exec(
@@ -380,7 +393,9 @@ export class GitService {
                 );
                 commitCount = parseInt(countOutput.trim(), 10) || 0;
               }
-            } catch (_error) {}
+            } catch (error) {
+              log.debug('Failed to get remote branch commit count', { error });
+            }
 
             return {
               name,
@@ -398,7 +413,8 @@ export class GitService {
         .sort((a, b) => a.name.localeCompare(b.name));
 
       return ok({ items: validBranches });
-    } catch (_error) {
+    } catch (error) {
+      log.warn('Failed to list remote branches', { error });
       return err(GitErrors.COMMAND_FAILED('Failed to list remote branches'));
     }
   }

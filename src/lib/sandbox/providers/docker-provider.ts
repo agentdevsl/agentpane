@@ -2,6 +2,7 @@ import { PassThrough, type Readable } from 'node:stream';
 import { createId } from '@paralleldrive/cuid2';
 import Docker from 'dockerode';
 import { SandboxErrors } from '../../errors/sandbox-errors.js';
+import { createLogger } from '../../logging/logger.js';
 import { errorMessage } from '../../utils/error-message';
 import type {
   ExecResult,
@@ -21,6 +22,8 @@ import type {
   SandboxProviderEvent,
   SandboxProviderEventListener,
 } from './sandbox-provider.js';
+
+const log = createLogger('DockerProvider');
 
 /**
  * Docker-based sandbox implementation
@@ -362,7 +365,9 @@ class DockerSandbox implements Sandbox {
           });
           await killer.start({ Detach: true });
         }
-      } catch (_error) {}
+      } catch (error) {
+        log.debug('Failed to terminate exec process', { error });
+      }
     };
 
     return {
@@ -462,7 +467,9 @@ export class DockerProvider implements EventEmittingSandboxProvider {
             const container = this.docker.getContainer(containerId);
             await container.remove({ force: true });
             removed++;
-          } catch (_err) {}
+          } catch (err) {
+            log.debug('Failed to remove stopped container during recovery', { error: err });
+          }
           continue;
         }
 
@@ -476,7 +483,9 @@ export class DockerProvider implements EventEmittingSandboxProvider {
             await container.stop();
             await container.remove({ force: true });
             removed++;
-          } catch (_err) {}
+          } catch (err) {
+            log.debug('Failed to remove stale-image container during recovery', { error: err });
+          }
           continue;
         }
 
@@ -496,7 +505,9 @@ export class DockerProvider implements EventEmittingSandboxProvider {
         this.codespaceToSandbox.set(codespaceId, sandboxId);
         recovered++;
       }
-    } catch (_error) {}
+    } catch (error) {
+      log.warn('Docker container recovery failed', { error });
+    }
 
     return { recovered, removed };
   }
@@ -740,8 +751,8 @@ export class DockerProvider implements EventEmittingSandboxProvider {
           this.sandboxes.delete(sandboxId);
           this.codespaceToSandbox.delete(sandbox.codespaceId);
           cleaned++;
-        } catch (_error) {
-          // Log cleanup errors for debugging - don't fail the entire cleanup operation
+        } catch (error) {
+          log.debug('Failed to clean up sandbox during maintenance', { error });
         }
       }
     }
@@ -804,7 +815,9 @@ export class DockerProvider implements EventEmittingSandboxProvider {
     for (const listener of this.listeners) {
       try {
         listener(event);
-      } catch (_error) {}
+      } catch (error) {
+        log.debug('Sandbox event listener threw', { error });
+      }
     }
   }
 }

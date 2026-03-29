@@ -3,9 +3,12 @@ import type { Workflow } from '../db/schema';
 import { workflows } from '../db/schema';
 import type { WorkflowError } from '../lib/errors/workflow-errors.js';
 import { WorkflowErrors } from '../lib/errors/workflow-errors.js';
+import { createLogger } from '../lib/logging/logger.js';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
 import type { Database } from '../types/database.js';
+
+const log = createLogger('WorkflowService');
 
 export type ListWorkflowsOptions = {
   limit?: number;
@@ -101,7 +104,8 @@ export class WorkflowService {
         offset,
         hasMore: offset + items.length < totalCount,
       });
-    } catch (_error) {
+    } catch (error) {
+      log.warn('Workflow DB operation failed', { error });
       return err(WorkflowErrors.DATABASE_ERROR('Failed to list workflows'));
     }
   }
@@ -117,7 +121,8 @@ export class WorkflowService {
       }
 
       return ok(workflow);
-    } catch (_error) {
+    } catch (error) {
+      log.warn('Workflow DB operation failed', { error });
       return err(WorkflowErrors.DATABASE_ERROR('Failed to get workflow'));
     }
   }
@@ -152,7 +157,8 @@ export class WorkflowService {
       }
 
       return ok(created);
-    } catch (_error) {
+    } catch (error) {
+      log.warn('Workflow DB operation failed', { error });
       return err(WorkflowErrors.DATABASE_ERROR('Failed to create workflow'));
     }
   }
@@ -199,7 +205,8 @@ export class WorkflowService {
       }
 
       return ok(updated);
-    } catch (_error) {
+    } catch (error) {
+      log.warn('Workflow DB operation failed', { error });
       return err(WorkflowErrors.DATABASE_ERROR('Failed to update workflow'));
     }
   }
@@ -218,7 +225,8 @@ export class WorkflowService {
       await this.db.delete(workflows).where(eq(workflows.id, id));
 
       return ok(undefined);
-    } catch (_error) {
+    } catch (error) {
+      log.warn('Workflow DB operation failed', { error });
       return err(WorkflowErrors.DATABASE_ERROR('Failed to delete workflow'));
     }
   }
@@ -261,7 +269,8 @@ export class WorkflowService {
       }
 
       return ok(created);
-    } catch (_error) {
+    } catch (error) {
+      log.warn('Workflow DB operation failed', { error });
       return err(WorkflowErrors.DATABASE_ERROR('Failed to duplicate workflow'));
     }
   }

@@ -87,7 +87,9 @@ export class TerraformComposeService {
     for (const [id, session] of this.sessions) {
       if (now - session.lastAccessedAt > SESSION_TTL_MS) {
         this.sessions.delete(id);
-        this.durableStreamsService?.deleteStream(`terraform:${id}`).catch(() => {});
+        this.durableStreamsService?.deleteStream(`terraform:${id}`).catch((err) => {
+          log.debug('Failed to delete stream during cleanup', { error: err });
+        });
       }
     }
     // Evict oldest if over max
@@ -98,7 +100,9 @@ export class TerraformComposeService {
       const toRemove = sorted.slice(0, this.sessions.size - MAX_SESSIONS);
       for (const [id] of toRemove) {
         this.sessions.delete(id);
-        this.durableStreamsService?.deleteStream(`terraform:${id}`).catch(() => {});
+        this.durableStreamsService?.deleteStream(`terraform:${id}`).catch((err) => {
+          log.debug('Failed to delete stream during eviction', { error: err });
+        });
       }
     }
   }
@@ -132,7 +136,9 @@ export class TerraformComposeService {
     // create is required (will fail the request if it cannot be created).
     const streamId = `terraform:${sid}`;
     try {
-      await this.durableStreamsService.deleteStream(streamId).catch(() => {});
+      await this.durableStreamsService.deleteStream(streamId).catch((err) => {
+        log.debug('Failed to delete stream before recreate', { error: err });
+      });
       await this.durableStreamsService.createStream(streamId, null);
     } catch (err) {
       log.error('Failed to create durable stream for compose job', {
@@ -153,7 +159,9 @@ export class TerraformComposeService {
       } catch (publishErr) {
         log.error('Failed to publish pipeline error event', { error: publishErr });
         // Ensure stream is cleaned up even if error publish fails
-        await this.durableStreamsService?.deleteStream(`terraform:${sid}`).catch(() => {});
+        await this.durableStreamsService?.deleteStream(`terraform:${sid}`).catch((err) => {
+          log.debug('Failed to delete stream after pipeline error', { error: err });
+        });
       }
     });
 
@@ -503,7 +511,9 @@ export class TerraformComposeService {
       } catch (publishErr) {
         log.error('Failed to publish error event to stream', { error: publishErr });
         // Ensure stream is cleaned up even if error publish fails
-        await this.durableStreamsService?.deleteStream(`terraform:${sid}`).catch(() => {});
+        await this.durableStreamsService?.deleteStream(`terraform:${sid}`).catch((err) => {
+          log.debug('Failed to delete stream after publish error', { error: err });
+        });
       }
     } finally {
       if (session) {
@@ -524,7 +534,9 @@ export class TerraformComposeService {
 
   resetSession(sessionId: string): void {
     this.sessions.delete(sessionId);
-    this.durableStreamsService?.deleteStream(`terraform:${sessionId}`).catch(() => {});
+    this.durableStreamsService?.deleteStream(`terraform:${sessionId}`).catch((err) => {
+      log.debug('Failed to delete stream on session reset', { error: err });
+    });
   }
 
   /**

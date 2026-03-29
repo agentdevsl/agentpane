@@ -1,4 +1,8 @@
 import { createId } from '@paralleldrive/cuid2';
+import { createLogger } from '../logging/logger.js';
+
+const log = createLogger('TaskCreationSync');
+
 import {
   clearTaskCreationSession,
   taskCreationMessagesCollection,
@@ -94,7 +98,9 @@ export function syncTaskCreationToCollections(sessionId: string, streamUrl: stri
     try {
       const data = JSON.parse(event.data) as TaskCreationEvent;
       handleTaskCreationEvent(sessionId, data);
-    } catch (_error) {}
+    } catch (error) {
+      log.debug('Failed to parse task creation SSE event', { error });
+    }
   };
 
   eventSource.onerror = (_error) => {

@@ -2,6 +2,7 @@ import { createId } from '@paralleldrive/cuid2';
 import { desc, eq } from 'drizzle-orm';
 import { sessionEvents } from '../db/schema';
 import { type AppError, createError } from '../lib/errors/base.js';
+import { createLogger } from '../lib/logging/logger.js';
 import {
   requirePayloadStreamMetadata,
   STREAM_PROTOCOL_MIGRATION_GATE,
@@ -20,6 +21,8 @@ import type { AgentFileChangedData } from '../types/agent-events.js';
 import type { Database } from '../types/database.js';
 import { createStreamPayloadWithMetadata } from './session/event-metadata.js';
 import type { SessionEvent, SessionEventType } from './session.service.js';
+
+const log = createLogger('DurableStreamsService');
 
 /**
  * Durable Streams server interface for real-time event streaming
@@ -688,7 +691,9 @@ export class DurableStreamsService {
       let memoryOffset = 0;
       try {
         memoryOffset = await this.server.publish(streamId, type, payload);
-      } catch (_caddyErr) {}
+      } catch (caddyErr) {
+        log.debug('Caddy publish failed (event persisted in DB)', { error: caddyErr });
+      }
 
       return ok(this.db ? offset : memoryOffset);
     } catch (error) {
@@ -960,7 +965,9 @@ export class DurableStreamsService {
       // Caddy publish is best-effort after DB persistence
       try {
         await this.server.publish(streamId, event.type, event.data);
-      } catch (_caddyErr) {}
+      } catch (caddyErr) {
+        log.debug('Caddy publish failed for session event', { error: caddyErr });
+      }
 
       return ok(undefined);
     } catch (error) {

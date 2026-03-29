@@ -229,19 +229,19 @@ Define alerting thresholds:
 
 Ordered by priority and dependency:
 
-| # | Item | Effort | Dependencies | Package |
-|---|------|--------|-------------|---------|
-| 1 | Sensitive data masking in logger | 1 day | None | None (pure TypeScript) |
-| 2 | Fix silent catch blocks (50+ instances) | 1 day | None | None |
-| 3 | Replace `console.*` with structured logger | 0.5 day | None | None |
-| 4 | Add `service`/`environment` fields to log entries | 0.5 day | None | None |
-| 5 | Basic `/api/metrics` endpoint (in-memory counters) | 1-2 days | None | None |
-| 6 | Sentry error reporting integration | 1-2 days | Sentry account | `@sentry/bun` or `@sentry/node` |
-| 7 | Migrate logger to Pino (optional, for perf) | 2 days | None | `pino` + `pino-pretty` |
-| 8 | Prometheus metrics with `prom-client` | 3-5 days | Item 5 (refine counters) | `prom-client` |
-| 9 | OpenTelemetry tracing | 5-7 days | Tracing backend (Jaeger/Tempo) | `@opentelemetry/sdk-node` |
-| 10 | Grafana dashboards | 2-3 days | Items 8-9, Grafana instance | None |
-| 11 | Alerting rules | 1-2 days | Item 8, alerting backend | None |
+| # | Item | Effort | Dependencies | Package | Status |
+|---|------|--------|-------------|---------|--------|
+| 1 | Sensitive data masking in logger | 1 day | None | None (pure TypeScript) | DONE |
+| 2 | Fix silent catch blocks (50+ instances) | 1 day | None | None | DONE |
+| 3 | Replace `console.*` with structured logger | 0.5 day | None | None | DONE |
+| 4 | Add `service`/`environment` fields to log entries | 0.5 day | None | None | DONE |
+| 5 | Basic `/api/metrics` endpoint (in-memory counters) | 1-2 days | None | None | TODO |
+| 6 | Sentry error reporting integration | 1-2 days | Sentry account | `@sentry/bun` or `@sentry/node` | TODO |
+| 7 | Migrate logger to Pino (optional, for perf) | 2 days | None | `pino` + `pino-pretty` | TODO |
+| 8 | Prometheus metrics with `prom-client` | 3-5 days | Item 5 (refine counters) | `prom-client` | TODO |
+| 9 | OpenTelemetry tracing | 5-7 days | Tracing backend (Jaeger/Tempo) | `@opentelemetry/sdk-node` | TODO |
+| 10 | Grafana dashboards | 2-3 days | Items 8-9, Grafana instance | None | TODO |
+| 11 | Alerting rules | 1-2 days | Item 8, alerting backend | None | TODO |
 
 **Recommended approach**: Items 1-5 (3-5 days total) constitute the minimum viable observability for production. They require no external services or new dependencies. Items 6-7 should follow within the first sprint. Items 8-11 are infrastructure-dependent and can be planned alongside deployment architecture decisions.
 
@@ -252,3 +252,41 @@ Ordered by priority and dependency:
 - The health check implementation is production-ready and well-designed for Kubernetes. No changes needed.
 - The state machine instrumentation (`instrumented-machine.ts`) provides excellent transition telemetry. Wiring this to a metrics counter would give immediate visibility into agent/task lifecycle performance.
 - The biggest operational risk is the 50+ silent catch blocks. These create invisible failure modes that will be extremely difficult to debug in production without the ability to reproduce the issue.
+
+---
+
+## Implementation Status
+
+### Item 1: Sensitive Data Masking (COMPLETED)
+
+- **File**: `src/lib/logging/logger.ts`
+- **What**: Added `maskSensitiveData()` function that recursively walks objects/arrays and redacts:
+  - Field names: `token`, `key`, `secret`, `password`, `credential`, `authorization`, `cookie`, `apiKey`, `api_key`, `privateKey`, `private_key` (case-insensitive)
+  - Value patterns: `sk-ant-*`, `ghp_*`, `ghs_*`, `gho_*`, `github_pat_*`
+- **Integration**: Applied automatically in `log()` function to both `data` and `error` fields before serialization
+- **Tests**: 18 tests in `src/lib/logging/__tests__/mask-sensitive-data.test.ts`
+- **Commits**: `c96933d`, `4b32cd1`
+
+### Item 2: Silent Catch Blocks (COMPLETED)
+
+- **Files modified**: 16 files across services and lib
+- **Instances fixed**: 47+ empty catch blocks replaced with structured logging
+- **Approach**: `log.debug()` for expected failures (stream cleanup, event publishing), `log.warn()` for unexpected failures (DB operations, CRUD, persistence)
+- **Key files**: terraform-compose (6), plan-mode (8), workflow (6), cli-monitor (6), template-sync-scheduler (4), git.service (4), docker-provider (5), durable-streams (2), api-key (2), k8s-workspace-initializer (2), session-stream (1), sessions/router (1), registry-client (1), task-creation/sync (1), git-token-resolver (1), agents/hooks/audit (1)
+- **Commit**: `3d7806f`
+
+### Item 3: Console.* Replacement (COMPLETED)
+
+- **Files modified**: 2 server-side files
+  - `src/lib/bootstrap/phases/streams.ts`: `console.warn` -> `log.warn`
+  - `src/lib/task-creation/hooks.ts`: `console.error` -> `log.error`
+- **Note**: Only 2 real instances found in server code (the 69 mentioned in spec included frontend code and logger internals which are intentional)
+- **Commit**: `bd6e2f7`
+
+### Item 4: Service/Environment Fields (COMPLETED)
+
+- **File**: `src/lib/logging/logger.ts`
+- **What**: Added `service` and `environment` fields to `LogEntry` interface
+- **Defaults**: `SERVICE_NAME` env var (fallback: `'agentpane'`), `NODE_ENV` (fallback: `'development'`)
+- **Behavior**: Fields appear in every JSON log entry in production; omitted from dev human-readable output for cleanliness
+- **Commit**: `c96933d`

@@ -5,6 +5,7 @@ import { codespaces, planSessions, tasks } from '../db/schema';
 import type { PlanModeError } from '../lib/errors/plan-mode-errors.js';
 import { PlanModeErrors } from '../lib/errors/plan-mode-errors.js';
 import type { GitHubIssueCreator } from '../lib/github/issue-creator.js';
+import { createLogger } from '../lib/logging/logger.js';
 import type { ClaudeClient, ToolCallResult } from '../lib/plan-mode/claude-client.js';
 import { createClaudeClient } from '../lib/plan-mode/claude-client.js';
 import type { InteractionHandler } from '../lib/plan-mode/interaction-handler.js';
@@ -24,6 +25,8 @@ import type { DurableStreamsService } from './durable-streams.service.js';
 /**
  * Token streaming callback
  */
+const log = createLogger('PlanModeService');
+
 export type PlanTokenCallback = (delta: string) => void;
 
 /**
@@ -180,7 +183,8 @@ export class PlanModeService {
         taskId: input.taskId,
         codespaceId: input.codespaceId,
       });
-    } catch (_streamError) {
+    } catch (streamError) {
+      log.debug('Stream event publish failed', { error: streamError });
       this.droppedEventCount++;
     }
 
@@ -191,7 +195,8 @@ export class PlanModeService {
         taskId: session.taskId,
         codespaceId: session.codespaceId,
       });
-    } catch (_streamError) {
+    } catch (streamError) {
+      log.debug('Stream event publish failed', { error: streamError });
       this.droppedEventCount++;
     }
 
@@ -247,7 +252,8 @@ export class PlanModeService {
         role: responseTurn.role,
         content: responseTurn.content,
       });
-    } catch (_streamError) {
+    } catch (streamError) {
+      log.debug('Stream event publish failed', { error: streamError });
       this.droppedEventCount++;
     }
 
@@ -369,7 +375,8 @@ export class PlanModeService {
               sessionId: session.id,
               delta,
             })
-            .catch((_streamError: unknown) => {
+            .catch((streamError: unknown) => {
+              log.debug('Stream event publish failed', { error: streamError });
               this.droppedEventCount++;
             });
         }
@@ -385,7 +392,8 @@ export class PlanModeService {
           error: response.error.message,
           code: response.error.code,
         });
-      } catch (_streamError) {
+      } catch (streamError) {
+        log.debug('Stream event publish failed', { error: streamError });
         this.droppedEventCount++;
       }
       return response;
@@ -434,7 +442,8 @@ export class PlanModeService {
         role: assistantTurn.role,
         content: assistantTurn.content,
       });
-    } catch (_streamError) {
+    } catch (streamError) {
+      log.debug('Stream event publish failed', { error: streamError });
       this.droppedEventCount++;
     }
 
@@ -512,7 +521,8 @@ export class PlanModeService {
         interactionId: interaction.id,
         questions: interaction.questions,
       });
-    } catch (_streamError) {
+    } catch (streamError) {
+      log.debug('Stream event publish failed', { error: streamError });
       this.droppedEventCount++;
     }
 
@@ -524,7 +534,8 @@ export class PlanModeService {
         role: assistantTurn.role,
         content: assistantTurn.content,
       });
-    } catch (_streamError) {
+    } catch (streamError) {
+      log.debug('Stream event publish failed', { error: streamError });
       this.droppedEventCount++;
     }
 
@@ -548,7 +559,8 @@ export class PlanModeService {
             'Plan completed but GitHub issue was not created: GitHub configuration (owner/repo) is not set. Configure GitHub settings to enable automatic issue creation.',
           code: 'GITHUB_CONFIG_MISSING',
         });
-      } catch (_streamError) {
+      } catch (streamError) {
+        log.debug('Stream event publish failed', { error: streamError });
         this.droppedEventCount++;
       }
       return this.completeSession(session, streamedContent);
@@ -577,7 +589,8 @@ export class PlanModeService {
           error: `Plan completed but GitHub issue creation failed: ${issueResult.error.message}`,
           code: 'GITHUB_ISSUE_CREATION_FAILED',
         });
-      } catch (_streamError) {
+      } catch (streamError) {
+        log.debug('Stream event publish failed', { error: streamError });
         this.droppedEventCount++;
       }
       // Complete session but include indication that issue creation failed
@@ -643,7 +656,8 @@ export class PlanModeService {
         role: assistantTurn.role,
         content: assistantTurn.content,
       });
-    } catch (_streamError) {
+    } catch (streamError) {
+      log.debug('Stream event publish failed', { error: streamError });
       this.droppedEventCount++;
     }
 
@@ -654,7 +668,8 @@ export class PlanModeService {
         issueUrl: issueInfo?.issueUrl,
         issueNumber: issueInfo?.issueNumber,
       });
-    } catch (_streamError) {
+    } catch (streamError) {
+      log.debug('Stream event publish failed', { error: streamError });
       this.droppedEventCount++;
     }
 

@@ -7,10 +7,14 @@
  *  - Worktree failure (after successful clone): falls back to /workspace root
  *    (has code from clone, but no branch isolation)
  */
+
 import { CONTAINER_WORKSPACE_PATH } from '../constants/sandbox.js';
+import { createLogger } from '../logging/logger.js';
 import { slugify } from '../utils/slugify.js';
 import type { GitTokenResult } from './git-token-resolver.js';
 import type { ExecResult } from './types.js';
+
+const log = createLogger('K8sWorkspaceInitializer');
 
 const WORKTREES_DIR = `${CONTAINER_WORKSPACE_PATH}/.worktrees`;
 
@@ -56,7 +60,8 @@ async function isWorkspaceCloned(sandbox: SandboxExec): Promise<boolean> {
   try {
     const result = await sandbox.exec('test', ['-d', `${CONTAINER_WORKSPACE_PATH}/.git`]);
     return result.exitCode === 0;
-  } catch (_err) {
+  } catch (err) {
+    log.debug('Failed to check workspace clone status', { error: err });
     return false;
   }
 }
@@ -123,7 +128,8 @@ async function cloneRepository(
     if (credResult.exitCode !== 0) {
     }
     return true;
-  } catch (_err) {
+  } catch (err) {
+    log.debug('Failed to clone repository', { error: err });
     return false;
   }
 }
@@ -163,12 +169,15 @@ async function createWorktree(
     if (result.exitCode === 0) {
       return worktreePath;
     }
-  } catch (_err) {}
+  } catch (err) {
+    log.debug('Worktree path check failed', { error: err });
+  }
 
   // Ensure the worktrees parent directory exists
   try {
     await sandbox.exec('mkdir', ['-p', WORKTREES_DIR]);
-  } catch (_err) {
+  } catch (err) {
+    log.warn('Failed to create worktrees directory', { error: err });
     return null;
   }
 
@@ -178,7 +187,9 @@ async function createWorktree(
     if (result.exitCode === 0) {
       return worktreePath;
     }
-  } catch (_err) {}
+  } catch (err) {
+    log.debug('Worktree add with new branch failed, will retry', { error: err });
+  }
 
   // Retry without -b (branch already exists from a prior planning phase, or existingBranch was provided)
   try {
@@ -187,7 +198,8 @@ async function createWorktree(
       return worktreePath;
     }
     return null;
-  } catch (_err) {
+  } catch (err) {
+    log.debug('Worktree add retry failed', { error: err });
     return null;
   }
 }

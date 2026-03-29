@@ -2,10 +2,13 @@ import { eq } from 'drizzle-orm';
 import { apiKeys } from '../db/schema';
 import { decryptToken, encryptToken, maskToken } from '../lib/crypto/server-encryption.js';
 import { ServiceErrors } from '../lib/errors/service-errors.js';
+import { createLogger } from '../lib/logging/logger.js';
 import { errorMessage } from '../lib/utils/error-message.js';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
 import type { Database } from '../types/database.js';
+
+const log = createLogger('ApiKeyService');
 
 export type ApiKeyError =
   | { code: 'INVALID_FORMAT'; message: string }
@@ -131,7 +134,8 @@ export class ApiKeyService {
 
     try {
       return decryptToken(key.encryptedKey);
-    } catch (_error) {
+    } catch (error) {
+      log.warn('Failed to decrypt API key', { error });
       throw ServiceErrors.DECRYPT_FAILED(service);
     }
   }
@@ -161,6 +165,8 @@ export class ApiKeyService {
         .update(apiKeys)
         .set({ isValid: false, updatedAt: new Date().toISOString() })
         .where(eq(apiKeys.service, service));
-    } catch (_error) {}
+    } catch (error) {
+      log.warn('Failed to mark API key as invalid', { error });
+    }
   }
 }

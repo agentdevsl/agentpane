@@ -1,5 +1,8 @@
+import { createLogger } from '../../logging/logger.js';
 import { setStreamsAvailable } from '../../streams/client.js';
 import { ok } from '../../utils/result.js';
+
+const log = createLogger('streams');
 
 /**
  * Initialize durable streams for the client.
@@ -35,8 +38,7 @@ export const connectStreams = async (_ctx?: unknown) => {
     setStreamsAvailable(false);
     return ok(null);
   } catch (error) {
-    // biome-ignore lint/suspicious/noConsole: bootstrap phase runs before logger is available
-    console.warn('[streams] Failed to connect to streams server:', error);
+    log.warn('Failed to connect to streams server', { error });
     setStreamsAvailable(false);
     return ok(null); // Non-fatal in dev mode
   }
