@@ -392,7 +392,8 @@ export class PlanModeService {
           error: response.error.message,
           code: response.error.code,
         });
-      } catch (_streamError) {
+      } catch (streamError) {
+        log.debug('Stream event publish failed', { error: streamError });
         this.droppedEventCount++;
       }
       return response;
@@ -558,7 +559,8 @@ export class PlanModeService {
             'Plan completed but GitHub issue was not created: GitHub configuration (owner/repo) is not set. Configure GitHub settings to enable automatic issue creation.',
           code: 'GITHUB_CONFIG_MISSING',
         });
-      } catch (_streamError) {
+      } catch (streamError) {
+        log.debug('Stream event publish failed', { error: streamError });
         this.droppedEventCount++;
       }
       return this.completeSession(session, streamedContent);
@@ -587,7 +589,8 @@ export class PlanModeService {
           error: `Plan completed but GitHub issue creation failed: ${issueResult.error.message}`,
           code: 'GITHUB_ISSUE_CREATION_FAILED',
         });
-      } catch (_streamError) {
+      } catch (streamError) {
+        log.debug('Stream event publish failed', { error: streamError });
         this.droppedEventCount++;
       }
       // Complete session but include indication that issue creation failed

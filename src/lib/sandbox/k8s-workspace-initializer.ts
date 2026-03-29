@@ -59,7 +59,8 @@ async function isWorkspaceCloned(sandbox: SandboxExec): Promise<boolean> {
   try {
     const result = await sandbox.exec('test', ['-d', `${CONTAINER_WORKSPACE_PATH}/.git`]);
     return result.exitCode === 0;
-  } catch (_err) {
+  } catch (err) {
+    log.debug('Failed to check workspace clone status', { error: err });
     return false;
   }
 }
@@ -126,7 +127,8 @@ async function cloneRepository(
     if (credResult.exitCode !== 0) {
     }
     return true;
-  } catch (_err) {
+  } catch (err) {
+    log.debug('Failed to clone repository', { error: err });
     return false;
   }
 }
@@ -195,7 +197,8 @@ async function createWorktree(
       return worktreePath;
     }
     return null;
-  } catch (_err) {
+  } catch (err) {
+    log.debug('Worktree add retry failed', { error: err });
     return null;
   }
 }

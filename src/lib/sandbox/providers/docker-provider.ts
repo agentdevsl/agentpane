@@ -751,8 +751,8 @@ export class DockerProvider implements EventEmittingSandboxProvider {
           this.sandboxes.delete(sandboxId);
           this.codespaceToSandbox.delete(sandbox.codespaceId);
           cleaned++;
-        } catch (_error) {
-          // Log cleanup errors for debugging - don't fail the entire cleanup operation
+        } catch (error) {
+          log.debug('Failed to clean up sandbox during maintenance', { error });
         }
       }
     }
