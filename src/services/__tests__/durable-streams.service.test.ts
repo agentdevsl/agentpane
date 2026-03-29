@@ -14,7 +14,11 @@ const createDbMock = () => ({
       findFirst: vi.fn().mockResolvedValue({ offset: 2 }),
     },
   },
-  insert: vi.fn(() => ({ values: vi.fn().mockResolvedValue(undefined) })),
+  insert: vi.fn(() => ({
+    values: vi.fn(() => ({
+      returning: vi.fn().mockResolvedValue([{ offset: 3 }]),
+    })),
+  })),
 });
 
 describe('DurableStreamsService metadata persistence', () => {

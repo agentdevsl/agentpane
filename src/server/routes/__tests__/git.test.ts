@@ -298,15 +298,12 @@ describe('Git API Routes', () => {
         path: '/home/user/projects/my-project',
       });
 
+      const SEP = '\x1e';
       commandRunner.exec.mockImplementation(async (cmd: string) => {
         if (cmd.includes('git log')) {
           return {
-            stdout:
-              'abc123|abc1|Fix bug|John Doe|2024-01-15T10:00:00Z\ndef456|def4|Add feature|Jane Doe|2024-01-14T09:00:00Z\n',
+            stdout: `COMMIT_STARTabc123${SEP}abc1${SEP}Fix bug${SEP}John Doe${SEP}2024-01-15T10:00:00Z\n 2 files changed, 10 insertions(+), 3 deletions(-)\n\nCOMMIT_STARTdef456${SEP}def4${SEP}Add feature${SEP}Jane Doe${SEP}2024-01-14T09:00:00Z\n 1 file changed, 5 insertions(+)\n`,
           };
-        }
-        if (cmd.includes('git show')) {
-          return { stdout: ' 2 files changed, 10 insertions(+), 3 deletions(-)\n' };
         }
         return { stdout: '' };
       });
