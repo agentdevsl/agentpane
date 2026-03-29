@@ -7,6 +7,11 @@ vi.mock('node:fs', async () => {
   return { ...actual, existsSync: vi.fn(() => true) };
 });
 
+vi.mock('node:fs/promises', async () => {
+  const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+  return { ...actual, access: vi.fn(() => Promise.resolve()) };
+});
+
 const mockAgent = { id: 'a1', name: 'Agent 1', codespaceId: 'p1' };
 
 const createDbMock = () => ({
