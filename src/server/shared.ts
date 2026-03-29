@@ -8,6 +8,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { normalize, resolve } from 'node:path';
 import type { Context } from 'hono';
 import type { RbacRole } from '../db/schema/shared/enums';
 import type { AppError } from '../lib/errors/base.js';
@@ -84,11 +85,12 @@ export function parseOffset(c: Context, defaultOffset = 0): number {
 }
 
 // CORS headers for SSE endpoints that bypass Hono middleware
+// SC-C4: Read origin from CORS_ORIGIN env var instead of hardcoding localhost
 export const corsHeaders = {
-  'Access-Control-Allow-Origin': 'http://localhost:3000',
+  'Access-Control-Allow-Origin': process.env.CORS_ORIGIN ?? 'http://localhost:3000',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
-} as const;
+};
 
 /**
  * Create a JSON response.
@@ -100,6 +102,35 @@ export function json<T>(data: T, status = 200): Response {
     status,
     headers: { 'Content-Type': 'application/json' },
   });
+}
+
+/**
+ * SC-C2: Validate that a clone/file destination path is safe.
+ * Prevents path traversal attacks by ensuring the resolved path
+ * is under an allowed base directory (user's home directory).
+ */
+export function isValidClonePath(destination: string): boolean {
+  if (!destination || typeof destination !== 'string') return false;
+
+  // Reject null bytes and other dangerous characters early, before any path processing
+  if (/[\0\n\r]/.test(destination)) return false;
+
+  // Expand ~ to home directory
+  const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+  if (!homeDir) return false;
+
+  const expanded = destination.replace(/^~/, homeDir);
+  const resolved = resolve(normalize(expanded));
+
+  // Reject path traversal: resolved path must be under the home directory
+  // or under /tmp (for temporary operations)
+  const allowedBases = [homeDir, '/tmp'];
+  const isUnderAllowed = allowedBases.some(
+    (base) => resolved === base || resolved.startsWith(`${base}/`)
+  );
+  if (!isUnderAllowed) return false;
+
+  return true;
 }
 
 /**

@@ -291,15 +291,15 @@ There is no CSRF token mechanism for API requests authenticated via session cook
 
 Ordered by priority and with effort estimates:
 
-| # | Item | Priority | Effort | Description |
-|---|------|----------|--------|-------------|
-| 1 | Docker CapDrop & SecurityOpt | Critical | Small (1h) | Add `CapDrop: ['ALL']` and `SecurityOpt: ['no-new-privileges']` to container creation |
-| 2 | Path traversal in clone destinations | Critical | Medium (2-3h) | Validate clone destinations against allowed directory list |
-| 3 | Shell injection in codespace service | Critical | Medium (2-3h) | Switch to array-based spawn or ensure validation on all paths |
-| 4 | Fix hardcoded CORS in SSE headers | High | Small (30m) | Read from `CORS_ORIGIN` env var |
-| 5 | Expired session cleanup | High | Medium (2h) | Add periodic purge job + revoke-all endpoint |
-| 6 | IP spoofing in rate limiter | High | Medium (3h) | Implement trusted proxy configuration |
-| 7 | Fix empty catch in audit hook | High | Small (15m) | Add error logging |
+| # | Item | Priority | Effort | Status | Description |
+|---|------|----------|--------|--------|-------------|
+| 1 | Docker CapDrop & SecurityOpt | Critical | Small (1h) | **DONE** | Added `CapDrop: ['ALL']`, `CapAdd` for needed caps, and `SecurityOpt: ['no-new-privileges']` to `docker-provider.ts` |
+| 2 | Path traversal in clone destinations | Critical | Medium (2-3h) | **DONE** | Added `isValidClonePath()` in `shared.ts`, applied to both `/clone` and `/create-from-template` in `github.ts` |
+| 3 | Shell injection in codespace service | Critical | Medium (2-3h) | **DONE** | Added input validation rejecting shell-breaking characters and `..` traversal in `codespace.service.ts` before shell interpolation |
+| 4 | Fix hardcoded CORS in SSE headers | High | Small (30m) | **DONE** | `corsHeaders` in `shared.ts` now reads `process.env.CORS_ORIGIN` |
+| 5 | Expired session cleanup | High | Medium (2h) | **DONE** | Added hourly expired session purge job + `POST /api/auth/revoke-all` endpoint in `auth.ts` |
+| 6 | IP spoofing in rate limiter | High | Medium (3h) | **DONE** | Added `TRUSTED_PROXIES` env var support, right-to-left XFF walk, fallback to `X-Real-IP` in `rate-limiter.ts` |
+| 7 | Fix empty catch in audit hook | High | Small (15m) | **DONE** | Added `log.error()` with context in `audit.ts` catch block |
 | 8 | Redis-backed rate limiting | High | Large (1-2d) | Replace in-memory store with Redis |
 | 9 | Default-deny tool whitelist | High | Small (1h) | Require explicit opt-in for unrestricted tools |
 | 10 | Fix empty catch blocks (27+) | Medium | Medium (3-4h) | Add logging to all empty catch blocks |

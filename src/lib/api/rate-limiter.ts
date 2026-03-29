@@ -21,6 +21,57 @@ interface RateLimitEntry {
   resetAt: number;
 }
 
+/**
+ * SC-H2: Trusted proxy IPs for X-Forwarded-For parsing.
+ * When behind a reverse proxy (e.g., Caddy), set TRUSTED_PROXIES to a comma-separated
+ * list of proxy IPs. The rate limiter will use the last non-trusted IP from the
+ * X-Forwarded-For chain, preventing IP spoofing attacks.
+ *
+ * Example: TRUSTED_PROXIES=127.0.0.1,10.0.0.1,172.16.0.1
+ * Note: Only exact IP addresses are supported (no CIDR notation).
+ */
+const TRUSTED_PROXY_SET = new Set(
+  (process.env.TRUSTED_PROXIES ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+);
+
+/**
+ * SC-H2: Extract the real client IP from X-Forwarded-For, accounting for trusted proxies.
+ * When trusted proxies are configured, walks the XFF chain from right to left and returns
+ * the first IP that is NOT a trusted proxy. When no trusted proxies are configured,
+ * falls back to the socket remote address (via X-Real-IP or 'unknown').
+ */
+function extractClientIp(c: Context): string {
+  const xff = c.req.header('x-forwarded-for');
+
+  if (TRUSTED_PROXY_SET.size > 0 && xff) {
+    // Walk from right (closest proxy) to left (original client)
+    // filter(Boolean) removes empty strings from trailing commas/whitespace
+    // which would otherwise cause unrelated requests to share a rate-limit bucket
+    const ips = xff
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (ips.length > 0) {
+      for (let i = ips.length - 1; i >= 0; i--) {
+        const ip = ips[i];
+        if (ip && !TRUSTED_PROXY_SET.has(ip)) {
+          return ip;
+        }
+      }
+      // All IPs are trusted proxies -- use the leftmost as fallback
+      return ips[0] as string;
+    }
+  }
+
+  // No trusted proxies configured or no XFF header:
+  // X-Forwarded-For can be spoofed, so only use X-Real-IP (typically set by the proxy)
+  // or fall back to 'unknown'
+  return c.req.header('x-real-ip') ?? 'unknown';
+}
+
 export interface RateLimitOptions {
   /** Max requests per window (default: 100) */
   max?: number;
@@ -92,10 +143,8 @@ export function rateLimiter(opts?: RateLimitOptions) {
         return next();
       }
 
-      rateLimitKey =
-        c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ??
-        c.req.header('x-real-ip') ??
-        'unknown';
+      // SC-H2: Use trusted proxy-aware IP extraction
+      rateLimitKey = extractClientIp(c);
     }
 
     const now = Date.now();

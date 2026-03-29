@@ -514,6 +514,19 @@ export class CodespaceService {
     }
 
     try {
+      // SC-C3: Validate inputs to prevent shell injection
+      // Reject URLs/paths containing characters that could break out of double quotes
+      if (/["\\\n\r\0$`!]/.test(url)) {
+        return err(CodespaceErrors.CONFIG_INVALID(['Invalid characters in repository URL']));
+      }
+      if (/["\\\n\r\0$`!]/.test(resolved) || /["\\\n\r\0$`!]/.test(targetPath)) {
+        return err(CodespaceErrors.CONFIG_INVALID(['Invalid characters in destination path']));
+      }
+      // SC-C2: Validate path traversal - resolved path must not escape via '..'
+      if (resolved.includes('..') || targetPath.includes('..')) {
+        return err(CodespaceErrors.CONFIG_INVALID(['Path traversal sequences not allowed']));
+      }
+
       // Check if destination directory exists, create if not
       await this.runner.exec(`mkdir -p "${resolved}"`, '/tmp');
 

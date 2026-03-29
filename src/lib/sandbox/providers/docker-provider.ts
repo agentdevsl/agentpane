@@ -553,6 +553,11 @@ export class DockerProvider implements EventEmittingSandboxProvider {
           // SC-006: Use configured networkMode, default to 'bridge'
           NetworkMode: config.networkMode ?? 'bridge',
           AutoRemove: false,
+          // SC-C1: Drop all Linux capabilities by default, add back only what's needed
+          CapDrop: ['ALL'],
+          CapAdd: ['CHOWN', 'SETUID', 'SETGID', 'DAC_OVERRIDE', 'FOWNER'],
+          // SC-C1: Prevent privilege escalation inside container
+          SecurityOpt: ['no-new-privileges'],
         },
         Tty: true,
         OpenStdin: true,

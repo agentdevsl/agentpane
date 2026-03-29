@@ -38,7 +38,11 @@ export function createAuditHook(
             turnNumber,
           });
         } catch (error) {
-          log.warn('Failed to insert audit log', { error });
+          // SC-H3: Log audit write failures instead of silently swallowing
+          log.error('Audit log write failed', {
+            error,
+            data: { agentId, agentRunId, taskId, tool: input.tool_name },
+          });
         }
 
         return {};
