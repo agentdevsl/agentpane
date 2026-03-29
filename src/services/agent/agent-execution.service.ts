@@ -42,8 +42,12 @@ function validateTransition(
   event: AgentLifecycleEvent,
   context?: { maxTurns?: number; currentTurn?: number; allowedTools?: string[] }
 ): boolean {
+  // Normalize sub-states to state machine equivalents:
+  // 'starting' and 'planning' are operational sub-phases of 'running'
+  const normalizedStatus =
+    currentStatus === 'starting' || currentStatus === 'planning' ? 'running' : currentStatus;
   const machine = createAgentLifecycleMachine({
-    status: currentStatus as 'idle' | 'starting' | 'running' | 'paused' | 'completed' | 'error',
+    status: normalizedStatus as 'idle' | 'starting' | 'running' | 'paused' | 'completed' | 'error',
     maxTurns: context?.maxTurns ?? 50,
     currentTurn: context?.currentTurn ?? 0,
     allowedTools: context?.allowedTools ?? [],
