@@ -1283,6 +1283,18 @@ export class AgentExecutionService {
         this.agentStartTimes.delete(agentId);
         this.preToolHooks.delete(agentId);
         this.postToolHooks.delete(agentId);
+
+        // Update DB status so the agent doesn't appear running in the UI
+        this.db
+          .update(agents)
+          .set({ status: 'error', updatedAt: new Date().toISOString() })
+          .where(eq(agents.id, agentId))
+          .catch((dbErr) => {
+            log.warn('Failed to update orphaned agent status in DB', {
+              error: dbErr,
+              data: { agentId },
+            });
+          });
       }
     }
   }
