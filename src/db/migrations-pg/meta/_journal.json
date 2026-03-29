@@ -29,6 +29,13 @@
       "when": 1770245300000,
       "tag": "0003_nomad_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1774992000000,
+      "tag": "0004_schema_catchup",
+      "breakpoints": true
     }
   ]
 }
