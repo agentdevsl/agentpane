@@ -11,7 +11,7 @@ function createDbMock(changesPerCall = 0) {
 }
 
 /** Create a mock SettingsService whose `get()` resolves to configurable values. */
-function createSettingsMock(overrides: Record<string, number | null> = {}) {
+function createSettingsMock(overrides: Record<string, number | boolean | null> = {}) {
   return {
     get: vi.fn().mockImplementation(async (key: string) => {
       if (key in overrides && overrides[key] !== null) {
@@ -83,7 +83,7 @@ describe('EventCleanupService', () => {
 
   it('handles empty tables without errors', async () => {
     const db = createDbMock(0);
-    const settings = createSettingsMock();
+    const settings = createSettingsMock({ 'backup.enabled': false });
 
     const service = new EventCleanupService(db as never, settings as never);
 
