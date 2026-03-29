@@ -21,6 +21,52 @@ interface RateLimitEntry {
   resetAt: number;
 }
 
+/**
+ * SC-H2: Trusted proxy IPs for X-Forwarded-For parsing.
+ * When behind a reverse proxy (e.g., Caddy), set TRUSTED_PROXIES to a comma-separated
+ * list of proxy IPs. The rate limiter will use the last non-trusted IP from the
+ * X-Forwarded-For chain, preventing IP spoofing attacks.
+ *
+ * Example: TRUSTED_PROXIES=127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+ */
+const TRUSTED_PROXY_SET = new Set(
+  (process.env.TRUSTED_PROXIES ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+);
+
+/**
+ * SC-H2: Extract the real client IP from X-Forwarded-For, accounting for trusted proxies.
+ * When trusted proxies are configured, walks the XFF chain from right to left and returns
+ * the first IP that is NOT a trusted proxy. When no trusted proxies are configured,
+ * falls back to the socket remote address (via X-Real-IP or 'unknown').
+ */
+function extractClientIp(c: Context): string {
+  const xff = c.req.header('x-forwarded-for');
+
+  if (TRUSTED_PROXY_SET.size > 0 && xff) {
+    // Walk from right (closest proxy) to left (original client)
+    const ips = xff.split(',').map((s) => s.trim());
+    for (let i = ips.length - 1; i >= 0; i--) {
+      if (!TRUSTED_PROXY_SET.has(ips[i])) {
+        return ips[i];
+      }
+    }
+    // All IPs are trusted proxies -- use the leftmost as fallback
+    return ips[0];
+  }
+
+  // No trusted proxies configured: prefer the socket remote address
+  // X-Forwarded-For can be spoofed, so only use X-Real-IP (typically set by the proxy)
+  // or fall back to 'unknown'
+  if (TRUSTED_PROXY_SET.size === 0) {
+    return c.req.header('x-real-ip') ?? 'unknown';
+  }
+
+  return c.req.header('x-real-ip') ?? 'unknown';
+}
+
 export interface RateLimitOptions {
   /** Max requests per window (default: 100) */
   max?: number;
@@ -92,10 +138,8 @@ export function rateLimiter(opts?: RateLimitOptions) {
         return next();
       }
 
-      rateLimitKey =
-        c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ??
-        c.req.header('x-real-ip') ??
-        'unknown';
+      // SC-H2: Use trusted proxy-aware IP extraction
+      rateLimitKey = extractClientIp(c);
     }
 
     const now = Date.now();

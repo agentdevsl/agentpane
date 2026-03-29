@@ -4,7 +4,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { createId } from '@paralleldrive/cuid2';
-import { eq } from 'drizzle-orm';
+import { eq, lt } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { userSessions } from '../../db/schema/sqlite/user-sessions';
 import { users } from '../../db/schema/sqlite/users';
@@ -253,6 +253,82 @@ export function createAuthRoutes({ db }: AuthDeps) {
 
     return json({ ok: true, data: null });
   });
+
+  // POST /api/auth/revoke-all — SC-H1: Revoke all sessions for the current user ("log out everywhere")
+  app.post('/revoke-all', async (c) => {
+    const cookies = c.req.header('Cookie') ?? '';
+    const sessionMatch = cookies.match(new RegExp(`${SESSION_COOKIE_NAME}=([^;]+)`));
+
+    if (!sessionMatch?.[1]) {
+      return json(
+        { ok: false, error: { code: 'UNAUTHORIZED', message: 'No active session' } },
+        401
+      );
+    }
+
+    // Look up the current session to find the user
+    const hashedToken = hashToken(sessionMatch[1]);
+    const session = await db.query.userSessions.findFirst({
+      where: eq(userSessions.token, hashedToken),
+    });
+
+    if (!session) {
+      c.header('Set-Cookie', `${SESSION_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
+      return json(
+        { ok: false, error: { code: 'UNAUTHORIZED', message: 'Session not found' } },
+        401
+      );
+    }
+
+    try {
+      // Delete ALL sessions for this user
+      const result = await db
+        .delete(userSessions)
+        .where(eq(userSessions.userId, session.userId))
+        .returning({ id: userSessions.id });
+
+      log.info('Revoked all sessions for user', {
+        data: { userId: session.userId, count: result.length },
+      });
+
+      // Clear current session cookie
+      c.header('Set-Cookie', `${SESSION_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
+
+      return json({ ok: true, data: { revokedCount: result.length } });
+    } catch (error) {
+      log.error('Failed to revoke all sessions', { error });
+      return json(
+        {
+          ok: false,
+          error: { code: 'DB_ERROR', message: 'Failed to revoke sessions' },
+        },
+        500
+      );
+    }
+  });
+
+  // SC-H1: Start periodic expired session cleanup (runs every hour)
+  const CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+  const cleanupTimer = setInterval(async () => {
+    try {
+      const now = new Date().toISOString();
+      const result = await db
+        .delete(userSessions)
+        .where(lt(userSessions.expiresAt, now))
+        .returning({ id: userSessions.id });
+
+      if (result.length > 0) {
+        log.info('Purged expired sessions', { data: { count: result.length } });
+      }
+    } catch (error) {
+      log.error('Expired session cleanup failed', { error });
+    }
+  }, CLEANUP_INTERVAL_MS);
+
+  // Prevent the timer from keeping the process alive
+  if (cleanupTimer.unref) {
+    cleanupTimer.unref();
+  }
 
   return app;
 }

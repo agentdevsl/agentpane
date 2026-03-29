@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { GitHubTokenService } from '../../services/github-token.service.js';
-import { isValidGitHubUrl, json } from '../shared.js';
+import { isValidClonePath, isValidGitHubUrl, json } from '../shared.js';
 import { parseJsonBody } from '../validation.js';
 
 const log = createLogger('github-routes');
@@ -122,6 +122,20 @@ export function createGitHubRoutes({ githubService }: GitHubDeps) {
     // Expand ~ to home directory
     const homeDir = process.env.HOME || process.env.USERPROFILE || '';
     const destination = body.destination.replace(/^~/, homeDir);
+
+    // SC-C2: Validate clone destination against path traversal
+    if (!isValidClonePath(body.destination)) {
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'INVALID_PATH',
+            message: 'Destination must be under the home directory or /tmp',
+          },
+        },
+        400
+      );
+    }
 
     // Get the repo name from URL for the final path
     const repoName = body.url.split('/').pop()?.replace('.git', '') || 'repo';
@@ -255,6 +269,21 @@ export function createGitHubRoutes({ githubService }: GitHubDeps) {
     // Step 3: Clone the newly created repo
     const homeDir = process.env.HOME || process.env.USERPROFILE || '';
     const destination = body.clonePath.replace(/^~/, homeDir);
+
+    // SC-C2: Validate clone destination against path traversal
+    if (!isValidClonePath(body.clonePath)) {
+      return json(
+        {
+          ok: false,
+          error: {
+            code: 'INVALID_PATH',
+            message: 'Clone path must be under the home directory or /tmp',
+          },
+        },
+        400
+      );
+    }
+
     const destFullPath = `${destination}/${body.name}`;
 
     try {
