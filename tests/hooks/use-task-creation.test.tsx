@@ -3,11 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_TASK_CREATION_TOOLS } from '@/lib/constants/tools';
 import { invalidateSettingsCache, SETTING_KEYS } from '@/lib/hooks/use-settings';
 import { useTaskCreation } from '@/lib/task-creation/hooks';
-import { resetTaskCreationSession } from '@/lib/task-creation/sync';
-
 // Controllable mock for useCollectionQuery. Tests update sessionStore/messageStore
 // to simulate TanStack DB collection state changes after SSE events.
-import type { TaskCreationSession, TaskCreationMessage } from '@/lib/task-creation/schema';
+import type { TaskCreationMessage, TaskCreationSession } from '@/lib/task-creation/schema';
+import { resetTaskCreationSession } from '@/lib/task-creation/sync';
 
 let sessionStore: TaskCreationSession[] = [];
 let messageStore: TaskCreationMessage[] = [];
@@ -213,7 +212,7 @@ describe('useTaskCreation', () => {
 
   describe('initial state', () => {
     it('has idle status initially', () => {
-      const { result, rerender } = renderHook(() => useTaskCreation('project-1'));
+      const { result } = renderHook(() => useTaskCreation('project-1'));
 
       expect(result.current.status).toBe('idle');
       expect(result.current.sessionId).toBeNull();
@@ -269,7 +268,7 @@ describe('useTaskCreation', () => {
         error: { code: 'ERROR', message: 'Failed to start' },
       });
 
-      const { result, rerender } = renderHook(() => useTaskCreation('project-1'));
+      const { result } = renderHook(() => useTaskCreation('project-1'));
 
       await act(async () => {
         await result.current.startConversation();
@@ -315,7 +314,7 @@ describe('useTaskCreation', () => {
     });
 
     it('sets error when no session', async () => {
-      const { result, rerender } = renderHook(() => useTaskCreation('project-1'));
+      const { result } = renderHook(() => useTaskCreation('project-1'));
 
       await act(async () => {
         await result.current.sendMessage('hello');
@@ -347,7 +346,9 @@ describe('useTaskCreation', () => {
       expect(eventSource).toBeDefined();
 
       // Simulate token streaming - update store to reflect what sync.ts would do
-      sessionStore = [makeSession({ status: 'active', isStreaming: true, streamingContent: 'Hello' })];
+      sessionStore = [
+        makeSession({ status: 'active', isStreaming: true, streamingContent: 'Hello' }),
+      ];
 
       await act(async () => {
         eventSource.simulateMessage({
@@ -361,7 +362,9 @@ describe('useTaskCreation', () => {
       expect(result.current.isStreaming).toBe(true);
 
       // More tokens
-      sessionStore = [makeSession({ status: 'active', isStreaming: true, streamingContent: 'Hello world' })];
+      sessionStore = [
+        makeSession({ status: 'active', isStreaming: true, streamingContent: 'Hello world' }),
+      ];
 
       await act(async () => {
         eventSource.simulateMessage({
@@ -395,7 +398,9 @@ describe('useTaskCreation', () => {
 
       // Simulate assistant message completion - update stores
       sessionStore = [makeSession({ status: 'active', isStreaming: false, streamingContent: '' })];
-      messageStore = [makeMessage({ id: 'msg-1', role: 'assistant', content: 'Here is my response' })];
+      messageStore = [
+        makeMessage({ id: 'msg-1', role: 'assistant', content: 'Here is my response' }),
+      ];
 
       await act(async () => {
         eventSource.simulateMessage({
@@ -436,15 +441,17 @@ describe('useTaskCreation', () => {
       expect(eventSource).toBeDefined();
 
       // Simulate suggestion - update store
-      sessionStore = [makeSession({
-        status: 'active',
-        suggestion: {
-          title: 'Fix bug',
-          description: 'Fix the login bug',
-          labels: ['bug'],
-          priority: 'high',
-        },
-      })];
+      sessionStore = [
+        makeSession({
+          status: 'active',
+          suggestion: {
+            title: 'Fix bug',
+            description: 'Fix the login bug',
+            labels: ['bug'],
+            priority: 'high',
+          },
+        }),
+      ];
 
       await act(async () => {
         eventSource.simulateMessage({
@@ -487,7 +494,9 @@ describe('useTaskCreation', () => {
       expect(eventSource).toBeDefined();
 
       // Simulate error - update store
-      sessionStore = [makeSession({ status: 'error', error: 'Something went wrong', isStreaming: false })];
+      sessionStore = [
+        makeSession({ status: 'error', error: 'Something went wrong', isStreaming: false }),
+      ];
 
       await act(async () => {
         eventSource.simulateMessage({
@@ -555,10 +564,17 @@ describe('useTaskCreation', () => {
       });
 
       // Set suggestion in store
-      sessionStore = [makeSession({
-        status: 'active',
-        suggestion: { title: 'Test task', description: 'Description', labels: [], priority: 'medium' },
-      })];
+      sessionStore = [
+        makeSession({
+          status: 'active',
+          suggestion: {
+            title: 'Test task',
+            description: 'Description',
+            labels: [],
+            priority: 'medium',
+          },
+        }),
+      ];
 
       await waitFor(() => {
         expect(MockEventSource.instances.length).toBe(1);
@@ -620,10 +636,17 @@ describe('useTaskCreation', () => {
       });
 
       // Set suggestion in store
-      sessionStore = [makeSession({
-        status: 'active',
-        suggestion: { title: 'Original', description: 'Description', labels: [], priority: 'medium' },
-      })];
+      sessionStore = [
+        makeSession({
+          status: 'active',
+          suggestion: {
+            title: 'Original',
+            description: 'Description',
+            labels: [],
+            priority: 'medium',
+          },
+        }),
+      ];
 
       await waitFor(() => {
         expect(MockEventSource.instances.length).toBe(1);
@@ -661,7 +684,7 @@ describe('useTaskCreation', () => {
         data: { sessionId: 'session-1' },
       });
 
-      const { result, rerender } = renderHook(() => useTaskCreation('project-1'));
+      const { result } = renderHook(() => useTaskCreation('project-1'));
 
       await act(async () => {
         await result.current.startConversation();
@@ -700,23 +723,25 @@ describe('useTaskCreation', () => {
       });
 
       // Set pending questions in store
-      sessionStore = [makeSession({
-        status: 'active',
-        pendingQuestions: {
-          id: 'q-1',
-          round: 1,
-          totalAsked: 1,
-          maxQuestions: 10,
-          questions: [
-            {
-              header: 'Scope',
-              question: 'What scope?',
-              multiSelect: false,
-              options: [{ label: 'Full' }],
-            },
-          ],
-        },
-      })];
+      sessionStore = [
+        makeSession({
+          status: 'active',
+          pendingQuestions: {
+            id: 'q-1',
+            round: 1,
+            totalAsked: 1,
+            maxQuestions: 10,
+            questions: [
+              {
+                header: 'Scope',
+                question: 'What scope?',
+                multiSelect: false,
+                options: [{ label: 'Full' }],
+              },
+            ],
+          },
+        }),
+      ];
 
       await act(async () => {
         MockEventSource.instances[0]?.simulateMessage({
@@ -857,7 +882,7 @@ describe('useTaskCreation', () => {
         data: { sessionId: 'session-1' },
       });
 
-      const { result, rerender } = renderHook(() => useTaskCreation('project-1'));
+      const { result } = renderHook(() => useTaskCreation('project-1'));
 
       await act(async () => {
         await result.current.startConversation();
