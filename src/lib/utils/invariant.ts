@@ -34,6 +34,21 @@ export function invariant(
 }
 
 /**
+ * Strict invariant that throws in ALL environments, including production.
+ * Use for truly critical assertions where continuing would cause data corruption,
+ * security violations, or other unrecoverable issues (e.g., auth checks, payment calculations).
+ */
+export function strictInvariant(
+  condition: unknown,
+  message: string,
+  context?: Record<string, unknown>
+): asserts condition {
+  if (condition) return;
+  log.error(`Critical invariant violation: ${message}`, { data: context });
+  throw new InvariantViolation(message, context);
+}
+
+/**
  * Soft invariant check. Never throws. Logs violation and returns false.
  * Use for non-critical assertions where the code has its own error handling.
  */
