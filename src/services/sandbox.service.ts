@@ -132,15 +132,21 @@ export class SandboxService {
   async create(config: SandboxConfig): Promise<Result<SandboxInfo, SandboxError>> {
     const sandboxId = createId();
 
+    // Use sandbox:-prefixed stream ID to avoid FK constraint violations.
+    // Bare CUIDs (without ':') are treated as session IDs and persisted to
+    // session_events, which FK-references sessions.id. Sandbox IDs come from
+    // sandboxInstances.id, not sessions.id, so we must prefix with 'sandbox:'.
+    const streamId = `sandbox:${sandboxId}`;
+
     // Create the stream for real-time events
-    await this.streams.createStream(sandboxId, {
+    await this.streams.createStream(streamId, {
       type: 'sandbox',
       codespaceId: config.codespaceId,
       image: config.image,
     });
 
     // Publish creating event
-    await this.streams.publish(sandboxId, 'sandbox:creating', {
+    await this.streams.publish(streamId, 'sandbox:creating', {
       sandboxId,
       codespaceId: config.codespaceId,
       image: config.image,
@@ -161,7 +167,7 @@ export class SandboxService {
       const credResult = await this.credentialsInjector.inject(sandbox);
       if (!credResult.ok) {
         // Emit warning event so user is aware credentials are missing
-        await this.streams.publish(sandbox.id, 'sandbox:error', {
+        await this.streams.publish(`sandbox:${sandbox.id}`, 'sandbox:error', {
           sandboxId: sandbox.id,
           codespaceId: config.codespaceId,
           error: `Sandbox created but credentials injection failed: ${credResult.error.message}. Claude API/CLI access inside the sandbox may not work.`,
@@ -188,7 +194,7 @@ export class SandboxService {
       const info = this.sandboxToInfo(sandbox, config);
 
       // Publish ready event
-      await this.streams.publish(sandbox.id, 'sandbox:ready', {
+      await this.streams.publish(`sandbox:${sandbox.id}`, 'sandbox:ready', {
         sandboxId: sandbox.id,
         codespaceId: config.codespaceId,
         containerId: sandbox.containerId,
@@ -199,7 +205,7 @@ export class SandboxService {
       const message = errorMessage(error);
 
       // Publish error event
-      await this.streams.publish(sandboxId, 'sandbox:error', {
+      await this.streams.publish(streamId, 'sandbox:error', {
         sandboxId,
         codespaceId: config.codespaceId,
         error: message,
@@ -259,7 +265,7 @@ export class SandboxService {
     }
 
     // Publish stopping event
-    await this.streams.publish(sandboxId, 'sandbox:stopping', {
+    await this.streams.publish(`sandbox:${sandboxId}`, 'sandbox:stopping', {
       sandboxId,
       codespaceId: dbSandbox.codespaceId,
       reason,
@@ -289,7 +295,7 @@ export class SandboxService {
         .where(eq(sandboxInstances.id, sandboxId));
 
       // Publish stopped event
-      await this.streams.publish(sandboxId, 'sandbox:stopped', {
+      await this.streams.publish(`sandbox:${sandboxId}`, 'sandbox:stopped', {
         sandboxId,
         codespaceId: dbSandbox.codespaceId,
       });
@@ -309,7 +315,7 @@ export class SandboxService {
         .where(eq(sandboxInstances.id, sandboxId));
 
       // Publish error event
-      await this.streams.publish(sandboxId, 'sandbox:error', {
+      await this.streams.publish(`sandbox:${sandboxId}`, 'sandbox:error', {
         sandboxId,
         codespaceId: dbSandbox.codespaceId,
         error: message,
@@ -358,7 +364,7 @@ export class SandboxService {
     await this.db.insert(sandboxTmuxSessions).values(dbSession);
 
     // Publish event
-    await this.streams.publish(sandboxResult.value.id, 'sandbox:tmux:created', {
+    await this.streams.publish(`sandbox:${sandboxResult.value.id}`, 'sandbox:tmux:created', {
       sandboxId: sandboxResult.value.id,
       sessionName,
       taskId,
@@ -459,7 +465,7 @@ export class SandboxService {
 
         if (idleMs >= timeoutMs) {
           // Publish idle event
-          await this.streams.publish(dbSandbox.id, 'sandbox:idle', {
+          await this.streams.publish(`sandbox:${dbSandbox.id}`, 'sandbox:idle', {
             sandboxId: dbSandbox.id,
             codespaceId: dbSandbox.codespaceId,
             idleSince: lastActivity,

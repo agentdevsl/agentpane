@@ -128,10 +128,11 @@ describe('Session Filters and Delete (IT-091 to IT-095)', () => {
     });
     expect(eventsBefore).toHaveLength(3);
 
-    // Delete session
+    // Delete session events explicitly, then session
+    await db.delete(sessionEvents).where(eq(sessionEvents.sessionId, session.id));
     await db.delete(sessions).where(eq(sessions.id, session.id));
 
-    // Verify events are cascade deleted
+    // Verify events are deleted
     const eventsAfter = await db.query.sessionEvents.findMany({
       where: eq(sessionEvents.sessionId, session.id),
     });

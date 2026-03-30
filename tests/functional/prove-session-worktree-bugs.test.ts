@@ -791,6 +791,9 @@ describe('Prove/Disprove: Session and Worktree Service Bugs', () => {
       // Enable FK for cascade behavior
       execRawSql('PRAGMA foreign_keys = ON');
       try {
+        // Delete session events explicitly (no FK cascade from sessions)
+        await db.delete(sessionEvents).where(eq(sessionEvents.sessionId, session.id));
+
         // Delete codespace
         await db.delete(codespaces).where(eq(codespaces.id, codespace.id));
 

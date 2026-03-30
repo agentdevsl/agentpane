@@ -17,7 +17,14 @@ const pathUtils = {
 
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import type { Codespace, CodespaceConfig } from '../db/schema';
-import { agents, codespaces, githubInstallations, tasks } from '../db/schema';
+import {
+  agents,
+  codespaces,
+  githubInstallations,
+  sessionEvents,
+  sessions,
+  tasks,
+} from '../db/schema';
 import { codespaceConfigSchema } from '../lib/config/schemas.js';
 import { DEFAULT_CODESPACE_CONFIG } from '../lib/config/types.js';
 import { containsSecrets } from '../lib/config/validate-secrets.js';
@@ -392,6 +399,22 @@ export class CodespaceService {
     }
 
     await this.worktreeService.prune(id);
+
+    // Explicitly delete session_events for this codespace's sessions
+    // (no FK cascade — session_events stores events for multiple stream types)
+    const codspaceSessions = await this.db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(eq(sessions.codespaceId, id));
+    if (codspaceSessions.length > 0) {
+      await this.db.delete(sessionEvents).where(
+        inArray(
+          sessionEvents.sessionId,
+          codspaceSessions.map((s) => s.id)
+        )
+      );
+    }
+
     // Memory data (insights, messages, skill metrics, etc.) cascade-deletes via FK on codespaceId
     await this.db.delete(codespaces).where(eq(codespaces.id, id));
 

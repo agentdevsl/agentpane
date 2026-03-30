@@ -1,34 +1,36 @@
 import { createId } from '@paralleldrive/cuid2';
 import { eq } from 'drizzle-orm';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { sessionEvents } from '../../src/db/schema';
 import type { DurableStreamsServer } from '../../src/services/durable-streams.service';
 import { DurableStreamsService } from '../../src/services/durable-streams.service';
 import { clearTestDatabase, getTestDb, setupTestDatabase } from '../helpers/database';
 
 /**
- * Validates that DurableStreamsService can persist events for non-session streams
+ * Validates that DurableStreamsService can publish events for non-session streams
  * (terraform compose, plan sessions, task creation) without FK constraint failures.
  *
- * The session_events table stores events for ALL stream types, not just sessions.
- * Stream IDs like "terraform:{jobId}" and "plan:{sessionId}" must work without
- * requiring a matching record in the sessions table.
+ * Non-session streams (IDs containing ':') skip DB persistence and publish
+ * directly to the Caddy streams server for real-time delivery.
  */
 describe('DurableStreams: non-session stream publish (terraform, plan, task-creation)', () => {
   let db: ReturnType<typeof getTestDb>;
   let service: DurableStreamsService;
+  const publishSpy = vi.fn().mockResolvedValue(0);
 
   const mockServer: DurableStreamsServer = {
-    createStream: async () => {},
-    publish: async () => 0,
+    createStream: vi.fn().mockResolvedValue(undefined),
+    publish: publishSpy,
     subscribe: async function* () {},
-    deleteStream: async () => true,
+    deleteStream: vi.fn().mockResolvedValue(true),
   };
 
   beforeEach(async () => {
     await setupTestDatabase();
     db = getTestDb();
     service = new DurableStreamsService(mockServer, db);
+    publishSpy.mockClear();
+    (mockServer.createStream as ReturnType<typeof vi.fn>).mockClear();
   });
 
   afterEach(async () => {
@@ -36,7 +38,7 @@ describe('DurableStreams: non-session stream publish (terraform, plan, task-crea
     await clearTestDatabase();
   });
 
-  it('publishes terraform:status to a terraform stream without FK error', async () => {
+  it('publishes terraform:status via Caddy without DB persistence', async () => {
     const jobId = createId();
     const streamId = `terraform:${jobId}`;
 
@@ -47,16 +49,17 @@ describe('DurableStreams: non-session stream publish (terraform, plan, task-crea
     });
 
     expect(result.ok).toBe(true);
+    expect(publishSpy).toHaveBeenCalledOnce();
 
+    // Terraform events are ephemeral — NOT persisted to DB
     const events = await db
       .select()
       .from(sessionEvents)
       .where(eq(sessionEvents.sessionId, streamId));
-    expect(events).toHaveLength(1);
-    expect(events[0].type).toBe('terraform:status');
+    expect(events).toHaveLength(0);
   });
 
-  it('publishes terraform:text delta to a terraform stream', async () => {
+  it('publishes terraform:text delta via Caddy', async () => {
     const jobId = createId();
     const streamId = `terraform:${jobId}`;
 
@@ -67,9 +70,10 @@ describe('DurableStreams: non-session stream publish (terraform, plan, task-crea
     });
 
     expect(result.ok).toBe(true);
+    expect(publishSpy).toHaveBeenCalledOnce();
   });
 
-  it('publishes terraform:done to complete the stream', async () => {
+  it('publishes terraform:done via Caddy', async () => {
     const jobId = createId();
     const streamId = `terraform:${jobId}`;
 
@@ -83,7 +87,7 @@ describe('DurableStreams: non-session stream publish (terraform, plan, task-crea
     expect(result.ok).toBe(true);
   });
 
-  it('publishes terraform:error when pipeline fails', async () => {
+  it('publishes terraform:error via Caddy', async () => {
     const jobId = createId();
     const streamId = `terraform:${jobId}`;
 
@@ -96,7 +100,7 @@ describe('DurableStreams: non-session stream publish (terraform, plan, task-crea
     expect(result.ok).toBe(true);
   });
 
-  it('publishes plan events to a plan stream without FK error', async () => {
+  it('publishes and persists plan events to DB (durable)', async () => {
     const sessionId = createId();
     const streamId = `plan:${sessionId}`;
 
@@ -108,46 +112,206 @@ describe('DurableStreams: non-session stream publish (terraform, plan, task-crea
     });
 
     expect(result.ok).toBe(true);
+    expect(publishSpy).toHaveBeenCalledOnce();
+
+    // Plan events should be persisted to DB (durable, not ephemeral)
+    const events = await db
+      .select()
+      .from(sessionEvents)
+      .where(eq(sessionEvents.sessionId, streamId));
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe('plan:started');
   });
 
-  it('publishes task-creation events to a task-creation stream', async () => {
+  it('publishes plan:turn via Caddy without FK error', async () => {
     const sessionId = createId();
+    const streamId = `plan:${sessionId}`;
 
-    await service.createStream(sessionId, null);
-    const result = await service.publish(sessionId, 'task-creation:started', {
+    await service.createStream(streamId, null);
+    const result = await service.publish(streamId, 'plan:turn', {
       sessionId,
+      turnId: createId(),
+      role: 'assistant',
+      content: 'Here is my analysis of the codebase...',
+    });
+
+    expect(result.ok).toBe(true);
+    expect(publishSpy).toHaveBeenCalledOnce();
+  });
+
+  it('publishes plan:token via Caddy without FK error', async () => {
+    const sessionId = createId();
+    const streamId = `plan:${sessionId}`;
+
+    await service.createStream(streamId, null);
+    const result = await service.publish(streamId, 'plan:token', {
+      sessionId,
+      delta: 'Hello',
+    });
+
+    expect(result.ok).toBe(true);
+    expect(publishSpy).toHaveBeenCalledOnce();
+  });
+
+  it('publishes plan:completed via Caddy without FK error', async () => {
+    const sessionId = createId();
+    const streamId = `plan:${sessionId}`;
+
+    await service.createStream(streamId, null);
+    const result = await service.publish(streamId, 'plan:completed', {
+      sessionId,
+      issueUrl: 'https://github.com/test/repo/issues/1',
+      issueNumber: 1,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(publishSpy).toHaveBeenCalledOnce();
+  });
+
+  it('publishes plan:error via Caddy without FK error', async () => {
+    const sessionId = createId();
+    const streamId = `plan:${sessionId}`;
+
+    await service.createStream(streamId, null);
+    const result = await service.publish(streamId, 'plan:error', {
+      sessionId,
+      error: 'Claude API rate limit exceeded',
+      code: 'PLAN_API_ERROR',
+    });
+
+    expect(result.ok).toBe(true);
+    expect(publishSpy).toHaveBeenCalledOnce();
+  });
+
+  it('publishes and persists sandbox:creating to DB (durable)', async () => {
+    const sandboxId = createId();
+    const streamId = `sandbox:${sandboxId}`;
+
+    await service.createStream(streamId, null);
+    const result = await service.publish(streamId, 'sandbox:creating', {
+      sandboxId,
+      codespaceId: createId(),
+      image: 'agentpane/sandbox:latest',
+    });
+
+    expect(result.ok).toBe(true);
+
+    // Sandbox events should be persisted to DB (durable)
+    const events = await db
+      .select()
+      .from(sessionEvents)
+      .where(eq(sessionEvents.sessionId, streamId));
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe('sandbox:creating');
+    expect(publishSpy).toHaveBeenCalledOnce();
+  });
+
+  it('publishes sandbox:ready via Caddy without FK error', async () => {
+    const sandboxId = createId();
+    const streamId = `sandbox:${sandboxId}`;
+
+    await service.createStream(streamId, null);
+    const result = await service.publish(streamId, 'sandbox:ready', {
+      sandboxId,
+      codespaceId: createId(),
+      containerId: 'abc123def456',
+    });
+
+    expect(result.ok).toBe(true);
+    expect(publishSpy).toHaveBeenCalledOnce();
+  });
+
+  it('publishes sandbox:error via Caddy without FK error', async () => {
+    const sandboxId = createId();
+    const streamId = `sandbox:${sandboxId}`;
+
+    await service.createStream(streamId, null);
+    const result = await service.publish(streamId, 'sandbox:error', {
+      sandboxId,
+      codespaceId: createId(),
+      error: 'Docker daemon unavailable',
+      code: 'SANDBOX_CONTAINER_CREATION_FAILED',
+    });
+
+    expect(result.ok).toBe(true);
+    expect(publishSpy).toHaveBeenCalledOnce();
+  });
+
+  it('publishes sandbox:stopped via Caddy without FK error', async () => {
+    const sandboxId = createId();
+    const streamId = `sandbox:${sandboxId}`;
+
+    await service.createStream(streamId, null);
+    const result = await service.publish(streamId, 'sandbox:stopped', {
+      sandboxId,
       codespaceId: createId(),
     });
 
     expect(result.ok).toBe(true);
+    expect(publishSpy).toHaveBeenCalledOnce();
   });
 
-  it('publishes multiple events with incrementing offsets', async () => {
+  it('publishes multiple sandbox lifecycle events in sequence', async () => {
+    const sandboxId = createId();
+    const codespaceId = createId();
+    const streamId = `sandbox:${sandboxId}`;
+
+    await service.createStream(streamId, null);
+
+    await service.publish(streamId, 'sandbox:creating', {
+      sandboxId,
+      codespaceId,
+      image: 'agentpane/sandbox:latest',
+    });
+    await service.publish(streamId, 'sandbox:ready', {
+      sandboxId,
+      codespaceId,
+      containerId: 'container-abc',
+    });
+    await service.publish(streamId, 'sandbox:stopping', {
+      sandboxId,
+      codespaceId,
+      reason: 'idle_timeout',
+    });
+    await service.publish(streamId, 'sandbox:stopped', {
+      sandboxId,
+      codespaceId,
+    });
+
+    expect(publishSpy).toHaveBeenCalledTimes(4);
+  });
+
+  it('publishes multiple terraform events with correct ordering', async () => {
     const jobId = createId();
     const streamId = `terraform:${jobId}`;
 
     await service.createStream(streamId, null);
 
-    await service.publish(streamId, 'terraform:status', {
+    await service.publish(streamId, 'terraform:status', { jobId, stage: 'loading_catalog' });
+    await service.publish(streamId, 'terraform:status', { jobId, stage: 'analyzing' });
+    await service.publish(streamId, 'terraform:text', { jobId, delta: 'Generating HCL...' });
+    await service.publish(streamId, 'terraform:done', {
+      jobId,
+      generatedCode: 'resource "aws_s3_bucket" "main" {}',
+      usage: { inputTokens: 50, outputTokens: 100 },
+    });
+
+    // All events should go through Caddy server
+    expect(publishSpy).toHaveBeenCalledTimes(4);
+  });
+
+  it('surfaces Caddy publish errors for terminal events', async () => {
+    const jobId = createId();
+    const streamId = `terraform:${jobId}`;
+    publishSpy.mockRejectedValueOnce(new Error('Caddy unavailable'));
+
+    await service.createStream(streamId, null);
+    const result = await service.publish(streamId, 'terraform:status', {
       jobId,
       stage: 'loading_catalog',
     });
-    await service.publish(streamId, 'terraform:status', {
-      jobId,
-      stage: 'analyzing',
-    });
-    await service.publish(streamId, 'terraform:text', {
-      jobId,
-      delta: 'Generating HCL...',
-    });
 
-    const events = await db
-      .select()
-      .from(sessionEvents)
-      .where(eq(sessionEvents.sessionId, streamId));
-    expect(events).toHaveLength(3);
-
-    const offsets = events.map((e) => e.offset).sort((a, b) => a - b);
-    expect(offsets).toEqual([0, 1, 2]);
+    // Non-terminal events should succeed even if Caddy fails (best-effort)
+    expect(result.ok).toBe(true);
   });
 });

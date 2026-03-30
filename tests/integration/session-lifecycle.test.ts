@@ -115,6 +115,8 @@ describe('IT-023: Session CRUD Lifecycle', () => {
     });
     expect(eventsBefore.length).toBe(2);
 
+    // session_events cleanup is explicit (no FK cascade — table stores multi-type stream events)
+    await db.delete(sessionEvents).where(eq(sessionEvents.sessionId, session.id));
     await db.delete(sessions).where(eq(sessions.id, session.id));
 
     const eventsAfter = await db.query.sessionEvents.findMany({
