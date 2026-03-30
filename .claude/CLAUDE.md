@@ -100,7 +100,7 @@ The startup script includes health checks to ensure both servers are ready befor
 - **`/v1/stream` 404 in dev**: Expected — Caddy durable streams proxy is not running locally. The DurableStreamTestServer on port 3002 handles streams in dev. The bootstrap phase handles this gracefully (non-fatal).
 - **Chrome console `[Violation]` warnings in dev**: Two sources, both dev-only:
   - `'message' handler took Nms` — Vite HMR cold-starting 235+ modules synchronously via WebSocket. Not actionable.
-  - `'setInterval' handler took Nms` — Polling intervals (sandbox status 10s, connection health 5s, session presence 10s, system health 30s) firing during heavy React renders.
+  - `'setInterval' handler took Nms` — Polling intervals (sandbox status 30s, connection health 15s, session presence 30s, system health 30s) firing during heavy React renders.
 
 ### Naming: Project → Codespace
 

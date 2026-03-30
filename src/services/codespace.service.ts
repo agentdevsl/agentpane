@@ -21,6 +21,8 @@ import {
   agents,
   codespaces,
   githubInstallations,
+  planSessions,
+  sandboxInstances,
   sessionEvents,
   sessions,
   tasks,
@@ -400,19 +402,28 @@ export class CodespaceService {
 
     await this.worktreeService.prune(id);
 
-    // Explicitly delete session_events for this codespace's sessions
+    // Explicitly delete session_events for this codespace's sessions, plans, and sandboxes
     // (no FK cascade — session_events stores events for multiple stream types)
     const codspaceSessions = await this.db
       .select({ id: sessions.id })
       .from(sessions)
       .where(eq(sessions.codespaceId, id));
-    if (codspaceSessions.length > 0) {
-      await this.db.delete(sessionEvents).where(
-        inArray(
-          sessionEvents.sessionId,
-          codspaceSessions.map((s) => s.id)
-        )
-      );
+    const codspacePlans = await this.db
+      .select({ id: planSessions.id })
+      .from(planSessions)
+      .where(eq(planSessions.codespaceId, id));
+    const codspaceSandboxes = await this.db
+      .select({ id: sandboxInstances.id })
+      .from(sandboxInstances)
+      .where(eq(sandboxInstances.codespaceId, id));
+
+    const eventSessionIds = [
+      ...codspaceSessions.map((s) => s.id),
+      ...codspacePlans.map((p) => `plan:${p.id}`),
+      ...codspaceSandboxes.map((s) => `sandbox:${s.id}`),
+    ];
+    if (eventSessionIds.length > 0) {
+      await this.db.delete(sessionEvents).where(inArray(sessionEvents.sessionId, eventSessionIds));
     }
 
     // Memory data (insights, messages, skill metrics, etc.) cascade-deletes via FK on codespaceId
