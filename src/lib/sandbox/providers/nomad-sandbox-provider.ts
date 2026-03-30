@@ -141,7 +141,7 @@ export class NomadSandboxProvider implements EventEmittingSandboxProvider {
     }
 
     this.creatingCodespaces.add(config.codespaceId);
-    const sandboxId = createId();
+    const sandboxId = config.id ?? createId();
     // Job names must be DNS-compatible: lowercase alphanumeric and hyphens
     const jobName = `agentpane-${config.codespaceId.slice(0, 20)}-${sandboxId.slice(0, 8)}`
       .toLowerCase()

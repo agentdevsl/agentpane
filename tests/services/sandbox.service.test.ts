@@ -85,7 +85,11 @@ const createMockSandbox = (overrides: Partial<Sandbox> = {}): Sandbox => ({
 
 const createMockProvider = (): SandboxProvider => ({
   name: 'mock',
-  create: vi.fn(),
+  create: vi
+    .fn()
+    .mockImplementation(async (cfg: SandboxConfig) =>
+      createMockSandbox({ id: cfg.id ?? 'sandbox-123', codespaceId: cfg.codespaceId })
+    ),
   get: vi.fn(),
   getById: vi.fn(),
   list: vi.fn().mockResolvedValue([]),
@@ -132,9 +136,6 @@ describe('SandboxService', () => {
 
   describe('Sandbox Creation', () => {
     it('creates a sandbox with valid configuration', async () => {
-      const mockSandbox = createMockSandbox();
-      (mockProvider.create as ReturnType<typeof vi.fn>).mockResolvedValue(mockSandbox);
-
       const config: SandboxConfig = {
         codespaceId: 'project-123',
         codespacePath: '/path/to/project',
@@ -165,9 +166,7 @@ describe('SandboxService', () => {
     });
 
     it('pulls image if not available locally', async () => {
-      const mockSandbox = createMockSandbox();
       (mockProvider.isImageAvailable as ReturnType<typeof vi.fn>).mockResolvedValue(false);
-      (mockProvider.create as ReturnType<typeof vi.fn>).mockResolvedValue(mockSandbox);
 
       const config: SandboxConfig = {
         codespaceId: 'project-123',
@@ -186,10 +185,17 @@ describe('SandboxService', () => {
     });
 
     it('emits warning when credentials injection fails', async () => {
-      const mockSandbox = createMockSandbox({
-        exec: vi.fn().mockResolvedValue({ exitCode: 1, stdout: '', stderr: 'Permission denied' }),
-      });
-      (mockProvider.create as ReturnType<typeof vi.fn>).mockResolvedValue(mockSandbox);
+      // Override create to return a sandbox whose exec fails (triggers credential injection warning)
+      (mockProvider.create as ReturnType<typeof vi.fn>).mockImplementation(
+        async (cfg: SandboxConfig) =>
+          createMockSandbox({
+            id: cfg.id ?? 'sandbox-123',
+            codespaceId: cfg.codespaceId,
+            exec: vi
+              .fn()
+              .mockResolvedValue({ exitCode: 1, stdout: '', stderr: 'Permission denied' }),
+          })
+      );
 
       const config: SandboxConfig = {
         codespaceId: 'project-123',

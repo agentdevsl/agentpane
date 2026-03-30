@@ -698,7 +698,18 @@ export class DurableStreamsService {
       try {
         memoryOffset = await this.server.publish(streamId, type, payload);
       } catch (caddyErr) {
-        log.debug('Caddy publish failed', {
+        if (isEphemeral) {
+          // Ephemeral streams have no DB fallback — surface the error so callers
+          // can decide how to handle it (e.g., throw for terminal events, swallow for status).
+          return err(
+            createError(
+              'STREAM_PUBLISH_FAILED',
+              caddyErr instanceof Error ? caddyErr.message : String(caddyErr),
+              500
+            )
+          );
+        }
+        log.debug('Caddy publish failed (durable — DB persisted)', {
           error: caddyErr instanceof Error ? caddyErr.message : String(caddyErr),
         });
       }
