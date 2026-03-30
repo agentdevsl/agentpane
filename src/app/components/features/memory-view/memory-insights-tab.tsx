@@ -1,10 +1,31 @@
 import { Lightbulb, MagnifyingGlass } from '@phosphor-icons/react';
 import type React from 'react';
 import { useCallback } from 'react';
+import { cn } from '@/lib/utils/cn';
 import { INPUT_CLASS } from './formatters';
 import { InsightCard } from './insight-card';
 import { useMemory } from './memory-context';
-import type { Insight, SearchResult } from './types';
+import type { Insight, InsightCategoryFilter, InsightStatusFilter, SearchResult } from './types';
+
+// =============================================================================
+// Filter options
+// =============================================================================
+
+const STATUS_OPTIONS: Array<{ value: InsightStatusFilter; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'active', label: 'Active' },
+  { value: 'pending_review', label: 'Pending Review' },
+  { value: 'rejected', label: 'Rejected' },
+];
+
+const CATEGORY_OPTIONS: Array<{ value: InsightCategoryFilter; label: string }> = [
+  { value: 'all', label: 'All Categories' },
+  { value: 'pattern', label: 'Pattern' },
+  { value: 'anti_pattern', label: 'Anti-Pattern' },
+  { value: 'decision', label: 'Decision' },
+  { value: 'architecture', label: 'Architecture' },
+  { value: 'error_lesson', label: 'Error Lesson' },
+];
 
 function SkeletonCard(): React.JSX.Element {
   return (
@@ -53,6 +74,9 @@ function toInsightCardProps(item: Insight | SearchResult): {
   tags: string[];
   createdAt: string;
   skillId: string | null;
+  status?: 'active' | 'pending_review' | 'rejected';
+  category?: string | null;
+  updatedAt?: string | null;
 } {
   if ('source' in item) {
     return item;
@@ -64,6 +88,9 @@ function toInsightCardProps(item: Insight | SearchResult): {
     tags: [],
     createdAt: item.createdAt,
     skillId: item.skillId,
+    status: 'active' as const,
+    category: null,
+    updatedAt: null,
   };
 }
 
@@ -76,8 +103,14 @@ export function MemoryInsightsTab(): React.JSX.Element {
     searchResults,
     isSearching,
     deleteInsight,
+    approveInsight,
+    rejectInsight,
     insightInjections,
     loadInsightInjections,
+    insightStatusFilter,
+    setInsightStatusFilter,
+    insightCategoryFilter,
+    setInsightCategoryFilter,
   } = useMemory();
 
   const handleExpand = useCallback(
@@ -86,6 +119,10 @@ export function MemoryInsightsTab(): React.JSX.Element {
     },
     [loadInsightInjections]
   );
+
+  const handleApprove = useCallback((id: string) => approveInsight(id), [approveInsight]);
+
+  const handleReject = useCallback((id: string) => rejectInsight(id), [rejectInsight]);
 
   const displayedItems: Array<Insight | SearchResult> = searchResults ?? insights;
   const isLoading = insightsLoading || isSearching;
@@ -97,6 +134,58 @@ export function MemoryInsightsTab(): React.JSX.Element {
         Insights are automatically extracted from agent sessions. Key patterns, debugging context,
         and learnings persist across conversations and are injected into future agent prompts.
       </p>
+
+      {/* Status filter pills */}
+      <fieldset
+        className="flex flex-wrap gap-2 border-0 p-0 m-0"
+        aria-label="Filter insights by status"
+      >
+        {STATUS_OPTIONS.map(({ value, label }) => {
+          const isActive = insightStatusFilter === value;
+          return (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={isActive}
+              onClick={() => setInsightStatusFilter(value)}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-all duration-150',
+                isActive
+                  ? 'bg-accent text-white shadow-sm'
+                  : 'bg-surface-muted text-fg-muted hover:bg-surface-subtle hover:text-fg'
+              )}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </fieldset>
+
+      {/* Category filter pills */}
+      <fieldset
+        className="flex flex-wrap gap-2 border-0 p-0 m-0"
+        aria-label="Filter insights by category"
+      >
+        {CATEGORY_OPTIONS.map(({ value, label }) => {
+          const isActive = insightCategoryFilter === value;
+          return (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={isActive}
+              onClick={() => setInsightCategoryFilter(value)}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-all duration-150',
+                isActive
+                  ? 'bg-accent text-white shadow-sm'
+                  : 'bg-surface-muted text-fg-muted hover:bg-surface-subtle hover:text-fg'
+              )}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </fieldset>
 
       <div className="relative">
         <MagnifyingGlass className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-muted" />
@@ -127,6 +216,8 @@ export function MemoryInsightsTab(): React.JSX.Element {
               injections={insightInjections.get(item.id)}
               onDelete={deleteInsight}
               onExpand={handleExpand}
+              onApprove={handleApprove}
+              onReject={handleReject}
             />
           ))}
         </div>

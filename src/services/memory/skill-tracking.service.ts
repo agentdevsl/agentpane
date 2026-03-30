@@ -33,6 +33,7 @@ export interface RecordExecutionParams {
   linesRemoved?: number | null;
   costUsd?: number | null;
   errorMessage?: string | null;
+  insightIdsUsed?: string[] | null;
   startedAt?: string | null;
   completedAt?: string | null;
 }
@@ -70,6 +71,7 @@ export class SkillTrackingService {
         linesRemoved: params.linesRemoved ?? null,
         costUsd: params.costUsd ?? null,
         errorMessage: params.errorMessage ?? null,
+        insightIdsUsed: params.insightIdsUsed ?? null,
         startedAt: params.startedAt ?? null,
         completedAt: params.completedAt ?? null,
         createdAt: now,
@@ -327,6 +329,63 @@ export class SkillTrackingService {
         error: error instanceof Error ? error : new Error(String(error)),
       });
       return err(MemoryErrors.QUERY_ERROR('Failed to get skill performance summary'));
+    }
+  }
+
+  /**
+   * Get insight correlation data — how often each insight was used and the
+   * success rate of executions that referenced it. Used for auto-demotion
+   * of poorly performing insights in the dream cycle.
+   */
+  async getInsightCorrelations(
+    codespaceId: string
+  ): Promise<
+    Result<Array<{ insightId: string; timesUsed: number; successRate: number }>, MemoryError>
+  > {
+    try {
+      const { skillExecutions } = await import('../../db/schema/index.js');
+
+      // Get all executions with insightIdsUsed
+      const executions = await this.db
+        .select({
+          status: skillExecutions.status,
+          insightIdsUsed: skillExecutions.insightIdsUsed,
+        })
+        .from(skillExecutions)
+        .where(
+          and(
+            eq(skillExecutions.codespaceId, codespaceId),
+            sql`${skillExecutions.insightIdsUsed} IS NOT NULL`
+          )
+        );
+
+      // Aggregate per insight
+      const insightStats = new Map<string, { total: number; success: number }>();
+
+      for (const exec of executions) {
+        const ids = exec.insightIdsUsed as string[] | null;
+        if (!Array.isArray(ids)) continue;
+
+        for (const insightId of ids) {
+          const stats = insightStats.get(insightId) ?? { total: 0, success: 0 };
+          stats.total++;
+          if (exec.status === 'success') stats.success++;
+          insightStats.set(insightId, stats);
+        }
+      }
+
+      return ok(
+        [...insightStats.entries()].map(([insightId, stats]) => ({
+          insightId,
+          timesUsed: stats.total,
+          successRate: stats.total > 0 ? stats.success / stats.total : 0,
+        }))
+      );
+    } catch (error) {
+      log.error('Failed to get insight correlations', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
+      return err(MemoryErrors.QUERY_ERROR('Failed to get insight correlations'));
     }
   }
 }

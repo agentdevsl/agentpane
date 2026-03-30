@@ -31,6 +31,7 @@ const ALLOWED_SETTINGS_KEYS = new Set([
   'general.agentModel',
   'memory.enabled',
   'memory.contextMaxTokens',
+  'memory.contextMaxInsights',
   'memory.captureEnabled',
   'memory.captureMinTurnLength',
   'memory.dreaming.enabled',

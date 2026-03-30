@@ -25,6 +25,7 @@ import { GitHubTokenService } from '../../services/github-token.service.js';
 import { MarketplaceService } from '../../services/marketplace.service.js';
 import { DreamService } from '../../services/memory/dream.service.js';
 import { MemoryService } from '../../services/memory/index.js';
+import { MemoryStoreService } from '../../services/memory/memory-store.service.js';
 import { SkillTrackingService } from '../../services/memory/skill-tracking.service.js';
 import { ProjectFolderService } from '../../services/project-folder.service.js';
 import { SandboxConfigService } from '../../services/sandbox-config.service.js';
@@ -133,8 +134,14 @@ export function createServiceContainer(db: Database, config: ServerConfig): Serv
   const memoryService = new MemoryService(settingsService, db);
 
   // 5.6. Skill tracking and dreaming services
+  const memoryStoreService = new MemoryStoreService(db);
   const skillTrackingService = new SkillTrackingService(db);
-  const dreamService = new DreamService(db, settingsService, skillTrackingService);
+  const dreamService = new DreamService(
+    db,
+    settingsService,
+    skillTrackingService,
+    memoryStoreService
+  );
 
   // 6. Agent service
   const agentService = new AgentService(

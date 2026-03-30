@@ -1,4 +1,4 @@
-import { ArrowsClockwise, CaretRight, Clock, Tag, Trash } from '@phosphor-icons/react';
+import { ArrowsClockwise, CaretRight, Check, Clock, Tag, Trash, X } from '@phosphor-icons/react';
 import type React from 'react';
 import { useState } from 'react';
 import { Button } from '@/app/components/ui/button';
@@ -26,6 +26,22 @@ function getInsightTagColor(tag: string): { bg: string; text: string } {
   return INSIGHT_TAG_COLORS[hash % INSIGHT_TAG_COLORS.length] ?? INSIGHT_TAG_COLORS[0];
 }
 
+const CATEGORY_STYLES: Record<string, string> = {
+  pattern: 'bg-accent-subtle text-accent',
+  anti_pattern: 'bg-danger-subtle text-danger',
+  decision: 'bg-done-subtle text-done',
+  architecture: 'bg-success-subtle text-success',
+  error_lesson: 'bg-attention-subtle text-attention',
+};
+
+const CATEGORY_LABELS: Record<string, string> = {
+  pattern: 'Pattern',
+  anti_pattern: 'Anti-Pattern',
+  decision: 'Decision',
+  architecture: 'Architecture',
+  error_lesson: 'Error Lesson',
+};
+
 // =============================================================================
 // Sub-components
 // =============================================================================
@@ -38,10 +54,15 @@ interface InsightCardProps {
     tags: string[];
     createdAt: string;
     skillId: string | null;
+    status?: 'active' | 'pending_review' | 'rejected';
+    category?: string | null;
+    updatedAt?: string | null;
   };
   injections: Array<InsightInjection> | undefined;
   onDelete: (id: string) => undefined | Promise<boolean>;
   onExpand: (insightId: string) => void;
+  onApprove?: (id: string) => void | Promise<unknown>;
+  onReject?: (id: string) => void | Promise<unknown>;
 }
 
 function InjectionBadge({ count }: { count: number | undefined }): React.JSX.Element | null {
@@ -113,9 +134,12 @@ export function InsightCard({
   injections,
   onDelete,
   onExpand,
+  onApprove,
+  onReject,
 }: InsightCardProps): React.JSX.Element {
   const [expanded, setExpanded] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [actionPending, setActionPending] = useState(false);
 
   // Load injections on first expand
   useWatchEffect(() => {
@@ -174,11 +198,33 @@ export function InsightCard({
 
       {/* Footer — metadata + actions */}
       <div className="flex items-center justify-between px-4 pb-3 pt-1">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <InsightSourceBadge source={insight.source} />
+          {insight.category && CATEGORY_LABELS[insight.category] && (
+            <span
+              className={cn(
+                'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
+                CATEGORY_STYLES[insight.category] ?? 'bg-surface-muted text-fg-muted'
+              )}
+            >
+              {CATEGORY_LABELS[insight.category]}
+            </span>
+          )}
+          {insight.status === 'pending_review' && (
+            <span className="inline-flex items-center rounded-full bg-attention-subtle px-2 py-0.5 text-[10px] font-medium text-attention">
+              Pending Review
+            </span>
+          )}
+          {insight.status === 'rejected' && (
+            <span className="inline-flex items-center rounded-full bg-danger-subtle px-2 py-0.5 text-[10px] font-medium text-danger-muted">
+              Rejected
+            </span>
+          )}
           <span className="flex items-center gap-1 text-[11px] text-fg-subtle">
             <Clock size={10} />
-            {formatRelativeDate(insight.createdAt)}
+            {insight.updatedAt && insight.updatedAt !== insight.createdAt
+              ? `Updated ${formatRelativeDate(insight.updatedAt)}`
+              : formatRelativeDate(insight.createdAt)}
           </span>
           <InjectionBadge count={injectionCount} />
         </div>
@@ -213,6 +259,46 @@ export function InsightCard({
           </button>
         </div>
       </div>
+
+      {/* Approve / Reject actions for pending insights */}
+      {insight.status === 'pending_review' && onApprove && onReject && (
+        <div className="flex items-center gap-2 border-t border-border-muted/50 px-4 pb-3 pt-2">
+          <Button
+            variant="default"
+            size="sm"
+            className="gap-1 bg-success hover:bg-success-hover"
+            disabled={actionPending}
+            onClick={async () => {
+              setActionPending(true);
+              try {
+                await onApprove(insight.id);
+              } finally {
+                setActionPending(false);
+              }
+            }}
+          >
+            <Check size={14} weight="bold" />
+            Approve
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1 text-danger hover:border-danger hover:text-danger"
+            disabled={actionPending}
+            onClick={async () => {
+              setActionPending(true);
+              try {
+                await onReject(insight.id);
+              } finally {
+                setActionPending(false);
+              }
+            }}
+          >
+            <X size={14} weight="bold" />
+            Reject
+          </Button>
+        </div>
+      )}
 
       {/* Expanded injection history */}
       <div

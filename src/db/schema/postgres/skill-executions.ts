@@ -1,5 +1,13 @@
 import { createId } from '@paralleldrive/cuid2';
-import { doublePrecision, index, integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import {
+  doublePrecision,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+} from 'drizzle-orm/pg-core';
 import { agentRuns } from './agent-runs';
 import { codespaces } from './codespaces';
 import { sessions } from './sessions';
@@ -30,6 +38,7 @@ export const skillExecutions = pgTable(
     errorMessage: text('error_message'),
     startedAt: timestamp('started_at', { mode: 'string' }),
     completedAt: timestamp('completed_at', { mode: 'string' }),
+    insightIdsUsed: jsonb('insight_ids_used').$type<string[]>(),
     createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
   },
   (table) => [

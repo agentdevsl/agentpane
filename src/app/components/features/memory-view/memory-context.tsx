@@ -7,7 +7,9 @@ import type {
   DreamSession,
   HealthStatus,
   Insight,
+  InsightCategoryFilter,
   InsightInjection,
+  InsightStatusFilter,
   MemoryTab,
   SearchResult,
   SkillDreamOverride,
@@ -43,8 +45,14 @@ interface MemoryContextValue {
   isSearching: boolean;
   refreshInsights: () => Promise<void>;
   deleteInsight: (id: string) => Promise<boolean>;
+  approveInsight: (id: string) => Promise<boolean>;
+  rejectInsight: (id: string) => Promise<boolean>;
   insightInjections: Map<string, Array<InsightInjection>>;
   loadInsightInjections: (insightId: string) => Promise<void>;
+  insightStatusFilter: InsightStatusFilter;
+  setInsightStatusFilter: (f: InsightStatusFilter) => void;
+  insightCategoryFilter: InsightCategoryFilter;
+  setInsightCategoryFilter: (f: InsightCategoryFilter) => void;
 
   // Skills
   syncedSkills: Array<SyncedSkill>;
@@ -179,9 +187,16 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
   const [suggestionFilter, setSuggestionFilter] = useState<SuggestionFilter>('all');
   const dreamLoadedRef = useRef(false);
 
+  // Insight filters
+  const [insightStatusFilter, setInsightStatusFilter] = useState<InsightStatusFilter>('all');
+  const [insightCategoryFilter, setInsightCategoryFilter] = useState<InsightCategoryFilter>('all');
+
   // Track current codespace to guard against stale responses
   const currentCodespaceRef = useRef<string | null>(codespaceId);
   currentCodespaceRef.current = codespaceId;
+
+  // Guard: suppress filter-change effect while codespace-change effect resets filters
+  const suppressFilterEffectRef = useRef(false);
 
   // ---------------------------------------------------------------------------
   // Data fetchers (with error handling)
@@ -206,24 +221,30 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
     }
   }, []);
 
-  const fetchInsights = useCallback(async (csId: string | null) => {
-    setInsightsLoading(true);
-    try {
-      const result = await apiClient.memory.getInsights(csId);
-      if (currentCodespaceRef.current !== csId) return;
-      if (result.ok) {
-        setInsights(result.data);
-      } else {
-        toast.error(result.error?.message ?? 'Failed to load insights');
+  const fetchInsights = useCallback(
+    async (csId: string | null) => {
+      setInsightsLoading(true);
+      try {
+        const filters: { status?: string; category?: string } = {};
+        if (insightStatusFilter !== 'all') filters.status = insightStatusFilter;
+        if (insightCategoryFilter !== 'all') filters.category = insightCategoryFilter;
+        const result = await apiClient.memory.getInsights(csId, undefined, filters);
+        if (currentCodespaceRef.current !== csId) return;
+        if (result.ok) {
+          setInsights(result.data);
+        } else {
+          toast.error(result.error?.message ?? 'Failed to load insights');
+        }
+      } catch {
+        if (currentCodespaceRef.current === csId) {
+          toast.error('Failed to load insights');
+        }
+      } finally {
+        if (currentCodespaceRef.current === csId) setInsightsLoading(false);
       }
-    } catch {
-      if (currentCodespaceRef.current === csId) {
-        toast.error('Failed to load insights');
-      }
-    } finally {
-      if (currentCodespaceRef.current === csId) setInsightsLoading(false);
-    }
-  }, []);
+    },
+    [insightStatusFilter, insightCategoryFilter]
+  );
 
   const fetchSyncedSkills = useCallback(async (csId: string | null) => {
     setSyncedSkillsLoading(true);
@@ -362,6 +383,12 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
     setIsDreamRunning(false);
     setSuggestions([]);
     setSuggestionFilter('all');
+
+    // Suppress the filter-change effect while we reset filters here
+    suppressFilterEffectRef.current = true;
+    setInsightStatusFilter('all');
+    setInsightCategoryFilter('all');
+
     setDreamSkillOverrides({});
     skillsLoadedRef.current = false;
     skillExecutionsCacheRef.current = new Set();
@@ -371,6 +398,19 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
     void fetchHealth(codespaceId);
     void fetchInsights(codespaceId);
   }, [codespaceId, fetchHealth, fetchInsights]);
+
+  // ---------------------------------------------------------------------------
+  // Re-fetch insights when filters change
+  // ---------------------------------------------------------------------------
+
+  useWatchEffect(() => {
+    // Skip if this was triggered by the codespace-change effect resetting filters
+    if (suppressFilterEffectRef.current) {
+      suppressFilterEffectRef.current = false;
+      return;
+    }
+    void fetchInsights(codespaceId);
+  }, [insightStatusFilter, insightCategoryFilter, codespaceId, fetchInsights]);
 
   // ---------------------------------------------------------------------------
   // Lazy-load skills tab data
@@ -498,6 +538,30 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
         action: () => apiClient.memory.deleteInsight(id),
         successMessage: 'Insight deleted',
         errorMessage: 'Failed to delete insight',
+        refresh: () => fetchInsights(codespaceId),
+      });
+    },
+    [codespaceId, fetchInsights]
+  );
+
+  const approveInsight = useCallback(
+    async (id: string): Promise<boolean> => {
+      return mutateAndRefresh({
+        action: () => apiClient.memory.approveInsight(id),
+        successMessage: 'Insight approved',
+        errorMessage: 'Failed to approve insight',
+        refresh: () => fetchInsights(codespaceId),
+      });
+    },
+    [codespaceId, fetchInsights]
+  );
+
+  const rejectInsight = useCallback(
+    async (id: string): Promise<boolean> => {
+      return mutateAndRefresh({
+        action: () => apiClient.memory.rejectInsight(id),
+        successMessage: 'Insight rejected',
+        errorMessage: 'Failed to reject insight',
         refresh: () => fetchInsights(codespaceId),
       });
     },
@@ -683,8 +747,14 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
       isSearching,
       refreshInsights,
       deleteInsight,
+      approveInsight,
+      rejectInsight,
       insightInjections,
       loadInsightInjections,
+      insightStatusFilter,
+      setInsightStatusFilter,
+      insightCategoryFilter,
+      setInsightCategoryFilter,
       syncedSkills,
       syncedSkillsLoading,
       skillMetrics,
@@ -723,8 +793,12 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
       isSearching,
       refreshInsights,
       deleteInsight,
+      approveInsight,
+      rejectInsight,
       insightInjections,
       loadInsightInjections,
+      insightStatusFilter,
+      insightCategoryFilter,
       syncedSkills,
       syncedSkillsLoading,
       skillMetrics,

@@ -40,3 +40,12 @@ export interface InsightInjection {
 export type MemoryTab = 'overview' | 'insights' | 'skills' | 'dream';
 
 export type SuggestionFilter = SkillSuggestion['status'] | 'all';
+
+export type InsightStatusFilter = 'all' | 'active' | 'pending_review' | 'rejected';
+export type InsightCategoryFilter =
+  | 'all'
+  | 'pattern'
+  | 'anti_pattern'
+  | 'decision'
+  | 'architecture'
+  | 'error_lesson';

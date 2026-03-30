@@ -1459,10 +1459,16 @@ export const apiClient = {
   memory: {
     health: () => apiServerFetch<MemoryHealthStatus>('/api/memory/health'),
 
-    getInsights: (codespaceId?: string | null, params?: { page?: number; size?: number }) => {
+    getInsights: (
+      codespaceId?: string | null,
+      params?: { page?: number; size?: number },
+      filters?: { status?: string; category?: string }
+    ) => {
       const sp = new URLSearchParams();
       if (params?.page !== undefined) sp.set('page', String(params.page));
       if (params?.size !== undefined) sp.set('size', String(params.size));
+      if (filters?.status) sp.set('status', filters.status);
+      if (filters?.category) sp.set('category', filters.category);
       const qs = sp.toString();
       const base = codespaceId
         ? `/api/memory/codespaces/${codespaceId}/insights`
@@ -1471,7 +1477,25 @@ export const apiClient = {
     },
 
     deleteInsight: (insightId: string) =>
-      apiServerFetch<null>(`/api/memory/insights/${insightId}`, { method: 'DELETE' }),
+      apiServerFetch<null>(`/api/memory/insights/${encodeURIComponent(insightId)}`, {
+        method: 'DELETE',
+      }),
+
+    approveInsight: (insightId: string) =>
+      apiServerFetch<MemoryInsight>(
+        `/api/memory/insights/${encodeURIComponent(insightId)}/approve`,
+        {
+          method: 'PATCH',
+        }
+      ),
+
+    rejectInsight: (insightId: string) =>
+      apiServerFetch<MemoryInsight>(
+        `/api/memory/insights/${encodeURIComponent(insightId)}/reject`,
+        {
+          method: 'PATCH',
+        }
+      ),
 
     search: (codespaceId: string | null | undefined, query: string, limit?: number) => {
       const base = codespaceId

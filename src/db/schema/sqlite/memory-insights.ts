@@ -21,12 +21,21 @@ export const memoryInsights = sqliteTable(
     skillId: text('skill_id'),
     tags: text('tags', { mode: 'json' }).$type<string[]>().default([]),
     metadata: text('metadata', { mode: 'json' }).$type<Record<string, unknown>>(),
+    status: text('status')
+      .$type<'active' | 'pending_review' | 'rejected'>()
+      .default('active')
+      .notNull(),
+    category: text('category').$type<
+      'pattern' | 'anti_pattern' | 'decision' | 'architecture' | 'error_lesson'
+    >(),
+    updatedAt: text('updated_at'),
     createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
   },
   (table) => [
     index('idx_memory_insights_codespace_id').on(table.codespaceId),
     index('idx_memory_insights_skill_id').on(table.skillId),
     index('idx_memory_insights_source_session_id').on(table.sourceSessionId),
+    index('idx_memory_insights_status').on(table.status),
   ]
 );
 
