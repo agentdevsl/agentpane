@@ -325,11 +325,8 @@ export class DreamService {
                     },
                   });
                 } else {
-                  log.warn('Failed to auto-demote insight', {
-                    data: {
-                      insightId: corr.insightId,
-                      error: String(demoteResult.error),
-                    },
+                  log.debug('Skipped demotion for insight (not active or not found)', {
+                    data: { insightId: corr.insightId },
                   });
                 }
               }

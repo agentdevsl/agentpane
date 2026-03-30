@@ -110,6 +110,10 @@ function createMockMemoryService(opts?: { available?: boolean }) {
     getInsights: vi.fn().mockResolvedValue({ ok: true, value: [mockInsight] }),
     createInsight: vi.fn().mockResolvedValue({ ok: true, value: mockInsight }),
     deleteInsight: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
+    approveInsight: vi.fn().mockResolvedValue({ ok: true, value: mockInsight }),
+    rejectInsight: vi.fn().mockResolvedValue({ ok: true, value: mockInsight }),
+    updateInsight: vi.fn().mockResolvedValue({ ok: true, value: mockInsight }),
+    getStore: vi.fn().mockReturnValue({}),
     search: vi.fn().mockResolvedValue({ ok: true, value: [mockSearchResult] }),
   };
 }
@@ -256,7 +260,11 @@ describe('Memory API Routes', () => {
       expect(json.data[0].id).toBe('ins-1');
       expect(json.pagination).toEqual({ page: 2, size: 10, hasMore: false });
 
-      expect(memoryService.getInsights).toHaveBeenCalledWith('cs-1', { page: 2, size: 10 });
+      expect(memoryService.getInsights).toHaveBeenCalledWith(
+        'cs-1',
+        { page: 2, size: 10 },
+        { status: undefined, category: undefined }
+      );
     });
 
     it('defaults page=1 size=50 when not specified', async () => {
@@ -264,7 +272,11 @@ describe('Memory API Routes', () => {
 
       await request(app, 'GET', '/api/memory/codespaces/cs-1/insights');
 
-      expect(memoryService.getInsights).toHaveBeenCalledWith('cs-1', { page: 1, size: 50 });
+      expect(memoryService.getInsights).toHaveBeenCalledWith(
+        'cs-1',
+        { page: 1, size: 50 },
+        { status: undefined, category: undefined }
+      );
     });
 
     it('hasMore is true when result count equals page size', async () => {
@@ -306,6 +318,42 @@ describe('Memory API Routes', () => {
       const json = await res.json();
       expect(json.ok).toBe(false);
       expect(json.error.code).toBe('INTERNAL_ERROR');
+    });
+
+    it('passes status filter from query param to service', async () => {
+      const { app, memoryService } = createTestApp();
+
+      await request(app, 'GET', '/api/memory/codespaces/cs-1/insights?status=active');
+
+      expect(memoryService.getInsights).toHaveBeenCalledWith(
+        'cs-1',
+        { page: 1, size: 50 },
+        { status: 'active', category: undefined }
+      );
+    });
+
+    it('passes category filter from query param to service', async () => {
+      const { app, memoryService } = createTestApp();
+
+      await request(app, 'GET', '/api/memory/codespaces/cs-1/insights?category=pattern');
+
+      expect(memoryService.getInsights).toHaveBeenCalledWith(
+        'cs-1',
+        { page: 1, size: 50 },
+        { status: undefined, category: 'pattern' }
+      );
+    });
+
+    it('ignores invalid status filter value', async () => {
+      const { app, memoryService } = createTestApp();
+
+      await request(app, 'GET', '/api/memory/codespaces/cs-1/insights?status=banana');
+
+      expect(memoryService.getInsights).toHaveBeenCalledWith(
+        'cs-1',
+        { page: 1, size: 50 },
+        { status: undefined, category: undefined }
+      );
     });
   });
 
@@ -384,6 +432,8 @@ describe('Memory API Routes', () => {
         'manual',
         undefined,
         undefined,
+        undefined,
+        undefined,
         undefined
       );
     });
@@ -426,14 +476,25 @@ describe('Memory API Routes', () => {
     it('deletes insight successfully', async () => {
       const { app, memoryService } = createTestApp();
 
-      const res = await request(app, 'DELETE', '/api/memory/insights/ins-1');
+      const res = await request(app, 'DELETE', '/api/memory/insights/ins00000000000000000001');
 
       expect(res.status).toBe(200);
       const json = await res.json();
       expect(json.ok).toBe(true);
       expect(json.data).toBeNull();
 
-      expect(memoryService.deleteInsight).toHaveBeenCalledWith('ins-1');
+      expect(memoryService.deleteInsight).toHaveBeenCalledWith('ins00000000000000000001');
+    });
+
+    it('returns 400 for invalid insightId format', async () => {
+      const { app } = createTestApp();
+
+      const res = await request(app, 'DELETE', '/api/memory/insights/invalid!!!');
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns error when service returns err', async () => {
@@ -442,12 +503,12 @@ describe('Memory API Routes', () => {
         ok: false,
         error: {
           code: 'MEMORY_NOT_FOUND',
-          message: 'Memory entity not found: insight:ins-1',
+          message: 'Memory entity not found: insight:ins00000000000000000001',
           status: 404,
         },
       });
 
-      const res = await request(app, 'DELETE', '/api/memory/insights/ins-1');
+      const res = await request(app, 'DELETE', '/api/memory/insights/ins00000000000000000001');
 
       expect(res.status).toBe(404);
       const json = await res.json();
@@ -459,7 +520,141 @@ describe('Memory API Routes', () => {
       const { app, memoryService } = createTestApp();
       memoryService.deleteInsight.mockRejectedValue(new Error('Unexpected'));
 
-      const res = await request(app, 'DELETE', '/api/memory/insights/ins-1');
+      const res = await request(app, 'DELETE', '/api/memory/insights/ins00000000000000000001');
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('INTERNAL_ERROR');
+    });
+  });
+
+  // ── PATCH /api/memory/insights/:insightId/approve ──
+
+  describe('PATCH /api/memory/insights/:insightId/approve', () => {
+    it('returns 200 with approved insight', async () => {
+      const { app, memoryService } = createTestApp();
+
+      const res = await request(
+        app,
+        'PATCH',
+        '/api/memory/insights/ins00000000000000000001/approve'
+      );
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.ok).toBe(true);
+      expect(json.data.id).toBe('ins-1');
+
+      expect(memoryService.approveInsight).toHaveBeenCalledWith('ins00000000000000000001');
+    });
+
+    it('returns 400 for invalid insightId format', async () => {
+      const { app } = createTestApp();
+
+      const res = await request(app, 'PATCH', '/api/memory/insights/invalid!!!/approve');
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('returns error when service returns err', async () => {
+      const { app, memoryService } = createTestApp();
+      memoryService.approveInsight.mockResolvedValue({
+        ok: false,
+        error: { code: 'MEMORY_NOT_FOUND', message: 'Not found', status: 404 },
+      });
+
+      const res = await request(
+        app,
+        'PATCH',
+        '/api/memory/insights/ins00000000000000000001/approve'
+      );
+
+      expect(res.status).toBe(404);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('MEMORY_NOT_FOUND');
+    });
+
+    it('returns 500 when service throws', async () => {
+      const { app, memoryService } = createTestApp();
+      memoryService.approveInsight.mockRejectedValue(new Error('Unexpected'));
+
+      const res = await request(
+        app,
+        'PATCH',
+        '/api/memory/insights/ins00000000000000000001/approve'
+      );
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('INTERNAL_ERROR');
+    });
+  });
+
+  // ── PATCH /api/memory/insights/:insightId/reject ──
+
+  describe('PATCH /api/memory/insights/:insightId/reject', () => {
+    it('returns 200 with rejected insight', async () => {
+      const { app, memoryService } = createTestApp();
+
+      const res = await request(
+        app,
+        'PATCH',
+        '/api/memory/insights/ins00000000000000000001/reject'
+      );
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.ok).toBe(true);
+      expect(json.data.id).toBe('ins-1');
+
+      expect(memoryService.rejectInsight).toHaveBeenCalledWith('ins00000000000000000001');
+    });
+
+    it('returns 400 for invalid insightId format', async () => {
+      const { app } = createTestApp();
+
+      const res = await request(app, 'PATCH', '/api/memory/insights/invalid!!!/reject');
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('returns error when service returns err', async () => {
+      const { app, memoryService } = createTestApp();
+      memoryService.rejectInsight.mockResolvedValue({
+        ok: false,
+        error: { code: 'MEMORY_NOT_FOUND', message: 'Not found', status: 404 },
+      });
+
+      const res = await request(
+        app,
+        'PATCH',
+        '/api/memory/insights/ins00000000000000000001/reject'
+      );
+
+      expect(res.status).toBe(404);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('MEMORY_NOT_FOUND');
+    });
+
+    it('returns 500 when service throws', async () => {
+      const { app, memoryService } = createTestApp();
+      memoryService.rejectInsight.mockRejectedValue(new Error('Unexpected'));
+
+      const res = await request(
+        app,
+        'PATCH',
+        '/api/memory/insights/ins00000000000000000001/reject'
+      );
 
       expect(res.status).toBe(500);
       const json = await res.json();
@@ -1295,7 +1490,11 @@ describe('Memory API Routes', () => {
       expect(json.data[0].id).toBe('ins-1');
       expect(json.pagination).toEqual({ page: 2, size: 10, hasMore: false });
 
-      expect(memoryService.getInsights).toHaveBeenCalledWith(null, { page: 2, size: 10 });
+      expect(memoryService.getInsights).toHaveBeenCalledWith(
+        null,
+        { page: 2, size: 10 },
+        { status: undefined, category: undefined }
+      );
     });
 
     it('defaults page=1 size=50 when not specified', async () => {
@@ -1303,7 +1502,11 @@ describe('Memory API Routes', () => {
 
       await request(app, 'GET', '/api/memory/insights');
 
-      expect(memoryService.getInsights).toHaveBeenCalledWith(null, { page: 1, size: 50 });
+      expect(memoryService.getInsights).toHaveBeenCalledWith(
+        null,
+        { page: 1, size: 50 },
+        { status: undefined, category: undefined }
+      );
     });
 
     it('returns error when service returns err', async () => {

@@ -173,11 +173,24 @@ export const MIGRATIONS: Migration[] = [
 SELECT 1;`,
   },
 
-  // 25. Add CHECK constraints for critical enum columns on new databases.
+  // 25. Memory insight status, category, updated_at columns + skill_executions insight tracking
+  {
+    version: 25,
+    name: 'memory-insight-status-category',
+    statements: [
+      `ALTER TABLE memory_insights ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`,
+      `ALTER TABLE memory_insights ADD COLUMN category TEXT`,
+      `ALTER TABLE memory_insights ADD COLUMN updated_at TEXT`,
+      `CREATE INDEX IF NOT EXISTS idx_memory_insights_status ON memory_insights(status)`,
+      `ALTER TABLE skill_executions ADD COLUMN insight_ids_used TEXT`,
+    ],
+  },
+
+  // 26. Add CHECK constraints for critical enum columns on new databases.
   // Uses CREATE TABLE IF NOT EXISTS with CHECK constraints for validation tables,
   // then creates triggers to validate enum values on INSERT/UPDATE.
   {
-    version: 25,
+    version: 26,
     name: 'enum-check-triggers',
     sql: `
 -- Trigger-based enum validation for critical columns.

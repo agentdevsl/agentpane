@@ -336,6 +336,10 @@ export class MemoryStoreService {
         insightIds.push(row.id);
       }
 
+      if (insightCount === 0) {
+        return ok({ text: '', tokenCount: 0, sources: { insights: 0, insightIds: [] } });
+      }
+
       // Build markdown context with category headers
       let text = '## Memory Context\n\n';
       const categoryHeaders: Record<string, string> = {
