@@ -259,4 +259,21 @@ BEGIN
 END;
 `,
   },
+
+  // v26 intentionally skipped — some deployed databases already applied v26 as an earlier
+  // iteration of enum-check-triggers (now consolidated into v25). Reusing v26 would cause
+  // those databases to skip this migration silently. Using v27 ensures it runs everywhere.
+
+  // 27. Memory insight status, category, updated_at columns + skill_executions insight tracking
+  {
+    version: 27,
+    name: 'memory-insight-status-category',
+    statements: [
+      `ALTER TABLE memory_insights ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`,
+      `ALTER TABLE memory_insights ADD COLUMN category TEXT`,
+      `ALTER TABLE memory_insights ADD COLUMN updated_at TEXT`,
+      `CREATE INDEX IF NOT EXISTS idx_memory_insights_status ON memory_insights(status)`,
+      `ALTER TABLE skill_executions ADD COLUMN insight_ids_used TEXT`,
+    ],
+  },
 ];

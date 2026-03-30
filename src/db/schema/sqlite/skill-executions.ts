@@ -31,6 +31,7 @@ export const skillExecutions = sqliteTable(
     errorMessage: text('error_message'),
     startedAt: text('started_at'),
     completedAt: text('completed_at'),
+    insightIdsUsed: text('insight_ids_used', { mode: 'json' }).$type<string[]>(),
     createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
   },
   (table) => [

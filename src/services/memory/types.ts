@@ -37,6 +37,9 @@ export interface Insight {
   skillId: string | null;
   tags: string[];
   metadata: Record<string, unknown> | null;
+  status: 'active' | 'pending_review' | 'rejected';
+  category: 'pattern' | 'anti_pattern' | 'decision' | 'architecture' | 'error_lesson' | null;
+  updatedAt: string | null;
   createdAt: string;
 }
 
@@ -76,6 +79,7 @@ export interface SkillExecution {
   linesRemoved: number | null;
   costUsd: number | null;
   errorMessage: string | null;
+  insightIdsUsed: string[] | null;
   startedAt: string | null;
   completedAt: string | null;
   createdAt: string;

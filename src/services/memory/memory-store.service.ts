@@ -43,10 +43,14 @@ export class MemoryStoreService {
     skillId?: string;
     tags?: string[];
     metadata?: Record<string, unknown>;
+    status?: 'active' | 'pending_review' | 'rejected';
+    category?: 'pattern' | 'anti_pattern' | 'decision' | 'architecture' | 'error_lesson';
   }): Promise<Result<Insight, MemoryError>> {
     try {
       const id = createId();
       const now = new Date().toISOString();
+      const status = params.status ?? 'active';
+      const category = params.category ?? null;
 
       await this.db.insert(memoryInsights).values({
         id,
@@ -57,6 +61,8 @@ export class MemoryStoreService {
         skillId: params.skillId ?? null,
         tags: params.tags ?? [],
         metadata: params.metadata ?? null,
+        status,
+        category,
         createdAt: now,
       });
 
@@ -69,6 +75,9 @@ export class MemoryStoreService {
         skillId: params.skillId ?? null,
         tags: params.tags ?? [],
         metadata: params.metadata ?? null,
+        status,
+        category,
+        updatedAt: null,
         createdAt: now,
       };
 
@@ -82,25 +91,89 @@ export class MemoryStoreService {
     }
   }
 
+  async updateInsight(
+    id: string,
+    params: {
+      content?: string;
+      status?: 'active' | 'pending_review' | 'rejected';
+      category?: 'pattern' | 'anti_pattern' | 'decision' | 'architecture' | 'error_lesson';
+    },
+    onlyIfStatus?: 'active' | 'pending_review' | 'rejected'
+  ): Promise<Result<Insight, MemoryError>> {
+    try {
+      const updatedAt = new Date().toISOString();
+      const whereClause = onlyIfStatus
+        ? and(eq(memoryInsights.id, id), eq(memoryInsights.status, onlyIfStatus))
+        : eq(memoryInsights.id, id);
+      const result = await this.db
+        .update(memoryInsights)
+        .set({ ...params, updatedAt })
+        .where(whereClause)
+        .returning();
+
+      const row = result[0];
+      if (!row) {
+        return err(MemoryErrors.NOT_FOUND(`insight:${id}`));
+      }
+
+      const insight: Insight = {
+        id: row.id,
+        codespaceId: row.codespaceId,
+        content: row.content,
+        source: row.source,
+        sourceSessionId: row.sourceSessionId,
+        skillId: row.skillId,
+        tags: (row.tags as string[]) ?? [],
+        metadata: row.metadata as Record<string, unknown> | null,
+        status: row.status ?? 'active',
+        category: row.category ?? null,
+        updatedAt: row.updatedAt ?? null,
+        createdAt: row.createdAt,
+      };
+
+      return ok(insight);
+    } catch (error) {
+      log.error('Failed to update insight', {
+        error: error instanceof Error ? error : new Error(String(error)),
+        data: { id },
+      });
+      return err(MemoryErrors.QUERY_ERROR('Failed to update insight'));
+    }
+  }
+
   async getInsights(
     codespaceId: string | null,
-    options?: PaginationOptions
+    options?: PaginationOptions,
+    filters?: {
+      status?: 'active' | 'pending_review' | 'rejected';
+      category?: 'pattern' | 'anti_pattern' | 'decision' | 'architecture' | 'error_lesson';
+    }
   ): Promise<Result<Insight[], MemoryError>> {
     try {
       const page = options?.page ?? 1;
       const size = options?.size ?? 50;
       const offset = (page - 1) * size;
 
-      const query = this.db
+      const conditions = [];
+      if (codespaceId) {
+        conditions.push(eq(memoryInsights.codespaceId, codespaceId));
+      }
+      if (filters?.status) {
+        conditions.push(eq(memoryInsights.status, filters.status));
+      }
+      if (filters?.category) {
+        conditions.push(eq(memoryInsights.category, filters.category));
+      }
+
+      const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+      const rows = await this.db
         .select()
         .from(memoryInsights)
+        .where(whereClause)
         .orderBy(desc(memoryInsights.createdAt))
         .limit(size)
         .offset(offset);
-
-      const rows = codespaceId
-        ? await query.where(eq(memoryInsights.codespaceId, codespaceId))
-        : await query;
 
       const insights: Insight[] = rows.map((row) => ({
         id: row.id,
@@ -111,6 +184,9 @@ export class MemoryStoreService {
         skillId: row.skillId,
         tags: (row.tags as string[]) ?? [],
         metadata: row.metadata as Record<string, unknown> | null,
+        status: row.status ?? 'active',
+        category: row.category ?? null,
+        updatedAt: row.updatedAt ?? null,
         createdAt: row.createdAt,
       }));
 
@@ -152,9 +228,10 @@ export class MemoryStoreService {
   ): Promise<Result<Insight[], MemoryError>> {
     try {
       const likeCondition = sql`${memoryInsights.content} LIKE ${`%${escapeLikeQuery(query)}%`} ESCAPE '\\'`;
+      const activeCondition = eq(memoryInsights.status, 'active');
       const whereClause = codespaceId
-        ? and(eq(memoryInsights.codespaceId, codespaceId), likeCondition)
-        : likeCondition;
+        ? and(eq(memoryInsights.codespaceId, codespaceId), likeCondition, activeCondition)
+        : and(likeCondition, activeCondition);
 
       const rows = await this.db
         .select()
@@ -172,6 +249,9 @@ export class MemoryStoreService {
         skillId: row.skillId,
         tags: (row.tags as string[]) ?? [],
         metadata: row.metadata as Record<string, unknown> | null,
+        status: row.status ?? 'active',
+        category: row.category ?? null,
+        updatedAt: row.updatedAt ?? null,
         createdAt: row.createdAt,
       }));
 
@@ -188,31 +268,37 @@ export class MemoryStoreService {
   async assembleContext(
     codespaceId: string | null,
     query: string,
-    maxTokens = 2000
+    maxTokens = 2000,
+    maxInsights = 10
   ): Promise<Result<MemoryContext, MemoryError>> {
     try {
       const likeCondition = sql`${memoryInsights.content} LIKE ${`%${escapeLikeQuery(query)}%`} ESCAPE '\\'`;
+      const activeCondition = eq(memoryInsights.status, 'active');
+      const sourcePriority = sql`CASE WHEN ${memoryInsights.source} = 'manual' THEN 0 WHEN ${memoryInsights.source} = 'dream' THEN 1 ELSE 2 END`;
+
       const searchWhere = codespaceId
-        ? and(eq(memoryInsights.codespaceId, codespaceId), likeCondition)
-        : likeCondition;
+        ? and(eq(memoryInsights.codespaceId, codespaceId), likeCondition, activeCondition)
+        : and(likeCondition, activeCondition);
 
       // First try search-relevant insights, then fall back to recent
       let rows = await this.db
         .select()
         .from(memoryInsights)
         .where(searchWhere)
-        .orderBy(desc(memoryInsights.createdAt))
+        .orderBy(sourcePriority, desc(memoryInsights.createdAt))
         .limit(50);
 
-      // If no search matches, get recent insights
+      // If no search matches, get recent active insights
       if (rows.length === 0) {
-        const recentWhere = codespaceId ? eq(memoryInsights.codespaceId, codespaceId) : sql`1=1`;
+        const recentWhere = codespaceId
+          ? and(eq(memoryInsights.codespaceId, codespaceId), activeCondition)
+          : activeCondition;
 
         rows = await this.db
           .select()
           .from(memoryInsights)
           .where(recentWhere)
-          .orderBy(desc(memoryInsights.createdAt))
+          .orderBy(sourcePriority, desc(memoryInsights.createdAt))
           .limit(50);
       }
 
@@ -220,21 +306,61 @@ export class MemoryStoreService {
         return ok({ text: '', tokenCount: 0, sources: { insights: 0, insightIds: [] } });
       }
 
-      // Build markdown context, trimming to fit within maxTokens
-      const header = '## Memory Context\n\n### Codebase Insights\n';
-      let text = header;
+      // Collect insights within token and count budgets
       let insightCount = 0;
       const insightIds: string[] = [];
+      const categorized = new Map<string, string[]>();
+      const uncategorized: string[] = [];
 
       for (const row of rows) {
-        const line = `- ${row.content}\n`;
-        const candidateTokens = estimateTokens(text + line);
+        if (insightCount >= maxInsights) {
+          break;
+        }
+        const line = `- ${row.content}`;
+        // Estimate with a generous header allowance
+        const candidateText = `## Memory Context\n\n${[...categorized.values()].flat().join('\n')}\n${uncategorized.join('\n')}\n${line}\n`;
+        const candidateTokens = estimateTokens(candidateText);
         if (candidateTokens > maxTokens) {
           break;
         }
-        text += line;
+        if (row.category) {
+          const cat = row.category;
+          if (!categorized.has(cat)) {
+            categorized.set(cat, []);
+          }
+          categorized.get(cat)?.push(line);
+        } else {
+          uncategorized.push(line);
+        }
         insightCount++;
         insightIds.push(row.id);
+      }
+
+      if (insightCount === 0) {
+        return ok({ text: '', tokenCount: 0, sources: { insights: 0, insightIds: [] } });
+      }
+
+      // Build markdown context with category headers
+      let text = '## Memory Context\n\n';
+      const categoryHeaders: Record<string, string> = {
+        pattern: '### Patterns',
+        anti_pattern: '### Anti-Patterns',
+        decision: '### Decisions',
+        architecture: '### Architecture',
+        error_lesson: '### Error Lessons',
+      };
+
+      for (const [cat, lines] of categorized.entries()) {
+        const header = categoryHeaders[cat] ?? `### ${cat}`;
+        text += `${header}\n${lines.join('\n')}\n\n`;
+      }
+      if (uncategorized.length > 0) {
+        if (categorized.size > 0) {
+          text += '### Other Insights\n';
+        } else {
+          text += '### Codebase Insights\n';
+        }
+        text += `${uncategorized.join('\n')}\n`;
       }
 
       const tokenCount = estimateTokens(text);

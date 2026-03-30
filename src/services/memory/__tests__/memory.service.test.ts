@@ -21,6 +21,9 @@ const mockInsight: Insight = {
   skillId: null,
   tags: [],
   metadata: null,
+  status: 'active',
+  category: null,
+  updatedAt: null,
   createdAt: '2026-01-01T00:00:00Z',
 };
 
@@ -48,6 +51,7 @@ function createMockStore(): MemoryStoreInterface {
     insertInsight: vi.fn().mockResolvedValue(ok(mockInsight)),
     getInsights: vi.fn().mockResolvedValue(ok([mockInsight])),
     deleteInsight: vi.fn().mockResolvedValue(ok(undefined)),
+    updateInsight: vi.fn().mockResolvedValue(ok(mockInsight)),
     searchInsights: vi.fn().mockResolvedValue(ok([mockInsight])),
     assembleContext: vi.fn().mockResolvedValue(ok(mockContext)),
     insertMessage: vi.fn().mockResolvedValue(ok(mockMessage)),
@@ -59,7 +63,9 @@ function createMockStore(): MemoryStoreInterface {
 
 function createMockDeriver(): InsightDeriverInterface {
   return {
-    deriveInsights: vi.fn().mockResolvedValue(ok({ insightsCreated: 3 })),
+    deriveInsights: vi
+      .fn()
+      .mockResolvedValue(ok({ insightsCreated: 3, insightsUpdated: 0, insightsDeleted: 0 })),
   };
 }
 
@@ -167,7 +173,12 @@ describe('MemoryService', () => {
 
       const result = await service.getContext('cs-1', 'test query');
 
-      expect(store.assembleContext).toHaveBeenCalledWith('cs-1', 'test query');
+      expect(store.assembleContext).toHaveBeenCalledWith(
+        'cs-1',
+        'test query',
+        undefined,
+        undefined
+      );
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value).toEqual(mockContext);
@@ -329,7 +340,7 @@ describe('MemoryService', () => {
 
       const result = await service.getInsights('cs-1', { page: 2, size: 10 });
 
-      expect(store.getInsights).toHaveBeenCalledWith('cs-1', { page: 2, size: 10 });
+      expect(store.getInsights).toHaveBeenCalledWith('cs-1', { page: 2, size: 10 }, undefined);
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value).toEqual([mockInsight]);
@@ -442,6 +453,56 @@ describe('MemoryService', () => {
 
       const result = await service.search('cs-1', 'query');
       expect(result.ok).toBe(false);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // approveInsight (admin)
+  // -------------------------------------------------------------------------
+
+  describe('approveInsight()', () => {
+    it('delegates to store.updateInsight with status active', async () => {
+      const { service, store } = createTestService();
+      const result = await service.approveInsight('ins-1');
+      expect(store.updateInsight).toHaveBeenCalledWith('ins-1', { status: 'active' });
+      expect(result.ok).toBe(true);
+    });
+
+    it('propagates errors from store', async () => {
+      const { service, store } = createTestService();
+      (store.updateInsight as ReturnType<typeof vi.fn>).mockResolvedValue(
+        err(MemoryErrors.NOT_FOUND('insight:ins-999'))
+      );
+      const result = await service.approveInsight('ins-999');
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('MEMORY_NOT_FOUND');
+      }
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // rejectInsight (admin)
+  // -------------------------------------------------------------------------
+
+  describe('rejectInsight()', () => {
+    it('delegates to store.updateInsight with status rejected', async () => {
+      const { service, store } = createTestService();
+      const result = await service.rejectInsight('ins-1');
+      expect(store.updateInsight).toHaveBeenCalledWith('ins-1', { status: 'rejected' });
+      expect(result.ok).toBe(true);
+    });
+
+    it('propagates errors from store', async () => {
+      const { service, store } = createTestService();
+      (store.updateInsight as ReturnType<typeof vi.fn>).mockResolvedValue(
+        err(MemoryErrors.NOT_FOUND('insight:ins-404'))
+      );
+      const result = await service.rejectInsight('ins-404');
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('MEMORY_NOT_FOUND');
+      }
     });
   });
 

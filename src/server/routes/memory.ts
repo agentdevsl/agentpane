@@ -25,6 +25,9 @@ const createInsightSchema = z.object({
   skillId: z.string().optional(),
   tags: z.array(z.string()).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+  category: z
+    .enum(['pattern', 'anti_pattern', 'decision', 'architecture', 'error_lesson'])
+    .optional(),
 });
 
 const searchSchema = z.object({
@@ -98,7 +101,35 @@ export function createMemoryRoutes({
   ): Promise<Response> {
     return wrapHandler('Failed to get insights', async () => {
       const { page, size } = parsePagination(c, { page: 1, size: 50 });
-      const result = await memoryService.getInsights(codespaceId, { page, size });
+
+      // Parse optional filters
+      const statusParam = c.req.query('status');
+      const validStatuses = ['active', 'pending_review', 'rejected'] as const;
+      type InsightStatus = (typeof validStatuses)[number];
+      const status: InsightStatus | undefined =
+        statusParam && validStatuses.includes(statusParam as InsightStatus)
+          ? (statusParam as InsightStatus)
+          : undefined;
+
+      const validCategories = [
+        'pattern',
+        'anti_pattern',
+        'decision',
+        'architecture',
+        'error_lesson',
+      ] as const;
+      type InsightCategory = (typeof validCategories)[number];
+      const categoryParam = c.req.query('category');
+      const category: InsightCategory | undefined =
+        categoryParam && validCategories.includes(categoryParam as InsightCategory)
+          ? (categoryParam as InsightCategory)
+          : undefined;
+
+      const result = await memoryService.getInsights(
+        codespaceId,
+        { page, size },
+        { status, category }
+      );
       if (!result.ok) return resultError(result);
       return json({
         ok: true,
@@ -418,7 +449,9 @@ export function createMemoryRoutes({
         parsed.data.source,
         parsed.data.metadata,
         parsed.data.tags,
-        parsed.data.skillId
+        parsed.data.skillId,
+        undefined, // status — use service default
+        parsed.data.category
       );
       if (!result.ok) return resultError(result);
       return json({ ok: true, data: result.value }, 201);
@@ -427,9 +460,48 @@ export function createMemoryRoutes({
 
   app.delete('/insights/:insightId', (c) =>
     wrapHandler('Failed to delete insight', async () => {
-      const result = await memoryService.deleteInsight(c.req.param('insightId'));
+      const insightId = c.req.param('insightId');
+      if (!insightId || !/^[a-z0-9]{20,30}$/.test(insightId)) {
+        return json(
+          { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid insightId' } },
+          400
+        );
+      }
+      const result = await memoryService.deleteInsight(insightId);
       if (!result.ok) return resultError(result);
       return json({ ok: true, data: null });
+    })
+  );
+
+  // Approve insight (set status to active)
+  app.patch('/insights/:insightId/approve', (c) =>
+    wrapHandler('Failed to approve insight', async () => {
+      const insightId = c.req.param('insightId');
+      if (!insightId || !/^[a-z0-9]{20,30}$/.test(insightId)) {
+        return json(
+          { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid insightId' } },
+          400
+        );
+      }
+      const result = await memoryService.approveInsight(insightId);
+      if (!result.ok) return resultError(result);
+      return json({ ok: true, data: result.value });
+    })
+  );
+
+  // Reject insight (set status to rejected)
+  app.patch('/insights/:insightId/reject', (c) =>
+    wrapHandler('Failed to reject insight', async () => {
+      const insightId = c.req.param('insightId');
+      if (!insightId || !/^[a-z0-9]{20,30}$/.test(insightId)) {
+        return json(
+          { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid insightId' } },
+          400
+        );
+      }
+      const result = await memoryService.rejectInsight(insightId);
+      if (!result.ok) return resultError(result);
+      return json({ ok: true, data: result.value });
     })
   );
 

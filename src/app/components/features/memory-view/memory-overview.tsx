@@ -3,6 +3,7 @@ import {
   Brain,
   ChartBar,
   CircleNotch,
+  Eye,
   Lightbulb,
   Sparkle,
 } from '@phosphor-icons/react';
@@ -43,6 +44,16 @@ const TILE_STYLES = {
     },
   },
   suggestionsInactive: {
+    badge: 'bg-[rgba(139,148,158,0.12)] text-[#8b949e]',
+    gradient: {},
+  },
+  pendingInsights: {
+    badge: 'bg-[rgba(210,153,34,0.12)] text-[#d29922]',
+    gradient: {
+      background: 'linear-gradient(135deg, rgba(210,153,34,0.06) 0%, transparent 60%)',
+    },
+  },
+  pendingInsightsInactive: {
     badge: 'bg-[rgba(139,148,158,0.12)] text-[#8b949e]',
     gradient: {},
   },
@@ -160,6 +171,7 @@ export function MemoryOverview(): React.JSX.Element {
     health,
     healthLoading,
     insights,
+    insightStatusFilter,
     syncedSkills,
     skillMetrics,
     dreamSessions,
@@ -171,6 +183,11 @@ export function MemoryOverview(): React.JSX.Element {
 
   const isAvailable = health?.available ?? false;
   const insightCount = health?.insightCount ?? insights.length;
+  // Only compute pending count from insights when unfiltered; filtered results may omit pending items
+  const pendingInsightCount =
+    insightStatusFilter === 'all'
+      ? insights.filter((i) => i.status === 'pending_review').length
+      : 0;
   const pendingCount = suggestions.filter((s) => s.status === 'pending').length;
   const totalSkills = new Set([
     ...syncedSkills.map((s) => s.id),
@@ -258,7 +275,7 @@ export function MemoryOverview(): React.JSX.Element {
       </div>
 
       {/* Metrics grid */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <MetricTile
           icon={Lightbulb}
           label="Insights"
@@ -266,6 +283,18 @@ export function MemoryOverview(): React.JSX.Element {
           sublabel={insightCount > 0 ? 'Stored observations' : 'None captured yet'}
           tileStyle={TILE_STYLES.insights}
           onClick={() => setActiveTab('insights')}
+        />
+        <MetricTile
+          icon={Eye}
+          label="Pending Insights"
+          value={pendingInsightCount}
+          sublabel={pendingInsightCount > 0 ? 'Awaiting review' : 'None pending'}
+          tileStyle={
+            pendingInsightCount > 0
+              ? TILE_STYLES.pendingInsights
+              : TILE_STYLES.pendingInsightsInactive
+          }
+          onClick={pendingInsightCount > 0 ? () => setActiveTab('insights') : undefined}
         />
         <MetricTile
           icon={Brain}

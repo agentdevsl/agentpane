@@ -22,6 +22,7 @@ import type { Result } from '../../lib/utils/result.js';
 import { err, ok } from '../../lib/utils/result.js';
 import type { Database } from '../../types/database.js';
 import type { SettingsService } from '../settings.service.js';
+import type { MemoryStoreService } from './memory-store.service.js';
 import type { SkillTrackingService } from './skill-tracking.service.js';
 import type { DreamSession, PaginationOptions, SkillSuggestion } from './types.js';
 
@@ -62,6 +63,9 @@ const DREAM_ANALYZE_SKILL_PROMPT = `You are analyzing the execution history of a
 ## Recent Failed Executions
 {{failedExamples}}
 
+## Past Improvement Suggestions
+{{pastSuggestions}}
+
 ## Instructions
 
 Analyze this skill's execution history and suggest concrete improvements. For each suggestion, provide:
@@ -88,6 +92,11 @@ Focus on:
 - Adding examples from successful runs
 - Fixing patterns that lead to errors
 
+Guidelines:
+- Keep suggested content to 500-2000 tokens. Focused and specific content outperforms exhaustive documentation.
+- Include at most one concrete example per suggestion.
+- Avoid comprehensive documentation — concise, actionable improvements are more effective.
+
 If the skill is performing well (>90% success rate, reasonable token usage), you may return an empty array \`[]\`.
 Only return the JSON array, no additional text.`;
 
@@ -102,7 +111,8 @@ export class DreamService {
   constructor(
     private db: Database,
     private settingsService: SettingsService,
-    private skillTrackingService: SkillTrackingService
+    private skillTrackingService: SkillTrackingService,
+    private storeService?: MemoryStoreService
   ) {}
 
   private async getModel(): Promise<string> {
@@ -291,6 +301,48 @@ export class DreamService {
         }
       }
 
+      // Auto-demote poorly performing insights based on skill execution correlations
+      if (this.storeService && codespaceId) {
+        try {
+          const correlationsResult =
+            await this.skillTrackingService.getInsightCorrelations(codespaceId);
+          if (correlationsResult.ok) {
+            for (const corr of correlationsResult.value) {
+              if (corr.timesUsed >= 5 && corr.successRate < 0.3) {
+                // Only demote insights that are currently active.
+                // Don't override rejected (user decision) or pending_review (already pending).
+                const demoteResult = await this.storeService.updateInsight(
+                  corr.insightId,
+                  { status: 'pending_review' },
+                  'active'
+                );
+                if (demoteResult.ok) {
+                  log.info('Auto-demoted poorly performing insight', {
+                    data: {
+                      insightId: corr.insightId,
+                      successRate: corr.successRate,
+                      timesUsed: corr.timesUsed,
+                    },
+                  });
+                } else {
+                  log.debug('Skipped demotion for insight (not active or not found)', {
+                    data: { insightId: corr.insightId },
+                  });
+                }
+              }
+            }
+          } else {
+            log.warn('Failed to get insight correlations', {
+              data: { error: String(correlationsResult.error) },
+            });
+          }
+        } catch (corrError) {
+          log.warn('Failed to run insight correlation demotion', {
+            error: corrError instanceof Error ? corrError : new Error(String(corrError)),
+          });
+        }
+      }
+
       // Update dream session
       const completedAt = new Date().toISOString();
       await this.db
@@ -436,6 +488,25 @@ export class DreamService {
 
       const skillContent = await this.loadSkillContent(codespaceId, skillId);
 
+      // Query past suggestions for this skill to provide history context
+      let pastSuggestionsText = 'No previous suggestions';
+      const pastSuggestionsResult = await this.getSkillSuggestions(
+        codespaceId,
+        { skillId },
+        { page: 1, size: 20 }
+      );
+      if (pastSuggestionsResult.ok && pastSuggestionsResult.value.length > 0) {
+        const resolved = pastSuggestionsResult.value.filter((s) => s.status !== 'pending');
+        if (resolved.length > 0) {
+          pastSuggestionsText = resolved
+            .map(
+              (s) =>
+                `- [${s.status.toUpperCase()}] ${s.title}: ${s.reasoning}${s.userNotes ? ` (User notes: ${s.userNotes})` : ''}`
+            )
+            .join('\n');
+        }
+      }
+
       const prompt = DREAM_ANALYZE_SKILL_PROMPT.replace('{{skillId}}', skillId)
         .replace('{{skillName}}', skillName)
         .replace('{{skillContent}}', skillContent)
@@ -450,7 +521,8 @@ export class DreamService {
         .replace('{{errorCount}}', String(metrics.errorCount))
         .replace('{{errorPatterns}}', errorPatternsText)
         .replace('{{successExamples}}', successExamples)
-        .replace('{{failedExamples}}', failedExamples);
+        .replace('{{failedExamples}}', failedExamples)
+        .replace('{{pastSuggestions}}', pastSuggestionsText);
 
       const effectiveModel = model ?? (await this.getModel());
 

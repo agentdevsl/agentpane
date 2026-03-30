@@ -46,10 +46,25 @@ export interface MemoryStoreInterface {
     skillId?: string;
     tags?: string[];
     metadata?: Record<string, unknown>;
+    status?: 'active' | 'pending_review' | 'rejected';
+    category?: 'pattern' | 'anti_pattern' | 'decision' | 'architecture' | 'error_lesson';
   }): Promise<Result<Insight, MemoryError>>;
+  updateInsight(
+    id: string,
+    params: {
+      content?: string;
+      status?: 'active' | 'pending_review' | 'rejected';
+      category?: 'pattern' | 'anti_pattern' | 'decision' | 'architecture' | 'error_lesson';
+    },
+    onlyIfStatus?: 'active' | 'pending_review' | 'rejected'
+  ): Promise<Result<Insight, MemoryError>>;
   getInsights(
     codespaceId: string | null,
-    options?: PaginationOptions
+    options?: PaginationOptions,
+    filters?: {
+      status?: 'active' | 'pending_review' | 'rejected';
+      category?: 'pattern' | 'anti_pattern' | 'decision' | 'architecture' | 'error_lesson';
+    }
   ): Promise<Result<Insight[], MemoryError>>;
   deleteInsight(id: string): Promise<Result<void, MemoryError>>;
   searchInsights(
@@ -60,7 +75,8 @@ export interface MemoryStoreInterface {
   assembleContext(
     codespaceId: string | null,
     query: string,
-    maxTokens?: number
+    maxTokens?: number,
+    maxInsights?: number
   ): Promise<Result<MemoryContext, MemoryError>>;
   insertMessage(params: {
     codespaceId: string;
@@ -81,7 +97,12 @@ export interface InsightDeriverInterface {
   deriveInsights(
     memorySessionId: string,
     codespaceId: string
-  ): Promise<Result<{ insightsCreated: number }, MemoryError>>;
+  ): Promise<
+    Result<
+      { insightsCreated: number; insightsUpdated: number; insightsDeleted: number },
+      MemoryError
+    >
+  >;
 }
 
 // ---------------------------------------------------------------------------
@@ -119,6 +140,11 @@ export class MemoryService {
     return this.available;
   }
 
+  /** Expose the underlying store so callers (e.g. DreamService) can share the same instance. */
+  getStore(): MemoryStoreInterface {
+    return this.store;
+  }
+
   // ---------------------------------------------------------------------------
   // Lifecycle methods (agent-facing - swallow errors)
   // ---------------------------------------------------------------------------
@@ -126,10 +152,11 @@ export class MemoryService {
   /** Assemble relevant memory context for agent prompt injection. */
   async getContext(
     codespaceId: string,
-    query: string
+    query: string,
+    maxInsights?: number
   ): Promise<Result<MemoryContext, MemoryError>> {
     try {
-      return await this.store.assembleContext(codespaceId, query);
+      return await this.store.assembleContext(codespaceId, query, undefined, maxInsights);
     } catch (error) {
       log.warn('Memory context retrieval failed', {
         error: error instanceof Error ? error : new Error(String(error)),
@@ -221,9 +248,13 @@ export class MemoryService {
 
   async getInsights(
     codespaceId: string | null,
-    options?: PaginationOptions
+    options?: PaginationOptions,
+    filters?: {
+      status?: 'active' | 'pending_review' | 'rejected';
+      category?: 'pattern' | 'anti_pattern' | 'decision' | 'architecture' | 'error_lesson';
+    }
   ): Promise<Result<Insight[], MemoryError>> {
-    return this.store.getInsights(codespaceId, options);
+    return this.store.getInsights(codespaceId, options, filters);
   }
 
   async createInsight(
@@ -232,7 +263,9 @@ export class MemoryService {
     source: 'agent_derived' | 'manual' | 'dream' = 'manual',
     metadata?: Record<string, unknown>,
     tags?: string[],
-    skillId?: string
+    skillId?: string,
+    status?: 'active' | 'pending_review' | 'rejected',
+    category?: 'pattern' | 'anti_pattern' | 'decision' | 'architecture' | 'error_lesson'
   ): Promise<Result<Insight, MemoryError>> {
     return this.store.insertInsight({
       codespaceId,
@@ -241,7 +274,28 @@ export class MemoryService {
       metadata,
       tags,
       skillId,
+      status,
+      category,
     });
+  }
+
+  async updateInsight(
+    id: string,
+    params: {
+      content?: string;
+      status?: 'active' | 'pending_review' | 'rejected';
+      category?: 'pattern' | 'anti_pattern' | 'decision' | 'architecture' | 'error_lesson';
+    }
+  ): Promise<Result<Insight, MemoryError>> {
+    return this.store.updateInsight(id, params);
+  }
+
+  async approveInsight(id: string): Promise<Result<Insight, MemoryError>> {
+    return this.store.updateInsight(id, { status: 'active' });
+  }
+
+  async rejectInsight(id: string): Promise<Result<Insight, MemoryError>> {
+    return this.store.updateInsight(id, { status: 'rejected' });
   }
 
   async deleteInsight(id: string): Promise<Result<void, MemoryError>> {

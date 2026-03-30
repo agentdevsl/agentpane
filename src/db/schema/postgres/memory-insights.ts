@@ -20,12 +20,21 @@ export const memoryInsights = pgTable(
     skillId: text('skill_id'),
     tags: jsonb('tags').$type<string[]>().default([]),
     metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+    status: text('status')
+      .$type<'active' | 'pending_review' | 'rejected'>()
+      .default('active')
+      .notNull(),
+    category: text('category').$type<
+      'pattern' | 'anti_pattern' | 'decision' | 'architecture' | 'error_lesson'
+    >(),
+    updatedAt: timestamp('updated_at', { mode: 'string' }),
     createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
   },
   (table) => [
     index('idx_memory_insights_codespace_id').on(table.codespaceId),
     index('idx_memory_insights_skill_id').on(table.skillId),
     index('idx_memory_insights_source_session_id').on(table.sourceSessionId),
+    index('idx_memory_insights_status').on(table.status),
   ]
 );
 

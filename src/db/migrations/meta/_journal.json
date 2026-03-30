@@ -29,6 +29,13 @@
       "when": 1742860800000,
       "tag": "0012_add_task_skill_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1743292800000,
+      "tag": "0013_add_memory_insight_status_category",
+      "breakpoints": true
     }
   ]
 }
