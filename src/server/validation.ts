@@ -102,27 +102,6 @@ export const exportSessionSchema = z.object({
   format: z.enum(['json', 'markdown', 'csv']),
 });
 
-// ─── Worktree Schemas ────────────────────────────────
-
-export const createWorktreeSchema = z.object({
-  codespaceId: idSchema,
-  agentId: idSchema,
-  taskId: idSchema,
-  taskTitle: z.string().min(1).max(500),
-  baseBranch: z.string().max(250).optional(),
-});
-
-export const mergeWorktreeSchema = z.object({
-  targetBranch: z.string().max(250).optional(),
-  deleteAfterMerge: z.boolean().optional(),
-  squash: z.boolean().optional(),
-  commitMessage: z.string().max(1000).optional(),
-});
-
-export const commitWorktreeSchema = z.object({
-  message: z.string().min(1, 'Commit message is required').max(2000),
-});
-
 // ─── RBAC Schemas ─────────────────────────────────────
 
 export const rbacRoleSchema = z.enum(['owner', 'admin', 'agent_operator', 'viewer']);

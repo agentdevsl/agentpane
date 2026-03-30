@@ -143,23 +143,6 @@ type SessionSummary struct {
 	FinalStatus   *string `json:"finalStatus"`
 }
 
-// Worktree represents an isolated git worktree used by an agent.
-//
-// Valid statuses: creating, active, merging, removing, removed, error.
-type Worktree struct {
-	ID          string  `json:"id"`
-	CodespaceID string  `json:"codespaceId"`
-	AgentID     *string `json:"agentId,omitempty"`
-	TaskID      *string `json:"taskId,omitempty"`
-	Branch      string  `json:"branch"`
-	Path        string  `json:"path"`
-	BaseBranch  string  `json:"baseBranch"`
-	Status      string  `json:"status"`
-	CreatedAt   string  `json:"createdAt"`
-	UpdatedAt   string  `json:"updatedAt"`
-	MergedAt    *string `json:"mergedAt,omitempty"`
-}
-
 // Project groups codespaces into organizational folders.
 type Project struct {
 	ID          string  `json:"id"`
@@ -285,8 +268,3 @@ type SessionListOptions struct {
 	Offset      int
 }
 
-// WorktreeMergeOptions specifies parameters for merging a worktree.
-type WorktreeMergeOptions struct {
-	DeleteAfterMerge bool   `json:"deleteAfterMerge,omitempty"`
-	TargetBranch     string `json:"targetBranch,omitempty"`
-}

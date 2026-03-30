@@ -14,7 +14,6 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as EventsRouteImport } from './routes/events'
 import { Route as CliMonitorRouteImport } from './routes/cli-monitor'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as WorktreesIndexRouteImport } from './routes/worktrees/index'
 import { Route as TerraformIndexRouteImport } from './routes/terraform/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as SessionsIndexRouteImport } from './routes/sessions/index'
@@ -53,7 +52,6 @@ import { Route as FoldersFolderIdIndexRouteImport } from './routes/folders/$fold
 import { Route as CodespacesCodespaceIdIndexRouteImport } from './routes/codespaces/$codespaceId/index'
 import { Route as TerraformModulesModuleIdRouteImport } from './routes/terraform/modules.$moduleId'
 import { Route as FoldersFolderIdMembersRouteImport } from './routes/folders/$folderId/members'
-import { Route as CodespacesCodespaceIdWorktreesRouteImport } from './routes/codespaces/$codespaceId/worktrees'
 import { Route as CodespacesCodespaceIdSettingsRouteImport } from './routes/codespaces/$codespaceId/settings'
 import { Route as CodespacesCodespaceIdGitRouteImport } from './routes/codespaces/$codespaceId/git'
 import { Route as CodespacesCodespaceIdTasksTaskIdRouteImport } from './routes/codespaces/$codespaceId/tasks/$taskId'
@@ -81,11 +79,6 @@ const CliMonitorRoute = CliMonitorRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const WorktreesIndexRoute = WorktreesIndexRouteImport.update({
-  id: '/worktrees/',
-  path: '/worktrees/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TerraformIndexRoute = TerraformIndexRouteImport.update({
@@ -281,12 +274,6 @@ const FoldersFolderIdMembersRoute = FoldersFolderIdMembersRouteImport.update({
   path: '/folders/$folderId/members',
   getParentRoute: () => rootRouteImport,
 } as any)
-const CodespacesCodespaceIdWorktreesRoute =
-  CodespacesCodespaceIdWorktreesRouteImport.update({
-    id: '/codespaces/$codespaceId/worktrees',
-    path: '/codespaces/$codespaceId/worktrees',
-    getParentRoute: () => rootRouteImport,
-  } as any)
 const CodespacesCodespaceIdSettingsRoute =
   CodespacesCodespaceIdSettingsRouteImport.update({
     id: '/codespaces/$codespaceId/settings',
@@ -346,10 +333,8 @@ export interface FileRoutesByFullPath {
   '/sessions/': typeof SessionsIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/terraform/': typeof TerraformIndexRoute
-  '/worktrees/': typeof WorktreesIndexRoute
   '/codespaces/$codespaceId/git': typeof CodespacesCodespaceIdGitRoute
   '/codespaces/$codespaceId/settings': typeof CodespacesCodespaceIdSettingsRoute
-  '/codespaces/$codespaceId/worktrees': typeof CodespacesCodespaceIdWorktreesRoute
   '/folders/$folderId/members': typeof FoldersFolderIdMembersRoute
   '/terraform/modules/$moduleId': typeof TerraformModulesModuleIdRoute
   '/codespaces/$codespaceId/': typeof CodespacesCodespaceIdIndexRoute
@@ -392,10 +377,8 @@ export interface FileRoutesByTo {
   '/sessions': typeof SessionsIndexRoute
   '/settings': typeof SettingsIndexRoute
   '/terraform': typeof TerraformIndexRoute
-  '/worktrees': typeof WorktreesIndexRoute
   '/codespaces/$codespaceId/git': typeof CodespacesCodespaceIdGitRoute
   '/codespaces/$codespaceId/settings': typeof CodespacesCodespaceIdSettingsRoute
-  '/codespaces/$codespaceId/worktrees': typeof CodespacesCodespaceIdWorktreesRoute
   '/folders/$folderId/members': typeof FoldersFolderIdMembersRoute
   '/terraform/modules/$moduleId': typeof TerraformModulesModuleIdRoute
   '/codespaces/$codespaceId': typeof CodespacesCodespaceIdIndexRoute
@@ -443,10 +426,8 @@ export interface FileRoutesById {
   '/sessions/': typeof SessionsIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/terraform/': typeof TerraformIndexRoute
-  '/worktrees/': typeof WorktreesIndexRoute
   '/codespaces/$codespaceId/git': typeof CodespacesCodespaceIdGitRoute
   '/codespaces/$codespaceId/settings': typeof CodespacesCodespaceIdSettingsRoute
-  '/codespaces/$codespaceId/worktrees': typeof CodespacesCodespaceIdWorktreesRoute
   '/folders/$folderId/members': typeof FoldersFolderIdMembersRoute
   '/terraform/modules/$moduleId': typeof TerraformModulesModuleIdRoute
   '/codespaces/$codespaceId/': typeof CodespacesCodespaceIdIndexRoute
@@ -495,10 +476,8 @@ export interface FileRouteTypes {
     | '/sessions/'
     | '/settings/'
     | '/terraform/'
-    | '/worktrees/'
     | '/codespaces/$codespaceId/git'
     | '/codespaces/$codespaceId/settings'
-    | '/codespaces/$codespaceId/worktrees'
     | '/folders/$folderId/members'
     | '/terraform/modules/$moduleId'
     | '/codespaces/$codespaceId/'
@@ -541,10 +520,8 @@ export interface FileRouteTypes {
     | '/sessions'
     | '/settings'
     | '/terraform'
-    | '/worktrees'
     | '/codespaces/$codespaceId/git'
     | '/codespaces/$codespaceId/settings'
-    | '/codespaces/$codespaceId/worktrees'
     | '/folders/$folderId/members'
     | '/terraform/modules/$moduleId'
     | '/codespaces/$codespaceId'
@@ -591,10 +568,8 @@ export interface FileRouteTypes {
     | '/sessions/'
     | '/settings/'
     | '/terraform/'
-    | '/worktrees/'
     | '/codespaces/$codespaceId/git'
     | '/codespaces/$codespaceId/settings'
-    | '/codespaces/$codespaceId/worktrees'
     | '/folders/$folderId/members'
     | '/terraform/modules/$moduleId'
     | '/codespaces/$codespaceId/'
@@ -619,10 +594,8 @@ export interface RootRouteChildren {
   MemoryIndexRoute: typeof MemoryIndexRoute
   QueueIndexRoute: typeof QueueIndexRoute
   SessionsIndexRoute: typeof SessionsIndexRoute
-  WorktreesIndexRoute: typeof WorktreesIndexRoute
   CodespacesCodespaceIdGitRoute: typeof CodespacesCodespaceIdGitRoute
   CodespacesCodespaceIdSettingsRoute: typeof CodespacesCodespaceIdSettingsRoute
-  CodespacesCodespaceIdWorktreesRoute: typeof CodespacesCodespaceIdWorktreesRoute
   FoldersFolderIdMembersRoute: typeof FoldersFolderIdMembersRoute
   CodespacesCodespaceIdIndexRoute: typeof CodespacesCodespaceIdIndexRoute
   FoldersFolderIdIndexRoute: typeof FoldersFolderIdIndexRoute
@@ -664,13 +637,6 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/worktrees/': {
-      id: '/worktrees/'
-      path: '/worktrees'
-      fullPath: '/worktrees/'
-      preLoaderRoute: typeof WorktreesIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/terraform/': {
@@ -939,13 +905,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof FoldersFolderIdMembersRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/codespaces/$codespaceId/worktrees': {
-      id: '/codespaces/$codespaceId/worktrees'
-      path: '/codespaces/$codespaceId/worktrees'
-      fullPath: '/codespaces/$codespaceId/worktrees'
-      preLoaderRoute: typeof CodespacesCodespaceIdWorktreesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/codespaces/$codespaceId/settings': {
       id: '/codespaces/$codespaceId/settings'
       path: '/codespaces/$codespaceId/settings'
@@ -1083,10 +1042,8 @@ const rootRouteChildren: RootRouteChildren = {
   MemoryIndexRoute: MemoryIndexRoute,
   QueueIndexRoute: QueueIndexRoute,
   SessionsIndexRoute: SessionsIndexRoute,
-  WorktreesIndexRoute: WorktreesIndexRoute,
   CodespacesCodespaceIdGitRoute: CodespacesCodespaceIdGitRoute,
   CodespacesCodespaceIdSettingsRoute: CodespacesCodespaceIdSettingsRoute,
-  CodespacesCodespaceIdWorktreesRoute: CodespacesCodespaceIdWorktreesRoute,
   FoldersFolderIdMembersRoute: FoldersFolderIdMembersRoute,
   CodespacesCodespaceIdIndexRoute: CodespacesCodespaceIdIndexRoute,
   FoldersFolderIdIndexRoute: FoldersFolderIdIndexRoute,

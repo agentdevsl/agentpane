@@ -8,14 +8,12 @@ import {
   CloudArrowDown,
   GitBranch,
   GitCommit,
-  GitFork,
   GitPullRequest,
   WarningCircle,
 } from '@phosphor-icons/react';
 import { useCallback, useState } from 'react';
 import { Button } from '@/app/components/ui/button';
 import { Skeleton } from '@/app/components/ui/skeleton';
-import { useEventListener } from '@/app/hooks/use-event-listener';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { apiClient } from '@/lib/api/client';
 import { cn } from '@/lib/utils/cn';
@@ -23,15 +21,6 @@ import { cn } from '@/lib/utils/cn';
 // ============================================
 // TYPES
 // ============================================
-
-interface WorktreeInfo {
-  id: string;
-  name: string;
-  branch: string;
-  path: string;
-  status: 'clean' | 'dirty';
-  agentName?: string;
-}
 
 interface CommitInfo {
   hash: string;
@@ -141,60 +130,6 @@ function PullRequestItem({
 }
 
 // ============================================
-// WORKTREE ITEM COMPONENT
-// ============================================
-
-function WorktreeItem({
-  worktree,
-  isSelected,
-  onSelect,
-  onContextMenu,
-}: {
-  worktree: WorktreeInfo;
-  isSelected: boolean;
-  onSelect: () => void;
-  onContextMenu?: (e: React.MouseEvent) => void;
-}) {
-  const displayName = worktree.agentName
-    ? `${worktree.agentName}: ${worktree.branch}`
-    : worktree.branch;
-
-  const shortPath = worktree.path.replace(/^.*\/([^/]+\/[^/]+)$/, '~/$1');
-
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      onContextMenu={onContextMenu}
-      className={cn(
-        'w-full text-left px-4 py-3 border-b border-border/30 transition-colors',
-        'hover:bg-surface-muted/50 focus:outline-none',
-        isSelected && 'bg-accent/8 border-l-2 border-l-accent -ml-[2px] pl-[calc(1rem+2px)]'
-      )}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="font-medium text-sm text-fg truncate">{displayName}</div>
-          <div className="mt-0.5 text-xs text-fg-muted truncate font-mono">{shortPath}</div>
-          <div className="mt-1.5 flex items-center gap-2">
-            <span
-              className={cn(
-                'inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium',
-                'bg-surface-muted',
-                worktree.status === 'dirty' ? 'text-attention' : 'text-fg-muted'
-              )}
-            >
-              {worktree.status}
-            </span>
-          </div>
-        </div>
-        {isSelected && <div className="h-2 w-2 rounded-full bg-accent shrink-0 mt-1.5" />}
-      </div>
-    </button>
-  );
-}
-
-// ============================================
 // COMMIT ITEM COMPONENT
 // ============================================
 
@@ -272,53 +207,6 @@ function BranchItem({ branch, onSelect }: { branch: BranchInfo; onSelect?: () =>
 }
 
 // ============================================
-// CONTEXT MENU COMPONENT
-// ============================================
-
-function ContextMenu({
-  x,
-  y,
-  onClose,
-  actions,
-}: {
-  x: number;
-  y: number;
-  onClose: () => void;
-  actions: { label: string; onClick: () => void; danger?: boolean }[];
-}) {
-  useEventListener(document, 'click', () => onClose());
-  useEventListener(document, 'keydown', (e) => {
-    if (e.key === 'Escape') onClose();
-  });
-
-  return (
-    <div
-      className="fixed z-50 min-w-[180px] rounded-lg border border-border bg-surface shadow-xl py-1 animate-scale-in"
-      style={{ left: x, top: y }}
-    >
-      {actions.map((action) => (
-        <button
-          key={action.label}
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            action.onClick();
-            onClose();
-          }}
-          className={cn(
-            'w-full text-left px-4 py-2 text-sm transition-colors',
-            'hover:bg-surface-muted focus:outline-none',
-            action.danger ? 'text-danger' : 'text-fg'
-          )}
-        >
-          {action.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-// ============================================
 // MAIN GIT VIEW COMPONENT
 // ============================================
 
@@ -327,7 +215,6 @@ export function GitView({ codespaceId, projectPath }: GitViewProps): React.JSX.E
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Selected states
-  const [selectedWorktree, setSelectedWorktree] = useState<WorktreeInfo | null>(null);
   const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
 
   // Git status state
@@ -344,17 +231,9 @@ export function GitView({ codespaceId, projectPath }: GitViewProps): React.JSX.E
 
   // Data states
   const [pullRequests] = useState<PullRequestInfo[]>([]);
-  const [worktrees, setWorktrees] = useState<WorktreeInfo[]>([]);
   const [commits, setCommits] = useState<CommitInfo[]>([]);
   const [localBranches, setLocalBranches] = useState<BranchInfo[]>([]);
   const [remoteBranches, setRemoteBranches] = useState<BranchInfo[]>([]);
-
-  // Context menu state
-  const [contextMenu, setContextMenu] = useState<{
-    x: number;
-    y: number;
-    worktree: WorktreeInfo;
-  } | null>(null);
 
   // Fetch all git data
   const fetchData = useCallback(
@@ -364,9 +243,8 @@ export function GitView({ codespaceId, projectPath }: GitViewProps): React.JSX.E
 
       try {
         // Fetch all data in parallel
-        const [worktreeResult, branchesResult, remoteBranchesResult, commitsResult, statusResult] =
+        const [branchesResult, remoteBranchesResult, commitsResult, statusResult] =
           await Promise.all([
-            apiClient.worktrees.list({ codespaceId }),
             apiClient.git.branches(codespaceId),
             apiClient.git.remoteBranches(codespaceId),
             apiClient.git.commits(codespaceId, undefined, 50),
@@ -376,19 +254,6 @@ export function GitView({ codespaceId, projectPath }: GitViewProps): React.JSX.E
         // Process git status
         if (statusResult.ok) {
           setGitStatus(statusResult.data);
-        }
-
-        // Process worktrees
-        if (worktreeResult.ok) {
-          const mappedWorktrees: WorktreeInfo[] = worktreeResult.data.items.map((wt) => ({
-            id: wt.id,
-            name: wt.branch,
-            branch: wt.branch,
-            path: wt.path,
-            status: wt.hasUncommittedChanges ? 'dirty' : 'clean',
-            agentName: wt.agentName,
-          }));
-          setWorktrees(mappedWorktrees);
         }
 
         // Process local branches
@@ -488,12 +353,6 @@ export function GitView({ codespaceId, projectPath }: GitViewProps): React.JSX.E
     }
   }, [selectedBranch, fetchCommitsForBranch]);
 
-  // Handle worktree context menu
-  const handleContextMenu = useCallback((e: React.MouseEvent, worktree: WorktreeInfo) => {
-    e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY, worktree });
-  }, []);
-
   // Handle refresh
   const handleRefresh = () => fetchData(false);
 
@@ -508,8 +367,8 @@ export function GitView({ codespaceId, projectPath }: GitViewProps): React.JSX.E
             <Skeleton className="h-8 w-20" />
           </div>
         </div>
-        <div className="grid grid-cols-5 divide-x divide-border min-h-[500px]">
-          {[0, 1, 2, 3, 4].map((i) => (
+        <div className="grid grid-cols-4 divide-x divide-border min-h-[500px]">
+          {[0, 1, 2, 3].map((i) => (
             <div key={i} className="flex flex-col">
               <div className="border-b border-border bg-surface-subtle/50 px-4 py-2.5">
                 <Skeleton className="h-4 w-24" />
@@ -533,7 +392,7 @@ export function GitView({ codespaceId, projectPath }: GitViewProps): React.JSX.E
         <div className="flex items-center gap-3">
           {/* Repo name and branch info */}
           <div className="flex items-center gap-2 rounded-md border border-border bg-surface-subtle px-3 py-1.5">
-            <GitFork className="h-4 w-4 text-fg-muted" />
+            <GitBranch className="h-4 w-4 text-fg-muted" />
             <span className="text-sm font-semibold text-fg">
               {gitStatus?.repoName || projectPath?.split('/').pop() || 'Repository'}
             </span>
@@ -603,8 +462,8 @@ export function GitView({ codespaceId, projectPath }: GitViewProps): React.JSX.E
         </div>
       </div>
 
-      {/* Multi-column grid - 5 columns like the reference */}
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 divide-x divide-border">
+      {/* Multi-column grid - 4 columns */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 divide-x divide-border">
         {/* Pull Requests Column */}
         <div className="flex flex-col min-h-[500px] max-h-[calc(100vh-200px)]">
           <ColumnHeader icon={GitPullRequest} title="Pull Requests" count={pullRequests.length} />
@@ -617,38 +476,18 @@ export function GitView({ codespaceId, projectPath }: GitViewProps): React.JSX.E
           </div>
         </div>
 
-        {/* Worktrees Column */}
-        <div className="flex flex-col min-h-[500px] max-h-[calc(100vh-200px)]">
-          <ColumnHeader icon={GitFork} title="Worktrees" count={worktrees.length} />
-          <div className="flex-1 overflow-y-auto">
-            {worktrees.length === 0 ? (
-              <div className="px-4 py-8 text-center text-sm text-fg-muted">No worktrees yet</div>
-            ) : (
-              worktrees.map((wt) => (
-                <WorktreeItem
-                  key={wt.id}
-                  worktree={wt}
-                  isSelected={selectedWorktree?.id === wt.id}
-                  onSelect={() => setSelectedWorktree(wt)}
-                  onContextMenu={(e) => handleContextMenu(e, wt)}
-                />
-              ))
-            )}
-          </div>
-        </div>
-
         {/* Commits Column */}
         <div className="flex flex-col min-h-[500px] max-h-[calc(100vh-200px)]">
           <ColumnHeader
             icon={GitCommit}
             title="Commits"
-            subtitle={selectedBranch ?? selectedWorktree?.branch ?? 'MASTER'}
+            subtitle={selectedBranch ?? 'MASTER'}
             count={commits.length}
           />
           <div className="flex-1 overflow-y-auto">
             {commits.length === 0 ? (
               <div className="px-4 py-8 text-center text-sm text-fg-muted">
-                {selectedWorktree || selectedBranch ? 'No commits' : 'Select a branch'}
+                {selectedBranch ? 'No commits' : 'Select a branch'}
               </div>
             ) : (
               commits.map((commit) => <CommitItem key={commit.hash} commit={commit} />)
@@ -696,30 +535,6 @@ export function GitView({ codespaceId, projectPath }: GitViewProps): React.JSX.E
           </div>
         </div>
       </div>
-
-      {/* Context Menu */}
-      {contextMenu && (
-        <ContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          onClose={() => setContextMenu(null)}
-          actions={[
-            {
-              label: 'Check Out Worktree',
-              onClick: () => {
-                const url = `vscode://file/${encodeURIComponent(contextMenu.worktree.path)}`;
-                window.open(url, '_blank');
-              },
-            },
-            {
-              label: 'Open in Finder',
-              onClick: () => {
-                window.open(`file://${contextMenu.worktree.path}`, '_blank');
-              },
-            },
-          ]}
-        />
-      )}
     </div>
   );
 }
