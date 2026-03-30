@@ -48,16 +48,46 @@ function SkeletonCard(): React.JSX.Element {
   );
 }
 
-function EmptyState({ isSearch }: { isSearch: boolean }): React.JSX.Element {
+function EmptyState({
+  isSearch,
+  statusFilter,
+  categoryFilter,
+}: {
+  isSearch: boolean;
+  statusFilter: InsightStatusFilter;
+  categoryFilter: InsightCategoryFilter;
+}): React.JSX.Element {
+  const hasFilter = statusFilter !== 'all' || categoryFilter !== 'all';
+
+  const message = (() => {
+    if (isSearch) return 'No matching insights';
+    if (statusFilter !== 'all' && categoryFilter !== 'all') {
+      const statusLabel =
+        STATUS_OPTIONS.find((o) => o.value === statusFilter)?.label ?? statusFilter;
+      const categoryLabel =
+        CATEGORY_OPTIONS.find((o) => o.value === categoryFilter)?.label ?? categoryFilter;
+      return `No ${statusLabel.toLowerCase()} ${categoryLabel.toLowerCase()} insights found`;
+    }
+    if (statusFilter !== 'all') {
+      const statusLabel =
+        STATUS_OPTIONS.find((o) => o.value === statusFilter)?.label ?? statusFilter;
+      return `No ${statusLabel.toLowerCase()} insights`;
+    }
+    if (categoryFilter !== 'all') {
+      const categoryLabel =
+        CATEGORY_OPTIONS.find((o) => o.value === categoryFilter)?.label ?? categoryFilter;
+      return `No ${categoryLabel.toLowerCase()} insights found`;
+    }
+    return 'No insights yet';
+  })();
+
   return (
     <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-surface py-20 text-center">
       <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-[rgba(88,166,255,0.12)]">
         <Lightbulb className="h-7 w-7 text-[#58a6ff]" />
       </div>
-      <p className="mt-4 text-sm font-semibold text-fg">
-        {isSearch ? 'No matching insights' : 'No insights yet'}
-      </p>
-      {!isSearch && (
+      <p className="mt-4 text-sm font-semibold text-fg">{message}</p>
+      {!isSearch && !hasFilter && (
         <p className="mt-1.5 max-w-xs text-xs leading-relaxed text-fg-subtle">
           Insights are automatically extracted from agent sessions. As agents complete tasks, key
           patterns, learnings, and context are captured here and fed back into future agent prompts.
@@ -194,7 +224,7 @@ export function MemoryInsightsTab(): React.JSX.Element {
                   : 'bg-surface-muted/60 text-fg-muted hover:bg-surface-subtle hover:text-fg'
               )}
             >
-              {dot && <span className={cn('h-2 w-2 rounded-full', dot)} />}
+              {dot && <span className={cn('h-2 w-2 rounded-full', isActive ? 'bg-white' : dot)} />}
               {label}
             </button>
           );
@@ -237,7 +267,13 @@ export function MemoryInsightsTab(): React.JSX.Element {
         </div>
       )}
 
-      {!isLoading && !hasResults && <EmptyState isSearch={searchResults !== null} />}
+      {!isLoading && !hasResults && (
+        <EmptyState
+          isSearch={searchResults !== null}
+          statusFilter={insightStatusFilter}
+          categoryFilter={insightCategoryFilter}
+        />
+      )}
     </div>
   );
 }

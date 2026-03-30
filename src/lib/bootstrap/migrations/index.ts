@@ -260,6 +260,10 @@ END;
 `,
   },
 
+  // v26 intentionally skipped — some deployed databases already applied v26 as an earlier
+  // iteration of enum-check-triggers (now consolidated into v25). Reusing v26 would cause
+  // those databases to skip this migration silently. Using v27 ensures it runs everywhere.
+
   // 27. Memory insight status, category, updated_at columns + skill_executions insight tracking
   {
     version: 27,

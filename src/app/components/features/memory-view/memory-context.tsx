@@ -191,6 +191,10 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
   const [insightStatusFilter, setInsightStatusFilter] = useState<InsightStatusFilter>('all');
   const [insightCategoryFilter, setInsightCategoryFilter] = useState<InsightCategoryFilter>('all');
 
+  // Guard: skip the filter-change effect on the very first render (the codespace-change
+  // effect already fires fetchInsights on mount, so this prevents a duplicate fetch).
+  const filterInitialMountRef = useRef(true);
+
   // Track current codespace to guard against stale responses
   const currentCodespaceRef = useRef<string | null>(codespaceId);
   currentCodespaceRef.current = codespaceId;
@@ -404,10 +408,14 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
   }, [codespaceId, fetchHealth, fetchInsights]);
 
   // ---------------------------------------------------------------------------
-  // Re-fetch insights when filters change
+  // Re-fetch insights when filters change (skip first render — already fetched above)
   // ---------------------------------------------------------------------------
 
   useWatchEffect(() => {
+    if (filterInitialMountRef.current) {
+      filterInitialMountRef.current = false;
+      return;
+    }
     void fetchInsights(codespaceId);
   }, [insightStatusFilter, insightCategoryFilter, codespaceId, fetchInsights]);
 

@@ -36,6 +36,13 @@
       "when": 1774992000000,
       "tag": "0004_schema_catchup",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1775078400000,
+      "tag": "0005_memory_insight_status_category",
+      "breakpoints": true
     }
   ]
 }

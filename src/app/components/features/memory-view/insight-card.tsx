@@ -50,6 +50,14 @@ const CATEGORY_DOT_COLORS: Record<string, string> = {
   error_lesson: 'bg-attention',
 };
 
+const CATEGORY_GRADIENTS: Record<string, string> = {
+  pattern: 'linear-gradient(135deg, rgba(88,166,255,0.07) 0%, transparent 50%)',
+  anti_pattern: 'linear-gradient(135deg, rgba(218,54,51,0.06) 0%, transparent 50%)',
+  decision: 'linear-gradient(135deg, rgba(163,113,247,0.06) 0%, transparent 50%)',
+  architecture: 'linear-gradient(135deg, rgba(63,185,80,0.06) 0%, transparent 50%)',
+  error_lesson: 'linear-gradient(135deg, rgba(210,153,34,0.07) 0%, transparent 50%)',
+};
+
 // =============================================================================
 // Sub-components
 // =============================================================================
@@ -148,6 +156,7 @@ export function InsightCard({
   const [expanded, setExpanded] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [actionPending, setActionPending] = useState(false);
+  const truncatedContent = insight.content.slice(0, 50);
 
   // Load injections on first expand
   useWatchEffect(() => {
@@ -157,15 +166,6 @@ export function InsightCard({
   }, [expanded, insight.id, onExpand]);
 
   const injectionCount = injections?.length;
-
-  // Subtle gradient color-coded by category (or status for special states)
-  const CATEGORY_GRADIENTS: Record<string, string> = {
-    pattern: 'linear-gradient(135deg, rgba(88,166,255,0.07) 0%, transparent 50%)',
-    anti_pattern: 'linear-gradient(135deg, rgba(218,54,51,0.06) 0%, transparent 50%)',
-    decision: 'linear-gradient(135deg, rgba(163,113,247,0.06) 0%, transparent 50%)',
-    architecture: 'linear-gradient(135deg, rgba(63,185,80,0.06) 0%, transparent 50%)',
-    error_lesson: 'linear-gradient(135deg, rgba(210,153,34,0.07) 0%, transparent 50%)',
-  };
 
   const gradientStyle = (() => {
     // Status overrides take priority
@@ -303,6 +303,8 @@ export function InsightCard({
             type="button"
             className="flex items-center gap-0.5 text-[11px] text-fg-muted hover:text-fg"
             onClick={() => setExpanded((prev: boolean) => !prev)}
+            aria-expanded={expanded}
+            aria-label={expanded ? 'Collapse insight details' : 'Expand insight details'}
           >
             <CaretRight
               size={11}
@@ -324,6 +326,7 @@ export function InsightCard({
                 size="sm"
                 className="gap-1 bg-success hover:bg-success-hover"
                 disabled={actionPending}
+                aria-label={`Approve insight: ${truncatedContent}`}
                 onClick={async () => {
                   setActionPending(true);
                   try {
@@ -341,6 +344,7 @@ export function InsightCard({
                 size="sm"
                 className="gap-1 text-danger hover:border-danger hover:text-danger"
                 disabled={actionPending}
+                aria-label={`Reject insight: ${truncatedContent}`}
                 onClick={async () => {
                   setActionPending(true);
                   try {
@@ -362,6 +366,7 @@ export function InsightCard({
               size="sm"
               className="gap-1 text-danger hover:border-danger hover:text-danger"
               disabled={actionPending}
+              aria-label={`Exclude from prompts: ${truncatedContent}`}
               onClick={async () => {
                 setActionPending(true);
                 try {
@@ -382,6 +387,7 @@ export function InsightCard({
               size="sm"
               className="gap-1 text-success hover:border-success hover:text-success"
               disabled={actionPending}
+              aria-label={`Restore to active: ${truncatedContent}`}
               onClick={async () => {
                 setActionPending(true);
                 try {
