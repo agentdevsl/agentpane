@@ -171,12 +171,16 @@ function createMockSandbox(overrides: Partial<Sandbox> = {}): Sandbox {
 }
 
 function createMockSandboxProvider(overrides: Partial<SandboxProvider> = {}): SandboxProvider {
-  const mockSandbox = createMockSandbox();
+  const defaultSandbox = createMockSandbox();
   return {
     name: 'mock-provider',
-    create: vi.fn().mockResolvedValue(mockSandbox),
-    get: vi.fn().mockResolvedValue(mockSandbox),
-    getById: vi.fn().mockResolvedValue(mockSandbox),
+    create: vi
+      .fn()
+      .mockImplementation(async (cfg: SandboxConfig) =>
+        createMockSandbox({ id: cfg.id ?? 'sandbox-123', codespaceId: cfg.codespaceId })
+      ),
+    get: vi.fn().mockResolvedValue(defaultSandbox),
+    getById: vi.fn().mockResolvedValue(defaultSandbox),
     list: vi.fn().mockResolvedValue([]),
     pullImage: vi.fn().mockResolvedValue(undefined),
     isImageAvailable: vi.fn().mockResolvedValue(true),
@@ -254,9 +258,7 @@ describe('SandboxService', () => {
         },
       });
 
-      // Create mock sandbox with matching project ID
-      const mockSandbox = createMockSandbox({ codespaceId: project.id });
-      vi.mocked(mockProvider.create).mockResolvedValueOnce(mockSandbox);
+      // Provider mock already echoes config.id and codespaceId from createMockSandboxProvider
 
       const config: SandboxConfig = {
         codespaceId: project.id,
@@ -276,7 +278,7 @@ describe('SandboxService', () => {
         expect(result.value.status).toBe('running');
         expect(result.value.image).toBe('node:22-slim');
       }
-      expect(mockProvider.create).toHaveBeenCalledWith(config);
+      expect(mockProvider.create).toHaveBeenCalledWith(expect.objectContaining(config));
     });
 
     it('returns existing sandbox if already running for project', async () => {

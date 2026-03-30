@@ -136,7 +136,7 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
     }
     this.creatingCodespaces.add(config.codespaceId);
 
-    const sandboxId = createId();
+    const sandboxId = config.id ?? createId();
     // CRD sandbox names must be DNS-1123 compliant
     const sandboxName = `agentpane-${config.codespaceId.slice(0, 20)}-${sandboxId.slice(0, 8)}`
       .toLowerCase()

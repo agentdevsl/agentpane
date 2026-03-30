@@ -404,16 +404,16 @@ export class CodespaceService {
 
     // Explicitly delete session_events for this codespace's sessions, plans, and sandboxes
     // (no FK cascade — session_events stores events for multiple stream types)
-    const codspaceSessions = await this.db
+    const codespaceSessionIds = await this.db
       .select({ id: sessions.id })
       .from(sessions)
       .where(eq(sessions.codespaceId, id));
 
     // Plan and sandbox tables may not exist in all environments (pre-migration DBs)
-    let codspacePlans: { id: string }[] = [];
-    let codspaceSandboxes: { id: string }[] = [];
+    let codspacePlanIds: { id: string }[] = [];
+    let codspaceSandboxIds: { id: string }[] = [];
     try {
-      codspacePlans = await this.db
+      codspacePlanIds = await this.db
         .select({ id: planSessions.id })
         .from(planSessions)
         .where(eq(planSessions.codespaceId, id));
@@ -421,7 +421,7 @@ export class CodespaceService {
       // plan_sessions table may not exist yet
     }
     try {
-      codspaceSandboxes = await this.db
+      codspaceSandboxIds = await this.db
         .select({ id: sandboxInstances.id })
         .from(sandboxInstances)
         .where(eq(sandboxInstances.codespaceId, id));
@@ -430,9 +430,9 @@ export class CodespaceService {
     }
 
     const eventSessionIds = [
-      ...codspaceSessions.map((s) => s.id),
-      ...codspacePlans.map((p) => `plan:${p.id}`),
-      ...codspaceSandboxes.map((s) => `sandbox:${s.id}`),
+      ...codespaceSessionIds.map((s) => s.id),
+      ...codspacePlanIds.map((p) => `plan:${p.id}`),
+      ...codspaceSandboxIds.map((s) => `sandbox:${s.id}`),
     ];
     if (eventSessionIds.length > 0) {
       await this.db.delete(sessionEvents).where(inArray(sessionEvents.sessionId, eventSessionIds));

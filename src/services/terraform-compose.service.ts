@@ -193,22 +193,27 @@ export class TerraformComposeService {
       throw ServiceErrors.STREAMS_REQUIRED;
     }
     const streamId = `terraform:${jobId}`;
+    const isTerminal = type === 'terraform:error' || type === 'terraform:done';
+    let result: Awaited<ReturnType<DurableStreamsService['publish']>>;
     try {
-      const result = await this.durableStreamsService.publish(streamId, type, data);
-      if (!result.ok) {
-        log.error('Failed to publish terraform event (Result error)', {
-          data: { type, jobId, error: result.error.message },
-        });
-        if (type === 'terraform:error' || type === 'terraform:done') {
-          throw new Error(result.error.message);
-        }
-      }
+      result = await this.durableStreamsService.publish(streamId, type, data);
     } catch (err) {
       log.error('Failed to publish terraform event', { data: { type, jobId }, error: err });
       // Rethrow for terminal events -- clients MUST receive done/error events
-      if (type === 'terraform:error' || type === 'terraform:done') {
+      if (isTerminal) {
         throw err;
       }
+      return;
+    }
+    // Check result outside try/catch to avoid double-logging when the throw
+    // for terminal events is caught by the same catch block
+    if (!result.ok) {
+      if (isTerminal) {
+        throw new Error(result.error.message);
+      }
+      log.error('Failed to publish terraform event (Result error)', {
+        data: { type, jobId, error: result.error.message },
+      });
     }
   }
 

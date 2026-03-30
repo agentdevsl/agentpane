@@ -10,6 +10,8 @@ export interface VolumeMountConfig {
 }
 
 export interface SandboxConfig {
+  /** Pre-assigned sandbox ID. Providers use this instead of generating their own. */
+  id?: string;
   codespaceId: string;
   codespacePath: string;
   image: string;
@@ -100,6 +102,7 @@ export const volumeMountConfigSchema = z.object({
 });
 
 export const sandboxConfigSchema = z.object({
+  id: z.string().optional(),
   codespaceId: z.string(),
   codespacePath: z.string(),
   image: z.string().default(SANDBOX_DEFAULTS.image),

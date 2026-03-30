@@ -536,7 +536,7 @@ export class DockerProvider implements EventEmittingSandboxProvider {
       }
     }
 
-    const sandboxId = createId();
+    const sandboxId = config.id ?? createId();
 
     this.emit({
       type: 'sandbox:creating',

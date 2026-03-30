@@ -260,6 +260,7 @@ export async function clearTestDatabase(): Promise<void> {
   await testDb.delete(schema.eventSubscriptions);
   await testDb.delete(schema.eventSources);
   await testDb.delete(schema.agentRuns);
+  await testDb.delete(schema.sessionEvents);
   await testDb.delete(schema.sessions);
   await testDb.delete(schema.worktrees);
   await testDb.delete(schema.tasks);

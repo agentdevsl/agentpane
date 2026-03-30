@@ -160,22 +160,23 @@ export class SandboxService {
         await this.provider.pullImage(config.image);
       }
 
-      // Create container
-      const sandbox = await this.provider.create(config);
+      // Create container — pass our sandboxId so provider uses it as its ID.
+      // This ensures one consistent ID across stream, DB, and provider lookups.
+      const sandbox = await this.provider.create({ ...config, id: sandboxId });
 
       // Inject credentials - emit warning event if this fails so user is informed
       const credResult = await this.credentialsInjector.inject(sandbox);
       if (!credResult.ok) {
         // Emit warning event so user is aware credentials are missing
-        await this.streams.publish(`sandbox:${sandbox.id}`, 'sandbox:error', {
-          sandboxId: sandbox.id,
+        await this.streams.publish(streamId, 'sandbox:error', {
+          sandboxId,
           codespaceId: config.codespaceId,
           error: `Sandbox created but credentials injection failed: ${credResult.error.message}. Claude API/CLI access inside the sandbox may not work.`,
           code: 'CREDENTIALS_INJECTION_WARNING',
         });
       }
 
-      // Store in database
+      // Store in database — sandbox.id === sandboxId (provider used our ID)
       const dbSandbox: NewSandboxInstance = {
         id: sandbox.id,
         codespaceId: config.codespaceId,
@@ -194,8 +195,8 @@ export class SandboxService {
       const info = this.sandboxToInfo(sandbox, config);
 
       // Publish ready event
-      await this.streams.publish(`sandbox:${sandbox.id}`, 'sandbox:ready', {
-        sandboxId: sandbox.id,
+      await this.streams.publish(streamId, 'sandbox:ready', {
+        sandboxId,
         codespaceId: config.codespaceId,
         containerId: sandbox.containerId,
       });

@@ -300,7 +300,7 @@ describe('DurableStreams: non-session stream publish (terraform, plan, task-crea
     expect(publishSpy).toHaveBeenCalledTimes(4);
   });
 
-  it('surfaces Caddy publish errors for terminal events', async () => {
+  it('surfaces Caddy publish errors for ephemeral streams (Caddy is only delivery path)', async () => {
     const jobId = createId();
     const streamId = `terraform:${jobId}`;
     publishSpy.mockRejectedValueOnce(new Error('Caddy unavailable'));
@@ -311,7 +311,23 @@ describe('DurableStreams: non-session stream publish (terraform, plan, task-crea
       stage: 'loading_catalog',
     });
 
-    // Non-terminal events should succeed even if Caddy fails (best-effort)
+    // Ephemeral streams (terraform:*) rely solely on Caddy — errors must propagate
+    expect(result.ok).toBe(false);
+  });
+
+  it('tolerates Caddy publish errors for durable (non-ephemeral) streams', async () => {
+    const sessionId = createId();
+    const streamId = `plan:${sessionId}`;
+    publishSpy.mockRejectedValueOnce(new Error('Caddy unavailable'));
+
+    await service.createStream(streamId, null);
+    const result = await service.publish(streamId, 'plan:started', {
+      sessionId,
+      taskId: createId(),
+      codespaceId: createId(),
+    });
+
+    // Durable streams persist to DB first — Caddy failure is best-effort
     expect(result.ok).toBe(true);
   });
 });

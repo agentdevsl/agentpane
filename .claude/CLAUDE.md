@@ -395,6 +395,22 @@ The stream handler publishes these events during execution:
 - **Frontend**: `DurableStreamsClient` connects via EventSource
 - Events are published through `sessionService.publish()`
 
+### Durable Stream ID Patterns
+
+The `session_events` table stores events for ALL stream types, not just sessions. The `sessionId` column has **no FK constraint** — cleanup is explicit.
+
+| Stream Type | Stream ID Format | Persistence | Cleanup |
+|-------------|-----------------|-------------|---------|
+| Agent sessions | `{sessionId}` (bare CUID) | Durable (DB + Caddy) | `session-crud.service.ts` deletes explicitly |
+| Plan sessions | `plan:{planSessionId}` | Durable (DB + Caddy) | `codespace.service.ts` deletes on codespace removal |
+| Sandbox lifecycle | `sandbox:{sandboxId}` | Durable (DB + Caddy) | `codespace.service.ts` deletes on codespace removal |
+| Terraform compose | `terraform:{jobId}` | **Ephemeral** (Caddy only, no DB) | Stream deleted after each turn |
+| CLI monitor | `cli-monitor` | Durable | N/A (singleton) |
+
+**Critical: Sandbox ID consistency** — The service generates the sandbox ID via `createId()` and passes it to the provider via `config.id`. The provider MUST use `config.id ?? createId()` so the same ID flows through the stream (`sandbox:{id}`), the DB (`sandboxInstances.id`), and the provider's in-memory map (`provider.getById(id)`). This prevents orphaned events from ID mismatches.
+
+**Critical: Plan stream ID prefix** — Plan sessions use `plan:{id}` prefix because bare CUIDs would be treated as session IDs. The `plan-mode.service.ts` prefixes all stream operations with `plan:`.
+
 ## Terraform Compose Architecture
 
 The Terraform No-Code Composer uses the Claude Agent SDK to generate HCL configurations from natural language.
