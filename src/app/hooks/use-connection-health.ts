@@ -38,7 +38,7 @@ export function useConnectionHealth(options: ConnectionHealthOptions) {
         setStatus('reconnecting');
       }
     },
-    isActive ? 5000 : null
+    isActive ? 15000 : null
   );
 
   return { status, recordActivity };

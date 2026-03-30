@@ -179,7 +179,7 @@ export function usePlanSession(
 
       try {
         const response = await durableStream({
-          url: `/v1/stream/plans/${sessionId}`,
+          url: `${typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'}/v1/stream/plans/${sessionId}`,
           live: 'sse',
           offset: '-1',
           json: true,

@@ -65,7 +65,7 @@ async function fetchSandboxStatus(codespaceId: string): Promise<SandboxStatus | 
  * @param codespaceId Codespace ID to sync
  * @param intervalMs Polling interval in milliseconds (default: 10000)
  */
-export function startSandboxStatusSync(codespaceId: string, intervalMs = 10000): void {
+export function startSandboxStatusSync(codespaceId: string, intervalMs = 30000): void {
   // Don't start if already syncing
   if (activeSyncs.has(codespaceId)) {
     return;
