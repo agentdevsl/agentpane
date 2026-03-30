@@ -675,29 +675,35 @@ export class DurableStreamsService {
       }
       const eventId = payloadMeta?.eventId ?? createId();
 
-      // Persist to database FIRST (ensures durability), then publish to Caddy
-      const offset = await this.persistToDb(
-        streamId,
-        eventId,
-        type,
-        this.getChannelForType(type),
-        payload as unknown,
-        timestamp
-      );
+      // Terraform compose streams are ephemeral (single request-response, stream
+      // deleted after each turn). All other streams (session, plan, sandbox,
+      // task-creation, container-agent) are durable and persisted to the DB.
+      const isEphemeral = streamId.startsWith('terraform:');
 
-      // THEN publish to Caddy streams server for real-time delivery.
-      // This is best-effort: if DB persistence succeeded, the event is durable
-      // and clients can hydrate from the database on refresh.
+      let offset = 0;
+      if (!isEphemeral) {
+        // Persist to database FIRST (ensures durability)
+        offset = await this.persistToDb(
+          streamId,
+          eventId,
+          type,
+          this.getChannelForType(type),
+          payload as unknown,
+          timestamp
+        );
+      }
+
+      // Publish to Caddy streams server for real-time delivery.
       let memoryOffset = 0;
       try {
         memoryOffset = await this.server.publish(streamId, type, payload);
       } catch (caddyErr) {
-        log.debug('Caddy publish failed (event persisted in DB)', {
+        log.debug('Caddy publish failed', {
           error: caddyErr instanceof Error ? caddyErr.message : String(caddyErr),
         });
       }
 
-      return ok(this.db ? offset : memoryOffset);
+      return ok(!isEphemeral && this.db ? offset : memoryOffset);
     } catch (error) {
       return err(
         createError(

@@ -247,7 +247,7 @@ CREATE TABLE IF NOT EXISTS "sandbox_configs" (
 
 CREATE TABLE IF NOT EXISTS "session_events" (
   "id" TEXT PRIMARY KEY NOT NULL,
-  "session_id" TEXT NOT NULL REFERENCES "sessions"("id") ON DELETE CASCADE,
+  "session_id" TEXT NOT NULL,
   "offset" INTEGER NOT NULL,
   "type" TEXT NOT NULL,
   "channel" TEXT NOT NULL,

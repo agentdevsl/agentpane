@@ -363,12 +363,12 @@ describe('SandboxService', () => {
       expect(result.ok).toBe(true);
       expect(mockSandbox.stop).toHaveBeenCalled();
       expect(mockStreams.publish).toHaveBeenCalledWith(
-        'sandbox-to-stop',
+        'sandbox:sandbox-to-stop',
         'sandbox:stopping',
         expect.objectContaining({ reason: 'manual' })
       );
       expect(mockStreams.publish).toHaveBeenCalledWith(
-        'sandbox-to-stop',
+        'sandbox:sandbox-to-stop',
         'sandbox:stopped',
         expect.objectContaining({ codespaceId: project.id })
       );
@@ -412,7 +412,7 @@ describe('SandboxService', () => {
         expect(result.error.code).toBe('SANDBOX_CONTAINER_STOP_FAILED');
       }
       expect(mockStreams.publish).toHaveBeenCalledWith(
-        'sandbox-fail-stop',
+        'sandbox:sandbox-fail-stop',
         'sandbox:error',
         expect.objectContaining({ codespaceId: project.id })
       );
@@ -620,7 +620,7 @@ describe('SandboxService', () => {
         expect(result.value.taskId).toBe('task-123');
       }
       expect(mockStreams.publish).toHaveBeenCalledWith(
-        'sandbox-123',
+        'sandbox:sandbox-123',
         'sandbox:tmux:created',
         expect.objectContaining({ taskId: 'task-123' })
       );
@@ -685,7 +685,7 @@ describe('SandboxService', () => {
       await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
 
       expect(mockStreams.publish).toHaveBeenCalledWith(
-        'idle-sandbox',
+        'sandbox:idle-sandbox',
         'sandbox:idle',
         expect.objectContaining({
           sandboxId: 'idle-sandbox',
@@ -721,7 +721,7 @@ describe('SandboxService', () => {
       await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
 
       expect(mockStreams.publish).not.toHaveBeenCalledWith(
-        'active-sandbox',
+        'sandbox:active-sandbox',
         'sandbox:idle',
         expect.any(Object)
       );

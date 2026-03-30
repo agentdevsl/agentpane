@@ -218,6 +218,7 @@ export async function clearTestDatabase(): Promise<void> {
       DELETE FROM event_subscriptions;
       DELETE FROM event_sources;
       DELETE FROM agent_runs;
+      DELETE FROM session_events;
       DELETE FROM sessions;
       DELETE FROM worktrees;
       DELETE FROM tasks;

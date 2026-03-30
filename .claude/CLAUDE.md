@@ -97,6 +97,10 @@ The startup script includes health checks to ensure both servers are ready befor
 - **linting errors**: Fix errors do not workaround
 - **biome `--max-diagnostics`**: By default `biome check` truncates output at ~20 diagnostics. Use `--max-diagnostics=500` to see all errors/warnings. Without this, you may think you've fixed all issues when truncated errors remain. Always use `--diagnostic-level=error` to filter noise from warnings.
 - **`gh pr edit` fails with `read:org` scope error**: The GitHub token lacks `read:org` scope needed by `gh pr edit` (GraphQL). Use the REST API instead: `gh api repos/OWNER/REPO/pulls/NUMBER --method PATCH -f body="..." -f title="..."`
+- **`/v1/stream` 404 in dev**: Expected — Caddy durable streams proxy is not running locally. The DurableStreamTestServer on port 3002 handles streams in dev. The bootstrap phase handles this gracefully (non-fatal).
+- **Chrome console `[Violation]` warnings in dev**: Two sources, both dev-only:
+  - `'message' handler took Nms` — Vite HMR cold-starting 235+ modules synchronously via WebSocket. Not actionable.
+  - `'setInterval' handler took Nms` — Polling intervals (sandbox status 30s, connection health 15s, session presence 30s, system health 30s) firing during heavy React renders.
 
 ### Naming: Project → Codespace
 

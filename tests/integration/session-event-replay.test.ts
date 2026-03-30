@@ -197,10 +197,11 @@ describe('Session Event Replay (IT-010)', () => {
     });
     expect(before.length).toBe(2);
 
-    // Delete the session
+    // Delete session events explicitly (no FK cascade — multi-type stream table)
+    await db.delete(sessionEvents).where(eq(sessionEvents.sessionId, sessionId));
     await db.delete(sessions).where(eq(sessions.id, sessionId));
 
-    // Events should be cascade-deleted
+    // Events should be deleted
     const after = await db.query.sessionEvents.findMany({
       where: eq(sessionEvents.sessionId, sessionId),
     });

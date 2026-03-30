@@ -85,7 +85,10 @@ describe('Cross-Service: Codespace Lifecycle (IT-175 to IT-177)', () => {
     });
     expect(tasksBefore.length).toBe(1);
 
-    // Delete codespace
+    // Delete session events explicitly (no FK cascade from sessions)
+    await db.delete(sessionEvents).where(eq(sessionEvents.sessionId, session.id));
+
+    // Delete codespace (cascades to tasks, sessions, etc.)
     await db.delete(codespaces).where(eq(codespaces.id, codespace.id));
 
     // Verify cascade

@@ -150,17 +150,21 @@ export class TerraformComposeService {
 
     // Run pipeline without awaiting — the caller returns the session ID immediately.
     this.runPipeline(sid, messages, registryId, composeMode).catch(async (pipelineErr) => {
-      log.error('Unhandled pipeline error', { error: pipelineErr });
+      const errMsg = pipelineErr instanceof Error ? pipelineErr.message : String(pipelineErr);
+      log.error('Compose pipeline error', { data: { sessionId: sid }, error: pipelineErr });
       try {
         await this.publishEvent(sid, 'terraform:error', {
           jobId: sid,
-          error: 'An unexpected error occurred. Please try again.',
+          error: errMsg || 'An unexpected error occurred. Please try again.',
         });
       } catch (publishErr) {
-        log.error('Failed to publish pipeline error event', { error: publishErr });
+        log.error('Failed to publish pipeline error event', {
+          data: { sessionId: sid },
+          error: publishErr,
+        });
         // Ensure stream is cleaned up even if error publish fails
-        await this.durableStreamsService?.deleteStream(`terraform:${sid}`).catch((err) => {
-          log.debug('Failed to delete stream after pipeline error', { error: err });
+        await this.durableStreamsService?.deleteStream(`terraform:${sid}`).catch((delErr) => {
+          log.debug('Failed to delete stream after pipeline error', { error: delErr });
         });
       }
     });
@@ -190,7 +194,15 @@ export class TerraformComposeService {
     }
     const streamId = `terraform:${jobId}`;
     try {
-      await this.durableStreamsService.publish(streamId, type, data);
+      const result = await this.durableStreamsService.publish(streamId, type, data);
+      if (!result.ok) {
+        log.error('Failed to publish terraform event (Result error)', {
+          data: { type, jobId, error: result.error.message },
+        });
+        if (type === 'terraform:error' || type === 'terraform:done') {
+          throw new Error(result.error.message);
+        }
+      }
     } catch (err) {
       log.error('Failed to publish terraform event', { data: { type, jobId }, error: err });
       // Rethrow for terminal events -- clients MUST receive done/error events
@@ -289,12 +301,14 @@ export class TerraformComposeService {
         return { behavior: 'allow' as const, toolUseID: toolOptions.toolUseID };
       };
 
+      log.info('Creating Agent SDK session', { data: { sessionId: sid, model: composeModel } });
       session = unstable_v2_createSession({
         model: composeModel,
         env: buildSdkEnv(),
         canUseTool,
       });
 
+      log.info('Sending prompt to Agent SDK', { data: { sessionId: sid } });
       await session.send(prompt);
 
       let fullResponse = '';

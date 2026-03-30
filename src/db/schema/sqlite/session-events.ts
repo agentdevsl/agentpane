@@ -1,7 +1,6 @@
 import { createId } from '@paralleldrive/cuid2';
 import { sql } from 'drizzle-orm';
 import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import { sessions } from './sessions';
 
 export const sessionEvents = sqliteTable(
   'session_events',
@@ -9,9 +8,10 @@ export const sessionEvents = sqliteTable(
     id: text('id')
       .primaryKey()
       .$defaultFn(() => createId()),
-    sessionId: text('session_id')
-      .notNull()
-      .references(() => sessions.id, { onDelete: 'cascade' }),
+    // Stream ID — stores events for sessions, plans, sandboxes, and other stream types.
+    // No FK constraint: plan/sandbox/task-creation stream IDs don't exist in the sessions table.
+    // Session cleanup is handled explicitly in session-crud.service.ts.
+    sessionId: text('session_id').notNull(),
     offset: integer('offset').notNull(),
     type: text('type').notNull(), // chunk, tool:start, tool:result, etc.
     channel: text('channel').notNull(), // chunks, toolCalls, terminal, presence

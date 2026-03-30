@@ -14,7 +14,7 @@
 import { createId } from '@paralleldrive/cuid2';
 import { and, desc, eq, gte, inArray, like, lte, sql } from 'drizzle-orm';
 import type { Session } from '../../db/schema';
-import { codespaces, sessions } from '../../db/schema';
+import { codespaces, sessionEvents, sessions } from '../../db/schema';
 import { CodespaceErrors } from '../../lib/errors/codespace-errors.js';
 import type { SessionError } from '../../lib/errors/session-errors.js';
 import { SessionErrors } from '../../lib/errors/session-errors.js';
@@ -243,7 +243,11 @@ export class SessionCrudService {
       return err(SessionErrors.NOT_FOUND);
     }
 
-    // Delete the session (cascade will handle session_events and session_summaries)
+    // Explicitly delete session_events (no FK cascade — session_events stores
+    // events for multiple stream types, not just sessions)
+    await this.db.delete(sessionEvents).where(eq(sessionEvents.sessionId, id));
+
+    // Delete the session (cascade handles session_summaries)
     await this.db.delete(sessions).where(eq(sessions.id, id));
 
     // Clean up presence store

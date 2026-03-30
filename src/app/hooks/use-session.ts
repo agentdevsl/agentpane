@@ -198,8 +198,8 @@ function applyPendingSessionUpdates(
   return nextState;
 }
 
-/** Presence heartbeat interval in ms (10 seconds per spec) */
-const PRESENCE_HEARTBEAT_INTERVAL = 10000;
+/** Presence heartbeat interval in ms */
+const PRESENCE_HEARTBEAT_INTERVAL = 30000;
 
 /** RS-011: Maximum number of chunks to retain in state to prevent unbounded memory growth. */
 const MAX_CHUNKS = 5000;

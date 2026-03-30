@@ -17,7 +17,16 @@ const pathUtils = {
 
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import type { Codespace, CodespaceConfig } from '../db/schema';
-import { agents, codespaces, githubInstallations, tasks } from '../db/schema';
+import {
+  agents,
+  codespaces,
+  githubInstallations,
+  planSessions,
+  sandboxInstances,
+  sessionEvents,
+  sessions,
+  tasks,
+} from '../db/schema';
 import { codespaceConfigSchema } from '../lib/config/schemas.js';
 import { DEFAULT_CODESPACE_CONFIG } from '../lib/config/types.js';
 import { containsSecrets } from '../lib/config/validate-secrets.js';
@@ -392,6 +401,43 @@ export class CodespaceService {
     }
 
     await this.worktreeService.prune(id);
+
+    // Explicitly delete session_events for this codespace's sessions, plans, and sandboxes
+    // (no FK cascade — session_events stores events for multiple stream types)
+    const codspaceSessions = await this.db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(eq(sessions.codespaceId, id));
+
+    // Plan and sandbox tables may not exist in all environments (pre-migration DBs)
+    let codspacePlans: { id: string }[] = [];
+    let codspaceSandboxes: { id: string }[] = [];
+    try {
+      codspacePlans = await this.db
+        .select({ id: planSessions.id })
+        .from(planSessions)
+        .where(eq(planSessions.codespaceId, id));
+    } catch {
+      // plan_sessions table may not exist yet
+    }
+    try {
+      codspaceSandboxes = await this.db
+        .select({ id: sandboxInstances.id })
+        .from(sandboxInstances)
+        .where(eq(sandboxInstances.codespaceId, id));
+    } catch {
+      // sandbox_instances table may not exist yet
+    }
+
+    const eventSessionIds = [
+      ...codspaceSessions.map((s) => s.id),
+      ...codspacePlans.map((p) => `plan:${p.id}`),
+      ...codspaceSandboxes.map((s) => `sandbox:${s.id}`),
+    ];
+    if (eventSessionIds.length > 0) {
+      await this.db.delete(sessionEvents).where(inArray(sessionEvents.sessionId, eventSessionIds));
+    }
+
     // Memory data (insights, messages, skill metrics, etc.) cascade-deletes via FK on codespaceId
     await this.db.delete(codespaces).where(eq(codespaces.id, id));
 

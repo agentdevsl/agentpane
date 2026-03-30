@@ -17,6 +17,7 @@ function streamIdToPath(id: string): string {
   if (id === 'cli-monitor') return '/v1/stream/cli-monitor';
   if (id.startsWith('terraform:')) return `/v1/stream/terraform/${id.slice('terraform:'.length)}`;
   if (id.startsWith('plan:')) return `/v1/stream/plans/${id.slice('plan:'.length)}`;
+  if (id.startsWith('sandbox:')) return `/v1/stream/sandboxes/${id.slice('sandbox:'.length)}`;
   return `/v1/stream/sessions/${id}`;
 }
 

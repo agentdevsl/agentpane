@@ -176,9 +176,15 @@ export class PlanModeService {
 
     const session = this.dbSessionToSession(dbSession);
 
+    // Use plan:-prefixed stream ID to avoid FK constraint violations.
+    // Bare CUIDs (without ':') are treated as session IDs and persisted to
+    // session_events, which FK-references sessions.id. Plan session IDs come
+    // from planSessions.id, not sessions.id, so we must prefix with 'plan:'.
+    const streamId = `plan:${session.id}`;
+
     // Create the stream for real-time events
     try {
-      await this.streams.createStream(session.id, {
+      await this.streams.createStream(streamId, {
         type: 'plan-session',
         taskId: input.taskId,
         codespaceId: input.codespaceId,
@@ -190,7 +196,7 @@ export class PlanModeService {
 
     // Publish start event
     try {
-      await this.streams.publishPlanStarted(session.id, {
+      await this.streams.publishPlanStarted(streamId, {
         sessionId: session.id,
         taskId: session.taskId,
         codespaceId: session.codespaceId,
@@ -246,7 +252,7 @@ export class PlanModeService {
 
     // Publish the user response turn
     try {
-      await this.streams.publishPlanTurn(updatedSession.id, {
+      await this.streams.publishPlanTurn(`plan:${updatedSession.id}`, {
         sessionId: updatedSession.id,
         turnId: responseTurn.id,
         role: responseTurn.role,
@@ -371,7 +377,7 @@ export class PlanModeService {
           onToken(delta);
           // Publish token event (fire-and-forget with error logging)
           this.streams
-            .publishPlanToken(session.id, {
+            .publishPlanToken(`plan:${session.id}`, {
               sessionId: session.id,
               delta,
             })
@@ -387,7 +393,7 @@ export class PlanModeService {
 
     if (!response.ok) {
       try {
-        await this.streams.publishPlanError(session.id, {
+        await this.streams.publishPlanError(`plan:${session.id}`, {
           sessionId: session.id,
           error: response.error.message,
           code: response.error.code,
@@ -436,7 +442,7 @@ export class PlanModeService {
 
     // Publish turn event
     try {
-      await this.streams.publishPlanTurn(session.id, {
+      await this.streams.publishPlanTurn(`plan:${session.id}`, {
         sessionId: session.id,
         turnId: assistantTurn.id,
         role: assistantTurn.role,
@@ -516,7 +522,7 @@ export class PlanModeService {
 
     // Publish interaction event
     try {
-      await this.streams.publishPlanInteraction(session.id, {
+      await this.streams.publishPlanInteraction(`plan:${session.id}`, {
         sessionId: session.id,
         interactionId: interaction.id,
         questions: interaction.questions,
@@ -528,7 +534,7 @@ export class PlanModeService {
 
     // Publish turn event
     try {
-      await this.streams.publishPlanTurn(session.id, {
+      await this.streams.publishPlanTurn(`plan:${session.id}`, {
         sessionId: session.id,
         turnId: assistantTurn.id,
         role: assistantTurn.role,
@@ -553,7 +559,7 @@ export class PlanModeService {
     if (!this.issueCreator || !this.githubConfig) {
       // No GitHub configuration - notify user and complete without creating issue
       try {
-        await this.streams.publishPlanError(session.id, {
+        await this.streams.publishPlanError(`plan:${session.id}`, {
           sessionId: session.id,
           error:
             'Plan completed but GitHub issue was not created: GitHub configuration (owner/repo) is not set. Configure GitHub settings to enable automatic issue creation.',
@@ -584,7 +590,7 @@ export class PlanModeService {
     if (!issueResult.ok) {
       // Emit error event so user is informed the issue wasn't created
       try {
-        await this.streams.publishPlanError(session.id, {
+        await this.streams.publishPlanError(`plan:${session.id}`, {
           sessionId: session.id,
           error: `Plan completed but GitHub issue creation failed: ${issueResult.error.message}`,
           code: 'GITHUB_ISSUE_CREATION_FAILED',
@@ -650,7 +656,7 @@ export class PlanModeService {
 
     // Publish turn event
     try {
-      await this.streams.publishPlanTurn(session.id, {
+      await this.streams.publishPlanTurn(`plan:${session.id}`, {
         sessionId: session.id,
         turnId: assistantTurn.id,
         role: assistantTurn.role,
@@ -663,7 +669,7 @@ export class PlanModeService {
 
     // Publish completion event
     try {
-      await this.streams.publishPlanCompleted(session.id, {
+      await this.streams.publishPlanCompleted(`plan:${session.id}`, {
         sessionId: session.id,
         issueUrl: issueInfo?.issueUrl,
         issueNumber: issueInfo?.issueNumber,

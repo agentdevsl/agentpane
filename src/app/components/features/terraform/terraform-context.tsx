@@ -341,7 +341,9 @@ export function TerraformProvider({ children }: { children: React.ReactNode }): 
         const jobSessionId = startData.data.sessionId;
 
         // Step 2: Subscribe to Caddy durable stream for this job
-        const streamUrl = `/v1/stream/terraform/${encodeURIComponent(jobSessionId)}`;
+        const streamBase =
+          typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+        const streamUrl = `${streamBase}/v1/stream/terraform/${encodeURIComponent(jobSessionId)}`;
 
         // Create a promise that resolves when the stream completes (done/error event)
         const streamComplete = new Promise<void>((resolve) => {
