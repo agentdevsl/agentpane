@@ -97,14 +97,18 @@ export class MemoryStoreService {
       content?: string;
       status?: 'active' | 'pending_review' | 'rejected';
       category?: 'pattern' | 'anti_pattern' | 'decision' | 'architecture' | 'error_lesson';
-    }
+    },
+    onlyIfStatus?: 'active' | 'pending_review' | 'rejected'
   ): Promise<Result<Insight, MemoryError>> {
     try {
       const updatedAt = new Date().toISOString();
+      const whereClause = onlyIfStatus
+        ? and(eq(memoryInsights.id, id), eq(memoryInsights.status, onlyIfStatus))
+        : eq(memoryInsights.id, id);
       const result = await this.db
         .update(memoryInsights)
         .set({ ...params, updatedAt })
-        .where(eq(memoryInsights.id, id))
+        .where(whereClause)
         .returning();
 
       const row = result[0];

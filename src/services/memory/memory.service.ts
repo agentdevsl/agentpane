@@ -55,7 +55,8 @@ export interface MemoryStoreInterface {
       content?: string;
       status?: 'active' | 'pending_review' | 'rejected';
       category?: 'pattern' | 'anti_pattern' | 'decision' | 'architecture' | 'error_lesson';
-    }
+    },
+    onlyIfStatus?: 'active' | 'pending_review' | 'rejected'
   ): Promise<Result<Insight, MemoryError>>;
   getInsights(
     codespaceId: string | null,
@@ -137,6 +138,11 @@ export class MemoryService {
   /** Whether the memory system is available. */
   isAvailable(): boolean {
     return this.available;
+  }
+
+  /** Expose the underlying store so callers (e.g. DreamService) can share the same instance. */
+  getStore(): MemoryStoreInterface {
+    return this.store;
   }
 
   // ---------------------------------------------------------------------------

@@ -460,7 +460,14 @@ export function createMemoryRoutes({
 
   app.delete('/insights/:insightId', (c) =>
     wrapHandler('Failed to delete insight', async () => {
-      const result = await memoryService.deleteInsight(c.req.param('insightId'));
+      const insightId = c.req.param('insightId');
+      if (!insightId || !/^[a-z0-9]{20,30}$/.test(insightId)) {
+        return json(
+          { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid insightId' } },
+          400
+        );
+      }
+      const result = await memoryService.deleteInsight(insightId);
       if (!result.ok) return resultError(result);
       return json({ ok: true, data: null });
     })

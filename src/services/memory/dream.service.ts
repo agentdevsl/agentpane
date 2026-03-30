@@ -309,9 +309,13 @@ export class DreamService {
           if (correlationsResult.ok) {
             for (const corr of correlationsResult.value) {
               if (corr.timesUsed >= 5 && corr.successRate < 0.3) {
-                const demoteResult = await this.storeService.updateInsight(corr.insightId, {
-                  status: 'pending_review',
-                });
+                // Only demote insights that are currently active.
+                // Don't override rejected (user decision) or pending_review (already pending).
+                const demoteResult = await this.storeService.updateInsight(
+                  corr.insightId,
+                  { status: 'pending_review' },
+                  'active'
+                );
                 if (demoteResult.ok) {
                   log.info('Auto-demoted poorly performing insight', {
                     data: {
