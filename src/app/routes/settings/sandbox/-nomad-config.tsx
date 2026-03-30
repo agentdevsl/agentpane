@@ -7,7 +7,7 @@ import {
   type NomadStatus,
   SaveButton,
   Toggle,
-} from './shared.js';
+} from './-shared.js';
 
 export interface NomadConfigProps {
   nomadAddress: string;

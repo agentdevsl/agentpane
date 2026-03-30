@@ -1,10 +1,7 @@
-import { drizzle } from 'drizzle-orm/better-sqlite3';
-import { createContext, useContext, useMemo } from 'react';
+import { createContext, useContext, useState } from 'react';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { ServiceProvider } from '@/app/services/service-context';
-import { createServices } from '@/app/services/services';
-import { sqlite } from '@/db/client.js';
-import * as schema from '@/db/schema/index.js';
-import type { DurableStreamsServer } from '@/services/session.service';
+import type { Services } from '@/app/services/services';
 import { useBootstrap } from '../../lib/bootstrap/hooks.js';
 import type { BootstrapContext as BootstrapContextType } from '../../lib/bootstrap/types.js';
 import type { AppError } from '../../lib/errors/base.js';
@@ -41,31 +38,63 @@ const BootstrapProviderInner = ({
   retry: () => Promise<void>;
   children: React.ReactNode;
 }) => {
-  const servicesResult = useMemo(() => {
-    // Client mode - no database needed, data access goes through API endpoints
-    if (isBrowser || !sqlite) {
-      return { ok: true as const, value: null };
+  const [services, setServices] = useState<
+    { ok: true; value: Services | null } | { ok: false; error: AppError } | null
+  >(null);
+
+  useWatchEffect(() => {
+    if (isBrowser) {
+      setServices({ ok: true, value: null });
+      return;
     }
-    // Server mode - create services with database
-    const db = drizzle(sqlite, { schema });
-    const streams = (context.streams as DurableStreamsServer) ?? {
-      createStream: async () => undefined,
-      publish: async () => undefined,
-      subscribe: async function* () {
-        yield { type: 'chunk', data: {} };
-      },
-    };
-    return createServices({ db, streams });
+
+    // Server mode - dynamically import server-only modules
+    void (async () => {
+      try {
+        const [{ drizzle }, { sqlite }, schemaModule, { createServices }] = await Promise.all([
+          import('drizzle-orm/better-sqlite3'),
+          import('@/db/client.js'),
+          import('@/db/schema/index.js'),
+          import('@/app/services/services'),
+        ]);
+
+        if (!sqlite) {
+          setServices({ ok: true, value: null });
+          return;
+        }
+
+        const db = drizzle(sqlite, { schema: schemaModule });
+        type DurableStreamsServer = Parameters<typeof createServices>[0]['streams'];
+        const streams = (context.streams as DurableStreamsServer) ?? {
+          createStream: async () => undefined,
+          publish: async () => undefined,
+          subscribe: async function* () {
+            yield { type: 'chunk', data: {} };
+          },
+        };
+        setServices(createServices({ db, streams }));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setServices({
+          ok: false,
+          error: { code: 'SERVICE_INITIALIZATION_FAILED', message, status: 500 } as AppError,
+        });
+      }
+    })();
   }, [context]);
 
-  if (!servicesResult.ok) {
-    return <BootstrapErrorUI error={servicesResult.error} onRetry={retry} />;
+  if (!services) {
+    return <BootstrapLoadingUI phase="services" progress={90} />;
+  }
+
+  if (!services.ok) {
+    return <BootstrapErrorUI error={services.error} onRetry={retry} />;
   }
 
   // Render with ServiceProvider (null on client, services on server)
   return (
     <BootstrapContext.Provider value={context}>
-      <ServiceProvider services={servicesResult.value}>{children}</ServiceProvider>
+      <ServiceProvider services={services.value}>{children}</ServiceProvider>
     </BootstrapContext.Provider>
   );
 };

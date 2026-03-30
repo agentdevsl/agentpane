@@ -11,7 +11,7 @@ import {
 import { ConfigSection } from '@/app/components/ui/config-section';
 import type { SandboxProvider } from '@/lib/sandbox/types';
 import { cn } from '@/lib/utils/cn';
-import { type DefaultSandboxSettings, SaveButton, Toggle } from './shared.js';
+import { type DefaultSandboxSettings, SaveButton, Toggle } from './-shared.js';
 
 export interface DefaultSettingsSectionProps {
   defaultSettings: DefaultSandboxSettings;

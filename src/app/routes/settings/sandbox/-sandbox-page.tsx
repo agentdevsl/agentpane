@@ -14,12 +14,12 @@ import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { apiClient, type SandboxConfigItem } from '@/lib/api/client';
 import type { SandboxProvider } from '@/lib/sandbox/types';
 import { cn } from '@/lib/utils/cn';
-import { ConfigEditor } from './config-editor.js';
-import { ConfigList } from './config-list.js';
-import { DefaultSettingsSection } from './default-settings.js';
-import { K8sConfig } from './k8s-config.js';
-import { NomadConfig } from './nomad-config.js';
-import { ProviderSelector } from './provider-selector.js';
+import { ConfigEditor } from './-config-editor.js';
+import { ConfigList } from './-config-list.js';
+import { DefaultSettingsSection } from './-default-settings.js';
+import { K8sConfig } from './-k8s-config.js';
+import { NomadConfig } from './-nomad-config.js';
+import { ProviderSelector } from './-provider-selector.js';
 import {
   type ControllerStatus,
   type DefaultSandboxSettings,
@@ -34,7 +34,7 @@ import {
   type NomadStatus,
   PROVIDER_LABELS,
   SaveButton,
-} from './shared.js';
+} from './-shared.js';
 
 export function SandboxSettingsPage(): React.JSX.Element {
   const [configs, setConfigs] = useState<SandboxConfigItem[]>([]);

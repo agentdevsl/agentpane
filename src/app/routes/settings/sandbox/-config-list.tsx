@@ -15,7 +15,7 @@ import {
 import { Button } from '@/app/components/ui/button';
 import { ConfigSection } from '@/app/components/ui/config-section';
 import type { SandboxConfigItem } from '@/lib/api/client';
-import { CONFIG_TYPE_BADGES } from './shared.js';
+import { CONFIG_TYPE_BADGES } from './-shared.js';
 
 export interface ConfigListProps {
   configs: SandboxConfigItem[];
