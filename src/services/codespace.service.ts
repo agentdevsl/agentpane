@@ -408,14 +408,26 @@ export class CodespaceService {
       .select({ id: sessions.id })
       .from(sessions)
       .where(eq(sessions.codespaceId, id));
-    const codspacePlans = await this.db
-      .select({ id: planSessions.id })
-      .from(planSessions)
-      .where(eq(planSessions.codespaceId, id));
-    const codspaceSandboxes = await this.db
-      .select({ id: sandboxInstances.id })
-      .from(sandboxInstances)
-      .where(eq(sandboxInstances.codespaceId, id));
+
+    // Plan and sandbox tables may not exist in all environments (pre-migration DBs)
+    let codspacePlans: { id: string }[] = [];
+    let codspaceSandboxes: { id: string }[] = [];
+    try {
+      codspacePlans = await this.db
+        .select({ id: planSessions.id })
+        .from(planSessions)
+        .where(eq(planSessions.codespaceId, id));
+    } catch {
+      // plan_sessions table may not exist yet
+    }
+    try {
+      codspaceSandboxes = await this.db
+        .select({ id: sandboxInstances.id })
+        .from(sandboxInstances)
+        .where(eq(sandboxInstances.codespaceId, id));
+    } catch {
+      // sandbox_instances table may not exist yet
+    }
 
     const eventSessionIds = [
       ...codspaceSessions.map((s) => s.id),
