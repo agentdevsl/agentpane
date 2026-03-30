@@ -102,7 +102,7 @@ function createMockDurableStreamsService(overrides: Record<string, unknown> = {}
     if (eventType === 'terraform:done' || eventType === 'terraform:error') {
       _resolvePipelineDone?.();
     }
-    return Promise.resolve({ ok: true, data: 0 });
+    return Promise.resolve({ ok: true, value: 0 });
   });
 
   return {
