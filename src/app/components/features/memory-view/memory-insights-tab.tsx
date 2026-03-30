@@ -18,13 +18,13 @@ const STATUS_OPTIONS: Array<{ value: InsightStatusFilter; label: string }> = [
   { value: 'rejected', label: 'Rejected' },
 ];
 
-const CATEGORY_OPTIONS: Array<{ value: InsightCategoryFilter; label: string }> = [
+const CATEGORY_OPTIONS: Array<{ value: InsightCategoryFilter; label: string; dot?: string }> = [
   { value: 'all', label: 'All Categories' },
-  { value: 'pattern', label: 'Pattern' },
-  { value: 'anti_pattern', label: 'Anti-Pattern' },
-  { value: 'decision', label: 'Decision' },
-  { value: 'architecture', label: 'Architecture' },
-  { value: 'error_lesson', label: 'Error Lesson' },
+  { value: 'pattern', label: 'Pattern', dot: 'bg-accent' },
+  { value: 'anti_pattern', label: 'Anti-Pattern', dot: 'bg-danger' },
+  { value: 'decision', label: 'Decision', dot: 'bg-done' },
+  { value: 'architecture', label: 'Architecture', dot: 'bg-success' },
+  { value: 'error_lesson', label: 'Error Lesson', dot: 'bg-attention' },
 ];
 
 function SkeletonCard(): React.JSX.Element {
@@ -131,15 +131,19 @@ export function MemoryInsightsTab(): React.JSX.Element {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-xs text-fg-subtle">
-        Insights are automatically extracted from agent sessions. Key patterns, debugging context,
-        and learnings persist across conversations and are injected into future agent prompts.
+        Insights are automatically extracted from agent sessions and placed in{' '}
+        <span className="font-medium text-attention">Pending Review</span>. Approve insights to
+        include them in future agent prompts, or reject to exclude them.
       </p>
 
       {/* Status filter pills */}
       <fieldset
-        className="flex flex-wrap gap-2 border-0 p-0 m-0"
+        className="flex flex-wrap items-center gap-2 border-0 p-0 m-0"
         aria-label="Filter insights by status"
       >
+        <span className="text-[11px] font-medium uppercase tracking-wider text-fg-subtle mr-1">
+          Status
+        </span>
         {STATUS_OPTIONS.map(({ value, label }) => {
           const isActive = insightStatusFilter === value;
           return (
@@ -149,10 +153,10 @@ export function MemoryInsightsTab(): React.JSX.Element {
               aria-pressed={isActive}
               onClick={() => setInsightStatusFilter(value)}
               className={cn(
-                'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-all duration-150',
+                'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-all duration-150',
                 isActive
-                  ? 'bg-accent text-white shadow-sm'
-                  : 'bg-surface-muted text-fg-muted hover:bg-surface-subtle hover:text-fg'
+                  ? 'bg-accent text-white shadow-sm ring-2 ring-accent/30 ring-offset-1 ring-offset-surface'
+                  : 'bg-surface-muted/60 text-fg-muted hover:bg-surface-subtle hover:text-fg'
               )}
             >
               {label}
@@ -163,10 +167,13 @@ export function MemoryInsightsTab(): React.JSX.Element {
 
       {/* Category filter pills */}
       <fieldset
-        className="flex flex-wrap gap-2 border-0 p-0 m-0"
+        className="flex flex-wrap items-center gap-2 border-0 p-0 m-0"
         aria-label="Filter insights by category"
       >
-        {CATEGORY_OPTIONS.map(({ value, label }) => {
+        <span className="text-[11px] font-medium uppercase tracking-wider text-fg-subtle mr-1">
+          Category
+        </span>
+        {CATEGORY_OPTIONS.map(({ value, label, dot }) => {
           const isActive = insightCategoryFilter === value;
           return (
             <button
@@ -175,12 +182,13 @@ export function MemoryInsightsTab(): React.JSX.Element {
               aria-pressed={isActive}
               onClick={() => setInsightCategoryFilter(value)}
               className={cn(
-                'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-all duration-150',
+                'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-all duration-150',
                 isActive
-                  ? 'bg-accent text-white shadow-sm'
-                  : 'bg-surface-muted text-fg-muted hover:bg-surface-subtle hover:text-fg'
+                  ? 'bg-accent text-white shadow-sm ring-2 ring-accent/30 ring-offset-1 ring-offset-surface'
+                  : 'bg-surface-muted/60 text-fg-muted hover:bg-surface-subtle hover:text-fg'
               )}
             >
+              {dot && <span className={cn('h-2 w-2 rounded-full', dot)} />}
               {label}
             </button>
           );

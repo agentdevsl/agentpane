@@ -195,8 +195,11 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
   const currentCodespaceRef = useRef<string | null>(codespaceId);
   currentCodespaceRef.current = codespaceId;
 
-  // Guard: suppress filter-change effect while codespace-change effect resets filters
-  const suppressFilterEffectRef = useRef(false);
+  // Refs for filter state so fetchInsights can read current values without closing over them
+  const statusFilterRef = useRef(insightStatusFilter);
+  const categoryFilterRef = useRef(insightCategoryFilter);
+  statusFilterRef.current = insightStatusFilter;
+  categoryFilterRef.current = insightCategoryFilter;
 
   // ---------------------------------------------------------------------------
   // Data fetchers (with error handling)
@@ -222,12 +225,14 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
   }, []);
 
   const fetchInsights = useCallback(
-    async (csId: string | null) => {
+    async (csId: string | null, overrideFilters?: { status?: string; category?: string }) => {
       setInsightsLoading(true);
       try {
-        const filters: { status?: string; category?: string } = {};
-        if (insightStatusFilter !== 'all') filters.status = insightStatusFilter;
-        if (insightCategoryFilter !== 'all') filters.category = insightCategoryFilter;
+        const filters: { status?: string; category?: string } = overrideFilters ?? {};
+        if (!overrideFilters) {
+          if (statusFilterRef.current !== 'all') filters.status = statusFilterRef.current;
+          if (categoryFilterRef.current !== 'all') filters.category = categoryFilterRef.current;
+        }
         const result = await apiClient.memory.getInsights(csId, undefined, filters);
         if (currentCodespaceRef.current !== csId) return;
         if (result.ok) {
@@ -243,7 +248,7 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
         if (currentCodespaceRef.current === csId) setInsightsLoading(false);
       }
     },
-    [insightStatusFilter, insightCategoryFilter]
+    []
   );
 
   const fetchSyncedSkills = useCallback(async (csId: string | null) => {
@@ -384,8 +389,6 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
     setSuggestions([]);
     setSuggestionFilter('all');
 
-    // Suppress the filter-change effect while we reset filters here
-    suppressFilterEffectRef.current = true;
     setInsightStatusFilter('all');
     setInsightCategoryFilter('all');
 
@@ -396,7 +399,8 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
     dreamLoadedRef.current = false;
 
     void fetchHealth(codespaceId);
-    void fetchInsights(codespaceId);
+    // Pass explicit empty filters — the refs still hold old values until next render
+    void fetchInsights(codespaceId, {});
   }, [codespaceId, fetchHealth, fetchInsights]);
 
   // ---------------------------------------------------------------------------
@@ -404,11 +408,6 @@ export function MemoryProvider({ codespaceId, children }: MemoryProviderProps): 
   // ---------------------------------------------------------------------------
 
   useWatchEffect(() => {
-    // Skip if this was triggered by the codespace-change effect resetting filters
-    if (suppressFilterEffectRef.current) {
-      suppressFilterEffectRef.current = false;
-      return;
-    }
     void fetchInsights(codespaceId);
   }, [insightStatusFilter, insightCategoryFilter, codespaceId, fetchInsights]);
 

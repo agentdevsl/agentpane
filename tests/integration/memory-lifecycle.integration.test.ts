@@ -1137,4 +1137,356 @@ describe('Memory Service Lifecycle Integration', () => {
       expect(prompt).not.toContain('This insight was rejected');
     });
   });
+
+  // =========================================================================
+  // 11. Filter regression tests — migration-sensitive column usage
+  //
+  // Root cause: status, category, and updated_at columns were added to the
+  // Drizzle schema but the SQL migration was never created. The runtime DB
+  // lacked the columns, so any query that filtered on them (e.g.
+  // GET /api/memory/insights?status=active) threw:
+  //   "Memory query failed: Failed to get insights"
+  //
+  // These tests exercise every filter path against a real SQLite database.
+  // If the columns are missing from the CREATE TABLE, Drizzle will emit SQL
+  // that references non-existent columns and the tests will fail — catching
+  // the exact migration issue that caused the production bug.
+  // =========================================================================
+
+  describe('filter regression: status/category columns must exist in DB', () => {
+    // ----- 11.1 getInsights with status filter works against real DB -----
+    it('getInsights with status filter works against real DB', async () => {
+      await store.insertInsight({
+        codespaceId: 'cs-filter',
+        content: 'Active filter test insight',
+        source: 'manual',
+        status: 'active',
+      });
+      await store.insertInsight({
+        codespaceId: 'cs-filter',
+        content: 'Pending filter test insight',
+        source: 'agent_derived',
+        status: 'pending_review',
+      });
+      await store.insertInsight({
+        codespaceId: 'cs-filter',
+        content: 'Rejected filter test insight',
+        source: 'agent_derived',
+        status: 'rejected',
+      });
+
+      // Filter: active only
+      const activeResult = await store.getInsights('cs-filter', undefined, { status: 'active' });
+      expect(activeResult.ok).toBe(true);
+      if (activeResult.ok) {
+        expect(activeResult.value).toHaveLength(1);
+        expect(activeResult.value[0].content).toBe('Active filter test insight');
+        expect(activeResult.value[0].status).toBe('active');
+      }
+
+      // Filter: pending_review only
+      const pendingResult = await store.getInsights('cs-filter', undefined, {
+        status: 'pending_review',
+      });
+      expect(pendingResult.ok).toBe(true);
+      if (pendingResult.ok) {
+        expect(pendingResult.value).toHaveLength(1);
+        expect(pendingResult.value[0].content).toBe('Pending filter test insight');
+        expect(pendingResult.value[0].status).toBe('pending_review');
+      }
+
+      // Filter: rejected only
+      const rejectedResult = await store.getInsights('cs-filter', undefined, {
+        status: 'rejected',
+      });
+      expect(rejectedResult.ok).toBe(true);
+      if (rejectedResult.ok) {
+        expect(rejectedResult.value).toHaveLength(1);
+        expect(rejectedResult.value[0].content).toBe('Rejected filter test insight');
+        expect(rejectedResult.value[0].status).toBe('rejected');
+      }
+    });
+
+    // ----- 11.2 getInsights with category filter works against real DB -----
+    it('getInsights with category filter works against real DB', async () => {
+      await store.insertInsight({
+        codespaceId: 'cs-filter',
+        content: 'Pattern category insight',
+        source: 'manual',
+        status: 'active',
+        category: 'pattern',
+      });
+      await store.insertInsight({
+        codespaceId: 'cs-filter',
+        content: 'Anti-pattern category insight',
+        source: 'manual',
+        status: 'active',
+        category: 'anti_pattern',
+      });
+      await store.insertInsight({
+        codespaceId: 'cs-filter',
+        content: 'Error lesson category insight',
+        source: 'manual',
+        status: 'active',
+        category: 'error_lesson',
+      });
+      await store.insertInsight({
+        codespaceId: 'cs-filter',
+        content: 'Uncategorized insight',
+        source: 'manual',
+        status: 'active',
+        // No category — null
+      });
+
+      // Filter: pattern
+      const patternResult = await store.getInsights('cs-filter', undefined, {
+        category: 'pattern',
+      });
+      expect(patternResult.ok).toBe(true);
+      if (patternResult.ok) {
+        expect(patternResult.value).toHaveLength(1);
+        expect(patternResult.value[0].content).toBe('Pattern category insight');
+        expect(patternResult.value[0].category).toBe('pattern');
+      }
+
+      // Filter: anti_pattern
+      const antiPatternResult = await store.getInsights('cs-filter', undefined, {
+        category: 'anti_pattern',
+      });
+      expect(antiPatternResult.ok).toBe(true);
+      if (antiPatternResult.ok) {
+        expect(antiPatternResult.value).toHaveLength(1);
+        expect(antiPatternResult.value[0].content).toBe('Anti-pattern category insight');
+      }
+
+      // Filter: error_lesson
+      const errorResult = await store.getInsights('cs-filter', undefined, {
+        category: 'error_lesson',
+      });
+      expect(errorResult.ok).toBe(true);
+      if (errorResult.ok) {
+        expect(errorResult.value).toHaveLength(1);
+        expect(errorResult.value[0].content).toBe('Error lesson category insight');
+      }
+
+      // No filter returns all 4 (including uncategorized)
+      const allResult = await store.getInsights('cs-filter');
+      expect(allResult.ok).toBe(true);
+      if (allResult.ok) {
+        expect(allResult.value).toHaveLength(4);
+      }
+    });
+
+    // ----- 11.3 getInsights with combined status and category filters -----
+    it('getInsights with combined status and category filters', async () => {
+      // active + pattern
+      await store.insertInsight({
+        codespaceId: 'cs-filter',
+        content: 'Active pattern insight',
+        source: 'manual',
+        status: 'active',
+        category: 'pattern',
+      });
+      // active + error_lesson
+      await store.insertInsight({
+        codespaceId: 'cs-filter',
+        content: 'Active error lesson insight',
+        source: 'manual',
+        status: 'active',
+        category: 'error_lesson',
+      });
+      // pending_review + pattern
+      await store.insertInsight({
+        codespaceId: 'cs-filter',
+        content: 'Pending pattern insight',
+        source: 'agent_derived',
+        status: 'pending_review',
+        category: 'pattern',
+      });
+      // rejected + pattern
+      await store.insertInsight({
+        codespaceId: 'cs-filter',
+        content: 'Rejected pattern insight',
+        source: 'agent_derived',
+        status: 'rejected',
+        category: 'pattern',
+      });
+
+      // Combined: active + pattern — should return only 1
+      const result = await store.getInsights('cs-filter', undefined, {
+        status: 'active',
+        category: 'pattern',
+      });
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toHaveLength(1);
+        expect(result.value[0].content).toBe('Active pattern insight');
+        expect(result.value[0].status).toBe('active');
+        expect(result.value[0].category).toBe('pattern');
+      }
+
+      // Combined: pending_review + pattern
+      const pendingPattern = await store.getInsights('cs-filter', undefined, {
+        status: 'pending_review',
+        category: 'pattern',
+      });
+      expect(pendingPattern.ok).toBe(true);
+      if (pendingPattern.ok) {
+        expect(pendingPattern.value).toHaveLength(1);
+        expect(pendingPattern.value[0].content).toBe('Pending pattern insight');
+      }
+
+      // Combined: active + error_lesson
+      const activeError = await store.getInsights('cs-filter', undefined, {
+        status: 'active',
+        category: 'error_lesson',
+      });
+      expect(activeError.ok).toBe(true);
+      if (activeError.ok) {
+        expect(activeError.value).toHaveLength(1);
+        expect(activeError.value[0].content).toBe('Active error lesson insight');
+      }
+
+      // Combined: rejected + error_lesson — should return 0
+      const noMatch = await store.getInsights('cs-filter', undefined, {
+        status: 'rejected',
+        category: 'error_lesson',
+      });
+      expect(noMatch.ok).toBe(true);
+      if (noMatch.ok) {
+        expect(noMatch.value).toHaveLength(0);
+      }
+    });
+
+    // ----- 11.4 searchInsights only returns active insights -----
+    it('searchInsights only returns active insights', async () => {
+      const keyword = 'uniqueFilterKeyword';
+
+      await store.insertInsight({
+        codespaceId: 'cs-filter',
+        content: `Active insight with ${keyword} for search`,
+        source: 'manual',
+        status: 'active',
+      });
+      await store.insertInsight({
+        codespaceId: 'cs-filter',
+        content: `Rejected insight with ${keyword} for search`,
+        source: 'agent_derived',
+        status: 'rejected',
+      });
+      await store.insertInsight({
+        codespaceId: 'cs-filter',
+        content: `Pending insight with ${keyword} for search`,
+        source: 'agent_derived',
+        status: 'pending_review',
+      });
+
+      const result = await store.searchInsights('cs-filter', keyword);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toHaveLength(1);
+        expect(result.value[0].content).toContain('Active insight');
+        expect(result.value[0].status).toBe('active');
+      }
+    });
+
+    // ----- 11.5 assembleContext only includes active insights -----
+    it('assembleContext only includes active insights', async () => {
+      const keyword = 'contextFilterWord';
+
+      await store.insertInsight({
+        codespaceId: 'cs-filter',
+        content: `Active insight about ${keyword} in the codebase`,
+        source: 'manual',
+        status: 'active',
+        category: 'pattern',
+      });
+      await store.insertInsight({
+        codespaceId: 'cs-filter',
+        content: `Pending insight about ${keyword} that should be excluded`,
+        source: 'agent_derived',
+        status: 'pending_review',
+        category: 'pattern',
+      });
+      await store.insertInsight({
+        codespaceId: 'cs-filter',
+        content: `Rejected insight about ${keyword} that should be excluded`,
+        source: 'agent_derived',
+        status: 'rejected',
+        category: 'anti_pattern',
+      });
+
+      const ctx = await store.assembleContext('cs-filter', keyword);
+      expect(ctx.ok).toBe(true);
+      if (ctx.ok) {
+        // Only the active insight should be included
+        expect(ctx.value.sources.insights).toBe(1);
+        expect(ctx.value.text).toContain('Active insight');
+        expect(ctx.value.text).not.toContain('should be excluded');
+      }
+    });
+
+    // ----- 11.6 KEY REGRESSION TEST: status and category columns exist -----
+    // This is the critical regression test. If the DB migration is missing
+    // and the status/category columns do not exist in the runtime database,
+    // the INSERT will fail with "table memory_insights has no column named
+    // status" and the getInsights filter will fail with "no such column:
+    // memory_insights.status". This catches the exact bug.
+    it('status and category columns exist and accept values (migration regression)', async () => {
+      // Insert with explicit non-default status and category
+      const insertResult = await store.insertInsight({
+        codespaceId: 'cs-regression',
+        content: 'Regression test insight for column existence',
+        source: 'agent_derived',
+        status: 'pending_review',
+        category: 'error_lesson',
+      });
+      expect(insertResult.ok).toBe(true);
+      if (!insertResult.ok) return;
+
+      // Verify the returned object has the correct values
+      expect(insertResult.value.status).toBe('pending_review');
+      expect(insertResult.value.category).toBe('error_lesson');
+
+      // Read back via getInsights (unfiltered) to verify DB round-trip
+      const allResult = await store.getInsights('cs-regression');
+      expect(allResult.ok).toBe(true);
+      if (!allResult.ok) return;
+      expect(allResult.value).toHaveLength(1);
+      expect(allResult.value[0].status).toBe('pending_review');
+      expect(allResult.value[0].category).toBe('error_lesson');
+
+      // Read back via getInsights WITH status filter — this is the exact
+      // query path that produced "Failed to get insights" in production
+      const filteredResult = await store.getInsights('cs-regression', undefined, {
+        status: 'pending_review',
+      });
+      expect(filteredResult.ok).toBe(true);
+      if (filteredResult.ok) {
+        expect(filteredResult.value).toHaveLength(1);
+        expect(filteredResult.value[0].status).toBe('pending_review');
+        expect(filteredResult.value[0].category).toBe('error_lesson');
+      }
+
+      // Read back via getInsights WITH category filter
+      const categoryResult = await store.getInsights('cs-regression', undefined, {
+        category: 'error_lesson',
+      });
+      expect(categoryResult.ok).toBe(true);
+      if (categoryResult.ok) {
+        expect(categoryResult.value).toHaveLength(1);
+        expect(categoryResult.value[0].category).toBe('error_lesson');
+      }
+
+      // Verify updatedAt column exists by performing an update
+      const updateResult = await store.updateInsight(insertResult.value.id, {
+        status: 'active',
+      });
+      expect(updateResult.ok).toBe(true);
+      if (updateResult.ok) {
+        expect(updateResult.value.status).toBe('active');
+        expect(updateResult.value.updatedAt).toBeTruthy();
+      }
+    });
+  });
 });

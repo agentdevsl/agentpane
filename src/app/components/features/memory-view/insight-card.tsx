@@ -42,6 +42,14 @@ const CATEGORY_LABELS: Record<string, string> = {
   error_lesson: 'Error Lesson',
 };
 
+const CATEGORY_DOT_COLORS: Record<string, string> = {
+  pattern: 'bg-accent',
+  anti_pattern: 'bg-danger',
+  decision: 'bg-done',
+  architecture: 'bg-success',
+  error_lesson: 'bg-attention',
+};
+
 // =============================================================================
 // Sub-components
 // =============================================================================
@@ -154,6 +162,14 @@ export function InsightCard({
     <div
       className={cn(
         'group/card rounded-lg border border-border bg-surface transition-all duration-200',
+        // Source-based left border for visual differentiation
+        insight.source === 'manual' && 'border-l-[3px] border-l-success',
+        insight.source === 'agent_derived' && 'border-l-[3px] border-l-accent',
+        insight.source === 'dream' && 'border-l-[3px] border-l-done',
+        // Status-based background tint
+        insight.status === 'pending_review' && 'bg-attention-subtle/30',
+        insight.status === 'rejected' && 'bg-danger-subtle/20 opacity-60',
+        // Expand/hover states
         expanded ? 'shadow-sm' : 'hover:border-fg-subtle hover:shadow-md'
       )}
       style={
@@ -196,30 +212,53 @@ export function InsightCard({
         </div>
       )}
 
+      {/* Always-visible pill tags */}
+      <div className="flex flex-wrap items-center gap-1.5 px-4 pb-2">
+        {/* Source pill */}
+        <InsightSourceBadge source={insight.source} />
+
+        {/* Category pill — always show, even for null */}
+        <span
+          className={cn(
+            'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium',
+            insight.category && CATEGORY_STYLES[insight.category]
+              ? CATEGORY_STYLES[insight.category]
+              : 'bg-surface-muted text-fg-muted'
+          )}
+        >
+          {insight.category && CATEGORY_DOT_COLORS[insight.category] && (
+            <span
+              className={cn('h-1.5 w-1.5 rounded-full', CATEGORY_DOT_COLORS[insight.category])}
+            />
+          )}
+          {insight.category && CATEGORY_LABELS[insight.category]
+            ? CATEGORY_LABELS[insight.category]
+            : 'Uncategorized'}
+        </span>
+
+        {/* Status pill — always show */}
+        <span
+          className={cn(
+            'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
+            insight.status === 'active' && 'bg-success-subtle text-success',
+            insight.status === 'pending_review' && 'bg-attention-subtle text-attention',
+            insight.status === 'rejected' && 'bg-danger-subtle text-danger-muted',
+            !insight.status && 'bg-success-subtle text-success'
+          )}
+        >
+          {insight.status === 'active'
+            ? 'Active'
+            : insight.status === 'pending_review'
+              ? 'Pending Review'
+              : insight.status === 'rejected'
+                ? 'Rejected'
+                : 'Active'}
+        </span>
+      </div>
+
       {/* Footer — metadata + actions */}
       <div className="flex items-center justify-between px-4 pb-3 pt-1">
         <div className="flex flex-wrap items-center gap-2">
-          <InsightSourceBadge source={insight.source} />
-          {insight.category && CATEGORY_LABELS[insight.category] && (
-            <span
-              className={cn(
-                'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
-                CATEGORY_STYLES[insight.category] ?? 'bg-surface-muted text-fg-muted'
-              )}
-            >
-              {CATEGORY_LABELS[insight.category]}
-            </span>
-          )}
-          {insight.status === 'pending_review' && (
-            <span className="inline-flex items-center rounded-full bg-attention-subtle px-2 py-0.5 text-[10px] font-medium text-attention">
-              Pending Review
-            </span>
-          )}
-          {insight.status === 'rejected' && (
-            <span className="inline-flex items-center rounded-full bg-danger-subtle px-2 py-0.5 text-[10px] font-medium text-danger-muted">
-              Rejected
-            </span>
-          )}
           <span className="flex items-center gap-1 text-[11px] text-fg-subtle">
             <Clock size={10} />
             {insight.updatedAt && insight.updatedAt !== insight.createdAt
