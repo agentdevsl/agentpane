@@ -23,8 +23,12 @@ CREATE TABLE IF NOT EXISTS memory_insights (
   skill_id TEXT,
   tags TEXT DEFAULT '[]',
   metadata TEXT,
+  status TEXT NOT NULL DEFAULT 'active',
+  category TEXT,
+  updated_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE INDEX IF NOT EXISTS idx_memory_insights_status ON memory_insights(status);
 
 CREATE TABLE IF NOT EXISTS memory_messages (
   id TEXT PRIMARY KEY,
@@ -58,6 +62,7 @@ CREATE TABLE IF NOT EXISTS skill_executions (
   error_message TEXT,
   started_at TEXT,
   completed_at TEXT,
+  insight_ids_used TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
