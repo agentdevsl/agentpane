@@ -907,7 +907,6 @@ describe('Query Parameter Parsing', () => {
       const params = parseQueryParams('/api/marketplaces?includeDisabled=true');
       expect(params.get('includeDisabled')).toBe('true');
     });
-
   });
 
   describe('Multiple Parameters', () => {
