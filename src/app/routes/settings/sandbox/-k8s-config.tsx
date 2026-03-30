@@ -10,7 +10,7 @@ import {
   type K8sStatus,
   SaveButton,
   Toggle,
-} from './shared.js';
+} from './-shared.js';
 
 export interface K8sConfigProps {
   k8sStatus: K8sStatus | null;

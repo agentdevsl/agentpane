@@ -1,7 +1,7 @@
 import { Cube, Hexagon } from '@phosphor-icons/react';
 import { ConfigSection } from '@/app/components/ui/config-section';
 import type { SandboxProvider } from '@/lib/sandbox/types';
-import { type DefaultSandboxSettings, PROVIDER_LABELS, ProviderCardButton } from './shared.js';
+import { type DefaultSandboxSettings, PROVIDER_LABELS, ProviderCardButton } from './-shared.js';
 
 export interface ProviderSelectorProps {
   selectedProvider: SandboxProvider;

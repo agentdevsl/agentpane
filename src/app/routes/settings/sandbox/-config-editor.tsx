@@ -8,7 +8,7 @@ import {
   type UpdateSandboxConfigInput,
 } from '@/lib/api/client';
 import { cn } from '@/lib/utils/cn';
-import { type EditorMode, Toggle } from './shared.js';
+import { type EditorMode, Toggle } from './-shared.js';
 
 export interface ConfigEditorProps {
   editorMode: EditorMode;
