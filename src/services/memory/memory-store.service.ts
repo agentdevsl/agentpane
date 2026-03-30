@@ -328,7 +328,7 @@ export class MemoryStoreService {
           if (!categorized.has(cat)) {
             categorized.set(cat, []);
           }
-          categorized.get(cat)!.push(line);
+          categorized.get(cat)?.push(line);
         } else {
           uncategorized.push(line);
         }

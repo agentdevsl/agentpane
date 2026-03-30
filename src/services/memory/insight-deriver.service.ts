@@ -156,8 +156,9 @@ export class InsightDeriverService {
             }
 
             // Dedup check: if any existing insight has >60% word overlap, treat as UPDATE
+            const contentToCheck = action.content;
             const overlappingInsight = existingInsights.find((existing) =>
-              this.hasSignificantOverlap(action.content!, existing.content)
+              this.hasSignificantOverlap(contentToCheck, existing.content)
             );
 
             if (overlappingInsight) {

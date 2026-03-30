@@ -77,8 +77,8 @@ interface InsightCardProps {
   injections: Array<InsightInjection> | undefined;
   onDelete: (id: string) => undefined | Promise<boolean>;
   onExpand: (insightId: string) => void;
-  onApprove?: (id: string) => void | Promise<unknown>;
-  onReject?: (id: string) => void | Promise<unknown>;
+  onApprove?: (id: string) => undefined | Promise<unknown>;
+  onReject?: (id: string) => undefined | Promise<unknown>;
 }
 
 function InjectionBadge({ count }: { count: number | undefined }): React.JSX.Element | null {
