@@ -158,25 +158,39 @@ export function InsightCard({
 
   const injectionCount = injections?.length;
 
+  // Subtle gradient color-coded by category (or status for special states)
+  const CATEGORY_GRADIENTS: Record<string, string> = {
+    pattern: 'linear-gradient(135deg, rgba(88,166,255,0.07) 0%, transparent 50%)',
+    anti_pattern: 'linear-gradient(135deg, rgba(218,54,51,0.06) 0%, transparent 50%)',
+    decision: 'linear-gradient(135deg, rgba(163,113,247,0.06) 0%, transparent 50%)',
+    architecture: 'linear-gradient(135deg, rgba(63,185,80,0.06) 0%, transparent 50%)',
+    error_lesson: 'linear-gradient(135deg, rgba(210,153,34,0.07) 0%, transparent 50%)',
+  };
+
+  const gradientStyle = (() => {
+    // Status overrides take priority
+    if (insight.status === 'pending_review') {
+      return { background: 'linear-gradient(135deg, rgba(210,153,34,0.08) 0%, transparent 50%)' };
+    }
+    if (insight.status === 'rejected') {
+      return { background: 'linear-gradient(135deg, rgba(218,54,51,0.05) 0%, transparent 40%)' };
+    }
+    // Category-based gradient
+    if (insight.category && CATEGORY_GRADIENTS[insight.category]) {
+      return { background: CATEGORY_GRADIENTS[insight.category] };
+    }
+    // Fallback: neutral
+    return { background: 'linear-gradient(135deg, rgba(139,148,158,0.04) 0%, transparent 40%)' };
+  })();
+
   return (
     <div
       className={cn(
-        'group/card rounded-lg border border-border bg-surface transition-all duration-200',
-        // Source-based left border for visual differentiation
-        insight.source === 'manual' && 'border-l-[3px] border-l-success',
-        insight.source === 'agent_derived' && 'border-l-[3px] border-l-accent',
-        insight.source === 'dream' && 'border-l-[3px] border-l-done',
-        // Status-based background tint
-        insight.status === 'pending_review' && 'bg-attention-subtle/30',
-        insight.status === 'rejected' && 'bg-danger-subtle/20 opacity-60',
-        // Expand/hover states
+        'group/card rounded-lg border border-border transition-all duration-200',
+        insight.status === 'rejected' && 'opacity-50',
         expanded ? 'shadow-sm' : 'hover:border-fg-subtle hover:shadow-md'
       )}
-      style={
-        expanded
-          ? { background: 'linear-gradient(135deg, rgba(88,166,255,0.04) 0%, transparent 60%)' }
-          : undefined
-      }
+      style={gradientStyle}
     >
       {/* Content first — the insight text is the hero */}
       <button
@@ -299,43 +313,88 @@ export function InsightCard({
         </div>
       </div>
 
-      {/* Approve / Reject actions for pending insights */}
-      {insight.status === 'pending_review' && onApprove && onReject && (
+      {/* Status actions — always visible based on current status */}
+      {onApprove && onReject && (
         <div className="flex items-center gap-2 border-t border-border-muted/50 px-4 pb-3 pt-2">
-          <Button
-            variant="default"
-            size="sm"
-            className="gap-1 bg-success hover:bg-success-hover"
-            disabled={actionPending}
-            onClick={async () => {
-              setActionPending(true);
-              try {
-                await onApprove(insight.id);
-              } finally {
-                setActionPending(false);
-              }
-            }}
-          >
-            <Check size={14} weight="bold" />
-            Approve
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1 text-danger hover:border-danger hover:text-danger"
-            disabled={actionPending}
-            onClick={async () => {
-              setActionPending(true);
-              try {
-                await onReject(insight.id);
-              } finally {
-                setActionPending(false);
-              }
-            }}
-          >
-            <X size={14} weight="bold" />
-            Reject
-          </Button>
+          {/* Pending: show Approve + Reject */}
+          {insight.status === 'pending_review' && (
+            <>
+              <Button
+                variant="default"
+                size="sm"
+                className="gap-1 bg-success hover:bg-success-hover"
+                disabled={actionPending}
+                onClick={async () => {
+                  setActionPending(true);
+                  try {
+                    await onApprove(insight.id);
+                  } finally {
+                    setActionPending(false);
+                  }
+                }}
+              >
+                <Check size={14} weight="bold" />
+                Approve
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1 text-danger hover:border-danger hover:text-danger"
+                disabled={actionPending}
+                onClick={async () => {
+                  setActionPending(true);
+                  try {
+                    await onReject(insight.id);
+                  } finally {
+                    setActionPending(false);
+                  }
+                }}
+              >
+                <X size={14} weight="bold" />
+                Reject
+              </Button>
+            </>
+          )}
+          {/* Active: show Reject to exclude from prompts */}
+          {(insight.status === 'active' || !insight.status) && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1 text-danger hover:border-danger hover:text-danger"
+              disabled={actionPending}
+              onClick={async () => {
+                setActionPending(true);
+                try {
+                  await onReject(insight.id);
+                } finally {
+                  setActionPending(false);
+                }
+              }}
+            >
+              <X size={14} weight="bold" />
+              Exclude from prompts
+            </Button>
+          )}
+          {/* Rejected: show Approve to restore */}
+          {insight.status === 'rejected' && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1 text-success hover:border-success hover:text-success"
+              disabled={actionPending}
+              onClick={async () => {
+                setActionPending(true);
+                try {
+                  await onApprove(insight.id);
+                } finally {
+                  setActionPending(false);
+                }
+              }}
+            >
+              <Check size={14} weight="bold" />
+              Restore to active
+            </Button>
+          )}
         </div>
       )}
 

@@ -130,11 +130,17 @@ export function MemoryInsightsTab(): React.JSX.Element {
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-xs text-fg-subtle">
-        Insights are automatically extracted from agent sessions and placed in{' '}
-        <span className="font-medium text-attention">Pending Review</span>. Approve insights to
-        include them in future agent prompts, or reject to exclude them.
-      </p>
+      <div className="rounded-lg border border-border bg-surface-muted/30 px-4 py-3 text-xs text-fg-subtle leading-relaxed">
+        <p>
+          Insights are scoped to the selected codespace and automatically extracted from agent
+          sessions into{' '}
+          <span className="inline-flex items-center rounded-full bg-attention-subtle px-1.5 py-0.5 text-[10px] font-medium text-attention align-middle">
+            Pending Review
+          </span>
+          . <strong className="text-success">Approve</strong> to include in future agent prompts or{' '}
+          <strong className="text-danger">Reject</strong> to exclude.
+        </p>
+      </div>
 
       {/* Status filter pills */}
       <fieldset
