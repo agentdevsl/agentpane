@@ -341,8 +341,8 @@ export function MemoryOverview(): React.JSX.Element {
         <h3 className="text-xs font-medium uppercase tracking-wider text-fg-subtle">Research</h3>
         <div className="rounded-xl border border-border bg-surface p-4">
           <div className="flex items-start gap-3">
-            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[rgba(163,113,247,0.12)]">
-              <Flask size={18} className="text-[#a371f7]" />
+            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-done-subtle">
+              <Flask size={18} className="text-done" />
             </div>
             <div className="flex flex-col gap-1.5">
               <p className="text-sm text-fg">

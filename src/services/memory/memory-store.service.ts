@@ -50,20 +50,22 @@ function scoreInsightRelevance(
 ): number {
   let score = 0;
 
-  // 1. Keyword overlap (0-0.4)
+  // 1. Keyword overlap (0-0.4) — set intersection of distinct words
   const queryWords = new Set(
     query
       .toLowerCase()
       .split(/\s+/)
       .filter((w) => w.length > 2)
   );
-  const contentWords = content
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((w) => w.length > 2);
-  if (queryWords.size > 0 && contentWords.length > 0) {
-    const matches = contentWords.filter((w) => queryWords.has(w)).length;
-    score += Math.min(0.4, (matches / queryWords.size) * 0.4);
+  const contentWordSet = new Set(
+    content
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 2)
+  );
+  if (queryWords.size > 0 && contentWordSet.size > 0) {
+    const matches = [...queryWords].filter((w) => contentWordSet.has(w)).length;
+    score += (matches / queryWords.size) * 0.4;
   }
 
   // 2. Category-intent match (0-0.15)
@@ -91,9 +93,12 @@ function scoreInsightRelevance(
   else if (source === 'dream') score += 0.025;
 
   // 6. Recency decay (0-0.05) — 30-day half-life
-  const ageMs = Date.now() - new Date(createdAt).getTime();
+  const createdTime = new Date(createdAt).getTime();
   const HALF_LIFE_MS = 30 * 24 * 60 * 60 * 1000;
-  score += 0.05 * 0.5 ** (ageMs / HALF_LIFE_MS);
+  if (Number.isFinite(createdTime)) {
+    const ageMs = Math.max(0, Date.now() - createdTime);
+    score += 0.05 * 0.5 ** (ageMs / HALF_LIFE_MS);
+  }
 
   return score;
 }

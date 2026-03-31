@@ -445,15 +445,18 @@ export class SkillTrackingService {
         }
       }
 
-      // Update scores in DB
-      for (const [insightId, stats] of insightStats.entries()) {
-        if (stats.totalWeight === 0) continue;
-        const score = (stats.weightedSuccesses - stats.weightedFailures) / stats.totalWeight;
-        await this.db
-          .update(memoryInsights)
-          .set({ effectivenessScore: Math.round(score * 1000) / 1000 })
-          .where(eq(memoryInsights.id, insightId));
-      }
+      // Update scores in DB (batched)
+      await Promise.all(
+        [...insightStats.entries()]
+          .filter(([_, stats]) => stats.totalWeight > 0)
+          .map(([insightId, stats]) => {
+            const score = (stats.weightedSuccesses - stats.weightedFailures) / stats.totalWeight;
+            return this.db
+              .update(memoryInsights)
+              .set({ effectivenessScore: Math.round(score * 1000) / 1000 })
+              .where(eq(memoryInsights.id, insightId));
+          })
+      );
 
       log.debug('Computed insight effectiveness scores', {
         data: { codespaceId, insightsScored: insightStats.size },

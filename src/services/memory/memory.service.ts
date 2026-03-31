@@ -156,10 +156,17 @@ export class MemoryService {
   async getContext(
     codespaceId: string,
     query: string,
-    maxInsights?: number
+    maxInsights?: number,
+    taskSkillId?: string | null
   ): Promise<Result<MemoryContext, MemoryError>> {
     try {
-      return await this.store.assembleContext(codespaceId, query, undefined, maxInsights);
+      return await this.store.assembleContext(
+        codespaceId,
+        query,
+        undefined,
+        maxInsights,
+        taskSkillId
+      );
     } catch (error) {
       log.warn('Memory context retrieval failed', {
         error: error instanceof Error ? error : new Error(String(error)),

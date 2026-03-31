@@ -16,7 +16,7 @@ import { createLogger } from '../../lib/logging/logger.js';
 import type { Result } from '../../lib/utils/result.js';
 import { err, ok } from '../../lib/utils/result.js';
 import type { MemoryStoreService } from './memory-store.service.js';
-import type { Insight, TaskOutcome } from './types.js';
+import type { ExecutionTrace, Insight, TaskOutcome } from './types.js';
 
 const log = createLogger('InsightDeriverService');
 
@@ -140,24 +140,21 @@ export class InsightDeriverService {
 
       for (const m of messages) {
         const meta = m.metadata as Record<string, unknown> | null;
-        if (!meta?.trace) continue;
-        const trace = meta.trace as {
-          toolCalls?: Array<{ tool: string; status: string }>;
-          filesModified?: string[];
-          errorCount?: number;
-        };
-        if (trace.toolCalls) {
+        if (!meta?.trace || typeof meta.trace !== 'object') continue;
+        const trace = meta.trace as ExecutionTrace;
+        if (Array.isArray(trace.toolCalls)) {
           for (const call of trace.toolCalls) {
+            if (typeof call?.tool !== 'string') continue;
             const stats = toolUsage.get(call.tool) ?? { success: 0, error: 0 };
             if (call.status === 'success') stats.success++;
             else stats.error++;
             toolUsage.set(call.tool, stats);
           }
         }
-        if (trace.filesModified) {
+        if (Array.isArray(trace.filesModified)) {
           for (const f of trace.filesModified) allFilesModified.add(f);
         }
-        if (trace.errorCount) totalErrors += trace.errorCount;
+        if (typeof trace.errorCount === 'number') totalErrors += trace.errorCount;
       }
 
       let traceText = '';

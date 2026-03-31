@@ -177,6 +177,7 @@ describe('MemoryService', () => {
         'cs-1',
         'test query',
         undefined,
+        undefined,
         undefined
       );
       expect(result.ok).toBe(true);
