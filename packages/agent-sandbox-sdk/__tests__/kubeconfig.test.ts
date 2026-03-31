@@ -14,6 +14,7 @@ const mockGetCurrentContext = vi.fn();
 const mockGetCurrentCluster = vi.fn();
 const mockGetContextObject = vi.fn();
 const mockGetCluster = vi.fn();
+const mockClusters: Array<{ server: string; skipTLSVerify?: boolean }> = [];
 
 vi.mock('@kubernetes/client-node', () => ({
   KubeConfig: class MockKubeConfig {
@@ -25,6 +26,7 @@ vi.mock('@kubernetes/client-node', () => ({
     getCurrentCluster = mockGetCurrentCluster;
     getContextObject = mockGetContextObject;
     getCluster = mockGetCluster;
+    clusters = mockClusters;
   },
 }));
 
@@ -39,6 +41,7 @@ describe('loadKubeConfig', () => {
 
   beforeEach(() => {
     vi.resetAllMocks();
+    mockClusters.length = 0;
     process.env = { ...originalEnv };
     delete process.env.K8S_KUBECONFIG;
     delete process.env.KUBECONFIG;
@@ -197,18 +200,18 @@ describe('loadKubeConfig', () => {
     it('applies skipTLSVerify when set', () => {
       mockExistsSync.mockReturnValue(false);
       const cluster = { server: 'https://localhost', skipTLSVerify: false };
-      mockGetCurrentCluster.mockReturnValue(cluster);
+      mockClusters.push(cluster);
 
       loadKubeConfig({ skipTLSVerify: true });
 
       expect(cluster.skipTLSVerify).toBe(true);
     });
 
-    it('does not set skipTLSVerify when cluster is null', () => {
+    it('does not set skipTLSVerify when clusters array is empty', () => {
       mockExistsSync.mockReturnValue(false);
-      mockGetCurrentCluster.mockReturnValue(null);
+      // mockClusters is empty by default (cleared in beforeEach)
 
-      // Should not throw
+      // Should not throw — iterating an empty array is fine
       expect(() => loadKubeConfig({ skipTLSVerify: true })).not.toThrow();
     });
 

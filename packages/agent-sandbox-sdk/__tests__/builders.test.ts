@@ -14,6 +14,14 @@ describe('SandboxBuilder', () => {
     expect(sandbox.metadata.name).toBe('my-sandbox');
   });
 
+  it('uses core API group (not extensions) for Sandbox', () => {
+    const sandbox = new SandboxBuilder('test').build();
+
+    // Sandbox is in the core group, not extensions
+    expect(sandbox.apiVersion).toBe('agents.x-k8s.io/v1alpha1');
+    expect(sandbox.apiVersion).not.toContain('extensions');
+  });
+
   it('sets namespace', () => {
     const sandbox = new SandboxBuilder('test').namespace('default').build();
 
@@ -308,6 +316,17 @@ describe('SandboxClaimBuilder', () => {
     expect(claim.spec.lifecycle).toEqual({
       shutdownTime: '2026-04-01T00:00:00Z',
     });
+  });
+
+  it('sets lifecycle with only shutdownPolicy', () => {
+    const claim = new SandboxClaimBuilder('test')
+      .lifecycle({ shutdownPolicy: 'Retain' })
+      .build();
+
+    expect(claim.spec.lifecycle).toEqual({
+      shutdownPolicy: 'Retain',
+    });
+    expect(claim.spec.lifecycle?.shutdownTime).toBeUndefined();
   });
 
   it('sets labels', () => {

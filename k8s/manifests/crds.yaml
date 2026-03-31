@@ -17,7 +17,7 @@ spec:
     plural: sandboxes
     singular: sandbox
     shortNames:
-      - sb
+      - sandbox
   scope: Namespaced
   versions:
     - name: v1alpha1
@@ -46,23 +46,17 @@ spec:
                   enum:
                     - Delete
                     - Retain
+                replicas:
+                  type: integer
+                  minimum: 0
+                  maximum: 1
             status:
               type: object
               properties:
-                podName:
+                serviceFQDN:
                   type: string
-                podIP:
-                  type: string
-                startTime:
-                  type: string
-                  format: date-time
                 service:
-                  type: object
-                  properties:
-                    name:
-                      type: string
-                    port:
-                      type: integer
+                  type: string
                 replicas:
                   type: integer
                 selector:
@@ -86,10 +80,14 @@ spec:
           x-kubernetes-preserve-unknown-fields: true
       subresources:
         status: {}
+        scale:
+          specReplicasPath: .spec.replicas
+          statusReplicasPath: .status.replicas
+          labelSelectorPath: .status.selector
       additionalPrinterColumns:
-        - name: Pod
+        - name: Ready
           type: string
-          jsonPath: .status.podName
+          jsonPath: .status.conditions[?(@.type=="Ready")].status
         - name: Replicas
           type: integer
           jsonPath: .status.replicas
@@ -109,7 +107,7 @@ spec:
     plural: sandboxtemplates
     singular: sandboxtemplate
     shortNames:
-      - sbt
+      - sandboxtemplate
   scope: Namespaced
   versions:
     - name: v1alpha1
@@ -135,12 +133,6 @@ spec:
                   x-kubernetes-preserve-unknown-fields: true
             status:
               type: object
-              properties:
-                conditions:
-                  type: array
-                  items:
-                    type: object
-                    x-kubernetes-preserve-unknown-fields: true
           x-kubernetes-preserve-unknown-fields: true
       subresources:
         status: {}
@@ -161,7 +153,7 @@ spec:
     plural: sandboxclaims
     singular: sandboxclaim
     shortNames:
-      - sbc
+      - sandboxclaim
   scope: Namespaced
   versions:
     - name: v1alpha1
@@ -184,8 +176,9 @@ spec:
                 lifecycle:
                   type: object
                   properties:
-                    timeoutSeconds:
-                      type: integer
+                    shutdownTime:
+                      type: string
+                      format: date-time
                     shutdownPolicy:
                       type: string
                       enum:
@@ -194,32 +187,23 @@ spec:
             status:
               type: object
               properties:
-                phase:
-                  type: string
-                  enum:
-                    - Pending
-                    - Bound
-                    - Failed
-                sandboxRef:
-                  type: object
-                  properties:
-                    name:
-                      type: string
                 conditions:
                   type: array
                   items:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
+                sandbox:
+                  type: object
+                  properties:
+                    Name:
+                      type: string
           x-kubernetes-preserve-unknown-fields: true
       subresources:
         status: {}
       additionalPrinterColumns:
-        - name: Phase
-          type: string
-          jsonPath: .status.phase
         - name: Sandbox
           type: string
-          jsonPath: .status.sandboxRef.name
+          jsonPath: .status.sandbox.Name
         - name: Age
           type: date
           jsonPath: .metadata.creationTimestamp
@@ -236,7 +220,7 @@ spec:
     plural: sandboxwarmpools
     singular: sandboxwarmpool
     shortNames:
-      - sbwp
+      - swp
   scope: Namespaced
   versions:
     - name: v1alpha1
@@ -262,21 +246,16 @@ spec:
             status:
               type: object
               properties:
+                replicas:
+                  type: integer
                 readyReplicas:
                   type: integer
-                availableReplicas:
-                  type: integer
-                conditions:
-                  type: array
-                  items:
-                    type: object
-                    x-kubernetes-preserve-unknown-fields: true
           x-kubernetes-preserve-unknown-fields: true
       subresources:
         status: {}
         scale:
           specReplicasPath: .spec.replicas
-          statusReplicasPath: .status.readyReplicas
+          statusReplicasPath: .status.replicas
       additionalPrinterColumns:
         - name: Ready
           type: integer

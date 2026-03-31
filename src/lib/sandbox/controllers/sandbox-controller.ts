@@ -3,6 +3,7 @@ import {
   AlreadyExistsError,
   CRD_API,
   CRD_CONDITIONS,
+  CRD_EXTENSIONS_API,
   CRD_LABELS,
   CRD_PLURALS,
   NotFoundError,
@@ -212,24 +213,28 @@ export class SandboxController {
       }
     }
 
-    // Resolve template if the sandbox references one
+    // Resolve template if the sandbox references one.
+    // NOTE: sandboxTemplateRef is an internal convention used by the warm pool
+    // reconciler -- it's not part of the v0.2.1 SandboxSpec CRD type.
     let template: SandboxTemplate | undefined;
-    if (sandbox.spec?.sandboxTemplateRef?.name) {
+    const specAny = sandbox.spec as unknown as Record<string, unknown> | undefined;
+    const templateRefName = (specAny?.sandboxTemplateRef as { name?: string } | undefined)?.name;
+    if (templateRefName) {
       try {
-        template = await this.client.getTemplate(sandbox.spec.sandboxTemplateRef.name);
+        template = await this.client.getTemplate(templateRefName);
       } catch (err) {
         log.error('Failed to resolve template', {
-          data: { templateName: sandbox.spec.sandboxTemplateRef.name },
+          data: { templateName: templateRefName },
           error: err,
         });
         await this.patchSandboxStatus(sandboxName, {
-          phase: 'Failed',
+          replicas: 0,
           conditions: [
             {
               type: CRD_CONDITIONS.ready,
               status: 'False',
               reason: 'TemplateNotFound',
-              message: `Template ${sandbox.spec.sandboxTemplateRef.name} not found`,
+              message: `Template ${templateRefName} not found`,
               lastTransitionTime: new Date(),
             },
           ],
@@ -250,7 +255,7 @@ export class SandboxController {
       }
       log.error('Failed to create pod for sandbox', { data: { sandboxName }, error: err });
       await this.patchSandboxStatus(sandboxName, {
-        phase: 'Failed',
+        replicas: 0,
         conditions: [
           {
             type: CRD_CONDITIONS.ready,
@@ -266,8 +271,17 @@ export class SandboxController {
 
     // Update sandbox status to reflect that we've created the pod
     await this.patchSandboxStatus(sandboxName, {
-      phase: 'Pending',
-      podName: sandboxName,
+      replicas: 0,
+      service: sandboxName,
+      conditions: [
+        {
+          type: CRD_CONDITIONS.ready,
+          status: 'False',
+          reason: 'PodNotReady',
+          message: 'Pod created, waiting for readiness',
+          lastTransitionTime: new Date(),
+        },
+      ],
     });
 
     log.info('Created pod for sandbox', { data: { sandboxName } });
@@ -327,10 +341,10 @@ export class SandboxController {
       },
     ];
 
-    // Resolve runtime class name
+    // Resolve runtime class name from pod template spec
     const runtimeClassName = this.resolveRuntimeClassName(
-      sandbox.spec?.runtimeClassName,
-      template?.spec?.runtimeClassName
+      sandbox.spec?.podTemplate?.spec?.runtimeClassName,
+      template?.spec?.podTemplate?.spec?.runtimeClassName
     );
 
     const pod: k8s.V1Pod = {
@@ -444,8 +458,6 @@ export class SandboxController {
         if (!sandboxName) continue;
 
         const podPhase = pod.status?.phase;
-        const podIP = pod.status?.podIP;
-        const podName = pod.metadata?.name;
 
         // Determine whether all containers are ready
         const allContainersReady =
@@ -488,16 +500,17 @@ export class SandboxController {
           lastTransitionTime: new Date(),
         };
 
-        const readyReplicas = sandboxPhase === 'Running' ? 1 : 0;
-        const readyAt = sandboxPhase === 'Running' ? new Date().toISOString() : undefined;
+        const replicas = sandboxPhase === 'Running' ? 1 : 0;
+        const serviceFQDN =
+          sandboxPhase === 'Running'
+            ? `${sandboxName}.${this.namespace}.svc.cluster.local`
+            : undefined;
 
         await this.patchSandboxStatus(sandboxName, {
-          phase: sandboxPhase,
-          podName,
-          podIP,
+          replicas,
+          service: sandboxName,
           conditions: [readyCondition, podReadyCondition],
-          readyReplicas,
-          ...(readyAt ? { readyAt } : {}),
+          ...(serviceFQDN ? { serviceFQDN } : {}),
         });
       } catch (err) {
         log.error('Failed to sync status for pod', {
@@ -568,17 +581,22 @@ export class SandboxController {
           namespace: this.namespace,
         });
 
-        // Clean up failed/succeeded warm pool sandboxes before counting
-        const terminalSandboxes = existingSandboxes.items.filter(
-          (s) => s.status?.phase === 'Failed' || s.status?.phase === 'Succeeded'
-        );
+        // Clean up terminal warm pool sandboxes (Ready=False with non-recoverable reason)
+        const terminalSandboxes = existingSandboxes.items.filter((s) => {
+          const ready = s.status?.conditions?.find((c) => c.type === 'Ready');
+          return (
+            ready?.status === 'False' &&
+            (ready?.reason === 'SandboxExpired' || ready?.reason === 'PodCreationFailed')
+          );
+        });
         for (const terminal of terminalSandboxes) {
           const terminalName = terminal.metadata?.name;
           if (terminalName) {
             try {
               await this.client.deleteSandbox(terminalName);
+              const reason = terminal.status?.conditions?.find((c) => c.type === 'Ready')?.reason;
               log.info('Deleted terminal warm pool sandbox', {
-                data: { sandboxName: terminalName, phase: terminal.status?.phase },
+                data: { sandboxName: terminalName, reason },
               });
             } catch (delErr) {
               log.warn('Failed to delete terminal warm pool sandbox', {
@@ -589,15 +607,16 @@ export class SandboxController {
           }
         }
 
-        // Count non-terminal sandboxes (Running + Pending) to avoid creating duplicates
-        // while pods are still starting up. Only terminal (Failed/Succeeded) are excluded.
+        // Count non-terminal sandboxes to avoid creating duplicates
+        // while pods are still starting up. Only terminal sandboxes are excluded.
         const terminalNames = new Set(terminalSandboxes.map((s) => s.metadata?.name));
         const currentActive = existingSandboxes.items.filter(
           (s) => !terminalNames.has(s.metadata?.name)
         ).length;
-        const currentReady = existingSandboxes.items.filter(
-          (s) => s.status?.phase === 'Running' && !terminalNames.has(s.metadata?.name)
-        ).length;
+        const currentReady = existingSandboxes.items.filter((s) => {
+          const ready = s.status?.conditions?.find((c) => c.type === 'Ready');
+          return ready?.status === 'True' && !terminalNames.has(s.metadata?.name);
+        }).length;
 
         // Calculate deficit based on active (Running + Pending) count, not just Running
         const deficit = desiredReady - currentActive;
@@ -622,7 +641,9 @@ export class SandboxController {
             // Set sandboxTemplateRef on the spec so reconcileSandbox can resolve the template.
             // SandboxSpec doesn't include sandboxTemplateRef in v0.2.1, but the controller
             // uses it internally as a convention for template resolution.
-            (sandbox.spec as Record<string, unknown>).sandboxTemplateRef = { name: templateName };
+            (sandbox.spec as unknown as Record<string, unknown>).sandboxTemplateRef = {
+              name: templateName,
+            };
 
             try {
               await this.client.createSandbox(sandbox);
@@ -700,8 +721,8 @@ export class SandboxController {
   private async patchWarmPoolStatus(name: string, status: object): Promise<void> {
     try {
       const current = await this.customApi.getNamespacedCustomObjectStatus({
-        group: CRD_API.group,
-        version: CRD_API.version,
+        group: CRD_EXTENSIONS_API.group,
+        version: CRD_EXTENSIONS_API.version,
         namespace: this.namespace,
         plural: CRD_PLURALS.sandboxWarmPool,
         name,
@@ -709,8 +730,8 @@ export class SandboxController {
 
       const updated = { ...(current as Record<string, unknown>), status };
       await this.customApi.replaceNamespacedCustomObjectStatus({
-        group: CRD_API.group,
-        version: CRD_API.version,
+        group: CRD_EXTENSIONS_API.group,
+        version: CRD_EXTENSIONS_API.version,
         namespace: this.namespace,
         plural: CRD_PLURALS.sandboxWarmPool,
         name,

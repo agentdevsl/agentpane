@@ -17,6 +17,7 @@ interface MockAgentSandboxClient {
   createWarmPool: ReturnType<typeof vi.fn>;
   getWarmPool: ReturnType<typeof vi.fn>;
   deleteWarmPool: ReturnType<typeof vi.fn>;
+  replaceWarmPool: ReturnType<typeof vi.fn>;
   namespace: string;
 }
 
@@ -51,6 +52,7 @@ const createMockClient = (): MockAgentSandboxClient => ({
   createWarmPool: vi.fn().mockResolvedValue({}),
   getWarmPool: vi.fn().mockRejectedValue(new Error('not found')),
   deleteWarmPool: vi.fn().mockResolvedValue(undefined),
+  replaceWarmPool: vi.fn().mockResolvedValue({}),
   namespace: 'agentpane-sandboxes',
 });
 
@@ -393,37 +395,58 @@ describe('AgentSandboxProvider', () => {
       const items = [
         // Ready=True → running
         {
-          metadata: { name: 'sandbox-0', labels: { 'agentpane.io/sandbox-id': 'id-0', 'agentpane.io/project-id': 'proj-0' } },
+          metadata: {
+            name: 'sandbox-0',
+            labels: { 'agentpane.io/sandbox-id': 'id-0', 'agentpane.io/project-id': 'proj-0' },
+          },
           spec: {},
           status: { replicas: 1, conditions: [{ type: 'Ready', status: 'True' }] },
         },
         // No conditions → creating
         {
-          metadata: { name: 'sandbox-1', labels: { 'agentpane.io/sandbox-id': 'id-1', 'agentpane.io/project-id': 'proj-1' } },
+          metadata: {
+            name: 'sandbox-1',
+            labels: { 'agentpane.io/sandbox-id': 'id-1', 'agentpane.io/project-id': 'proj-1' },
+          },
           spec: {},
           status: { replicas: 1 },
         },
         // replicas=0 → idle (paused)
         {
-          metadata: { name: 'sandbox-2', labels: { 'agentpane.io/sandbox-id': 'id-2', 'agentpane.io/project-id': 'proj-2' } },
+          metadata: {
+            name: 'sandbox-2',
+            labels: { 'agentpane.io/sandbox-id': 'id-2', 'agentpane.io/project-id': 'proj-2' },
+          },
           spec: { replicas: 0 },
           status: { replicas: 0, conditions: [{ type: 'Ready', status: 'False' }] },
         },
         // Ready=False (generic) → error
         {
-          metadata: { name: 'sandbox-3', labels: { 'agentpane.io/sandbox-id': 'id-3', 'agentpane.io/project-id': 'proj-3' } },
+          metadata: {
+            name: 'sandbox-3',
+            labels: { 'agentpane.io/sandbox-id': 'id-3', 'agentpane.io/project-id': 'proj-3' },
+          },
           spec: {},
           status: { replicas: 1, conditions: [{ type: 'Ready', status: 'False' }] },
         },
         // Ready=False + SandboxExpired → stopped
         {
-          metadata: { name: 'sandbox-4', labels: { 'agentpane.io/sandbox-id': 'id-4', 'agentpane.io/project-id': 'proj-4' } },
+          metadata: {
+            name: 'sandbox-4',
+            labels: { 'agentpane.io/sandbox-id': 'id-4', 'agentpane.io/project-id': 'proj-4' },
+          },
           spec: {},
-          status: { replicas: 1, conditions: [{ type: 'Ready', status: 'False', reason: 'SandboxExpired' }] },
+          status: {
+            replicas: 1,
+            conditions: [{ type: 'Ready', status: 'False', reason: 'SandboxExpired' }],
+          },
         },
         // No status at all → creating
         {
-          metadata: { name: 'sandbox-5', labels: { 'agentpane.io/sandbox-id': 'id-5', 'agentpane.io/project-id': 'proj-5' } },
+          metadata: {
+            name: 'sandbox-5',
+            labels: { 'agentpane.io/sandbox-id': 'id-5', 'agentpane.io/project-id': 'proj-5' },
+          },
           spec: {},
         },
       ];
@@ -600,6 +623,7 @@ describe('AgentSandboxProvider', () => {
           kind: 'SandboxWarmPool',
           spec: expect.objectContaining({
             replicas: 3,
+            sandboxTemplateRef: { name: 'agentpane-default' },
           }),
         })
       );
@@ -613,19 +637,42 @@ describe('AgentSandboxProvider', () => {
       expect(mockClient.createWarmPool).not.toHaveBeenCalled();
     });
 
-    it('deletes existing warm pool and recreates when create fails (409)', async () => {
+    it('replaces existing warm pool when create fails (409)', async () => {
       // Import the mocked AlreadyExistsError so instanceof checks work in source code
+      const { AlreadyExistsError: MockedAlreadyExistsError } = await import(
+        '@agentpane/agent-sandbox-sdk'
+      );
+      mockClient.createWarmPool.mockRejectedValueOnce(
+        new MockedAlreadyExistsError('WarmPool', 'agentpane-warm-pool')
+      );
+      mockClient.replaceWarmPool.mockResolvedValueOnce({});
+
+      const provider = createProvider({ enableWarmPool: true });
+
+      await provider.initWarmPool();
+
+      expect(mockClient.replaceWarmPool).toHaveBeenCalledWith(
+        'agentpane-warm-pool',
+        expect.objectContaining({ kind: 'SandboxWarmPool' })
+      );
+      expect(mockClient.deleteWarmPool).not.toHaveBeenCalled();
+      expect(mockClient.createWarmPool).toHaveBeenCalledTimes(1);
+    });
+
+    it('falls back to delete+recreate when replace also fails (409)', async () => {
       const { AlreadyExistsError: MockedAlreadyExistsError } = await import(
         '@agentpane/agent-sandbox-sdk'
       );
       mockClient.createWarmPool
         .mockRejectedValueOnce(new MockedAlreadyExistsError('WarmPool', 'agentpane-warm-pool'))
         .mockResolvedValueOnce({});
+      mockClient.replaceWarmPool.mockRejectedValueOnce(new Error('replace failed'));
 
       const provider = createProvider({ enableWarmPool: true });
 
       await provider.initWarmPool();
 
+      expect(mockClient.replaceWarmPool).toHaveBeenCalled();
       expect(mockClient.deleteWarmPool).toHaveBeenCalledWith('agentpane-warm-pool');
       expect(mockClient.createWarmPool).toHaveBeenCalledTimes(2);
     });

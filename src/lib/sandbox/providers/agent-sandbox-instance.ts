@@ -384,10 +384,13 @@ export class AgentSandboxInstance implements Sandbox {
    * Also checks spec.replicas === 0 for paused (idle) sandboxes.
    * Matches AgentSandboxProvider.mapConditionsToStatus() for consistency.
    */
-  private mapConditionsToStatus(sandbox: { spec?: { replicas?: number }; status?: { conditions?: Array<{ type?: string; status?: string; reason?: string }> } }): SandboxStatus {
+  private mapConditionsToStatus(sandbox: {
+    spec?: { replicas?: number };
+    status?: { conditions?: Array<{ type?: string; status?: string; reason?: string }> };
+  }): SandboxStatus {
     if (sandbox.spec?.replicas === 0) return 'idle';
     const conditions = sandbox.status?.conditions;
-    const ready = conditions?.find(c => c.type === 'Ready');
+    const ready = conditions?.find((c) => c.type === 'Ready');
     if (!ready) return 'creating';
     if (ready.status === 'True') return 'running';
     if (ready.reason === 'SandboxExpired') return 'stopped';

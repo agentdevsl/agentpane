@@ -168,7 +168,9 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
       }
 
       // Set absolute shutdown time for auto-cleanup
-      const shutdownTime = new Date(Date.now() + config.idleTimeoutMinutes * 60 * 1000).toISOString();
+      const shutdownTime = new Date(
+        Date.now() + config.idleTimeoutMinutes * 60 * 1000
+      ).toISOString();
       builder.shutdownTime(shutdownTime);
 
       // Apply the CRD manifest to the cluster
@@ -552,12 +554,15 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
    * v0.2.1 CRD uses status.conditions[] instead of status.phase.
    * Also checks spec.replicas === 0 for paused (idle) sandboxes.
    */
-  private mapConditionsToStatus(sandbox: { spec?: { replicas?: number }; status?: { conditions?: Array<{ type?: string; status?: string; reason?: string }> } }): SandboxStatus {
+  private mapConditionsToStatus(sandbox: {
+    spec?: { replicas?: number };
+    status?: { conditions?: Array<{ type?: string; status?: string; reason?: string }> };
+  }): SandboxStatus {
     // Check pause first (replicas === 0)
     if (sandbox.spec?.replicas === 0) return 'idle';
 
     const conditions = sandbox.status?.conditions;
-    const ready = conditions?.find(c => c.type === 'Ready');
+    const ready = conditions?.find((c) => c.type === 'Ready');
     if (!ready) return 'creating';
     if (ready.status === 'True') return 'running';
     if (ready.reason === 'SandboxExpired') return 'stopped';

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  lifecycleSchema,
   sandboxClaimSchema,
   sandboxClaimSpecSchema,
   sandboxClaimStatusSchema,
@@ -12,7 +13,11 @@ import {
   sandboxStatusSchema,
   shutdownPolicySchema,
 } from '../src/schemas/sandbox.js';
-import { sandboxTemplateSchema, sandboxTemplateSpecSchema } from '../src/schemas/template.js';
+import {
+  networkPolicyManagementSchema,
+  sandboxTemplateSchema,
+  sandboxTemplateSpecSchema,
+} from '../src/schemas/template.js';
 import { sandboxWarmPoolSchema, sandboxWarmPoolSpecSchema } from '../src/schemas/warm-pool.js';
 
 describe('sandboxSchema', () => {
@@ -188,6 +193,27 @@ describe('sandboxStatusSchema', () => {
     });
     expect(result.success).toBe(true);
   });
+
+  it('accepts status with condition-based Ready=True (v0.2.1)', () => {
+    const result = sandboxStatusSchema.safeParse({
+      replicas: 1,
+      conditions: [
+        { type: 'Ready', status: 'True', lastTransitionTime: '2026-01-01T00:00:00Z' },
+        { type: 'PodReady', status: 'True' },
+      ],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts status with condition-based Ready=False and SandboxExpired reason', () => {
+    const result = sandboxStatusSchema.safeParse({
+      replicas: 0,
+      conditions: [
+        { type: 'Ready', status: 'False', reason: 'SandboxExpired', message: 'Sandbox has expired' },
+      ],
+    });
+    expect(result.success).toBe(true);
+  });
 });
 
 describe('shutdownPolicySchema', () => {
@@ -323,6 +349,58 @@ describe('sandboxTemplateSpecSchema', () => {
   });
 });
 
+describe('lifecycleSchema', () => {
+  it('accepts empty lifecycle', () => {
+    const result = lifecycleSchema.safeParse({});
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts lifecycle with shutdownTime only', () => {
+    const result = lifecycleSchema.safeParse({ shutdownTime: '2026-12-31T23:59:59Z' });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts lifecycle with shutdownPolicy only', () => {
+    const result = lifecycleSchema.safeParse({ shutdownPolicy: 'Delete' });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts lifecycle with both fields', () => {
+    const result = lifecycleSchema.safeParse({
+      shutdownTime: '2026-12-31T23:59:59Z',
+      shutdownPolicy: 'Retain',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects invalid shutdownPolicy in lifecycle', () => {
+    const result = lifecycleSchema.safeParse({ shutdownPolicy: 'Destroy' });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('networkPolicyManagementSchema', () => {
+  it('accepts Managed', () => {
+    const result = networkPolicyManagementSchema.safeParse('Managed');
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts Unmanaged', () => {
+    const result = networkPolicyManagementSchema.safeParse('Unmanaged');
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects lowercase managed', () => {
+    const result = networkPolicyManagementSchema.safeParse('managed');
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects unknown management mode', () => {
+    const result = networkPolicyManagementSchema.safeParse('Disabled');
+    expect(result.success).toBe(false);
+  });
+});
+
 describe('sandboxClaimSchema', () => {
   const validClaim = {
     apiVersion: 'agents.x-k8s.io/v1alpha1',
@@ -423,6 +501,34 @@ describe('sandboxClaimStatusSchema', () => {
   it('accepts status with sandbox Name (capital N)', () => {
     const result = sandboxClaimStatusSchema.safeParse({
       sandbox: { Name: 'my-sandbox' },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('sandbox.Name is optional (empty sandbox object is valid)', () => {
+    const result = sandboxClaimStatusSchema.safeParse({
+      sandbox: {},
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.sandbox?.Name).toBeUndefined();
+    }
+  });
+
+  it('accepts status with conditions array', () => {
+    const result = sandboxClaimStatusSchema.safeParse({
+      conditions: [
+        { type: 'Ready', status: 'True', lastTransitionTime: '2026-01-01T00:00:00Z' },
+        { type: 'Bound', status: 'True' },
+      ],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts status with both conditions and sandbox', () => {
+    const result = sandboxClaimStatusSchema.safeParse({
+      conditions: [{ type: 'Ready', status: 'True' }],
+      sandbox: { Name: 'claimed-sandbox-abc' },
     });
     expect(result.success).toBe(true);
   });
