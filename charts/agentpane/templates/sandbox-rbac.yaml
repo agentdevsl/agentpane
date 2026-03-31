@@ -24,7 +24,7 @@ rules:
     verbs: ["create", "get", "list", "watch", "delete"]
   - apiGroups: ["extensions.agents.x-k8s.io"]
     resources: ["sandboxwarmpools"]
-    verbs: ["create", "get", "list", "watch", "delete"]
+    verbs: ["create", "get", "list", "watch", "update", "delete"]
   # Pod lifecycle management
   - apiGroups: [""]
     resources: ["pods"]
