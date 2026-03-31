@@ -14,7 +14,7 @@ export interface SuggestionCardProps {
   onModify: (id: string) => void;
 }
 
-const TYPE_BADGE_STYLES: Record<string, string> = {
+const TYPE_BADGE_STYLES: Record<SkillSuggestion['suggestionType'], string> = {
   improve_prompt: 'bg-accent-subtle text-accent',
   add_example: 'bg-success-subtle text-success',
   fix_pattern: 'bg-attention-subtle text-attention',
@@ -22,14 +22,14 @@ const TYPE_BADGE_STYLES: Record<string, string> = {
   optimize_context: 'bg-secondary-subtle text-secondary',
 };
 
-const STATUS_BADGE_STYLES: Record<string, string> = {
+const STATUS_BADGE_STYLES: Record<SkillSuggestion['status'], string> = {
   pending: 'bg-attention-subtle text-attention',
   accepted: 'bg-success-subtle text-success',
   rejected: 'bg-danger-subtle text-danger',
   modified: 'bg-accent-subtle text-accent',
 };
 
-const TYPE_LABELS: Record<string, string> = {
+const TYPE_LABELS: Record<SkillSuggestion['suggestionType'], string> = {
   improve_prompt: 'Improve Prompt',
   add_example: 'Add Example',
   fix_pattern: 'Fix Pattern',

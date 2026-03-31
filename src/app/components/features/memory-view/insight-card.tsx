@@ -12,21 +12,18 @@ import {
 import type React from 'react';
 import { useState } from 'react';
 import { Button } from '@/app/components/ui/button';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/app/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/app/components/ui/tooltip';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { cn } from '@/lib/utils/cn';
 import { formatRelativeDate } from './formatters';
 import { InsightSourceBadge } from './insight-source-badge';
-import type { InsightInjection } from './types';
+import type { Insight, InsightInjection } from './types';
 
 // =============================================================================
 // Constants
 // =============================================================================
+
+type InsightCategory = NonNullable<Insight['category']>;
 
 const INSIGHT_TAG_COLORS = [
   { bg: 'bg-accent-muted', text: 'text-accent' },
@@ -42,7 +39,7 @@ function getInsightTagColor(tag: string): { bg: string; text: string } {
   return INSIGHT_TAG_COLORS[hash % INSIGHT_TAG_COLORS.length] ?? INSIGHT_TAG_COLORS[0];
 }
 
-const CATEGORY_STYLES: Record<string, string> = {
+const CATEGORY_STYLES: Record<InsightCategory, string> = {
   pattern: 'bg-accent-subtle text-accent',
   anti_pattern: 'bg-danger-subtle text-danger',
   decision: 'bg-done-subtle text-done',
@@ -50,7 +47,7 @@ const CATEGORY_STYLES: Record<string, string> = {
   error_lesson: 'bg-attention-subtle text-attention',
 };
 
-const CATEGORY_LABELS: Record<string, string> = {
+const CATEGORY_LABELS: Record<InsightCategory, string> = {
   pattern: 'Pattern',
   anti_pattern: 'Anti-Pattern',
   decision: 'Decision',
@@ -58,7 +55,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   error_lesson: 'Error Lesson',
 };
 
-const CATEGORY_DOT_COLORS: Record<string, string> = {
+const CATEGORY_DOT_COLORS: Record<InsightCategory, string> = {
   pattern: 'bg-accent',
   anti_pattern: 'bg-danger',
   decision: 'bg-done',
@@ -66,7 +63,7 @@ const CATEGORY_DOT_COLORS: Record<string, string> = {
   error_lesson: 'bg-attention',
 };
 
-const CATEGORY_GRADIENTS: Record<string, string> = {
+const CATEGORY_GRADIENTS: Record<InsightCategory, string> = {
   pattern: 'linear-gradient(135deg, rgba(88,166,255,0.07) 0%, transparent 50%)',
   anti_pattern: 'linear-gradient(135deg, rgba(218,54,51,0.06) 0%, transparent 50%)',
   decision: 'linear-gradient(135deg, rgba(163,113,247,0.06) 0%, transparent 50%)',
@@ -74,23 +71,31 @@ const CATEGORY_GRADIENTS: Record<string, string> = {
   error_lesson: 'linear-gradient(135deg, rgba(210,153,34,0.07) 0%, transparent 50%)',
 };
 
+function isCategoryKey(key: string | null | undefined): key is InsightCategory {
+  return key != null && key in CATEGORY_STYLES;
+}
+
 // =============================================================================
 // Sub-components
 // =============================================================================
 
+/** Shared shape for insight data passed to InsightCard. */
+export interface InsightData {
+  id: string;
+  content: string;
+  source: string;
+  tags: string[];
+  createdAt: string;
+  skillId: string | null;
+  status?: 'active' | 'pending_review' | 'rejected';
+  category?: string | null;
+  updatedAt?: string | null;
+  /** Effectiveness score in [-1, 1]. Displayed as a percentage. */
+  effectivenessScore?: number | null;
+}
+
 interface InsightCardProps {
-  insight: {
-    id: string;
-    content: string;
-    source: string;
-    tags: string[];
-    createdAt: string;
-    skillId: string | null;
-    status?: 'active' | 'pending_review' | 'rejected';
-    category?: string | null;
-    updatedAt?: string | null;
-    effectivenessScore?: number | null;
-  };
+  insight: InsightData;
   injections: Array<InsightInjection> | undefined;
   onDelete: (id: string) => undefined | Promise<boolean>;
   onExpand: (insightId: string) => void;
@@ -105,43 +110,44 @@ function EffectivenessScoreBadge({
 }): React.JSX.Element | null {
   if (score == null) return null;
 
-  const pct = Math.round(score * 100);
-  const isPositive = score > 0;
-  const isNeutral = score === 0;
+  const clamped = Math.max(-1, Math.min(1, score));
+  const pct = Math.round(clamped * 100);
+  const isPositive = pct > 0;
+  const isNegative = pct < 0;
+
+  let description: string;
+  if (isPositive) {
+    description = 'This insight correlates with successful task outcomes.';
+  } else if (isNegative) {
+    description = 'This insight correlates with task failures.';
+  } else {
+    description = 'Neutral impact on task outcomes.';
+  }
 
   return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span
-            className={cn(
-              'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium',
-              isPositive && 'bg-success-subtle text-success',
-              isNeutral && 'bg-surface-muted text-fg-muted',
-              !isPositive && !isNeutral && 'bg-danger-subtle text-danger'
-            )}
-          >
-            {isPositive ? (
-              <TrendUp size={10} weight="bold" />
-            ) : isNeutral ? null : (
-              <TrendDown size={10} weight="bold" />
-            )}
-            {isPositive ? '+' : ''}
-            {pct}%
-          </span>
-        </TooltipTrigger>
-        <TooltipContent side="top" className="max-w-[220px]">
-          <p className="font-medium">Effectiveness Score</p>
-          <p className="mt-0.5 text-fg-muted">
-            {isPositive
-              ? 'This insight correlates with successful task outcomes.'
-              : isNeutral
-                ? 'Neutral impact on task outcomes.'
-                : 'This insight correlates with task failures.'}
-          </p>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Effectiveness score: ${isPositive ? '+' : ''}${pct}%`}
+          className={cn(
+            'inline-flex cursor-help items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium',
+            isPositive && 'bg-success-subtle text-success',
+            isNegative && 'bg-danger-subtle text-danger',
+            !isPositive && !isNegative && 'bg-surface-muted text-fg-muted'
+          )}
+        >
+          {isPositive && <TrendUp size={10} weight="bold" />}
+          {isNegative && <TrendDown size={10} weight="bold" />}
+          {isPositive ? '+' : ''}
+          {pct}%
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-[220px]">
+        <p className="font-medium">Effectiveness Score</p>
+        <p className="mt-0.5 text-fg-muted">{description}</p>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -240,7 +246,7 @@ export function InsightCard({
       return { background: 'linear-gradient(135deg, rgba(218,54,51,0.05) 0%, transparent 40%)' };
     }
     // Category-based gradient
-    if (insight.category && CATEGORY_GRADIENTS[insight.category]) {
+    if (isCategoryKey(insight.category)) {
       return { background: CATEGORY_GRADIENTS[insight.category] };
     }
     // Fallback: neutral
@@ -299,19 +305,17 @@ export function InsightCard({
         <span
           className={cn(
             'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium',
-            insight.category && CATEGORY_STYLES[insight.category]
+            isCategoryKey(insight.category)
               ? CATEGORY_STYLES[insight.category]
               : 'bg-surface-muted text-fg-muted'
           )}
         >
-          {insight.category && CATEGORY_DOT_COLORS[insight.category] && (
+          {isCategoryKey(insight.category) && (
             <span
               className={cn('h-1.5 w-1.5 rounded-full', CATEGORY_DOT_COLORS[insight.category])}
             />
           )}
-          {insight.category && CATEGORY_LABELS[insight.category]
-            ? CATEGORY_LABELS[insight.category]
-            : 'Uncategorized'}
+          {isCategoryKey(insight.category) ? CATEGORY_LABELS[insight.category] : 'Uncategorized'}
         </span>
 
         {/* Status pill — always show */}

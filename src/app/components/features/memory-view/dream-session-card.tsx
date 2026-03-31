@@ -10,21 +10,21 @@ interface DreamSessionCardProps {
   isLast?: boolean;
 }
 
-const TYPE_LABELS: Record<string, string> = {
+const TYPE_LABELS: Record<DreamSession['type'], string> = {
   conclusion_derivation: 'Conclusions',
   skill_improvement: 'Skills',
   metrics_rollup: 'Metrics',
   context_optimization: 'Context Optimization',
 };
 
-const TYPE_BADGE_STYLES: Record<string, string> = {
+const TYPE_BADGE_STYLES: Record<DreamSession['type'], string> = {
   conclusion_derivation: 'bg-accent-subtle text-accent',
   skill_improvement: 'bg-done-subtle text-done',
   metrics_rollup: 'bg-success-subtle text-success',
   context_optimization: 'bg-secondary-subtle text-secondary',
 };
 
-const STATUS_DOT_STYLES: Record<string, string> = {
+const STATUS_DOT_STYLES: Record<DreamSession['status'], string> = {
   running: 'border-accent bg-accent animate-pulse',
   completed: 'border-success bg-success',
   error: 'border-danger bg-danger',
