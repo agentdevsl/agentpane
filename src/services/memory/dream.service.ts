@@ -13,7 +13,7 @@
  */
 
 import { createId } from '@paralleldrive/cuid2';
-import { and, desc, eq, or } from 'drizzle-orm';
+import { and, desc, eq, or, sql } from 'drizzle-orm';
 import { agentPrompt } from '../../lib/agents/agent-sdk-utils.js';
 import type { MemoryError } from '../../lib/errors/memory-errors.js';
 import { MemoryErrors } from '../../lib/errors/memory-errors.js';
@@ -101,7 +101,7 @@ If the skill is performing well (>90% success rate, reasonable token usage), you
 Only return the JSON array, no additional text.`;
 
 interface ParsedSuggestion {
-  type: 'improve_prompt' | 'add_example' | 'fix_pattern' | 'new_skill';
+  type: 'improve_prompt' | 'add_example' | 'fix_pattern' | 'new_skill' | 'optimize_context';
   title: string;
   reasoning: string;
   suggestedContent: string;
@@ -341,6 +341,18 @@ export class DreamService {
             error: corrError instanceof Error ? corrError : new Error(String(corrError)),
           });
         }
+
+        // Refresh insight effectiveness scores based on execution outcomes
+        try {
+          await this.skillTrackingService.computeInsightScores(codespaceId);
+          log.info('Refreshed insight effectiveness scores during dream cycle', {
+            data: { codespaceId },
+          });
+        } catch (scoreError) {
+          log.warn('Failed to refresh insight effectiveness scores', {
+            error: scoreError instanceof Error ? scoreError : new Error(String(scoreError)),
+          });
+        }
       }
 
       // Update dream session
@@ -407,6 +419,224 @@ export class DreamService {
       }
 
       return err(MemoryErrors.DERIVATION_ERROR('Dream cycle failed'));
+    }
+  }
+
+  /**
+   * Analyze context assembly effectiveness and suggest parameter adjustments.
+   * Creates a 'context_optimization' dream session.
+   */
+  async analyzeContextEffectiveness(
+    codespaceId: string
+  ): Promise<Result<DreamSession, MemoryError>> {
+    const startedAt = new Date().toISOString();
+    const dreamId = createId();
+
+    try {
+      const { dreamSessions, skillExecutions, skillSuggestions } = await import(
+        '../../db/schema/index.js'
+      );
+
+      // Create dream session
+      await this.db.insert(dreamSessions).values({
+        id: dreamId,
+        codespaceId,
+        type: 'context_optimization',
+        status: 'running',
+        skillsAnalyzed: 0,
+        suggestionsGenerated: 0,
+        tokensUsed: 0,
+        startedAt,
+        createdAt: startedAt,
+      });
+
+      // Gather recent executions with insight data
+      const executions = await this.db
+        .select({
+          status: skillExecutions.status,
+          insightIdsUsed: skillExecutions.insightIdsUsed,
+          tokensUsed: skillExecutions.tokensUsed,
+          turnsUsed: skillExecutions.turnsUsed,
+          skillId: skillExecutions.skillId,
+          completedAt: skillExecutions.completedAt,
+        })
+        .from(skillExecutions)
+        .where(
+          and(
+            eq(skillExecutions.codespaceId, codespaceId),
+            sql`${skillExecutions.insightIdsUsed} IS NOT NULL`
+          )
+        )
+        .orderBy(desc(skillExecutions.completedAt))
+        .limit(50);
+
+      if (executions.length < 5) {
+        // Not enough data to analyze
+        await this.db
+          .update(dreamSessions)
+          .set({
+            status: 'completed',
+            completedAt: new Date().toISOString(),
+          })
+          .where(eq(dreamSessions.id, dreamId));
+
+        return ok({
+          id: dreamId,
+          codespaceId,
+          type: 'context_optimization' as const,
+          status: 'completed' as const,
+          skillsAnalyzed: 0,
+          suggestionsGenerated: 0,
+          tokensUsed: 0,
+          costUsd: null,
+          startedAt,
+          completedAt: new Date().toISOString(),
+          errorMessage: null,
+          createdAt: startedAt,
+        });
+      }
+
+      // Build analysis prompt
+      const executionSummary = executions
+        .map((e, i) => {
+          const insightCount = Array.isArray(e.insightIdsUsed)
+            ? (e.insightIdsUsed as string[]).length
+            : 0;
+          return `${i + 1}. Status: ${e.status}, Insights injected: ${insightCount}, Tokens: ${e.tokensUsed ?? 'N/A'}, Turns: ${e.turnsUsed ?? 'N/A'}, Skill: ${e.skillId}`;
+        })
+        .join('\n');
+
+      // Compute summary statistics
+      const successfulRuns = executions.filter((e) => e.status === 'success');
+      const failedRuns = executions.filter((e) => e.status === 'failed');
+      const avgInsightsSuccess =
+        successfulRuns.length > 0
+          ? successfulRuns.reduce(
+              (sum, e) =>
+                sum + (Array.isArray(e.insightIdsUsed) ? (e.insightIdsUsed as string[]).length : 0),
+              0
+            ) / successfulRuns.length
+          : 0;
+      const avgInsightsFailed =
+        failedRuns.length > 0
+          ? failedRuns.reduce(
+              (sum, e) =>
+                sum + (Array.isArray(e.insightIdsUsed) ? (e.insightIdsUsed as string[]).length : 0),
+              0
+            ) / failedRuns.length
+          : 0;
+
+      const prompt = `You are analyzing context assembly effectiveness for an AI agent memory system.
+
+## Execution Data (${executions.length} recent runs)
+${executionSummary}
+
+## Summary Statistics
+- Total runs: ${executions.length}
+- Successful: ${successfulRuns.length} (avg ${avgInsightsSuccess.toFixed(1)} insights injected)
+- Failed: ${failedRuns.length} (avg ${avgInsightsFailed.toFixed(1)} insights injected)
+
+## Current Configuration
+- Max tokens for context: 2000
+- Max insights: 10
+- Selection: Multi-signal relevance scoring (keyword overlap, category-intent match, skill match, effectiveness score, recency decay)
+
+## Instructions
+Analyze the correlation between context assembly parameters and execution outcomes.
+Suggest specific parameter adjustments to improve success rate and reduce token usage.
+
+Return a JSON array of suggestions:
+\`\`\`json
+[
+  {
+    "type": "optimize_context",
+    "title": "Short title",
+    "reasoning": "Evidence-based reasoning from the data",
+    "suggestedContent": "Specific parameter change recommendation"
+  }
+]
+\`\`\`
+
+If the current configuration is performing well, return an empty array \`[]\`.
+Only return the JSON array.`;
+
+      const model = await this.getModel();
+      const response = await agentPrompt(prompt, { model });
+      const tokensUsed = (response.usage?.inputTokens ?? 0) + (response.usage?.outputTokens ?? 0);
+
+      // Parse and store suggestions
+      const suggestions = this.parseSuggestions(response.text);
+      const now = new Date().toISOString();
+
+      for (const suggestion of suggestions) {
+        await this.db.insert(skillSuggestions).values({
+          id: createId(),
+          dreamSessionId: dreamId,
+          codespaceId,
+          skillId: '_context_assembly',
+          skillName: 'Context Assembly',
+          suggestionType: 'optimize_context',
+          title: suggestion.title,
+          reasoning: suggestion.reasoning,
+          currentContent: null,
+          suggestedContent: suggestion.suggestedContent,
+          diff: null,
+          status: 'pending',
+          createdAt: now,
+        });
+      }
+
+      const completedAt = new Date().toISOString();
+      await this.db
+        .update(dreamSessions)
+        .set({
+          status: 'completed',
+          suggestionsGenerated: suggestions.length,
+          tokensUsed,
+          completedAt,
+        })
+        .where(eq(dreamSessions.id, dreamId));
+
+      log.info('Context effectiveness analysis completed', {
+        data: { dreamId, suggestions: suggestions.length, tokensUsed },
+      });
+
+      return ok({
+        id: dreamId,
+        codespaceId,
+        type: 'context_optimization' as const,
+        status: 'completed' as const,
+        skillsAnalyzed: 0,
+        suggestionsGenerated: suggestions.length,
+        tokensUsed,
+        costUsd: null,
+        startedAt,
+        completedAt,
+        errorMessage: null,
+        createdAt: startedAt,
+      });
+    } catch (error) {
+      log.error('Context effectiveness analysis failed', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
+
+      try {
+        const { dreamSessions } = await import('../../db/schema/index.js');
+        await this.db
+          .update(dreamSessions)
+          .set({
+            status: 'error',
+            errorMessage: error instanceof Error ? error.message : String(error),
+            completedAt: new Date().toISOString(),
+          })
+          .where(eq(dreamSessions.id, dreamId));
+      } catch (updateError) {
+        log.error('Failed to update dream session status', {
+          error: updateError instanceof Error ? updateError : new Error(String(updateError)),
+        });
+      }
+
+      return err(MemoryErrors.DERIVATION_ERROR('Context effectiveness analysis failed'));
     }
   }
 
@@ -584,7 +814,13 @@ export class DreamService {
 
       if (!Array.isArray(parsed)) return [];
 
-      const validTypes = new Set(['improve_prompt', 'add_example', 'fix_pattern', 'new_skill']);
+      const validTypes = new Set([
+        'improve_prompt',
+        'add_example',
+        'fix_pattern',
+        'new_skill',
+        'optimize_context',
+      ]);
 
       return parsed
         .filter(

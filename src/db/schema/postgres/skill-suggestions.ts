@@ -18,7 +18,7 @@ export const skillSuggestions = pgTable(
     skillId: text('skill_id').notNull(),
     skillName: text('skill_name').notNull(),
     suggestionType: text('suggestion_type')
-      .$type<'improve_prompt' | 'add_example' | 'fix_pattern' | 'new_skill'>()
+      .$type<'improve_prompt' | 'add_example' | 'fix_pattern' | 'new_skill' | 'optimize_context'>()
       .notNull(),
     title: text('title').notNull(),
     reasoning: text('reasoning').notNull(),

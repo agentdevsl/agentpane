@@ -28,6 +28,76 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
+/** Category-to-task-intent mapping for relevance boosting. */
+const CATEGORY_INTENT_MAP: Record<string, string[]> = {
+  error_lesson: ['fix', 'bug', 'error', 'issue', 'broken', 'failing', 'crash', 'debug'],
+  pattern: ['add', 'implement', 'create', 'build', 'feature', 'new'],
+  anti_pattern: ['fix', 'refactor', 'avoid', 'bug', 'issue'],
+  architecture: ['design', 'architect', 'structure', 'refactor', 'restructure', 'migrate'],
+  decision: ['choose', 'decide', 'evaluate', 'compare', 'option'],
+};
+
+/** Compute a relevance score for an insight against a query. */
+function scoreInsightRelevance(
+  content: string,
+  category: string | null,
+  effectivenessScore: number | null,
+  source: string,
+  createdAt: string,
+  skillId: string | null,
+  query: string,
+  taskSkillId?: string | null
+): number {
+  let score = 0;
+
+  // 1. Keyword overlap (0-0.4)
+  const queryWords = new Set(
+    query
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 2)
+  );
+  const contentWords = content
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((w) => w.length > 2);
+  if (queryWords.size > 0 && contentWords.length > 0) {
+    const matches = contentWords.filter((w) => queryWords.has(w)).length;
+    score += Math.min(0.4, (matches / queryWords.size) * 0.4);
+  }
+
+  // 2. Category-intent match (0-0.15)
+  if (category && CATEGORY_INTENT_MAP[category]) {
+    const intents = CATEGORY_INTENT_MAP[category];
+    const queryLower = query.toLowerCase();
+    if (intents.some((intent) => queryLower.includes(intent))) {
+      score += 0.15;
+    }
+  }
+
+  // 3. Skill match bonus (0-0.2)
+  if (taskSkillId && skillId && taskSkillId === skillId) {
+    score += 0.2;
+  }
+
+  // 4. Effectiveness score (0-0.15)
+  if (effectivenessScore != null) {
+    // Normalize from [-1, 1] to [0, 0.15]
+    score += Math.max(0, (effectivenessScore + 1) / 2) * 0.15;
+  }
+
+  // 5. Source priority (0-0.05)
+  if (source === 'manual') score += 0.05;
+  else if (source === 'dream') score += 0.025;
+
+  // 6. Recency decay (0-0.05) — 30-day half-life
+  const ageMs = Date.now() - new Date(createdAt).getTime();
+  const HALF_LIFE_MS = 30 * 24 * 60 * 60 * 1000;
+  score += 0.05 * 0.5 ** (ageMs / HALF_LIFE_MS);
+
+  return score;
+}
+
 export class MemoryStoreService {
   constructor(private db: Database) {}
 
@@ -77,6 +147,7 @@ export class MemoryStoreService {
         metadata: params.metadata ?? null,
         status,
         category,
+        effectivenessScore: null,
         updatedAt: null,
         createdAt: now,
       };
@@ -127,6 +198,7 @@ export class MemoryStoreService {
         metadata: row.metadata as Record<string, unknown> | null,
         status: row.status ?? 'active',
         category: row.category ?? null,
+        effectivenessScore: row.effectivenessScore ?? null,
         updatedAt: row.updatedAt ?? null,
         createdAt: row.createdAt,
       };
@@ -186,6 +258,7 @@ export class MemoryStoreService {
         metadata: row.metadata as Record<string, unknown> | null,
         status: row.status ?? 'active',
         category: row.category ?? null,
+        effectivenessScore: row.effectivenessScore ?? null,
         updatedAt: row.updatedAt ?? null,
         createdAt: row.createdAt,
       }));
@@ -251,6 +324,7 @@ export class MemoryStoreService {
         metadata: row.metadata as Record<string, unknown> | null,
         status: row.status ?? 'active',
         category: row.category ?? null,
+        effectivenessScore: row.effectivenessScore ?? null,
         updatedAt: row.updatedAt ?? null,
         createdAt: row.createdAt,
       }));
@@ -269,42 +343,42 @@ export class MemoryStoreService {
     codespaceId: string | null,
     query: string,
     maxTokens = 2000,
-    maxInsights = 10
+    maxInsights = 10,
+    taskSkillId?: string | null
   ): Promise<Result<MemoryContext, MemoryError>> {
     try {
-      const likeCondition = sql`${memoryInsights.content} LIKE ${`%${escapeLikeQuery(query)}%`} ESCAPE '\\'`;
       const activeCondition = eq(memoryInsights.status, 'active');
-      const sourcePriority = sql`CASE WHEN ${memoryInsights.source} = 'manual' THEN 0 WHEN ${memoryInsights.source} = 'dream' THEN 1 ELSE 2 END`;
+      const whereClause = codespaceId
+        ? and(eq(memoryInsights.codespaceId, codespaceId), activeCondition)
+        : activeCondition;
 
-      const searchWhere = codespaceId
-        ? and(eq(memoryInsights.codespaceId, codespaceId), likeCondition, activeCondition)
-        : and(likeCondition, activeCondition);
-
-      // First try search-relevant insights, then fall back to recent
-      let rows = await this.db
+      // Fetch all active insights (capped at 200 for scoring)
+      const rows = await this.db
         .select()
         .from(memoryInsights)
-        .where(searchWhere)
-        .orderBy(sourcePriority, desc(memoryInsights.createdAt))
-        .limit(50);
-
-      // If no search matches, get recent active insights
-      if (rows.length === 0) {
-        const recentWhere = codespaceId
-          ? and(eq(memoryInsights.codespaceId, codespaceId), activeCondition)
-          : activeCondition;
-
-        rows = await this.db
-          .select()
-          .from(memoryInsights)
-          .where(recentWhere)
-          .orderBy(sourcePriority, desc(memoryInsights.createdAt))
-          .limit(50);
-      }
+        .where(whereClause)
+        .orderBy(desc(memoryInsights.createdAt))
+        .limit(200);
 
       if (rows.length === 0) {
         return ok({ text: '', tokenCount: 0, sources: { insights: 0, insightIds: [] } });
       }
+
+      // Score and sort by relevance
+      const scored = rows.map((row) => ({
+        row,
+        score: scoreInsightRelevance(
+          row.content,
+          row.category,
+          row.effectivenessScore ?? null,
+          row.source,
+          row.createdAt,
+          row.skillId,
+          query,
+          taskSkillId
+        ),
+      }));
+      scored.sort((a, b) => b.score - a.score);
 
       // Collect insights within token and count budgets
       let insightCount = 0;
@@ -312,23 +386,15 @@ export class MemoryStoreService {
       const categorized = new Map<string, string[]>();
       const uncategorized: string[] = [];
 
-      for (const row of rows) {
-        if (insightCount >= maxInsights) {
-          break;
-        }
+      for (const { row } of scored) {
+        if (insightCount >= maxInsights) break;
         const line = `- ${row.content}`;
-        // Estimate with a generous header allowance
         const candidateText = `## Memory Context\n\n${[...categorized.values()].flat().join('\n')}\n${uncategorized.join('\n')}\n${line}\n`;
         const candidateTokens = estimateTokens(candidateText);
-        if (candidateTokens > maxTokens) {
-          break;
-        }
+        if (candidateTokens > maxTokens) break;
         if (row.category) {
-          const cat = row.category;
-          if (!categorized.has(cat)) {
-            categorized.set(cat, []);
-          }
-          categorized.get(cat)?.push(line);
+          if (!categorized.has(row.category)) categorized.set(row.category, []);
+          categorized.get(row.category)?.push(line);
         } else {
           uncategorized.push(line);
         }

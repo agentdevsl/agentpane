@@ -16,7 +16,7 @@ import { createLogger } from '../../lib/logging/logger.js';
 import type { Result } from '../../lib/utils/result.js';
 import { err, ok } from '../../lib/utils/result.js';
 import type { MemoryStoreService } from './memory-store.service.js';
-import type { Insight } from './types.js';
+import type { Insight, TaskOutcome } from './types.js';
 
 const log = createLogger('InsightDeriverService');
 
@@ -29,6 +29,12 @@ const DERIVATION_PROMPT = `You are analyzing an agent conversation to extract me
 
 ## Conversation
 {{conversation}}
+
+## Task Outcome
+{{taskOutcome}}
+
+## Execution Traces
+{{executionTraces}}
 
 ## Instructions
 
@@ -43,6 +49,9 @@ Focus on:
 - Patterns: What approaches worked well?
 - Architecture decisions: What structural choices were made?
 - Decisions: What trade-offs or choices were evaluated?
+- If task outcome data is available, evaluate whether the injected insights were helpful or misleading given the outcome.
+- For failed tasks, consider whether any injected insight may have been incorrect or outdated.
+- Use execution trace data (tool usage patterns, files modified, errors) to identify recurring tool patterns or common failure modes worth capturing as insights.
 
 Return ONLY a JSON array:
 \`\`\`json
@@ -77,7 +86,8 @@ export class InsightDeriverService {
    */
   async deriveInsights(
     memorySessionId: string,
-    codespaceId: string
+    codespaceId: string,
+    outcome?: TaskOutcome
   ): Promise<
     Result<
       { insightsCreated: number; insightsUpdated: number; insightsDeleted: number },
@@ -123,10 +133,64 @@ export class InsightDeriverService {
         conversationText += line;
       }
 
-      const prompt = DERIVATION_PROMPT.replace(
-        '{{existingInsights}}',
-        existingInsightsText
-      ).replace('{{conversation}}', conversationText);
+      // Extract trace summaries from message metadata
+      const toolUsage = new Map<string, { success: number; error: number }>();
+      const allFilesModified = new Set<string>();
+      let totalErrors = 0;
+
+      for (const m of messages) {
+        const meta = m.metadata as Record<string, unknown> | null;
+        if (!meta?.trace) continue;
+        const trace = meta.trace as {
+          toolCalls?: Array<{ tool: string; status: string }>;
+          filesModified?: string[];
+          errorCount?: number;
+        };
+        if (trace.toolCalls) {
+          for (const call of trace.toolCalls) {
+            const stats = toolUsage.get(call.tool) ?? { success: 0, error: 0 };
+            if (call.status === 'success') stats.success++;
+            else stats.error++;
+            toolUsage.set(call.tool, stats);
+          }
+        }
+        if (trace.filesModified) {
+          for (const f of trace.filesModified) allFilesModified.add(f);
+        }
+        if (trace.errorCount) totalErrors += trace.errorCount;
+      }
+
+      let traceText = '';
+      if (toolUsage.size > 0) {
+        const toolLines = [...toolUsage.entries()]
+          .sort((a, b) => b[1].success + b[1].error - (a[1].success + a[1].error))
+          .map(([tool, stats]) => `- ${tool}: ${stats.success} success, ${stats.error} error`)
+          .join('\n');
+        traceText += `\nTool usage:\n${toolLines}`;
+      }
+      if (allFilesModified.size > 0) {
+        traceText += `\nFiles modified: ${[...allFilesModified].slice(0, 20).join(', ')}`;
+      }
+      if (totalErrors > 0) {
+        traceText += `\nTotal errors encountered: ${totalErrors}`;
+      }
+
+      // Build outcome context if available
+      let outcomeText = 'No outcome data available';
+      if (outcome) {
+        const parts = [`Status: ${outcome.status}`];
+        if (outcome.tokensUsed != null) parts.push(`Tokens used: ${outcome.tokensUsed}`);
+        if (outcome.turnsUsed != null) parts.push(`Turns used: ${outcome.turnsUsed}`);
+        if (outcome.insightIdsUsed?.length) {
+          parts.push(`Insights injected: ${outcome.insightIdsUsed.join(', ')}`);
+        }
+        outcomeText = parts.join('\n');
+      }
+
+      const prompt = DERIVATION_PROMPT.replace('{{existingInsights}}', existingInsightsText)
+        .replace('{{conversation}}', conversationText)
+        .replace('{{taskOutcome}}', outcomeText)
+        .replace('{{executionTraces}}', traceText || 'No trace data available');
 
       // 4. Call Claude Haiku via Agent SDK for insight extraction
       const response = await agentPrompt(prompt, { model: HAIKU_MODEL });
