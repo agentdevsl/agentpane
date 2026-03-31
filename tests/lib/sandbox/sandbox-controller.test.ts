@@ -748,8 +748,12 @@ describe('SandboxController', () => {
 
     it('does not create sandboxes when pool is satisfied', async () => {
       const existingSandboxes = [
-        makeSandbox('warm-pool-1-a', { status: { replicas: 1, conditions: [{ type: 'Ready', status: 'True' }] } } as any),
-        makeSandbox('warm-pool-1-b', { status: { replicas: 1, conditions: [{ type: 'Ready', status: 'True' }] } } as any),
+        makeSandbox('warm-pool-1-a', {
+          status: { replicas: 1, conditions: [{ type: 'Ready', status: 'True' }] },
+        } as any),
+        makeSandbox('warm-pool-1-b', {
+          status: { replicas: 1, conditions: [{ type: 'Ready', status: 'True' }] },
+        } as any),
       ];
 
       mockClient.listWarmPools.mockResolvedValue({
@@ -766,7 +770,14 @@ describe('SandboxController', () => {
     });
 
     it('cleans up terminal warm pool sandboxes', async () => {
-      const existingSandboxes = [makeSandbox('warm-fail', { status: { replicas: 0, conditions: [{ type: 'Ready', status: 'False', reason: 'PodCreationFailed' }] } } as any)];
+      const existingSandboxes = [
+        makeSandbox('warm-fail', {
+          status: {
+            replicas: 0,
+            conditions: [{ type: 'Ready', status: 'False', reason: 'PodCreationFailed' }],
+          },
+        } as any),
+      ];
 
       mockClient.listWarmPools.mockResolvedValue({
         items: [makeWarmPool('pool-1', 1, 'template-1')],
@@ -813,7 +824,9 @@ describe('SandboxController', () => {
 
     it('updates warm pool status with ready count', async () => {
       const existingSandboxes = [
-        makeSandbox('warm-running', { status: { replicas: 1, conditions: [{ type: 'Ready', status: 'True' }] } } as any),
+        makeSandbox('warm-running', {
+          status: { replicas: 1, conditions: [{ type: 'Ready', status: 'True' }] },
+        } as any),
       ];
 
       mockClient.listWarmPools.mockResolvedValue({
@@ -884,8 +897,18 @@ describe('SandboxController', () => {
 
     it('counts Pending sandboxes as active to avoid over-provisioning', async () => {
       const existingSandboxes = [
-        makeSandbox('warm-pending-a', { status: { replicas: 0, conditions: [{ type: 'Ready', status: 'False', reason: 'PodNotReady' }] } } as any),
-        makeSandbox('warm-pending-b', { status: { replicas: 0, conditions: [{ type: 'Ready', status: 'False', reason: 'PodNotReady' }] } } as any),
+        makeSandbox('warm-pending-a', {
+          status: {
+            replicas: 0,
+            conditions: [{ type: 'Ready', status: 'False', reason: 'PodNotReady' }],
+          },
+        } as any),
+        makeSandbox('warm-pending-b', {
+          status: {
+            replicas: 0,
+            conditions: [{ type: 'Ready', status: 'False', reason: 'PodNotReady' }],
+          },
+        } as any),
       ];
 
       mockClient.listWarmPools.mockResolvedValue({

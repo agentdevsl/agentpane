@@ -214,7 +214,12 @@ describe('AgentSandboxClient', () => {
       mockCustomObjectsApi.listNamespacedCustomObject.mockResolvedValue({ items: [] });
       mockCustomObjectsApi.deleteNamespacedCustomObject.mockResolvedValue({});
 
-      await client.createSandbox({ apiVersion: 'agents.x-k8s.io/v1alpha1', kind: 'Sandbox', metadata: { name: 'test' }, spec: {} } as any);
+      await client.createSandbox({
+        apiVersion: 'agents.x-k8s.io/v1alpha1',
+        kind: 'Sandbox',
+        metadata: { name: 'test' },
+        spec: {},
+      } as any);
       await client.getSandbox('test');
       await client.listSandboxes();
       await client.deleteSandbox('test');

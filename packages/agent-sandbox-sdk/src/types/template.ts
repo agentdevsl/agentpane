@@ -18,7 +18,7 @@ export interface SandboxTemplateSpec {
 /**
  * SandboxTemplate status (empty - matches upstream)
  */
-export type SandboxTemplateStatus = {};
+export type SandboxTemplateStatus = Record<string, never>;
 
 /**
  * Full SandboxTemplate resource

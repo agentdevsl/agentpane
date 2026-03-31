@@ -209,7 +209,12 @@ describe('sandboxStatusSchema', () => {
     const result = sandboxStatusSchema.safeParse({
       replicas: 0,
       conditions: [
-        { type: 'Ready', status: 'False', reason: 'SandboxExpired', message: 'Sandbox has expired' },
+        {
+          type: 'Ready',
+          status: 'False',
+          reason: 'SandboxExpired',
+          message: 'Sandbox has expired',
+        },
       ],
     });
     expect(result.success).toBe(true);

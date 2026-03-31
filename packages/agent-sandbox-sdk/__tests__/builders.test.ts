@@ -319,9 +319,7 @@ describe('SandboxClaimBuilder', () => {
   });
 
   it('sets lifecycle with only shutdownPolicy', () => {
-    const claim = new SandboxClaimBuilder('test')
-      .lifecycle({ shutdownPolicy: 'Retain' })
-      .build();
+    const claim = new SandboxClaimBuilder('test').lifecycle({ shutdownPolicy: 'Retain' }).build();
 
     expect(claim.spec.lifecycle).toEqual({
       shutdownPolicy: 'Retain',
