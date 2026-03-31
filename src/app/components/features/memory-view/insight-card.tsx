@@ -1,7 +1,23 @@
-import { ArrowsClockwise, CaretRight, Check, Clock, Tag, Trash, X } from '@phosphor-icons/react';
+import {
+  ArrowsClockwise,
+  CaretRight,
+  Check,
+  Clock,
+  Tag,
+  Trash,
+  TrendDown,
+  TrendUp,
+  X,
+} from '@phosphor-icons/react';
 import type React from 'react';
 import { useState } from 'react';
 import { Button } from '@/app/components/ui/button';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/app/components/ui/tooltip';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { cn } from '@/lib/utils/cn';
 import { formatRelativeDate } from './formatters';
@@ -73,12 +89,60 @@ interface InsightCardProps {
     status?: 'active' | 'pending_review' | 'rejected';
     category?: string | null;
     updatedAt?: string | null;
+    effectivenessScore?: number | null;
   };
   injections: Array<InsightInjection> | undefined;
   onDelete: (id: string) => undefined | Promise<boolean>;
   onExpand: (insightId: string) => void;
   onApprove?: (id: string) => undefined | Promise<unknown>;
   onReject?: (id: string) => undefined | Promise<unknown>;
+}
+
+function EffectivenessScoreBadge({
+  score,
+}: {
+  score: number | null | undefined;
+}): React.JSX.Element | null {
+  if (score == null) return null;
+
+  const pct = Math.round(score * 100);
+  const isPositive = score > 0;
+  const isNeutral = score === 0;
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            className={cn(
+              'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium',
+              isPositive && 'bg-success-subtle text-success',
+              isNeutral && 'bg-surface-muted text-fg-muted',
+              !isPositive && !isNeutral && 'bg-danger-subtle text-danger'
+            )}
+          >
+            {isPositive ? (
+              <TrendUp size={10} weight="bold" />
+            ) : isNeutral ? null : (
+              <TrendDown size={10} weight="bold" />
+            )}
+            {isPositive ? '+' : ''}
+            {pct}%
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-[220px]">
+          <p className="font-medium">Effectiveness Score</p>
+          <p className="mt-0.5 text-fg-muted">
+            {isPositive
+              ? 'This insight correlates with successful task outcomes.'
+              : isNeutral
+                ? 'Neutral impact on task outcomes.'
+                : 'This insight correlates with task failures.'}
+          </p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
 }
 
 function InjectionBadge({ count }: { count: number | undefined }): React.JSX.Element | null {
@@ -280,6 +344,7 @@ export function InsightCard({
               : formatRelativeDate(insight.createdAt)}
           </span>
           <InjectionBadge count={injectionCount} />
+          <EffectivenessScoreBadge score={insight.effectivenessScore} />
         </div>
         <div className="flex items-center gap-1">
           <Button

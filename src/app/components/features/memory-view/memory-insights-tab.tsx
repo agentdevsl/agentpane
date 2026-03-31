@@ -107,6 +107,7 @@ function toInsightCardProps(item: Insight | SearchResult): {
   status?: 'active' | 'pending_review' | 'rejected';
   category?: string | null;
   updatedAt?: string | null;
+  effectivenessScore?: number | null;
 } {
   if ('source' in item) {
     return item;
@@ -121,6 +122,7 @@ function toInsightCardProps(item: Insight | SearchResult): {
     status: 'active' as const,
     category: null,
     updatedAt: null,
+    effectivenessScore: null,
   };
 }
 

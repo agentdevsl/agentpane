@@ -19,6 +19,7 @@ const TYPE_BADGE_STYLES: Record<string, string> = {
   add_example: 'bg-success-subtle text-success',
   fix_pattern: 'bg-attention-subtle text-attention',
   new_skill: 'bg-done-subtle text-done',
+  optimize_context: 'bg-secondary-subtle text-secondary',
 };
 
 const STATUS_BADGE_STYLES: Record<string, string> = {
@@ -33,6 +34,7 @@ const TYPE_LABELS: Record<string, string> = {
   add_example: 'Add Example',
   fix_pattern: 'Fix Pattern',
   new_skill: 'New Skill',
+  optimize_context: 'Optimize Context',
 };
 
 function formatStatus(status: string): string {
