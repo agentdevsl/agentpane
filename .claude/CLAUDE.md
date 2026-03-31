@@ -6,6 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Note**: This project uses AGENTS.md files for detailed guidance and has comprehensive specifications in `/specs/application`.
 
+# commit rate
+
+commit frequently as you go.
+
+
 ## Primary References
 
 1. **AGENTS.md** - Development guidelines and tech stack: `./AGENTS.md`
