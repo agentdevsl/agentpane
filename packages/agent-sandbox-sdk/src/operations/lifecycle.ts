@@ -37,10 +37,14 @@ export async function waitForReady(
       return sandbox;
     }
 
-    // Check for terminal failure via Ready condition with False status
+    // Check for terminal failure via Ready condition with False status and a terminal reason
     if (readyCondition?.status === 'False') {
-      const failMessage = readyCondition.message ?? 'Sandbox failed to become ready';
-      throw new Error(failMessage);
+      const terminalReasons = ['PodCreationFailed', 'TemplateNotFound', 'SandboxExpired'];
+      if (terminalReasons.includes(readyCondition.reason ?? '')) {
+        const failMessage = readyCondition.message ?? 'Sandbox failed to become ready';
+        throw new Error(failMessage);
+      }
+      // Transient reasons (PodNotReady, ContainersNotReady) — continue polling
     }
 
     await sleep(pollIntervalMs);

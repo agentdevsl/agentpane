@@ -449,9 +449,21 @@ describe('AgentSandboxProvider', () => {
           },
           spec: {},
         },
+        // Ready=False + PodNotReady (transient) → creating
+        {
+          metadata: {
+            name: 'sandbox-6',
+            labels: { 'agentpane.io/sandbox-id': 'id-6', 'agentpane.io/project-id': 'proj-6' },
+          },
+          spec: {},
+          status: {
+            replicas: 1,
+            conditions: [{ type: 'Ready', status: 'False', reason: 'PodNotReady' }],
+          },
+        },
       ];
 
-      const expected = ['running', 'creating', 'idle', 'error', 'stopped', 'creating'];
+      const expected = ['running', 'creating', 'idle', 'error', 'stopped', 'creating', 'creating'];
 
       mockClient.listSandboxes.mockResolvedValue({ items });
 

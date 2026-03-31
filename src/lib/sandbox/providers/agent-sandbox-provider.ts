@@ -566,6 +566,9 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
     if (!ready) return 'creating';
     if (ready.status === 'True') return 'running';
     if (ready.reason === 'SandboxExpired') return 'stopped';
+    // Transient reasons (PodNotReady, ContainersNotReady) indicate startup in progress
+    const transientReasons = ['PodNotReady', 'ContainersNotReady'];
+    if (transientReasons.includes(ready.reason ?? '')) return 'creating';
     return 'error';
   }
 
