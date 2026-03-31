@@ -8,22 +8,23 @@ metadata:
   labels:
     {{- include "agentpane.labels" . | nindent 4 }}
 rules:
-  # Agent Sandbox CRD resources (agents.x-k8s.io/v1alpha1)
+  # Agent Sandbox core CRD (agents.x-k8s.io/v1alpha1)
   - apiGroups: ["agents.x-k8s.io"]
     resources: ["sandboxes"]
     verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
   - apiGroups: ["agents.x-k8s.io"]
     resources: ["sandboxes/status"]
     verbs: ["get"]
-  - apiGroups: ["agents.x-k8s.io"]
+  # Agent Sandbox extensions CRD (extensions.agents.x-k8s.io/v1alpha1)
+  - apiGroups: ["extensions.agents.x-k8s.io"]
     resources: ["sandboxtemplates"]
     verbs: ["create", "get", "list", "watch", "delete"]
-  - apiGroups: ["agents.x-k8s.io"]
+  - apiGroups: ["extensions.agents.x-k8s.io"]
     resources: ["sandboxclaims"]
     verbs: ["create", "get", "list", "watch", "delete"]
-  - apiGroups: ["agents.x-k8s.io"]
+  - apiGroups: ["extensions.agents.x-k8s.io"]
     resources: ["sandboxwarmpools"]
-    verbs: ["create", "get", "list", "watch", "delete"]
+    verbs: ["create", "get", "list", "watch", "update", "delete"]
   # Pod lifecycle management
   - apiGroups: [""]
     resources: ["pods"]

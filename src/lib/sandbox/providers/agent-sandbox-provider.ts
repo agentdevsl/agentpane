@@ -167,8 +167,11 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
         builder.runtimeClass(this.runtimeClassName);
       }
 
-      // Set TTL for auto-cleanup
-      builder.ttl(config.idleTimeoutMinutes * 60);
+      // Set absolute shutdown time for auto-cleanup
+      const shutdownTime = new Date(
+        Date.now() + config.idleTimeoutMinutes * 60 * 1000
+      ).toISOString();
+      builder.shutdownTime(shutdownTime);
 
       // Apply the CRD manifest to the cluster
       const manifest = builder.build();
@@ -335,17 +338,17 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
         id: s.metadata?.labels?.['agentpane.io/sandbox-id'] ?? '',
         codespaceId: s.metadata?.labels?.['agentpane.io/project-id'] ?? '',
         containerId: s.metadata?.name ?? '',
-        status: this.mapCrdPhase(s.status?.phase),
-        image: s.spec?.podTemplateSpec?.spec?.containers?.[0]?.image ?? this.image,
+        status: this.mapConditionsToStatus(s),
+        image: s.spec?.podTemplate?.spec?.containers?.[0]?.image ?? this.image,
         createdAt: s.metadata?.creationTimestamp?.toString() ?? new Date().toISOString(),
         lastActivityAt: new Date().toISOString(),
         memoryMb: this.parseMemoryMi(
-          s.spec?.podTemplateSpec?.spec?.containers?.[0]?.resources?.limits?.memory as
+          s.spec?.podTemplate?.spec?.containers?.[0]?.resources?.limits?.memory as
             | string
             | undefined
         ),
         cpuCores: parseFloat(
-          (s.spec?.podTemplateSpec?.spec?.containers?.[0]?.resources?.limits?.cpu as string) ?? '0'
+          (s.spec?.podTemplate?.spec?.containers?.[0]?.resources?.limits?.cpu as string) ?? '0'
         ),
       }));
     } catch (error) {
@@ -505,15 +508,15 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
     const warmPoolName = 'agentpane-warm-pool';
 
     const warmPool: SandboxWarmPool = {
-      apiVersion: 'agents.x-k8s.io/v1alpha1',
+      apiVersion: 'extensions.agents.x-k8s.io/v1alpha1',
       kind: 'SandboxWarmPool',
       metadata: {
         name: warmPoolName,
         namespace: this.namespace,
       },
       spec: {
-        desiredReady: this.warmPoolSize,
-        templateRef: {
+        replicas: this.warmPoolSize,
+        sandboxTemplateRef: {
           name: 'agentpane-default',
         },
       },
@@ -546,32 +549,36 @@ export class AgentSandboxProvider implements EventEmittingSandboxProvider {
   // --- Helpers ---
 
   /**
-   * Map CRD phase string to SandboxStatus type.
+   * Map CRD conditions to SandboxStatus type.
    *
-   * CRD phases: Pending, Running, Paused, Succeeded, Failed
-   * SandboxStatus: 'stopped' | 'creating' | 'running' | 'idle' | 'stopping' | 'error'
+   * v0.2.1 CRD uses status.conditions[] instead of status.phase.
+   * Also checks spec.replicas === 0 for paused (idle) sandboxes.
    */
-  private mapCrdPhase(phase?: string): SandboxStatus {
-    switch (phase) {
-      case 'Running':
-        return 'running';
-      case 'Pending':
-        return 'creating';
-      case 'Paused':
-        return 'idle';
-      case 'Failed':
-        return 'error';
-      case 'Succeeded':
-        return 'stopped';
-      default:
-        return 'creating';
-    }
+  private mapConditionsToStatus(sandbox: {
+    spec?: { replicas?: number };
+    status?: { conditions?: Array<{ type?: string; status?: string; reason?: string }> };
+  }): SandboxStatus {
+    // Check pause first (replicas === 0)
+    if (sandbox.spec?.replicas === 0) return 'idle';
+
+    const conditions = sandbox.status?.conditions;
+    const ready = conditions?.find((c) => c.type === 'Ready');
+    if (!ready) return 'creating';
+    if (ready.status === 'True') return 'running';
+    if (ready.reason === 'SandboxExpired') return 'stopped';
+    // Transient reasons (PodNotReady, ContainersNotReady) indicate startup in progress
+    const transientReasons = ['PodNotReady', 'ContainersNotReady'];
+    if (transientReasons.includes(ready.reason ?? '')) return 'creating';
+    return 'error';
   }
 
   private parseMemoryMi(memoryStr?: string): number {
     if (!memoryStr) return 0;
-    const match = memoryStr.match(/^(\d+)Mi$/);
-    return match?.[1] ? parseInt(match[1], 10) : 0;
+    const miMatch = memoryStr.match(/^(\d+)Mi$/);
+    if (miMatch?.[1]) return parseInt(miMatch[1], 10);
+    const giMatch = memoryStr.match(/^(\d+)Gi$/);
+    if (giMatch?.[1]) return parseInt(giMatch[1], 10) * 1024;
+    return 0;
   }
 }
 

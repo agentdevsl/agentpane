@@ -1,7 +1,10 @@
 ---
 # Agent Sandbox CRD definitions
 # These define the custom resource types for the Agent Sandbox controller
-# Based on the agents.x-k8s.io/v1alpha1 API group
+#
+# v0.2.1 API group split:
+#   - Sandbox stays under agents.x-k8s.io
+#   - SandboxTemplate, SandboxClaim, SandboxWarmPool move to extensions.agents.x-k8s.io
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
@@ -14,7 +17,7 @@ spec:
     plural: sandboxes
     singular: sandbox
     shortNames:
-      - sb
+      - sandbox
   scope: Namespaced
   versions:
     - name: v1alpha1
@@ -27,46 +30,37 @@ spec:
             spec:
               type: object
               properties:
-                sandboxTemplateRef:
-                  type: object
-                  properties:
-                    name:
-                      type: string
-                  required:
-                    - name
-                podTemplateSpec:
+                podTemplate:
                   type: object
                   x-kubernetes-preserve-unknown-fields: true
-                networkPolicy:
-                  type: object
-                  x-kubernetes-preserve-unknown-fields: true
-                volumeClaims:
+                volumeClaimTemplates:
                   type: array
                   items:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
-                runtimeClassName:
+                shutdownTime:
                   type: string
-                ttlSecondsAfterFinished:
+                  format: date-time
+                shutdownPolicy:
+                  type: string
+                  enum:
+                    - Delete
+                    - Retain
+                replicas:
                   type: integer
+                  minimum: 0
+                  maximum: 1
             status:
               type: object
               properties:
-                phase:
+                serviceFQDN:
                   type: string
-                  enum:
-                    - Pending
-                    - Running
-                    - Paused
-                    - Succeeded
-                    - Failed
-                podName:
+                service:
                   type: string
-                podIP:
+                replicas:
+                  type: integer
+                selector:
                   type: string
-                startTime:
-                  type: string
-                  format: date-time
                 conditions:
                   type: array
                   items:
@@ -86,13 +80,17 @@ spec:
           x-kubernetes-preserve-unknown-fields: true
       subresources:
         status: {}
+        scale:
+          specReplicasPath: .spec.replicas
+          statusReplicasPath: .status.replicas
+          labelSelectorPath: .status.selector
       additionalPrinterColumns:
-        - name: Phase
+        - name: Ready
           type: string
-          jsonPath: .status.phase
-        - name: Pod
-          type: string
-          jsonPath: .status.podName
+          jsonPath: .status.conditions[?(@.type=="Ready")].status
+        - name: Replicas
+          type: integer
+          jsonPath: .status.replicas
         - name: Age
           type: date
           jsonPath: .metadata.creationTimestamp
@@ -100,16 +98,16 @@ spec:
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  name: sandboxtemplates.agents.x-k8s.io
+  name: sandboxtemplates.extensions.agents.x-k8s.io
 spec:
-  group: agents.x-k8s.io
+  group: extensions.agents.x-k8s.io
   names:
     kind: SandboxTemplate
     listKind: SandboxTemplateList
     plural: sandboxtemplates
     singular: sandboxtemplate
     shortNames:
-      - sbt
+      - sandboxtemplate
   scope: Namespaced
   versions:
     - name: v1alpha1
@@ -122,27 +120,19 @@ spec:
             spec:
               type: object
               properties:
-                podTemplateSpec:
+                podTemplate:
                   type: object
                   x-kubernetes-preserve-unknown-fields: true
+                networkPolicyManagement:
+                  type: string
+                  enum:
+                    - Managed
+                    - Unmanaged
                 networkPolicy:
                   type: object
                   x-kubernetes-preserve-unknown-fields: true
-                volumeClaims:
-                  type: array
-                  items:
-                    type: object
-                    x-kubernetes-preserve-unknown-fields: true
-                runtimeClassName:
-                  type: string
             status:
               type: object
-              properties:
-                conditions:
-                  type: array
-                  items:
-                    type: object
-                    x-kubernetes-preserve-unknown-fields: true
           x-kubernetes-preserve-unknown-fields: true
       subresources:
         status: {}
@@ -154,16 +144,16 @@ spec:
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  name: sandboxclaims.agents.x-k8s.io
+  name: sandboxclaims.extensions.agents.x-k8s.io
 spec:
-  group: agents.x-k8s.io
+  group: extensions.agents.x-k8s.io
   names:
     kind: SandboxClaim
     listKind: SandboxClaimList
     plural: sandboxclaims
     singular: sandboxclaim
     shortNames:
-      - sbc
+      - sandboxclaim
   scope: Namespaced
   versions:
     - name: v1alpha1
@@ -183,35 +173,37 @@ spec:
                       type: string
                   required:
                     - name
+                lifecycle:
+                  type: object
+                  properties:
+                    shutdownTime:
+                      type: string
+                      format: date-time
+                    shutdownPolicy:
+                      type: string
+                      enum:
+                        - Delete
+                        - Retain
             status:
               type: object
               properties:
-                phase:
-                  type: string
-                  enum:
-                    - Pending
-                    - Bound
-                    - Failed
-                sandboxRef:
-                  type: object
-                  properties:
-                    name:
-                      type: string
                 conditions:
                   type: array
                   items:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
+                sandbox:
+                  type: object
+                  properties:
+                    Name:
+                      type: string
           x-kubernetes-preserve-unknown-fields: true
       subresources:
         status: {}
       additionalPrinterColumns:
-        - name: Phase
-          type: string
-          jsonPath: .status.phase
         - name: Sandbox
           type: string
-          jsonPath: .status.sandboxRef.name
+          jsonPath: .status.sandbox.Name
         - name: Age
           type: date
           jsonPath: .metadata.creationTimestamp
@@ -219,16 +211,16 @@ spec:
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  name: sandboxwarmpools.agents.x-k8s.io
+  name: sandboxwarmpools.extensions.agents.x-k8s.io
 spec:
-  group: agents.x-k8s.io
+  group: extensions.agents.x-k8s.io
   names:
     kind: SandboxWarmPool
     listKind: SandboxWarmPoolList
     plural: sandboxwarmpools
     singular: sandboxwarmpool
     shortNames:
-      - sbwp
+      - swp
   scope: Namespaced
   versions:
     - name: v1alpha1
@@ -241,41 +233,36 @@ spec:
             spec:
               type: object
               properties:
-                templateRef:
+                sandboxTemplateRef:
                   type: object
                   properties:
                     name:
                       type: string
                   required:
                     - name
-                desiredReady:
+                replicas:
                   type: integer
                   minimum: 0
-                maxSize:
-                  type: integer
-                  minimum: 1
             status:
               type: object
               properties:
+                replicas:
+                  type: integer
                 readyReplicas:
                   type: integer
-                availableReplicas:
-                  type: integer
-                conditions:
-                  type: array
-                  items:
-                    type: object
-                    x-kubernetes-preserve-unknown-fields: true
           x-kubernetes-preserve-unknown-fields: true
       subresources:
         status: {}
+        scale:
+          specReplicasPath: .spec.replicas
+          statusReplicasPath: .status.replicas
       additionalPrinterColumns:
         - name: Ready
           type: integer
           jsonPath: .status.readyReplicas
         - name: Desired
           type: integer
-          jsonPath: .spec.desiredReady
+          jsonPath: .spec.replicas
         - name: Age
           type: date
           jsonPath: .metadata.creationTimestamp

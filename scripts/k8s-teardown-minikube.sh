@@ -130,7 +130,7 @@ else
 fi
 
 # Delete warm pools
-if kubectl get crd sandboxwarmpools.agents.x-k8s.io &>/dev/null 2>&1; then
+if kubectl get crd sandboxwarmpools.extensions.agents.x-k8s.io &>/dev/null 2>&1; then
   log_info "Deleting SandboxWarmPools..."
   if kubectl delete sandboxwarmpools --all -n "$NAMESPACE" --timeout=60s 2>/dev/null; then
     log_success "SandboxWarmPools deleted"
@@ -142,7 +142,7 @@ else
 fi
 
 # Delete sandbox templates
-if kubectl get crd sandboxtemplates.agents.x-k8s.io &>/dev/null 2>&1; then
+if kubectl get crd sandboxtemplates.extensions.agents.x-k8s.io &>/dev/null 2>&1; then
   log_info "Deleting SandboxTemplates..."
   if kubectl delete sandboxtemplates --all -n "$NAMESPACE" --timeout=60s 2>/dev/null; then
     log_success "SandboxTemplates deleted"

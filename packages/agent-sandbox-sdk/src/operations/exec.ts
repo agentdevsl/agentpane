@@ -153,8 +153,9 @@ export async function execStreamInSandbox(
 
 /**
  * Resolve the pod name from a sandbox resource.
- * Reads the sandbox status.podName, falling back to the sandbox name
- * only if the sandbox CRD resource is not found (404).
+ * In v0.2.1, the controller stores the pod name in the annotation
+ * `agents.x-k8s.io/pod-name`. Falls back to the sandbox name
+ * if the annotation is absent or the CRD resource is not found (404).
  * Propagates auth, network, and other errors.
  */
 async function resolvePodName(
@@ -170,8 +171,9 @@ async function resolvePodName(
       namespace,
       plural: 'sandboxes',
       name: sandboxName,
-    })) as { status?: { podName?: string } };
-    return sandbox.status?.podName ?? sandboxName;
+    })) as { metadata?: { annotations?: Record<string, string> } };
+    // v0.2.1: pod name is in annotation, not status.podName
+    return sandbox.metadata?.annotations?.['agents.x-k8s.io/pod-name'] ?? sandboxName;
   } catch (error) {
     // Only fall back for 404 (sandbox CRD not found — might be using raw pods).
     // Propagate auth, network, and other real errors.

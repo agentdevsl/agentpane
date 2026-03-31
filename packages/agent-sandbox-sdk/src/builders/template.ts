@@ -1,6 +1,6 @@
-import type { V1PodTemplateSpec } from '@kubernetes/client-node';
-import { CRD_API, CRD_KINDS } from '../constants.js';
-import type { SandboxNetworkPolicy, SandboxVolumeClaim } from '../types/sandbox.js';
+import type { V1PodSpec } from '@kubernetes/client-node';
+import { CRD_EXTENSIONS_API, CRD_KINDS } from '../constants.js';
+import type { NetworkPolicyManagement, NetworkPolicySpec, PodTemplate } from '../types/common.js';
 import type { SandboxTemplate, SandboxTemplateSpec } from '../types/template.js';
 
 export class SandboxTemplateBuilder {
@@ -17,7 +17,7 @@ export class SandboxTemplateBuilder {
 
   constructor(name: string) {
     this.resource = {
-      apiVersion: CRD_API.apiVersion,
+      apiVersion: CRD_EXTENSIONS_API.apiVersion,
       kind: CRD_KINDS.sandboxTemplate,
       metadata: { name },
       spec: {},
@@ -38,67 +38,54 @@ export class SandboxTemplateBuilder {
   }
 
   /** Set the pod template */
-  podTemplateSpec(template: V1PodTemplateSpec): this {
-    this.resource.spec.podTemplateSpec = template;
+  podTemplate(template: PodTemplate): this {
+    this.resource.spec.podTemplate = template;
     return this;
   }
 
   /** Set container image */
   image(image: string): this {
-    if (!this.resource.spec.podTemplateSpec) {
-      this.resource.spec.podTemplateSpec = {
-        spec: { containers: [{ name: 'sandbox', image }] },
-      };
-    } else {
-      const containers = this.resource.spec.podTemplateSpec.spec?.containers;
-      if (containers && containers.length > 0 && containers[0]) {
-        containers[0].image = image;
-      } else {
-        this.resource.spec.podTemplateSpec.spec = {
-          ...this.resource.spec.podTemplateSpec.spec,
-          containers: [{ name: 'sandbox', image }],
-        };
-      }
+    const podTemplate = this.ensurePodTemplate();
+    const containers = podTemplate.spec.containers;
+    if (containers && containers.length > 0 && containers[0]) {
+      containers[0].image = image;
     }
     return this;
   }
 
   /** Set resource limits */
   resources(limits: { cpu: string; memory: string }): this {
-    if (!this.resource.spec.podTemplateSpec) {
-      this.resource.spec.podTemplateSpec = {
-        spec: {
-          containers: [{ name: 'sandbox', resources: { limits } }],
-        },
-      };
-    } else {
-      const containers = this.resource.spec.podTemplateSpec.spec?.containers;
-      if (containers && containers.length > 0 && containers[0]) {
-        containers[0].resources = { ...containers[0].resources, limits };
-      }
+    const podTemplate = this.ensurePodTemplate();
+    const containers = podTemplate.spec.containers;
+    if (containers && containers.length > 0 && containers[0]) {
+      containers[0].resources = { ...containers[0].resources, limits };
     }
     return this;
   }
 
-  /** Set runtime class */
-  runtimeClass(name: string): this {
-    this.resource.spec.runtimeClassName = name;
-    return this;
-  }
-
-  /** Set network policy */
-  networkPolicy(policy: SandboxNetworkPolicy): this {
+  /** Set network policy using K8s-native NetworkPolicySpec */
+  networkPolicy(policy: NetworkPolicySpec): this {
     this.resource.spec.networkPolicy = policy;
     return this;
   }
 
-  /** Add volume claim template */
-  addVolumeClaim(claim: SandboxVolumeClaim): this {
-    if (!this.resource.spec.volumeClaims) {
-      this.resource.spec.volumeClaims = [];
-    }
-    this.resource.spec.volumeClaims.push(claim);
+  /** Set network policy management mode */
+  networkPolicyManagement(mode: NetworkPolicyManagement): this {
+    this.resource.spec.networkPolicyManagement = mode;
     return this;
+  }
+
+  /**
+   * Ensure the podTemplate exists and return a mutable reference to it.
+   */
+  private ensurePodTemplate(): PodTemplate {
+    if (!this.resource.spec.podTemplate) {
+      this.resource.spec.podTemplate = {
+        spec: { containers: [{ name: 'sandbox' }] } as V1PodSpec,
+        metadata: {},
+      };
+    }
+    return this.resource.spec.podTemplate;
   }
 
   /** Build the SandboxTemplate resource */

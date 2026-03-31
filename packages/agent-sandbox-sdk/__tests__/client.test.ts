@@ -207,22 +207,49 @@ describe('AgentSandboxClient', () => {
       });
       expect(await client.sandboxExists('missing')).toBe(false);
     });
+
+    it('sandbox CRUD uses core API group (not extensions)', async () => {
+      mockCustomObjectsApi.createNamespacedCustomObject.mockResolvedValue({});
+      mockCustomObjectsApi.getNamespacedCustomObject.mockResolvedValue({});
+      mockCustomObjectsApi.listNamespacedCustomObject.mockResolvedValue({ items: [] });
+      mockCustomObjectsApi.deleteNamespacedCustomObject.mockResolvedValue({});
+
+      await client.createSandbox({
+        apiVersion: 'agents.x-k8s.io/v1alpha1',
+        kind: 'Sandbox',
+        metadata: { name: 'test' },
+        spec: {},
+      } as any);
+      await client.getSandbox('test');
+      await client.listSandboxes();
+      await client.deleteSandbox('test');
+
+      for (const call of [
+        ...mockCustomObjectsApi.createNamespacedCustomObject.mock.calls,
+        ...mockCustomObjectsApi.getNamespacedCustomObject.mock.calls,
+        ...mockCustomObjectsApi.listNamespacedCustomObject.mock.calls,
+        ...mockCustomObjectsApi.deleteNamespacedCustomObject.mock.calls,
+      ]) {
+        expect(call[0].group).toBe('agents.x-k8s.io');
+        expect(call[0].group).not.toContain('extensions');
+      }
+    });
   });
 
   describe('Template CRUD', () => {
-    it('createTemplate uses agents group and sandboxtemplates plural', async () => {
+    it('createTemplate uses extensions group and sandboxtemplates plural', async () => {
       const template = {
-        apiVersion: 'agents.x-k8s.io/v1alpha1',
+        apiVersion: 'extensions.agents.x-k8s.io/v1alpha1',
         kind: 'SandboxTemplate',
         metadata: { name: 'base' },
-        spec: { podTemplateSpec: {} },
+        spec: { podTemplate: { spec: { containers: [] }, metadata: {} } },
       };
       mockCustomObjectsApi.createNamespacedCustomObject.mockResolvedValue(template);
 
       await client.createTemplate(template as any);
       expect(mockCustomObjectsApi.createNamespacedCustomObject).toHaveBeenCalledWith(
         expect.objectContaining({
-          group: 'agents.x-k8s.io',
+          group: 'extensions.agents.x-k8s.io',
           plural: 'sandboxtemplates',
         })
       );
@@ -262,12 +289,30 @@ describe('AgentSandboxClient', () => {
         })
       );
     });
+
+    it('template CRUD uses extensions API group consistently', async () => {
+      mockCustomObjectsApi.getNamespacedCustomObject.mockResolvedValue({});
+      mockCustomObjectsApi.listNamespacedCustomObject.mockResolvedValue({ items: [] });
+      mockCustomObjectsApi.deleteNamespacedCustomObject.mockResolvedValue({});
+
+      await client.getTemplate('tpl');
+      await client.listTemplates();
+      await client.deleteTemplate('tpl');
+
+      for (const call of [
+        ...mockCustomObjectsApi.getNamespacedCustomObject.mock.calls,
+        ...mockCustomObjectsApi.listNamespacedCustomObject.mock.calls,
+        ...mockCustomObjectsApi.deleteNamespacedCustomObject.mock.calls,
+      ]) {
+        expect(call[0].group).toBe('extensions.agents.x-k8s.io');
+      }
+    });
   });
 
   describe('Claim CRUD', () => {
-    it('createClaim uses agents group and sandboxclaims plural', async () => {
+    it('createClaim uses extensions group and sandboxclaims plural', async () => {
       const claim = {
-        apiVersion: 'agents.x-k8s.io/v1alpha1',
+        apiVersion: 'extensions.agents.x-k8s.io/v1alpha1',
         kind: 'SandboxClaim',
         metadata: { name: 'claim-1' },
         spec: { sandboxTemplateRef: { name: 'base' } },
@@ -277,7 +322,7 @@ describe('AgentSandboxClient', () => {
       await client.createClaim(claim as any);
       expect(mockCustomObjectsApi.createNamespacedCustomObject).toHaveBeenCalledWith(
         expect.objectContaining({
-          group: 'agents.x-k8s.io',
+          group: 'extensions.agents.x-k8s.io',
           plural: 'sandboxclaims',
         })
       );
@@ -320,19 +365,19 @@ describe('AgentSandboxClient', () => {
   });
 
   describe('WarmPool CRUD', () => {
-    it('createWarmPool uses agents group and sandboxwarmpools plural', async () => {
+    it('createWarmPool uses extensions group and sandboxwarmpools plural', async () => {
       const pool = {
-        apiVersion: 'agents.x-k8s.io/v1alpha1',
+        apiVersion: 'extensions.agents.x-k8s.io/v1alpha1',
         kind: 'SandboxWarmPool',
         metadata: { name: 'pool-1' },
-        spec: { desiredReady: 3, templateRef: { name: 'base' } },
+        spec: { replicas: 3, sandboxTemplateRef: { name: 'base' } },
       };
       mockCustomObjectsApi.createNamespacedCustomObject.mockResolvedValue(pool);
 
       await client.createWarmPool(pool as any);
       expect(mockCustomObjectsApi.createNamespacedCustomObject).toHaveBeenCalledWith(
         expect.objectContaining({
-          group: 'agents.x-k8s.io',
+          group: 'extensions.agents.x-k8s.io',
           plural: 'sandboxwarmpools',
         })
       );
@@ -528,6 +573,36 @@ describe('AgentSandboxClient', () => {
 
       expect(health.healthy).toBe(true);
       expect(health.controllerInstalled).toBe(false);
+    });
+
+    it('checks both core and extensions CRDs during healthCheck', async () => {
+      mockVersionApi.getCode.mockResolvedValue({ gitVersion: 'v1.30.0' });
+      mockApiExtApi.readCustomResourceDefinition.mockResolvedValue({});
+      mockCoreApi.readNamespace.mockResolvedValue({});
+      mockAppsApi.listNamespacedDeployment.mockResolvedValue({ items: [] });
+
+      await client.healthCheck();
+
+      // Verify both the core Sandbox CRD and extensions SandboxTemplate CRD are checked
+      expect(mockApiExtApi.readCustomResourceDefinition).toHaveBeenCalledWith({
+        name: 'sandboxes.agents.x-k8s.io',
+      });
+      expect(mockApiExtApi.readCustomResourceDefinition).toHaveBeenCalledWith({
+        name: 'sandboxtemplates.extensions.agents.x-k8s.io',
+      });
+    });
+
+    it('reports CRD not registered when extensions CRD is missing', async () => {
+      mockVersionApi.getCode.mockResolvedValue({ gitVersion: 'v1.30.0' });
+      // First call (core CRD) succeeds, second (extensions CRD) fails
+      mockApiExtApi.readCustomResourceDefinition
+        .mockResolvedValueOnce({})
+        .mockRejectedValueOnce({ statusCode: 404 });
+      mockCoreApi.readNamespace.mockResolvedValue({});
+
+      const health = await client.healthCheck();
+
+      expect(health.crdRegistered).toBe(false);
     });
   });
 });

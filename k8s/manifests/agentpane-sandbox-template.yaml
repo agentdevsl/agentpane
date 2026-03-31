@@ -6,7 +6,9 @@
 #
 # This replaces the manual pod spec building from Phase 1 k8s-provider.ts
 # with a declarative CRD resource managed by the cluster controller.
-apiVersion: agents.x-k8s.io/v1alpha1
+#
+# v0.2.1: SandboxTemplate moved to extensions API group
+apiVersion: extensions.agents.x-k8s.io/v1alpha1
 kind: SandboxTemplate
 metadata:
   name: agentpane-default
@@ -18,7 +20,8 @@ metadata:
   annotations:
     agentpane.io/description: "Default sandbox template for AgentPane agent execution"
 spec:
-  podTemplateSpec:
+  podTemplate:
+    metadata: {}
     spec:
       runtimeClassName: gvisor
       containers:
@@ -45,13 +48,11 @@ spec:
         - name: workspace
           emptyDir:
             sizeLimit: 10Gi
+  networkPolicyManagement: Managed
   networkPolicy:
-    allowedEgressPorts:
-      - port: 443
-        protocol: TCP
-      - port: 80
-        protocol: TCP
-    allowedEgressHosts:
-      - "*.github.com"
-      - "*.npmjs.org"
-      - "registry.npmjs.org"
+    egress:
+      - ports:
+          - port: 443
+            protocol: TCP
+          - port: 80
+            protocol: TCP

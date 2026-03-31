@@ -39,7 +39,7 @@ interface SandboxProviderHealth {
     message?: string;
     details?: Record<string, unknown>;
   }>;
-  listSandboxes?(): Promise<Array<{ name: string; phase: string }>>;
+  listSandboxes?(): Promise<Array<{ name: string; status: string }>>;
   get?(codespaceId: string): Promise<unknown>;
   create?(config: {
     codespaceId: string;
@@ -179,7 +179,7 @@ async function countPods(
     const sandboxes = await provider.listSandboxes();
     return {
       total: sandboxes.length,
-      running: sandboxes.filter((s) => s.phase === 'Running').length,
+      running: sandboxes.filter((s) => s.status === 'running').length,
     };
   } catch (err) {
     log.warn(context ?? 'K8s listSandboxes failed', {

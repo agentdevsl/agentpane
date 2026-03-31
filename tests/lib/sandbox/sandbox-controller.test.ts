@@ -69,7 +69,7 @@ function makeSandbox(name: string, overrides: Partial<Sandbox> = {}): Sandbox {
 
 function makeWarmPool(
   name: string,
-  desiredReady: number,
+  replicas: number,
   templateName: string,
   overrides: Partial<SandboxWarmPool> = {}
 ): SandboxWarmPool {
@@ -78,8 +78,8 @@ function makeWarmPool(
     kind: 'SandboxWarmPool',
     metadata: { name, namespace: 'test-ns' },
     spec: {
-      desiredReady,
-      templateRef: { name: templateName },
+      replicas,
+      sandboxTemplateRef: { name: templateName },
     },
     ...overrides,
   } as SandboxWarmPool;
@@ -461,7 +461,7 @@ describe('SandboxController', () => {
         kind: 'SandboxTemplate',
         metadata: { name: 'my-template' },
         spec: {
-          podTemplateSpec: {
+          podTemplate: {
             spec: {
               containers: [
                 { name: 'custom', image: 'custom-image:latest', command: ['sleep', 'infinity'] },
@@ -748,8 +748,12 @@ describe('SandboxController', () => {
 
     it('does not create sandboxes when pool is satisfied', async () => {
       const existingSandboxes = [
-        makeSandbox('warm-pool-1-a', { status: { phase: 'Running' } } as any),
-        makeSandbox('warm-pool-1-b', { status: { phase: 'Running' } } as any),
+        makeSandbox('warm-pool-1-a', {
+          status: { replicas: 1, conditions: [{ type: 'Ready', status: 'True' }] },
+        } as any),
+        makeSandbox('warm-pool-1-b', {
+          status: { replicas: 1, conditions: [{ type: 'Ready', status: 'True' }] },
+        } as any),
       ];
 
       mockClient.listWarmPools.mockResolvedValue({
@@ -766,7 +770,14 @@ describe('SandboxController', () => {
     });
 
     it('cleans up terminal warm pool sandboxes', async () => {
-      const existingSandboxes = [makeSandbox('warm-fail', { status: { phase: 'Failed' } } as any)];
+      const existingSandboxes = [
+        makeSandbox('warm-fail', {
+          status: {
+            replicas: 0,
+            conditions: [{ type: 'Ready', status: 'False', reason: 'PodCreationFailed' }],
+          },
+        } as any),
+      ];
 
       mockClient.listWarmPools.mockResolvedValue({
         items: [makeWarmPool('pool-1', 1, 'template-1')],
@@ -797,9 +808,9 @@ describe('SandboxController', () => {
       ctrl.stop();
     });
 
-    it('skips warm pool with no templateRef', async () => {
+    it('skips warm pool with no sandboxTemplateRef', async () => {
       const pool = makeWarmPool('pool-no-tpl', 2, 'any-template');
-      (pool.spec as any).templateRef = undefined;
+      (pool.spec as any).sandboxTemplateRef = undefined;
 
       mockClient.listWarmPools.mockResolvedValue({ items: [pool] });
 
@@ -813,7 +824,9 @@ describe('SandboxController', () => {
 
     it('updates warm pool status with ready count', async () => {
       const existingSandboxes = [
-        makeSandbox('warm-running', { status: { phase: 'Running' } } as any),
+        makeSandbox('warm-running', {
+          status: { replicas: 1, conditions: [{ type: 'Ready', status: 'True' }] },
+        } as any),
       ];
 
       mockClient.listWarmPools.mockResolvedValue({
@@ -834,10 +847,68 @@ describe('SandboxController', () => {
       ctrl.stop();
     });
 
+    it('cleans up expired warm pool sandboxes (SandboxExpired reason)', async () => {
+      const existingSandboxes = [
+        makeSandbox('warm-expired', {
+          status: {
+            replicas: 0,
+            conditions: [{ type: 'Ready', status: 'False', reason: 'SandboxExpired' }],
+          },
+        } as any),
+      ];
+
+      mockClient.listWarmPools.mockResolvedValue({
+        items: [makeWarmPool('pool-1', 1, 'template-1')],
+      });
+      mockClient.listSandboxes.mockResolvedValue({ items: existingSandboxes });
+      mockClient.deleteSandbox.mockResolvedValue(undefined);
+      mockClient.createSandbox.mockResolvedValue({});
+
+      const ctrl = new SandboxController(mockClient as any, 'test-ns');
+      await ctrl.start();
+
+      expect(mockClient.deleteSandbox).toHaveBeenCalledWith('warm-expired');
+
+      ctrl.stop();
+    });
+
+    it('does not clean up sandboxes with non-terminal Ready=False reason', async () => {
+      const existingSandboxes = [
+        makeSandbox('warm-creating', {
+          status: {
+            replicas: 1,
+            conditions: [{ type: 'Ready', status: 'False', reason: 'ContainerCreating' }],
+          },
+        } as any),
+      ];
+
+      mockClient.listWarmPools.mockResolvedValue({
+        items: [makeWarmPool('pool-1', 1, 'template-1')],
+      });
+      mockClient.listSandboxes.mockResolvedValue({ items: existingSandboxes });
+
+      const ctrl = new SandboxController(mockClient as any, 'test-ns');
+      await ctrl.start();
+
+      expect(mockClient.deleteSandbox).not.toHaveBeenCalled();
+
+      ctrl.stop();
+    });
+
     it('counts Pending sandboxes as active to avoid over-provisioning', async () => {
       const existingSandboxes = [
-        makeSandbox('warm-pending-a', { status: { phase: 'Pending' } } as any),
-        makeSandbox('warm-pending-b', { status: { phase: 'Pending' } } as any),
+        makeSandbox('warm-pending-a', {
+          status: {
+            replicas: 0,
+            conditions: [{ type: 'Ready', status: 'False', reason: 'PodNotReady' }],
+          },
+        } as any),
+        makeSandbox('warm-pending-b', {
+          status: {
+            replicas: 0,
+            conditions: [{ type: 'Ready', status: 'False', reason: 'PodNotReady' }],
+          },
+        } as any),
       ];
 
       mockClient.listWarmPools.mockResolvedValue({

@@ -1,11 +1,11 @@
-import type { V1Container, V1PodTemplateSpec } from '@kubernetes/client-node';
+import type { V1Container, V1PodSpec } from '@kubernetes/client-node';
 import { CRD_ANNOTATIONS, CRD_API, CRD_KINDS } from '../constants.js';
 import type {
-  Sandbox,
-  SandboxNetworkPolicy,
-  SandboxSpec,
-  SandboxVolumeClaim,
-} from '../types/sandbox.js';
+  PersistentVolumeClaimTemplate,
+  PodTemplate,
+  ShutdownPolicy,
+} from '../types/common.js';
+import type { Sandbox, SandboxSpec } from '../types/sandbox.js';
 
 export class SandboxBuilder {
   private resource: {
@@ -50,18 +50,6 @@ export class SandboxBuilder {
     return this;
   }
 
-  /** Use a SandboxTemplate by name */
-  fromTemplate(name: string, namespace?: string): this {
-    this.resource.spec.sandboxTemplateRef = { name, namespace };
-    return this;
-  }
-
-  /** Inline pod template */
-  withPodTemplate(template: V1PodTemplateSpec): this {
-    this.resource.spec.podTemplateSpec = template;
-    return this;
-  }
-
   /** Set container image */
   image(image: string): this {
     this.ensureSandboxContainer().image = image;
@@ -75,34 +63,35 @@ export class SandboxBuilder {
     return this;
   }
 
-  /** Set runtime class (e.g., "gvisor") */
+  /** Set runtime class (e.g., "gvisor") on podTemplate.spec */
   runtimeClass(name: string): this {
-    this.resource.spec.runtimeClassName = name;
+    const podTemplate = this.ensurePodTemplate();
+    podTemplate.spec.runtimeClassName = name;
     return this;
   }
 
-  /** Add volume claim */
-  addVolumeClaim(claim: SandboxVolumeClaim): this {
-    this.resource.spec.volumeClaims ??= [];
-    this.resource.spec.volumeClaims.push(claim);
+  /** Add a volume claim template */
+  addVolumeClaimTemplate(template: PersistentVolumeClaimTemplate): this {
+    this.resource.spec.volumeClaimTemplates ??= [];
+    this.resource.spec.volumeClaimTemplates.push(template);
     return this;
   }
 
-  /** Set network policy */
-  networkPolicy(policy: SandboxNetworkPolicy): this {
-    this.resource.spec.networkPolicy = policy;
+  /** Set shutdown time (ISO date-time string) */
+  shutdownTime(time: string): this {
+    this.resource.spec.shutdownTime = time;
+    return this;
+  }
+
+  /** Set shutdown policy */
+  shutdownPolicy(policy: ShutdownPolicy): this {
+    this.resource.spec.shutdownPolicy = policy;
     return this;
   }
 
   /** Set replicas (0 = paused, 1 = running) */
   replicas(count: number): this {
     this.resource.spec.replicas = count;
-    return this;
-  }
-
-  /** Set TTL after completion */
-  ttl(seconds: number): this {
-    this.resource.spec.ttlSecondsAfterFinished = seconds;
     return this;
   }
 
@@ -121,25 +110,30 @@ export class SandboxBuilder {
   }
 
   /**
-   * Ensure the podTemplateSpec has a 'sandbox' container and return a mutable
-   * reference to it. Creates the podTemplateSpec and container array if needed.
+   * Ensure the podTemplate exists and return a mutable reference to it.
    */
-  private ensureSandboxContainer(): V1Container {
-    if (!this.resource.spec.podTemplateSpec) {
-      this.resource.spec.podTemplateSpec = {
-        spec: { containers: [{ name: 'sandbox' }] },
+  private ensurePodTemplate(): PodTemplate {
+    if (!this.resource.spec.podTemplate) {
+      this.resource.spec.podTemplate = {
+        spec: { containers: [{ name: 'sandbox' }] } as V1PodSpec,
+        metadata: {},
       };
     }
+    return this.resource.spec.podTemplate;
+  }
 
-    const spec = this.resource.spec.podTemplateSpec.spec;
-    if (!spec) {
-      throw new Error('podTemplateSpec.spec is unexpectedly undefined');
-    }
-    if (!spec.containers || spec.containers.length === 0) {
-      spec.containers = [{ name: 'sandbox' }];
+  /**
+   * Ensure the podTemplate has a 'sandbox' container and return a mutable
+   * reference to it. Creates the podTemplate and container array if needed.
+   */
+  private ensureSandboxContainer(): V1Container {
+    const podTemplate = this.ensurePodTemplate();
+
+    if (!podTemplate.spec.containers || podTemplate.spec.containers.length === 0) {
+      podTemplate.spec.containers = [{ name: 'sandbox' }];
     }
 
-    const container = spec.containers[0];
+    const container = podTemplate.spec.containers[0];
     if (!container) {
       throw new Error('sandbox container is unexpectedly undefined');
     }

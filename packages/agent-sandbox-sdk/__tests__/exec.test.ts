@@ -410,9 +410,9 @@ describe('execInSandbox', () => {
     ).rejects.toThrow('network error');
   });
 
-  it('uses podName from sandbox status when available', async () => {
+  it('uses podName from sandbox annotation when available', async () => {
     mockGetNamespacedCustomObject.mockResolvedValue({
-      status: { podName: 'resolved-pod' },
+      metadata: { annotations: { 'agents.x-k8s.io/pod-name': 'resolved-pod' } },
     });
 
     mockExec.mockImplementation(
@@ -443,9 +443,9 @@ describe('execInSandbox', () => {
     expect(result.stdout).toBe('resolved-pod');
   });
 
-  it('falls back to sandbox name when status has no podName', async () => {
+  it('falls back to sandbox name when annotation has no pod-name', async () => {
     mockGetNamespacedCustomObject.mockResolvedValue({
-      status: {},
+      metadata: {},
     });
 
     mockExec.mockImplementation(

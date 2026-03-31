@@ -361,14 +361,13 @@ export class AgentSandboxInstance implements Sandbox {
   }
 
   /**
-   * Refresh status from the actual Sandbox CRD phase.
+   * Refresh status from the actual Sandbox CRD conditions.
    * Called by the provider after constructing an instance from a cluster query.
    */
   async refreshStatus(): Promise<void> {
     try {
       const sandbox = await this.client.getSandbox(this.sandboxName);
-      const phase = sandbox?.status?.phase;
-      this._status = this.mapPhaseToStatus(phase);
+      this._status = this.mapConditionsToStatus(sandbox);
     } catch (error) {
       if (error instanceof NotFoundError) {
         this._status = 'stopped';
@@ -379,23 +378,25 @@ export class AgentSandboxInstance implements Sandbox {
   }
 
   /**
-   * Map CRD phase to SandboxStatus.
-   * Matches AgentSandboxProvider.mapCrdPhase() for consistency.
+   * Map CRD conditions to SandboxStatus.
+   *
+   * v0.2.1 CRD uses status.conditions[] instead of status.phase.
+   * Also checks spec.replicas === 0 for paused (idle) sandboxes.
+   * Matches AgentSandboxProvider.mapConditionsToStatus() for consistency.
    */
-  private mapPhaseToStatus(phase?: string): SandboxStatus {
-    switch (phase) {
-      case 'Running':
-        return 'running';
-      case 'Pending':
-        return 'creating';
-      case 'Paused':
-        return 'idle';
-      case 'Failed':
-        return 'error';
-      case 'Succeeded':
-        return 'stopped';
-      default:
-        return 'creating';
-    }
+  private mapConditionsToStatus(sandbox: {
+    spec?: { replicas?: number };
+    status?: { conditions?: Array<{ type?: string; status?: string; reason?: string }> };
+  }): SandboxStatus {
+    if (sandbox.spec?.replicas === 0) return 'idle';
+    const conditions = sandbox.status?.conditions;
+    const ready = conditions?.find((c) => c.type === 'Ready');
+    if (!ready) return 'creating';
+    if (ready.status === 'True') return 'running';
+    if (ready.reason === 'SandboxExpired') return 'stopped';
+    // Transient reasons (PodNotReady, ContainersNotReady) indicate startup in progress
+    const transientReasons = ['PodNotReady', 'ContainersNotReady'];
+    if (transientReasons.includes(ready.reason ?? '')) return 'creating';
+    return 'error';
   }
 }

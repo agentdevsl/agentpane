@@ -17,6 +17,7 @@ interface MockAgentSandboxClient {
   createWarmPool: ReturnType<typeof vi.fn>;
   getWarmPool: ReturnType<typeof vi.fn>;
   deleteWarmPool: ReturnType<typeof vi.fn>;
+  replaceWarmPool: ReturnType<typeof vi.fn>;
   namespace: string;
 }
 
@@ -26,7 +27,7 @@ const createMockClient = (): MockAgentSandboxClient => ({
   createSandbox: vi.fn().mockResolvedValue({}),
   getSandbox: vi.fn().mockResolvedValue({
     metadata: { creationTimestamp: new Date().toISOString() },
-    status: { phase: 'Running' },
+    status: { replicas: 1, conditions: [{ type: 'Ready', status: 'True' }] },
   }),
   listSandboxes: vi.fn().mockResolvedValue({ items: [] }),
   deleteSandbox: vi.fn().mockResolvedValue(undefined),
@@ -51,6 +52,7 @@ const createMockClient = (): MockAgentSandboxClient => ({
   createWarmPool: vi.fn().mockResolvedValue({}),
   getWarmPool: vi.fn().mockRejectedValue(new Error('not found')),
   deleteWarmPool: vi.fn().mockResolvedValue(undefined),
+  replaceWarmPool: vi.fn().mockResolvedValue({}),
   namespace: 'agentpane-sandboxes',
 });
 
@@ -67,7 +69,10 @@ vi.mock('@agentpane/agent-sandbox-sdk', () => {
     image = vi.fn().mockReturnThis();
     resources = vi.fn().mockReturnThis();
     runtimeClass = vi.fn().mockReturnThis();
-    ttl = vi.fn().mockReturnThis();
+    shutdownTime = vi.fn().mockReturnThis();
+    shutdownPolicy = vi.fn().mockReturnThis();
+    replicas = vi.fn().mockReturnThis();
+    addVolumeClaimTemplate = vi.fn().mockReturnThis();
     agentPaneContext = vi.fn().mockReturnThis();
     build = vi.fn().mockImplementation(() => ({
       apiVersion: 'agents.x-k8s.io/v1alpha1',
@@ -277,7 +282,7 @@ describe('AgentSandboxProvider', () => {
               },
             },
             spec: {},
-            status: { phase: 'Running' },
+            status: { replicas: 1, conditions: [{ type: 'Ready', status: 'True' }] },
           },
         ],
       });
@@ -338,7 +343,7 @@ describe('AgentSandboxProvider', () => {
               creationTimestamp: '2026-01-01T00:00:00Z',
             },
             spec: {
-              podTemplateSpec: {
+              podTemplate: {
                 spec: {
                   containers: [
                     {
@@ -350,9 +355,13 @@ describe('AgentSandboxProvider', () => {
                     },
                   ],
                 },
+                metadata: {},
               },
             },
-            status: { phase: 'Running' },
+            status: {
+              replicas: 1,
+              conditions: [{ type: 'Ready', status: 'True' }],
+            },
           },
         ],
       });
@@ -379,25 +388,84 @@ describe('AgentSandboxProvider', () => {
       expect(list).toEqual([]);
     });
 
-    it('maps CRD phases to SandboxStatus correctly', async () => {
+    it('maps CRD conditions to SandboxStatus correctly', async () => {
       const provider = createProvider();
 
-      const phases = ['Running', 'Pending', 'Paused', 'Failed', 'Succeeded', undefined];
-      const expected = ['running', 'creating', 'idle', 'error', 'stopped', 'creating'];
-
-      mockClient.listSandboxes.mockResolvedValue({
-        items: phases.map((phase, i) => ({
+      // v0.2.1: condition-based status detection
+      const items = [
+        // Ready=True → running
+        {
           metadata: {
-            name: `sandbox-${i}`,
-            labels: {
-              'agentpane.io/sandbox-id': `id-${i}`,
-              'agentpane.io/project-id': `proj-${i}`,
-            },
+            name: 'sandbox-0',
+            labels: { 'agentpane.io/sandbox-id': 'id-0', 'agentpane.io/project-id': 'proj-0' },
           },
           spec: {},
-          status: { phase },
-        })),
-      });
+          status: { replicas: 1, conditions: [{ type: 'Ready', status: 'True' }] },
+        },
+        // No conditions → creating
+        {
+          metadata: {
+            name: 'sandbox-1',
+            labels: { 'agentpane.io/sandbox-id': 'id-1', 'agentpane.io/project-id': 'proj-1' },
+          },
+          spec: {},
+          status: { replicas: 1 },
+        },
+        // replicas=0 → idle (paused)
+        {
+          metadata: {
+            name: 'sandbox-2',
+            labels: { 'agentpane.io/sandbox-id': 'id-2', 'agentpane.io/project-id': 'proj-2' },
+          },
+          spec: { replicas: 0 },
+          status: { replicas: 0, conditions: [{ type: 'Ready', status: 'False' }] },
+        },
+        // Ready=False (generic) → error
+        {
+          metadata: {
+            name: 'sandbox-3',
+            labels: { 'agentpane.io/sandbox-id': 'id-3', 'agentpane.io/project-id': 'proj-3' },
+          },
+          spec: {},
+          status: { replicas: 1, conditions: [{ type: 'Ready', status: 'False' }] },
+        },
+        // Ready=False + SandboxExpired → stopped
+        {
+          metadata: {
+            name: 'sandbox-4',
+            labels: { 'agentpane.io/sandbox-id': 'id-4', 'agentpane.io/project-id': 'proj-4' },
+          },
+          spec: {},
+          status: {
+            replicas: 1,
+            conditions: [{ type: 'Ready', status: 'False', reason: 'SandboxExpired' }],
+          },
+        },
+        // No status at all → creating
+        {
+          metadata: {
+            name: 'sandbox-5',
+            labels: { 'agentpane.io/sandbox-id': 'id-5', 'agentpane.io/project-id': 'proj-5' },
+          },
+          spec: {},
+        },
+        // Ready=False + PodNotReady (transient) → creating
+        {
+          metadata: {
+            name: 'sandbox-6',
+            labels: { 'agentpane.io/sandbox-id': 'id-6', 'agentpane.io/project-id': 'proj-6' },
+          },
+          spec: {},
+          status: {
+            replicas: 1,
+            conditions: [{ type: 'Ready', status: 'False', reason: 'PodNotReady' }],
+          },
+        },
+      ];
+
+      const expected = ['running', 'creating', 'idle', 'error', 'stopped', 'creating', 'creating'];
+
+      mockClient.listSandboxes.mockResolvedValue({ items });
 
       const list = await provider.list();
       expect(list.map((s) => s.status)).toEqual(expected);
@@ -566,7 +634,8 @@ describe('AgentSandboxProvider', () => {
         expect.objectContaining({
           kind: 'SandboxWarmPool',
           spec: expect.objectContaining({
-            desiredReady: 3,
+            replicas: 3,
+            sandboxTemplateRef: { name: 'agentpane-default' },
           }),
         })
       );
@@ -580,19 +649,42 @@ describe('AgentSandboxProvider', () => {
       expect(mockClient.createWarmPool).not.toHaveBeenCalled();
     });
 
-    it('deletes existing warm pool and recreates when create fails (409)', async () => {
+    it('replaces existing warm pool when create fails (409)', async () => {
       // Import the mocked AlreadyExistsError so instanceof checks work in source code
+      const { AlreadyExistsError: MockedAlreadyExistsError } = await import(
+        '@agentpane/agent-sandbox-sdk'
+      );
+      mockClient.createWarmPool.mockRejectedValueOnce(
+        new MockedAlreadyExistsError('WarmPool', 'agentpane-warm-pool')
+      );
+      mockClient.replaceWarmPool.mockResolvedValueOnce({});
+
+      const provider = createProvider({ enableWarmPool: true });
+
+      await provider.initWarmPool();
+
+      expect(mockClient.replaceWarmPool).toHaveBeenCalledWith(
+        'agentpane-warm-pool',
+        expect.objectContaining({ kind: 'SandboxWarmPool' })
+      );
+      expect(mockClient.deleteWarmPool).not.toHaveBeenCalled();
+      expect(mockClient.createWarmPool).toHaveBeenCalledTimes(1);
+    });
+
+    it('falls back to delete+recreate when replace also fails (409)', async () => {
       const { AlreadyExistsError: MockedAlreadyExistsError } = await import(
         '@agentpane/agent-sandbox-sdk'
       );
       mockClient.createWarmPool
         .mockRejectedValueOnce(new MockedAlreadyExistsError('WarmPool', 'agentpane-warm-pool'))
         .mockResolvedValueOnce({});
+      mockClient.replaceWarmPool.mockRejectedValueOnce(new Error('replace failed'));
 
       const provider = createProvider({ enableWarmPool: true });
 
       await provider.initWarmPool();
 
+      expect(mockClient.replaceWarmPool).toHaveBeenCalled();
       expect(mockClient.deleteWarmPool).toHaveBeenCalledWith('agentpane-warm-pool');
       expect(mockClient.createWarmPool).toHaveBeenCalledTimes(2);
     });
@@ -973,7 +1065,7 @@ describe('AgentSandboxInstance', () => {
       const pastDate = new Date(Date.now() - 60000).toISOString();
       mockClient.getSandbox.mockResolvedValue({
         metadata: { creationTimestamp: pastDate },
-        status: { phase: 'Running' },
+        status: { replicas: 1, conditions: [{ type: 'Ready', status: 'True' }] },
       });
 
       const metrics = await instance.getMetrics();

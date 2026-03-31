@@ -1,5 +1,6 @@
-import { CRD_API, CRD_KINDS } from '../constants.js';
+import { CRD_EXTENSIONS_API, CRD_KINDS } from '../constants.js';
 import type { SandboxClaim, SandboxClaimSpec } from '../types/claim.js';
+import type { Lifecycle, ShutdownPolicy } from '../types/common.js';
 
 export class SandboxClaimBuilder {
   private resource: {
@@ -15,7 +16,7 @@ export class SandboxClaimBuilder {
 
   constructor(name: string) {
     this.resource = {
-      apiVersion: CRD_API.apiVersion,
+      apiVersion: CRD_EXTENSIONS_API.apiVersion,
       kind: CRD_KINDS.sandboxClaim,
       metadata: { name },
       spec: {},
@@ -35,15 +36,22 @@ export class SandboxClaimBuilder {
     return this;
   }
 
-  /** Reference the template */
-  templateRef(name: string, namespace?: string): this {
-    this.resource.spec.sandboxTemplateRef = { name, namespace };
+  /** Reference the sandbox template (name only, no namespace) */
+  templateRef(name: string): this {
+    this.resource.spec.sandboxTemplateRef = { name };
     return this;
   }
 
-  /** Reference a warm pool */
-  warmPoolRef(name: string, namespace?: string): this {
-    this.resource.spec.warmPoolRef = { name, namespace };
+  /** Set lifecycle options (shutdown time and/or policy) */
+  lifecycle(opts: { shutdownTime?: string; shutdownPolicy?: ShutdownPolicy }): this {
+    const lc: Lifecycle = {};
+    if (opts.shutdownTime !== undefined) {
+      lc.shutdownTime = opts.shutdownTime;
+    }
+    if (opts.shutdownPolicy !== undefined) {
+      lc.shutdownPolicy = opts.shutdownPolicy;
+    }
+    this.resource.spec.lifecycle = lc;
     return this;
   }
 
