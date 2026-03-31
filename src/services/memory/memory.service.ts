@@ -28,6 +28,7 @@ import type {
   MemorySessionRef,
   PaginationOptions,
   SearchResult,
+  TaskOutcome,
 } from './types.js';
 import { EMPTY_CONTEXT } from './types.js';
 
@@ -76,7 +77,8 @@ export interface MemoryStoreInterface {
     codespaceId: string | null,
     query: string,
     maxTokens?: number,
-    maxInsights?: number
+    maxInsights?: number,
+    taskSkillId?: string | null
   ): Promise<Result<MemoryContext, MemoryError>>;
   insertMessage(params: {
     codespaceId: string;
@@ -96,7 +98,8 @@ export interface MemoryStoreInterface {
 export interface InsightDeriverInterface {
   deriveInsights(
     memorySessionId: string,
-    codespaceId: string
+    codespaceId: string,
+    outcome?: TaskOutcome
   ): Promise<
     Result<
       { insightsCreated: number; insightsUpdated: number; insightsDeleted: number },
@@ -153,10 +156,17 @@ export class MemoryService {
   async getContext(
     codespaceId: string,
     query: string,
-    maxInsights?: number
+    maxInsights?: number,
+    taskSkillId?: string | null
   ): Promise<Result<MemoryContext, MemoryError>> {
     try {
-      return await this.store.assembleContext(codespaceId, query, undefined, maxInsights);
+      return await this.store.assembleContext(
+        codespaceId,
+        query,
+        undefined,
+        maxInsights,
+        taskSkillId
+      );
     } catch (error) {
       log.warn('Memory context retrieval failed', {
         error: error instanceof Error ? error : new Error(String(error)),
@@ -225,9 +235,13 @@ export class MemoryService {
   }
 
   /** Finalize a memory session (triggers insight derivation). Fire-and-forget. */
-  async finalizeSession(ref: MemorySessionRef): Promise<void> {
+  async finalizeSession(ref: MemorySessionRef, outcome?: TaskOutcome): Promise<void> {
     try {
-      const result = await this.deriver.deriveInsights(ref.memorySessionId, ref.codespaceId);
+      const result = await this.deriver.deriveInsights(
+        ref.memorySessionId,
+        ref.codespaceId,
+        outcome
+      );
       if (!result.ok) {
         log.warn('Insight derivation returned error', {
           error: new Error(String(result.error)),

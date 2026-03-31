@@ -6,7 +6,7 @@
  */
 
 import { createId } from '@paralleldrive/cuid2';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, sql } from 'drizzle-orm';
 import type { MemoryError } from '../../lib/errors/memory-errors.js';
 import { MemoryErrors } from '../../lib/errors/memory-errors.js';
 import { createLogger } from '../../lib/logging/logger.js';
@@ -355,7 +355,7 @@ export class SkillTrackingService {
         .where(
           and(
             eq(skillExecutions.codespaceId, codespaceId),
-            sql`${skillExecutions.insightIdsUsed} IS NOT NULL`
+            isNotNull(skillExecutions.insightIdsUsed)
           )
         );
 
@@ -386,6 +386,88 @@ export class SkillTrackingService {
         error: error instanceof Error ? error : new Error(String(error)),
       });
       return err(MemoryErrors.QUERY_ERROR('Failed to get insight correlations'));
+    }
+  }
+
+  /**
+   * Compute effectiveness scores for all insights in a codespace based on
+   * execution outcomes. Score = (successes - failures) / total_uses, weighted
+   * by recency (exponential decay, 30-day half-life).
+   */
+  async computeInsightScores(codespaceId: string): Promise<Result<void, MemoryError>> {
+    try {
+      const { skillExecutions, memoryInsights } = await import('../../db/schema/index.js');
+
+      // Get all executions with insightIdsUsed
+      const executions = await this.db
+        .select({
+          status: skillExecutions.status,
+          insightIdsUsed: skillExecutions.insightIdsUsed,
+          completedAt: skillExecutions.completedAt,
+        })
+        .from(skillExecutions)
+        .where(
+          and(
+            eq(skillExecutions.codespaceId, codespaceId),
+            isNotNull(skillExecutions.insightIdsUsed)
+          )
+        );
+
+      // Aggregate per insight with recency weighting
+      const now = Date.now();
+      const HALF_LIFE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+      const insightStats = new Map<
+        string,
+        { weightedSuccesses: number; weightedFailures: number; totalWeight: number }
+      >();
+
+      for (const exec of executions) {
+        const ids = exec.insightIdsUsed as string[] | null;
+        if (!Array.isArray(ids)) continue;
+
+        const completedAt = exec.completedAt ? new Date(exec.completedAt).getTime() : now;
+        const age = now - completedAt;
+        const weight = 0.5 ** (age / HALF_LIFE_MS);
+
+        for (const insightId of ids) {
+          const stats = insightStats.get(insightId) ?? {
+            weightedSuccesses: 0,
+            weightedFailures: 0,
+            totalWeight: 0,
+          };
+          stats.totalWeight += weight;
+          if (exec.status === 'success') {
+            stats.weightedSuccesses += weight;
+          } else if (exec.status === 'failed') {
+            stats.weightedFailures += weight;
+          }
+          insightStats.set(insightId, stats);
+        }
+      }
+
+      // Update scores in DB (batched)
+      await Promise.all(
+        [...insightStats.entries()]
+          .filter(([_, stats]) => stats.totalWeight > 0)
+          .map(([insightId, stats]) => {
+            const score = (stats.weightedSuccesses - stats.weightedFailures) / stats.totalWeight;
+            return this.db
+              .update(memoryInsights)
+              .set({ effectivenessScore: Math.round(score * 1000) / 1000 })
+              .where(eq(memoryInsights.id, insightId));
+          })
+      );
+
+      log.debug('Computed insight effectiveness scores', {
+        data: { codespaceId, insightsScored: insightStats.size },
+      });
+
+      return ok(undefined);
+    } catch (error) {
+      log.error('Failed to compute insight scores', {
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
+      return err(MemoryErrors.QUERY_ERROR('Failed to compute insight scores'));
     }
   }
 }

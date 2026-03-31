@@ -1,5 +1,5 @@
 import { createId } from '@paralleldrive/cuid2';
-import { index, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import { doublePrecision, index, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 import { codespaces } from './codespaces';
 import { sessions } from './sessions';
 
@@ -27,6 +27,7 @@ export const memoryInsights = pgTable(
     category: text('category').$type<
       'pattern' | 'anti_pattern' | 'decision' | 'architecture' | 'error_lesson'
     >(),
+    effectivenessScore: doublePrecision('effectiveness_score'),
     updatedAt: timestamp('updated_at', { mode: 'string' }),
     createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),
   },

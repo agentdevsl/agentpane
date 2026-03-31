@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS memory_insights (
   metadata TEXT,
   status TEXT NOT NULL DEFAULT 'active',
   category TEXT,
+  effectiveness_score REAL,
   updated_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

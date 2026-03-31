@@ -1,6 +1,6 @@
 import { createId } from '@paralleldrive/cuid2';
 import { sql } from 'drizzle-orm';
-import { index, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import { codespaces } from './codespaces';
 import { sessions } from './sessions';
 
@@ -28,6 +28,7 @@ export const memoryInsights = sqliteTable(
     category: text('category').$type<
       'pattern' | 'anti_pattern' | 'decision' | 'architecture' | 'error_lesson'
     >(),
+    effectivenessScore: real('effectiveness_score'),
     updatedAt: text('updated_at'),
     createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
   },

@@ -3,6 +3,7 @@ import type React from 'react';
 import { useCallback } from 'react';
 import { cn } from '@/lib/utils/cn';
 import { INPUT_CLASS } from './formatters';
+import type { InsightData } from './insight-card';
 import { InsightCard } from './insight-card';
 import { useMemory } from './memory-context';
 import type { Insight, InsightCategoryFilter, InsightStatusFilter, SearchResult } from './types';
@@ -97,17 +98,7 @@ function EmptyState({
   );
 }
 
-function toInsightCardProps(item: Insight | SearchResult): {
-  id: string;
-  content: string;
-  source: string;
-  tags: string[];
-  createdAt: string;
-  skillId: string | null;
-  status?: 'active' | 'pending_review' | 'rejected';
-  category?: string | null;
-  updatedAt?: string | null;
-} {
+function toInsightCardProps(item: Insight | SearchResult): InsightData {
   if ('source' in item) {
     return item;
   }
@@ -121,6 +112,7 @@ function toInsightCardProps(item: Insight | SearchResult): {
     status: 'active' as const,
     category: null,
     updatedAt: null,
+    effectivenessScore: null,
   };
 }
 

@@ -4,6 +4,7 @@ export { MemoryService } from './memory.service.js';
 export { MemoryStoreService } from './memory-store.service.js';
 export type {
   DreamSession,
+  ExecutionTrace,
   HealthStatus,
   Insight,
   MemoryContext,
@@ -14,5 +15,6 @@ export type {
   SkillExecution,
   SkillMetrics,
   SkillSuggestion,
+  TaskOutcome,
 } from './types.js';
 export { EMPTY_CONTEXT } from './types.js';

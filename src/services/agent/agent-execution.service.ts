@@ -16,7 +16,7 @@ import { resolveModel } from '../../lib/utils/resolve-model.js';
 import type { Result } from '../../lib/utils/result.js';
 import { err, ok } from '../../lib/utils/result.js';
 import type { Database } from '../../types/database.js';
-import type { MemoryService, MemorySessionRef } from '../memory/index.js';
+import type { MemoryService, MemorySessionRef, TaskOutcome } from '../memory/index.js';
 import type { SkillTrackingService } from '../memory/skill-tracking.service.js';
 import { createSessionEventWithMetadata } from '../session/event-metadata.js';
 import { getGlobalDefaultModel } from '../settings.service.js';
@@ -77,6 +77,8 @@ export class AgentExecutionService {
   private agentStartTimes = new Map<string, number>();
   private preToolHooks = new Map<string, PreToolUseHook[]>();
   private postToolHooks = new Map<string, PostToolUseHook[]>();
+  /** Insight IDs injected into agent prompts, keyed by agentId. Used for skill execution tracking. */
+  private agentInsightIds = new Map<string, string[]>();
   private queueService: AgentQueueService | null = null;
   private memoryService: MemoryService | null = null;
   private skillTrackingService: SkillTrackingService | null = null;
@@ -151,10 +153,11 @@ export class AgentExecutionService {
   private finalizeMemorySession(
     memoryRef: MemorySessionRef | null,
     agentId: string,
-    phase: string
+    phase: string,
+    outcome?: TaskOutcome
   ): void {
     if (!memoryRef || !this.memoryService) return;
-    this.memoryService.finalizeSession(memoryRef).catch((finalizeErr) => {
+    this.memoryService.finalizeSession(memoryRef, outcome).catch((finalizeErr) => {
       log.warn(`Failed to finalize memory session after ${phase}`, {
         error: finalizeErr instanceof Error ? finalizeErr : new Error(String(finalizeErr)),
         data: { agentId },
@@ -168,6 +171,8 @@ export class AgentExecutionService {
   private async recordSkillExecutionForTask(params: {
     taskId: string;
     agentRunId: string;
+    agentId?: string;
+    insightIds?: string[] | null;
     sessionId: string;
     status: 'completed' | 'error' | 'turn_limit' | 'paused' | 'planning';
     turnCount: number;
@@ -180,6 +185,9 @@ export class AgentExecutionService {
       columns: { skillId: true, skillName: true, codespaceId: true, startedAt: true },
     });
     if (!taskForSkill?.skillId) return;
+
+    const insightIdsUsed = params.insightIds ?? null;
+
     this.recordSkillExecution({
       codespaceId: taskForSkill.codespaceId,
       taskId: params.taskId,
@@ -192,6 +200,7 @@ export class AgentExecutionService {
       metrics: params.metrics,
       errorMessage: params.errorMessage,
       startedAt: taskForSkill.startedAt,
+      insightIdsUsed,
     });
   }
 
@@ -223,6 +232,7 @@ export class AgentExecutionService {
     };
     errorMessage?: string;
     startedAt?: string | null;
+    insightIdsUsed?: string[] | null;
   }): void {
     if (!this.skillTrackingService || !params.skillId) return;
 
@@ -261,6 +271,7 @@ export class AgentExecutionService {
         durationMs: params.metrics?.durationMs ?? null,
         costUsd: params.metrics?.totalCostUsd ?? null,
         errorMessage: params.errorMessage ?? null,
+        insightIdsUsed: params.insightIdsUsed ?? null,
         startedAt: params.startedAt ?? null,
         completedAt: now,
       })
@@ -481,7 +492,9 @@ export class AgentExecutionService {
       try {
         const memoryResult = await this.memoryService.getContext(
           agent.codespaceId,
-          task.title ?? ''
+          task.title ?? '',
+          undefined,
+          task.skillId ?? null
         );
         if (memoryResult.ok && memoryResult.value.text) {
           taskPrompt = `${taskPrompt}\n\n---\n\n${memoryResult.value.text}`;
@@ -493,7 +506,9 @@ export class AgentExecutionService {
             },
           });
 
+          // Track which insights were injected for skill execution recording and notify UI
           if (memoryResult.value.sources.insightIds.length > 0) {
+            this.agentInsightIds.set(agentId, memoryResult.value.sources.insightIds);
             await this.sessionService.publish(
               session.value.id,
               createSessionEventWithMetadata({
@@ -708,9 +723,14 @@ export class AgentExecutionService {
           .where(eq(agents.id, agentId));
       }
 
+      // Read insight IDs before cleanup deletes them (fire-and-forget race fix)
+      const planInsightIds = this.agentInsightIds.get(agentId) ?? null;
+
       this.recordSkillExecutionForTask({
         taskId,
         agentRunId: runId,
+        agentId,
+        insightIds: planInsightIds,
         sessionId,
         status: result.status,
         turnCount: result.turnCount,
@@ -724,6 +744,7 @@ export class AgentExecutionService {
 
       this.runningAgents.delete(agentId);
       this.agentStartTimes.delete(agentId);
+      this.agentInsightIds.delete(agentId);
       this.preToolHooks.delete(agentId);
       this.postToolHooks.delete(agentId);
 
@@ -738,7 +759,7 @@ export class AgentExecutionService {
       }
     } catch (error) {
       log.error('Agent execution failed', { error, data: { agentId } });
-      this.finalizeMemorySession(memoryRef, agentId, 'planning error');
+      this.finalizeMemorySession(memoryRef, agentId, 'planning error', { status: 'failed' });
 
       const errMsg = errorMessage(error);
       const recovery = handleAgentError(error instanceof Error ? error : new Error(errMsg), {
@@ -768,6 +789,7 @@ export class AgentExecutionService {
       this.recordSkillExecutionForTask({
         taskId,
         agentRunId: runId,
+        agentId,
         sessionId,
         status: 'error',
         turnCount: 0,
@@ -1090,7 +1112,17 @@ export class AgentExecutionService {
         onMessage: this.buildOnMessageCallback(memoryRef, this.memoryService),
       });
 
-      this.finalizeMemorySession(memoryRef, agentId, 'execution');
+      const executionOutcome: TaskOutcome = {
+        status:
+          result.status === 'completed'
+            ? 'success'
+            : result.status === 'turn_limit'
+              ? 'turn_limit'
+              : 'failed',
+        turnsUsed: result.turnCount,
+        insightIdsUsed: this.agentInsightIds.get(agentId) ?? null,
+      };
+      this.finalizeMemorySession(memoryRef, agentId, 'execution', executionOutcome);
 
       const dbStatus = this.mapStatusToDb(result.status);
       await this.db
@@ -1148,9 +1180,14 @@ export class AgentExecutionService {
           .where(eq(agents.id, agentId));
       }
 
+      // Read insight IDs before cleanup deletes them (fire-and-forget race fix)
+      const execInsightIds = this.agentInsightIds.get(agentId) ?? null;
+
       this.recordSkillExecutionForTask({
         taskId: task.id,
         agentRunId: runId,
+        agentId,
+        insightIds: execInsightIds,
         sessionId,
         status: result.status,
         turnCount: result.turnCount,
@@ -1164,6 +1201,7 @@ export class AgentExecutionService {
 
       this.runningAgents.delete(agentId);
       this.agentStartTimes.delete(agentId);
+      this.agentInsightIds.delete(agentId);
       this.preToolHooks.delete(agentId);
       this.postToolHooks.delete(agentId);
 
@@ -1178,7 +1216,9 @@ export class AgentExecutionService {
       }
     } catch (error) {
       log.error('Agent execution failed', { error, data: { agentId } });
-      this.finalizeMemorySession(memoryRef, agentId, 'execution error');
+      this.finalizeMemorySession(memoryRef, agentId, 'execution error', {
+        status: 'failed',
+      });
 
       const errMsg = errorMessage(error);
 
@@ -1209,6 +1249,7 @@ export class AgentExecutionService {
       this.recordSkillExecutionForTask({
         taskId: task.id,
         agentRunId: runId,
+        agentId,
         sessionId,
         status: 'error',
         turnCount: 0,

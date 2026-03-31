@@ -276,4 +276,11 @@ END;
       `ALTER TABLE skill_executions ADD COLUMN insight_ids_used TEXT`,
     ],
   },
+
+  // 28. Memory insight effectiveness score column
+  {
+    version: 28,
+    name: 'memory-insight-effectiveness-score',
+    statements: [`ALTER TABLE memory_insights ADD COLUMN effectiveness_score REAL`],
+  },
 ];

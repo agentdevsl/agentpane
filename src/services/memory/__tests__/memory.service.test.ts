@@ -177,6 +177,7 @@ describe('MemoryService', () => {
         'cs-1',
         'test query',
         undefined,
+        undefined,
         undefined
       );
       expect(result.ok).toBe(true);
@@ -308,7 +309,7 @@ describe('MemoryService', () => {
 
       await service.finalizeSession(ref);
 
-      expect(deriver.deriveInsights).toHaveBeenCalledWith('msess-1', 'cs-1');
+      expect(deriver.deriveInsights).toHaveBeenCalledWith('msess-1', 'cs-1', undefined);
     });
 
     it('swallows derivation errors', async () => {

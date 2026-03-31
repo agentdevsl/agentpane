@@ -14,6 +14,26 @@ export interface MemorySessionRef {
 }
 
 /**
+ * Task execution outcome passed to memory finalization for feedback-aware derivation.
+ */
+export interface TaskOutcome {
+  status: 'success' | 'failed' | 'cancelled' | 'turn_limit';
+  tokensUsed?: number | null;
+  turnsUsed?: number | null;
+  insightIdsUsed?: string[] | null;
+}
+
+/**
+ * Lightweight execution trace summary stored in message metadata.
+ * Only captures tool names and statuses, not full results, to minimize storage impact.
+ */
+export interface ExecutionTrace {
+  toolCalls?: Array<{ tool: string; status: 'success' | 'error' }>;
+  filesModified?: string[];
+  errorCount?: number;
+}
+
+/**
  * Assembled memory context for agent prompt injection.
  */
 export interface MemoryContext {
@@ -39,6 +59,7 @@ export interface Insight {
   metadata: Record<string, unknown> | null;
   status: 'active' | 'pending_review' | 'rejected';
   category: 'pattern' | 'anti_pattern' | 'decision' | 'architecture' | 'error_lesson' | null;
+  effectivenessScore: number | null;
   updatedAt: string | null;
   createdAt: string;
 }
@@ -111,7 +132,7 @@ export interface SkillMetrics {
 export interface DreamSession {
   id: string;
   codespaceId: string | null;
-  type: 'conclusion_derivation' | 'skill_improvement' | 'metrics_rollup';
+  type: 'conclusion_derivation' | 'skill_improvement' | 'metrics_rollup' | 'context_optimization';
   status: 'running' | 'completed' | 'error';
   skillsAnalyzed: number;
   suggestionsGenerated: number;
@@ -132,7 +153,12 @@ export interface SkillSuggestion {
   codespaceId: string;
   skillId: string;
   skillName: string;
-  suggestionType: 'improve_prompt' | 'add_example' | 'fix_pattern' | 'new_skill';
+  suggestionType:
+    | 'improve_prompt'
+    | 'add_example'
+    | 'fix_pattern'
+    | 'new_skill'
+    | 'optimize_context';
   title: string;
   reasoning: string;
   currentContent: string | null;

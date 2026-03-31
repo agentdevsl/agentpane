@@ -10,7 +10,9 @@ export const dreamSessions = pgTable(
       .$defaultFn(() => createId()),
     codespaceId: text('codespace_id').references(() => codespaces.id, { onDelete: 'cascade' }),
     type: text('type')
-      .$type<'conclusion_derivation' | 'skill_improvement' | 'metrics_rollup'>()
+      .$type<
+        'conclusion_derivation' | 'skill_improvement' | 'metrics_rollup' | 'context_optimization'
+      >()
       .notNull(),
     status: text('status').$type<'running' | 'completed' | 'error'>().notNull(),
     skillsAnalyzed: integer('skills_analyzed').default(0).notNull(),
