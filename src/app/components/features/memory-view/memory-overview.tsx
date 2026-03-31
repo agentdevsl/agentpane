@@ -1,9 +1,11 @@
 import {
   ArrowRight,
+  ArrowSquareOut,
   Brain,
   ChartBar,
   CircleNotch,
   Eye,
+  Flask,
   Lightbulb,
   Sparkle,
 } from '@phosphor-icons/react';
@@ -332,6 +334,44 @@ export function MemoryOverview(): React.JSX.Element {
           Recent Activity
         </h3>
         <ActivityFeed items={recentActivity} />
+      </div>
+
+      {/* Research references */}
+      <div className="flex flex-col gap-3">
+        <h3 className="text-xs font-medium uppercase tracking-wider text-fg-subtle">Research</h3>
+        <div className="rounded-xl border border-border bg-surface p-4">
+          <div className="flex items-start gap-3">
+            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[rgba(163,113,247,0.12)]">
+              <Flask size={18} className="text-[#a371f7]" />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <p className="text-sm text-fg">
+                AgentPane's memory system is inspired by research on automated context optimization
+                for LLM agents.
+              </p>
+              <div className="flex flex-col gap-1">
+                <a
+                  href="https://yoonholee.com/meta-harness/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="group inline-flex items-center gap-1.5 text-xs text-accent hover:text-accent-emphasis transition-colors"
+                >
+                  <span className="font-medium">
+                    Meta-Harness: End-to-End Optimization of Model Harnesses
+                  </span>
+                  <ArrowSquareOut
+                    size={12}
+                    className="opacity-60 group-hover:opacity-100 transition-opacity"
+                  />
+                </a>
+                <span className="text-[11px] text-fg-subtle">
+                  Lee et al., Stanford &amp; MIT, 2026 — Credit assignment and outer-loop
+                  optimization for context selection
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
