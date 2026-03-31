@@ -166,7 +166,7 @@ export interface SandboxProviderHealth {
     message?: string;
     details?: Record<string, unknown>;
   }>;
-  listSandboxes?(): Promise<Array<{ name: string; phase: string }>>;
+  listSandboxes?(): Promise<Array<{ name: string; status: string }>>;
 }
 
 export interface RouterDependencies {
