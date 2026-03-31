@@ -13,6 +13,20 @@ export const CRD_API = {
 } as const;
 
 /**
+ * Extensions group CRD API constants
+ */
+export const CRD_EXTENSIONS_API = {
+  /** API group for extension CRDs */
+  group: 'extensions.agents.x-k8s.io',
+
+  /** Current API version */
+  version: 'v1alpha1',
+
+  /** Fully qualified apiVersion string */
+  apiVersion: 'extensions.agents.x-k8s.io/v1alpha1',
+} as const;
+
+/**
  * Resource plurals for K8s API paths
  */
 export const CRD_PLURALS = {
@@ -73,6 +87,9 @@ export const CRD_CONDITIONS = {
 
   /** Sandbox is paused */
   paused: 'Paused',
+
+  /** Sandbox has expired (reason, not condition type) */
+  expired: 'SandboxExpired',
 } as const;
 
 /**
@@ -93,4 +110,7 @@ export const CRD_LABELS = {
 
   /** Warm pool state */
   warmPoolState: 'agentpane.io/warm-pool-state',
+
+  /** Claim UID association */
+  claimUid: 'agents.x-k8s.io/claim-uid',
 } as const;

@@ -1,6 +1,6 @@
 import type { KubeConfig } from '@kubernetes/client-node';
 import * as k8s from '@kubernetes/client-node';
-import { CRD_API, CRD_PLURALS } from './constants.js';
+import { CRD_API, CRD_EXTENSIONS_API, CRD_PLURALS } from './constants.js';
 import { loadKubeConfig } from './kubeconfig.js';
 import { CustomResourceCrud } from './operations/crud.js';
 import { execInSandbox, execStreamInSandbox } from './operations/exec.js';
@@ -56,20 +56,20 @@ export class AgentSandboxClient {
     });
 
     this.templateCrud = new CustomResourceCrud<SandboxTemplate>(this.kubeConfig, {
-      group: CRD_API.group,
-      version: CRD_API.version,
+      group: CRD_EXTENSIONS_API.group,
+      version: CRD_EXTENSIONS_API.version,
       plural: CRD_PLURALS.sandboxTemplate,
     });
 
     this.claimCrud = new CustomResourceCrud<SandboxClaim>(this.kubeConfig, {
-      group: CRD_API.group,
-      version: CRD_API.version,
+      group: CRD_EXTENSIONS_API.group,
+      version: CRD_EXTENSIONS_API.version,
       plural: CRD_PLURALS.sandboxClaim,
     });
 
     this.warmPoolCrud = new CustomResourceCrud<SandboxWarmPool>(this.kubeConfig, {
-      group: CRD_API.group,
-      version: CRD_API.version,
+      group: CRD_EXTENSIONS_API.group,
+      version: CRD_EXTENSIONS_API.version,
       plural: CRD_PLURALS.sandboxWarmPool,
     });
   }
@@ -223,7 +223,11 @@ export class AgentSandboxClient {
   watchClaims(callback: WatchCallback<SandboxClaim>, options?: Partial<WatchOptions>): WatchHandle {
     return startWatch<SandboxClaim>(
       this.kubeConfig,
-      { group: CRD_API.group, version: CRD_API.version, plural: CRD_PLURALS.sandboxClaim },
+      {
+        group: CRD_EXTENSIONS_API.group,
+        version: CRD_EXTENSIONS_API.version,
+        plural: CRD_PLURALS.sandboxClaim,
+      },
       { namespace: options?.namespace ?? this.namespace, ...options },
       callback
     );
@@ -261,11 +265,14 @@ export class AgentSandboxClient {
       };
     }
 
-    // Check if CRD is registered
+    // Check if CRDs are registered (both core and extensions)
     try {
       const apiExtApi = this.kubeConfig.makeApiClient(k8s.ApiextensionsV1Api);
       await apiExtApi.readCustomResourceDefinition({
         name: `sandboxes.${CRD_API.group}`,
+      });
+      await apiExtApi.readCustomResourceDefinition({
+        name: `sandboxtemplates.${CRD_EXTENSIONS_API.group}`,
       });
       crdRegistered = true;
     } catch {

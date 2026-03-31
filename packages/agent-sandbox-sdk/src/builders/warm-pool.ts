@@ -1,4 +1,4 @@
-import { CRD_API, CRD_KINDS } from '../constants.js';
+import { CRD_EXTENSIONS_API, CRD_KINDS } from '../constants.js';
 import type { SandboxWarmPool, SandboxWarmPoolSpec } from '../types/warm-pool.js';
 
 export class SandboxWarmPoolBuilder {
@@ -15,7 +15,7 @@ export class SandboxWarmPoolBuilder {
 
   constructor(name: string) {
     this.resource = {
-      apiVersion: CRD_API.apiVersion,
+      apiVersion: CRD_EXTENSIONS_API.apiVersion,
       kind: CRD_KINDS.sandboxWarmPool,
       metadata: { name },
       spec: {},
@@ -37,19 +37,13 @@ export class SandboxWarmPoolBuilder {
 
   /** Set desired number of warm sandboxes to keep ready */
   replicas(count: number): this {
-    this.resource.spec.desiredReady = count;
+    this.resource.spec.replicas = count;
     return this;
   }
 
-  /** Reference the template */
-  templateRef(name: string, namespace?: string): this {
-    this.resource.spec.templateRef = { name, namespace };
-    return this;
-  }
-
-  /** Set maximum pool size */
-  autoscale(max: number): this {
-    this.resource.spec.maxSize = max;
+  /** Reference the sandbox template (name only, no namespace) */
+  sandboxTemplateRef(name: string): this {
+    this.resource.spec.sandboxTemplateRef = { name };
     return this;
   }
 

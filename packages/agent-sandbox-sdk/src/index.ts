@@ -19,6 +19,7 @@ export {
   CRD_ANNOTATIONS,
   CRD_API,
   CRD_CONDITIONS,
+  CRD_EXTENSIONS_API,
   CRD_KINDS,
   CRD_LABELS,
   CRD_PLURALS,
@@ -45,19 +46,27 @@ export { pause, resume, waitForReady } from './operations/lifecycle.js';
 export type { WatchCallback, WatchHandle, WatchOptions } from './operations/watch.js';
 export { startWatch } from './operations/watch.js';
 export {
+  claimSandboxStatusSchema,
+  lifecycleSchema,
   sandboxClaimSchema,
   sandboxClaimSpecSchema,
   sandboxClaimStatusSchema,
+  sandboxTemplateRefSchema,
 } from './schemas/claim.js';
 // Schemas
 export {
-  sandboxNetworkRuleSchema,
+  embeddedObjectMetadataSchema,
+  persistentVolumeClaimTemplateSchema,
+  podMetadataSchema,
+  podTemplateSchema,
   sandboxSchema,
   sandboxSpecSchema,
   sandboxStatusSchema,
-  sandboxVolumeClaimSchema,
+  shutdownPolicySchema,
 } from './schemas/sandbox.js';
 export {
+  networkPolicyManagementSchema,
+  networkPolicySpecSchema,
   sandboxTemplateSchema,
   sandboxTemplateSpecSchema,
   sandboxTemplateStatusSchema,
@@ -72,12 +81,22 @@ export type {
   SandboxClaimList,
   SandboxClaimSpec,
   SandboxClaimStatus,
+  SandboxTemplateRef,
 } from './types/claim.js';
 // Types
 export type {
+  ClaimSandboxStatus,
   Condition,
   CRDResource,
   CRDResourceList,
+  EmbeddedObjectMetadata,
+  Lifecycle,
+  NetworkPolicyManagement,
+  NetworkPolicySpec,
+  PersistentVolumeClaimTemplate,
+  PodMetadata,
+  PodTemplate,
+  ShutdownPolicy,
   WatchEvent,
   WatchEventType,
 } from './types/common.js';
@@ -90,11 +109,8 @@ export type {
 export type {
   Sandbox,
   SandboxList,
-  SandboxNetworkPolicy,
-  SandboxNetworkRule,
   SandboxSpec,
   SandboxStatus,
-  SandboxVolumeClaim,
 } from './types/sandbox.js';
 export type {
   SandboxTemplate,

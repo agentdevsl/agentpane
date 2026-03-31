@@ -1,34 +1,20 @@
-import type { Condition, CRDResource, CRDResourceList } from './common.js';
+import type { SandboxTemplateRef } from './claim.js';
+import type { CRDResource, CRDResourceList } from './common.js';
 
 /**
- * SandboxWarmPool spec
+ * SandboxWarmPool spec - v0.2.1
  */
 export interface SandboxWarmPoolSpec {
-  /** Number of warm sandboxes to keep ready */
-  desiredReady: number;
-
-  /** Reference to the SandboxTemplate used for pool members */
-  templateRef: {
-    name: string;
-    namespace?: string;
-  };
-
-  /** Maximum pool size (for autoscaling) */
-  maxSize?: number;
+  replicas: number; // was desiredReady
+  sandboxTemplateRef: SandboxTemplateRef; // was templateRef with namespace
 }
 
 /**
- * SandboxWarmPool status
+ * SandboxWarmPool status - v0.2.1
  */
 export interface SandboxWarmPoolStatus {
-  /** Number of ready warm sandboxes */
+  replicas?: number;
   readyReplicas?: number;
-
-  /** Number of available sandboxes */
-  availableReplicas?: number;
-
-  /** Conditions */
-  conditions?: Condition[];
 }
 
 /**

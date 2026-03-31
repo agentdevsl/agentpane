@@ -1,21 +1,20 @@
 import { z } from 'zod';
-import { sandboxNetworkRuleSchema, sandboxVolumeClaimSchema } from './sandbox.js';
+import { podTemplateSchema } from './sandbox.js';
+
+export const networkPolicySpecSchema = z.object({
+  ingress: z.array(z.any()).optional(), // V1NetworkPolicyIngressRule[]
+  egress: z.array(z.any()).optional(), // V1NetworkPolicyEgressRule[]
+});
+
+export const networkPolicyManagementSchema = z.enum(['Managed', 'Unmanaged']);
 
 export const sandboxTemplateSpecSchema = z.object({
-  podTemplateSpec: z.any(),
-  networkPolicy: z
-    .object({
-      egress: z.array(sandboxNetworkRuleSchema).optional(),
-      ingress: z.array(sandboxNetworkRuleSchema).optional(),
-    })
-    .optional(),
-  runtimeClassName: z.string().optional(),
-  volumeClaims: z.array(sandboxVolumeClaimSchema).optional(),
+  podTemplate: podTemplateSchema,
+  networkPolicy: networkPolicySpecSchema.optional(),
+  networkPolicyManagement: networkPolicyManagementSchema.optional(),
 });
 
-export const sandboxTemplateStatusSchema = z.object({
-  sandboxCount: z.number().optional(),
-});
+export const sandboxTemplateStatusSchema = z.object({});
 
 export const sandboxTemplateSchema = z.object({
   apiVersion: z.string(),

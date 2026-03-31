@@ -284,17 +284,17 @@ export class SandboxController {
   private buildPodFromSandbox(sandbox: SandboxCRD, template?: SandboxTemplate): k8s.V1Pod {
     const sandboxName = sandbox.metadata?.name ?? '';
 
-    // Determine pod template spec: prefer template if provided, fall back to inline
-    const podTemplateSpec = template?.spec?.podTemplateSpec ?? sandbox.spec?.podTemplateSpec;
+    // Determine pod template: prefer template if provided, fall back to inline
+    const podTemplate = template?.spec?.podTemplate ?? sandbox.spec?.podTemplate;
 
     // Extract containers from the template, or build a default
     let containers: k8s.V1Container[];
     let volumes: k8s.V1Volume[] | undefined;
     let serviceAccountName: string | undefined;
 
-    if (podTemplateSpec?.spec) {
-      containers = podTemplateSpec.spec.containers?.length
-        ? podTemplateSpec.spec.containers.map((c) =>
+    if (podTemplate?.spec) {
+      containers = podTemplate.spec.containers?.length
+        ? podTemplate.spec.containers.map((c) =>
             this.ensureSecurityContext({
               ...c,
               // Ensure the container has a keep-alive command if none specified
@@ -302,8 +302,8 @@ export class SandboxController {
             })
           )
         : [this.defaultContainer()];
-      volumes = podTemplateSpec.spec.volumes;
-      serviceAccountName = podTemplateSpec.spec.serviceAccountName;
+      volumes = podTemplate.spec.volumes;
+      serviceAccountName = podTemplate.spec.serviceAccountName;
     } else {
       containers = [this.defaultContainer()];
     }
@@ -554,13 +554,13 @@ export class SandboxController {
         const poolName = pool.metadata?.name;
         if (!poolName) continue;
 
-        const templateName = pool.spec?.templateRef?.name;
+        const templateName = pool.spec?.sandboxTemplateRef?.name;
         if (!templateName) {
-          log.warn('Warm pool has no templateRef, skipping', { data: { poolName } });
+          log.warn('Warm pool has no sandboxTemplateRef, skipping', { data: { poolName } });
           continue;
         }
 
-        const desiredReady = pool.spec?.desiredReady ?? 0;
+        const desiredReady = pool.spec?.replicas ?? 0;
 
         // List existing warm sandboxes for this pool
         const existingSandboxes = await this.client.listSandboxes({
@@ -611,16 +611,21 @@ export class SandboxController {
             const randomSuffix = this.randomString(8);
             const warmSandboxName = `warm-${poolName}-${randomSuffix}`;
 
-            const builder = new SandboxBuilder(warmSandboxName)
+            const sandbox = new SandboxBuilder(warmSandboxName)
               .namespace(this.namespace)
               .labels({
                 [CRD_LABELS.warmPool]: poolName,
                 [CRD_LABELS.warmPoolState]: 'warming',
               })
-              .fromTemplate(templateName, pool.spec?.templateRef?.namespace);
+              .build();
+
+            // Set sandboxTemplateRef on the spec so reconcileSandbox can resolve the template.
+            // SandboxSpec doesn't include sandboxTemplateRef in v0.2.1, but the controller
+            // uses it internally as a convention for template resolution.
+            (sandbox.spec as Record<string, unknown>).sandboxTemplateRef = { name: templateName };
 
             try {
-              await this.client.createSandbox(builder.build());
+              await this.client.createSandbox(sandbox);
               log.info('Created warm sandbox', {
                 data: { sandboxName: warmSandboxName, poolName },
               });

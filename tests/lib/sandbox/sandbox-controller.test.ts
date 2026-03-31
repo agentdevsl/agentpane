@@ -69,7 +69,7 @@ function makeSandbox(name: string, overrides: Partial<Sandbox> = {}): Sandbox {
 
 function makeWarmPool(
   name: string,
-  desiredReady: number,
+  replicas: number,
   templateName: string,
   overrides: Partial<SandboxWarmPool> = {}
 ): SandboxWarmPool {
@@ -78,8 +78,8 @@ function makeWarmPool(
     kind: 'SandboxWarmPool',
     metadata: { name, namespace: 'test-ns' },
     spec: {
-      desiredReady,
-      templateRef: { name: templateName },
+      replicas,
+      sandboxTemplateRef: { name: templateName },
     },
     ...overrides,
   } as SandboxWarmPool;
@@ -461,7 +461,7 @@ describe('SandboxController', () => {
         kind: 'SandboxTemplate',
         metadata: { name: 'my-template' },
         spec: {
-          podTemplateSpec: {
+          podTemplate: {
             spec: {
               containers: [
                 { name: 'custom', image: 'custom-image:latest', command: ['sleep', 'infinity'] },
@@ -797,9 +797,9 @@ describe('SandboxController', () => {
       ctrl.stop();
     });
 
-    it('skips warm pool with no templateRef', async () => {
+    it('skips warm pool with no sandboxTemplateRef', async () => {
       const pool = makeWarmPool('pool-no-tpl', 2, 'any-template');
-      (pool.spec as any).templateRef = undefined;
+      (pool.spec as any).sandboxTemplateRef = undefined;
 
       mockClient.listWarmPools.mockResolvedValue({ items: [pool] });
 

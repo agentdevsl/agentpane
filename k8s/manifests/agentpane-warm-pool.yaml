@@ -4,13 +4,15 @@
 # instead of waiting for cold-start pod creation (~10-30s).
 #
 # The CRD controller manages the pool lifecycle:
-#   - Maintains desiredReady sandboxes in a Ready state
+#   - Maintains desired sandboxes in a Ready state
 #   - Replaces claimed or unhealthy sandboxes automatically
-#   - Respects maxSize to bound cluster resource usage
+#   - HPA-compatible scaling via scale subresource
 #
 # This replaces the ~1000 LOC manual warm pool in Phase 1 k8s-warm-pool.ts
 # with a single declarative CRD resource.
-apiVersion: agents.x-k8s.io/v1alpha1
+#
+# v0.2.1: SandboxWarmPool moved to extensions API group
+apiVersion: extensions.agents.x-k8s.io/v1alpha1
 kind: SandboxWarmPool
 metadata:
   name: agentpane-warm-pool
@@ -22,7 +24,6 @@ metadata:
   annotations:
     agentpane.io/description: "Pre-warmed sandbox pool for fast agent allocation"
 spec:
-  templateRef:
+  sandboxTemplateRef:
     name: agentpane-default
-  desiredReady: 2
-  maxSize: 5
+  replicas: 2

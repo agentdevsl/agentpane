@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { sandboxClaimSchema, sandboxClaimSpecSchema } from '../src/schemas/claim.js';
 import {
+  sandboxClaimSchema,
+  sandboxClaimSpecSchema,
+  sandboxClaimStatusSchema,
+} from '../src/schemas/claim.js';
+import {
+  podMetadataSchema,
+  podTemplateSchema,
   sandboxSchema,
   sandboxSpecSchema,
   sandboxStatusSchema,
-  sandboxVolumeClaimSchema,
+  shutdownPolicySchema,
 } from '../src/schemas/sandbox.js';
 import { sandboxTemplateSchema, sandboxTemplateSpecSchema } from '../src/schemas/template.js';
 import { sandboxWarmPoolSchema, sandboxWarmPoolSpecSchema } from '../src/schemas/warm-pool.js';
@@ -14,7 +20,12 @@ describe('sandboxSchema', () => {
     apiVersion: 'agents.x-k8s.io/v1alpha1',
     kind: 'Sandbox',
     metadata: { name: 'test-sandbox' },
-    spec: {},
+    spec: {
+      podTemplate: {
+        spec: { containers: [{ name: 'main', image: 'ubuntu:24.04' }] },
+        metadata: {},
+      },
+    },
   };
 
   it('accepts a valid minimal sandbox', () => {
@@ -22,22 +33,14 @@ describe('sandboxSchema', () => {
     expect(result.success).toBe(true);
   });
 
-  it('accepts a sandbox with template ref', () => {
+  it('accepts a sandbox with lifecycle fields', () => {
     const result = sandboxSchema.safeParse({
       ...validSandbox,
       spec: {
-        sandboxTemplateRef: { name: 'my-template' },
+        ...validSandbox.spec,
         replicas: 1,
-      },
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it('accepts sandbox with template ref and namespace', () => {
-    const result = sandboxSchema.safeParse({
-      ...validSandbox,
-      spec: {
-        sandboxTemplateRef: { name: 'my-template', namespace: 'tpl-ns' },
+        shutdownTime: '2026-12-31T23:59:59Z',
+        shutdownPolicy: 'Delete',
       },
     });
     expect(result.success).toBe(true);
@@ -69,9 +72,9 @@ describe('sandboxSchema', () => {
     const result = sandboxSchema.safeParse({
       ...validSandbox,
       status: {
-        phase: 'Running',
-        podName: 'test-pod',
-        podIP: '10.0.0.1',
+        replicas: 1,
+        serviceFQDN: 'sandbox.default.svc.cluster.local',
+        service: 'test-service',
       },
     });
     expect(result.success).toBe(true);
@@ -100,68 +103,63 @@ describe('sandboxSchema', () => {
 });
 
 describe('sandboxSpecSchema', () => {
-  it('accepts empty spec', () => {
-    const result = sandboxSpecSchema.safeParse({});
+  const minimalSpec = {
+    podTemplate: {
+      spec: { containers: [] },
+      metadata: {},
+    },
+  };
+
+  it('accepts spec with podTemplate', () => {
+    const result = sandboxSpecSchema.safeParse(minimalSpec);
     expect(result.success).toBe(true);
   });
 
   it('accepts spec with replicas 0', () => {
-    const result = sandboxSpecSchema.safeParse({ replicas: 0 });
+    const result = sandboxSpecSchema.safeParse({ ...minimalSpec, replicas: 0 });
     expect(result.success).toBe(true);
   });
 
   it('accepts spec with replicas 1', () => {
-    const result = sandboxSpecSchema.safeParse({ replicas: 1 });
+    const result = sandboxSpecSchema.safeParse({ ...minimalSpec, replicas: 1 });
     expect(result.success).toBe(true);
   });
 
   it('rejects spec with replicas > 1', () => {
-    const result = sandboxSpecSchema.safeParse({ replicas: 2 });
+    const result = sandboxSpecSchema.safeParse({ ...minimalSpec, replicas: 2 });
     expect(result.success).toBe(false);
   });
 
   it('rejects spec with negative replicas', () => {
-    const result = sandboxSpecSchema.safeParse({ replicas: -1 });
+    const result = sandboxSpecSchema.safeParse({ ...minimalSpec, replicas: -1 });
     expect(result.success).toBe(false);
   });
 
   it('rejects spec with non-integer replicas', () => {
-    const result = sandboxSpecSchema.safeParse({ replicas: 0.5 });
+    const result = sandboxSpecSchema.safeParse({ ...minimalSpec, replicas: 0.5 });
     expect(result.success).toBe(false);
   });
 
-  it('accepts spec with runtimeClassName', () => {
-    const result = sandboxSpecSchema.safeParse({ runtimeClassName: 'gvisor' });
+  it('accepts spec with shutdownPolicy', () => {
+    const result = sandboxSpecSchema.safeParse({ ...minimalSpec, shutdownPolicy: 'Delete' });
     expect(result.success).toBe(true);
   });
 
-  it('accepts spec with ttlSecondsAfterFinished', () => {
-    const result = sandboxSpecSchema.safeParse({ ttlSecondsAfterFinished: 3600 });
-    expect(result.success).toBe(true);
-  });
-
-  it('rejects negative ttlSecondsAfterFinished', () => {
-    const result = sandboxSpecSchema.safeParse({ ttlSecondsAfterFinished: -1 });
-    expect(result.success).toBe(false);
-  });
-
-  it('accepts spec with networkPolicy', () => {
+  it('accepts spec with shutdownTime', () => {
     const result = sandboxSpecSchema.safeParse({
-      networkPolicy: {
-        egress: [{ ports: [{ port: 443, protocol: 'TCP' }] }],
-        ingress: [],
-      },
+      ...minimalSpec,
+      shutdownTime: '2026-12-31T23:59:59Z',
     });
     expect(result.success).toBe(true);
   });
 
-  it('accepts spec with volumeClaims', () => {
+  it('accepts spec with volumeClaimTemplates', () => {
     const result = sandboxSpecSchema.safeParse({
-      volumeClaims: [
+      ...minimalSpec,
+      volumeClaimTemplates: [
         {
-          name: 'data',
-          accessModes: ['ReadWriteOnce'],
-          resources: { requests: { storage: '1Gi' } },
+          metadata: { name: 'data' },
+          spec: { accessModes: ['ReadWriteOnce'] },
         },
       ],
     });
@@ -170,78 +168,67 @@ describe('sandboxSpecSchema', () => {
 });
 
 describe('sandboxStatusSchema', () => {
-  it('accepts valid phases', () => {
-    for (const phase of ['Pending', 'Running', 'Paused', 'Succeeded', 'Failed', 'Unknown']) {
-      const result = sandboxStatusSchema.safeParse({ phase });
-      expect(result.success).toBe(true);
-    }
+  it('requires replicas field', () => {
+    const result = sandboxStatusSchema.safeParse({});
+    expect(result.success).toBe(false);
   });
 
-  it('rejects invalid phase', () => {
-    const result = sandboxStatusSchema.safeParse({ phase: 'InvalidPhase' });
-    expect(result.success).toBe(false);
+  it('accepts status with replicas only', () => {
+    const result = sandboxStatusSchema.safeParse({ replicas: 0 });
+    expect(result.success).toBe(true);
   });
 
   it('accepts status with all fields', () => {
     const result = sandboxStatusSchema.safeParse({
-      phase: 'Running',
-      podName: 'sandbox-pod',
       serviceFQDN: 'sandbox.default.svc.cluster.local',
-      podIP: '10.0.0.1',
-      readyReplicas: 1,
-      readyAt: '2026-01-01T00:00:00Z',
+      service: 'test-service',
+      conditions: [],
+      replicas: 1,
+      selector: 'app=sandbox',
     });
-    expect(result.success).toBe(true);
-  });
-
-  it('accepts empty status', () => {
-    const result = sandboxStatusSchema.safeParse({});
     expect(result.success).toBe(true);
   });
 });
 
-describe('sandboxVolumeClaimSchema', () => {
-  it('accepts valid volume claim', () => {
-    const result = sandboxVolumeClaimSchema.safeParse({
-      name: 'data',
-      accessModes: ['ReadWriteOnce'],
-      resources: { requests: { storage: '1Gi' } },
+describe('shutdownPolicySchema', () => {
+  it('accepts Delete', () => {
+    const result = shutdownPolicySchema.safeParse('Delete');
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts Retain', () => {
+    const result = shutdownPolicySchema.safeParse('Retain');
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects invalid policy', () => {
+    const result = shutdownPolicySchema.safeParse('Destroy');
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('podTemplateSchema', () => {
+  it('requires metadata (not optional)', () => {
+    const result = podTemplateSchema.safeParse({
+      spec: { containers: [] },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts with metadata and spec', () => {
+    const result = podTemplateSchema.safeParse({
+      spec: { containers: [] },
+      metadata: {},
     });
     expect(result.success).toBe(true);
   });
 
-  it('accepts volume claim with storageClassName', () => {
-    const result = sandboxVolumeClaimSchema.safeParse({
-      name: 'data',
-      storageClassName: 'fast-ssd',
-      accessModes: ['ReadWriteOnce'],
-      resources: { requests: { storage: '10Gi' } },
+  it('accepts metadata with labels and annotations', () => {
+    const result = podMetadataSchema.safeParse({
+      labels: { app: 'test' },
+      annotations: { note: 'hello' },
     });
     expect(result.success).toBe(true);
-  });
-
-  it('rejects volume claim without name', () => {
-    const result = sandboxVolumeClaimSchema.safeParse({
-      accessModes: ['ReadWriteOnce'],
-      resources: { requests: { storage: '1Gi' } },
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it('rejects volume claim without accessModes', () => {
-    const result = sandboxVolumeClaimSchema.safeParse({
-      name: 'data',
-      resources: { requests: { storage: '1Gi' } },
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it('rejects volume claim without resources', () => {
-    const result = sandboxVolumeClaimSchema.safeParse({
-      name: 'data',
-      accessModes: ['ReadWriteOnce'],
-    });
-    expect(result.success).toBe(false);
   });
 });
 
@@ -251,8 +238,9 @@ describe('sandboxTemplateSchema', () => {
     kind: 'SandboxTemplate',
     metadata: { name: 'base' },
     spec: {
-      podTemplateSpec: {
+      podTemplate: {
         spec: { containers: [{ name: 'sandbox', image: 'ubuntu:24.04' }] },
+        metadata: {},
       },
     },
   };
@@ -281,25 +269,18 @@ describe('sandboxTemplateSchema', () => {
   it('accepts template with status', () => {
     const result = sandboxTemplateSchema.safeParse({
       ...validTemplate,
-      status: { sandboxCount: 5 },
+      status: {},
     });
     expect(result.success).toBe(true);
   });
 
-  it('accepts template with optional spec fields', () => {
+  it('accepts template with networkPolicy and networkPolicyManagement', () => {
     const result = sandboxTemplateSchema.safeParse({
       ...validTemplate,
       spec: {
         ...validTemplate.spec,
-        runtimeClassName: 'gvisor',
-        networkPolicy: { egress: [] },
-        volumeClaims: [
-          {
-            name: 'ws',
-            accessModes: ['ReadWriteOnce'],
-            resources: { requests: { storage: '5Gi' } },
-          },
-        ],
+        networkPolicy: { egress: [], ingress: [] },
+        networkPolicyManagement: 'Managed',
       },
     });
     expect(result.success).toBe(true);
@@ -307,33 +288,38 @@ describe('sandboxTemplateSchema', () => {
 });
 
 describe('sandboxTemplateSpecSchema', () => {
-  it('accepts spec with podTemplateSpec as any object', () => {
-    const result = sandboxTemplateSpecSchema.safeParse({
-      podTemplateSpec: { spec: { containers: [] } },
-    });
+  const minimalSpec = {
+    podTemplate: {
+      spec: { containers: [] },
+      metadata: {},
+    },
+  };
+
+  it('accepts spec with podTemplate', () => {
+    const result = sandboxTemplateSpecSchema.safeParse(minimalSpec);
     expect(result.success).toBe(true);
   });
 
-  it('accepts spec without podTemplateSpec (z.any allows undefined)', () => {
-    // podTemplateSpec is typed as z.any() which permits undefined
+  it('rejects spec without podTemplate', () => {
     const result = sandboxTemplateSpecSchema.safeParse({});
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
   });
 
   it('accepts spec with all optional fields', () => {
     const result = sandboxTemplateSpecSchema.safeParse({
-      podTemplateSpec: { spec: { containers: [] } },
-      runtimeClassName: 'gvisor',
+      ...minimalSpec,
       networkPolicy: { egress: [], ingress: [] },
-      volumeClaims: [
-        {
-          name: 'data',
-          accessModes: ['ReadWriteOnce'],
-          resources: { requests: { storage: '1Gi' } },
-        },
-      ],
+      networkPolicyManagement: 'Unmanaged',
     });
     expect(result.success).toBe(true);
+  });
+
+  it('rejects invalid networkPolicyManagement', () => {
+    const result = sandboxTemplateSpecSchema.safeParse({
+      ...minimalSpec,
+      networkPolicyManagement: 'Invalid',
+    });
+    expect(result.success).toBe(false);
   });
 });
 
@@ -368,45 +354,38 @@ describe('sandboxClaimSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it('accepts claim with warmPoolRef', () => {
+  it('accepts claim with lifecycle', () => {
     const result = sandboxClaimSchema.safeParse({
       ...validClaim,
       spec: {
         sandboxTemplateRef: { name: 'my-template' },
-        warmPoolRef: { name: 'my-pool', namespace: 'pool-ns' },
+        lifecycle: {
+          shutdownTime: '2026-12-31T23:59:59Z',
+          shutdownPolicy: 'Retain',
+        },
       },
     });
     expect(result.success).toBe(true);
   });
 
-  it('accepts claim with status', () => {
+  it('accepts claim with status containing sandbox Name', () => {
     const result = sandboxClaimSchema.safeParse({
       ...validClaim,
       status: {
-        phase: 'Bound',
-        sandboxRef: { name: 'sb-123' },
-        boundAt: '2026-01-01T00:00:00Z',
+        sandbox: { Name: 'sb-123' },
       },
     });
     expect(result.success).toBe(true);
   });
 
-  it('rejects claim status with invalid phase', () => {
+  it('accepts claim with status conditions', () => {
     const result = sandboxClaimSchema.safeParse({
       ...validClaim,
-      status: { phase: 'Running' },
+      status: {
+        conditions: [{ type: 'Ready', status: 'True' }],
+      },
     });
-    expect(result.success).toBe(false);
-  });
-
-  it('accepts claim with all valid status phases', () => {
-    for (const phase of ['Pending', 'Bound', 'Failed']) {
-      const result = sandboxClaimSchema.safeParse({
-        ...validClaim,
-        status: { phase },
-      });
-      expect(result.success).toBe(true);
-    }
+    expect(result.success).toBe(true);
   });
 });
 
@@ -423,9 +402,27 @@ describe('sandboxClaimSpecSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it('accepts sandboxTemplateRef with namespace', () => {
+  it('sandboxTemplateRef has no namespace field (v0.2.1)', () => {
     const result = sandboxClaimSpecSchema.safeParse({
-      sandboxTemplateRef: { name: 'tpl', namespace: 'ns' },
+      sandboxTemplateRef: { name: 'tpl' },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      // namespace should not be in the parsed result
+      expect(result.data.sandboxTemplateRef).toEqual({ name: 'tpl' });
+    }
+  });
+});
+
+describe('sandboxClaimStatusSchema', () => {
+  it('accepts empty status', () => {
+    const result = sandboxClaimStatusSchema.safeParse({});
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts status with sandbox Name (capital N)', () => {
+    const result = sandboxClaimStatusSchema.safeParse({
+      sandbox: { Name: 'my-sandbox' },
     });
     expect(result.success).toBe(true);
   });
@@ -437,8 +434,8 @@ describe('sandboxWarmPoolSchema', () => {
     kind: 'SandboxWarmPool',
     metadata: { name: 'my-pool' },
     spec: {
-      desiredReady: 3,
-      templateRef: { name: 'base' },
+      replicas: 3,
+      sandboxTemplateRef: { name: 'base' },
     },
   };
 
@@ -455,47 +452,36 @@ describe('sandboxWarmPoolSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it('rejects warm pool with negative desiredReady', () => {
+  it('rejects warm pool with negative replicas', () => {
     const result = sandboxWarmPoolSchema.safeParse({
       ...validPool,
-      spec: { ...validPool.spec, desiredReady: -1 },
+      spec: { ...validPool.spec, replicas: -1 },
     });
     expect(result.success).toBe(false);
   });
 
-  it('accepts warm pool with zero desiredReady', () => {
+  it('accepts warm pool with zero replicas', () => {
     const result = sandboxWarmPoolSchema.safeParse({
       ...validPool,
-      spec: { ...validPool.spec, desiredReady: 0 },
+      spec: { ...validPool.spec, replicas: 0 },
     });
     expect(result.success).toBe(true);
   });
 
-  it('rejects warm pool with non-integer desiredReady', () => {
+  it('rejects warm pool with non-integer replicas', () => {
     const result = sandboxWarmPoolSchema.safeParse({
       ...validPool,
-      spec: { ...validPool.spec, desiredReady: 1.5 },
+      spec: { ...validPool.spec, replicas: 1.5 },
     });
     expect(result.success).toBe(false);
-  });
-
-  it('accepts warm pool with maxSize', () => {
-    const result = sandboxWarmPoolSchema.safeParse({
-      ...validPool,
-      spec: {
-        ...validPool.spec,
-        maxSize: 10,
-      },
-    });
-    expect(result.success).toBe(true);
   });
 
   it('accepts warm pool with status', () => {
     const result = sandboxWarmPoolSchema.safeParse({
       ...validPool,
       status: {
-        readyReplicas: 3,
-        availableReplicas: 1,
+        replicas: 3,
+        readyReplicas: 2,
       },
     });
     expect(result.success).toBe(true);
@@ -511,24 +497,24 @@ describe('sandboxWarmPoolSchema', () => {
 });
 
 describe('sandboxWarmPoolSpecSchema', () => {
-  it('requires desiredReady', () => {
+  it('requires replicas', () => {
     const result = sandboxWarmPoolSpecSchema.safeParse({
-      templateRef: { name: 'base' },
+      sandboxTemplateRef: { name: 'base' },
     });
     expect(result.success).toBe(false);
   });
 
-  it('requires templateRef', () => {
+  it('requires sandboxTemplateRef', () => {
     const result = sandboxWarmPoolSpecSchema.safeParse({
-      desiredReady: 3,
+      replicas: 3,
     });
     expect(result.success).toBe(false);
   });
 
-  it('requires templateRef.name', () => {
+  it('requires sandboxTemplateRef.name', () => {
     const result = sandboxWarmPoolSpecSchema.safeParse({
-      desiredReady: 3,
-      templateRef: {},
+      replicas: 3,
+      sandboxTemplateRef: {},
     });
     expect(result.success).toBe(false);
   });

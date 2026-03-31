@@ -112,7 +112,7 @@ describe.skipIf(!ENABLED)('Sandbox Lifecycle', () => {
       .image(getTestImage())
       .resources({ memory: '256Mi', cpu: '250m' })
       .labels({ 'agentpane.io/e2e-test': 'true' })
-      .ttl(300)
+      .shutdownTime(new Date(Date.now() + 300_000).toISOString())
       .build();
 
     const created = await client.createSandbox(sandbox, namespace);
@@ -123,7 +123,8 @@ describe.skipIf(!ENABLED)('Sandbox Lifecycle', () => {
       timeoutMs: 120_000,
     });
 
-    expect(ready.status?.phase).toBe('Running');
+    const readyCond = ready.status?.conditions?.find((c: any) => c.type === 'Ready');
+    expect(readyCond?.status).toBe('True');
   }, 130_000);
 
   it('should list the created sandbox', async () => {
@@ -134,7 +135,7 @@ describe.skipIf(!ENABLED)('Sandbox Lifecycle', () => {
       .image(getTestImage())
       .resources({ memory: '256Mi', cpu: '250m' })
       .labels({ 'agentpane.io/e2e-test': 'true' })
-      .ttl(300)
+      .shutdownTime(new Date(Date.now() + 300_000).toISOString())
       .build();
 
     await client.createSandbox(sandbox, namespace);
@@ -157,7 +158,7 @@ describe.skipIf(!ENABLED)('Sandbox Lifecycle', () => {
       .image(getTestImage())
       .resources({ memory: '256Mi', cpu: '250m' })
       .labels({ 'agentpane.io/e2e-test': 'true' })
-      .ttl(300)
+      .shutdownTime(new Date(Date.now() + 300_000).toISOString())
       .build();
 
     await client.createSandbox(sandbox, namespace);
@@ -165,7 +166,8 @@ describe.skipIf(!ENABLED)('Sandbox Lifecycle', () => {
 
     const fetched = await client.getSandbox(sandboxName, namespace);
     expect(fetched.metadata?.name).toBe(sandboxName);
-    expect(fetched.status?.phase).toBe('Running');
+    const readyCond = fetched.status?.conditions?.find((c: any) => c.type === 'Ready');
+    expect(readyCond?.status).toBe('True');
   }, 130_000);
 
   it('should delete a sandbox and confirm removal', async () => {
@@ -176,7 +178,7 @@ describe.skipIf(!ENABLED)('Sandbox Lifecycle', () => {
       .image(getTestImage())
       .resources({ memory: '256Mi', cpu: '250m' })
       .labels({ 'agentpane.io/e2e-test': 'true' })
-      .ttl(300)
+      .shutdownTime(new Date(Date.now() + 300_000).toISOString())
       .build();
 
     await client.createSandbox(sandbox, namespace);
@@ -217,7 +219,7 @@ describe.skipIf(!ENABLED)('Exec in Sandbox', () => {
       .image(getTestImage())
       .resources({ memory: '256Mi', cpu: '250m' })
       .labels({ 'agentpane.io/e2e-test': 'true' })
-      .ttl(600)
+      .shutdownTime(new Date(Date.now() + 600_000).toISOString())
       .build();
 
     await client.createSandbox(sandbox, namespace);
@@ -306,7 +308,7 @@ describe.skipIf(!ENABLED)('Streaming Exec', () => {
       .image(getTestImage())
       .resources({ memory: '256Mi', cpu: '250m' })
       .labels({ 'agentpane.io/e2e-test': 'true' })
-      .ttl(600)
+      .shutdownTime(new Date(Date.now() + 600_000).toISOString())
       .build();
 
     await client.createSandbox(sandbox, namespace);
@@ -393,7 +395,7 @@ describe.skipIf(!ENABLED)('tmux Sessions', () => {
       .image(getTestImage())
       .resources({ memory: '256Mi', cpu: '250m' })
       .labels({ 'agentpane.io/e2e-test': 'true' })
-      .ttl(600)
+      .shutdownTime(new Date(Date.now() + 600_000).toISOString())
       .build();
 
     await client.createSandbox(sandbox, namespace);
@@ -518,7 +520,7 @@ describe.skipIf(!ENABLED)('Warm Pool', () => {
     const pool = new SandboxWarmPoolBuilder(warmPoolName)
       .namespace(namespace)
       .replicas(1)
-      .templateRef(templateName)
+      .sandboxTemplateRef(templateName)
       .labels({ 'agentpane.io/e2e-test': 'true' })
       .build();
 
@@ -543,7 +545,7 @@ describe.skipIf(!ENABLED)('Warm Pool', () => {
     const pool = new SandboxWarmPoolBuilder(warmPoolName)
       .namespace(namespace)
       .replicas(1)
-      .templateRef(templateName)
+      .sandboxTemplateRef(templateName)
       .labels({ 'agentpane.io/e2e-test': 'true' })
       .build();
 
@@ -579,7 +581,7 @@ describe.skipIf(!ENABLED)('Warm Pool', () => {
     const pool = new SandboxWarmPoolBuilder(warmPoolName)
       .namespace(namespace)
       .replicas(1)
-      .templateRef(templateName)
+      .sandboxTemplateRef(templateName)
       .labels({ 'agentpane.io/e2e-test': 'true' })
       .build();
 
@@ -600,26 +602,24 @@ describe.skipIf(!ENABLED)('Warm Pool', () => {
     const claim = new SandboxClaimBuilder(claimName)
       .namespace(namespace)
       .templateRef(templateName)
-      .warmPoolRef(warmPoolName)
       .labels({ 'agentpane.io/e2e-test': 'true' })
       .build();
 
     const created = await client.createClaim(claim, namespace);
     expect(created.metadata?.name).toBe(claimName);
 
-    // Wait for claim to be bound
+    // Wait for claim to be bound (sandbox.Name populated)
     await waitForCondition(
       async () => {
         const fetched = await client.getClaim(claimName, namespace);
-        return fetched.status?.phase === 'Bound';
+        return !!fetched.status?.sandbox?.Name;
       },
       60_000,
       2_000
     );
 
     const bound = await client.getClaim(claimName, namespace);
-    expect(bound.status?.phase).toBe('Bound');
-    expect(bound.status?.sandboxRef?.name).toBeDefined();
+    expect(bound.status?.sandbox?.Name).toBeDefined();
 
     // Cleanup claim
     await client.deleteClaim(claimName, namespace);
@@ -696,25 +696,39 @@ describe.skipIf(!ENABLED)('Sandbox Template', () => {
 
     await client.createTemplate(template, namespace);
 
-    // Create sandbox from template
-    sandboxName = generateTestName('e2e-from-tpl');
+    // Create sandbox from template via SandboxClaim
+    const claimName = generateTestName('e2e-claim-tpl');
 
-    const sandbox = new SandboxBuilder(sandboxName)
+    const claim = new SandboxClaimBuilder(claimName)
       .namespace(namespace)
-      .fromTemplate(templateName)
+      .templateRef(templateName)
       .labels({ 'agentpane.io/e2e-test': 'true' })
-      .ttl(300)
       .build();
 
-    const created = await client.createSandbox(sandbox, namespace);
-    expect(created.metadata?.name).toBe(sandboxName);
-    expect(created.spec?.sandboxTemplateRef?.name).toBe(templateName);
+    const created = await client.createClaim(claim, namespace);
+    expect(created.metadata?.name).toBe(claimName);
 
-    // Wait for Ready (controller resolves the template)
-    await client.waitForReady(sandboxName, { timeoutMs: 120_000 });
+    // Wait for claim to be bound (sandbox.Name populated)
+    await waitForCondition(
+      async () => {
+        const fetched = await client.getClaim(claimName, namespace);
+        return !!fetched.status?.sandbox?.Name;
+      },
+      120_000,
+      3_000
+    );
 
+    const bound = await client.getClaim(claimName, namespace);
+    sandboxName = bound.status?.sandbox?.Name ?? '';
+    expect(sandboxName).toBeTruthy();
+
+    // Verify the sandbox is running
     const running = await client.getSandbox(sandboxName, namespace);
-    expect(running.status?.phase).toBe('Running');
+    const readyCond = running.status?.conditions?.find((c: any) => c.type === 'Ready');
+    expect(readyCond?.status).toBe('True');
+
+    // Cleanup claim
+    await client.deleteClaim(claimName, namespace);
   }, 130_000);
 
   it('should delete a template', async () => {

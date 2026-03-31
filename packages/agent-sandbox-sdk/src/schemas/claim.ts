@@ -1,28 +1,29 @@
 import { z } from 'zod';
+import { shutdownPolicySchema } from './sandbox.js';
+
+export const sandboxTemplateRefSchema = z.object({
+  name: z.string(),
+  // No namespace - v0.2.1 SandboxTemplateRef is name-only
+});
+
+export const lifecycleSchema = z.object({
+  shutdownTime: z.string().optional(),
+  shutdownPolicy: shutdownPolicySchema.optional(),
+});
+
+// CRITICAL: Capital-N "Name" matches upstream json:"Name,omitempty"
+export const claimSandboxStatusSchema = z.object({
+  Name: z.string().optional(),
+});
 
 export const sandboxClaimSpecSchema = z.object({
-  sandboxTemplateRef: z.object({
-    name: z.string(),
-    namespace: z.string().optional(),
-  }),
-  warmPoolRef: z
-    .object({
-      name: z.string(),
-      namespace: z.string().optional(),
-    })
-    .optional(),
+  sandboxTemplateRef: sandboxTemplateRefSchema,
+  lifecycle: lifecycleSchema.optional(),
 });
 
 export const sandboxClaimStatusSchema = z.object({
-  phase: z.enum(['Pending', 'Bound', 'Failed']).optional(),
-  sandboxRef: z
-    .object({
-      name: z.string(),
-      namespace: z.string().optional(),
-    })
-    .optional(),
   conditions: z.array(z.any()).optional(),
-  boundAt: z.string().optional(),
+  sandbox: claimSandboxStatusSchema.optional(),
 });
 
 export const sandboxClaimSchema = z.object({

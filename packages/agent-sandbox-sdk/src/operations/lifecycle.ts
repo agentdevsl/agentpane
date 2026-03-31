@@ -37,11 +37,9 @@ export async function waitForReady(
       return sandbox;
     }
 
-    // Check for terminal failure
-    if (sandbox.status?.phase === 'Failed') {
-      const failMessage =
-        sandbox.status.conditions?.find((c) => c.status === 'False')?.message ??
-        'Sandbox entered Failed phase';
+    // Check for terminal failure via Ready condition with False status
+    if (readyCondition?.status === 'False') {
+      const failMessage = readyCondition.message ?? 'Sandbox failed to become ready';
       throw new Error(failMessage);
     }
 
@@ -83,14 +81,15 @@ export async function resume(
   namespace: string,
   name: string
 ): Promise<Sandbox> {
-  return crud.patch(namespace, name, {
+  const patch: Record<string, unknown> = {
     spec: { replicas: 1 },
     metadata: {
       annotations: {
         [CRD_ANNOTATIONS.pauseReason]: '',
       },
     },
-  } as Partial<Sandbox>);
+  };
+  return crud.patch(namespace, name, patch as Partial<Sandbox>);
 }
 
 function sleep(ms: number): Promise<void> {

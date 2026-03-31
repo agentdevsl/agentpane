@@ -1,40 +1,27 @@
-import type { Condition, CRDResource, CRDResourceList } from './common.js';
+import type { V1Condition } from '@kubernetes/client-node';
+import type { ClaimSandboxStatus, CRDResource, CRDResourceList, Lifecycle } from './common.js';
 
 /**
- * SandboxClaim spec -- used to request a sandbox from a warm pool
+ * SandboxTemplateRef - name only, no namespace
  */
-export interface SandboxClaimSpec {
-  /** Reference to the SandboxTemplate */
-  sandboxTemplateRef: {
-    name: string;
-    namespace?: string;
-  };
-
-  /** Reference to the WarmPool to claim from */
-  warmPoolRef?: {
-    name: string;
-    namespace?: string;
-  };
+export interface SandboxTemplateRef {
+  name: string;
 }
 
 /**
- * SandboxClaim status
+ * SandboxClaim spec - v0.2.1
+ */
+export interface SandboxClaimSpec {
+  sandboxTemplateRef: SandboxTemplateRef;
+  lifecycle?: Lifecycle; // nested (not inlined)
+}
+
+/**
+ * SandboxClaim status - v0.2.1
  */
 export interface SandboxClaimStatus {
-  /** Phase of the claim */
-  phase?: 'Pending' | 'Bound' | 'Failed';
-
-  /** Name of the sandbox bound to this claim */
-  sandboxRef?: {
-    name: string;
-    namespace?: string;
-  };
-
-  /** Conditions */
-  conditions?: Condition[];
-
-  /** When the claim was bound */
-  boundAt?: string;
+  conditions?: V1Condition[];
+  sandbox?: ClaimSandboxStatus; // { Name?: string } with capital N
 }
 
 /**

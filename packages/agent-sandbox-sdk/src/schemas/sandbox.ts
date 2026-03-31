@@ -1,79 +1,43 @@
 import { z } from 'zod';
 
-export const sandboxNetworkRuleSchema = z.object({
-  ports: z
-    .array(
-      z.object({
-        port: z.number(),
-        protocol: z.string(),
-      })
-    )
-    .optional(),
-  to: z
-    .array(
-      z.object({
-        ipBlock: z
-          .object({
-            cidr: z.string(),
-            except: z.array(z.string()).optional(),
-          })
-          .optional(),
-      })
-    )
-    .optional(),
-  from: z
-    .array(
-      z.object({
-        ipBlock: z
-          .object({
-            cidr: z.string(),
-            except: z.array(z.string()).optional(),
-          })
-          .optional(),
-      })
-    )
-    .optional(),
+export const podMetadataSchema = z.object({
+  labels: z.record(z.string(), z.string()).optional(),
+  annotations: z.record(z.string(), z.string()).optional(),
 });
 
-export const sandboxVolumeClaimSchema = z.object({
-  name: z.string(),
-  storageClassName: z.string().optional(),
-  accessModes: z.array(z.string()),
-  resources: z.object({
-    requests: z.object({
-      storage: z.string(),
-    }),
-  }),
+export const podTemplateSchema = z.object({
+  spec: z.any(), // V1PodSpec - too complex for Zod, use any
+  metadata: podMetadataSchema, // NOT optional (no omitempty upstream)
 });
+
+export const embeddedObjectMetadataSchema = z.object({
+  name: z.string().optional(),
+  labels: z.record(z.string(), z.string()).optional(),
+  annotations: z.record(z.string(), z.string()).optional(),
+});
+
+export const persistentVolumeClaimTemplateSchema = z.object({
+  metadata: embeddedObjectMetadataSchema,
+  spec: z.any(), // V1PersistentVolumeClaimSpec
+});
+
+export const shutdownPolicySchema = z.enum(['Delete', 'Retain']);
 
 export const sandboxSpecSchema = z.object({
-  sandboxTemplateRef: z
-    .object({
-      name: z.string(),
-      namespace: z.string().optional(),
-    })
-    .optional(),
-  podTemplateSpec: z.any().optional(),
+  podTemplate: podTemplateSchema,
+  volumeClaimTemplates: z.array(persistentVolumeClaimTemplateSchema).optional(),
+  // Lifecycle fields inlined (not nested)
+  shutdownTime: z.string().optional(),
+  shutdownPolicy: shutdownPolicySchema.optional(),
   replicas: z.number().int().min(0).max(1).optional(),
-  networkPolicy: z
-    .object({
-      egress: z.array(sandboxNetworkRuleSchema).optional(),
-      ingress: z.array(sandboxNetworkRuleSchema).optional(),
-    })
-    .optional(),
-  volumeClaims: z.array(sandboxVolumeClaimSchema).optional(),
-  runtimeClassName: z.string().optional(),
-  ttlSecondsAfterFinished: z.number().int().positive().optional(),
 });
 
 export const sandboxStatusSchema = z.object({
-  phase: z.enum(['Pending', 'Running', 'Paused', 'Succeeded', 'Failed', 'Unknown']).optional(),
-  conditions: z.array(z.any()).optional(),
-  podName: z.string().optional(),
   serviceFQDN: z.string().optional(),
-  podIP: z.string().optional(),
-  readyReplicas: z.number().optional(),
-  readyAt: z.string().optional(),
+  service: z.string().optional(),
+  conditions: z.array(z.any()).optional(),
+  replicas: z.number(), // NOT optional (always present, defaults to 0)
+  selector: z.string().optional(),
 });
 
 export const sandboxSchema = z.object({
