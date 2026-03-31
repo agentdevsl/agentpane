@@ -6,7 +6,7 @@
  */
 
 import { createId } from '@paralleldrive/cuid2';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, sql } from 'drizzle-orm';
 import type { MemoryError } from '../../lib/errors/memory-errors.js';
 import { MemoryErrors } from '../../lib/errors/memory-errors.js';
 import { createLogger } from '../../lib/logging/logger.js';
@@ -355,7 +355,7 @@ export class SkillTrackingService {
         .where(
           and(
             eq(skillExecutions.codespaceId, codespaceId),
-            sql`${skillExecutions.insightIdsUsed} IS NOT NULL`
+            isNotNull(skillExecutions.insightIdsUsed)
           )
         );
 
@@ -409,7 +409,7 @@ export class SkillTrackingService {
         .where(
           and(
             eq(skillExecutions.codespaceId, codespaceId),
-            sql`${skillExecutions.insightIdsUsed} IS NOT NULL`
+            isNotNull(skillExecutions.insightIdsUsed)
           )
         );
 

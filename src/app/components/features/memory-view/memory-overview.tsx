@@ -365,7 +365,7 @@ export function MemoryOverview(): React.JSX.Element {
                   />
                 </a>
                 <span className="text-[11px] text-fg-subtle">
-                  Lee et al., Stanford &amp; MIT, 2026 — Credit assignment and outer-loop
+                  Lee et al., Stanford &amp; MIT, 2024 — Credit assignment and outer-loop
                   optimization for context selection
                 </span>
               </div>

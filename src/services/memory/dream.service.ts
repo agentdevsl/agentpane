@@ -13,7 +13,7 @@
  */
 
 import { createId } from '@paralleldrive/cuid2';
-import { and, desc, eq, or, sql } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, or } from 'drizzle-orm';
 import { agentPrompt } from '../../lib/agents/agent-sdk-utils.js';
 import type { MemoryError } from '../../lib/errors/memory-errors.js';
 import { MemoryErrors } from '../../lib/errors/memory-errors.js';
@@ -464,7 +464,7 @@ export class DreamService {
         .where(
           and(
             eq(skillExecutions.codespaceId, codespaceId),
-            sql`${skillExecutions.insightIdsUsed} IS NOT NULL`
+            isNotNull(skillExecutions.insightIdsUsed)
           )
         )
         .orderBy(desc(skillExecutions.completedAt))
