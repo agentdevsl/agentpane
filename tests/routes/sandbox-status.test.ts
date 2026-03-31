@@ -126,8 +126,8 @@ describe('GET /sandbox/status/:codespaceId - K8s auto-heal guard', () => {
   it('does NOT trigger auto-heal when listSandboxes returns running pods', async () => {
     const k8sProvider = createMockK8sProvider({
       listSandboxes: vi.fn().mockResolvedValue([
-        { name: 'sandbox-1', phase: 'Running' },
-        { name: 'sandbox-2', phase: 'Running' },
+        { name: 'sandbox-1', status: 'running' },
+        { name: 'sandbox-2', status: 'running' },
       ]),
     });
 
@@ -207,7 +207,7 @@ describe('GET /sandbox/status/:codespaceId - K8s auto-heal guard', () => {
         // First call: no pods (triggers auto-heal)
         // Second call: pod created by auto-heal
         if (listCallCount === 1) return Promise.resolve([]);
-        return Promise.resolve([{ name: 'sandbox-default', phase: 'Running' }]);
+        return Promise.resolve([{ name: 'sandbox-default', status: 'running' }]);
       }),
     });
 
@@ -595,9 +595,9 @@ describe('GET /sandbox/status/:codespaceId - K8s health details', () => {
     const mockDb = createMockDb();
     const k8sProvider = createMockK8sProvider({
       listSandboxes: vi.fn().mockResolvedValue([
-        { name: 'sandbox-1', phase: 'Running' },
-        { name: 'sandbox-2', phase: 'Pending' },
-        { name: 'sandbox-3', phase: 'Running' },
+        { name: 'sandbox-1', status: 'running' },
+        { name: 'sandbox-2', status: 'creating' },
+        { name: 'sandbox-3', status: 'running' },
       ]),
     });
 
