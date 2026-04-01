@@ -156,11 +156,11 @@
         "noConsole": "warn",
         "noControlCharactersInRegex": "off",
         "noArrayIndexKey": "off",
-        "noEmptyBlockStatements": "warn"
+        "noEmptyBlockStatements": "error"
       },
       "nursery": {
         "noLeakedRender": "off",
-        "noFloatingPromises": "warn"
+        "noFloatingPromises": "error"
       }
     }
   },

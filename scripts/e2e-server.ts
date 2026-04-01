@@ -62,7 +62,7 @@ async function startServer(): Promise<Subprocess> {
 
   if (stdout) {
     const reader = stdout.getReader();
-    (async () => {
+    void (async () => {
       try {
         while (true) {
           const { done, value } = await reader.read();
@@ -77,7 +77,7 @@ async function startServer(): Promise<Subprocess> {
 
   if (stderr) {
     const reader = stderr.getReader();
-    (async () => {
+    void (async () => {
       try {
         while (true) {
           const { done, value } = await reader.read();
@@ -105,7 +105,9 @@ async function main(): Promise<void> {
     }
     // Keep running to allow manual testing
     console.log('Press Ctrl+C to exit');
-    await new Promise(() => {}); // Wait forever
+    await new Promise(() => {
+      /* Wait forever */
+    });
     return;
   }
 

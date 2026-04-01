@@ -120,7 +120,7 @@ export async function startDaemon(options: DaemonOptions): Promise<void> {
   // Signal handlers must handle the async shutdown properly.
   // Use a forced exit timeout to prevent hanging if cleanup stalls.
   const handleSignal = () => {
-    shutdown().finally(() => {
+    void shutdown().finally(() => {
       // shutdown() calls process.exit(0) on success,
       // but if it somehow doesn't exit, force it after 5s
     });

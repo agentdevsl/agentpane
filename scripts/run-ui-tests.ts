@@ -144,7 +144,9 @@ async function cleanup(): Promise<void> {
   if (serverProcess && shouldCleanupServer) {
     console.log('\n🛑 Stopping dev server...');
     serverProcess.kill();
-    await serverProcess.exited.catch(() => {});
+    await serverProcess.exited.catch(() => {
+      /* Best-effort: process may already be dead */
+    });
   }
 }
 
