@@ -1,0 +1,30 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/app/routes/**/*.tsx",
+    "src/app/routes/**/*.ts",
+    "src/server/**/*.ts",
+    "src/services/**/*.ts",
+    "src/lib/**/*.ts",
+    "scripts/*.ts"
+  ],
+  "project": ["src/**/*.{ts,tsx}"],
+  "ignore": [
+    ".claude/**",
+    ".worktrees/**",
+    ".stryker-tmp/**",
+    "agent-runner/**",
+    "specs/**",
+    "charts/**",
+    "docker/**",
+    "packages/**",
+    "app.config.timestamp_*.js"
+  ],
+  "ignoreDependencies": [
+    "@agentpane/agent-sandbox-sdk",
+    "@agentpane/nomad-sandbox-sdk",
+    "@tanstack/router-core",
+    "@radix-ui/react-visually-hidden"
+  ],
+  "ignoreExportsUsedInFile": true
+}
