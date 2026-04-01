@@ -168,10 +168,15 @@ describe('AgentRetryQueue (IT-310 to IT-325)', () => {
     });
 
     const now = Date.now();
+    // Attempt 1: 100_000 * 10^0 = 100_000 (below cap)
     queue.enqueue({ taskId: 't1', agentId: 'a1', codespaceId: 'cs1', errorMessage: 'E' });
-    const state = queue.getQueueState();
-    // 100_000 * 10^0 = 100_000, within max
-    expect(state[0].nextRetryAt - now).toBeLessThanOrEqual(300_100);
+    const state1 = queue.getQueueState();
+    expect(state1[0].nextRetryAt).toBe(now + 100_000);
+
+    // Attempt 2: 100_000 * 10^1 = 1_000_000 → capped to 300_000
+    queue.enqueue({ taskId: 't1', agentId: 'a1', codespaceId: 'cs1', errorMessage: 'E' });
+    const state2 = queue.getQueueState();
+    expect(state2[0].nextRetryAt).toBe(now + 300_000);
   });
 
   // ── Start / Stop ──
