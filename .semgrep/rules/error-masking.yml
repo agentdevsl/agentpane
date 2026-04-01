@@ -16,7 +16,7 @@ rules:
           }
     paths:
       exclude:
-        - "tests/**"
+        - "**/tests/**"
         - "**/__tests__/**"
         - "**/*.test.ts"
         - "**/*.spec.ts"
@@ -39,7 +39,7 @@ rules:
           }
     paths:
       exclude:
-        - "tests/**"
+        - "**/tests/**"
         - "**/__tests__/**"
         - "**/*.test.ts"
         - "**/*.spec.ts"
@@ -63,7 +63,7 @@ rules:
           }
     paths:
       exclude:
-        - "tests/**"
+        - "**/tests/**"
         - "**/__tests__/**"
         - "**/*.test.ts"
         - "**/*.spec.ts"

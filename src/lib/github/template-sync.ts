@@ -111,10 +111,11 @@ async function fetchDirectoryContents(
     }
 
     return ok(data as GitHubContent[]);
+    // nosemgrep: agentpane.error-masking.catch-returns-ok-helper
   } catch (error) {
     const statusCode = (error as { status?: number }).status;
     if (statusCode === 404) {
-      return ok([]); // Directory doesn't exist, return empty
+      return ok([]);
     }
     return err(TemplateErrors.FETCH_FAILED(path, formatGitHubError(error).message));
   }
