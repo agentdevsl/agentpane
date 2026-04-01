@@ -66,17 +66,17 @@ function WorkflowDetailPage(): React.JSX.Element {
   // Load workflow on mount
   useWatchEffect(() => {
     if (loaderData?.workflow) return;
-    fetchWorkflow();
+    void fetchWorkflow();
   }, [fetchWorkflow, loaderData]);
 
   // Handle navigate back to catalog
   const handleBack = useCallback(() => {
-    navigate({ to: '/catalog' });
+    void navigate({ to: '/catalog' });
   }, [navigate]);
 
   // Handle edit workflow (navigate to designer with workflow ID)
   const handleEdit = useCallback(() => {
-    navigate({ to: '/designer', search: { id: workflowId } });
+    void navigate({ to: '/designer', search: { id: workflowId } });
   }, [navigate, workflowId]);
 
   // Handle delete workflow with confirmation
@@ -101,7 +101,7 @@ function WorkflowDetailPage(): React.JSX.Element {
       // DELETE returns 204 No Content on success
       if (response.status === 204 || response.ok) {
         // Navigate back to catalog after successful deletion
-        navigate({ to: '/catalog' });
+        void navigate({ to: '/catalog' });
       } else {
         const result = await response.json();
         setError({

@@ -136,7 +136,7 @@ function CodespacesPage(): React.JSX.Element {
         }
       }
     };
-    loadInitialData();
+    void loadInitialData();
   });
 
   // Polling interval ref for codespace updates
@@ -186,7 +186,7 @@ function CodespacesPage(): React.JSX.Element {
       currentIntervalMsRef.current = desiredInterval;
       setIsLoading(false);
     } else {
-      fetchCodespaces();
+      void fetchCodespaces();
     }
 
     return () => {

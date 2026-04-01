@@ -57,7 +57,7 @@ function FolderOverviewPage(): React.JSX.Element {
         setIsLoading(false);
       }
     };
-    fetchData();
+    void fetchData();
   }, [folderId, loaderData]);
 
   const filteredCodespaces = useMemo(() => {

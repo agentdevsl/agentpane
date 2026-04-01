@@ -303,8 +303,8 @@ export function SandboxSettingsPage(): React.JSX.Element {
   };
 
   useWatchEffect(() => {
-    loadConfigs();
-    loadDefaultSettings();
+    void loadConfigs();
+    void loadDefaultSettings();
   }, [loadConfigs, loadDefaultSettings]);
 
   // Load K8s status when provider is selected
@@ -385,8 +385,8 @@ export function SandboxSettingsPage(): React.JSX.Element {
   // Load K8s info when provider changes to kubernetes
   useWatchEffect(() => {
     if (selectedProvider === 'kubernetes') {
-      loadK8sContexts();
-      loadK8sStatus();
+      void loadK8sContexts();
+      void loadK8sStatus();
     }
   }, [selectedProvider, loadK8sContexts, loadK8sStatus]);
 
@@ -430,7 +430,7 @@ export function SandboxSettingsPage(): React.JSX.Element {
           setAutoInstallingCRDs(false);
         }
       };
-      installCRDs();
+      void installCRDs();
     }
   }, [
     autoInstallCRDs,
@@ -530,9 +530,9 @@ export function SandboxSettingsPage(): React.JSX.Element {
   // Load Nomad info when provider changes to nomad
   useWatchEffect(() => {
     if (selectedProvider === 'nomad') {
-      loadNomadStatus();
-      loadNomadNamespaces();
-      loadNomadDatacenters();
+      void loadNomadStatus();
+      void loadNomadNamespaces();
+      void loadNomadDatacenters();
     }
   }, [selectedProvider, loadNomadStatus, loadNomadNamespaces, loadNomadDatacenters]);
 

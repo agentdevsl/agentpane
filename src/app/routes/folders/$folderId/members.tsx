@@ -54,7 +54,7 @@ function FolderMembersPage(): React.JSX.Element {
         setIsLoading(false);
       }
     };
-    fetchFolder();
+    void fetchFolder();
   }, [folderId, loaderData]);
 
   if (isLoading) {

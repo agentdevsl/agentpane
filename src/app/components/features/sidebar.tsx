@@ -107,7 +107,7 @@ export function Sidebar({ codespaceId: _codespaceId }: SidebarProps): React.JSX.
       clickTimeoutRef.current = null;
     }
     if (currentCodespace) {
-      navigate({
+      void navigate({
         to: '/codespaces/$codespaceId',
         params: { codespaceId: currentCodespace.codespace.id },
       });
@@ -134,7 +134,7 @@ export function Sidebar({ codespaceId: _codespaceId }: SidebarProps): React.JSX.
         setDbMode((prev) => (prev === nextMode ? prev : nextMode));
       }
     };
-    checkHealth();
+    void checkHealth();
     const interval = setInterval(checkHealth, 30000);
     return () => clearInterval(interval);
   });

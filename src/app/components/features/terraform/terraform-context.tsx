@@ -514,7 +514,7 @@ export function TerraformProvider({ children }: { children: React.ReactNode }): 
             }
           };
 
-          startStream();
+          void startStream();
         });
 
         // Wait for the stream to complete (done or error event)

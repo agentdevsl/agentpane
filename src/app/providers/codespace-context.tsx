@@ -240,7 +240,7 @@ export function CodespaceContextProvider({
       if (selectedFolderId) {
         const existing = codespaceList.find((cs) => cs.id === codespace.id);
         if (existing && existing.projectFolderId !== selectedFolderId) {
-          apiClient.codespaces
+          void apiClient.codespaces
             .update(codespace.id, { projectFolderId: selectedFolderId })
             .then((result) => {
               if (result.ok) {
@@ -255,7 +255,7 @@ export function CodespaceContextProvider({
         }
       }
 
-      navigate({ to: '/codespaces/$codespaceId', params: { codespaceId: codespace.id } });
+      void navigate({ to: '/codespaces/$codespaceId', params: { codespaceId: codespace.id } });
       setIsPickerOpen(false);
     },
     [addRecentCodespace, navigate, selectedFolderId, codespaceList]

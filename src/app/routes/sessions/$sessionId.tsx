@@ -136,7 +136,7 @@ function SessionPage(): React.JSX.Element {
         return;
       }
       // Navigate back to projects list since task is now in backlog
-      navigate({ to: '/' });
+      void navigate({ to: '/' });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       console.error('[SessionPage] Failed to reject plan:', error);
@@ -180,7 +180,7 @@ function SessionPage(): React.JSX.Element {
       }
       setIsLoading(false);
     };
-    fetchSession();
+    void fetchSession();
   }, [sessionId, initialSession, loaderData.sessionError]);
 
   // Stable callbacks for agent actions (must be declared before early returns)

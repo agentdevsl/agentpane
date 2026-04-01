@@ -126,7 +126,7 @@ function Dashboard(): React.JSX.Element {
         }
       }
     };
-    loadInitialData();
+    void loadInitialData();
   });
 
   // Polling interval ref for project updates
@@ -196,7 +196,7 @@ function Dashboard(): React.JSX.Element {
       currentIntervalMsRef.current = desiredInterval;
       setIsLoading(false);
     } else {
-      fetchProjects();
+      void fetchProjects();
     }
 
     return () => {
@@ -456,7 +456,7 @@ function Dashboard(): React.JSX.Element {
                   : {
                       label: 'Configure Settings',
                       onClick: () => {
-                        navigate({ to: '/settings' });
+                        void navigate({ to: '/settings' });
                       },
                     }
               }

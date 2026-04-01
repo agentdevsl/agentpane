@@ -385,7 +385,7 @@ function SystemPromptsPage(): React.JSX.Element {
         setIsLoading(false);
       }
     }
-    load();
+    void load();
   }, [allPrompts, settingsKeys, loaderData]);
 
   const handleEdit = useCallback((promptId: string, value: string) => {

@@ -99,7 +99,7 @@ function ProjectTemplatesPage(): React.JSX.Element {
         setIsGitHubConfigured(healthResult.data.checks.github.status === 'ok');
       }
     };
-    fetchInitialData();
+    void fetchInitialData();
   });
 
   // GitHub callbacks
@@ -127,7 +127,7 @@ function ProjectTemplatesPage(): React.JSX.Element {
       }
       setIsLoading(false);
     };
-    fetchTemplates();
+    void fetchTemplates();
   }, [selectedProjectId]);
 
   // Filter templates by selected project

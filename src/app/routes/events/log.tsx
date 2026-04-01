@@ -74,7 +74,7 @@ function EventLogPage(): React.JSX.Element {
         }
       }
     }
-    load();
+    void load();
     return () => {
       cancelled = true;
     };
@@ -86,7 +86,7 @@ function EventLogPage(): React.JSX.Element {
     setSelectedId(null);
     setNextCursor(null);
     setIsLoading(true);
-    fetchEvents().finally(() => setIsLoading(false));
+    void fetchEvents().finally(() => setIsLoading(false));
   }, [sourceFilter, statusFilter, fetchEvents]);
 
   const handleEventTypeSearch = useCallback(() => {
@@ -94,7 +94,7 @@ function EventLogPage(): React.JSX.Element {
     setSelectedId(null);
     setNextCursor(null);
     setIsLoading(true);
-    fetchEvents().finally(() => setIsLoading(false));
+    void fetchEvents().finally(() => setIsLoading(false));
   }, [fetchEvents]);
 
   // SSE: prepend new events in real-time (debounced)

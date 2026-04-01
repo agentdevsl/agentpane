@@ -50,7 +50,7 @@ function EventSourcesPage(): React.JSX.Element {
         if (!cancelled) setIsLoading(false);
       }
     }
-    load();
+    void load();
     return () => {
       cancelled = true;
     };

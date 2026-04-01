@@ -48,7 +48,7 @@ function DesignerPage(): React.JSX.Element {
 
   useWatchEffect(() => {
     if (workflowId) {
-      fetchWorkflow(workflowId);
+      void fetchWorkflow(workflowId);
     }
   }, [workflowId, fetchWorkflow]);
 

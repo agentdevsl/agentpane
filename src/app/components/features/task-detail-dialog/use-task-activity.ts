@@ -274,7 +274,7 @@ export function useTaskActivity(task: Task | null): {
       }
     }
 
-    fetchEvents();
+    void fetchEvents();
 
     return () => {
       cancelled = true;

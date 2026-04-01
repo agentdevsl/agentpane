@@ -374,7 +374,7 @@ export function TerraformModuleDetail({ moduleId }: { moduleId: string }): React
     setLoading(true);
     setError(null);
 
-    apiClient.terraform.getModule(moduleId).then((res) => {
+    void apiClient.terraform.getModule(moduleId).then((res) => {
       if (cancelled) return;
       if (res.ok) {
         setMod(res.data as TerraformModuleView);

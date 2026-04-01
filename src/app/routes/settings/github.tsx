@@ -118,7 +118,7 @@ function GitHubSettingsPage(): React.JSX.Element {
       url.searchParams.delete('code');
       url.searchParams.delete('state');
       window.history.replaceState({}, '', url.pathname);
-      handleSetupCallback(code);
+      void handleSetupCallback(code);
       return;
     }
 
@@ -129,7 +129,7 @@ function GitHubSettingsPage(): React.JSX.Element {
       url.searchParams.delete('installation_id');
       url.searchParams.delete('setup_action');
       window.history.replaceState({}, '', url.pathname);
-      registerInstallation(Number(installationId));
+      void registerInstallation(Number(installationId));
       return;
     }
 

@@ -42,14 +42,14 @@ function useSettingsSections(): SettingsSection[] {
       const result = await apiClient.github.getTokenInfo();
       setGithubConnected(result.ok && result.data.tokenInfo?.isValid === true);
     };
-    checkGitHub();
+    void checkGitHub();
 
     // Check if Anthropic API key is configured via API
     const checkAnthropicKey = async () => {
       const result = await apiClient.apiKeys.get('anthropic');
       setHasApiKey(result.ok && result.data.keyInfo !== null);
     };
-    checkAnthropicKey();
+    void checkAnthropicKey();
   });
 
   return [

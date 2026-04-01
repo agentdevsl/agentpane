@@ -27,7 +27,8 @@
         "rules": {
           "suspicious": {
             "noExplicitAny": "off",
-            "noConsole": "off"
+            "noConsole": "off",
+            "noEmptyBlockStatements": "off"
           },
           "style": {
             "noNonNullAssertion": "off",
@@ -39,6 +40,9 @@
           },
           "complexity": {
             "noStaticOnlyClass": "off"
+          },
+          "nursery": {
+            "noFloatingPromises": "off"
           }
         }
       }
