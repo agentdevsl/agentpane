@@ -1,6 +1,5 @@
-import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { sessions, settings } from '../../src/db/schema';
+import { settings } from '../../src/db/schema';
 import { err, ok } from '../../src/lib/utils/result';
 import type { ContainerAgentTrigger } from '../../src/services/task.service';
 import { TaskService } from '../../src/services/task.service';
@@ -17,7 +16,7 @@ describe('IT-024: Task Move to in_progress When Agent Start Fails', () => {
     await clearTestDatabase();
   });
 
-  it('moves task to in_progress and reports agentError when agent start fails', async () => {
+  it('reverts task to backlog and reports agentError when agent start fails', async () => {
     const db = getTestDb();
     const codespace = await createTestProject();
 
@@ -59,17 +58,9 @@ describe('IT-024: Task Move to in_progress When Agent Start Fails', () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.value.task.column).toBe('in_progress');
-      expect(result.value.task.sessionId).toBeTruthy();
+      expect(result.value.task.column).toBe('backlog');
       expect(result.value.agentError).toBeDefined();
       expect(result.value.agentError).toContain('Container crashed');
     }
-
-    const sessionRecord = await db.query.sessions.findFirst({
-      where: eq(sessions.id, result.ok ? result.value.task.sessionId! : ''),
-    });
-    expect(sessionRecord).toBeDefined();
-    expect(sessionRecord!.codespaceId).toBe(codespace.id);
-    expect(sessionRecord!.taskId).toBe(task.id);
   });
 });

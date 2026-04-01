@@ -121,8 +121,8 @@ describe('Bug-Proving Tests: TaskService', () => {
     // Assert: move itself succeeded (task moved)
     expect(moveResult.ok).toBe(true);
     const moved = moveResult.ok ? moveResult.value : null;
-    expect(moved!.task.column).toBe('in_progress');
-    expect(moved!.agentError).toBe('Docker daemon unavailable');
+    expect(moved!.task.column).toBe('backlog');
+    expect(moved!.agentError).toContain('Docker daemon unavailable');
 
     // Probe the DB for the orphaned session
     const sessionId = moved!.task.sessionId;

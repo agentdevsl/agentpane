@@ -1074,12 +1074,6 @@ export class ContainerExecService {
     const agent = this.state.getRunningAgent(taskId);
     const { db, streams } = this.deps;
 
-    // Guard: mark completion handled before any async work so the process-exit
-    // path in processAgentOutput doesn't race against this error handler.
-    if (agent) {
-      agent.completionHandled = true;
-    }
-
     if (!agent) {
       log.info('Agent not found in running agents map', {
         data: { taskId, runningAgents: this.state.getRunningAgentKeys() },
@@ -1123,6 +1117,10 @@ export class ContainerExecService {
       log.info('DB updated for orphaned agent', { data: { taskId } });
       return;
     }
+
+    // Guard: mark completion handled before any async work so the process-exit
+    // path in processAgentOutput doesn't race against this error handler.
+    agent.completionHandled = true;
 
     log.debug('Found running agent', {
       data: {

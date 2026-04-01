@@ -636,7 +636,8 @@ export function parseEventsToStreamEntries(
               } else {
                 content = rawContent;
               }
-            } catch {
+            } catch (parseErr) {
+              console.warn('[session-events] Failed to parse task_suggestion JSON', parseErr);
               content = rawContent;
             }
           } else {
