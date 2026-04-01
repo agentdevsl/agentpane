@@ -160,7 +160,8 @@
       },
       "nursery": {
         "noLeakedRender": "off",
-        "noFloatingPromises": "error"
+        "noFloatingPromises": "error",
+        "useExplicitType": "warn"
       }
     }
   },
