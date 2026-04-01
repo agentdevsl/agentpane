@@ -57,7 +57,7 @@ export function useTaskOperations(
   _codespaceId: string,
   options: UseTaskOperationsOptions
 ): TaskOperations {
-  const { error: showError, warning: showWarning } = useToast();
+  const { error: showError } = useToast();
   const navigate = useNavigate();
   const { onRefresh, onOptimisticUpdate } = options;
 
@@ -78,15 +78,18 @@ export function useTaskOperations(
 
       const data = result.data as { task: Task; agentError?: string };
       if (data.agentError) {
-        console.warn('[useTaskOperations] Agent failed to start:', data.agentError);
-        showWarning('Agent failed to start', data.agentError);
+        console.error('[useTaskOperations] Agent failed to start:', data.agentError);
+        showError('Agent failed to start', data.agentError);
+        // Task was reverted to backlog by the server — refresh to reflect the revert
+        await onRefresh();
+        return;
       }
 
       if (column === 'in_progress' && data.task?.sessionId) {
         navigate({ to: '/sessions/$sessionId', params: { sessionId: data.task.sessionId } });
       }
     },
-    [onOptimisticUpdate, onRefresh, showError, showWarning, navigate]
+    [onOptimisticUpdate, onRefresh, showError, navigate]
   );
 
   const handleRunNow = useCallback(
@@ -107,15 +110,18 @@ export function useTaskOperations(
 
       const data = result.data as { task: Task; agentError?: string };
       if (data.agentError) {
-        console.warn('[useTaskOperations] Agent failed to start:', data.agentError);
-        showWarning('Agent failed to start', data.agentError);
+        console.error('[useTaskOperations] Agent failed to start:', data.agentError);
+        showError('Agent failed to start', data.agentError);
+        // Task was reverted to backlog by the server — refresh to reflect the revert
+        await onRefresh();
+        return;
       }
 
       if (data.task?.sessionId) {
         navigate({ to: '/sessions/$sessionId', params: { sessionId: data.task.sessionId } });
       }
     },
-    [onOptimisticUpdate, onRefresh, showError, showWarning, navigate]
+    [onOptimisticUpdate, onRefresh, showError, navigate]
   );
 
   const handleStopAgent = useCallback(

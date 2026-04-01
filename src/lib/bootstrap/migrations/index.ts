@@ -284,11 +284,41 @@ END;
     statements: [`ALTER TABLE memory_insights ADD COLUMN effectiveness_score REAL`],
   },
 
-  // 29. Rebuild sessions table to match current Drizzle schema
+  // 29. Rebuild agents table to match current Drizzle schema
+  // Old schema had: model, max_turns, permission_mode, system_prompt, etc.
+  // New schema has: type, config (JSON), simplified columns
+  {
+    version: 29,
+    name: 'agents-schema-rebuild',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS agents_new (
+        id TEXT PRIMARY KEY NOT NULL,
+        codespace_id TEXT NOT NULL REFERENCES codespaces(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        type TEXT DEFAULT 'task' NOT NULL,
+        status TEXT DEFAULT 'idle' NOT NULL,
+        config TEXT,
+        current_task_id TEXT,
+        current_session_id TEXT,
+        current_turn INTEGER DEFAULT 0,
+        parent_agent_id TEXT,
+        created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+      )`,
+      `INSERT OR IGNORE INTO agents_new (id, codespace_id, name, type, status, current_task_id, current_session_id, current_turn, created_at, updated_at)
+        SELECT id, codespace_id, name, 'task', status, current_task_id, current_session_id, 0, created_at, updated_at
+        FROM agents`,
+      `DROP TABLE agents`,
+      `ALTER TABLE agents_new RENAME TO agents`,
+      `CREATE INDEX IF NOT EXISTS idx_agents_codespace_id ON agents(codespace_id)`,
+    ],
+  },
+
+  // 30. Rebuild sessions table to match current Drizzle schema
   // Old schema had: sdk_session_id, started_at, ended_at, total_input_tokens, etc.
   // New schema has: title, url, sandbox_provider, sandbox_container_id, status default 'idle'
   {
-    version: 29,
+    version: 30,
     name: 'sessions-schema-rebuild',
     statements: [
       `CREATE TABLE IF NOT EXISTS sessions_new (

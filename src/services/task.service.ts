@@ -499,6 +499,26 @@ export class TaskService {
     let agentError: string | undefined;
     if (column === 'in_progress' && this.containerAgentService && sessionId) {
       agentError = await this.triggerContainerAgent(updated, sessionId);
+
+      // If agent failed to start, move the task back to backlog so it doesn't
+      // get stuck in in_progress with no running agent and no way to recover.
+      if (agentError) {
+        log.warn('Agent failed to start, reverting task to backlog', {
+          data: { taskId: id, agentError },
+        });
+        const [reverted] = await this.db
+          .update(tasks)
+          .set({
+            column: 'backlog' as TaskColumn,
+            position: updated.position,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(tasks.id, id))
+          .returning();
+        if (reverted) {
+          return ok({ task: reverted, agentError });
+        }
+      }
     }
 
     return ok({ task: updated, agentError });
