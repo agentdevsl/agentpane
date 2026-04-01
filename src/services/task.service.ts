@@ -507,25 +507,27 @@ export class TaskService {
         log.warn('Agent failed to start, reverting task to backlog', {
           data: { taskId: id, agentError },
         });
+        const errorMsg = typeof agentError === 'string' ? agentError : String(agentError);
         const [reverted] = await this.db
           .update(tasks)
           .set({
             column: 'backlog' as TaskColumn,
             position: updated.position,
+            sessionId: null,
             updatedAt: new Date().toISOString(),
           })
           .where(eq(tasks.id, id))
           .returning();
         if (reverted) {
-          return ok({ task: reverted, agentError });
+          return ok({ task: reverted, agentError: errorMsg });
         }
         // Revert failed — still return the error but append context
         log.error('Failed to revert task to backlog after agent error', {
-          data: { taskId: id, agentError },
+          data: { taskId: id, agentError: errorMsg },
         });
         return ok({
           task: updated,
-          agentError: `${agentError} (warning: task could not be reverted to backlog)`,
+          agentError: `${errorMsg} (warning: task could not be reverted to backlog)`,
         });
       }
     }

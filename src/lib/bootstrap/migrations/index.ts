@@ -291,6 +291,9 @@ END;
     version: 29,
     name: 'agents-schema-rebuild',
     statements: [
+      // Null out orphaned FK references before rebuild to prevent FK violations
+      `UPDATE agents SET current_task_id = NULL WHERE current_task_id IS NOT NULL AND current_task_id NOT IN (SELECT id FROM tasks)`,
+      `UPDATE agents SET current_session_id = NULL WHERE current_session_id IS NOT NULL AND current_session_id NOT IN (SELECT id FROM sessions)`,
       `CREATE TABLE IF NOT EXISTS agents_new (
         id TEXT PRIMARY KEY NOT NULL,
         codespace_id TEXT NOT NULL REFERENCES codespaces(id) ON DELETE CASCADE,
@@ -321,6 +324,9 @@ END;
     version: 30,
     name: 'sessions-schema-rebuild',
     statements: [
+      // Null out orphaned FK references before rebuild to prevent FK violations
+      `UPDATE sessions SET task_id = NULL WHERE task_id IS NOT NULL AND task_id NOT IN (SELECT id FROM tasks)`,
+      `UPDATE sessions SET agent_id = NULL WHERE agent_id IS NOT NULL AND agent_id NOT IN (SELECT id FROM agents)`,
       `CREATE TABLE IF NOT EXISTS sessions_new (
         id TEXT PRIMARY KEY NOT NULL,
         codespace_id TEXT NOT NULL REFERENCES codespaces(id) ON DELETE CASCADE,
