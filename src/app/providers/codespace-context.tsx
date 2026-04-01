@@ -250,7 +250,18 @@ export function CodespaceContextProvider({
                     cs.id === codespace.id ? { ...cs, projectFolderId: selectedFolderId } : cs
                   )
                 );
+              } else {
+                console.error(
+                  '[CodespaceContext] Failed to reassign codespace to folder:',
+                  result.error
+                );
               }
+            })
+            .catch((err: unknown) => {
+              console.error(
+                '[CodespaceContext] Unexpected error reassigning codespace folder:',
+                err
+              );
             });
         }
       }

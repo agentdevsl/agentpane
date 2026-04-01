@@ -374,15 +374,24 @@ export function TerraformModuleDetail({ moduleId }: { moduleId: string }): React
     setLoading(true);
     setError(null);
 
-    void apiClient.terraform.getModule(moduleId).then((res) => {
-      if (cancelled) return;
-      if (res.ok) {
-        setMod(res.data as TerraformModuleView);
-      } else {
-        setError(res.error.message);
-      }
-      setLoading(false);
-    });
+    void apiClient.terraform
+      .getModule(moduleId)
+      .then((res) => {
+        if (cancelled) return;
+        if (res.ok) {
+          setMod(res.data as TerraformModuleView);
+        } else {
+          setError(res.error.message);
+        }
+        setLoading(false);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          console.error('[TerraformModuleDetail] Unexpected error:', err);
+          setError('An unexpected error occurred loading the module.');
+          setLoading(false);
+        }
+      });
 
     return () => {
       cancelled = true;

@@ -1,12 +1,15 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "entry": [
-    "src/app/routes/**/*.tsx",
-    "src/app/routes/**/*.ts",
+    "src/app/routes/**/*.{ts,tsx}",
     "src/server/**/*.ts",
     "src/services/**/*.ts",
     "src/lib/**/*.ts",
-    "scripts/*.ts"
+    "scripts/*.ts",
+    "vite.config.ts",
+    "vitest.config.ts",
+    "drizzle.config.ts",
+    "drizzle.config.pg.ts"
   ],
   "project": ["src/**/*.{ts,tsx}"],
   "ignore": [
@@ -24,7 +27,9 @@
     "@agentpane/agent-sandbox-sdk",
     "@agentpane/nomad-sandbox-sdk",
     "@tanstack/router-core",
-    "@radix-ui/react-visually-hidden"
+    "@tanstack/react-start",
+    "@radix-ui/react-visually-hidden",
+    "agent-browser"
   ],
   "ignoreExportsUsedInFile": true
 }

@@ -52,6 +52,8 @@ function EventLogPage(): React.JSX.Element {
         }
         setNextCursor(res.data.nextCursor);
         setHasMore(res.data.hasMore);
+      } else {
+        console.error('[EventLog] Failed to fetch events:', res.error);
       }
     },
     [sourceFilter, statusFilter, eventTypeFilter]
@@ -65,8 +67,8 @@ function EventLogPage(): React.JSX.Element {
         const [, sourcesRes] = await Promise.all([fetchEvents(), apiClient.events.sources.list()]);
         if (cancelled) return;
         if (sourcesRes.ok) setSources(sourcesRes.data.items);
-      } catch {
-        // Network errors handled gracefully — empty state shown
+      } catch (err) {
+        console.error('[EventLog] Initial load failed:', err);
       } finally {
         if (!cancelled) {
           setIsLoading(false);
