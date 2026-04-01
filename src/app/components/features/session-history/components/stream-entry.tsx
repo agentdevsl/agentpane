@@ -26,7 +26,7 @@ const entryContainerVariants = cva(
         system: 'hover:bg-surface-subtle',
         user: 'bg-accent/5 hover:bg-accent/10',
         assistant: 'bg-done/5 hover:bg-done/10',
-        tool: 'bg-warning/5 hover:bg-warning/10',
+        tool: 'bg-attention/5 hover:bg-attention/10',
       },
       isCurrent: {
         true: 'bg-accent/10 border-l-2 border-accent pl-2',

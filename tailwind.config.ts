@@ -24,6 +24,7 @@ const config: Config = {
           DEFAULT: 'var(--fg-default)',
           muted: 'var(--fg-muted)',
           subtle: 'var(--fg-subtle)',
+          'on-emphasis': 'var(--fg-on-emphasis)',
         },
         accent: {
           DEFAULT: 'var(--accent-fg)',

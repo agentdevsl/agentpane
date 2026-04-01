@@ -531,6 +531,11 @@ export function parseEventsToStreamEntries(
     }
     if (eventTypeStr === 'task-creation:message') {
       const msgData = event.data as { role?: string; content?: string };
+      // Skip assistant messages that contain raw JSON task_suggestion — the
+      // task-creation:suggestion event renders a cleaner version
+      if (msgData.role === 'assistant' && msgData.content?.includes('"task_suggestion"')) {
+        continue;
+      }
       if (msgData.role === 'user') {
         type = 'user';
       } else if (msgData.role === 'assistant') {
@@ -613,7 +618,30 @@ export function parseEventsToStreamEntries(
           content = chunkData.content ?? '';
         } else if (chunkData.role === 'assistant') {
           type = 'assistant';
-          content = chunkData.content ?? '';
+          const rawContent = chunkData.content ?? '';
+          // Extract markdown from JSON task_suggestion responses
+          // The assistant may return a ```json code fence containing a task_suggestion object
+          const jsonMatch = rawContent.match(
+            /```(?:json)?\s*\n?\s*\{[\s\S]*?"type"\s*:\s*"task_suggestion"[\s\S]*?"description"\s*:\s*"([\s\S]*?)"\s*,?\s*\n?\s*"(?:labels|priority)/
+          );
+          if (jsonMatch) {
+            try {
+              // Try to parse the full JSON to get the clean description
+              const jsonStr = rawContent
+                .replace(/```(?:json)?\s*\n?/, '')
+                .replace(/\n?```\s*$/, '');
+              const parsed = JSON.parse(jsonStr);
+              if (parsed.description) {
+                content = `**${parsed.title ?? 'Task Suggestion'}**\n\n${parsed.description}`;
+              } else {
+                content = rawContent;
+              }
+            } catch {
+              content = rawContent;
+            }
+          } else {
+            content = rawContent;
+          }
         } else {
           type = 'system';
           content = chunkData.content ?? '';

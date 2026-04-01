@@ -438,6 +438,27 @@
   }
 
   /* ==========================================
+     SHIKI DUAL-THEME SUPPORT
+     Shiki outputs light-theme colors as inline styles and dark-theme
+     values as --shiki-dark / --shiki-dark-bg CSS custom properties.
+     These rules activate dark-theme colors when data-theme="dark".
+     ========================================== */
+
+  :root .shiki,
+  :root .shiki span,
+  [data-theme="dark"] .shiki,
+  [data-theme="dark"] .shiki span {
+    color: var(--shiki-dark) !important;
+    background-color: var(--shiki-dark-bg) !important;
+  }
+
+  [data-theme="light"] .shiki,
+  [data-theme="light"] .shiki span {
+    color: var(--shiki-light, inherit) !important;
+    background-color: var(--shiki-light-bg, inherit) !important;
+  }
+
+  /* ==========================================
      BASE STYLES
      ========================================== */
 
