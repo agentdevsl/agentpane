@@ -89,7 +89,7 @@ export class FileWatcher {
           setTimeout(check, 5000);
         }
       };
-      check();
+      void check();
     });
   }
 

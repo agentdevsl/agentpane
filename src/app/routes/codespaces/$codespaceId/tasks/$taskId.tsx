@@ -71,7 +71,7 @@ function TaskDetailRoute(): React.JSX.Element {
       }
       setIsLoading(false);
     };
-    fetchData();
+    void fetchData();
   }, [codespaceId, taskId, loaderData]);
 
   if (isLoading) {

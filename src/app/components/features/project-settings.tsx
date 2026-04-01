@@ -280,7 +280,7 @@ export function ProjectSettings({
         : null // Explicitly remove custom config to use global defaults
       : undefined; // Don't touch sandbox config
 
-    onSave({
+    void onSave({
       name,
       description,
       maxConcurrentAgents: maxConcurrent,

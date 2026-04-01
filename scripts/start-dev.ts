@@ -250,7 +250,7 @@ async function main() {
         }
       }
     };
-    read();
+    void read();
   };
   readStream(apiProcess.stdout, '');
   readStream(apiProcess.stderr, '');

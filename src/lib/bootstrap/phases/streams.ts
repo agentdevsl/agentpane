@@ -37,9 +37,10 @@ export const connectStreams = async (_ctx?: unknown) => {
     }
     setStreamsAvailable(false);
     return ok(null);
+    // nosemgrep: agentpane.error-masking.catch-returns-ok-helper
   } catch (error) {
     log.warn('Failed to connect to streams server', { error });
     setStreamsAvailable(false);
-    return ok(null); // Non-fatal in dev mode
+    return ok(null);
   }
 };

@@ -261,7 +261,7 @@ export function WorkflowDesigner({
       }
     }
 
-    fetchTemplates();
+    void fetchTemplates();
   });
 
   // Fetch saved workflows on mount
@@ -290,7 +290,7 @@ export function WorkflowDesigner({
       }
     }
 
-    fetchWorkflows();
+    void fetchWorkflows();
   });
 
   // Increment change counter whenever nodes or edges change

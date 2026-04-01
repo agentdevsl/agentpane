@@ -41,7 +41,7 @@ function CodespaceSettingsPage(): React.JSX.Element {
     if (window.history.length > 1) {
       router.history.back();
     } else {
-      navigate({ to: '/codespaces/$codespaceId', params: { codespaceId } });
+      void navigate({ to: '/codespaces/$codespaceId', params: { codespaceId } });
     }
   };
 
@@ -58,7 +58,7 @@ function CodespaceSettingsPage(): React.JSX.Element {
       }
       setIsLoading(false);
     };
-    fetchCodespace();
+    void fetchCodespace();
   }, [codespaceId, loaderData]);
 
   const handleSave = async (input: {
@@ -96,7 +96,7 @@ function CodespaceSettingsPage(): React.JSX.Element {
   const handleDelete = async (options: { deleteFiles: boolean }): Promise<void> => {
     const result = await apiClient.codespaces.delete(codespaceId, options);
     if (result.ok) {
-      navigate({ to: '/codespaces' });
+      void navigate({ to: '/codespaces' });
     } else {
       throw new Error(result.error.message);
     }

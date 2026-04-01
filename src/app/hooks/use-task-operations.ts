@@ -86,7 +86,7 @@ export function useTaskOperations(
       }
 
       if (column === 'in_progress' && data.task?.sessionId) {
-        navigate({ to: '/sessions/$sessionId', params: { sessionId: data.task.sessionId } });
+        void navigate({ to: '/sessions/$sessionId', params: { sessionId: data.task.sessionId } });
       }
     },
     [onOptimisticUpdate, onRefresh, showError, navigate]
@@ -118,7 +118,7 @@ export function useTaskOperations(
       }
 
       if (data.task?.sessionId) {
-        navigate({ to: '/sessions/$sessionId', params: { sessionId: data.task.sessionId } });
+        void navigate({ to: '/sessions/$sessionId', params: { sessionId: data.task.sessionId } });
       }
     },
     [onOptimisticUpdate, onRefresh, showError, navigate]
@@ -166,7 +166,7 @@ export function useTaskOperations(
           if (taskResult.ok) {
             const updatedTask = taskResult.data as ClientTask;
             if (updatedTask.sessionId) {
-              navigate({
+              void navigate({
                 to: '/sessions/$sessionId',
                 params: { sessionId: updatedTask.sessionId },
               });

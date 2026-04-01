@@ -90,7 +90,7 @@ function SessionsPage(): React.JSX.Element {
       }
       setIsLoading(false);
     };
-    fetchData();
+    void fetchData();
   });
 
   // Filter sessions by selected codespace

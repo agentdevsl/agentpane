@@ -183,7 +183,7 @@ export function useListFilters<T>({
       }
 
       // Use navigate with the updated search string
-      navigate({
+      void navigate({
         to: '.',
         search: Object.fromEntries(url.searchParams.entries()),
         replace: true,

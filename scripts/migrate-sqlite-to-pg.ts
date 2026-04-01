@@ -733,4 +733,7 @@ async function main() {
   }
 }
 
-main();
+void main().catch((err: unknown) => {
+  console.error('Migration failed:', err);
+  process.exit(1);
+});

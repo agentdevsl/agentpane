@@ -98,14 +98,14 @@ export function TaskSkill({
   const handleClear = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      saveSkill(null, null);
+      void saveSkill(null, null);
     },
     [saveSkill]
   );
 
   const handleSelect = useCallback(
     (skill: Skill) => {
-      saveSkill(skill.id, skill.name);
+      void saveSkill(skill.id, skill.name);
     },
     [saveSkill]
   );

@@ -203,7 +203,7 @@ function ApiKeysSettingsPage(): React.JSX.Element {
         setGithubLogin(tokenResult.data.tokenInfo.githubLogin);
       }
     };
-    loadKeys();
+    void loadKeys();
   });
 
   const handleSaveAnthropicKey = async () => {

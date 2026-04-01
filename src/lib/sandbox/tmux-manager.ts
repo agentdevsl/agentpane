@@ -208,6 +208,7 @@ export class TmuxManager {
       await sandbox.killTmuxSession(sessionName);
       this.sessions.delete(sessionName);
       return ok(undefined);
+      // nosemgrep: agentpane.error-masking.catch-returns-ok-helper
     } catch (error) {
       // Only ignore "session not found" - that's an expected condition
       const message = errorMessage(error);

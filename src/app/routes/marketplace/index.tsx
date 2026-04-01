@@ -160,7 +160,7 @@ function MarketplacePage(): React.JSX.Element {
   }, []);
 
   useWatchEffect(() => {
-    fetchData();
+    void fetchData();
   }, [fetchData]);
 
   // Handler for syncing a marketplace

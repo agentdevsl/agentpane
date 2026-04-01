@@ -51,7 +51,7 @@ function OrgTemplatesPage(): React.JSX.Element {
 
       setIsLoading(false);
     };
-    fetchData();
+    void fetchData();
   });
 
   // GitHub callbacks

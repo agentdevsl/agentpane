@@ -29,7 +29,7 @@ function QueuePage(): React.JSX.Element {
       setQueued([]);
       setIsLoading(false);
     };
-    fetchQueue();
+    void fetchQueue();
   });
 
   if (isLoading) {

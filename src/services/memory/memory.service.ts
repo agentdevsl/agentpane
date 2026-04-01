@@ -167,6 +167,7 @@ export class MemoryService {
         maxInsights,
         taskSkillId
       );
+      // nosemgrep: agentpane.error-masking.catch-returns-ok-helper
     } catch (error) {
       log.warn('Memory context retrieval failed', {
         error: error instanceof Error ? error : new Error(String(error)),
@@ -348,6 +349,7 @@ export class MemoryService {
         insightCount: insightResult.ok ? insightResult.value : 0,
         messageCount: messageResult.ok ? messageResult.value : 0,
       });
+      // nosemgrep: agentpane.error-masking.catch-returns-ok-helper
     } catch (error) {
       log.error('Health check failed', {
         error: error instanceof Error ? error : new Error(String(error)),

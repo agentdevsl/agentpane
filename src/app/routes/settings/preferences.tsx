@@ -210,7 +210,7 @@ function PreferencesSettingsPage(): React.JSX.Element {
         setIsLoading(false);
       }
     }
-    loadSettings();
+    void loadSettings();
   });
 
   const isSavingRef = useRef(false);

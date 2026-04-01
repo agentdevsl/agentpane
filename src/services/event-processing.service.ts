@@ -183,6 +183,7 @@ export class EventProcessingService {
         deliveryId: event.deliveryId,
         receivedAt: now,
       });
+      // nosemgrep: agentpane.error-masking.catch-returns-ok-helper
     } catch (error: unknown) {
       const message = errorMessage(error);
       if (

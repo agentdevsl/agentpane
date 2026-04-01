@@ -153,7 +153,7 @@ function CodespaceKanban(): React.JSX.Element {
       return;
     }
     prevCodespaceIdRef.current = codespaceId;
-    fetchData();
+    void fetchData();
   }, [codespaceId, fetchData, loaderData]);
 
   const handleTaskMove = async (taskId: string, column: ClientTask['column'], position: number) => {
@@ -166,7 +166,7 @@ function CodespaceKanban(): React.JSX.Element {
       console.error('[CodespaceKanban] Failed to move task:', result.error);
       showError('Failed to move task', result.error?.message || 'Unknown error');
       // Revert optimistic update on error
-      fetchData();
+      void fetchData();
       return;
     }
 
@@ -179,7 +179,7 @@ function CodespaceKanban(): React.JSX.Element {
 
     // When moving to in_progress, navigate to the session view to show agent output
     if (column === 'in_progress' && data.task?.sessionId) {
-      navigate({ to: '/sessions/$sessionId', params: { sessionId: data.task.sessionId } });
+      void navigate({ to: '/sessions/$sessionId', params: { sessionId: data.task.sessionId } });
     }
   };
 
@@ -195,7 +195,7 @@ function CodespaceKanban(): React.JSX.Element {
       console.error('[CodespaceKanban] Failed to run task:', result.error);
       showError('Failed to start task', result.error?.message || 'Unknown error');
       // Revert optimistic update on error
-      fetchData();
+      void fetchData();
       return;
     }
 
@@ -208,7 +208,7 @@ function CodespaceKanban(): React.JSX.Element {
 
     // Navigate to the session view to show agent output
     if (data.task?.sessionId) {
-      navigate({ to: '/sessions/$sessionId', params: { sessionId: data.task.sessionId } });
+      void navigate({ to: '/sessions/$sessionId', params: { sessionId: data.task.sessionId } });
     }
   };
 
@@ -282,7 +282,7 @@ function CodespaceKanban(): React.JSX.Element {
           if (taskResult.ok) {
             const task = taskResult.data as ClientTask;
             if (task.sessionId) {
-              navigate({ to: '/sessions/$sessionId', params: { sessionId: task.sessionId } });
+              void navigate({ to: '/sessions/$sessionId', params: { sessionId: task.sessionId } });
             }
           }
         }
@@ -509,7 +509,7 @@ function CodespaceKanban(): React.JSX.Element {
           }
         }}
         onViewSession={(sessionId) => {
-          navigate({ to: '/sessions/$sessionId', params: { sessionId } });
+          void navigate({ to: '/sessions/$sessionId', params: { sessionId } });
         }}
       />
 
@@ -528,7 +528,7 @@ function CodespaceKanban(): React.JSX.Element {
           onViewSession={
             approvalTask.sessionId
               ? () => {
-                  navigate({
+                  void navigate({
                     to: '/sessions/$sessionId',
                     params: { sessionId: approvalTask.sessionId as string },
                   });

@@ -293,7 +293,7 @@ export function AIGenerateDialog({
 
       // Only analyze if the primitive has content
       if (primitive.content) {
-        analyzeWithAI(primitive);
+        void analyzeWithAI(primitive);
       } else {
         setAiWorkflow(null);
         setError('This skill has no content to analyze. Try syncing the template first.');

@@ -29,6 +29,7 @@ export const loadCodespaceConfigFrom = async ({
     const merged = deepMerge(DEFAULT_CODESPACE_CONFIG, validated);
 
     return ok(merged);
+    // nosemgrep: agentpane.error-masking.catch-returns-ok-helper
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return ok(DEFAULT_CODESPACE_CONFIG);

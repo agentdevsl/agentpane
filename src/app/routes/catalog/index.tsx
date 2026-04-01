@@ -490,7 +490,7 @@ function CatalogPage(): React.JSX.Element {
 
   useWatchEffect(() => {
     if (loaderData?.workflows && (loaderData.workflows as unknown[]).length > 0) return;
-    fetchWorkflows().then((items) => {
+    void fetchWorkflows().then((items) => {
       if (items.length > 0) {
         setSelectedId((current) => current ?? items[0]?.id ?? null);
       }
@@ -513,7 +513,7 @@ function CatalogPage(): React.JSX.Element {
 
   const handleEditWorkflow = useCallback(
     (workflowId: string) => {
-      navigate({ to: '/designer', search: { id: workflowId } });
+      void navigate({ to: '/designer', search: { id: workflowId } });
     },
     [navigate]
   );
@@ -559,7 +559,7 @@ function CatalogPage(): React.JSX.Element {
   );
 
   const handleCreateWorkflow = useCallback(() => {
-    navigate({ to: '/designer' });
+    void navigate({ to: '/designer' });
   }, [navigate]);
 
   const handleStatusChange = useCallback(async (workflowId: string, newStatus: WorkflowStatus) => {

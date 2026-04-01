@@ -173,7 +173,7 @@ function SystemHealthPage(): React.JSX.Element {
   }, []);
 
   useWatchEffect(() => {
-    checkHealth();
+    void checkHealth();
   }, [checkHealth]);
   useInterval(checkHealth, 30000);
 
