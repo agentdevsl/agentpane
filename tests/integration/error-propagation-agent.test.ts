@@ -59,7 +59,7 @@ describe('Error Propagation: Agent (IT-206 to IT-208)', () => {
     // Task move succeeds but agentError is returned
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.value.task.column).toBe('in_progress');
+      expect(result.value.task.column).toBe('backlog');
       expect(result.value.agentError).toBe('Docker not available');
     }
   });

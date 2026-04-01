@@ -290,8 +290,8 @@ describe('TaskService Container Agent Trigger', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        // Task move should still succeed
-        expect(result.value.task.column).toBe('in_progress');
+        // Task move should still succeed but revert to backlog after agent failure
+        expect(result.value.task.column).toBe('backlog');
         // But agentError should contain the error message
         expect(result.value.agentError).toBe(errorMessage);
       }
@@ -321,7 +321,7 @@ describe('TaskService Container Agent Trigger', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value.task.column).toBe('in_progress');
+        expect(result.value.task.column).toBe('backlog');
         expect(result.value.agentError).toBe(errorString);
       }
     });
@@ -356,7 +356,7 @@ describe('TaskService Container Agent Trigger', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value.task.column).toBe('in_progress');
+        expect(result.value.task.column).toBe('backlog');
         expect(result.value.agentError).toBe(errorMessage);
       }
     });
@@ -384,7 +384,7 @@ describe('TaskService Container Agent Trigger', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value.task.column).toBe('in_progress');
+        expect(result.value.task.column).toBe('backlog');
         expect(result.value.agentError).toBe('Failed to start agent');
       }
     });
@@ -395,7 +395,7 @@ describe('TaskService Container Agent Trigger', () => {
   // =============================================================================
 
   describe('Task Still Moves When Agent Fails', () => {
-    it('task is successfully moved to in_progress even when agent fails to start', async () => {
+    it('task is reverted to backlog when agent fails to start', async () => {
       const project = await createTestProject({
         config: {
           worktreeRoot: '.worktrees',
@@ -421,8 +421,8 @@ describe('TaskService Container Agent Trigger', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        // Task should be moved
-        expect(result.value.task.column).toBe('in_progress');
+        // Task should be reverted to backlog after agent failure
+        expect(result.value.task.column).toBe('backlog');
         expect(result.value.task.id).toBe(task.id);
         // Error should be captured but not fail the move
         expect(result.value.agentError).toBeDefined();
@@ -432,7 +432,7 @@ describe('TaskService Container Agent Trigger', () => {
       const getResult = await taskService.getById(task.id);
       expect(getResult.ok).toBe(true);
       if (getResult.ok) {
-        expect(getResult.value.column).toBe('in_progress');
+        expect(getResult.value.column).toBe('backlog');
       }
     });
 

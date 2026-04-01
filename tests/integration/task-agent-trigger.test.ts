@@ -148,7 +148,7 @@ describe('IT-001: Task Agent Trigger on moveColumn', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    expect(result.value.task.column).toBe('in_progress');
+    expect(result.value.task.column).toBe('backlog');
     expect(result.value.agentError).toBe('Docker daemon not running');
   });
 });

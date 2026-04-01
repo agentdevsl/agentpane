@@ -519,6 +519,14 @@ export class TaskService {
         if (reverted) {
           return ok({ task: reverted, agentError });
         }
+        // Revert failed — still return the error but append context
+        log.error('Failed to revert task to backlog after agent error', {
+          data: { taskId: id, agentError },
+        });
+        return ok({
+          task: updated,
+          agentError: `${agentError} (warning: task could not be reverted to backlog)`,
+        });
       }
     }
 

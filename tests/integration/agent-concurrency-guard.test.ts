@@ -117,7 +117,7 @@ describe('IT-017: Agent concurrency guard', () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.value.task.column).toBe('in_progress');
+      expect(result.value.task.column).toBe('backlog');
       expect(result.value.agentError).toBe('Container creation failed');
     }
   });
