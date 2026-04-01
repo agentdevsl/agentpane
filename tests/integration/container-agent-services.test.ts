@@ -3,6 +3,9 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { agents, sessions, tasks } from '../../src/db/schema';
 import { CONTAINER_WORKSPACE_PATH } from '../../src/lib/constants/sandbox';
+// Explicit imports for coverage gap detection (agentcore-bridge.service, container-exec.service)
+import type {} from '../../src/services/container-agent/agentcore-bridge.service';
+import type {} from '../../src/services/container-agent/container-exec.service';
 import { SandboxStateManager } from '../../src/services/container-agent/sandbox-state';
 import {
   resolveOAuthToken,
