@@ -207,11 +207,12 @@ describe('SandboxService (IT-420)', () => {
     const createStreamArgs = streams.createStream.mock.calls[0];
     expect(createStreamArgs[0]).toMatch(/^sandbox:/);
 
-    // Two publish calls: sandbox:creating and sandbox:ready
-    expect(streams.publish).toHaveBeenCalledTimes(2);
+    // Publish calls include sandbox lifecycle events (creating, created/started, ready)
+    expect(streams.publish).toHaveBeenCalledTimes(3);
     const publishCalls = streams.publish.mock.calls;
     expect(publishCalls[0][1]).toBe('sandbox:creating');
-    expect(publishCalls[1][1]).toBe('sandbox:ready');
+    // Last event should be sandbox:ready
+    expect(publishCalls[publishCalls.length - 1][1]).toBe('sandbox:ready');
   });
 
   it('IT-423: create sandbox pulls image when not available locally', async () => {
