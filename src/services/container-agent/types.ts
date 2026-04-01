@@ -54,6 +54,9 @@ export interface RunningAgent {
   phase: AgentPhase;
   worktreeId?: string;
   timeoutHandle?: ReturnType<typeof setTimeout>;
+  /** Guard flag: set to true once handleAgentComplete/handleAgentError begins processing.
+   *  Prevents the processAgentOutput exit-code path from racing against the bridge callback. */
+  completionHandled?: boolean;
 }
 
 /**

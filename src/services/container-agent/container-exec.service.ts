@@ -850,7 +850,7 @@ export class ContainerExecService {
       const { exitCode } = await agent.execResult.wait();
       log.info('Process exited', { data: { taskId: agent.taskId, exitCode } });
 
-      if (this.state.hasRunningAgent(agent.taskId)) {
+      if (this.state.hasRunningAgent(agent.taskId) && !agent.completionHandled) {
         if (agent.stopRequested) {
           log.info('Agent stopped via cancellation request', {
             data: { taskId: agent.taskId, exitCode },
@@ -876,6 +876,13 @@ export class ContainerExecService {
         });
 
         await this.handleAgentError(agent.taskId, errorMessage, 0);
+      } else if (agent.completionHandled) {
+        log.debug(
+          'Skipping process-exit error path — completion already handled by bridge callback',
+          {
+            data: { taskId: agent.taskId, exitCode },
+          }
+        );
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -884,7 +891,7 @@ export class ContainerExecService {
         error,
       });
 
-      if (this.state.hasRunningAgent(agent.taskId)) {
+      if (this.state.hasRunningAgent(agent.taskId) && !agent.completionHandled) {
         if (agent.stopRequested) {
           await this.handleAgentComplete(agent.taskId, 'cancelled', 0);
           return;
@@ -898,6 +905,10 @@ export class ContainerExecService {
         });
 
         await this.handleAgentError(agent.taskId, message, 0);
+      } else if (agent.completionHandled) {
+        log.debug('Skipping catch error path — completion already handled by bridge callback', {
+          data: { taskId: agent.taskId, error: message },
+        });
       }
     } finally {
       log.debug('Stream processing finished', {
@@ -923,6 +934,11 @@ export class ContainerExecService {
       });
       return;
     }
+
+    // Guard: mark completion handled immediately to prevent the process-exit path
+    // in processAgentOutput from racing against this callback and publishing a
+    // spurious "Agent exited without emitting a completion event" error.
+    agent.completionHandled = true;
 
     const { db, provider, streams, worktreeService } = this.deps;
 
@@ -1057,6 +1073,12 @@ export class ContainerExecService {
 
     const agent = this.state.getRunningAgent(taskId);
     const { db, streams } = this.deps;
+
+    // Guard: mark completion handled before any async work so the process-exit
+    // path in processAgentOutput doesn't race against this error handler.
+    if (agent) {
+      agent.completionHandled = true;
+    }
 
     if (!agent) {
       log.info('Agent not found in running agents map', {
