@@ -112,7 +112,9 @@ export function createHealthRoutes({
             version = `SQLite ${raw}`;
           }
         }
-      } catch (_versionErr) {}
+      } catch (_versionErr) {
+        // Version detection is best-effort — non-fatal
+      }
 
       checks.database = {
         status: 'ok',

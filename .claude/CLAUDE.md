@@ -150,6 +150,20 @@ The design system uses `attention` not `warning` for yellow/amber colors. Availa
 
 When rendering React Flow inside a flex/absolute layout, the container must have an explicit height. `flex-1` does NOT work inside `position: absolute` containers — use `h-full` instead. The `TopologyInner` wrapper must use `h-full` not `flex-1`.
 
+### Preventing Regressions: Lessons Learned
+
+These checks exist because of real production bugs. Do not skip them.
+
+**Schema drift** — Every Drizzle schema change MUST have a corresponding migration. The `tests/integration/*-schema-drift.test.ts` tests verify DB columns match Drizzle at runtime. When adding columns to any table, also add a migration. Run `npx vitest run tests/integration/*schema-drift*` before pushing.
+
+**API response types** — `apiServerFetch<T>` returns `{ ok, data: T }`. The `T` must match the `data` field value, NOT the full response. The test in `tests/api/sessions.test.ts` ("returns data as a flat array") catches double-wrapping. Apply this pattern to all list endpoints.
+
+**Migration safety** — `INSERT OR IGNORE` does NOT suppress FK violations in SQLite. When adding FK constraints to rebuilt tables, first null out orphaned references with `UPDATE ... SET col = NULL WHERE col NOT IN (SELECT id FROM parent_table)`.
+
+**Empty catch blocks** — Never use bare `catch {}`. Always log or propagate. Biome's `noEmptyBlockStatements` should catch this, but verify manually in code review.
+
+**Error bubbling** — When an operation fails (agent start, sandbox creation), the error MUST reach the UI. Return it in the API response AND revert side effects (e.g., move task back to backlog). Never return `ok()` with stale state after a failure.
+
 ### Tests: Keep in Sync with Renames
 
 When renaming entities (tables, fields, API params), always update ALL test files. Search with: `grep -r "oldName" src/services/__tests__/ tests/ src/server/routes/__tests__/`. Tests reference field names, API endpoints, and service methods directly — they won't fail at compile time but will fail at runtime in CI.

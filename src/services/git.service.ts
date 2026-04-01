@@ -387,7 +387,9 @@ export class GitService {
         try {
           await this.commandRunner.exec('git fetch --prune 2>/dev/null || true', codespacePath);
           this.lastFetchTime.set(codespaceId, Date.now());
-        } catch (_error) {}
+        } catch (_error) {
+          // Best-effort fetch — failure is non-fatal
+        }
       }
 
       // Get all remote branches with their commit info

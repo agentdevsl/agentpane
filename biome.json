@@ -151,10 +151,12 @@
         "noExplicitAny": "warn",
         "noConsole": "warn",
         "noControlCharactersInRegex": "off",
-        "noArrayIndexKey": "off"
+        "noArrayIndexKey": "off",
+        "noEmptyBlockStatements": "warn"
       },
       "nursery": {
-        "noLeakedRender": "off"
+        "noLeakedRender": "off",
+        "noFloatingPromises": "warn"
       }
     }
   },

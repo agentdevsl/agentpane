@@ -1,97 +1,109 @@
 repos:
-  - repo: local
-    hooks:
-      - id: biome-check
-        name: Biome Check
-        description: Lints and formats TypeScript/JavaScript files
-        entry: bun run biome check --write .
-        language: system
-        pass_filenames: false
-        always_run: true
-        stages:
-          - pre-commit
-  - repo: local
-    hooks:
-      - id: typecheck
-        name: TypeScript Type Check
-        description: Runs TypeScript compiler for type checking across all workspaces
-        entry: bun run typecheck
-        language: system
-        pass_filenames: false
-        stages:
-          - pre-commit
-        always_run: true
-  - repo: local
-    hooks:
-      - id: test
-        name: Tests
-        description: Runs test suite
-        entry: bun run test
-        language: system
-        types:
-          - ts
-          - tsx
-        pass_filenames: false
-        stages:
-          - pre-commit
-  - repo: local
-    hooks:
-      - id: biome-fix
-        name: Biome Fix (pre-push)
-        description: Runs Biome with auto-fix on all files
-        entry: bun run check:fix
-        language: system
-        pass_filenames: false
-        always_run: true
-        stages:
-          - pre-push
-  - repo: local
-    hooks:
-      - id: semgrep-security
-        name: Semgrep Security Scan
-        description: Scans for security anti-patterns (blocking rules only)
-        entry: ./scripts/semgrep-check.sh
-        language: system
-        types_or:
-          - ts
-          - tsx
-        stages:
-          - pre-commit
-  - repo: https://github.com/igorshubovych/markdownlint-cli
-    rev: v0.43.0
-    hooks:
-      - id: markdownlint-fix
-        name: Lint Markdown
-        exclude: ^(\.claude/|\.devcontainer/|specs/)
-  - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.22.1
-    hooks:
-      - id: gitleaks
-        name: Detect secrets
-        exclude: ^\.devcontainer/
-  - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
-    hooks:
-      - id: end-of-file-fixer
-        name: Fix end of files
-        exclude: ^(\.claude/|\.devcontainer/)
-      - id: check-yaml
-        name: Check YAML syntax
-        args:
-          - --allow-multiple-documents
-        exclude: ^(\.devcontainer/|charts/.*/templates/)
-      - id: check-json
-        name: Check JSON syntax
-        exclude: ^\.devcontainer/
-      - id: check-added-large-files
-        name: Check for large files
-        args:
-          - --maxkb=500
-      - id: check-merge-conflict
-        name: Check for merge conflicts
-      - id: detect-private-key
-        name: Detect private keys
-        exclude: ^(\.devcontainer/|specs/)
-      - id: trailing-whitespace
-        name: Trim trailing whitespace
-        exclude: ^(\.claude/|\.devcontainer/)
+- repo: local
+  hooks:
+  - id: biome-check
+    name: Biome Check
+    description: Lints and formats TypeScript/JavaScript files
+    entry: bun run biome check --write .
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages:
+    - pre-commit
+- repo: local
+  hooks:
+  - id: typecheck
+    name: TypeScript Type Check
+    description: Runs TypeScript compiler for type checking across all workspaces
+    entry: bun run typecheck
+    language: system
+    pass_filenames: false
+    stages:
+    - pre-commit
+    always_run: true
+- repo: local
+  hooks:
+  - id: test
+    name: Tests
+    description: Runs test suite
+    entry: bun run test
+    language: system
+    types:
+    - ts
+    - tsx
+    pass_filenames: false
+    stages:
+    - pre-commit
+- repo: local
+  hooks:
+  - id: schema-drift
+    name: Schema Drift Check
+    description: Verifies DB table schemas match Drizzle ORM definitions
+    entry: bunx vitest run tests/integration/session-schema-drift.test.ts tests/integration/agents-schema-drift.test.ts
+      --reporter=dot
+    language: system
+    pass_filenames: false
+    stages:
+    - pre-commit
+    files: (src/db/schema/|src/lib/bootstrap/migrations/)
+- repo: local
+  hooks:
+  - id: biome-fix
+    name: Biome Fix (pre-push)
+    description: Runs Biome with auto-fix on all files
+    entry: bun run check:fix
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages:
+    - pre-push
+- repo: local
+  hooks:
+  - id: semgrep-security
+    name: Semgrep Security Scan
+    description: Scans for security anti-patterns (blocking rules only)
+    entry: ./scripts/semgrep-check.sh
+    language: system
+    types_or:
+    - ts
+    - tsx
+    stages:
+    - pre-commit
+- repo: https://github.com/igorshubovych/markdownlint-cli
+  rev: v0.43.0
+  hooks:
+  - id: markdownlint-fix
+    name: Lint Markdown
+    exclude: ^(\.claude/|\.devcontainer/|specs/)
+- repo: https://github.com/gitleaks/gitleaks
+  rev: v8.22.1
+  hooks:
+  - id: gitleaks
+    name: Detect secrets
+    exclude: ^\.devcontainer/
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v5.0.0
+  hooks:
+  - id: end-of-file-fixer
+    name: Fix end of files
+    exclude: ^(\.claude/|\.devcontainer/)
+  - id: check-yaml
+    name: Check YAML syntax
+    args:
+    - --allow-multiple-documents
+    exclude: ^(\.devcontainer/|charts/.*/templates/)
+  - id: check-json
+    name: Check JSON syntax
+    exclude: ^\.devcontainer/
+  - id: check-added-large-files
+    name: Check for large files
+    args:
+    - --maxkb=500
+  - id: check-merge-conflict
+    name: Check for merge conflicts
+  - id: detect-private-key
+    name: Detect private keys
+    exclude: ^(\.devcontainer/|specs/)
+  - id: trailing-whitespace
+    name: Trim trailing whitespace
+    exclude: ^(\.claude/|\.devcontainer/)
