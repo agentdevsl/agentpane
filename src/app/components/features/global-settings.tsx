@@ -83,7 +83,7 @@ function ApiKeysSection(): React.JSX.Element {
         setLoadError('Failed to load saved API keys. Please refresh the page.');
       }
     };
-    loadAnthropicKey();
+    void loadAnthropicKey();
 
     const loadGitHubToken = async () => {
       const result = await apiClient.github.getTokenInfo();
@@ -94,7 +94,7 @@ function ApiKeysSection(): React.JSX.Element {
         setLoadError('Failed to load saved API keys. Please refresh the page.');
       }
     };
-    loadGitHubToken();
+    void loadGitHubToken();
   });
 
   const handleSaveAnthropicKey = async () => {
@@ -414,7 +414,7 @@ function DefaultsSection(): React.JSX.Element {
         setIsLoading(false);
       }
     }
-    loadSettings();
+    void loadSettings();
   });
 
   const handleSaveDefaults = async () => {

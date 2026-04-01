@@ -187,6 +187,7 @@ async function fetchPluginMetadata(
     // Only suppress 404 (file not found), log other errors
     const status = (error as { status?: number }).status;
     if (status !== 404) {
+      // Non-404 error fetching metadata — unexpected but non-fatal for plugin sync
     }
   }
 
@@ -213,6 +214,7 @@ async function fetchPluginMetadata(
     // Only suppress 404 (file not found), log other errors
     const status = (error as { status?: number }).status;
     if (status !== 404) {
+      // Non-404 error fetching README — unexpected but non-fatal for plugin sync
     }
   }
 

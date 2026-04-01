@@ -157,7 +157,9 @@ export function sendPresenceUpdate(
           channel: 'presence',
           data: presence,
         }),
-      }).catch((_error) => {});
+      }).catch((_error) => {
+        // Best-effort: presence broadcast failure is non-critical
+      });
     }
   }, CURSOR_THROTTLE_MS);
 }

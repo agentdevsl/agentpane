@@ -126,6 +126,7 @@ async function cloneRepository(
       '',
     ]);
     if (credResult.exitCode !== 0) {
+      log.debug('Failed to disable credential helper', { data: { exitCode: credResult.exitCode } });
     }
     return true;
   } catch (err) {
@@ -227,6 +228,7 @@ export async function initializeK8sWorkspace(
       return fallback;
     }
   } else {
+    // Workspace already cloned — skip clone step
   }
 
   // Step 2: Create worktree

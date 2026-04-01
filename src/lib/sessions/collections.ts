@@ -134,7 +134,9 @@ export const sessionCollections = {
  * Clear all data from all session collections
  * Useful for cleanup when leaving a session
  */
-export function clearSessionCollections(): void {}
+export function clearSessionCollections(): void {
+  // TODO: implement collection clearing — currently a no-op placeholder
+}
 
 /**
  * Get collection statistics for debugging

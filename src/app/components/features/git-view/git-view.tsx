@@ -318,7 +318,7 @@ export function GitView({ codespaceId, projectPath }: GitViewProps): React.JSX.E
   );
 
   useWatchEffect(() => {
-    fetchData();
+    void fetchData();
   }, [fetchData]);
 
   // Fetch commits when branch selection changes
@@ -349,7 +349,7 @@ export function GitView({ codespaceId, projectPath }: GitViewProps): React.JSX.E
   // Effect to fetch commits when branch selection changes
   useWatchEffect(() => {
     if (selectedBranch) {
-      fetchCommitsForBranch(selectedBranch);
+      void fetchCommitsForBranch(selectedBranch);
     }
   }, [selectedBranch, fetchCommitsForBranch]);
 

@@ -169,7 +169,7 @@ export const ProjectCard = memo(function ProjectCard({
   const isNeedsApproval = status === 'needs-approval';
 
   const handleDoubleClick = () => {
-    navigate({ to: '/codespaces/$codespaceId', params: { codespaceId: project.id } });
+    void navigate({ to: '/codespaces/$codespaceId', params: { codespaceId: project.id } });
   };
 
   return (

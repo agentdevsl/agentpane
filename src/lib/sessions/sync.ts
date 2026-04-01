@@ -174,11 +174,17 @@ export function syncSessionToCollections(sessionId: string): () => void {
       }
     },
 
-    onError: (_error) => {},
+    onError: (_error) => {
+      // Stream errors are handled by automatic reconnection logic
+    },
 
-    onReconnect: () => {},
+    onReconnect: () => {
+      // Reconnection is automatic — no action needed
+    },
 
-    onDisconnect: () => {},
+    onDisconnect: () => {
+      // Disconnection is handled by reconnection logic
+    },
   });
 
   activeSyncs.set(sessionId, subscription);

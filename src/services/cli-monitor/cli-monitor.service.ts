@@ -313,6 +313,7 @@ export class CliMonitorService {
 
       const changes = (result as { changes?: number }).changes ?? 0;
       if (changes > 0) {
+        log.debug('Cleaned up expired CLI sessions', { data: { count: changes } });
       }
       return changes;
     } catch (maintenanceErr) {

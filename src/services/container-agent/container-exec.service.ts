@@ -161,17 +161,17 @@ export class ContainerExecService {
       streams: this.deps.streams,
       onComplete: (status, turnCount) => {
         log.info('Agent completed via bridge callback', { data: { taskId, status, turnCount } });
-        this.handleAgentComplete(taskId, status, turnCount);
+        void this.handleAgentComplete(taskId, status, turnCount);
       },
       onError: (error, turnCount) => {
         log.info('Agent error via bridge callback', { data: { taskId, error, turnCount } });
-        this.handleAgentError(taskId, error, turnCount);
+        void this.handleAgentError(taskId, error, turnCount);
       },
       onPlanReady: (planData) => {
         log.info('Plan ready via bridge callback', {
           data: { taskId, planLength: planData.plan.length, sdkSessionId: planData.sdkSessionId },
         });
-        this.onPlanReady(taskId, sessionId, codespaceId, planData);
+        void this.onPlanReady(taskId, sessionId, codespaceId, planData);
       },
     });
 
@@ -690,7 +690,7 @@ export class ContainerExecService {
       const maxRuntimeMs = Number(process.env.AGENT_MAX_RUNTIME_MS) || 2 * 60 * 60 * 1000;
       runningAgent.timeoutHandle = setTimeout(() => {
         log.info('Agent exceeded max runtime, stopping', { data: { taskId, maxRuntimeMs } });
-        this.stopAgent(taskId);
+        void this.stopAgent(taskId);
       }, maxRuntimeMs);
       runningAgent.timeoutHandle.unref();
 

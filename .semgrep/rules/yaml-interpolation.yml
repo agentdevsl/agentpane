@@ -1,0 +1,51 @@
+rules:
+  - id: agentpane.yaml-interpolation.unescaped-value-in-yaml
+    severity: WARNING
+    message: >
+      Template literal with YAML-like structure contains unescaped string
+      interpolation. If the interpolated value contains special YAML
+      characters (quotes, newlines, colons), it can break parsing or inject
+      additional YAML keys. Escape the value first or use a YAML serialization
+      library: `yaml.stringify()` or at minimum escape `"`, `\n`, `\r`, and `\`.
+    languages: [typescript]
+    pattern-either:
+      - pattern: |
+          `...: $\{...\}\n...`
+      - pattern: |
+          `...\n  $\{...\}...`
+      - pattern: |
+          `...: $\{...\}
+          ...`
+    paths:
+      exclude:
+        - "tests/**"
+        - "**/__tests__/**"
+        - "**/*.test.ts"
+        - "**/*.spec.ts"
+    metadata:
+      category: security
+      cwe: "CWE-94"
+      confidence: LOW
+
+  - id: agentpane.yaml-interpolation.template-yaml-document
+    severity: WARNING
+    message: >
+      Template literal appears to construct a YAML document with interpolated
+      values. User-supplied data in YAML values can inject additional keys or
+      break parsing. Use a YAML library (e.g., `yaml.stringify()`) to safely
+      serialize values, or escape special characters (`"`, `\n`, `\r`, `\`)
+      before interpolation.
+    languages: [typescript]
+    patterns:
+      - pattern: |
+          `---\n...$\{...\}...`
+    paths:
+      exclude:
+        - "tests/**"
+        - "**/__tests__/**"
+        - "**/*.test.ts"
+        - "**/*.spec.ts"
+    metadata:
+      category: security
+      cwe: "CWE-94"
+      confidence: MEDIUM

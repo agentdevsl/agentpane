@@ -139,7 +139,7 @@ export function FolderPanel(): React.JSX.Element {
                     type="button"
                     onClick={() => {
                       selectFolder(folder.id);
-                      navigate({ to: '/codespaces' });
+                      void navigate({ to: '/codespaces' });
                     }}
                     className={cn(
                       'relative flex items-center rounded-md mb-px text-left transition-all duration-[220ms] ease-[cubic-bezier(0.4,0,0.2,1)]',

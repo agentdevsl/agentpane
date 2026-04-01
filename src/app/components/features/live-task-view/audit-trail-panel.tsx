@@ -656,7 +656,9 @@ function StreamTab({
         setMessages(msgs);
         scrollToBottom();
       })
-      .catch(() => {})
+      .catch(() => {
+        // Best-effort: session event fetch failure is handled by finally() setting loading=false
+      })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });

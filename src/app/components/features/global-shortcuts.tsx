@@ -78,7 +78,7 @@ export function useGlobalShortcuts(props: GlobalShortcutsProps = {}): void {
       description: 'Go to Tasks/Kanban',
       category: 'views',
       action: () => {
-        navigate({ to: '/codespaces' });
+        void navigate({ to: '/codespaces' });
       },
     });
 
@@ -286,7 +286,7 @@ export function GlobalShortcutsWithPicker(): React.JSX.Element {
 
         // Refresh codespaces and navigate to new codespace
         await refreshCodespaces();
-        navigate({
+        void navigate({
           to: '/codespaces/$codespaceId',
           params: { codespaceId: result.data.id },
         });

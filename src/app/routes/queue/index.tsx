@@ -59,7 +59,9 @@ function QueuePage(): React.JSX.Element {
             />
             <QueueStatus
               queued={queued as Parameters<typeof QueueStatus>[0]['queued']}
-              onOpenTask={() => {}}
+              onOpenTask={() => {
+                // No-op: queue page shows status only, task navigation not needed here
+              }}
             />
           </>
         )}

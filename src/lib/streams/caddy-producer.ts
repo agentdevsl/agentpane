@@ -121,7 +121,9 @@ export class CaddyDurableStreamsServer implements DurableStreamsServer {
         if (current && current.producer === producer) {
           this.producers.delete(id);
           this.pendingProducers.delete(id);
-          producer.detach().catch((_detachErr) => {});
+          producer.detach().catch((_detachErr) => {
+            // Best-effort: detach during error cleanup — failure is non-critical
+          });
         }
       },
     });
@@ -146,7 +148,9 @@ export class CaddyDurableStreamsServer implements DurableStreamsServer {
     for (const [id, entry] of this.producers) {
       if (now - entry.lastUsedAt > IDLE_TIMEOUT_MS) {
         this.producers.delete(id);
-        entry.producer.detach().catch((_err) => {});
+        entry.producer.detach().catch((_err) => {
+          // Best-effort: detach during idle eviction — failure is non-critical
+        });
       }
     }
   }
@@ -160,7 +164,9 @@ export class CaddyDurableStreamsServer implements DurableStreamsServer {
     const toRemove = entries.slice(0, this.producers.size - MAX_PRODUCERS);
     for (const [id, entry] of toRemove) {
       this.producers.delete(id);
-      entry.producer.detach().catch((_err) => {});
+      entry.producer.detach().catch((_err) => {
+        // Best-effort: detach during LRU eviction — failure is non-critical
+      });
     }
   }
 

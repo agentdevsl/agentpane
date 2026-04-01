@@ -1,0 +1,72 @@
+rules:
+  - id: agentpane.error-masking.catch-returns-ok-helper
+    severity: ERROR
+    message: >
+      Catch block returns ok() which masks the error as a success response.
+      This is the #1 silent failure pattern — callers will see a successful
+      result and never know an error occurred. Propagate the error instead:
+      `catch (error) { return err('OPERATION_FAILED', error.message); }` or
+      rethrow to let the global error handler respond with a proper status code.
+    languages: [typescript]
+    patterns:
+      - pattern: |
+          catch ($ERR) {
+            ...
+            return ok(...);
+          }
+    paths:
+      exclude:
+        - "tests/**"
+        - "**/__tests__/**"
+        - "**/*.test.ts"
+        - "**/*.spec.ts"
+    metadata:
+      category: correctness
+      confidence: HIGH
+
+  - id: agentpane.error-masking.catch-returns-ok-literal
+    severity: ERROR
+    message: >
+      Catch block returns an object with `ok: true`, masking the error as a
+      success response. The caller will process stale or empty data without
+      knowing an error occurred. Return `{ ok: false, error: ... }` or rethrow.
+    languages: [typescript]
+    patterns:
+      - pattern: |
+          catch ($ERR) {
+            ...
+            return { ok: true, ... };
+          }
+    paths:
+      exclude:
+        - "tests/**"
+        - "**/__tests__/**"
+        - "**/*.test.ts"
+        - "**/*.spec.ts"
+    metadata:
+      category: correctness
+      confidence: HIGH
+
+  - id: agentpane.error-masking.catch-returns-json-ok
+    severity: ERROR
+    message: >
+      Catch block returns c.json({ ok: true, ... }) which sends a 200 response
+      to the client despite an error occurring. The UI will display stale data
+      or silently ignore the failure. Use c.json({ ok: false, error: ... }, 500)
+      or the project's err() helper to return a proper error response.
+    languages: [typescript]
+    patterns:
+      - pattern: |
+          catch ($ERR) {
+            ...
+            return $CTX.json({ ok: true, ... });
+          }
+    paths:
+      exclude:
+        - "tests/**"
+        - "**/__tests__/**"
+        - "**/*.test.ts"
+        - "**/*.spec.ts"
+    metadata:
+      category: correctness
+      confidence: HIGH

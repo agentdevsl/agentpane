@@ -57,6 +57,7 @@ export async function resolveGitToken(
       if (installation) {
         const numericId = Number(installation.installationId);
         if (Number.isNaN(numericId)) {
+          // Invalid installation ID format — fall through to PAT fallback
         } else {
           const appOctokit = getAppOctokit();
           const { data } = await appOctokit.rest.apps.createInstallationAccessToken({
@@ -65,11 +66,14 @@ export async function resolveGitToken(
           return { token: data.token, owner, repo };
         }
       } else {
+        // No installation record found — fall through to PAT fallback
       }
     } catch (error) {
       const message = formatError(error);
       if (message.includes('not configured')) {
+        // GitHub App not configured — fall through to PAT fallback
       } else {
+        log.debug('GitHub App token creation failed', { error: message });
       }
     }
   }

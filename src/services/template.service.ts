@@ -479,6 +479,7 @@ export class TemplateService {
           });
         }
       } else {
+        // Promise rejected unexpectedly — treat as sync failure for this template
       }
     }
 

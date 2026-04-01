@@ -268,17 +268,17 @@ export class AgentCoreBridgeService {
         streams,
         onComplete: (status, turnCount) => {
           log.info('AgentCore agent completed', { data: { taskId, status, turnCount } });
-          this.handleAgentCoreComplete(taskId, status, turnCount);
+          void this.handleAgentCoreComplete(taskId, status, turnCount);
         },
         onError: (error, turnCount) => {
           log.info('AgentCore agent error', { data: { taskId, error, turnCount } });
-          this.handleAgentCoreError(taskId, error, turnCount);
+          void this.handleAgentCoreError(taskId, error, turnCount);
         },
         onPlanReady: (planData) => {
           log.info('AgentCore plan ready', {
             data: { taskId, planLength: planData.plan.length, sdkSessionId: planData.sdkSessionId },
           });
-          this.onPlanReady(taskId, sessionId, codespaceId, planData);
+          void this.onPlanReady(taskId, sessionId, codespaceId, planData);
         },
       });
 
@@ -301,7 +301,7 @@ export class AgentCoreBridgeService {
       const maxRuntimeMs = Number(process.env.AGENT_MAX_RUNTIME_MS) || 2 * 60 * 60 * 1000;
       runningAgent.timeoutHandle = setTimeout(() => {
         log.info('Agent exceeded max runtime, stopping', { data: { taskId, maxRuntimeMs } });
-        this.stopAgentCoreAgent(runningAgent);
+        void this.stopAgentCoreAgent(runningAgent);
       }, maxRuntimeMs);
       runningAgent.timeoutHandle.unref();
 

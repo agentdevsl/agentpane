@@ -279,6 +279,7 @@ export class SandboxService {
         // Kill all tmux sessions - log if any fail but continue with stop
         const killResult = await this.tmuxManager.killAllSessions(sandboxId);
         if (!killResult.ok) {
+          // Best-effort: tmux session cleanup failure is non-critical during sandbox stop
         }
 
         // Stop container

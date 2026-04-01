@@ -30,7 +30,9 @@ export const initializePostgres = async (_ctx: BootstrapContext) => {
   try {
     await client`SELECT 1 as test`;
   } catch (error) {
-    await client.end().catch(() => {});
+    await client.end().catch(() => {
+      // Best-effort: connection cleanup after failed connection test
+    });
     return err(
       createError('BOOTSTRAP_PG_INIT_FAILED', 'PostgreSQL connection test failed', 500, {
         error: errorMessage(error),
@@ -43,7 +45,9 @@ export const initializePostgres = async (_ctx: BootstrapContext) => {
     await migrate(db, { migrationsFolder: './src/db/migrations-pg' });
     return ok(db);
   } catch (error) {
-    await client.end().catch(() => {});
+    await client.end().catch(() => {
+      // Best-effort: connection cleanup after failed migration
+    });
     return err(
       createError('BOOTSTRAP_PG_INIT_FAILED', 'PostgreSQL migration failed', 500, {
         error: errorMessage(error),

@@ -411,6 +411,7 @@ export async function layoutWorkflow(
   return nodes.map((node) => {
     const newPosition = positions.get(node.id);
     if (!newPosition) {
+      // Node not found in ELK layout output — fall through to use original position
     }
     return {
       ...node,

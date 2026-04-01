@@ -57,7 +57,7 @@ export function FolderRail(): React.JSX.Element {
       const nextHealthy = result.ok && result.data.status === 'healthy';
       setIsHealthy((prev) => (prev === nextHealthy ? prev : nextHealthy));
     };
-    checkHealth();
+    void checkHealth();
     const interval = setInterval(checkHealth, 30000);
     return () => clearInterval(interval);
   });

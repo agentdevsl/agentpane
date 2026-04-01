@@ -92,7 +92,9 @@ export function syncTaskCreationToCollections(sessionId: string, streamUrl: stri
   const eventSource = new EventSource(streamUrl);
   activeSyncs.set(sessionId, eventSource);
 
-  eventSource.onopen = () => {};
+  eventSource.onopen = () => {
+    // Connection established — no action needed, events will flow via onmessage
+  };
 
   eventSource.onmessage = (event) => {
     try {

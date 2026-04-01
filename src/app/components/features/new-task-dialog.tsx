@@ -1077,7 +1077,7 @@ export function NewTaskDialog({
   // Start conversation when dialog opens
   useWatchEffect(() => {
     if (open && status === 'idle') {
-      startConversation();
+      void startConversation();
     }
   }, [open, status, startConversation]);
 
@@ -1125,7 +1125,7 @@ export function NewTaskDialog({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      void handleSend();
     }
   };
 
@@ -1166,7 +1166,7 @@ export function NewTaskDialog({
   const handleCreateManually = () => {
     // Cancel any active AI session
     if (sessionId && status === 'active') {
-      cancel();
+      void cancel();
     }
     // Set up empty suggestion with user-selected options and go to edit panel
     setEditableSuggestion({

@@ -231,7 +231,7 @@ export class TaskCreationSdkService {
 
       // Create a Promise that will be resolved when user provides answers
       return new Promise<PermissionResult>((resolve) => {
-        onQuestions(questions, options.toolUseID, input as Record<string, unknown>, resolve);
+        void onQuestions(questions, options.toolUseID, input as Record<string, unknown>, resolve);
       });
     };
   }

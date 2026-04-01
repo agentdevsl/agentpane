@@ -713,8 +713,12 @@ export class WorktreeService {
       this.db
         .delete(worktrees)
         .where(inArray(worktrees.id, staleIds))
-        .then(() => {})
-        .catch((_deleteErr) => {})
+        .then(() => {
+          // Stale worktree records cleaned up successfully
+        })
+        .catch((_deleteErr) => {
+          // Best-effort: stale worktree DB cleanup failure is non-critical
+        })
         .finally(() => {
           // Remove from tracking set regardless of success/failure
           for (const id of staleIds) {

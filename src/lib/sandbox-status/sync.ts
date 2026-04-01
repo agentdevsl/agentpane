@@ -72,7 +72,7 @@ export function startSandboxStatusSync(codespaceId: string, intervalMs = 30000):
   }
 
   // Fetch immediately
-  fetchSandboxStatus(codespaceId).then((status) => {
+  void fetchSandboxStatus(codespaceId).then((status) => {
     if (status) {
       updateSandboxStatus(status);
     }

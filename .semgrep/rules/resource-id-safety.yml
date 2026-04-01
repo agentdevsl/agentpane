@@ -1,0 +1,66 @@
+rules:
+  - id: agentpane.resource-id-safety.param-in-path-join
+    severity: ERROR
+    message: >
+      Route parameter used directly in path.join() without validation. An
+      attacker can supply '../' sequences in the resource ID to traverse
+      directories. Validate the parameter with a safe regex before using it
+      in file paths: `if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(id)) return err(...)`.
+    languages: [typescript]
+    patterns:
+      - pattern: |
+          const $ID = $CTX.req.param($PARAM);
+          ...
+          path.join(..., $ID, ...);
+      - pattern-not: |
+          const $ID = $CTX.req.param($PARAM);
+          ...
+          if (<... $ID ...>) { ... }
+          ...
+          path.join(..., $ID, ...);
+      - pattern-not: |
+          const $ID = $CTX.req.param($PARAM);
+          ...
+          invariant(<... $ID ...>, ...);
+          ...
+          path.join(..., $ID, ...);
+    paths:
+      include:
+        - "src/server/routes/**"
+    metadata:
+      category: security
+      cwe: "CWE-22"
+      confidence: MEDIUM
+
+  - id: agentpane.resource-id-safety.param-in-template-path
+    severity: ERROR
+    message: >
+      Route parameter interpolated into a file path template literal without
+      validation. An attacker can supply '../' sequences in the resource ID
+      to traverse directories. Validate with a safe regex first:
+      `if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(id)) return err(...)`.
+    languages: [typescript]
+    patterns:
+      - pattern: |
+          const $ID = $CTX.req.param($PARAM);
+          ...
+          `.../$ID/...`;
+      - pattern-not: |
+          const $ID = $CTX.req.param($PARAM);
+          ...
+          if (<... $ID ...>) { ... }
+          ...
+          `.../$ID/...`;
+      - pattern-not: |
+          const $ID = $CTX.req.param($PARAM);
+          ...
+          invariant(<... $ID ...>, ...);
+          ...
+          `.../$ID/...`;
+    paths:
+      include:
+        - "src/server/routes/**"
+    metadata:
+      category: security
+      cwe: "CWE-22"
+      confidence: MEDIUM

@@ -686,6 +686,9 @@ export class DockerProvider implements EventEmittingSandboxProvider {
     }
 
     if (staleIds.length > 0) {
+      log.debug('Cleaned up stale sandbox entries', {
+        data: { count: staleIds.length, ids: staleIds },
+      });
     }
   }
 

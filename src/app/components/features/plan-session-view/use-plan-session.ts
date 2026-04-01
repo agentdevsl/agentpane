@@ -474,7 +474,7 @@ export function usePlanSession(
 
     if (!isInitializedRef.current) {
       isInitializedRef.current = true;
-      loadSession();
+      void loadSession();
     }
 
     // Cleanup on unmount or when loadSession changes

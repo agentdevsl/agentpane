@@ -186,7 +186,7 @@ export function ProjectSettings({
         setIsLoadingDefaults(false);
       }
     };
-    loadDefaults();
+    void loadDefaults();
   });
 
   // Sandbox configuration - uses existing project config or falls back to global defaults

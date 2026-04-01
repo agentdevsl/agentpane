@@ -940,7 +940,7 @@ export class DurableStreamsClient {
               const delay = Math.min(2000 * 2 ** reconnectCount, 30000);
               reconnectCount++;
               reconnectTimerId = setTimeout(() => {
-                if (!isUnsubscribed) connect();
+                if (!isUnsubscribed) void connect();
               }, delay);
             }
           })

@@ -538,7 +538,7 @@ export class AgentExecutionService {
 
     // Start agent execution asynchronously (fire-and-forget with error handling)
     // The agent runs in the background and updates state through events
-    this.executeAgentAsync(
+    void this.executeAgentAsync(
       agentId,
       session.value.id,
       taskPrompt,

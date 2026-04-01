@@ -166,6 +166,7 @@ export class InteractionHandler {
       // Validate that answer is one of the options (or custom "Other")
       const validOptions = question.options.map((o) => o.label);
       if (!validOptions.includes(answer) && !answer.startsWith('Other:')) {
+        // Answer doesn't match known options — accept it as free-form input
       }
     }
 
