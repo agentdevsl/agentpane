@@ -101,7 +101,7 @@ export function MarkdownContent({ content, className }: MarkdownContentProps): R
   const processedContent = content.replace(/\\n/g, '\n').replace(/\\t/g, '\t');
 
   return (
-    <div className={cn('min-w-0 break-words', className)}>
+    <div className={cn('min-w-0 break-words text-fg', className)}>
       <Markdown
         components={{
           // Code blocks and inline code
@@ -129,7 +129,7 @@ export function MarkdownContent({ content, className }: MarkdownContentProps): R
           // Paragraphs
           p({ children, ...props }) {
             return (
-              <p className="mb-2 last:mb-0" {...props}>
+              <p className="mb-2 text-fg last:mb-0" {...props}>
                 {children}
               </p>
             );
@@ -151,7 +151,7 @@ export function MarkdownContent({ content, className }: MarkdownContentProps): R
           },
           li({ children, ...props }) {
             return (
-              <li className="mb-1" {...props}>
+              <li className="mb-1 text-fg" {...props}>
                 {children}
               </li>
             );
@@ -159,21 +159,21 @@ export function MarkdownContent({ content, className }: MarkdownContentProps): R
           // Headings
           h1({ children, ...props }) {
             return (
-              <h1 className="mb-2 text-lg font-semibold" {...props}>
+              <h1 className="mb-2 text-lg font-semibold text-fg" {...props}>
                 {children}
               </h1>
             );
           },
           h2({ children, ...props }) {
             return (
-              <h2 className="mb-2 text-base font-semibold" {...props}>
+              <h2 className="mb-2 text-base font-semibold text-fg" {...props}>
                 {children}
               </h2>
             );
           },
           h3({ children, ...props }) {
             return (
-              <h3 className="mb-1 text-sm font-semibold" {...props}>
+              <h3 className="mb-1 text-sm font-semibold text-fg" {...props}>
                 {children}
               </h3>
             );
@@ -210,7 +210,7 @@ export function MarkdownContent({ content, className }: MarkdownContentProps): R
           // Strong/bold
           strong({ children, ...props }) {
             return (
-              <strong className="font-semibold" {...props}>
+              <strong className="font-semibold text-fg" {...props}>
                 {children}
               </strong>
             );

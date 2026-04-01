@@ -12,7 +12,7 @@ interface ThemeToggleProps {
 }
 
 export function ThemeToggle({ className }: ThemeToggleProps): React.JSX.Element {
-  const [theme, setTheme] = useState<ThemeMode>('system');
+  const [theme, setTheme] = useState<ThemeMode>('dark');
   const [open, setOpen] = useState(false);
 
   useMountEffect(() => {

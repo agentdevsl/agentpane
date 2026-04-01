@@ -514,6 +514,77 @@ export function parseEventsToStreamEntries(
       continue; // Skip these events in the stream view
     }
 
+    // Task creation events (type not in strict union, compare as string)
+    const eventTypeStr = event.type as string;
+    if (eventTypeStr === 'task-creation:started') {
+      type = 'system';
+      content = 'Task creation session started';
+      entries.push({
+        id: event.id,
+        type,
+        timestamp: event.timestamp,
+        timeOffset,
+        content,
+        isStartup: true,
+      } as StreamEntry);
+      continue;
+    }
+    if (eventTypeStr === 'task-creation:message') {
+      const msgData = event.data as { role?: string; content?: string };
+      if (msgData.role === 'user') {
+        type = 'user';
+      } else if (msgData.role === 'assistant') {
+        type = 'assistant';
+      } else {
+        type = 'system';
+      }
+      content = msgData.content ?? '';
+      entries.push({ id: event.id, type, timestamp: event.timestamp, timeOffset, content });
+      continue;
+    }
+    if (eventTypeStr === 'task-creation:questions') {
+      const qData = event.data as {
+        questions?: { questions?: Array<{ header?: string; question?: string }> };
+      };
+      const questions = qData.questions?.questions ?? [];
+      type = 'assistant';
+      content = questions
+        .map((q) => `**${q.header ?? 'Question'}**\n${q.question ?? ''}`)
+        .join('\n\n');
+      entries.push({ id: event.id, type, timestamp: event.timestamp, timeOffset, content });
+      continue;
+    }
+    if (eventTypeStr === 'task-creation:processing') {
+      const procData = event.data as { message?: string };
+      type = 'system';
+      content = procData.message ?? 'Processing...';
+      entries.push({ id: event.id, type, timestamp: event.timestamp, timeOffset, content });
+      continue;
+    }
+    if (eventTypeStr === 'task-creation:suggestion') {
+      const sugData = event.data as { suggestion?: { title?: string; description?: string } };
+      type = 'assistant';
+      content = sugData.suggestion?.description
+        ? `**${sugData.suggestion.title ?? 'Task Suggestion'}**\n\n${sugData.suggestion.description}`
+        : (sugData.suggestion?.title ?? 'Task suggestion generated');
+      entries.push({ id: event.id, type, timestamp: event.timestamp, timeOffset, content });
+      continue;
+    }
+    if (eventTypeStr === 'task-creation:completed') {
+      type = 'system';
+      content = 'Task created successfully';
+      entries.push({ id: event.id, type, timestamp: event.timestamp, timeOffset, content });
+      continue;
+    }
+    if (eventTypeStr === 'task-creation:cancelled') {
+      continue;
+    }
+
+    // Memory events
+    if (eventTypeStr === 'memory:insights_injected') {
+      continue; // Skip internal memory events
+    }
+
     switch (event.type) {
       case 'agent:started':
         type = 'system';

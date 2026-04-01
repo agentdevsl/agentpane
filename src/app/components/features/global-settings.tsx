@@ -325,7 +325,7 @@ function AppearanceSection({
 }): React.JSX.Element {
   const [theme, setTheme] = useState<'light' | 'dark' | 'system'>(() => {
     const stored = localStorage.getItem('theme');
-    return (stored as 'light' | 'dark' | 'system') || 'system';
+    return (stored as 'light' | 'dark' | 'system') || 'dark';
   });
 
   const handleThemeChange = (newTheme: 'light' | 'dark' | 'system') => {
