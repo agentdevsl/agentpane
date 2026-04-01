@@ -176,7 +176,8 @@ export class WorktreeInitService {
         taskId,
         sessionId,
         role: 'system',
-        content: 'Workspace initialization incomplete -- agent will work with limited isolation',
+        content:
+          "Workspace initialization failed: no GitHub repository configured for this codespace. The agent will work without git isolation — changes cannot be pushed or PR'd.",
       });
       return null;
     }

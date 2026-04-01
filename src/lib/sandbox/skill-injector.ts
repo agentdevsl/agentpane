@@ -154,10 +154,11 @@ export async function injectSkills(
       const content = buildSkillMarkdown(skill);
       const encoded = Buffer.from(content).toString('base64');
 
-      // Use pipefail and test -s to detect decode failures and empty files
+      // Decode base64 into file, then verify non-empty (catches decode failures).
+      // Avoid `set -o pipefail` — it's a bashism unsupported by dash/ash in K8s pods.
       const writeResult = await sandbox.exec('sh', [
         '-c',
-        `set -o pipefail; printf '%s' "$1" | base64 -d > "$2" && test -s "$2"`,
+        `printf '%s' "$1" | base64 -d > "$2" && test -s "$2"`,
         '--',
         encoded,
         skillFilePath,

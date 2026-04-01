@@ -9,6 +9,7 @@ import type { TaskError } from '../lib/errors/task-errors.js';
 import { TaskErrors } from '../lib/errors/task-errors.js';
 import { ValidationErrors } from '../lib/errors/validation-errors.js';
 import { createLogger } from '../lib/logging/logger.js';
+import { deriveGitHubFromPath } from '../lib/sandbox/git-token-resolver.js';
 import type { CodespaceSandboxConfig } from '../lib/sandbox/types.js';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
@@ -595,6 +596,16 @@ export class TaskService {
     // Only trigger if sandbox is enabled (either codespace or global)
     if (!sandboxConfig?.enabled) {
       return undefined;
+    }
+
+    // Validate: remote sandbox providers (kubernetes, nomad) require a GitHub repo
+    // to clone into the pod. Without one, the agent would run with no git isolation.
+    if (sandboxConfig.provider === 'kubernetes' || sandboxConfig.provider === 'nomad') {
+      const hasExplicitRepo = codespace.githubOwner && codespace.githubRepo;
+      const hasDerivedRepo = codespace.path ? deriveGitHubFromPath(codespace.path) !== null : false;
+      if (!hasExplicitRepo && !hasDerivedRepo) {
+        return TaskErrors.NO_GITHUB_REPO.message;
+      }
     }
 
     // Build task prompt

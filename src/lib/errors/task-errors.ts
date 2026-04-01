@@ -47,6 +47,11 @@ export const TaskErrors = {
     'Cannot approve changes while plan is pending approval. Approve or reject the plan first.',
     400
   ),
+  NO_GITHUB_REPO: createError(
+    'TASK_NO_GITHUB_REPO',
+    'Codespace has no GitHub repository linked. Configure a repository in codespace settings before running agents in K8s or Nomad sandbox mode.',
+    400
+  ),
 } as const;
 
 export type TaskError =
@@ -60,4 +65,5 @@ export type TaskError =
   | typeof TaskErrors.POSITION_CONFLICT
   | typeof TaskErrors.AGENT_NOT_RUNNING
   | typeof TaskErrors.AGENT_STOP_FAILED
-  | typeof TaskErrors.PLAN_NOT_EXECUTED;
+  | typeof TaskErrors.PLAN_NOT_EXECUTED
+  | typeof TaskErrors.NO_GITHUB_REPO;

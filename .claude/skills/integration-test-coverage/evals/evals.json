@@ -1,0 +1,23 @@
+{
+  "skill_name": "integration-test-coverage",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I just added a new event-cleanup service that deletes old session_events and event_log entries based on configurable retention days. The service reads settings from SettingsService and runs DELETE queries against SQLite. Can you check what integration tests are missing and write them? The service is at src/services/event-cleanup.service.ts and the existing unit tests are at src/services/__tests__/event-cleanup.service.test.ts",
+      "expected_output": "Should analyze the service, identify that existing tests only mock the DB, and write integration tests that: (1) use a real SQLite test DB, (2) insert test events with various ages, (3) run cleanup and verify correct records are deleted/retained, (4) test the settings override path with real SettingsService, (5) test edge cases like empty tables and boundary dates",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "We have a task service that manages kanban board tasks. Tasks can be moved between columns (backlog, in_progress, waiting_approval, verified). When moved to in_progress, an agent auto-starts. I want to make sure we have integration test coverage for the full task lifecycle including state transitions. The service is at src/services/task.service.ts",
+      "expected_output": "Should analyze the task service and state machine, identify coverage gaps in state transition integration tests, and write tests covering: (1) full CRUD lifecycle with real DB, (2) valid state transitions through all columns, (3) invalid transition rejection, (4) side effects like agent auto-start on in_progress move, (5) concurrent move attempts, (6) cascade behavior when parent codespace is deleted",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "our sessions API endpoint at /api/sessions supports listing sessions with pagination, filtering by status, and includes summary stats (turnsCount, tokensUsed, etc). I'm worried the API contract between the frontend and backend might drift. Can you find gaps and write integration tests? The route is in src/server/routes and the frontend hook is at src/app/components/features/session-history/hooks/use-session-events.ts",
+      "expected_output": "Should analyze both the API route and the frontend consumption, identify contract mismatches or untested paths, and write tests covering: (1) response shape matches what the frontend expects, (2) pagination works with real data, (3) status filtering produces correct results, (4) summary stats are computed correctly from real session events, (5) empty state handling, (6) error responses for invalid params",
+      "files": []
+    }
+  ]
+}
