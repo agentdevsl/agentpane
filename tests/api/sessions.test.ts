@@ -69,6 +69,32 @@ describe('Session API', () => {
     expect(result.data).toHaveLength(1);
   });
 
+  it('returns data as a flat array matching apiServerFetch<T> contract', async () => {
+    // This test prevents the bug where apiServerFetch<T> type parameter
+    // is set to { data: unknown[]; pagination: unknown } instead of unknown[].
+    // apiServerFetch unwraps the response so result.data = the "data" field value.
+    // If "data" is already the array, consumers must access result.data directly,
+    // NOT result.data.data (which would be undefined on an array).
+    sessionServiceMocks.list.mockResolvedValue(ok([sampleSession]));
+    sessionServiceMocks.getSessionSummary.mockResolvedValue(
+      ok({ turnsCount: 0, tokensUsed: 0, filesModified: 0, linesAdded: 0, linesRemoved: 0 })
+    );
+
+    const response = await app.request('http://localhost/');
+    const json = await (response as Response).json();
+
+    // The "data" field must be a flat array, not a nested { data: [...] } object
+    expect(json.ok).toBe(true);
+    expect(Array.isArray(json.data)).toBe(true);
+    expect(json.data[0]).toHaveProperty('id');
+    // Verify no accidental double-wrapping
+    expect(json.data).not.toHaveProperty('data');
+    expect(json.data).not.toHaveProperty('pagination');
+    // Pagination is a sibling of data, not nested inside it
+    expect(json.pagination).toBeDefined();
+    expect(json.pagination).toHaveProperty('hasMore');
+  });
+
   it('creates a session', async () => {
     sessionServiceMocks.create.mockResolvedValue(ok({ ...sampleSession, status: 'active' }));
 

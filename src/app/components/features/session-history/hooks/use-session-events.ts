@@ -45,7 +45,7 @@ export function useSessions(codespaceId: string, filters?: SessionFilters, sort?
 
       if (result.ok) {
         // Transform the response to match our expected type
-        const items = (result.data.data as SessionListItem[]) ?? [];
+        const items = (result.data as SessionListItem[]) ?? [];
 
         // Apply client-side filtering in a single pass
         const statusSet = filters?.status?.length ? new Set(filters.status) : null;

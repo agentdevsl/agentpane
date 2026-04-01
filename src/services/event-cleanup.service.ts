@@ -27,8 +27,8 @@ import type { SettingsService } from './settings.service.js';
 
 const log = createLogger('EventCleanup');
 
-/** Default retention: session events kept for 30 days */
-const DEFAULT_SESSION_EVENTS_RETENTION_DAYS = 30;
+/** Default retention: session events kept for 60 days */
+const DEFAULT_SESSION_EVENTS_RETENTION_DAYS = 60;
 
 /** Default retention: event log entries kept for 90 days */
 const DEFAULT_EVENT_LOG_RETENTION_DAYS = 90;

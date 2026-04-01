@@ -567,9 +567,7 @@ export const apiClient = {
       if (params?.search) searchParams.set('search', params.search);
       const query = searchParams.toString();
       // Use apiServerFetch to hit the Bun API server directly
-      return apiServerFetch<{ data: unknown[]; pagination: unknown }>(
-        `/api/sessions${query ? `?${query}` : ''}`
-      );
+      return apiServerFetch<unknown[]>(`/api/sessions${query ? `?${query}` : ''}`);
     },
 
     get: (id: string) => apiServerFetch<unknown>(`/api/sessions/${id}`),

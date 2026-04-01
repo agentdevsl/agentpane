@@ -118,7 +118,7 @@ describe('EventCleanupService', () => {
 
   it('uses default retention days when settings return null', async () => {
     const db = createDbMock(0);
-    // Settings return null — service should use defaults (30 / 90)
+    // Settings return null — service should use defaults (60 / 90)
     const settings = createSettingsMock();
 
     const service = new EventCleanupService(db as never, settings as never);

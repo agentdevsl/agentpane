@@ -283,4 +283,36 @@ END;
     name: 'memory-insight-effectiveness-score',
     statements: [`ALTER TABLE memory_insights ADD COLUMN effectiveness_score REAL`],
   },
+
+  // 29. Rebuild sessions table to match current Drizzle schema
+  // Old schema had: sdk_session_id, started_at, ended_at, total_input_tokens, etc.
+  // New schema has: title, url, sandbox_provider, sandbox_container_id, status default 'idle'
+  {
+    version: 29,
+    name: 'sessions-schema-rebuild',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS sessions_new (
+        id TEXT PRIMARY KEY NOT NULL,
+        codespace_id TEXT NOT NULL REFERENCES codespaces(id) ON DELETE CASCADE,
+        task_id TEXT,
+        agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        status TEXT DEFAULT 'idle' NOT NULL,
+        title TEXT,
+        url TEXT NOT NULL DEFAULT '',
+        sandbox_provider TEXT,
+        sandbox_container_id TEXT,
+        created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now')) NOT NULL,
+        closed_at TEXT
+      )`,
+      `INSERT OR IGNORE INTO sessions_new (id, codespace_id, task_id, agent_id, status, created_at, updated_at)
+        SELECT id, codespace_id, task_id, agent_id,
+          CASE WHEN status = 'active' THEN 'active' WHEN status = 'closed' THEN 'closed' ELSE 'idle' END,
+          created_at, updated_at
+        FROM sessions WHERE codespace_id IS NOT NULL`,
+      `DROP TABLE sessions`,
+      `ALTER TABLE sessions_new RENAME TO sessions`,
+      `CREATE INDEX IF NOT EXISTS idx_sessions_codespace_id ON sessions(codespace_id)`,
+    ],
+  },
 ];
