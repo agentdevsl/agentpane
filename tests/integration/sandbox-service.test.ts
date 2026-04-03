@@ -207,8 +207,8 @@ describe('SandboxService (IT-420)', () => {
     const createStreamArgs = streams.createStream.mock.calls[0];
     expect(createStreamArgs[0]).toMatch(/^sandbox:/);
 
-    // Publish calls include sandbox lifecycle events (creating, created/started, ready)
-    expect(streams.publish).toHaveBeenCalledTimes(3);
+    // Publish calls: sandbox:creating then sandbox:ready
+    expect(streams.publish).toHaveBeenCalledTimes(2);
     const publishCalls = streams.publish.mock.calls;
     expect(publishCalls[0][1]).toBe('sandbox:creating');
     // Last event should be sandbox:ready
