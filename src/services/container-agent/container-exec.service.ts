@@ -25,7 +25,7 @@ import { SANDBOX_DEFAULTS } from '../../lib/sandbox/types.js';
 import { softInvariant } from '../../lib/utils/invariant.js';
 import type { Result } from '../../lib/utils/result.js';
 import { err, ok } from '../../lib/utils/result.js';
-import { getGlobalDefaultModel } from '../settings.service.js';
+import { getAgentMaxRuntimeMs, getGlobalDefaultModel } from '../settings.service.js';
 import { TemplateService } from '../template.service.js';
 import type { SandboxStateManager } from './sandbox-state.js';
 import {
@@ -687,7 +687,7 @@ export class ContainerExecService {
       this.state.setRunningAgent(taskId, runningAgent);
 
       // Set a maximum runtime timeout to prevent runaway agents
-      const maxRuntimeMs = Number(process.env.AGENT_MAX_RUNTIME_MS) || 2 * 60 * 60 * 1000;
+      const maxRuntimeMs = await getAgentMaxRuntimeMs(db);
       runningAgent.timeoutHandle = setTimeout(() => {
         log.info('Agent exceeded max runtime, stopping', { data: { taskId, maxRuntimeMs } });
         void this.stopAgent(taskId);

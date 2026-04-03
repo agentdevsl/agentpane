@@ -11,6 +11,46 @@ import type { Database } from '../types/database.js';
 /** Settings key for the global default agent model */
 const DEFAULT_MODEL_KEY = 'default_model';
 
+/** Settings key for the global agent max runtime in milliseconds */
+export const AGENT_MAX_RUNTIME_KEY = 'agent.maxRuntimeMs';
+
+/** Default agent max runtime: 4 hours (14,400,000 ms) */
+export const DEFAULT_AGENT_MAX_RUNTIME_MS = 4 * 60 * 60 * 1000;
+
+/**
+ * Read the agent max runtime from env var, DB setting, or default.
+ * Resolution order:
+ *   1. process.env.AGENT_MAX_RUNTIME_MS (if set and > 0)
+ *   2. DB setting 'agent.maxRuntimeMs' (if set)
+ *   3. Default: 4 hours (14,400,000 ms)
+ */
+export async function getAgentMaxRuntimeMs(db: Database): Promise<number> {
+  // 1. Env var override takes highest precedence
+  const envVal = Number(process.env.AGENT_MAX_RUNTIME_MS);
+  if (envVal > 0) {
+    return envVal;
+  }
+
+  // 2. DB setting
+  try {
+    const row = await db.query.settings.findFirst({
+      where: eq(settings.key, AGENT_MAX_RUNTIME_KEY),
+    });
+    if (row?.value) {
+      const parsed = JSON.parse(row.value) as number;
+      if (typeof parsed === 'number' && parsed > 0) {
+        return parsed;
+      }
+    }
+  } catch {
+    // EH-021: Bare catch blocks are acceptable for optional operations like settings
+    // lookups. The caller applies its own default when the setting is unavailable.
+  }
+
+  // 3. Hardcoded default
+  return DEFAULT_AGENT_MAX_RUNTIME_MS;
+}
+
 /**
  * Read the global default model from the database settings table.
  * Returns the full API model ID (e.g. 'claude-opus-4-5-20251101'),
@@ -56,6 +96,16 @@ export class SettingsService {
    */
   async getGlobalDefaultModel(): Promise<string | undefined> {
     return getGlobalDefaultModel(this.db);
+  }
+
+  /**
+   * Get the agent max runtime in milliseconds.
+   * Resolution: env var > DB setting > default (4 hours).
+   *
+   * Instance method version of the standalone getAgentMaxRuntimeMs function.
+   */
+  async getAgentMaxRuntimeMs(): Promise<number> {
+    return getAgentMaxRuntimeMs(this.db);
   }
 
   /**

@@ -42,13 +42,13 @@ export type StreamCursor = string;
  * Zod schemas for validating raw event data from server
  * These are partial schemas since some fields come from the event envelope
  */
-const rawChunkDataSchema = z.object({
+export const rawChunkDataSchema = z.object({
   text: z.string().default(''),
   agentId: z.string().optional(),
   meta: z.unknown().optional(),
 });
 
-const rawToolCallDataSchema = z.object({
+export const rawToolCallDataSchema = z.object({
   id: z.string().min(1).optional(),
   tool: z.string().default('unknown'),
   input: z.unknown().optional(),
@@ -56,7 +56,7 @@ const rawToolCallDataSchema = z.object({
   meta: z.unknown().optional(),
 });
 
-const rawPresenceDataSchema = z.object({
+export const rawPresenceDataSchema = z.object({
   userId: z.string().min(1),
   cursor: z
     .object({
@@ -75,7 +75,7 @@ function extractPayloadMeta(data: unknown): StreamEventMetadata | undefined {
   return getPayloadStreamMetadata(data) ?? undefined;
 }
 
-function parseStreamChunkItems(text: string): unknown[] | null {
+export function parseStreamChunkItems(text: string): unknown[] | null {
   const trimmedText = text.trim();
   if (trimmedText.length === 0) {
     return [];
@@ -238,7 +238,7 @@ const rawContainerAgentMessageSchema = z.object({
   content: z.string(),
 });
 
-const rawContainerAgentCompleteSchema = z.object({
+export const rawContainerAgentCompleteSchema = z.object({
   taskId: z.string(),
   sessionId: z.string(),
   status: z.enum(['completed', 'turn_limit', 'cancelled']),
@@ -246,7 +246,7 @@ const rawContainerAgentCompleteSchema = z.object({
   result: z.string().optional(),
 });
 
-const rawContainerAgentErrorSchema = z.object({
+export const rawContainerAgentErrorSchema = z.object({
   taskId: z.string(),
   sessionId: z.string(),
   error: z.string(),
@@ -268,7 +268,7 @@ const rawContainerAgentPlanReadySchema = z.object({
   sdkSessionId: z.string().optional(),
 });
 
-const rawContainerAgentStatusSchema = z.object({
+export const rawContainerAgentStatusSchema = z.object({
   taskId: z.string(),
   sessionId: z.string(),
   stage: z.enum([
@@ -304,7 +304,7 @@ const rawContainerAgentFileChangedSchema = z.object({
 /**
  * Topology event schemas
  */
-const rawTopologyAgentSpawnedSchema = z.object({
+export const rawTopologyAgentSpawnedSchema = z.object({
   agentId: z.string(),
   taskId: z.string().optional(),
   name: z.string(),
@@ -323,7 +323,7 @@ const rawTopologyAgentProgressSchema = z.object({
   lastToolName: z.string().optional(),
 });
 
-const rawTopologyAgentCompletedSchema = z.object({
+export const rawTopologyAgentCompletedSchema = z.object({
   agentId: z.string(),
   sdkTaskId: z.string().optional(),
   status: z.enum(['completed', 'failed', 'stopped']),
