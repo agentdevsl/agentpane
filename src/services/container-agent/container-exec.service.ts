@@ -656,6 +656,12 @@ export class ContainerExecService {
       oauthToken,
     });
 
+    // When a skill is assigned, tell the agent-runner to use acceptEdits mode
+    // during planning so the skill workflow can use tools like WebSearch, AskUserQuestion
+    if (task.skillId) {
+      env.AGENT_HAS_SKILL = 'true';
+    }
+
     await streams.publish(sessionId, 'container-agent:status', {
       taskId,
       sessionId,

@@ -98,6 +98,8 @@ export interface AgentTopologySpawnedData {
   agentId: string;
   name: string;
   role: string;
+  /** Real SDK agent type (subagent_type / task_type) */
+  agentType?: string | null;
   parentId: string | null;
   sdkTaskId?: string;
 }

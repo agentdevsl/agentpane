@@ -486,10 +486,14 @@ async function runPlanningPhase(): Promise<void> {
 
     // Note: executableArgs with --add-dir causes EPIPE errors in SDK 0.2.x
     // The SDK/CLI handles directory access via cwd and environment
+    // When a skill is assigned, use acceptEdits so the skill workflow can
+    // use interactive tools (WebSearch, AskUserQuestion, Agent subagents).
+    // Without a skill, use plan mode for read-only exploration.
+    const planPermissionMode = process.env.AGENT_HAS_SKILL === 'true' ? 'acceptEdits' : 'plan';
     session = unstable_v2_createSession({
       model: config.model,
       env: { ...process.env }, // Teams GA: env passed through for agent swarm support
-      permissionMode: 'plan', // Planning mode - read-only exploration
+      permissionMode: planPermissionMode,
       canUseTool, // Use official SDK callback for tool interception
     });
     console.error('[agent-runner] SDK session created successfully');
