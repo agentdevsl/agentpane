@@ -62,8 +62,13 @@ func (c *TaskCreateCommand) Run(args []string) int {
 	}
 	if skillID != "" {
 		opts.SkillID = &skillID
-	}
-	if skillName != "" {
+		// Default skillName to skillId if not explicitly provided
+		if skillName == "" {
+			opts.SkillName = &skillID
+		} else {
+			opts.SkillName = &skillName
+		}
+	} else if skillName != "" {
 		opts.SkillName = &skillName
 	}
 

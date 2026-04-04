@@ -283,7 +283,7 @@ export class TaskService {
       labels = [],
       priority = 'medium',
       skillId,
-      skillName,
+      skillName = skillId ?? undefined,
     } = input;
 
     const codespace = await this.db.query.codespaces.findFirst({
