@@ -1372,8 +1372,10 @@ export class AgentExecutionService {
       .then((ms) => {
         this.maxAgentRuntimeMs = ms;
       })
-      .catch(() => {
-        // EH-021: Uses cached value on refresh failure — sweep continues with last known timeout
+      .catch((e) => {
+        log.warn('Failed to refresh agent max runtime for orphan sweep, using cached value.', {
+          error: e,
+        });
       });
 
     const now = Date.now();

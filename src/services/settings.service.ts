@@ -42,9 +42,11 @@ export async function getAgentMaxRuntimeMs(db: Database): Promise<number> {
         return parsed;
       }
     }
-  } catch {
-    // EH-021: Bare catch blocks are acceptable for optional operations like settings
-    // lookups. The caller applies its own default when the setting is unavailable.
+  } catch (e) {
+    console.warn(
+      '[settings.service] Failed to read agent max runtime from settings, falling back to default:',
+      e
+    );
   }
 
   // 3. Hardcoded default
