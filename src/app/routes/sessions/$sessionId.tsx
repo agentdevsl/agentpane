@@ -6,6 +6,7 @@ import { EmptyState } from '@/app/components/features/empty-state';
 import { LayoutShell } from '@/app/components/features/layout-shell';
 import { useMountEffect } from '@/app/hooks/use-mount-effect';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
+import type { SessionStatus } from '@/db/schema/shared/enums.js';
 import { apiClient } from '@/lib/api/client';
 
 // Session type for client-side display
@@ -284,7 +285,7 @@ function SessionPage(): React.JSX.Element {
           ) : null}
           <ContainerAgentPanel
             sessionId={session.id}
-            sessionStatus={session.status}
+            sessionStatus={session.status as SessionStatus}
             sandboxProvider={session.sandboxProvider ?? undefined}
             onStop={handleContainerStop}
             onApprovePlan={() => void handleApprovePlan()}

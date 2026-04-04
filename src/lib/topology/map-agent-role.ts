@@ -22,5 +22,5 @@ export function deriveAgentName(agentType?: string, description?: string): strin
   if (description) {
     return description.length > 50 ? `${description.slice(0, 47)}...` : description;
   }
-  return agentType ?? 'Agent';
+  return agentType || 'Agent';
 }

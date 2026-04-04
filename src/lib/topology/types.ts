@@ -7,6 +7,24 @@ export type TopologyAgentRole =
   | 'scanner'
   | 'deployer';
 
+/**
+ * Set of valid role strings. Use `isValidRole()` for type-safe checks.
+ */
+export const VALID_ROLES: ReadonlySet<string> = new Set<TopologyAgentRole>([
+  'orchestrator',
+  'planner',
+  'coder',
+  'reviewer',
+  'tester',
+  'scanner',
+  'deployer',
+]);
+
+/** Type guard: returns true when `role` is a recognized TopologyAgentRole. */
+export function isValidRole(role: string): role is TopologyAgentRole {
+  return VALID_ROLES.has(role);
+}
+
 export type TopologyAgentStatus =
   | 'queued'
   | 'running'
@@ -54,7 +72,7 @@ export interface TopologyNode {
   startedAt: number | null;
   completedAt: number | null;
   verified: boolean;
-  verificationScore: number; // 0-100
+  verificationScore: number; // 0-1 (real data) or 0-100 (mock/demo data)
   decisions: TopologyDecision[];
 }
 

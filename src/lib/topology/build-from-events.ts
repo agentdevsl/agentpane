@@ -1,34 +1,106 @@
+import type { AgentStatus, TaskColumn } from '@/db/schema/shared/enums.js';
+import type {
+  ContainerAgentCompleteEvent,
+  ContainerAgentStartedEvent,
+  TopologyAgentCompletedEvent,
+  TopologyAgentProgressEvent,
+  TopologyAgentSpawnedEvent,
+} from '@/services/durable-streams.service.js';
 import type { TopologyEdge, TopologyGraph, TopologyNode } from './types.js';
+import { isValidRole } from './types.js';
 import { deriveContainerAgentNodeId } from './utils.js';
 
 /** Average cost per token used for topology cost estimates */
 const AVERAGE_TOKEN_COST = 0.000009;
 
-/** Approximate tokens per progress point (used when no real token counts are available) */
+/** Approximate tokens per tool invocation (used when no real token counts are available) */
 const TOKENS_PER_PROGRESS_POINT = 500;
 
-/**
- * Recognized agent roles. Roles not in this set default to 'coder'.
- */
-const VALID_ROLES = new Set([
-  'orchestrator',
-  'planner',
-  'coder',
-  'reviewer',
-  'tester',
-  'scanner',
-  'deployer',
-]);
+// ---------------------------------------------------------------------------
+// Discriminated event types -- eliminates unsafe `as` casts in the builder
+// ---------------------------------------------------------------------------
+
+interface AgentSpawnedEvent {
+  id: string;
+  type: 'topology:agent_spawned';
+  timestamp: number;
+  data: TopologyAgentSpawnedEvent & { agentType?: string; timestamp?: number };
+}
+
+interface AgentProgressEvent {
+  id: string;
+  type: 'topology:agent_progress';
+  timestamp: number;
+  data: TopologyAgentProgressEvent;
+}
+
+interface AgentCompletedEvent {
+  id: string;
+  type: 'topology:agent_completed';
+  timestamp: number;
+  data: TopologyAgentCompletedEvent & { timestamp?: number };
+}
+
+interface ContainerStartedEvent {
+  id: string;
+  type: 'container-agent:started';
+  timestamp: number;
+  data: ContainerAgentStartedEvent;
+}
+
+interface ContainerCompleteEvent {
+  id: string;
+  type: 'container-agent:complete';
+  timestamp: number;
+  data: ContainerAgentCompleteEvent & { error?: string };
+}
+
+interface ContainerToolStartEvent {
+  id: string;
+  type: 'container-agent:tool:start';
+  timestamp: number;
+  data: unknown;
+}
+
+interface ContainerMessageEvent {
+  id: string;
+  type: 'container-agent:message';
+  timestamp: number;
+  data: unknown;
+}
+
+interface ContainerPlanReadyEvent {
+  id: string;
+  type: 'container-agent:plan_ready';
+  timestamp: number;
+  data: unknown;
+}
 
 /**
- * Minimal event shape expected by the topology builder.
+ * Base event shape accepted by the topology builder.
+ * Specific event interfaces above narrow `data` for known event types.
  */
-export interface TopologyEvent {
+export type TopologyEvent = {
   id: string;
   type: string;
   timestamp: number;
   data: unknown;
-}
+};
+
+/**
+ * Discriminated union of known event shapes used internally by the builder.
+ * The `type` literal discriminates the `data` payload so type narrowing
+ * works in the builder's switch branches.
+ */
+type KnownTopologyEvent =
+  | AgentSpawnedEvent
+  | AgentProgressEvent
+  | AgentCompletedEvent
+  | ContainerStartedEvent
+  | ContainerCompleteEvent
+  | ContainerToolStartEvent
+  | ContainerMessageEvent
+  | ContainerPlanReadyEvent;
 
 /**
  * Context about the task/session, used to derive the root node
@@ -39,8 +111,8 @@ export interface TopologyBuildContext {
   agentId?: string | null;
   taskId?: string | null;
   taskTitle?: string | null;
-  taskColumn?: string | null;
-  lastAgentStatus?: string | null;
+  taskColumn?: TaskColumn | null;
+  lastAgentStatus?: AgentStatus | null;
   skillId?: string | null;
   skillName?: string | null;
 }
@@ -59,14 +131,14 @@ export function extractSessionEvents(
  * Build a TopologyGraph from a list of historical session events.
  *
  * Processes these event types:
- * - `topology:agent_spawned` — creates subagent nodes and parent-child edges
- * - `topology:agent_progress` — updates token/cost/progress on nodes
- * - `topology:agent_completed` — marks nodes as completed/failed/stopped
- * - `container-agent:started` — creates root agent node (if no topology nodes exist yet)
- * - `container-agent:complete` — marks root agent as completed
- * - `container-agent:tool:start` — increments turn/token counts on root node
- * - `container-agent:message` — increments message count on root node
- * - `container-agent:plan_ready` — sets root node to verifying status
+ * - `topology:agent_spawned` -- creates subagent nodes and parent-child edges
+ * - `topology:agent_progress` -- updates token/cost/progress on nodes
+ * - `topology:agent_completed` -- marks nodes as completed/failed/stopped
+ * - `container-agent:started` -- creates root agent node (if no topology nodes exist yet)
+ * - `container-agent:complete` -- marks root agent as completed
+ * - `container-agent:tool:start` -- increments turn/token counts on root node
+ * - `container-agent:message` -- increments message count on root node
+ * - `container-agent:plan_ready` -- sets root node to verifying status
  *
  * When no events produce any nodes, a fallback root node is derived from
  * the task/session context.
@@ -81,20 +153,17 @@ export function buildTopologyFromEvents(
   const nodes = new Map<string, TopologyNode>();
   const edges: TopologyEdge[] = [];
 
-  for (const event of events) {
+  for (const rawEvent of events) {
+    // Cast to the known discriminated union so TypeScript narrows `data`
+    // in each branch. Unknown event types fall through without processing.
+    const event = rawEvent as KnownTopologyEvent;
     if (event.type === 'topology:agent_spawned') {
-      const d = event.data as {
-        agentId: string;
-        name: string;
-        role?: string;
-        agentType?: string;
-        parentId?: string;
-        timestamp?: number;
-      };
+      const d = event.data;
+      const roleStr = d.role ?? '';
       const node: TopologyNode = {
         id: d.agentId,
         name: d.name,
-        role: (VALID_ROLES.has(d.role ?? '') ? d.role : 'coder') as TopologyNode['role'],
+        role: isValidRole(roleStr) ? roleStr : 'coder',
         agentType: d.agentType ?? null,
         status: 'running',
         parentId: d.parentId ?? null,
@@ -121,7 +190,7 @@ export function buildTopologyFromEvents(
         if (parent) parent.childIds.push(d.agentId);
       }
     } else if (event.type === 'container-agent:started' && nodes.size === 0) {
-      const d = event.data as { taskId?: string; model?: string };
+      const d = event.data;
       const agentId = deriveContainerAgentNodeId({
         agentId: context.agentId,
         taskId: d.taskId ?? context.taskId,
@@ -147,16 +216,15 @@ export function buildTopologyFromEvents(
         decisions: [],
       });
     } else if (event.type === 'container-agent:complete') {
-      // Mark root node as completed
       const firstNode = nodes.values().next().value;
       if (firstNode) {
-        const d = event.data as { result?: string; error?: string };
+        const d = event.data;
         firstNode.status = d.error ? 'failed' : 'completed';
         firstNode.completedAt = event.timestamp;
         if (!d.error) firstNode.progress = 100;
       }
     } else if (event.type === 'topology:agent_progress') {
-      const d = event.data as { agentId: string; tokens?: number; toolUses?: number };
+      const d = event.data;
       const node = nodes.get(d.agentId);
       if (node && d.tokens) {
         node.tokens = d.tokens;
@@ -165,12 +233,7 @@ export function buildTopologyFromEvents(
         node.turns = d.toolUses ?? node.turns;
       }
     } else if (event.type === 'topology:agent_completed') {
-      const d = event.data as {
-        agentId: string;
-        status?: string;
-        tokens?: number;
-        timestamp?: number;
-      };
+      const d = event.data;
       const node = nodes.get(d.agentId);
       if (node) {
         node.status =
@@ -209,7 +272,7 @@ export function buildTopologyFromEvents(
       taskId: context.taskId,
       sessionId: context.sessionId,
     });
-    const isCompleted = context.taskColumn === 'verified' || context.taskColumn === 'done';
+    const isCompleted = context.taskColumn === 'verified';
     const isRunning = context.taskColumn === 'in_progress';
     const isPlanReady = context.lastAgentStatus === 'planning';
 

@@ -5,6 +5,7 @@
  *         (completed/cancelled/error sessions).
  */
 import { useCallback, useReducer, useRef } from 'react';
+import type { SessionStatus } from '@/db/schema/shared/enums.js';
 import { apiClient } from '@/lib/api/client';
 import type {
   ConnectionState,
@@ -572,7 +573,10 @@ function getStableEventId<TData>(
  * When a session has one of these statuses, we skip the SSE stream
  * and go straight to the REST historical fetch.
  */
-export const TERMINAL_SESSION_STATUSES = new Set(['completed', 'cancelled', 'error', 'closed']);
+export const TERMINAL_SESSION_STATUSES: ReadonlySet<string> = new Set<SessionStatus>([
+  'closed',
+  'error',
+]);
 
 /**
  * Hook for subscribing to container agent events.
@@ -616,6 +620,16 @@ export function useContainerAgent(
       const result = await apiClient.sessions.getEvents(sid, { limit: 500 });
       if (!result.ok) {
         console.error('[useContainerAgent] Failed to fetch historical events:', result.error);
+        // Allow retry on next trigger by clearing the ref
+        historicalFetchedRef.current = null;
+        dispatch({
+          type: 'ERROR',
+          data: {
+            error: 'Failed to load session history. Try refreshing the page.',
+            code: 'HISTORICAL_FETCH_FAILED',
+            timestamp: Date.now(),
+          } as ContainerAgentError,
+        });
         return;
       }
 
@@ -626,6 +640,16 @@ export function useContainerAgent(
       dispatch({ type: 'LOAD_HISTORICAL', data: historicalState });
     } catch (err) {
       console.error('[useContainerAgent] Error fetching historical events:', err);
+      // Allow retry on next trigger by clearing the ref
+      historicalFetchedRef.current = null;
+      dispatch({
+        type: 'ERROR',
+        data: {
+          error: `Failed to load session history: ${err instanceof Error ? err.message : 'Unknown error'}. Try refreshing the page.`,
+          code: 'HISTORICAL_FETCH_ERROR',
+          timestamp: Date.now(),
+        } as ContainerAgentError,
+      });
     }
   }, []);
 

@@ -254,8 +254,11 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
         approvedBy = typeof body.approvedBy === 'string' ? body.approvedBy : undefined;
         createMergeCommit =
           typeof body.createMergeCommit === 'boolean' ? body.createMergeCommit : undefined;
-      } catch {
-        // No body or invalid JSON — fields are optional
+      } catch (parseErr) {
+        // No body or invalid JSON — fields are optional, log for debugging
+        logger.debug('Approve task: body parse skipped (fields are optional)', {
+          error: parseErr,
+        });
       }
 
       const result = await taskService.approve(id, { approvedBy, createMergeCommit });
@@ -285,8 +288,11 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
         const body = (await c.req.json()) as { reason?: string };
         reason =
           typeof body.reason === 'string' && body.reason.trim() !== '' ? body.reason : undefined;
-      } catch {
-        // No body or invalid JSON — reason is missing
+      } catch (parseErr) {
+        // No body or invalid JSON — reason is required but parse failed
+        logger.debug('Reject task: body parse failed (reason is required)', {
+          error: parseErr,
+        });
       }
 
       if (!reason) {

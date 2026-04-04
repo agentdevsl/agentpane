@@ -550,9 +550,15 @@ export class ContainerExecService {
 
           const agentResult = await injectAgents(sandbox, agentTemplates, CONTAINER_WORKSPACE_PATH);
 
-          messageParts.push(
-            `Agents: ${agentResult.injected} new, ${agentResult.skipped} already present`
-          );
+          if (agentResult.injected === 0 && agentResult.errors.length > 0) {
+            messageParts.push(
+              `WARNING: No agents could be injected (${agentResult.errors.length} errors)`
+            );
+          } else {
+            messageParts.push(
+              `Agents: ${agentResult.injected} new, ${agentResult.skipped} already present${agentResult.errors.length > 0 ? `, ${agentResult.errors.length} errors` : ''}`
+            );
+          }
 
           if (agentResult.errors.length > 0) {
             log.error('Some agents failed to inject', {
@@ -673,14 +679,28 @@ export class ContainerExecService {
     });
 
     // Merge project-level env vars (sandbox.env setting) into container env.
-    // These go first so agent-specific vars take precedence on conflict.
+    // Agent-specific vars (CLAUDE_OAUTH_TOKEN, AGENT_*, etc.) are already set
+    // in `env` by prepareContainerExec, so they take precedence on conflict.
     if (Object.keys(sandboxEnv).length > 0) {
+      let applied = 0;
       for (const [key, value] of Object.entries(sandboxEnv)) {
         if (!(key in env)) {
+          // Runtime validation: env var values must be strings.
+          // Settings are stored as JSON and getValue<Record<string, string>> is a
+          // type assertion, not a runtime guarantee.
+          if (typeof value !== 'string') {
+            log.warn('Skipping sandbox env var with non-string value', {
+              data: { key, valueType: typeof value },
+            });
+            continue;
+          }
           env[key] = value;
+          applied++;
         }
       }
-      log.info('Sandbox env vars applied', { data: { count: Object.keys(sandboxEnv).length } });
+      log.info('Sandbox env vars applied', {
+        data: { requested: Object.keys(sandboxEnv).length, applied },
+      });
     }
 
     // When a skill is assigned, tell the agent-runner to use acceptEdits mode

@@ -8,6 +8,7 @@ import {
 } from '@phosphor-icons/react';
 import React, { Suspense, useMemo, useState } from 'react';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
+import type { AgentStatus, TaskColumn } from '@/db/schema/shared/enums.js';
 import { apiClient } from '@/lib/api/client';
 import {
   buildTopologyFromEvents,
@@ -120,8 +121,8 @@ export function LiveTaskView({
           agentId: selectedTask?.agentId,
           taskId: selectedTask?.id,
           taskTitle: selectedTask?.title,
-          taskColumn: selectedTask?.column,
-          lastAgentStatus: selectedTask?.lastAgentStatus,
+          taskColumn: selectedTask?.column as TaskColumn | undefined,
+          lastAgentStatus: selectedTask?.lastAgentStatus as AgentStatus | null | undefined,
           skillId: selectedTask?.skillId ?? null,
           skillName: selectedTask?.skillName ?? null,
         });

@@ -4,6 +4,7 @@ import { AgentTopology } from '@/app/components/features/agent-topology';
 import { Button } from '@/app/components/ui/button';
 import { TERMINAL_SESSION_STATUSES, useContainerAgent } from '@/app/hooks/use-container-agent';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
+import type { SessionStatus } from '@/db/schema/shared/enums.js';
 import { apiClient } from '@/lib/api/client';
 import {
   buildTopologyFromEvents,
@@ -107,9 +108,8 @@ const TopologyTab = memo(function TopologyTab({
 export interface ContainerAgentPanelProps {
   /** Session ID to subscribe to */
   sessionId: string | null;
-  /** Session status from the DB (e.g. 'active', 'completed', 'cancelled', 'error').
-   *  When terminal, the panel skips SSE and loads historical events via REST. */
-  sessionStatus?: string;
+  /** Session status from the DB. When terminal, the panel skips SSE and loads historical events via REST. */
+  sessionStatus?: SessionStatus;
   /** Sandbox provider from session record (fallback when stream events lack it) */
   sandboxProvider?: string;
   /** Callback when stop is requested */

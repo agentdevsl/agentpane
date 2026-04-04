@@ -15,8 +15,6 @@ import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
 import type { Database } from '../types/database.js';
 import type { StartAgentInput } from './container-agent.service.js';
-// SL-014: SessionService import retained for future transaction-aware session creation
-// import type { SessionService } from './session.service.js';
 import { getGlobalDefaultModel } from './settings.service.js';
 import { canTransition } from './task-transitions.js';
 import type { GitDiff } from './worktree.service.js';
@@ -103,9 +101,6 @@ export interface AgentExecutionTrigger {
 export class TaskService {
   private containerAgentService?: ContainerAgentTrigger;
   private agentExecutionService?: AgentExecutionTrigger;
-  // SL-014: SessionService injection deferred -- raw tx.insert() is used inside the
-  // transaction for atomicity. SessionService.create() is not transaction-aware yet.
-  // When it becomes transaction-aware, inject it here and use it in moveColumn.
 
   constructor(
     private db: Database,
@@ -662,6 +657,9 @@ export class TaskService {
   private buildTaskPrompt(task: Task): string {
     const parts: string[] = [];
 
+    // Tell the agent to read the skill file at runtime rather than inlining its
+    // content here.  The skill file is injected into the sandbox by skill-injector.ts
+    // and may be large; keeping it out of the prompt avoids bloating the initial context.
     if (task.skillId) {
       parts.push(
         `IMPORTANT: Before starting any work, use the Read tool to read the file at .claude/skills/${task.skillId}/SKILL.md`,
@@ -690,7 +688,7 @@ export class TaskService {
     parts.push(
       '',
       'The codespace is mounted at /workspace. Make the necessary changes to complete this task.',
-      'When you are done, the task will be moved to review.'
+      'When you are done, the task will be moved to waiting_approval for human review.'
     );
 
     return parts.join('\n');

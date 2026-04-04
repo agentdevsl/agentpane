@@ -413,7 +413,31 @@ agentpane worktree diff wt_def456
 agentpane worktree merge wt_def456 -delete -target-branch main
 ```
 
-### 5. Scripting with JSON Output
+### 5. Manage Sandbox Environment Variables
+
+Configure API tokens, cloud credentials, and other env vars passed to sandbox containers.
+
+```bash
+# Set a variable (value as argument)
+agentpane env set AWS_REGION us-east-1
+
+# Set a secret (pipe via stdin to avoid shell history exposure)
+echo "$TFE_TOKEN" | agentpane env set TFE_TOKEN
+
+# List all variables (values masked)
+agentpane env list
+
+# List as JSON (values unmasked — for scripting)
+agentpane env list -json
+
+# Delete a variable
+agentpane env delete TFE_TOKEN
+
+# Clear all variables
+agentpane env clear
+```
+
+### 6. Scripting with JSON Output
 
 All commands support `-json` for machine-readable output, enabling integration with `jq` and other tools.
 

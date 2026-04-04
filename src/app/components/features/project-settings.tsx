@@ -276,10 +276,12 @@ export function ProjectSettings({
   const [newSandboxEnvKey, setNewSandboxEnvKey] = useState('');
   const [newSandboxEnvValue, setNewSandboxEnvValue] = useState('');
   const [sandboxEnvVisibility, setSandboxEnvVisibility] = useState<Record<number, boolean>>({});
+  const [sandboxEnvErrorMsg, setSandboxEnvErrorMsg] = useState<string | null>(null);
 
   const handleSaveSandboxEnv = async () => {
     setSandboxEnvSaving(true);
     setSandboxEnvSaveStatus('idle');
+    setSandboxEnvErrorMsg(null);
     try {
       const envObj: Record<string, string> = {};
       for (const { key, value } of sandboxEnvVars) {
@@ -293,11 +295,16 @@ export function ProjectSettings({
         setSandboxEnvSaveStatus('saved');
         setTimeout(() => setSandboxEnvSaveStatus('idle'), 2000);
       } else {
+        const msg = (result.error as { message?: string })?.message ?? 'Server returned an error';
+        console.error('[ProjectSettings] Failed to save sandbox env vars:', msg);
         setSandboxEnvSaveStatus('error');
+        setSandboxEnvErrorMsg(msg);
       }
     } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
       console.error('[ProjectSettings] Failed to save sandbox env vars:', error);
       setSandboxEnvSaveStatus('error');
+      setSandboxEnvErrorMsg(msg);
     } finally {
       setSandboxEnvSaving(false);
     }
@@ -1121,7 +1128,9 @@ export function ProjectSettings({
                 </span>
               )}
               {sandboxEnvSaveStatus === 'error' && (
-                <span className="text-sm text-danger animate-in fade-in">Failed to save</span>
+                <span className="text-sm text-danger animate-in fade-in">
+                  {sandboxEnvErrorMsg ? `Failed to save: ${sandboxEnvErrorMsg}` : 'Failed to save'}
+                </span>
               )}
               <Button
                 onClick={() => void handleSaveSandboxEnv()}
