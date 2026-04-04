@@ -124,34 +124,19 @@ describe('Bug-Proving Tests: TaskService', () => {
     expect(moved!.task.column).toBe('backlog');
     expect(moved!.agentError).toContain('Docker daemon unavailable');
 
-    // Probe the DB for the orphaned session
+    // VERDICT: FIXED — The service now clears sessionId when reverting to backlog.
+    // The task no longer references a session after agent-start failure, preventing
+    // orphaned session references. The agentError message is returned to the
+    // frontend so it can display the failure state.
     const sessionId = moved!.task.sessionId;
-    expect(sessionId).toBeTruthy();
+    expect(sessionId).toBeNull();
 
-    const sessionRow = await db.query.sessions.findFirst({
-      where: eq(sessions.id, sessionId!),
-    });
-
-    // VERDICT: Acceptable by design.
-    // The session record persists in the DB even though the agent never started.
-    // The task has sessionId pointing to a real session row, and agentError is
-    // returned to the frontend. The session is "orphaned" — it has status='active'
-    // but no agent will ever produce events for it.
-    //
-    // This is LOW impact and acceptable: the frontend receives agentError and
-    // can display it. The orphaned session is harmless but accumulates over time.
-    // A cleanup job could garbage-collect sessions with no events after N minutes.
-    expect(sessionRow).toBeTruthy();
-    expect(sessionRow!.status).toBe('active');
-    expect(sessionRow!.taskId).toBe(taskId);
-    expect(sessionRow!.agentId).toBeNull(); // no agent was ever assigned
-
-    // Task still references the orphaned session — this is acceptable
-    // because the frontend uses agentError to display the failure state.
+    // Verify the task in DB also has sessionId cleared
     const taskRow = await db.query.tasks.findFirst({
       where: eq(tasks.id, taskId),
     });
-    expect(taskRow!.sessionId).toBe(sessionId);
+    expect(taskRow!.sessionId).toBeNull();
+    expect(taskRow!.column).toBe('backlog');
   });
 
   // ═══════════════════════════════════════════════════════════════════════

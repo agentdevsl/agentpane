@@ -40,6 +40,7 @@ const ALLOWED_SETTINGS_KEYS = new Set([
   'memory.dreaming.model',
   'retention.sessionEventsDays',
   'retention.eventLogDays',
+  'agent.maxRuntimeMs',
 ]);
 
 const SENSITIVE_FIELDS: Record<string, { secretKey: string; flagKey: string }> = {

@@ -26,6 +26,8 @@ vi.mock('../../../lib/agents/recovery.js', () => ({
 // Mock settings service
 vi.mock('../../settings.service.js', () => ({
   getGlobalDefaultModel: vi.fn().mockResolvedValue(undefined),
+  getAgentMaxRuntimeMs: vi.fn().mockResolvedValue(4 * 60 * 60 * 1000),
+  DEFAULT_AGENT_MAX_RUNTIME_MS: 4 * 60 * 60 * 1000,
 }));
 
 // Mock model resolver

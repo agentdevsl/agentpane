@@ -19,7 +19,11 @@ import type { Database } from '../../types/database.js';
 import type { MemoryService, MemorySessionRef, TaskOutcome } from '../memory/index.js';
 import type { SkillTrackingService } from '../memory/skill-tracking.service.js';
 import { createSessionEventWithMetadata } from '../session/event-metadata.js';
-import { getGlobalDefaultModel } from '../settings.service.js';
+import {
+  DEFAULT_AGENT_MAX_RUNTIME_MS,
+  getAgentMaxRuntimeMs,
+  getGlobalDefaultModel,
+} from '../settings.service.js';
 import type { AgentQueueService } from './agent-queue.service.js';
 import type {
   AgentRunResult,
@@ -68,8 +72,8 @@ function validateTransition(
  * - Check codespace availability for new agents
  */
 export class AgentExecutionService {
-  /** Maximum agent runtime before considered orphaned (2 hours) */
-  private static readonly MAX_AGENT_RUNTIME_MS = 2 * 60 * 60 * 1000;
+  /** Cached max agent runtime for orphan sweep (refreshed on each sweep). */
+  private maxAgentRuntimeMs = DEFAULT_AGENT_MAX_RUNTIME_MS; // default 4 hours; refreshed on each orphan sweep
   /** Sweep interval for orphaned agents (10 minutes) */
   private static readonly ORPHAN_SWEEP_INTERVAL_MS = 10 * 60 * 1000;
 
@@ -629,6 +633,8 @@ export class AgentExecutionService {
 
     const onMessage = this.buildOnMessageCallback(memoryRef, this.memoryService);
 
+    const maxRuntimeMs = await getAgentMaxRuntimeMs(this.db);
+
     try {
       const result = await runAgentPlanning({
         agentId,
@@ -639,6 +645,7 @@ export class AgentExecutionService {
         model: options.model,
         cwd: options.cwd,
         signal: options.signal,
+        maxRuntimeMs,
         sessionService: this.sessionService,
         onMessage,
       });
@@ -1099,6 +1106,8 @@ export class AgentExecutionService {
         }
       }
 
+      const maxRuntimeMs = await getAgentMaxRuntimeMs(this.db);
+
       const result = await runAgentExecution({
         agentId,
         sessionId,
@@ -1108,6 +1117,7 @@ export class AgentExecutionService {
         model: resolvedModel,
         cwd,
         signal,
+        maxRuntimeMs,
         sessionService: this.sessionService,
         onMessage: this.buildOnMessageCallback(memoryRef, this.memoryService),
       });
@@ -1352,13 +1362,25 @@ export class AgentExecutionService {
   }
 
   /**
-   * Sweep agents that have been running longer than MAX_AGENT_RUNTIME_MS.
+   * Sweep agents that have been running longer than the configured max runtime.
    * Safety net for agents that crash without calling the completion handler.
+   * Refreshes the max runtime from settings on each sweep.
    */
   private sweepOrphanedAgents(): void {
+    // Refresh cached max runtime from settings (fire-and-forget; uses last cached value on error)
+    void getAgentMaxRuntimeMs(this.db)
+      .then((ms) => {
+        this.maxAgentRuntimeMs = ms;
+      })
+      .catch((e) => {
+        log.warn('Failed to refresh agent max runtime for orphan sweep, using cached value.', {
+          error: e,
+        });
+      });
+
     const now = Date.now();
     for (const [agentId, startTime] of this.agentStartTimes) {
-      if (now - startTime > AgentExecutionService.MAX_AGENT_RUNTIME_MS) {
+      if (now - startTime > this.maxAgentRuntimeMs) {
         log.warn('Sweeping orphaned agent', {
           data: { agentId, runtimeMs: now - startTime },
         });

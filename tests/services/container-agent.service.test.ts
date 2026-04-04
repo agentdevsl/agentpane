@@ -85,6 +85,7 @@ vi.mock('../../src/lib/sandbox/k8s-workspace-initializer.js', () => ({
 // Mock settings service
 vi.mock('../../src/services/settings.service.js', () => ({
   getGlobalDefaultModel: vi.fn().mockResolvedValue(undefined),
+  getAgentMaxRuntimeMs: vi.fn().mockResolvedValue(4 * 60 * 60 * 1000),
 }));
 
 // ---------------------------------------------------------------------------

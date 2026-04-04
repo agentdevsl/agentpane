@@ -22,6 +22,8 @@ vi.mock('../../src/lib/agents/recovery.js', () => ({
 
 vi.mock('../../src/services/settings.service.js', () => ({
   getGlobalDefaultModel: vi.fn().mockResolvedValue('claude-sonnet-4-6'),
+  getAgentMaxRuntimeMs: vi.fn().mockResolvedValue(4 * 60 * 60 * 1000),
+  DEFAULT_AGENT_MAX_RUNTIME_MS: 4 * 60 * 60 * 1000,
 }));
 
 vi.mock('../../src/lib/utils/resolve-model.js', () => ({

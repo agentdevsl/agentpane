@@ -3,15 +3,13 @@ import { createId } from '@paralleldrive/cuid2';
 import { createLogger } from '../../lib/logging/logger.js';
 import { createSessionEventWithMetadata } from '../../services/session/event-metadata.js';
 import type { SessionEvent } from '../../services/session.service.js';
+import { DEFAULT_AGENT_MAX_RUNTIME_MS } from '../../services/settings.service.js';
 import type { StreamDurability, StreamEventMetadata, StreamPartType } from '../streams/envelope.js';
 import { deriveAgentName, mapAgentRole } from '../topology/map-agent-role.js';
 import { buildSdkEnv } from './agent-sdk-utils.js';
 import { ChunkBatcher } from './chunk-batcher.js';
 
 const log = createLogger('StreamHandler');
-
-/** Maximum wall-clock runtime for a single agent phase (planning or execution). Matches container agent's AGENT_MAX_RUNTIME_MS. */
-const AGENT_MAX_RUNTIME_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 function createStreamMetadata(params: {
   eventId: string;
@@ -75,6 +73,8 @@ export interface StreamHandlerOptions {
   model: string;
   cwd: string;
   signal?: AbortSignal;
+  /** Maximum wall-clock runtime in ms. Read from global setting; falls back to DEFAULT_AGENT_MAX_RUNTIME_MS (4 hours). */
+  maxRuntimeMs?: number;
   sessionService: {
     publish: (sessionId: string, event: SessionEvent) => Promise<unknown>;
     persistOnly?: (sessionId: string, event: SessionEvent) => Promise<unknown>;
@@ -429,6 +429,7 @@ async function publishMetrics(
  */
 export async function runAgentPlanning(options: StreamHandlerOptions): Promise<AgentRunResult> {
   const { agentId, sessionId, prompt, model, cwd, sessionService, signal } = options;
+  const maxRuntimeMs = Math.max(options.maxRuntimeMs ?? DEFAULT_AGENT_MAX_RUNTIME_MS, 60_000); // minimum 1 minute
 
   const runId = createId();
   let accumulated = '';
@@ -440,10 +441,10 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
   const timeoutController = new AbortController();
   const timeoutId = setTimeout(() => {
     log.warn('Agent planning timed out', {
-      data: { agentId, sessionId, maxRuntimeMs: AGENT_MAX_RUNTIME_MS },
+      data: { agentId, sessionId, maxRuntimeMs },
     });
     timeoutController.abort();
-  }, AGENT_MAX_RUNTIME_MS);
+  }, maxRuntimeMs);
 
   // Also abort timeout controller if the external signal fires
   const onExternalAbort = () => timeoutController.abort();
@@ -546,7 +547,7 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
               runId,
               reason,
               phase: 'planning',
-              ...(isTimeout ? { maxRuntimeMs: AGENT_MAX_RUNTIME_MS } : {}),
+              ...(isTimeout ? { maxRuntimeMs } : {}),
             },
           })
         );
@@ -555,7 +556,7 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
           status: 'paused',
           turnCount: turn,
           result: isTimeout
-            ? `Agent planning timed out after ${AGENT_MAX_RUNTIME_MS / 1000}s`
+            ? `Agent planning timed out after ${maxRuntimeMs / 1000}s`
             : 'Agent stopped by user during planning',
         };
       }
@@ -845,6 +846,7 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
 export async function runAgentExecution(options: StreamHandlerOptions): Promise<AgentRunResult> {
   const { agentId, sessionId, prompt, allowedTools, maxTurns, model, cwd, sessionService, signal } =
     options;
+  const maxRuntimeMs = Math.max(options.maxRuntimeMs ?? DEFAULT_AGENT_MAX_RUNTIME_MS, 60_000); // minimum 1 minute
 
   const runId = createId();
   let turn = 0;
@@ -854,10 +856,10 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
   const timeoutController = new AbortController();
   const timeoutId = setTimeout(() => {
     log.warn('Agent execution timed out', {
-      data: { agentId, sessionId, maxRuntimeMs: AGENT_MAX_RUNTIME_MS },
+      data: { agentId, sessionId, maxRuntimeMs },
     });
     timeoutController.abort();
-  }, AGENT_MAX_RUNTIME_MS);
+  }, maxRuntimeMs);
 
   // Also abort timeout controller if the external signal fires
   const onExternalAbort = () => timeoutController.abort();
@@ -970,7 +972,7 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
               runId,
               reason,
               phase: 'execution',
-              ...(isTimeout ? { maxRuntimeMs: AGENT_MAX_RUNTIME_MS } : {}),
+              ...(isTimeout ? { maxRuntimeMs } : {}),
             },
           })
         );
@@ -979,7 +981,7 @@ export async function runAgentExecution(options: StreamHandlerOptions): Promise<
           status: 'paused',
           turnCount: turn,
           result: isTimeout
-            ? `Agent execution timed out after ${AGENT_MAX_RUNTIME_MS / 1000}s`
+            ? `Agent execution timed out after ${maxRuntimeMs / 1000}s`
             : 'Agent stopped by user during execution',
         };
       }

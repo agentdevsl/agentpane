@@ -21,7 +21,7 @@ import type { SSEEvent } from '../../lib/sandbox/providers/agentcore-sandbox-ins
 import type { AgentCoreSandboxProvider } from '../../lib/sandbox/providers/agentcore-sandbox-provider.js';
 import type { Result } from '../../lib/utils/result.js';
 import { err, ok } from '../../lib/utils/result.js';
-import { getGlobalDefaultModel } from '../settings.service.js';
+import { getAgentMaxRuntimeMs, getGlobalDefaultModel } from '../settings.service.js';
 import type { ContainerExecService } from './container-exec.service.js';
 import type { SandboxStateManager } from './sandbox-state.js';
 import {
@@ -297,8 +297,8 @@ export class AgentCoreBridgeService {
 
       this.state.setRunningAgentCoreAgent(taskId, runningAgent);
 
-      // Set max runtime timeout
-      const maxRuntimeMs = Number(process.env.AGENT_MAX_RUNTIME_MS) || 2 * 60 * 60 * 1000;
+      // Set max runtime timeout (env var > DB setting > default 4hr)
+      const maxRuntimeMs = await getAgentMaxRuntimeMs(db);
       runningAgent.timeoutHandle = setTimeout(() => {
         log.info('Agent exceeded max runtime, stopping', { data: { taskId, maxRuntimeMs } });
         void this.stopAgentCoreAgent(runningAgent);
