@@ -2,10 +2,14 @@ import { Square } from '@phosphor-icons/react';
 import { memo, useState } from 'react';
 import { AgentTopology } from '@/app/components/features/agent-topology';
 import { Button } from '@/app/components/ui/button';
-import { useContainerAgent } from '@/app/hooks/use-container-agent';
+import { TERMINAL_SESSION_STATUSES, useContainerAgent } from '@/app/hooks/use-container-agent';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { apiClient } from '@/lib/api/client';
-import { buildTopologyFromEvents, type TopologyEvent } from '@/lib/topology/build-from-events';
+import {
+  buildTopologyFromEvents,
+  extractSessionEvents,
+  type TopologyEvent,
+} from '@/lib/topology/build-from-events';
 import type { TopologyGraph } from '@/lib/topology/types';
 import { cn } from '@/lib/utils/cn';
 import { ContainerAgentChangesTab } from './container-agent-changes-tab';
@@ -15,16 +19,6 @@ import { ContainerAgentStream } from './container-agent-stream';
 import { ContainerAgentToolList } from './container-agent-tool-list';
 
 type PanelTab = 'output' | 'changes' | 'topology';
-
-/**
- * Extract session events from the API response which may be a flat array
- * or wrapped in `{ data: [...] }`.
- */
-function extractSessionEvents(
-  payload: TopologyEvent[] | { data: TopologyEvent[] }
-): TopologyEvent[] {
-  return Array.isArray(payload) ? payload : payload.data;
-}
 
 const TopologyTab = memo(function TopologyTab({
   sessionId,
@@ -75,8 +69,8 @@ const TopologyTab = memo(function TopologyTab({
               skillName = (task.skillName as string) ?? null;
               taskTitle = (task.title as string) ?? null;
             }
-          } catch {
-            // Task fetch is best-effort — topology still works without skill info
+          } catch (err) {
+            console.warn('[TopologyTab] Best-effort task fetch failed:', err);
           }
         }
 
@@ -107,11 +101,6 @@ const TopologyTab = memo(function TopologyTab({
     };
   }, [sessionId]);
 
-  console.debug('[TopologyTab] render', {
-    sessionId,
-    hasInitialData: !!initialData,
-    nodeCount: initialData?.nodes?.length ?? 0,
-  });
   return <AgentTopology sessionId={sessionId} initialData={initialData} />;
 });
 
@@ -154,8 +143,7 @@ export function ContainerAgentPanel({
   const { state, connectionState, isStreaming } = useContainerAgent(sessionId, { sessionStatus });
   const [activeTab, setActiveTab] = useState<PanelTab>('output');
 
-  const TERMINAL_STATUSES = new Set(['completed', 'cancelled', 'error', 'closed']);
-  const isHistorical = sessionStatus ? TERMINAL_STATUSES.has(sessionStatus) : false;
+  const isHistorical = sessionStatus ? TERMINAL_SESSION_STATUSES.has(sessionStatus) : false;
   const isActive = state.status === 'running' || state.status === 'starting';
   const hasChanges = state.fileChanges.length > 0;
   // Prefer stream event provider, fall back to session record

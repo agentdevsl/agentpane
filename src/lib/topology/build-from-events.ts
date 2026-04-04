@@ -1,8 +1,14 @@
 import type { TopologyEdge, TopologyGraph, TopologyNode } from './types.js';
 import { deriveContainerAgentNodeId } from './utils.js';
 
+/** Average cost per token used for topology cost estimates */
+const AVERAGE_TOKEN_COST = 0.000009;
+
+/** Approximate tokens per progress point (used when no real token counts are available) */
+const TOKENS_PER_PROGRESS_POINT = 500;
+
 /**
- * Valid agent roles used for validation during event reconstruction.
+ * Recognized agent roles. Roles not in this set default to 'coder'.
  */
 const VALID_ROLES = new Set([
   'orchestrator',
@@ -37,6 +43,16 @@ export interface TopologyBuildContext {
   lastAgentStatus?: string | null;
   skillId?: string | null;
   skillName?: string | null;
+}
+
+/**
+ * Extract session events from the API response which may be a flat array
+ * or wrapped in `{ data: [...] }`.
+ */
+export function extractSessionEvents(
+  payload: TopologyEvent[] | { data: TopologyEvent[] }
+): TopologyEvent[] {
+  return Array.isArray(payload) ? payload : payload.data;
 }
 
 /**
@@ -115,6 +131,7 @@ export function buildTopologyFromEvents(
         id: agentId,
         name: d.model ?? context.taskTitle ?? 'Agent',
         role: 'coder',
+        agentType: null,
         status: 'running',
         parentId: null,
         childIds: [],
@@ -143,8 +160,8 @@ export function buildTopologyFromEvents(
       const node = nodes.get(d.agentId);
       if (node && d.tokens) {
         node.tokens = d.tokens;
-        node.cost = Number.parseFloat((d.tokens * 0.000009).toFixed(4));
-        node.progress = Math.min(95, Math.floor(d.tokens / 500));
+        node.cost = Number.parseFloat((d.tokens * AVERAGE_TOKEN_COST).toFixed(4));
+        node.progress = Math.min(95, Math.floor(d.tokens / TOKENS_PER_PROGRESS_POINT));
         node.turns = d.toolUses ?? node.turns;
       }
     } else if (event.type === 'topology:agent_completed') {
@@ -161,7 +178,7 @@ export function buildTopologyFromEvents(
         node.completedAt = d.timestamp ?? event.timestamp;
         if (d.tokens) {
           node.tokens = d.tokens;
-          node.cost = Number.parseFloat((d.tokens * 0.000009).toFixed(4));
+          node.cost = Number.parseFloat((d.tokens * AVERAGE_TOKEN_COST).toFixed(4));
         }
         if (node.status === 'completed') node.progress = 100;
       }
@@ -169,8 +186,8 @@ export function buildTopologyFromEvents(
       const firstNode = nodes.values().next().value;
       if (firstNode) {
         firstNode.turns += 1;
-        firstNode.tokens += 500;
-        firstNode.cost = Number.parseFloat((firstNode.tokens * 0.000009).toFixed(4));
+        firstNode.tokens += TOKENS_PER_PROGRESS_POINT;
+        firstNode.cost = Number.parseFloat((firstNode.tokens * AVERAGE_TOKEN_COST).toFixed(4));
         firstNode.progress = Math.min(95, firstNode.turns * 10);
       }
     } else if (event.type === 'container-agent:message') {
@@ -201,22 +218,30 @@ export function buildTopologyFromEvents(
       if (event.type.includes('tool:start')) toolCount++;
     }
 
+    let fallbackStatus: TopologyNode['status'];
+    if (isCompleted) {
+      fallbackStatus = 'completed';
+    } else if (isPlanReady) {
+      fallbackStatus = 'verifying';
+    } else if (isRunning) {
+      fallbackStatus = 'running';
+    } else {
+      fallbackStatus = 'queued';
+    }
+
     const rootNode: TopologyNode = {
       id: agentId,
       name: context.taskTitle ?? 'Agent',
       role: 'coder',
-      status: isCompleted
-        ? 'completed'
-        : isPlanReady
-          ? 'verifying'
-          : isRunning
-            ? 'running'
-            : 'queued',
+      agentType: null,
+      status: fallbackStatus,
       parentId: null,
       childIds: [],
       progress: isCompleted ? 100 : isPlanReady ? 80 : Math.min(90, toolCount * 10),
-      tokens: toolCount * 500,
-      cost: Number.parseFloat((toolCount * 500 * 0.000009).toFixed(4)),
+      tokens: toolCount * TOKENS_PER_PROGRESS_POINT,
+      cost: Number.parseFloat(
+        (toolCount * TOKENS_PER_PROGRESS_POINT * AVERAGE_TOKEN_COST).toFixed(4)
+      ),
       turns: toolCount,
       messages: events.filter((e) => e.type.includes('message')).length,
       startedAt: events[0]?.timestamp ?? Date.now(),

@@ -9,7 +9,11 @@ import {
 import React, { Suspense, useMemo, useState } from 'react';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { apiClient } from '@/lib/api/client';
-import { buildTopologyFromEvents, type TopologyEvent } from '@/lib/topology/build-from-events';
+import {
+  buildTopologyFromEvents,
+  extractSessionEvents,
+  type TopologyEvent,
+} from '@/lib/topology/build-from-events';
 import type { TopologyGraph } from '@/lib/topology/types';
 import { cn } from '@/lib/utils/cn';
 import { TaskListSidebar } from './task-list-sidebar';
@@ -46,22 +50,14 @@ interface LiveTaskViewTask {
   lastAgentStatus?: string | null;
   labels?: string[] | null;
   branch?: string | null;
+  skillId?: string | null;
+  skillName?: string | null;
 }
 
 interface LiveTaskViewProps {
   tasks: LiveTaskViewTask[];
   codespaceId: string;
   onTaskMove?: (taskId: string, column: string, position: number) => void;
-}
-
-/**
- * Extract session events from the API response which may be a flat array
- * or wrapped in `{ data: [...] }`.
- */
-function extractSessionEvents(
-  payload: TopologyEvent[] | { data: TopologyEvent[] }
-): TopologyEvent[] {
-  return Array.isArray(payload) ? payload : payload.data;
 }
 
 // =============================================================================
@@ -126,10 +122,8 @@ export function LiveTaskView({
           taskTitle: selectedTask?.title,
           taskColumn: selectedTask?.column,
           lastAgentStatus: selectedTask?.lastAgentStatus,
-          skillId: (selectedTask as unknown as Record<string, unknown>)?.skillId as string | null,
-          skillName: (selectedTask as unknown as Record<string, unknown>)?.skillName as
-            | string
-            | null,
+          skillId: selectedTask?.skillId ?? null,
+          skillName: selectedTask?.skillName ?? null,
         });
 
         // Preserve task metadata from the selected task

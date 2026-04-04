@@ -508,13 +508,14 @@ export class ContainerExecService {
     });
 
     const templateService = new TemplateService(db);
-    let skillMessage = 'No template skills to inject';
+    let skillMessage = 'No template configuration to inject';
 
     try {
       const mergedResult = await templateService.getMergedConfig(codespaceId);
 
       if (mergedResult.ok) {
-        const { skills, agents } = mergedResult.value;
+        const { skills, agents: agentTemplates } = mergedResult.value;
+        const messageParts: string[] = [];
 
         // Inject skills
         if (skills.length > 0) {
@@ -524,34 +525,46 @@ export class ContainerExecService {
 
           const injectionResult = await injectSkills(sandbox, skills, CONTAINER_WORKSPACE_PATH);
 
-          skillMessage = `Skills injected: ${injectionResult.injected} new, ${injectionResult.skipped} already present${injectionResult.errors.length > 0 ? `, ${injectionResult.errors.length} errors` : ''}`;
+          if (injectionResult.injected === 0 && injectionResult.errors.length > 0) {
+            messageParts.push(
+              `WARNING: No skills could be injected (${injectionResult.errors.length} errors)`
+            );
+          } else {
+            messageParts.push(
+              `Skills: ${injectionResult.injected} new, ${injectionResult.skipped} already present${injectionResult.errors.length > 0 ? `, ${injectionResult.errors.length} errors` : ''}`
+            );
+          }
 
           if (injectionResult.errors.length > 0) {
             log.error('Some skills failed to inject', {
               data: { errors: injectionResult.errors },
             });
           }
-
-          if (injectionResult.injected === 0 && injectionResult.errors.length > 0) {
-            skillMessage = `WARNING: No skills could be injected (${injectionResult.errors.length} errors)`;
-          }
         }
 
         // Inject agents (.claude/agents/*.md)
-        if (agents.length > 0) {
+        if (agentTemplates.length > 0) {
           log.info('Injecting template agents into sandbox', {
-            data: { codespaceId, agentCount: agents.length },
+            data: { codespaceId, agentCount: agentTemplates.length },
           });
 
-          const agentResult = await injectAgents(sandbox, agents, CONTAINER_WORKSPACE_PATH);
+          const agentResult = await injectAgents(sandbox, agentTemplates, CONTAINER_WORKSPACE_PATH);
 
-          skillMessage += ` | Agents: ${agentResult.injected} new, ${agentResult.skipped} already present`;
+          messageParts.push(
+            `Agents: ${agentResult.injected} new, ${agentResult.skipped} already present`
+          );
 
           if (agentResult.errors.length > 0) {
             log.error('Some agents failed to inject', {
               data: { errors: agentResult.errors },
             });
           }
+        }
+
+        if (messageParts.length > 0) {
+          skillMessage = messageParts.join(' | ');
+        } else {
+          skillMessage = 'No template skills or agents to inject';
         }
       } else {
         log.debug('No template config to inject', { data: { codespaceId } });

@@ -42,7 +42,7 @@ export interface TopologyNode {
   name: string;
   role: TopologyAgentRole;
   /** Real SDK agent type (subagent_type / task_type) — e.g. "general-purpose", "Explore", "Plan" */
-  agentType?: string | null;
+  agentType: string | null;
   status: TopologyAgentStatus;
   parentId: string | null;
   childIds: string[];
@@ -71,7 +71,7 @@ export interface TopologyGraph {
   taskName: string;
   taskPriority: string;
   /** Skill associated with the task (from task.skillId) */
-  skillId?: string | null;
+  skillId: string | null;
   /** Skill display name (from task.skillName) */
-  skillName?: string | null;
+  skillName: string | null;
 }

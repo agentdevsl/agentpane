@@ -280,12 +280,26 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
     if (error) return error;
 
     try {
-      let reason = '';
+      let reason: string | undefined;
       try {
         const body = (await c.req.json()) as { reason?: string };
-        reason = typeof body.reason === 'string' ? body.reason : '';
+        reason =
+          typeof body.reason === 'string' && body.reason.trim() !== '' ? body.reason : undefined;
       } catch {
-        // No body or invalid JSON — reason defaults to empty string
+        // No body or invalid JSON — reason is missing
+      }
+
+      if (!reason) {
+        return json(
+          {
+            ok: false,
+            error: {
+              code: 'INVALID_PARAMS',
+              message: 'A non-empty "reason" field is required when rejecting a task',
+            },
+          },
+          400
+        );
       }
 
       const result = await taskService.reject(id, { reason });

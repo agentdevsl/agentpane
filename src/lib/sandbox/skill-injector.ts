@@ -254,7 +254,13 @@ export async function injectAgents(
               .filter(Boolean)
           )
         : new Set();
-  } catch {
+  } catch (error) {
+    log.warn('Failed to list existing agents in sandbox — treating all as missing', {
+      data: {
+        agentsDir,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    });
     existing = new Set();
   }
 
@@ -272,8 +278,16 @@ export async function injectAgents(
     data: { total: agents.length, toInject: toInject.length, skipped: result.skipped },
   });
 
-  // Ensure agents directory exists
-  await sandbox.exec('mkdir', ['-p', agentsDir]);
+  // Ensure agents directory exists — check exit code like injectSkills does
+  const mkdirResult = await sandbox.exec('mkdir', ['-p', agentsDir]);
+  if (mkdirResult.exitCode !== 0) {
+    const msg = `Failed to create agents directory "${agentsDir}": ${mkdirResult.stderr}`;
+    log.error(msg, { data: { agentsDir, exitCode: mkdirResult.exitCode } });
+    for (const agent of toInject) {
+      result.errors.push({ name: agent.name, message: msg });
+    }
+    return result;
+  }
 
   for (const agent of toInject) {
     if (!SAFE_AGENT_NAME.test(agent.name)) {

@@ -21,6 +21,7 @@ import type {
   ContainerAgentWorktree,
   SessionCallbacks,
 } from '@/lib/streams/client';
+import type { TopologyEvent } from '@/lib/topology/build-from-events';
 import { useSessionSubscription } from './use-session-subscription';
 import { useWatchEffect } from './use-watch-effect';
 
@@ -145,13 +146,6 @@ const initialState: ContainerAgentState = {
 // FC-031: Historical event replay types and processing
 // =============================================================================
 
-interface HistoricalEvent {
-  id: string;
-  type: string;
-  timestamp: number;
-  data: unknown;
-}
-
 interface HistoricalLoadResult {
   messages: ContainerAgentState['messages'];
   toolExecutions: ContainerAgentToolExecution[];
@@ -178,12 +172,12 @@ interface HistoricalLoadResult {
  * Replays events in order to reconstruct the same state shape
  * that the live SSE reducer would produce.
  */
-function buildStateFromHistoricalEvents(events: HistoricalEvent[]): HistoricalLoadResult {
+function buildStateFromHistoricalEvents(events: TopologyEvent[]): HistoricalLoadResult {
   const messages: ContainerAgentState['messages'] = [];
   const toolExecutions: ContainerAgentToolExecution[] = [];
   const fileChanges: FileChange[] = [];
   const statusHistory: ContainerAgentStatusEntry[] = [];
-  let status: ContainerAgentState['status'] = 'completed';
+  let status: ContainerAgentState['status'] = 'idle';
   let currentTurn = 0;
   let remainingTurns = 0;
   let maxTurns: number | undefined;
@@ -578,7 +572,7 @@ function getStableEventId<TData>(
  * When a session has one of these statuses, we skip the SSE stream
  * and go straight to the REST historical fetch.
  */
-const TERMINAL_SESSION_STATUSES = new Set(['completed', 'cancelled', 'error', 'closed']);
+export const TERMINAL_SESSION_STATUSES = new Set(['completed', 'cancelled', 'error', 'closed']);
 
 /**
  * Hook for subscribing to container agent events.
@@ -628,7 +622,7 @@ export function useContainerAgent(
       const events = result.data;
       if (events.length === 0) return;
 
-      const historicalState = buildStateFromHistoricalEvents(events as HistoricalEvent[]);
+      const historicalState = buildStateFromHistoricalEvents(events as TopologyEvent[]);
       dispatch({ type: 'LOAD_HISTORICAL', data: historicalState });
     } catch (err) {
       console.error('[useContainerAgent] Error fetching historical events:', err);

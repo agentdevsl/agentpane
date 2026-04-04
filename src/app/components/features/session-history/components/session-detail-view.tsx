@@ -99,6 +99,7 @@ export function SessionDetailView({
           id: session.agentId ?? session.id,
           name: session.agentName ?? session.title ?? 'Agent',
           role: 'orchestrator',
+          agentType: null,
           status: mapSessionStatusToTopologyStatus({
             status: session.status,
             closedAt: session.closedAt ?? null,
@@ -128,6 +129,8 @@ export function SessionDetailView({
       taskId: session.taskId ?? '',
       taskName: session.taskTitle ?? session.title ?? '',
       taskPriority: 'normal',
+      skillId: null,
+      skillName: null,
     };
   }, [
     session?.id,

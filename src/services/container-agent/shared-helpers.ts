@@ -71,11 +71,12 @@ export async function updateTaskOnAgentComplete(
         return false;
       }
     } else {
+      // Preserve sessionId on cancel (consistent with completed/turn_limit paths)
+      // so the UI can still display session events and topology for cancelled runs.
       const [updated] = await db
         .update(tasks)
         .set({
           agentId: null,
-          sessionId: null,
           lastAgentStatus: 'cancelled',
         })
         .where(and(eq(tasks.id, taskId), eq(tasks.column, 'in_progress')))

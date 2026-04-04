@@ -163,6 +163,8 @@ const EMPTY_GRAPH: TopologyGraph = {
   taskId: '',
   taskName: '',
   taskPriority: '',
+  skillId: null,
+  skillName: null,
 };
 
 interface TopologyContextValue {

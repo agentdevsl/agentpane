@@ -23,6 +23,7 @@ function makeNode(
     id,
     name,
     role,
+    agentType: null,
     status,
     parentId,
     childIds,
@@ -192,6 +193,8 @@ export function createLargeTopologyGraph(): TopologyGraph {
     taskId: 'api-platform',
     taskName: 'API Platform v2',
     taskPriority: 'P0',
+    skillId: null,
+    skillName: null,
   };
 }
 
@@ -240,6 +243,8 @@ export function createSmallTopologyGraph(): TopologyGraph {
     taskId: 'small-task',
     taskName: 'Bug Fix #42',
     taskPriority: 'P2',
+    skillId: null,
+    skillName: null,
   };
 }
 
