@@ -19,7 +19,11 @@ import type { Database } from '../../types/database.js';
 import type { MemoryService, MemorySessionRef, TaskOutcome } from '../memory/index.js';
 import type { SkillTrackingService } from '../memory/skill-tracking.service.js';
 import { createSessionEventWithMetadata } from '../session/event-metadata.js';
-import { getAgentMaxRuntimeMs, getGlobalDefaultModel } from '../settings.service.js';
+import {
+  DEFAULT_AGENT_MAX_RUNTIME_MS,
+  getAgentMaxRuntimeMs,
+  getGlobalDefaultModel,
+} from '../settings.service.js';
 import type { AgentQueueService } from './agent-queue.service.js';
 import type {
   AgentRunResult,
@@ -69,7 +73,7 @@ function validateTransition(
  */
 export class AgentExecutionService {
   /** Cached max agent runtime for orphan sweep (refreshed on each sweep). */
-  private maxAgentRuntimeMs = 4 * 60 * 60 * 1000; // default 4 hours, overwritten at startup
+  private maxAgentRuntimeMs = DEFAULT_AGENT_MAX_RUNTIME_MS; // default 4 hours; refreshed on each orphan sweep
   /** Sweep interval for orphaned agents (10 minutes) */
   private static readonly ORPHAN_SWEEP_INTERVAL_MS = 10 * 60 * 1000;
 
@@ -629,7 +633,6 @@ export class AgentExecutionService {
 
     const onMessage = this.buildOnMessageCallback(memoryRef, this.memoryService);
 
-    // Read configurable max runtime from global settings
     const maxRuntimeMs = await getAgentMaxRuntimeMs(this.db);
 
     try {
@@ -1103,7 +1106,6 @@ export class AgentExecutionService {
         }
       }
 
-      // Read configurable max runtime from global settings
       const maxRuntimeMs = await getAgentMaxRuntimeMs(this.db);
 
       const result = await runAgentExecution({
@@ -1366,9 +1368,13 @@ export class AgentExecutionService {
    */
   private sweepOrphanedAgents(): void {
     // Refresh cached max runtime from settings (fire-and-forget; uses last cached value on error)
-    void getAgentMaxRuntimeMs(this.db).then((ms) => {
-      this.maxAgentRuntimeMs = ms;
-    });
+    void getAgentMaxRuntimeMs(this.db)
+      .then((ms) => {
+        this.maxAgentRuntimeMs = ms;
+      })
+      .catch(() => {
+        // EH-021: Uses cached value on refresh failure — sweep continues with last known timeout
+      });
 
     const now = Date.now();
     for (const [agentId, startTime] of this.agentStartTimes) {

@@ -3,16 +3,13 @@ import { createId } from '@paralleldrive/cuid2';
 import { createLogger } from '../../lib/logging/logger.js';
 import { createSessionEventWithMetadata } from '../../services/session/event-metadata.js';
 import type { SessionEvent } from '../../services/session.service.js';
+import { DEFAULT_AGENT_MAX_RUNTIME_MS } from '../../services/settings.service.js';
 import type { StreamDurability, StreamEventMetadata, StreamPartType } from '../streams/envelope.js';
 import { deriveAgentName, mapAgentRole } from '../topology/map-agent-role.js';
 import { buildSdkEnv } from './agent-sdk-utils.js';
 import { ChunkBatcher } from './chunk-batcher.js';
 
 const log = createLogger('StreamHandler');
-
-/** Default maximum wall-clock runtime for a single agent phase (planning or execution): 4 hours.
- * Can be overridden per-call via StreamHandlerOptions.maxRuntimeMs, which is typically read from the global setting. */
-const DEFAULT_AGENT_MAX_RUNTIME_MS = 4 * 60 * 60 * 1000; // 4 hours
 
 function createStreamMetadata(params: {
   eventId: string;
@@ -432,7 +429,7 @@ async function publishMetrics(
  */
 export async function runAgentPlanning(options: StreamHandlerOptions): Promise<AgentRunResult> {
   const { agentId, sessionId, prompt, model, cwd, sessionService, signal } = options;
-  const maxRuntimeMs = options.maxRuntimeMs ?? DEFAULT_AGENT_MAX_RUNTIME_MS;
+  const maxRuntimeMs = Math.max(options.maxRuntimeMs ?? DEFAULT_AGENT_MAX_RUNTIME_MS, 60_000); // minimum 1 minute
 
   const runId = createId();
   let accumulated = '';
@@ -849,7 +846,7 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
 export async function runAgentExecution(options: StreamHandlerOptions): Promise<AgentRunResult> {
   const { agentId, sessionId, prompt, allowedTools, maxTurns, model, cwd, sessionService, signal } =
     options;
-  const maxRuntimeMs = options.maxRuntimeMs ?? DEFAULT_AGENT_MAX_RUNTIME_MS;
+  const maxRuntimeMs = Math.max(options.maxRuntimeMs ?? DEFAULT_AGENT_MAX_RUNTIME_MS, 60_000); // minimum 1 minute
 
   const runId = createId();
   let turn = 0;

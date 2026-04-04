@@ -150,7 +150,7 @@ describe('AgentCoreBridgeService (IT-1650 to IT-1651)', () => {
     await clearTestDatabase();
     vi.clearAllMocks();
     // Cleanup state manager interval
-    state.destroy?.();
+    state.dispose();
   });
 
   describe('startAgentCoreAgent', () => {
