@@ -15,5 +15,29 @@ fi
 # Ensure .claude directories exist for SDK (plans, credentials, etc.)
 mkdir -p /home/node/.claude/plans 2>/dev/null || true
 
+# Populate workspace with cached skills and agents from image if not already present.
+# Skills/agents baked into the image at build time provide fast startup;
+# runtime injection from the DB can override or add new ones.
+if [ -d /opt/skills-cache ] && [ -d /workspace ]; then
+    mkdir -p /workspace/.claude/skills 2>/dev/null || true
+    for skill_dir in /opt/skills-cache/*/; do
+        skill_name="$(basename "$skill_dir")"
+        if [ ! -d "/workspace/.claude/skills/$skill_name" ]; then
+            cp -r "$skill_dir" "/workspace/.claude/skills/$skill_name" 2>/dev/null || true
+        fi
+    done
+fi
+
+if [ -d /opt/agents-cache ] && [ -d /workspace ]; then
+    mkdir -p /workspace/.claude/agents 2>/dev/null || true
+    for agent_file in /opt/agents-cache/*.md; do
+        [ -f "$agent_file" ] || continue
+        agent_name="$(basename "$agent_file")"
+        if [ ! -f "/workspace/.claude/agents/$agent_name" ]; then
+            cp "$agent_file" "/workspace/.claude/agents/$agent_name" 2>/dev/null || true
+        fi
+    done
+fi
+
 # Execute the command
 exec "$@"
