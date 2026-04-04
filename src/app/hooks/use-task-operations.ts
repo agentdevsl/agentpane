@@ -180,8 +180,22 @@ export function useTaskOperations(
           );
         }
       } else {
-        // TODO: Implement code review approval/rejection API calls for non-plan tasks
-        await onRefresh();
+        try {
+          const result = await apiClient.tasks.approve(task.id, {
+            approvedBy: 'user',
+            createMergeCommit: true,
+          });
+          if (!result.ok) {
+            showError(
+              'Approval failed',
+              (result.error as { message?: string })?.message || 'Unknown error'
+            );
+            return;
+          }
+          await onRefresh();
+        } catch (error) {
+          showError('Approval failed', error instanceof Error ? error.message : 'Unknown error');
+        }
       }
     },
     [isTaskPlanReview, onRefresh, showError, navigate]
@@ -207,8 +221,19 @@ export function useTaskOperations(
           );
         }
       } else {
-        // TODO: Implement code review approval/rejection API calls for non-plan tasks
-        await onRefresh();
+        try {
+          const result = await apiClient.tasks.reject(task.id, reason);
+          if (!result.ok) {
+            showError(
+              'Rejection failed',
+              (result.error as { message?: string })?.message || 'Unknown error'
+            );
+            return;
+          }
+          await onRefresh();
+        } catch (error) {
+          showError('Rejection failed', error instanceof Error ? error.message : 'Unknown error');
+        }
       }
     },
     [isTaskPlanReview, onRefresh, showError]

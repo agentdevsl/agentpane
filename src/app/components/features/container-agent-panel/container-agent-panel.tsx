@@ -43,25 +43,54 @@ const TopologyTab = memo(function TopologyTab({
 
     const fetchTopology = async () => {
       try {
-        const result = await apiClient.sessions.getEvents(sessionId, { limit: 500 });
+        // Fetch events and session metadata in parallel
+        const [eventsResult, sessionResult] = await Promise.all([
+          apiClient.sessions.getEvents(sessionId, { limit: 500 }),
+          apiClient.sessions.get(sessionId),
+        ]);
         if (cancelled) return;
 
-        if (!result.ok) {
-          console.error('[TopologyTab] Failed to fetch session events:', result.error);
+        if (!eventsResult.ok) {
+          console.error('[TopologyTab] Failed to fetch session events:', eventsResult.error);
           return;
         }
 
         const events = extractSessionEvents(
-          result.data as TopologyEvent[] | { data: TopologyEvent[] }
+          eventsResult.data as TopologyEvent[] | { data: TopologyEvent[] }
         );
+
+        // Fetch task for skill info if session has a taskId
+        const session = sessionResult.ok ? sessionResult.data : null;
+        let skillId: string | null = null;
+        let skillName: string | null = null;
+        let taskTitle: string | null = null;
+        const taskId = (session as Record<string, unknown> | null)?.taskId as string | null;
+
+        if (taskId) {
+          try {
+            const taskResult = await apiClient.tasks.get(taskId);
+            if (!cancelled && taskResult.ok) {
+              const task = taskResult.data as Record<string, unknown>;
+              skillId = (task.skillId as string) ?? null;
+              skillName = (task.skillName as string) ?? null;
+              taskTitle = (task.title as string) ?? null;
+            }
+          } catch {
+            // Task fetch is best-effort — topology still works without skill info
+          }
+        }
+
+        if (cancelled) return;
 
         const graph = buildTopologyFromEvents(events, {
           sessionId,
           agentId: null,
-          taskId: null,
-          taskTitle: null,
+          taskId,
+          taskTitle,
           taskColumn: null,
           lastAgentStatus: null,
+          skillId,
+          skillName,
         });
 
         setInitialData(graph);

@@ -126,9 +126,13 @@ export function LiveTaskView({
           taskTitle: selectedTask?.title,
           taskColumn: selectedTask?.column,
           lastAgentStatus: selectedTask?.lastAgentStatus,
+          skillId: (selectedTask as unknown as Record<string, unknown>)?.skillId as string | null,
+          skillName: (selectedTask as unknown as Record<string, unknown>)?.skillName as
+            | string
+            | null,
         });
 
-        // Preserve task priority from the selected task
+        // Preserve task metadata from the selected task
         setTopologyData({
           ...graph,
           taskPriority: selectedTask?.priority ?? '',

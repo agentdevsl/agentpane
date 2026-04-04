@@ -35,6 +35,8 @@ export interface TopologyBuildContext {
   taskTitle?: string | null;
   taskColumn?: string | null;
   lastAgentStatus?: string | null;
+  skillId?: string | null;
+  skillName?: string | null;
 }
 
 /**
@@ -232,5 +234,7 @@ export function buildTopologyFromEvents(
     taskId: context.taskId ?? '',
     taskName: context.taskTitle ?? '',
     taskPriority: '',
+    skillId: context.skillId ?? null,
+    skillName: context.skillName ?? null,
   };
 }

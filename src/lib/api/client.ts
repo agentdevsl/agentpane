@@ -521,6 +521,24 @@ export const apiClient = {
       }),
 
     /**
+     * Approve a completed task in waiting_approval (moves to verified)
+     */
+    approve: (id: string, data?: { approvedBy?: string; createMergeCommit?: boolean }) =>
+      apiServerFetch<unknown>(`/api/tasks/${encodeURIComponent(id)}/approve`, {
+        method: 'POST',
+        body: data ?? {},
+      }),
+
+    /**
+     * Reject a completed task in waiting_approval (moves back to backlog)
+     */
+    reject: (id: string, reason?: string) =>
+      apiServerFetch<unknown>(`/api/tasks/${encodeURIComponent(id)}/reject`, {
+        method: 'POST',
+        body: reason ? { reason } : undefined,
+      }),
+
+    /**
      * Get diff for a task (file changes made by the agent)
      */
     getDiff: (id: string) =>

@@ -238,6 +238,72 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
     }
   });
 
+  // POST /api/tasks/:id/approve - Approve a completed task in waiting_approval → verified
+  app.post('/:id/approve', async (c) => {
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
+
+    try {
+      let approvedBy: string | undefined;
+      let createMergeCommit: boolean | undefined;
+      try {
+        const body = (await c.req.json()) as {
+          approvedBy?: string;
+          createMergeCommit?: boolean;
+        };
+        approvedBy = typeof body.approvedBy === 'string' ? body.approvedBy : undefined;
+        createMergeCommit =
+          typeof body.createMergeCommit === 'boolean' ? body.createMergeCommit : undefined;
+      } catch {
+        // No body or invalid JSON — fields are optional
+      }
+
+      const result = await taskService.approve(id, { approvedBy, createMergeCommit });
+
+      if (!result.ok) {
+        return errorResponse(result);
+      }
+
+      return json({ ok: true, data: result.value });
+    } catch (error) {
+      logger.error('Approve task error', { error });
+      return json(
+        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to approve task' } },
+        500
+      );
+    }
+  });
+
+  // POST /api/tasks/:id/reject - Reject a completed task in waiting_approval → backlog
+  app.post('/:id/reject', async (c) => {
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
+
+    try {
+      let reason = '';
+      try {
+        const body = (await c.req.json()) as { reason?: string };
+        reason = typeof body.reason === 'string' ? body.reason : '';
+      } catch {
+        // No body or invalid JSON — reason defaults to empty string
+      }
+
+      const result = await taskService.reject(id, { reason });
+
+      if (!result.ok) {
+        return errorResponse(result);
+      }
+
+      return json({ ok: true, data: result.value });
+    } catch (error) {
+      logger.error('Reject task error', { error });
+      return json(
+        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to reject task' } },
+        500
+      );
+    }
+  });
+
   // POST /api/tasks/:id/stop-agent - Stop a running container agent for a task
   app.post('/:id/stop-agent', async (c) => {
     const { id, error } = validateIdParam(c, 'id');

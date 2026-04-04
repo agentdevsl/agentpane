@@ -165,7 +165,26 @@ function TopologyInner(): React.JSX.Element {
   }
 
   return (
-    <div data-testid="topology-canvas" className="flex h-full min-h-0 min-w-0">
+    <div data-testid="topology-canvas" className="flex h-full min-h-0 min-w-0 flex-col">
+      {/* Skill badge */}
+      {state.graph.skillName && (
+        <div className="flex items-center gap-2 border-b border-border px-4 py-2">
+          <span className="inline-flex items-center gap-1.5 rounded-md bg-accent-subtle px-2 py-0.5 text-xs font-medium text-accent">
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 256 256"
+              fill="currentColor"
+              role="img"
+              aria-label="Skill"
+            >
+              <path d="M215.79,118.17a8,8,0,0,0-5-5.66L153.18,90.9l14.66-73.33a8,8,0,0,0-13.69-7l-112,120a8,8,0,0,0,3,13l57.63,21.61L88.16,238.43a8,8,0,0,0,13.69,7l112-120A8,8,0,0,0,215.79,118.17Z" />
+            </svg>
+            {state.graph.skillName}
+          </span>
+          <span className="text-xs text-fg-subtle">{state.graph.taskName}</span>
+        </div>
+      )}
       {/* Canvas */}
       <div className="relative flex-1 min-h-0 min-w-0">
         <div

@@ -70,4 +70,8 @@ export interface TopologyGraph {
   taskId: string;
   taskName: string;
   taskPriority: string;
+  /** Skill associated with the task (from task.skillId) */
+  skillId?: string | null;
+  /** Skill display name (from task.skillName) */
+  skillName?: string | null;
 }
