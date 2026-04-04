@@ -663,7 +663,11 @@ export class TaskService {
     const parts: string[] = [];
 
     if (task.skillId) {
-      parts.push(`use skill ${task.skillId}`, '');
+      parts.push(
+        `You MUST follow the skill "${task.skillId}" workflow exactly as defined in .claude/skills/${task.skillId}/SKILL.md.`,
+        'Read the skill file first, then execute each phase in order. Use the subagents and tools specified by the skill.',
+        ''
+      );
     }
 
     parts.push(
