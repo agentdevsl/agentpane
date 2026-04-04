@@ -9,7 +9,7 @@
  * This runs during container startup, after credentials injection.
  */
 
-import type { MergedSkill } from '../config/template-merge.js';
+import type { MergedAgent, MergedSkill } from '../config/template-merge.js';
 import { createLogger } from '../logging/logger.js';
 import type { Sandbox } from './providers/sandbox-provider.js';
 
@@ -185,6 +185,137 @@ export async function injectSkills(
   }
 
   log.info('Skill injection complete', {
+    data: { injected: result.injected, skipped: result.skipped, errors: result.errors.length },
+  });
+
+  return result;
+}
+
+/** Only allow directory-safe characters in agent names */
+const SAFE_AGENT_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
+
+export interface AgentInjectionResult {
+  injected: number;
+  skipped: number;
+  errors: Array<{ name: string; message: string }>;
+}
+
+/**
+ * Build agent .md content with frontmatter metadata and agent body.
+ */
+function buildAgentMarkdown(agent: MergedAgent): string {
+  const lines = ['---'];
+  lines.push(`name: "${escapeYamlValue(agent.name)}"`);
+  if (agent.description) {
+    lines.push(`description: "${escapeYamlValue(agent.description)}"`);
+  }
+  lines.push(`source: ${agent.sourceType}`);
+  lines.push('---');
+  lines.push(agent.content);
+  return lines.join('\n');
+}
+
+/**
+ * Materialize org/template agents into the sandbox filesystem.
+ *
+ * Agents from templates that don't already exist in the project's .claude/agents/
+ * are written to {workspacePath}/.claude/agents/{agent.name}.md.
+ *
+ * This is non-fatal — if injection fails for an agent, the rest continue.
+ */
+export async function injectAgents(
+  sandbox: Sandbox,
+  agents: MergedAgent[],
+  workspacePath = '/workspace'
+): Promise<AgentInjectionResult> {
+  const result: AgentInjectionResult = {
+    injected: 0,
+    skipped: 0,
+    errors: [],
+  };
+
+  if (agents.length === 0) {
+    log.debug('No agents to inject');
+    return result;
+  }
+
+  const agentsDir = `${workspacePath}/.claude/agents`;
+
+  // Check which agents already exist
+  let existing: Set<string>;
+  try {
+    const ls = await sandbox.exec('ls', ['-1', agentsDir]);
+    existing =
+      ls.exitCode === 0
+        ? new Set(
+            ls.stdout
+              .split('\n')
+              .map((s) => s.trim().replace(/\.md$/, ''))
+              .filter(Boolean)
+          )
+        : new Set();
+  } catch {
+    existing = new Set();
+  }
+
+  const toInject = agents.filter((a) => !existing.has(a.name));
+  result.skipped = agents.length - toInject.length;
+
+  if (toInject.length === 0) {
+    log.info('All agents already present on disk', {
+      data: { total: agents.length, skipped: result.skipped },
+    });
+    return result;
+  }
+
+  log.info('Injecting agents into sandbox', {
+    data: { total: agents.length, toInject: toInject.length, skipped: result.skipped },
+  });
+
+  // Ensure agents directory exists
+  await sandbox.exec('mkdir', ['-p', agentsDir]);
+
+  for (const agent of toInject) {
+    if (!SAFE_AGENT_NAME.test(agent.name)) {
+      const msg = `Unsafe agent name rejected: "${agent.name}"`;
+      log.error(msg, { data: { name: agent.name } });
+      result.errors.push({ name: agent.name, message: msg });
+      continue;
+    }
+
+    const filePath = `${agentsDir}/${agent.name}.md`;
+
+    try {
+      const content = buildAgentMarkdown(agent);
+      const encoded = Buffer.from(content).toString('base64');
+
+      const writeResult = await sandbox.exec('sh', [
+        '-c',
+        `printf '%s' "$1" | base64 -d > "$2" && test -s "$2"`,
+        '--',
+        encoded,
+        filePath,
+      ]);
+
+      if (writeResult.exitCode !== 0) {
+        const msg = `Failed to write agent "${agent.name}" at "${filePath}": ${writeResult.stderr}`;
+        log.error(msg, { data: { name: agent.name, exitCode: writeResult.exitCode } });
+        result.errors.push({ name: agent.name, message: msg });
+        continue;
+      }
+
+      log.info('Injected agent', {
+        data: { name: agent.name, source: agent.sourceType },
+      });
+      result.injected++;
+    } catch (error) {
+      const msg = `Unexpected error injecting agent "${agent.name}": ${error instanceof Error ? error.message : String(error)}`;
+      log.error(msg, { data: { name: agent.name } });
+      result.errors.push({ name: agent.name, message: msg });
+    }
+  }
+
+  log.info('Agent injection complete', {
     data: { injected: result.injected, skipped: result.skipped, errors: result.errors.length },
   });
 

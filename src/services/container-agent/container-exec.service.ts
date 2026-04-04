@@ -20,7 +20,7 @@ import type { SandboxError } from '../../lib/errors/sandbox-errors.js';
 import { SandboxErrors } from '../../lib/errors/sandbox-errors.js';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { Sandbox } from '../../lib/sandbox/providers/sandbox-provider.js';
-import { injectSkills } from '../../lib/sandbox/skill-injector.js';
+import { injectAgents, injectSkills } from '../../lib/sandbox/skill-injector.js';
 import { SANDBOX_DEFAULTS } from '../../lib/sandbox/types.js';
 import { softInvariant } from '../../lib/utils/invariant.js';
 import type { Result } from '../../lib/utils/result.js';
@@ -513,27 +513,48 @@ export class ContainerExecService {
     try {
       const mergedResult = await templateService.getMergedConfig(codespaceId);
 
-      if (mergedResult.ok && mergedResult.value.skills.length > 0) {
-        const skills = mergedResult.value.skills;
-        log.info('Injecting template skills into sandbox', {
-          data: { codespaceId, skillCount: skills.length },
-        });
+      if (mergedResult.ok) {
+        const { skills, agents } = mergedResult.value;
 
-        const injectionResult = await injectSkills(sandbox, skills, CONTAINER_WORKSPACE_PATH);
-
-        skillMessage = `Skills injected: ${injectionResult.injected} new, ${injectionResult.skipped} already present${injectionResult.errors.length > 0 ? `, ${injectionResult.errors.length} errors` : ''}`;
-
-        if (injectionResult.errors.length > 0) {
-          log.error('Some skills failed to inject', {
-            data: { errors: injectionResult.errors },
+        // Inject skills
+        if (skills.length > 0) {
+          log.info('Injecting template skills into sandbox', {
+            data: { codespaceId, skillCount: skills.length },
           });
+
+          const injectionResult = await injectSkills(sandbox, skills, CONTAINER_WORKSPACE_PATH);
+
+          skillMessage = `Skills injected: ${injectionResult.injected} new, ${injectionResult.skipped} already present${injectionResult.errors.length > 0 ? `, ${injectionResult.errors.length} errors` : ''}`;
+
+          if (injectionResult.errors.length > 0) {
+            log.error('Some skills failed to inject', {
+              data: { errors: injectionResult.errors },
+            });
+          }
+
+          if (injectionResult.injected === 0 && injectionResult.errors.length > 0) {
+            skillMessage = `WARNING: No skills could be injected (${injectionResult.errors.length} errors)`;
+          }
         }
 
-        if (injectionResult.injected === 0 && injectionResult.errors.length > 0) {
-          skillMessage = `WARNING: No skills could be injected (${injectionResult.errors.length} errors)`;
+        // Inject agents (.claude/agents/*.md)
+        if (agents.length > 0) {
+          log.info('Injecting template agents into sandbox', {
+            data: { codespaceId, agentCount: agents.length },
+          });
+
+          const agentResult = await injectAgents(sandbox, agents, CONTAINER_WORKSPACE_PATH);
+
+          skillMessage += ` | Agents: ${agentResult.injected} new, ${agentResult.skipped} already present`;
+
+          if (agentResult.errors.length > 0) {
+            log.error('Some agents failed to inject', {
+              data: { errors: agentResult.errors },
+            });
+          }
         }
       } else {
-        log.debug('No template skills to inject', { data: { codespaceId } });
+        log.debug('No template config to inject', { data: { codespaceId } });
       }
     } catch (skillErr) {
       // Skill injection is non-fatal — log and continue
