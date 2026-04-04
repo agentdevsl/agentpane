@@ -26,7 +26,8 @@ function formatTokens(n: number): string {
 }
 
 function AgentNodeComponent({ data, selected }: NodeProps) {
-  const { name, role, status, progress, decisions, tokens, cost, turns } = data as AgentNodeData;
+  const { name, role, status, progress, decisions, tokens, cost, turns, agentType } =
+    data as AgentNodeData;
   const roleConfig = AGENT_ROLE_CONFIG[role];
   const roleColor = roleConfig.color;
   const statusColor = STATUS_COLORS[status];
@@ -173,6 +174,7 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
           fill="var(--fg-muted)"
           style={{ pointerEvents: 'none' }}
         >
+          {agentType ? `${agentType} · ` : ''}
           {status} &middot; {progress}%
         </text>
 

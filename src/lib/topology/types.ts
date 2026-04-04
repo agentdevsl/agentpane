@@ -41,6 +41,8 @@ export interface TopologyNode {
   id: string;
   name: string;
   role: TopologyAgentRole;
+  /** Real SDK agent type (subagent_type / task_type) — e.g. "general-purpose", "Explore", "Plan" */
+  agentType?: string | null;
   status: TopologyAgentStatus;
   parentId: string | null;
   childIds: string[];

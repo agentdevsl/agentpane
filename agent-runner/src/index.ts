@@ -55,39 +55,30 @@ function normalizeTopologyStatus(raw: unknown): 'completed' | 'failed' | 'stoppe
  * Canonical source: src/lib/topology/map-agent-role.ts — keep in sync.
  * Duplicated here due to agent-runner build boundary (separate package).
  */
-function mapAgentRole(agentType?: string, description?: string): string {
-  const text = `${agentType ?? ''} ${description ?? ''}`.toLowerCase();
-  if (text.includes('deploy')) return 'deployer';
-  if (text.includes('plan')) return 'planner';
-  if (text.includes('review') || text.includes('code-review')) return 'reviewer';
-  if (text.includes('test') || text.includes('pr-test')) return 'tester';
-  if (text.includes('scan') || text.includes('security') || text.includes('silent-failure'))
-    return 'scanner';
-  if (
-    text.includes('orchestrat') ||
-    text.includes('lead') ||
-    text.includes('team') ||
-    text.includes('coordinator')
-  )
-    return 'orchestrator';
+/**
+ * Map SDK task_type to a visual role category (icon/color only).
+ * Canonical source: src/lib/topology/map-agent-role.ts — keep in sync.
+ */
+function mapAgentRole(agentType?: string): string {
+  if (!agentType) return 'coder';
+  const t = agentType.toLowerCase();
+  if (t.includes('plan')) return 'planner';
+  if (t.includes('review') || t.includes('analyz')) return 'reviewer';
+  if (t.includes('test') || t.includes('verif')) return 'tester';
+  if (t.includes('scan') || t.includes('security') || t.includes('hunter')) return 'scanner';
+  if (t.includes('deploy')) return 'deployer';
   return 'coder';
 }
 
 /**
- * Derive display name from SDK task description or agent_type.
+ * Use the SDK description as the node name. Falls back to agentType, then "Agent".
  * Canonical source: src/lib/topology/map-agent-role.ts — keep in sync.
  */
 function deriveAgentName(agentType?: string, description?: string): string {
   if (description) {
-    return description.length > 40 ? `${description.slice(0, 37)}...` : description;
+    return description.length > 50 ? `${description.slice(0, 47)}...` : description;
   }
-  if (agentType) {
-    return agentType
-      .split('-')
-      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-      .join(' ');
-  }
-  return 'Agent';
+  return agentType ?? 'Agent';
 }
 
 /** Tracks subagent topology state. Maps SDK task_id → generated node id. */
@@ -129,7 +120,8 @@ function handleTopologySystemMsg(
     events.topologySpawned({
       agentId: nodeId,
       name: deriveAgentName(taskType, description),
-      role: mapAgentRole(taskType, description),
+      role: mapAgentRole(taskType),
+      agentType: taskType ?? null,
       parentId: rootAgentId,
       sdkTaskId,
     });

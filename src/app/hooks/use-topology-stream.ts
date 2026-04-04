@@ -34,6 +34,7 @@ function createNodeFromSpawned(data: TopologyAgentSpawned): TopologyNode {
     id: data.agentId,
     name: data.name,
     role: toRole(data.role),
+    agentType: (data as unknown as Record<string, unknown>).agentType as string | null | undefined,
     status: 'running',
     parentId: data.parentId,
     childIds: [],

@@ -69,6 +69,7 @@ export function buildTopologyFromEvents(
         agentId: string;
         name: string;
         role?: string;
+        agentType?: string;
         parentId?: string;
         timestamp?: number;
       };
@@ -76,6 +77,7 @@ export function buildTopologyFromEvents(
         id: d.agentId,
         name: d.name,
         role: (VALID_ROLES.has(d.role ?? '') ? d.role : 'coder') as TopologyNode['role'],
+        agentType: d.agentType ?? null,
         status: 'running',
         parentId: d.parentId ?? null,
         childIds: [],
