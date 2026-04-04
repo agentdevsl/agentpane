@@ -664,8 +664,9 @@ export class TaskService {
 
     if (task.skillId) {
       parts.push(
-        `You MUST follow the skill "${task.skillId}" workflow exactly as defined in .claude/skills/${task.skillId}/SKILL.md.`,
-        'Read the skill file first, then execute each phase in order. Use the subagents and tools specified by the skill.',
+        `IMPORTANT: Before starting any work, use the Read tool to read the file at .claude/skills/${task.skillId}/SKILL.md`,
+        `This file contains the workflow you MUST follow step by step. Execute each phase in order.`,
+        `Use the subagents and tools specified in the skill file. Do NOT skip or improvise around the defined workflow.`,
         ''
       );
     }
