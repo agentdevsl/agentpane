@@ -63,11 +63,14 @@ RUN mkdir -p /home/node/.claude/plans && chown -R node:node /home/node/.claude
 # Allow node user to use sudo for permission fixes (passwordless)
 RUN echo "node ALL=(ALL) NOPASSWD: /bin/chown" >> /etc/sudoers.d/node-chown
 
-# Copy cached skills and agents into image (if exported via export-skills-for-image.sh).
-# These provide fast startup — the entrypoint copies them to /workspace/.claude/ if not
+# Copy cached skills, agents, and foundations into image.
+# These provide fast startup — the entrypoint copies them to /workspace/ if not
 # already present. Runtime injection from the DB can override or add newer versions.
 COPY docker/skills-cache/ /opt/skills-cache/
 COPY docker/agents-cache/ /opt/agents-cache/
+COPY docker/foundations-cache/ /opt/foundations-cache/
+COPY docker/github-cache/ /opt/github-cache/
+COPY docker/dot-agents-cache/ /opt/dot-agents-cache/
 
 # Copy entrypoint script
 COPY docker/entrypoint.sh /entrypoint.sh

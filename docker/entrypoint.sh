@@ -39,5 +39,14 @@ if [ -d /opt/agents-cache ] && [ -d /workspace ]; then
     done
 fi
 
+# Copy workspace directories from image cache (used by skill workflows)
+for cache_pair in "foundations-cache:.foundations" "github-cache:.github" "dot-agents-cache:.agents"; do
+    cache_dir="/opt/${cache_pair%%:*}"
+    target_dir="/workspace/${cache_pair#*:}"
+    if [ -d "$cache_dir" ] && [ -d /workspace ] && [ ! -d "$target_dir" ]; then
+        cp -r "$cache_dir" "$target_dir" 2>/dev/null || true
+    fi
+done
+
 # Execute the command
 exec "$@"

@@ -1,12 +1,13 @@
 #!/bin/bash
-# Export cached skills and agents from the AgentPane database into files
-# suitable for baking into the Docker image.
+# Export cached skills, agents, and foundations from the AgentPane database
+# and org repos into files suitable for baking into the Docker image.
 #
 # Usage: ./docker/export-skills-for-image.sh [DB_PATH]
 #
 # Creates:
 #   docker/skills-cache/{skillId}/SKILL.md
 #   docker/agents-cache/{agentName}.md
+#   docker/foundations-cache/  (cloned from org repo)
 
 set -euo pipefail
 
@@ -19,8 +20,9 @@ fi
 
 SKILLS_DIR="docker/skills-cache"
 AGENTS_DIR="docker/agents-cache"
+FOUNDATIONS_DIR="docker/foundations-cache"
 
-rm -rf "$SKILLS_DIR" "$AGENTS_DIR"
+rm -rf "$SKILLS_DIR" "$AGENTS_DIR" "$FOUNDATIONS_DIR"
 mkdir -p "$SKILLS_DIR" "$AGENTS_DIR"
 
 # Export skills
@@ -87,3 +89,32 @@ print(count)
 
 echo "Exported ${skill_count:-0} skills to $SKILLS_DIR"
 echo "Exported ${agent_count:-0} agents to $AGENTS_DIR"
+
+# Export .foundations, .github, and .agents from the org repo
+# These are referenced by skill workflows but not synced via the template system
+REPO_OWNER=$(sqlite3 "$DB_PATH" "SELECT github_owner FROM templates WHERE status='active' LIMIT 1" 2>/dev/null)
+REPO_NAME=$(sqlite3 "$DB_PATH" "SELECT github_repo FROM templates WHERE status='active' LIMIT 1" 2>/dev/null)
+REPO_BRANCH=$(sqlite3 "$DB_PATH" "SELECT branch FROM templates WHERE status='active' LIMIT 1" 2>/dev/null)
+
+if [ -n "$REPO_OWNER" ] && [ -n "$REPO_NAME" ]; then
+  echo "Cloning workspace files from ${REPO_OWNER}/${REPO_NAME}@${REPO_BRANCH:-main}..."
+  TEMP_CLONE=$(mktemp -d)
+  if git clone --depth 1 --branch "${REPO_BRANCH:-main}" \
+    "https://github.com/${REPO_OWNER}/${REPO_NAME}.git" "$TEMP_CLONE" 2>/dev/null; then
+
+    # Copy workspace directories into cache (names avoid conflict with agents-cache)
+    for pair in ".foundations:foundations-cache" ".github:github-cache" ".agents:dot-agents-cache"; do
+      src_dir="${pair%%:*}"
+      cache_name="${pair#*:}"
+      if [ -d "$TEMP_CLONE/$src_dir" ]; then
+        cp -r "$TEMP_CLONE/$src_dir" "docker/$cache_name"
+        echo "Exported $src_dir to docker/$cache_name"
+      else
+        echo "No $src_dir directory in repo — skipping"
+      fi
+    done
+  else
+    echo "Warning: could not clone ${REPO_OWNER}/${REPO_NAME} — foundations/github/agents will be missing" >&2
+  fi
+  rm -rf "$TEMP_CLONE"
+fi
