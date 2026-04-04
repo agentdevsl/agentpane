@@ -35,12 +35,13 @@ export async function updateTaskOnAgentComplete(
   try {
     if (status === 'completed') {
       // Only update if task is still in_progress (prevents reverting user cancellation)
+      // IMPORTANT: Preserve sessionId so the UI can display session events and topology
+      // for review before approval. The session record itself is cleaned up on codespace removal.
       const [updated] = await db
         .update(tasks)
         .set({
           column: 'waiting_approval',
           agentId: null,
-          sessionId: null,
           lastAgentStatus: 'completed',
           completedAt: new Date().toISOString(),
         })
@@ -59,7 +60,6 @@ export async function updateTaskOnAgentComplete(
         .set({
           column: 'waiting_approval',
           agentId: null,
-          sessionId: null,
           lastAgentStatus: 'turn_limit',
         })
         .where(and(eq(tasks.id, taskId), eq(tasks.column, 'in_progress')))
@@ -181,11 +181,11 @@ export async function updateTaskOnAgentError(
   sessionId?: string
 ): Promise<boolean> {
   try {
+    // Preserve sessionId so the UI can display error context and session events
     const [updated] = await db
       .update(tasks)
       .set({
         agentId: null,
-        sessionId: null,
         lastAgentStatus: 'error',
       })
       .where(and(eq(tasks.id, taskId), eq(tasks.column, 'in_progress')))

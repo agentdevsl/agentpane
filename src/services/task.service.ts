@@ -150,11 +150,11 @@ export class TaskService {
         where: (tasks, { eq }) => eq(tasks.id, taskId),
       });
       if (task?.agentId) {
+        // Preserve sessionId so the UI can show session events after stopping
         await this.db
           .update(tasks)
           .set({
             agentId: null,
-            sessionId: null,
             lastAgentStatus: result.ok ? 'cancelled' : 'error',
             updatedAt: new Date().toISOString(),
           })
@@ -172,12 +172,11 @@ export class TaskService {
       });
 
       if (task?.agentId) {
-        // Update task to remove agent reference and mark as cancelled
+        // Preserve sessionId so the UI can show session events
         await this.db
           .update(tasks)
           .set({
             agentId: null,
-            sessionId: null,
             lastAgentStatus: 'cancelled',
             updatedAt: new Date().toISOString(),
           })

@@ -3,6 +3,10 @@ import { memo, useState } from 'react';
 import { AgentTopology } from '@/app/components/features/agent-topology';
 import { Button } from '@/app/components/ui/button';
 import { useContainerAgent } from '@/app/hooks/use-container-agent';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
+import { apiClient } from '@/lib/api/client';
+import { buildTopologyFromEvents, type TopologyEvent } from '@/lib/topology/build-from-events';
+import type { TopologyGraph } from '@/lib/topology/types';
 import { cn } from '@/lib/utils/cn';
 import { ContainerAgentChangesTab } from './container-agent-changes-tab';
 import { ContainerAgentHeader } from './container-agent-header';
@@ -12,12 +16,74 @@ import { ContainerAgentToolList } from './container-agent-tool-list';
 
 type PanelTab = 'output' | 'changes' | 'topology';
 
+/**
+ * Extract session events from the API response which may be a flat array
+ * or wrapped in `{ data: [...] }`.
+ */
+function extractSessionEvents(
+  payload: TopologyEvent[] | { data: TopologyEvent[] }
+): TopologyEvent[] {
+  return Array.isArray(payload) ? payload : payload.data;
+}
+
 const TopologyTab = memo(function TopologyTab({
   sessionId,
 }: {
   sessionId?: string;
 }): React.JSX.Element {
-  return <AgentTopology sessionId={sessionId} />;
+  const [initialData, setInitialData] = useState<TopologyGraph | undefined>(undefined);
+
+  // Fetch historical events on mount / sessionId change to rebuild topology
+  useWatchEffect(() => {
+    setInitialData(undefined);
+
+    if (!sessionId) return;
+
+    let cancelled = false;
+
+    const fetchTopology = async () => {
+      try {
+        const result = await apiClient.sessions.getEvents(sessionId, { limit: 500 });
+        if (cancelled) return;
+
+        if (!result.ok) {
+          console.error('[TopologyTab] Failed to fetch session events:', result.error);
+          return;
+        }
+
+        const events = extractSessionEvents(
+          result.data as TopologyEvent[] | { data: TopologyEvent[] }
+        );
+
+        const graph = buildTopologyFromEvents(events, {
+          sessionId,
+          agentId: null,
+          taskId: null,
+          taskTitle: null,
+          taskColumn: null,
+          lastAgentStatus: null,
+        });
+
+        setInitialData(graph);
+      } catch (err) {
+        if (cancelled) return;
+        console.error('[TopologyTab] Failed to fetch topology events:', err);
+      }
+    };
+
+    void fetchTopology();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
+
+  console.debug('[TopologyTab] render', {
+    sessionId,
+    hasInitialData: !!initialData,
+    nodeCount: initialData?.nodes?.length ?? 0,
+  });
+  return <AgentTopology sessionId={sessionId} initialData={initialData} />;
 });
 
 export interface ContainerAgentPanelProps {
