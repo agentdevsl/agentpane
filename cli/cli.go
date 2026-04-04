@@ -75,6 +75,20 @@ func newCliRunner(meta *command.Meta) *cli.CLI {
 				return &command.TaskRejectCommand{Meta: meta}, nil
 			},
 
+			// Env commands (sandbox environment variables)
+			"env list": func() (cli.Command, error) {
+				return &command.EnvListCommand{Meta: meta}, nil
+			},
+			"env set": func() (cli.Command, error) {
+				return &command.EnvSetCommand{Meta: meta}, nil
+			},
+			"env delete": func() (cli.Command, error) {
+				return &command.EnvDeleteCommand{Meta: meta}, nil
+			},
+			"env clear": func() (cli.Command, error) {
+				return &command.EnvClearCommand{Meta: meta}, nil
+			},
+
 			// Session commands
 			"session list": func() (cli.Command, error) {
 				return &command.SessionListCommand{Meta: meta}, nil
