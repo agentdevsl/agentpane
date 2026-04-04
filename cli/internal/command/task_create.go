@@ -17,13 +17,15 @@ type TaskCreateCommand struct {
 
 // Run executes the task create command.
 func (c *TaskCreateCommand) Run(args []string) int {
-	var title, description, priority, labels string
+	var title, description, priority, labels, skillID, skillName string
 
 	flags := c.FlagSet("task create")
 	flags.StringVar(&title, "title", "", "Task title (required)")
 	flags.StringVar(&description, "description", "", "Task description")
 	flags.StringVar(&priority, "priority", "medium", "Priority: high, medium, low")
 	flags.StringVar(&labels, "labels", "", "Comma-separated labels")
+	flags.StringVar(&skillID, "skill", "", "Skill ID (directory name under .claude/skills/)")
+	flags.StringVar(&skillName, "skill-name", "", "Skill display name")
 	if err := flags.Parse(args); err != nil {
 		return 1
 	}
@@ -58,6 +60,12 @@ func (c *TaskCreateCommand) Run(args []string) int {
 			opts.Labels[i] = strings.TrimSpace(opts.Labels[i])
 		}
 	}
+	if skillID != "" {
+		opts.SkillID = &skillID
+	}
+	if skillName != "" {
+		opts.SkillName = &skillName
+	}
 
 	ctx := context.Background()
 	task, err := client.Tasks.Create(ctx, opts)
@@ -72,12 +80,16 @@ func (c *TaskCreateCommand) Run(args []string) int {
 	}
 
 	fmt.Printf("Task created: %s\n", task.ID)
-	output.PrintKeyValue([]output.KeyValue{
+	kvs := []output.KeyValue{
 		{Key: "ID", Value: task.ID},
 		{Key: "Title", Value: task.Title},
 		{Key: "Column", Value: task.Column},
 		{Key: "Priority", Value: task.Priority},
-	})
+	}
+	if task.SkillID != nil {
+		kvs = append(kvs, output.KeyValue{Key: "Skill", Value: *task.SkillID})
+	}
+	output.PrintKeyValue(kvs)
 	return 0
 }
 
@@ -97,6 +109,8 @@ Optional Flags:
   -description=<d>    Task description
   -priority=<p>       Priority: high, medium, low (default: medium)
   -labels=<l1,l2>     Comma-separated labels
+  -skill=<id>         Skill ID (directory name under .claude/skills/)
+  -skill-name=<name>  Skill display name
 
 Global Options:
 

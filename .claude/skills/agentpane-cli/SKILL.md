@@ -148,6 +148,12 @@ agentpane task list
 agentpane task create -codespace <codespace-id> -title "Fix login bug" -priority high
 ```
 
+With a skill assigned (skill ID is the directory name under `.claude/skills/`):
+
+```bash
+agentpane task create -codespace <codespace-id> -title "Deploy infrastructure" -skill terraform-stacks -skill-name "Terraform Stacks"
+```
+
 ```bash
 agentpane task create -codespace <codespace-id> -title "Refactor auth module" -priority medium
 ```
@@ -338,8 +344,10 @@ This is the most common workflow: create a task, run it, monitor progress, appro
 # Set default codespace to avoid repeating -codespace
 export AP_CODESPACE="cs_abc123"
 
-# Create the task
+# Create the task (optionally with a skill for specialized agent behavior)
 agentpane task create -title "Add input validation to signup form" -priority high
+# Or with a skill:
+agentpane task create -title "Deploy VPC" -skill terraform-stacks -skill-name "Terraform Stacks" -priority high
 # Output: Created task tk_xyz789
 
 # Run the task (assigns an agent and starts planning)

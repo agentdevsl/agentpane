@@ -2,6 +2,8 @@
 package main
 
 import (
+	"os"
+
 	"github.com/agentdevsl/agentpane/cli/internal/command"
 	"github.com/agentdevsl/agentpane/cli/version"
 	"github.com/mitchellh/cli"
@@ -12,6 +14,7 @@ func newCliRunner(meta *command.Meta) *cli.CLI {
 	c := &cli.CLI{
 		Name:    "agentpane",
 		Version: version.Version,
+		Args:    os.Args[1:],
 		Commands: map[string]cli.CommandFactory{
 			// Health
 			"health": func() (cli.Command, error) {

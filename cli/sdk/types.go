@@ -79,6 +79,8 @@ type Task struct {
 	Position        int      `json:"position"`
 	Priority        string   `json:"priority"`
 	Labels          []string `json:"labels"`
+	SkillID         *string  `json:"skillId,omitempty"`
+	SkillName       *string  `json:"skillName,omitempty"`
 	AgentID         *string  `json:"agentId,omitempty"`
 	SessionID       *string  `json:"sessionId,omitempty"`
 	WorktreeID      *string  `json:"worktreeId,omitempty"`
@@ -235,6 +237,8 @@ type TaskCreateOptions struct {
 	Description *string  `json:"description,omitempty"`
 	Priority    string   `json:"priority,omitempty"`
 	Labels      []string `json:"labels,omitempty"`
+	SkillID     *string  `json:"skillId,omitempty"`
+	SkillName   *string  `json:"skillName,omitempty"`
 }
 
 // TaskUpdateOptions specifies the parameters for updating a task.
@@ -243,6 +247,8 @@ type TaskUpdateOptions struct {
 	Description *string  `json:"description,omitempty"`
 	Priority    *string  `json:"priority,omitempty"`
 	Labels      []string `json:"labels,omitempty"`
+	SkillID     *string  `json:"skillId,omitempty"`
+	SkillName   *string  `json:"skillName,omitempty"`
 }
 
 // TaskMoveOptions specifies the target column and position when moving a task.
@@ -267,4 +273,3 @@ type SessionListOptions struct {
 	Limit       int
 	Offset      int
 }
-

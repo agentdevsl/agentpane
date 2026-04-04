@@ -13,11 +13,11 @@ type CodespaceService struct {
 
 // List returns all codespaces.
 func (s *CodespaceService) List(ctx context.Context) ([]Codespace, error) {
-	var result []Codespace
-	if err := s.client.get(ctx, "/api/codespaces", &result); err != nil {
+	items, _, err := getList[Codespace](s.client, ctx, "/api/codespaces")
+	if err != nil {
 		return nil, err
 	}
-	return result, nil
+	return items, nil
 }
 
 // Get returns a single codespace by ID.
