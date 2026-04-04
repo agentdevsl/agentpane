@@ -1,8 +1,11 @@
 /**
  * FC-005: Refactored from useState to useReducer with discriminated union actions.
  * FC-006: Uses useSessionSubscription for shared SSE connection.
+ * FC-031: Falls back to REST historical events when SSE stream is unavailable
+ *         (completed/cancelled/error sessions).
  */
-import { useReducer, useRef } from 'react';
+import { useCallback, useReducer, useRef } from 'react';
+import { apiClient } from '@/lib/api/client';
 import type {
   ConnectionState,
   ContainerAgentComplete,
@@ -139,6 +142,215 @@ const initialState: ContainerAgentState = {
 };
 
 // =============================================================================
+// FC-031: Historical event replay types and processing
+// =============================================================================
+
+interface HistoricalEvent {
+  id: string;
+  type: string;
+  timestamp: number;
+  data: unknown;
+}
+
+interface HistoricalLoadResult {
+  messages: ContainerAgentState['messages'];
+  toolExecutions: ContainerAgentToolExecution[];
+  fileChanges: FileChange[];
+  status: ContainerAgentState['status'];
+  statusHistory: ContainerAgentStatusEntry[];
+  currentTurn: number;
+  remainingTurns: number;
+  maxTurns?: number;
+  model?: string;
+  branch?: string;
+  plan?: string;
+  result?: string;
+  error?: string;
+  errorCode?: string;
+  startedAt?: number;
+  completedAt?: number;
+  sandboxProvider?: string;
+  sandboxContainerId?: string;
+}
+
+/**
+ * Build container agent state from historical REST events.
+ * Replays events in order to reconstruct the same state shape
+ * that the live SSE reducer would produce.
+ */
+function buildStateFromHistoricalEvents(events: HistoricalEvent[]): HistoricalLoadResult {
+  const messages: ContainerAgentState['messages'] = [];
+  const toolExecutions: ContainerAgentToolExecution[] = [];
+  const fileChanges: FileChange[] = [];
+  const statusHistory: ContainerAgentStatusEntry[] = [];
+  let status: ContainerAgentState['status'] = 'completed';
+  let currentTurn = 0;
+  let remainingTurns = 0;
+  let maxTurns: number | undefined;
+  let model: string | undefined;
+  let branch: string | undefined;
+  let plan: string | undefined;
+  let result: string | undefined;
+  let error: string | undefined;
+  let errorCode: string | undefined;
+  let startedAt: number | undefined;
+  let completedAt: number | undefined;
+  let sandboxProvider: string | undefined;
+  let sandboxContainerId: string | undefined;
+
+  for (const event of events) {
+    const data = (event.data ?? {}) as Record<string, unknown>;
+
+    switch (event.type) {
+      case 'container-agent:status':
+        statusHistory.push({
+          stage: data.stage as ContainerAgentStage,
+          message: data.message as string,
+          timestamp: event.timestamp,
+        });
+        break;
+
+      case 'container-agent:started':
+        model = data.model as string | undefined;
+        maxTurns = data.maxTurns as number | undefined;
+        remainingTurns = maxTurns ?? 0;
+        sandboxProvider = data.sandboxProvider as string | undefined;
+        sandboxContainerId = data.sandboxContainerId as string | undefined;
+        startedAt = event.timestamp;
+        break;
+
+      case 'container-agent:message':
+        messages.push({
+          role: (data.role as 'user' | 'assistant' | 'system') ?? 'assistant',
+          content: (data.content as string) ?? '',
+          timestamp: event.timestamp,
+        });
+        break;
+
+      case 'container-agent:turn':
+        currentTurn = (data.turn as number) ?? currentTurn;
+        remainingTurns = (data.remaining as number) ?? remainingTurns;
+        break;
+
+      case 'container-agent:tool:start': {
+        const toolId = (data.toolId as string) ?? (data.id as string) ?? '';
+        toolExecutions.push({
+          toolId,
+          toolName: (data.toolName as string) ?? 'Unknown',
+          input: (data.input as Record<string, unknown>) ?? {},
+          status: 'running',
+          startedAt: event.timestamp,
+        });
+        break;
+      }
+
+      case 'container-agent:tool:result': {
+        const resultToolId = (data.toolId as string) ?? (data.id as string) ?? '';
+        const existingTool = toolExecutions.find((t) => t.toolId === resultToolId);
+        if (existingTool) {
+          existingTool.result = data.result as string | undefined;
+          existingTool.isError = data.isError as boolean | undefined;
+          existingTool.durationMs = data.durationMs as number | undefined;
+          existingTool.status = data.isError ? 'error' : 'complete';
+          existingTool.completedAt = event.timestamp;
+        } else {
+          toolExecutions.push({
+            toolId: resultToolId,
+            toolName: (data.toolName as string) ?? 'Unknown',
+            input: (data.input as Record<string, unknown>) ?? {},
+            result: data.result as string | undefined,
+            isError: data.isError as boolean | undefined,
+            durationMs: data.durationMs as number | undefined,
+            status: data.isError ? 'error' : 'complete',
+            startedAt: event.timestamp,
+            completedAt: event.timestamp,
+          });
+        }
+        break;
+      }
+
+      case 'container-agent:complete':
+        status =
+          (data.status as string) === 'completed'
+            ? 'completed'
+            : (data.status as string) === 'cancelled'
+              ? 'cancelled'
+              : 'error';
+        result = data.result as string | undefined;
+        completedAt = event.timestamp;
+        break;
+
+      case 'container-agent:error':
+        status = 'error';
+        error = data.error as string | undefined;
+        errorCode = data.code as string | undefined;
+        completedAt = event.timestamp;
+        break;
+
+      case 'container-agent:cancelled':
+        status = 'cancelled';
+        completedAt = event.timestamp;
+        break;
+
+      case 'container-agent:plan_ready':
+        status = 'plan_ready';
+        plan = data.plan as string | undefined;
+        result = 'Plan ready for review';
+        completedAt = event.timestamp;
+        break;
+
+      case 'container-agent:worktree':
+        branch = data.branch as string | undefined;
+        break;
+
+      case 'container-agent:file_changed': {
+        const filePath = data.path as string;
+        const existingIdx = fileChanges.findIndex((f) => f.path === filePath);
+        const change: FileChange = {
+          path: filePath,
+          action: data.action as 'create' | 'modify' | 'delete',
+          toolName: data.toolName as string,
+          additions: data.additions as number | undefined,
+          deletions: data.deletions as number | undefined,
+          timestamp: event.timestamp,
+        };
+        if (existingIdx >= 0) {
+          fileChanges[existingIdx] = change;
+        } else {
+          fileChanges.push(change);
+        }
+        break;
+      }
+      // Skip token events -- they are high-frequency streaming deltas
+      // and the accumulated text is captured by container-agent:message events
+      default:
+        break;
+    }
+  }
+
+  return {
+    messages,
+    toolExecutions,
+    fileChanges,
+    status,
+    statusHistory,
+    currentTurn,
+    remainingTurns,
+    maxTurns,
+    model,
+    branch,
+    plan,
+    result,
+    error,
+    errorCode,
+    startedAt,
+    completedAt,
+    sandboxProvider,
+    sandboxContainerId,
+  };
+}
+
+// =============================================================================
 // FC-005: Discriminated union action types
 // =============================================================================
 
@@ -159,7 +371,8 @@ type ContainerAgentAction =
   | { type: 'CANCELLED'; data: { turnCount: number; timestamp: number } }
   | { type: 'PLAN_READY'; data: ContainerAgentPlanReady }
   | { type: 'WORKTREE'; data: ContainerAgentWorktree }
-  | { type: 'FILE_CHANGED'; data: ContainerAgentFileChanged };
+  | { type: 'FILE_CHANGED'; data: ContainerAgentFileChanged }
+  | { type: 'LOAD_HISTORICAL'; data: HistoricalLoadResult };
 
 function containerAgentReducer(
   state: ContainerAgentState,
@@ -340,6 +553,14 @@ function containerAgentReducer(
       };
     }
 
+    case 'LOAD_HISTORICAL':
+      return {
+        ...state,
+        ...action.data,
+        streamedText: '',
+        isStreaming: false,
+      };
+
     default:
       return state;
   }
@@ -353,21 +574,66 @@ function getStableEventId<TData>(
 }
 
 /**
+ * Terminal session statuses that will never produce new SSE events.
+ * When a session has one of these statuses, we skip the SSE stream
+ * and go straight to the REST historical fetch.
+ */
+const TERMINAL_SESSION_STATUSES = new Set(['completed', 'cancelled', 'error', 'closed']);
+
+/**
  * Hook for subscribing to container agent events.
  *
  * FC-005: Uses useReducer with discriminated union actions instead of useState.
  * FC-006: Uses useSessionSubscription for shared SSE connections.
+ * FC-031: Falls back to REST historical events when the SSE stream is unavailable.
  *
  * @param sessionId - The session ID to subscribe to
+ * @param options.sessionStatus - Session status from the DB (used to skip SSE for completed sessions)
  * @returns Container agent state and connection state
  */
-export function useContainerAgent(sessionId: string | null): {
+export function useContainerAgent(
+  sessionId: string | null,
+  options?: { sessionStatus?: string }
+): {
   state: ContainerAgentState;
   connectionState: ConnectionState;
   isStreaming: boolean;
 } {
   const [state, dispatch] = useReducer(containerAgentReducer, initialState);
   const seenEventIdsRef = useRef<Set<string>>(new Set());
+  const historicalFetchedRef = useRef<string | null>(null);
+  const streamErrorCountRef = useRef(0);
+
+  // Determine if the session is terminal (completed/cancelled/error) upfront.
+  // Terminal sessions will never produce SSE events, so skip the stream entirely.
+  const isTerminalSession = options?.sessionStatus
+    ? TERMINAL_SESSION_STATUSES.has(options.sessionStatus)
+    : false;
+
+  /**
+   * Fetch historical events from the REST API and replay them into the reducer.
+   */
+  const fetchHistoricalEvents = useCallback(async (sid: string) => {
+    // Prevent duplicate fetches for the same session
+    if (historicalFetchedRef.current === sid) return;
+    historicalFetchedRef.current = sid;
+
+    try {
+      const result = await apiClient.sessions.getEvents(sid, { limit: 500 });
+      if (!result.ok) {
+        console.error('[useContainerAgent] Failed to fetch historical events:', result.error);
+        return;
+      }
+
+      const events = result.data;
+      if (events.length === 0) return;
+
+      const historicalState = buildStateFromHistoricalEvents(events as HistoricalEvent[]);
+      dispatch({ type: 'LOAD_HISTORICAL', data: historicalState });
+    } catch (err) {
+      console.error('[useContainerAgent] Error fetching historical events:', err);
+    }
+  }, []);
 
   const handleEvent = <TData>(
     event: ContainerAgentStreamEvent<TData>,
@@ -499,9 +765,16 @@ export function useContainerAgent(sessionId: string | null): {
     },
     onError: (error) => {
       console.error('[useContainerAgent] Stream error:', error);
+      // FC-031: After repeated stream errors, fall back to historical REST fetch.
+      // This handles the case where the SSE endpoint returns 404 for completed sessions.
+      streamErrorCountRef.current += 1;
+      if (streamErrorCountRef.current >= 2 && sessionId) {
+        void fetchHistoricalEvents(sessionId);
+      }
     },
     onReconnect: () => {
       console.log('[useContainerAgent] Reconnected to session stream');
+      streamErrorCountRef.current = 0;
     },
     onDisconnect: () => {
       console.log('[useContainerAgent] Disconnected from session stream');
@@ -511,10 +784,26 @@ export function useContainerAgent(sessionId: string | null): {
   // Reset state and dedupe cache when session changes
   useWatchEffect(() => {
     seenEventIdsRef.current.clear();
+    historicalFetchedRef.current = null;
+    streamErrorCountRef.current = 0;
     dispatch({ type: 'RESET' });
   }, [sessionId]);
 
-  const { connectionState } = useSessionSubscription(sessionId, callbacks);
+  // FC-031: For terminal sessions, skip SSE entirely and fetch historical events.
+  // Pass null sessionId to useSessionSubscription to avoid opening a stream.
+  const effectiveSessionId = isTerminalSession ? null : sessionId;
+  const { connectionState } = useSessionSubscription(effectiveSessionId, callbacks);
 
-  return { state, connectionState, isStreaming: state.isStreaming };
+  // FC-031: Immediately fetch historical events for terminal sessions
+  useWatchEffect(() => {
+    if (isTerminalSession && sessionId) {
+      void fetchHistoricalEvents(sessionId);
+    }
+  }, [isTerminalSession, sessionId, fetchHistoricalEvents]);
+
+  // Derive effective connection state: for terminal sessions with loaded data,
+  // report as 'disconnected' (expected -- no live stream needed)
+  const effectiveConnectionState = isTerminalSession ? 'disconnected' : connectionState;
+
+  return { state, connectionState: effectiveConnectionState, isStreaming: state.isStreaming };
 }

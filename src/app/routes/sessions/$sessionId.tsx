@@ -284,6 +284,7 @@ function SessionPage(): React.JSX.Element {
           ) : null}
           <ContainerAgentPanel
             sessionId={session.id}
+            sessionStatus={session.status}
             sandboxProvider={session.sandboxProvider ?? undefined}
             onStop={handleContainerStop}
             onApprovePlan={() => void handleApprovePlan()}

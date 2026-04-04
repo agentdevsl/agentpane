@@ -89,6 +89,9 @@ const TopologyTab = memo(function TopologyTab({
 export interface ContainerAgentPanelProps {
   /** Session ID to subscribe to */
   sessionId: string | null;
+  /** Session status from the DB (e.g. 'active', 'completed', 'cancelled', 'error').
+   *  When terminal, the panel skips SSE and loads historical events via REST. */
+  sessionStatus?: string;
   /** Sandbox provider from session record (fallback when stream events lack it) */
   sandboxProvider?: string;
   /** Callback when stop is requested */
@@ -112,15 +115,18 @@ export interface ContainerAgentPanelProps {
  */
 export function ContainerAgentPanel({
   sessionId,
+  sessionStatus,
   sandboxProvider: sessionSandboxProvider,
   onStop,
   onApprovePlan,
   onRejectPlan,
   isPlanActionPending,
 }: ContainerAgentPanelProps): React.JSX.Element {
-  const { state, connectionState, isStreaming } = useContainerAgent(sessionId);
+  const { state, connectionState, isStreaming } = useContainerAgent(sessionId, { sessionStatus });
   const [activeTab, setActiveTab] = useState<PanelTab>('output');
 
+  const TERMINAL_STATUSES = new Set(['completed', 'cancelled', 'error', 'closed']);
+  const isHistorical = sessionStatus ? TERMINAL_STATUSES.has(sessionStatus) : false;
   const isActive = state.status === 'running' || state.status === 'starting';
   const hasChanges = state.fileChanges.length > 0;
   // Prefer stream event provider, fall back to session record
@@ -225,6 +231,7 @@ export function ContainerAgentPanel({
                 error={state.error}
                 status={state.status}
                 statusMessage={state.statusMessage}
+                isHistorical={isHistorical}
                 plan={state.plan}
                 onApprovePlan={state.status === 'plan_ready' ? onApprovePlan : undefined}
                 onRejectPlan={state.status === 'plan_ready' ? onRejectPlan : undefined}

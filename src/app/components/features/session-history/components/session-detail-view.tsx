@@ -19,6 +19,7 @@ import { Button } from '@/app/components/ui/button';
 import { ExecutionBadge } from '@/app/components/ui/execution-badge';
 import { Skeleton, SkeletonText } from '@/app/components/ui/skeleton';
 import type { SessionStatus } from '@/db/schema';
+import { buildTopologyFromEvents, type TopologyEvent } from '@/lib/topology/build-from-events';
 import type { TopologyGraph, TopologyNode } from '@/lib/topology/types';
 import { cn } from '@/lib/utils/cn';
 import { useSessionEvents } from '../hooks/use-session-events';
@@ -66,9 +67,32 @@ export function SessionDetailView({
   const [activeView, setActiveView] = useState<ViewTab>('replay');
   const { entries, toolCalls, toolCallStats, isLoading: eventsLoading } = useSessionEvents(session);
 
+  // Build topology from historical session events (same approach as ContainerAgentPanel's TopologyTab).
+  // This reconstructs subagent nodes from topology:agent_spawned events rather than showing a
+  // single hardcoded orchestrator node.
   // biome-ignore lint/correctness/useExhaustiveDependencies: granular deps intentional to avoid recompute when unrelated session fields change; session nullability handled inside
   const rootTopologyGraph: TopologyGraph | null = useMemo(() => {
     if (!session) return null;
+
+    // When session has events, reconstruct topology from event history
+    if (session.events && session.events.length > 0) {
+      const topologyEvents = session.events as TopologyEvent[];
+      return buildTopologyFromEvents(topologyEvents, {
+        sessionId: session.id,
+        agentId: session.agentId,
+        taskId: session.taskId,
+        taskTitle: session.taskTitle ?? session.title,
+        taskColumn:
+          session.status === 'closed'
+            ? 'verified'
+            : session.status === 'active'
+              ? 'in_progress'
+              : null,
+        lastAgentStatus: null,
+      });
+    }
+
+    // Fallback: no events available, show a single root node
     return {
       nodes: [
         {
@@ -118,6 +142,7 @@ export function SessionDetailView({
     session?.createdAt,
     session?.taskId,
     session?.taskTitle,
+    session?.events,
   ]);
 
   // Loading state
