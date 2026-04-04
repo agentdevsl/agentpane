@@ -582,6 +582,8 @@ export interface TopologyAgentSpawned {
   taskId?: string;
   name: string;
   role: string;
+  /** Real SDK agent type (subagent_type / task_type) passed through from the stream handler */
+  agentType?: string | null;
   parentId: string | null;
   sdkTaskId?: string;
   timestamp: number;
