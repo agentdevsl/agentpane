@@ -1,9 +1,11 @@
 package command
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
+	"strings"
 )
 
 // EnvSetCommand sets a sandbox environment variable.
@@ -19,13 +21,36 @@ func (c *EnvSetCommand) Run(args []string) int {
 	}
 
 	remaining := flags.Args()
-	if len(remaining) < 2 {
-		fmt.Fprintf(os.Stderr, "Error: KEY and VALUE arguments are required\n")
+	if len(remaining) < 1 {
+		fmt.Fprintf(os.Stderr, "Error: KEY argument is required\n")
 		return 1
 	}
 
 	key := remaining[0]
-	value := remaining[1]
+	var value string
+
+	if len(remaining) >= 2 {
+		// Value from command line argument
+		value = remaining[1]
+	} else {
+		// No value argument — read from stdin (avoids shell history exposure)
+		// Supports: echo "secret" | agentpane env set KEY
+		//           agentpane env set KEY < secret.txt
+		stat, _ := os.Stdin.Stat()
+		if (stat.Mode() & os.ModeCharDevice) == 0 {
+			// Stdin is a pipe — read one line
+			scanner := bufio.NewScanner(os.Stdin)
+			if scanner.Scan() {
+				value = strings.TrimSpace(scanner.Text())
+			}
+		}
+		if value == "" {
+			fmt.Fprintf(os.Stderr, "Error: VALUE required as argument or piped via stdin\n")
+			fmt.Fprintf(os.Stderr, "  agentpane env set KEY VALUE\n")
+			fmt.Fprintf(os.Stderr, "  echo \"secret\" | agentpane env set KEY\n")
+			return 1
+		}
+	}
 
 	client, err := c.Client()
 	if err != nil {
@@ -57,10 +82,15 @@ func (c *EnvSetCommand) Run(args []string) int {
 
 // Help returns detailed help text for the env set command.
 func (c *EnvSetCommand) Help() string {
-	return `Usage: agentpane env set <KEY> <VALUE> [options]
+	return `Usage: agentpane env set <KEY> [VALUE] [options]
 
   Set a sandbox environment variable. If the key already exists, its value
   is overwritten.
+
+  For secrets, pipe the value via stdin to avoid shell history exposure:
+
+    echo "$TFE_TOKEN" | agentpane env set TFE_TOKEN
+    cat secret.txt | agentpane env set API_KEY
 
 Options:
 
