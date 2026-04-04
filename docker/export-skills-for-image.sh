@@ -113,6 +113,24 @@ if [ -n "$REPO_OWNER" ] && [ -n "$REPO_NAME" ]; then
         echo "No $src_dir directory in repo — skipping"
       fi
     done
+
+    # Copy MCP config and Claude settings (these go to workspace root)
+    mkdir -p docker/claude-config-cache
+    for f in .mcp.json .mcp-ci.json; do
+      if [ -f "$TEMP_CLONE/$f" ]; then
+        cp "$TEMP_CLONE/$f" "docker/claude-config-cache/$f"
+        echo "Exported $f"
+      fi
+    done
+    # Copy .claude/settings.local.json and CLAUDE.md
+    if [ -f "$TEMP_CLONE/.claude/settings.local.json" ]; then
+      cp "$TEMP_CLONE/.claude/settings.local.json" "docker/claude-config-cache/settings.local.json"
+      echo "Exported .claude/settings.local.json"
+    fi
+    if [ -f "$TEMP_CLONE/.claude/CLAUDE.md" ]; then
+      cp "$TEMP_CLONE/.claude/CLAUDE.md" "docker/claude-config-cache/CLAUDE.md"
+      echo "Exported .claude/CLAUDE.md"
+    fi
   else
     echo "Warning: could not clone ${REPO_OWNER}/${REPO_NAME} — foundations/github/agents will be missing" >&2
   fi

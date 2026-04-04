@@ -48,5 +48,22 @@ for cache_pair in "foundations-cache:.foundations" "github-cache:.github" "dot-a
     fi
 done
 
+# Copy MCP config and Claude settings from image cache
+if [ -d /opt/claude-config-cache ] && [ -d /workspace ]; then
+    # .mcp.json goes to workspace root (Claude Code reads it from project root)
+    for f in .mcp.json .mcp-ci.json; do
+        if [ -f "/opt/claude-config-cache/$f" ] && [ ! -f "/workspace/$f" ]; then
+            cp "/opt/claude-config-cache/$f" "/workspace/$f" 2>/dev/null || true
+        fi
+    done
+    # settings.local.json and CLAUDE.md go to .claude/
+    mkdir -p /workspace/.claude 2>/dev/null || true
+    for f in settings.local.json CLAUDE.md; do
+        if [ -f "/opt/claude-config-cache/$f" ] && [ ! -f "/workspace/.claude/$f" ]; then
+            cp "/opt/claude-config-cache/$f" "/workspace/.claude/$f" 2>/dev/null || true
+        fi
+    done
+fi
+
 # Execute the command
 exec "$@"

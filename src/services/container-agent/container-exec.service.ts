@@ -642,6 +642,22 @@ export class ContainerExecService {
       worktreePath = resolved.worktreePath;
     }
 
+    // Read project-level env vars from settings (e.g., TFE_TOKEN, AWS keys)
+    // Configured via Settings → sandbox.env and passed through to the container
+    let sandboxEnv: Record<string, string> = {};
+    try {
+      const { SettingsService } = await import('../settings.service.js');
+      const settingsService = new SettingsService(db);
+      const envResult = await settingsService.getValue<Record<string, string>>('sandbox.env', {});
+      if (envResult && typeof envResult === 'object') {
+        sandboxEnv = envResult;
+      }
+    } catch (envErr) {
+      log.warn('Failed to read sandbox.env settings (continuing without)', {
+        data: { error: envErr instanceof Error ? envErr.message : String(envErr) },
+      });
+    }
+
     // Build env vars and create container bridge
     const { env, bridge } = this.prepareContainerExec({
       taskId,
@@ -655,6 +671,17 @@ export class ContainerExecService {
       stopFilePath,
       oauthToken,
     });
+
+    // Merge project-level env vars (sandbox.env setting) into container env.
+    // These go first so agent-specific vars take precedence on conflict.
+    if (Object.keys(sandboxEnv).length > 0) {
+      for (const [key, value] of Object.entries(sandboxEnv)) {
+        if (!(key in env)) {
+          env[key] = value;
+        }
+      }
+      log.info('Sandbox env vars applied', { data: { count: Object.keys(sandboxEnv).length } });
+    }
 
     // When a skill is assigned, tell the agent-runner to use acceptEdits mode
     // during planning so the skill workflow can use tools like WebSearch, AskUserQuestion
