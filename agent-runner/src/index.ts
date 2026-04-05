@@ -509,10 +509,19 @@ async function runPlanningPhase(): Promise<void> {
         );
       }
     }
+    // ExitPlanMode MUST be in allowedTools for plan mode sessions.
+    // The SDK's CLI permission layer blocks tools not in allowedTools before
+    // the canUseTool callback runs. Without this, agents cannot exit plan mode.
+    const essentialPlanningTools = ['ExitPlanMode'];
+    for (const tool of essentialPlanningTools) {
+      if (!allowedTools.includes(tool)) {
+        allowedTools.push(tool);
+      }
+    }
     session = unstable_v2_createSession({
       model: config.model,
       env: { ...process.env }, // Teams GA: env passed through for agent swarm support
-      ...(allowedTools.length > 0 ? { allowedTools } : {}),
+      allowedTools,
       permissionMode: planPermissionMode,
       canUseTool, // Use official SDK callback for tool interception
     });
@@ -618,12 +627,30 @@ async function runPlanningPhase(): Promise<void> {
           // Check turn limit
           if (turn >= config.maxTurns) {
             console.error('[agent-runner] Turn limit reached during planning');
-            events.complete({
-              status: 'turn_limit',
-              turnCount: turn,
-              result: `Turn limit reached (${config.maxTurns}) during planning.`,
-            });
+            emitAllToolResults();
             session.close();
+
+            // If we have accumulated text, emit plan_ready so the plan approval
+            // flow works. Emitting complete during planning would bypass plan
+            // approval and leave tasks stuck without a proper plan.
+            if (accumulatedText || exitPlanModeDetected) {
+              const planContent = exitPlanModePlan || accumulatedText;
+              console.error(
+                `[agent-runner] Emitting plan_ready on turn limit (length: ${planContent.length})`
+              );
+              events.planReady({
+                plan: planContent,
+                turnCount: turn,
+                sdkSessionId: sdkSessionId ?? '',
+                allowedPrompts: exitPlanModeOptions?.allowedPrompts,
+              });
+            } else {
+              events.complete({
+                status: 'turn_limit',
+                turnCount: turn,
+                result: `Turn limit reached (${config.maxTurns}) during planning.`,
+              });
+            }
             return;
           }
         }

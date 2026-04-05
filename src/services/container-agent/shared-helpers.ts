@@ -182,7 +182,10 @@ export async function updateTaskOnAgentError(
   sessionId?: string
 ): Promise<boolean> {
   try {
-    // Preserve sessionId so the UI can display error context and session events
+    // Preserve sessionId so the UI can display error context and session events.
+    // Note: task stays in in_progress with lastAgentStatus='error'. Moving to
+    // backlog here would race with handleAgentComplete since processAgentOutput
+    // fires both bridge callbacks and process-exit handlers.
     const [updated] = await db
       .update(tasks)
       .set({
