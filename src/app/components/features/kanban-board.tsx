@@ -24,9 +24,15 @@ import { useContainerAgentStatuses } from '@/app/hooks/use-container-agent-statu
 import type { Task, TaskColumn } from '@/db/schema';
 import { cn } from '@/lib/utils/cn';
 import { COLUMNS } from './kanban-board/constants';
-import { type SortField, useBoardState } from './kanban-board/use-board-state';
+import { SORT_FIELDS, type SortField, useBoardState } from './kanban-board/use-board-state';
 import { KanbanCard } from './kanban-card';
 import { KanbanColumn } from './kanban-column';
+
+const SORT_LABELS: Record<SortField, { icon: typeof ArrowsDownUp; label: string }> = {
+  position: { icon: ArrowsDownUp, label: 'Sort' },
+  updatedAt: { icon: ClockCounterClockwise, label: 'Updated' },
+  createdAt: { icon: Plus, label: 'Created' },
+};
 
 // Configure smooth drop animation for better visual feedback
 const dropAnimation: DropAnimation = {
@@ -81,7 +87,7 @@ export function KanbanBoard({
   // Track agent statuses for active sessions
   const agentStatuses = useContainerAgentStatuses(activeSessions);
   const {
-    toggleSelection,
+    selectCard,
     selectAll,
     clearSelection,
     isSelected,
@@ -168,12 +174,6 @@ export function KanbanBoard({
   const selectionCount = selectedIds.size;
   const hasSelection = selectionCount > 0;
 
-  const sortLabels: Record<SortField, { icon: typeof ArrowsDownUp; label: string }> = {
-    position: { icon: ArrowsDownUp, label: 'Sort' },
-    updatedAt: { icon: ClockCounterClockwise, label: 'Updated' },
-    createdAt: { icon: Plus, label: 'Created' },
-  };
-
   return (
     <div className="flex h-full flex-col" data-testid="kanban-board">
       {/* Sort toggle — segmented control */}
@@ -182,8 +182,8 @@ export function KanbanBoard({
           className="flex items-center rounded-lg border border-[var(--border-default)] bg-[var(--bg-subtle)] p-0.5"
           data-testid="sort-toggle"
         >
-          {(['position', 'updatedAt', 'createdAt'] as const).map((field) => {
-            const config = sortLabels[field];
+          {SORT_FIELDS.map((field) => {
+            const config = SORT_LABELS[field];
             const isActive = sortBy === field;
             const Icon = config.icon;
             return (
@@ -289,7 +289,7 @@ export function KanbanBoard({
               title={column.label}
               tasks={tasksByColumn.get(column.id) ?? []}
               onTaskClick={onTaskClick}
-              onTaskSelect={toggleSelection}
+              onTaskSelect={selectCard}
               isTaskSelected={isSelected}
               isLoading={isLoading}
               isCollapsed={isColumnCollapsed(column.id)}

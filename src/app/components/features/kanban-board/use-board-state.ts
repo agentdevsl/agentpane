@@ -1,11 +1,12 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { Task, TaskColumn } from '@/db/schema';
 
-export type SortField = 'position' | 'updatedAt' | 'createdAt';
+export const SORT_FIELDS = ['position', 'updatedAt', 'createdAt'] as const;
+export type SortField = (typeof SORT_FIELDS)[number];
 
 export interface BoardState {
-  selectedIds: Set<string>;
-  collapsedColumns: Set<TaskColumn>;
+  selectedIds: ReadonlySet<string>;
+  collapsedColumns: ReadonlySet<TaskColumn>;
   sortBy: SortField;
 }
 
@@ -14,8 +15,6 @@ export interface BoardActions {
   selectCard: (taskId: string, multiSelect: boolean) => void;
   /** Set the selected IDs directly */
   setSelectedIds: (ids: Set<string>) => void;
-  /** Toggle selection for a card (legacy method) */
-  toggleSelection: (taskId: string, isMultiSelect: boolean) => void;
   /** Select all tasks */
   selectAll: (tasks: Task[]) => void;
   /** Clear all selections */
@@ -42,18 +41,18 @@ function loadCollapsedColumns(): Set<TaskColumn> {
     if (saved) {
       return new Set(JSON.parse(saved) as TaskColumn[]);
     }
-  } catch {
-    // Ignore localStorage errors
+  } catch (error) {
+    console.warn('[useBoardState] Failed to read collapsed columns:', error);
   }
   return new Set();
 }
 
-function saveCollapsedColumns(columns: Set<TaskColumn>): void {
+function saveCollapsedColumns(columns: ReadonlySet<TaskColumn>): void {
   if (typeof window === 'undefined') return;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify([...columns]));
-  } catch {
-    // Ignore localStorage errors
+  } catch (error) {
+    console.warn('[useBoardState] Failed to save collapsed columns:', error);
   }
 }
 
@@ -61,11 +60,11 @@ function loadSortBy(): SortField {
   if (typeof window === 'undefined') return 'position';
   try {
     const saved = localStorage.getItem(SORT_STORAGE_KEY);
-    if (saved === 'updatedAt' || saved === 'createdAt' || saved === 'position') {
-      return saved;
+    if (saved && (SORT_FIELDS as readonly string[]).includes(saved)) {
+      return saved as SortField;
     }
-  } catch {
-    // Ignore localStorage errors
+  } catch (error) {
+    console.warn('[useBoardState] Failed to read sort preference:', error);
   }
   return 'position';
 }
@@ -74,8 +73,8 @@ function saveSortBy(field: SortField): void {
   if (typeof window === 'undefined') return;
   try {
     localStorage.setItem(SORT_STORAGE_KEY, field);
-  } catch {
-    // Ignore localStorage errors
+  } catch (error) {
+    console.warn('[useBoardState] Failed to save sort preference:', error);
   }
 }
 
@@ -114,9 +113,6 @@ export function useBoardState(): [BoardState, BoardActions] {
       return next;
     });
   }, []);
-
-  // Alias for selectCard for backward compatibility
-  const toggleSelection = selectCard;
 
   const selectAll = useCallback((tasks: Task[]) => {
     setSelectedIdsState(new Set(tasks.map((t) => t.id)));
@@ -165,7 +161,6 @@ export function useBoardState(): [BoardState, BoardActions] {
     () => ({
       selectCard,
       setSelectedIds,
-      toggleSelection,
       selectAll,
       clearSelection,
       isSelected,
@@ -177,7 +172,6 @@ export function useBoardState(): [BoardState, BoardActions] {
     [
       selectCard,
       setSelectedIds,
-      toggleSelection,
       selectAll,
       clearSelection,
       isSelected,

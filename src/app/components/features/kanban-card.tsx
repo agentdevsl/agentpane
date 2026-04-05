@@ -38,15 +38,10 @@ const cardVariants = cva(
         true: 'border-[var(--accent-fg)] bg-[var(--accent-muted)]',
         false: 'border-[var(--border-default)]',
       },
-      hasAgent: {
-        true: '',
-        false: '',
-      },
     },
     defaultVariants: {
       isDragging: false,
       isSelected: false,
-      hasAgent: false,
     },
   }
 );
@@ -186,7 +181,6 @@ export function KanbanCard({
         cardVariants({
           isDragging: isDraggingProp ?? isDragging,
           isSelected,
-          hasAgent: Boolean(task.agentId),
         }),
         'touch-none' // Prevent scroll interference during drag
       )}
@@ -267,22 +261,34 @@ export function KanbanCard({
           <span className="font-mono text-xs text-[var(--fg-muted)]" data-testid="task-id">
             {formatTaskId(task.id)}
           </span>
-          <span
-            className="inline-flex items-center gap-0.5 text-[11px] text-[var(--fg-muted)]"
-            title={`Created: ${task.createdAt}`}
-            data-testid="task-created-at"
-          >
-            <Plus className="h-2.5 w-2.5" weight="bold" />
-            {formatRelativeTime(task.createdAt)}
-          </span>
-          <span
-            className="inline-flex items-center gap-0.5 text-[11px] text-[var(--fg-muted)]"
-            title={`Updated: ${task.updatedAt}`}
-            data-testid="task-updated-at"
-          >
-            <ClockCounterClockwise className="h-2.5 w-2.5" />
-            {formatRelativeTime(task.updatedAt)}
-          </span>
+          {(
+            [
+              {
+                icon: Plus,
+                date: task.createdAt,
+                label: 'Created',
+                testId: 'task-created-at',
+                weight: 'bold' as const,
+              },
+              {
+                icon: ClockCounterClockwise,
+                date: task.updatedAt,
+                label: 'Updated',
+                testId: 'task-updated-at',
+                weight: 'regular' as const,
+              },
+            ] as const
+          ).map(({ icon: Icon, date, label, testId, weight }) => (
+            <span
+              key={testId}
+              className="inline-flex items-center gap-0.5 text-[11px] text-[var(--fg-muted)]"
+              title={`${label}: ${new Date(date).toLocaleString()}`}
+              data-testid={testId}
+            >
+              <Icon className="h-2.5 w-2.5" weight={weight} />
+              {formatRelativeTime(date)}
+            </span>
+          ))}
         </div>
 
         <div className="flex items-center gap-1.5">

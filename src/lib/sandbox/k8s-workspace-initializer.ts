@@ -10,6 +10,7 @@
 
 import { CONTAINER_WORKSPACE_PATH } from '../constants/sandbox.js';
 import { createLogger } from '../logging/logger.js';
+import { errorMessage } from '../utils/error-message.js';
 import { slugify } from '../utils/slugify.js';
 import type { GitTokenResult } from './git-token-resolver.js';
 import type { ExecResult } from './types.js';
@@ -100,8 +101,8 @@ async function cloneRepository(
       });
     }
 
-    // Add origin remote (ignore error if it already exists)
-    await sandbox.exec('git', [
+    // Add or update origin remote (set-url handles both new and existing)
+    const addResult = await sandbox.exec('git', [
       '-C',
       CONTAINER_WORKSPACE_PATH,
       'remote',
@@ -109,8 +110,19 @@ async function cloneRepository(
       'origin',
       cloneUrl,
     ]);
+    if (addResult.exitCode !== 0) {
+      // Origin already exists — update its URL to use the fresh token
+      await sandbox.exec('git', [
+        '-C',
+        CONTAINER_WORKSPACE_PATH,
+        'remote',
+        'set-url',
+        'origin',
+        cloneUrl,
+      ]);
+    }
 
-    // Fetch with depth 1 — gets all branches but only latest commit
+    // Fetch the requested branch (shallow). If that fails, fetch the default branch.
     let cloneResult = await sandbox.exec('git', [
       '-C',
       CONTAINER_WORKSPACE_PATH,
@@ -118,7 +130,23 @@ async function cloneRepository(
       '--depth',
       '1',
       'origin',
+      baseBranch,
     ]);
+
+    if (cloneResult.exitCode !== 0) {
+      // Branch may not exist — fetch default branch instead
+      log.info('Branch fetch failed, fetching default branch', {
+        data: { baseBranch, owner, repo },
+      });
+      cloneResult = await sandbox.exec('git', [
+        '-C',
+        CONTAINER_WORKSPACE_PATH,
+        'fetch',
+        '--depth',
+        '1',
+        'origin',
+      ]);
+    }
 
     if (cloneResult.exitCode !== 0) {
       // Sanitize and return error early
@@ -155,7 +183,18 @@ async function cloneRepository(
 
     // Create a local tracking branch
     if (cloneResult.exitCode === 0) {
-      await sandbox.exec('git', ['-C', CONTAINER_WORKSPACE_PATH, 'checkout', '-B', baseBranch]);
+      const branchResult = await sandbox.exec('git', [
+        '-C',
+        CONTAINER_WORKSPACE_PATH,
+        'checkout',
+        '-B',
+        baseBranch,
+      ]);
+      if (branchResult.exitCode !== 0) {
+        log.warn('Failed to create local branch', {
+          data: { baseBranch, exitCode: branchResult.exitCode },
+        });
+      }
     }
 
     if (cloneResult.exitCode !== 0) {
@@ -196,7 +235,7 @@ async function cloneRepository(
     }
     return { ok: true };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = errorMessage(err);
     log.warn('Failed to clone repository', { error: msg });
     return { ok: false, error: msg };
   }
