@@ -14,7 +14,6 @@ import type {
 } from '@/lib/streams/client';
 import { subscribeToSession } from '@/lib/streams/client';
 import type { TopologyNode } from '@/lib/topology/types';
-import { isValidRole } from '@/lib/topology/types';
 import { deriveContainerAgentNodeId } from '@/lib/topology/utils';
 import { useMountEffect } from './use-mount-effect';
 import { useWatchEffect } from './use-watch-effect';
@@ -23,7 +22,7 @@ import { useWatchEffect } from './use-watch-effect';
  * Map a role string from the backend to a TopologyAgentRole.
  */
 function toRole(role: string): TopologyNode['role'] {
-  return isValidRole(role) ? role : 'coder';
+  return role || 'agent';
 }
 
 /**
@@ -246,7 +245,7 @@ export function useTopologyStream(
         const node: TopologyNode = {
           id: nodeId,
           name: data.model ?? 'Agent',
-          role: 'coder',
+          role: 'agent',
           agentType: null,
           status: 'running',
           parentId: null,

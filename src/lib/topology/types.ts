@@ -58,7 +58,7 @@ export interface TopologyDecision {
 export interface TopologyNode {
   id: string;
   name: string;
-  role: TopologyAgentRole;
+  role: string;
   /** Real SDK agent type (subagent_type / task_type) — e.g. "general-purpose", "Explore", "Plan" */
   agentType: string | null;
   status: TopologyAgentStatus;

@@ -70,7 +70,7 @@ describe('buildTopologyFromEvents', () => {
       const root = defined(graph.nodes[0]);
       expect(root.id).toBe('agent-task-1');
       expect(root.name).toBe('Fix login bug');
-      expect(root.role).toBe('coder');
+      expect(root.role).toBe('agent');
       expect(root.parentId).toBeNull();
       expect(root.childIds).toEqual([]);
     });
@@ -259,7 +259,7 @@ describe('buildTopologyFromEvents', () => {
       expect(child?.parentId).toBe('root-1');
     });
 
-    it('defaults unknown role to coder', () => {
+    it('passes through unknown role as-is', () => {
       const events = [
         makeEvent('topology:agent_spawned', {
           agentId: 'sub-1',
@@ -268,10 +268,10 @@ describe('buildTopologyFromEvents', () => {
         }),
       ];
       const graph = buildTopologyFromEvents(events, makeContext());
-      expect(defined(graph.nodes[0]).role).toBe('coder');
+      expect(defined(graph.nodes[0]).role).toBe('unknown_role');
     });
 
-    it('defaults missing role to coder', () => {
+    it('defaults missing role to agent', () => {
       const events = [
         makeEvent('topology:agent_spawned', {
           agentId: 'sub-1',
@@ -279,7 +279,7 @@ describe('buildTopologyFromEvents', () => {
         }),
       ];
       const graph = buildTopologyFromEvents(events, makeContext());
-      expect(defined(graph.nodes[0]).role).toBe('coder');
+      expect(defined(graph.nodes[0]).role).toBe('agent');
     });
 
     it('defaults missing agentType to null', () => {
@@ -529,7 +529,7 @@ describe('buildTopologyFromEvents', () => {
       const root = defined(graph.nodes[0]);
       expect(root.id).toBe('agent-task-1');
       expect(root.name).toBe('claude-sonnet-4');
-      expect(root.role).toBe('coder');
+      expect(root.role).toBe('agent');
       expect(root.status).toBe('running');
       expect(root.startedAt).toBe(BASE_TS + 10);
     });

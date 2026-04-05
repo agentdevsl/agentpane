@@ -14,6 +14,7 @@ import { PriorityIcon } from '@/app/components/ui/priority-icon';
 import type { AgentStatusInfo } from '@/app/hooks/use-container-agent-statuses';
 import type { Task } from '@/db/schema';
 import { cn } from '@/lib/utils/cn';
+import { formatRelativeTime } from '@/lib/utils/format-time';
 import { LABEL_TYPES, type Priority } from './constants';
 import { agentStatusVariants, cardVariants, labelVariants, lastRunStatusVariants } from './styles';
 
@@ -227,7 +228,15 @@ export const KanbanCard = React.memo(function KanbanCard({
 
       {/* Footer */}
       <div className="flex items-center justify-between mt-2.5">
-        <span className="font-mono text-xs text-fg-muted">{formatTaskId(task.id)}</span>
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-xs text-fg-muted">{formatTaskId(task.id)}</span>
+          <span
+            className="text-[10px] text-fg-subtle"
+            title={`Created: ${task.createdAt}\nUpdated: ${task.updatedAt}`}
+          >
+            {formatRelativeTime(task.updatedAt)}
+          </span>
+        </div>
 
         {/* Last run status badge (only show when not running) */}
         {lastRunStatus && !isAgentRunning && (

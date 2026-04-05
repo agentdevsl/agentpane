@@ -132,7 +132,7 @@ export function KanbanBoard({
         col.id,
         tasks
           .filter((task) => task.column === col.id)
-          .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+          .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
       );
     }
     return grouped;

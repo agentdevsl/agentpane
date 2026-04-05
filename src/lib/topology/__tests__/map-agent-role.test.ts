@@ -37,19 +37,19 @@ describe('mapAgentRole', () => {
   });
 
   it('maps explore to coder', () => {
-    expect(mapAgentRole('Explore')).toBe('coder');
+    expect(mapAgentRole('Explore')).toBe('agent');
   });
 
   it('defaults to coder for general-purpose', () => {
-    expect(mapAgentRole('general-purpose')).toBe('coder');
+    expect(mapAgentRole('general-purpose')).toBe('agent');
   });
 
   it('defaults to coder with no arguments', () => {
-    expect(mapAgentRole()).toBe('coder');
+    expect(mapAgentRole()).toBe('agent');
   });
 
   it('defaults to coder with undefined', () => {
-    expect(mapAgentRole(undefined)).toBe('coder');
+    expect(mapAgentRole(undefined)).toBe('agent');
   });
 
   it('is case insensitive', () => {

@@ -1,7 +1,7 @@
 import { Handle, type NodeProps, Position } from '@xyflow/react';
 import { memo } from 'react';
 import type { TopologyNode } from '@/lib/topology/types';
-import { AGENT_ROLE_CONFIG, DECISION_TYPE_CONFIG, STATUS_COLORS } from './agent-node-types';
+import { DECISION_TYPE_CONFIG, getRoleConfig, STATUS_COLORS } from './agent-node-types';
 
 export type AgentNodeData = Pick<
   TopologyNode,
@@ -28,7 +28,7 @@ function formatTokens(n: number): string {
 function AgentNodeComponent({ data, selected }: NodeProps) {
   const { name, role, status, progress, decisions, tokens, cost, turns, agentType } =
     data as AgentNodeData;
-  const roleConfig = AGENT_ROLE_CONFIG[role];
+  const roleConfig = getRoleConfig(role);
   const roleColor = roleConfig.color;
   const statusColor = STATUS_COLORS[status];
   const pct = Math.min(1, Math.max(0, progress / 100));

@@ -7,7 +7,6 @@ import type {
   TopologyAgentSpawnedEvent,
 } from '@/services/durable-streams.service.js';
 import type { TopologyEdge, TopologyGraph, TopologyNode } from './types.js';
-import { isValidRole } from './types.js';
 import { deriveContainerAgentNodeId } from './utils.js';
 
 /** Average cost per token used for topology cost estimates */
@@ -163,7 +162,7 @@ export function buildTopologyFromEvents(
       const node: TopologyNode = {
         id: d.agentId,
         name: d.name,
-        role: isValidRole(roleStr) ? roleStr : 'coder',
+        role: roleStr || 'agent',
         agentType: d.agentType ?? null,
         status: 'running',
         parentId: d.parentId ?? null,
@@ -199,7 +198,7 @@ export function buildTopologyFromEvents(
       nodes.set(agentId, {
         id: agentId,
         name: d.model ?? context.taskTitle ?? 'Agent',
-        role: 'coder',
+        role: 'agent',
         agentType: null,
         status: 'running',
         parentId: null,
@@ -295,7 +294,7 @@ export function buildTopologyFromEvents(
     const rootNode: TopologyNode = {
       id: agentId,
       name: context.taskTitle ?? 'Agent',
-      role: 'coder',
+      role: 'agent',
       agentType: null,
       status: fallbackStatus,
       parentId: null,

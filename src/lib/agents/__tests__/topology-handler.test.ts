@@ -54,7 +54,7 @@ describe('Topology system message handling', () => {
         data: {
           agentId: nodeId,
           name: (msg.description as string) ?? 'Agent',
-          role: 'coder',
+          role: 'agent',
           parentId: agentId,
           sdkTaskId,
         },

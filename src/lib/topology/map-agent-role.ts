@@ -1,18 +1,16 @@
-import type { TopologyAgentRole } from './types.js';
-
 /**
  * Map SDK task_type to a visual role category (icon/color only).
  * The actual agent type is stored separately as `agentType` on the node.
  */
-export function mapAgentRole(agentType?: string): TopologyAgentRole {
-  if (!agentType) return 'coder';
+export function mapAgentRole(agentType?: string): string {
+  if (!agentType) return 'agent';
   const t = agentType.toLowerCase();
   if (t.includes('plan')) return 'planner';
   if (t.includes('review') || t.includes('analyz')) return 'reviewer';
   if (t.includes('test') || t.includes('verif')) return 'tester';
   if (t.includes('scan') || t.includes('security') || t.includes('hunter')) return 'scanner';
   if (t.includes('deploy')) return 'deployer';
-  return 'coder';
+  return 'agent';
 }
 
 /**
