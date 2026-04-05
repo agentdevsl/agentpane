@@ -22,8 +22,8 @@ export const sandboxConfigs = pgTable('sandbox_configs', {
   type: text('type').$type<SandboxType>().notNull().default('docker'),
   isDefault: boolean('is_default').default(false),
   baseImage: text('base_image').notNull().default('node:22-slim'),
-  memoryMb: integer('memory_mb').notNull().default(4096),
-  cpuCores: doublePrecision('cpu_cores').notNull().default(2.0),
+  memoryMb: integer('memory_mb').notNull().default(8192),
+  cpuCores: doublePrecision('cpu_cores').notNull().default(4.0),
   maxProcesses: integer('max_processes').notNull().default(256),
   timeoutMinutes: integer('timeout_minutes').notNull().default(60),
   /** Volume mount path from local host for docker sandboxes (e.g., /home/user/projects) */

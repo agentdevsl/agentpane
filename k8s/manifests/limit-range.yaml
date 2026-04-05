@@ -23,12 +23,12 @@ spec:
     - type: Container
       # Default values applied when not specified in pod spec
       default:
-        memory: "4Gi"
-        cpu: "2"
+        memory: "8Gi"
+        cpu: "4"
       # Default requests (scheduling)
       defaultRequest:
-        memory: "2Gi"
-        cpu: "1"
+        memory: "4Gi"
+        cpu: "2"
       # Minimum resources (prevent under-provisioned containers)
       min:
         memory: "256Mi"
