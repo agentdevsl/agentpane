@@ -673,6 +673,12 @@ export class TaskService {
         `IMPORTANT: Before starting any work, use the Read tool to read the file at .claude/skills/${task.skillId}/SKILL.md`,
         `This file contains the workflow you MUST follow step by step. Execute each phase in order.`,
         `Use the subagents and tools specified in the skill file. Do NOT skip or improvise around the defined workflow.`,
+        '',
+        `SUBAGENT INSTRUCTIONS: When the skill says "Launch {agent-name} agent", you MUST use the Agent tool to spawn it.`,
+        `Subagent definitions are available at .claude/agents/{agent-name}.md — use the Agent tool with the agent name.`,
+        `For example: "Launch tf-module-developer agent" means spawn a subagent using the Agent tool with subagent_type "tf-module-developer".`,
+        `When the skill says to launch concurrent subagents, spawn multiple agents in parallel using multiple Agent tool calls in the same message.`,
+        `Do NOT do the subagent work yourself — delegate to the prescribed agents so work is parallelized correctly.`,
         ''
       );
     }

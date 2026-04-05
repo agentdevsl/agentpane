@@ -16,7 +16,6 @@ import {
   ArrowsDownUp,
   CheckSquare,
   ClockCounterClockwise,
-  ListNumbers,
   Plus,
   Trash,
 } from '@phosphor-icons/react';
@@ -170,7 +169,7 @@ export function KanbanBoard({
   const hasSelection = selectionCount > 0;
 
   const sortLabels: Record<SortField, { icon: typeof ArrowsDownUp; label: string }> = {
-    position: { icon: ListNumbers, label: 'Position' },
+    position: { icon: ArrowsDownUp, label: 'Sort' },
     updatedAt: { icon: ClockCounterClockwise, label: 'Updated' },
     createdAt: { icon: Plus, label: 'Created' },
   };
