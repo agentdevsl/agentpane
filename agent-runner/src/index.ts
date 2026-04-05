@@ -535,6 +535,11 @@ async function runPlanningPhase(): Promise<void> {
   let accumulatedText = '';
   let sdkSessionId: string | undefined;
 
+  // Topology tracker for subagent lifecycle events during planning
+  // Skills can spawn subagents via the Agent tool when AGENT_HAS_SKILL=true
+  const topology: TopologyTracker = { taskToNodeId: new Map(), rootEmitted: false };
+  const rootAgentId = `agent-${config.taskId}`;
+
   try {
     // Send the initial prompt
     await session.send(config.prompt as string);
@@ -572,12 +577,22 @@ async function runPlanningPhase(): Promise<void> {
         }
       }
 
-      // Capture SDK session ID from init message
+      // Capture SDK session ID from init message + handle subagent topology
       if (msg.type === 'system') {
-        const sysMsg = msg as { subtype?: string };
-        if (sysMsg.subtype === 'init') {
+        const sysMsg = msg as Record<string, unknown>;
+        const sysSubtype = sysMsg.subtype as string | undefined;
+        if (sysSubtype === 'init') {
           sdkSessionId = session.sessionId;
           console.error(`[agent-runner] SDK session ID: ${sdkSessionId}`);
+        }
+
+        // Handle subagent lifecycle events (task_started, task_progress, task_notification)
+        if (
+          sysSubtype === 'task_started' ||
+          sysSubtype === 'task_progress' ||
+          sysSubtype === 'task_notification'
+        ) {
+          handleTopologySystemMsg(sysMsg, topology, events, rootAgentId);
         }
       }
 

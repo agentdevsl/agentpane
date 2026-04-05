@@ -420,7 +420,7 @@ async function publishMetrics(
 }
 
 // AE-010: Deferred - functions share ~70% code but have enough phase-specific logic to make extraction risky
-// Planning: ExitPlanMode capture, planContent tracking, no topology, no turn limits
+// Planning: ExitPlanMode capture, planContent tracking, topology (subagents via skills), no turn limits
 // Execution: topology tracking, turn limit enforcement, different session params, different result events
 
 /**
@@ -437,6 +437,10 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
   let turn = 0;
   let planContent = '';
   let exitPlanModeOptions: ExitPlanModeOptions | undefined;
+
+  // Topology tracker for subagent lifecycle events during planning.
+  // Skills can spawn subagents via the Agent tool, which emit task_started/progress/notification.
+  const topology = createTopologyTracker();
 
   // Runtime timeout — abort the agent if it exceeds the max wall-clock limit
   const timeoutController = new AbortController();
@@ -735,13 +739,25 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
           });
       }
 
-      // Handle system messages (compact_boundary) during planning
+      // Handle system messages (compact_boundary + subagent topology) during planning
       if (msg.type === 'system') {
         const sysMsg = msg as Record<string, unknown>;
-        if ((sysMsg.subtype as string) === 'compact_boundary') {
+        const sysSubtype = sysMsg.subtype as string | undefined;
+
+        if (sysSubtype === 'compact_boundary') {
           publishCompactBoundary(sessionService, sessionId, agentId, sysMsg).catch((publishErr) => {
             log.warn('Failed to publish compact_boundary', { error: publishErr });
           });
+        }
+
+        // Handle subagent lifecycle events (task_started, task_progress, task_notification)
+        // Skills can spawn subagents via the Agent tool during planning
+        if (
+          sysSubtype === 'task_started' ||
+          sysSubtype === 'task_progress' ||
+          sysSubtype === 'task_notification'
+        ) {
+          await handleTopologySystemMessage(sysMsg, topology, sessionService, sessionId, agentId);
         }
       }
 
