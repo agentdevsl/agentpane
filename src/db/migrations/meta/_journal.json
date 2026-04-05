@@ -36,6 +36,13 @@
       "when": 1743292800000,
       "tag": "0013_add_memory_insight_status_category",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1743897600000,
+      "tag": "0014_add_task_execution_skill_columns",
+      "breakpoints": true
     }
   ]
 }

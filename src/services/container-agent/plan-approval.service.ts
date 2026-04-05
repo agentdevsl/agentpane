@@ -232,6 +232,28 @@ export class PlanApprovalService {
 
     const { db, provider, streams } = this.deps;
 
+    // Skill chaining: if task has an execution skill, swap skill and prefix prompt
+    let executionPrompt = planData.plan;
+    const taskRecord = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) });
+    if (taskRecord?.executionSkillId) {
+      log.info('Skill chaining: switching to execution skill', {
+        data: {
+          taskId,
+          planSkill: taskRecord.skillId,
+          executionSkill: taskRecord.executionSkillId,
+        },
+      });
+      executionPrompt = `Use skill ${taskRecord.executionSkillName ?? taskRecord.executionSkillId} to implement this plan:\n\n${planData.plan}`;
+      // Swap skillId/skillName to execution skill so container-exec sees it
+      await db
+        .update(tasks)
+        .set({
+          skillId: taskRecord.executionSkillId,
+          skillName: taskRecord.executionSkillName,
+        })
+        .where(eq(tasks.id, taskId));
+    }
+
     // AgentCore branch
     if (this.isAgentCoreProvider()) {
       log.info('Approving plan via AgentCore path', {
@@ -265,7 +287,7 @@ export class PlanApprovalService {
         codespaceId: planData.codespaceId,
         taskId: planData.taskId,
         sessionId: planData.sessionId,
-        prompt: planData.plan,
+        prompt: executionPrompt,
         phase: 'execute',
         sdkSessionId: planData.sdkSessionId || undefined,
       });
@@ -367,7 +389,7 @@ export class PlanApprovalService {
       codespaceId: planData.codespaceId,
       taskId: planData.taskId,
       sessionId: planData.sessionId,
-      prompt: planData.plan,
+      prompt: executionPrompt,
       phase: 'execute',
       sdkSessionId: effectiveSdkSessionId,
     });

@@ -203,6 +203,7 @@ async function fetchSkills(
       description: frontmatter.description as string | undefined,
       tags,
       content: body,
+      executionSkill: (frontmatter.executionSkill as string) || undefined,
     });
   }
 

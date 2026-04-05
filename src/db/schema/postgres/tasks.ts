@@ -51,6 +51,10 @@ export const tasks = pgTable(
     skillId: text('skill_id'),
     /** Denormalized skill display name for UI rendering */
     skillName: text('skill_name'),
+    /** Execution skill ID — chained skill to use after plan approval */
+    executionSkillId: text('execution_skill_id'),
+    /** Denormalized execution skill display name */
+    executionSkillName: text('execution_skill_name'),
     planOptions: jsonb('plan_options').$type<StoredPlanOptions>(),
     plan: text('plan'),
     createdAt: timestamp('created_at', { mode: 'string' }).defaultNow().notNull(),

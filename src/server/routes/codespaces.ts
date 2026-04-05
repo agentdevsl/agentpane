@@ -433,6 +433,7 @@ export function createCodespacesRoutes({ codespaceService, templateService, db }
       tags: skill.tags,
       sourceType: skill.sourceType,
       sourceName: skill.sourceName,
+      executionSkill: skill.executionSkill,
     }));
 
     return json({ ok: true, data: skills });

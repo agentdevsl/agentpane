@@ -29,6 +29,8 @@ export type CreateTaskInput = {
   priority?: 'high' | 'medium' | 'low';
   skillId?: string;
   skillName?: string;
+  executionSkillId?: string;
+  executionSkillName?: string;
 };
 
 export type UpdateTaskInput = {
@@ -40,6 +42,8 @@ export type UpdateTaskInput = {
   modelOverride?: string | null;
   skillId?: string | null;
   skillName?: string | null;
+  executionSkillId?: string | null;
+  executionSkillName?: string | null;
 };
 
 export type ListTasksOptions = {

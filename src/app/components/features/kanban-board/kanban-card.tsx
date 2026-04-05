@@ -3,7 +3,9 @@ import { CSS } from '@dnd-kit/utilities';
 import {
   BookOpen,
   CheckCircle,
+  ClockCounterClockwise,
   Lightning,
+  Plus,
   Warning,
   WarningCircle,
   XCircle,
@@ -218,11 +220,17 @@ export const KanbanCard = React.memo(function KanbanCard({
 
       {/* Skill badge */}
       {task.skillName && (
-        <div className="mt-2 flex">
+        <div className="mt-2 flex items-center gap-1.5">
           <span className="inline-flex items-center gap-1 rounded-full bg-accent-subtle px-2 py-0.5 text-[10px] font-medium text-accent">
             <BookOpen className="h-3 w-3" weight="bold" />
             {task.skillName}
           </span>
+          {task.executionSkillName && task.executionSkillId !== task.skillId && (
+            <span className="text-[10px] text-fg-subtle">
+              {'→ '}
+              {task.executionSkillName}
+            </span>
+          )}
         </div>
       )}
 
@@ -231,9 +239,17 @@ export const KanbanCard = React.memo(function KanbanCard({
         <div className="flex items-center gap-2">
           <span className="font-mono text-xs text-fg-muted">{formatTaskId(task.id)}</span>
           <span
-            className="text-[10px] text-fg-subtle"
-            title={`Created: ${task.createdAt}\nUpdated: ${task.updatedAt}`}
+            className="inline-flex items-center gap-0.5 text-[11px] text-fg-muted"
+            title={`Created: ${task.createdAt}`}
           >
+            <Plus className="w-2.5 h-2.5" weight="bold" />
+            {formatRelativeTime(task.createdAt)}
+          </span>
+          <span
+            className="inline-flex items-center gap-0.5 text-[11px] text-fg-muted"
+            title={`Updated: ${task.updatedAt}`}
+          >
+            <ClockCounterClockwise className="w-2.5 h-2.5" />
             {formatRelativeTime(task.updatedAt)}
           </span>
         </div>

@@ -1,9 +1,12 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { Task, TaskColumn } from '@/db/schema';
 
+export type SortField = 'position' | 'updatedAt' | 'createdAt';
+
 export interface BoardState {
   selectedIds: Set<string>;
   collapsedColumns: Set<TaskColumn>;
+  sortBy: SortField;
 }
 
 export interface BoardActions {
@@ -25,9 +28,12 @@ export interface BoardActions {
   isColumnCollapsed: (column: TaskColumn) => boolean;
   /** Get selected tasks from a task list */
   getSelectedTasks: (tasks: Task[]) => Task[];
+  /** Set sort field */
+  setSortBy: (field: SortField) => void;
 }
 
 const STORAGE_KEY = 'kanban-collapsed-columns';
+const SORT_STORAGE_KEY = 'kanban-sort-by';
 
 function loadCollapsedColumns(): Set<TaskColumn> {
   if (typeof window === 'undefined') return new Set();
@@ -51,6 +57,28 @@ function saveCollapsedColumns(columns: Set<TaskColumn>): void {
   }
 }
 
+function loadSortBy(): SortField {
+  if (typeof window === 'undefined') return 'position';
+  try {
+    const saved = localStorage.getItem(SORT_STORAGE_KEY);
+    if (saved === 'updatedAt' || saved === 'createdAt' || saved === 'position') {
+      return saved;
+    }
+  } catch {
+    // Ignore localStorage errors
+  }
+  return 'position';
+}
+
+function saveSortBy(field: SortField): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(SORT_STORAGE_KEY, field);
+  } catch {
+    // Ignore localStorage errors
+  }
+}
+
 /**
  * Hook for managing kanban board state including selection and column collapse.
  * Returns a tuple [state, actions] for easy destructuring.
@@ -58,6 +86,7 @@ function saveCollapsedColumns(columns: Set<TaskColumn>): void {
 export function useBoardState(): [BoardState, BoardActions] {
   const [selectedIds, setSelectedIdsState] = useState<Set<string>>(new Set());
   const [collapsedColumns, setCollapsedColumns] = useState<Set<TaskColumn>>(loadCollapsedColumns);
+  const [sortBy, setSortByState] = useState<SortField>(loadSortBy);
 
   const setSelectedIds = useCallback((ids: Set<string>) => {
     setSelectedIdsState(ids);
@@ -122,9 +151,14 @@ export function useBoardState(): [BoardState, BoardActions] {
     [selectedIds]
   );
 
+  const setSortBy = useCallback((field: SortField) => {
+    setSortByState(field);
+    saveSortBy(field);
+  }, []);
+
   const state: BoardState = useMemo(
-    () => ({ selectedIds, collapsedColumns }),
-    [selectedIds, collapsedColumns]
+    () => ({ selectedIds, collapsedColumns, sortBy }),
+    [selectedIds, collapsedColumns, sortBy]
   );
 
   const actions: BoardActions = useMemo(
@@ -138,6 +172,7 @@ export function useBoardState(): [BoardState, BoardActions] {
       toggleColumnCollapse,
       isColumnCollapsed,
       getSelectedTasks,
+      setSortBy,
     }),
     [
       selectCard,
@@ -149,6 +184,7 @@ export function useBoardState(): [BoardState, BoardActions] {
       toggleColumnCollapse,
       isColumnCollapsed,
       getSelectedTasks,
+      setSortBy,
     ]
   );
 

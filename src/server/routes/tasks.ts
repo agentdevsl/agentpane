@@ -87,6 +87,8 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
       priority: body.priority,
       skillId: body.skillId,
       skillName: body.skillName,
+      executionSkillId: body.executionSkillId,
+      executionSkillName: body.executionSkillName,
     });
 
     if (!result.ok) {
@@ -126,6 +128,8 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
       priority: body.priority,
       skillId: body.skillId,
       skillName: body.skillName,
+      executionSkillId: body.executionSkillId,
+      executionSkillName: body.executionSkillName,
     });
 
     if (!result.ok) {

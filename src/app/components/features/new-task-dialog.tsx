@@ -22,7 +22,7 @@ import {
 import { cn } from '@/lib/utils/cn';
 import { getLabelColors, type Priority } from './kanban-board/constants';
 import { QuestionsPanel } from './new-task-dialog/questions-panel';
-import { SkillPicker } from './skill-picker.js';
+import { type SkillChangeEvent, SkillPicker } from './skill-picker.js';
 
 // ============================================================================
 // RESIZE & DRAG HOOKS
@@ -562,7 +562,11 @@ function TaskDetailsSidebar({
   skillId: string | null;
   onPriorityChange: (p: Priority) => void;
   onTagsChange: (tags: string[]) => void;
-  onSkillChange: (skillId: string | null, skillName: string | null) => void;
+  onSkillChange: (
+    skillId: string | null,
+    skillName: string | null,
+    execEvent?: SkillChangeEvent
+  ) => void;
   onCreateManually: () => void;
 }): React.JSX.Element {
   return (
@@ -1029,6 +1033,8 @@ export function NewTaskDialog({
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
   const [selectedSkillName, setSelectedSkillName] = useState<string | null>(null);
+  const [selectedExecutionSkillId, setSelectedExecutionSkillId] = useState<string | null>(null);
+  const [selectedExecutionSkillName, setSelectedExecutionSkillName] = useState<string | null>(null);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, string | string[]>>({});
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -1194,6 +1200,8 @@ export function NewTaskDialog({
           priority: editableSuggestion.priority,
           skillId: selectedSkillId,
           skillName: selectedSkillName,
+          executionSkillId: selectedExecutionSkillId,
+          executionSkillName: selectedExecutionSkillName,
         });
 
         if (result.ok) {
@@ -1583,9 +1591,11 @@ export function NewTaskDialog({
                 skillId={selectedSkillId}
                 onPriorityChange={setSelectedPriority}
                 onTagsChange={setSelectedTags}
-                onSkillChange={(id, name) => {
+                onSkillChange={(id, name, execEvent) => {
                   setSelectedSkillId(id);
                   setSelectedSkillName(name);
+                  setSelectedExecutionSkillId(execEvent?.executionSkillId ?? null);
+                  setSelectedExecutionSkillName(execEvent?.executionSkillName ?? null);
                 }}
                 onCreateManually={handleCreateManually}
               />

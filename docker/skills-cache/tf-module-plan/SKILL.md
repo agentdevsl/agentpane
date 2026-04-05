@@ -2,6 +2,7 @@
 name: "tf-module-plan"
 description: "SDD Phases 1-2. Clarify requirements, research, produce design.md, and await human approval before any code is written."
 source: image
+executionSkill: tf-module-implement
 ---
 # SDD — Plan
 

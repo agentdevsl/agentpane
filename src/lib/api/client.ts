@@ -384,6 +384,7 @@ export const apiClient = {
           tags?: string[];
           sourceType: string;
           sourceName: string;
+          executionSkill?: string;
         }>
       >(`/api/codespaces/${encodeURIComponent(id)}/skills`),
   },
@@ -458,6 +459,8 @@ export const apiClient = {
       priority?: 'high' | 'medium' | 'low';
       skillId?: string | null;
       skillName?: string | null;
+      executionSkillId?: string | null;
+      executionSkillName?: string | null;
     }) =>
       apiServerFetch<{
         taskId: string;
@@ -477,6 +480,8 @@ export const apiClient = {
         priority?: 'high' | 'medium' | 'low';
         skillId?: string | null;
         skillName?: string | null;
+        executionSkillId?: string | null;
+        executionSkillName?: string | null;
       }
     ) =>
       apiServerFetch<unknown>(`/api/tasks/${encodeURIComponent(id)}`, {

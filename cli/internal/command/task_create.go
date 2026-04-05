@@ -17,7 +17,7 @@ type TaskCreateCommand struct {
 
 // Run executes the task create command.
 func (c *TaskCreateCommand) Run(args []string) int {
-	var title, description, priority, labels, skillID, skillName string
+	var title, description, priority, labels, skillID, skillName, executionSkillID, executionSkillName string
 
 	flags := c.FlagSet("task create")
 	flags.StringVar(&title, "title", "", "Task title (required)")
@@ -26,6 +26,8 @@ func (c *TaskCreateCommand) Run(args []string) int {
 	flags.StringVar(&labels, "labels", "", "Comma-separated labels")
 	flags.StringVar(&skillID, "skill", "", "Skill ID (directory name under .claude/skills/)")
 	flags.StringVar(&skillName, "skill-name", "", "Skill display name")
+	flags.StringVar(&executionSkillID, "execution-skill", "", "Execution skill ID for skill chaining")
+	flags.StringVar(&executionSkillName, "execution-skill-name", "", "Execution skill display name")
 	if err := flags.Parse(args); err != nil {
 		return 1
 	}
@@ -71,6 +73,17 @@ func (c *TaskCreateCommand) Run(args []string) int {
 	} else if skillName != "" {
 		opts.SkillName = &skillName
 	}
+	if executionSkillID != "" {
+		opts.ExecutionSkillID = &executionSkillID
+		// Default executionSkillName to executionSkillID if not explicitly provided
+		if executionSkillName == "" {
+			opts.ExecutionSkillName = &executionSkillID
+		} else {
+			opts.ExecutionSkillName = &executionSkillName
+		}
+	} else if executionSkillName != "" {
+		opts.ExecutionSkillName = &executionSkillName
+	}
 
 	ctx := context.Background()
 	task, err := client.Tasks.Create(ctx, opts)
@@ -94,6 +107,9 @@ func (c *TaskCreateCommand) Run(args []string) int {
 	if task.SkillID != nil {
 		kvs = append(kvs, output.KeyValue{Key: "Skill", Value: *task.SkillID})
 	}
+	if task.ExecutionSkillID != nil {
+		kvs = append(kvs, output.KeyValue{Key: "Execution Skill", Value: *task.ExecutionSkillID})
+	}
 	output.PrintKeyValue(kvs)
 	return 0
 }
@@ -116,6 +132,8 @@ Optional Flags:
   -labels=<l1,l2>     Comma-separated labels
   -skill=<id>         Skill ID (directory name under .claude/skills/)
   -skill-name=<name>  Skill display name
+  -execution-skill=<id>       Execution skill ID for skill chaining
+  -execution-skill-name=<name> Execution skill display name
 
 Global Options:
 

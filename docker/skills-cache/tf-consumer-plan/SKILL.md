@@ -2,6 +2,7 @@
 name: "tf-consumer-plan"
 description: "SDD Phases 1-2 for consumer provisioning. Clarify requirements, research private registry modules, produce consumer-design.md, and await human approval before any code is written."
 source: image
+executionSkill: tf-consumer-implement
 ---
 # SDD — Consumer Plan
 

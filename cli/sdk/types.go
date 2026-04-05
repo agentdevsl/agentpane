@@ -79,9 +79,11 @@ type Task struct {
 	Position        int      `json:"position"`
 	Priority        string   `json:"priority"`
 	Labels          []string `json:"labels"`
-	SkillID         *string  `json:"skillId,omitempty"`
-	SkillName       *string  `json:"skillName,omitempty"`
-	AgentID         *string  `json:"agentId,omitempty"`
+	SkillID            *string  `json:"skillId,omitempty"`
+	SkillName          *string  `json:"skillName,omitempty"`
+	ExecutionSkillID   *string  `json:"executionSkillId,omitempty"`
+	ExecutionSkillName *string  `json:"executionSkillName,omitempty"`
+	AgentID            *string  `json:"agentId,omitempty"`
 	SessionID       *string  `json:"sessionId,omitempty"`
 	WorktreeID      *string  `json:"worktreeId,omitempty"`
 	Branch          *string  `json:"branch,omitempty"`
@@ -237,18 +239,22 @@ type TaskCreateOptions struct {
 	Description *string  `json:"description,omitempty"`
 	Priority    string   `json:"priority,omitempty"`
 	Labels      []string `json:"labels,omitempty"`
-	SkillID     *string  `json:"skillId,omitempty"`
-	SkillName   *string  `json:"skillName,omitempty"`
+	SkillID            *string  `json:"skillId,omitempty"`
+	SkillName          *string  `json:"skillName,omitempty"`
+	ExecutionSkillID   *string  `json:"executionSkillId,omitempty"`
+	ExecutionSkillName *string  `json:"executionSkillName,omitempty"`
 }
 
 // TaskUpdateOptions specifies the parameters for updating a task.
 type TaskUpdateOptions struct {
-	Title       *string  `json:"title,omitempty"`
-	Description *string  `json:"description,omitempty"`
-	Priority    *string  `json:"priority,omitempty"`
-	Labels      []string `json:"labels,omitempty"`
-	SkillID     *string  `json:"skillId,omitempty"`
-	SkillName   *string  `json:"skillName,omitempty"`
+	Title              *string  `json:"title,omitempty"`
+	Description        *string  `json:"description,omitempty"`
+	Priority           *string  `json:"priority,omitempty"`
+	Labels             []string `json:"labels,omitempty"`
+	SkillID            *string  `json:"skillId,omitempty"`
+	SkillName          *string  `json:"skillName,omitempty"`
+	ExecutionSkillID   *string  `json:"executionSkillId,omitempty"`
+	ExecutionSkillName *string  `json:"executionSkillName,omitempty"`
 }
 
 // TaskMoveOptions specifies the target column and position when moving a task.

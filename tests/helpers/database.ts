@@ -149,6 +149,18 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
     // Column may already exist
   }
 
+  // Add execution skill columns to tasks (migration 0014)
+  try {
+    testSqlite.exec('ALTER TABLE tasks ADD COLUMN execution_skill_id TEXT');
+  } catch {
+    // Column may already exist
+  }
+  try {
+    testSqlite.exec('ALTER TABLE tasks ADD COLUMN execution_skill_name TEXT');
+  } catch {
+    // Column may already exist
+  }
+
   // GitHub App columns (migration 23)
   try {
     testSqlite.exec(
