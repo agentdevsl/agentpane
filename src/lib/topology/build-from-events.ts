@@ -218,9 +218,10 @@ export function buildTopologyFromEvents(
       const firstNode = nodes.values().next().value;
       if (firstNode) {
         const d = event.data;
-        firstNode.status = d.error ? 'failed' : 'completed';
+        firstNode.status =
+          d.status === 'completed' ? 'completed' : d.status === 'cancelled' ? 'stopped' : 'failed';
         firstNode.completedAt = event.timestamp;
-        if (!d.error) firstNode.progress = 100;
+        if (d.status === 'completed') firstNode.progress = 100;
       }
     } else if (event.type === 'topology:agent_progress') {
       const d = event.data;

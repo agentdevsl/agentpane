@@ -851,7 +851,7 @@ export class TaskService {
     const [updated] = await this.db
       .update(tasks)
       .set({
-        column: 'in_progress',
+        column: 'backlog',
         rejectionCount: (task.rejectionCount ?? 0) + 1,
         rejectionReason: input.reason,
         updatedAt: new Date().toISOString(),

@@ -206,6 +206,7 @@ function buildStateFromHistoricalEvents(events: TopologyEvent[]): HistoricalLoad
         break;
 
       case 'container-agent:started':
+        status = 'running';
         model = data.model as string | undefined;
         maxTurns = data.maxTurns as number | undefined;
         remainingTurns = maxTurns ?? 0;
@@ -270,7 +271,9 @@ function buildStateFromHistoricalEvents(events: TopologyEvent[]): HistoricalLoad
             ? 'completed'
             : (data.status as string) === 'cancelled'
               ? 'cancelled'
-              : 'error';
+              : (data.status as string) === 'turn_limit'
+                ? 'completed'
+                : 'error';
         result = data.result as string | undefined;
         completedAt = event.timestamp;
         break;

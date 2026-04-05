@@ -565,7 +565,12 @@ describe('buildTopologyFromEvents', () => {
     it('marks root node as completed', () => {
       const events = [
         makeEvent('container-agent:started', { taskId: 'task-1' }, 'e1', BASE_TS),
-        makeEvent('container-agent:complete', { result: 'success' }, 'e2', BASE_TS + 5000),
+        makeEvent(
+          'container-agent:complete',
+          { status: 'completed', result: 'success' },
+          'e2',
+          BASE_TS + 5000
+        ),
       ];
       const graph = buildTopologyFromEvents(events, makeContext());
       const root = defined(graph.nodes[0]);
@@ -575,15 +580,28 @@ describe('buildTopologyFromEvents', () => {
       expect(root.progress).toBe(100);
     });
 
-    it('marks root node as failed when error is present', () => {
+    it('marks root node as failed on turn_limit', () => {
       const events = [
         makeEvent('container-agent:started', { taskId: 'task-1' }, 'e1', BASE_TS),
-        makeEvent('container-agent:complete', { error: 'Agent crashed' }, 'e2', BASE_TS + 5000),
+        makeEvent('container-agent:complete', { status: 'turn_limit' }, 'e2', BASE_TS + 5000),
       ];
       const graph = buildTopologyFromEvents(events, makeContext());
       const root = defined(graph.nodes[0]);
 
       expect(root?.status).toBe('failed');
+      expect(root?.completedAt).toBe(BASE_TS + 5000);
+      expect(root?.progress).not.toBe(100);
+    });
+
+    it('marks root node as stopped on cancelled', () => {
+      const events = [
+        makeEvent('container-agent:started', { taskId: 'task-1' }, 'e1', BASE_TS),
+        makeEvent('container-agent:complete', { status: 'cancelled' }, 'e2', BASE_TS + 5000),
+      ];
+      const graph = buildTopologyFromEvents(events, makeContext());
+      const root = defined(graph.nodes[0]);
+
+      expect(root?.status).toBe('stopped');
       expect(root?.completedAt).toBe(BASE_TS + 5000);
       expect(root?.progress).not.toBe(100);
     });
