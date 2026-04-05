@@ -1,5 +1,4 @@
 import type {
-  TopologyAgentRole,
   TopologyAgentStatus,
   TopologyDecision,
   TopologyEdge,
@@ -13,7 +12,7 @@ const minutesAgo = (m: number) => now - m * 60_000;
 function makeNode(
   id: string,
   name: string,
-  role: TopologyAgentRole,
+  role: string,
   status: TopologyAgentStatus,
   parentId: string | null,
   childIds: string[],

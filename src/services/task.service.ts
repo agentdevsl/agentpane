@@ -283,6 +283,8 @@ export class TaskService {
       priority = 'medium',
       skillId,
       skillName = skillId ?? undefined,
+      executionSkillId,
+      executionSkillName = executionSkillId ?? undefined,
     } = input;
 
     const codespace = await this.db.query.codespaces.findFirst({
@@ -316,6 +318,8 @@ export class TaskService {
           position,
           skillId,
           skillName,
+          executionSkillId,
+          executionSkillName,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         })

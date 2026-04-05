@@ -39,6 +39,8 @@ type ClientTask = Pick<
   | 'branch'
   | 'skillId'
   | 'skillName'
+  | 'createdAt'
+  | 'updatedAt'
 > & {
   priority?: 'low' | 'medium' | 'high';
   diffSummary?: DiffSummary | null;

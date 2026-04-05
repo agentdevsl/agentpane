@@ -4,8 +4,10 @@ import {
   BookOpen,
   CheckCircle,
   Circle,
+  ClockCounterClockwise,
   DotsSixVertical,
   Lightning,
+  Plus,
   Spinner,
   Square,
   User,
@@ -16,6 +18,7 @@ import {
 import { cva } from 'class-variance-authority';
 import type { Task } from '@/db/schema';
 import { cn } from '@/lib/utils/cn';
+import { formatRelativeTime } from '@/lib/utils/format-time';
 import {
   formatTaskId,
   getLabelColors,
@@ -258,11 +261,29 @@ export function KanbanCard({
         </div>
       )}
 
-      {/* Footer with ID, status badges, and run button */}
+      {/* Footer with ID, timestamps, status badges, and run button */}
       <div className="mt-2.5 flex items-center justify-between gap-2">
-        <span className="font-mono text-xs text-[var(--fg-muted)]" data-testid="task-id">
-          {formatTaskId(task.id)}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-xs text-[var(--fg-muted)]" data-testid="task-id">
+            {formatTaskId(task.id)}
+          </span>
+          <span
+            className="inline-flex items-center gap-0.5 text-[11px] text-[var(--fg-muted)]"
+            title={`Created: ${task.createdAt}`}
+            data-testid="task-created-at"
+          >
+            <Plus className="h-2.5 w-2.5" weight="bold" />
+            {formatRelativeTime(task.createdAt)}
+          </span>
+          <span
+            className="inline-flex items-center gap-0.5 text-[11px] text-[var(--fg-muted)]"
+            title={`Updated: ${task.updatedAt}`}
+            data-testid="task-updated-at"
+          >
+            <ClockCounterClockwise className="h-2.5 w-2.5" />
+            {formatRelativeTime(task.updatedAt)}
+          </span>
+        </div>
 
         <div className="flex items-center gap-1.5">
           {/* Status badge — exactly one of: last-run, running, waiting-approval, or none */}

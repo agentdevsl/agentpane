@@ -19,7 +19,7 @@ import { useMountEffect } from './use-mount-effect';
 import { useWatchEffect } from './use-watch-effect';
 
 /**
- * Map a role string from the backend to a TopologyAgentRole.
+ * Map a role string from the backend to a topology visual role.
  */
 function toRole(role: string): TopologyNode['role'] {
   return role || 'agent';

@@ -33,6 +33,8 @@ skill_count=$(sqlite3 "$DB_PATH" "
 " | python3 -c "
 import sys, json, os, re
 safe_pattern = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$')
+def escape_yaml(s):
+    return s.replace('\\\\', '\\\\\\\\').replace('\"', '\\\\\"').replace('\\n', '\\\\n').replace('\\r', '\\\\r')
 count = 0
 for line in sys.stdin:
     try:
@@ -46,20 +48,23 @@ for line in sys.stdin:
         content = skill.get('content', '')
         name = skill.get('name', sid)
         desc = skill.get('description', '')
+        exec_skill = skill.get('executionSkill', '')
         os.makedirs(f'$SKILLS_DIR/{sid}', exist_ok=True)
         with open(f'$SKILLS_DIR/{sid}/SKILL.md', 'w') as f:
             f.write('---\n')
-            f.write(f'name: \"{name}\"\n')
+            f.write(f'name: \"{escape_yaml(name)}\"\n')
             if desc:
-                f.write(f'description: \"{desc}\"\n')
+                f.write(f'description: \"{escape_yaml(desc)}\"\n')
             f.write('source: image\n')
+            if exec_skill:
+                f.write(f'executionSkill: {escape_yaml(exec_skill)}\n')
             f.write('---\n')
             f.write(content)
         count += 1
     except Exception as e:
         print(f'Warning: failed to export skill: {e}', file=sys.stderr)
 print(count)
-" 2>/dev/null)
+")
 
 # Export agents
 agent_count=$(sqlite3 "$DB_PATH" "
@@ -69,6 +74,8 @@ agent_count=$(sqlite3 "$DB_PATH" "
 " | python3 -c "
 import sys, json, os, re
 safe_pattern = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$')
+def escape_yaml(s):
+    return s.replace('\\\\', '\\\\\\\\').replace('\"', '\\\\\"').replace('\\n', '\\\\n').replace('\\r', '\\\\r')
 count = 0
 for line in sys.stdin:
     try:
@@ -83,9 +90,9 @@ for line in sys.stdin:
         desc = agent.get('description', '')
         with open(f'$AGENTS_DIR/{name}.md', 'w') as f:
             f.write('---\n')
-            f.write(f'name: \"{name}\"\n')
+            f.write(f'name: \"{escape_yaml(name)}\"\n')
             if desc:
-                f.write(f'description: \"{desc}\"\n')
+                f.write(f'description: \"{escape_yaml(desc)}\"\n')
             f.write('source: image\n')
             f.write('---\n')
             f.write(content)
@@ -93,7 +100,7 @@ for line in sys.stdin:
     except Exception as e:
         print(f'Warning: failed to export agent: {e}', file=sys.stderr)
 print(count)
-" 2>/dev/null)
+")
 
 echo "Exported ${skill_count:-0} skills to $SKILLS_DIR"
 echo "Exported ${agent_count:-0} agents to $AGENTS_DIR"

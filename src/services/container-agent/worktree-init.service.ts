@@ -97,13 +97,19 @@ export class WorktreeInitService {
       log.info('Codespace has no GitHub config and no git remote, using empty workspace', {
         data: { taskId },
       });
-      await streams.publish(sessionId, 'container-agent:message', {
-        taskId,
-        sessionId,
-        role: 'system',
-        content:
-          "No GitHub repository configured for this codespace. The agent will work without git isolation — changes cannot be pushed or PR'd.",
-      });
+      await streams
+        .publish(sessionId, 'container-agent:message', {
+          taskId,
+          sessionId,
+          role: 'system',
+          content:
+            "No GitHub repository configured for this codespace. The agent will work without git isolation — changes cannot be pushed or PR'd.",
+        })
+        .catch((publishErr) =>
+          log.warn('Failed to publish no-github-config message', {
+            error: publishErr instanceof Error ? publishErr.message : String(publishErr),
+          })
+        );
       return null;
     }
 

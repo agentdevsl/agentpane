@@ -1,12 +1,3 @@
-export type TopologyAgentRole =
-  | 'orchestrator'
-  | 'planner'
-  | 'coder'
-  | 'reviewer'
-  | 'tester'
-  | 'scanner'
-  | 'deployer';
-
 export type TopologyAgentStatus =
   | 'queued'
   | 'running'

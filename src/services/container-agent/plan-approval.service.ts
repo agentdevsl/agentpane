@@ -232,27 +232,49 @@ export class PlanApprovalService {
 
     const { db, provider, streams } = this.deps;
 
-    // Skill chaining: if task has an execution skill, swap skill and prefix prompt
+    // Skill chaining: if task has an execution skill, prefix prompt with skill directive
+    // and prepare atomic skill swap for the state transition
     let executionPrompt = planData.plan;
-    const taskRecord = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) });
-    if (taskRecord?.executionSkillId) {
-      log.info('Skill chaining: switching to execution skill', {
-        data: {
-          taskId,
-          planSkill: taskRecord.skillId,
-          executionSkill: taskRecord.executionSkillId,
-        },
-      });
-      executionPrompt = `Use skill ${taskRecord.executionSkillName ?? taskRecord.executionSkillId} to implement this plan:\n\n${planData.plan}`;
-      // Swap skillId/skillName to execution skill so container-exec sees it
-      await db
-        .update(tasks)
-        .set({
-          skillId: taskRecord.executionSkillId,
-          skillName: taskRecord.executionSkillName,
-        })
-        .where(eq(tasks.id, taskId));
+    let executionSkillId: string | null = null;
+    let executionSkillName: string | null = null;
+    let originalSkillId: string | null = null;
+    let originalSkillName: string | null = null;
+
+    try {
+      const taskRecord = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) });
+      if (taskRecord?.executionSkillId) {
+        executionSkillId = taskRecord.executionSkillId;
+        executionSkillName = taskRecord.executionSkillName;
+        originalSkillId = taskRecord.skillId;
+        originalSkillName = taskRecord.skillName;
+        log.info('Skill chaining: switching to execution skill', {
+          data: {
+            taskId,
+            planSkill: taskRecord.skillId,
+            executionSkill: taskRecord.executionSkillId,
+          },
+        });
+        executionPrompt = `Use skill ${executionSkillName ?? executionSkillId} to implement this plan:\n\n${planData.plan}`;
+      }
+    } catch (skillChainErr) {
+      const msg = skillChainErr instanceof Error ? skillChainErr.message : String(skillChainErr);
+      log.error('Skill chaining DB read failed', { data: { taskId, error: msg } });
+      return err(SandboxErrors.AGENT_START_FAILED(`Skill chaining failed: ${msg}`));
     }
+
+    // Build the atomic state transition — includes skill swap if chaining
+    const transitionSet: Record<string, unknown> = {
+      column: 'in_progress' as const,
+      lastAgentStatus: null,
+      ...(executionSkillId ? { skillId: executionSkillId, skillName: executionSkillName } : {}),
+    };
+
+    // Build the rollback — restores original skill if chaining was applied
+    const rollbackSet: Record<string, unknown> = {
+      column: 'waiting_approval' as const,
+      lastAgentStatus: 'planning',
+      ...(executionSkillId ? { skillId: originalSkillId, skillName: originalSkillName } : {}),
+    };
 
     // AgentCore branch
     if (this.isAgentCoreProvider()) {
@@ -261,10 +283,10 @@ export class PlanApprovalService {
       });
 
       try {
-        // Atomic: only move to in_progress if task is still in waiting_approval
+        // Atomic: move to in_progress + swap skill in one CAS update
         const [updated] = await db
           .update(tasks)
-          .set({ column: 'in_progress', lastAgentStatus: null })
+          .set(transitionSet)
           .where(and(eq(tasks.id, taskId), eq(tasks.column, 'waiting_approval')))
           .returning();
 
@@ -293,14 +315,11 @@ export class PlanApprovalService {
       });
 
       if (!startResult.ok) {
-        // Restore task state so user can retry approval
+        // Restore task state + original skill so user can retry approval
         try {
           const [restored] = await db
             .update(tasks)
-            .set({
-              column: 'waiting_approval',
-              lastAgentStatus: 'planning',
-            })
+            .set(rollbackSet)
             .where(and(eq(tasks.id, taskId), eq(tasks.column, 'in_progress')))
             .returning({ id: tasks.id });
           softInvariant(!!restored, 'task restore expected column in_progress', { taskId });
@@ -363,10 +382,10 @@ export class PlanApprovalService {
     });
 
     try {
-      // Atomic: only move to in_progress if task is still in waiting_approval
+      // Atomic: move to in_progress + swap skill in one CAS update
       const [updated] = await db
         .update(tasks)
-        .set({ column: 'in_progress', lastAgentStatus: null })
+        .set(transitionSet)
         .where(and(eq(tasks.id, taskId), eq(tasks.column, 'waiting_approval')))
         .returning();
 
@@ -395,14 +414,11 @@ export class PlanApprovalService {
     });
 
     if (!startResult.ok) {
-      // Restore task state so user can retry approval
+      // Restore task state + original skill so user can retry approval
       try {
         const [restored] = await db
           .update(tasks)
-          .set({
-            column: 'waiting_approval',
-            lastAgentStatus: 'planning',
-          })
+          .set(rollbackSet)
           .where(and(eq(tasks.id, taskId), eq(tasks.column, 'in_progress')))
           .returning({ id: tasks.id });
         softInvariant(!!restored, 'task restore expected column in_progress', { taskId });

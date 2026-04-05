@@ -17,6 +17,8 @@
  * - AGENT_MODEL: Optional. Model to use (default: claude-opus-4-5-20251101).
  * - AGENT_CWD: Optional. Working directory (default: /workspace).
  * - AGENT_STOP_FILE: Optional. Sentinel file path for cancellation.
+ * - AGENT_HAS_SKILL: Optional. Set to 'true' when a skill is assigned — uses acceptEdits during planning.
+ * - AGENT_ALLOWED_TOOLS: Optional. JSON array of tool names to allow through the permission layer.
  *
  * The OAuth token is written to ~/.claude/.credentials.json before starting the SDK.
  * This is required because OAuth tokens passed via ANTHROPIC_API_KEY env var are blocked.
@@ -52,13 +54,9 @@ function normalizeTopologyStatus(raw: unknown): 'completed' | 'failed' | 'stoppe
 }
 
 /**
- * Map SDK agent_type or task description to a topology role.
- * Canonical source: src/lib/topology/map-agent-role.ts — keep in sync.
- * Duplicated here due to agent-runner build boundary (separate package).
- */
-/**
  * Map SDK task_type to a visual role category (icon/color only).
  * Canonical source: src/lib/topology/map-agent-role.ts — keep in sync.
+ * Duplicated here due to agent-runner build boundary (separate package).
  */
 function mapAgentRole(agentType?: string): string {
   if (!agentType) return 'agent';
