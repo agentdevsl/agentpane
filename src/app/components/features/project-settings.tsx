@@ -50,6 +50,8 @@ interface ProjectSettingsProps {
     maxConcurrentAgents?: number;
     config?: Partial<CodespaceConfig>;
     projectFolderId?: string;
+    githubOwner?: string;
+    githubRepo?: string;
   }) => Promise<void>;
   onDelete: (options: { deleteFiles: boolean }) => Promise<void>;
   saveStatus?: 'idle' | 'saving' | 'saved' | 'error';
@@ -161,6 +163,8 @@ export function ProjectSettings({
   const [description, setDescription] = useState(project.description ?? '');
   const [projectFolderId, setProjectFolderId] = useState(project.projectFolderId ?? '');
   const [maxConcurrent, setMaxConcurrent] = useState(project.maxConcurrentAgents ?? 3);
+  const [githubOwner, setGithubOwner] = useState(project.githubOwner ?? '');
+  const [githubRepo, setGithubRepo] = useState(project.githubRepo ?? '');
   const [config, setConfig] = useState<CodespaceConfig>(
     project.config ?? {
       worktreeRoot: '.worktrees',
@@ -336,6 +340,8 @@ export function ProjectSettings({
       description,
       maxConcurrentAgents: maxConcurrent,
       projectFolderId,
+      githubOwner: githubOwner || undefined,
+      githubRepo: githubRepo || undefined,
       config: {
         ...config,
         ...(sandboxToSave !== undefined && { sandbox: sandboxToSave }),
@@ -346,7 +352,46 @@ export function ProjectSettings({
 
   return (
     <div className="space-y-6" data-testid="project-settings">
-      <div data-testid="github-settings" className="hidden" />
+      {/* GitHub Repository */}
+      <SettingsCard>
+        <SectionHeader
+          icon={GitBranch}
+          title="GitHub Repository"
+          description="Configure the GitHub repository for git isolation and PR creation during agent execution."
+        />
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label htmlFor="github-owner" className="block text-sm font-medium text-fg mb-1.5">
+              Owner
+            </label>
+            <TextInput
+              id="github-owner"
+              value={githubOwner}
+              onChange={(e) => setGithubOwner(e.target.value)}
+              placeholder="e.g. my-org"
+              data-testid="github-owner-input"
+            />
+          </div>
+          <div>
+            <label htmlFor="github-repo" className="block text-sm font-medium text-fg mb-1.5">
+              Repository
+            </label>
+            <TextInput
+              id="github-repo"
+              value={githubRepo}
+              onChange={(e) => setGithubRepo(e.target.value)}
+              placeholder="e.g. my-repo"
+              data-testid="github-repo-input"
+            />
+          </div>
+        </div>
+        {!githubOwner && !githubRepo && (
+          <p className="mt-3 text-xs text-fg-muted">
+            Without a GitHub repository, agents will work without git isolation — changes cannot be
+            pushed or PR'd.
+          </p>
+        )}
+      </SettingsCard>
 
       {/* Sandbox Configuration - Featured prominently */}
       <SettingsCard highlight={sandboxConfig.enabled}>

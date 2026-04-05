@@ -32,6 +32,8 @@ const updateCodespaceSchema = z.object({
   maxConcurrentAgents: z.number().int().positive().optional(),
   config: z.record(z.string(), z.unknown()).optional(),
   projectFolderId: z.string().min(1).optional(),
+  githubOwner: z.string().min(1).max(200).optional(),
+  githubRepo: z.string().min(1).max(200).optional(),
 });
 
 interface CodespacesDeps {
@@ -278,6 +280,8 @@ export function createCodespacesRoutes({ codespaceService, templateService, db }
       maxConcurrentAgents: parsed.data.maxConcurrentAgents,
       config: parsed.data.config,
       projectFolderId: parsed.data.projectFolderId,
+      githubOwner: parsed.data.githubOwner,
+      githubRepo: parsed.data.githubRepo,
     });
 
     if (!result.ok) {
@@ -298,6 +302,8 @@ export function createCodespacesRoutes({ codespaceService, templateService, db }
         description: updated.description,
         projectFolderId: updated.projectFolderId,
         maxConcurrentAgents: updated.maxConcurrentAgents,
+        githubOwner: updated.githubOwner,
+        githubRepo: updated.githubRepo,
         config: updated.config,
         createdAt: updated.createdAt,
         updatedAt: updated.updatedAt,
