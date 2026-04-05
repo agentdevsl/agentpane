@@ -82,10 +82,15 @@ export class SandboxController {
       namespace: this.namespace,
     });
 
-    // Periodic status sync: push pod status into Sandbox CRD status
+    // Periodic status sync: push pod status into Sandbox CRD status.
+    // Also reconciles sandboxes without pods as a fallback in case the
+    // watch connection dropped (e.g., TLS certificate errors on minikube).
     this.statusSyncTimer = setInterval(() => {
       this.syncPodStatus().catch((err) => {
         log.error('Status sync error', { error: err });
+      });
+      this.reconcileExisting().catch((err) => {
+        log.error('Periodic reconciliation error', { error: err });
       });
     }, this.statusSyncIntervalMs);
 
