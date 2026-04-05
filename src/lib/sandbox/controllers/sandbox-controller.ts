@@ -311,8 +311,11 @@ export class SandboxController {
         ? podTemplate.spec.containers.map((c) =>
             this.ensureSecurityContext({
               ...c,
-              // Ensure the container has a keep-alive command if none specified
-              command: c.command?.length ? c.command : ['tail', '-f', '/dev/null'],
+              // Ensure the container runs the entrypoint if no command specified.
+              // The entrypoint copies cached skills/agents/foundations from the
+              // image cache dirs to /workspace/.claude/, then exec's the args.
+              command: c.command?.length ? c.command : ['/entrypoint.sh'],
+              args: c.command?.length ? undefined : ['tail', '-f', '/dev/null'],
             })
           )
         : [this.defaultContainer()];
@@ -383,7 +386,8 @@ export class SandboxController {
     return this.ensureSecurityContext({
       name: 'sandbox',
       image: DEFAULT_SANDBOX_IMAGE,
-      command: ['tail', '-f', '/dev/null'],
+      command: ['/entrypoint.sh'],
+      args: ['tail', '-f', '/dev/null'],
     });
   }
 

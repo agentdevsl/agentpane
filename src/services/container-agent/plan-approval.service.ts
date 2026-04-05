@@ -232,8 +232,10 @@ export class PlanApprovalService {
 
     const { db, provider, streams } = this.deps;
 
-    // Skill chaining: if task has an execution skill, prefix prompt with skill directive
-    // and prepare atomic skill swap for the state transition
+    // Skill chaining: if task has an execution skill, build a full skill-aware prompt
+    // that instructs the agent to read the execution skill file and follow its workflow.
+    // This mirrors the skill instructions from TaskService.buildTaskPrompt but targets
+    // the chained execution skill instead of the original planning skill.
     let executionPrompt = planData.plan;
     let executionSkillId: string | null = null;
     let executionSkillName: string | null = null;
@@ -254,7 +256,25 @@ export class PlanApprovalService {
             executionSkill: taskRecord.executionSkillId,
           },
         });
-        executionPrompt = `Use skill ${executionSkillName ?? executionSkillId} to implement this plan:\n\n${planData.plan}`;
+
+        // Build full skill-aware prompt with reading instructions, subagent directives,
+        // and the approved plan as context — matching TaskService.buildTaskPrompt format
+        const skillParts: string[] = [
+          `IMPORTANT: Before starting any work, use the Read tool to read the file at .claude/skills/${executionSkillId}/SKILL.md`,
+          `This file contains the workflow you MUST follow step by step. Execute each phase in order.`,
+          `Use the subagents and tools specified in the skill file. Do NOT skip or improvise around the defined workflow.`,
+          '',
+          `SUBAGENT INSTRUCTIONS: When the skill says "Launch {agent-name} agent", you MUST use the Agent tool to spawn it.`,
+          `Subagent definitions are available at .claude/agents/{agent-name}.md — use the Agent tool with the agent name.`,
+          `For example: "Launch tf-module-developer agent" means spawn a subagent using the Agent tool with subagent_type "tf-module-developer".`,
+          `When the skill says to launch concurrent subagents, spawn multiple agents in parallel using multiple Agent tool calls in the same message.`,
+          `Do NOT do the subagent work yourself — delegate to the prescribed agents so work is parallelized correctly.`,
+          '',
+          `The following plan has been approved. Execute it using the skill workflow above:`,
+          '',
+          planData.plan,
+        ];
+        executionPrompt = skillParts.join('\n');
       }
     } catch (skillChainErr) {
       const msg = skillChainErr instanceof Error ? skillChainErr.message : String(skillChainErr);

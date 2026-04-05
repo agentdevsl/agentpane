@@ -247,8 +247,8 @@ export class ContainerExecService {
           codespaceId,
           codespacePath: codespace.path ?? '/workspace',
           image: SANDBOX_DEFAULTS.image,
-          memoryMb: 2048,
-          cpuCores: 2,
+          memoryMb: SANDBOX_DEFAULTS.memoryMb,
+          cpuCores: SANDBOX_DEFAULTS.cpuCores,
           idleTimeoutMinutes: 30,
           volumeMounts: [],
         });
@@ -502,6 +502,17 @@ export class ContainerExecService {
       role: 'system',
       content: 'OAuth credentials retrieved successfully',
     });
+
+    // Verify sandbox exec is ready before injecting skills
+    const readyCheck = await sandbox.exec('echo', ['ready']);
+    if (readyCheck.exitCode !== 0) {
+      // Retry once after a short delay
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const retry = await sandbox.exec('echo', ['ready']);
+      if (retry.exitCode !== 0) {
+        log.warn('Sandbox exec not ready after retry', { data: { exitCode: retry.exitCode } });
+      }
+    }
 
     // Stage: Injecting Skills - materialize org/template skills into sandbox
     await streams.publish(sessionId, 'container-agent:status', {

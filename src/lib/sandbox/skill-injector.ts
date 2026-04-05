@@ -132,6 +132,9 @@ function buildSkillMarkdown(skill: MergedSkill): string {
     lines.push(`tags: ${skill.tags.join(', ')}`);
   }
   lines.push(`source: ${skill.sourceType}`);
+  if (skill.executionSkill) {
+    lines.push(`executionSkill: ${escapeYamlValue(skill.executionSkill)}`);
+  }
   lines.push('---');
   lines.push(skill.content);
   return lines.join('\n');

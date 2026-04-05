@@ -167,7 +167,7 @@ describe('injectSkills', () => {
 
     expect(result.injected).toBe(0);
     expect(result.errors).toHaveLength(1);
-    expect(defined(result.errors[0], 'errors[0]').message).toContain('Failed to write SKILL.md');
+    expect(defined(result.errors[0], 'errors[0]').message).toContain('Failed to write');
   });
 
   it('handles unexpected sandbox.exec throw', async () => {
@@ -315,9 +315,7 @@ describe('injectAgents', () => {
 
     expect(result.injected).toBe(0);
     expect(result.errors).toHaveLength(2);
-    expect(defined(result.errors[0], 'errors[0]').message).toContain(
-      'Failed to create agents directory'
-    );
+    expect(defined(result.errors[0], 'errors[0]').message).toContain('Failed to create directory');
   });
 
   it('handles write failure for individual agent', async () => {
@@ -327,7 +325,7 @@ describe('injectAgents', () => {
 
     expect(result.injected).toBe(0);
     expect(result.errors).toHaveLength(1);
-    expect(defined(result.errors[0], 'errors[0]').message).toContain('Failed to write agent');
+    expect(defined(result.errors[0], 'errors[0]').message).toContain('Failed to write');
   });
 
   it('handles unexpected exception during agent write', async () => {

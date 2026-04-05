@@ -306,13 +306,14 @@ describe('SandboxController (IT-1500)', () => {
       expect(pod.spec.securityContext.seccompProfile).toEqual({ type: 'RuntimeDefault' });
     });
 
-    it('IT-1503d: default container uses tail -f /dev/null keep-alive', () => {
+    it('IT-1503d: default container runs entrypoint with tail keep-alive', () => {
       const sandbox = createSandboxCRD('test-pod-default');
 
       const pod = (controller as any).buildPodFromSandbox(sandbox);
 
       const container = pod.spec.containers[0];
-      expect(container.command).toEqual(['tail', '-f', '/dev/null']);
+      expect(container.command).toEqual(['/entrypoint.sh']);
+      expect(container.args).toEqual(['tail', '-f', '/dev/null']);
       expect(container.name).toBe('sandbox');
     });
 
