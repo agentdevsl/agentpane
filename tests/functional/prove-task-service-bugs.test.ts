@@ -324,7 +324,7 @@ describe('Bug-Proving Tests: TaskService', () => {
       where: eq(tasks.id, task.id),
     });
     expect(taskRow!.agentId).toBeNull(); // agentId cleaned up
-    expect(taskRow!.sessionId).toBeNull(); // sessionId cleaned up
+    expect(taskRow!.sessionId).toBeTruthy(); // sessionId preserved for UI
     expect(taskRow!.lastAgentStatus).toBe('error'); // marked as error
     expect(taskRow!.column).toBe('in_progress');
   });

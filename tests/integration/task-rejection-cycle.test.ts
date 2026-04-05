@@ -75,12 +75,15 @@ describe('IT-005: Task Rejection Cycle', () => {
     expect(reject1.value.column).toBe('backlog');
     expect(reject1.value.rejectionCount).toBe(1);
 
-    // Simulate agent resubmitting: backlog -> waiting_approval
-    const move1 = await taskService.moveColumn(task.id, 'waiting_approval');
-    expect(move1.ok).toBe(true);
-    if (!move1.ok) return;
+    // Simulate agent resubmitting: backlog -> in_progress -> waiting_approval
+    const move1a = await taskService.moveColumn(task.id, 'in_progress');
+    expect(move1a.ok).toBe(true);
+    if (!move1a.ok) return;
+    const move1b = await taskService.moveColumn(task.id, 'waiting_approval');
+    expect(move1b.ok).toBe(true);
+    if (!move1b.ok) return;
 
-    expect(move1.value.task.column).toBe('waiting_approval');
+    expect(move1b.value.task.column).toBe('waiting_approval');
 
     // Second rejection: waiting_approval -> backlog
     const reject2 = await taskService.reject(task.id, { reason: 'Second issue' });

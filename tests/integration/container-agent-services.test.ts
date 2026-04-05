@@ -136,7 +136,7 @@ describe('Shared Helpers — updateTaskOnAgentError (IT-302)', () => {
 
     const dbTask = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
     expect(dbTask?.agentId).toBeNull();
-    expect(dbTask?.sessionId).toBeNull();
+    expect(dbTask?.sessionId).toBe(session.id); // Preserved for UI error context
     expect(dbTask?.lastAgentStatus).toBe('error');
     // Column stays in_progress after error
     expect(dbTask?.column).toBe('in_progress');

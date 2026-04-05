@@ -254,7 +254,7 @@ describe('IT-036–040: Task Reorder, Diff, Sandbox Config, and Prompt', () => {
       const callArgs = (containerAgent.startAgent as ReturnType<typeof vi.fn>).mock.calls[0][0];
       const prompt: string = callArgs.prompt;
 
-      expect(prompt).toContain('use skill my-skill');
+      expect(prompt).toContain('.claude/skills/my-skill/SKILL.md');
       expect(prompt).toContain('Labels: bug, urgent');
       expect(prompt).toContain('Priority: high');
       expect(prompt).toContain('Fix authentication bug');
