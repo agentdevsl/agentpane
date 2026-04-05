@@ -490,9 +490,15 @@ async function runPlanningPhase(): Promise<void> {
     // use interactive tools (WebSearch, AskUserQuestion, Agent subagents).
     // Without a skill, use plan mode for read-only exploration.
     const planPermissionMode = process.env.AGENT_HAS_SKILL === 'true' ? 'acceptEdits' : 'plan';
+    // Parse allowed tools from env so interactive tools (ExitPlanMode,
+    // AskUserQuestion, WebSearch) are not blocked by the permission layer.
+    const allowedTools: string[] = process.env.AGENT_ALLOWED_TOOLS
+      ? JSON.parse(process.env.AGENT_ALLOWED_TOOLS)
+      : [];
     session = unstable_v2_createSession({
       model: config.model,
       env: { ...process.env }, // Teams GA: env passed through for agent swarm support
+      ...(allowedTools.length > 0 ? { allowedTools } : {}),
       permissionMode: planPermissionMode,
       canUseTool, // Use official SDK callback for tool interception
     });

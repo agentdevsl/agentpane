@@ -140,6 +140,9 @@ export class ContainerExecService {
       AGENT_PROMPT: prompt,
       AGENT_MAX_TURNS: String(agentConfig.maxTurns),
       AGENT_MODEL: agentConfig.model,
+      ...(agentConfig.allowedTools?.length
+        ? { AGENT_ALLOWED_TOOLS: JSON.stringify(agentConfig.allowedTools) }
+        : {}),
       AGENT_CWD: worktreePath,
       AGENT_STOP_FILE: stopFilePath,
       AGENT_PHASE: phase,
@@ -430,6 +433,7 @@ export class ContainerExecService {
     const agentConfig: AgentConfig = {
       model: resolvedModel ?? getFullModelId(DEFAULT_AGENT_MODEL),
       maxTurns: maxTurns ?? codespace.config?.maxTurns ?? 50,
+      allowedTools: codespace.config?.allowedTools ?? [],
     };
     log.info('Resolved agent config', {
       data: { model: agentConfig.model, maxTurns: agentConfig.maxTurns },

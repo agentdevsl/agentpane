@@ -429,7 +429,7 @@ async function publishMetrics(
  * Returns after the plan is ready for user approval.
  */
 export async function runAgentPlanning(options: StreamHandlerOptions): Promise<AgentRunResult> {
-  const { agentId, sessionId, prompt, model, cwd, sessionService, signal } = options;
+  const { agentId, sessionId, prompt, allowedTools, model, cwd, sessionService, signal } = options;
   const maxRuntimeMs = Math.max(options.maxRuntimeMs ?? DEFAULT_AGENT_MAX_RUNTIME_MS, 60_000); // minimum 1 minute
 
   const runId = createId();
@@ -501,9 +501,12 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
   // Create Claude Agent SDK session in PLAN mode
   // In plan mode, the agent can read/explore but not execute changes
   // The agent will use ExitPlanMode tool when the plan is ready
+  // allowedTools must be passed so interactive tools (ExitPlanMode,
+  // AskUserQuestion, WebSearch) are not blocked by the permission layer.
   const session = unstable_v2_createSession({
     model,
     env: buildSdkEnv(),
+    allowedTools,
     permissionMode: 'plan', // Planning mode - agent will use ExitPlanMode when done
     executableArgs: ['--add-dir', cwd],
     canUseTool,
