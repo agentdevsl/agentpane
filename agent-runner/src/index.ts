@@ -489,10 +489,11 @@ async function runPlanningPhase(): Promise<void> {
 
     // Note: executableArgs with --add-dir causes EPIPE errors in SDK 0.2.x
     // The SDK/CLI handles directory access via cwd and environment
-    // When a skill is assigned, use acceptEdits so the skill workflow can
-    // use interactive tools (WebSearch, AskUserQuestion, Agent subagents).
+    // When a skill is assigned, use bypassPermissions so the skill workflow can
+    // use all tools including Agent (subagent spawning), WebSearch, AskUserQuestion.
     // Without a skill, use plan mode for read-only exploration.
-    const planPermissionMode = process.env.AGENT_HAS_SKILL === 'true' ? 'acceptEdits' : 'plan';
+    const planPermissionMode =
+      process.env.AGENT_HAS_SKILL === 'true' ? 'bypassPermissions' : 'plan';
     // Parse allowed tools from env so interactive tools (ExitPlanMode,
     // AskUserQuestion, WebSearch) are not blocked by the permission layer.
     let allowedTools: string[] = [];
