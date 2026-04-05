@@ -215,12 +215,12 @@ export class WorktreeInitService {
     });
 
     if (!result.branch) {
+      const detail = result.error ? `: ${result.error}` : '';
       await streams.publish(sessionId, 'container-agent:message', {
         taskId,
         sessionId,
         role: 'system',
-        content:
-          "Workspace initialization failed: repository clone or worktree creation failed. The agent will work without git isolation — changes cannot be pushed or PR'd.",
+        content: `Workspace initialization failed${detail}. The agent will work without git isolation — changes cannot be pushed or PR'd.`,
       });
       return null;
     }
