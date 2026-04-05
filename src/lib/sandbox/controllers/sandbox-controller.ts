@@ -16,6 +16,7 @@ import {
 } from '@agentpane/agent-sandbox-sdk';
 import * as k8s from '@kubernetes/client-node';
 import { createLogger } from '../../logging/logger.js';
+import { SANDBOX_DEFAULTS } from '../types.js';
 
 const log = createLogger('SandboxController');
 
@@ -28,7 +29,7 @@ interface SandboxControllerOptions {
 
 const DEFAULT_STATUS_SYNC_INTERVAL_MS = 10_000;
 const DEFAULT_WARM_POOL_SYNC_INTERVAL_MS = 30_000;
-const DEFAULT_SANDBOX_IMAGE = 'srlynch1/agent-sandbox:latest';
+const DEFAULT_SANDBOX_IMAGE = SANDBOX_DEFAULTS.image;
 
 /**
  * CRD controller that watches Sandbox and WarmPool custom resources
