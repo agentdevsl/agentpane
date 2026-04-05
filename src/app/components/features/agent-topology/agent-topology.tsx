@@ -83,6 +83,7 @@ function TopologyInner(): React.JSX.Element {
         if (
           d.name === graphNode.name &&
           d.role === graphNode.role &&
+          d.agentType === graphNode.agentType &&
           d.status === graphNode.status &&
           d.progress === graphNode.progress &&
           d.decisions === graphNode.decisions &&
@@ -99,6 +100,7 @@ function TopologyInner(): React.JSX.Element {
             ...rfNode.data,
             name: graphNode.name,
             role: graphNode.role,
+            agentType: graphNode.agentType,
             status: graphNode.status,
             progress: graphNode.progress,
             decisions: graphNode.decisions,

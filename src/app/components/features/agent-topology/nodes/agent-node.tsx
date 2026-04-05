@@ -5,7 +5,7 @@ import { DECISION_TYPE_CONFIG, getRoleConfig, STATUS_COLORS } from './agent-node
 
 export type AgentNodeData = Pick<
   TopologyNode,
-  'name' | 'role' | 'status' | 'progress' | 'decisions' | 'tokens' | 'cost' | 'turns'
+  'name' | 'role' | 'agentType' | 'status' | 'progress' | 'decisions' | 'tokens' | 'cost' | 'turns'
 > & {
   nodeIndex: number;
   [key: string]: unknown;

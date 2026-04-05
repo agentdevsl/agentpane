@@ -47,7 +47,8 @@ function normalizeTopologyStatus(raw: unknown): 'completed' | 'failed' | 'stoppe
   if (typeof raw === 'string' && VALID_TOPOLOGY_STATUSES.has(raw)) {
     return raw as 'completed' | 'failed' | 'stopped';
   }
-  return 'completed';
+  console.error(`[agent-runner] Unknown topology status: ${String(raw)}, defaulting to 'failed'`);
+  return 'failed';
 }
 
 /**
@@ -60,14 +61,14 @@ function normalizeTopologyStatus(raw: unknown): 'completed' | 'failed' | 'stoppe
  * Canonical source: src/lib/topology/map-agent-role.ts — keep in sync.
  */
 function mapAgentRole(agentType?: string): string {
-  if (!agentType) return 'coder';
+  if (!agentType) return 'agent';
   const t = agentType.toLowerCase();
   if (t.includes('plan')) return 'planner';
   if (t.includes('review') || t.includes('analyz')) return 'reviewer';
   if (t.includes('test') || t.includes('verif')) return 'tester';
   if (t.includes('scan') || t.includes('security') || t.includes('hunter')) return 'scanner';
   if (t.includes('deploy')) return 'deployer';
-  return 'coder';
+  return 'agent';
 }
 
 /**
@@ -78,7 +79,7 @@ function deriveAgentName(agentType?: string, description?: string): string {
   if (description) {
     return description.length > 50 ? `${description.slice(0, 47)}...` : description;
   }
-  return agentType ?? 'Agent';
+  return agentType || 'Agent';
 }
 
 /** Tracks subagent topology state. Maps SDK task_id → generated node id. */
@@ -385,7 +386,11 @@ async function shouldStop(): Promise<boolean> {
   try {
     await access(config.stopFile);
     return true;
-  } catch {
+  } catch (err: unknown) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT') {
+      console.error(`[agent-runner] Error checking stop file: ${code}`);
+    }
     return false;
   }
 }
@@ -492,9 +497,19 @@ async function runPlanningPhase(): Promise<void> {
     const planPermissionMode = process.env.AGENT_HAS_SKILL === 'true' ? 'acceptEdits' : 'plan';
     // Parse allowed tools from env so interactive tools (ExitPlanMode,
     // AskUserQuestion, WebSearch) are not blocked by the permission layer.
-    const allowedTools: string[] = process.env.AGENT_ALLOWED_TOOLS
-      ? JSON.parse(process.env.AGENT_ALLOWED_TOOLS)
-      : [];
+    let allowedTools: string[] = [];
+    if (process.env.AGENT_ALLOWED_TOOLS) {
+      try {
+        const parsed = JSON.parse(process.env.AGENT_ALLOWED_TOOLS);
+        allowedTools = Array.isArray(parsed)
+          ? parsed.filter((t): t is string => typeof t === 'string')
+          : [];
+      } catch (parseErr) {
+        console.error(
+          `[agent-runner] Failed to parse AGENT_ALLOWED_TOOLS: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`
+        );
+      }
+    }
     session = unstable_v2_createSession({
       model: config.model,
       env: { ...process.env }, // Teams GA: env passed through for agent swarm support

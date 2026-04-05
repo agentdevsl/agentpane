@@ -10,6 +10,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { agents } from '../../db/schema';
 import { createLogger } from '../../lib/logging/logger.js';
+import { deriveGitHubFromPath } from '../../lib/sandbox/git-token-resolver.js';
 import type { CodespaceService } from '../../services/codespace.service.js';
 import type { TemplateService } from '../../services/template.service.js';
 import type { Database } from '../../types/database.js';
@@ -122,11 +123,16 @@ export function createCodespacesRoutes({ codespaceService, templateService, db }
       );
     }
 
+    // Auto-derive GitHub owner/repo from git remote at creation time
+    const gitHub = deriveGitHubFromPath(resolvedPath);
+
     const result = await codespaceService.create({
       path: parsed.data.path,
       name: parsed.data.name,
       description: parsed.data.description,
       projectFolderId: parsed.data.projectFolderId,
+      githubOwner: gitHub?.owner,
+      githubRepo: gitHub?.repo,
     });
 
     if (!result.ok) {

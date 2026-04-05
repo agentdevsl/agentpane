@@ -119,6 +119,7 @@ describe('runAgentPlanning', () => {
       expect.objectContaining({
         permissionMode: 'plan',
         model: 'claude-sonnet-4-6',
+        allowedTools: expect.any(Array),
       })
     );
   });

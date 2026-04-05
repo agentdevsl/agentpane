@@ -309,6 +309,7 @@ export const rawTopologyAgentSpawnedSchema = z.object({
   taskId: z.string().optional(),
   name: z.string(),
   role: z.string(),
+  agentType: z.string().optional(),
   parentId: z.string().nullable(),
   sdkTaskId: z.string().optional(),
 });

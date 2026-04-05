@@ -379,6 +379,7 @@ export interface TopologyAgentSpawnedEvent {
   taskId?: string;
   name: string;
   role: string;
+  agentType?: string;
   parentId: string | null;
   sdkTaskId?: string;
 }

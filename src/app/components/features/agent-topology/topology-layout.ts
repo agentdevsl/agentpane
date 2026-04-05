@@ -79,6 +79,7 @@ export async function layoutTopology(
         data: {
           name: entry.node.name,
           role: entry.node.role,
+          agentType: entry.node.agentType,
           status: entry.node.status,
           progress: entry.node.progress,
           decisions: entry.node.decisions,

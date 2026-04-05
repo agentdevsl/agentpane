@@ -206,15 +206,6 @@ export async function injectSkills(
   return result;
 }
 
-/** Only allow directory-safe characters in agent names */
-const SAFE_AGENT_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
-
-export interface AgentInjectionResult {
-  injected: number;
-  skipped: number;
-  errors: Array<{ name: string; message: string }>;
-}
-
 /**
  * Build agent .md content with frontmatter metadata and agent body.
  */
@@ -256,29 +247,7 @@ export async function injectAgents(
 
   const agentsDir = `${workspacePath}/.claude/agents`;
 
-  // Check which agents already exist
-  let existing: Set<string>;
-  try {
-    const ls = await sandbox.exec('ls', ['-1', agentsDir]);
-    existing =
-      ls.exitCode === 0
-        ? new Set(
-            ls.stdout
-              .split('\n')
-              .map((s) => s.trim().replace(/\.md$/, ''))
-              .filter(Boolean)
-          )
-        : new Set();
-  } catch (error) {
-    log.warn('Failed to list existing agents in sandbox — treating all as missing', {
-      data: {
-        agentsDir,
-        error: error instanceof Error ? error.message : String(error),
-      },
-    });
-    existing = new Set();
-  }
-
+  const existing = await listExistingNames(sandbox, agentsDir, '.md');
   const toInject = agents.filter((a) => !existing.has(a.name));
   result.skipped = agents.length - toInject.length;
 
@@ -293,19 +262,8 @@ export async function injectAgents(
     data: { total: agents.length, toInject: toInject.length, skipped: result.skipped },
   });
 
-  // Ensure agents directory exists — check exit code like injectSkills does
-  const mkdirResult = await sandbox.exec('mkdir', ['-p', agentsDir]);
-  if (mkdirResult.exitCode !== 0) {
-    const msg = `Failed to create agents directory "${agentsDir}": ${mkdirResult.stderr}`;
-    log.error(msg, { data: { agentsDir, exitCode: mkdirResult.exitCode } });
-    for (const agent of toInject) {
-      result.errors.push({ name: agent.name, message: msg });
-    }
-    return result;
-  }
-
   for (const agent of toInject) {
-    if (!SAFE_AGENT_NAME.test(agent.name)) {
+    if (!SAFE_NAME.test(agent.name)) {
       const msg = `Unsafe agent name rejected: "${agent.name}"`;
       log.error(msg, { data: { name: agent.name } });
       result.errors.push({ name: agent.name, message: msg });
@@ -315,24 +273,12 @@ export async function injectAgents(
     const filePath = `${agentsDir}/${agent.name}.md`;
 
     try {
-      const content = buildAgentMarkdown(agent);
-      const encoded = Buffer.from(content).toString('base64');
-
-      const writeResult = await sandbox.exec('sh', [
-        '-c',
-        `printf '%s' "$1" | base64 -d > "$2" && test -s "$2"`,
-        '--',
-        encoded,
-        filePath,
-      ]);
-
-      if (writeResult.exitCode !== 0) {
-        const msg = `Failed to write agent "${agent.name}" at "${filePath}": ${writeResult.stderr}`;
-        log.error(msg, { data: { name: agent.name, exitCode: writeResult.exitCode } });
-        result.errors.push({ name: agent.name, message: msg });
+      const writeError = await writeBase64File(sandbox, filePath, buildAgentMarkdown(agent));
+      if (writeError) {
+        log.error(writeError, { data: { name: agent.name } });
+        result.errors.push({ name: agent.name, message: writeError });
         continue;
       }
-
       log.info('Injected agent', {
         data: { name: agent.name, source: agent.sourceType },
       });

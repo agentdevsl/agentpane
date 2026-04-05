@@ -31,13 +31,17 @@ skill_count=$(sqlite3 "$DB_PATH" "
   FROM templates, json_each(cached_skills)
   WHERE templates.status = 'active' AND cached_skills IS NOT NULL
 " | python3 -c "
-import sys, json, os
+import sys, json, os, re
+safe_pattern = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$')
 count = 0
 for line in sys.stdin:
     try:
         skill = json.loads(line.strip())
         sid = skill.get('id', skill.get('name', ''))
         if not sid:
+            continue
+        if not safe_pattern.match(sid):
+            print(f'Warning: unsafe skill ID rejected: {sid}', file=sys.stderr)
             continue
         content = skill.get('content', '')
         name = skill.get('name', sid)
@@ -63,13 +67,17 @@ agent_count=$(sqlite3 "$DB_PATH" "
   FROM templates, json_each(cached_agents)
   WHERE templates.status = 'active' AND cached_agents IS NOT NULL
 " | python3 -c "
-import sys, json, os
+import sys, json, os, re
+safe_pattern = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$')
 count = 0
 for line in sys.stdin:
     try:
         agent = json.loads(line.strip())
         name = agent.get('name', '')
         if not name:
+            continue
+        if not safe_pattern.match(name):
+            print(f'Warning: unsafe agent name rejected: {name}', file=sys.stderr)
             continue
         content = agent.get('content', '')
         desc = agent.get('description', '')

@@ -19,22 +19,22 @@ mkdir -p /home/node/.claude/plans 2>/dev/null || true
 # Skills/agents baked into the image at build time provide fast startup;
 # runtime injection from the DB can override or add new ones.
 if [ -d /opt/skills-cache ] && [ -d /workspace ]; then
-    mkdir -p /workspace/.claude/skills 2>/dev/null || true
+    mkdir -p /workspace/.claude/skills 2>/dev/null || echo "[entrypoint] Warning: Failed to create /workspace/.claude/skills" >&2
     for skill_dir in /opt/skills-cache/*/; do
         skill_name="$(basename "$skill_dir")"
         if [ ! -d "/workspace/.claude/skills/$skill_name" ]; then
-            cp -r "$skill_dir" "/workspace/.claude/skills/$skill_name" 2>/dev/null || true
+            cp -r "$skill_dir" "/workspace/.claude/skills/$skill_name" 2>&1 || echo "[entrypoint] Warning: Failed to copy skill $skill_name" >&2
         fi
     done
 fi
 
 if [ -d /opt/agents-cache ] && [ -d /workspace ]; then
-    mkdir -p /workspace/.claude/agents 2>/dev/null || true
+    mkdir -p /workspace/.claude/agents 2>/dev/null || echo "[entrypoint] Warning: Failed to create /workspace/.claude/agents" >&2
     for agent_file in /opt/agents-cache/*.md; do
         [ -f "$agent_file" ] || continue
         agent_name="$(basename "$agent_file")"
         if [ ! -f "/workspace/.claude/agents/$agent_name" ]; then
-            cp "$agent_file" "/workspace/.claude/agents/$agent_name" 2>/dev/null || true
+            cp "$agent_file" "/workspace/.claude/agents/$agent_name" 2>&1 || echo "[entrypoint] Warning: Failed to copy agent $agent_name" >&2
         fi
     done
 fi
@@ -44,7 +44,7 @@ for cache_pair in "foundations-cache:.foundations" "github-cache:.github" "dot-a
     cache_dir="/opt/${cache_pair%%:*}"
     target_dir="/workspace/${cache_pair#*:}"
     if [ -d "$cache_dir" ] && [ -d /workspace ] && [ ! -d "$target_dir" ]; then
-        cp -r "$cache_dir" "$target_dir" 2>/dev/null || true
+        cp -r "$cache_dir" "$target_dir" 2>&1 || echo "[entrypoint] Warning: Failed to copy $cache_dir to $target_dir" >&2
     fi
 done
 
@@ -53,14 +53,14 @@ if [ -d /opt/claude-config-cache ] && [ -d /workspace ]; then
     # .mcp.json goes to workspace root (Claude Code reads it from project root)
     for f in .mcp.json .mcp-ci.json; do
         if [ -f "/opt/claude-config-cache/$f" ] && [ ! -f "/workspace/$f" ]; then
-            cp "/opt/claude-config-cache/$f" "/workspace/$f" 2>/dev/null || true
+            cp "/opt/claude-config-cache/$f" "/workspace/$f" 2>&1 || echo "[entrypoint] Warning: Failed to copy $f to /workspace/" >&2
         fi
     done
     # settings.local.json and CLAUDE.md go to .claude/
-    mkdir -p /workspace/.claude 2>/dev/null || true
+    mkdir -p /workspace/.claude 2>/dev/null || echo "[entrypoint] Warning: Failed to create /workspace/.claude" >&2
     for f in settings.local.json CLAUDE.md; do
         if [ -f "/opt/claude-config-cache/$f" ] && [ ! -f "/workspace/.claude/$f" ]; then
-            cp "/opt/claude-config-cache/$f" "/workspace/.claude/$f" 2>/dev/null || true
+            cp "/opt/claude-config-cache/$f" "/workspace/.claude/$f" 2>&1 || echo "[entrypoint] Warning: Failed to copy $f to /workspace/.claude/" >&2
         fi
     done
 fi

@@ -48,6 +48,8 @@ export type CreateCodespaceInput = {
   config?: Partial<CodespaceConfig>;
   maxConcurrentAgents?: number;
   sandboxConfigId?: string;
+  githubOwner?: string;
+  githubRepo?: string;
 };
 
 export type UpdateCodespaceInput = {
@@ -151,6 +153,8 @@ export class CodespaceService {
         config: validated.value,
         maxConcurrentAgents: input.maxConcurrentAgents ?? 3,
         sandboxConfigId: input.sandboxConfigId,
+        githubOwner: input.githubOwner ?? null,
+        githubRepo: input.githubRepo ?? null,
         createdAt: this.updateTimestamp(),
         updatedAt: this.updateTimestamp(),
       })

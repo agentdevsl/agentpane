@@ -23,7 +23,7 @@ interface AgentSpawnedEvent {
   id: string;
   type: 'topology:agent_spawned';
   timestamp: number;
-  data: TopologyAgentSpawnedEvent & { agentType?: string; timestamp?: number };
+  data: TopologyAgentSpawnedEvent & { timestamp?: number };
 }
 
 interface AgentProgressEvent {

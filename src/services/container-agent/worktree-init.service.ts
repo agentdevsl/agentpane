@@ -97,6 +97,13 @@ export class WorktreeInitService {
       log.info('Codespace has no GitHub config and no git remote, using empty workspace', {
         data: { taskId },
       });
+      await streams.publish(sessionId, 'container-agent:message', {
+        taskId,
+        sessionId,
+        role: 'system',
+        content:
+          "No GitHub repository configured for this codespace. The agent will work without git isolation — changes cannot be pushed or PR'd.",
+      });
       return null;
     }
 
@@ -177,7 +184,7 @@ export class WorktreeInitService {
         sessionId,
         role: 'system',
         content:
-          "Workspace initialization failed: no GitHub repository configured for this codespace. The agent will work without git isolation — changes cannot be pushed or PR'd.",
+          "Workspace initialization failed: repository clone or worktree creation failed. The agent will work without git isolation — changes cannot be pushed or PR'd.",
       });
       return null;
     }
