@@ -238,6 +238,8 @@ export function createCodespacesRoutes({ codespaceService, templateService, db }
         description: codespace.description,
         projectFolderId: codespace.projectFolderId,
         maxConcurrentAgents: codespace.maxConcurrentAgents,
+        githubOwner: codespace.githubOwner,
+        githubRepo: codespace.githubRepo,
         config: codespace.config,
         createdAt: codespace.createdAt,
         updatedAt: codespace.updatedAt,

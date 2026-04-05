@@ -13,16 +13,14 @@ import {
   useSensors,
 } from '@dnd-kit/core';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import { ArrowsDownUp, ClockCounterClockwise, ListNumbers, Plus } from '@phosphor-icons/react';
 import { useCallback, useMemo, useState } from 'react';
 import { useContainerAgentStatuses } from '@/app/hooks/use-container-agent-statuses';
 import type { Task, TaskColumn } from '@/db/schema';
-import { cn } from '@/lib/utils/cn';
 import { COLUMN_CONFIG, COLUMN_ORDER, VALID_TRANSITIONS } from './constants';
 import { DragOverlayCard } from './drag-overlay';
 import { KanbanCard } from './kanban-card';
 import { KanbanColumn } from './kanban-column';
-import { type SortField, useBoardState } from './use-board-state';
+import { useBoardState } from './use-board-state';
 
 interface KanbanBoardProps {
   /** Tasks to display */
@@ -87,7 +85,7 @@ export function KanbanBoard({
   backlogHeaderAction,
   isLoading: _isLoading,
 }: KanbanBoardProps): React.JSX.Element {
-  const [{ selectedIds, collapsedColumns, sortBy }, actions] = useBoardState();
+  const [{ selectedIds, collapsedColumns }, actions] = useBoardState();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [overColumn, setOverColumn] = useState<TaskColumn | null>(null);
 
@@ -102,28 +100,18 @@ export function KanbanBoard({
   // Track agent statuses for active sessions
   const agentStatuses = useContainerAgentStatuses(activeSessions);
 
-  // Group tasks by column, sorted by selected field
+  // Group tasks by column, sorted by position
   const tasksByColumn = useMemo(() => {
     return COLUMN_ORDER.reduce(
       (acc, column) => {
-        const filtered = tasks.filter((t) => t.column === column);
-        if (sortBy === 'updatedAt') {
-          filtered.sort(
-            (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-          );
-        } else if (sortBy === 'createdAt') {
-          filtered.sort(
-            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-          );
-        } else {
-          filtered.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
-        }
-        acc[column] = filtered;
+        acc[column] = tasks
+          .filter((t) => t.column === column)
+          .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
         return acc;
       },
       {} as Record<TaskColumn, Task[]>
     );
-  }, [tasks, sortBy]);
+  }, [tasks]);
 
   // DnD Sensors with activation constraint
   const sensors = useSensors(
@@ -262,24 +250,6 @@ export function KanbanBoard({
   // Active task for drag overlay
   const activeTask = activeId ? tasks.find((t) => t.id === activeId) : null;
 
-  // Sort toggle config
-  const sortOptions: { field: SortField; icon: typeof ArrowsDownUp; label: string }[] = [
-    { field: 'position', icon: ListNumbers, label: 'Position' },
-    { field: 'updatedAt', icon: ClockCounterClockwise, label: 'Updated' },
-    { field: 'createdAt', icon: Plus, label: 'Created' },
-  ];
-
-  const handleCycleSort = useCallback(() => {
-    const fields: SortField[] = ['position', 'updatedAt', 'createdAt'];
-    const currentIdx = fields.indexOf(sortBy);
-    const next = fields[(currentIdx + 1) % fields.length] as SortField;
-    actions.setSortBy(next);
-  }, [sortBy, actions]);
-
-  const currentSortOption =
-    sortOptions.find((o) => o.field === sortBy) ??
-    (sortOptions[0] as { field: SortField; icon: typeof ArrowsDownUp; label: string });
-
   return (
     <DndContext
       sensors={sensors}
@@ -288,25 +258,8 @@ export function KanbanBoard({
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
     >
-      {/* Sort toggle bar */}
-      <div className="flex items-center justify-end px-5 pt-3 pb-0">
-        <button
-          type="button"
-          onClick={handleCycleSort}
-          className={cn(
-            'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium',
-            'text-fg-muted hover:text-fg hover:bg-surface-muted',
-            'border border-transparent hover:border-border',
-            'transition-all duration-150'
-          )}
-          title={`Sort by: ${currentSortOption.label} (click to cycle)`}
-        >
-          <ArrowsDownUp className="w-3.5 h-3.5" />
-          <span>Sort: {currentSortOption.label}</span>
-        </button>
-      </div>
       <div
-        className="flex gap-4 px-5 pb-5 overflow-x-auto h-full"
+        className="flex gap-4 p-5 overflow-x-auto h-full"
         onClick={handleBoardClick}
         onKeyDown={handleBoardKeyDown}
         role="application"
