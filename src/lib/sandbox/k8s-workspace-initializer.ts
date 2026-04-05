@@ -89,37 +89,69 @@ async function cloneRepository(
   const cloneUrl = `https://x-access-token:${token}@github.com/${owner}/${repo}.git`;
 
   try {
-    // Ensure /workspace is empty before cloning — the container may have a
-    // non-empty /workspace from entrypoint.sh (skills/agents copied in).
-    // Git clone fails with "destination path already exists and is not empty".
-    // We use git init + fetch instead of clone to work with an existing directory.
-    const initResult = await sandbox.exec('git', ['init', CONTAINER_WORKSPACE_PATH]);
-    if (initResult.exitCode !== 0) {
-      // /workspace may already be a git repo from a prior clone — skip init
-      log.debug('git init returned non-zero (may already be initialized)', {
-        data: { exitCode: initResult.exitCode },
-      });
+    // Initialize git repo in /workspace if not already a repo.
+    // We use init+fetch instead of clone because /workspace may be non-empty
+    // (entrypoint.sh copies skills/agents/config there first).
+    const isCloned = await isWorkspaceCloned(sandbox);
+    if (!isCloned) {
+      try {
+        await sandbox.exec('git', ['init', CONTAINER_WORKSPACE_PATH]);
+      } catch (initErr) {
+        log.debug('git init threw (workspace may already be initialized)', {
+          error: errorMessage(initErr),
+        });
+      }
     }
 
-    // Add or update origin remote (set-url handles both new and existing)
-    const addResult = await sandbox.exec('git', [
-      '-C',
-      CONTAINER_WORKSPACE_PATH,
-      'remote',
-      'add',
-      'origin',
-      cloneUrl,
-    ]);
-    if (addResult.exitCode !== 0) {
-      // Origin already exists — update its URL to use the fresh token
+    // Configure git safe.directory to avoid ownership warnings in containers
+    try {
       await sandbox.exec('git', [
         '-C',
         CONTAINER_WORKSPACE_PATH,
+        'config',
+        '--global',
+        'safe.directory',
+        CONTAINER_WORKSPACE_PATH,
+      ]);
+    } catch {
+      // Non-critical — may already be configured
+    }
+
+    // Set origin remote URL (add if missing, update if exists)
+    try {
+      const addResult = await sandbox.exec('git', [
+        '-C',
+        CONTAINER_WORKSPACE_PATH,
         'remote',
-        'set-url',
+        'add',
         'origin',
         cloneUrl,
       ]);
+      if (addResult.exitCode !== 0) {
+        // Origin already exists — update its URL to use the fresh token
+        await sandbox.exec('git', [
+          '-C',
+          CONTAINER_WORKSPACE_PATH,
+          'remote',
+          'set-url',
+          'origin',
+          cloneUrl,
+        ]);
+      }
+    } catch {
+      // If remote add threw, try set-url as fallback
+      try {
+        await sandbox.exec('git', [
+          '-C',
+          CONTAINER_WORKSPACE_PATH,
+          'remote',
+          'set-url',
+          'origin',
+          cloneUrl,
+        ]);
+      } catch (setUrlErr) {
+        return { ok: false, error: `Failed to configure git remote: ${errorMessage(setUrlErr)}` };
+      }
     }
 
     // Fetch the requested branch (shallow). If that fails, fetch the default branch.

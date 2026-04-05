@@ -17,5 +17,14 @@ export function errorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
   }
-  return String(error);
+  // Handle ErrorEvent and similar objects with a message property
+  if (error != null && typeof error === 'object' && 'message' in error) {
+    return String((error as { message: unknown }).message);
+  }
+  const str = String(error);
+  // Avoid unhelpful "[object Object]" or "[object ErrorEvent]"
+  if (str.startsWith('[object ')) {
+    return JSON.stringify(error) !== '{}' ? JSON.stringify(error) : str;
+  }
+  return str;
 }
