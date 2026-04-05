@@ -8,9 +8,14 @@ import {
 } from '@phosphor-icons/react';
 import React, { Suspense, useMemo, useState } from 'react';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
+import type { AgentStatus, TaskColumn } from '@/db/schema/shared/enums.js';
 import { apiClient } from '@/lib/api/client';
-import type { TopologyGraph, TopologyNode } from '@/lib/topology/types';
-import { deriveContainerAgentNodeId } from '@/lib/topology/utils';
+import {
+  buildTopologyFromEvents,
+  extractSessionEvents,
+  type TopologyEvent,
+} from '@/lib/topology/build-from-events';
+import type { TopologyGraph } from '@/lib/topology/types';
 import { cn } from '@/lib/utils/cn';
 import { TaskListSidebar } from './task-list-sidebar';
 
@@ -46,25 +51,14 @@ interface LiveTaskViewTask {
   lastAgentStatus?: string | null;
   labels?: string[] | null;
   branch?: string | null;
+  skillId?: string | null;
+  skillName?: string | null;
 }
 
 interface LiveTaskViewProps {
   tasks: LiveTaskViewTask[];
   codespaceId: string;
   onTaskMove?: (taskId: string, column: string, position: number) => void;
-}
-
-interface SessionEventRecord {
-  id: string;
-  type: string;
-  timestamp: number;
-  data: unknown;
-}
-
-function extractSessionEvents(
-  payload: SessionEventRecord[] | { data: SessionEventRecord[] }
-): SessionEventRecord[] {
-  return Array.isArray(payload) ? payload : payload.data;
 }
 
 // =============================================================================
@@ -119,183 +113,23 @@ export function LiveTaskView({
         }
 
         const events = extractSessionEvents(
-          result.data as SessionEventRecord[] | { data: SessionEventRecord[] }
+          result.data as TopologyEvent[] | { data: TopologyEvent[] }
         );
-        const nodes = new Map<string, TopologyNode>();
-        const edges: Array<{ id: string; sourceId: string; targetId: string }> = [];
 
-        for (const event of events) {
-          if (event.type === 'topology:agent_spawned') {
-            const d = event.data as {
-              agentId: string;
-              name: string;
-              role?: string;
-              parentId?: string;
-              timestamp?: number;
-            };
-            const node: TopologyNode = {
-              id: d.agentId,
-              name: d.name,
-              role: ([
-                'orchestrator',
-                'planner',
-                'coder',
-                'reviewer',
-                'tester',
-                'scanner',
-                'deployer',
-              ].includes(d.role ?? '')
-                ? d.role
-                : 'coder') as TopologyNode['role'],
-              status: 'running',
-              parentId: d.parentId ?? null,
-              childIds: [],
-              progress: 0,
-              tokens: 0,
-              cost: 0,
-              turns: 0,
-              messages: 0,
-              startedAt: d.timestamp ?? event.timestamp,
-              completedAt: null,
-              verified: false,
-              verificationScore: 0,
-              decisions: [],
-            };
-            nodes.set(d.agentId, node);
-            if (d.parentId) {
-              edges.push({
-                id: `${d.parentId}->${d.agentId}`,
-                sourceId: d.parentId,
-                targetId: d.agentId,
-              });
-              const parent = nodes.get(d.parentId);
-              if (parent) parent.childIds.push(d.agentId);
-            }
-          } else if (event.type === 'container-agent:started' && nodes.size === 0) {
-            const d = event.data as { taskId?: string; model?: string };
-            const agentId = deriveContainerAgentNodeId({
-              agentId: selectedTask?.agentId,
-              taskId: d.taskId ?? selectedTask?.id,
-              sessionId,
-            });
-            nodes.set(agentId, {
-              id: agentId,
-              name: d.model ?? selectedTask?.title ?? 'Agent',
-              role: 'coder',
-              status: 'running',
-              parentId: null,
-              childIds: [],
-              progress: 0,
-              tokens: 0,
-              cost: 0,
-              turns: 0,
-              messages: 0,
-              startedAt: event.timestamp,
-              completedAt: null,
-              verified: false,
-              verificationScore: 0,
-              decisions: [],
-            });
-          } else if (event.type === 'topology:agent_progress') {
-            const d = event.data as { agentId: string; tokens?: number; toolUses?: number };
-            const node = nodes.get(d.agentId);
-            if (node && d.tokens) {
-              node.tokens = d.tokens;
-              node.cost = Number.parseFloat((d.tokens * 0.000009).toFixed(4));
-              node.progress = Math.min(95, Math.floor(d.tokens / 500));
-              node.turns = d.toolUses ?? node.turns;
-            }
-          } else if (event.type === 'topology:agent_completed') {
-            const d = event.data as {
-              agentId: string;
-              status?: string;
-              tokens?: number;
-              timestamp?: number;
-            };
-            const node = nodes.get(d.agentId);
-            if (node) {
-              node.status =
-                d.status === 'completed'
-                  ? 'completed'
-                  : d.status === 'stopped'
-                    ? 'stopped'
-                    : 'failed';
-              node.completedAt = d.timestamp ?? event.timestamp;
-              if (d.tokens) {
-                node.tokens = d.tokens;
-                node.cost = Number.parseFloat((d.tokens * 0.000009).toFixed(4));
-              }
-              if (node.status === 'completed') node.progress = 100;
-            }
-          } else if (event.type === 'container-agent:tool:start') {
-            const firstNode = nodes.values().next().value;
-            if (firstNode) {
-              firstNode.turns += 1;
-              firstNode.tokens += 500;
-              firstNode.cost = Number.parseFloat((firstNode.tokens * 0.000009).toFixed(4));
-              firstNode.progress = Math.min(95, firstNode.turns * 10);
-            }
-          } else if (event.type === 'container-agent:message') {
-            const firstNode = nodes.values().next().value;
-            if (firstNode) firstNode.messages += 1;
-          } else if (event.type === 'container-agent:plan_ready') {
-            const firstNode = nodes.values().next().value;
-            if (firstNode) {
-              firstNode.status = 'verifying';
-              firstNode.progress = 80;
-            }
-          }
-        }
+        const graph = buildTopologyFromEvents(events, {
+          sessionId,
+          agentId: selectedTask?.agentId,
+          taskId: selectedTask?.id,
+          taskTitle: selectedTask?.title,
+          taskColumn: selectedTask?.column as TaskColumn | undefined,
+          lastAgentStatus: selectedTask?.lastAgentStatus as AgentStatus | null | undefined,
+          skillId: selectedTask?.skillId ?? null,
+          skillName: selectedTask?.skillName ?? null,
+        });
 
-        // If still no nodes, create a root from task metadata
-        if (nodes.size === 0) {
-          const agentId = deriveContainerAgentNodeId({
-            agentId: selectedTask?.agentId,
-            taskId: selectedTask?.id,
-            sessionId,
-          });
-          const isCompleted =
-            selectedTask?.column === 'verified' || selectedTask?.column === 'done';
-          const isRunning = selectedTask?.column === 'in_progress';
-          const isPlanReady = selectedTask?.lastAgentStatus === 'planning';
-
-          let toolCount = 0;
-          for (const event of events) {
-            if (event.type.includes('tool:start')) toolCount++;
-          }
-
-          const rootNode: TopologyNode = {
-            id: agentId,
-            name: selectedTask?.title ?? 'Agent',
-            role: 'coder',
-            status: isCompleted
-              ? 'completed'
-              : isPlanReady
-                ? 'verifying'
-                : isRunning
-                  ? 'running'
-                  : 'queued',
-            parentId: null,
-            childIds: [],
-            progress: isCompleted ? 100 : isPlanReady ? 80 : Math.min(90, toolCount * 10),
-            tokens: toolCount * 500,
-            cost: Number.parseFloat((toolCount * 500 * 0.000009).toFixed(4)),
-            turns: toolCount,
-            messages: events.filter((e) => e.type.includes('message')).length,
-            startedAt: events[0]?.timestamp ?? Date.now(),
-            completedAt: isCompleted ? (events[events.length - 1]?.timestamp ?? null) : null,
-            verified: isCompleted,
-            verificationScore: isCompleted ? 1 : 0,
-            decisions: [],
-          };
-          nodes.set(agentId, rootNode);
-        }
-
+        // Preserve task metadata from the selected task
         setTopologyData({
-          nodes: Array.from(nodes.values()),
-          edges,
-          taskId: selectedTask?.id ?? '',
-          taskName: selectedTask?.title ?? '',
+          ...graph,
           taskPriority: selectedTask?.priority ?? '',
         });
       } catch (err) {

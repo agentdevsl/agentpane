@@ -159,7 +159,7 @@ describe('Functional E2E: Real Service Transitions', () => {
     // Verify the real agent prompt includes skill, title, labels, priority
     expect(mockContainerAgent.startAgent).toHaveBeenCalledOnce();
     const prompt = capturedStartInput!.prompt as string;
-    expect(prompt).toContain('use skill auth-toolkit');
+    expect(prompt).toContain('.claude/skills/auth-toolkit/SKILL.md');
     expect(prompt).toContain('Implement user authentication');
     expect(prompt).toContain('Labels: feature, security');
     expect(prompt).toContain('Priority: high');
@@ -306,7 +306,7 @@ describe('Functional E2E: Real Service Transitions', () => {
     expect(completedTask!.lastAgentStatus).toBe('completed');
     expect(completedTask!.completedAt).toBeTruthy();
     expect(completedTask!.agentId).toBeNull();
-    expect(completedTask!.sessionId).toBeNull();
+    expect(completedTask!.sessionId).toBeTruthy(); // Preserved for UI session events
     expect(completedTask!.skillId).toBe('auth-toolkit');
     expect(completedTask!.plan).toContain('Create JWT middleware'); // plan still there
 

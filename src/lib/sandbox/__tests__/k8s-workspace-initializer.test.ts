@@ -26,21 +26,32 @@ describe('initializeK8sWorkspace', () => {
 
   it('clones repo and creates worktree on fresh workspace', async () => {
     const sandbox = createMockSandbox();
+    const ok = { exitCode: 0, stdout: '', stderr: '' };
 
     // test -d /workspace/.git → not cloned
     sandbox.exec.mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: '' });
-    // git clone
-    sandbox.exec.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
-    // git remote set-url
-    sandbox.exec.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+    // git init
+    sandbox.exec.mockResolvedValueOnce(ok);
+    // git config --global safe.directory
+    sandbox.exec.mockResolvedValueOnce(ok);
+    // git remote add origin
+    sandbox.exec.mockResolvedValueOnce(ok);
+    // git fetch --depth 1 origin main
+    sandbox.exec.mockResolvedValueOnce(ok);
+    // git checkout -f origin/main
+    sandbox.exec.mockResolvedValueOnce(ok);
+    // git checkout -B main
+    sandbox.exec.mockResolvedValueOnce(ok);
+    // git remote set-url origin (strip token)
+    sandbox.exec.mockResolvedValueOnce(ok);
     // git config credential.helper
-    sandbox.exec.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+    sandbox.exec.mockResolvedValueOnce(ok);
     // test -d worktree dir → does not exist
     sandbox.exec.mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: '' });
     // mkdir -p /workspace/.worktrees
-    sandbox.exec.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+    sandbox.exec.mockResolvedValueOnce(ok);
     // git worktree add -b
-    sandbox.exec.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+    sandbox.exec.mockResolvedValueOnce(ok);
 
     const result = await initializeK8sWorkspace({ ...defaultOptions, sandbox });
 
@@ -105,35 +116,46 @@ describe('initializeK8sWorkspace', () => {
 
   it('strips token from remote URL after clone', async () => {
     const sandbox = createMockSandbox();
+    const ok = { exitCode: 0, stdout: '', stderr: '' };
 
     // test -d /workspace/.git → not cloned
     sandbox.exec.mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: '' });
-    // git clone → success
-    sandbox.exec.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
-    // git remote set-url
-    sandbox.exec.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+    // git init
+    sandbox.exec.mockResolvedValueOnce(ok);
+    // git config --global safe.directory
+    sandbox.exec.mockResolvedValueOnce(ok);
+    // git remote add origin (token in URL)
+    sandbox.exec.mockResolvedValueOnce(ok);
+    // git fetch --depth 1 origin main
+    sandbox.exec.mockResolvedValueOnce(ok);
+    // git checkout -f origin/main
+    sandbox.exec.mockResolvedValueOnce(ok);
+    // git checkout -B main
+    sandbox.exec.mockResolvedValueOnce(ok);
+    // git remote set-url origin (strip token — clean URL)
+    sandbox.exec.mockResolvedValueOnce(ok);
     // git config credential.helper
-    sandbox.exec.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+    sandbox.exec.mockResolvedValueOnce(ok);
     // test -d worktree dir
     sandbox.exec.mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: '' });
     // mkdir -p
-    sandbox.exec.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+    sandbox.exec.mockResolvedValueOnce(ok);
     // git worktree add -b
-    sandbox.exec.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+    sandbox.exec.mockResolvedValueOnce(ok);
 
     await initializeK8sWorkspace({ ...defaultOptions, sandbox });
 
-    // Clone call should contain token in URL
-    const cloneCall = sandbox.exec.mock.calls.find(
-      ([cmd, args]) => cmd === 'git' && args?.[0] === 'clone'
+    // Remote add call should contain token in URL
+    const addCall = sandbox.exec.mock.calls.find(
+      ([cmd, args]) => cmd === 'git' && args?.includes('add') && args?.includes('origin')
     );
-    expect(cloneCall).toBeTruthy();
-    const cloneUrl = cloneCall![1]!.find(
+    expect(addCall).toBeTruthy();
+    const addUrl = addCall![1]!.find(
       (arg: string) => arg.includes('github.com') && arg.includes('x-access-token')
     );
-    expect(cloneUrl).toContain('x-access-token:ghp_test123');
+    expect(addUrl).toContain('x-access-token:ghp_test123');
 
-    // Remote set-url call should NOT contain token
+    // Remote set-url call should strip the token
     const setUrlCall = sandbox.exec.mock.calls.find(
       ([cmd, args]) => cmd === 'git' && args?.includes('set-url')
     );
@@ -241,21 +263,32 @@ describe('initializeK8sWorkspace', () => {
 
   it('uses custom baseBranch for clone and worktree', async () => {
     const sandbox = createMockSandbox();
+    const ok = { exitCode: 0, stdout: '', stderr: '' };
 
     // test -d /workspace/.git → not cloned
     sandbox.exec.mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: '' });
-    // git clone
-    sandbox.exec.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
-    // git remote set-url
-    sandbox.exec.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+    // git init
+    sandbox.exec.mockResolvedValueOnce(ok);
+    // git config --global safe.directory
+    sandbox.exec.mockResolvedValueOnce(ok);
+    // git remote add origin
+    sandbox.exec.mockResolvedValueOnce(ok);
+    // git fetch --depth 1 origin develop
+    sandbox.exec.mockResolvedValueOnce(ok);
+    // git checkout -f origin/develop
+    sandbox.exec.mockResolvedValueOnce(ok);
+    // git checkout -B develop
+    sandbox.exec.mockResolvedValueOnce(ok);
+    // git remote set-url origin (strip token)
+    sandbox.exec.mockResolvedValueOnce(ok);
     // git config credential.helper
-    sandbox.exec.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+    sandbox.exec.mockResolvedValueOnce(ok);
     // test -d worktree dir
     sandbox.exec.mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: '' });
     // mkdir -p
-    sandbox.exec.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+    sandbox.exec.mockResolvedValueOnce(ok);
     // git worktree add -b
-    sandbox.exec.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+    sandbox.exec.mockResolvedValueOnce(ok);
 
     await initializeK8sWorkspace({
       ...defaultOptions,
@@ -263,11 +296,11 @@ describe('initializeK8sWorkspace', () => {
       baseBranch: 'develop',
     });
 
-    // Clone should use 'develop' branch
-    const cloneCall = sandbox.exec.mock.calls.find(
-      ([cmd, args]) => cmd === 'git' && args?.[0] === 'clone'
+    // Fetch should use 'develop' branch
+    const fetchCall = sandbox.exec.mock.calls.find(
+      ([cmd, args]) => cmd === 'git' && args?.includes('fetch')
     );
-    expect(cloneCall![1]).toContain('develop');
+    expect(fetchCall![1]).toContain('develop');
 
     // Worktree should use 'develop' as base
     const worktreeCall = sandbox.exec.mock.calls.find(
@@ -294,26 +327,37 @@ describe('initializeK8sWorkspace', () => {
 
   it('handles isWorkspaceCloned check throwing', async () => {
     const sandbox = createMockSandbox();
+    const ok = { exitCode: 0, stdout: '', stderr: '' };
 
-    // test -d /workspace/.git → throws
+    // test -d /workspace/.git → throws (isWorkspaceCloned)
     sandbox.exec.mockRejectedValueOnce(new Error('exec failed'));
-    // Treated as "not cloned", so clone attempt follows
-    // git clone → success
-    sandbox.exec.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
-    // git remote set-url
-    sandbox.exec.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+    // Treated as "not cloned", so init+fetch flow follows:
+    // git init
+    sandbox.exec.mockResolvedValueOnce(ok);
+    // git config --global safe.directory
+    sandbox.exec.mockResolvedValueOnce(ok);
+    // git remote add origin
+    sandbox.exec.mockResolvedValueOnce(ok);
+    // git fetch --depth 1 origin main
+    sandbox.exec.mockResolvedValueOnce(ok);
+    // git checkout -f origin/main
+    sandbox.exec.mockResolvedValueOnce(ok);
+    // git checkout -B main
+    sandbox.exec.mockResolvedValueOnce(ok);
+    // git remote set-url origin (strip token)
+    sandbox.exec.mockResolvedValueOnce(ok);
     // git config credential.helper
-    sandbox.exec.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
-    // test -d worktree dir
+    sandbox.exec.mockResolvedValueOnce(ok);
+    // test -d worktree dir → does not exist
     sandbox.exec.mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: '' });
-    // mkdir -p
-    sandbox.exec.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+    // mkdir -p .worktrees
+    sandbox.exec.mockResolvedValueOnce(ok);
     // git worktree add -b
-    sandbox.exec.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+    sandbox.exec.mockResolvedValueOnce(ok);
 
     const result = await initializeK8sWorkspace({ ...defaultOptions, sandbox });
 
-    // Should still succeed (clone + worktree)
+    // Should still succeed (init+fetch + worktree)
     expect(result.worktreePath).toMatch(/^\/workspace\/.worktrees\//);
     expect(result.branch).toBeTruthy();
   });

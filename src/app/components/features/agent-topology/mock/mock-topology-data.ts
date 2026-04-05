@@ -1,5 +1,4 @@
 import type {
-  TopologyAgentRole,
   TopologyAgentStatus,
   TopologyDecision,
   TopologyEdge,
@@ -13,7 +12,7 @@ const minutesAgo = (m: number) => now - m * 60_000;
 function makeNode(
   id: string,
   name: string,
-  role: TopologyAgentRole,
+  role: string,
   status: TopologyAgentStatus,
   parentId: string | null,
   childIds: string[],
@@ -23,6 +22,7 @@ function makeNode(
     id,
     name,
     role,
+    agentType: null,
     status,
     parentId,
     childIds,
@@ -192,6 +192,8 @@ export function createLargeTopologyGraph(): TopologyGraph {
     taskId: 'api-platform',
     taskName: 'API Platform v2',
     taskPriority: 'P0',
+    skillId: null,
+    skillName: null,
   };
 }
 
@@ -240,6 +242,8 @@ export function createSmallTopologyGraph(): TopologyGraph {
     taskId: 'small-task',
     taskName: 'Bug Fix #42',
     taskPriority: 'P2',
+    skillId: null,
+    skillName: null,
   };
 }
 

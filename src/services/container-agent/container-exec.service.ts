@@ -20,7 +20,7 @@ import type { SandboxError } from '../../lib/errors/sandbox-errors.js';
 import { SandboxErrors } from '../../lib/errors/sandbox-errors.js';
 import { createLogger } from '../../lib/logging/logger.js';
 import type { Sandbox } from '../../lib/sandbox/providers/sandbox-provider.js';
-import { injectSkills } from '../../lib/sandbox/skill-injector.js';
+import { injectAgents, injectSkills } from '../../lib/sandbox/skill-injector.js';
 import { SANDBOX_DEFAULTS } from '../../lib/sandbox/types.js';
 import { softInvariant } from '../../lib/utils/invariant.js';
 import type { Result } from '../../lib/utils/result.js';
@@ -140,6 +140,9 @@ export class ContainerExecService {
       AGENT_PROMPT: prompt,
       AGENT_MAX_TURNS: String(agentConfig.maxTurns),
       AGENT_MODEL: agentConfig.model,
+      ...(agentConfig.allowedTools?.length
+        ? { AGENT_ALLOWED_TOOLS: JSON.stringify(agentConfig.allowedTools) }
+        : {}),
       AGENT_CWD: worktreePath,
       AGENT_STOP_FILE: stopFilePath,
       AGENT_PHASE: phase,
@@ -244,8 +247,8 @@ export class ContainerExecService {
           codespaceId,
           codespacePath: codespace.path ?? '/workspace',
           image: SANDBOX_DEFAULTS.image,
-          memoryMb: 2048,
-          cpuCores: 2,
+          memoryMb: SANDBOX_DEFAULTS.memoryMb,
+          cpuCores: SANDBOX_DEFAULTS.cpuCores,
           idleTimeoutMinutes: 30,
           volumeMounts: [],
         });
@@ -430,6 +433,7 @@ export class ContainerExecService {
     const agentConfig: AgentConfig = {
       model: resolvedModel ?? getFullModelId(DEFAULT_AGENT_MODEL),
       maxTurns: maxTurns ?? codespace.config?.maxTurns ?? 50,
+      allowedTools: codespace.config?.allowedTools ?? [],
     };
     log.info('Resolved agent config', {
       data: { model: agentConfig.model, maxTurns: agentConfig.maxTurns },
@@ -499,6 +503,17 @@ export class ContainerExecService {
       content: 'OAuth credentials retrieved successfully',
     });
 
+    // Verify sandbox exec is ready before injecting skills
+    const readyCheck = await sandbox.exec('echo', ['ready']);
+    if (readyCheck.exitCode !== 0) {
+      // Retry once after a short delay
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const retry = await sandbox.exec('echo', ['ready']);
+      if (retry.exitCode !== 0) {
+        log.warn('Sandbox exec not ready after retry', { data: { exitCode: retry.exitCode } });
+      }
+    }
+
     // Stage: Injecting Skills - materialize org/template skills into sandbox
     await streams.publish(sessionId, 'container-agent:status', {
       taskId,
@@ -508,32 +523,72 @@ export class ContainerExecService {
     });
 
     const templateService = new TemplateService(db);
-    let skillMessage = 'No template skills to inject';
+    let skillMessage = 'No template configuration to inject';
 
     try {
       const mergedResult = await templateService.getMergedConfig(codespaceId);
 
-      if (mergedResult.ok && mergedResult.value.skills.length > 0) {
-        const skills = mergedResult.value.skills;
-        log.info('Injecting template skills into sandbox', {
-          data: { codespaceId, skillCount: skills.length },
-        });
+      if (mergedResult.ok) {
+        const { skills, agents: agentTemplates } = mergedResult.value;
+        const messageParts: string[] = [];
 
-        const injectionResult = await injectSkills(sandbox, skills, CONTAINER_WORKSPACE_PATH);
-
-        skillMessage = `Skills injected: ${injectionResult.injected} new, ${injectionResult.skipped} already present${injectionResult.errors.length > 0 ? `, ${injectionResult.errors.length} errors` : ''}`;
-
-        if (injectionResult.errors.length > 0) {
-          log.error('Some skills failed to inject', {
-            data: { errors: injectionResult.errors },
+        // Inject skills
+        if (skills.length > 0) {
+          log.info('Injecting template skills into sandbox', {
+            data: { codespaceId, skillCount: skills.length },
           });
+
+          const injectionResult = await injectSkills(sandbox, skills, CONTAINER_WORKSPACE_PATH);
+
+          if (injectionResult.injected === 0 && injectionResult.errors.length > 0) {
+            messageParts.push(
+              `WARNING: No skills could be injected (${injectionResult.errors.length} errors)`
+            );
+          } else {
+            messageParts.push(
+              `Skills: ${injectionResult.injected} new, ${injectionResult.skipped} already present${injectionResult.errors.length > 0 ? `, ${injectionResult.errors.length} errors` : ''}`
+            );
+          }
+
+          if (injectionResult.errors.length > 0) {
+            log.error('Some skills failed to inject', {
+              data: { errors: injectionResult.errors },
+            });
+          }
         }
 
-        if (injectionResult.injected === 0 && injectionResult.errors.length > 0) {
-          skillMessage = `WARNING: No skills could be injected (${injectionResult.errors.length} errors)`;
+        // Inject agents (.claude/agents/*.md)
+        if (agentTemplates.length > 0) {
+          log.info('Injecting template agents into sandbox', {
+            data: { codespaceId, agentCount: agentTemplates.length },
+          });
+
+          const agentResult = await injectAgents(sandbox, agentTemplates, CONTAINER_WORKSPACE_PATH);
+
+          if (agentResult.injected === 0 && agentResult.errors.length > 0) {
+            messageParts.push(
+              `WARNING: No agents could be injected (${agentResult.errors.length} errors)`
+            );
+          } else {
+            messageParts.push(
+              `Agents: ${agentResult.injected} new, ${agentResult.skipped} already present${agentResult.errors.length > 0 ? `, ${agentResult.errors.length} errors` : ''}`
+            );
+          }
+
+          if (agentResult.errors.length > 0) {
+            log.error('Some agents failed to inject', {
+              data: { errors: agentResult.errors },
+            });
+          }
+        }
+
+        if (messageParts.length > 0) {
+          skillMessage = messageParts.join(' | ');
+        } else {
+          skillMessage = 'No template skills or agents to inject';
         }
       } else {
-        log.debug('No template skills to inject', { data: { codespaceId } });
+        log.debug('No template config to inject', { data: { codespaceId } });
       }
     } catch (skillErr) {
       // Skill injection is non-fatal — log and continue
@@ -608,6 +663,22 @@ export class ContainerExecService {
       worktreePath = resolved.worktreePath;
     }
 
+    // Read project-level env vars from settings (e.g., TFE_TOKEN, AWS keys)
+    // Configured via Settings → sandbox.env and passed through to the container
+    let sandboxEnv: Record<string, string> = {};
+    try {
+      const { SettingsService } = await import('../settings.service.js');
+      const settingsService = new SettingsService(db);
+      const envResult = await settingsService.getValue<Record<string, string>>('sandbox.env', {});
+      if (envResult && typeof envResult === 'object') {
+        sandboxEnv = envResult;
+      }
+    } catch (envErr) {
+      log.warn('Failed to read sandbox.env settings (continuing without)', {
+        data: { error: envErr instanceof Error ? envErr.message : String(envErr) },
+      });
+    }
+
     // Build env vars and create container bridge
     const { env, bridge } = this.prepareContainerExec({
       taskId,
@@ -621,6 +692,37 @@ export class ContainerExecService {
       stopFilePath,
       oauthToken,
     });
+
+    // Merge project-level env vars (sandbox.env setting) into container env.
+    // Agent-specific vars (CLAUDE_OAUTH_TOKEN, AGENT_*, etc.) are already set
+    // in `env` by prepareContainerExec, so they take precedence on conflict.
+    if (Object.keys(sandboxEnv).length > 0) {
+      let applied = 0;
+      for (const [key, value] of Object.entries(sandboxEnv)) {
+        if (!(key in env)) {
+          // Runtime validation: env var values must be strings.
+          // Settings are stored as JSON and getValue<Record<string, string>> is a
+          // type assertion, not a runtime guarantee.
+          if (typeof value !== 'string') {
+            log.warn('Skipping sandbox env var with non-string value', {
+              data: { key, valueType: typeof value },
+            });
+            continue;
+          }
+          env[key] = value;
+          applied++;
+        }
+      }
+      log.info('Sandbox env vars applied', {
+        data: { requested: Object.keys(sandboxEnv).length, applied },
+      });
+    }
+
+    // When a skill is assigned, tell the agent-runner to use acceptEdits mode
+    // during planning so the skill workflow can use tools like WebSearch, AskUserQuestion
+    if (task.skillId) {
+      env.AGENT_HAS_SKILL = 'true';
+    }
 
     await streams.publish(sessionId, 'container-agent:status', {
       taskId,

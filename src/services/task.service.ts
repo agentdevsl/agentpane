@@ -15,8 +15,6 @@ import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
 import type { Database } from '../types/database.js';
 import type { StartAgentInput } from './container-agent.service.js';
-// SL-014: SessionService import retained for future transaction-aware session creation
-// import type { SessionService } from './session.service.js';
 import { getGlobalDefaultModel } from './settings.service.js';
 import { canTransition } from './task-transitions.js';
 import type { GitDiff } from './worktree.service.js';
@@ -31,6 +29,8 @@ export type CreateTaskInput = {
   priority?: 'high' | 'medium' | 'low';
   skillId?: string;
   skillName?: string;
+  executionSkillId?: string;
+  executionSkillName?: string;
 };
 
 export type UpdateTaskInput = {
@@ -42,6 +42,8 @@ export type UpdateTaskInput = {
   modelOverride?: string | null;
   skillId?: string | null;
   skillName?: string | null;
+  executionSkillId?: string | null;
+  executionSkillName?: string | null;
 };
 
 export type ListTasksOptions = {
@@ -103,9 +105,6 @@ export interface AgentExecutionTrigger {
 export class TaskService {
   private containerAgentService?: ContainerAgentTrigger;
   private agentExecutionService?: AgentExecutionTrigger;
-  // SL-014: SessionService injection deferred -- raw tx.insert() is used inside the
-  // transaction for atomicity. SessionService.create() is not transaction-aware yet.
-  // When it becomes transaction-aware, inject it here and use it in moveColumn.
 
   constructor(
     private db: Database,
@@ -150,11 +149,11 @@ export class TaskService {
         where: (tasks, { eq }) => eq(tasks.id, taskId),
       });
       if (task?.agentId) {
+        // Preserve sessionId so the UI can show session events after stopping
         await this.db
           .update(tasks)
           .set({
             agentId: null,
-            sessionId: null,
             lastAgentStatus: result.ok ? 'cancelled' : 'error',
             updatedAt: new Date().toISOString(),
           })
@@ -172,12 +171,11 @@ export class TaskService {
       });
 
       if (task?.agentId) {
-        // Update task to remove agent reference and mark as cancelled
+        // Preserve sessionId so the UI can show session events
         await this.db
           .update(tasks)
           .set({
             agentId: null,
-            sessionId: null,
             lastAgentStatus: 'cancelled',
             updatedAt: new Date().toISOString(),
           })
@@ -284,7 +282,9 @@ export class TaskService {
       labels = [],
       priority = 'medium',
       skillId,
-      skillName,
+      skillName = skillId ?? undefined,
+      executionSkillId,
+      executionSkillName = executionSkillId ?? undefined,
     } = input;
 
     const codespace = await this.db.query.codespaces.findFirst({
@@ -318,6 +318,8 @@ export class TaskService {
           position,
           skillId,
           skillName,
+          executionSkillId,
+          executionSkillName,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         })
@@ -663,8 +665,24 @@ export class TaskService {
   private buildTaskPrompt(task: Task): string {
     const parts: string[] = [];
 
+    // Tell the agent to read the skill file at runtime rather than inlining its
+    // content here.  The skill file is injected into the sandbox by skill-injector.ts
+    // and may be large; keeping it out of the prompt avoids bloating the initial context.
     if (task.skillId) {
-      parts.push(`use skill ${task.skillId}`, '');
+      parts.push(
+        `IMPORTANT: Before starting any work, use the Read tool to read the file at .claude/skills/${task.skillId}/SKILL.md`,
+        `This file contains the workflow you MUST follow step by step. Execute each phase in order.`,
+        `Use the subagents and tools specified in the skill file. Do NOT skip or improvise around the defined workflow.`,
+        '',
+        `CRITICAL — SUBAGENT DELEGATION IS MANDATORY:`,
+        `When the skill workflow says "Launch {agent-name} agent" or "Launch {agent-name} subagent", you MUST call the Agent tool. This is NOT optional.`,
+        `The Agent tool is available to you. Agent definitions are at .claude/agents/{agent-name}.md.`,
+        `Call it like: Agent(prompt="...", subagent_type="{agent-name}")`,
+        `For concurrent subagents: make MULTIPLE Agent tool calls in the SAME message.`,
+        `You MUST NOT do the subagent's work yourself. If the skill says "Launch tf-module-research", call the Agent tool — do NOT use WebFetch/Bash to do research directly.`,
+        `This delegation is how the system tracks subagent topology, costs, and progress. Doing the work yourself breaks observability.`,
+        ''
+      );
     }
 
     parts.push(
@@ -686,7 +704,7 @@ export class TaskService {
     parts.push(
       '',
       'The codespace is mounted at /workspace. Make the necessary changes to complete this task.',
-      'When you are done, the task will be moved to review.'
+      'When you are done, the task will be moved to waiting_approval for human review.'
     );
 
     return parts.join('\n');
@@ -833,7 +851,7 @@ export class TaskService {
     const [updated] = await this.db
       .update(tasks)
       .set({
-        column: 'in_progress',
+        column: 'backlog',
         rejectionCount: (task.rejectionCount ?? 0) + 1,
         rejectionReason: input.reason,
         updatedAt: new Date().toISOString(),

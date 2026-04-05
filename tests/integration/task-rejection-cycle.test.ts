@@ -33,7 +33,7 @@ describe('IT-005: Task Rejection Cycle', () => {
     await clearTestDatabase();
   });
 
-  it('reject increments rejectionCount and moves task to in_progress', async () => {
+  it('reject increments rejectionCount and moves task to backlog', async () => {
     const codespace = await createTestProject();
     const worktree = await createTestWorktree(codespace.id);
     const task = await createTestTask(codespace.id, {
@@ -50,7 +50,7 @@ describe('IT-005: Task Rejection Cycle', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    expect(result.value.column).toBe('in_progress');
+    expect(result.value.column).toBe('backlog');
     expect(result.value.rejectionCount).toBe(1);
     expect(result.value.rejectionReason).toBe('Tests are failing');
   });
@@ -67,27 +67,30 @@ describe('IT-005: Task Rejection Cycle', () => {
     const worktreeService = createMockWorktreeService();
     const taskService = new TaskService(db as any, worktreeService);
 
-    // First rejection: waiting_approval -> in_progress
+    // First rejection: waiting_approval -> backlog
     const reject1 = await taskService.reject(task.id, { reason: 'First issue' });
     expect(reject1.ok).toBe(true);
     if (!reject1.ok) return;
 
-    expect(reject1.value.column).toBe('in_progress');
+    expect(reject1.value.column).toBe('backlog');
     expect(reject1.value.rejectionCount).toBe(1);
 
-    // Simulate agent resubmitting: in_progress -> waiting_approval
-    const move1 = await taskService.moveColumn(task.id, 'waiting_approval');
-    expect(move1.ok).toBe(true);
-    if (!move1.ok) return;
+    // Simulate agent resubmitting: backlog -> in_progress -> waiting_approval
+    const move1a = await taskService.moveColumn(task.id, 'in_progress');
+    expect(move1a.ok).toBe(true);
+    if (!move1a.ok) return;
+    const move1b = await taskService.moveColumn(task.id, 'waiting_approval');
+    expect(move1b.ok).toBe(true);
+    if (!move1b.ok) return;
 
-    expect(move1.value.task.column).toBe('waiting_approval');
+    expect(move1b.value.task.column).toBe('waiting_approval');
 
-    // Second rejection: waiting_approval -> in_progress
+    // Second rejection: waiting_approval -> backlog
     const reject2 = await taskService.reject(task.id, { reason: 'Second issue' });
     expect(reject2.ok).toBe(true);
     if (!reject2.ok) return;
 
-    expect(reject2.value.column).toBe('in_progress');
+    expect(reject2.value.column).toBe('backlog');
     expect(reject2.value.rejectionCount).toBe(2);
     expect(reject2.value.rejectionReason).toBe('Second issue');
   });

@@ -5,6 +5,8 @@ import {
   Cpu,
   Cube,
   Database,
+  Eye,
+  EyeSlash,
   FolderSimple,
   Gear,
   GitBranch,
@@ -48,6 +50,8 @@ interface ProjectSettingsProps {
     maxConcurrentAgents?: number;
     config?: Partial<CodespaceConfig>;
     projectFolderId?: string;
+    githubOwner?: string;
+    githubRepo?: string;
   }) => Promise<void>;
   onDelete: (options: { deleteFiles: boolean }) => Promise<void>;
   saveStatus?: 'idle' | 'saving' | 'saved' | 'error';
@@ -159,6 +163,8 @@ export function ProjectSettings({
   const [description, setDescription] = useState(project.description ?? '');
   const [projectFolderId, setProjectFolderId] = useState(project.projectFolderId ?? '');
   const [maxConcurrent, setMaxConcurrent] = useState(project.maxConcurrentAgents ?? 3);
+  const [githubOwner, setGithubOwner] = useState(project.githubOwner ?? '');
+  const [githubRepo, setGithubRepo] = useState(project.githubRepo ?? '');
   const [config, setConfig] = useState<CodespaceConfig>(
     project.config ?? {
       worktreeRoot: '.worktrees',
@@ -172,18 +178,23 @@ export function ProjectSettings({
   const [globalDefaults, setGlobalDefaults] = useState<CodespaceSandboxConfig | null>(null);
   const [isLoadingDefaults, setIsLoadingDefaults] = useState(true);
 
-  // Load global defaults on mount
+  // Load global defaults and sandbox env vars on mount
   useMountEffect(() => {
     const loadDefaults = async () => {
       try {
-        const result = await apiClient.settings.get(['sandbox.defaults']);
+        const result = await apiClient.settings.get(['sandbox.defaults', 'sandbox.env']);
         if (result.ok && result.data.settings['sandbox.defaults']) {
           setGlobalDefaults(result.data.settings['sandbox.defaults'] as CodespaceSandboxConfig);
+        }
+        if (result.ok && result.data.settings['sandbox.env']) {
+          const envObj = result.data.settings['sandbox.env'] as Record<string, string>;
+          setSandboxEnvVars(Object.entries(envObj).map(([key, value]) => ({ key, value })));
         }
       } catch (error) {
         console.error('[ProjectSettings] Failed to load global defaults:', error);
       } finally {
         setIsLoadingDefaults(false);
+        setSandboxEnvLoading(false);
       }
     };
     void loadDefaults();
@@ -259,6 +270,50 @@ export function ProjectSettings({
   const [newEnvKey, setNewEnvKey] = useState('');
   const [newEnvValue, setNewEnvValue] = useState('');
 
+  // Sandbox environment variables (stored in global settings as sandbox.env)
+  const [sandboxEnvVars, setSandboxEnvVars] = useState<Array<{ key: string; value: string }>>([]);
+  const [sandboxEnvLoading, setSandboxEnvLoading] = useState(true);
+  const [sandboxEnvSaving, setSandboxEnvSaving] = useState(false);
+  const [sandboxEnvSaveStatus, setSandboxEnvSaveStatus] = useState<'idle' | 'saved' | 'error'>(
+    'idle'
+  );
+  const [newSandboxEnvKey, setNewSandboxEnvKey] = useState('');
+  const [newSandboxEnvValue, setNewSandboxEnvValue] = useState('');
+  const [sandboxEnvVisibility, setSandboxEnvVisibility] = useState<Record<number, boolean>>({});
+  const [sandboxEnvErrorMsg, setSandboxEnvErrorMsg] = useState<string | null>(null);
+
+  const handleSaveSandboxEnv = async () => {
+    setSandboxEnvSaving(true);
+    setSandboxEnvSaveStatus('idle');
+    setSandboxEnvErrorMsg(null);
+    try {
+      const envObj: Record<string, string> = {};
+      for (const { key, value } of sandboxEnvVars) {
+        const trimmed = key.trim();
+        if (trimmed) {
+          envObj[trimmed] = value;
+        }
+      }
+      const result = await apiClient.settings.update({ 'sandbox.env': envObj });
+      if (result.ok) {
+        setSandboxEnvSaveStatus('saved');
+        setTimeout(() => setSandboxEnvSaveStatus('idle'), 2000);
+      } else {
+        const msg = (result.error as { message?: string })?.message ?? 'Server returned an error';
+        console.error('[ProjectSettings] Failed to save sandbox env vars:', msg);
+        setSandboxEnvSaveStatus('error');
+        setSandboxEnvErrorMsg(msg);
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[ProjectSettings] Failed to save sandbox env vars:', error);
+      setSandboxEnvSaveStatus('error');
+      setSandboxEnvErrorMsg(msg);
+    } finally {
+      setSandboxEnvSaving(false);
+    }
+  };
+
   const handleSave = () => {
     const envVarsObject = envVars.reduce(
       (acc, { key, value }) => {
@@ -285,6 +340,8 @@ export function ProjectSettings({
       description,
       maxConcurrentAgents: maxConcurrent,
       projectFolderId,
+      githubOwner: githubOwner || undefined,
+      githubRepo: githubRepo || undefined,
       config: {
         ...config,
         ...(sandboxToSave !== undefined && { sandbox: sandboxToSave }),
@@ -295,7 +352,46 @@ export function ProjectSettings({
 
   return (
     <div className="space-y-6" data-testid="project-settings">
-      <div data-testid="github-settings" className="hidden" />
+      {/* GitHub Repository */}
+      <SettingsCard>
+        <SectionHeader
+          icon={GitBranch}
+          title="GitHub Repository"
+          description="Configure the GitHub repository for git isolation and PR creation during agent execution."
+        />
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label htmlFor="github-owner" className="block text-sm font-medium text-fg mb-1.5">
+              Owner
+            </label>
+            <TextInput
+              id="github-owner"
+              value={githubOwner}
+              onChange={(e) => setGithubOwner(e.target.value)}
+              placeholder="e.g. my-org"
+              data-testid="github-owner-input"
+            />
+          </div>
+          <div>
+            <label htmlFor="github-repo" className="block text-sm font-medium text-fg mb-1.5">
+              Repository
+            </label>
+            <TextInput
+              id="github-repo"
+              value={githubRepo}
+              onChange={(e) => setGithubRepo(e.target.value)}
+              placeholder="e.g. my-repo"
+              data-testid="github-repo-input"
+            />
+          </div>
+        </div>
+        {!githubOwner && !githubRepo && (
+          <p className="mt-3 text-xs text-fg-muted">
+            Without a GitHub repository, agents will work without git isolation — changes cannot be
+            pushed or PR'd.
+          </p>
+        )}
+      </SettingsCard>
 
       {/* Sandbox Configuration - Featured prominently */}
       <SettingsCard highlight={sandboxConfig.enabled}>
@@ -945,6 +1041,153 @@ export function ProjectSettings({
             </Button>
           </div>
         </div>
+      </SettingsCard>
+
+      {/* Sandbox Environment Variables (global setting: sandbox.env) */}
+      <SettingsCard>
+        <SectionHeader
+          icon={Cube}
+          title="Sandbox Environment Variables"
+          description="Environment variables passed to sandbox containers during agent execution. Use for API tokens, cloud credentials, and configuration."
+        />
+
+        {sandboxEnvLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <span className="text-sm text-fg-muted">Loading sandbox variables...</span>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {sandboxEnvVars.map((env, index) => (
+              <div key={`sandbox-env-${env.key}-${index}`} className="flex items-center gap-3">
+                <TextInput
+                  value={env.key}
+                  onChange={(e) => {
+                    setSandboxEnvVars((prev) =>
+                      prev.map((item, i) =>
+                        i === index ? { key: e.target.value, value: item.value } : item
+                      )
+                    );
+                  }}
+                  placeholder="KEY"
+                  className="flex-1 font-mono text-sm"
+                  data-testid={`sandbox-env-key-${index}`}
+                />
+                <span className="text-fg-muted font-mono">=</span>
+                <div className="relative flex-[2]">
+                  <TextInput
+                    type={sandboxEnvVisibility[index] ? 'text' : 'password'}
+                    value={env.value}
+                    onChange={(e) => {
+                      setSandboxEnvVars((prev) =>
+                        prev.map((item, i) =>
+                          i === index ? { key: item.key, value: e.target.value } : item
+                        )
+                      );
+                    }}
+                    placeholder="value"
+                    className="font-mono text-sm pr-10"
+                    data-testid={`sandbox-env-value-${index}`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSandboxEnvVisibility((prev) => ({
+                        ...prev,
+                        [index]: !prev[index],
+                      }))
+                    }
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-fg-muted hover:text-fg"
+                    data-testid={`sandbox-env-toggle-${index}`}
+                  >
+                    {sandboxEnvVisibility[index] ? (
+                      <EyeSlash className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setSandboxEnvVars((prev) => prev.filter((_, i) => i !== index));
+                    setSandboxEnvVisibility((prev) => {
+                      const next: Record<number, boolean> = {};
+                      for (const [k, v] of Object.entries(prev)) {
+                        const ki = Number(k);
+                        if (ki < index) next[ki] = v;
+                        else if (ki > index) next[ki - 1] = v;
+                      }
+                      return next;
+                    });
+                  }}
+                  className="text-danger hover:bg-danger/10"
+                  data-testid={`sandbox-env-delete-${index}`}
+                >
+                  <Trash className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+
+            <div className="flex items-center gap-3 pt-2">
+              <TextInput
+                value={newSandboxEnvKey}
+                onChange={(e) => setNewSandboxEnvKey(e.target.value.toUpperCase())}
+                placeholder="NEW_KEY"
+                className="flex-1 font-mono text-sm"
+                data-testid="sandbox-env-new-key"
+              />
+              <span className="text-fg-muted font-mono">=</span>
+              <TextInput
+                type="password"
+                value={newSandboxEnvValue}
+                onChange={(e) => setNewSandboxEnvValue(e.target.value)}
+                placeholder="value"
+                className="flex-[2] font-mono text-sm"
+                data-testid="sandbox-env-new-value"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (newSandboxEnvKey.trim()) {
+                    setSandboxEnvVars((prev) => [
+                      ...prev,
+                      { key: newSandboxEnvKey.trim(), value: newSandboxEnvValue },
+                    ]);
+                    setNewSandboxEnvKey('');
+                    setNewSandboxEnvValue('');
+                  }
+                }}
+                disabled={!newSandboxEnvKey.trim()}
+                data-testid="sandbox-env-add"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-border mt-4">
+              {sandboxEnvSaveStatus === 'saved' && (
+                <span className="text-sm text-success animate-in fade-in">
+                  Sandbox variables saved
+                </span>
+              )}
+              {sandboxEnvSaveStatus === 'error' && (
+                <span className="text-sm text-danger animate-in fade-in">
+                  {sandboxEnvErrorMsg ? `Failed to save: ${sandboxEnvErrorMsg}` : 'Failed to save'}
+                </span>
+              )}
+              <Button
+                onClick={() => void handleSaveSandboxEnv()}
+                disabled={sandboxEnvSaving}
+                variant="outline"
+                data-testid="sandbox-env-save"
+              >
+                {sandboxEnvSaving ? 'Saving...' : 'Save Sandbox Variables'}
+              </Button>
+            </div>
+          </div>
+        )}
       </SettingsCard>
 
       {/* Actions */}

@@ -89,8 +89,8 @@ export interface SandboxHealthCheck {
 
 export const SANDBOX_DEFAULTS = {
   image: 'srlynch1/agent-sandbox:latest',
-  memoryMb: 4096,
-  cpuCores: 2,
+  memoryMb: 8192,
+  cpuCores: 4,
   idleTimeoutMinutes: 30,
   userHome: '/home/node',
 } as const;

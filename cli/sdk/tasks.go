@@ -99,14 +99,23 @@ func (s *TaskService) Delete(ctx context.Context, id string) error {
 	return s.client.del(ctx, fmt.Sprintf("/api/tasks/%s", url.PathEscape(id)))
 }
 
+// taskMoveResponse wraps the move API response which nests the task.
+type taskMoveResponse struct {
+	Task       Task    `json:"task"`
+	AgentError *string `json:"agentError,omitempty"`
+}
+
 // Move changes a task's column and/or position on the board.
 // Moving a task to "in_progress" triggers automatic agent assignment.
 func (s *TaskService) Move(ctx context.Context, id string, opts TaskMoveOptions) (*Task, error) {
-	var result Task
+	var result taskMoveResponse
 	if err := s.client.patch(ctx, fmt.Sprintf("/api/tasks/%s/move", url.PathEscape(id)), opts, &result); err != nil {
 		return nil, err
 	}
-	return &result, nil
+	if result.AgentError != nil {
+		return &result.Task, fmt.Errorf("agent start failed: %s", *result.AgentError)
+	}
+	return &result.Task, nil
 }
 
 // ApprovePlan approves the agent's plan for a task, triggering execution.

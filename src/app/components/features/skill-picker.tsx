@@ -22,6 +22,14 @@ interface Skill {
   tags?: string[];
   sourceType: 'local' | 'project' | 'org';
   sourceName: string;
+  executionSkill?: string;
+}
+
+export interface SkillChangeEvent {
+  skillId: string | null;
+  skillName: string | null;
+  executionSkillId: string | null;
+  executionSkillName: string | null;
 }
 
 export interface SkillPickerProps {
@@ -30,7 +38,11 @@ export interface SkillPickerProps {
   /** Currently selected skill ID */
   value: string | null;
   /** Called when skill selection changes */
-  onChange: (skillId: string | null, skillName: string | null) => void;
+  onChange: (
+    skillId: string | null,
+    skillName: string | null,
+    executionSkill?: SkillChangeEvent
+  ) => void;
   /** Additional CSS classes */
   className?: string;
   /** Compact display mode */
@@ -199,10 +211,23 @@ export function SkillPicker({
       value={value ?? '__none__'}
       onValueChange={(v) => {
         if (v === '__none__') {
-          onChange(null, null);
+          onChange(null, null, {
+            skillId: null,
+            skillName: null,
+            executionSkillId: null,
+            executionSkillName: null,
+          });
         } else {
           const skill = skills.find((s) => s.id === v);
-          onChange(v, skill?.name ?? v);
+          const execSkill = skill?.executionSkill
+            ? skills.find((s) => s.id === skill.executionSkill)
+            : undefined;
+          onChange(v, skill?.name ?? v, {
+            skillId: v,
+            skillName: skill?.name ?? v,
+            executionSkillId: skill?.executionSkill ?? null,
+            executionSkillName: execSkill?.name ?? skill?.executionSkill ?? null,
+          });
         }
       }}
     >
@@ -282,6 +307,13 @@ export function SkillPicker({
                 {skill.description && (
                   <div className="text-[11px] text-fg-muted line-clamp-2 leading-relaxed mt-0.5">
                     {skill.description}
+                  </div>
+                )}
+                {skill.executionSkill && (
+                  <div className="text-[10px] text-accent mt-0.5">
+                    {'→ '}
+                    {skills.find((s) => s.id === skill.executionSkill)?.name ??
+                      skill.executionSkill}
                   </div>
                 )}
                 {skill.tags && skill.tags.length > 0 && (

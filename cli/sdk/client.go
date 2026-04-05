@@ -47,6 +47,8 @@ type Client struct {
 	Git *GitService
 	// Health provides server health check operations.
 	Health *HealthService
+	// Settings provides operations on application settings.
+	Settings *SettingsService
 }
 
 // NewClient creates a new AgentPane API client with the given configuration.
@@ -78,6 +80,7 @@ func NewClient(cfg Config) (*Client, error) {
 	c.Teams = &TeamService{client: c}
 	c.Git = &GitService{client: c}
 	c.Health = &HealthService{client: c}
+	c.Settings = &SettingsService{client: c}
 
 	return c, nil
 }

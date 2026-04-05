@@ -309,11 +309,11 @@ sandbox:
 
   resources:
     requests:
-      cpu: "1"
-      memory: 2Gi
-    limits:
       cpu: "2"
       memory: 4Gi
+    limits:
+      cpu: "4"
+      memory: 8Gi
 
   ephemeralPvc:
     # -- Storage class for ephemeral agent PVCs (empty = cluster default)
@@ -349,9 +349,9 @@ sandbox:
     # -- Create limit range for sandbox namespace
     enabled: true
     # -- Maximum CPU per container
-    maxCpu: "4"
+    maxCpu: "8"
     # -- Maximum memory per container
-    maxMemory: 8Gi
+    maxMemory: 16Gi
     # -- Minimum CPU per container
     minCpu: 100m
     # -- Minimum memory per container

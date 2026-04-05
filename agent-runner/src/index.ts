@@ -17,6 +17,8 @@
  * - AGENT_MODEL: Optional. Model to use (default: claude-opus-4-5-20251101).
  * - AGENT_CWD: Optional. Working directory (default: /workspace).
  * - AGENT_STOP_FILE: Optional. Sentinel file path for cancellation.
+ * - AGENT_HAS_SKILL: Optional. Set to 'true' when a skill is assigned — uses acceptEdits during planning.
+ * - AGENT_ALLOWED_TOOLS: Optional. JSON array of tool names to allow through the permission layer.
  *
  * The OAuth token is written to ~/.claude/.credentials.json before starting the SDK.
  * This is required because OAuth tokens passed via ANTHROPIC_API_KEY env var are blocked.
@@ -47,47 +49,35 @@ function normalizeTopologyStatus(raw: unknown): 'completed' | 'failed' | 'stoppe
   if (typeof raw === 'string' && VALID_TOPOLOGY_STATUSES.has(raw)) {
     return raw as 'completed' | 'failed' | 'stopped';
   }
-  return 'completed';
+  console.error(`[agent-runner] Unknown topology status: ${String(raw)}, defaulting to 'failed'`);
+  return 'failed';
 }
 
 /**
- * Map SDK agent_type or task description to a topology role.
+ * Map SDK task_type to a visual role category (icon/color only).
  * Canonical source: src/lib/topology/map-agent-role.ts — keep in sync.
  * Duplicated here due to agent-runner build boundary (separate package).
  */
-function mapAgentRole(agentType?: string, description?: string): string {
-  const text = `${agentType ?? ''} ${description ?? ''}`.toLowerCase();
-  if (text.includes('deploy')) return 'deployer';
-  if (text.includes('plan')) return 'planner';
-  if (text.includes('review') || text.includes('code-review')) return 'reviewer';
-  if (text.includes('test') || text.includes('pr-test')) return 'tester';
-  if (text.includes('scan') || text.includes('security') || text.includes('silent-failure'))
-    return 'scanner';
-  if (
-    text.includes('orchestrat') ||
-    text.includes('lead') ||
-    text.includes('team') ||
-    text.includes('coordinator')
-  )
-    return 'orchestrator';
-  return 'coder';
+function mapAgentRole(agentType?: string): string {
+  if (!agentType) return 'agent';
+  const t = agentType.toLowerCase();
+  if (t.includes('plan')) return 'planner';
+  if (t.includes('review') || t.includes('analyz')) return 'reviewer';
+  if (t.includes('test') || t.includes('verif')) return 'tester';
+  if (t.includes('scan') || t.includes('security') || t.includes('hunter')) return 'scanner';
+  if (t.includes('deploy')) return 'deployer';
+  return 'agent';
 }
 
 /**
- * Derive display name from SDK task description or agent_type.
+ * Use the SDK description as the node name. Falls back to agentType, then "Agent".
  * Canonical source: src/lib/topology/map-agent-role.ts — keep in sync.
  */
 function deriveAgentName(agentType?: string, description?: string): string {
   if (description) {
-    return description.length > 40 ? `${description.slice(0, 37)}...` : description;
+    return description.length > 50 ? `${description.slice(0, 47)}...` : description;
   }
-  if (agentType) {
-    return agentType
-      .split('-')
-      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-      .join(' ');
-  }
-  return 'Agent';
+  return agentType || 'Agent';
 }
 
 /** Tracks subagent topology state. Maps SDK task_id → generated node id. */
@@ -129,7 +119,8 @@ function handleTopologySystemMsg(
     events.topologySpawned({
       agentId: nodeId,
       name: deriveAgentName(taskType, description),
-      role: mapAgentRole(taskType, description),
+      role: mapAgentRole(taskType),
+      agentType: taskType ?? null,
       parentId: rootAgentId,
       sdkTaskId,
     });
@@ -393,7 +384,11 @@ async function shouldStop(): Promise<boolean> {
   try {
     await access(config.stopFile);
     return true;
-  } catch {
+  } catch (err: unknown) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT') {
+      console.error(`[agent-runner] Error checking stop file: ${code}`);
+    }
     return false;
   }
 }
@@ -494,10 +489,40 @@ async function runPlanningPhase(): Promise<void> {
 
     // Note: executableArgs with --add-dir causes EPIPE errors in SDK 0.2.x
     // The SDK/CLI handles directory access via cwd and environment
+    // When a skill is assigned, use bypassPermissions so the skill workflow can
+    // use all tools including Agent (subagent spawning), WebSearch, AskUserQuestion.
+    // Without a skill, use plan mode for read-only exploration.
+    const planPermissionMode =
+      process.env.AGENT_HAS_SKILL === 'true' ? 'bypassPermissions' : 'plan';
+    // Parse allowed tools from env so interactive tools (ExitPlanMode,
+    // AskUserQuestion, WebSearch) are not blocked by the permission layer.
+    let allowedTools: string[] = [];
+    if (process.env.AGENT_ALLOWED_TOOLS) {
+      try {
+        const parsed = JSON.parse(process.env.AGENT_ALLOWED_TOOLS);
+        allowedTools = Array.isArray(parsed)
+          ? parsed.filter((t): t is string => typeof t === 'string')
+          : [];
+      } catch (parseErr) {
+        console.error(
+          `[agent-runner] Failed to parse AGENT_ALLOWED_TOOLS: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`
+        );
+      }
+    }
+    // ExitPlanMode MUST be in allowedTools for plan mode sessions.
+    // The SDK's CLI permission layer blocks tools not in allowedTools before
+    // the canUseTool callback runs. Without this, agents cannot exit plan mode.
+    const essentialPlanningTools = ['ExitPlanMode'];
+    for (const tool of essentialPlanningTools) {
+      if (!allowedTools.includes(tool)) {
+        allowedTools.push(tool);
+      }
+    }
     session = unstable_v2_createSession({
       model: config.model,
       env: { ...process.env }, // Teams GA: env passed through for agent swarm support
-      permissionMode: 'plan', // Planning mode - read-only exploration
+      allowedTools,
+      permissionMode: planPermissionMode,
       canUseTool, // Use official SDK callback for tool interception
     });
     console.error('[agent-runner] SDK session created successfully');
@@ -519,6 +544,11 @@ async function runPlanningPhase(): Promise<void> {
   let turn = 0;
   let accumulatedText = '';
   let sdkSessionId: string | undefined;
+
+  // Topology tracker for subagent lifecycle events during planning
+  // Skills can spawn subagents via the Agent tool when AGENT_HAS_SKILL=true
+  const topology: TopologyTracker = { taskToNodeId: new Map(), rootEmitted: false };
+  const rootAgentId = `agent-${config.taskId}`;
 
   try {
     // Send the initial prompt
@@ -557,12 +587,22 @@ async function runPlanningPhase(): Promise<void> {
         }
       }
 
-      // Capture SDK session ID from init message
+      // Capture SDK session ID from init message + handle subagent topology
       if (msg.type === 'system') {
-        const sysMsg = msg as { subtype?: string };
-        if (sysMsg.subtype === 'init') {
+        const sysMsg = msg as Record<string, unknown>;
+        const sysSubtype = sysMsg.subtype as string | undefined;
+        if (sysSubtype === 'init') {
           sdkSessionId = session.sessionId;
           console.error(`[agent-runner] SDK session ID: ${sdkSessionId}`);
+        }
+
+        // Handle subagent lifecycle events (task_started, task_progress, task_notification)
+        if (
+          sysSubtype === 'task_started' ||
+          sysSubtype === 'task_progress' ||
+          sysSubtype === 'task_notification'
+        ) {
+          handleTopologySystemMsg(sysMsg, topology, events, rootAgentId);
         }
       }
 
@@ -587,12 +627,30 @@ async function runPlanningPhase(): Promise<void> {
           // Check turn limit
           if (turn >= config.maxTurns) {
             console.error('[agent-runner] Turn limit reached during planning');
-            events.complete({
-              status: 'turn_limit',
-              turnCount: turn,
-              result: `Turn limit reached (${config.maxTurns}) during planning.`,
-            });
+            emitAllToolResults();
             session.close();
+
+            // If we have accumulated text, emit plan_ready so the plan approval
+            // flow works. Emitting complete during planning would bypass plan
+            // approval and leave tasks stuck without a proper plan.
+            if (accumulatedText || exitPlanModeDetected) {
+              const planContent = exitPlanModePlan || accumulatedText;
+              console.error(
+                `[agent-runner] Emitting plan_ready on turn limit (length: ${planContent.length})`
+              );
+              events.planReady({
+                plan: planContent,
+                turnCount: turn,
+                sdkSessionId: sdkSessionId ?? '',
+                allowedPrompts: exitPlanModeOptions?.allowedPrompts,
+              });
+            } else {
+              events.complete({
+                status: 'turn_limit',
+                turnCount: turn,
+                result: `Turn limit reached (${config.maxTurns}) during planning.`,
+              });
+            }
             return;
           }
         }

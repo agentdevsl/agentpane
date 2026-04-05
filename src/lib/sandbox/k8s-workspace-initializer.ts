@@ -10,6 +10,7 @@
 
 import { CONTAINER_WORKSPACE_PATH } from '../constants/sandbox.js';
 import { createLogger } from '../logging/logger.js';
+import { errorMessage } from '../utils/error-message.js';
 import { slugify } from '../utils/slugify.js';
 import type { GitTokenResult } from './git-token-resolver.js';
 import type { ExecResult } from './types.js';
@@ -40,15 +41,14 @@ export interface K8sWorkspaceOptions {
 export interface K8sWorkspaceResult {
   readonly worktreePath: string;
   readonly branch: string | null;
+  /** Error message when clone or worktree creation failed */
+  readonly error?: string;
 }
 
 /** Strip credentials from a string to prevent token leakage in logs. */
 function sanitizeCredentials(str: string): string {
   return str.replace(/x-access-token:[^@]+@/g, 'x-access-token:[REDACTED]@');
 }
-
-// Re-export for potential future use
-void sanitizeCredentials;
 
 /** Validate that a string is a valid GitHub owner or repo name. */
 const GITHUB_NAME_RE = /^[a-zA-Z0-9._-]+$/;
@@ -78,9 +78,9 @@ async function cloneRepository(
   owner: string,
   repo: string,
   baseBranch: string
-): Promise<boolean> {
+): Promise<{ ok: boolean; error?: string }> {
   if (!GITHUB_NAME_RE.test(owner) || !GITHUB_NAME_RE.test(repo)) {
-    return false;
+    return { ok: false, error: `Invalid owner/repo format: ${owner}/${repo}` };
   }
 
   // Token is embedded in the clone URL for simplicity (git credential helpers
@@ -89,19 +89,156 @@ async function cloneRepository(
   const cloneUrl = `https://x-access-token:${token}@github.com/${owner}/${repo}.git`;
 
   try {
-    const cloneResult = await sandbox.exec('git', [
-      'clone',
+    // Initialize git repo in /workspace if not already a repo.
+    // We use init+fetch instead of clone because /workspace may be non-empty
+    // (entrypoint.sh copies skills/agents/config there first).
+    const isCloned = await isWorkspaceCloned(sandbox);
+    if (!isCloned) {
+      try {
+        await sandbox.exec('git', ['init', CONTAINER_WORKSPACE_PATH]);
+      } catch (initErr) {
+        log.debug('git init threw (workspace may already be initialized)', {
+          error: errorMessage(initErr),
+        });
+      }
+    }
+
+    // Configure git safe.directory to avoid ownership warnings in containers
+    try {
+      await sandbox.exec('git', [
+        '-C',
+        CONTAINER_WORKSPACE_PATH,
+        'config',
+        '--global',
+        'safe.directory',
+        CONTAINER_WORKSPACE_PATH,
+      ]);
+    } catch {
+      // Non-critical — may already be configured
+    }
+
+    // Set origin remote URL (add if missing, update if exists)
+    try {
+      const addResult = await sandbox.exec('git', [
+        '-C',
+        CONTAINER_WORKSPACE_PATH,
+        'remote',
+        'add',
+        'origin',
+        cloneUrl,
+      ]);
+      if (addResult.exitCode !== 0) {
+        // Origin already exists — update its URL to use the fresh token
+        await sandbox.exec('git', [
+          '-C',
+          CONTAINER_WORKSPACE_PATH,
+          'remote',
+          'set-url',
+          'origin',
+          cloneUrl,
+        ]);
+      }
+    } catch {
+      // If remote add threw, try set-url as fallback
+      try {
+        await sandbox.exec('git', [
+          '-C',
+          CONTAINER_WORKSPACE_PATH,
+          'remote',
+          'set-url',
+          'origin',
+          cloneUrl,
+        ]);
+      } catch (setUrlErr) {
+        return { ok: false, error: `Failed to configure git remote: ${errorMessage(setUrlErr)}` };
+      }
+    }
+
+    // Fetch the requested branch (shallow). If that fails, fetch the default branch.
+    let cloneResult = await sandbox.exec('git', [
+      '-C',
+      CONTAINER_WORKSPACE_PATH,
+      'fetch',
       '--depth',
       '1',
-      '--no-single-branch',
-      '--branch',
+      'origin',
       baseBranch,
-      cloneUrl,
-      CONTAINER_WORKSPACE_PATH,
     ]);
 
     if (cloneResult.exitCode !== 0) {
-      return false;
+      // Branch may not exist — fetch default branch instead
+      log.info('Branch fetch failed, fetching default branch', {
+        data: { baseBranch, owner, repo },
+      });
+      cloneResult = await sandbox.exec('git', [
+        '-C',
+        CONTAINER_WORKSPACE_PATH,
+        'fetch',
+        '--depth',
+        '1',
+        'origin',
+      ]);
+    }
+
+    if (cloneResult.exitCode !== 0) {
+      // Sanitize and return error early
+      const safeStderr = sanitizeCredentials(cloneResult.stderr ?? '');
+      log.warn('Git fetch failed', {
+        data: { owner, repo, exitCode: cloneResult.exitCode, stderr: safeStderr },
+      });
+      return {
+        ok: false,
+        error: safeStderr || `git fetch exited with code ${cloneResult.exitCode}`,
+      };
+    }
+
+    // Checkout the base branch (try specified branch, fall back to remote HEAD)
+    cloneResult = await sandbox.exec('git', [
+      '-C',
+      CONTAINER_WORKSPACE_PATH,
+      'checkout',
+      '-f',
+      `origin/${baseBranch}`,
+    ]);
+
+    if (cloneResult.exitCode !== 0) {
+      // Branch not found — try origin/HEAD
+      log.info('Branch not found, trying default branch', { data: { baseBranch, owner, repo } });
+      cloneResult = await sandbox.exec('git', [
+        '-C',
+        CONTAINER_WORKSPACE_PATH,
+        'checkout',
+        '-f',
+        'FETCH_HEAD',
+      ]);
+    }
+
+    // Create a local tracking branch
+    if (cloneResult.exitCode === 0) {
+      const branchResult = await sandbox.exec('git', [
+        '-C',
+        CONTAINER_WORKSPACE_PATH,
+        'checkout',
+        '-B',
+        baseBranch,
+      ]);
+      if (branchResult.exitCode !== 0) {
+        log.warn('Failed to create local branch', {
+          data: { baseBranch, exitCode: branchResult.exitCode },
+        });
+      }
+    }
+
+    if (cloneResult.exitCode !== 0) {
+      // Sanitize stderr to remove tokens before logging
+      const safeStderr = sanitizeCredentials(cloneResult.stderr ?? '');
+      log.warn('Git clone failed', {
+        data: { owner, repo, baseBranch, exitCode: cloneResult.exitCode, stderr: safeStderr },
+      });
+      return {
+        ok: false,
+        error: safeStderr || `git clone exited with code ${cloneResult.exitCode}`,
+      };
     }
 
     // Strip token from remote URL to prevent leaking credentials
@@ -114,7 +251,7 @@ async function cloneRepository(
       `https://github.com/${owner}/${repo}.git`,
     ]);
     if (stripResult.exitCode !== 0) {
-      return false;
+      return { ok: false, error: 'Failed to strip token from remote URL' };
     }
 
     // Disable credential helper to prevent token persistence
@@ -128,10 +265,11 @@ async function cloneRepository(
     if (credResult.exitCode !== 0) {
       log.debug('Failed to disable credential helper', { data: { exitCode: credResult.exitCode } });
     }
-    return true;
+    return { ok: true };
   } catch (err) {
-    log.debug('Failed to clone repository', { error: err });
-    return false;
+    const msg = errorMessage(err);
+    log.warn('Failed to clone repository', { error: msg });
+    return { ok: false, error: msg };
   }
 }
 
@@ -218,17 +356,13 @@ export async function initializeK8sWorkspace(
   const { sandbox, gitToken, taskTitle, taskId, baseBranch = 'main', existingBranch } = options;
   const { token, owner, repo } = gitToken;
 
-  const fallback: K8sWorkspaceResult = { worktreePath: CONTAINER_WORKSPACE_PATH, branch: null };
-
   // Step 1: Clone if needed
   const cloned = await isWorkspaceCloned(sandbox);
   if (!cloned) {
-    const cloneOk = await cloneRepository(sandbox, token, owner, repo, baseBranch);
-    if (!cloneOk) {
-      return fallback;
+    const cloneResult = await cloneRepository(sandbox, token, owner, repo, baseBranch);
+    if (!cloneResult.ok) {
+      return { worktreePath: CONTAINER_WORKSPACE_PATH, branch: null, error: cloneResult.error };
     }
-  } else {
-    // Workspace already cloned — skip clone step
   }
 
   // Step 2: Create worktree
@@ -236,7 +370,11 @@ export async function initializeK8sWorkspace(
   const worktreePath = await createWorktree(sandbox, branch, baseBranch);
 
   if (!worktreePath) {
-    return { worktreePath: CONTAINER_WORKSPACE_PATH, branch: null };
+    return {
+      worktreePath: CONTAINER_WORKSPACE_PATH,
+      branch: null,
+      error: `Failed to create worktree for branch "${branch}"`,
+    };
   }
 
   return { worktreePath, branch };

@@ -2,7 +2,16 @@ import { Square } from '@phosphor-icons/react';
 import { memo, useState } from 'react';
 import { AgentTopology } from '@/app/components/features/agent-topology';
 import { Button } from '@/app/components/ui/button';
-import { useContainerAgent } from '@/app/hooks/use-container-agent';
+import { TERMINAL_SESSION_STATUSES, useContainerAgent } from '@/app/hooks/use-container-agent';
+import { useWatchEffect } from '@/app/hooks/use-watch-effect';
+import type { SessionStatus } from '@/db/schema/shared/enums.js';
+import { apiClient } from '@/lib/api/client';
+import {
+  buildTopologyFromEvents,
+  extractSessionEvents,
+  type TopologyEvent,
+} from '@/lib/topology/build-from-events';
+import type { TopologyGraph } from '@/lib/topology/types';
 import { cn } from '@/lib/utils/cn';
 import { ContainerAgentChangesTab } from './container-agent-changes-tab';
 import { ContainerAgentHeader } from './container-agent-header';
@@ -17,12 +26,90 @@ const TopologyTab = memo(function TopologyTab({
 }: {
   sessionId?: string;
 }): React.JSX.Element {
-  return <AgentTopology sessionId={sessionId} />;
+  const [initialData, setInitialData] = useState<TopologyGraph | undefined>(undefined);
+
+  // Fetch historical events on mount / sessionId change to rebuild topology
+  useWatchEffect(() => {
+    setInitialData(undefined);
+
+    if (!sessionId) return;
+
+    let cancelled = false;
+
+    const fetchTopology = async () => {
+      try {
+        // Fetch events and session metadata in parallel
+        const [eventsResult, sessionResult] = await Promise.all([
+          apiClient.sessions.getEvents(sessionId, { limit: 500 }),
+          apiClient.sessions.get(sessionId),
+        ]);
+        if (cancelled) return;
+
+        if (!eventsResult.ok) {
+          console.error('[TopologyTab] Failed to fetch session events:', eventsResult.error);
+          return;
+        }
+
+        const events = extractSessionEvents(
+          eventsResult.data as TopologyEvent[] | { data: TopologyEvent[] }
+        );
+
+        // Fetch task for skill info if session has a taskId
+        const session = sessionResult.ok ? sessionResult.data : null;
+        let skillId: string | null = null;
+        let skillName: string | null = null;
+        let taskTitle: string | null = null;
+        const taskId = (session as Record<string, unknown> | null)?.taskId as string | null;
+
+        if (taskId) {
+          try {
+            const taskResult = await apiClient.tasks.get(taskId);
+            if (!cancelled && taskResult.ok) {
+              const task = taskResult.data as Record<string, unknown>;
+              skillId = (task.skillId as string) ?? null;
+              skillName = (task.skillName as string) ?? null;
+              taskTitle = (task.title as string) ?? null;
+            }
+          } catch (err) {
+            console.warn('[TopologyTab] Best-effort task fetch failed:', err);
+          }
+        }
+
+        if (cancelled) return;
+
+        const graph = buildTopologyFromEvents(events, {
+          sessionId,
+          agentId: null,
+          taskId,
+          taskTitle,
+          taskColumn: null,
+          lastAgentStatus: null,
+          skillId,
+          skillName,
+        });
+
+        setInitialData(graph);
+      } catch (err) {
+        if (cancelled) return;
+        console.error('[TopologyTab] Failed to fetch topology events:', err);
+      }
+    };
+
+    void fetchTopology();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
+
+  return <AgentTopology sessionId={sessionId} initialData={initialData} />;
 });
 
 export interface ContainerAgentPanelProps {
   /** Session ID to subscribe to */
   sessionId: string | null;
+  /** Session status from the DB. When terminal, the panel skips SSE and loads historical events via REST. */
+  sessionStatus?: SessionStatus;
   /** Sandbox provider from session record (fallback when stream events lack it) */
   sandboxProvider?: string;
   /** Callback when stop is requested */
@@ -46,15 +133,17 @@ export interface ContainerAgentPanelProps {
  */
 export function ContainerAgentPanel({
   sessionId,
+  sessionStatus,
   sandboxProvider: sessionSandboxProvider,
   onStop,
   onApprovePlan,
   onRejectPlan,
   isPlanActionPending,
 }: ContainerAgentPanelProps): React.JSX.Element {
-  const { state, connectionState, isStreaming } = useContainerAgent(sessionId);
+  const { state, connectionState, isStreaming } = useContainerAgent(sessionId, { sessionStatus });
   const [activeTab, setActiveTab] = useState<PanelTab>('output');
 
+  const isHistorical = sessionStatus ? TERMINAL_SESSION_STATUSES.has(sessionStatus) : false;
   const isActive = state.status === 'running' || state.status === 'starting';
   const hasChanges = state.fileChanges.length > 0;
   // Prefer stream event provider, fall back to session record
@@ -159,6 +248,7 @@ export function ContainerAgentPanel({
                 error={state.error}
                 status={state.status}
                 statusMessage={state.statusMessage}
+                isHistorical={isHistorical}
                 plan={state.plan}
                 onApprovePlan={state.status === 'plan_ready' ? onApprovePlan : undefined}
                 onRejectPlan={state.status === 'plan_ready' ? onRejectPlan : undefined}

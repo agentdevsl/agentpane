@@ -290,15 +290,17 @@ func TestTasks_Move(t *testing.T) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"ok": true,
 			"data": map[string]interface{}{
-				"id":          "task-1",
-				"codespaceId": "cs-1",
-				"title":       "Fix bug",
-				"column":      "in_progress",
-				"position":    2,
-				"priority":    "high",
-				"labels":      []string{},
-				"createdAt":   "2025-01-01T00:00:00Z",
-				"updatedAt":   "2025-01-01T00:00:00Z",
+				"task": map[string]interface{}{
+					"id":          "task-1",
+					"codespaceId": "cs-1",
+					"title":       "Fix bug",
+					"column":      "in_progress",
+					"position":    2,
+					"priority":    "high",
+					"labels":      []string{},
+					"createdAt":   "2025-01-01T00:00:00Z",
+					"updatedAt":   "2025-01-01T00:00:00Z",
+				},
 			},
 		})
 	}))

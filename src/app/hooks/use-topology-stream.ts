@@ -19,11 +19,10 @@ import { useMountEffect } from './use-mount-effect';
 import { useWatchEffect } from './use-watch-effect';
 
 /**
- * Map a role string from the backend to a TopologyAgentRole.
+ * Map a role string from the backend to a topology visual role.
  */
 function toRole(role: string): TopologyNode['role'] {
-  const valid = ['orchestrator', 'planner', 'coder', 'reviewer', 'tester', 'scanner', 'deployer'];
-  return valid.includes(role) ? (role as TopologyNode['role']) : 'coder';
+  return role || 'agent';
 }
 
 /**
@@ -34,6 +33,7 @@ function createNodeFromSpawned(data: TopologyAgentSpawned): TopologyNode {
     id: data.agentId,
     name: data.name,
     role: toRole(data.role),
+    agentType: data.agentType ?? null,
     status: 'running',
     parentId: data.parentId,
     childIds: [],
@@ -245,7 +245,8 @@ export function useTopologyStream(
         const node: TopologyNode = {
           id: nodeId,
           name: data.model ?? 'Agent',
-          role: 'coder',
+          role: 'agent',
+          agentType: null,
           status: 'running',
           parentId: null,
           childIds: [],

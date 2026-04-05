@@ -309,6 +309,7 @@ export const rawTopologyAgentSpawnedSchema = z.object({
   taskId: z.string().optional(),
   name: z.string(),
   role: z.string(),
+  agentType: z.string().optional(),
   parentId: z.string().nullable(),
   sdkTaskId: z.string().optional(),
 });
@@ -582,6 +583,8 @@ export interface TopologyAgentSpawned {
   taskId?: string;
   name: string;
   role: string;
+  /** Real SDK agent type (subagent_type / task_type) passed through from the stream handler */
+  agentType?: string | null;
   parentId: string | null;
   sdkTaskId?: string;
   timestamp: number;

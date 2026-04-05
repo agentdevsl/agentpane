@@ -16,6 +16,7 @@ import {
 } from '@agentpane/agent-sandbox-sdk';
 import * as k8s from '@kubernetes/client-node';
 import { createLogger } from '../../logging/logger.js';
+import { SANDBOX_DEFAULTS } from '../types.js';
 
 const log = createLogger('SandboxController');
 
@@ -28,7 +29,7 @@ interface SandboxControllerOptions {
 
 const DEFAULT_STATUS_SYNC_INTERVAL_MS = 10_000;
 const DEFAULT_WARM_POOL_SYNC_INTERVAL_MS = 30_000;
-const DEFAULT_SANDBOX_IMAGE = 'srlynch1/agent-sandbox:latest';
+const DEFAULT_SANDBOX_IMAGE = SANDBOX_DEFAULTS.image;
 
 /**
  * CRD controller that watches Sandbox and WarmPool custom resources
@@ -81,10 +82,15 @@ export class SandboxController {
       namespace: this.namespace,
     });
 
-    // Periodic status sync: push pod status into Sandbox CRD status
+    // Periodic status sync: push pod status into Sandbox CRD status.
+    // Also reconciles sandboxes without pods as a fallback in case the
+    // watch connection dropped (e.g., TLS certificate errors on minikube).
     this.statusSyncTimer = setInterval(() => {
       this.syncPodStatus().catch((err) => {
         log.error('Status sync error', { error: err });
+      });
+      this.reconcileExisting().catch((err) => {
+        log.error('Periodic reconciliation error', { error: err });
       });
     }, this.statusSyncIntervalMs);
 
@@ -311,8 +317,11 @@ export class SandboxController {
         ? podTemplate.spec.containers.map((c) =>
             this.ensureSecurityContext({
               ...c,
-              // Ensure the container has a keep-alive command if none specified
-              command: c.command?.length ? c.command : ['tail', '-f', '/dev/null'],
+              // Ensure the container runs the entrypoint if no command specified.
+              // The entrypoint copies cached skills/agents/foundations from the
+              // image cache dirs to /workspace/.claude/, then exec's the args.
+              command: c.command?.length ? c.command : ['/entrypoint.sh'],
+              args: c.command?.length ? undefined : ['tail', '-f', '/dev/null'],
             })
           )
         : [this.defaultContainer()];
@@ -383,7 +392,8 @@ export class SandboxController {
     return this.ensureSecurityContext({
       name: 'sandbox',
       image: DEFAULT_SANDBOX_IMAGE,
-      command: ['tail', '-f', '/dev/null'],
+      command: ['/entrypoint.sh'],
+      args: ['tail', '-f', '/dev/null'],
     });
   }
 

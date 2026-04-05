@@ -289,7 +289,8 @@ async function handleTopologySystemMessage(
           agentId: nodeId,
           taskId: taskId ?? '',
           name: deriveAgentName(taskType, description),
-          role: mapAgentRole(taskType, description),
+          role: mapAgentRole(taskType),
+          agentType: taskType ?? null,
           parentId: agentId,
           sdkTaskId,
         },
@@ -419,7 +420,7 @@ async function publishMetrics(
 }
 
 // AE-010: Deferred - functions share ~70% code but have enough phase-specific logic to make extraction risky
-// Planning: ExitPlanMode capture, planContent tracking, no topology, no turn limits
+// Planning: ExitPlanMode capture, planContent tracking, topology (subagents via skills), no turn limits
 // Execution: topology tracking, turn limit enforcement, different session params, different result events
 
 /**
@@ -428,7 +429,7 @@ async function publishMetrics(
  * Returns after the plan is ready for user approval.
  */
 export async function runAgentPlanning(options: StreamHandlerOptions): Promise<AgentRunResult> {
-  const { agentId, sessionId, prompt, model, cwd, sessionService, signal } = options;
+  const { agentId, sessionId, prompt, allowedTools, model, cwd, sessionService, signal } = options;
   const maxRuntimeMs = Math.max(options.maxRuntimeMs ?? DEFAULT_AGENT_MAX_RUNTIME_MS, 60_000); // minimum 1 minute
 
   const runId = createId();
@@ -436,6 +437,10 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
   let turn = 0;
   let planContent = '';
   let exitPlanModeOptions: ExitPlanModeOptions | undefined;
+
+  // Topology tracker for subagent lifecycle events during planning.
+  // Skills can spawn subagents via the Agent tool, which emit task_started/progress/notification.
+  const topology = createTopologyTracker();
 
   // Runtime timeout — abort the agent if it exceeds the max wall-clock limit
   const timeoutController = new AbortController();
@@ -500,9 +505,12 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
   // Create Claude Agent SDK session in PLAN mode
   // In plan mode, the agent can read/explore but not execute changes
   // The agent will use ExitPlanMode tool when the plan is ready
+  // allowedTools must be passed so interactive tools (ExitPlanMode,
+  // AskUserQuestion, WebSearch) are not blocked by the permission layer.
   const session = unstable_v2_createSession({
     model,
     env: buildSdkEnv(),
+    allowedTools,
     permissionMode: 'plan', // Planning mode - agent will use ExitPlanMode when done
     executableArgs: ['--add-dir', cwd],
     canUseTool,
@@ -731,13 +739,25 @@ export async function runAgentPlanning(options: StreamHandlerOptions): Promise<A
           });
       }
 
-      // Handle system messages (compact_boundary) during planning
+      // Handle system messages (compact_boundary + subagent topology) during planning
       if (msg.type === 'system') {
         const sysMsg = msg as Record<string, unknown>;
-        if ((sysMsg.subtype as string) === 'compact_boundary') {
+        const sysSubtype = sysMsg.subtype as string | undefined;
+
+        if (sysSubtype === 'compact_boundary') {
           publishCompactBoundary(sessionService, sessionId, agentId, sysMsg).catch((publishErr) => {
             log.warn('Failed to publish compact_boundary', { error: publishErr });
           });
+        }
+
+        // Handle subagent lifecycle events (task_started, task_progress, task_notification)
+        // Skills can spawn subagents via the Agent tool during planning
+        if (
+          sysSubtype === 'task_started' ||
+          sysSubtype === 'task_progress' ||
+          sysSubtype === 'task_notification'
+        ) {
+          await handleTopologySystemMessage(sysMsg, topology, sessionService, sessionId, agentId);
         }
       }
 

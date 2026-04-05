@@ -13,7 +13,11 @@ import { eq } from 'drizzle-orm';
 import { codespaces, tasks } from '../../db/schema';
 import { CONTAINER_WORKSPACE_PATH } from '../../lib/constants/sandbox.js';
 import { createLogger } from '../../lib/logging/logger.js';
-import { deriveGitHubFromPath, resolveGitToken } from '../../lib/sandbox/git-token-resolver.js';
+import {
+  deriveGitHubFromPath,
+  parseGitRemoteUrl,
+  resolveGitToken,
+} from '../../lib/sandbox/git-token-resolver.js';
 import type { SandboxExec } from '../../lib/sandbox/k8s-workspace-initializer.js';
 import { initializeK8sWorkspace as initializeRemoteWorkspaceInPod } from '../../lib/sandbox/k8s-workspace-initializer.js';
 import type { AgentPhase, ContainerAgentDeps } from './types.js';
@@ -62,10 +66,36 @@ export class WorktreeInitService {
     const { sandbox, codespace, task, taskId, sessionId, phase } = params;
     const { db, streams, githubTokenService } = this.deps;
 
-    // Auto-derive owner/repo from git remote when not explicitly configured
+    // Auto-derive owner/repo from git remote when not explicitly configured.
+    // Try host filesystem first, then try inside the sandbox (for K8s/Nomad
+    // where the host may not have the codespace path mounted).
     let { githubOwner, githubRepo } = codespace;
-    if ((!githubOwner || !githubRepo) && codespace.path) {
-      const derived = deriveGitHubFromPath(codespace.path);
+    if (!githubOwner || !githubRepo) {
+      let derived: { owner: string; repo: string } | null = null;
+
+      // 1. Try host filesystem (works for Docker with bind mounts)
+      if (codespace.path) {
+        derived = deriveGitHubFromPath(codespace.path);
+      }
+
+      // 2. Try inside the sandbox (works for K8s/Nomad where repo may already be cloned)
+      if (!derived) {
+        try {
+          const result = await sandbox.exec('git', [
+            '-C',
+            CONTAINER_WORKSPACE_PATH,
+            'remote',
+            'get-url',
+            'origin',
+          ]);
+          if (result.exitCode === 0 && result.stdout.trim()) {
+            derived = parseGitRemoteUrl(result.stdout.trim());
+          }
+        } catch {
+          // Sandbox may not have git or workspace yet — continue
+        }
+      }
+
       if (derived) {
         githubOwner = derived.owner;
         githubRepo = derived.repo;
@@ -97,6 +127,19 @@ export class WorktreeInitService {
       log.info('Codespace has no GitHub config and no git remote, using empty workspace', {
         data: { taskId },
       });
+      await streams
+        .publish(sessionId, 'container-agent:message', {
+          taskId,
+          sessionId,
+          role: 'system',
+          content:
+            "No GitHub repository configured for this codespace. The agent will work without git isolation — changes cannot be pushed or PR'd.",
+        })
+        .catch((publishErr) =>
+          log.warn('Failed to publish no-github-config message', {
+            error: publishErr instanceof Error ? publishErr.message : String(publishErr),
+          })
+        );
       return null;
     }
 
@@ -172,12 +215,12 @@ export class WorktreeInitService {
     });
 
     if (!result.branch) {
+      const detail = result.error ? `: ${result.error}` : '';
       await streams.publish(sessionId, 'container-agent:message', {
         taskId,
         sessionId,
         role: 'system',
-        content:
-          "Workspace initialization failed: no GitHub repository configured for this codespace. The agent will work without git isolation — changes cannot be pushed or PR'd.",
+        content: `Workspace initialization failed${detail}. The agent will work without git isolation — changes cannot be pushed or PR'd.`,
       });
       return null;
     }

@@ -351,4 +351,14 @@ END;
       `CREATE INDEX IF NOT EXISTS idx_sessions_codespace_id ON sessions(codespace_id)`,
     ],
   },
+
+  // 31. Add execution skill columns for skill chaining (plan → implement)
+  {
+    version: 31,
+    name: 'task-execution-skill-columns',
+    statements: [
+      `ALTER TABLE tasks ADD COLUMN execution_skill_id TEXT`,
+      `ALTER TABLE tasks ADD COLUMN execution_skill_name TEXT`,
+    ],
+  },
 ];

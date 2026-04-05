@@ -1,9 +1,13 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { Task, TaskColumn } from '@/db/schema';
 
+export const SORT_FIELDS = ['position', 'updatedAt', 'createdAt'] as const;
+export type SortField = (typeof SORT_FIELDS)[number];
+
 export interface BoardState {
-  selectedIds: Set<string>;
-  collapsedColumns: Set<TaskColumn>;
+  selectedIds: ReadonlySet<string>;
+  collapsedColumns: ReadonlySet<TaskColumn>;
+  sortBy: SortField;
 }
 
 export interface BoardActions {
@@ -11,8 +15,6 @@ export interface BoardActions {
   selectCard: (taskId: string, multiSelect: boolean) => void;
   /** Set the selected IDs directly */
   setSelectedIds: (ids: Set<string>) => void;
-  /** Toggle selection for a card (legacy method) */
-  toggleSelection: (taskId: string, isMultiSelect: boolean) => void;
   /** Select all tasks */
   selectAll: (tasks: Task[]) => void;
   /** Clear all selections */
@@ -25,9 +27,12 @@ export interface BoardActions {
   isColumnCollapsed: (column: TaskColumn) => boolean;
   /** Get selected tasks from a task list */
   getSelectedTasks: (tasks: Task[]) => Task[];
+  /** Set sort field */
+  setSortBy: (field: SortField) => void;
 }
 
 const STORAGE_KEY = 'kanban-collapsed-columns';
+const SORT_STORAGE_KEY = 'kanban-sort-by';
 
 function loadCollapsedColumns(): Set<TaskColumn> {
   if (typeof window === 'undefined') return new Set();
@@ -36,18 +41,40 @@ function loadCollapsedColumns(): Set<TaskColumn> {
     if (saved) {
       return new Set(JSON.parse(saved) as TaskColumn[]);
     }
-  } catch {
-    // Ignore localStorage errors
+  } catch (error) {
+    console.warn('[useBoardState] Failed to read collapsed columns:', error);
   }
   return new Set();
 }
 
-function saveCollapsedColumns(columns: Set<TaskColumn>): void {
+function saveCollapsedColumns(columns: ReadonlySet<TaskColumn>): void {
   if (typeof window === 'undefined') return;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify([...columns]));
-  } catch {
-    // Ignore localStorage errors
+  } catch (error) {
+    console.warn('[useBoardState] Failed to save collapsed columns:', error);
+  }
+}
+
+function loadSortBy(): SortField {
+  if (typeof window === 'undefined') return 'position';
+  try {
+    const saved = localStorage.getItem(SORT_STORAGE_KEY);
+    if (saved && (SORT_FIELDS as readonly string[]).includes(saved)) {
+      return saved as SortField;
+    }
+  } catch (error) {
+    console.warn('[useBoardState] Failed to read sort preference:', error);
+  }
+  return 'position';
+}
+
+function saveSortBy(field: SortField): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(SORT_STORAGE_KEY, field);
+  } catch (error) {
+    console.warn('[useBoardState] Failed to save sort preference:', error);
   }
 }
 
@@ -58,6 +85,7 @@ function saveCollapsedColumns(columns: Set<TaskColumn>): void {
 export function useBoardState(): [BoardState, BoardActions] {
   const [selectedIds, setSelectedIdsState] = useState<Set<string>>(new Set());
   const [collapsedColumns, setCollapsedColumns] = useState<Set<TaskColumn>>(loadCollapsedColumns);
+  const [sortBy, setSortByState] = useState<SortField>(loadSortBy);
 
   const setSelectedIds = useCallback((ids: Set<string>) => {
     setSelectedIdsState(ids);
@@ -85,9 +113,6 @@ export function useBoardState(): [BoardState, BoardActions] {
       return next;
     });
   }, []);
-
-  // Alias for selectCard for backward compatibility
-  const toggleSelection = selectCard;
 
   const selectAll = useCallback((tasks: Task[]) => {
     setSelectedIdsState(new Set(tasks.map((t) => t.id)));
@@ -122,33 +147,38 @@ export function useBoardState(): [BoardState, BoardActions] {
     [selectedIds]
   );
 
+  const setSortBy = useCallback((field: SortField) => {
+    setSortByState(field);
+    saveSortBy(field);
+  }, []);
+
   const state: BoardState = useMemo(
-    () => ({ selectedIds, collapsedColumns }),
-    [selectedIds, collapsedColumns]
+    () => ({ selectedIds, collapsedColumns, sortBy }),
+    [selectedIds, collapsedColumns, sortBy]
   );
 
   const actions: BoardActions = useMemo(
     () => ({
       selectCard,
       setSelectedIds,
-      toggleSelection,
       selectAll,
       clearSelection,
       isSelected,
       toggleColumnCollapse,
       isColumnCollapsed,
       getSelectedTasks,
+      setSortBy,
     }),
     [
       selectCard,
       setSelectedIds,
-      toggleSelection,
       selectAll,
       clearSelection,
       isSelected,
       toggleColumnCollapse,
       isColumnCollapsed,
       getSelectedTasks,
+      setSortBy,
     ]
   );
 

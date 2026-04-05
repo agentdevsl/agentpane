@@ -39,6 +39,8 @@ type ClientTask = Pick<
   | 'branch'
   | 'skillId'
   | 'skillName'
+  | 'createdAt'
+  | 'updatedAt'
 > & {
   priority?: 'low' | 'medium' | 'high';
   diffSummary?: DiffSummary | null;
@@ -288,9 +290,14 @@ function CodespaceKanban(): React.JSX.Element {
         }
       );
     } else {
-      // TODO: Implement code review approval/rejection API calls for non-plan tasks
-      setApprovalTask(null);
-      await fetchData();
+      await withPlanAction(
+        () =>
+          apiClient.tasks.approve(approvalTask.id, {
+            approvedBy: 'user',
+            createMergeCommit: true,
+          }),
+        'Approval failed'
+      );
     }
   };
 
@@ -303,9 +310,10 @@ function CodespaceKanban(): React.JSX.Element {
         'Failed to reject plan'
       );
     } else {
-      // TODO: Implement code review approval/rejection API calls for non-plan tasks
-      setApprovalTask(null);
-      await fetchData();
+      await withPlanAction(
+        () => apiClient.tasks.reject(approvalTask.id, reason),
+        'Rejection failed'
+      );
     }
   };
 

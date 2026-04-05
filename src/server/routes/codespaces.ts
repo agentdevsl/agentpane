@@ -10,6 +10,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { agents } from '../../db/schema';
 import { createLogger } from '../../lib/logging/logger.js';
+import { deriveGitHubFromPath } from '../../lib/sandbox/git-token-resolver.js';
 import type { CodespaceService } from '../../services/codespace.service.js';
 import type { TemplateService } from '../../services/template.service.js';
 import type { Database } from '../../types/database.js';
@@ -31,6 +32,8 @@ const updateCodespaceSchema = z.object({
   maxConcurrentAgents: z.number().int().positive().optional(),
   config: z.record(z.string(), z.unknown()).optional(),
   projectFolderId: z.string().min(1).optional(),
+  githubOwner: z.string().min(1).max(200).optional(),
+  githubRepo: z.string().min(1).max(200).optional(),
 });
 
 interface CodespacesDeps {
@@ -122,11 +125,16 @@ export function createCodespacesRoutes({ codespaceService, templateService, db }
       );
     }
 
+    // Auto-derive GitHub owner/repo from git remote at creation time
+    const gitHub = deriveGitHubFromPath(resolvedPath);
+
     const result = await codespaceService.create({
       path: parsed.data.path,
       name: parsed.data.name,
       description: parsed.data.description,
       projectFolderId: parsed.data.projectFolderId,
+      githubOwner: gitHub?.owner,
+      githubRepo: gitHub?.repo,
     });
 
     if (!result.ok) {
@@ -230,6 +238,8 @@ export function createCodespacesRoutes({ codespaceService, templateService, db }
         description: codespace.description,
         projectFolderId: codespace.projectFolderId,
         maxConcurrentAgents: codespace.maxConcurrentAgents,
+        githubOwner: codespace.githubOwner,
+        githubRepo: codespace.githubRepo,
         config: codespace.config,
         createdAt: codespace.createdAt,
         updatedAt: codespace.updatedAt,
@@ -272,6 +282,8 @@ export function createCodespacesRoutes({ codespaceService, templateService, db }
       maxConcurrentAgents: parsed.data.maxConcurrentAgents,
       config: parsed.data.config,
       projectFolderId: parsed.data.projectFolderId,
+      githubOwner: parsed.data.githubOwner,
+      githubRepo: parsed.data.githubRepo,
     });
 
     if (!result.ok) {
@@ -292,6 +304,8 @@ export function createCodespacesRoutes({ codespaceService, templateService, db }
         description: updated.description,
         projectFolderId: updated.projectFolderId,
         maxConcurrentAgents: updated.maxConcurrentAgents,
+        githubOwner: updated.githubOwner,
+        githubRepo: updated.githubRepo,
         config: updated.config,
         createdAt: updated.createdAt,
         updatedAt: updated.updatedAt,
@@ -427,6 +441,7 @@ export function createCodespacesRoutes({ codespaceService, templateService, db }
       tags: skill.tags,
       sourceType: skill.sourceType,
       sourceName: skill.sourceName,
+      executionSkill: skill.executionSkill,
     }));
 
     return json({ ok: true, data: skills });

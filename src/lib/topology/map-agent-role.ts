@@ -1,45 +1,28 @@
-import type { TopologyAgentRole } from './types.js';
-
 /**
- * Map an SDK agent_type or task description to a TopologyAgentRole.
- * Uses the subagent name/description from the SDK to determine the visual role.
+ * Map SDK task_type to a visual role category (icon/color only).
+ * The actual agent type is stored separately as `agentType` on the node.
  */
-export function mapAgentRole(agentType?: string, description?: string): TopologyAgentRole {
-  const text = `${agentType ?? ''} ${description ?? ''}`.toLowerCase();
-
-  if (text.includes('deploy')) return 'deployer';
-  if (text.includes('plan')) return 'planner';
-  if (text.includes('review') || text.includes('code-review')) return 'reviewer';
-  if (text.includes('test') || text.includes('pr-test')) return 'tester';
-  if (text.includes('scan') || text.includes('security') || text.includes('silent-failure'))
-    return 'scanner';
-  if (
-    text.includes('orchestrat') ||
-    text.includes('lead') ||
-    text.includes('team') ||
-    text.includes('coordinator')
-  )
-    return 'orchestrator';
-
-  // Default: anything doing implementation work
-  return 'coder';
+export function mapAgentRole(agentType?: string): string {
+  if (!agentType) return 'agent';
+  const t = agentType.toLowerCase();
+  // Use suffix after last separator to avoid false matches in toolkit prefixes
+  // (e.g., "pr-review-toolkit:pr-test-analyzer" should be tester, not reviewer)
+  const sep = t.lastIndexOf(':');
+  const m = sep >= 0 ? t.slice(sep + 1) : t.includes('.') ? t.slice(t.lastIndexOf('.') + 1) : t;
+  if (m.includes('plan')) return 'planner';
+  if (m.includes('test') || m.includes('verif')) return 'tester';
+  if (m.includes('scan') || m.includes('security') || m.includes('hunter')) return 'scanner';
+  if (m.includes('review') || m.includes('analyz')) return 'reviewer';
+  if (m.includes('deploy')) return 'deployer';
+  return 'agent';
 }
 
 /**
- * Derive a display name from the SDK task description or agent_type.
- * Prefers description as it's more specific (e.g. "Review authentication module").
+ * Use the SDK description as the node name. Falls back to agentType, then "Agent".
  */
 export function deriveAgentName(agentType?: string, description?: string): string {
   if (description) {
-    // Truncate long descriptions to a reasonable label
-    return description.length > 40 ? `${description.slice(0, 37)}...` : description;
+    return description.length > 50 ? `${description.slice(0, 47)}...` : description;
   }
-  if (agentType) {
-    // Convert kebab-case to title case: "code-reviewer" → "Code Reviewer"
-    return agentType
-      .split('-')
-      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-      .join(' ');
-  }
-  return 'Agent';
+  return agentType || 'Agent';
 }

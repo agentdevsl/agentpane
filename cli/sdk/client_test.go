@@ -46,6 +46,9 @@ func TestNewClient_ValidConfig(t *testing.T) {
 	if client.Health == nil {
 		t.Error("expected Health service to be initialized")
 	}
+	if client.Settings == nil {
+		t.Error("expected Settings service to be initialized")
+	}
 }
 
 func TestNewClient_MissingAddress(t *testing.T) {

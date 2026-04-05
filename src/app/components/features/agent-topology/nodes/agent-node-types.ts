@@ -1,13 +1,6 @@
-import type {
-  TopologyAgentRole,
-  TopologyAgentStatus,
-  TopologyDecisionType,
-} from '@/lib/topology/types';
+import type { TopologyAgentStatus, TopologyDecisionType } from '@/lib/topology/types';
 
-export const AGENT_ROLE_CONFIG: Record<
-  TopologyAgentRole,
-  { icon: string; color: string; label: string }
-> = {
+export const AGENT_ROLE_CONFIG: Record<string, { icon: string; color: string; label: string }> = {
   orchestrator: { icon: '\u25C6', color: '#FFD866', label: 'Orchestrator' },
   planner: { icon: '\u25CF', color: '#A78BFA', label: 'Planner' },
   coder: { icon: '\u25CD', color: '#67E8F9', label: 'Coder' },
@@ -15,7 +8,14 @@ export const AGENT_ROLE_CONFIG: Record<
   tester: { icon: '\u25A3', color: '#FCA572', label: 'Tester' },
   scanner: { icon: '\u25B3', color: '#F87171', label: 'Scanner' },
   deployer: { icon: '\u25B6', color: '#34D399', label: 'Deployer' },
+  agent: { icon: '\u25CF', color: '#94A3B8', label: 'Agent' },
 };
+
+const DEFAULT_ROLE_CONFIG = { icon: '\u25CF', color: '#94A3B8', label: 'Agent' } as const;
+
+export function getRoleConfig(role: string): { icon: string; color: string; label: string } {
+  return AGENT_ROLE_CONFIG[role] ?? DEFAULT_ROLE_CONFIG;
+}
 
 export const STATUS_COLORS: Record<TopologyAgentStatus, string> = {
   completed: '#A78BFA',

@@ -548,7 +548,8 @@ describe('SandboxController', () => {
       expect(podBody.metadata.ownerReferences[0].kind).toBe('Sandbox');
       expect(podBody.spec.containers[0].name).toBe('sandbox');
       expect(podBody.spec.containers[0].image).toBe('srlynch1/agent-sandbox:latest');
-      expect(podBody.spec.containers[0].command).toEqual(['tail', '-f', '/dev/null']);
+      expect(podBody.spec.containers[0].command).toEqual(['/entrypoint.sh']);
+      expect(podBody.spec.containers[0].args).toEqual(['tail', '-f', '/dev/null']);
       expect(podBody.spec.restartPolicy).toBe('Never');
 
       ctrl.stop();

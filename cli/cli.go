@@ -2,6 +2,8 @@
 package main
 
 import (
+	"os"
+
 	"github.com/agentdevsl/agentpane/cli/internal/command"
 	"github.com/agentdevsl/agentpane/cli/version"
 	"github.com/mitchellh/cli"
@@ -12,6 +14,7 @@ func newCliRunner(meta *command.Meta) *cli.CLI {
 	c := &cli.CLI{
 		Name:    "agentpane",
 		Version: version.Version,
+		Args:    os.Args[1:],
 		Commands: map[string]cli.CommandFactory{
 			// Health
 			"health": func() (cli.Command, error) {
@@ -70,6 +73,20 @@ func newCliRunner(meta *command.Meta) *cli.CLI {
 			},
 			"task reject": func() (cli.Command, error) {
 				return &command.TaskRejectCommand{Meta: meta}, nil
+			},
+
+			// Env commands (sandbox environment variables)
+			"env list": func() (cli.Command, error) {
+				return &command.EnvListCommand{Meta: meta}, nil
+			},
+			"env set": func() (cli.Command, error) {
+				return &command.EnvSetCommand{Meta: meta}, nil
+			},
+			"env delete": func() (cli.Command, error) {
+				return &command.EnvDeleteCommand{Meta: meta}, nil
+			},
+			"env clear": func() (cli.Command, error) {
+				return &command.EnvClearCommand{Meta: meta}, nil
 			},
 
 			// Session commands

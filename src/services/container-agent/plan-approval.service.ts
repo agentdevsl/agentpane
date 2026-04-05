@@ -232,6 +232,72 @@ export class PlanApprovalService {
 
     const { db, provider, streams } = this.deps;
 
+    // Skill chaining: if task has an execution skill, build a full skill-aware prompt
+    // that instructs the agent to read the execution skill file and follow its workflow.
+    // This mirrors the skill instructions from TaskService.buildTaskPrompt but targets
+    // the chained execution skill instead of the original planning skill.
+    let executionPrompt = planData.plan;
+    let executionSkillId: string | null = null;
+    let executionSkillName: string | null = null;
+    let originalSkillId: string | null = null;
+    let originalSkillName: string | null = null;
+
+    try {
+      const taskRecord = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) });
+      if (taskRecord?.executionSkillId) {
+        executionSkillId = taskRecord.executionSkillId;
+        executionSkillName = taskRecord.executionSkillName;
+        originalSkillId = taskRecord.skillId;
+        originalSkillName = taskRecord.skillName;
+        log.info('Skill chaining: switching to execution skill', {
+          data: {
+            taskId,
+            planSkill: taskRecord.skillId,
+            executionSkill: taskRecord.executionSkillId,
+          },
+        });
+
+        // Build full skill-aware prompt with reading instructions, subagent directives,
+        // and the approved plan as context — matching TaskService.buildTaskPrompt format
+        const skillParts: string[] = [
+          `IMPORTANT: Before starting any work, use the Read tool to read the file at .claude/skills/${executionSkillId}/SKILL.md`,
+          `This file contains the workflow you MUST follow step by step. Execute each phase in order.`,
+          `Use the subagents and tools specified in the skill file. Do NOT skip or improvise around the defined workflow.`,
+          '',
+          `CRITICAL — SUBAGENT DELEGATION IS MANDATORY:`,
+          `When the skill workflow says "Launch {agent-name} agent" or "Launch {agent-name} subagent", you MUST call the Agent tool. This is NOT optional.`,
+          `The Agent tool is available to you. Agent definitions are at .claude/agents/{agent-name}.md.`,
+          `Call it like: Agent(prompt="...", subagent_type="{agent-name}")`,
+          `For concurrent subagents: make MULTIPLE Agent tool calls in the SAME message.`,
+          `You MUST NOT do the subagent's work yourself. If the skill says "Launch tf-module-research", call the Agent tool — do NOT use WebFetch/Bash to do research directly.`,
+          `This delegation is how the system tracks subagent topology, costs, and progress. Doing the work yourself breaks observability.`,
+          '',
+          `The following plan has been approved. Execute it using the skill workflow above:`,
+          '',
+          planData.plan,
+        ];
+        executionPrompt = skillParts.join('\n');
+      }
+    } catch (skillChainErr) {
+      const msg = skillChainErr instanceof Error ? skillChainErr.message : String(skillChainErr);
+      log.error('Skill chaining DB read failed', { data: { taskId, error: msg } });
+      return err(SandboxErrors.AGENT_START_FAILED(`Skill chaining failed: ${msg}`));
+    }
+
+    // Build the atomic state transition — includes skill swap if chaining
+    const transitionSet: Record<string, unknown> = {
+      column: 'in_progress' as const,
+      lastAgentStatus: null,
+      ...(executionSkillId ? { skillId: executionSkillId, skillName: executionSkillName } : {}),
+    };
+
+    // Build the rollback — restores original skill if chaining was applied
+    const rollbackSet: Record<string, unknown> = {
+      column: 'waiting_approval' as const,
+      lastAgentStatus: 'planning',
+      ...(executionSkillId ? { skillId: originalSkillId, skillName: originalSkillName } : {}),
+    };
+
     // AgentCore branch
     if (this.isAgentCoreProvider()) {
       log.info('Approving plan via AgentCore path', {
@@ -239,10 +305,10 @@ export class PlanApprovalService {
       });
 
       try {
-        // Atomic: only move to in_progress if task is still in waiting_approval
+        // Atomic: move to in_progress + swap skill in one CAS update
         const [updated] = await db
           .update(tasks)
-          .set({ column: 'in_progress', lastAgentStatus: null })
+          .set(transitionSet)
           .where(and(eq(tasks.id, taskId), eq(tasks.column, 'waiting_approval')))
           .returning();
 
@@ -265,20 +331,17 @@ export class PlanApprovalService {
         codespaceId: planData.codespaceId,
         taskId: planData.taskId,
         sessionId: planData.sessionId,
-        prompt: planData.plan,
+        prompt: executionPrompt,
         phase: 'execute',
         sdkSessionId: planData.sdkSessionId || undefined,
       });
 
       if (!startResult.ok) {
-        // Restore task state so user can retry approval
+        // Restore task state + original skill so user can retry approval
         try {
           const [restored] = await db
             .update(tasks)
-            .set({
-              column: 'waiting_approval',
-              lastAgentStatus: 'planning',
-            })
+            .set(rollbackSet)
             .where(and(eq(tasks.id, taskId), eq(tasks.column, 'in_progress')))
             .returning({ id: tasks.id });
           softInvariant(!!restored, 'task restore expected column in_progress', { taskId });
@@ -341,10 +404,10 @@ export class PlanApprovalService {
     });
 
     try {
-      // Atomic: only move to in_progress if task is still in waiting_approval
+      // Atomic: move to in_progress + swap skill in one CAS update
       const [updated] = await db
         .update(tasks)
-        .set({ column: 'in_progress', lastAgentStatus: null })
+        .set(transitionSet)
         .where(and(eq(tasks.id, taskId), eq(tasks.column, 'waiting_approval')))
         .returning();
 
@@ -367,20 +430,17 @@ export class PlanApprovalService {
       codespaceId: planData.codespaceId,
       taskId: planData.taskId,
       sessionId: planData.sessionId,
-      prompt: planData.plan,
+      prompt: executionPrompt,
       phase: 'execute',
       sdkSessionId: effectiveSdkSessionId,
     });
 
     if (!startResult.ok) {
-      // Restore task state so user can retry approval
+      // Restore task state + original skill so user can retry approval
       try {
         const [restored] = await db
           .update(tasks)
-          .set({
-            column: 'waiting_approval',
-            lastAgentStatus: 'planning',
-          })
+          .set(rollbackSet)
           .where(and(eq(tasks.id, taskId), eq(tasks.column, 'in_progress')))
           .returning({ id: tasks.id });
         softInvariant(!!restored, 'task restore expected column in_progress', { taskId });

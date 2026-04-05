@@ -87,6 +87,8 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
       priority: body.priority,
       skillId: body.skillId,
       skillName: body.skillName,
+      executionSkillId: body.executionSkillId,
+      executionSkillName: body.executionSkillName,
     });
 
     if (!result.ok) {
@@ -126,6 +128,8 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
       priority: body.priority,
       skillId: body.skillId,
       skillName: body.skillName,
+      executionSkillId: body.executionSkillId,
+      executionSkillName: body.executionSkillName,
     });
 
     if (!result.ok) {
@@ -233,6 +237,92 @@ export function createTasksRoutes({ taskService }: TasksDeps) {
       logger.error('RejectPlan error', { error });
       return json(
         { ok: false, error: { code: 'DB_ERROR', message: 'Failed to reject plan' } },
+        500
+      );
+    }
+  });
+
+  // POST /api/tasks/:id/approve - Approve a completed task in waiting_approval → verified
+  app.post('/:id/approve', async (c) => {
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
+
+    try {
+      let approvedBy: string | undefined;
+      let createMergeCommit: boolean | undefined;
+      try {
+        const body = (await c.req.json()) as {
+          approvedBy?: string;
+          createMergeCommit?: boolean;
+        };
+        approvedBy = typeof body.approvedBy === 'string' ? body.approvedBy : undefined;
+        createMergeCommit =
+          typeof body.createMergeCommit === 'boolean' ? body.createMergeCommit : undefined;
+      } catch (parseErr) {
+        // No body or invalid JSON — fields are optional, log for debugging
+        logger.debug('Approve task: body parse skipped (fields are optional)', {
+          error: parseErr,
+        });
+      }
+
+      const result = await taskService.approve(id, { approvedBy, createMergeCommit });
+
+      if (!result.ok) {
+        return errorResponse(result);
+      }
+
+      return json({ ok: true, data: result.value });
+    } catch (error) {
+      logger.error('Approve task error', { error });
+      return json(
+        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to approve task' } },
+        500
+      );
+    }
+  });
+
+  // POST /api/tasks/:id/reject - Reject a completed task in waiting_approval → backlog
+  app.post('/:id/reject', async (c) => {
+    const { id, error } = validateIdParam(c, 'id');
+    if (error) return error;
+
+    try {
+      let reason: string | undefined;
+      try {
+        const body = (await c.req.json()) as { reason?: string };
+        reason =
+          typeof body.reason === 'string' && body.reason.trim() !== '' ? body.reason : undefined;
+      } catch (parseErr) {
+        // No body or invalid JSON — reason is required but parse failed
+        logger.debug('Reject task: body parse failed (reason is required)', {
+          error: parseErr,
+        });
+      }
+
+      if (!reason) {
+        return json(
+          {
+            ok: false,
+            error: {
+              code: 'INVALID_PARAMS',
+              message: 'A non-empty "reason" field is required when rejecting a task',
+            },
+          },
+          400
+        );
+      }
+
+      const result = await taskService.reject(id, { reason });
+
+      if (!result.ok) {
+        return errorResponse(result);
+      }
+
+      return json({ ok: true, data: result.value });
+    } catch (error) {
+      logger.error('Reject task error', { error });
+      return json(
+        { ok: false, error: { code: 'DB_ERROR', message: 'Failed to reject task' } },
         500
       );
     }

@@ -1,12 +1,3 @@
-export type TopologyAgentRole =
-  | 'orchestrator'
-  | 'planner'
-  | 'coder'
-  | 'reviewer'
-  | 'tester'
-  | 'scanner'
-  | 'deployer';
-
 export type TopologyAgentStatus =
   | 'queued'
   | 'running'
@@ -40,7 +31,9 @@ export interface TopologyDecision {
 export interface TopologyNode {
   id: string;
   name: string;
-  role: TopologyAgentRole;
+  role: string;
+  /** Real SDK agent type (subagent_type / task_type) — e.g. "general-purpose", "Explore", "Plan" */
+  agentType: string | null;
   status: TopologyAgentStatus;
   parentId: string | null;
   childIds: string[];
@@ -52,7 +45,7 @@ export interface TopologyNode {
   startedAt: number | null;
   completedAt: number | null;
   verified: boolean;
-  verificationScore: number; // 0-100
+  verificationScore: number; // 0-1 (real data) or 0-100 (mock/demo data)
   decisions: TopologyDecision[];
 }
 
@@ -68,4 +61,8 @@ export interface TopologyGraph {
   taskId: string;
   taskName: string;
   taskPriority: string;
+  /** Skill associated with the task (from task.skillId) */
+  skillId: string | null;
+  /** Skill display name (from task.skillName) */
+  skillName: string | null;
 }

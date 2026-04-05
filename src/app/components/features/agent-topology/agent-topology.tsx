@@ -83,6 +83,7 @@ function TopologyInner(): React.JSX.Element {
         if (
           d.name === graphNode.name &&
           d.role === graphNode.role &&
+          d.agentType === graphNode.agentType &&
           d.status === graphNode.status &&
           d.progress === graphNode.progress &&
           d.decisions === graphNode.decisions &&
@@ -99,6 +100,7 @@ function TopologyInner(): React.JSX.Element {
             ...rfNode.data,
             name: graphNode.name,
             role: graphNode.role,
+            agentType: graphNode.agentType,
             status: graphNode.status,
             progress: graphNode.progress,
             decisions: graphNode.decisions,
@@ -151,7 +153,10 @@ function TopologyInner(): React.JSX.Element {
 
   if (isEmpty) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-12 text-center">
+      <div
+        data-testid="topology-empty"
+        className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-12 text-center"
+      >
         <p className="text-sm font-medium text-fg-muted">No subagent topology yet</p>
         <p className="max-w-sm text-xs text-fg-subtle">
           The topology graph appears when the agent spawns subagents during execution. Subagent
@@ -162,7 +167,7 @@ function TopologyInner(): React.JSX.Element {
   }
 
   return (
-    <div className="flex h-full min-h-0 min-w-0">
+    <div data-testid="topology-canvas" className="flex h-full min-h-0 min-w-0">
       {/* Canvas */}
       <div className="relative flex-1 min-h-0 min-w-0">
         <div
@@ -223,6 +228,24 @@ function TopologyInner(): React.JSX.Element {
             <CornersOut className="h-4 w-4" />
           </button>
         </div>
+
+        {/* Skill overlay */}
+        {state.graph.skillName && (
+          <div className="absolute right-4 top-4 z-10 flex items-center gap-2 rounded-lg border border-border bg-surface/90 px-3 py-1.5 backdrop-blur-sm">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 256 256"
+              fill="currentColor"
+              className="text-accent"
+              role="img"
+              aria-label="Skill"
+            >
+              <path d="M215.79,118.17a8,8,0,0,0-5-5.66L153.18,90.9l14.66-73.33a8,8,0,0,0-13.69-7l-112,120a8,8,0,0,0,3,13l57.63,21.61L88.16,238.43a8,8,0,0,0,13.69,7l112-120A8,8,0,0,0,215.79,118.17Z" />
+            </svg>
+            <span className="text-xs font-medium text-fg-default">{state.graph.skillName}</span>
+          </div>
+        )}
 
         {/* Legend overlay — hidden for single-node view */}
         {state.graph.nodes.length > 1 && <TopologyLegend />}

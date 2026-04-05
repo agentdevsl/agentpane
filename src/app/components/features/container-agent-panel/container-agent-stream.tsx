@@ -1,6 +1,7 @@
 import {
   CheckCircle,
   CircleNotch,
+  ClockCounterClockwise,
   Lightning,
   Terminal,
   Warning,
@@ -25,6 +26,8 @@ interface ContainerAgentStreamProps {
   error?: string;
   status: ContainerAgentStatus;
   statusMessage?: string;
+  /** Whether this is a historical (completed) session being replayed */
+  isHistorical?: boolean;
   /** Plan content when plan_ready */
   plan?: string;
   /** Callback to approve the plan */
@@ -52,6 +55,7 @@ export function ContainerAgentStream({
   error,
   status,
   statusMessage,
+  isHistorical,
   plan,
   onApprovePlan,
   onRejectPlan,
@@ -72,6 +76,12 @@ export function ContainerAgentStream({
             <span className="flex items-center gap-1.5 text-xs text-success">
               <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
               Live
+            </span>
+          ) : null}
+          {isHistorical && hasContent ? (
+            <span className="flex items-center gap-1.5 text-xs text-fg-subtle">
+              <ClockCounterClockwise className="h-3 w-3" />
+              Historical
             </span>
           ) : null}
         </div>
@@ -96,11 +106,15 @@ export function ContainerAgentStream({
             {/* Status text */}
             <div className="text-center">
               <p className="text-sm font-medium text-fg-muted">
-                {status === 'starting'
-                  ? statusMessage || 'Starting agent...'
-                  : 'Waiting for agent...'}
+                {isHistorical
+                  ? 'Loading session history...'
+                  : status === 'starting'
+                    ? statusMessage || 'Starting agent...'
+                    : 'Waiting for agent...'}
               </p>
-              <p className="mt-1 text-xs text-fg-subtle">Output will stream here in real time</p>
+              {!isHistorical ? (
+                <p className="mt-1 text-xs text-fg-subtle">Output will stream here in real time</p>
+              ) : null}
             </div>
           </div>
         ) : (

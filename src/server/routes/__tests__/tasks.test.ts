@@ -15,6 +15,8 @@ function createMockTaskService() {
     moveColumn: vi.fn(),
     approvePlan: vi.fn(),
     rejectPlan: vi.fn(),
+    approve: vi.fn(),
+    reject: vi.fn(),
     stopAgent: vi.fn(),
   };
 }
@@ -413,6 +415,223 @@ describe('Tasks API Routes', () => {
       expect(res.status).toBe(200);
       const json = await res.json();
       expect(json.ok).toBe(true);
+    });
+  });
+
+  // ── POST /api/tasks/:id/approve ──
+
+  describe('POST /api/tasks/:id/approve', () => {
+    it('approves a completed task', async () => {
+      const { app, taskService } = createTestApp();
+      taskService.approve.mockResolvedValue({
+        ok: true,
+        value: { id: 'task-1', column: 'verified' },
+      });
+
+      const res = await request(app, 'POST', '/api/tasks/task-1/approve', {
+        approvedBy: 'user-1',
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.ok).toBe(true);
+      expect(json.data.column).toBe('verified');
+      expect(taskService.approve).toHaveBeenCalledWith('task-1', {
+        approvedBy: 'user-1',
+        createMergeCommit: undefined,
+      });
+    });
+
+    it('passes createMergeCommit option to service', async () => {
+      const { app, taskService } = createTestApp();
+      taskService.approve.mockResolvedValue({
+        ok: true,
+        value: { id: 'task-1', column: 'verified' },
+      });
+
+      await request(app, 'POST', '/api/tasks/task-1/approve', {
+        createMergeCommit: true,
+      });
+
+      expect(taskService.approve).toHaveBeenCalledWith('task-1', {
+        approvedBy: undefined,
+        createMergeCommit: true,
+      });
+    });
+
+    it('works without a body (optional fields)', async () => {
+      const { app, taskService } = createTestApp();
+      taskService.approve.mockResolvedValue({
+        ok: true,
+        value: { id: 'task-1', column: 'verified' },
+      });
+
+      const res = await request(app, 'POST', '/api/tasks/task-1/approve');
+
+      expect(res.status).toBe(200);
+      expect(taskService.approve).toHaveBeenCalledWith('task-1', {
+        approvedBy: undefined,
+        createMergeCommit: undefined,
+      });
+    });
+
+    it('returns 400 for invalid id', async () => {
+      const { app } = createTestApp();
+
+      const res = await request(app, 'POST', '/api/tasks/bad!id/approve');
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error.code).toBe('INVALID_ID');
+    });
+
+    it('returns service error when approval fails', async () => {
+      const { app, taskService } = createTestApp();
+      taskService.approve.mockResolvedValue({
+        ok: false,
+        error: { code: 'NOT_FOUND', message: 'Task not found', status: 404 },
+      });
+
+      const res = await request(app, 'POST', '/api/tasks/task-1/approve');
+
+      expect(res.status).toBe(404);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('NOT_FOUND');
+    });
+
+    it('returns 500 when service throws unexpectedly', async () => {
+      const { app, taskService } = createTestApp();
+      taskService.approve.mockRejectedValue(new Error('DB connection lost'));
+
+      const res = await request(app, 'POST', '/api/tasks/task-1/approve');
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('DB_ERROR');
+    });
+  });
+
+  // ── POST /api/tasks/:id/reject ──
+
+  describe('POST /api/tasks/:id/reject', () => {
+    it('rejects a task with a reason', async () => {
+      const { app, taskService } = createTestApp();
+      taskService.reject.mockResolvedValue({
+        ok: true,
+        value: { id: 'task-1', column: 'backlog' },
+      });
+
+      const res = await request(app, 'POST', '/api/tasks/task-1/reject', {
+        reason: 'Code quality issues',
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.ok).toBe(true);
+      expect(json.data.column).toBe('backlog');
+      expect(taskService.reject).toHaveBeenCalledWith('task-1', {
+        reason: 'Code quality issues',
+      });
+    });
+
+    it('returns 400 when reason is missing', async () => {
+      const { app } = createTestApp();
+
+      const res = await request(app, 'POST', '/api/tasks/task-1/reject');
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('INVALID_PARAMS');
+      expect(json.error.message).toContain('reason');
+    });
+
+    it('returns 400 when reason is empty string', async () => {
+      const { app } = createTestApp();
+
+      const res = await request(app, 'POST', '/api/tasks/task-1/reject', {
+        reason: '',
+      });
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('INVALID_PARAMS');
+    });
+
+    it('returns 400 when reason is whitespace-only', async () => {
+      const { app } = createTestApp();
+
+      const res = await request(app, 'POST', '/api/tasks/task-1/reject', {
+        reason: '   ',
+      });
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('INVALID_PARAMS');
+    });
+
+    it('returns 400 when reason is non-string type', async () => {
+      const { app } = createTestApp();
+
+      const res = await request(app, 'POST', '/api/tasks/task-1/reject', {
+        reason: 123,
+      });
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('INVALID_PARAMS');
+    });
+
+    it('returns 400 for invalid id', async () => {
+      const { app } = createTestApp();
+
+      const res = await request(app, 'POST', '/api/tasks/bad!id/reject', {
+        reason: 'some reason',
+      });
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error.code).toBe('INVALID_ID');
+    });
+
+    it('returns service error when rejection fails', async () => {
+      const { app, taskService } = createTestApp();
+      taskService.reject.mockResolvedValue({
+        ok: false,
+        error: {
+          code: 'INVALID_STATE',
+          message: 'Task is not in waiting_approval',
+          status: 409,
+        },
+      });
+
+      const res = await request(app, 'POST', '/api/tasks/task-1/reject', {
+        reason: 'Not good enough',
+      });
+
+      expect(res.status).toBe(409);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('INVALID_STATE');
+    });
+
+    it('returns 500 when service throws unexpectedly', async () => {
+      const { app, taskService } = createTestApp();
+      taskService.reject.mockRejectedValue(new Error('Connection reset'));
+
+      const res = await request(app, 'POST', '/api/tasks/task-1/reject', {
+        reason: 'Some reason',
+      });
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe('DB_ERROR');
     });
   });
 

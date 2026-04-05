@@ -148,6 +148,12 @@ agentpane task list
 agentpane task create -codespace <codespace-id> -title "Fix login bug" -priority high
 ```
 
+With a skill assigned (skill ID is the directory name under `.claude/skills/`):
+
+```bash
+agentpane task create -codespace <codespace-id> -title "Deploy infrastructure" -skill terraform-stacks -skill-name "Terraform Stacks"
+```
+
 ```bash
 agentpane task create -codespace <codespace-id> -title "Refactor auth module" -priority medium
 ```
@@ -338,8 +344,10 @@ This is the most common workflow: create a task, run it, monitor progress, appro
 # Set default codespace to avoid repeating -codespace
 export AP_CODESPACE="cs_abc123"
 
-# Create the task
+# Create the task (optionally with a skill for specialized agent behavior)
 agentpane task create -title "Add input validation to signup form" -priority high
+# Or with a skill:
+agentpane task create -title "Deploy VPC" -skill terraform-stacks -skill-name "Terraform Stacks" -priority high
 # Output: Created task tk_xyz789
 
 # Run the task (assigns an agent and starts planning)
@@ -405,7 +413,31 @@ agentpane worktree diff wt_def456
 agentpane worktree merge wt_def456 -delete -target-branch main
 ```
 
-### 5. Scripting with JSON Output
+### 5. Manage Sandbox Environment Variables
+
+Configure API tokens, cloud credentials, and other env vars passed to sandbox containers.
+
+```bash
+# Set a variable (value as argument)
+agentpane env set AWS_REGION us-east-1
+
+# Set a secret (pipe via stdin to avoid shell history exposure)
+echo "$TFE_TOKEN" | agentpane env set TFE_TOKEN
+
+# List all variables (values masked)
+agentpane env list
+
+# List as JSON (values unmasked — for scripting)
+agentpane env list -json
+
+# Delete a variable
+agentpane env delete TFE_TOKEN
+
+# Clear all variables
+agentpane env clear
+```
+
+### 6. Scripting with JSON Output
 
 All commands support `-json` for machine-readable output, enabling integration with `jq` and other tools.
 

@@ -179,6 +179,50 @@ func TestTaskCreateCommand_Run_WithLabels(t *testing.T) {
 	}
 }
 
+func TestTaskCreateCommand_Run_WithSkill(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&body)
+		if body["skillId"] != "terraform-stacks" {
+			t.Errorf("request skillId = %v, want %q", body["skillId"], "terraform-stacks")
+		}
+		if body["skillName"] != "Terraform Stacks" {
+			t.Errorf("request skillName = %v, want %q", body["skillName"], "Terraform Stacks")
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"ok": true,
+			"data": map[string]interface{}{
+				"id":          "task-skill",
+				"codespaceId": "cs-1",
+				"title":       "Skill task",
+				"column":      "backlog",
+				"priority":    "medium",
+				"labels":      []string{},
+				"skillId":     "terraform-stacks",
+				"skillName":   "Terraform Stacks",
+				"createdAt":   "2026-01-01T00:00:00Z",
+				"updatedAt":   "2026-01-01T00:00:00Z",
+			},
+		})
+	}))
+	defer server.Close()
+
+	cmd := &TaskCreateCommand{Meta: NewMeta()}
+	code := cmd.Run([]string{
+		"-address", server.URL,
+		"-token", "test-token",
+		"-codespace", "cs-1",
+		"-title", "Skill task",
+		"-skill", "terraform-stacks",
+		"-skill-name", "Terraform Stacks",
+	})
+	if code != 0 {
+		t.Errorf("Run() with -skill = %d, want 0", code)
+	}
+}
+
 func TestTaskCreateCommand_Synopsis(t *testing.T) {
 	cmd := &TaskCreateCommand{Meta: NewMeta()}
 	s := cmd.Synopsis()

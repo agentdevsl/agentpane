@@ -13,6 +13,7 @@ import { useLocalStorage } from '@/app/hooks/use-local-storage';
 import { useWatchEffect } from '@/app/hooks/use-watch-effect';
 import { apiClient } from '@/lib/api/client';
 import { type SessionCallbacks, subscribeToSession } from '@/lib/streams/client';
+import { extractSessionEvents, type TopologyEvent } from '@/lib/topology/build-from-events';
 import { cn } from '@/lib/utils/cn';
 
 // =============================================================================
@@ -47,19 +48,6 @@ interface StreamMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: number;
-}
-
-interface SessionEventRecord {
-  id: string;
-  type: string;
-  timestamp: number;
-  data: unknown;
-}
-
-function extractSessionEvents(
-  payload: SessionEventRecord[] | { data: SessionEventRecord[] }
-): SessionEventRecord[] {
-  return Array.isArray(payload) ? payload : payload.data;
 }
 
 // =============================================================================
@@ -372,7 +360,7 @@ function EventsTab({ sessionId }: { sessionId?: string | null }): React.JSX.Elem
           setEvents([]);
         } else {
           const raw = extractSessionEvents(
-            result.data as SessionEventRecord[] | { data: SessionEventRecord[] }
+            result.data as TopologyEvent[] | { data: TopologyEvent[] }
           );
           seenEventIdsRef.current = new Set(raw.map((event) => event.id));
           const mapped = raw.map(mapEventToTimelineEntry);
@@ -636,7 +624,7 @@ function StreamTab({
         const msgs: StreamMessage[] = [];
         const seenIds = new Set<string>();
         for (const event of extractSessionEvents(
-          result.data as SessionEventRecord[] | { data: SessionEventRecord[] }
+          result.data as TopologyEvent[] | { data: TopologyEvent[] }
         )) {
           if (event.type === 'container-agent:message') {
             const d = event.data as Record<string, unknown>;

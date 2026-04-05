@@ -4,9 +4,12 @@ import { settings } from '../db/schema';
 import { DEFAULT_AGENT_MODEL, getFullModelId } from '../lib/constants/models.js';
 import type { AppError } from '../lib/errors/base.js';
 import { createError } from '../lib/errors/base.js';
+import { createLogger } from '../lib/logging/logger.js';
 import type { Result } from '../lib/utils/result.js';
 import { err, ok } from '../lib/utils/result.js';
 import type { Database } from '../types/database.js';
+
+const log = createLogger('SettingsService');
 
 /** Settings key for the global default agent model */
 const DEFAULT_MODEL_KEY = 'default_model';
@@ -43,10 +46,9 @@ export async function getAgentMaxRuntimeMs(db: Database): Promise<number> {
       }
     }
   } catch (e) {
-    console.warn(
-      '[settings.service] Failed to read agent max runtime from settings, falling back to default:',
-      e
-    );
+    log.warn('Failed to read agent max runtime from settings, falling back to default.', {
+      error: e,
+    });
   }
 
   // 3. Hardcoded default

@@ -324,7 +324,7 @@ describe('Bug-Proving Tests: TaskService', () => {
       where: eq(tasks.id, task.id),
     });
     expect(taskRow!.agentId).toBeNull(); // agentId cleaned up
-    expect(taskRow!.sessionId).toBeNull(); // sessionId cleaned up
+    expect(taskRow!.sessionId).toBeTruthy(); // sessionId preserved for UI
     expect(taskRow!.lastAgentStatus).toBe('error'); // marked as error
     expect(taskRow!.column).toBe('in_progress');
   });
@@ -437,7 +437,7 @@ describe('Bug-Proving Tests: TaskService', () => {
       .set({ lastAgentStatus: 'planning', plan: 'Some plan text' })
       .where(eq(tasks.id, task.id));
 
-    // Act: call reject() — it should move task to in_progress
+    // Act: call reject() — it should move task to backlog
     const result = await taskService.reject(task.id, {
       reason: 'Plan is incomplete',
     });
@@ -447,22 +447,14 @@ describe('Bug-Proving Tests: TaskService', () => {
     //   1. task.column === 'waiting_approval'
     //   2. input.reason is valid (1-1000 chars)
     //
-    // This is actually CORRECT behavior for the TaskService.reject() method.
-    // The reject() method moves a task from waiting_approval back to in_progress.
-    // This is the "reject completed work" flow, NOT the "reject plan" flow.
-    //
+    // reject() moves a task from waiting_approval back to backlog.
     // Plan rejection is handled by a separate path:
-    //   PlanApprovalService.rejectPlan() — moves to backlog and clears plan.
-    //
-    // However, reject() moving a planning-phase task to in_progress is slightly
-    // odd: the task goes to in_progress but still has lastAgentStatus=planning
-    // and a plan. The frontend would need to handle this edge case. A guard
-    // similar to approve()'s PLAN_NOT_EXECUTED check could be warranted.
+    //   PlanApprovalService.rejectPlan() — also moves to backlog and clears plan.
     expect(result.ok).toBe(true);
 
     if (result.ok) {
       const rejected = result.value;
-      expect(rejected.column).toBe('in_progress');
+      expect(rejected.column).toBe('backlog');
       expect(rejected.rejectionCount).toBe(1);
       expect(rejected.rejectionReason).toBe('Plan is incomplete');
     }
@@ -471,7 +463,7 @@ describe('Bug-Proving Tests: TaskService', () => {
     const taskRow = await db.query.tasks.findFirst({
       where: eq(tasks.id, task.id),
     });
-    expect(taskRow!.column).toBe('in_progress');
+    expect(taskRow!.column).toBe('backlog');
     expect(taskRow!.lastAgentStatus).toBe('planning'); // NOT cleared
     expect(taskRow!.plan).toBe('Some plan text'); // NOT cleared
 

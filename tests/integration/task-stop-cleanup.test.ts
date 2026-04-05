@@ -60,7 +60,7 @@ describe('IT-022: TaskService.stopAgent Cleanup', () => {
     });
 
     expect(updated!.agentId).toBeNull();
-    expect(updated!.sessionId).toBeNull();
+    expect(updated!.sessionId).toBe(session.id); // Preserved for UI session events
     expect(updated!.lastAgentStatus).toBe('cancelled');
     expect(mockContainerAgent.stopAgent).not.toHaveBeenCalled();
   });

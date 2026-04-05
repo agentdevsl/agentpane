@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { SessionStatus } from '@/db/schema';
 import { apiClient } from '@/lib/api/client';
+import { extractSessionEvents, type TopologyEvent } from '@/lib/topology/build-from-events';
 import { SessionDetailView } from './components/session-detail-view';
 import { SessionTimeline } from './components/session-timeline';
 import type { ExportFormat, SessionDetail, SessionListItem } from './types';
@@ -34,20 +35,7 @@ export interface RawSession {
   costUsd?: number | null;
 }
 
-type SessionEventRecord = {
-  id: string;
-  type: string;
-  timestamp: number;
-  data: unknown;
-};
-
-function extractSessionEvents(
-  payload: SessionEventRecord[] | { data?: SessionEventRecord[] }
-): SessionEventRecord[] {
-  return Array.isArray(payload) ? payload : (payload.data ?? []);
-}
-
-function mapSessionEvents(events: SessionEventRecord[]): SessionDetail['events'] {
+function mapSessionEvents(events: TopologyEvent[]): SessionDetail['events'] {
   return events.map((event) => ({
     id: event.id,
     type: event.type as SessionDetail['events'][0]['type'],
@@ -223,7 +211,7 @@ export function SessionHistory({
           if (eventsLoad.result.ok && eventsLoad.result.data) {
             const fetchedEvents = mapSessionEvents(
               extractSessionEvents(
-                eventsLoad.result.data as SessionEventRecord[] | { data?: SessionEventRecord[] }
+                eventsLoad.result.data as TopologyEvent[] | { data: TopologyEvent[] }
               )
             );
             events =

@@ -1,6 +1,6 @@
-import { AGENT_ROLE_CONFIG } from '../nodes/agent-node-types';
+import { getRoleConfig } from '../nodes/agent-node-types';
 
-const LEGEND_ITEMS: Array<{ role: keyof typeof AGENT_ROLE_CONFIG; label: string }> = [
+const LEGEND_ITEMS: Array<{ role: string; label: string }> = [
   { role: 'orchestrator', label: 'Orch' },
   { role: 'planner', label: 'Plan' },
   { role: 'coder', label: 'Code' },
@@ -17,7 +17,7 @@ export function TopologyLegend() {
         <div key={role} className="flex items-center gap-1.5">
           <span
             className="inline-block h-2 w-2 rounded-full"
-            style={{ backgroundColor: AGENT_ROLE_CONFIG[role].color }}
+            style={{ backgroundColor: getRoleConfig(role).color }}
           />
           <span className="text-[10px] text-fg-muted">{label}</span>
         </div>

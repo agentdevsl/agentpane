@@ -1,5 +1,5 @@
 import type { TopologyNode } from '@/lib/topology/types';
-import { AGENT_ROLE_CONFIG, STATUS_COLORS } from '../nodes/agent-node-types';
+import { getRoleConfig, STATUS_COLORS } from '../nodes/agent-node-types';
 
 interface DetailsTabProps {
   node: TopologyNode;
@@ -107,10 +107,10 @@ export function DetailsTab({ node, allNodes, taskName, taskPriority }: DetailsTa
               <span className="text-fg-muted">{'\u2190'}</span>
               <span
                 className="inline-block h-2 w-2 rounded-full"
-                style={{ backgroundColor: AGENT_ROLE_CONFIG[parent.role].color }}
+                style={{ backgroundColor: getRoleConfig(parent.role).color }}
               />
               <span className="text-fg">{parent.name}</span>
-              <span className="text-fg-subtle">({AGENT_ROLE_CONFIG[parent.role].label})</span>
+              <span className="text-fg-subtle">({getRoleConfig(parent.role).label})</span>
             </div>
           )}
           {children.map((child) => (
@@ -118,10 +118,10 @@ export function DetailsTab({ node, allNodes, taskName, taskPriority }: DetailsTa
               <span className="text-fg-muted">{'\u2192'}</span>
               <span
                 className="inline-block h-2 w-2 rounded-full"
-                style={{ backgroundColor: AGENT_ROLE_CONFIG[child.role].color }}
+                style={{ backgroundColor: getRoleConfig(child.role).color }}
               />
               <span className="text-fg">{child.name}</span>
-              <span className="text-fg-subtle">({AGENT_ROLE_CONFIG[child.role].label})</span>
+              <span className="text-fg-subtle">({getRoleConfig(child.role).label})</span>
             </div>
           ))}
         </div>

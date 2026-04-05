@@ -2,7 +2,7 @@ import { X } from '@phosphor-icons/react';
 import { useState } from 'react';
 import type { TopologyNode } from '@/lib/topology/types';
 import { cn } from '@/lib/utils/cn';
-import { AGENT_ROLE_CONFIG, STATUS_COLORS } from '../nodes/agent-node-types';
+import { getRoleConfig, STATUS_COLORS } from '../nodes/agent-node-types';
 import { ActivityTab } from './activity-tab';
 import { DecisionsTab } from './decisions-tab';
 import { DetailsTab } from './details-tab';
@@ -30,7 +30,7 @@ export function TopologyDetailPanel({
 
   if (!node) return null;
 
-  const roleConfig = AGENT_ROLE_CONFIG[node.role];
+  const roleConfig = getRoleConfig(node.role);
   const statusColor = STATUS_COLORS[node.status];
 
   return (

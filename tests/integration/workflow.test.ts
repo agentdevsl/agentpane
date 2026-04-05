@@ -136,7 +136,7 @@ describe('Task Workflow Integration', () => {
 
     expect(rejectResult.ok).toBe(true);
     if (rejectResult.ok) {
-      expect(rejectResult.value.column).toBe('in_progress');
+      expect(rejectResult.value.column).toBe('backlog');
       expect(rejectResult.value.rejectionCount).toBe(1);
       expect(rejectResult.value.rejectionReason).toBe('Needs more tests');
     }

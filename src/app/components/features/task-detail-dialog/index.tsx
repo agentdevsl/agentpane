@@ -327,6 +327,7 @@ export function TaskDetailDialog({
         <DialogPrimitive.Content
           ref={elementRef}
           aria-describedby={undefined}
+          data-testid="task-detail-dialog"
           className={cn(
             'fixed left-1/2 top-1/2 z-50 w-full max-w-2xl max-h-[90vh]',
             'rounded-xl border border-border bg-surface shadow-xl',

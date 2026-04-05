@@ -12,15 +12,27 @@ import {
   useSensors,
 } from '@dnd-kit/core';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import { ArrowsDownUp, CheckSquare, Trash } from '@phosphor-icons/react';
+import {
+  ArrowsDownUp,
+  CheckSquare,
+  ClockCounterClockwise,
+  Plus,
+  Trash,
+} from '@phosphor-icons/react';
 import { useMemo, useState } from 'react';
 import { useContainerAgentStatuses } from '@/app/hooks/use-container-agent-statuses';
 import type { Task, TaskColumn } from '@/db/schema';
 import { cn } from '@/lib/utils/cn';
 import { COLUMNS } from './kanban-board/constants';
-import { useBoardState } from './kanban-board/use-board-state';
+import { SORT_FIELDS, type SortField, useBoardState } from './kanban-board/use-board-state';
 import { KanbanCard } from './kanban-card';
 import { KanbanColumn } from './kanban-column';
+
+const SORT_LABELS: Record<SortField, { icon: typeof ArrowsDownUp; label: string }> = {
+  position: { icon: ArrowsDownUp, label: 'Sort' },
+  updatedAt: { icon: ClockCounterClockwise, label: 'Updated' },
+  createdAt: { icon: Plus, label: 'Created' },
+};
 
 // Configure smooth drop animation for better visual feedback
 const dropAnimation: DropAnimation = {
@@ -63,7 +75,7 @@ export function KanbanBoard({
 }: KanbanBoardProps): React.JSX.Element {
   const [activeTask, setActiveTask] = useState<Task | null>(null);
 
-  const [{ selectedIds }, boardActions] = useBoardState();
+  const [{ selectedIds, sortBy }, boardActions] = useBoardState();
 
   // Get sessions from in-progress tasks for real-time status tracking
   const activeSessions = useMemo(() => {
@@ -75,7 +87,7 @@ export function KanbanBoard({
   // Track agent statuses for active sessions
   const agentStatuses = useContainerAgentStatuses(activeSessions);
   const {
-    toggleSelection,
+    selectCard,
     selectAll,
     clearSelection,
     isSelected,
@@ -128,15 +140,18 @@ export function KanbanBoard({
   const tasksByColumn = useMemo(() => {
     const grouped = new Map<TaskColumn, Task[]>();
     for (const col of COLUMNS) {
-      grouped.set(
-        col.id,
-        tasks
-          .filter((task) => task.column === col.id)
-          .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
-      );
+      const filtered = tasks.filter((task) => task.column === col.id);
+      if (sortBy === 'updatedAt') {
+        filtered.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      } else if (sortBy === 'createdAt') {
+        filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      } else {
+        filtered.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+      }
+      grouped.set(col.id, filtered);
     }
     return grouped;
-  }, [tasks]);
+  }, [tasks, sortBy]);
 
   const handleSelectAll = () => {
     selectAll(tasks);
@@ -161,6 +176,37 @@ export function KanbanBoard({
 
   return (
     <div className="flex h-full flex-col" data-testid="kanban-board">
+      {/* Sort toggle — segmented control */}
+      <div className="flex items-center justify-end px-5 pt-3">
+        <div
+          className="flex items-center rounded-lg border border-[var(--border-default)] bg-[var(--bg-subtle)] p-0.5"
+          data-testid="sort-toggle"
+        >
+          {SORT_FIELDS.map((field) => {
+            const config = SORT_LABELS[field];
+            const isActive = sortBy === field;
+            const Icon = config.icon;
+            return (
+              <button
+                key={field}
+                type="button"
+                onClick={() => boardActions.setSortBy(field)}
+                className={cn(
+                  'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[13px] font-medium transition-all duration-[220ms] ease-[cubic-bezier(0.4,0,0.2,1)]',
+                  isActive
+                    ? 'bg-[var(--bg-emphasis)] text-[var(--fg-default)] shadow-sm'
+                    : 'text-[var(--fg-muted)] hover:text-[var(--fg-default)]'
+                )}
+                data-testid={`sort-${field}`}
+              >
+                <Icon className="h-4 w-4" />
+                {config.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Bulk actions toolbar */}
       {hasSelection && (
         <div className="flex items-center gap-3 border-b border-[var(--border-default)] bg-[var(--bg-subtle)] px-6 py-3">
@@ -243,7 +289,7 @@ export function KanbanBoard({
               title={column.label}
               tasks={tasksByColumn.get(column.id) ?? []}
               onTaskClick={onTaskClick}
-              onTaskSelect={toggleSelection}
+              onTaskSelect={selectCard}
               isTaskSelected={isSelected}
               isLoading={isLoading}
               isCollapsed={isColumnCollapsed(column.id)}

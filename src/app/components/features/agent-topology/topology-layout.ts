@@ -22,7 +22,8 @@ export async function layoutTopology(
       'elk.layered.spacing.nodeNodeBetweenLayers': '130',
       'elk.edgeRouting': 'SPLINES',
       'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
-      'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
+      'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
+      'elk.layered.nodePlacement.bk.fixedAlignment': 'BALANCED',
       'elk.contentAlignment': 'H_CENTER V_TOP',
       'elk.layered.mergeEdges': 'false',
       'elk.spacing.edgeNode': '80',
@@ -78,6 +79,7 @@ export async function layoutTopology(
         data: {
           name: entry.node.name,
           role: entry.node.role,
+          agentType: entry.node.agentType,
           status: entry.node.status,
           progress: entry.node.progress,
           decisions: entry.node.decisions,

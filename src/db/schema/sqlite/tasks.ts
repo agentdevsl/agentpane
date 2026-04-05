@@ -54,6 +54,10 @@ export const tasks = sqliteTable(
     skillId: text('skill_id'),
     /** Denormalized skill display name for UI rendering */
     skillName: text('skill_name'),
+    /** Execution skill ID — chained skill to use after plan approval */
+    executionSkillId: text('execution_skill_id'),
+    /** Denormalized execution skill display name */
+    executionSkillName: text('execution_skill_name'),
     /** Plan options from ExitPlanMode plus SDK session context */
     planOptions: text('plan_options', { mode: 'json' }).$type<StoredPlanOptions>(),
     /** The generated plan content */

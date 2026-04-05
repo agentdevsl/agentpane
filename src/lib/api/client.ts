@@ -384,6 +384,7 @@ export const apiClient = {
           tags?: string[];
           sourceType: string;
           sourceName: string;
+          executionSkill?: string;
         }>
       >(`/api/codespaces/${encodeURIComponent(id)}/skills`),
   },
@@ -458,6 +459,8 @@ export const apiClient = {
       priority?: 'high' | 'medium' | 'low';
       skillId?: string | null;
       skillName?: string | null;
+      executionSkillId?: string | null;
+      executionSkillName?: string | null;
     }) =>
       apiServerFetch<{
         taskId: string;
@@ -477,6 +480,8 @@ export const apiClient = {
         priority?: 'high' | 'medium' | 'low';
         skillId?: string | null;
         skillName?: string | null;
+        executionSkillId?: string | null;
+        executionSkillName?: string | null;
       }
     ) =>
       apiServerFetch<unknown>(`/api/tasks/${encodeURIComponent(id)}`, {
@@ -516,6 +521,24 @@ export const apiClient = {
      */
     rejectPlan: (id: string, reason?: string) =>
       apiServerFetch<{ rejected: boolean }>(`/api/tasks/${id}/reject-plan`, {
+        method: 'POST',
+        body: reason ? { reason } : undefined,
+      }),
+
+    /**
+     * Approve a completed task in waiting_approval (moves to verified)
+     */
+    approve: (id: string, data?: { approvedBy?: string; createMergeCommit?: boolean }) =>
+      apiServerFetch<unknown>(`/api/tasks/${encodeURIComponent(id)}/approve`, {
+        method: 'POST',
+        body: data ?? {},
+      }),
+
+    /**
+     * Reject a completed task in waiting_approval (moves back to backlog)
+     */
+    reject: (id: string, reason?: string) =>
+      apiServerFetch<unknown>(`/api/tasks/${encodeURIComponent(id)}/reject`, {
         method: 'POST',
         body: reason ? { reason } : undefined,
       }),

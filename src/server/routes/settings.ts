@@ -41,6 +41,7 @@ const ALLOWED_SETTINGS_KEYS = new Set([
   'retention.sessionEventsDays',
   'retention.eventLogDays',
   'agent.maxRuntimeMs',
+  'sandbox.env',
 ]);
 
 const SENSITIVE_FIELDS: Record<string, { secretKey: string; flagKey: string }> = {
