@@ -137,7 +137,7 @@ export function createMockTaskService(overrides: Partial<MockTaskService> = {}):
     reorder: vi.fn().mockResolvedValue(ok(defaultTask)),
     getByColumn: vi.fn().mockResolvedValue(ok([defaultTask])),
     approve: vi.fn().mockResolvedValue(ok({ ...defaultTask, column: 'verified' as TaskColumn })),
-    reject: vi.fn().mockResolvedValue(ok({ ...defaultTask, column: 'in_progress' as TaskColumn })),
+    reject: vi.fn().mockResolvedValue(ok({ ...defaultTask, column: 'backlog' as TaskColumn })),
     getDiff: vi.fn().mockResolvedValue(
       ok({
         taskId: defaultTask.id,

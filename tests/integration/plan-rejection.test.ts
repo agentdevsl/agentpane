@@ -30,7 +30,7 @@ describe('Plan Rejection (IT-008)', () => {
     await clearTestDatabase();
   });
 
-  it('reject moves task from waiting_approval to in_progress', async () => {
+  it('reject moves task from waiting_approval to backlog', async () => {
     const worktree = await createTestWorktree(codespaceId);
     const task = await createTestTask(codespaceId, {
       column: 'waiting_approval',
@@ -41,7 +41,7 @@ describe('Plan Rejection (IT-008)', () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.value.column).toBe('in_progress');
+      expect(result.value.column).toBe('backlog');
       expect(result.value.rejectionCount).toBe(1);
       expect(result.value.rejectionReason).toBe('Needs more tests');
     }
