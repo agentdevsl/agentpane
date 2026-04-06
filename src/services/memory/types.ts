@@ -95,6 +95,7 @@ export interface SkillExecution {
   turnsUsed: number | null;
   tokensUsed: number | null;
   durationMs: number | null;
+  durationApiMs: number | null;
   filesModified: number | null;
   linesAdded: number | null;
   linesRemoved: number | null;
@@ -120,6 +121,7 @@ export interface SkillMetrics {
   avgTokensUsed: number | null;
   avgTurnsUsed: number | null;
   avgDurationMs: number | null;
+  avgDurationApiMs: number | null;
   avgCostUsd: number | null;
   successRate: number | null;
   lastRunAt: string | null;

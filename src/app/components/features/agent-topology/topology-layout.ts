@@ -3,9 +3,12 @@ import type { ElkNode } from 'elkjs/lib/elk.bundled.js';
 import type { TopologyGraph } from '@/lib/topology/types';
 import { getElk } from '@/lib/workflow-dsl/layout';
 import type { AgentNodeData } from './nodes/agent-node';
+import type { SkillNodeData } from './nodes/skill-node';
 
 const NODE_WIDTH = 120;
 const NODE_HEIGHT = 145;
+const SKILL_NODE_WIDTH = 80;
+const SKILL_NODE_HEIGHT = 50;
 
 export async function layoutTopology(
   graph: TopologyGraph
@@ -30,32 +33,37 @@ export async function layoutTopology(
       'elk.layered.spacing.edgeEdgeBetweenLayers': '40',
       'elk.layered.spacing.edgeNodeBetweenLayers': '80',
     },
-    children: graph.nodes.map((n) => ({
-      id: n.id,
-      width: NODE_WIDTH,
-      height: NODE_HEIGHT,
-      properties: {
-        'org.eclipse.elk.portConstraints': 'FIXED_POS',
-      },
-      ports: [
-        {
-          id: `${n.id}__target`,
-          properties: { 'org.eclipse.elk.port.side': 'NORTH' },
-          x: NODE_WIDTH / 2,
-          y: 0,
-          width: 1,
-          height: 1,
+    children: graph.nodes.map((n) => {
+      const isSkill = n.type === 'skill';
+      const w = isSkill ? SKILL_NODE_WIDTH : NODE_WIDTH;
+      const h = isSkill ? SKILL_NODE_HEIGHT : NODE_HEIGHT;
+      return {
+        id: n.id,
+        width: w,
+        height: h,
+        properties: {
+          'org.eclipse.elk.portConstraints': 'FIXED_POS',
         },
-        {
-          id: `${n.id}__source`,
-          properties: { 'org.eclipse.elk.port.side': 'SOUTH' },
-          x: NODE_WIDTH / 2,
-          y: NODE_HEIGHT,
-          width: 1,
-          height: 1,
-        },
-      ],
-    })),
+        ports: [
+          {
+            id: `${n.id}__target`,
+            properties: { 'org.eclipse.elk.port.side': 'NORTH' },
+            x: w / 2,
+            y: 0,
+            width: 1,
+            height: 1,
+          },
+          {
+            id: `${n.id}__source`,
+            properties: { 'org.eclipse.elk.port.side': 'SOUTH' },
+            x: w / 2,
+            y: h,
+            width: 1,
+            height: 1,
+          },
+        ],
+      };
+    }),
     edges: graph.edges.map((e) => ({
       id: e.id,
       sources: [`${e.sourceId}__source`],
@@ -72,6 +80,20 @@ export async function layoutTopology(
     .map((child: ElkNode) => {
       const entry = nodeById.get(child.id);
       if (!entry) return undefined;
+      const isSkill = entry.node.type === 'skill';
+      if (isSkill) {
+        return {
+          id: child.id,
+          type: 'skillNode' as const,
+          position: { x: child.x ?? 0, y: child.y ?? 0 },
+          data: {
+            name: entry.node.name,
+            skillId: entry.node.skillId,
+          } satisfies SkillNodeData,
+          draggable: false,
+          connectable: false,
+        };
+      }
       return {
         id: child.id,
         type: 'agentNode' as const,
@@ -87,6 +109,10 @@ export async function layoutTopology(
           cost: entry.node.cost,
           turns: entry.node.turns,
           nodeIndex: entry.index,
+          skillId: entry.node.skillId,
+          skillName: entry.node.skillName,
+          skillCalls: entry.node.skillCalls,
+          agentMeta: entry.node.agentMeta,
         } satisfies AgentNodeData,
         draggable: false,
         connectable: false,
@@ -97,6 +123,18 @@ export async function layoutTopology(
   const rfEdges: ReactFlowEdge[] = graph.edges.map((e) => {
     const sourceEntry = nodeById.get(e.sourceId);
     const targetEntry = nodeById.get(e.targetId);
+    const isSkillEdge = targetEntry?.node.type === 'skill';
+    if (isSkillEdge) {
+      return {
+        id: e.id,
+        source: e.sourceId,
+        target: e.targetId,
+        sourceHandle: 'source',
+        targetHandle: 'target',
+        type: 'skillEdge',
+        data: {},
+      };
+    }
     return {
       id: e.id,
       source: e.sourceId,

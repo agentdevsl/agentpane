@@ -52,12 +52,24 @@ export interface PlanReadyData {
   teammateCount?: number;
 }
 
+/** Enriched completion data forwarded from the agent-runner's complete event. */
+export interface CompleteEventMetrics {
+  skillId?: string;
+  skillName?: string;
+  usage?: { inputTokens?: number; outputTokens?: number };
+  fileChanges?: { filesModified: number; linesAdded: number; linesRemoved: number };
+}
+
 export interface ContainerBridgeOptions {
   taskId: string;
   sessionId: string;
   codespaceId: string;
   streams: DurableStreamsService;
-  onComplete?: (status: 'completed' | 'turn_limit' | 'cancelled', turnCount: number) => void;
+  onComplete?: (
+    status: 'completed' | 'turn_limit' | 'cancelled',
+    turnCount: number,
+    metrics?: CompleteEventMetrics
+  ) => void;
   onError?: (error: string, turnCount: number) => void;
   onPlanReady?: (data: PlanReadyData) => void;
 }
@@ -196,6 +208,10 @@ export function createContainerBridge(options: ContainerBridgeOptions): Containe
     const data = event.data as {
       status: 'completed' | 'turn_limit' | 'cancelled';
       turnCount: number;
+      skillId?: string;
+      skillName?: string;
+      usage?: { inputTokens?: number; outputTokens?: number };
+      fileChanges?: { filesModified: number; linesAdded: number; linesRemoved: number };
     };
 
     if (!data || typeof data.turnCount !== 'number') {
@@ -223,7 +239,17 @@ export function createContainerBridge(options: ContainerBridgeOptions): Containe
     });
 
     if (onComplete) {
-      onComplete(data.status, data.turnCount);
+      // Forward enriched metrics from agent-runner complete event
+      const metrics: CompleteEventMetrics = {};
+      if (data.skillId) metrics.skillId = data.skillId;
+      if (data.skillName) metrics.skillName = data.skillName;
+      if (data.usage) metrics.usage = data.usage;
+      if (data.fileChanges) metrics.fileChanges = data.fileChanges;
+      onComplete(
+        data.status,
+        data.turnCount,
+        Object.keys(metrics).length > 0 ? metrics : undefined
+      );
     }
   }
 

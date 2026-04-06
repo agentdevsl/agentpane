@@ -6,7 +6,8 @@ import type {
   TopologyAgentProgressEvent,
   TopologyAgentSpawnedEvent,
 } from '@/services/durable-streams.service.js';
-import type { TopologyEdge, TopologyGraph, TopologyNode } from './types.js';
+import { extractSkillNamespace } from './map-agent-role.js';
+import type { TopologyAgentMeta, TopologyEdge, TopologyGraph, TopologyNode } from './types.js';
 import { deriveContainerAgentNodeId } from './utils.js';
 
 /** Average cost per token used for topology cost estimates */
@@ -75,6 +76,13 @@ interface ContainerPlanReadyEvent {
   data: unknown;
 }
 
+interface ToolStartEvent {
+  id: string;
+  type: 'tool:start';
+  timestamp: number;
+  data: { tool: string; input?: { skill?: string } };
+}
+
 /**
  * Base event shape accepted by the topology builder.
  * Specific event interfaces above narrow `data` for known event types.
@@ -99,7 +107,17 @@ type KnownTopologyEvent =
   | ContainerCompleteEvent
   | ContainerToolStartEvent
   | ContainerMessageEvent
-  | ContainerPlanReadyEvent;
+  | ContainerPlanReadyEvent
+  | ToolStartEvent;
+
+/** Known agent entry from CachedAgent frontmatter for resolving agentMeta */
+export interface KnownAgent {
+  name: string;
+  model?: string;
+  color?: string;
+  skills?: string[];
+  tools?: string[];
+}
 
 /**
  * Context about the task/session, used to derive the root node
@@ -114,6 +132,8 @@ export interface TopologyBuildContext {
   lastAgentStatus?: AgentStatus | null;
   skillId?: string | null;
   skillName?: string | null;
+  /** Known agents from template's CachedAgent frontmatter for resolving agentMeta */
+  knownAgents?: KnownAgent[];
 }
 
 /**
@@ -124,6 +144,55 @@ export function extractSessionEvents(
   payload: TopologyEvent[] | { data: TopologyEvent[] }
 ): TopologyEvent[] {
   return Array.isArray(payload) ? payload : payload.data;
+}
+
+/** Resolve agentMeta from knownAgents by matching agentType name */
+function resolveAgentMeta(
+  agentType: string | null,
+  knownAgents?: KnownAgent[]
+): TopologyAgentMeta | null {
+  if (!agentType || !knownAgents || knownAgents.length === 0) return null;
+  // Try exact match first
+  const match = knownAgents.find((a) => a.name === agentType);
+  if (match) {
+    return {
+      model: match.model,
+      color: match.color,
+      skills: match.skills,
+      tools: match.tools,
+    };
+  }
+  // Try matching just the suffix after the namespace separator (colon or dot)
+  const colonIdx = agentType.lastIndexOf(':');
+  const dotIdx = agentType.lastIndexOf('.');
+  const sep = Math.max(colonIdx, dotIdx);
+  if (sep > 0) {
+    const suffix = agentType.slice(sep + 1);
+    const suffixMatch = knownAgents.find((a) => a.name === suffix);
+    if (suffixMatch) {
+      return {
+        model: suffixMatch.model,
+        color: suffixMatch.color,
+        skills: suffixMatch.skills,
+        tools: suffixMatch.tools,
+      };
+    }
+  }
+  return null;
+}
+
+/** Default new-field values for TopologyNode */
+function defaultNodeFields(): Pick<
+  TopologyNode,
+  'type' | 'skillId' | 'skillName' | 'skillCalls' | 'agentMeta'
+> {
+  return {
+    type: 'agent',
+    skillId: null,
+    skillName: null,
+    skillCalls: [],
+    agentMeta: null,
+  };
 }
 
 /**
@@ -138,6 +207,7 @@ export function extractSessionEvents(
  * - `container-agent:tool:start` -- increments turn/token counts on root node
  * - `container-agent:message` -- increments message count on root node
  * - `container-agent:plan_ready` -- sets root node to verifying status
+ * - `tool:start` -- when tool === 'Skill', accumulates skill calls on the root node
  *
  * When no events produce any nodes, a fallback root node is derived from
  * the task/session context.
@@ -151,6 +221,8 @@ export function buildTopologyFromEvents(
 ): TopologyGraph {
   const nodes = new Map<string, TopologyNode>();
   const edges: TopologyEdge[] = [];
+  /** Accumulated skill tool calls for the root node (deduped after the loop) */
+  const rootSkillCalls = new Set<string>();
 
   for (const rawEvent of events) {
     // Cast to the known discriminated union so TypeScript narrows `data`
@@ -159,11 +231,18 @@ export function buildTopologyFromEvents(
     if (event.type === 'topology:agent_spawned') {
       const d = event.data;
       const roleStr = d.role ?? '';
+      const agentType = d.agentType ?? null;
+      const skillNs = agentType ? extractSkillNamespace(agentType) : null;
+      const agentMeta = resolveAgentMeta(agentType, context.knownAgents);
       const node: TopologyNode = {
         id: d.agentId,
         name: d.name,
         role: roleStr || 'agent',
-        agentType: d.agentType ?? null,
+        ...defaultNodeFields(),
+        agentType,
+        skillId: skillNs,
+        skillName: skillNs ? agentType : null,
+        agentMeta,
         status: 'running',
         parentId: d.parentId ?? null,
         childIds: [],
@@ -199,6 +278,7 @@ export function buildTopologyFromEvents(
         id: agentId,
         name: d.model ?? context.taskTitle ?? 'Agent',
         role: 'agent',
+        ...defaultNodeFields(),
         agentType: null,
         status: 'running',
         parentId: null,
@@ -262,6 +342,19 @@ export function buildTopologyFromEvents(
         firstNode.status = 'verifying';
         firstNode.progress = 80;
       }
+    } else if (event.type === 'tool:start') {
+      const d = event.data;
+      if (d.tool === 'Skill' && d.input?.skill) {
+        rootSkillCalls.add(d.input.skill);
+      }
+    }
+  }
+
+  // Assign accumulated skill calls to the root node (first node)
+  if (rootSkillCalls.size > 0) {
+    const firstNode = nodes.values().next().value;
+    if (firstNode) {
+      firstNode.skillCalls = Array.from(rootSkillCalls);
     }
   }
 
@@ -296,6 +389,7 @@ export function buildTopologyFromEvents(
       id: agentId,
       name: context.taskTitle ?? 'Agent',
       role: 'agent',
+      ...defaultNodeFields(),
       agentType: null,
       status: fallbackStatus,
       parentId: null,
@@ -312,12 +406,67 @@ export function buildTopologyFromEvents(
       verified: isCompleted,
       verificationScore: isCompleted ? 1 : 0,
       decisions: [],
+      skillCalls: Array.from(rootSkillCalls),
     };
     nodes.set(agentId, rootNode);
   }
 
+  // --- Synthetic skill nodes ---
+  // For each agent node with agentMeta?.skills, create shared skill dependency nodes
+  const skillNodeMap = new Map<string, TopologyNode>();
+  const allNodes = Array.from(nodes.values());
+
+  for (const agentNode of allNodes) {
+    const skills = agentNode.agentMeta?.skills;
+    if (!skills || skills.length === 0) continue;
+
+    for (const skillName of skills) {
+      const skillNodeId = `skill-${skillName}`;
+      if (!skillNodeMap.has(skillNodeId)) {
+        const skillNode: TopologyNode = {
+          id: skillNodeId,
+          name: skillName,
+          role: 'skill',
+          type: 'skill',
+          agentType: null,
+          skillId: skillName,
+          skillName,
+          skillCalls: [],
+          agentMeta: null,
+          status: 'completed',
+          parentId: null,
+          childIds: [],
+          progress: 100,
+          tokens: 0,
+          cost: 0,
+          turns: 0,
+          messages: 0,
+          startedAt: null,
+          completedAt: null,
+          verified: false,
+          verificationScore: 0,
+          decisions: [],
+        };
+        skillNodeMap.set(skillNodeId, skillNode);
+      }
+      // Add edge from agent -> skill
+      const edgeId = `${agentNode.id}->skill-${skillName}`;
+      // Avoid duplicate edges
+      if (!edges.some((e) => e.id === edgeId)) {
+        edges.push({
+          id: edgeId,
+          sourceId: agentNode.id,
+          targetId: skillNodeId,
+        });
+      }
+    }
+  }
+
+  // Merge skill nodes into the main node list
+  const finalNodes = [...allNodes, ...skillNodeMap.values()];
+
   return {
-    nodes: Array.from(nodes.values()),
+    nodes: finalNodes,
     edges,
     taskId: context.taskId ?? '',
     taskName: context.taskTitle ?? '',

@@ -180,9 +180,11 @@ export class AgentExecutionService {
     sessionId: string;
     status: 'completed' | 'error' | 'turn_limit' | 'paused' | 'planning';
     turnCount: number;
+    phase?: 'planning' | 'execution';
     metrics?: {
       totalCostUsd?: number;
       durationMs?: number;
+      durationApiMs?: number;
       numTurns?: number;
       inputTokens?: number;
       outputTokens?: number;
@@ -193,9 +195,29 @@ export class AgentExecutionService {
     if (!this.skillTrackingService) return;
     const taskForSkill = await this.db.query.tasks.findFirst({
       where: eq(tasks.id, params.taskId),
-      columns: { skillId: true, skillName: true, codespaceId: true, startedAt: true },
+      columns: {
+        skillId: true,
+        skillName: true,
+        executionSkillId: true,
+        executionSkillName: true,
+        codespaceId: true,
+        startedAt: true,
+      },
     });
     if (!taskForSkill?.skillId) return;
+
+    // When phase is 'execution' and an executionSkillId exists that differs
+    // from the planning skillId, record under the execution skill instead.
+    let skillId = taskForSkill.skillId;
+    let skillName = taskForSkill.skillName ?? null;
+    if (
+      params.phase === 'execution' &&
+      taskForSkill.executionSkillId &&
+      taskForSkill.executionSkillId !== taskForSkill.skillId
+    ) {
+      skillId = taskForSkill.executionSkillId;
+      skillName = taskForSkill.executionSkillName ?? null;
+    }
 
     const insightIdsUsed = params.insightIds ?? null;
 
@@ -204,8 +226,8 @@ export class AgentExecutionService {
       taskId: params.taskId,
       agentRunId: params.agentRunId,
       sessionId: params.sessionId,
-      skillId: taskForSkill.skillId,
-      skillName: taskForSkill.skillName ?? null,
+      skillId,
+      skillName,
       status: params.status,
       turnCount: params.turnCount,
       metrics: params.metrics,
@@ -240,6 +262,7 @@ export class AgentExecutionService {
     metrics?: {
       totalCostUsd?: number;
       durationMs?: number;
+      durationApiMs?: number;
       numTurns?: number;
       inputTokens?: number;
       outputTokens?: number;
@@ -287,6 +310,7 @@ export class AgentExecutionService {
             ? (params.metrics.inputTokens ?? 0) + (params.metrics.outputTokens ?? 0)
             : null,
         durationMs: params.metrics?.durationMs ?? null,
+        durationApiMs: params.metrics?.durationApiMs ?? null,
         costUsd: params.metrics?.totalCostUsd ?? null,
         errorMessage: params.errorMessage ?? null,
         filesModified: params.fileChanges?.filesModified ?? null,
@@ -1228,6 +1252,7 @@ export class AgentExecutionService {
         agentId,
         insightIds: execInsightIds,
         sessionId,
+        phase: 'execution',
         status: result.status,
         turnCount: result.turnCount,
         metrics: result.metrics,
@@ -1291,6 +1316,7 @@ export class AgentExecutionService {
         agentRunId: runId,
         agentId,
         sessionId,
+        phase: 'execution',
         status: 'error',
         turnCount: 0,
         errorMessage: errMsg,

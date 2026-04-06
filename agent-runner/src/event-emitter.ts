@@ -39,6 +39,8 @@ export interface AgentEvent {
 export interface AgentStartedData {
   model: string;
   maxTurns: number;
+  skillId?: string;
+  skillName?: string;
 }
 
 export interface AgentTokenData {
@@ -81,6 +83,10 @@ export interface AgentCompleteData {
   turnCount: number;
   result?: string;
   skillCalls?: SkillCallRecord[];
+  skillId?: string;
+  skillName?: string;
+  usage?: { inputTokens?: number; outputTokens?: number };
+  fileChanges?: { filesModified: number; linesAdded: number; linesRemoved: number };
 }
 
 export interface AgentErrorData {

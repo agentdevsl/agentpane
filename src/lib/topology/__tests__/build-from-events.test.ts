@@ -777,6 +777,252 @@ describe('buildTopologyFromEvents', () => {
     });
   });
 
+  // ── Skill fields ──
+
+  describe('skill fields on nodes', () => {
+    it('defaults new fields for spawned nodes without agentType', () => {
+      const events = [
+        makeEvent('topology:agent_spawned', {
+          agentId: 'sub-1',
+          name: 'Agent',
+        }),
+      ];
+      const graph = buildTopologyFromEvents(events, makeContext());
+      const node = defined(graph.nodes[0]);
+      expect(node.type).toBe('agent');
+      expect(node.skillId).toBeNull();
+      expect(node.skillName).toBeNull();
+      expect(node.skillCalls).toEqual([]);
+      expect(node.agentMeta).toBeNull();
+    });
+
+    it('extracts skillId from colon-separated agentType', () => {
+      const events = [
+        makeEvent('topology:agent_spawned', {
+          agentId: 'sub-1',
+          name: 'Code Reviewer',
+          agentType: 'pr-review-toolkit:code-reviewer',
+        }),
+      ];
+      const graph = buildTopologyFromEvents(events, makeContext());
+      const node = defined(graph.nodes[0]);
+      expect(node.skillId).toBe('pr-review-toolkit');
+      expect(node.skillName).toBe('pr-review-toolkit:code-reviewer');
+    });
+
+    it('extracts skillId from dot-separated agentType', () => {
+      const events = [
+        makeEvent('topology:agent_spawned', {
+          agentId: 'sub-1',
+          name: 'Plan',
+          agentType: 'speckit.plan',
+        }),
+      ];
+      const graph = buildTopologyFromEvents(events, makeContext());
+      expect(defined(graph.nodes[0]).skillId).toBe('speckit');
+    });
+
+    it('returns null skillId for SDK built-in agentTypes', () => {
+      const events = [
+        makeEvent('topology:agent_spawned', {
+          agentId: 'sub-1',
+          name: 'Explorer',
+          agentType: 'Explore',
+        }),
+      ];
+      const graph = buildTopologyFromEvents(events, makeContext());
+      expect(defined(graph.nodes[0]).skillId).toBeNull();
+      expect(defined(graph.nodes[0]).skillName).toBeNull();
+    });
+
+    it('resolves agentMeta from knownAgents by exact name match', () => {
+      const events = [
+        makeEvent('topology:agent_spawned', {
+          agentId: 'sub-1',
+          name: 'Reviewer',
+          agentType: 'code-reviewer',
+        }),
+      ];
+      const graph = buildTopologyFromEvents(events, {
+        ...makeContext(),
+        knownAgents: [
+          {
+            name: 'code-reviewer',
+            model: 'claude-sonnet-4',
+            color: 'blue',
+            skills: ['lint'],
+            tools: ['Bash'],
+          },
+        ],
+      });
+      const node = defined(graph.nodes[0]);
+      expect(node.agentMeta).toEqual({
+        model: 'claude-sonnet-4',
+        color: 'blue',
+        skills: ['lint'],
+        tools: ['Bash'],
+      });
+    });
+
+    it('resolves agentMeta from knownAgents by suffix match', () => {
+      const events = [
+        makeEvent('topology:agent_spawned', {
+          agentId: 'sub-1',
+          name: 'Reviewer',
+          agentType: 'pr-review-toolkit:code-reviewer',
+        }),
+      ];
+      const graph = buildTopologyFromEvents(events, {
+        ...makeContext(),
+        knownAgents: [{ name: 'code-reviewer', model: 'opus', color: 'purple' }],
+      });
+      expect(defined(graph.nodes[0]).agentMeta?.model).toBe('opus');
+    });
+
+    it('returns null agentMeta when no knownAgents match', () => {
+      const events = [
+        makeEvent('topology:agent_spawned', {
+          agentId: 'sub-1',
+          name: 'Agent',
+          agentType: 'unknown-agent',
+        }),
+      ];
+      const graph = buildTopologyFromEvents(events, {
+        ...makeContext(),
+        knownAgents: [{ name: 'other-agent' }],
+      });
+      expect(defined(graph.nodes[0]).agentMeta).toBeNull();
+    });
+
+    it('defaults new fields in fallback node', () => {
+      const graph = buildTopologyFromEvents([], makeContext());
+      const root = defined(graph.nodes[0]);
+      expect(root.type).toBe('agent');
+      expect(root.skillId).toBeNull();
+      expect(root.skillName).toBeNull();
+      expect(root.skillCalls).toEqual([]);
+      expect(root.agentMeta).toBeNull();
+    });
+  });
+
+  // ── Skill tool call accumulation ──
+
+  describe('skill calls from tool:start events', () => {
+    it('accumulates Skill tool calls on the root node', () => {
+      const events = [
+        makeEvent('container-agent:started', { taskId: 'task-1' }),
+        makeEvent('tool:start', { tool: 'Skill', input: { skill: 'commit' } }),
+        makeEvent('tool:start', { tool: 'Skill', input: { skill: 'review-pr' } }),
+        makeEvent('tool:start', { tool: 'Bash', input: { command: 'ls' } }),
+      ];
+      const graph = buildTopologyFromEvents(events, makeContext());
+      const root = defined(graph.nodes[0]);
+      expect(root.skillCalls).toEqual(['commit', 'review-pr']);
+    });
+
+    it('deduplicates repeated skill calls', () => {
+      const events = [
+        makeEvent('container-agent:started', { taskId: 'task-1' }),
+        makeEvent('tool:start', { tool: 'Skill', input: { skill: 'commit' } }),
+        makeEvent('tool:start', { tool: 'Skill', input: { skill: 'commit' } }),
+      ];
+      const graph = buildTopologyFromEvents(events, makeContext());
+      expect(defined(graph.nodes[0]).skillCalls).toEqual(['commit']);
+    });
+
+    it('ignores tool:start events without Skill tool name', () => {
+      const events = [
+        makeEvent('container-agent:started', { taskId: 'task-1' }),
+        makeEvent('tool:start', { tool: 'Bash', input: { command: 'ls' } }),
+      ];
+      const graph = buildTopologyFromEvents(events, makeContext());
+      expect(defined(graph.nodes[0]).skillCalls).toEqual([]);
+    });
+
+    it('accumulates skill calls in fallback node', () => {
+      const events = [makeEvent('tool:start', { tool: 'Skill', input: { skill: 'deploy' } })];
+      const graph = buildTopologyFromEvents(events, makeContext());
+      expect(defined(graph.nodes[0]).skillCalls).toEqual(['deploy']);
+    });
+  });
+
+  // ── Synthetic skill nodes ──
+
+  describe('synthetic skill nodes', () => {
+    it('creates skill nodes from agentMeta.skills', () => {
+      const events = [
+        makeEvent('topology:agent_spawned', {
+          agentId: 'sub-1',
+          name: 'Reviewer',
+          agentType: 'code-reviewer',
+        }),
+      ];
+      const graph = buildTopologyFromEvents(events, {
+        ...makeContext(),
+        knownAgents: [{ name: 'code-reviewer', skills: ['lint-rules', 'security-scan'] }],
+      });
+      // 1 agent + 2 skill nodes
+      expect(graph.nodes).toHaveLength(3);
+      const skillNodes = graph.nodes.filter((n) => n.type === 'skill');
+      expect(skillNodes).toHaveLength(2);
+      expect(skillNodes.map((n) => n.name).sort()).toEqual(['lint-rules', 'security-scan']);
+      // 2 edges from agent -> skills
+      const skillEdges = graph.edges.filter((e) => e.targetId.startsWith('skill-'));
+      expect(skillEdges).toHaveLength(2);
+    });
+
+    it('deduplicates skill nodes across multiple agents', () => {
+      const events = [
+        makeEvent('topology:agent_spawned', {
+          agentId: 'agent-1',
+          name: 'Agent 1',
+          agentType: 'reviewer-a',
+        }),
+        makeEvent('topology:agent_spawned', {
+          agentId: 'agent-2',
+          name: 'Agent 2',
+          agentType: 'reviewer-b',
+        }),
+      ];
+      const graph = buildTopologyFromEvents(events, {
+        ...makeContext(),
+        knownAgents: [
+          { name: 'reviewer-a', skills: ['shared-skill', 'unique-a'] },
+          { name: 'reviewer-b', skills: ['shared-skill', 'unique-b'] },
+        ],
+      });
+      // 2 agents + 3 unique skill nodes
+      expect(graph.nodes).toHaveLength(5);
+      const skillNodes = graph.nodes.filter((n) => n.type === 'skill');
+      expect(skillNodes).toHaveLength(3);
+      // shared-skill should have 2 edges (from both agents)
+      const sharedEdges = graph.edges.filter((e) => e.targetId === 'skill-shared-skill');
+      expect(sharedEdges).toHaveLength(2);
+    });
+
+    it('skill nodes have correct default properties', () => {
+      const events = [
+        makeEvent('topology:agent_spawned', {
+          agentId: 'sub-1',
+          name: 'Agent',
+          agentType: 'my-agent',
+        }),
+      ];
+      const graph = buildTopologyFromEvents(events, {
+        ...makeContext(),
+        knownAgents: [{ name: 'my-agent', skills: ['test-skill'] }],
+      });
+      const skillNode = graph.nodes.find((n) => n.type === 'skill');
+      expect(skillNode).toBeDefined();
+      expect(skillNode!.id).toBe('skill-test-skill');
+      expect(skillNode!.role).toBe('skill');
+      expect(skillNode!.status).toBe('completed');
+      expect(skillNode!.progress).toBe(100);
+      expect(skillNode!.skillId).toBe('test-skill');
+      expect(skillNode!.skillName).toBe('test-skill');
+    });
+  });
+
   // ── Valid roles ──
 
   describe('role validation', () => {

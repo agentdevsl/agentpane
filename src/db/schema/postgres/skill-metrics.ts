@@ -26,6 +26,7 @@ export const skillMetrics = pgTable(
     avgTokensUsed: doublePrecision('avg_tokens_used'),
     avgTurnsUsed: doublePrecision('avg_turns_used'),
     avgDurationMs: doublePrecision('avg_duration_ms'),
+    avgDurationApiMs: doublePrecision('avg_duration_api_ms'),
     avgCostUsd: doublePrecision('avg_cost_usd'),
     successRate: doublePrecision('success_rate'),
     lastRunAt: timestamp('last_run_at', { mode: 'string' }),

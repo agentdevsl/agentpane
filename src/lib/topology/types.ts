@@ -28,12 +28,30 @@ export interface TopologyDecision {
   alternatives?: string[];
 }
 
+/** Metadata resolved from CachedAgent frontmatter when agentType matches a known agent */
+export interface TopologyAgentMeta {
+  model?: string;
+  color?: string;
+  skills?: string[];
+  tools?: string[];
+}
+
 export interface TopologyNode {
   id: string;
   name: string;
   role: string;
-  /** Real SDK agent type (subagent_type / task_type) — e.g. "general-purpose", "Explore", "Plan" */
+  /** Node type -- 'agent' for real/fallback agents, 'skill' for synthetic skill dependency nodes */
+  type: 'agent' | 'skill';
+  /** Real SDK agent type (subagent_type / task_type) -- e.g. "general-purpose", "Explore", "Plan" */
   agentType: string | null;
+  /** Skill namespace extracted from agentType (e.g. "pr-review-toolkit" from "pr-review-toolkit:code-reviewer") */
+  skillId: string | null;
+  /** Skill display name */
+  skillName: string | null;
+  /** Deduplicated skill tool names invoked during this node's execution (from tool:start events where tool === 'Skill') */
+  skillCalls: string[];
+  /** Agent metadata resolved from CachedAgent frontmatter */
+  agentMeta: TopologyAgentMeta | null;
   status: TopologyAgentStatus;
   parentId: string | null;
   childIds: string[];

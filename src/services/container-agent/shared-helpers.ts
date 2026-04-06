@@ -19,6 +19,14 @@ import type { SkillTrackingService } from '../memory/skill-tracking.service.js';
 
 const log = createLogger('ContainerAgentHelpers');
 
+/** Enriched completion metrics from the agent-runner. */
+export interface AgentCompleteMetrics {
+  skillId?: string;
+  skillName?: string;
+  usage?: { inputTokens?: number; outputTokens?: number };
+  fileChanges?: { filesModified: number; linesAdded: number; linesRemoved: number };
+}
+
 /**
  * Update task status when an agent completes successfully or is cancelled.
  *
@@ -30,7 +38,8 @@ export async function updateTaskOnAgentComplete(
   status: 'completed' | 'turn_limit' | 'cancelled',
   streams?: DurableStreamsService,
   sessionId?: string,
-  skillTrackingService?: SkillTrackingService | null
+  skillTrackingService?: SkillTrackingService | null,
+  metrics?: AgentCompleteMetrics
 ): Promise<boolean> {
   try {
     if (status === 'completed') {
@@ -99,6 +108,18 @@ export async function updateTaskOnAgentComplete(
         if (taskRecord?.skillId) {
           const trackingStatus = status === 'completed' ? 'success' : 'turn_limit';
           const now = new Date().toISOString();
+          // Compute tokensUsed from enriched usage metrics
+          const tokensUsed =
+            metrics?.usage?.inputTokens != null || metrics?.usage?.outputTokens != null
+              ? (metrics.usage.inputTokens ?? 0) + (metrics.usage.outputTokens ?? 0)
+              : null;
+
+          // Compute duration from task startedAt to now
+          const durationMs =
+            taskRecord.startedAt != null
+              ? Date.now() - new Date(taskRecord.startedAt).getTime()
+              : null;
+
           skillTrackingService
             .recordExecution({
               codespaceId: taskRecord.codespaceId,
@@ -110,6 +131,11 @@ export async function updateTaskOnAgentComplete(
               status: trackingStatus,
               startedAt: taskRecord.startedAt ?? null,
               completedAt: now,
+              tokensUsed: tokensUsed ?? undefined,
+              durationMs: durationMs ?? undefined,
+              filesModified: metrics?.fileChanges?.filesModified ?? undefined,
+              linesAdded: metrics?.fileChanges?.linesAdded ?? undefined,
+              linesRemoved: metrics?.fileChanges?.linesRemoved ?? undefined,
             })
             .then((result) => {
               if (result.ok) {

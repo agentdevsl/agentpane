@@ -28,6 +28,7 @@ export interface RecordExecutionParams {
   turnsUsed?: number | null;
   tokensUsed?: number | null;
   durationMs?: number | null;
+  durationApiMs?: number | null;
   filesModified?: number | null;
   linesAdded?: number | null;
   linesRemoved?: number | null;
@@ -66,6 +67,7 @@ export class SkillTrackingService {
         turnsUsed: params.turnsUsed ?? null,
         tokensUsed: params.tokensUsed ?? null,
         durationMs: params.durationMs ?? null,
+        durationApiMs: params.durationApiMs ?? null,
         filesModified: params.filesModified ?? null,
         linesAdded: params.linesAdded ?? null,
         linesRemoved: params.linesRemoved ?? null,
@@ -122,6 +124,9 @@ export class SkillTrackingService {
           avgTokensUsed: sql<number>`AVG(${skillExecutions.tokensUsed})`.as('avg_tokens'),
           avgTurnsUsed: sql<number>`AVG(${skillExecutions.turnsUsed})`.as('avg_turns'),
           avgDurationMs: sql<number>`AVG(${skillExecutions.durationMs})`.as('avg_duration'),
+          avgDurationApiMs: sql<number>`AVG(${skillExecutions.durationApiMs})`.as(
+            'avg_duration_api'
+          ),
           avgCostUsd: sql<number>`AVG(${skillExecutions.costUsd})`.as('avg_cost'),
           lastRunAt: sql<string>`MAX(${skillExecutions.completedAt})`.as('last_run_at'),
         })
@@ -154,6 +159,7 @@ export class SkillTrackingService {
               avgTokensUsed: agg.avgTokensUsed ? Number(agg.avgTokensUsed) : null,
               avgTurnsUsed: agg.avgTurnsUsed ? Number(agg.avgTurnsUsed) : null,
               avgDurationMs: agg.avgDurationMs ? Number(agg.avgDurationMs) : null,
+              avgDurationApiMs: agg.avgDurationApiMs ? Number(agg.avgDurationApiMs) : null,
               avgCostUsd: agg.avgCostUsd ? Number(agg.avgCostUsd) : null,
               successRate,
               lastRunAt: agg.lastRunAt,
@@ -172,6 +178,7 @@ export class SkillTrackingService {
             avgTokensUsed: agg.avgTokensUsed ? Number(agg.avgTokensUsed) : null,
             avgTurnsUsed: agg.avgTurnsUsed ? Number(agg.avgTurnsUsed) : null,
             avgDurationMs: agg.avgDurationMs ? Number(agg.avgDurationMs) : null,
+            avgDurationApiMs: agg.avgDurationApiMs ? Number(agg.avgDurationApiMs) : null,
             avgCostUsd: agg.avgCostUsd ? Number(agg.avgCostUsd) : null,
             successRate,
             lastRunAt: agg.lastRunAt,

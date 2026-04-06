@@ -31,6 +31,7 @@ export const skillExecutions = pgTable(
     turnsUsed: integer('turns_used'),
     tokensUsed: integer('tokens_used'),
     durationMs: integer('duration_ms'),
+    durationApiMs: integer('duration_api_ms'),
     filesModified: integer('files_modified'),
     linesAdded: integer('lines_added'),
     linesRemoved: integer('lines_removed'),

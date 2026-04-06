@@ -20,6 +20,7 @@ export const skillMetrics = sqliteTable(
     avgTokensUsed: real('avg_tokens_used'),
     avgTurnsUsed: real('avg_turns_used'),
     avgDurationMs: real('avg_duration_ms'),
+    avgDurationApiMs: real('avg_duration_api_ms'),
     avgCostUsd: real('avg_cost_usd'),
     successRate: real('success_rate'),
     lastRunAt: text('last_run_at'),

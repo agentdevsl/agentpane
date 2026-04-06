@@ -59,6 +59,25 @@ export function AgentEdgeMarkers(): React.JSX.Element {
             strokeLinecap="round"
           />
         </marker>
+        {/* Skill dependency arrow marker (accent blue, smaller) */}
+        <marker
+          id="skill-arrow"
+          markerWidth="6"
+          markerHeight="6"
+          refX="5"
+          refY="3"
+          orient="auto"
+          markerUnits="strokeWidth"
+        >
+          <path
+            d="M1,1 L5,3 L1,5"
+            fill="none"
+            stroke="var(--accent-muted, rgba(56, 139, 253, 0.4))"
+            strokeWidth="1"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
+        </marker>
         {/* Glow filter for running agents */}
         <filter id="agent-glow-running" x="-50%" y="-50%" width="200%" height="200%">
           <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur" />

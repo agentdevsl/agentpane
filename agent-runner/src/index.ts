@@ -18,6 +18,8 @@
  * - AGENT_CWD: Optional. Working directory (default: /workspace).
  * - AGENT_STOP_FILE: Optional. Sentinel file path for cancellation.
  * - AGENT_HAS_SKILL: Optional. Set to 'true' when a skill is assigned — uses acceptEdits during planning.
+ * - AGENT_SKILL_ID: Optional. The skill ID assigned to the task.
+ * - AGENT_SKILL_NAME: Optional. The display name of the assigned skill.
  * - AGENT_ALLOWED_TOOLS: Optional. JSON array of tool names to allow through the permission layer.
  *
  * The OAuth token is written to ~/.claude/.credentials.json before starting the SDK.
@@ -166,18 +168,6 @@ function handleTopologySystemMsg(
 
 // SC-023: FILE_MODIFY_TOOLS and extractFileChange are now in shared-session.ts
 
-/** Detect file-modifying tools and emit file_changed event */
-function emitFileChangeIfApplicable(
-  toolName: string,
-  input: unknown,
-  events: ReturnType<typeof createEventEmitter>
-): void {
-  const fileChange = sharedExtractFileChange(toolName, (input as Record<string, unknown>) ?? {});
-  if (fileChange) {
-    events.fileChanged(fileChange);
-  }
-}
-
 // Phase type
 type AgentPhase = 'plan' | 'execute';
 
@@ -193,6 +183,8 @@ const config = {
   model: process.env.AGENT_MODEL ?? 'claude-opus-4-5-20251101',
   cwd: process.env.AGENT_CWD ?? '/workspace',
   stopFile: process.env.AGENT_STOP_FILE,
+  skillId: process.env.AGENT_SKILL_ID,
+  skillName: process.env.AGENT_SKILL_NAME,
 };
 
 // Global error handlers - catch EPIPE and other unhandled errors
@@ -407,6 +399,8 @@ async function runPlanningPhase(): Promise<void> {
   events.started({
     model: config.model,
     maxTurns: config.maxTurns,
+    ...(config.skillId ? { skillId: config.skillId } : {}),
+    ...(config.skillName ? { skillName: config.skillName } : {}),
   });
 
   console.error('[agent-runner] Starting PLANNING phase...');
@@ -429,6 +423,33 @@ async function runPlanningPhase(): Promise<void> {
 
   // Accumulate Skill tool calls for completion data
   const skillCalls: SkillCallRecord[] = [];
+
+  // Accumulate file changes for completion metrics
+  const fileChangeSet = new Set<string>();
+  let totalLinesAdded = 0;
+  let totalLinesRemoved = 0;
+
+  // Accumulate token usage
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+
+  /** Build enriched fields for complete events */
+  const enrichedFields = () => ({
+    ...(config.skillId ? { skillId: config.skillId } : {}),
+    ...(config.skillName ? { skillName: config.skillName } : {}),
+    ...(totalInputTokens > 0 || totalOutputTokens > 0
+      ? { usage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens } }
+      : {}),
+    ...(fileChangeSet.size > 0
+      ? {
+          fileChanges: {
+            filesModified: fileChangeSet.size,
+            linesAdded: totalLinesAdded,
+            linesRemoved: totalLinesRemoved,
+          },
+        }
+      : {}),
+  });
 
   // Helper to emit tool result for a completed tool
   const emitToolResult = (toolId: string, isError = false, result = '') => {
@@ -497,8 +518,19 @@ async function runPlanningPhase(): Promise<void> {
         input: (input as Record<string, unknown>) ?? {},
       });
 
-      // Detect file-modifying tools and emit file_changed event
-      emitFileChangeIfApplicable(toolName, input, events);
+      // Detect file-modifying tools and emit file_changed event + accumulate
+      {
+        const fileChange = sharedExtractFileChange(
+          toolName,
+          (input as Record<string, unknown>) ?? {}
+        );
+        if (fileChange) {
+          events.fileChanged(fileChange);
+          fileChangeSet.add(fileChange.path);
+          if (fileChange.additions) totalLinesAdded += fileChange.additions;
+          if (fileChange.deletions) totalLinesRemoved += fileChange.deletions;
+        }
+      }
 
       // Capture ExitPlanMode options when the tool is called
       if (toolName === 'ExitPlanMode') {
@@ -682,6 +714,7 @@ async function runPlanningPhase(): Promise<void> {
                 turnCount: turn,
                 result: `Turn limit reached (${config.maxTurns}) during planning.`,
                 skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
+                ...enrichedFields(),
               });
             }
             return;
@@ -778,6 +811,17 @@ async function runPlanningPhase(): Promise<void> {
         // Assistant message means all previous tools have completed
         emitAllToolResults();
 
+        // Accumulate token usage from assistant messages
+        const assistantMsg = msg as {
+          message?: { usage?: { input_tokens?: number; output_tokens?: number } };
+        };
+        if (assistantMsg.message?.usage) {
+          if (typeof assistantMsg.message.usage.input_tokens === 'number')
+            totalInputTokens += assistantMsg.message.usage.input_tokens;
+          if (typeof assistantMsg.message.usage.output_tokens === 'number')
+            totalOutputTokens += assistantMsg.message.usage.output_tokens;
+        }
+
         // ExitPlanMode was detected — do NOT close session here.
         // Continue consuming messages until the stream naturally yields 'result'.
         if (exitPlanModeDetected) {
@@ -799,6 +843,18 @@ async function runPlanningPhase(): Promise<void> {
       if (msg.type === 'result') {
         // Emit results for any remaining active tools
         emitAllToolResults();
+
+        // Extract final token usage from result message
+        const resultUsage = (msg as { usage?: { input_tokens?: number; output_tokens?: number } })
+          .usage;
+        if (resultUsage) {
+          // Result usage is cumulative — use it as the authoritative total if available
+          if (typeof resultUsage.input_tokens === 'number')
+            totalInputTokens = resultUsage.input_tokens;
+          if (typeof resultUsage.output_tokens === 'number')
+            totalOutputTokens = resultUsage.output_tokens;
+        }
+
         session.close(); // Clean close — stream is done, iterator complete
 
         // If ExitPlanMode was called, emit plan_ready
@@ -822,6 +878,7 @@ async function runPlanningPhase(): Promise<void> {
             turnCount: turn,
             result: accumulatedText || 'Planning completed without explicit plan',
             skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
+            ...enrichedFields(),
           });
         }
         return;
@@ -851,6 +908,7 @@ async function runPlanningPhase(): Promise<void> {
         turnCount: turn,
         result: 'Planning completed',
         skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
+        ...enrichedFields(),
       });
     }
   } catch (error) {
@@ -881,6 +939,8 @@ async function runExecutionPhase(): Promise<void> {
   events.started({
     model: config.model,
     maxTurns: config.maxTurns,
+    ...(config.skillId ? { skillId: config.skillId } : {}),
+    ...(config.skillName ? { skillName: config.skillName } : {}),
   });
 
   // Topology tracker for subagent lifecycle events
@@ -908,6 +968,33 @@ async function runExecutionPhase(): Promise<void> {
 
   // Accumulate Skill tool calls for completion data
   const skillCalls: SkillCallRecord[] = [];
+
+  // Accumulate file changes for completion metrics
+  const fileChangeSet = new Set<string>();
+  let totalLinesAdded = 0;
+  let totalLinesRemoved = 0;
+
+  // Accumulate token usage
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+
+  /** Build enriched fields for complete events */
+  const enrichedFields = () => ({
+    ...(config.skillId ? { skillId: config.skillId } : {}),
+    ...(config.skillName ? { skillName: config.skillName } : {}),
+    ...(totalInputTokens > 0 || totalOutputTokens > 0
+      ? { usage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens } }
+      : {}),
+    ...(fileChangeSet.size > 0
+      ? {
+          fileChanges: {
+            filesModified: fileChangeSet.size,
+            linesAdded: totalLinesAdded,
+            linesRemoved: totalLinesRemoved,
+          },
+        }
+      : {}),
+  });
 
   // Helper to emit tool result for a completed tool
   const emitToolResult = (toolId: string, isError = false, result = '') => {
@@ -968,8 +1055,19 @@ async function runExecutionPhase(): Promise<void> {
       input: (input as Record<string, unknown>) ?? {},
     });
 
-    // Detect file-modifying tools and emit file_changed event
-    emitFileChangeIfApplicable(toolName, input, events);
+    // Detect file-modifying tools and emit file_changed event + accumulate
+    {
+      const fileChange = sharedExtractFileChange(
+        toolName,
+        (input as Record<string, unknown>) ?? {}
+      );
+      if (fileChange) {
+        events.fileChanged(fileChange);
+        fileChangeSet.add(fileChange.path);
+        if (fileChange.additions) totalLinesAdded += fileChange.additions;
+        if (fileChange.deletions) totalLinesRemoved += fileChange.deletions;
+      }
+    }
 
     // Allow all tools in execution mode
     return { behavior: 'allow' as const, toolUseID: options.toolUseID };
@@ -1087,6 +1185,7 @@ async function runExecutionPhase(): Promise<void> {
               turnCount: turn,
               result: `Turn limit reached (${config.maxTurns}). Task may need manual completion.`,
               skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
+              ...enrichedFields(),
             });
             session.close();
             return;
@@ -1193,6 +1292,17 @@ async function runExecutionPhase(): Promise<void> {
         // Assistant message means all previous tools have completed
         emitAllToolResults();
 
+        // Accumulate token usage from assistant messages
+        const assistantMsg = msg as {
+          message?: { usage?: { input_tokens?: number; output_tokens?: number } };
+        };
+        if (assistantMsg.message?.usage) {
+          if (typeof assistantMsg.message.usage.input_tokens === 'number')
+            totalInputTokens += assistantMsg.message.usage.input_tokens;
+          if (typeof assistantMsg.message.usage.output_tokens === 'number')
+            totalOutputTokens += assistantMsg.message.usage.output_tokens;
+        }
+
         const text = getAssistantText(msg);
         if (text) {
           console.error(`[agent-runner] Assistant message: ${text.slice(0, 100)}...`);
@@ -1207,10 +1317,23 @@ async function runExecutionPhase(): Promise<void> {
       if (msg.type === 'result') {
         // Emit results for any remaining active tools
         emitAllToolResults();
-        const result = msg as { text?: string; subtype?: string; is_error?: boolean };
+        const result = msg as {
+          text?: string;
+          subtype?: string;
+          is_error?: boolean;
+          usage?: { input_tokens?: number; output_tokens?: number };
+        };
         console.error(
           `[agent-runner] Result: subtype=${result.subtype}, is_error=${result.is_error}`
         );
+
+        // Extract final token usage from result message
+        if (result.usage) {
+          if (typeof result.usage.input_tokens === 'number')
+            totalInputTokens = result.usage.input_tokens;
+          if (typeof result.usage.output_tokens === 'number')
+            totalOutputTokens = result.usage.output_tokens;
+        }
 
         if (result.is_error) {
           events.complete({
@@ -1218,6 +1341,7 @@ async function runExecutionPhase(): Promise<void> {
             turnCount: turn,
             result: result.text ?? 'Task ended with error',
             skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
+            ...enrichedFields(),
           });
         } else {
           events.complete({
@@ -1225,6 +1349,7 @@ async function runExecutionPhase(): Promise<void> {
             turnCount: turn,
             result: result.text ?? (accumulatedText || 'Task completed'),
             skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
+            ...enrichedFields(),
           });
         }
         session.close();
@@ -1243,6 +1368,7 @@ async function runExecutionPhase(): Promise<void> {
       turnCount: turn,
       result: accumulatedText || 'Task completed',
       skillCalls: skillCalls.length > 0 ? skillCalls : undefined,
+      ...enrichedFields(),
     });
   } catch (error) {
     // Emit results for any remaining active tools before reporting error

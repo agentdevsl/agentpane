@@ -1,4 +1,4 @@
-import { X } from '@phosphor-icons/react';
+import { Lightning, X } from '@phosphor-icons/react';
 import { useState } from 'react';
 import type { TopologyNode } from '@/lib/topology/types';
 import { cn } from '@/lib/utils/cn';
@@ -30,6 +30,7 @@ export function TopologyDetailPanel({
 
   if (!node) return null;
 
+  const isSkillNode = node.type === 'skill';
   const roleConfig = getRoleConfig(node.role);
   const statusColor = STATUS_COLORS[node.status];
 
@@ -37,16 +38,28 @@ export function TopologyDetailPanel({
     <div className="flex w-[360px] shrink-0 flex-col border-l border-border bg-surface">
       {/* Header */}
       <div className="flex items-center gap-3 border-b border-border px-4 py-3">
-        <div
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg"
-          style={{ backgroundColor: `${roleConfig.color}22`, color: roleConfig.color }}
-        >
-          {roleConfig.icon}
-        </div>
+        {isSkillNode ? (
+          <div
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
+            style={{
+              backgroundColor: 'var(--accent-subtle, rgba(56, 139, 253, 0.15))',
+              color: 'var(--accent-default, #388bfd)',
+            }}
+          >
+            <Lightning className="h-5 w-5" weight="fill" />
+          </div>
+        ) : (
+          <div
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg"
+            style={{ backgroundColor: `${roleConfig.color}22`, color: roleConfig.color }}
+          >
+            {roleConfig.icon}
+          </div>
+        )}
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold text-fg">{node.name}</div>
           <div className="flex items-center gap-2 text-xs text-fg-muted">
-            <span>{roleConfig.label}</span>
+            <span>{isSkillNode ? 'Skill' : roleConfig.label}</span>
             <span className="flex items-center gap-1">
               <span
                 className="inline-block h-1.5 w-1.5 rounded-full"

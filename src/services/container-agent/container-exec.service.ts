@@ -12,7 +12,7 @@
 import { eq } from 'drizzle-orm';
 
 import { agents, codespaces, sessions, tasks } from '../../db/schema';
-import type { ContainerBridge } from '../../lib/agents/container-bridge.js';
+import type { CompleteEventMetrics, ContainerBridge } from '../../lib/agents/container-bridge.js';
 import { createContainerBridge } from '../../lib/agents/container-bridge.js';
 import { DEFAULT_AGENT_MODEL, getFullModelId } from '../../lib/constants/models.js';
 import { CONTAINER_WORKSPACE_PATH } from '../../lib/constants/sandbox.js';
@@ -162,9 +162,9 @@ export class ContainerExecService {
       sessionId,
       codespaceId,
       streams: this.deps.streams,
-      onComplete: (status, turnCount) => {
+      onComplete: (status, turnCount, metrics) => {
         log.info('Agent completed via bridge callback', { data: { taskId, status, turnCount } });
-        void this.handleAgentComplete(taskId, status, turnCount);
+        void this.handleAgentComplete(taskId, status, turnCount, metrics);
       },
       onError: (error, turnCount) => {
         log.info('Agent error via bridge callback', { data: { taskId, error, turnCount } });
@@ -722,6 +722,8 @@ export class ContainerExecService {
     // during planning so the skill workflow can use tools like WebSearch, AskUserQuestion
     if (task.skillId) {
       env.AGENT_HAS_SKILL = 'true';
+      env.AGENT_SKILL_ID = task.skillId;
+      if (task.skillName) env.AGENT_SKILL_NAME = task.skillName;
     }
 
     await streams.publish(sessionId, 'container-agent:status', {
@@ -1025,7 +1027,8 @@ export class ContainerExecService {
   async handleAgentComplete(
     taskId: string,
     status: 'completed' | 'turn_limit' | 'cancelled',
-    turnCount: number
+    turnCount: number,
+    metrics?: CompleteEventMetrics
   ): Promise<void> {
     log.info('Agent completion callback triggered', { data: { taskId, status, turnCount } });
 
@@ -1114,7 +1117,8 @@ export class ContainerExecService {
       status,
       streams,
       agent.sessionId,
-      this.deps.skillTrackingService
+      this.deps.skillTrackingService,
+      metrics
     );
 
     // Handle worktree cleanup on cancellation
