@@ -99,9 +99,16 @@ export function StreamEntry({ entry, isCurrent = false }: StreamEntryProps): Rea
       data-testid="stream-entry"
       data-entry-type={entry.type}
     >
-      {/* Timestamp */}
-      <span className="min-w-15 flex-shrink-0 pt-0.5 font-mono text-xs text-fg-subtle">
-        {entry.timeOffset}
+      {/* Timestamp — wall-clock time, elapsed on hover */}
+      <span
+        className="min-w-15 flex-shrink-0 pt-0.5 font-mono text-xs text-fg-subtle"
+        title={`Elapsed: ${entry.timeOffset}`}
+      >
+        {new Date(entry.timestamp).toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+        })}
       </span>
 
       {/* Content */}
