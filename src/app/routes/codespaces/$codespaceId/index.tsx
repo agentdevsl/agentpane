@@ -252,6 +252,9 @@ function CodespaceKanban(): React.JSX.Element {
   const handleTaskClick = (task: ClientTask) => {
     if (task.column === 'waiting_approval') {
       setApprovalTask(task);
+    } else if (task.sessionId) {
+      // Navigate to the full session view for tasks with active/completed sessions
+      void navigate({ to: '/sessions/$sessionId', params: { sessionId: task.sessionId } });
     } else {
       setSelectedTask(task);
     }

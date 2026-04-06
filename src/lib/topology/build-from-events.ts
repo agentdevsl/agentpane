@@ -641,7 +641,7 @@ export function buildTopologyFromEvents(
   let groupIndex = 0;
   let i = 0;
   while (i < spawnOrder.length) {
-    const spawnId = spawnOrder[i]!;
+    const spawnId = spawnOrder[i] as string;
     const nodeA = nodes.get(spawnId);
     if (!nodeA?.parentId || agentTypeGroupNodeIds.has(nodeA.parentId)) {
       i++;
@@ -652,7 +652,7 @@ export function buildTopologyFromEvents(
     const batch: string[] = [spawnId];
     let j = i + 1;
     while (j < spawnOrder.length) {
-      const nextId = spawnOrder[j]!;
+      const nextId = spawnOrder[j] as string;
       const nodeB = nodes.get(nextId);
       if (!nodeB || nodeB.parentId !== nodeA.parentId) break;
       batch.push(nextId);
