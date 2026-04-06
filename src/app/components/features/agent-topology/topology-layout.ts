@@ -5,7 +5,7 @@ import { getElk } from '@/lib/workflow-dsl/layout';
 import type { AgentNodeData } from './nodes/agent-node';
 import type { SkillNodeData } from './nodes/skill-node';
 
-const NODE_WIDTH = 120;
+const NODE_WIDTH = 200;
 const NODE_HEIGHT = 145;
 const SKILL_NODE_WIDTH = 160;
 const SKILL_NODE_HEIGHT = 50;

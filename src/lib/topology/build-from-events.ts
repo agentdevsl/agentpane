@@ -420,7 +420,7 @@ export function buildTopologyFromEvents(
       });
       nodes.set(agentId, {
         id: agentId,
-        name: d.model ?? context.taskTitle ?? 'Agent',
+        name: context.taskTitle ?? 'Orchestrator',
         role: 'agent',
         ...defaultNodeFields(),
         agentType: null,
